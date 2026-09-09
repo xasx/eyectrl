@@ -50,4 +50,17 @@ public class RepeatModeControllerDefinitionTests
         Check.That(RepeatModeController.IsInStopButtonZone(new PhysicalPoint(100, 100), center, radius)).IsFalse();
         Check.That(RepeatModeController.IsInStopButtonZone(new PhysicalPoint(1850, 600), center, 0)).IsFalse();      // degenerate radius
     }
+
+    [Fact]
+    public void IsWithinEntryClearance_CoversTheModesMenuNeighbourhood()
+    {
+        // Design D21: entry comes from the toolbar Modes menu, so gaze at entry is ON EyeCtrl's
+        // chrome; ticks are suppressed inside the clearance until the user looks at a target.
+        var entry = new PhysicalPoint(960, 200);
+
+        Check.That(RepeatModeController.IsWithinEntryClearance(new PhysicalPoint(960, 200), entry)).IsTrue();
+        Check.That(RepeatModeController.IsWithinEntryClearance(new PhysicalPoint(960, 279), entry)).IsTrue();    // inside 80
+        Check.That(RepeatModeController.IsWithinEntryClearance(new PhysicalPoint(960, 281), entry)).IsFalse();   // outside 80
+        Check.That(RepeatModeController.IsWithinEntryClearance(new PhysicalPoint(100, 900), entry)).IsFalse();
+    }
 }

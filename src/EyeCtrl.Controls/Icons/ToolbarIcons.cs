@@ -68,6 +68,11 @@ public static class ToolbarIcons
             + "L4.8,14.2 A2.2,2.2 0 0 1 2.6,12 L2.6,6.8 A2.2,2.2 0 0 1 4.8,4.6 Z "
             + "M10.8,9.8 L19.2,9.8 A2.2,2.2 0 0 1 21.4,12 L21.4,17.2 A2.2,2.2 0 0 1 19.2,19.4 "
             + "L10.8,19.4 A2.2,2.2 0 0 1 8.6,17.2 L8.6,12 A2.2,2.2 0 0 1 10.8,9.8 Z"),
+        // A mode stack: the filled top bar is the active mode, the two open bars below it the
+        // alternatives — reads as "choose how input behaves", distinct from the gear (settings).
+        [ToolbarIconKey.Modes] = IconGeometry.FromPathData(
+            "M4.6,12 L19.4,12 M4.6,19.4 L19.4,19.4",
+            "M4.6,3.4 L19.4,3.4 L19.4,6.2 L4.6,6.2 Z"),
         [ToolbarIconKey.ResetAdaptation] = IconGeometry.FromPathData(
             "M3,12 A9,9 0 1 0 12,3 A9,9 0 0 0 5.26,5.74 L3,8 M3,3 L3,8 L8,8"),
         [ToolbarIconKey.ProviderEye] = IconGeometry.FromPathData(

@@ -54,6 +54,10 @@ internal sealed class RepeatModeController : CoordinatorBase
             VerticalOffset: verticalOffset,
             RadiusLogical: UIConstants.ButtonRadius);
 
+    /// <summary>Whether <paramref name="point"/> is still within the entry clearance (D21).</summary>
+    internal static bool IsWithinEntryClearance(PhysicalPoint point, PhysicalPoint entry) =>
+        DistanceSquared(point, entry) <= EntryClearancePx * EntryClearancePx;
+
     /// <summary>
     /// Whether <paramref name="point"/> sits inside the right-edge stop button's suppression
     /// zone (review PR #139 finding 3). The bar is click-through, so a tick aimed at the stop
@@ -64,16 +68,29 @@ internal sealed class RepeatModeController : CoordinatorBase
         PhysicalPoint point, PhysicalPoint stopCenterPhysical, double stopRadiusPhysical)
     {
         if (stopRadiusPhysical <= 0) return false;
-        var dx = point.X - stopCenterPhysical.X;
-        var dy = point.Y - stopCenterPhysical.Y;
         var zone = stopRadiusPhysical * StopZoneMarginFactor;
-        return dx * dx + dy * dy <= zone * zone;
+        return DistanceSquared(point, stopCenterPhysical) <= zone * zone;
     }
+
+    private static double DistanceSquared(PhysicalPoint a, PhysicalPoint b)
+    {
+        var dx = a.X - b.X;
+        var dy = a.Y - b.Y;
+        return dx * dx + dy * dy;
+    }
+
+    /// <summary>
+    /// Gaze must leave this radius (physical px) around the entry point before the first tick
+    /// (design D21): entry comes from the toolbar Modes menu, so gaze is ON the toolbar/menu at
+    /// entry, and the first tick would otherwise click EyeCtrl's own chrome.
+    /// </summary>
+    private const double EntryClearancePx = 80;
 
     private DispatcherTimer? _timer;
     private bool _active;
     private PhysicalPoint _stopCenterPhysical;
     private double _stopRadiusPhysical;
+    private PhysicalPoint? _entryPointPhysical;
 
     protected override void OnInitialize()
     {
@@ -81,6 +98,11 @@ internal sealed class RepeatModeController : CoordinatorBase
         context.InteractionManager.StateChanged += OnStateChanged;
         context.Messenger.Register<RepeatModeController, ExitRepeatModeMessage>(this, (_, _) =>
             context.Dispatcher.BeginInvoke(() => context.InteractionManager.ExitRepeatMode()));
+        // The Modes menu's entry path (D20): keeps all repeat-mode message handling here.
+        // EnterRepeatMode is itself FreeLook-guarded in Core, so an entry request in another
+        // state is a no-op rather than a state trample.
+        context.Messenger.Register<RepeatModeController, EnterRepeatModeMessage>(this, (_, _) =>
+            context.Dispatcher.BeginInvoke(() => context.InteractionManager.EnterRepeatMode()));
         ComponentDispatcher.ThreadFilterMessage += OnThreadFilterMessage;
     }
 
@@ -117,6 +139,10 @@ internal sealed class RepeatModeController : CoordinatorBase
         if (_active) return; // a leaked timer from a missed exit must not stack a second one
         var context = Context!;
 
+        // D21: remember where gaze was at entry (the Modes menu). Ticks are suppressed inside
+        // this clearance until the user looks away — the first click must not land on our chrome.
+        _entryPointPhysical = context.GazeEngine.StableCentroid;
+
         var edgeAnchor = ScreenGeometry.RightEdgeAnchor(StopInsetLogical, UIConstants.ButtonRadius);
         _stopCenterPhysical = edgeAnchor;
         _stopRadiusPhysical = DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius);
@@ -135,6 +161,9 @@ internal sealed class RepeatModeController : CoordinatorBase
             // Aiming at the stop button is the exit gesture — ticks there would click through
             // the bar onto the right screen edge, so the zone is suppressed instead.
             if (IsInStopButtonZone(p, _stopCenterPhysical, _stopRadiusPhysical)) return;
+            // D21: gaze still on the entry point (the Modes menu row) — clicking there would
+            // hit EyeCtrl's own chrome; wait until the user looks at a real target.
+            if (_entryPointPhysical is { } entry && IsWithinEntryClearance(p, entry)) return;
             Context.InteractionManager.FireRepeatTick(p);
         };
         _timer.Start();

@@ -69,6 +69,11 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
         // (Moved from an anonymous lambda in EventCoordinator.Initialize — extracting a named
         // handler lets Dispose -= it; the lambda was previously never unsubscribed.)
         Context.TaskSwitcherVM.PropertyChanged += OnTaskSwitcherVMPropertyChanged;
+
+        // Modes menu: same pattern as Task Switcher — the VM toggles its own IsVisible on the
+        // toolbar's ModesMenuToggledMessage; this side shows/hides the panel. While it is up the
+        // toolbar's own dwell is suspended (the 2026-08-18 dwell-through field report).
+        Context.ModesMenuVM.PropertyChanged += OnModesMenuVMPropertyChanged;
     }
 
     private void SetupBackdrop()
@@ -322,6 +327,32 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
             _glassBackdrop.UpdateHideButtonProgress(Context!.BackdropVM.HideButtonProgress);
     }
 
+    private void OnModesMenuVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (Context is null) return;
+
+        if (e.PropertyName == nameof(Context.ModesMenuVM.IsVisible))
+        {
+            Context.Dispatcher.BeginInvoke(() =>
+            {
+                if (Context.ModesMenuVM.IsVisible)
+                {
+                    Context.ToolbarVM.SetActive(false);
+                    Context.OverlayManager.ModesMenu.ShowAtTopCentre();
+                }
+                else
+                {
+                    Context.OverlayManager.ModesMenu.HideMenu();
+                    // Reactivate only if the toolbar is actually on screen — same contract and
+                    // same property as the task-switcher restore (window IsOnScreen, not VM
+                    // IsVisible, which stays true during a slide-out).
+                    if (Context.OverlayManager.Toolbar.IsOnScreen)
+                        Context.ToolbarVM.SetActive(true);
+                }
+            });
+        }
+    }
+
     private void OnTaskSwitcherVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (Context is null) return;
@@ -370,6 +401,7 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
         Context.ToolbarVM.PropertyChanged -= OnToolbarVMPropertyChanged;
         Context.BackdropVM.PropertyChanged -= OnBackdropVMPropertyChanged;
         Context.TaskSwitcherVM.PropertyChanged -= OnTaskSwitcherVMPropertyChanged;
+        Context.ModesMenuVM.PropertyChanged -= OnModesMenuVMPropertyChanged;
 
         _glassBackdrop?.Hide();
         _glassBackdrop = null;

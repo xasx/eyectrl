@@ -52,7 +52,8 @@ internal static class TestFakes
             QuickActionsGridVM: null!,
             QuickActionsStore: null!,
             WindowsAppLauncher: null!,
-            InstalledAppProvider: new FakeInstalledAppProvider());
+            InstalledAppProvider: new FakeInstalledAppProvider(),
+            ModesMenuVM: new ModesMenuViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger()));
     }
 
     /// <summary>

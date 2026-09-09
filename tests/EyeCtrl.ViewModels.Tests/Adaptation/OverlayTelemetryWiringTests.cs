@@ -68,6 +68,7 @@ public class OverlayTelemetryWiringTests
             [nameof(EdgeButtonBarViewModel)] = DwellContext.EdgeButtonBar,
             [nameof(GlassBackdropViewModel)] = DwellContext.Backdrop,
             [nameof(ManualSelectionOverlayViewModel)] = DwellContext.ManualSelection,
+            [nameof(ModesMenuViewModel)] = DwellContext.Toolbar,
             [nameof(QuickActionsGridViewModel)] = DwellContext.QuickActions,
             [nameof(ScrollOverlayViewModel)] = DwellContext.Scroll,
             [nameof(TaskSwitcherViewModel)] = DwellContext.TaskSwitcher,

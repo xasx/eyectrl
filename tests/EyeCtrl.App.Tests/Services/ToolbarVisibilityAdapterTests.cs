@@ -321,6 +321,7 @@ public class ToolbarVisibilityAdapterTests
         public IEdgeButtonBar EdgeButtonBar => throw new NotImplementedException();
         public ITrackStatusOverlay TrackStatus => throw new NotImplementedException();
         public ITaskSwitcherOverlay TaskSwitcher => throw new NotImplementedException();
+        public IModesMenuOverlay ModesMenu => null!;
         public IQuickActionsGridOverlay QuickActionsGrid => throw new NotImplementedException();
 
         public void Initialize(OverlayViewModels viewModels, EyeCtrlSettings settings, Core.Enums.GazeProviderType providerType)

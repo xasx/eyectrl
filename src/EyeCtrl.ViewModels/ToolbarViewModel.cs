@@ -81,6 +81,7 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
             ("Calibrate", "Settings"),
             ("Settings", "Settings"),
             ("TaskSwitcher", "TaskSwitcher"),
+            ("Modes", "Modes"),
             // QuickActions is never rendered (ReachableElsewhere) and ToolbarIconKey has no lightning-
             // bolt member of its own; this is a placeholder pending a real icon, not a considered choice.
             ("QuickActions", "Settings"),
@@ -198,6 +199,7 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
             case "Calibrate": Messenger.Send(new CalibrationRequestedMessage()); break;
             case "Settings": Messenger.Send(new SettingsRequestedMessage()); break;
             case "TaskSwitcher": Messenger.Send(new TaskSwitcherToggledMessage()); break;
+            case "Modes": Messenger.Send(new ModesMenuToggledMessage()); break;
             case "QuickActions": Messenger.Send(new QuickActionsToggledMessage()); break;
             case "ResetAdaptation": Messenger.Send(new ResetAdaptationMessage()); break;
         }

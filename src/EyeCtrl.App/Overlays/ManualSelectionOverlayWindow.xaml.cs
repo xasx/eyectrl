@@ -6,7 +6,7 @@ using EyeCtrl.App.Services;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 
-public partial class ManualSelectionOverlayWindow : OverlayWindow
+public partial class ManualSelectionOverlayWindow : OverlayWindow, IManualSelectionOverlay
 {
     // UI Constants
     private const int ScreenCaptureDelayMs = 100; // Delay before capturing screen to let WPF render

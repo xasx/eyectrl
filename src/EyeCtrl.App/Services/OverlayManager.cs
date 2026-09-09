@@ -23,17 +23,39 @@ public class OverlayManager : IOverlayManager
     private readonly IStruggleTelemetrySink? _sink;
     private readonly IDwellDetectorRegistry? _dwellRegistry;
 
-    public CursorCircleWindow CursorCircle { get; private set; } = null!;
-    public ActivationButtonWindow ActivationButton { get; private set; } = null!;
-    public ManualSelectionOverlayWindow ManualSelectionOverlay { get; private set; } = null!;
-    public ActionMenuWindow ActionMenu { get; private set; } = null!;
-    public ToolbarWindow Toolbar { get; private set; } = null!;
-    public PauseIndicatorWindow PauseIndicator { get; private set; } = null!;
-    public KeyboardWindow Keyboard { get; private set; } = null!;
-    public ManualSelectionGazeIndicatorWindow ManualSelectionIndicator { get; private set; } = null!;
-    public GlassBackdropWindow GlassBackdrop { get; private set; } = null!;
-    public CalibrationWindow Calibration { get; private set; } = null!;
-    public TargetHighlightWindow TargetHighlight { get; private set; } = null!;
+    private CursorCircleWindow _cursorCircle = null!;
+    /// <inheritdoc />
+    public ICursorCircleOverlay CursorCircle => _cursorCircle;
+    private ActivationButtonWindow _activationButton = null!;
+    /// <inheritdoc />
+    public IActivationButtonOverlay ActivationButton => _activationButton;
+    private ManualSelectionOverlayWindow _manualSelectionOverlay = null!;
+    /// <inheritdoc />
+    public IManualSelectionOverlay ManualSelectionOverlay => _manualSelectionOverlay;
+    private ActionMenuWindow _actionMenu = null!;
+    /// <inheritdoc />
+    public IActionMenuOverlay ActionMenu => _actionMenu;
+    private ToolbarWindow _toolbar = null!;
+    /// <inheritdoc />
+    public IToolbarOverlay Toolbar => _toolbar;
+    private PauseIndicatorWindow _pauseIndicator = null!;
+    /// <inheritdoc />
+    public IPauseIndicatorOverlay PauseIndicator => _pauseIndicator;
+    private KeyboardWindow _keyboard = null!;
+    /// <inheritdoc />
+    public KeyboardWindow Keyboard => _keyboard;
+    private ManualSelectionGazeIndicatorWindow _manualSelectionIndicator = null!;
+    /// <inheritdoc />
+    public IManualSelectionIndicatorOverlay ManualSelectionIndicator => _manualSelectionIndicator;
+    private GlassBackdropWindow _glassBackdrop = null!;
+    /// <inheritdoc />
+    public IGlassBackdropOverlay GlassBackdrop => _glassBackdrop;
+    private CalibrationWindow _calibration = null!;
+    /// <inheritdoc />
+    public ICalibrationOverlay Calibration => _calibration;
+    private TargetHighlightWindow _targetHighlight = null!;
+    /// <inheritdoc />
+    public ITargetHighlightOverlay TargetHighlight => _targetHighlight;
     /// <summary>
     /// The window itself. This class owns it, so it keeps the concrete type for the things only an
     /// owner does — binding a DataContext, calling <c>SyncButtons</c>, and driving
@@ -44,9 +66,15 @@ public class OverlayManager : IOverlayManager
 
     /// <inheritdoc />
     public IEdgeButtonBar EdgeButtonBar => _edgeButtonBarWindow;
-    public TrackStatusWindow TrackStatus { get; private set; } = null!;
-    public TaskSwitcherWindow TaskSwitcher { get; private set; } = null!;
-    public QuickActionsGridWindow QuickActionsGrid { get; private set; } = null!;
+    private TrackStatusWindow _trackStatus = null!;
+    /// <inheritdoc />
+    public ITrackStatusOverlay TrackStatus => _trackStatus;
+    private TaskSwitcherWindow _taskSwitcher = null!;
+    /// <inheritdoc />
+    public ITaskSwitcherOverlay TaskSwitcher => _taskSwitcher;
+    private QuickActionsGridWindow _quickActionsGrid = null!;
+    /// <inheritdoc />
+    public IQuickActionsGridOverlay QuickActionsGrid => _quickActionsGrid;
 
     public OverlayManager(Dispatcher dispatcher, ILogger<OverlayManager> logger, IAppIconProvider iconProvider,
         IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
@@ -66,39 +94,39 @@ public class OverlayManager : IOverlayManager
         _logger.LogDebug("Initializing overlay windows");
 
         // Create overlay windows
-        CursorCircle = new CursorCircleWindow();
-        ActivationButton = new ActivationButtonWindow();
-        ManualSelectionOverlay = new ManualSelectionOverlayWindow();
-        ActionMenu = new ActionMenuWindow();
-        Toolbar = new ToolbarWindow();
-        Keyboard = new KeyboardWindow(_sink, _dwellRegistry);
-        ManualSelectionIndicator = new ManualSelectionGazeIndicatorWindow();
-        GlassBackdrop = new GlassBackdropWindow();
-        TargetHighlight = new TargetHighlightWindow();
+        _cursorCircle = new CursorCircleWindow();
+        _activationButton = new ActivationButtonWindow();
+        _manualSelectionOverlay = new ManualSelectionOverlayWindow();
+        _actionMenu = new ActionMenuWindow();
+        _toolbar = new ToolbarWindow();
+        _keyboard = new KeyboardWindow(_sink, _dwellRegistry);
+        _manualSelectionIndicator = new ManualSelectionGazeIndicatorWindow();
+        _glassBackdrop = new GlassBackdropWindow();
+        _targetHighlight = new TargetHighlightWindow();
         _edgeButtonBarWindow = new EdgeButtonBarWindow();
-        PauseIndicator = new PauseIndicatorWindow();
+        _pauseIndicator = new PauseIndicatorWindow();
 
         // Configure ManualSelection indicator
-        ManualSelectionIndicator.Configure(
+        _manualSelectionIndicator.Configure(
             settings.ManualSelection.GazeIndicatorOuterDiameter,
             settings.ManualSelection.GazeIndicatorCenterDotDiameter,
             settings.ManualSelection.GazeIndicatorStrokeThickness,
             settings.ManualSelection.GazeIndicatorOpacity);
 
         // Set DataContext for windows that use MVVM binding
-        CursorCircle.DataContext = viewModels.CursorCircle;
-        ActivationButton.DataContext = viewModels.ActivationButton;
-        ManualSelectionOverlay.DataContext = viewModels.ManualSelectionOverlay;
-        ActionMenu.DataContext = viewModels.ActionMenu;
-        Toolbar.DataContext = viewModels.Toolbar;
-        Keyboard.DataContext = viewModels.Keyboard;
-        Keyboard.SetViewModel(viewModels.Keyboard);
+        _cursorCircle.DataContext = viewModels.CursorCircle;
+        _activationButton.DataContext = viewModels.ActivationButton;
+        _manualSelectionOverlay.DataContext = viewModels.ManualSelectionOverlay;
+        _actionMenu.DataContext = viewModels.ActionMenu;
+        _toolbar.DataContext = viewModels.Toolbar;
+        _keyboard.DataContext = viewModels.Keyboard;
+        _keyboard.SetViewModel(viewModels.Keyboard);
 
-        Calibration = new CalibrationWindow();
-        Calibration.SetViewModel(viewModels.Calibration);
+        _calibration = new CalibrationWindow();
+        _calibration.SetViewModel(viewModels.Calibration);
 
         // Set DataContext for TargetHighlight
-        TargetHighlight.DataContext = viewModels.TargetHighlight;
+        _targetHighlight.DataContext = viewModels.TargetHighlight;
 
         _edgeButtonBarWindow.DataContext = viewModels.EdgeButtonBar;
         viewModels.EdgeButtonBar.ButtonSetChanged += () => _edgeButtonBarWindow.SyncButtons();
@@ -119,22 +147,22 @@ public class OverlayManager : IOverlayManager
         };
 
         // Initialize overlays with their specific APIs
-        CursorCircle.UpdateAppearance(settings.Cursor);
-        Toolbar.Initialize(settings.Toolbar.Size, settings.Dwell.ToolbarButtonDwellMs);
-        Toolbar.SetProviderIndicator(providerType);
+        _cursorCircle.UpdateAppearance(settings.Cursor);
+        _toolbar.Initialize(settings.Toolbar.Size, settings.Dwell.ToolbarButtonDwellMs);
+        _toolbar.SetProviderIndicator(providerType);
 
         // Track status overlay (click-through, top-right). Capability-gated inside the VM.
-        TrackStatus = new TrackStatusWindow();
-        TrackStatus.PositionTopRight();
-        TrackStatus.Configure(viewModels.TrackStatus);
+        _trackStatus = new TrackStatusWindow();
+        _trackStatus.PositionTopRight();
+        _trackStatus.Configure(viewModels.TrackStatus);
 
         // Task Switcher overlay (fullscreen, not click-through). Icons resolved by the View.
-        TaskSwitcher = new TaskSwitcherWindow();
-        TaskSwitcher.Configure(viewModels.TaskSwitcher, _iconProvider);
+        _taskSwitcher = new TaskSwitcherWindow();
+        _taskSwitcher.Configure(viewModels.TaskSwitcher, _iconProvider);
 
         // Quick Actions grid overlay (fullscreen). Takes only the VM, no icon provider.
-        QuickActionsGrid = new QuickActionsGridWindow();
-        QuickActionsGrid.Configure(viewModels.QuickActionsGrid);
+        _quickActionsGrid = new QuickActionsGridWindow();
+        _quickActionsGrid.Configure(viewModels.QuickActionsGrid);
 
         _logger.LogInformation("Overlay windows initialized successfully");
     }

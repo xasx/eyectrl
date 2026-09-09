@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Overlays;
 
+using EyeCtrl.App.Services;
+
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -8,7 +10,7 @@ using System.Windows.Threading;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.ViewModels;
 
-public partial class TrackStatusWindow : OverlayWindow
+public partial class TrackStatusWindow : OverlayWindow, ITrackStatusOverlay
 {
     private TrackStatusViewModel? _viewModel;
     private readonly DispatcherTimer _timer;

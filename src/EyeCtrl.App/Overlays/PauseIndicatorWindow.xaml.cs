@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Overlays;
 
+using EyeCtrl.App.Services;
+
 using System.Windows;
 
 /// <summary>
@@ -7,7 +9,7 @@ using System.Windows;
 /// isn't left with no feedback (the toolbar — and its resume button — is off-screen).
 /// Sits along the docked edge; doubles as a "look here to summon" hint. Click-through.
 /// </summary>
-public partial class PauseIndicatorWindow : OverlayWindow
+public partial class PauseIndicatorWindow : OverlayWindow, IPauseIndicatorOverlay
 {
     private const double BarThicknessLogical = 8;
 

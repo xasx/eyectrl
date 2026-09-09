@@ -104,7 +104,7 @@ internal static class TestFakes
         IInputSimulator input)
     {
         var bar = new FakeEdgeButtonBar();
-        var ctx = MakeDragContext(input) with { OverlayManager = new EdgeBarOnlyOverlayManager(bar) };
+        var ctx = MakeDragContext(input) with { OverlayManager = MakeOverlayManager(edgeButtonBar: bar) };
         return (ctx, bar);
     }
 
@@ -149,28 +149,50 @@ internal static class TestFakes
     /// intends fails loudly instead of with an NRE somewhere unrelated — the same discipline
     /// <c>ToolbarVisibilityAdapterTests.FakeOverlayManager</c> uses.
     /// </summary>
-    private sealed class EdgeBarOnlyOverlayManager : IOverlayManager
+    /// <summary>
+    /// Builds a partial overlay manager: supply only the overlays a test needs. Every other member
+    /// throws rather than returning null!, so a coordinator reaching beyond what the test intends
+    /// fails loudly instead of with an NRE somewhere unrelated.
+    /// </summary>
+    internal static IOverlayManager MakeOverlayManager(
+        IEdgeButtonBar? edgeButtonBar = null,
+        IToolbarOverlay? toolbar = null,
+        IPauseIndicatorOverlay? pauseIndicator = null)
+        => new PartialOverlayManager(edgeButtonBar, toolbar, pauseIndicator);
+
+    private sealed class PartialOverlayManager : IOverlayManager
     {
-        private readonly IEdgeButtonBar _bar;
+        private readonly IEdgeButtonBar? _bar;
+        private readonly IToolbarOverlay? _toolbar;
+        private readonly IPauseIndicatorOverlay? _pauseIndicator;
 
-        public EdgeBarOnlyOverlayManager(IEdgeButtonBar bar) => _bar = bar;
+        public PartialOverlayManager(IEdgeButtonBar? bar, IToolbarOverlay? toolbar,
+            IPauseIndicatorOverlay? pauseIndicator)
+        {
+            _bar = bar; _toolbar = toolbar; _pauseIndicator = pauseIndicator;
+        }
 
-        public IEdgeButtonBar EdgeButtonBar => _bar;
+        public IEdgeButtonBar EdgeButtonBar =>
+            _bar ?? throw new NotImplementedException("test supplied no edge-button bar");
 
-        public CursorCircleWindow CursorCircle => throw new NotImplementedException();
-        public ActivationButtonWindow ActivationButton => throw new NotImplementedException();
-        public ManualSelectionOverlayWindow ManualSelectionOverlay => throw new NotImplementedException();
-        public ActionMenuWindow ActionMenu => throw new NotImplementedException();
-        public ToolbarWindow Toolbar => throw new NotImplementedException();
-        public PauseIndicatorWindow PauseIndicator => throw new NotImplementedException();
+        public IToolbarOverlay Toolbar =>
+            _toolbar ?? throw new NotImplementedException("test supplied no toolbar");
+
+        public IPauseIndicatorOverlay PauseIndicator =>
+            _pauseIndicator ?? throw new NotImplementedException("test supplied no pause indicator");
+
+        public ICursorCircleOverlay CursorCircle => throw new NotImplementedException();
+        public IActivationButtonOverlay ActivationButton => throw new NotImplementedException();
+        public IManualSelectionOverlay ManualSelectionOverlay => throw new NotImplementedException();
+        public IActionMenuOverlay ActionMenu => throw new NotImplementedException();
         public KeyboardWindow Keyboard => throw new NotImplementedException();
-        public ManualSelectionGazeIndicatorWindow ManualSelectionIndicator => throw new NotImplementedException();
-        public GlassBackdropWindow GlassBackdrop => throw new NotImplementedException();
-        public CalibrationWindow Calibration => throw new NotImplementedException();
-        public TargetHighlightWindow TargetHighlight => throw new NotImplementedException();
-        public TrackStatusWindow TrackStatus => throw new NotImplementedException();
-        public TaskSwitcherWindow TaskSwitcher => throw new NotImplementedException();
-        public QuickActionsGridWindow QuickActionsGrid => throw new NotImplementedException();
+        public IManualSelectionIndicatorOverlay ManualSelectionIndicator => throw new NotImplementedException();
+        public IGlassBackdropOverlay GlassBackdrop => throw new NotImplementedException();
+        public ICalibrationOverlay Calibration => throw new NotImplementedException();
+        public ITargetHighlightOverlay TargetHighlight => throw new NotImplementedException();
+        public ITrackStatusOverlay TrackStatus => throw new NotImplementedException();
+        public ITaskSwitcherOverlay TaskSwitcher => throw new NotImplementedException();
+        public IQuickActionsGridOverlay QuickActionsGrid => throw new NotImplementedException();
         public void Initialize(OverlayViewModels viewModels, EyeCtrlSettings settings, GazeProviderType providerType) => throw new NotImplementedException();
         public void CloseAll() => throw new NotImplementedException();
     }

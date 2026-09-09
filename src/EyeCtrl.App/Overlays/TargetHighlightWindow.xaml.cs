@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Overlays;
 
+using EyeCtrl.App.Services;
+
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -7,7 +9,7 @@ using System.Windows.Media.Animation;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 
-public partial class TargetHighlightWindow : OverlayWindow
+public partial class TargetHighlightWindow : OverlayWindow, ITargetHighlightOverlay
 {
     private double _configuredOpacity = 0.7;
 

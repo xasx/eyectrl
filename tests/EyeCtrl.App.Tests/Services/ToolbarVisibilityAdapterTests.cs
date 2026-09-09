@@ -306,22 +306,22 @@ public class ToolbarVisibilityAdapterTests
             _indicator = indicator;
         }
 
-        public ToolbarWindow Toolbar => _toolbar;
-        public PauseIndicatorWindow PauseIndicator => _indicator;
+        public IToolbarOverlay Toolbar => _toolbar;
+        public IPauseIndicatorOverlay PauseIndicator => _indicator;
 
-        public CursorCircleWindow CursorCircle => throw new NotImplementedException();
-        public ActivationButtonWindow ActivationButton => throw new NotImplementedException();
-        public ManualSelectionOverlayWindow ManualSelectionOverlay => throw new NotImplementedException();
-        public ActionMenuWindow ActionMenu => throw new NotImplementedException();
+        public ICursorCircleOverlay CursorCircle => throw new NotImplementedException();
+        public IActivationButtonOverlay ActivationButton => throw new NotImplementedException();
+        public IManualSelectionOverlay ManualSelectionOverlay => throw new NotImplementedException();
+        public IActionMenuOverlay ActionMenu => throw new NotImplementedException();
         public KeyboardWindow Keyboard => throw new NotImplementedException();
-        public ManualSelectionGazeIndicatorWindow ManualSelectionIndicator => throw new NotImplementedException();
-        public GlassBackdropWindow GlassBackdrop => throw new NotImplementedException();
-        public CalibrationWindow Calibration => throw new NotImplementedException();
-        public TargetHighlightWindow TargetHighlight => throw new NotImplementedException();
+        public IManualSelectionIndicatorOverlay ManualSelectionIndicator => throw new NotImplementedException();
+        public IGlassBackdropOverlay GlassBackdrop => throw new NotImplementedException();
+        public ICalibrationOverlay Calibration => throw new NotImplementedException();
+        public ITargetHighlightOverlay TargetHighlight => throw new NotImplementedException();
         public IEdgeButtonBar EdgeButtonBar => throw new NotImplementedException();
-        public TrackStatusWindow TrackStatus => throw new NotImplementedException();
-        public TaskSwitcherWindow TaskSwitcher => throw new NotImplementedException();
-        public QuickActionsGridWindow QuickActionsGrid => throw new NotImplementedException();
+        public ITrackStatusOverlay TrackStatus => throw new NotImplementedException();
+        public ITaskSwitcherOverlay TaskSwitcher => throw new NotImplementedException();
+        public IQuickActionsGridOverlay QuickActionsGrid => throw new NotImplementedException();
 
         public void Initialize(OverlayViewModels viewModels, EyeCtrlSettings settings, Core.Enums.GazeProviderType providerType)
             => throw new NotImplementedException();

@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Overlays;
 
+using EyeCtrl.App.Services;
+
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Shapes;
@@ -9,7 +11,7 @@ using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using Serilog;
 
-public partial class CursorCircleWindow : OverlayWindow
+public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay
 {
     // UI Constants
     private const int MinimumCircleSize = 10; // Minimum allowed circle size in pixels

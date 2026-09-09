@@ -21,7 +21,7 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
     private const double RightEdgeInsetLogical = 30;
 
     private readonly ModalInteractionState _modal;
-    private GlassBackdropWindow? _glassBackdrop;
+    private IGlassBackdropOverlay? _glassBackdrop;
     public OverlayVmBindingCoordinator(ModalInteractionState modal)
     {
         // Dereferenced by the cursor-visibility guard (OnCursorVMPropertyChanged reads

@@ -181,11 +181,10 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
     {
         var t = Context!.OverlayManager.Toolbar;
         // Convert logical window bounds (WPF DIPs) to physical px.
-        double x = DpiHelper.LogicalToPhysicalX(t.Left);
-        double y = DpiHelper.LogicalToPhysicalY(t.Top);
-        double w = DpiHelper.LogicalToPhysicalX(t.ActualWidth);
-        double h = DpiHelper.LogicalToPhysicalY(t.ActualHeight);
-        return new PhysicalRect(x, y, w, h);
+        // The window converts its own layout now — see IToolbarOverlay.GetPhysicalBounds. Reading
+        // Left/Top/ActualWidth/ActualHeight here was the only thing forcing this coordinator to
+        // depend on the concrete WPF window.
+        return t.GetPhysicalBounds();
     }
 
     private void SetupToolbarAutoHide()

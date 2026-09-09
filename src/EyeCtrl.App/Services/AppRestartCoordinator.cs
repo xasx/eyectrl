@@ -255,19 +255,33 @@ public sealed class AppRestartCoordinator
     /// </summary>
     private bool TryBringUpSupervisor()
     {
-        // Publishing FIRST, and before the throwing call. _persistSettings can throw
-        // (SettingsService.Save rejects invalid settings), and if it did with publishing
-        // still off we would be left claiming Supervision.Enabled in memory while sending
-        // no heartbeats — the delayed-kill shape from Task 11. Enabling first makes that
-        // failure inert; HandleRestart's catch then reports it and re-arms.
+        // Publishing FIRST. It cannot throw, and a probe that adopts us before we publish is
+        // the delayed-kill shape from Task 11. Safe to leave on even if the rest fails:
+        // heartbeats nobody listens to cost nothing.
         _enablePublishing();
-        _settings.Supervision.Enabled = true;
-        _persistSettings();
 
+        // Launch BEFORE persisting. Writing Supervision.Enabled to disk is not just a note to
+        // the replacement — it is the app handing launch-at-logon to the supervisor, which
+        // deletes the HKCU Run key (App.OnStartup's reconciliation, via StartOnBootPolicy).
+        // Persisting before anything had been started meant a launch that never produced a
+        // process still latched a flag documented "opt-in for v1" AND surrendered the only
+        // mechanism that starts the app. Require evidence of a process first.
         if (!_launchSupervisor())
         {
             return false;
         }
+
+        // A process was started, so persist — and note this is deliberately NOT gated on the
+        // poll below. The bar is a started supervisor, not a reachable one: a supervisor that
+        // answers late can still adopt the replacement, and it kills instances that do not
+        // heartbeat. Persisting is what keeps the replacement publishing.
+        //
+        // This is the only step that can throw (SettingsService.Save rejects invalid settings),
+        // so it goes last; HandleRestart's catch turns that into a report rather than a dead
+        // button. It still precedes the poll and the shutdown, so the replacement the supervisor
+        // relaunches reads Enabled == true.
+        _settings.Supervision.Enabled = true;
+        _persistSettings();
 
         // Poll rather than sleep-then-check: a supervisor that comes up in 300ms should
         // not cost the user the whole budget.

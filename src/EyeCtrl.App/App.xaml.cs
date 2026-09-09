@@ -28,6 +28,7 @@ using EyeCtrl.Platform.Input;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Win32;
 using Microsoft.Extensions.Logging;
 using Serilog;
 
@@ -43,6 +44,7 @@ public partial class App : Application
     private SingleInstanceGuard? _singleInstance;
     private HeartbeatPublisher? _heartbeatPublisher;
     private AppRestartCoordinator? _restartCoordinator;
+    private DisplayGeometryWatcher? _displayGeometryWatcher;
     private string _appDataDir = null!;
 
     /// <summary>
@@ -257,6 +259,27 @@ public partial class App : Application
 
             gazeEngine.Start();
 
+            // ── Display / resolution / DPI change ──
+            // Started AFTER ShowOverlays, so the toolbar exists and can be re-measured when the
+            // first notification arrives, and after gazeEngine.Start() because the provider is what
+            // the new bounds are handed to.
+            //
+            // Nothing used to listen for this at all: the DPI scale, the provider's screen bounds
+            // and the toolbar's screen size + summon rect were captured once here at startup and
+            // never refreshed. A dock, undock, resolution change or RDP reconnect then left gaze
+            // addressing the wrong pixel space with dwell targets displaced from where they were
+            // drawn — and the supervisor could not see it, because a stale-geometry app still
+            // delivers frames, so the heartbeat stayed fresh.
+            _displayGeometryWatcher = new DisplayGeometryWatcher(
+                gazeProvider,
+                messenger,
+                read: ReadDisplayGeometry,
+                postToUi: work => Dispatcher.BeginInvoke(work),
+                initial: ReadDisplayGeometry(),
+                subscribe: h => SystemEvents.DisplaySettingsChanged += h,
+                unsubscribe: h => SystemEvents.DisplaySettingsChanged -= h);
+            _displayGeometryWatcher.Start();
+
             // ── Heartbeat liveness (supervisor watchdog) ──
             // A DispatcherTimer stamps a HeartbeatPayload on the UI thread every ~3s. A bounded
             // async writer sends it over the `eyectrl_watch` named pipe to the supervisor. The
@@ -409,6 +432,10 @@ public partial class App : Application
         _heartbeatPublisher?.SignalShuttingDown(
             restartRequested: _restartCoordinator?.SupervisorRelaunchRequested ?? false);
 
+        // Before the coordinators: SystemEvents holds a static reference to the handler, so an
+        // un-unsubscribed watcher outlives the app object and would fire into disposed services.
+        _displayGeometryWatcher?.Dispose();
+
         _trayIconManager?.Dispose();
         _eventCoordinator?.Dispose();
 
@@ -488,6 +515,27 @@ public partial class App : Application
         toolbar.SetMode(settings.Toolbar.IsDocked, settings.Toolbar.DockedEdge);
         toolbar.SetSelectionModeState(settings.SelectionMode);
         toolbar.BindToViewModel();
+    }
+
+    /// <summary>
+    /// Reads the display's current addressable space: primary screen bounds in physical pixels and
+    /// the logical-to-physical scale.
+    /// </summary>
+    /// <remarks>
+    /// Uses the Win32 system DPI rather than a window's composition target, because this is called
+    /// after a display change when no splash exists and the toolbar's own source may be mid-move.
+    /// <c>SystemParameters</c> reports logical (DIP) units and WPF invalidates its cache on the
+    /// display-change message, so multiplying by the freshly-read scale yields physical pixels —
+    /// the same derivation <c>AppBootstrapper</c> uses to size the provider at startup.
+    /// </remarks>
+    private static DisplayGeometry ReadDisplayGeometry()
+    {
+        var scale = GetDpiForSystem() / (double)DpiStandardScale;
+        return new DisplayGeometry(
+            SystemParameters.PrimaryScreenWidth * scale,
+            SystemParameters.PrimaryScreenHeight * scale,
+            scale,
+            scale);
     }
 
     /// <summary>

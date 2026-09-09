@@ -25,6 +25,29 @@ public interface IGazeProvider : IDisposable
     GazeProviderCapabilities Capabilities => GazeProviderCapabilities.None;
 
     /// <summary>
+    /// Re-publishes the screen bounds that normalised tracker coordinates are scaled by, after a
+    /// display, resolution or scaling change.
+    /// </summary>
+    /// <remarks>
+    /// Providers that already emit physical pixels (the mouse provider reads the cursor directly)
+    /// need no bounds and inherit the no-op. Only a provider that multiplies normalised 0..1 gaze
+    /// by a cached screen size has anything to update — and until this existed it had no way to,
+    /// because those bounds were <c>readonly</c> and set once in the constructor. A display that
+    /// grew from 1920 to 3840 therefore confined the user's gaze to the left half of the screen
+    /// permanently, and no plausibility check could see it: every sample was inside the new bounds.
+    /// <para>
+    /// Default no-op rather than a required member, following the pattern already established by
+    /// <see cref="TryGetLatestStatus"/> and <see cref="TrackStatusReceived"/>, so the suite's
+    /// provider fakes compile unchanged.
+    /// </para>
+    /// Called on the UI thread while the gaze thread is reading; implementations must publish the
+    /// pair atomically rather than assigning two fields.
+    /// </remarks>
+    /// <param name="widthPx">New primary screen width in physical pixels.</param>
+    /// <param name="heightPx">New primary screen height in physical pixels.</param>
+    void UpdateScreenBounds(double widthPx, double heightPx) { }
+
+    /// <summary>
     /// Raised when a new track-status sample (eye position, distance, presence) is available.
     /// Only raised by providers with the corresponding <see cref="Capabilities"/>.
     /// Default implementation is a no-op event so test fakes compile unchanged

@@ -61,10 +61,21 @@ public class DpiHelperWriterIsolationTests
     /// the same self-match trap that makes the source-census tests look like DpiHelper readers.
     /// A path-based self-exclusion would work too, but goes stale the moment the file is renamed.
     /// </summary>
-    private static readonly string WriterCall = "DpiHelper" + ".Initialize(";
+    /// <remarks>
+    /// <c>Update</c> joined <c>Initialize</c> when display-change handling was added: the class had
+    /// exactly one writer for as long as the scale was only ever set at startup, and now has two.
+    /// A guard that still hunted only the startup writer would silently stop covering the writer
+    /// that fires at arbitrary times — which is the more dangerous of the two.
+    /// </remarks>
+    private static readonly string[] WriterCalls =
+    [
+        "DpiHelper" + ".Initialize(",
+        "DpiHelper" + ".Update(",
+    ];
 
-    /// <summary>The same call, spelled for human-readable failure messages.</summary>
-    private static readonly string WriterCallDisplay = WriterCall + "...)";
+    /// <summary>The calls, spelled for human-readable failure messages.</summary>
+    private static readonly string WriterCallDisplay =
+        string.Join(" / ", WriterCalls.Select(c => c + "...)"));
 
     private static readonly Regex ExclusiveCollectionDefinition = new(
         @"\[\s*CollectionDefinition\s*\(\s*""(?<name>[^""]+)""\s*,\s*DisableParallelization\s*=\s*true\s*\)\s*\]",
@@ -95,7 +106,7 @@ public class DpiHelperWriterIsolationTests
 
             foreach (var (relative, text) in files)
             {
-                if (!text.Contains(WriterCall, StringComparison.Ordinal)) continue;
+                if (!WriterCalls.Any(w => text.Contains(w, StringComparison.Ordinal))) continue;
                 writersSeen++;
 
                 var memberships = CollectionMembership.Matches(text).Cast<Match>()

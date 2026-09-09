@@ -16,8 +16,20 @@ using Tobii.StreamEngine;
 /// </summary>
 public class TobiiStreamEngineProvider : IGazeProvider
 {
-    private readonly double _screenWidth;
-    private readonly double _screenHeight;
+    /// <summary>
+    /// The screen bounds normalised tracker coordinates are multiplied by, as one immutable value
+    /// swapped by a single reference write.
+    /// </summary>
+    /// <remarks>
+    /// Was two <c>readonly</c> doubles, which meant a resolution change could never be applied —
+    /// gaze kept being scaled by the bounds captured at construction. Two separate mutable doubles
+    /// would not be safe either: the callback reads them on the gaze thread while a display change
+    /// writes on the UI thread, and a half-applied pair maps gaze to a point on neither screen.
+    /// One record, published by reference, so a sample sees whole bounds or whole bounds.
+    /// </remarks>
+    private sealed record ScreenBounds(double Width, double Height);
+
+    private volatile ScreenBounds _bounds;
     private readonly ILogger<TobiiStreamEngineProvider> _logger;
 
     private IntPtr _apiContext;
@@ -85,13 +97,35 @@ public class TobiiStreamEngineProvider : IGazeProvider
     public TobiiStreamEngineProvider(double screenWidth, double screenHeight,
         ILogger<TobiiStreamEngineProvider> logger)
     {
-        _screenWidth = screenWidth;
-        _screenHeight = screenHeight;
+        _bounds = new ScreenBounds(screenWidth, screenHeight);
         _logger = logger;
         _faults = new HandlerFaultReporter(
             (message, ex) => logger.LogError(ex, "{FaultMessage}", message),
             () => Environment.TickCount64 / 1000,
             windowSeconds: 30);
+    }
+
+    /// <inheritdoc />
+    public void UpdateScreenBounds(double widthPx, double heightPx)
+    {
+        // Reject a non-positive read rather than publishing it. Windows reports 0x0 briefly during
+        // a mode switch and while every monitor is detached; scaling normalised gaze by zero sends
+        // every sample to the origin, which reads as a total tracking failure and would persist
+        // until the next display change. Keeping the previous bounds is wrong for a moment; zero
+        // bounds are wrong until something else happens.
+        if (widthPx <= 0 || heightPx <= 0)
+        {
+            _logger.LogWarning(
+                "Ignoring non-positive screen bounds {Width}x{Height}; keeping the previous geometry.",
+                widthPx, heightPx);
+            return;
+        }
+
+        var previous = _bounds;
+        _bounds = new ScreenBounds(widthPx, heightPx);
+        _logger.LogInformation(
+            "Gaze screen bounds updated {OldW}x{OldH} -> {NewW}x{NewH}.",
+            previous.Width, previous.Height, widthPx, heightPx);
     }
 
     public void Start()
@@ -195,10 +229,13 @@ public class TobiiStreamEngineProvider : IGazeProvider
             // dt jitter/zero divisions in the OneEuroFilter at ~33 Hz.
             if (gazePoint.validity == tobii_validity_t.TOBII_VALIDITY_VALID)
             {
-                // Stream Engine gives normalized 0..1 coords; convert to screen pixels
+                // Stream Engine gives normalized 0..1 coords; convert to screen pixels.
+                // Read the bounds ONCE into a local: two reads of the volatile field could
+                // straddle a display change and scale x and y by different screens.
+                var bounds = _bounds;
                 GazePointReceived?.Invoke(new GazePoint(
-                    _screenWidth * gazePoint.position.x,
-                    _screenHeight * gazePoint.position.y,
+                    bounds.Width * gazePoint.position.x,
+                    bounds.Height * gazePoint.position.y,
                     gazePoint.timestamp_us,
                     true));
             }

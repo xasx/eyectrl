@@ -39,8 +39,44 @@ public class ToolbarVisibilityAdapterHeadlessTests
         public bool IsVisible { get; private set; } = true;
         public bool TargetsInitialized => true;
 
+        // Slide state, modelled rather than stubbed. The adapter branches on IsSliding and
+        // IsOnScreen, so a fake that always answered false would silently take one path forever
+        // and the tests would look like they cover a decision they never make.
+        public bool IsSliding { get; private set; }
+        public bool IsOnScreen => IsVisible && !_slidingOut;
+
+        private bool _slidingOut;
+
         public void Show() { IsVisible = true; _log.Add("Toolbar.Show"); }
-        public void Hide() { IsVisible = false; _log.Add("Toolbar.Hide"); }
+        public void Hide() { IsVisible = false; _slidingOut = false; _log.Add("Toolbar.Hide"); }
+
+        public void ShowAtRest()
+        {
+            IsVisible = true; IsSliding = false; _slidingOut = false;
+            _log.Add("Toolbar.ShowAtRest");
+        }
+
+        public void ShowThenSlideIn()
+        {
+            IsVisible = true; IsSliding = true; _slidingOut = false;
+            _log.Add("Toolbar.ShowThenSlideIn");
+        }
+
+        /// <summary>
+        /// Runs the completion callback synchronously. The real window invokes it when the
+        /// animation ends; running it inline keeps the test deterministic while still proving the
+        /// adapter passes a callback and that whatever it does on hide actually happens.
+        /// </summary>
+        public void SlideOutThenHide(Action onHidden)
+        {
+            IsSliding = true; _slidingOut = true;
+            _log.Add("Toolbar.SlideOutThenHide");
+            IsSliding = false;
+            IsVisible = false;
+            _slidingOut = false;
+            onHidden();
+            _log.Add("Toolbar.SlideOutCompleted");
+        }
 
         public void Initialize(double buttonSize, int dwellTimeMs) => _log.Add("Toolbar.Initialize");
         public void SetMode(bool isDocked, string edge) => _log.Add("Toolbar.SetMode");
@@ -108,10 +144,14 @@ public class ToolbarVisibilityAdapterHeadlessTests
         adapter.HideToolbar(paused: false);
         Pump();
 
-        // The contract: deactivate, THEN hide.
+        // The contract: deactivate, THEN start the band leaving. The slide made this MORE
+        // load-bearing, not less — it widens the window between deactivation and the actual Hide()
+        // from one dispatcher tick to the whole slide duration, so a sample arriving in the gap has
+        // far longer to accumulate against targets that are on their way off screen.
         Check.That(log).Contains("SetActive(false)");
-        Check.That(log).Contains("Toolbar.Hide");
-        Check.That(log.IndexOf("SetActive(false)")).IsStrictlyLessThan(log.IndexOf("Toolbar.Hide"));
+        Check.That(log).Contains("Toolbar.SlideOutThenHide");
+        Check.That(log.IndexOf("SetActive(false)"))
+            .IsStrictlyLessThan(log.IndexOf("Toolbar.SlideOutThenHide"));
         Check.That(vm.LastProgress).IsEqualTo(0.0);
     }
 
@@ -150,8 +190,12 @@ public class ToolbarVisibilityAdapterHeadlessTests
         adapter.ShowToolbar();
         Pump();
 
-        Check.That(log).Contains("Toolbar.Show");
+        // A summon animates in, and the indicator is cleared FIRST so it is not left underneath
+        // the incoming band.
+        Check.That(log).Contains("Toolbar.ShowThenSlideIn");
         Check.That(log).Contains("Indicator.Hide");
+        Check.That(log.IndexOf("Indicator.Hide"))
+            .IsStrictlyLessThan(log.IndexOf("Toolbar.ShowThenSlideIn"));
 
         // Dwell is live again: gaze now accumulates where it previously could not.
         vm.DwellDetector.AddTarget(new DwellTarget("Close", new PhysicalPoint(100, 100),
@@ -171,7 +215,11 @@ public class ToolbarVisibilityAdapterHeadlessTests
         adapter.ForceShow();
         Pump();
 
-        Check.That(log).Contains("Toolbar.Show");
+        // INSTANT, and that is the contract worth pinning: every caller of ForceShow exists
+        // because the user needs the toolbar now, so it must take ShowAtRest and never the
+        // animated path. ShowAtRest also cancels any in-flight slide and defuses its pending Hide.
+        Check.That(log).Contains("Toolbar.ShowAtRest");
+        Check.That(log).Not.Contains("Toolbar.ShowThenSlideIn");
         Check.That(log).Contains("Indicator.Hide");
     }
 

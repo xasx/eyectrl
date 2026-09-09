@@ -34,9 +34,8 @@ public class InteractionManager
     public PhysicalPoint? ScrollAnchor { get; private set; }
     /// <summary>
     /// The last click-family action dispatched through <see cref="OnActionSelected"/> (left,
-    /// right, double, middle). Null until the first such click. Feeds both
-    /// <see cref="InteractionAction.RepeatLastAction"/> and the action locked on entering
-    /// <see cref="InteractionState.RepeatMode"/>.
+    /// right, double, middle). Null until the first such click. Feeds the action locked on
+    /// entering <see cref="InteractionState.RepeatMode"/>.
     /// </summary>
     public InteractionAction? LastRepeatableAction { get; private set; }
     /// <summary>The action locked for the active repeat session, or null outside <see cref="InteractionState.RepeatMode"/>.</summary>
@@ -181,16 +180,6 @@ public class InteractionManager
             return;
         }
 
-        if (action == InteractionAction.RepeatMode)
-        {
-            HideActionMenu?.Invoke();
-            if (CurrentState == InteractionState.ManualSelectionActionMenuVisible)
-                EndManualSelection?.Invoke();
-            RepeatAction = LastRepeatableAction ?? InteractionAction.LeftClick;
-            SetState(InteractionState.RepeatMode);
-            return;
-        }
-
         HideActionMenu?.Invoke();
         if (CurrentState == InteractionState.ManualSelectionActionMenuVisible)
             EndManualSelection?.Invoke();
@@ -201,9 +190,6 @@ public class InteractionManager
             DragStarted?.Invoke(targetPoint.Value);
             return;
         }
-
-        if (action == InteractionAction.RepeatLastAction)
-            action = LastRepeatableAction ?? InteractionAction.LeftClick;
 
         if (action.IsRepeatableClick())
             LastRepeatableAction = action;
@@ -288,6 +274,20 @@ public class InteractionManager
     {
         if (CurrentState != InteractionState.Dragging) return;
         ResetToFreeLook();
+    }
+
+    /// <summary>
+    /// Enters repeat mode directly — the toolbar Modes-menu path (D17/D1′); no action menu is
+    /// involved. Guarded to <see cref="InteractionState.FreeLook"/>: modes are mutually
+    /// exclusive, and the toolbar button is dwellable in every state, so silently trampling a
+    /// visible menu, a drag, scroll mode, or Paused would strand their UI. Callers that need
+    /// entry from another state must end that state first.
+    /// </summary>
+    public void EnterRepeatMode()
+    {
+        if (CurrentState != InteractionState.FreeLook) return;
+        RepeatAction = LastRepeatableAction ?? InteractionAction.LeftClick;
+        SetState(InteractionState.RepeatMode);
     }
 
     /// <summary>Exits repeat mode and returns to free look.</summary>

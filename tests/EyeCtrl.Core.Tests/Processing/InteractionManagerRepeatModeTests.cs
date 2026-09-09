@@ -5,37 +5,51 @@ using EyeCtrl.Core.Processing;
 
 public class InteractionManagerRepeatModeTests
 {
-    private static InteractionManager InActionMenu(out PhysicalPoint fixation)
+    private static InteractionManager InFreeLookWithHistory(InteractionAction seeded = InteractionAction.RightClick)
     {
         var im = new InteractionManager();
-        fixation = new PhysicalPoint(1000, 800);
-        im.OnFixationStarted(fixation);
+        im.OnFixationStarted(new PhysicalPoint(1000, 800));
         im.OnActivationButtonDwelled();
+        im.OnActionSelected(seeded);   // seeds LastRepeatableAction and returns to FreeLook
         return im;
     }
 
     [Fact]
-    public void SelectingRepeatMode_EntersRepeatMode_WithoutFiringActionRequested()
+    public void EnterRepeatMode_FromFreeLook_EntersRepeatMode_WithoutFiringActionRequested()
     {
-        var im = InActionMenu(out _);
+        var im = new InteractionManager();
         var fired = new List<InteractionAction>();
         im.ActionRequested += (a, _) => fired.Add(a);
 
-        im.OnActionSelected(InteractionAction.RepeatMode);
+        im.EnterRepeatMode();
 
         Check.That(im.CurrentState).IsEqualTo(InteractionState.RepeatMode);
         Check.That(fired).IsEmpty();
     }
 
     [Fact]
+    public void EnterRepeatMode_IsIgnoredOutsideFreeLook()
+    {
+        // Modes are mutually exclusive and the entry must not trample a live surface: the
+        // toolbar button is dwellable in every state, so the guard is load-bearing.
+        var im = new InteractionManager();
+        im.OnFixationStarted(new PhysicalPoint(1000, 800));
+        im.OnActivationButtonDwelled();   // ActionMenuVisible
+        im.EnterRepeatMode();
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.ActionMenuVisible);
+
+        var im2 = new InteractionManager();
+        im2.TogglePause();                 // Paused
+        im2.EnterRepeatMode();
+        Check.That(im2.CurrentState).IsEqualTo(InteractionState.Paused);
+    }
+
+    [Fact]
     public void SelectingRepeatMode_WithClickHistory_LocksThatClick()
     {
-        var im = InActionMenu(out _);
-        im.OnActionSelected(InteractionAction.RightClick);   // history + back to FreeLook
-        im.OnFixationStarted(new PhysicalPoint(1000, 800));
-        im.OnActivationButtonDwelled();
+        var im = InFreeLookWithHistory(InteractionAction.RightClick);
 
-        im.OnActionSelected(InteractionAction.RepeatMode);
+        im.EnterRepeatMode();
 
         Check.That(im.RepeatAction).IsEqualTo(InteractionAction.RightClick);
     }
@@ -43,9 +57,9 @@ public class InteractionManagerRepeatModeTests
     [Fact]
     public void SelectingRepeatMode_WithNoHistory_LocksLeftClick()
     {
-        var im = InActionMenu(out _);
+        var im = new InteractionManager();
 
-        im.OnActionSelected(InteractionAction.RepeatMode);
+        im.EnterRepeatMode();
 
         Check.That(im.RepeatAction).IsEqualTo(InteractionAction.LeftClick);
     }
@@ -53,8 +67,7 @@ public class InteractionManagerRepeatModeTests
     [Fact]
     public void ClickFamilyDispatch_UpdatesLastRepeatableAction_NonClickDoesNot()
     {
-        var im = InActionMenu(out _);
-        im.OnActionSelected(InteractionAction.MiddleClick);
+        var im = InFreeLookWithHistory(InteractionAction.MiddleClick);
         Check.That(im.LastRepeatableAction).IsEqualTo(InteractionAction.MiddleClick);
 
         im.OnFixationStarted(new PhysicalPoint(1000, 800));
@@ -64,45 +77,10 @@ public class InteractionManagerRepeatModeTests
     }
 
     [Fact]
-    public void SelectingRepeatLastAction_FiresTheRememberedClickAtTheTarget()
-    {
-        var im = InActionMenu(out var fixation);
-        im.OnActionSelected(InteractionAction.RightClick);   // history
-        im.OnFixationStarted(fixation);
-        im.OnActivationButtonDwelled();
-
-        InteractionAction? firedAction = null;
-        PhysicalPoint? firedPoint = null;
-        im.ActionRequested += (a, p) => { firedAction = a; firedPoint = p; };
-
-        im.OnActionSelected(InteractionAction.RepeatLastAction);
-
-        Check.That(firedAction).IsEqualTo(InteractionAction.RightClick);
-        Check.That(firedPoint!.Value.X).IsCloseTo(fixation.X, 1e-6);
-        Check.That(firedPoint!.Value.Y).IsCloseTo(fixation.Y, 1e-6);
-        Check.That(im.CurrentState).IsEqualTo(InteractionState.FreeLook);
-    }
-
-    [Fact]
-    public void SelectingRepeatLastAction_WithNoHistory_FiresLeftClick()
-    {
-        var im = InActionMenu(out _);
-        InteractionAction? firedAction = null;
-        im.ActionRequested += (a, _) => firedAction = a;
-
-        im.OnActionSelected(InteractionAction.RepeatLastAction);
-
-        Check.That(firedAction).IsEqualTo(InteractionAction.LeftClick);
-    }
-
-    [Fact]
     public void FireRepeatTick_InRepeatMode_FiresTheLockedAction_AndStaysInRepeatMode()
     {
-        var im = InActionMenu(out _);
-        im.OnActionSelected(InteractionAction.DoubleClick);
-        im.OnFixationStarted(new PhysicalPoint(1000, 800));
-        im.OnActivationButtonDwelled();
-        im.OnActionSelected(InteractionAction.RepeatMode);
+        var im = InFreeLookWithHistory(InteractionAction.DoubleClick);
+        im.EnterRepeatMode();
 
         var fired = new List<(InteractionAction Action, PhysicalPoint Point)>();
         im.ActionRequested += (a, p) => fired.Add((a, p));
@@ -132,8 +110,8 @@ public class InteractionManagerRepeatModeTests
     [Fact]
     public void ExitRepeatMode_ReturnsToFreeLook_AndClearsTheLockedAction()
     {
-        var im = InActionMenu(out _);
-        im.OnActionSelected(InteractionAction.RepeatMode);
+        var im = InFreeLookWithHistory();
+        im.EnterRepeatMode();
 
         im.ExitRepeatMode();
 
@@ -152,8 +130,8 @@ public class InteractionManagerRepeatModeTests
     [Fact]
     public void TogglePause_IsBlockedInRepeatMode()
     {
-        var im = InActionMenu(out _);
-        im.OnActionSelected(InteractionAction.RepeatMode);
+        var im = InFreeLookWithHistory();
+        im.EnterRepeatMode();
 
         im.TogglePause();
 
@@ -163,8 +141,8 @@ public class InteractionManagerRepeatModeTests
     [Fact]
     public void FixationStarted_IsIgnoredInRepeatMode()
     {
-        var im = InActionMenu(out _);
-        im.OnActionSelected(InteractionAction.RepeatMode);
+        var im = InFreeLookWithHistory();
+        im.EnterRepeatMode();
 
         im.OnFixationStarted(new PhysicalPoint(500, 500));
 
@@ -174,11 +152,11 @@ public class InteractionManagerRepeatModeTests
     [Fact]
     public void EnteringRepeatMode_FiresStateChangedWithRepeatMode()
     {
-        var im = InActionMenu(out _);
+        var im = InFreeLookWithHistory();
         InteractionState? captured = null;
         im.StateChanged += s => captured = s;
 
-        im.OnActionSelected(InteractionAction.RepeatMode);
+        im.EnterRepeatMode();
 
         Check.That(captured).IsEqualTo(InteractionState.RepeatMode);
     }
@@ -186,8 +164,8 @@ public class InteractionManagerRepeatModeTests
     [Fact]
     public void ExitingRepeatMode_FiresStateChangedWithFreeLook()
     {
-        var im = InActionMenu(out _);
-        im.OnActionSelected(InteractionAction.RepeatMode);
+        var im = InFreeLookWithHistory();
+        im.EnterRepeatMode();
         InteractionState? captured = null;
         im.StateChanged += s => captured = s;
 

@@ -61,8 +61,6 @@ public class ActionMenuViewModelSymbolTests
             [InteractionAction.ScrollRight] = ActionIcon.ScrollRight,
             [InteractionAction.ScrollMode] = ActionIcon.ScrollMode,
             [InteractionAction.PinNote] = ActionIcon.PinNote,
-            [InteractionAction.RepeatLastAction] = ActionIcon.RepeatLastAction,
-            [InteractionAction.RepeatMode] = ActionIcon.RepeatMode,
         };
 
         // Fails if a new InteractionAction is added without an icon.

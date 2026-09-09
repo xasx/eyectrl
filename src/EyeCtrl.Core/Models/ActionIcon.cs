@@ -43,10 +43,6 @@ public enum ActionIcon
     ScrollMode,
     /// <summary>A sticky note with a pin through its top edge.</summary>
     PinNote,
-    /// <summary>A plain mouse with one circular renewal arrow at the right margin.</summary>
-    RepeatLastAction,
-    /// <summary>A left-filled mouse with circular renewal arrows at both margins — the locked loop.</summary>
-    RepeatMode,
     /// <summary>A return arrow. Navigation, not an action.</summary>
     Back,
     /// <summary>Three dots — opens the ring's second layer. Navigation, not an action.</summary>

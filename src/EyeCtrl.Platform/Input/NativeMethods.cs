@@ -186,6 +186,11 @@ internal static partial class NativeMethods
     internal const uint WM_CLOSE = 0x0010;
 
     // ── Global escape hatch (issue #141): WH_KEYBOARD_LL on a dedicated pump thread ──
+    //
+    // [LibraryImport] defaults to ExactSpelling and appends NO A/W suffix — every A/W-only
+    // export needs an explicit EntryPoint (the rule recorded further up this file after the
+    // GetWindowLong crash; the escape hatch reintroduced the mistake at birth and only the
+    // NativeMethodEntryPointTests gate caught it — review PR #142).
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct MSG
@@ -194,9 +199,11 @@ internal static partial class NativeMethods
         public uint Message;
         public IntPtr WParam;
         public IntPtr LParam;
+        public uint Time;
+        public POINT Pt;
     }
 
-    [LibraryImport("user32.dll", SetLastError = true)]
+    [LibraryImport("user32.dll", EntryPoint = "SetWindowsHookExW", SetLastError = true)]
     internal static partial IntPtr SetWindowsHookEx(int idHook, LowLevelHookProc lpfn, IntPtr hMod, uint dwThreadId);
 
     [LibraryImport("user32.dll")]
@@ -206,7 +213,7 @@ internal static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool UnhookWindowsHookEx(IntPtr hhk);
 
-    [LibraryImport("user32.dll", SetLastError = true)]
+    [LibraryImport("user32.dll", EntryPoint = "PostThreadMessageW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool PostThreadMessage(uint threadId, uint msg, IntPtr wParam, IntPtr lParam);
 
@@ -214,7 +221,8 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll", EntryPoint = "GetMessageW")]
     internal static partial int GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
 
-    [LibraryImport("user32.dll")]
+    // Exported undecorated (no A/W variants) from kernel32 — NOT user32.
+    [LibraryImport("kernel32.dll")]
     internal static partial uint GetCurrentThreadId();
 
     // lpModuleName = IntPtr.Zero resolves to the current executable's module handle.

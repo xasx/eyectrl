@@ -298,7 +298,7 @@ public sealed class GlobalEscapeHatch : IGlobalEscapeHatch
 }
 ```
 
-`NativeMethods.cs` additions (respect the LibraryImport entry-point rule from the file header):
+`NativeMethods.cs` additions (respect the LibraryImport entry-point rule from the file header — the first draft below violated it three times and shipped as a launch crash; review PR #142 corrected it and added `NativeMethodEntryPointTests` as the gate. Corrected form):
 
 ```csharp
     // ── Global escape hatch (issue #141): WH_KEYBOARD_LL ──
@@ -310,9 +310,11 @@ public sealed class GlobalEscapeHatch : IGlobalEscapeHatch
         public uint Message;
         public IntPtr WParam;
         public IntPtr LParam;
+        public uint Time;   // full Win32 MSG is 48 bytes on x64 — a 32-byte declaration gets
+        public POINT Pt;    // 16 bytes written past it by every GetMessageW call
     }
 
-    [LibraryImport("user32.dll", SetLastError = true)]
+    [LibraryImport("user32.dll", EntryPoint = "SetWindowsHookExW", SetLastError = true)]
     internal static partial IntPtr SetWindowsHookEx(int idHook, LowLevelHookProc lpfn, IntPtr hMod, uint dwThreadId);
 
     [LibraryImport("user32.dll")]
@@ -322,7 +324,7 @@ public sealed class GlobalEscapeHatch : IGlobalEscapeHatch
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool UnhookWindowsHookEx(IntPtr hhk);
 
-    [LibraryImport("user32.dll", SetLastError = true)]
+    [LibraryImport("user32.dll", EntryPoint = "PostThreadMessageW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool PostThreadMessage(uint threadId, uint msg, IntPtr wParam, IntPtr lParam);
 
@@ -330,7 +332,8 @@ public sealed class GlobalEscapeHatch : IGlobalEscapeHatch
     [LibraryImport("user32.dll", EntryPoint = "GetMessageW")]
     internal static partial int GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
 
-    [LibraryImport("user32.dll")]
+    // Exported undecorated from kernel32 — NOT user32.
+    [LibraryImport("kernel32.dll")]
     internal static partial uint GetCurrentThreadId();
 
     // lpModuleName = IntPtr.Zero resolves to the current executable's module handle.

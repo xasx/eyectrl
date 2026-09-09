@@ -519,6 +519,11 @@ public class GazeEngine : IDisposable
         // one value.
         var interactionState = InteractionManager.CurrentState;
 
+        // Raw-sample liveness for repeat mode's dwell gate — must precede every
+        // calibration/interpolation view of the sample, which all make a lost-eyes gap look
+        // like a valid frozen point.
+        InteractionManager.NoteGazeSample(gaze.IsValid, gaze.TimestampMicroseconds);
+
         PublishGazeSampled(gaze);
 
         var corrected = gaze;

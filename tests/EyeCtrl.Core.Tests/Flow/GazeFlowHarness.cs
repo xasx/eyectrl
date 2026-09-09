@@ -103,6 +103,24 @@ internal sealed class GazeFlowHarness
         Provider.Push(new GazePoint(x, y, _clockUs, true));
     }
 
+    /// <summary>
+    /// Feeds one INVALID sample (tracker reports eyes lost) after advancing the virtual clock.
+    /// The engine still interpolates/holds a position through these — which is exactly the
+    /// condition repeat-mode's validity gate has to see through.
+    /// </summary>
+    public void GazeInvalid(double x, double y, int dtMs = 33)
+    {
+        _clockUs += dtMs * 1000L;
+        Provider.Push(new GazePoint(x, y, _clockUs, false));
+    }
+
+    /// <summary>Streams invalid samples for <paramref name="durationMs"/>, one every <paramref name="stepMs"/>.</summary>
+    public void HoldInvalid(double x, double y, int durationMs, int stepMs = 33)
+    {
+        for (int elapsed = 0; elapsed < durationMs; elapsed += stepMs)
+            GazeInvalid(x, y, stepMs);
+    }
+
     /// <summary>Holds gaze at a point for <paramref name="durationMs"/>, one sample every <paramref name="stepMs"/>.</summary>
     public void Hold(double x, double y, int durationMs, int stepMs = 33)
     {

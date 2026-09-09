@@ -184,4 +184,40 @@ internal static partial class NativeMethods
     internal const int SW_MAXIMIZE = 3;
     internal const int SW_RESTORE = 9;
     internal const uint WM_CLOSE = 0x0010;
+
+    // ── Global escape hatch (issue #141): WH_KEYBOARD_LL on a dedicated pump thread ──
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MSG
+    {
+        public IntPtr Hwnd;
+        public uint Message;
+        public IntPtr WParam;
+        public IntPtr LParam;
+    }
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    internal static partial IntPtr SetWindowsHookEx(int idHook, LowLevelHookProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [LibraryImport("user32.dll")]
+    internal static partial int CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool UnhookWindowsHookEx(IntPtr hhk);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool PostThreadMessage(uint threadId, uint msg, IntPtr wParam, IntPtr lParam);
+
+    // BOOL: >0 = message retrieved, 0 = WM_QUIT, -1 = error.
+    [LibraryImport("user32.dll", EntryPoint = "GetMessageW")]
+    internal static partial int GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+
+    [LibraryImport("user32.dll")]
+    internal static partial uint GetCurrentThreadId();
+
+    // lpModuleName = IntPtr.Zero resolves to the current executable's module handle.
+    [LibraryImport("kernel32.dll", EntryPoint = "GetModuleHandleW")]
+    internal static partial IntPtr GetModuleHandle(IntPtr lpModuleName);
 }

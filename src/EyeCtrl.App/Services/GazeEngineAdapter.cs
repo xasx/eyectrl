@@ -81,8 +81,26 @@ public class GazeEngineAdapter : IDisposable
                 catch (Exception resetEx) { _logger.LogError(resetEx, "Failed to reset interaction state after activation error"); }
             }
         });
+        // Guarded because this is the entry point to the drag. OnActionSelected(Drag) transitions
+        // to Dragging and synchronously raises DragStarted, which presses the physical mouse
+        // button — so a throw anywhere downstream unwinds through here into the dispatcher, where
+        // the app deliberately does not set Handled and the process dies. A SendInput button-down
+        // survives the process, so that crash would leave the button pressed with no app left to
+        // release it. DragCoordinator releases on its own failure path; this catch is the outer
+        // net for everything else the action switch can reach.
         messenger.Register<ActionSelectedMessage>(this, (_, msg) =>
-            _interactionManager.OnActionSelected(msg.Action));
+        {
+            try
+            {
+                _interactionManager.OnActionSelected(msg.Action);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to handle selected action {Action}", msg.Action);
+                try { _interactionManager.OnFixationEnded(); }
+                catch (Exception resetEx) { _logger.LogError(resetEx, "Failed to reset interaction state after action error"); }
+            }
+        });
         messenger.Register<BackSelectedMessage>(this, (_, _) =>
             _interactionManager.OnManualSelectionBack());
         messenger.Register<ActionMenuDismissedMessage>(this, (_, _) =>

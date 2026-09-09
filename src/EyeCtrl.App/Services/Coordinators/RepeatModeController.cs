@@ -1,6 +1,6 @@
 namespace EyeCtrl.App.Services.Coordinators;
 
-using System.Windows.Interop;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.Core;
@@ -11,20 +11,17 @@ using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
 /// Owns the locked repeat-click mode's app surface: the right-edge stop button, the UI-thread
-/// tick timer that re-fires the locked click at the live stable centroid, and the WM_KEYDOWN /
-/// VK_ESCAPE thread filter that ends an in-flight repeat. Mirrors <see cref="ScrollModeController"/>
-/// (state-triggered entry, right-edge stop) and <see cref="DragCoordinator"/> (escape hatch) —
-/// a separate coordinator because the state machine only owns WHEN repeats are legal
-/// (<c>InteractionManager.FireRepeatTick</c>), not the cadence or the chrome.
+/// tick timer that re-fires the locked click at the live stable centroid, and the global
+/// ESC-hatch subscription that ends an in-flight repeat (issue #141). Mirrors
+/// <see cref="ScrollModeController"/> (state-triggered entry, right-edge stop) and
+/// <see cref="DragCoordinator"/> (escape hatch) — a separate coordinator because the state
+/// machine only owns WHEN repeats are legal (<c>InteractionManager.FireRepeatTick</c>), not
+/// the cadence or the chrome.
 ///
 /// <para>
-/// <b>The ESC filter is a weak hatch</b> (review PR #139 finding 2):
-/// <see cref="ComponentDispatcher.ThreadFilterMessage"/> only sees messages for EyeCtrl's own
-/// windows, every overlay is non-activating, and repeat mode exists to click into OTHER apps —
-/// so while the mode is doing its job, a caregiver's ESC lands in the foreground app, not here.
-/// Inherited verbatim from <see cref="DragCoordinator"/>; a real global hatch needs a
-/// WH_KEYBOARD_LL hook in EyeCtrl.Platform (follow-up). The gaze-reachable exits are the stop
-/// button and the lost-gaze auto-exit in <c>InteractionManager.NoteGazeSample</c>.
+/// ESC exits are gaze-independent: the hatch sees keystrokes system-wide, so a caregiver can
+/// end the mode even while a third-party app holds the foreground. The gaze-reachable exits
+/// are the stop button and the lost-gaze auto-exit in <c>InteractionManager.NoteGazeSample</c>.
 /// </para>
 /// </summary>
 internal sealed class RepeatModeController : CoordinatorBase
@@ -81,19 +78,18 @@ internal sealed class RepeatModeController : CoordinatorBase
                 im.RepeatDwellMs = context.Settings.Repeat.DwellMs;
                 im.EnterRepeatMode(m.Action);
             }));
-        ComponentDispatcher.ThreadFilterMessage += OnThreadFilterMessage;
+        context.EscapeHatch.EscapePressed += OnEscapePressed;
     }
 
-    private void OnThreadFilterMessage(ref MSG msg, ref bool handled)
+    /// <summary>
+    /// Pool thread (global hatch, issue #141): ESC pressed anywhere in the system ends the
+    /// mode — the message registration marshals into the state-guarded ExitRepeatMode, so a
+    /// press outside the mode is a no-op.
+    /// </summary>
+    private void OnEscapePressed()
     {
-        if (msg.message == 0x0100 && (int)msg.wParam == 0x1B) // WM_KEYDOWN, VK_ESCAPE
-        {
-            if (Context?.InteractionManager.CurrentState == InteractionState.RepeatMode)
-            {
-                Context.Messenger.Send(new ExitRepeatModeMessage());
-                handled = true;
-            }
-        }
+        if (Context?.InteractionManager.CurrentState == InteractionState.RepeatMode)
+            Context.Messenger.Send(new ExitRepeatModeMessage());
     }
 
     private void OnModesMenuVMVisibilityChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -219,6 +215,6 @@ internal sealed class RepeatModeController : CoordinatorBase
         if (_active) Exit();
         if (Context is null) return;
         Context.InteractionManager.StateChanged -= OnStateChanged;
-        ComponentDispatcher.ThreadFilterMessage -= OnThreadFilterMessage;
+        Context.EscapeHatch.EscapePressed -= OnEscapePressed;
     }
 }

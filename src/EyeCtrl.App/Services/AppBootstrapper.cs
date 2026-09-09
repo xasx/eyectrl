@@ -92,6 +92,9 @@ public class AppBootstrapper
         // Platform services
         services.AddSingleton<IMouseCoordinateMapper, MouseCoordinateMapper>();
         services.AddSingleton<IInputSimulator, Win32InputSimulator>();
+        // Installs the WH_KEYBOARD_LL escape hatch for the process lifetime (issue #141);
+        // disposed (and unhooked) with the container on shutdown.
+        services.AddSingleton<IGlobalEscapeHatch, GlobalEscapeHatch>();
 
         // Startup registration
         services.AddSingleton<IStartupRegistrar, WindowsStartupRegistrar>();

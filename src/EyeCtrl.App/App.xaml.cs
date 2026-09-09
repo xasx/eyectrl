@@ -240,7 +240,8 @@ public partial class App : Application
                 _serviceProvider.GetRequiredService<IWindowsAppLauncher>(),
                 _serviceProvider.GetRequiredService<IInstalledAppProvider>(),
                 modesMenuVm,
-                repeatCursorVm);
+                repeatCursorVm,
+                _serviceProvider.GetRequiredService<IGlobalEscapeHatch>());
             _eventCoordinator.Initialize(coordinationContext);
 
             // Warm the installed-app cache off the UI thread (the provider walks Shell AppsFolder

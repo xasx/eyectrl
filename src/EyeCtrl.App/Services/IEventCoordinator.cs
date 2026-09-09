@@ -10,6 +10,7 @@ using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.Platform.Input;
 using EyeCtrl.ViewModels;
 
 /// <summary>
@@ -86,4 +87,5 @@ public record EventCoordinationContext(
     IWindowsAppLauncher WindowsAppLauncher,
     IInstalledAppProvider InstalledAppProvider,
     ModesMenuViewModel ModesMenuVM,
-    RepeatCursorViewModel RepeatCursorVM);
+    RepeatCursorViewModel RepeatCursorVM,
+    IGlobalEscapeHatch EscapeHatch);

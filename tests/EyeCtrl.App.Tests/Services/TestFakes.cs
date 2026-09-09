@@ -144,15 +144,10 @@ internal static class TestFakes
     }
 
     /// <summary>
-    /// An <see cref="IOverlayManager"/> that supplies only the edge-button bar. Every other member
-    /// throws rather than returning null!, so a coordinator that reaches beyond what the test
-    /// intends fails loudly instead of with an NRE somewhere unrelated — the same discipline
-    /// <c>ToolbarVisibilityAdapterTests.FakeOverlayManager</c> uses.
-    /// </summary>
-    /// <summary>
     /// Builds a partial overlay manager: supply only the overlays a test needs. Every other member
     /// throws rather than returning null!, so a coordinator reaching beyond what the test intends
-    /// fails loudly instead of with an NRE somewhere unrelated.
+    /// fails loudly instead of with an NRE somewhere unrelated — the same discipline
+    /// <c>ToolbarVisibilityAdapterTests.FakeOverlayManager</c> uses.
     /// </summary>
     internal static IOverlayManager MakeOverlayManager(
         IEdgeButtonBar? edgeButtonBar = null,

@@ -555,7 +555,7 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
     /// unrelated call sites lining up rather than of this code.
     /// </para>
     /// </summary>
-    internal void ShowAtRest()
+    public void ShowAtRest()
     {
         CancelSlide();
         SlideTransform.X = 0;
@@ -568,7 +568,7 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
     /// <paramref name="onHidden"/>. Short-circuits to the completion effects, synchronously, when
     /// the window is already hidden or there is nothing to slide.
     /// </summary>
-    internal void SlideOutThenHide(Action onHidden)
+    public void SlideOutThenHide(Action onHidden)
     {
         var offset = SlideOffset();
         if (!IsVisible || offset == default)
@@ -592,7 +592,7 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
     /// rather than of dispatcher scheduling. Short-circuits to a plain Show when the toolbar is
     /// already on screen or there is nothing to slide.
     /// </summary>
-    internal void ShowThenSlideIn()
+    public void ShowThenSlideIn()
     {
         var offset = SlideOffset();
         if (IsOnScreen || offset == default)

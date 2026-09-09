@@ -107,6 +107,26 @@ public interface IToolbarOverlay
     /// <summary>Rebinds the buttons to the live view model after a mode or size change.</summary>
     void BindToViewModel();
 
+    // ── Slide transition ──
+    // The auto-hide adapter drives these, so they have to be on the seam for it to be testable
+    // without a window. They are intent-level ("slide in", "am I sliding") rather than WPF
+    // mechanics, so exposing them costs the seam nothing.
+
+    /// <summary>True while a slide animation is in flight.</summary>
+    bool IsSliding { get; }
+
+    /// <summary>True when visible AND not in the middle of sliding away.</summary>
+    bool IsOnScreen { get; }
+
+    /// <summary>Shows the toolbar already in its resting position, with no animation.</summary>
+    void ShowAtRest();
+
+    /// <summary>Shows the toolbar off-edge and slides it into its resting position.</summary>
+    void ShowThenSlideIn();
+
+    /// <summary>Slides the toolbar off-edge, then hides it and invokes <paramref name="onHidden"/>.</summary>
+    void SlideOutThenHide(Action onHidden);
+
     /// <summary>
     /// The window's bounds in physical pixels.
     /// </summary>

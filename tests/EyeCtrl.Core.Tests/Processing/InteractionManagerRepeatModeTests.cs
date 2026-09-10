@@ -161,10 +161,13 @@ public class InteractionManagerRepeatModeTests
 
         im.OnFixationStarted(new PhysicalPoint(300, 400));
         im.NoteGazeSample(true, 10 * Ms + 300 * Ms);   // elapsed 300ms of 600 → 0.5
-        im.NoteGazeSample(true, 10 * Ms + 610 * Ms);   // fire: 1 then 0
+        im.NoteGazeSample(true, 10 * Ms + 610 * Ms);   // fire → stays contracted at 1 (round 3 F6)
 
         Check.That(progress[0]).IsCloseTo(0.5, 0.01);
         Check.That(progress).Contains(1);
+        Check.That(progress.Last()).IsEqualTo(1);      // held stare cannot re-fire: stays "spent"
+
+        im.OnFixationEnded();                          // gaze moves off → resets to ready
         Check.That(progress.Last()).IsEqualTo(0);
     }
 

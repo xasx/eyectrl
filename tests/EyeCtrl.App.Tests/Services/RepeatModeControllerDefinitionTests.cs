@@ -1,6 +1,8 @@
 namespace EyeCtrl.App.Tests.Services;
 
+using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services.Coordinators;
+using System.Linq;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
@@ -35,20 +37,28 @@ public class RepeatModeControllerDefinitionTests
     }
 
     [Fact]
-    public void IsInStopButtonZone_CoversTheButtonAndItsDwellMargin()
+    public void ComputeRowCentres_GivesEachRowItsOwnAscendingTarget()
     {
-        // Review PR #139 finding 3: the edge bar is click-through, so a tick aimed at the stop
-        // button fires the locked click THROUGH it. Ticks into the button's zone (radius × the
-        // 1.5 margin, covering centroid lag while the user dwells it) must be suppressed.
-        var center = new PhysicalPoint(1850, 600);
-        const double radius = 50;
+        // Review PR #139 round 3 finding 2: the original loop had no index term, so all four
+        // rows shared row 0's centre and the detector's tie-break picked the action.
+        var defs = new (string Id, InteractionAction Action, string Label)[]
+        {
+            ("a", InteractionAction.LeftClick, "L"),
+            ("b", InteractionAction.RightClick, "R"),
+            ("c", InteractionAction.DoubleClick, "D"),
+            ("d", InteractionAction.MiddleClick, "M"),
+        };
 
-        Check.That(RepeatModeController.IsInStopButtonZone(new PhysicalPoint(1850, 600), center, radius)).IsTrue();
-        Check.That(RepeatModeController.IsInStopButtonZone(new PhysicalPoint(1900, 600), center, radius)).IsTrue();
-        Check.That(RepeatModeController.IsInStopButtonZone(new PhysicalPoint(1850, 674), center, radius)).IsTrue();  // just inside 1.5×
-        Check.That(RepeatModeController.IsInStopButtonZone(new PhysicalPoint(1850, 680), center, radius)).IsFalse(); // beyond 1.5×
-        Check.That(RepeatModeController.IsInStopButtonZone(new PhysicalPoint(100, 100), center, radius)).IsFalse();
-        Check.That(RepeatModeController.IsInStopButtonZone(new PhysicalPoint(1850, 600), center, 0)).IsFalse();      // degenerate radius
+        var centres = ModesMenuWindow.ComputeRowCentres(defs, windowLeft: 100, windowTop: 200);
+
+        Check.That(centres).HasSize(4);
+        var ys = centres.Select(c => c.Centre.Y).ToList();
+        Check.That(ys).ContainsOnlyElementsThatMatch(y => y > 0);
+        for (var i = 1; i < ys.Count; i++)
+            Check.That(ys[i]).IsStrictlyGreaterThan(ys[i - 1]);
+        // Uniform slot pitch (row height + spacing), identical for every row.
+        var pitch = ys[1] - ys[0];
+        for (var i = 2; i < ys.Count; i++)
+            Check.That(ys[i] - ys[i - 1]).IsCloseTo(pitch, 1e-6);
     }
-
 }

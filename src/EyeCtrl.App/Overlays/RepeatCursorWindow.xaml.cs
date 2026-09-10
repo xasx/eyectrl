@@ -51,10 +51,12 @@ public partial class RepeatCursorWindow : OverlayWindow, IRepeatCursorOverlay
 
     public void Update(RepeatCursorViewModel vm)
     {
-        var physicalX = DpiHelper.LogicalToPhysicalX(vm.Position.X);
-        var physicalY = DpiHelper.LogicalToPhysicalY(vm.Position.Y);
-        Left = (physicalX - Width * DpiHelper.ScaleX / 2) / DpiHelper.ScaleX;
-        Top = (physicalY - Height * DpiHelper.ScaleY / 2) / DpiHelper.ScaleY;
+        // Canonical form (CursorCircleWindow): physical in → logical window origin out. Written
+        // as PhysicalToLogical minus half-size so the units are explicit at a glance (review PR
+        // #139 round 3 finding 3 — the previous factored form was algebraically the same but
+        // read as if it divided wrongly under scaling).
+        Left = DpiHelper.PhysicalToLogicalX(vm.Position.X) - Width / 2;
+        Top = DpiHelper.PhysicalToLogicalY(vm.Position.Y) - Height / 2;
 
         // Contract toward the dot: radius interpolates from full to dot as progress goes 0 → 1.
         var radius = FullRadiusLogical - (FullRadiusLogical - DotRadiusLogical) * vm.DwellProgress;

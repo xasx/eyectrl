@@ -109,10 +109,16 @@ internal sealed class RepeatModeController : CoordinatorBase
                 // A fixation already in flight would leave the state at Fixation when the row
                 // activates — end it, exactly as the keyboard does when it takes over gaze.
                 context.InteractionManager.OnFixationEnded();
+                // While the menu is up (picking, or exiting the mode) the extended band covers
+                // it — otherwise the slim band leaves the lower rows dwell-to-act-fireable.
+                if (_active)
+                    ApplySuppressionZones(BuildMenuExtendedBandRect(context.Settings.Toolbar.Size));
             }
             else
             {
                 context.GazeEngine.SuppressFixation = false;
+                if (_active)
+                    ApplySuppressionZones(BuildToolbarBandRect(context.Settings.Toolbar.Size));
             }
         });
     }
@@ -155,30 +161,45 @@ internal sealed class RepeatModeController : CoordinatorBase
             context.Settings.Repeat.StopButtonDwellMs, verticalOffset: 0);
         context.OverlayManager.EdgeButtonBar.ShowButtons(new[] { stopDef }, edgeAnchor);
 
-        // D26: chrome suppression zones — the locked-action dwell must never fire on EyeCtrl's
-        // own surfaces (toolbar band incl. the modes-menu area below it, stop-button zone);
-        // the chrome keeps its own dwell semantics there.
+        ApplySuppressionZones(BuildToolbarBandRect(context.Settings.Toolbar.Size));
+        Serilog.Log.Information(
+            "Repeat mode entered: {Action}, dwell {DwellMs} ms",
+            context.InteractionManager.RepeatAction, context.Settings.Repeat.DwellMs);
+        _active = true;
+    }
+
+    private void ApplySuppressionZones(params Core.Models.PhysicalRect[] zones)
+    {
+        var context = Context!;
         var stopZoneRadius = _stopRadiusPhysical * StopZoneMarginFactor;
-        context.InteractionManager.SetRepeatSuppressionZones(
-            BuildToolbarBandRect(context.Settings.Toolbar.Size),
+        var all = zones.Concat(new[]
+        {
             new Core.Models.PhysicalRect(
                 _stopCenterPhysical.X - stopZoneRadius,
                 _stopCenterPhysical.Y - stopZoneRadius,
                 stopZoneRadius * 2,
-                stopZoneRadius * 2));
-
-        _active = true;
+                stopZoneRadius * 2),
+        });
+        context.InteractionManager.SetRepeatSuppressionZones(all.ToArray());
     }
 
     /// <summary>
-    /// The toolbar band as a physical rect: full screen width, height = toolbar size + margins,
-    /// extended to also cover the modes-menu panel that appears below it. Pure arithmetic from
-    /// settings — matches the ModesMenu placement math, needs no window measurement.
+    /// The toolbar band as a physical rect: full screen width, height = toolbar size + a short
+    /// margin. Field round 2: the previous band extended +200 logical below the toolbar — on a
+    /// scaled display that silenced dwell-to-act across the whole top quarter of the screen
+    /// ("dwell stopped working"). The panel is only ever visible while PICKING (mode off) or
+    /// EXITING, and the menu-visibility handler swaps in the extended band for those moments.
     /// </summary>
     internal static Core.Models.PhysicalRect BuildToolbarBandRect(double toolbarSizeLogical)
+        => BuildBandRect(toolbarSizeLogical + 40);
+
+    /// <summary>The extended band: toolbar + the full modes panel height (menu visible).</summary>
+    internal static Core.Models.PhysicalRect BuildMenuExtendedBandRect(double toolbarSizeLogical)
+        => BuildBandRect(toolbarSizeLogical * 2 + 60);
+
+    private static Core.Models.PhysicalRect BuildBandRect(double bandLogicalH)
     {
         var logicalW = System.Windows.SystemParameters.PrimaryScreenWidth;
-        var bandLogicalH = toolbarSizeLogical + 200;   // + the DwellArcButton modes panel that hangs below (size + 2×gap + margin)
         return new Core.Models.PhysicalRect(
             0, 0,
             DpiHelper.LogicalToPhysicalX(logicalW),
@@ -189,6 +210,7 @@ internal sealed class RepeatModeController : CoordinatorBase
     {
         Context?.InteractionManager.SetRepeatSuppressionZones();
         Context?.OverlayManager.EdgeButtonBar.Hide();
+        Serilog.Log.Information("Repeat mode exited");
         _active = false;
     }
 

@@ -18,10 +18,17 @@ using EyeCtrl.ViewModels;
 /// </summary>
 public partial class RepeatCursorWindow : OverlayWindow, IRepeatCursorOverlay
 {
-    private const double FullRadiusLogical = 14;   // ~half the normal cursor circle
+    // Field round 2: derive from the user's cursor-size preference (slightly smaller than the
+    // normal circle — "slightly bigger" than the old fixed 14), clamped to a sane band.
+    private const double MinRadiusLogical = 20;
+    private const double MaxRadiusLogical = 70;
     private const double DotRadiusLogical = 2.5;
+    private const double PositionSmoothing = 0.35;   // EMA per update: tames jitter without lag
 
+    private double _fullRadiusLogical = 28;
     private Ellipse? _ring;
+    private double _smoothedX, _smoothedY;
+    private bool _smoothedSeeded;
 
     public RepeatCursorWindow()
     {
@@ -34,7 +41,7 @@ public partial class RepeatCursorWindow : OverlayWindow, IRepeatCursorOverlay
         ShowActivated = false;
         IsHitTestVisible = false;
 
-        var size = (FullRadiusLogical + DotRadiusLogical) * 2 + 8;
+        var size = (_fullRadiusLogical + DotRadiusLogical) * 2 + 8;
         Width = size;
         Height = size;
 
@@ -49,17 +56,38 @@ public partial class RepeatCursorWindow : OverlayWindow, IRepeatCursorOverlay
         Content = canvas;
     }
 
+    /// <summary>Sizes the ring from the user's cursor-circle preference (slightly smaller).</summary>
+    public void Configure(double cursorCircleSizeLogical)
+    {
+        _fullRadiusLogical = Math.Clamp(cursorCircleSizeLogical / 2 * 0.6, MinRadiusLogical, MaxRadiusLogical);
+        var size = (_fullRadiusLogical + DotRadiusLogical) * 2 + 8;
+        Width = size;
+        Height = size;
+    }
+
     public void Update(RepeatCursorViewModel vm)
     {
-        // Canonical form (CursorCircleWindow): physical in → logical window origin out. Written
-        // as PhysicalToLogical minus half-size so the units are explicit at a glance (review PR
-        // #139 round 3 finding 3 — the previous factored form was algebraically the same but
-        // read as if it divided wrongly under scaling).
-        Left = DpiHelper.PhysicalToLogicalX(vm.Position.X) - Width / 2;
-        Top = DpiHelper.PhysicalToLogicalY(vm.Position.Y) - Height / 2;
+        // Light EMA on the ring position: the ring is FEEDBACK, not the click target (the fire
+        // uses the armed fixation point), so smoothing here costs nothing and hides raw gaze
+        // jitter (field round 2: "gaze very jittery").
+        if (!_smoothedSeeded)
+        {
+            _smoothedX = vm.Position.X;
+            _smoothedY = vm.Position.Y;
+            _smoothedSeeded = true;
+        }
+        else
+        {
+            _smoothedX += (vm.Position.X - _smoothedX) * PositionSmoothing;
+            _smoothedY += (vm.Position.Y - _smoothedY) * PositionSmoothing;
+        }
+
+        // Canonical form (CursorCircleWindow): physical in → logical window origin out.
+        Left = DpiHelper.PhysicalToLogicalX(_smoothedX) - Width / 2;
+        Top = DpiHelper.PhysicalToLogicalY(_smoothedY) - Height / 2;
 
         // Contract toward the dot: radius interpolates from full to dot as progress goes 0 → 1.
-        var radius = FullRadiusLogical - (FullRadiusLogical - DotRadiusLogical) * vm.DwellProgress;
+        var radius = _fullRadiusLogical - (_fullRadiusLogical - DotRadiusLogical) * vm.DwellProgress;
         if (_ring is null) return;
         _ring.Width = radius * 2;
         _ring.Height = radius * 2;
@@ -68,6 +96,10 @@ public partial class RepeatCursorWindow : OverlayWindow, IRepeatCursorOverlay
         Canvas.SetTop(_ring, (c.ActualHeight - radius * 2) / 2);
     }
 
-    public void ShowCursor() => Show();
+    public void ShowCursor()
+    {
+        _smoothedSeeded = false;   // re-seed on every show so it snaps to the current gaze
+        Show();
+    }
     public void HideCursor() => Hide();
 }

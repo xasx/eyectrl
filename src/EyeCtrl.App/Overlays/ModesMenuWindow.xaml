@@ -4,32 +4,8 @@
         xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize" ShowActivated="False">
-    <Border x:Name="Panel" Background="{StaticResource BrushSurfaceDark}"
+    <Border Background="{StaticResource BrushSurfaceDark}"
             CornerRadius="{StaticResource StandardCornerRadius}" Padding="16,12">
-        <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
-            <!-- The one mode row today. Fixed layout on purpose: the window reports this row's
-                 real screen centre back to the VM, which is what turns it into a dwell target. -->
-            <Border x:Name="RepeatRow" Grid.Row="0" Background="{StaticResource BrushSurfaceMedium}"
-                    CornerRadius="{StaticResource StandardCornerRadius}" Padding="14,10">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="Repeat clicks" Foreground="{StaticResource BrushTextPrimary}"
-                               FontSize="{StaticResource FontSizeBodyLarge}" VerticalAlignment="Center"/>
-                    <Border Background="{StaticResource BrushSurfaceDark}" CornerRadius="{StaticResource StandardCornerRadius}" Padding="10,2" Margin="12,0,0,0" VerticalAlignment="Center">
-                        <TextBlock x:Name="RepeatStateText" Text="{Binding RepeatRowStateText}"
-                                   Foreground="{StaticResource BrushAccent}"
-                                   FontSize="{StaticResource FontSizeBody}"/>
-                    </Border>
-                </StackPanel>
-            </Border>
-            <ProgressBar Grid.Row="1" x:Name="RowProgress" Height="6" Margin="2,10,2,0"
-                         Minimum="0" Maximum="1" Value="{Binding RowDwellProgress}"
-                         Foreground="{StaticResource BrushAccent}"
-                         Background="{StaticResource BrushSurfaceMedium}"
-                         BorderThickness="0"/>
-        </Grid>
+        <StackPanel x:Name="RowsPanel"/>
     </Border>
 </overlays:OverlayWindow>

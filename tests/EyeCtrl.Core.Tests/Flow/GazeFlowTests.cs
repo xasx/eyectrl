@@ -122,8 +122,8 @@ public class GazeFlowTests
         var h = new GazeFlowHarness(SelectionMode.None);
 
         h.FixateAndActivate(640, 480);
-        h.Interaction.OnActionSelected(InteractionAction.LeftClick);  // seed click history; back to FreeLook
-        h.Interaction.EnterRepeatMode();
+        h.Interaction.OnActionSelected(InteractionAction.LeftClick);  // back to FreeLook
+        h.Interaction.EnterRepeatMode(InteractionAction.LeftClick);
         Check.That(h.State).IsEqualTo(InteractionState.RepeatMode);
 
         // Unlike fixating (which freezes the pointer while aiming), repeat mode keeps the cursor
@@ -134,52 +134,40 @@ public class GazeFlowTests
     }
 
     [Fact]
-    public void RepeatMode_SkipsTicksWhenGazeIsLost_AndAutoExitsAfterTwoSeconds()
+    public void RepeatMode_GazeLost_AutoExitsAfterTwoSeconds()
     {
-        // Review PR #139 finding 1: StableCentroid never goes null when the tracker loses the
-        // eyes — past MaxGapInterpolationMs the gap interpolator returns the frozen last-good
-        // point unflagged, so the centroid tracker keeps consuming it. Liveness must therefore
-        // come from RAW validity (latched in NoteGazeSample), not from the centroid's existence.
+        // Review PR #139 finding 1 core: every filtered view of lost eyes looks valid, so the
+        // exit reads RAW validity (NoteGazeSample). The user cannot dwell the stop button or the
+        // menu while their eyes are away — the mode must end itself.
         var h = new GazeFlowHarness(SelectionMode.None);
-
         h.FixateAndActivate(640, 480);
-        h.Interaction.OnActionSelected(InteractionAction.LeftClick);  // seed click history; back to FreeLook
-        h.Interaction.EnterRepeatMode();
-        var baseline = h.ActionsRequested.Count;   // the seed click itself is in here
+        h.Interaction.OnActionSelected(InteractionAction.LeftClick);
+        h.Interaction.EnterRepeatMode(InteractionAction.LeftClick);
 
-        h.Interaction.FireRepeatTick(new PhysicalPoint(640, 480));
-        Check.That(h.ActionsRequested.Count).IsEqualTo(baseline + 1);
-
-        // Eyes lost, tracker still streaming INVALID samples: 800 ms of lost gaze (past the
-        // 750 ms skip threshold) must not fire a click at the frozen point.
-        h.HoldInvalid(640, 480, durationMs: 800);
-        h.Interaction.FireRepeatTick(new PhysicalPoint(640, 480));
-        Check.That(h.ActionsRequested.Count).IsEqualTo(baseline + 1);
-
-        // Past 2 s of lost gaze the mode ends itself: the user cannot dwell the stop button
-        // while their eyes are away, so the mode must not keep itself alive.
-        h.HoldInvalid(640, 480, durationMs: 1500);
+        h.HoldInvalid(640, 480, durationMs: 2500);
         Check.That(h.State).IsEqualTo(InteractionState.FreeLook);
     }
 
     [Fact]
-    public void RepeatMode_SkipsTicksWhenTheStreamDies()
+    public void RepeatMode_HeldGaze_FiresTheLockedActionAtTheFixatedPoint()
     {
-        // The dead-tracker half of the gate: with NO samples at all, validity age cannot grow,
-        // so ticks additionally require that a sample arrived since the previous tick.
+        // End-to-end dwell-to-act (D23-D25): fixation arms the dwell, valid samples advance it,
+        // and the locked action fires AT the fixated point after RepeatDwellMs.
         var h = new GazeFlowHarness(SelectionMode.None);
-
+        h.Interaction.RepeatDwellMs = 400;
         h.FixateAndActivate(640, 480);
-        h.Interaction.OnActionSelected(InteractionAction.LeftClick);  // seed click history; back to FreeLook
-        h.Interaction.EnterRepeatMode();
-        var baseline = h.ActionsRequested.Count;   // the seed click itself is in here
+        h.Interaction.OnActionSelected(InteractionAction.LeftClick);  // back to FreeLook
+        h.Interaction.EnterRepeatMode(InteractionAction.RightClick);
+        var baseline = h.ActionsRequested.Count;
 
-        h.Interaction.FireRepeatTick(new PhysicalPoint(640, 480));
-        Check.That(h.ActionsRequested.Count).IsEqualTo(baseline + 1);
+        h.Hold(800, 600, durationMs: 1100);   // 300 fixation + 400 dwell + margin
 
-        h.Interaction.FireRepeatTick(new PhysicalPoint(640, 480));
-        h.Interaction.FireRepeatTick(new PhysicalPoint(640, 480));
-        Check.That(h.ActionsRequested.Count).IsEqualTo(baseline + 1);
+        Check.That(h.State).IsEqualTo(InteractionState.RepeatMode);   // stays locked
+        var fired = h.ActionsRequested.Skip(baseline).ToList();
+        Check.That(fired).HasSize(1);
+        Check.That(fired[0].Action).IsEqualTo(InteractionAction.RightClick);
+        Check.That(fired[0].Point.X).IsCloseTo(800, 60);
+        Check.That(fired[0].Point.Y).IsCloseTo(600, 60);
     }
 
     [Fact]

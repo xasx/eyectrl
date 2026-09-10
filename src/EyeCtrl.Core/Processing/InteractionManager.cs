@@ -32,12 +32,6 @@ public class InteractionManager
     public ControlInfo? AutoSelectionTarget { get; set; }
     /// <summary>Anchor point for the active gaze-scroll session, or null when not scrolling.</summary>
     public PhysicalPoint? ScrollAnchor { get; private set; }
-    /// <summary>
-    /// The last click-family action dispatched through <see cref="OnActionSelected"/> (left,
-    /// right, double, middle). Null until the first such click. Feeds the action locked on
-    /// entering <see cref="InteractionState.RepeatMode"/>.
-    /// </summary>
-    public InteractionAction? LastRepeatableAction { get; private set; }
     /// <summary>The action locked for the active repeat session, or null outside <see cref="InteractionState.RepeatMode"/>.</summary>
     public InteractionAction? RepeatAction { get; private set; }
 
@@ -65,15 +59,27 @@ public class InteractionManager
     /// <summary>Fired when a Drag action is selected. Carries the resolved grab origin point.</summary>
     public event Action<PhysicalPoint>? DragStarted;
 
-    // Repeat-mode liveness gates (review PR #139 finding 1). StableCentroid never goes null when
-    // the tracker loses the eyes — past the interpolation window every filtered view of a
-    // lost-eyes gap is a valid-looking frozen point — so liveness is latched here from the RAW
-    // sample validity GazeEngine forwards in OnGazePoint.
-    private const long LostGazeSkipThresholdUs = 750_000;   // brief losses (blinks) still tick
+    // Locked-action dwell-to-act (design D23–D28). Timing is sample-clock driven: a fixation
+    // ARMS the dwell at its start point; only VALID gaze samples advance it; one fire per
+    // fixation. Liveness also comes from raw validity (review PR #139 finding 1 — every filtered
+    // view of a lost-eyes gap looks like a valid frozen point), so NoteGazeSample is the one
+    // place "eyes actually present" is still observable.
     private const long LostGazeExitThresholdUs = 2_000_000; // sustained loss ends the mode
     private long _lastSampleTimestampUs = long.MinValue;
     private long _lastValidGazeTimestampUs = long.MinValue;
-    private long _lastTickObservedSampleUs = long.MinValue;
+    private PhysicalRect[] _repeatSuppressionZones = Array.Empty<PhysicalRect>();
+    private PhysicalPoint? _repeatDwellPoint;
+    private long _repeatDwellStartedUs;
+    private bool _repeatDwellFired;
+
+    /// <summary>
+    /// How long gaze must hold (ms) before the locked action fires at the fixated point. Set by
+    /// the app-side repeat controller from <c>RepeatSettings.DwellMs</c> at mode entry.
+    /// </summary>
+    public int RepeatDwellMs { get; set; } = 600;
+
+    /// <summary>Raised with 0..1 progress of the armed locked-action dwell (drives the contracting cursor).</summary>
+    public event Action<double>? RepeatDwellProgressChanged;
 
     private void SetState(InteractionState newState)
     {
@@ -87,6 +93,20 @@ public class InteractionManager
     /// <param name="point">Fixation point in physical screen pixels</param>
     public void OnFixationStarted(PhysicalPoint point)
     {
+        if (CurrentState == InteractionState.RepeatMode)
+        {
+            // D25: the fixation arms the dwell at its start point; valid samples advance it in
+            // NoteGazeSample; it fires once and re-arms only on the NEXT fixation. Fixations on
+            // EyeCtrl chrome (suppression zones, D26) never arm — nothing will fire there.
+            if (!IsInAnyRepeatSuppressionZone(point))
+            {
+                _repeatDwellPoint = point;
+                _repeatDwellStartedUs = _lastSampleTimestampUs;
+                _repeatDwellFired = false;
+            }
+            return;
+        }
+
         if (CurrentState != InteractionState.FreeLook) return;
         FixationPoint = point;
         SetState(InteractionState.Fixation);
@@ -96,6 +116,16 @@ public class InteractionManager
     /// <summary>Called when the current fixation ends (gaze moves away from the fixation point).</summary>
     public void OnFixationEnded()
     {
+        if (CurrentState == InteractionState.RepeatMode)
+        {
+            // Gaze moved off the target: the armed dwell cancels (D25) — the action must be
+            // re-aimed with a fresh fixation, never inherited from a stale one.
+            _repeatDwellPoint = null;
+            _repeatDwellFired = false;
+            RepeatDwellProgressChanged?.Invoke(0);
+            return;
+        }
+
         if (CurrentState == InteractionState.Fixation)
         {
             HideActivationButton?.Invoke();
@@ -191,9 +221,6 @@ public class InteractionManager
             return;
         }
 
-        if (action.IsRepeatableClick())
-            LastRepeatableAction = action;
-
         ActionRequested?.Invoke(action, targetPoint.Value);
         ResetToFreeLook();
     }
@@ -283,10 +310,13 @@ public class InteractionManager
     /// visible menu, a drag, scroll mode, or Paused would strand their UI. Callers that need
     /// entry from another state must end that state first.
     /// </summary>
-    public void EnterRepeatMode()
+    public void EnterRepeatMode(InteractionAction action)
     {
         if (CurrentState != InteractionState.FreeLook) return;
-        RepeatAction = LastRepeatableAction ?? InteractionAction.LeftClick;
+        // The Modes menu offers the click family only (D24) — anything else is a wiring bug,
+        // not a user choice, and is refused rather than guessed at.
+        if (!action.IsRepeatableClick()) return;
+        RepeatAction = action;
         SetState(InteractionState.RepeatMode);
     }
 
@@ -301,42 +331,60 @@ public class InteractionManager
     /// Latches raw gaze-stream liveness: called by <see cref="GazeEngine"/> for EVERY sample,
     /// before calibration or gap interpolation — every downstream view of a lost-eyes gap looks
     /// like a valid frozen point, so this is the only spot where "eyes actually present" is
-    /// still observable. Also ends repeat mode once lost gaze outlasts
-    /// <see cref="LostGazeExitThresholdUs"/>: the user cannot dwell the stop button while their
-    /// eyes are away, so the mode must not keep itself (or its clicks) alive.
+    /// still observable. Drives the locked-action dwell: only VALID samples advance it, and
+    /// sustained lost gaze (past <see cref="LostGazeExitThresholdUs"/>) ends the mode — the
+    /// user cannot dwell the stop button while their eyes are away.
     /// </summary>
     public void NoteGazeSample(bool isValid, long timestampUs)
     {
         if (timestampUs > _lastSampleTimestampUs) _lastSampleTimestampUs = timestampUs;
         if (isValid && timestampUs > _lastValidGazeTimestampUs) _lastValidGazeTimestampUs = timestampUs;
 
-        if (CurrentState == InteractionState.RepeatMode
-            && _lastSampleTimestampUs > _lastValidGazeTimestampUs
+        if (CurrentState != InteractionState.RepeatMode) return;
+
+        if (_lastSampleTimestampUs > _lastValidGazeTimestampUs
             && _lastSampleTimestampUs - _lastValidGazeTimestampUs > LostGazeExitThresholdUs)
+        {
             ExitRepeatMode();
+            return;
+        }
+
+        // D25: advance the armed dwell on valid samples only — invalid gaze freezes the dwell
+        // (and its cursor feedback) rather than firing at a stale point.
+        if (!isValid || _repeatDwellPoint is not { } target || _repeatDwellFired) return;
+
+        var dwellUs = RepeatDwellMs * 1000L;
+        var elapsedUs = timestampUs - _repeatDwellStartedUs;
+        if (elapsedUs >= dwellUs)
+        {
+            _repeatDwellFired = true;   // one fire per fixation; re-arm needs a new fixation
+            RepeatDwellProgressChanged?.Invoke(1);
+            ActionRequested?.Invoke(RepeatAction!.Value, target);
+            RepeatDwellProgressChanged?.Invoke(0);
+        }
+        else
+        {
+            RepeatDwellProgressChanged?.Invoke(Math.Clamp((double)elapsedUs / dwellUs, 0, 1));
+        }
     }
 
     /// <summary>
-    /// Fires one repeat tick at the given live gaze point. Called by the app-side repeat
-    /// controller's timer; guarded so a tick that lands after exit (or before entry) is a no-op
-    /// rather than a stray click, and so no tick fires when the gaze behind the point is stale:
-    /// a valid-looking frozen centroid is exactly what a lost or dead tracker produces.
+    /// Chrome rects the locked-action dwell must never fire inside (D26): the toolbar band (incl.
+    /// the modes-menu area) and the stop-button zone. Set by the app-side repeat controller from
+    /// screen geometry; Core keeps them as plain data so the gaze thread never calls back into UI.
     /// </summary>
-    public void FireRepeatTick(PhysicalPoint point)
+    public void SetRepeatSuppressionZones(params PhysicalRect[] zones)
+        => _repeatSuppressionZones = zones ?? Array.Empty<PhysicalRect>();
+
+    private bool IsInAnyRepeatSuppressionZone(PhysicalPoint point)
     {
-        if (CurrentState != InteractionState.RepeatMode || RepeatAction is not { } action) return;
-
-        var validityAgeUs = _lastSampleTimestampUs - _lastValidGazeTimestampUs;
-        if (validityAgeUs > LostGazeSkipThresholdUs) return;
-
-        // Dead-stream guard: with no samples at all, validity age cannot grow, so a tick also
-        // requires that a sample arrived since the previous tick. The long.MinValue sentinel
-        // (no sample ever seen — pure state-machine callers) allows the tick instead.
-        if (_lastTickObservedSampleUs != long.MinValue
-            && _lastSampleTimestampUs <= _lastTickObservedSampleUs) return;
-        _lastTickObservedSampleUs = _lastSampleTimestampUs;
-
-        ActionRequested?.Invoke(action, point);
+        foreach (var z in _repeatSuppressionZones)
+        {
+            if (point.X >= z.X && point.X <= z.X + z.Width
+                && point.Y >= z.Y && point.Y <= z.Y + z.Height)
+                return true;
+        }
+        return false;
     }
 
     private void ResetToFreeLook()
@@ -346,6 +394,8 @@ public class InteractionManager
         AutoSelectionTarget = null;
         ScrollAnchor = null;
         RepeatAction = null;
+        _repeatDwellPoint = null;
+        _repeatDwellFired = false;
         SetState(InteractionState.FreeLook);
     }
 }

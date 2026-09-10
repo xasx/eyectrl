@@ -1,25 +1,34 @@
 namespace EyeCtrl.App.Overlays;
 
+using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Shapes;
 using EyeCtrl.App.Services;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
 
 /// <summary>
-/// The modes menu panel (rework D18): small, top-centre, just below the toolbar band, toggled by
-/// the toolbar's Modes button. Click-through like the other pure-gaze overlays — dwell is the
-/// only interaction. The window is authoritative for placement and reports the row's real
-/// physical-pixel centre back to <see cref="ModesMenuViewModel.SetRowScreenPosition"/>; until
-/// that arrives the VM holds no dwell target (the ToolbarWindow (0,0) lesson).
+/// The modes menu panel (D18/D24): small, top-centre, just below the toolbar band, toggled by the
+/// toolbar's Modes button. Click-through like the other pure-gaze overlays — dwell is the only
+/// interaction. One row per click action; the locked action's row carries a filled marker. The
+/// window is authoritative for placement and reports every row's real physical-pixel centre back
+/// to <see cref="ModesMenuViewModel.SetRowScreenPositions"/>; until that arrives the VM holds no
+/// dwell targets (the ToolbarWindow (0,0) lesson).
 /// </summary>
 public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
 {
-    // Below the toolbar band. The toolbar's Size setting is passed via Configure; this margin
-    // keeps the panel clear of the band's edge.
     private const double BelowToolbarMarginLogical = 14;
+    private const double RowHeightLogical = 44;
+    private const double RowSpacingLogical = 8;
 
     private ModesMenuViewModel? _vm;
+    private double _toolbarBandHeightLogical = 140;
+    private readonly List<Border> _rows = new();
 
     public ModesMenuWindow()
     {
@@ -32,34 +41,101 @@ public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
     {
         _vm = vm;
         DataContext = vm;
-        // The window is sized to its fixed content; placement happens on every show.
-        Width = 380;
-        Height = 104;
         _toolbarBandHeightLogical = toolbarSizeLogical + BelowToolbarMarginLogical;
+        RebuildRows();
     }
 
-    private double _toolbarBandHeightLogical = 140;
+    private void RebuildRows()
+    {
+        if (_vm is null) return;
+        RowsPanel.Children.Clear();
+        _rows.Clear();
 
-    /// <summary>Places the panel top-centre under the toolbar and reports the row's dwell target.</summary>
+        foreach (var (id, _, label) in _vm.RowDefinitions)
+        {
+            var marker = new Ellipse
+            {
+                Width = 12, Height = 12,
+                Fill = Tokens.BrushAccent,
+                Visibility = Visibility.Collapsed,
+                Margin = new Thickness(0, 0, 10, 0),
+            };
+            var row = new Border
+            {
+                Tag = id,
+                Background = Tokens.BrushSurfaceMedium,
+                CornerRadius = new System.Windows.CornerRadius(Tokens.CornerRadiusStandard),
+                Padding = new Thickness(14, 8, 14, 8),
+                Height = RowHeightLogical,
+                Margin = new Thickness(0, RowSpacingLogical / 2, 0, RowSpacingLogical / 2),
+                Child = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Children =
+                    {
+                        marker,
+                        new TextBlock
+                        {
+                            Text = label,
+                            Foreground = Tokens.BrushTextPrimary,
+                            FontSize = Tokens.FontSizeBodyLarge,
+                            VerticalAlignment = VerticalAlignment.Center,
+                        },
+                    },
+                },
+            };
+            _rows.Add(row);
+            RowsPanel.Children.Add(row);
+        }
+
+        Width = 340;
+        Height = _rows.Count * (RowHeightLogical + RowSpacingLogical) + 24;
+    }
+
+    /// <summary>Places the panel top-centre under the toolbar and reports each row's dwell target.</summary>
     public void ShowAtTopCentre()
     {
         var logicalW = System.Windows.SystemParameters.PrimaryScreenWidth;
         Left = (logicalW - Width) / 2.0;
         Top = _toolbarBandHeightLogical;
+        UpdateMarkers();
         Show();
 
         if (_vm is null) return;
 
-        // Row centre in physical pixels — the position the dwell target must carry. Done after
-        // Show so ActualWidth/ActualHeight are real.
-        var rowCentreLogicalX = Left + 16 + RepeatRow.ActualWidth / 2.0;
-        var rowCentreLogicalY = Top + 12 + RepeatRow.ActualHeight / 2.0;
-        var centre = new PhysicalPoint(
-            DpiHelper.LogicalToPhysicalX(rowCentreLogicalX),
-            DpiHelper.LogicalToPhysicalY(rowCentreLogicalY));
-        var radius = DpiHelper.LogicalToPhysicalX(RepeatRow.ActualHeight / 2.0);
-        _vm.SetRowScreenPosition(centre, radius);
+        var positions = new List<(string, PhysicalPoint, double)>();
+        foreach (var row in _rows)
+        {
+            var centreLogicalX = Left + 16 + row.ActualWidth / 2.0;
+            var centreLogicalY = Top + 12 + row.ActualHeight / 2.0 + row.Margin.Top;
+            positions.Add(((string)row.Tag!,
+                new PhysicalPoint(
+                    DpiHelper.LogicalToPhysicalX(centreLogicalX),
+                    DpiHelper.LogicalToPhysicalY(centreLogicalY)),
+                DpiHelper.LogicalToPhysicalX(RowHeightLogical / 2.0)));
+        }
+        _vm.SetRowScreenPositions(positions);
     }
+
+    /// <summary>Filled marker on the locked action's row, refreshed on every show.</summary>
+    private void UpdateMarkers()
+    {
+        if (_vm is null) return;
+        foreach (var row in _rows)
+        {
+            var id = (string)row.Tag!;
+            var def = _vm.RowDefinitions.First(r => r.Id == id);
+            var marker = FindMarker(row);
+            if (marker is not null)
+                marker.Visibility = _vm.ActiveAction == def.Action
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+        }
+    }
+
+    private static Ellipse? FindMarker(Border row)
+        => (row.Child as StackPanel)?.Children.OfType<Ellipse>().FirstOrDefault();
 
     public void HideMenu() => Hide();
 }

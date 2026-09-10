@@ -85,4 +85,5 @@ public record EventCoordinationContext(
     IQuickActionsStore QuickActionsStore,
     IWindowsAppLauncher WindowsAppLauncher,
     IInstalledAppProvider InstalledAppProvider,
-    ModesMenuViewModel ModesMenuVM);
+    ModesMenuViewModel ModesMenuVM,
+    RepeatCursorViewModel RepeatCursorVM);

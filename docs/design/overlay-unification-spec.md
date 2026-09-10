@@ -7,7 +7,7 @@
 
 ## 1. Problem Statement
 
-EyeCtrl has 27 overlay windows and 7 dwell controls — 24 with XAML under
+EyeCtrl has 28 overlay windows and 7 dwell controls — 24 with XAML under
 `Overlays/`, the code-only `NoteWindow`, and `SettingsWindow` under `Views/`
 (which also derives from `OverlayWindow`). Re-counted against merged `main` at
 b8295b6, which includes PRs #70 and #71, and enforced by
@@ -49,6 +49,7 @@ The result is a UI that feels like a patchwork of different apps rather than one
 | TrackStatus | `TrackStatusWindow` | `#80000000` | XAML |
 | TaskSwitcher | `TaskSwitcherWindow` | `#E6000000` | XAML |
 | ModesMenu | `ModesMenuWindow` | transparent window; panel border `BrushSurfaceDark` (palette token) | XAML |
+| RepeatCursor | `RepeatCursorWindow` | transparent | code-only |
 | PauseIndicator | `PauseIndicatorWindow` | `#C0204060` | XAML |
 | EyeCareBanner | `EyeCareBannerWindow` | `#F0181830` | XAML |
 | EyeCareExercise | `EyeCareExerciseWindow` | `#E8000000` | XAML |

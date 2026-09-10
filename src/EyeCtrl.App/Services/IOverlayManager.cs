@@ -93,6 +93,9 @@ public interface IOverlayManager
     /// <summary>Gets the modes menu panel (toolbar-triggered input-mode switches).</summary>
     IModesMenuOverlay ModesMenu { get; }
 
+    /// <summary>Gets the contracting locked-mode aiming cursor.</summary>
+    IRepeatCursorOverlay RepeatCursor { get; }
+
     /// <summary>Gets the quick-actions grid overlay window.</summary>
     IQuickActionsGridOverlay QuickActionsGrid { get; }
 
@@ -122,4 +125,5 @@ public record OverlayViewModels(
     TrackStatusViewModel TrackStatus,
     TaskSwitcherViewModel TaskSwitcher,
     QuickActionsGridViewModel QuickActionsGrid,
-    ModesMenuViewModel ModesMenu);
+    ModesMenuViewModel ModesMenu,
+    RepeatCursorViewModel RepeatCursor);

@@ -52,9 +52,9 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
                     { Description = "How fast gaze scrolling moves through documents." },
                 new LabelSpec(() => new string('\u2500', 50), Wrap: false),
                 // Repeat
-                new SliderSpec("av_repeat_interval", "Repeat Interval (ms)", 250, 5000, 50, 0,
-                    () => repeat.IntervalMs, v => { repeat.IntervalMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = "How often repeat mode re-fires your locked click. Applies the next time you start repeating. Intervals under ~500 ms can register as double-clicks in some apps." },
+                new SliderSpec("av_repeat_dwell", "Repeat Dwell (ms)", 200, 2000, 50, 0,
+                    () => repeat.DwellMs, v => { repeat.DwellMs = (int)v; _ctx.ApplyAndSave(); })
+                    { Description = "How long to hold your gaze on a target before the locked action fires there." },
                 new LabelSpec(() => new string('\u2500', 50), Wrap: false),
                 // External Dwell
                 new ToggleSpec("av_ext_enabled", "Enable External Dwell",
@@ -82,7 +82,7 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
                         st.Drag.TrailColor = d.TrailColor;
                         st.Drag.TrailOpacity = d.TrailOpacity;
                         st.Scroll.Sensitivity = sc.Sensitivity;
-                        st.Repeat.IntervalMs = r.IntervalMs;
+                        st.Repeat.DwellMs = r.DwellMs;
                         st.ExternalDwell.Enabled = e.Enabled;
                         st.ExternalDwell.DefaultDwellMs = e.DefaultDwellMs;
                         st.ExternalDwell.CooldownMs = e.CooldownMs;

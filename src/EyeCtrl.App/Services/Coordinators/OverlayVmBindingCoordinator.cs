@@ -74,6 +74,10 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
         // toolbar's ModesMenuToggledMessage; this side shows/hides the panel. While it is up the
         // toolbar's own dwell is suspended (the 2026-08-18 dwell-through field report).
         Context.ModesMenuVM.PropertyChanged += OnModesMenuVMPropertyChanged;
+
+        // Repeat cursor: shown only while the locked mode runs; position/progress drive the
+        // contracting ring. The window moves itself per update (gaze-thread → dispatcher).
+        Context.RepeatCursorVM.PropertyChanged += OnRepeatCursorVMPropertyChanged;
     }
 
     private void SetupBackdrop()
@@ -327,6 +331,25 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
             _glassBackdrop.UpdateHideButtonProgress(Context!.BackdropVM.HideButtonProgress);
     }
 
+    private void OnRepeatCursorVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (Context is null) return;
+
+        Context.Dispatcher.BeginInvoke(() =>
+        {
+            var vm = Context.RepeatCursorVM;
+            if (e.PropertyName == nameof(vm.IsVisible))
+            {
+                if (vm.IsVisible) Context.OverlayManager.RepeatCursor.ShowCursor();
+                else Context.OverlayManager.RepeatCursor.HideCursor();
+            }
+            else if (e.PropertyName is nameof(vm.Position) or nameof(vm.DwellProgress))
+            {
+                if (vm.IsVisible) Context.OverlayManager.RepeatCursor.Update(vm);
+            }
+        });
+    }
+
     private void OnModesMenuVMPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (Context is null) return;
@@ -402,6 +425,7 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
         Context.BackdropVM.PropertyChanged -= OnBackdropVMPropertyChanged;
         Context.TaskSwitcherVM.PropertyChanged -= OnTaskSwitcherVMPropertyChanged;
         Context.ModesMenuVM.PropertyChanged -= OnModesMenuVMPropertyChanged;
+        Context.RepeatCursorVM.PropertyChanged -= OnRepeatCursorVMPropertyChanged;
 
         _glassBackdrop?.Hide();
         _glassBackdrop = null;

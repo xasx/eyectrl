@@ -233,6 +233,14 @@ public interface ITaskSwitcherOverlay
     void HideOverlay();
 }
 
+/// <summary>The contracting locked-mode aiming cursor.</summary>
+public interface IRepeatCursorOverlay
+{
+    void Update(RepeatCursorViewModel vm);
+    void ShowCursor();
+    void HideCursor();
+}
+
 /// <summary>The modes menu panel (toolbar-triggered input-mode switches).</summary>
 public interface IModesMenuOverlay
 {

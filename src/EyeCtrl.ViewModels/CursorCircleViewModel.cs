@@ -41,11 +41,8 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
 
     public void Receive(StateChangedMessage message)
     {
-        // RepeatMode keeps the circle visible: it is that mode's only aiming feedback (there is
-        // no scroll-style overlay), and the user aims the repeating click by looking.
-        _stateAllowsCursor = message.NewState is InteractionState.FreeLook
-            or InteractionState.Fixation
-            or InteractionState.RepeatMode;
+        // RepeatMode hides the normal circle: the contracting repeat cursor replaces it there.
+        _stateAllowsCursor = message.NewState is InteractionState.FreeLook or InteractionState.Fixation;
         UpdateVisibility();
     }
 

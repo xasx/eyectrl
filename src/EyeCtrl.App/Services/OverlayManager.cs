@@ -78,6 +78,9 @@ public class OverlayManager : IOverlayManager
     private ModesMenuWindow _modesMenu = null!;
     /// <inheritdoc />
     public IModesMenuOverlay ModesMenu => _modesMenu;
+    private RepeatCursorWindow _repeatCursor = null!;
+    /// <inheritdoc />
+    public IRepeatCursorOverlay RepeatCursor => _repeatCursor;
 
     public OverlayManager(Dispatcher dispatcher, ILogger<OverlayManager> logger, IAppIconProvider iconProvider,
         IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
@@ -170,6 +173,10 @@ public class OverlayManager : IOverlayManager
         // Modes menu panel (small, under the toolbar). Takes the VM + toolbar height for placement.
         _modesMenu = new ModesMenuWindow();
         _modesMenu.Configure(viewModels.ModesMenu, settings.Toolbar.Size);
+
+        // Contracting locked-mode aiming cursor (bound by the VM coordinator).
+        _repeatCursor = new RepeatCursorWindow();
+        _repeatCursor.DataContext = viewModels.RepeatCursor;
 
         _logger.LogInformation("Overlay windows initialized successfully");
     }

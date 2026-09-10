@@ -366,6 +366,7 @@ public class AppBootstrapper
         services.AddSingleton<TrackStatusViewModel>();
         services.AddSingleton<TaskSwitcherViewModel>();
         services.AddSingleton<ModesMenuViewModel>();
+        services.AddSingleton<RepeatCursorViewModel>();
         services.AddSingleton<QuickActionsGridViewModel>();
 
         // Scripted ground truth (Stage 2 ticket 3), written beside the raw recording it describes and
@@ -573,7 +574,8 @@ public class AppBootstrapper
             TrackStatus: sp.GetRequiredService<TrackStatusViewModel>(),
             TaskSwitcher: sp.GetRequiredService<TaskSwitcherViewModel>(),
             QuickActionsGrid: sp.GetRequiredService<QuickActionsGridViewModel>(),
-            ModesMenu: sp.GetRequiredService<ModesMenuViewModel>());
+            ModesMenu: sp.GetRequiredService<ModesMenuViewModel>(),
+            RepeatCursor: sp.GetRequiredService<RepeatCursorViewModel>());
     }
 
     private static IExercise[] BuildExercisePool(PhysicalPoint center)

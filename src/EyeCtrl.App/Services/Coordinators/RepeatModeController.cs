@@ -53,27 +53,6 @@ internal sealed class RepeatModeController : CoordinatorBase
             VerticalOffset: verticalOffset,
             RadiusLogical: UIConstants.ButtonRadius);
 
-    /// <summary>
-    /// Whether <paramref name="point"/> sits inside the right-edge stop button's suppression
-    /// zone (review PR #139 finding 3). The bar is click-through, so a tick aimed at the stop
-    /// button would fire the locked click THROUGH it onto whatever owns the right screen edge —
-    /// during the very dwell that is trying to end the mode.
-    /// </summary>
-    internal static bool IsInStopButtonZone(
-        PhysicalPoint point, PhysicalPoint stopCenterPhysical, double stopRadiusPhysical)
-    {
-        if (stopRadiusPhysical <= 0) return false;
-        var zone = stopRadiusPhysical * StopZoneMarginFactor;
-        return DistanceSquared(point, stopCenterPhysical) <= zone * zone;
-    }
-
-    private static double DistanceSquared(PhysicalPoint a, PhysicalPoint b)
-    {
-        var dx = a.X - b.X;
-        var dy = a.Y - b.Y;
-        return dx * dx + dy * dy;
-    }
-
     private bool _active;
     private PhysicalPoint _stopCenterPhysical;
     private double _stopRadiusPhysical;
@@ -82,6 +61,14 @@ internal sealed class RepeatModeController : CoordinatorBase
     {
         var context = Context!;
         context.InteractionManager.StateChanged += OnStateChanged;
+
+        // Review PR #139 round 3 finding 1 — the entry guard's missing half. A Modes row is a
+        // 700 ms dwell while fixation fires at 300 ms and nothing else suppresses it, so at row
+        // activation the state was Fixation and the FreeLook-guarded EnterRepeatMode no-oped:
+        // the mode could never start through its own UI. While the menu is visible we suppress
+        // engine fixation and clear any live one (the KeyboardCoordinator pattern); without
+        // this the row's dwell races a state the entry refuses.
+        context.ModesMenuVM.PropertyChanged += OnModesMenuVMVisibilityChanged;
         context.Messenger.Register<RepeatModeController, ExitRepeatModeMessage>(this, (_, _) =>
             context.Dispatcher.BeginInvoke(() => context.InteractionManager.ExitRepeatMode()));
         // The Modes menu's entry path (D20/D24): keeps all repeat-mode message handling here.
@@ -107,6 +94,27 @@ internal sealed class RepeatModeController : CoordinatorBase
                 handled = true;
             }
         }
+    }
+
+    private void OnModesMenuVMVisibilityChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        var context = Context;
+        if (context is null || e.PropertyName != nameof(EyeCtrl.ViewModels.ModesMenuViewModel.IsVisible)) return;
+
+        context.Dispatcher.BeginInvoke(() =>
+        {
+            if (context.ModesMenuVM.IsVisible)
+            {
+                context.GazeEngine.SuppressFixation = true;
+                // A fixation already in flight would leave the state at Fixation when the row
+                // activates — end it, exactly as the keyboard does when it takes over gaze.
+                context.InteractionManager.OnFixationEnded();
+            }
+            else
+            {
+                context.GazeEngine.SuppressFixation = false;
+            }
+        });
     }
 
     private void OnStateChanged(InteractionState state)
@@ -160,7 +168,7 @@ internal sealed class RepeatModeController : CoordinatorBase
     internal static Core.Models.PhysicalRect BuildToolbarBandRect(double toolbarSizeLogical)
     {
         var logicalW = System.Windows.SystemParameters.PrimaryScreenWidth;
-        var bandLogicalH = toolbarSizeLogical + 130;
+        var bandLogicalH = toolbarSizeLogical + 280;   // + the 4-row modes panel that hangs below
         return new Core.Models.PhysicalRect(
             0, 0,
             DpiHelper.LogicalToPhysicalX(logicalW),

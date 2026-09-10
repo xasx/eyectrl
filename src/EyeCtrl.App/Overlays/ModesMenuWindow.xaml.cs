@@ -104,19 +104,37 @@ public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
 
         if (_vm is null) return;
 
-        var positions = new List<(string, PhysicalPoint, double)>();
-        foreach (var row in _rows)
+        _vm.SetRowScreenPositions(ComputeRowCentres(Left, Top));
+    }
+
+    /// <summary>
+    /// Per-row target centres in physical px, in row order. Pure arithmetic so a geometry test
+    /// can pin it: panel padding (16,12) then one (row + spacing) slot per row (review PR #139
+    /// round 3 finding 2 — the original loop had no index term, so all four rows shared row 0's
+    /// centre and the detector's tie-break decided which action a dwell picked).
+    /// </summary>
+    internal static IReadOnlyList<(string Id, PhysicalPoint Centre, double Radius)> ComputeRowCentres(
+        IReadOnlyList<(string Id, InteractionAction Action, string Label)> definitions,
+        double windowLeft, double windowTop)
+    {
+        var result = new List<(string, PhysicalPoint, double)>();
+        for (var i = 0; i < definitions.Count; i++)
         {
-            var centreLogicalX = Left + 16 + row.ActualWidth / 2.0;
-            var centreLogicalY = Top + 12 + row.ActualHeight / 2.0 + row.Margin.Top;
-            positions.Add(((string)row.Tag!,
+            var centreLogicalX = windowLeft + 16 + 340 - 32;   // panel width minus horizontal padding
+            var centreLogicalY = windowTop + 12 + i * (RowHeightLogical + RowSpacingLogical)
+                                 + RowSpacingLogical / 2 + RowHeightLogical / 2;
+            result.Add((definitions[i].Id,
                 new PhysicalPoint(
                     DpiHelper.LogicalToPhysicalX(centreLogicalX),
                     DpiHelper.LogicalToPhysicalY(centreLogicalY)),
                 DpiHelper.LogicalToPhysicalX(RowHeightLogical / 2.0)));
         }
-        _vm.SetRowScreenPositions(positions);
+        return result;
     }
+
+    private IReadOnlyList<(string, PhysicalPoint, double)> ComputeRowCentres(
+        double windowLeft, double windowTop)
+        => ComputeRowCentres(_vm!.RowDefinitions, windowLeft, windowTop);
 
     /// <summary>Filled marker on the locked action's row, refreshed on every show.</summary>
     private void UpdateMarkers()

@@ -360,7 +360,11 @@ public class InteractionManager
             _repeatDwellFired = true;   // one fire per fixation; re-arm needs a new fixation
             RepeatDwellProgressChanged?.Invoke(1);
             ActionRequested?.Invoke(RepeatAction!.Value, target);
-            RepeatDwellProgressChanged?.Invoke(0);
+            // The cursor STAYS contracted after the fire (review round 3 finding 6): a held
+            // stare cannot re-fire, so snapping straight back to full size would read as
+            // "ready" when it is not. It resets on fixation end / the next arm. The gaze
+            // stream keeps invoking 1 — harmless, it is already there. The else-branch is
+            // skipped once fired.
         }
         else
         {

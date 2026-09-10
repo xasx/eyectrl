@@ -294,7 +294,12 @@ public class GazeEngineAdapter : IDisposable
     {
         var isPrecise = _interactionManager.CurrentState == InteractionState.ManualSelectionActionMenuVisible
                      || (_interactionManager.CurrentState == InteractionState.ActionMenuVisible
-                         && _interactionManager.SelectionMode == SelectionMode.AutoSelection);
+                         && _interactionManager.SelectionMode == SelectionMode.AutoSelection)
+                     // Repeat-mode dwell-fires carry the exact fixated point — a completed dwell
+                     // is at least as deliberate as a zoomed selection, and the dispatcher's
+                     // StableCentroid substitution would otherwise move the click off the point
+                     // the suppression zones were checked against (review round 3 finding 4).
+                     || _interactionManager.CurrentState == InteractionState.RepeatMode;
         _dispatcher.BeginInvoke(() => _messenger.Send(new ActionRequestedMessage(action, point, isPrecise)));
     }
 

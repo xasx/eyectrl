@@ -1,5 +1,6 @@
 namespace EyeCtrl.ViewModels;
 
+using System.Collections.ObjectModel;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
@@ -39,21 +40,29 @@ public partial class ModesMenuViewModel : DwellOverlayViewModelBase,
         ("modes_middle", InteractionAction.MiddleClick, "Middle click"),
     };
 
-    /// <summary>The action row currently locked (null = mode off). Drives the ● marker.</summary>
+    /// <summary>The action currently locked (null = mode off). Drives the active-button marker.</summary>
     [ObservableProperty] private InteractionAction? _activeAction;
 
-    /// <summary>0..1 dwell progress of the row under gaze, for the fill bar.</summary>
-    [ObservableProperty] private double _rowDwellProgress;
+    /// <summary>One view-model per dwell button — DwellProgress drives each button's arc.</summary>
+    public ObservableCollection<ModesMenuButtonViewModel> Buttons { get; } = new();
 
     public ModesMenuViewModel(EyeCtrlSettings settings, IMessenger messenger,
         IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
         : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.Toolbar, sink, dwellRegistry)
     {
         _rowDwellMs = settings.Dwell.ToolbarButtonDwellMs;
+        RebuildButtons();
     }
 
     /// <summary>The rows the view should render, in order.</summary>
     public IReadOnlyList<(string Id, InteractionAction Action, string Label)> RowDefinitions => Rows;
+
+    private void RebuildButtons()
+    {
+        Buttons.Clear();
+        foreach (var (id, action, label) in Rows)
+            Buttons.Add(new ModesMenuButtonViewModel(id, action, label));
+    }
 
     public void Receive(ModesMenuToggledMessage message)
     {
@@ -101,12 +110,17 @@ public partial class ModesMenuViewModel : DwellOverlayViewModelBase,
     }
 
     protected override void OnTargetProgress(string targetId, double progress)
-        => RowDwellProgress = Rows.Any(r => r.Id == targetId) ? progress : 0;
+    {
+        var button = Buttons.FirstOrDefault(b => b.Id == targetId);
+        if (button is not null)
+            button.DwellProgress = progress;
+    }
 
     public void HideOverlay()
     {
         IsVisible = false;
-        RowDwellProgress = 0;
+        foreach (var b in Buttons)
+            b.DwellProgress = 0;
         DwellDetector.ClearTargets();
     }
 

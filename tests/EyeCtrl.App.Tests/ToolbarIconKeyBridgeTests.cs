@@ -38,6 +38,18 @@ public class ToolbarIconKeyBridgeTests
             .That(Enum.Parse<ToolbarIconKey>(key)).IsEqualTo(expected);
     }
 
+    [Theory]
+    [InlineData(InteractionAction.LeftClick, ToolbarIconKey.ModeLeftClick)]
+    [InlineData(InteractionAction.RightClick, ToolbarIconKey.ModeRightClick)]
+    [InlineData(InteractionAction.DoubleClick, ToolbarIconKey.ModeDoubleClick)]
+    [InlineData(InteractionAction.MiddleClick, ToolbarIconKey.ModeMiddleClick)]
+    public void EachLockedAction_MapsToItsIntendedModeIcon(InteractionAction action, ToolbarIconKey expected)
+    {
+        var key = EyeCtrl.ViewModels.ModesIcons.ForAction(action);
+        Check.WithCustomMessage($"ModesIcons.ForAction({action}) = \"{key}\", expected it to name {expected}.")
+            .That(Enum.Parse<ToolbarIconKey>(key)).IsEqualTo(expected);
+    }
+
     /// <summary>
     /// The Pause button's icon key is written after construction (<c>ToolbarViewModel.Receive
     /// (StateChangedMessage)</c>), so the constructor-only totality check below never sees it.

@@ -210,3 +210,14 @@ cadence is gone; the mode is now user-paced. Amends/supersedes:
 D2 amended: an **opt-in** direct dwell inside an explicitly locked mode is owner-approved (the
 two-step safety moved to mode entry); always-on Click-on-Fixation stays declined. Lost-gaze
 auto-exit (2 s) and the stop button / ESC exits stand.
+
+## Rework round 3 — owner field feedback (2026-09-10): toolbar-style buttons
+
+*"the submenu is not dwell friendly and doesn't work either. Use the buttons that are also used
+in the toolbar. On selection, change the icon on the toolbar button."* (Live two-minute launch.)
+
+| # | Decision | Supersedes | Notes |
+|---|----------|-----------|-------|
+| D29 | The Modes panel renders **DwellArcButtons** — the exact control the toolbar uses: full `Toolbar.Size` targets, self-drawn dwell arcs, the ActionIcons mouse glyphs | D24's text rows | The 44-logical text rows were far below gaze accuracy and their hand-computed targets drifted from the rendered layout — the root cause of both field complaints |
+| D30 | The toolbar's Modes button **swaps its icon to the locked action's mouse glyph** while the mode runs (new `ToolbarIconKey.Mode*Click` members, geometries reused from `ActionIcons`; `ModesIcons.ForAction` helper) and back to the stack glyph when off | — | The Pause↔Play / SelectionMode icon-swap precedent; the toolbar button now doubles as the mode's state display |
+| D31 | `RepeatActionChangedMessage(InteractionAction?)` broadcast by `RepeatModeController` on mode enter/exit carries the locked action to the toolbar | — | StateChangedMessage carries only the state; the toolbar needs the payload |

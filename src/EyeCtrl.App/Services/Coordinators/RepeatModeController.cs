@@ -127,9 +127,19 @@ internal sealed class RepeatModeController : CoordinatorBase
         context.Dispatcher.BeginInvoke(() =>
         {
             if (state == InteractionState.RepeatMode)
+            {
                 Enter();
-            else if (_active)
-                Exit();
+                // D30: the toolbar Modes button shows the locked action's glyph while the mode
+                // runs and the stack glyph otherwise — the button doubles as the state display.
+                context.Messenger.Send(new RepeatActionChangedMessage(
+                    context.InteractionManager.RepeatAction));
+            }
+            else
+            {
+                if (_active)
+                    Exit();
+                context.Messenger.Send(new RepeatActionChangedMessage(null));
+            }
         });
     }
 
@@ -168,7 +178,7 @@ internal sealed class RepeatModeController : CoordinatorBase
     internal static Core.Models.PhysicalRect BuildToolbarBandRect(double toolbarSizeLogical)
     {
         var logicalW = System.Windows.SystemParameters.PrimaryScreenWidth;
-        var bandLogicalH = toolbarSizeLogical + 280;   // + the 4-row modes panel that hangs below
+        var bandLogicalH = toolbarSizeLogical + 200;   // + the DwellArcButton modes panel that hangs below (size + 2×gap + margin)
         return new Core.Models.PhysicalRect(
             0, 0,
             DpiHelper.LogicalToPhysicalX(logicalW),

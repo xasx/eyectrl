@@ -73,6 +73,12 @@ public static class ToolbarIcons
         [ToolbarIconKey.Modes] = IconGeometry.FromPathData(
             "M4.6,12 L19.4,12 M4.6,19.4 L19.4,19.4",
             "M4.6,3.4 L19.4,3.4 L19.4,6.2 L4.6,6.2 Z"),
+        // Locked-action mode states on the Modes button (D30): the same mouse glyphs the
+        // action ring uses, so the toolbar button shows WHAT is locked, not just that.
+        [ToolbarIconKey.ModeLeftClick] = Icons.ActionIcons.For(Core.Models.ActionIcon.LeftClick),
+        [ToolbarIconKey.ModeRightClick] = Icons.ActionIcons.For(Core.Models.ActionIcon.RightClick),
+        [ToolbarIconKey.ModeDoubleClick] = Icons.ActionIcons.For(Core.Models.ActionIcon.DoubleClick),
+        [ToolbarIconKey.ModeMiddleClick] = Icons.ActionIcons.For(Core.Models.ActionIcon.MiddleClick),
         [ToolbarIconKey.ResetAdaptation] = IconGeometry.FromPathData(
             "M3,12 A9,9 0 1 0 12,3 A9,9 0 0 0 5.26,5.74 L3,8 M3,3 L3,8 L8,8"),
         [ToolbarIconKey.ProviderEye] = IconGeometry.FromPathData(

@@ -12,6 +12,7 @@ using EyeCtrl.ViewModels.Messages;
 
 public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     IRecipient<StateChangedMessage>,
+    IRecipient<RepeatActionChangedMessage>,
     IRecipient<CalibrationCompletedMessage>,
     IRecipient<CalibrationCancelledMessage>,
     IRecipient<SelectionModeChangedMessage>
@@ -134,11 +135,28 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
             DwellDetector.ResetAllState();
     }
 
+    private InteractionAction? _repeatAction;
+
+    public void Receive(RepeatActionChangedMessage message)
+    {
+        _repeatAction = message.Action;
+        if (_buttonLookup.TryGetValue("Modes", out var btn))
+            btn.IconKey = message.Action is { } a ? ModesIcons.ForAction(a) : ModesIcons.Off;
+    }
+
     public void Receive(StateChangedMessage message)
     {
         IsPaused = message.NewState == InteractionState.Paused;
         if (_buttonLookup.TryGetValue("Pause", out var btn))
             btn.IconKey = IsPaused ? "Play" : "Pause";
+        if (message.NewState != InteractionState.RepeatMode && _repeatAction is not null)
+        {
+            // Leaving the mode also resets the Modes button — the action message covers entry,
+            // this covers every exit path (stop button, ESC, auto-exit) uniformly.
+            _repeatAction = null;
+            if (_buttonLookup.TryGetValue("Modes", out var modesBtn))
+                modesBtn.IconKey = ModesIcons.Off;
+        }
     }
 
     public void Receive(CalibrationCompletedMessage message)

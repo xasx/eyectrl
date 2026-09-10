@@ -5,7 +5,7 @@
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize" ShowActivated="False">
     <Border Background="{StaticResource BrushSurfaceDark}"
-            CornerRadius="{StaticResource StandardCornerRadius}" Padding="16,12">
-        <StackPanel x:Name="RowsPanel"/>
+            CornerRadius="{StaticResource StandardCornerRadius}">
+        <Canvas x:Name="ButtonCanvas" />
     </Border>
 </overlays:OverlayWindow>

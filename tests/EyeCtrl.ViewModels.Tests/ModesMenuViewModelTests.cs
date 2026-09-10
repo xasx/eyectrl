@@ -112,6 +112,28 @@ public class ModesMenuViewModelTests
         });
 
         messenger.Send(new ModesMenuToggledMessage());
-        Check.That(vm.RowDwellProgress).IsEqualTo(0);
+        Check.That(vm.Buttons.All(b => b.DwellProgress == 0)).IsTrue();
+    }
+
+    [Fact]
+    public void DwellProgress_LandsOnTheDwelledButtonOnly()
+    {
+        var (vm, messenger) = Make();
+        messenger.Send(new ModesMenuToggledMessage());
+        vm.SetRowScreenPositions(new[]
+        {
+            ("modes_left", new PhysicalPoint(500, 200), 60.0),
+            ("modes_right", new PhysicalPoint(660, 200), 60.0),
+            ("modes_double", new PhysicalPoint(820, 200), 60.0),
+            ("modes_middle", new PhysicalPoint(980, 200), 60.0),
+        });
+
+        // Drive the base's gaze path: samples over the third button until its dwell fires.
+        vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(820, 200), 0));
+        for (long t = 33_000; t <= 800_000; t += 33_000)
+            vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(820, 200), t));
+
+        Check.That(vm.Buttons.Single(b => b.Id == "modes_double").DwellProgress).IsEqualTo(0); // fired → reset
+        Check.That(vm.IsVisible).IsFalse();                                                   // menu closed on selection
     }
 }

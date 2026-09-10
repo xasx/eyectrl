@@ -36,6 +36,14 @@ public enum ToolbarIconKey
     TaskSwitcher,
     /// <summary>Three stacked bars with the top one filled — a chosen mode among options; opens the modes menu.</summary>
     Modes,
+    /// <summary>Mouse with left button filled — locked-action dwell mode, Left click (reuses the ActionIcons glyph).</summary>
+    ModeLeftClick,
+    /// <summary>Mouse with right button filled — locked-action dwell mode, Right click.</summary>
+    ModeRightClick,
+    /// <summary>Mouse with ripples and a "2" — locked-action dwell mode, Double click.</summary>
+    ModeDoubleClick,
+    /// <summary>Mouse with wheel pressed — locked-action dwell mode, Middle click.</summary>
+    ModeMiddleClick,
     /// <summary>Counter-clockwise arrow — reset struggle adaptation to baseline.</summary>
     ResetAdaptation,
     /// <summary>Eye — the gaze provider is a real tracker.</summary>

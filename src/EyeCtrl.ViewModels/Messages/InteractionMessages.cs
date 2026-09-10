@@ -167,6 +167,12 @@ public record EnterRepeatModeMessage(InteractionAction Action);
 /// <summary>Dwell progress (0..1) of the armed locked-action dwell — drives the contracting repeat cursor.</summary>
 public record RepeatDwellProgressChangedMessage(double Progress);
 
+/// <summary>
+/// The action locked in dwell-to-act mode, or null when the mode is off. Sent by the repeat
+/// controller on mode enter/exit; consumed by the toolbar to swap the Modes button's icon (D30).
+/// </summary>
+public record RepeatActionChangedMessage(InteractionAction? Action);
+
 /// <summary>Sent by the toolbar Modes button to toggle the modes menu overlay.</summary>
 public record ModesMenuToggledMessage;
 

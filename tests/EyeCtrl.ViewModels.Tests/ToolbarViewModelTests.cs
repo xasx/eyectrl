@@ -318,4 +318,19 @@ public class ToolbarViewModelTests
         vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(0, 0), 60_000));
         Check.That(button.IsHighlighted).IsFalse();
     }
+
+    [Fact]
+    public void ModesButton_ShowsTheLockedActionGlyph_AndResetsOnModeExit()
+    {
+        var vm = new ToolbarViewModel(_settings, _messenger);
+        var modes = vm.Buttons.Single(b => b.Id == "Modes");
+        Check.That(modes.IconKey).IsEqualTo("Modes");
+
+        _messenger.Send(new RepeatActionChangedMessage(InteractionAction.RightClick));
+        Check.That(modes.IconKey).IsEqualTo("ModeRightClick");
+
+        // Leaving the mode via the uniform exit path (StateChanged off) also resets.
+        _messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        Check.That(modes.IconKey).IsEqualTo("Modes");
+    }
 }

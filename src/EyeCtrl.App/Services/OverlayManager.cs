@@ -174,8 +174,10 @@ public class OverlayManager : IOverlayManager
         _modesMenu = new ModesMenuWindow();
         _modesMenu.Configure(viewModels.ModesMenu, settings.Toolbar.Size);
 
-        // Contracting locked-mode aiming cursor (bound by the VM coordinator).
+        // Contracting locked-mode aiming cursor (bound by the VM coordinator); sized from the
+        // user's cursor-circle preference (field round 2: "slightly bigger").
         _repeatCursor = new RepeatCursorWindow();
+        _repeatCursor.Configure(settings.Cursor.CircleSize);
         _repeatCursor.DataContext = viewModels.RepeatCursor;
 
         _logger.LogInformation("Overlay windows initialized successfully");

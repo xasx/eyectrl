@@ -191,3 +191,22 @@ extensible for Drawing mode #10), the one-shot Repeat is **dropped entirely**, a
 Everything else stands: RepeatSettings + Advanced row, the validity gates, stop button, ESC hatch,
 `RepeatModeController` cadence, OFF-by-default philosophy (now structural — nothing ring-visible
 ships at all).
+
+## Rework round 2 — owner direction (2026-09-09): dwell-to-act, no automatic repeat
+
+*"it should allow the user to first pick the desired action and then apply the action on dwell,
+skipping the interaction button and action menu. No automatic repeated action."* The timer-based
+cadence is gone; the mode is now user-paced. Amends/supersedes:
+
+| # | Decision | Supersedes | Notes |
+|---|----------|-----------|-------|
+| D23 | **Locked-action dwell-to-act**: dwell on any target fires the locked action at that point; one action per dwell | D4/D5 (auto-tick at centroid) | Owner: "no automatic repeated action" — the user sets the pace |
+| D24 | Modes menu = **action picker**: Left/Right/Double/Middle rows; dwell an inactive row locks it; dwell the active row exits. `LastRepeatableAction` history REMOVED — explicit choice replaces it | D3/D16 remnants | `EnterRepeatModeMessage` carries the chosen action |
+| D25 | Dwell timing in Core: armed at fixation start (sample-clock), advanced only by VALID samples, fires once per fixation — re-arm requires a NEW fixation (glance away and back); fixation end cancels | — | One-per-fixation is the anti-machine-gun guard; holding a stare does not re-fire |
+| D26 | **Chrome suppression zones**: App passes the toolbar band (incl. the menu area) + the stop-button zone to Core as rect DATA; dwell never fires inside them — EyeCtrl chrome keeps its own dwell semantics | D21 (entry clearance) | No OS clicks synthesized onto our own chrome |
+| D27 | Feedback = a dedicated **smaller cursor circle that contracts** with dwell progress (owner spec), shown only in the mode; the normal cursor circle is hidden while it runs (revert of D10's allow-list) | D10 (partially) | Progress published by Core (`RepeatDwellProgressChanged`), forwarded by message |
+| D28 | `RepeatSettings.IntervalMs` → **`DwellMs`** (200–2000, default 600); stop dwell unchanged; Advanced row renamed | D7/D8 | The one knob now means "how long to hold gaze to fire" |
+
+D2 amended: an **opt-in** direct dwell inside an explicitly locked mode is owner-approved (the
+two-step safety moved to mode entry); always-on Click-on-Fixation stays declined. Lost-gaze
+auto-exit (2 s) and the stop button / ESC exits stand.

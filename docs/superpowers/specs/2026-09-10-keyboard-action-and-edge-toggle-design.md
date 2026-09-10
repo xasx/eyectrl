@@ -1,10 +1,16 @@
 # Keyboard action-menu action + quick Top/Bottom switch — design
 
 Date: 2026-09-10
-Status: awaiting owner review
-Brainstorm session: owner dismissed the clarifying-question round; every open choice is
+Status: awaiting owner review (round 2 — owner feedback incorporated, see §5 #5–#6 and #9–#11)
+Brainstorm session: owner dismissed both clarifying-question rounds; every open choice is
 encoded in the decision ledger (§5) and is vetoable. Point review comments at ledger
 numbers.
+
+Owner round-1 feedback (2026-09-10), addressed in this revision: the flip button must not
+rely on the toolbar being force-pinned while the keyboard is up — either the button lives
+elsewhere, or the toolbar stays auto-hide and the keyboard slides to give a summoned
+toolbar room. This revision takes the second path (ledger #9); the first (on-keyboard
+frame button) is kept in §4.3 as the fallback.
 
 ## 1. Problem
 
@@ -31,16 +37,22 @@ Two gaps reported by the owner:
   / `PrimaryMigrated` and `ToolbarSettings.SizeMigrated` all migrate a pre-existing
   settings file exactly once; the migration adds things that did not exist when the file
   was written (so no "re-add what the user removed" hazard).
-- **C3 — toolbar is force-shown while the keyboard is up.**
+- **C3 — toolbar is force-pinned while the keyboard is up (behavior this design REMOVES).**
   `KeyboardCoordinator.ApplyModalKeyboardState` suspends auto-hide;
   `ToolbarAutoHideController.SetSuspended(true)` force-recovers from hidden "so the user
-  isn't stranded". So a toolbar-hosted toggle is reachable exactly when keyboard position
-  matters.
-- **C4 — Top-edge collision strands the user.** Keyboard and toolbar both position via
-  `OverlayPositioning.PlaceAtEdge(workArea, edge, w, h)`; at `"top"` both start at
-  `workArea.Top`. A keyboard docked Top covers the force-shown toolbar strip — and the
-  toolbar holds the keyboard's only hide button. Default config (toolbar Top, keyboard
-  Bottom) avoids this today; a naive edge toggle reintroduces it.
+  isn't stranded". The owner rejected designs that depend on this pin: while typing, the
+  pinned strip eats screen space. The stranding rationale does not survive scrutiny —
+  the controller's `Feed` is subscribed directly to `GazeEngine.GazeSampled`
+  (ToolbarLifecycleCoordinator.cs:202) independent of the modal flags, so with the
+  suspension removed the toolbar edge-summons normally (~400 ms) and its Keyboard button
+  remains reachable. The settings-window suspension (`SettingsUiCoordinator.cs:117`) is a
+  separate caller and stays.
+- **C4 — same-edge collision is handled by the keyboard yielding, not by moving the
+  toolbar.** Keyboard and toolbar both position via `OverlayPositioning.PlaceAtEdge`;
+  at the same vertical edge they overlap. With the pin removed, the toolbar is only on
+  screen while gaze-summoned; when it appears onto the keyboard's edge the keyboard
+  slides toward screen center by the toolbar's extent and slides back when the toolbar
+  hides (owner's explicit direction). The toolbar never relocates.
 - **C5 — snapshot discipline.** `KeyboardStackSnapshot` includes `ScreenEdge`
   (`SettingsSnapshots.cs`). Mutating `KeyboardSettings.ScreenEdge` without refreshing
   `KeyboardCoordinator._keyboardSnapshot` plants a phantom diff: the next Settings apply
@@ -80,9 +92,9 @@ Two gaps reported by the owner:
 
 A "Keyboard" target on the ring, behind **More** by default (layer 2), with a drawn
 keyboard glyph. Activating it closes the menu and shows the gaze keyboard at its current
-edge, with the same modal semantics as the toolbar toggle (fixation suppression, toolbar
-auto-hide suspended, quick-actions summon suspended). If the keyboard is already visible,
-the action is an idempotent no-op (it never hides).
+edge, with the same modal semantics as the toolbar toggle (fixation suppression,
+quick-actions summon suspended). If the keyboard is already visible, the action is an
+idempotent no-op (it never hides).
 
 ### 3.2 Changes, in dependency order
 
@@ -131,14 +143,19 @@ Core-side special-casing like `ScrollMode` (needs no gaze anchor, so no state).
 ### 4.1 What the user sees
 
 A new toolbar button directly beside Keyboard: a keyboard glyph with up/down swap arrows.
-One dwell flips the keyboard between Top and Bottom immediately. The toolbar relocates to
-the opposite vertical edge **only when it would otherwise be covered** (C4). Works whether
-the keyboard is currently visible or hidden (pre-positioning); works in emoji mode (the
-toggle is window-level).
+One dwell flips the keyboard between Top and Bottom immediately. While the keyboard is
+up, the toolbar is **no longer force-pinned**: it hides when gaze leaves its edge and
+edge-summons on demand, exactly as it behaves without the keyboard. When the toolbar is
+summoned onto the keyboard's edge, the keyboard slides toward screen center to make room
+and slides back when the toolbar hides. The flip works whether the keyboard is visible
+or hidden (pre-positioning), and in emoji mode (window-level).
 
 ### 4.2 Changes, in dependency order
 
-1. **`KeyboardEdgeToggledMessage`** (new record, no payload, same file as above).
+**B1 — the flip itself**
+
+1. **`KeyboardEdgeToggledMessage`** (new record, no payload, `InteractionMessages.cs`
+   beside `KeyboardToggledMessage`).
 2. **`ToolbarViewModel`**: button tuple `("KeyboardEdge", "KeyboardEdge")` immediately
    after `("Keyboard", "Keyboard")`; activation `case "KeyboardEdge": Messenger.Send(new
    KeyboardEdgeToggledMessage()); break;`.
@@ -147,40 +164,67 @@ toggle is window-level).
 4. **`ToolbarBand`**: render tuple in the matching position (C7 guard forces VM/band/case
    consistency).
 5. **`KeyboardCoordinator`** registers `KeyboardEdgeToggledMessage` →
-   `HandleKeyboardEdgeToggled`, which:
-   a. Computes the plan via a pure, headless-testable function:
-      ```csharp
-      internal static (string NewKeyboardEdge, string? NewToolbarEdge) KeyboardEdgeTogglePlan(
-          string currentKeyboardEdge, bool toolbarDocked, string toolbarDockedEdge)
-      ```
-      Flip `"Top"` ↔ `"Bottom"` (anything other than `"Top"` reads as Bottom — same
-      normalization as `KeyboardWindow.RepositionOnScreen`). Relocate the toolbar iff
-      `toolbarDocked && toolbarDockedEdge` equals the keyboard's NEW edge; the new
-      toolbar edge is the opposite vertical edge. Undocked / Left / Right / already-clear
-      toolbars return `null` and are untouched.
-   b. Applies: set `settings.Keyboard.ScreenEdge` (the observable property —
-      `KeyboardWindow.SizeChanged → RepositionOnScreen` (KeyboardWindow.xaml.cs:86) plus
-      `SetScreenEdge` handles placement; if the keyboard has never been shown this
-      session the field updates and the first layout places it correctly). If the plan
-      relocates the toolbar: set `settings.Toolbar.DockedEdge` (the observable setter
-      auto-notifies `QuickActionsCoordinator`'s DockedEdge watcher, which re-aims the
-      hot-edge summon) and mirror `SettingsUiCoordinator.OnSettingsChanged`'s live-apply
-      trio — `Toolbar.SetMode(IsDocked, DockedEdge)`, `ToolbarLifecycleCoordinator.
-      UpdateEdge`, `PositionIndicator`.
-   c. Persists: `Context.SettingsService.SaveDebounced(settings)` (C6 — no notification
-      path fires, so no rebuild).
+   `HandleKeyboardEdgeToggled`:
+   a. Pure, headless-testable flip: `internal static string FlipScreenEdge(string edge)`
+      → `"Top"` becomes `"Bottom"`, anything else reads as Bottom and becomes Top (same
+      normalization as `KeyboardWindow.RepositionOnScreen`).
+   b. Sets `settings.Keyboard.ScreenEdge` (observable — `SetScreenEdge` repositions; the
+      `SizeChanged → RepositionOnScreen` hook at KeyboardWindow.xaml.cs:86 covers the
+      never-shown-this-session case at first layout).
+   c. `Context.SettingsService.SaveDebounced(settings)` (C6 — no notification path fires,
+      so no rebuild).
    d. Refreshes `_keyboardSnapshot = KeyboardStackSnapshot.Capture(settings)` (C5 —
       kills the phantom rebuild on the next Settings apply; same discipline as
-      `ApplyEmojiSkinTone`, whose remarks document the failure mode).
+      `ApplyEmojiSkinTone`).
 
-### 4.3 Rejected variants (see ledger #5–#6)
+**B2 — un-pin the toolbar while the keyboard is up** (owner direction)
 
-On-keyboard frame button (the keyboard has no button chrome today — no close button, no
-control row — so this needs new non-key dwell plumbing inside `KeyboardWindow`); a ring
-action (position is a global UI concern, not point-targeted); always-swapping keyboard +
-toolbar together (moves the toolbar when nothing collides); nudging the keyboard below
-the toolbar (couples keyboard geometry to toolbar Size, and the keyboard then isn't
-really at the edge).
+6. **`KeyboardCoordinator.ApplyModalKeyboardState`**: delete the
+   `_toolbar.SetAutoHideSuspended(visible)` call. The method keeps the quick-actions
+   summon suspension (`_quickActions.SetSummonSuspended(visible)` — the hot-edge grid
+   must not pop over the keyboard) and the `_modal.KeyboardVisible` flag (the gaze-routing
+   perf early-out and per-sample routing in `ToolbarLifecycleCoordinator.SetupGazeRouting`
+   keep working: while `KeyboardVisible`, samples still dispatch to
+   `toolbar.UpdateGaze` + `keyboard.UpdateGaze`, so toolbar buttons — including the
+   keyboard-hide button and the new flip — remain dwellable while summoned).
+   Incidentally removes a pre-existing interleaving: both Keyboard and Settings
+   coordinators write the same un-refcounted suspension bool, so closing the keyboard
+   while the Settings window was open used to un-pin the toolbar out from under it.
+   The Settings-window suspension (`SettingsUiCoordinator.cs:117`) is untouched.
+
+**B3 — the keyboard yields to a summoned toolbar** (owner direction)
+
+7. **Toolbar visibility transitions become observable.**
+   `ToolbarVisibilityAdapter` raises a `ToolbarVisibilityChangedMessage(bool Visible)` on
+   each show/hide transition it executes — the adapter, not the auto-hide controller, is
+   the single point every visibility driver funnels through (auto-hide, settings-open
+   suspension, tray `ForceShow`), so the message reflects actual on-screen state
+   regardless of who caused it.
+8. **`KeyboardWindow.SetToolbarOccupancy(bool occupied, string edge, double
+   extentDip)`**: stores the occupancy; `RepositionOnScreen` applies a yield offset when
+   `occupied && edge` equals the keyboard's effective edge — `Top += extent` for the top
+   case, `Top -= extent` for bottom. The extent is the toolbar's on-screen thickness
+   read from the toolbar window (`ActualHeight` for vertical edges). Instant
+   reposition; no animation in v1.
+9. **`KeyboardCoordinator`** subscribes to the transition message and forwards occupancy
+   to `KeyboardWindow`; on keyboard show it queries the current toolbar state once so a
+   keyboard opened while the toolbar is already summoned lands pre-yielded.
+10. **Safety of moving the keyboard under gaze:** `KeyboardWindow.UpdateGaze` recomputes
+    key screen positions (`UpdateKeyScreenPositions`) and prediction target positions on
+    **every sample**, so dwell targets track window moves by construction — no target
+    re-registration pass is needed. A slide under an in-progress key dwell lets the
+    nearest-key logic re-acquire naturally (documented, accepted; the yield fires when
+    gaze is at the screen edge summoning, the return when gaze is on keys — a top-row
+    dwell may re-acquire once).
+
+### 4.3 Rejected variants (see ledger #5–#6, #9)
+
+Toolbar relocation on collision (round-1 design — the toolbar never moves now);
+on-keyboard frame button (owner's alternative — viable fallback if the yield seam proves
+brittle, but it keeps the pinned-toolbar behavior the owner objected to); always-swapping
+keyboard + toolbar together; static nudge below a pinned toolbar; a ring action (position
+is a global UI concern, not point-targeted); a new QuickActionType (heavier editor +
+preset surface).
 
 ## 5. Decision ledger (owner-vetoable)
 
@@ -190,10 +234,13 @@ really at the edge).
 | 2 | New `KeyboardShowRequestedMessage` handled with `manageSuppression: true` | Must match the toolbar toggle's modal semantics (fixation suppressed, summon suspended) or the next fixation opens a menu over the keyboard | Reusing `ShowKeyboardRequestMessage` — its handler is deliberately `manageSuppression: false` for the text-field seam |
 | 3 | Default **on** (layer 2, behind More) + one-shot migration `KeyboardActionMigrated` | The action never existed, so no user could have removed it — the one-shot add is the established safe pattern (C2); layer 2 because the primary cap (4) is a validated aimability constraint and is full | Opt-in only (feature ships invisible to existing users); primary-layer default (Validate rejects 5) |
 | 4 | Dispatch intercepts in `KeyboardInteractionDispatcher` before the click switch | PinNote precedent exactly; zero Core state-machine changes; the target point is genuinely unused | A Core special-case like ScrollMode (which exists because scroll needs an anchor point) |
-| 5 | Quick switch scope: **keyboard flips; toolbar relocates only on collision** (same vertical edge, docked) | C4: without relocation, keyboard-at-Top covers the toolbar that holds the keyboard's only hide button — a strand-the-user bug, not a cosmetic overlap | Always-swap-both (needless surprise); keyboard-only (stranding); nudge-below-toolbar (geometry coupling) |
-| 6 | Quick switch surface: **toolbar button beside Keyboard** | C3: the toolbar is force-shown while the keyboard is up, so the toggle is reachable exactly when it matters; the button system is drift-guarded (C7) and costs one tuple + case + icon | On-keyboard button (new dwell plumbing + chrome the keyboard lacks); ring action (not point-targeted); a new QuickActionType (heavier editor + preset surface) |
+| 5 | Collision handled by **keyboard yielding** to a summoned toolbar; the toolbar never relocates | Owner round-1 direction ("the keyboard can slide to give room to the toolbar"); no persisted toolbar change, no DockedEdge writes, summon edge stays where the user learned it | Toolbar relocation to the opposite edge (round-1 design, superseded); static nudge below a pinned toolbar |
+| 6 | Quick switch surface: **toolbar button beside Keyboard**, reachable via normal edge-summon | Owner round-1 accepts the toolbar surface provided it is not force-pinned; toolbar stays the app's single control surface; button system is drift-guarded (C7) | On-keyboard frame button (owner's other alternative — kept as fallback, §4.3); ring action (not point-targeted); a new QuickActionType (heavier editor + preset surface) |
 | 7 | Persistence: mutate the live settings object + `SaveDebounced` + live apply + snapshot refresh | C5/C6: correct across restart, no rebuild now, no phantom rebuild later | Settings-window round trip (the thing being removed); direct window calls without persisting (reverts on restart) |
-| 8 | Undocked toolbar: **no relocation**, overlap accepted | Undocked is a deliberate floating placement the user owns; docking it as a side effect of a keyboard flip is a bigger surprise than an overlap in a rare mode | Relocating/docking an undocked toolbar |
+| 8 | Left/Right-docked toolbar: **no yield**; orthogonal edges overlap only at extreme key sizes | Yield only makes sense for a toolbar parallel to the keyboard's edge; a side strip crossing a wide keyboard is transient (toolbar visible only while summoned) | Horizontal yield for side-docked toolbars |
+| 9 | **Un-pin the toolbar while the keyboard is up** (remove the keyboard path's auto-hide suspension only) | Owner round-1: the pinned strip eats typing space; summon still works because `Feed` subscribes to `GazeSampled` unconditionally, so the hide path is never lost; also removes the keyboard/settings suspension interleaving | Keep the pin and put the button elsewhere (owner's alternative #1); keep the pin and relocate the toolbar (round-1 design) |
+| 10 | Keyboard yield: **instant reposition, no animation, occupancy consulted on keyboard show** | Minimum that satisfies "slides to give room"; per-sample target recompute (B3 #10) makes the move safe; animation is polish, not function | Animated slide in v1; yield only after show (would mis-place a keyboard opened onto a summoned toolbar) |
+| 11 | Quick-actions hot-edge summon stays **suspended** while the keyboard is up | Un-pinning applies to the toolbar only; the quick-actions grid popping over the keyboard is unwanted and unrelated to the owner's complaint | Also un-suspending the quick-actions summon |
 
 ## 6. Testing
 
@@ -207,19 +254,26 @@ really at the edge).
     new mapping automatically (fails until the icon case exists).
   - `FriendlyName(Keyboard)` = "Keyboard".
 - **App (`EyeCtrl.App.Tests`)**
-  - `KeyboardEdgeTogglePlan` truth table (headless, pure): Bottom→Top and Top→Bottom;
-    invalid/non-"Top" string reads as Bottom; toolbar docked-same-edge → relocated to the
-    opposite; docked-other / Left / Right / undocked → `null`.
+  - `FlipScreenEdge` truth table: `"Top"` → `"Bottom"`, `"Bottom"` → `"Top"`,
+    non-`"Top"` garbage reads as Bottom.
   - `HandleKeyboardEdgeToggled` thin-apply seam: assert settings mutation + save + snapshot
     refresh via the same headless style as `ApplyEmojiSkinTone` tests (real window objects
-    stay out of reach — the plan function carries the logic).
+    stay out of reach — the pure function carries the logic).
+  - `ApplyModalKeyboardState` no longer touches the toolbar auto-hide suspension but still
+    suspends the quick-actions summon and still publishes `KeyboardVisible`. Existing
+    tests that assert keyboard-visible pins the toolbar must be inverted/removed — grep
+    `SetSuspended` in the coordinator tests first.
+  - Yield math as a pure function: given `(keyboardEdge, occupied, toolbarEdge, extent)`
+    → expected `Top` offset (0 when edges differ or not occupied).
   - `KeyboardShowRequestedMessage` handler: idempotent early-out when
     `ModalInteractionState.KeyboardVisible` already true.
   - `ToolbarButtonDriftTests` (existing) enforces the new button's VM/band/case wiring.
   - `ActionMenuPageSource` description completeness gate (existing) fails until the
     description string lands.
 - **Manual / UI-gated (owner-run)**: ring → Keyboard opens the keyboard with suppression;
-  toolbar button flips the visible keyboard; toolbar jumps only on collision.
+  toolbar button flips the visible keyboard; keyboard up → toolbar auto-hides and
+  edge-summons; summoning the toolbar onto the keyboard's edge slides the keyboard aside
+  and back; hide path (toolbar Keyboard button) reachable via summon while keyboard up.
 
 ## 7. Risks
 
@@ -232,5 +286,18 @@ really at the edge).
 - **R3 — settings window staleness.** If the Settings window is open while the toolbar
   toggle fires, its Screen Edge / Docked Edge rows show stale values until rebuilt. Same
   staleness class as every other runtime mutation (e.g. skin tone); accepted.
-- **R4 — `KeyboardEdgeTogglePlan` normalization.** "anything not Top is Bottom" mirrors
-  `KeyboardWindow.RepositionOnScreen`; the plan function must not invent a third state.
+- **R4 — `FlipScreenEdge` normalization.** "anything not Top is Bottom" mirrors
+  `KeyboardWindow.RepositionOnScreen`; the function must not invent a third state.
+- **R5 — un-pinning is a behavior change for every keyboard user.** The pin's original
+  rationale ("stranded while a modal is up") is void because the summon path stays live
+  (`Feed` is unconditionally wired), but the round trip to hide the keyboard is now
+  gaze-to-edge + ~400 ms summon + dwell instead of a pinned button. Manual testing must
+  confirm the summon path feels acceptable; the round-1 fallback (on-keyboard frame
+  button, §4.3) exists if it does not.
+- **R6 — the keyboard slides under an active dwell.** Yield fires while gaze is at the
+  screen edge (safe); the return fires at toolbar idle, when gaze may be on the top key
+  row — nearest-key re-acquisition handles it, but a mid-dwell key can shift once.
+  Accepted (documented in B3 #10); revisit if struggle-telemetry flags it.
+- **R7 — yield seam coupling.** `KeyboardWindow` learns about toolbar extent/edge via the
+  coordinator; the seam must be defensive (clamp extent, ignore unknown edges) so a
+  pathological toolbar measurement cannot push the keyboard off-screen.

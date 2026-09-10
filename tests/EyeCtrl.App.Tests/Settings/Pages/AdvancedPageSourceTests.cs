@@ -24,8 +24,8 @@ public class AdvancedPageSourceTests
         var ids = Rows().Where(r => r.Id.Length > 0).Select(r => r.Id).ToList();
         Check.That(ids.IndexOf("av_backdrop_enabled")).IsStrictlyLessThan(ids.IndexOf("av_drag_settle"));
         Check.That(ids.IndexOf("av_drag_settle")).IsStrictlyLessThan(ids.IndexOf("av_scroll_sens"));
-        Check.That(ids.IndexOf("av_scroll_sens")).IsStrictlyLessThan(ids.IndexOf("av_repeat_interval"));
-        Check.That(ids.IndexOf("av_repeat_interval")).IsStrictlyLessThan(ids.IndexOf("av_ext_enabled"));
+        Check.That(ids.IndexOf("av_scroll_sens")).IsStrictlyLessThan(ids.IndexOf("av_repeat_dwell"));
+        Check.That(ids.IndexOf("av_repeat_dwell")).IsStrictlyLessThan(ids.IndexOf("av_ext_enabled"));
     }
 
     [Fact]
@@ -45,7 +45,7 @@ public class AdvancedPageSourceTests
         settings.Backdrop.Opacity = 0.8;
         settings.Drag.SettleDwellMs = 1500;
         settings.Scroll.Sensitivity = 1.8;
-        settings.Repeat.IntervalMs = 2500;
+        settings.Repeat.DwellMs = 1500;
         settings.ExternalDwell.CooldownMs = 900;
         settings.EyeCare.IntervalMinutes = 45; // must NOT be touched
         var source = new AdvancedPageSource(
@@ -58,7 +58,7 @@ public class AdvancedPageSourceTests
         Check.That(settings.Backdrop.Opacity).IsEqualTo(b.Opacity);
         Check.That(settings.Drag.SettleDwellMs).IsEqualTo(d.SettleDwellMs);
         Check.That(settings.Scroll.Sensitivity).IsEqualTo(sc.Sensitivity);
-        Check.That(settings.Repeat.IntervalMs).IsEqualTo(new RepeatSettings().IntervalMs);
+        Check.That(settings.Repeat.DwellMs).IsEqualTo(new RepeatSettings().DwellMs);
         Check.That(settings.ExternalDwell.CooldownMs).IsEqualTo(e.CooldownMs);
         Check.That(settings.EyeCare.IntervalMinutes).IsEqualTo(45);
     }

@@ -132,7 +132,7 @@ public class SettingsSliderSpanGuardTests
         SpanInside(sliders, "av_drag_radius", 10, 200);
         SpanInside(sliders, "av_drag_opacity", 0.1, 1.0);
         SpanInside(sliders, "av_scroll_sens", 0.5, 2.0);
-        SpanInside(sliders, "av_repeat_interval", 250, 5000);
+        SpanInside(sliders, "av_repeat_dwell", 200, 2000);
         SpanInside(sliders, "av_ext_dwell", 200, 3000);
         SpanInside(sliders, "av_ext_cooldown", 0, 5000);
     }

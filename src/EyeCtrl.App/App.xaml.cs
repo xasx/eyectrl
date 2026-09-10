@@ -178,7 +178,7 @@ public partial class App : Application
             // ── Resolve ViewModels ──
             var (cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm,
                  manualSelectionIndicatorVm, backdropVm, calibrationVm, targetHighlightVm, edgeButtonBarVm, trackStatusVm, taskSwitcherVm,
-                 quickActionsGridVm, modesMenuVm) = ResolveViewModels(settings);
+                 quickActionsGridVm, modesMenuVm, repeatCursorVm) = ResolveViewModels(settings);
 
             // Resolve adapter (triggers Core event subscriptions)
             _ = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
@@ -196,7 +196,7 @@ public partial class App : Application
             // ── Initialize overlay windows via OverlayManager ──
             var overlayManager = _serviceProvider.GetRequiredService<IOverlayManager>();
             var viewModels = new OverlayViewModels(cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm, manualSelectionIndicatorVm, calibrationVm, targetHighlightVm, edgeButtonBarVm, trackStatusVm, taskSwitcherVm,
-                quickActionsGridVm, modesMenuVm);
+                quickActionsGridVm, modesMenuVm, repeatCursorVm);
             var (cursorCircle, toolbar) = InitializeOverlays(overlayManager, viewModels, settings, activeProviderType);
 
             // Stage-2 UI instrument 2, attached only for a measurement session. Without the attach the
@@ -239,7 +239,8 @@ public partial class App : Application
                 _serviceProvider.GetRequiredService<IQuickActionsStore>(),
                 _serviceProvider.GetRequiredService<IWindowsAppLauncher>(),
                 _serviceProvider.GetRequiredService<IInstalledAppProvider>(),
-                modesMenuVm);
+                modesMenuVm,
+                repeatCursorVm);
             _eventCoordinator.Initialize(coordinationContext);
 
             // Warm the installed-app cache off the UI thread (the provider walks Shell AppsFolder
@@ -509,14 +510,15 @@ public partial class App : Application
              TrackStatusViewModel TrackStatusVm,
              TaskSwitcherViewModel TaskSwitcherVm,
              QuickActionsGridViewModel QuickActionsGridVm,
-             ModesMenuViewModel ModesMenuVm) ResolveViewModels(EyeCtrlSettings settings)
+             ModesMenuViewModel ModesMenuVm,
+             RepeatCursorViewModel RepeatCursorVm) ResolveViewModels(EyeCtrlSettings settings)
     {
         var vms = AppBootstrapper.ResolveViewModels(_serviceProvider, settings);
         var backdropVm = _serviceProvider.GetRequiredService<GlassBackdropViewModel>();
         return (vms.CursorCircle, vms.ActivationButton, vms.ManualSelectionOverlay, vms.ActionMenu,
                 vms.Toolbar, vms.Keyboard, vms.ManualSelectionIndicator, backdropVm,
                 vms.Calibration, vms.TargetHighlight, vms.EdgeButtonBar, vms.TrackStatus, vms.TaskSwitcher,
-                vms.QuickActionsGrid, vms.ModesMenu);
+                vms.QuickActionsGrid, vms.ModesMenu, vms.RepeatCursor);
     }
 
     private (ICursorCircleOverlay CursorCircle, IToolbarOverlay Toolbar) InitializeOverlays(

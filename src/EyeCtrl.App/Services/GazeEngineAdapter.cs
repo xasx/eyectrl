@@ -61,6 +61,7 @@ public class GazeEngineAdapter : IDisposable
         _interactionManager.HideManualSelection += OnHideManualSelection;
         _interactionManager.StateChanged += OnStateChanged;
         _interactionManager.ActionRequested += OnActionRequested;
+        _interactionManager.RepeatDwellProgressChanged += OnRepeatDwellProgress;
 
         // ViewModel -> Core (via message subscriptions)
         messenger.Register<ActivationCompletedMessage>(this, async (_, _) =>
@@ -286,6 +287,9 @@ public class GazeEngineAdapter : IDisposable
         _dispatcher.BeginInvoke(() => _messenger.Send(new StateChangedMessage(state)));
     }
 
+    private void OnRepeatDwellProgress(double progress) =>
+        _dispatcher.BeginInvoke(() => _messenger.Send(new RepeatDwellProgressChangedMessage(progress)));
+
     private void OnActionRequested(InteractionAction action, PhysicalPoint point)
     {
         var isPrecise = _interactionManager.CurrentState == InteractionState.ManualSelectionActionMenuVisible
@@ -331,6 +335,7 @@ public class GazeEngineAdapter : IDisposable
         _interactionManager.HideManualSelection -= OnHideManualSelection;
         _interactionManager.StateChanged -= OnStateChanged;
         _interactionManager.ActionRequested -= OnActionRequested;
+        _interactionManager.RepeatDwellProgressChanged -= OnRepeatDwellProgress;
         _messenger.UnregisterAll(this);
         GC.SuppressFinalize(this);
     }

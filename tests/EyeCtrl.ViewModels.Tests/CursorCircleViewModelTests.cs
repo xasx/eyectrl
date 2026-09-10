@@ -65,7 +65,7 @@ public class CursorCircleViewModelTests
     }
 
     [Fact]
-    public void StaysVisible_DuringRepeatMode()
+    public void Hides_DuringRepeatMode()
     {
         var settings = new EyeCtrlSettings();
         var messenger = new WeakReferenceMessenger();
@@ -73,9 +73,8 @@ public class CursorCircleViewModelTests
 
         messenger.Send(new StateChangedMessage(InteractionState.RepeatMode));
 
-        // The cursor circle is repeat mode's only aiming feedback (there is no scroll-style
-        // overlay) — hiding it would leave the user clicking blind.
-        Check.That(vm.IsVisible).IsTrue();
+        // The contracting repeat cursor replaces the normal circle while the mode runs (D27).
+        Check.That(vm.IsVisible).IsFalse();
     }
 
     [Fact]

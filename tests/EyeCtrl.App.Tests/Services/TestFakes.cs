@@ -53,7 +53,8 @@ internal static class TestFakes
             QuickActionsStore: null!,
             WindowsAppLauncher: null!,
             InstalledAppProvider: new FakeInstalledAppProvider(),
-            ModesMenuVM: new ModesMenuViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger()));
+            ModesMenuVM: new ModesMenuViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger()),
+            RepeatCursorVM: new RepeatCursorViewModel(new WeakReferenceMessenger()));
     }
 
     /// <summary>
@@ -165,6 +166,7 @@ internal static class TestFakes
         private readonly IPauseIndicatorOverlay? _pauseIndicator;
 
         public IModesMenuOverlay ModesMenu => throw new NotImplementedException();
+        public IRepeatCursorOverlay RepeatCursor => throw new NotImplementedException();
 
         public PartialOverlayManager(IEdgeButtonBar? bar, IToolbarOverlay? toolbar,
             IPauseIndicatorOverlay? pauseIndicator)

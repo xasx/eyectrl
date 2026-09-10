@@ -322,6 +322,7 @@ public class ToolbarVisibilityAdapterTests
         public ITrackStatusOverlay TrackStatus => throw new NotImplementedException();
         public ITaskSwitcherOverlay TaskSwitcher => throw new NotImplementedException();
         public IModesMenuOverlay ModesMenu => null!;
+        public IRepeatCursorOverlay RepeatCursor => null!;
         public IQuickActionsGridOverlay QuickActionsGrid => throw new NotImplementedException();
 
         public void Initialize(OverlayViewModels viewModels, EyeCtrlSettings settings, Core.Enums.GazeProviderType providerType)

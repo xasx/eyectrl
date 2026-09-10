@@ -161,8 +161,11 @@ public record ExitScrollModeMessage;
 /// <summary>Sent by the repeat-mode stop button (edge bar) or the Escape hatch to end locked repeat mode.</summary>
 public record ExitRepeatModeMessage;
 
-/// <summary>Sent by the Modes menu row (or any future entry point) to start locked repeat mode.</summary>
-public record EnterRepeatModeMessage;
+/// <summary>Sent by the Modes menu row (or any future entry point) to start locked-action dwell-to-act mode with the chosen click action.</summary>
+public record EnterRepeatModeMessage(InteractionAction Action);
+
+/// <summary>Dwell progress (0..1) of the armed locked-action dwell — drives the contracting repeat cursor.</summary>
+public record RepeatDwellProgressChangedMessage(double Progress);
 
 /// <summary>Sent by the toolbar Modes button to toggle the modes menu overlay.</summary>
 public record ModesMenuToggledMessage;

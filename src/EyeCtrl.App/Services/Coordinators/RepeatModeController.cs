@@ -1,7 +1,6 @@
 namespace EyeCtrl.App.Services.Coordinators;
 
 using System.Windows.Interop;
-using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.Core;
@@ -54,10 +53,6 @@ internal sealed class RepeatModeController : CoordinatorBase
             VerticalOffset: verticalOffset,
             RadiusLogical: UIConstants.ButtonRadius);
 
-    /// <summary>Whether <paramref name="point"/> is still within the entry clearance (D21).</summary>
-    internal static bool IsWithinEntryClearance(PhysicalPoint point, PhysicalPoint entry) =>
-        DistanceSquared(point, entry) <= EntryClearancePx * EntryClearancePx;
-
     /// <summary>
     /// Whether <paramref name="point"/> sits inside the right-edge stop button's suppression
     /// zone (review PR #139 finding 3). The bar is click-through, so a tick aimed at the stop
@@ -79,18 +74,9 @@ internal sealed class RepeatModeController : CoordinatorBase
         return dx * dx + dy * dy;
     }
 
-    /// <summary>
-    /// Gaze must leave this radius (physical px) around the entry point before the first tick
-    /// (design D21): entry comes from the toolbar Modes menu, so gaze is ON the toolbar/menu at
-    /// entry, and the first tick would otherwise click EyeCtrl's own chrome.
-    /// </summary>
-    private const double EntryClearancePx = 80;
-
-    private DispatcherTimer? _timer;
     private bool _active;
     private PhysicalPoint _stopCenterPhysical;
     private double _stopRadiusPhysical;
-    private PhysicalPoint? _entryPointPhysical;
 
     protected override void OnInitialize()
     {
@@ -98,11 +84,16 @@ internal sealed class RepeatModeController : CoordinatorBase
         context.InteractionManager.StateChanged += OnStateChanged;
         context.Messenger.Register<RepeatModeController, ExitRepeatModeMessage>(this, (_, _) =>
             context.Dispatcher.BeginInvoke(() => context.InteractionManager.ExitRepeatMode()));
-        // The Modes menu's entry path (D20): keeps all repeat-mode message handling here.
+        // The Modes menu's entry path (D20/D24): keeps all repeat-mode message handling here.
         // EnterRepeatMode is itself FreeLook-guarded in Core, so an entry request in another
         // state is a no-op rather than a state trample.
-        context.Messenger.Register<RepeatModeController, EnterRepeatModeMessage>(this, (_, _) =>
-            context.Dispatcher.BeginInvoke(() => context.InteractionManager.EnterRepeatMode()));
+        context.Messenger.Register<RepeatModeController, EnterRepeatModeMessage>(this, (_, m) =>
+            context.Dispatcher.BeginInvoke(() =>
+            {
+                var im = context.InteractionManager;
+                im.RepeatDwellMs = context.Settings.Repeat.DwellMs;
+                im.EnterRepeatMode(m.Action);
+            }));
         ComponentDispatcher.ThreadFilterMessage += OnThreadFilterMessage;
     }
 
@@ -122,7 +113,7 @@ internal sealed class RepeatModeController : CoordinatorBase
     {
         // StateChanged can arrive on the gaze thread — repeat mode's lost-gaze auto-exit fires
         // from InteractionManager.NoteGazeSample inside GazeEngine.OnGazePoint — while Enter/Exit
-        // touch a DispatcherTimer and overlay windows. Both must run on the UI thread.
+        // touch overlay windows. Both must run on the UI thread.
         var context = Context;
         if (context is null) return;
         context.Dispatcher.BeginInvoke(() =>
@@ -136,12 +127,8 @@ internal sealed class RepeatModeController : CoordinatorBase
 
     private void Enter()
     {
-        if (_active) return; // a leaked timer from a missed exit must not stack a second one
+        if (_active) return;
         var context = Context!;
-
-        // D21: remember where gaze was at entry (the Modes menu). Ticks are suppressed inside
-        // this clearance until the user looks away — the first click must not land on our chrome.
-        _entryPointPhysical = context.GazeEngine.StableCentroid;
 
         var edgeAnchor = ScreenGeometry.RightEdgeAnchor(StopInsetLogical, UIConstants.ButtonRadius);
         _stopCenterPhysical = edgeAnchor;
@@ -150,30 +137,39 @@ internal sealed class RepeatModeController : CoordinatorBase
             context.Settings.Repeat.StopButtonDwellMs, verticalOffset: 0);
         context.OverlayManager.EdgeButtonBar.ShowButtons(new[] { stopDef }, edgeAnchor);
 
-        _timer = new DispatcherTimer(DispatcherPriority.Input)
-        {
-            Interval = TimeSpan.FromMilliseconds(context.Settings.Repeat.IntervalMs)
-        };
-        _timer.Tick += (_, _) =>
-        {
-            // No stable point (between fixations) → skip the tick; never click a stale point.
-            if (Context?.GazeEngine.StableCentroid is not { } p) return;
-            // Aiming at the stop button is the exit gesture — ticks there would click through
-            // the bar onto the right screen edge, so the zone is suppressed instead.
-            if (IsInStopButtonZone(p, _stopCenterPhysical, _stopRadiusPhysical)) return;
-            // D21: gaze still on the entry point (the Modes menu row) — clicking there would
-            // hit EyeCtrl's own chrome; wait until the user looks at a real target.
-            if (_entryPointPhysical is { } entry && IsWithinEntryClearance(p, entry)) return;
-            Context.InteractionManager.FireRepeatTick(p);
-        };
-        _timer.Start();
+        // D26: chrome suppression zones — the locked-action dwell must never fire on EyeCtrl's
+        // own surfaces (toolbar band incl. the modes-menu area below it, stop-button zone);
+        // the chrome keeps its own dwell semantics there.
+        var stopZoneRadius = _stopRadiusPhysical * StopZoneMarginFactor;
+        context.InteractionManager.SetRepeatSuppressionZones(
+            BuildToolbarBandRect(context.Settings.Toolbar.Size),
+            new Core.Models.PhysicalRect(
+                _stopCenterPhysical.X - stopZoneRadius,
+                _stopCenterPhysical.Y - stopZoneRadius,
+                stopZoneRadius * 2,
+                stopZoneRadius * 2));
+
         _active = true;
+    }
+
+    /// <summary>
+    /// The toolbar band as a physical rect: full screen width, height = toolbar size + margins,
+    /// extended to also cover the modes-menu panel that appears below it. Pure arithmetic from
+    /// settings — matches the ModesMenu placement math, needs no window measurement.
+    /// </summary>
+    internal static Core.Models.PhysicalRect BuildToolbarBandRect(double toolbarSizeLogical)
+    {
+        var logicalW = System.Windows.SystemParameters.PrimaryScreenWidth;
+        var bandLogicalH = toolbarSizeLogical + 130;
+        return new Core.Models.PhysicalRect(
+            0, 0,
+            DpiHelper.LogicalToPhysicalX(logicalW),
+            DpiHelper.LogicalToPhysicalY(bandLogicalH));
     }
 
     private void Exit()
     {
-        _timer?.Stop();
-        _timer = null;
+        Context?.InteractionManager.SetRepeatSuppressionZones();
         Context?.OverlayManager.EdgeButtonBar.Hide();
         _active = false;
     }

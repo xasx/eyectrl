@@ -1,5 +1,6 @@
 namespace EyeCtrl.ViewModels;
 
+using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Adaptation;
@@ -27,17 +28,21 @@ public partial class ModesMenuViewModel : DwellOverlayViewModelBase,
     IRecipient<ModesMenuToggledMessage>,
     IRecipient<StateChangedMessage>
 {
-    private const string RepeatRowId = "modes_repeat";
-
     /// <summary>Dwell for a mode row: same as toolbar buttons — this is toolbar-adjacent chrome.</summary>
     private readonly int _rowDwellMs;
 
-    private bool _repeatActive;
+    private static readonly (string Id, InteractionAction Action, string Label)[] Rows =
+    {
+        ("modes_left", InteractionAction.LeftClick, "Left click"),
+        ("modes_right", InteractionAction.RightClick, "Right click"),
+        ("modes_double", InteractionAction.DoubleClick, "Double click"),
+        ("modes_middle", InteractionAction.MiddleClick, "Middle click"),
+    };
 
-    /// <summary>State word shown beside the row label ("on"/"off").</summary>
-    [ObservableProperty] private string _repeatRowStateText = "off";
+    /// <summary>The action row currently locked (null = mode off). Drives the ● marker.</summary>
+    [ObservableProperty] private InteractionAction? _activeAction;
 
-    /// <summary>0..1 dwell progress of the row, for the fill bar.</summary>
+    /// <summary>0..1 dwell progress of the row under gaze, for the fill bar.</summary>
     [ObservableProperty] private double _rowDwellProgress;
 
     public ModesMenuViewModel(EyeCtrlSettings settings, IMessenger messenger,
@@ -46,6 +51,9 @@ public partial class ModesMenuViewModel : DwellOverlayViewModelBase,
     {
         _rowDwellMs = settings.Dwell.ToolbarButtonDwellMs;
     }
+
+    /// <summary>The rows the view should render, in order.</summary>
+    public IReadOnlyList<(string Id, InteractionAction Action, string Label)> RowDefinitions => Rows;
 
     public void Receive(ModesMenuToggledMessage message)
     {
@@ -56,37 +64,44 @@ public partial class ModesMenuViewModel : DwellOverlayViewModelBase,
     }
 
     public void Receive(StateChangedMessage message)
-    {
-        _repeatActive = message.NewState == InteractionState.RepeatMode;
-        RepeatRowStateText = _repeatActive ? "on" : "off";
-    }
+        => ActiveAction = message.NewState == InteractionState.RepeatMode ? LockedAction : null;
+
+    /// <summary>The action Core currently has locked, or null. The state message carries only the
+    /// state, so the menu tracks its own record of what it locked last (it is the only entry point).</summary>
+    private InteractionAction? LockedAction { get; set; }
 
     /// <summary>
-    /// Window feedback after placement: the row's real screen centre and hit radius. Until this
-    /// arrives the VM holds no dwell target — a target at a placeholder point could fire on a
+    /// Window feedback after placement: each row's real screen centre and hit radius. Until this
+    /// arrives the VM holds no dwell targets — a target at a placeholder point could fire on a
     /// corner gaze (the ToolbarWindow lesson, mirrored deliberately).
     /// </summary>
-    public void SetRowScreenPosition(PhysicalPoint center, double radiusPhysical)
+    public void SetRowScreenPositions(IReadOnlyList<(string Id, PhysicalPoint Center, double Radius)> rows)
     {
         DwellDetector.ClearTargets();
-        DwellDetector.AddTarget(new DwellTarget(RepeatRowId, center, radiusPhysical, _rowDwellMs));
+        foreach (var (id, center, radius) in rows)
+            DwellDetector.AddTarget(new DwellTarget(id, center, radius, _rowDwellMs));
     }
 
     protected override void OnTargetActivated(string targetId)
     {
-        if (targetId != RepeatRowId) return;
-        if (_repeatActive)
+        var row = Rows.FirstOrDefault(r => r.Id == targetId);
+        if (row == default) return;
+
+        if (ActiveAction == row.Action)
+        {
+            LockedAction = null;
             Messenger.Send(new ExitRepeatModeMessage());
+        }
         else
-            Messenger.Send(new EnterRepeatModeMessage());
+        {
+            LockedAction = row.Action;
+            Messenger.Send(new EnterRepeatModeMessage(row.Action));
+        }
         HideOverlay();
     }
 
     protected override void OnTargetProgress(string targetId, double progress)
-    {
-        if (targetId == RepeatRowId)
-            RowDwellProgress = progress;
-    }
+        => RowDwellProgress = Rows.Any(r => r.Id == targetId) ? progress : 0;
 
     public void HideOverlay()
     {

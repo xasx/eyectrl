@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Services;
 
 using System.Collections.Generic;
 using EyeCtrl.Core.Calibration;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
@@ -34,6 +35,33 @@ using EyeCtrl.ViewModels;
 // are you, in physical pixels" — a question a fake can answer honestly and a caller can use
 // without knowing WPF. The DPI conversion moved into the window, next to the layout values it
 // converts.
+
+/// <summary>
+/// An overlay that can be instrumented for the Stage-2 ring-quantization measurement: does sub-pixel
+/// positioning survive to the window, or is it rounded to whole device pixels?
+/// <para>
+/// Kept OUT of <see cref="ICursorCircleOverlay"/> deliberately, even though the same window implements
+/// both and the App calls these through the manager. The overlay seams above exist so a coordinator can
+/// be tested without standing up a real window; this is the opposite kind of thing — a capability only
+/// the real window can have, since the whole measurement is a read-back of where the window manager
+/// actually put it. Declaring it on the main seam would oblige every future fake to carry a diagnostic
+/// it can only stub, and would answer "what does a cursor ring do for the app" with something that is
+/// not about the app at all.
+/// </para>
+/// <para>
+/// Queried by pattern-match at the call site, the same shape <c>IGazeProviderDecorator</c> uses: an
+/// overlay that does not implement this is simply not instrumented, which is the correct behaviour
+/// rather than a missing case.
+/// </para>
+/// </summary>
+public interface IRingQuantizationInstrument
+{
+    /// <summary>Attaches the probe and the settings carrying its live gate.</summary>
+    void AttachQuantizationProbe(RingQuantizationProbe probe, DiagnosticsSettings diagnostics);
+
+    /// <summary>Emits the instrument's verdict and cadence summary. Called at shutdown.</summary>
+    void ReportQuantization();
+}
 
 /// <summary>The always-visible gaze cursor ring.</summary>
 public interface ICursorCircleOverlay

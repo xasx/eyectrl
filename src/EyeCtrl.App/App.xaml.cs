@@ -9,6 +9,7 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Calibration;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Services;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
@@ -196,6 +197,18 @@ public partial class App : Application
             var viewModels = new OverlayViewModels(cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm, manualSelectionIndicatorVm, calibrationVm, targetHighlightVm, edgeButtonBarVm, trackStatusVm, taskSwitcherVm,
                 quickActionsGridVm);
             var (cursorCircle, toolbar) = InitializeOverlays(overlayManager, viewModels, settings, activeProviderType);
+
+            // Stage-2 UI instrument 2, attached only for a measurement session. Without the attach the
+            // ring's position path is exactly what it was; with it, the window reads back where it
+            // actually landed and reports — it still positions itself the same way.
+            // The capability query is the seam: ICursorCircleOverlay deliberately does not carry the
+            // instrument, so an overlay that cannot be instrumented is simply not instrumented.
+            if (_serviceProvider.GetService<RingQuantizationProbe>() is { } ringProbe
+                && cursorCircle is IRingQuantizationInstrument instrumentable)
+            {
+                instrumentable.AttachQuantizationProbe(ringProbe, settings.Diagnostics);
+                Log.Information("UI instruments are ON for this session (opt-in): dispatch latency + ring quantization");
+            }
 
             // Load calibration. Screen size must be in PHYSICAL pixels to match what
             // CompleteSession persists (logical DIPs here would discard calibration on any non-100% DPI).
@@ -449,6 +462,18 @@ public partial class App : Application
             settingsService.Save(settings);
             _serviceProvider.GetRequiredService<AdaptationLearner>().Persist(); // best-effort (§11); never throws
             // (User dictionary is saved by EventCoordinator.Dispose above, via PredictionStackFactory.)
+
+            // Instrument 2's final verdict, before the overlays go away. Instrument 1 reports from
+            // GazeEngineAdapter.Dispose just below.
+            try
+            {
+                if (_serviceProvider.GetRequiredService<IOverlayManager>().CursorCircle
+                    is IRingQuantizationInstrument instrumented)
+                {
+                    instrumented.ReportQuantization();
+                }
+            }
+            catch (Exception ex) { Log.Warning(ex, "Could not emit the ring-quantization summary"); }
 
             var adapter = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
             adapter.Dispose();

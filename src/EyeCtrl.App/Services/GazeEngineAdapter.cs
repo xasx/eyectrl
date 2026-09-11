@@ -4,6 +4,7 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.Logging;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -22,15 +23,25 @@ public class GazeEngineAdapter : IDisposable
     private readonly ILogger<GazeEngineAdapter> _logger;
     private readonly IControlFinder _controlFinder;
 
+    // Instrument 1 (Stage 2), null unless DiagnosticsSettings.MeasureUiInstruments is on at startup.
+    // Null means the dispatch path below is byte-for-byte what it was before the instrument existed.
+    private readonly DispatchLatencyProbe? _dispatchProbe;
+    private long _dispatchSamplesSinceReport;
+
+    /// <summary>How many dispatched samples between summary log lines (~60 s at 33 Hz).</summary>
+    private const long DispatchReportInterval = 2000;
+
     public GazeEngineAdapter(
         GazeEngine gazeEngine,
         EyeCtrlSettings settings,
         IMessenger messenger,
         Dispatcher dispatcher,
         ILogger<GazeEngineAdapter> logger,
-        IControlFinder controlFinder)
+        IControlFinder controlFinder,
+        DispatchLatencyProbe? dispatchProbe = null)
     {
         _logger = logger;
+        _dispatchProbe = dispatchProbe;
         _gazeEngine = gazeEngine;
         _interactionManager = gazeEngine.InteractionManager;
         _settings = settings;
@@ -135,8 +146,51 @@ public class GazeEngineAdapter : IDisposable
 
     // The frame travels whole, gap flag included: the UI-thread dwell surfaces downstream need it to
     // decide whether the sample may advance dwell at all.
-    private void OnCursorMoved(GazeFrame frame) =>
-        _dispatcher.BeginInvoke(() => _messenger.Send(new GazeCursorMovedMessage(frame)));
+    private void OnCursorMoved(GazeFrame frame)
+    {
+        // Uninstrumented path, and the shipped default: exactly the single BeginInvoke it has always
+        // been. The branch is one null check on a readonly field.
+        if (_dispatchProbe is null)
+        {
+            _dispatcher.BeginInvoke(() => _messenger.Send(new GazeCursorMovedMessage(frame)));
+            return;
+        }
+
+        // The live gate, read per sample like the recorder's. The probe is constructed once at startup,
+        // so without this a user who switched the setting OFF mid-session would go on being measured
+        // until they restarted — which contradicts what the setting says it does. (The reverse, OFF→ON
+        // mid-session, deliberately does nothing: like the recorder, a measurement that starts halfway
+        // through a session is not one this instrument claims to produce.)
+        if (!_settings.Diagnostics.MeasureUiInstruments)
+        {
+            _dispatcher.BeginInvoke(() => _messenger.Send(new GazeCursorMovedMessage(frame)));
+            return;
+        }
+
+        // Instrument 1: the timestamp rides the closure this call site already allocates, so measuring
+        // costs a Stopwatch read and an interlocked increment on the gaze thread and nothing else. The
+        // dispatch itself is untouched — same priority, same uncoalesced one-per-sample posting — because
+        // an instrument that changed the queue would be measuring itself.
+        long enqueued = _dispatchProbe.Enqueue();
+        _dispatcher.BeginInvoke(() =>
+        {
+            // Recorded FIRST: the number wanted is the wait, not the wait plus the downstream work.
+            _dispatchProbe.Execute(enqueued);
+            ReportDispatchLatencyPeriodically();
+            _messenger.Send(new GazeCursorMovedMessage(frame));
+        });
+    }
+
+    // Emitted periodically rather than only at shutdown: a measurement session that ends in a crash,
+    // a kill, or the user simply closing the lid would otherwise produce nothing at all.
+    private void ReportDispatchLatencyPeriodically()
+    {
+        if (_dispatchProbe is null) return;
+        if (++_dispatchSamplesSinceReport < DispatchReportInterval) return;
+
+        _dispatchSamplesSinceReport = 0;
+        _logger.LogInformation("UI instrument 1 — {Summary}", _dispatchProbe.Describe());
+    }
 
     private void OnShowActivationButton(PhysicalPoint point) =>
         _dispatcher.BeginInvoke(() => _messenger.Send(new ShowActivationButtonMessage(point)));
@@ -261,6 +315,11 @@ public class GazeEngineAdapter : IDisposable
 
     public void Dispose()
     {
+        // Final instrument-1 summary: the periodic emit above can leave up to DispatchReportInterval
+        // samples unreported, and on a short session that is all of them.
+        if (_dispatchProbe is { Latency.Count: > 0 })
+            _logger.LogInformation("UI instrument 1 (final) — {Summary}", _dispatchProbe.Describe());
+
         _gazeEngine.CursorMoved -= OnCursorMoved;
         _interactionManager.ShowActivationButton -= OnShowActivationButton;
         _interactionManager.HideActivationButton -= OnHideActivationButton;

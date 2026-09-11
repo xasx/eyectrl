@@ -1,5 +1,6 @@
 namespace EyeCtrl.Platform.Gaze;
 
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Interfaces;
 using Microsoft.Extensions.Logging;
@@ -46,14 +47,29 @@ public class GazeProviderFactory
     /// <summary>
     /// Returns the GazeProviderType that describes the given provider instance.
     /// Used by the toolbar to show which engine is active.
+    /// <para>
+    /// Decorators are unwrapped first. The fallback arm answers Mouse for anything unrecognised, so a
+    /// wrapped Tobii provider — the raw-gaze recorder wraps one whenever diagnostics are on — would
+    /// otherwise make the toolbar tell the user their eye tracker is not in use.
+    /// </para>
     /// </summary>
-    public static GazeProviderType GetProviderType(IGazeProvider provider) => provider switch
+    public static GazeProviderType GetProviderType(IGazeProvider provider) => Unwrap(provider) switch
     {
 #if TOBII_AVAILABLE
         TobiiStreamEngineProvider => GazeProviderType.StreamEngine,
 #endif
         _ => GazeProviderType.Mouse
     };
+
+    /// <summary>Follows a chain of <see cref="IGazeProviderDecorator"/>s down to the real provider.</summary>
+    private static IGazeProvider Unwrap(IGazeProvider provider)
+    {
+        // Bounded rather than `while (true)`: a decorator whose Inner cycles would otherwise hang the
+        // toolbar. Nothing legitimately nests this deep.
+        for (int depth = 0; depth < 8 && provider is IGazeProviderDecorator decorator; depth++)
+            provider = decorator.Inner;
+        return provider;
+    }
 
     private IGazeProvider CreateAuto(double screenWidth, double screenHeight)
     {

@@ -309,9 +309,15 @@ public class AppBootstrapper
         // Scripted ground truth (Stage 2 ticket 3), written beside the raw recording it describes and
         // gated on the same opt-in: a sidecar is only meaningful for a session that is being recorded,
         // so it rides RecordRawGaze rather than inventing a third flag for the operator to remember.
-        services.AddSingleton<ScriptedGroundTruthRecorder?>(sp =>
+        //
+        // Registered under the NON-nullable service type returning null!, not under `T?`. The container's
+        // type parameter is constrained to a reference type, so `T?` is just `T` with an annotation it
+        // cannot act on: the nullable spelling produced three CS8634 warnings and bought nothing, since
+        // resolution still goes through GetService<T>() and still yields null. The `null!` is the honest
+        // version of what was already happening.
+        services.AddSingleton<ScriptedGroundTruthRecorder>(sp =>
         {
-            if (!settings.Diagnostics.RecordRawGaze) return null;
+            if (!settings.Diagnostics.RecordRawGaze) return null!;
             var log = sp.GetRequiredService<ILoggerFactory>().CreateLogger<ScriptedGroundTruthRecorder>();
             return new ScriptedGroundTruthRecorder(
                 Path.Combine(appDataDir, "gaze-recording.groundtruth.json"),
@@ -321,10 +327,10 @@ public class AppBootstrapper
         // The two Stage-2 UI instruments. Constructed only when the operator turned them on for a
         // measurement session, so the shipped default leaves both paths exactly as they were; the
         // registrations resolve to null otherwise, which each consumer reads as "not instrumented".
-        services.AddSingleton<DispatchLatencyProbe?>(_ =>
-            settings.Diagnostics.MeasureUiInstruments ? new DispatchLatencyProbe() : null);
-        services.AddSingleton<RingQuantizationProbe?>(_ =>
-            settings.Diagnostics.MeasureUiInstruments ? new RingQuantizationProbe() : null);
+        services.AddSingleton<DispatchLatencyProbe>(_ =>
+            settings.Diagnostics.MeasureUiInstruments ? new DispatchLatencyProbe() : null!);
+        services.AddSingleton<RingQuantizationProbe>(_ =>
+            settings.Diagnostics.MeasureUiInstruments ? new RingQuantizationProbe() : null!);
 
         // GazeEngineAdapter (bridges Core events <-> MVVM messages)
         services.AddSingleton(sp => new GazeEngineAdapter(
@@ -334,7 +340,7 @@ public class AppBootstrapper
             dispatcher,
             sp.GetRequiredService<ILogger<GazeEngineAdapter>>(),
             sp.GetRequiredService<IControlFinder>(),
-            sp.GetService<DispatchLatencyProbe?>()));
+            sp.GetService<DispatchLatencyProbe>()));
 
         // ManualSelectionDwellService (handles ManualSelection dwell detection and indicator updates)
         services.AddSingleton(sp => new ManualSelectionDwellService(

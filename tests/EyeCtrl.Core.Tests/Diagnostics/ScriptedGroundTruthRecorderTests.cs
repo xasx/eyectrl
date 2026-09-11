@@ -208,6 +208,41 @@ public class ScriptedGroundTruthRecorderTests : IDisposable
     }
 
     [Fact]
+    public void Windows_IsASnapshot_NotTheLiveList()
+    {
+        // The list is appended to from the GAZE thread at each target transition while whoever ends the
+        // session reads it. Handing out the live reference lets a caller enumerate a List<T> mid-resize:
+        // no exception guaranteed, just a torn read or a silently missing target — and a ground truth
+        // missing a target scores the wrong samples against the remaining ones.
+        var recorder = new ScriptedGroundTruthRecorder(Sidecar);
+        recorder.BeginSession("Mouse", Screen, 300);
+        RunTarget(recorder, 0, new PhysicalPoint(100, 100), 0, 1, 5);
+        RunTarget(recorder, 1, new PhysicalPoint(200, 200), 1_000_000, 1, 5);
+
+        var before = recorder.Windows;
+        RunTarget(recorder, 2, new PhysicalPoint(300, 300), 2_000_000, 1, 5);
+
+        // The earlier snapshot did not grow, and a fresh read sees the new window.
+        Check.That(before).HasSize(1);           // targets 0 and 1 closed; 1 is still open
+        Check.That(recorder.Windows).HasSize(2);
+        Check.That(recorder.Windows).Not.IsSameReferenceAs(recorder.Windows);
+    }
+
+    [Fact]
+    public void CompleteSession_ReportsAWriteFault_RatherThanThrowingIntoTheCalibration()
+    {
+        // Covers the whole method, snapshot included: CompleteSession is called from the calibration
+        // completion path, so ANY throw out of it turns a lost diagnostic into a failed calibration —
+        // which for this user means redoing the one thing that makes their cursor land where they look.
+        var recorder = new ScriptedGroundTruthRecorder(Path.Combine(_dir, "nested\0bad", "gt.json"));
+        recorder.BeginSession("Mouse", Screen, 300);
+        RunTarget(recorder, 0, new PhysicalPoint(1, 1), 0, 1, 5);
+
+        Check.ThatCode(() => recorder.CompleteSession()).DoesNotThrow();
+        Check.That(recorder.IsRecording).IsFalse();
+    }
+
+    [Fact]
     public void WriteFault_IsReportedAndDoesNotThrow()
     {
         // The sidecar rides along with a calibration that has already been persisted; losing it must

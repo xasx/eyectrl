@@ -206,7 +206,11 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         // Gated on the live setting, like the CSV recorder's own per-sample gate: the sidecar and the
         // recording it describes must stop together, or a mid-session toggle-off leaves a ground truth
         // covering samples nothing recorded.
-        if (_diagnostics?.RecordRawGaze != false)
+        // Spelled out rather than `_diagnostics?.RecordRawGaze != false`: the two read identically but
+        // the short form's null case is easy to read backwards, and getting it wrong means a sidecar
+        // written for a session that was never recorded. No settings object means no gate to consult —
+        // the recorder is injected only for a measurement session in the first place.
+        if (_diagnostics is null || _diagnostics.RecordRawGaze)
         {
             _groundTruth?.OnSample(
                 CurrentTargetIndex, CurrentTargetPosition,

@@ -82,7 +82,7 @@ public class GazeEngine : IDisposable
     private volatile Action<GazePoint>[] _gazeSampledHandlers = [];
     // Copy-on-write, same invariant as _gazeSampledHandlers: elements are never mutated in place;
     // add/remove build a new array under _handlerLock and publish it by assigning this field.
-    private volatile Action<PhysicalPoint, long>[] _cursorMovedHandlers = [];
+    private volatile Action<GazeFrame>[] _cursorMovedHandlers = [];
     private readonly object _handlerLock = new();
     private readonly HandlerFaultReporter _faults;
 
@@ -101,15 +101,17 @@ public class GazeEngine : IDisposable
     /// <summary>Gaze-speed standard deviation (px/s) of the last *completed* fixation — a jitter/shakiness
     /// proxy latched at fixation end (design §6.2). Persists between fixations.</summary>
     public double LastFixationJitter => _centroidTracker.LastCompletedSpeedStdDev;
-    /// <summary>Fired when cursor moves with filtered position in physical screen pixels.
+    /// <summary>Fired when cursor moves, carrying the per-sample <see cref="GazeFrame"/> (filtered
+    /// position in physical screen pixels, timestamp, and whether the position is gap-held).
     /// <para>
     /// Handlers run on the gaze thread and must be cheap and non-blocking, as with
     /// <see cref="GazeSampled"/>. A throwing handler is caught and reported rather than aborting the
     /// remaining handlers or the rest of the pipeline. Note this event carries the filtered point and
     /// deliberately does NOT carry validity — consumers needing eyes-lost detection or off-screen
-    /// coordinates must use <see cref="GazeSampled"/>.
+    /// coordinates must use <see cref="GazeSampled"/>. <see cref="GazeFrame.IsInGap"/> is the weaker,
+    /// derived signal a dwell surface needs: the point is HELD, so it must not advance dwell.
     /// </para></summary>
-    public event Action<PhysicalPoint, long>? CursorMoved
+    public event Action<GazeFrame>? CursorMoved
     {
         add
         {
@@ -487,14 +489,14 @@ public class GazeEngine : IDisposable
         }
     }
 
-    private void PublishCursorMoved(PhysicalPoint point, long timestampUs)
+    private void PublishCursorMoved(GazeFrame frame)
     {
         var handlers = _cursorMovedHandlers;
         for (int i = 0; i < handlers.Length; i++)
         {
             try
             {
-                handlers[i](point, timestampUs);
+                handlers[i](frame);
             }
             catch (Exception ex)
             {
@@ -528,8 +530,10 @@ public class GazeEngine : IDisposable
         var (filtered, isInGap) = _gapInterpolator.Process(corrected);
 
         // Always fire CursorMoved so the cursor circle + toolbar receive gaze
-        // (this allows unpause via toolbar dwell even when paused)
-        PublishCursorMoved(filtered, gaze.TimestampMicroseconds);
+        // (this allows unpause via toolbar dwell even when paused). Gap-held samples are published
+        // too — display surfaces may keep showing the held point — but the frame says so, and every
+        // dwell surface downstream skips its DwellDetector.Update for them.
+        PublishCursorMoved(new GazeFrame(filtered, gaze.TimestampMicroseconds, isInGap));
 
         // Gap-held samples are excluded: the interpolator hands back the frozen last valid position with a
         // real dt, so they enter the tracker as zero-displacement (speed-0) points — deflating

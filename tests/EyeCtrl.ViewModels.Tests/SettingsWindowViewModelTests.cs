@@ -74,6 +74,24 @@ public class SettingsWindowViewModelTests
     }
 
     [Fact]
+    public void TabDwellProgress_DoesNotAdvanceOnHeldSamples()
+    {
+        // Gap-held samples repeat the frozen last valid position. Feeding them to the four settings
+        // detectors would let a blink over a tab select it.
+        var vm = CreateViewModel();
+        vm.Register("Cursor", DwellCategory.Tab, 85, 600, () => { });
+        vm.UpdatePosition("Cursor", DwellCategory.Tab, new PhysicalPoint(100, 100));
+
+        for (int i = 0; i < 10; i++)
+        {
+            _messenger.Send(new GazeCursorMovedMessage(
+                new GazeFrame(new PhysicalPoint(100, 100), i * 33000, IsInGap: true)));
+        }
+
+        Check.That(vm.TabProgress).Not.ContainsKey("Cursor");
+    }
+
+    [Fact]
     public void TabDwellProgress_UpdatesOnGazeInput()
     {
         var vm = CreateViewModel();

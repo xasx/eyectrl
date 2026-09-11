@@ -163,8 +163,8 @@ public class GazeEngineSmoothingRoutingTests
         Check.That(b.Engine.AppliedSmoothingParameter).IsEqualTo(5.0);
 
         double lastA = 0, lastB = 0;
-        a.Engine.CursorMoved += (p, _) => lastA = p.X;
-        b.Engine.CursorMoved += (p, _) => lastB = p.X;
+        a.Engine.CursorMoved += f => lastA = f.Position.X;
+        b.Engine.CursorMoved += f => lastB = f.Position.X;
         a.TestGaze.SimulateGaze(600, 500, ts);
         b.TestGaze.SimulateGaze(600, 500, ts);
 
@@ -193,8 +193,8 @@ public class GazeEngineSmoothingRoutingTests
         Check.That(a.Engine.AppliedSmoothingParameter).IsEqualTo(0.25);
 
         double lastA = 0, lastB = 0;
-        a.Engine.CursorMoved += (p, _) => lastA = p.X;
-        b.Engine.CursorMoved += (p, _) => lastB = p.X;
+        a.Engine.CursorMoved += f => lastA = f.Position.X;
+        b.Engine.CursorMoved += f => lastB = f.Position.X;
         a.TestGaze.SimulateGaze(600, 500, ts);
         b.TestGaze.SimulateGaze(600, 500, ts);
 
@@ -214,8 +214,8 @@ public class GazeEngineSmoothingRoutingTests
         a.Provider.SetMomentaryFill(AdaptationKnob.DwellTime, DwellContext.Other, forgivingFill: 1.0, tighteningFill: 0.0);
 
         double lastA = 0, lastB = 0;
-        a.Engine.CursorMoved += (p, _) => lastA = p.X;
-        b.Engine.CursorMoved += (p, _) => lastB = p.X;
+        a.Engine.CursorMoved += f => lastA = f.Position.X;
+        b.Engine.CursorMoved += f => lastB = f.Position.X;
 
         long ts = 0;
         for (int i = 0; i < 13; i++, ts += 33_000)
@@ -284,8 +284,8 @@ public class GazeEngineSmoothingRoutingTests
         Check.That(a.Engine.AppliedSmoothingParameter).IsEqualTo(5.0);
 
         double lastA = 0, lastB = 0;
-        a.Engine.CursorMoved += (p, _) => lastA = p.X;
-        b.Engine.CursorMoved += (p, _) => lastB = p.X;
+        a.Engine.CursorMoved += f => lastA = f.Position.X;
+        b.Engine.CursorMoved += f => lastB = f.Position.X;
         a.TestGaze.SimulateGaze(600, 500, ts += 33_000);
         b.TestGaze.SimulateGaze(600, 500, ts);
 
@@ -326,7 +326,7 @@ public class GazeEngineSmoothingRoutingTests
         // even when no rebuild happens at all (review round 1, finding 5).
         var a = Make(GazeFilterMode.OneEuro);
         double lastX = 0;
-        a.Engine.CursorMoved += (p, _) => lastX = p.X;
+        a.Engine.CursorMoved += f => lastX = f.Position.X;
 
         long ts = 0;
         for (int i = 0; i < 12; i++, ts += 33_000) a.TestGaze.SimulateGaze(500, 500, ts);
@@ -430,8 +430,8 @@ public class GazeEngineSmoothingRoutingTests
         var b = new GazeEngine(gazeB, new TestInputSimulator(), baselineSettings);
 
         double lastA = 0, lastB = 0;
-        a.CursorMoved += (p, _) => lastA = p.X;
-        b.CursorMoved += (p, _) => lastB = p.X;
+        a.CursorMoved += f => lastA = f.Position.X;
+        b.CursorMoved += f => lastB = f.Position.X;
 
         long ts = 0;
         for (int i = 0; i < 12; i++, ts += 33_000)

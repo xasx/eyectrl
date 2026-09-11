@@ -264,6 +264,35 @@ public class ManualSelectionDwellServiceTests
     }
 
     [Fact]
+    public void HeldSamples_DoNotCompleteManualSelectionDwell()
+    {
+        // Same stream as the completion test above, but every sample is gap-held: a blink freezes the
+        // published position inside the manual-selection circle, and feeding it would commit the click.
+        var startMessage = new StartManualSelectionMessage(
+            new PhysicalPoint(500, 500),
+            200,
+            2.0,
+            new PhysicalPoint(500, 500));
+        _messenger.Send(startMessage);
+        _interactionManager.OnFixationStarted(startMessage.GazePoint);
+        _interactionManager.OnActivationButtonDwelled();
+
+        ManualSelectionDwellCompletedMessage? completionMessage = null;
+        _messenger.Register<ManualSelectionDwellCompletedMessage>(this, (r, m) => completionMessage = m);
+
+        var dwellPoint = new PhysicalPoint(510, 510);
+        for (int i = 0; i < 40; i++)
+        {
+            _messenger.Send(new GazeCursorMovedMessage(
+                new GazeFrame(dwellPoint, i * 33_333, IsInGap: true)));
+        }
+
+        Check.That(completionMessage).IsNull();
+
+        _messenger.Unregister<ManualSelectionDwellCompletedMessage>(this);
+    }
+
+    [Fact]
     public void OnManualSelectionEnded_CleansUpResources()
     {
         // Arrange

@@ -131,6 +131,13 @@ public class ManualSelectionDwellService : IDisposable
             _dwellDetector == null)
             return;
 
+        // Gap-held sample: the position is frozen, so it must not advance dwell. Skipping the whole
+        // sample also keeps the grace period honest — it starts at the first REAL sample rather than
+        // at a held timestamp — and the indicator simply stays where it was, since the point is
+        // unchanged.
+        if (message.IsInGap)
+            return;
+
         var pt = message.Position;
         var ts = message.TimestampMicroseconds;
 

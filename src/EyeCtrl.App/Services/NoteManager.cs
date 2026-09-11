@@ -169,6 +169,9 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
 
     public void Receive(GazeCursorMovedMessage message)
     {
+        // Held (blink) samples repeat the frozen last valid position: they must not advance a note's
+        // close/edit/move dwell, and a note being placed simply stays put until the eyes reopen.
+        if (message.IsInGap) return;
         OnGazeMoved(message.Position, message.TimestampMicroseconds);
     }
 

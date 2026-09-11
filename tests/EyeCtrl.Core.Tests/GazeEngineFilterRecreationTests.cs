@@ -42,7 +42,7 @@ public class GazeEngineFilterRecreationTests
         var engine = new GazeEngine(provider, simulator, settings);
 
         PhysicalPoint? lastMoved = null;
-        engine.CursorMoved += (pos, _) => lastMoved = pos;
+        engine.CursorMoved += f => lastMoved = f.Position;
 
         provider.SimulateGaze(500, 300);
         Check.That(lastMoved!.Value.X).IsEqualTo(500);
@@ -79,7 +79,7 @@ public class GazeEngineFilterRecreationTests
             var provider = new TestGazeProvider();
             var engine = new GazeEngine(provider, new TestInputSimulator(), settings);
             double lastX = 0;
-            engine.CursorMoved += (p, _) => lastX = p.X;
+            engine.CursorMoved += f => lastX = f.Position.X;
 
             long ts = 0;
             for (int i = 0; i < 12; i++) { provider.SimulateGaze(500, 500, ts); ts += 33_000; } // steady state
@@ -112,7 +112,7 @@ public class GazeEngineFilterRecreationTests
             var provider = new TestGazeProvider();
             var engine = new GazeEngine(provider, new TestInputSimulator(), settings);
             double lastX = 0;
-            engine.CursorMoved += (p, _) => lastX = p.X;
+            engine.CursorMoved += f => lastX = f.Position.X;
 
             long ts = 0;
             for (int i = 0; i < 12; i++) { provider.SimulateGaze(500, 500, ts); ts += 33_000; } // steady state

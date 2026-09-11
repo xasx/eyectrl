@@ -81,6 +81,12 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
     {
         if (!IsDragActive) return;
 
+        // A gap-held sample repeats the last valid position, so every write below would be a no-op
+        // anyway — but the two detectors would still accumulate against it, completing a release dwell
+        // or flipping FreeDrag→Settling on a blink. Skip the whole sample; nothing here is stale as a
+        // result, because the position has not changed.
+        if (message.IsInGap) return;
+
         CursorPosition = message.Position;
         DwellDetector.Update(message.Position, message.TimestampMicroseconds);
 

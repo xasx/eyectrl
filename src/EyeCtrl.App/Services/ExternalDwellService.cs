@@ -145,7 +145,7 @@ public sealed class ExternalDwellService : IDisposable
         _pipeServer.Start();
     }
 
-    private void OnCursorMoved(PhysicalPoint gaze, long timestampUs)
+    private void OnCursorMoved(GazeFrame frame)
     {
         if (!_settings.Enabled
             || _gazeEngine.InteractionManager.CurrentState == InteractionState.Paused)
@@ -154,6 +154,17 @@ public sealed class ExternalDwellService : IDisposable
             SetFeedback(null, default, 0);
             return;
         }
+
+        // Gap-held sample: the position is the frozen last valid one, so it is no evidence that the
+        // user is still on the target. Return BEFORE the detector update — and before touching
+        // suppression or feedback, so an in-progress external dwell neither advances nor is torn down
+        // by a blink; the overlay simply holds its last progress. Ordered after the disabled/paused
+        // check so disabling still releases on the next frame. Allocation-free: the frame is a struct
+        // and nothing here closes over it (this runs on the gaze thread, inside the provider lock).
+        if (frame.IsInGap) return;
+
+        var gaze = frame.Position;
+        var timestampUs = frame.TimestampMicroseconds;
 
         string? activatedId;
         string? feedbackId = null;

@@ -20,8 +20,13 @@ using EyeCtrl.Core.Models;
 /// </para>
 /// <para>
 /// Threading: <see cref="OnSample"/> is called on the gaze thread; the writes happen on whichever
-/// thread ends the session. Sample accumulation touches only the open window, and the session ends
-/// only after the gaze subscription is gone, so the two never overlap.
+/// thread ends the session. Sample accumulation touches only the open-window fields, which no other
+/// thread reads. The window LIST is different — the gaze thread appends to it at each target
+/// transition while the ending thread snapshots it — so every touch of <c>_windows</c> is under
+/// <c>_windowsGate</c>. The ordering argument that the subscription is gone by then is true for the
+/// ordinary path and worth nothing for an abandon mid-run, and a <c>List&lt;T&gt;</c> resized under a
+/// concurrent read does not fail loudly: it returns a torn array, or a ground truth silently missing a
+/// target. The lock is taken once per target (nine times a session), never per sample.
 /// </para>
 /// </summary>
 public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
@@ -36,6 +41,7 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
     private readonly Action<Exception>? _onFault;
 
     private readonly List<GroundTruthWindow> _windows = new();
+    private readonly object _windowsGate = new();
     private string _providerType = string.Empty;
     private PhysicalPoint _screenSize;
     private int _settleWindowMs;
@@ -60,8 +66,15 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
         _onFault = onFault;
     }
 
-    /// <summary>Windows closed so far this session, in presentation order.</summary>
-    public IReadOnlyList<GroundTruthWindow> Windows => _windows;
+    /// <summary>
+    /// Windows closed so far this session, in presentation order. A snapshot: the live list is appended
+    /// to from the gaze thread, so handing out a reference to it would let a caller enumerate a list
+    /// mid-resize.
+    /// </summary>
+    public IReadOnlyList<GroundTruthWindow> Windows
+    {
+        get { lock (_windowsGate) { return _windows.ToArray(); } }
+    }
 
     /// <summary>Whether a session is currently being recorded.</summary>
     public bool IsRecording { get; private set; }
@@ -72,7 +85,7 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
         // Discard BEFORE clearing, not after: closing an open window appends it, so the other order
         // would resurrect a previous session's last target into the freshly cleared list.
         DiscardOpenWindow();
-        _windows.Clear();
+        lock (_windowsGate) { _windows.Clear(); }
         _providerType = providerType;
         _screenSize = screenSize;
         _settleWindowMs = settleWindowMs;
@@ -109,16 +122,24 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
         CloseOpenWindow();
         IsRecording = false;
 
-        var session = new GroundTruthSession(
-            GroundTruthSession.CurrentSchemaVersion,
-            _providerType,
-            _screenSize.X,
-            _screenSize.Y,
-            _settleWindowMs,
-            _windows.ToArray());
-
         try
         {
+            // Snapshot inside the try, with the rest of the write. Outside it, anything the snapshot
+            // threw — and a list read while the gaze thread appends is exactly what throws here — would
+            // escape CompleteSession into the calibration flow that called it, turning a missing
+            // diagnostic sidecar into a failed calibration. Everything in this method is best-effort by
+            // the same argument; there was no reason for one step of it to be an exception.
+            GroundTruthWindow[] windows;
+            lock (_windowsGate) { windows = _windows.ToArray(); }
+
+            var session = new GroundTruthSession(
+                GroundTruthSession.CurrentSchemaVersion,
+                _providerType,
+                _screenSize.X,
+                _screenSize.Y,
+                _settleWindowMs,
+                windows);
+
             var directory = Path.GetDirectoryName(_filePath);
             if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
 
@@ -143,7 +164,7 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
         // it would append it to the list this is about to clear, leaving exactly the stale window the
         // abandonment exists to drop.
         DiscardOpenWindow();
-        _windows.Clear();
+        lock (_windowsGate) { _windows.Clear(); }
         IsRecording = false;
     }
 
@@ -151,9 +172,10 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
     {
         if (_openTargetId >= 0 && _openSamples > 0)
         {
-            _windows.Add(new GroundTruthWindow(
+            var window = new GroundTruthWindow(
                 _openTargetId, _openTarget.X, _openTarget.Y,
-                _openFromUs, _openArrivedUs, _openLastUs, _openSamples));
+                _openFromUs, _openArrivedUs, _openLastUs, _openSamples);
+            lock (_windowsGate) { _windows.Add(window); }
         }
         DiscardOpenWindow();
     }

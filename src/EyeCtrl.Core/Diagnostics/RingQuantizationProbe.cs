@@ -19,6 +19,16 @@ using System.Globalization;
 /// whether that beat is present.
 /// </para>
 /// <para>
+/// <b>Read the cadence histogram as intervals between ring MOVEMENTS, not between gaze samples.</b> The
+/// probe is driven from the position write, which is raised by a <c>PropertyChanged</c> on the view
+/// model's <c>Position</c> — and that fires only when the value actually changes. A gap-held frame
+/// repeats the previous position, so it raises nothing, reaches no window write, and contributes no
+/// interval. The distribution therefore has a long tail during tracking loss and a mean that is NOT the
+/// sample rate: an 80 ms bucket can be one 30 ms sample plus a blink, not a late update. That makes it
+/// the right instrument for "does the ring judder while it is moving" and the wrong one for "how often
+/// does the pipeline produce a sample" — the raw recording answers the latter.
+/// </para>
+/// <para>
 /// Measurement only — the caller reads back where the window actually landed and reports it here;
 /// nothing about how the ring is positioned changes.
 /// </para>
@@ -50,7 +60,10 @@ public sealed class RingQuantizationProbe
         _intervals = new DurationHistogram(maxIntervalMilliseconds);
     }
 
-    /// <summary>Distribution of intervals between successive position writes — the cadence evidence.</summary>
+    /// <summary>
+    /// Distribution of intervals between successive position writes — the cadence evidence. Writes, not
+    /// samples: a held position raises no change and so contributes no interval (see the class remarks).
+    /// </summary>
     public DurationHistogram Intervals => _intervals;
 
     /// <summary>Number of position writes observed.</summary>
@@ -150,5 +163,9 @@ public sealed class RingQuantizationProbe
     public string DescribeCadence() =>
         _intervals.Count == 0
             ? "ring cadence: no intervals"
-            : $"ring cadence: {_intervals.Describe()} buckets=[{_intervals.DescribeBuckets()}]";
+            // The qualifier is in the log line itself, not only the XML docs: this line is read months
+            // later, out of context, by someone deciding whether the ring beats against the compositor.
+            // Without it the tail reads as dropped frames rather than as the user blinking.
+            : $"ring cadence (intervals between ring MOVEMENTS — a held position writes nothing): "
+              + $"{_intervals.Describe()} buckets=[{_intervals.DescribeBuckets()}]";
 }

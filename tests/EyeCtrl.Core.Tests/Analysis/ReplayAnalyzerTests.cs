@@ -35,6 +35,95 @@ public class ReplayAnalyzerTests
         }
     }
 
+    // ── Calibration ───────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Replay_AppliesTheSessionCalibration_BeforeTheFilter()
+    {
+        // Mirrors GazeEngine.OnGazePoint, which corrects every VALID sample before handing it to the
+        // interpolator. A replay that skipped this would filter the tracker's raw coordinate space, and
+        // since the transform is affine, every distance-valued metric — jitter, overshoot, the settle
+        // radius the acceptance gate vetoes on — would come out scaled by the transform's own factor.
+        // Deliberately an exaggerated 2× + offset so the difference cannot be mistaken for filter lag.
+        var samples = GazeStreamGenerator.GenerateNoisyFixation();
+        var transform = new EyeCtrl.Core.Diagnostics.AffineTransformParameters(
+            A: 2.0, B: 0.0, C: 100.0,
+            D: 0.0, E: 2.0, F: -50.0);
+
+        var corrected = ReplayPipeline.Run(samples, ReplayPipeline.Unfiltered, transform);
+        var uncorrected = ReplayPipeline.Run(samples, ReplayPipeline.Unfiltered);
+
+        // The unfiltered candidate is the identity, so its output IS the corrected input — which makes
+        // the arithmetic checkable directly rather than through whatever the filter did to it.
+        int checkedSamples = 0;
+        for (int i = 0; i < samples.Length; i++)
+        {
+            if (!samples[i].IsValid) continue;
+            Check.That(corrected[i].Filtered.X).IsCloseTo((2.0 * samples[i].X) + 100.0, 1e-9);
+            Check.That(corrected[i].Filtered.Y).IsCloseTo((2.0 * samples[i].Y) - 50.0, 1e-9);
+            Check.That(corrected[i].Corrected.X).IsCloseTo((2.0 * samples[i].X) + 100.0, 1e-9);
+            checkedSamples++;
+        }
+
+        Check.That(checkedSamples).IsStrictlyGreaterThan(0);
+        // And it genuinely changed the answer: without this the test would pass against a replay that
+        // ignores the transform entirely.
+        Check.That(corrected[0].Filtered.X).IsNotEqualTo(uncorrected[0].Filtered.X);
+    }
+
+    [Fact]
+    public void Replay_LeavesInvalidSamplesUncorrected()
+    {
+        // The IsValid guard is part of the mirror. An invalid sample carries no position to correct, and
+        // transforming its coordinates anyway would hand the interpolator different garbage from what the
+        // live pipeline saw — changing which gaps the replay reports, not merely where they are.
+        var samples = new[]
+        {
+            new EyeCtrl.Core.Models.GazePoint(100, 100, 0, IsValid: true),
+            new EyeCtrl.Core.Models.GazePoint(999, 999, 33_000, IsValid: false),
+        };
+        var transform = new EyeCtrl.Core.Diagnostics.AffineTransformParameters(2, 0, 0, 0, 2, 0);
+
+        var frames = ReplayPipeline.Run(samples, ReplayPipeline.Unfiltered, transform);
+
+        Check.That(frames[0].Corrected.X).IsEqualTo(200.0);
+        Check.That(frames[1].Corrected.X).IsEqualTo(999.0);   // untouched, not 1998
+        // Raw is always the recorded sample, whatever the transform did.
+        Check.That(frames[0].Raw.X).IsEqualTo(100.0);
+    }
+
+    [Fact]
+    public void Replay_WithoutACalibration_IsUnchanged()
+    {
+        // The null path must be a true no-op, or every uncalibrated recording ever made would start
+        // reporting different numbers than it used to.
+        var samples = GazeStreamGenerator.GenerateNoisyFixation();
+
+        var frames = ReplayPipeline.Run(samples, ReplayPipeline.Baseline, calibration: null);
+
+        for (int i = 0; i < samples.Length; i++)
+        {
+            Check.That(frames[i].Corrected.X).IsEqualTo(samples[i].X);
+            Check.That(frames[i].Corrected.Y).IsEqualTo(samples[i].Y);
+        }
+    }
+
+    [Fact]
+    public void Replay_FromARecording_RefusesALossyOne()
+    {
+        // The recording-level entry point is where the refusal has to live: an analyst reaching for
+        // "replay this file" must not be able to get a number out of a file with holes in it.
+        var lossy = GazeRecordingFile.Parse(new[]
+        {
+            "# {\"providerType\":\"Mouse\"}",
+            "1,2,1000,1",
+            "#! {\"droppedSamples\":12,\"recordedSamples\":1000}",
+        });
+
+        Check.ThatCode(() => ReplayPipeline.Run(lossy, ReplayPipeline.Baseline))
+             .Throws<InvalidOperationException>();
+    }
+
     [Fact]
     public void Metrics_AreDeterministic_SameInputSameNumbers()
     {

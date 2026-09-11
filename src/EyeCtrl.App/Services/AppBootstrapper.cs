@@ -106,19 +106,59 @@ public class AppBootstrapper
 
             var recorderLog = loggerFactory.CreateLogger<GazeRecorder>();
             var calibration = sp.GetRequiredService<CalibrationService>();
+
+            // The transform's own coefficients, not just its identity: the analyzer replays the raw
+            // samples and must reapply the exact mapping the live pipeline used, and calibration.json
+            // may have been recalibrated away by the time anyone looks at the recording. Null for a
+            // transform type this does not know how to serialize — the analyzer refuses such a recording
+            // rather than replaying an uncorrected stream as if it were corrected.
+            AffineTransformParameters? transformParams = null;
+            if (calibration.CurrentTransform is AffineTransform affine)
+            {
+                var p = affine.GetParameters();
+                transformParams = new AffineTransformParameters(p[0], p[1], p[2], p[3], p[4], p[5]);
+            }
+
             var header = new GazeRecordingHeader(
                 ProviderType: GazeProviderFactory.GetProviderType(provider).ToString(),
                 ScreenWidthPhysical: screenWidth,
                 ScreenHeightPhysical: screenHeight,
                 CalibrationActive: calibration.CurrentTransform is not null,
                 CalibrationVersion: calibration.CurrentData?.CalibratedAt.ToString("O") ?? string.Empty,
-                SettingsVersion: 0);
+                SettingsVersion: 0,
+                CalibrationTransform: transformParams);
+
+            if (calibration.CurrentTransform is not null && transformParams is null)
+            {
+                recorderLog.LogWarning(
+                    "A calibration is active but its transform type ({Type}) cannot be written to the recording header; " +
+                    "the recording will not be analyzable",
+                    calibration.CurrentTransform.GetType().Name);
+            }
 
             var recorder = new GazeRecorder(
                 Path.Combine(appDataDir, "gaze-recording.csv"),
                 header,
                 onFault: ex => recorderLog.LogWarning(ex,
-                    "Raw-gaze recording stopped after a writer fault; gaze itself is unaffected"));
+                    "Raw-gaze recording stopped after a writer fault; gaze itself is unaffected"),
+                // The drop count is the recording's own validity check, so it must reach the operator
+                // while they are still at the machine that produced it. Warning, not Information: a
+                // non-zero count means the session has to be collected again.
+                onClosed: t =>
+                {
+                    if (t.DroppedSamples > 0)
+                    {
+                        recorderLog.LogWarning(
+                            "Raw-gaze recording DROPPED {Dropped} of {Recorded} samples — the recording has holes in it " +
+                            "and cannot be measured; re-collect the session",
+                            t.DroppedSamples, t.RecordedSamples);
+                    }
+                    else
+                    {
+                        recorderLog.LogInformation(
+                            "Raw-gaze recording closed: {Recorded} samples, none dropped", t.RecordedSamples);
+                    }
+                });
 
             recorderLog.LogInformation(
                 "Raw-gaze recording is ON for this session (opt-in). Writing to {Path}",

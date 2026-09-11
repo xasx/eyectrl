@@ -48,6 +48,8 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
     [ObservableProperty] private SupervisionSettings _supervision = new();
     /// <summary>Struggle-detection self-adaptation settings (master switch + posture).</summary>
     [ObservableProperty] private AdaptationSettings _adaptation = new();
+    /// <summary>Opt-in diagnostic instrumentation (raw-gaze recording); all off by default.</summary>
+    [ObservableProperty] private DiagnosticsSettings _diagnostics = new();
 
     /// <summary>
     /// Enumerates every sub-settings object with its property name. Single source of truth
@@ -76,6 +78,7 @@ public partial class EyeCtrlSettings : ObservableObject, IValidatable
         yield return (nameof(QuickActions), QuickActions);
         yield return (nameof(Supervision), Supervision);
         yield return (nameof(Adaptation), Adaptation);
+        yield return (nameof(Diagnostics), Diagnostics);
     }
 
     /// <inheritdoc />

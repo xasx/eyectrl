@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Calibration;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -91,9 +92,41 @@ public class AppBootstrapper
             var factory = new GazeProviderFactory(
                 loggerFactory.CreateLogger<GazeProviderFactory>(),
                 loggerFactory);
-            return factory.Create(settings.General.GazeProviderType,
-                System.Windows.SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX,
-                System.Windows.SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY);
+            double screenWidth = System.Windows.SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX;
+            double screenHeight = System.Windows.SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY;
+            var provider = factory.Create(settings.General.GazeProviderType, screenWidth, screenHeight);
+
+            // Raw-gaze recording is opt-in and off by default, so the decorator is not even constructed
+            // unless the user turned it on for this session: with it off the provider chain is exactly
+            // what it has always been. Toggling the setting mid-session does not start a recording —
+            // the wrap is decided once here — which is deliberate: a recording that begins partway
+            // through has no header describing the session it is half of.
+            if (!settings.Diagnostics.RecordRawGaze)
+                return provider;
+
+            var recorderLog = loggerFactory.CreateLogger<GazeRecorder>();
+            var calibration = sp.GetRequiredService<CalibrationService>();
+            var header = new GazeRecordingHeader(
+                ProviderType: GazeProviderFactory.GetProviderType(provider).ToString(),
+                ScreenWidthPhysical: screenWidth,
+                ScreenHeightPhysical: screenHeight,
+                CalibrationActive: calibration.CurrentTransform is not null,
+                CalibrationVersion: calibration.CurrentData?.CalibratedAt.ToString("O") ?? string.Empty,
+                SettingsVersion: 0);
+
+            var recorder = new GazeRecorder(
+                Path.Combine(appDataDir, "gaze-recording.csv"),
+                header,
+                onFault: ex => recorderLog.LogWarning(ex,
+                    "Raw-gaze recording stopped after a writer fault; gaze itself is unaffected"));
+
+            recorderLog.LogInformation(
+                "Raw-gaze recording is ON for this session (opt-in). Writing to {Path}",
+                Path.Combine(appDataDir, "gaze-recording.csv"));
+
+            return new RecordingGazeProvider(provider, recorder, settings.Diagnostics,
+                onFault: ex => recorderLog.LogWarning(ex,
+                    "Raw-gaze recording self-disabled; gaze itself is unaffected"));
         });
 
         // Model download services

@@ -525,7 +525,11 @@ public class GazeEngine : IDisposable
         // (this allows unpause via toolbar dwell even when paused)
         PublishCursorMoved(filtered, gaze.TimestampMicroseconds);
 
-        _centroidTracker.Update(filtered, gaze.TimestampMicroseconds);
+        // Gap-held samples are excluded: the interpolator hands back the frozen last valid position with a
+        // real dt, so they enter the tracker as zero-displacement (speed-0) points — deflating
+        // LastFixationJitter exactly when tracking is worst, and biasing StableCentroid toward the freeze.
+        if (!isInGap)
+            _centroidTracker.Update(filtered, gaze.TimestampMicroseconds);
 
         if (InteractionManager.CurrentState == InteractionState.Paused)
             return;

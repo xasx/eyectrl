@@ -96,14 +96,14 @@ public partial class MainWindow : Window
     //    GazeEngine fires this after calibration + gap interpolation + OneEuro filtering.
     //    The point is in physical screen pixels.
 
-    private void OnCursorMoved(PhysicalPoint filteredPoint, long timestamp)
+    private void OnCursorMoved(GazeFrame frame)
     {
         Interlocked.Increment(ref _gazeCallbackCount);
 
         lock (_gazeLock)
         {
-            _filteredX = filteredPoint.X;
-            _filteredY = filteredPoint.Y;
+            _filteredX = frame.Position.X;
+            _filteredY = frame.Position.Y;
             _hasNewSample = true;
         }
     }

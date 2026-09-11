@@ -37,9 +37,15 @@ public abstract partial class DwellOverlayViewModelBase : MessengerViewModelBase
     protected abstract void OnTargetActivated(string targetId);
     protected abstract void OnTargetProgress(string targetId, double progress);
 
+    /// <summary>
+    /// Feeds the sample to the dwell detector while visible. A gap-held sample is skipped entirely —
+    /// its position is the frozen last valid one, so feeding it would accumulate dwell on whatever the
+    /// user happened to be looking at when their eyes closed. Skipping, rather than resetting, leaves
+    /// an in-progress dwell intact for when the eyes reopen.
+    /// </summary>
     public virtual void Receive(GazeCursorMovedMessage message)
     {
-        if (IsVisible)
+        if (IsVisible && !message.IsInGap)
             DwellDetector.Update(message.Position, message.TimestampMicroseconds);
     }
 

@@ -179,6 +179,54 @@ public class ExternalDwellServiceTests
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
     }
 
+    // The external-dwell detector runs on the gaze thread inside the provider lock, off CursorMoved
+    // rather than the UI-thread message. It honours the frame's gap flag like every other dwell
+    // surface: a blink freezes the published position over the cooperating app's control, and feeding
+    // that on would activate it. Driven end-to-end through a real GapInterpolator by raising an
+    // INVALID sample, which is what produces a held frame.
+    [Fact]
+    public void HeldSamples_DoNotActivateExternalTarget()
+    {
+        RunOnStaThread(() =>
+        {
+            var settings = new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 0 };
+            var provider = new StubGazeProvider();
+            using var engine = new GazeEngine(provider, new StubInputSimulator(), new EyeCtrlSettings());
+            using var svc = new ExternalDwellService(settings, engine, Dispatcher.CurrentDispatcher,
+                NullLogger<ExternalDwellService>.Instance, new WeakReferenceMessenger(), _ => 7,
+                pipeName: _pipeName);
+            svc.Start();
+
+            var activated = RegisterThenDwellThroughABlink(provider, _pipeName).GetAwaiter().GetResult();
+
+            Check.That(activated).IsNull();
+        });
+    }
+
+    // Registers a target, enters it with a real sample, then lets the dwell time elapse across HELD
+    // samples only. Returns the server's activation line, or null if none arrived (the expectation).
+    private static async Task<string?> RegisterThenDwellThroughABlink(StubGazeProvider provider, string pipeName)
+    {
+        await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client.ConnectAsync(2000);
+        await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        using var r = new StreamReader(client, Encoding.UTF8, false, 1024, leaveOpen: true);
+
+        await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+            new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
+        await Task.Delay(200); // let the server register the target
+
+        provider.Raise(new GazePoint(100, 100, 0, IsValid: true));          // enter the target
+        // Invalid samples inside the 150 ms interpolation budget: the engine publishes the held
+        // (100,100) with IsInGap set. The last one is past DefaultDwellMs, so an unguarded detector
+        // would activate here.
+        provider.Raise(new GazePoint(0, 0, 100_000, IsValid: false));
+        provider.Raise(new GazePoint(0, 0, 800_000, IsValid: false));
+
+        var read = r.ReadLineAsync();
+        return await Task.WhenAny(read, Task.Delay(1000)) == read ? await read : null;
+    }
+
     private static async Task RunPipeClient(string pipeName)
     {
         await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut);

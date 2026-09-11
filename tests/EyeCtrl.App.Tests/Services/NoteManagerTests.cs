@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
+using EyeCtrl.ViewModels.Messages;
 using Xunit;
 
 [Collection("DpiHelper Tests (App)")]
@@ -233,5 +234,34 @@ public class NoteManagerTests
             manager.OnGazeMoved(closeCenter, t);
 
         Check.That(manager.ActiveNotes).IsEmpty();
+    }
+
+    // Same stream, delivered as the message the adapter actually sends, but gap-held: closing a note
+    // is destructive and no-confirm, so a blink that freezes the gaze over the close button must not
+    // delete it.
+    [StaFact]
+    public void HeldSamples_DoNotDwellCloseANote()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger);
+        var anchor = new PhysicalPoint(800, 500);
+        manager.CreateNoteAt(anchor);
+        var id = manager.ActiveNotes[0].Id;
+        manager.FinishEdit(id, "x");
+
+        double winLeft = anchor.X - EyeCtrl.Core.LayoutConstants.NoteWindowWidth / 2;
+        double winTop = anchor.Y - EyeCtrl.Core.LayoutConstants.NoteAnchorOffsetY;
+        double cx = EyeCtrl.Core.LayoutConstants.NoteWindowWidth
+            - EyeCtrl.Core.LayoutConstants.NoteButtonPadding
+            - EyeCtrl.Core.LayoutConstants.NoteButtonRadius;
+        double cy = EyeCtrl.Core.LayoutConstants.NoteTitleBarHeight
+            + EyeCtrl.Core.LayoutConstants.NoteButtonPadding
+            + EyeCtrl.Core.LayoutConstants.NoteButtonRadius;
+        var closeCenter = new PhysicalPoint(winLeft + cx, winTop + cy);
+
+        for (long t = 0; t <= 800_000; t += 33_000)
+            messenger.Send(new GazeCursorMovedMessage(new GazeFrame(closeCenter, t, IsInGap: true)));
+
+        Check.That(manager.ActiveNotes).HasSize(1);
     }
 }

@@ -22,7 +22,7 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
     // Per-sample CursorMoved route: toolbar (lazy first sample), keyboard (while open), settings
     // window (while open). Moved here from EventCoordinator.SetupGazeRouting as part of the cluster-8
     // final cleanup. Held so Dispose can -= it.
-    private Action<PhysicalPoint, long>? _gazeMovedHandler;
+    private Action<GazeFrame>? _gazeMovedHandler;
     // True once the toolbar has received its first gaze sample and lazily initialized its target
     // positions. The per-sample early-out below keys off this.
     private volatile bool _toolbarInitialized;
@@ -75,8 +75,11 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
         var toolbar = Context.OverlayManager.Toolbar;
         var keyboard = Context.OverlayManager.Keyboard;
 
-        _gazeMovedHandler = (point, timestamp) =>
+        _gazeMovedHandler = frame =>
         {
+            var point = frame.Position;
+            var timestamp = frame.TimestampMicroseconds;
+
             // Perf: skip the per-sample UI-thread dispatch when nothing consumes it. The toolbar
             // needs samples only until its target positions are placed (which can take more than
             // one, since the band's faces may not be arranged yet); after that its dwell is driven
@@ -99,7 +102,11 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
                 // a re-dock now gets its targets moved instead of being silently ignored.
                 _toolbarInitialized = toolbar.TargetsInitialized;
 
-                if (_modal.KeyboardVisible && keyboard.IsVisible)
+                // The keyboard is a dwell surface (key dwell, prediction dwell, emoji categories), so a
+                // gap-held sample must not reach it — a blink over a key would otherwise type it. The
+                // toolbar and settings routes above are geometry-only (target placement) and are fed
+                // regardless.
+                if (_modal.KeyboardVisible && keyboard.IsVisible && !frame.IsInGap)
                     keyboard.UpdateGaze(point, timestamp);
 
                 // Route the sample to the settings window iff it is open (the visibility check lives

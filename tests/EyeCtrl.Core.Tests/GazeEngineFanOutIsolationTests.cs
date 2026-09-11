@@ -42,7 +42,7 @@ public class GazeEngineFanOutIsolationTests
         int cursorMoves = 0;
 
         engine.GazeSampled += _ => throw new InvalidOperationException("boom");
-        engine.CursorMoved += (_, _) => cursorMoves++;
+        engine.CursorMoved += _ => cursorMoves++;
 
         provider.SimulateGaze(new GazePoint(100, 200, 1_000_000, IsValid: true));
 
@@ -128,8 +128,8 @@ public class GazeEngineFanOutIsolationTests
         using var _ = engine;
         int reached = 0;
 
-        engine.CursorMoved += (_, _) => throw new InvalidOperationException("boom");
-        engine.CursorMoved += (_, _) => reached++;
+        engine.CursorMoved += _ => throw new InvalidOperationException("boom");
+        engine.CursorMoved += _ => reached++;
 
         provider.SimulateGaze(new GazePoint(100, 200, 1_000_000, IsValid: true));
 
@@ -141,7 +141,7 @@ public class GazeEngineFanOutIsolationTests
     {
         var (provider, engine) = NewEngine();
         using var _ = engine;
-        engine.CursorMoved += (_, _) => throw new InvalidOperationException("boom");
+        engine.CursorMoved += _ => throw new InvalidOperationException("boom");
 
         // Must not throw: the remainder of OnGazePoint (centroid tracking, fixation) still runs.
         provider.SimulateGaze(new GazePoint(100, 200, 1_000_000, IsValid: true));

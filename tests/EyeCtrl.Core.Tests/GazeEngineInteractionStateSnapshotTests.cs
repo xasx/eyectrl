@@ -46,7 +46,7 @@ public class GazeEngineInteractionStateSnapshotTests
         var (engine, provider, _) = NewEngine();
         using var e = engine;
         var published = new List<PhysicalPoint>();
-        engine.CursorMoved += (p, _) => published.Add(p);
+        engine.CursorMoved += f => published.Add(f.Position);
         engine.InteractionManager.TogglePause();
 
         provider.SimulateGaze(new GazePoint(500, 300, 0, true));

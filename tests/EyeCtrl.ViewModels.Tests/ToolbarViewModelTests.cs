@@ -194,6 +194,28 @@ public class ToolbarViewModelTests
         Check.That(paused).IsTrue();
     }
 
+    // Negative counterpart: the same dwell made of gap-held samples must NOT activate. A blink
+    // freezes the published position on the button, and feeding that to the detector would pause
+    // the app because the user's eyes happened to close over the Pause button.
+    [Fact]
+    public void GazeDwellOfHeldSamples_DoesNotActivateButton()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ToolbarViewModel(_settings, messenger);
+
+        var center = new PhysicalPoint(500, 500);
+        vm.UpdateButtonScreenPosition("Pause", center);
+
+        bool paused = false;
+        messenger.Register<PauseToggledMessage>(this, (_, _) => paused = true);
+
+        long dwellUs = (_settings.Dwell.ToolbarButtonDwellMs + 100) * 1000L;
+        vm.Receive(new GazeCursorMovedMessage(center, 0));
+        vm.Receive(new GazeCursorMovedMessage(new GazeFrame(center, dwellUs, IsInGap: true)));
+
+        Check.That(paused).IsFalse();
+    }
+
     // Target-lifecycle contract (Task 7): a hidden/calibrating toolbar must not dwell — Close is
     // no-confirm, so a gaze pass over where Close *used to be* must not fire it on the current
     // foreground window. SetActive(false) gates Receive AND clears in-progress dwell state.

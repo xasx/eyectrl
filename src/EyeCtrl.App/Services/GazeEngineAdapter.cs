@@ -133,8 +133,10 @@ public class GazeEngineAdapter : IDisposable
         messenger.Send(new SelectionModeChangedMessage(_settings.SelectionMode));
     }
 
-    private void OnCursorMoved(PhysicalPoint point, long timestamp) =>
-        _dispatcher.BeginInvoke(() => _messenger.Send(new GazeCursorMovedMessage(point, timestamp)));
+    // The frame travels whole, gap flag included: the UI-thread dwell surfaces downstream need it to
+    // decide whether the sample may advance dwell at all.
+    private void OnCursorMoved(GazeFrame frame) =>
+        _dispatcher.BeginInvoke(() => _messenger.Send(new GazeCursorMovedMessage(frame)));
 
     private void OnShowActivationButton(PhysicalPoint point) =>
         _dispatcher.BeginInvoke(() => _messenger.Send(new ShowActivationButtonMessage(point)));

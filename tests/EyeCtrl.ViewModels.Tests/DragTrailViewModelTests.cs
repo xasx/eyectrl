@@ -56,6 +56,24 @@ public class DragTrailViewModelTests
     }
 
     [Fact]
+    public void Settle_DoesNotProgressOnHeldSamples()
+    {
+        // The settle detector is a dwell surface too: a blink freezes the position, and letting it
+        // settle would drop what the user is dragging where their eyes happened to close.
+        var vm = CreateVm();
+        _settings.Drag.SettleDwellMs = 500;
+        _settings.Drag.SettleRadiusPixels = 40;
+        _messenger.Send(StartMsg(new PhysicalPoint(100, 100)));
+
+        var pos = new PhysicalPoint(300, 300);
+        _messenger.Send(new GazeCursorMovedMessage(pos, 0));
+        _messenger.Send(new GazeCursorMovedMessage(new GazeFrame(pos, 250_000, IsInGap: true)));
+
+        Check.That(vm.SettleProgress).IsEqualTo(0);
+        Check.That(vm.DragState).IsEqualTo(DragSubState.FreeDrag);
+    }
+
+    [Fact]
     public void Settle_CompletesAndSendsDragDrop()
     {
         _settings.Drag.SettleDwellMs = 200;

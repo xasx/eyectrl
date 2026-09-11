@@ -103,7 +103,9 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
 
     public override void Receive(GazeCursorMovedMessage message)
     {
-        if (!_dwellingActive) return;
+        // Gap-held samples carry the frozen last valid position, so they are skipped rather than fed
+        // (see DwellOverlayViewModelBase.Receive) — a blink over a toolbar button must not complete it.
+        if (!_dwellingActive || message.IsInGap) return;
         DwellDetector.Update(message.Position, message.TimestampMicroseconds);
     }
 

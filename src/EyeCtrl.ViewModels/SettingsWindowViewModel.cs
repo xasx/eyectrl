@@ -105,6 +105,9 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
     public void Receive(GazeCursorMovedMessage message)
     {
         if (IsDisposed) return;
+        // Held (blink) samples never advance dwell on any surface: the position is frozen, so feeding
+        // it would complete a tab, control or modal button the user merely blinked at.
+        if (message.IsInGap) return;
 
         if (IsModalVisible)
         {

@@ -146,6 +146,19 @@ public sealed class RecordingGazeProvider : IGazeProviderDecorator
     public bool IsConnected => _inner.IsConnected;
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Forwarded, and the reason is worth stating: this is a DEFAULT interface method with an empty
+    /// body, so omitting it here compiles, passes every test, and silently binds to the no-op. The
+    /// display watcher hands its updates to whatever <c>IGazeProvider</c> came out of DI — this
+    /// decorator, whenever recording is on — and the Tobii provider that actually rescales normalised
+    /// coordinates would never hear them. A dock, undock or resolution change mid-session would then
+    /// confine the user's gaze to the old pixel space for the rest of the run, with no error and no log
+    /// line: exactly the bug this member was added to fix. A diagnostic must not reintroduce it.
+    /// </remarks>
+    public void UpdateScreenBounds(double widthPx, double heightPx) =>
+        _inner.UpdateScreenBounds(widthPx, heightPx);
+
+    /// <inheritdoc />
     public GazeProviderCapabilities Capabilities => _inner.Capabilities;
 
     /// <inheritdoc />

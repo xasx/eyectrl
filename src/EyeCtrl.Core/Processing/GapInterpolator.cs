@@ -13,6 +13,17 @@ public sealed class GapInterpolator
     private readonly long _maxGapMicroseconds;
     private PhysicalPoint _lastValidPosition = new(0, 0);
     private long _lastValidTimestamp = -1;
+    // Distinguishes "sequence broken by a long gap, still no valid data" from "never seen data": both
+    // carry _lastValidTimestamp == -1, but only the former is a gap. Without it every invalid sample
+    // after a long-gap reset reported IsInGap: false, so the frozen position was fed to the fixation
+    // detector at distance zero and could sustain (or complete) a phantom fixation while the eyes were
+    // still closed. Cleared by the next valid sample.
+    private bool _sequenceBrokenByGap;
+
+    // INVARIANT: any sample that returns a HELD position reports IsInGap: true. The sole consumer of the
+    // flag is a suppression gate, and a held position carries no evidence about where the user is looking,
+    // so the two must not disagree. The one exception is the pre-first-valid case — there is no stream
+    // yet to be in a gap of, and the "held" position is the (0,0) placeholder rather than real data.
 
     /// <summary>
     /// Initializes a new instance of the <see cref="GapInterpolator"/> class.
@@ -35,33 +46,42 @@ public sealed class GapInterpolator
             var filtered = _filter.Filter(rawPoint);
             _lastValidPosition = filtered;
             _lastValidTimestamp = rawPoint.TimestampMicroseconds;
+            _sequenceBrokenByGap = false;
             return (filtered, false);
         }
 
-        // No prior valid sample — can't determine gap duration
+        // No prior valid sample — can't determine gap duration. Still in gap if a long gap already
+        // broke the sequence and no valid sample has arrived since; false only when data was never seen.
         if (_lastValidTimestamp < 0)
-            return (_lastValidPosition, false);
+            return (_lastValidPosition, _sequenceBrokenByGap);
 
         long gap = rawPoint.TimestampMicroseconds - _lastValidTimestamp;
 
         if (gap >= _maxGapMicroseconds)
         {
-            // Gap too long — treat as new sequence, reset filter
+            // Gap too long — treat as new sequence, reset filter. The position handed back is still the
+            // held one, so this sample is in-gap too (per the invariant above): "start a new sequence" is
+            // a statement about the FILTER, not evidence that the user is looking anywhere.
             _filter.Reset();
             _lastValidTimestamp = -1;
-            return (_lastValidPosition, false);
+            _sequenceBrokenByGap = true;
+            return (_lastValidPosition, true);
         }
 
         // Short gap (blink) — hold position, suppress fixation/dwell
         return (_lastValidPosition, true);
     }
 
-    /// <summary>Copies internal state (last position and timestamp) from another interpolator without locking.</summary>
+    /// <summary>Copies internal state (last position, timestamp and long-gap flag) from another
+    /// interpolator without locking.</summary>
     /// <param name="other">The source interpolator to copy state from.</param>
     public void CopyStateFrom(GapInterpolator other)
     {
         _lastValidPosition = other._lastValidPosition;
         _lastValidTimestamp = other._lastValidTimestamp;
+        // Carried too, or a rebuild in the middle of a long gap would silently restart the tail as
+        // "never seen data" and hand the frozen point back to the fixation detector.
+        _sequenceBrokenByGap = other._sequenceBrokenByGap;
     }
 
     /// <summary>
@@ -81,5 +101,6 @@ public sealed class GapInterpolator
         _filter.Reset();
         _lastValidPosition = new(0, 0);
         _lastValidTimestamp = -1;
+        _sequenceBrokenByGap = false;
     }
 }

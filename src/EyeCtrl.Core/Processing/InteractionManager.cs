@@ -7,7 +7,16 @@ using EyeCtrl.Core.Models;
 /// </summary>
 public class InteractionManager
 {
-    /// <summary>Current state of the interaction state machine.</summary>
+    /// <summary>
+    /// Current state of the interaction state machine.
+    /// <para>
+    /// Written from the dispatcher thread (<see cref="TogglePause"/>, <see cref="OnActionSelected"/>) as
+    /// well as from the gaze thread, and read from both. A reader that needs more than one decision from
+    /// the state must snapshot it ONCE into a local and decide from that snapshot — re-reading per
+    /// decision lets a write land between the reads and makes a single unit of work take mutually
+    /// inconsistent decisions (see <c>GazeEngine.OnGazePoint</c>).
+    /// </para>
+    /// </summary>
     public InteractionState CurrentState { get; private set; } = InteractionState.FreeLook;
     /// <summary>Active selection mode that drives the activation-button branch.</summary>
     public SelectionMode SelectionMode { get; set; } = SelectionMode.None;

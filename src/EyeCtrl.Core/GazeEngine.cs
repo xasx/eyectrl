@@ -511,6 +511,12 @@ public class GazeEngine : IDisposable
         ApplyPendingFixationReconfiguration();
         ApplyPendingInterpolatorRebuild(gaze.TimestampMicroseconds);
 
+        // Per-sample snapshot: InteractionManager.CurrentState is also written from the dispatcher thread
+        // (TogglePause / OnActionSelected), so re-reading it per decision lets a write land between the
+        // reads and makes ONE sample take mutually inconsistent decisions. Every decision below uses this
+        // one value.
+        var interactionState = InteractionManager.CurrentState;
+
         PublishGazeSampled(gaze);
 
         var corrected = gaze;
@@ -531,10 +537,10 @@ public class GazeEngine : IDisposable
         if (!isInGap)
             _centroidTracker.Update(filtered, gaze.TimestampMicroseconds);
 
-        if (InteractionManager.CurrentState == InteractionState.Paused)
+        if (interactionState == InteractionState.Paused)
             return;
 
-        if (InteractionManager.CurrentState is InteractionState.FreeLook or InteractionState.Dragging)
+        if (interactionState is InteractionState.FreeLook or InteractionState.Dragging)
         {
             _inputSimulator.MoveCursor(filtered);
         }

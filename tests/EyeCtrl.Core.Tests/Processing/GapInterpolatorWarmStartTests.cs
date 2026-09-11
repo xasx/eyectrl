@@ -46,4 +46,23 @@ public class GapInterpolatorWarmStartTests
         var i = new GapInterpolator(new OneEuroFilter(), maxGapMs: 150);
         i.WarmStartFromCurrentState(); // no established position yet → must not throw
     }
+
+    [Fact]
+    public void Rebuild_DuringLongGapTail_KeepsReportingInGap()
+    {
+        // A long gap clears the last valid timestamp, so warm-start no-ops here (the filter is cold by
+        // design). The rebuilt interpolator must still report the remainder of the gap as in-gap.
+        var old = new GapInterpolator(new OneEuroFilter(), maxGapMs: 150);
+        old.Process(new GazePoint(500, 500, 0, true));
+        old.Process(new GazePoint(0, 0, 200_000, false));   // long gap breaks the sequence
+
+        var rebuilt = new GapInterpolator(new OneEuroFilter(), maxGapMs: 150);
+        rebuilt.CopyStateFrom(old);
+        rebuilt.WarmStartFromCurrentState();
+
+        var (pos, isInGap) = rebuilt.Process(new GazePoint(0, 0, 220_000, false));
+        Check.That(isInGap).IsTrue();
+        Check.That(pos.X).IsEqualTo(500.0);
+        Check.That(pos.Y).IsEqualTo(500.0);
+    }
 }

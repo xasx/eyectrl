@@ -317,6 +317,84 @@ public class CalibrationServiceTests
         Check.That(service.CurrentTransform).IsNull();
     }
 
+    // ── Atomic save ──
+    // calibration.json is the one file whose corruption breaks EVERY gaze interaction at once (its
+    // transform is applied to every point), so Save writes a temp file and renames it: the destination
+    // only ever holds the complete old file or the complete new one. A torn write cannot be simulated
+    // here — the shape is the guarantee — so these pin the observable consequences of that shape.
+
+    [Fact]
+    public void Save_LeavesNoTempFileBehind()
+    {
+        var screen = new PhysicalPoint(1920, 1080);
+        var path = SaveValidCalibration(screen, "DISPLAY1");
+        try
+        {
+            // Fails if the rename was dropped and the temp file became the real write.
+            Check.That(File.Exists(path + ".tmp")).IsFalse();
+            Check.That(File.Exists(path)).IsTrue();
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Save_OverAnExistingFile_ReplacesIt()
+    {
+        // The overwrite flag on the rename: without it the second save throws and the first
+        // calibration is what survives, silently ignoring the recalibration the user just did.
+        var screen = new PhysicalPoint(1920, 1080);
+        var path = SaveValidCalibration(screen, "DISPLAY1");
+        try
+        {
+            var service = new CalibrationService();
+            service.StartSession(3, screen);
+            var targets = CalibrationTargetPositionHelper.GetPositions(3, screen);
+            for (int i = 0; i < 3; i++)
+            {
+                service.BeginTarget(i);
+                for (int j = 0; j < 30; j++)
+                    service.AddRawSample(new PhysicalPoint(targets[i].X + 2, targets[i].Y));
+                service.EndTarget();
+            }
+            var second = service.CompleteSession(screen, "DISPLAY2");
+
+            Check.ThatCode(() => service.Save(path, second)).DoesNotThrow();
+
+            var reloaded = new CalibrationService();
+            reloaded.Load(path, screen, "DISPLAY2");
+            Check.That(reloaded.CurrentTransform).IsNotNull();
+            Check.That(reloaded.CurrentData!.MonitorDeviceName).IsEqualTo("DISPLAY2");
+            Check.That(File.Exists(path + ".tmp")).IsFalse();
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Load_MonitorNameRefresh_RoutesThroughSave_AndPersists()
+    {
+        // The startup rewrite: a hardware-id match under a renumbered display refreshes the stored GDI
+        // name through Save, which is what makes that write atomic.
+        // NB: crash-atomicity itself is NOT simulated here — it is a property of Save's temp+move. What
+        // this pins is that the refresh goes through that path (no leftover temp file) and persists.
+        var screen = new PhysicalPoint(1920, 1080);
+        var path = SaveValidCalibration(screen, "\\\\.\\DISPLAY1", "EDID-ABC");
+        try
+        {
+            var service = new CalibrationService();
+            service.Load(path, screen, "\\\\.\\DISPLAY3", "EDID-ABC");
+
+            Check.That(service.CurrentTransform).IsNotNull();
+            Check.That(service.CurrentData!.MonitorDeviceName).IsEqualTo("\\\\.\\DISPLAY3");
+            Check.That(File.Exists(path + ".tmp")).IsFalse();
+
+            // And the refreshed name really reached disk, so the legacy name-only path stays accurate.
+            var reloaded = new CalibrationService();
+            reloaded.Load(path, screen, "\\\\.\\DISPLAY3");
+            Check.That(reloaded.CurrentTransform).IsNotNull();
+        }
+        finally { File.Delete(path); }
+    }
+
     // ── Monitor / screen identity on load ──
     // Until 2026-08-02 a screen-or-monitor mismatch was a bare `return` with no log of any kind, so a
     // calibration silently stopped applying and the only symptom was drifting dwell. Windows renumbers

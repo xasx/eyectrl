@@ -216,7 +216,10 @@ public class AppBootstrapper
             // view model is an app-lifetime singleton, so evaluating this here would pin whichever
             // monitor was primary at startup onto every later recalibration.
             () => MonitorIdentity.GetHardwareId(
-                System.Windows.Forms.Screen.PrimaryScreen?.DeviceName ?? "")));
+                System.Windows.Forms.Screen.PrimaryScreen?.DeviceName ?? ""),
+            // Only so the deletion of calibration.json on an explicit Clear leaves a trace — that
+            // delete is otherwise indistinguishable from a calibration that never existed.
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger<CalibrationViewModel>()));
         services.AddSingleton<TargetHighlightOverlayViewModel>();
         services.AddSingleton<DragTrailViewModel>();
         services.AddSingleton<EdgeButtonBarViewModel>();

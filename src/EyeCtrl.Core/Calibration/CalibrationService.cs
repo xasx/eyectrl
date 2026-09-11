@@ -404,6 +404,14 @@ public class CalibrationService
     /// it is the same physical display under a new number. Keeps the legacy name-only path accurate for the
     /// day the hardware id cannot be read. Best-effort: a failed rewrite must not disturb the loaded
     /// calibration, which is already applied by this point.
+    /// <para>
+    /// This is a write during startup, which is the riskiest moment to touch a file the whole gaze
+    /// pipeline depends on. It goes through <see cref="Save"/>, so it is atomic: a crash mid-refresh
+    /// leaves the previous good <c>calibration.json</c> exactly as it was. The write is kept rather than
+    /// deferred to the next real save because there may not be one — a user who never recalibrates would
+    /// keep a stale device name forever, and the refresh exists precisely for the day the hardware id
+    /// cannot be read and that stale name is all the match has to go on.
+    /// </para>
     /// </summary>
     private void RefreshPersistedDeviceName(string filePath, CalibrationData data, string currentMonitorDeviceName)
     {
@@ -442,7 +450,18 @@ public class CalibrationService
     private static string DescribeHardwareIdSuffix(string? hardwareId) =>
         string.IsNullOrEmpty(hardwareId) ? "" : $", {hardwareId}";
 
-    /// <summary>Persists calibration data to disk as JSON.</summary>
+    /// <summary>
+    /// Persists calibration data to disk as JSON, atomically (temp file + rename), mirroring
+    /// <see cref="Adaptation.AdaptationStateFile.Save"/> and <see cref="Settings.SettingsService.Save"/>.
+    /// <para>
+    /// The atomicity matters more here than for any other file EyeCtrl writes: this transform is applied
+    /// to EVERY gaze point, so a half-written <c>calibration.json</c> — a crash or power loss mid-write —
+    /// does not merely lose a setting, it fails the next load and leaves gaze running uncalibrated with
+    /// no obvious cause. Writing elsewhere and renaming means the destination only ever holds the
+    /// complete old file or the complete new one. <see cref="Load"/>'s monitor-name refresh writes
+    /// through here too, so a crash during startup cannot damage a good calibration.
+    /// </para>
+    /// </summary>
     /// <param name="filePath">Full path for the output JSON file.</param>
     /// <param name="data">The <see cref="CalibrationData"/> to persist.</param>
     public void Save(string filePath, CalibrationData data)
@@ -450,6 +469,8 @@ public class CalibrationService
         var json = JsonSerializer.Serialize(data, s_writeOptions);
         var dir = Path.GetDirectoryName(filePath);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-        File.WriteAllText(filePath, json);
+        var tmp = filePath + ".tmp";
+        File.WriteAllText(tmp, json);
+        File.Move(tmp, filePath, overwrite: true);
     }
 }

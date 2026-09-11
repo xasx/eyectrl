@@ -14,9 +14,15 @@ using EyeCtrl.Core.Models;
 public record GazeCursorMovedMessage(GazeFrame Frame)
 {
     /// <summary>
-    /// Convenience for an ordinary, freshly measured sample. Production sends the frame the engine
-    /// published; this overload exists for the many call sites — tests, and anything synthesising a
-    /// normal sample — for which <see cref="IsInGap"/> is unambiguously false.
+    /// Convenience for an ordinary, freshly measured sample: it sets <see cref="IsInGap"/> to
+    /// <c>false</c>. It exists for the many call sites — tests, and anything synthesising a normal
+    /// sample — for which that is unambiguously correct.
+    /// <para>
+    /// Anything relaying a sample that came FROM the engine must pass the
+    /// <see cref="GazeFrame"/> it was given instead, or the gap flag is silently dropped and every
+    /// dwell surface downstream starts accumulating against held positions again. That is why
+    /// <c>GazeEngineAdapter</c> — the one production sender — uses the frame overload.
+    /// </para>
     /// </summary>
     public GazeCursorMovedMessage(PhysicalPoint position, long timestampMicroseconds)
         : this(new GazeFrame(position, timestampMicroseconds, IsInGap: false)) { }

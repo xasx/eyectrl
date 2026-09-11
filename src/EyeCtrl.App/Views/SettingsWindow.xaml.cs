@@ -201,6 +201,7 @@ public partial class SettingsWindow : OverlayWindow
     private readonly QuickActionsPageSource _qaSource;
     private readonly EyeCarePageSource _eyeCareSource;
     private readonly AdaptationPageSource _adaptationSource;
+    private readonly DiagnosticsPageSource _diagnosticsSource;
     private readonly AdvancedPageSource _advancedSource;
 
     private readonly Dictionary<string, Border> _tabButtons = new();
@@ -338,7 +339,9 @@ public partial class SettingsWindow : OverlayWindow
             ("QuickActions", "⚡", "Quick Actions",
                 "The pop-up grid of one-dwell shortcuts, and how it is summoned."),
             ("Advanced", "⚒", "Advanced",
-                "Expert tuning: backdrop, drag, scroll and external dwell.")
+                "Expert tuning: backdrop, drag, scroll and external dwell."),
+            ("Diagnostics", "◷", "Diagnostics",
+                "Measurement instruments: raw-gaze recording and UI timing. Both off by default.")
         ];
 
         // Set DataContext for data binding
@@ -387,6 +390,7 @@ public partial class SettingsWindow : OverlayWindow
         _qaSource = new QuickActionsPageSource(_ctx);
         _eyeCareSource = new EyeCarePageSource(_ctx);
         _adaptationSource = new AdaptationPageSource(_ctx, onOpenAdaptationLog: OpenAdaptationLogFile);
+        _diagnosticsSource = new DiagnosticsPageSource(_ctx, onOpenRecordingFolder: OpenGazeRecordingFolder);
         _advancedSource = new AdvancedPageSource(_ctx);
 
         // One entry per tab, same ids as `_tabDefs`: MaybeRepaginateByHeight looks the
@@ -404,6 +408,7 @@ public partial class SettingsWindow : OverlayWindow
         _sources["QuickActions"] = _qaSource;
         _sources["EyeCare"] = _eyeCareSource;
         _sources["Adaptation"] = _adaptationSource;
+        _sources["Diagnostics"] = _diagnosticsSource;
         _sources["Advanced"] = _advancedSource;
 
         // Build UI
@@ -740,6 +745,25 @@ public partial class SettingsWindow : OverlayWindow
         catch (Exception ex)
         {
             Serilog.Log.Error(ex, "Failed to open the adaptation log location.");
+        }
+    }
+
+    // Same shape, for the raw-gaze recording. The operator has to get at this file to analyze it, and
+    // asking a gaze-only user to navigate to %APPDATA% by hand is asking for the whole measurement.
+    private void OpenGazeRecordingFolder()
+    {
+        try
+        {
+            string path = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl", "gaze-recording.csv");
+            if (File.Exists(path))
+                System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{path}\"");
+            else
+                System.Diagnostics.Process.Start("explorer.exe", Path.GetDirectoryName(path)!);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "Failed to open the gaze recording location.");
         }
     }
 

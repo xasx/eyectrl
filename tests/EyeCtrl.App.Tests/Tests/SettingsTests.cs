@@ -75,7 +75,8 @@ public class SettingsTests
             "Settings_Tab_QuickActions",
             "Settings_Tab_EyeCare",
             "Settings_Tab_Adaptation",
-            "Settings_Tab_Advanced"
+            "Settings_Tab_Advanced",
+            "Settings_Tab_Diagnostics"
         };
 
         var actualTabs = _fixture.FindElements(settings!, "Settings_Tab_")

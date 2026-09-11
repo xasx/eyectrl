@@ -28,6 +28,13 @@ public class RecordingGazeProviderTests
         public void Dispose() => Disposed = true;
         public void Emit(GazePoint p) => GazePointReceived?.Invoke(p);
         public bool HasSubscribers => GazePointReceived is not null;
+
+        // Overridden deliberately. UpdateScreenBounds is a DEFAULT interface method with an empty body,
+        // so a fake that inherits it cannot tell a forwarded call from a swallowed one — which is
+        // precisely how the decorator's missing forward went unnoticed by a passing suite.
+        public List<(double Width, double Height)> ScreenBoundsUpdates { get; } = new();
+        public void UpdateScreenBounds(double widthPx, double heightPx) =>
+            ScreenBoundsUpdates.Add((widthPx, heightPx));
     }
 
     private sealed class RecordingSpy : IGazeRecordingSink
@@ -236,6 +243,41 @@ public class RecordingGazeProviderTests
         Check.That(provider.IsConnected).IsTrue();
         Check.That(provider.Capabilities).IsEqualTo(GazeProviderCapabilities.EyePosition | GazeProviderCapabilities.HeadPose);
         Check.That(provider.Inner).IsSameReferenceAs(inner);
+    }
+
+    [Fact]
+    public void ScreenBoundsUpdates_ReachTheRealProvider()
+    {
+        // The one member a decorator can silently drop without failing to compile: UpdateScreenBounds is
+        // a default interface method with an empty body. The display watcher hands its updates to
+        // whatever IGazeProvider came out of DI — this decorator, whenever recording is on — and if they
+        // stop here the Tobii provider never rescales. The user's gaze would stay confined to the old
+        // pixel space for the rest of the session after any dock, undock or resolution change, silently.
+        var (provider, inner, _, _, _) = New(recording: true);
+        using var _p = provider;
+
+        // Through the INTERFACE, which is how production reaches it: DisplayGeometryWatcher holds an
+        // IGazeProvider, so a missing forward binds to the default no-op and this call silently
+        // evaporates. Calling the concrete type instead would turn the regression into a compile error
+        // — a louder failure, but not the one that actually ships.
+        IGazeProvider asInterface = provider;
+        asInterface.UpdateScreenBounds(3840, 2400);
+
+        Check.That(inner.ScreenBoundsUpdates).ContainsExactly((3840.0, 2400.0));
+    }
+
+    [Fact]
+    public void ScreenBoundsUpdates_AreForwardedEvenWhenRecordingIsOff()
+    {
+        // The gate governs RECORDING, never forwarding. A decorator constructed with the flag off must
+        // still be transparent — it is still the instance the rest of the app holds.
+        var (provider, inner, _, _, _) = New(recording: false);
+        using var _p = provider;
+
+        IGazeProvider asInterface = provider;
+        asInterface.UpdateScreenBounds(1920, 1080);
+
+        Check.That(inner.ScreenBoundsUpdates).ContainsExactly((1920.0, 1080.0));
     }
 
     [Fact]

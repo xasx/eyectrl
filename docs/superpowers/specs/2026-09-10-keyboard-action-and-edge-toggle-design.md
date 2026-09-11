@@ -1,10 +1,9 @@
 # Keyboard action-menu action + quick Top/Bottom switch — design
 
 Date: 2026-09-10
-Status: awaiting owner review (round 4 — external review processed + owner mockup
-feedback: Close + Flip live on the shared right-edge bar, shown with the keyboard;
-ledger #15 (button order) is the one open item)
-Brainstorm session: owner dismissed both clarifying-question rounds; every open choice is
+Status: owner-approved design, no open items (round 5 — mockup rounds settled: shared
+right-edge bar for Close + Flip, bar tracks the keyboard's edge, ledger #15 mechanism B)
+Brainstorm session: owner dismissed both clarifying-question rounds; every choice is
 encoded in the decision ledger (§5) and is vetoable. Point review comments at ledger
 numbers.
 
@@ -277,21 +276,26 @@ hides. The edge bar works in emoji mode too (it is not part of the keyboard wind
 
 **B4 — the keyboard's edge bar (Close + Flip)** (owner round-4 direction)
 
-9. **Reuse the shared edge-button bar, not new chrome.** New static
-   `KeyboardEdgeButtons` mirroring `ActionMenuEdgeButtons` (the menu's Close/Help pair):
-   `Definitions(int dwellMs)` returns two `EdgeButtonDefinition`s at
-   `ScreenGeometry.RightEdgeAnchor(RightEdgeInsetLogical, UIConstants.ButtonRadius)`
-   (right screen edge, vertically centered — `h/2`):
-   - **Close** above the anchor (`VerticalOffset: -offset`), `Icon: ActionIcon.Close`
-     (existing), `Label: "Close"`; activation sends `KeyboardHideRequestedMessage`.
-   - **Flip** below (`+offset`), `Icon: ActionIcon.KeyboardEdge` (new glyph — keyboard
-     with up/down arrows), `Label: "Flip"`; activation sends `KeyboardEdgeToggledMessage`
-     (B1). Order (Close above vs Flip below) is the one open layout question — mockup
-     round pending, default Close-above (the action-view pair verbatim).
+9. **Reuse the shared edge-button bar, not new chrome — and the bar tracks the keyboard
+   (ledger #15).** New static `KeyboardEdgeButtons` mirroring `ActionMenuEdgeButtons`
+   (the menu's Close/Help pair), but keyboard-edge-dependent:
+   `Definitions(int dwellMs, bool keyboardAtTop)` returns two `EdgeButtonDefinition`s at
+   a right-edge anchor that sits **toward the keyboard's edge** — `ScreenGeometry`
+   gains a vertical-position variant of `RightEdgeAnchor` (default offset ≈ 75%/25% of
+   work-area height, exact constant plan-level):
+   - **Flip** in the keyboard-facing slot (`Label: "Flip"`,
+     `Icon: ActionIcon.KeyboardEdge`, new glyph — keyboard with up/down arrows);
+     activation sends `KeyboardEdgeToggledMessage` (B1).
+   - **Close** screen-center-ward (`Icon: ActionIcon.Close` existing, `Label: "Close"`);
+     activation sends `KeyboardHideRequestedMessage`.
    - Labels always on for both — the `ActionMenuEdgeButtons` convention: "the escape
      hatch cannot rely on being recognised". Dwell time: the keyboard's own key dwell
      (`Dwell.KeyboardKeyDwellMs`) — the bar is part of the keyboard session. Telemetry
      context `DwellContext.EdgeButtonBar` already exists.
+   - On flip, `HandleKeyboardEdgeToggled` re-runs `ShowButtons` with the new
+     edge-dependent set and anchor; vacated positions carry no dwell target (no
+     dwell-transfer hazard). The anchor follows the keyboard's edge **setting**, not
+     the B3 yield offset.
 10. **Show/hide wiring in `KeyboardCoordinator.SetKeyboardVisible`:** show →
     `Context.OverlayManager.EdgeButtonBar.ShowButtons(KeyboardEdgeButtons.Definitions(
     dwellMs), anchor)`; hide → `Hide()` **only if the bar still shows our definitions**
@@ -344,7 +348,7 @@ and the emoji grid is built in code, not layout).
 | 12 | Edge-bar mechanics: **`KeyboardEdgeButtons` context set on the shared bar, guarded hide, keyboard key dwell, labels always on** | The bar is already context-driven (menu Close/Help, drag Cancel, scroll Stop) with a documented hand-off protocol; joining it costs two definitions + show/hide calls. Labels-on and the anchor mirror `ActionMenuEdgeButtons` verbatim, so the bar reads the same whichever context owns it | A dedicated keyboard-side window (new chrome, new dwell plumbing, more surface to maintain) |
 | 13 | Close semantics: `KeyboardHideRequestedMessage` → `SetKeyboardVisible(false, manageSuppression: true)` | Releasing suppression (re-enabling fixation and the ring) is the point of an explicit dismiss; symmetric twin of Feature A's show message. The sender-less `HideKeyboardRequestMessage` is reserved for the text-field seam (`manageSuppression: false`) and must not be reused | Reusing `KeyboardToggledMessage` (toggle semantics — an accidental hide from a dedicated Close is meaningless); the sender-less hide message |
 | 14 | Flip is reachable **only while the keyboard is visible** (the bar hides with the keyboard) | The flip matters exactly when the keyboard occludes something; the Settings row remains the initial-edge chooser; pre-positioning was a nicety nobody asked for | Keeping a second flip surface for the hidden state |
-| 15 | **Owner-settled requirement:** Flip always sits **nearer the keyboard** and moves with its position. **OPEN — mechanism:** (A) swap the two slots at the fixed action-view anchor, or (B) shift the whole bar toward the keyboard's edge (mockup round pending). (A) carries a just-flipped dwell-transfer caveat: the old Flip position becomes Close, so a gaze resting there through the cooldown can trigger Close; (B) vacates the old positions entirely but the bar leaves the action-view anchor. Either way `KeyboardEdgeButtons.Definitions` becomes keyboard-edge-dependent and `HandleKeyboardEdgeToggled` rebuilds the bar on flip | Fixed Close-above/Flip-below regardless of keyboard position (owner rejected: "flip should always be closer to the keyboard. Thus, it moves with keyboard position") |
+| 15 | Flip always sits **nearer the keyboard**, and the whole **bar tracks the keyboard's edge** (owner pick, mechanism B): keyboard Bottom → bar below screen center on the right edge, Flip in the lowest slot; keyboard Top → bar above center, Flip in the top slot; Close always screen-center-ward. `KeyboardEdgeButtons.Definitions` is keyboard-edge-dependent (slot order + anchor), and `HandleKeyboardEdgeToggled` rebuilds the bar at the new anchor on every flip. Vacated positions carry no dwell target, so a gaze resting where Flip just was hits nothing — no dwell-transfer hazard. The anchor follows the keyboard's **edge setting**, not the B3 yield offset (a screen-edge element, like the action-view bar). Exact anchor offset toward the edge is plan-level (mockup ≈ 75%/25% of work-area height) | (A) swap slots at the fixed action-view anchor — the old Flip position becomes Close, so a gaze resting there through the cooldown can trigger Close; fixed Close-above/Flip-below regardless of keyboard position (owner rejected: "flip should always be closer to the keyboard. Thus, it moves with keyboard position") |
 
 ## 6. Testing
 
@@ -381,11 +385,14 @@ and the emoji grid is built in code, not layout).
     dwell on its buttons while `KeyboardVisible` is true (the messenger +
     `SetActive(true)` chain — B2 #3).
   - `KeyboardEdgeButtons.Definitions` (headless, mirroring the
-    `EdgeButtonBarViewModelTests` style with `SimulateTargetActivated`): ids, vertical
-    offsets (Close above, Flip below per ledger #15), labels always on, `ActionIcon.Close`
-    reused / `ActionIcon.KeyboardEdge` new; Close activation sends
-    `KeyboardHideRequestedMessage`, Flip sends `KeyboardEdgeToggledMessage`; dwell time
-    wired from `KeyboardKeyDwellMs`.
+    `EdgeButtonBarViewModelTests` style with `SimulateTargetActivated`): ids, labels
+    always on, `ActionIcon.Close` reused / `ActionIcon.KeyboardEdge` new; Close
+    activation sends `KeyboardHideRequestedMessage`, Flip sends
+    `KeyboardEdgeToggledMessage`; dwell time wired from `KeyboardKeyDwellMs`.
+    **Edge-dependence (ledger #15):** `keyboardAtTop: true` puts Flip in the top slot
+    and the anchor above screen center; `false` puts Flip lowest and the anchor below
+    center; Close is always screen-center-ward. The anchor math pins against
+    `ScreenGeometry`'s pure overload the way `RightEdgeAnchor` tests do.
   - Guarded hide: keyboard-hide path calls `Hide()` only when the bar still shows the
     keyboard definitions (another context's stop/cancel buttons survive).
   - `ActionMenuPageSource` description completeness gate (existing) fails until the

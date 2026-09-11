@@ -1,17 +1,20 @@
 # Keyboard action-menu action + quick Top/Bottom switch — design
 
 Date: 2026-09-10
-Status: awaiting owner review (round 3 — external spec review processed: BLOCK verdict,
-15 findings, all processed; the two blockers resolved by the B4 redesign)
+Status: awaiting owner review (round 4 — external review processed + owner mockup
+feedback: Close + Flip live on the shared right-edge bar, shown with the keyboard;
+ledger #15 (button order) is the one open item)
 Brainstorm session: owner dismissed both clarifying-question rounds; every open choice is
 encoded in the decision ledger (§5) and is vetoable. Point review comments at ledger
 numbers.
 
-Owner round-1 feedback (2026-09-10), addressed in this revision: the flip button must not
-rely on the toolbar being force-pinned while the keyboard is up — either the button lives
-elsewhere, or the toolbar stays auto-hide and the keyboard slides to give a summoned
-toolbar room. This revision does BOTH: the flip (and a new Hide) live on the keyboard's
-own frame (B4), and the toolbar un-pins and auto-hides while the keyboard is up (B2/B3).
+Owner feedback rounds: (1) 2026-09-10 the flip must not rely on the toolbar being
+force-pinned — either the button lives elsewhere, or the toolbar stays auto-hide and the
+keyboard slides to give a summoned toolbar room. (2) Mockup round: both functions belong
+in a toolbar, Close on the right side — not on the keyboard ("in the keyboard mis dwells
+are possible"), not the main toolbar: "a separate toolbar on the right side, like in
+action view". This revision: B4 = the shared right-edge bar (Close + Flip), B2/B3
+unchanged (toolbar un-pins, keyboard yields).
 
 ## 1. Problem
 
@@ -52,7 +55,8 @@ Two gaps reported by the owner:
   "stranded" comment is therefore half-right: with the pin removed, the summoned toolbar
   becomes the sole exit, reachable only via off-edge gaze with valid samples
   (`ToolbarAutoHideController.IsPastDockedEdge` rejects invalid samples). The design
-  removes the pin anyway — safely — by giving the keyboard its own on-frame Hide (B4).
+  removes the pin anyway — safely — by giving the keyboard session its own edge bar with
+  Close (B4).
   The `Feed` subscription that makes summoning work at all is wired whenever a real
   tracker is active, independent of the modal flags (`ToolbarLifecycleCoordinator.cs:202`,
   gated on `providerIsRealTracker` at :168 — under the Mouse provider there is no
@@ -84,9 +88,10 @@ Two gaps reported by the owner:
 
 - G1: Open the gaze keyboard from the action-menu ring (one activation, any state the ring
   can be opened from).
-- G2: Flip the keyboard Top ↔ Bottom in one dwell, from the keyboard itself (always
-  reachable while the keyboard is visible), plus an on-keyboard Hide so the keyboard is
-  never dependent on the toolbar for dismissal.
+- G2: Flip the keyboard Top ↔ Bottom in one dwell, and dismiss it in one dwell, both from
+  a dedicated right-edge bar that is visible exactly while the keyboard is (owner:
+  "a separate toolbar on the right side, like in action view") — never from anything
+  dwellable on the keyboard itself.
 - G3: Both changes persist and live-apply without restart and without a keyboard rebuild.
 
 **Non-goals**
@@ -154,21 +159,24 @@ Core-side special-casing like `ScrollMode` (needs no gaze anchor, so no state).
 
 ### 4.1 What the user sees
 
-The keyboard gains a slim control column on its own frame (right edge): a **Hide**
-button and a **Top/Bottom flip** button, styled like keys. One dwell on Hide dismisses
-the keyboard; one dwell on Flip moves it to the opposite edge immediately. The toolbar
-gets **no new button** and is **no longer force-pinned** while the keyboard is up: it
-hides when gaze leaves its edge and edge-summons on demand, exactly as it behaves without
-the keyboard. When the toolbar is summoned onto the keyboard's edge, the keyboard slides
-toward screen center to make room and slides back when the toolbar hides. The flip works
-in emoji mode too (the column is outside the key grid and category bar).
+The keyboard itself is untouched — no new chrome, nothing dwellable added on or beside
+the keys. While the keyboard is up, the app's **shared right-edge bar** (the same strip
+that shows Close/Help beside the action menu, Cancel during drags, Stop during scroll
+mode) shows a keyboard pair instead: **Close** and **Top/Bottom Flip**, right screen
+edge, vertically centered, labels always on. The bar appears when the keyboard appears
+and disappears when it hides, so Close is always exactly one dwell away — no toolbar
+summon, nothing in the typing field (mis-dwell concern). The toolbar gets **no new
+button** and is **no longer force-pinned** while the keyboard is up: it auto-hides and
+edge-summons on demand. When the toolbar is summoned onto the keyboard's edge, the
+keyboard slides toward screen center to make room and slides back when the toolbar
+hides. The edge bar works in emoji mode too (it is not part of the keyboard window).
 
 ### 4.2 Changes, in dependency order
 
 **B1 — the flip itself**
 
 1. **`KeyboardEdgeToggledMessage`** (new record, no payload, `InteractionMessages.cs`
-   beside `KeyboardToggledMessage`). Its sender is the keyboard's own Flip button (B4).
+   beside `KeyboardToggledMessage`). Its sender is the edge bar's Flip button (B4).
 2. **`KeyboardCoordinator`** registers it → `HandleKeyboardEdgeToggled`:
    a. Pure, headless-testable flip: `internal static string FlipScreenEdge(string edge)`
       — comparison case-insensitive (mirroring `RepositionOnScreen`), but the return
@@ -267,42 +275,56 @@ in emoji mode too (the column is outside the key grid and category bar).
    accepted; the yield fires when gaze is at the screen edge summoning, the return when
    gaze is on keys — a top-row dwell may re-acquire once).
 
-**B4 — the keyboard's own control column (Hide + Flip)**
+**B4 — the keyboard's edge bar (Close + Flip)** (owner round-4 direction)
 
-9. **A slim vertical column docked to the right edge of the keyboard frame**
-   (`DockPanel.Dock="Right"` inside the existing `Border`), outside `KeyRows`,
-   `PredictionBar`, and `CategoryBar` so it is present in text **and** emoji modes. Two
-   dwellable buttons, styled like keys: **Hide** (dismiss the keyboard) and **Flip**
-   (send `KeyboardEdgeToggledMessage`). Text labels, not icon-set glyphs — keyboard keys
-   are labelled text; no new `ActionIcon`/`ToolbarIconKey` members. The keyboard window
-   is `SizeToContent`, so the column narrows the whole keyboard rather than shrinking
-   keys. Exact column width to the plan; constraint: no key may fall below its
-   pre-column usable width (the window widens to compensate).
-10. **Dwell mechanics:** a small dedicated `DwellTarget` set fed from `UpdateGaze` with
-    per-sample recomputed centers — the same pattern the emoji category tabs use
-    (`EmojiGridManager.UpdateCategoryTargets`). Dwell time: the keyboard key dwell
-    (`settings.Dwell.KeyboardKeyDwellMs`); progress arc via the existing
-    `DwellOutlineOverlay` key treatment; registered under the keyboard's dwell context
-    so struggle telemetry sees it.
-11. **Hide semantics:** new `KeyboardHideRequestedMessage` handled by
-    `KeyboardCoordinator` → `SetKeyboardVisible(false, manageSuppression: true)` —
-    releasing suppression (re-enabling fixation and the ring) is the point; this is the
-    symmetric twin of Feature A's `KeyboardShowRequestedMessage`, not a reuse of the
-    sender-less `HideKeyboardRequestMessage` (whose handler is deliberately
-    `manageSuppression: false` for the text-field seam).
+9. **Reuse the shared edge-button bar, not new chrome.** New static
+   `KeyboardEdgeButtons` mirroring `ActionMenuEdgeButtons` (the menu's Close/Help pair):
+   `Definitions(int dwellMs)` returns two `EdgeButtonDefinition`s at
+   `ScreenGeometry.RightEdgeAnchor(RightEdgeInsetLogical, UIConstants.ButtonRadius)`
+   (right screen edge, vertically centered — `h/2`):
+   - **Close** above the anchor (`VerticalOffset: -offset`), `Icon: ActionIcon.Close`
+     (existing), `Label: "Close"`; activation sends `KeyboardHideRequestedMessage`.
+   - **Flip** below (`+offset`), `Icon: ActionIcon.KeyboardEdge` (new glyph — keyboard
+     with up/down arrows), `Label: "Flip"`; activation sends `KeyboardEdgeToggledMessage`
+     (B1). Order (Close above vs Flip below) is the one open layout question — mockup
+     round pending, default Close-above (the action-view pair verbatim).
+   - Labels always on for both — the `ActionMenuEdgeButtons` convention: "the escape
+     hatch cannot rely on being recognised". Dwell time: the keyboard's own key dwell
+     (`Dwell.KeyboardKeyDwellMs`) — the bar is part of the keyboard session. Telemetry
+     context `DwellContext.EdgeButtonBar` already exists.
+10. **Show/hide wiring in `KeyboardCoordinator.SetKeyboardVisible`:** show →
+    `Context.OverlayManager.EdgeButtonBar.ShowButtons(KeyboardEdgeButtons.Definitions(
+    dwellMs), anchor)`; hide → `Hide()` **only if the bar still shows our definitions**
+    (`DefinitionFor(KeyboardEdgeButtons.CloseId) is not null`) — mirroring the guarded
+    hand-off at `OverlayMessageCoordinator.cs:168`. While the keyboard is up no other
+    context can take the bar (ring, manual selection, drag and scroll all start from
+    the menu, which cannot open — C3). The reverse overlap — keyboard opened
+    mid-scroll/mid-drag while the stop/cancel button owns the bar — must be traced in
+    the plan; it is the same hand-off dance documented at
+    `OverlayMessageCoordinator.cs:153-169`.
+11. **Gaze needs no new routing:** the bar's dwell runs off `GazeCursorMovedMessage`
+    (`DwellOverlayViewModelBase`), which flows throughout the keyboard session —
+    `SuppressFixation` gates only the fixation detector (GazeEngine.cs:538), not the
+    cursor stream. Close and Flip are dwellable the whole time the keyboard is up.
+12. **Messages:** `KeyboardHideRequestedMessage` (new) handled by `KeyboardCoordinator`
+    → `SetKeyboardVisible(false, manageSuppression: true)` — releasing suppression
+    (re-enabling fixation and the ring) is the point; the symmetric twin of Feature A's
+    `KeyboardShowRequestedMessage`, not a reuse of the sender-less
+    `HideKeyboardRequestMessage` (reserved text-field seam,
+    `manageSuppression: false`).
 
 ### 4.3 Rejected variants (see ledger #6, #9, #12)
 
-A new **toolbar** flip button (the round-2 design): the band is already at its layout
-limit for vertical docks (6 buttons ≈ 888 DIP against a ~816 DIP work area at 1080p /
-125% scaling — a 7th button deepens an existing overflow), and the flip-as-escape
-analysis in C3 shows the toolbar must not be the keyboard's only lifeline. Toolbar
-relocation on collision (round-1 design — the toolbar never moves now);
-always-swapping keyboard + toolbar together; static nudge below a pinned toolbar; a
-ring action for the flip (position is a global UI concern, not point-targeted); a new
-QuickActionType (heavier editor + preset surface); a `hideKeyboard` special-action key
-in the layout JSONs (three layouts × every sublayout, and the emoji grid is built in
-code, not layout — the frame column is mode-agnostic for free).
+A **keyboard-frame control column** (the round-3 design): the owner rejected anything
+dwellable on or beside the keys — "in the keyboard mis dwells are possible". Buttons on
+the **main toolbar** (the round-2 design and the round-4 first reading): owner wants the
+band untouched; it is also at its vertical-dock layout limit and would put the keyboard's
+exit behind a summon round trip. Toolbar relocation on collision (round-1 design — the
+toolbar never moves now); always-swapping keyboard + toolbar together; static nudge
+below a pinned toolbar; a ring action for the flip (position is a global UI concern, not
+point-targeted); a new QuickActionType (heavier editor + preset surface); a
+`hideKeyboard` special-action key in the layout JSONs (three layouts × every sublayout,
+and the emoji grid is built in code, not layout).
 
 ## 5. Decision ledger (owner-vetoable)
 
@@ -313,15 +335,16 @@ code, not layout — the frame column is mode-agnostic for free).
 | 3 | Default **on** (layer 2, behind More) + one-shot migration `KeyboardActionMigrated` | The action never existed, so no user could have removed it — the adds-only one-shot pattern (C2) is safe; layer 2 because the primary cap (4) is a validated aimability constraint and is full. The second layer grows 5 → 6 targets (neighbour gap ~160 → ~115 DIP at default CircleSize per ActionMenuSettings.cs:34-37) — inside the documented-safe envelope, but the plan should render-check the ring | Opt-in only (feature ships invisible to existing users); primary-layer default (Validate rejects 5) |
 | 4 | Dispatch intercepts in `KeyboardInteractionDispatcher` before the click switch | PinNote precedent exactly; zero Core state-machine changes; the target point is genuinely unused | A Core special-case like ScrollMode (which exists because scroll needs an anchor point) |
 | 5 | Collision handled by **keyboard yielding** to a summoned toolbar; the toolbar never relocates | Owner round-1 direction ("the keyboard can slide to give room to the toolbar"); no persisted toolbar change, no DockedEdge writes, summon edge stays where the user learned it | Toolbar relocation to the opposite edge (round-1 design, superseded); static nudge below a pinned toolbar |
-| 6 | Quick switch surface: **the keyboard's own frame column** (Hide + Flip, B4) — no new toolbar button | Owner round-1 alternative #1 ("the button must live somewhere else"), and the C3 escape analysis demands the keyboard dismiss itself once the toolbar un-pins; the toolbar band is also at its vertical-dock layout limit (§4.3) | A new toolbar flip button (round-2 design — fails both the band-fit check and the escape-lifetime argument); ring action for the flip (not point-targeted); a new QuickActionType (heavier editor + preset surface); a `hideKeyboard` layout special-action key (three layouts × sublayouts, emoji grid is code-built) |
+| 6 | Close + Flip surface: **the shared right-edge bar**, shown exactly while the keyboard is (B4) | Owner round-4: "a separate toolbar on the right side, like in action view". Reuses the context-driven `EdgeButtonBar` machinery (`ActionMenuEdgeButtons` pattern) almost wholesale; sits at the screen edge, far outside the typing field (mis-dwell concern); visible-with-keyboard makes Close an unconditional one-dwell escape | Keyboard-frame control column (round-3 — rejected: "in the keyboard mis dwells are possible"); the main toolbar (round-2/round-4 first reading — owner wants the band untouched; exit would sit behind a summon); ring action for the flip (not point-targeted); a new QuickActionType; a `hideKeyboard` layout special-action key |
 | 7 | Persistence: mutate the live settings object + **explicit `SetScreenEdge` call** + `SaveDebounced` + snapshot refresh | C5/C6: the settings write alone moves nothing (no `PropertyChanged` observer; `SizeChanged` re-applies only the last stored edge), and the snapshot refresh deliberately closes the `ReloadIfChanged` back door — so the direct call is the only apply (B1 2b) | Settings-window round trip (the thing being removed); relying on the phantom-diff rebuild; direct window calls without persisting (reverts on restart) |
-| 8 | Toolbar docks that don't yield: **Left/Right (orthogonal) and undocked/floating** | A side strip crossing a wide keyboard is transient (toolbar visible only while summoned); an undocked toolbar raises no visibility transitions at all (auto-hide disabled, `Feed` early-returns), so it cannot drive the yield — and the frame Flip (B4) is the escape: the user moves the keyboard instead. Floating placement is user-owned | Horizontal yield for side docks; docking a floating toolbar as a side effect |
-| 9 | **Un-pin the toolbar while the keyboard is up** (remove the keyboard path's auto-hide suspension only) — safe because B4 gives the keyboard its own on-frame Hide; the summoned toolbar is the redundant second exit | Owner round-1: the pinned strip eats typing space. The pin's "stranded" rationale would otherwise be real: while the keyboard is up the ring is unreachable (C3 — `SuppressFixation` gates the activation button) and the edge-summon rejects invalid samples, so without B4 the summon would be the sole escape | Keep the pin; un-pin without an on-keyboard escape (blocked by review round 3, finding 2) |
+| 8 | Toolbar docks that don't yield: **Left/Right (orthogonal) and undocked/floating** | A side strip crossing a wide keyboard is transient (toolbar visible only while summoned); an undocked toolbar raises no visibility transitions at all (auto-hide disabled, `Feed` early-returns), so it cannot drive the yield — and the edge-bar Flip is the escape: the user moves the keyboard instead. Floating placement is user-owned | Horizontal yield for side docks; docking a floating toolbar as a side effect |
+| 9 | **Un-pin the toolbar while the keyboard is up** (remove the keyboard path's auto-hide suspension only) — safe because the edge-bar Close is visible exactly while the keyboard is | Owner round-1: the pinned strip eats typing space. The pin's "stranded" rationale is answered by the edge bar, not the summon: while the keyboard is up the ring is unreachable (C3) and `IsPastDockedEdge` rejects invalid samples, so without the bar the summon would be the sole escape | Keep the pin; un-pin with no on-bar escape |
 | 10 | Keyboard yield: **instant reposition, no animation, occupancy consulted on keyboard show (queried from the window's `IsVisible`)** | Minimum that satisfies "slides to give room"; per-sample target recompute (B3 #8) makes the move safe; animation is polish, not function. The query must read the window, not a tracked adapter flag — the startup show bypasses the adapter entirely (B3 #5) | Animated slide in v1; trusting an adapter-tracked flag for the initial state; yield only after show (would mis-place a keyboard opened onto a summoned toolbar) |
 | 11 | Quick-actions hot-edge summon stays **suspended** while the keyboard is up | Un-pinning applies to the toolbar only; the quick-actions grid popping over the keyboard is unwanted and unrelated to the owner's complaint | Also un-suspending the quick-actions summon |
-| 12 | Control column: **right-edge vertical strip, Hide above Flip, key-styled text labels, present in text and emoji modes** | One implementation covers both modes (outside `KeyRows`/`CategoryBar`); keys are labelled text, so no new icon-set members; `SizeToContent` narrows the whole window, keys keep their size | A top control row (adds height, shifts every key down); overlay corner buttons (cover keys); icon glyphs (keyboard visual language is text) |
-| 13 | Hide semantics: `KeyboardHideRequestedMessage` → `SetKeyboardVisible(false, manageSuppression: true)` | Releasing suppression (re-enabling fixation and the ring) is the point of an explicit dismiss; symmetric twin of Feature A's show message. The sender-less `HideKeyboardRequestMessage` is reserved for the text-field seam (`manageSuppression: false`) and must not be reused | Reusing `KeyboardToggledMessage` (toggle semantics — an accidental hide from a dedicated Hide button is meaningless); the sender-less hide message |
-| 14 | Flip is reachable **only while the keyboard is visible** (no pre-positioning while hidden) | The flip matters exactly when the keyboard occludes something; the Settings row remains the initial-edge chooser; pre-positioning was a nicety nobody asked for | Keeping a second flip surface for the hidden state |
+| 12 | Edge-bar mechanics: **`KeyboardEdgeButtons` context set on the shared bar, guarded hide, keyboard key dwell, labels always on** | The bar is already context-driven (menu Close/Help, drag Cancel, scroll Stop) with a documented hand-off protocol; joining it costs two definitions + show/hide calls. Labels-on and the anchor mirror `ActionMenuEdgeButtons` verbatim, so the bar reads the same whichever context owns it | A dedicated keyboard-side window (new chrome, new dwell plumbing, more surface to maintain) |
+| 13 | Close semantics: `KeyboardHideRequestedMessage` → `SetKeyboardVisible(false, manageSuppression: true)` | Releasing suppression (re-enabling fixation and the ring) is the point of an explicit dismiss; symmetric twin of Feature A's show message. The sender-less `HideKeyboardRequestMessage` is reserved for the text-field seam (`manageSuppression: false`) and must not be reused | Reusing `KeyboardToggledMessage` (toggle semantics — an accidental hide from a dedicated Close is meaningless); the sender-less hide message |
+| 14 | Flip is reachable **only while the keyboard is visible** (the bar hides with the keyboard) | The flip matters exactly when the keyboard occludes something; the Settings row remains the initial-edge chooser; pre-positioning was a nicety nobody asked for | Keeping a second flip surface for the hidden state |
+| 15 | **OPEN — edge-bar button order:** default Close above, Flip below (action-view pair verbatim); mockup round pending | The `ActionMenuEdgeButtons` layout puts the escape hatch in the top slot; swapping would put the more-frequently-used Flip first | — (owner reviewing mockup `edge-bar-design.html`) |
 
 ## 6. Testing
 
@@ -357,6 +380,14 @@ code, not layout — the frame column is mode-agnostic for free).
   - Summoned-while-keyboard-up dwellability: a hidden-then-shown toolbar accumulates
     dwell on its buttons while `KeyboardVisible` is true (the messenger +
     `SetActive(true)` chain — B2 #3).
+  - `KeyboardEdgeButtons.Definitions` (headless, mirroring the
+    `EdgeButtonBarViewModelTests` style with `SimulateTargetActivated`): ids, vertical
+    offsets (Close above, Flip below per ledger #15), labels always on, `ActionIcon.Close`
+    reused / `ActionIcon.KeyboardEdge` new; Close activation sends
+    `KeyboardHideRequestedMessage`, Flip sends `KeyboardEdgeToggledMessage`; dwell time
+    wired from `KeyboardKeyDwellMs`.
+  - Guarded hide: keyboard-hide path calls `Hide()` only when the bar still shows the
+    keyboard definitions (another context's stop/cancel buttons survive).
   - `ActionMenuPageSource` description completeness gate (existing) fails until the
     description string lands.
 - **Breakage inventory (concrete, verified):**
@@ -387,10 +418,11 @@ code, not layout — the frame column is mode-agnostic for free).
 
 ## 7. Risks
 
-- **R1 — icon quality.** One new hand-drawn path (the ring's keyboard glyph for
-  `ActionIcon.Keyboard`). The frame column's Hide/Flip are text labels, matching the
-  keyboard's key language. The plan should render-check the glyph at real size (the
-  repo's established visual-review step).
+- **R1 — icon quality.** Two new hand-drawn paths: the ring's keyboard glyph
+  (`ActionIcon.Keyboard`, Feature A) and the edge-bar Flip glyph
+  (`ActionIcon.KeyboardEdge` — keyboard with up/down arrows); Close reuses the existing
+  `ActionIcon.Close`. The plan should render-check both at real size (the repo's
+  established visual-review step).
 - **R2 — toolbar band: no change in this design.** The band keeps its six buttons. For
   the record, the vertical docks already overflow a 1080p-at-125% work area at six
   buttons (888 DIP band vs ~816 DIP work area, `PlaceAtEdge` centring sends `Top`
@@ -404,10 +436,10 @@ code, not layout — the frame column is mode-agnostic for free).
   `"Top"`/`"Bottom"` — validation is a case-sensitive membership test, `Save` throws on
   failure, and the unguarded exit-time save makes a stray casing an app crash (B1 2a).
 - **R5 — un-pinning is a behavior change for every keyboard user.** The primary dismiss
-  becomes the always-visible frame Hide (one dwell, no round trip); the edge-summon +
-  toolbar Keyboard button is the secondary exit. The pin's original "stranded" rationale
-  is answered by B4 rather than by the summon alone (C3). Manual testing must confirm
-  both paths on a real tracker.
+  is the edge-bar Close (one dwell, always present while the keyboard is up, far from
+  the typing field); the edge-summon + toolbar Keyboard button is the secondary exit.
+  The pin's original "stranded" rationale is answered by the bar, not the summon (C3,
+  ledger #9). Manual testing must confirm both paths on a real tracker.
 - **R6 — the keyboard slides under an active dwell.** Yield fires while gaze is at the
   screen edge (safe); the return fires at toolbar idle, when gaze may be on the top key
   row — nearest-key re-acquisition handles it, but a mid-dwell key can shift once.

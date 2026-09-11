@@ -3,6 +3,7 @@ namespace EyeCtrl.ViewModels;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Calibration;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
@@ -29,6 +30,14 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     private readonly string _calibrationFilePath;
     private readonly SynchronizationContext? _syncContext;
     private readonly ILogger<CalibrationViewModel>? _logger;
+    // Scripted-collection ground truth. Null in every normal run — attached only when the operator
+    // turned the diagnostics setting on for a measurement session.
+    private readonly IGroundTruthSink? _groundTruth;
+    private readonly string _providerType;
+    // Carries the live RecordRawGaze gate. The sidecar describes samples the CSV recorder captured, so
+    // the two must start and stop together: a sidecar covering samples that were never recorded is a
+    // ground truth for a recording that does not exist.
+    private readonly DiagnosticsSettings? _diagnostics;
 
     private int _sessionGeneration;
     // Ticks (Environment.TickCount64) of the current target's first display. The target is held
@@ -64,10 +73,16 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         string monitorDeviceName,
         string calibrationFilePath,
         Func<string>? monitorHardwareId = null,
-        ILogger<CalibrationViewModel>? logger = null)
+        ILogger<CalibrationViewModel>? logger = null,
+        IGroundTruthSink? groundTruth = null,
+        string providerType = "",
+        DiagnosticsSettings? diagnostics = null)
         : base(messenger)
     {
         _logger = logger;
+        _groundTruth = groundTruth;
+        _providerType = providerType;
+        _diagnostics = diagnostics;
         _settings = settings;
         _calibrationService = calibrationService;
         _gazeProvider = gazeProvider;
@@ -100,6 +115,7 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     {
         _sessionGeneration++;
         TotalTargets = _calibrationService.StartSession(_settings.PointCount, _screenSize);
+        _groundTruth?.BeginSession(_providerType, _screenSize, _settings.SettleWindowMs);
         CurrentTargetIndex = 0;
         ProgressPercent = 0;
         ErrorText = null;
@@ -175,6 +191,28 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
 
     private void OnRawGaze(GazePoint gaze)
     {
+        // Scripted ground truth, when a recorder is attached (opt-in diagnostics only; null in every
+        // normal run, so calibration behaves exactly as it always has). Recorded here rather than from
+        // a timer because the window has to be expressed in the SAME device clock as the raw recording
+        // it will be aligned against — this callback has that timestamp in hand.
+        //
+        // ABOVE the IsValid return on purpose: the window is "when this target was displayed", which
+        // includes the moments the tracker lost the eyes. Counting only valid samples would make a
+        // target shown entirely during tracking loss vanish from the sidecar altogether — silently
+        // absent rather than present-and-empty — and the operator's "~9 windows" check could not tell
+        // that apart from a protocol slip. Arrival is unaffected: an invalid sample never reaches the
+        // collector, so HasArrivedAtTarget simply reports its existing state.
+        //
+        // Gated on the live setting, like the CSV recorder's own per-sample gate: the sidecar and the
+        // recording it describes must stop together, or a mid-session toggle-off leaves a ground truth
+        // covering samples nothing recorded.
+        if (_diagnostics?.RecordRawGaze != false)
+        {
+            _groundTruth?.OnSample(
+                CurrentTargetIndex, CurrentTargetPosition,
+                gaze.TimestampMicroseconds, _calibrationService.HasArrivedAtTarget);
+        }
+
         if (!gaze.IsValid) return;
         _calibrationService.AddRawSample(new PhysicalPoint(gaze.X, gaze.Y));
 
@@ -215,14 +253,47 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
             Messenger.Send(new CalibrationCompletedMessage(true, errorPx));
 
             _calibrationService.Save(_calibrationFilePath, data);
+
+            // After the calibration is safely persisted: a sidecar failure must not be able to cost
+            // the calibration itself, and the ground truth is only meaningful for a session that
+            // actually completed.
+            _groundTruth?.CompleteSession();
+            LogSigmaReport(data);
         }
         catch (Exception ex)
         {
             _calibrationService.CancelSession();
+            _groundTruth?.AbandonSession();
             ErrorText = ex.Message;
             State = CalibrationState.Failed;
             Messenger.Send(new CalibrationStateChangedMessage(State, 100));
             Messenger.Send(new CalibrationCompletedMessage(false, null));
+        }
+    }
+
+    /// <summary>
+    /// Logs the per-target σ this session just measured, plus the centre-versus-corner split.
+    /// <para>
+    /// The numbers were always there — <c>CalibrationPoint.StdDevX/Y</c> is the raw per-axis noise of
+    /// the samples held on each target — but nothing ever read them out, so the σ that gates every
+    /// filter claim in the gaze-jitter debate stayed unknown on this device. Logged unconditionally
+    /// after a successful calibration: it costs one line, needs no diagnostics flag, and answers the
+    /// question the next measurement session would otherwise have to ask again.
+    /// </para>
+    /// </summary>
+    private void LogSigmaReport(CalibrationData data)
+    {
+        if (_logger is null) return;
+        try
+        {
+            var report = CalibrationSigmaReport.Build(data);
+            _logger.LogInformation("Calibration noise — {Summary}", report.Describe());
+            _logger.LogInformation("Calibration noise per target — {Targets}", report.DescribeTargets());
+        }
+        catch (Exception ex)
+        {
+            // Diagnostics must never cost a calibration that already succeeded and persisted.
+            _logger.LogWarning(ex, "Could not summarise calibration noise; the calibration itself is unaffected");
         }
     }
 
@@ -232,6 +303,7 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         _sessionGeneration++;
         _gazeProvider.GazePointReceived -= OnRawGaze;
         _calibrationService.CancelSession();
+        _groundTruth?.AbandonSession();
         State = CalibrationState.Idle;
         Messenger.Send(new CalibrationStateChangedMessage(State, 0));
         Messenger.Send(new CalibrationCancelledMessage());

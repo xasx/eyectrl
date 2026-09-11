@@ -133,6 +133,15 @@ public class CalibrationService
     public bool IsCollecting => _currentCollector?.IsCollecting ?? false;
 
     /// <summary>
+    /// Whether gaze has reached the current target — proximity to it, or steady fixation somewhere.
+    /// Read-only passthrough of <see cref="CalibrationPointCollector.HasArrived"/>, exposed so the
+    /// scripted ground-truth recorder can mark where the fixation actually starts: the span before
+    /// arrival is the saccade and the search, and scoring deviation over it would measure the user
+    /// finding the target rather than holding it.
+    /// </summary>
+    public bool HasArrivedAtTarget => _currentCollector?.HasArrived ?? false;
+
+    /// <summary>
     /// Ends collection for the current target and returns the computed <see cref="CalibrationPoint"/>.
     /// </summary>
     /// <returns>The <see cref="CalibrationPoint"/> with mean, standard deviation, and sample count.</returns>

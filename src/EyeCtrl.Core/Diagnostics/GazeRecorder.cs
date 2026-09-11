@@ -18,14 +18,18 @@ using EyeCtrl.Core.Models;
 /// <b>Overflow drops, it never blocks.</b> If the writer cannot keep up, the oldest unread samples
 /// are overwritten and <see cref="DroppedSamples"/> counts them. A recording with a gap in it is a
 /// flawed measurement; a gaze thread stalled behind a disk write is a user who cannot move their
-/// cursor. The count is written to the file so the analyzer can refuse a recording that lost samples
-/// rather than quietly measuring a hole.
+/// cursor. The count is written to the file as a closing trailer, and reported through the
+/// <c>onClosed</c> callback, so a lossy recording is refused by the analyzer instead of quietly
+/// measured — the hole would otherwise read as a genuine tracker dropout, which is exactly the
+/// quantity these recordings exist to measure.
 /// </para>
 /// <para>
 /// <b>Format</b>: one <c>#</c>-prefixed JSON header line, then CSV <c>x,y,timestampUs,isValid</c> —
-/// one line per raw sample, invariant culture. CSV because a recording is a long column of numbers
-/// (JSON per sample roughly doubles the file for no gain), and the JSON header because the
-/// side-channel is structured and must stay readable as fields are added.
+/// one line per raw sample, invariant culture — then, on a clean close, one <c>#!</c>-prefixed JSON
+/// trailer line. CSV because a recording is a long column of numbers (JSON per sample roughly doubles
+/// the file for no gain), and JSON for the two side-channel lines because they are structured and must
+/// stay readable as fields are added. The distinct <c>#!</c> marker is what lets a reader tell a
+/// trailer from the header a rotation repeats.
 /// </para>
 /// </summary>
 public sealed class GazeRecorder : IGazeRecordingSink
@@ -44,6 +48,9 @@ public sealed class GazeRecorder : IGazeRecordingSink
     /// <summary>Writer wake-up interval. The producer never signals, so this is what bounds staleness.</summary>
     private const int DrainIntervalMs = 250;
 
+    /// <summary>Marks the closing trailer line, distinguishing it from the <c>#</c> header a rotation repeats.</summary>
+    public const string TrailerPrefix = "#!";
+
     private static readonly JsonSerializerOptions HeaderJsonOptions =
         new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
@@ -51,6 +58,7 @@ public sealed class GazeRecorder : IGazeRecordingSink
     private readonly GazePoint[] _buffer;
     private readonly int _mask;
     private readonly Action<Exception>? _onFault;
+    private readonly Action<GazeRecordingTrailer>? _onClosed;
     private readonly GazeRecordingHeader _header;
 
     // Single producer (gaze thread) writes _written; single consumer (writer thread) writes _read.
@@ -74,11 +82,18 @@ public sealed class GazeRecorder : IGazeRecordingSink
     /// <param name="header">Session side-channel, written once as the first line.</param>
     /// <param name="capacity">Ring capacity in samples; rounded up to a power of two. Default 8192 (~90 s at 90 Hz).</param>
     /// <param name="onFault">Optional one-shot fault report, invoked at most once when the recorder self-disables.</param>
+    /// <param name="onClosed">
+    /// Optional close report carrying the sample and drop counts, invoked once from <see cref="Dispose"/>.
+    /// The trailer on disk is what the analyzer reads; this is so the count also reaches the log, where
+    /// the operator sees it at the end of the session rather than after carrying a ruined recording to a
+    /// different machine.
+    /// </param>
     public GazeRecorder(
         string filePath,
         GazeRecordingHeader header,
         int capacity = 8192,
-        Action<Exception>? onFault = null)
+        Action<Exception>? onFault = null,
+        Action<GazeRecordingTrailer>? onClosed = null)
     {
         if (string.IsNullOrWhiteSpace(filePath))
             throw new ArgumentException("A recording path is required.", nameof(filePath));
@@ -88,6 +103,7 @@ public sealed class GazeRecorder : IGazeRecordingSink
         _filePath = filePath;
         _header = header;
         _onFault = onFault;
+        _onClosed = onClosed;
 
         int size = 1;
         while (size < capacity) size <<= 1;   // power of two so the index wrap is a mask, not a modulo
@@ -170,7 +186,11 @@ public sealed class GazeRecorder : IGazeRecordingSink
                 // running, in which case everything recorded after that drain began is still in the
                 // ring. Returning straight out would silently truncate the recording — which is how
                 // this shape was caught, by a round-trip test losing 740 of 1000 samples under load.
-                try { DrainOnce(); }
+                try
+                {
+                    DrainOnce();
+                    WriteTrailer();
+                }
                 catch (Exception ex) { SelfDisable(ex); }
                 return;
             }
@@ -221,7 +241,50 @@ public sealed class GazeRecorder : IGazeRecordingSink
 
         AppendWithRotation(_pending.ToString());
         _headerWritten = true;
-        Interlocked.Exchange(ref _read, written);
+
+        // Never move the cursor BACKWARDS. `written` was sampled at the top of this method; if the
+        // producer overflowed the ring while the append was on the disk, Record has already advanced
+        // _read past it to account for the drop. An unconditional Exchange would rewind the cursor onto
+        // slots the producer has since overwritten, and the next drain would re-emit that stale span.
+        //
+        // A compare-and-swap rather than a read-then-Exchange under an `if`: the producer can advance
+        // _read in the window between those two, and a plain guarded Exchange would clobber that advance
+        // exactly as the unguarded one did. The loop re-reads and retries, so the cursor lands on
+        // whichever of the two is further ahead however the two threads interleave.
+        //
+        // NOT test-covered, deliberately: the rewind is invisible from the file (during overflow the
+        // drain writes a documented torn tail either way, so a content assertion would demand a
+        // guarantee the design does not make) and every attempt to observe the cursor mid-drain needs a
+        // scheduling seam this class does not have. Two such tests were written and both failed to
+        // distinguish the fixed code from the broken code; shipping either would have been worse than
+        // shipping none.
+        while (true)
+        {
+            long current = Interlocked.Read(ref _read);
+            if (current >= written) break;
+            if (Interlocked.CompareExchange(ref _read, written, current) == current) break;
+        }
+    }
+
+    /// <summary>
+    /// Appends the closing trailer. Writer thread only — it owns the file, so a trailer written from
+    /// the disposing thread would race the final drain and could land mid-line.
+    /// </summary>
+    private void WriteTrailer()
+    {
+        // No header means no file: a session that recorded nothing leaves nothing behind, and a file
+        // containing only a trailer would be a new and pointless shape for the reader to handle.
+        if (!_headerWritten) return;
+
+        var trailer = new GazeRecordingTrailer(
+            DroppedSamples: Interlocked.Read(ref _dropped),
+            RecordedSamples: Interlocked.Read(ref _written));
+
+        // Deliberately NOT AppendWithRotation: rotating here would move a file the operator is about to
+        // go looking for, to save the few dozen bytes this line costs against a 16 MB cap.
+        File.AppendAllText(
+            _filePath,
+            TrailerPrefix + " " + JsonSerializer.Serialize(trailer, HeaderJsonOptions) + "\n");
     }
 
     private void AppendWithRotation(string text)
@@ -272,7 +335,19 @@ public sealed class GazeRecorder : IGazeRecordingSink
         // background thread that cannot keep the process alive, against the alternative of an
         // ObjectDisposedException killing the app at shutdown. The loop guards that race too; this
         // removes it rather than relying on the guard.
-        if (_writerThread.Join(ShutdownBudgetMs))
+        bool joined = _writerThread.Join(ShutdownBudgetMs);
+        if (joined)
             _wake.Dispose();
+
+        // Reported after the join so the counts are final, and reported even when the join timed out —
+        // an abandoned writer is precisely the case where the operator most needs to be told the
+        // recording is incomplete, and it is also the case where the trailer may never reach the file.
+        try
+        {
+            _onClosed?.Invoke(new GazeRecordingTrailer(
+                DroppedSamples: Interlocked.Read(ref _dropped),
+                RecordedSamples: Interlocked.Read(ref _written)));
+        }
+        catch { /* a broken reporter must not throw out of Dispose */ }
     }
 }

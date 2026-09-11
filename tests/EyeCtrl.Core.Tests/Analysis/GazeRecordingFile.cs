@@ -21,10 +21,50 @@ public static class GazeRecordingFile
     /// <param name="Header">The session header, or a default when the file carried none.</param>
     /// <param name="Samples">Raw samples exactly as recorded — invalid ones included, since gaps are data.</param>
     /// <param name="MalformedLines">Lines that could not be parsed. Non-zero means a truncated or corrupt file.</param>
+    /// <param name="Trailer">
+    /// The closing trailer, or <c>null</c> when the file has none — which means the recorder never
+    /// closed cleanly (the process died, or the writer faulted), so the file's completeness is unknown.
+    /// </param>
     public sealed record Recording(
         GazeRecordingHeader Header,
         IReadOnlyList<GazePoint> Samples,
-        int MalformedLines);
+        int MalformedLines,
+        GazeRecordingTrailer? Trailer)
+    {
+        /// <summary>
+        /// Why this recording must not be measured, or <c>null</c> when it may be.
+        /// <para>
+        /// The three refusals are one idea: a metric computed over a file with holes in it is
+        /// indistinguishable from a metric computed over a clean one, and the holes look exactly like
+        /// the tracker dropouts these recordings exist to quantify. A dropped sample inflates the
+        /// measured gap rate, a missing trailer means nobody counted, and malformed lines mean the file
+        /// was cut. All three produce a number that is wrong in a way no reader can see.
+        /// </para>
+        /// </summary>
+        public string? UnusableReason =>
+            Trailer is null
+                ? "the recording has no trailer, so it was never closed cleanly (crash, or a writer fault mid-session) and its completeness is unknown"
+            : Trailer.Value.DroppedSamples > 0
+                ? $"the recorder dropped {Trailer.Value.DroppedSamples} of {Trailer.Value.RecordedSamples} samples; the holes are indistinguishable from tracker dropouts"
+            : MalformedLines > 0
+                ? $"{MalformedLines} line(s) could not be parsed, so the file is truncated or corrupt"
+            : Header.CalibrationActive && Header.CalibrationTransform is null
+                ? "the session ran with a calibration whose transform the recorder could not serialize, so replay cannot reproduce the corrected stream the pipeline actually saw"
+            : null;
+
+        /// <summary>
+        /// Throws unless this recording is complete enough to measure. Every analysis entry point calls
+        /// it first: an opt-out would eventually be taken, and the whole point is that a lossy recording
+        /// must cost the operator a re-collection rather than produce a plausible number.
+        /// </summary>
+        public Recording EnsureUsable()
+        {
+            if (UnusableReason is { } why)
+                throw new InvalidOperationException(
+                    $"This gaze recording cannot be analyzed: {why}. Re-collect the session.");
+            return this;
+        }
+    }
 
     /// <summary>Parses a recording from disk.</summary>
     public static Recording Read(string path) => Parse(File.ReadAllLines(path));
@@ -33,6 +73,7 @@ public static class GazeRecordingFile
     public static Recording Parse(IEnumerable<string> lines)
     {
         GazeRecordingHeader header = default;
+        GazeRecordingTrailer? trailer = null;
         var samples = new List<GazePoint>();
         int malformed = 0;
 
@@ -40,6 +81,16 @@ public static class GazeRecordingFile
         {
             var line = raw.AsSpan().Trim();
             if (line.IsEmpty) continue;
+
+            if (line.StartsWith(GazeRecorder.TrailerPrefix))
+            {
+                // Checked before the '#' branch — the trailer marker starts with one. A second trailer
+                // would mean two sessions appended into one file, so the LAST wins: its counts are the
+                // ones covering the samples at the end of the file.
+                try { trailer = JsonSerializer.Deserialize<GazeRecordingTrailer>(line[GazeRecorder.TrailerPrefix.Length..].ToString(), JsonOptions); }
+                catch (JsonException) { malformed++; }
+                continue;
+            }
 
             if (line[0] == '#')
             {
@@ -57,7 +108,7 @@ public static class GazeRecordingFile
             else malformed++;
         }
 
-        return new Recording(header, samples, malformed);
+        return new Recording(header, samples, malformed, trailer);
     }
 
     private static readonly JsonSerializerOptions JsonOptions =

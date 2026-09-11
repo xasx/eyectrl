@@ -196,6 +196,84 @@ public class GazeRecorderTests : IDisposable
     }
 
     [Fact]
+    public void Dispose_WritesATrailerCarryingTheDropCount()
+    {
+        // The whole safety net in one assertion: the drop count has to survive onto DISK, because the
+        // machine that analyzes a recording is generally not the machine that made it, and a count that
+        // lives only in a process that has since exited protects nobody.
+        using (var recorder = new GazeRecorder(Path_, Header(), capacity: 8))
+        {
+            for (int i = 0; i < 200; i++)
+                recorder.Record(new GazePoint(i, i, i * 1000, true));
+        }
+
+        var lines = File.ReadAllLines(Path_);
+        var trailer = lines.Last(l => l.StartsWith(GazeRecorder.TrailerPrefix, StringComparison.Ordinal));
+
+        Check.That(trailer).Contains("\"droppedSamples\":");
+        Check.That(trailer).Contains("\"recordedSamples\":200");
+        // Not zero: a tiny ring with no drain time is the overflow case, and a trailer that reported
+        // "no drops" here would be worse than no trailer at all.
+        Check.That(trailer).Not.Contains("\"droppedSamples\":0");
+    }
+
+    [Fact]
+    public void Trailer_IsTheLastLine_AfterTheFinalDrain()
+    {
+        // Ordering is the contract: a trailer written before the final drain would sit in the middle of
+        // the samples, and a reader taking "last trailer wins" would be describing only part of the file.
+        using (var recorder = new GazeRecorder(Path_, Header()))
+        {
+            for (int i = 0; i < 10; i++)
+                recorder.Record(new GazePoint(i, i, i * 1000, true));
+        }
+
+        var lines = File.ReadAllLines(Path_).Where(l => l.Length > 0).ToArray();
+
+        Check.That(lines[^1]).StartsWith(GazeRecorder.TrailerPrefix);
+        Check.That(lines[^2]).IsEqualTo("9,9,9000,1");
+        Check.That(lines[^1]).Contains("\"droppedSamples\":0");
+    }
+
+    [Fact]
+    public void Dispose_ReportsTheCounts_EvenWhenNothingWasDropped()
+    {
+        // The clean case still reports. An operator who only ever hears about failures cannot tell
+        // "no drops" from "the report is broken", and this line is their evidence the session is usable.
+        GazeRecordingTrailer? closed = null;
+        using (var recorder = new GazeRecorder(Path_, Header(), onClosed: t => closed = t))
+        {
+            for (int i = 0; i < 5; i++)
+                recorder.Record(new GazePoint(i, i, i * 1000, true));
+        }
+
+        Check.That(closed).IsNotNull();
+        Check.That(closed!.Value.RecordedSamples).IsEqualTo(5L);
+        Check.That(closed.Value.DroppedSamples).IsEqualTo(0L);
+    }
+
+    [Fact]
+    public void SessionThatRecordedNothing_LeavesAHeaderAndATrailerSayingSo()
+    {
+        // A recorder that ran with the tracker disconnected writes its header on the first drain (that
+        // predates the trailer) and now closes it properly. The pair is worth having: "recording was on,
+        // the device produced nothing" and "recording was never on" are different operator mistakes, and
+        // only the first one leaves a file. An empty-but-closed recording is also USABLE by the
+        // analyzer's rules — zero samples with zero dropped is an honest zero, not a hole.
+        using (var recorder = new GazeRecorder(Path_, Header()))
+        {
+            // no samples
+        }
+
+        var lines = File.ReadAllLines(Path_).Where(l => l.Length > 0).ToArray();
+
+        Check.That(lines).HasSize(2);
+        Check.That(lines[0]).StartsWith("# ");
+        Check.That(lines[1]).StartsWith(GazeRecorder.TrailerPrefix);
+        Check.That(lines[1]).Contains("\"recordedSamples\":0");
+    }
+
+    [Fact]
     public void Dispose_IsIdempotent()
     {
         var recorder = new GazeRecorder(Path_, Header());

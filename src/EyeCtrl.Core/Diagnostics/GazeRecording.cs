@@ -20,10 +20,10 @@ public interface IGazeProviderDecorator : IGazeProvider
 /// gaze sample, captured once at the head of the file.
 /// <para>
 /// Replay reconstructs <c>isInGap</c> and the filtered point from raw samples alone, but only if it
-/// knows the pipeline's inputs — hence the screen size (raw samples are in tracker space and the
-/// provider scales by it), the calibration state (a transform is applied to every gaze point, so a
-/// recording made with one is not comparable to one made without) and a settings version the
-/// analyzer can join adaptation changes against.
+/// knows every input the live pipeline had — hence the screen size (raw samples are in tracker space
+/// and the provider scales by it), the calibration transform's own coefficients (it is applied to
+/// every valid sample BEFORE the filter, so replaying without it measures a different signal from
+/// the one the user saw) and a settings version the analyzer can join adaptation changes against.
 /// </para>
 /// <para>
 /// Privacy: this is the complete list of context ever written. No window titles, no target ids, no
@@ -43,13 +43,51 @@ public interface IGazeProviderDecorator : IGazeProvider
 /// Monotonic counter bumped whenever the settings or adaptation state that shapes the pipeline
 /// changes, so the analyzer can join a recording against the configuration in force.
 /// </param>
+/// <param name="CalibrationTransform">
+/// The coefficients of the transform that was applied to every valid sample, or <c>null</c> when none
+/// was active. Naming WHICH calibration was in force is not enough for replay: the analyzer has the
+/// raw samples, so to see what the pipeline actually saw it must be able to reapply the same mapping,
+/// and a recording's <c>calibration.json</c> may have been overwritten by the time it is analyzed.
+/// Null while <see cref="CalibrationActive"/> is true means a transform type this recorder does not
+/// know how to serialize — the analyzer must refuse rather than replay the raw stream as if it were
+/// corrected.
+/// </param>
 public readonly record struct GazeRecordingHeader(
     string ProviderType,
     double ScreenWidthPhysical,
     double ScreenHeightPhysical,
     bool CalibrationActive,
     string CalibrationVersion,
-    long SettingsVersion);
+    long SettingsVersion,
+    AffineTransformParameters? CalibrationTransform = null);
+
+/// <summary>
+/// The six coefficients of an affine calibration transform, as
+/// <c>x' = A*x + B*y + C</c>, <c>y' = D*x + E*y + F</c> — the same ordering
+/// <c>AffineTransform.GetParameters</c> returns.
+/// <para>
+/// Named fields rather than the raw <c>double[]</c> the transform persists, because this ends up in a
+/// JSON header a human reads while deciding whether two recordings are comparable, and because an
+/// array member would give the header reference equality where it needs value equality.
+/// </para>
+/// </summary>
+public readonly record struct AffineTransformParameters(
+    double A, double B, double C, double D, double E, double F);
+
+/// <summary>
+/// What can only be known once a recording is closed: how much of it was lost.
+/// <para>
+/// It is a TRAILER, not a header field, for the obvious reason — the drop count at the moment the
+/// header is written is always zero. The consequence is the useful part: a recording whose process
+/// died, or whose writer faulted mid-session, has no trailer at all, and the analyzer treats a missing
+/// trailer exactly as it treats a non-zero drop count. Both mean "this file is not a complete record
+/// of the session", and silently measuring either one produces a number that looks like a
+/// measurement.
+/// </para>
+/// </summary>
+/// <param name="DroppedSamples">Samples overwritten in the ring before the writer persisted them.</param>
+/// <param name="RecordedSamples">Samples handed to the sink over the session, dropped ones included.</param>
+public readonly record struct GazeRecordingTrailer(long DroppedSamples, long RecordedSamples);
 
 /// <summary>
 /// Destination for recorded raw samples. Implementations are called from the gaze thread and MUST

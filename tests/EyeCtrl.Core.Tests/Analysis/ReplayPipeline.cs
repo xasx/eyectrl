@@ -1,5 +1,6 @@
 namespace EyeCtrl.Core.Tests.Analysis;
 
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -23,10 +24,25 @@ using EyeCtrl.Core.Processing;
 public static class ReplayPipeline
 {
     /// <summary>One replayed sample: the raw input and everything the pipeline made of it.</summary>
-    /// <param name="Raw">The recorded sample, unmodified.</param>
+    /// <param name="Raw">The recorded sample, unmodified — the device's own coordinate space.</param>
+    /// <param name="Corrected">
+    /// The point the filter was actually given: <see cref="Raw"/> after the session's calibration
+    /// transform, or the same coordinates when the session ran uncalibrated.
+    /// <para>
+    /// Kept separate from <see cref="Raw"/> because the two live in different coordinate spaces the
+    /// moment a calibration is active, and every input-vs-output metric must use this one. Comparing a
+    /// <see cref="Filtered"/> screen-space position against a tracker-space <see cref="Raw"/> yields a
+    /// distance that is neither, and in the wrong units by whatever the transform's scale happens to
+    /// be — a silently wrong number rather than a visible failure.
+    /// </para>
+    /// </param>
     /// <param name="Filtered">The pipeline's output position for this sample (held during a gap).</param>
     /// <param name="IsInGap"><c>true</c> when the pipeline reported the position as held rather than measured.</param>
-    public readonly record struct Frame(GazePoint Raw, PhysicalPoint Filtered, bool IsInGap);
+    public readonly record struct Frame(
+        GazePoint Raw,
+        PhysicalPoint Corrected,
+        PhysicalPoint Filtered,
+        bool IsInGap);
 
     /// <summary>A named candidate pipeline: how to build its filter, and its gap budget.</summary>
     /// <param name="Name">Label used in reports, e.g. "baseline (OneEuro 5.0/0.5)".</param>
@@ -46,8 +62,36 @@ public static class ReplayPipeline
         () => new PassThroughFilter(),
         MaxGapMs: 150);
 
+    /// <summary>
+    /// Replays a recording through a candidate pipeline, applying the calibration transform the session
+    /// actually ran with. This is the entry point analysis should use: it also refuses a recording that
+    /// is not complete enough to measure.
+    /// </summary>
+    public static Frame[] Run(GazeRecordingFile.Recording recording, Candidate candidate)
+    {
+        ArgumentNullException.ThrowIfNull(recording);
+        recording.EnsureUsable();
+        return Run(recording.Samples, candidate, recording.Header.CalibrationTransform);
+    }
+
     /// <summary>Replays the stream and returns one frame per input sample, in order.</summary>
-    public static Frame[] Run(IReadOnlyList<GazePoint> samples, Candidate candidate)
+    /// <param name="samples">Raw samples, exactly as the device produced them.</param>
+    /// <param name="candidate">The pipeline under test.</param>
+    /// <param name="calibration">
+    /// The session's calibration coefficients, or <c>null</c> for a session that ran uncalibrated.
+    /// <para>
+    /// Load-bearing, not decoration. <c>GazeEngine.OnGazePoint</c> applies the transform to every VALID
+    /// sample before handing it to the interpolator, so a replay that skips it filters the tracker's
+    /// raw coordinate space instead of the corrected one. The transform is affine, so it scales the
+    /// signal: every distance-valued metric — jitter, overshoot, the settle radius the acceptance gate
+    /// vetoes on — comes out multiplied by a factor nothing in the report discloses. That is worse than
+    /// having no number, because the number looks fine.
+    /// </para>
+    /// </param>
+    public static Frame[] Run(
+        IReadOnlyList<GazePoint> samples,
+        Candidate candidate,
+        AffineTransformParameters? calibration = null)
     {
         ArgumentNullException.ThrowIfNull(samples);
         ArgumentNullException.ThrowIfNull(candidate);
@@ -56,8 +100,23 @@ public static class ReplayPipeline
         var frames = new Frame[samples.Count];
         for (int i = 0; i < samples.Count; i++)
         {
-            var (filtered, isInGap) = interpolator.Process(samples[i]);
-            frames[i] = new Frame(samples[i], filtered, isInGap);
+            var raw = samples[i];
+
+            // Mirrors OnGazePoint exactly, INCLUDING the IsValid guard: an invalid sample carries no
+            // position to correct, and transforming its coordinates anyway would feed the interpolator a
+            // different garbage value from the one the live pipeline saw.
+            var corrected = raw;
+            if (raw.IsValid && calibration is { } c)
+            {
+                corrected = raw with
+                {
+                    X = (c.A * raw.X) + (c.B * raw.Y) + c.C,
+                    Y = (c.D * raw.X) + (c.E * raw.Y) + c.F,
+                };
+            }
+
+            var (filtered, isInGap) = interpolator.Process(corrected);
+            frames[i] = new Frame(raw, new PhysicalPoint(corrected.X, corrected.Y), filtered, isInGap);
         }
         return frames;
     }

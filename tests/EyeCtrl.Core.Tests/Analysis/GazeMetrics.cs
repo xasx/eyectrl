@@ -275,7 +275,9 @@ public static class GazeMetrics
         if (stepIndex <= 0 || stepIndex >= frames.Count) return null;
 
         var before = frames[stepIndex - 1].Filtered;
-        var target = new PhysicalPoint(frames[^1].Raw.X, frames[^1].Raw.Y);
+        // Corrected, not Raw: this is compared against Filtered, and with a calibration active those two
+        // are in different coordinate spaces — the step size would come out scaled by the transform.
+        var target = frames[^1].Corrected;
         double stepSize = target.DistanceTo(before);
         if (stepSize <= 0) return null;
 

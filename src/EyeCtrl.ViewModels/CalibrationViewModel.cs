@@ -7,6 +7,7 @@ using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
+using Microsoft.Extensions.Logging;
 
 public partial class CalibrationViewModel : MessengerViewModelBase,
     IRecipient<CalibrationRequestedMessage>,
@@ -27,6 +28,7 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     private readonly Func<string> _monitorHardwareId;
     private readonly string _calibrationFilePath;
     private readonly SynchronizationContext? _syncContext;
+    private readonly ILogger<CalibrationViewModel>? _logger;
 
     private int _sessionGeneration;
     // Ticks (Environment.TickCount64) of the current target's first display. The target is held
@@ -61,9 +63,11 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         PhysicalPoint screenSize,
         string monitorDeviceName,
         string calibrationFilePath,
-        Func<string>? monitorHardwareId = null)
+        Func<string>? monitorHardwareId = null,
+        ILogger<CalibrationViewModel>? logger = null)
         : base(messenger)
     {
+        _logger = logger;
         _settings = settings;
         _calibrationService = calibrationService;
         _gazeProvider = gazeProvider;
@@ -260,8 +264,36 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         QualityPercent = null;
 
         // Best-effort deletion of the persisted calibration file so it won't reload on next startup.
-        try { if (System.IO.File.Exists(_calibrationFilePath)) System.IO.File.Delete(_calibrationFilePath); }
-        catch { /* non-critical */ }
+        //
+        // Logged, because this is the ONLY thing that deletes calibration.json and it used to do so
+        // behind a bare `catch { }`. A missing calibration and a calibration that failed to load are
+        // indistinguishable afterwards — gaze just runs raw — so without this line "where did my
+        // calibration go?" cannot be answered from the logs at all. (It was a deliberate Clear, not a
+        // torn write, that prompted the investigation this came out of.)
+        try
+        {
+            if (System.IO.File.Exists(_calibrationFilePath))
+            {
+                System.IO.File.Delete(_calibrationFilePath);
+                _logger?.LogInformation(
+                    "Calibration cleared by the user; deleted {FilePath}. Gaze runs uncalibrated until you recalibrate",
+                    _calibrationFilePath);
+            }
+            else
+            {
+                _logger?.LogInformation(
+                    "Calibration cleared by the user; no persisted file at {FilePath} to delete",
+                    _calibrationFilePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Warning, not Information: the in-memory calibration is gone but the file survived, so the
+            // next startup silently reloads what the user just discarded — a visible contradiction.
+            _logger?.LogWarning(ex,
+                "Calibration cleared, but {FilePath} could not be deleted; it will be reloaded on the next start",
+                _calibrationFilePath);
+        }
 
         // Neutral reset (not a failure) so the toolbar icon returns to the idle state.
         Messenger.Send(new CalibrationCancelledMessage());

@@ -122,7 +122,15 @@ public class SettingsService
             var migratedJson = MigrateDragActions(json);
             if (!ReferenceEquals(json, migratedJson))
             {
-                try { File.WriteAllText(_filePath, migratedJson); }
+                // Atomic, like Save: this is a write during startup, and a torn one would leave the
+                // user's whole settings file unparseable — which Load answers with all-defaults, so
+                // every configured value would silently revert.
+                try
+                {
+                    var tmp = _filePath + ".tmp";
+                    File.WriteAllText(tmp, migratedJson);
+                    File.Move(tmp, _filePath, overwrite: true);
+                }
                 catch (Exception ex) { _logger?.LogWarning(ex, "Failed to persist migrated settings to {FilePath}", _filePath); }
             }
             var settings = JsonSerializer.Deserialize<EyeCtrlSettings>(migratedJson, JsonOptions) ?? new EyeCtrlSettings();

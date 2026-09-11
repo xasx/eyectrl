@@ -6,6 +6,7 @@ using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
+using Microsoft.Extensions.Logging;
 
 public class CalibrationViewModelTests
 {
@@ -260,5 +261,66 @@ public class CalibrationViewModelTests
 
         Check.That(vm.CurrentTargetIndex).IsEqualTo(vm.TotalTargets);
         Check.That(vm.State).IsEqualTo(CalibrationState.Active);
+    }
+
+    // ── Clearing the calibration ──
+    // This is the only code that deletes calibration.json, and it did so behind a bare `catch { }`.
+    // Afterwards a deliberately cleared calibration and one that failed to load look identical — gaze
+    // just runs raw — so the deletion has to leave a trace or "where did my calibration go?" is
+    // unanswerable from the logs.
+
+    private CalibrationViewModel CreateVmWithLogger(string path, FakeLogger<CalibrationViewModel> logger) =>
+        new(_settings, _calibrationService, _messenger, _provider,
+            new PhysicalPoint(1920, 1080), "test-monitor", path,
+            monitorHardwareId: null, logger: logger);
+
+    [Fact]
+    public void ClearCalibration_DeletesTheFile_AndLogsAtInformation()
+    {
+        var path = TempCalibrationPath();
+        File.WriteAllText(path, "{}");
+        var logger = new FakeLogger<CalibrationViewModel>();
+        var vm = CreateVmWithLogger(path, logger);
+
+        vm.ClearCalibration();
+
+        Check.That(File.Exists(path)).IsFalse();
+        var line = logger.Entries.FirstOrDefault(e => e.Level == LogLevel.Information && e.Message.Contains(path));
+        Check.That(line.Message).IsNotNull();
+        Check.That(line.Message).Contains("deleted");
+    }
+
+    [Fact]
+    public void ClearCalibration_WithNoPersistedFile_StillLogs()
+    {
+        // The "nothing to delete" case is worth a line of its own: it distinguishes "the user cleared
+        // it" from "there was never a file", which is exactly the ambiguity being fixed.
+        var path = TempCalibrationPath();
+        var logger = new FakeLogger<CalibrationViewModel>();
+        var vm = CreateVmWithLogger(path, logger);
+
+        vm.ClearCalibration();
+
+        Check.That(logger.Entries.Any(e => e.Level == LogLevel.Information && e.Message.Contains("no persisted file")))
+            .IsTrue();
+    }
+
+    [Fact]
+    public void ClearCalibration_WithoutALogger_DoesNotThrow()
+    {
+        // The logger is optional (the ViewModels layer has no logging of its own); tests and any
+        // caller that omits it must still be able to clear.
+        var vm = CreateVm();
+        Check.ThatCode(() => vm.ClearCalibration()).DoesNotThrow();
+    }
+
+    private sealed class FakeLogger<T> : ILogger<T>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = new();
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
+            Entries.Add((logLevel, formatter(state, exception)));
     }
 }

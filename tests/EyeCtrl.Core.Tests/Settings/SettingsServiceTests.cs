@@ -59,6 +59,37 @@ public class SettingsServiceTests
     }
 
     [Fact]
+    public void Load_MigrationWriteBack_IsAtomic_AndLeavesNoTempFile()
+    {
+        // The migration rewrite happens during startup. A torn write there leaves the settings file
+        // unparseable, and Load answers that with all-defaults — every configured value silently gone.
+        // Temp file + rename is the guarantee; this pins its observable consequences.
+        var tempPath = Path.Combine(Path.GetTempPath(), $"eyectrl_test_{Guid.NewGuid()}.json");
+        try
+        {
+            var json = """
+            {
+                "actionMenu": {
+                    "visibleActions": ["leftClick", "dragStart", "scrollUp"]
+                },
+                "dwell": { "activationButtonDwellMs": 800 }
+            }
+            """;
+            File.WriteAllText(tempPath, json);
+            var service = new SettingsService(tempPath);
+            service.Load();
+
+            Check.That(File.Exists(tempPath + ".tmp")).IsFalse();
+
+            // The migrated form really reached disk: a second Load sees no dragStart to migrate and
+            // still returns the user's value rather than the default.
+            Check.That(File.ReadAllText(tempPath)).Not.Contains("dragStart");
+            Check.That(service.Load().Dwell.ActivationButtonDwellMs).IsEqualTo(800);
+        }
+        finally { File.Delete(tempPath); }
+    }
+
+    [Fact]
     public void Load_RemovesDragEnd_FromVisibleActions()
     {
         var tempPath = Path.Combine(Path.GetTempPath(), $"eyectrl_test_{Guid.NewGuid()}.json");

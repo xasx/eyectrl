@@ -252,13 +252,31 @@ public class AppBootstrapper
                 System.Windows.Forms.Screen.PrimaryScreen?.DeviceName ?? ""),
             // Only so the deletion of calibration.json on an explicit Clear leaves a trace — that
             // delete is otherwise indistinguishable from a calibration that never existed.
-            sp.GetRequiredService<ILoggerFactory>().CreateLogger<CalibrationViewModel>()));
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger<CalibrationViewModel>(),
+            // Scripted ground truth: null unless the operator turned recording on for a measurement
+            // session, so a normal calibration runs exactly as before and writes no sidecar.
+            sp.GetService<ScriptedGroundTruthRecorder>(),
+            GazeProviderFactory.GetProviderType(sp.GetRequiredService<IGazeProvider>()).ToString(),
+            // The live RecordRawGaze gate, so the sidecar stops when the recording it describes does.
+            settings.Diagnostics));
         services.AddSingleton<TargetHighlightOverlayViewModel>();
         services.AddSingleton<DragTrailViewModel>();
         services.AddSingleton<EdgeButtonBarViewModel>();
         services.AddSingleton<TrackStatusViewModel>();
         services.AddSingleton<TaskSwitcherViewModel>();
         services.AddSingleton<QuickActionsGridViewModel>();
+
+        // Scripted ground truth (Stage 2 ticket 3), written beside the raw recording it describes and
+        // gated on the same opt-in: a sidecar is only meaningful for a session that is being recorded,
+        // so it rides RecordRawGaze rather than inventing a third flag for the operator to remember.
+        services.AddSingleton<ScriptedGroundTruthRecorder?>(sp =>
+        {
+            if (!settings.Diagnostics.RecordRawGaze) return null;
+            var log = sp.GetRequiredService<ILoggerFactory>().CreateLogger<ScriptedGroundTruthRecorder>();
+            return new ScriptedGroundTruthRecorder(
+                Path.Combine(appDataDir, "gaze-recording.groundtruth.json"),
+                ex => log.LogWarning(ex, "Could not write the scripted ground-truth sidecar; the calibration is unaffected"));
+        });
 
         // The two Stage-2 UI instruments. Constructed only when the operator turned them on for a
         // measurement session, so the shipped default leaves both paths exactly as they were; the

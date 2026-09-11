@@ -10,4 +10,16 @@
     <ProjectReference Include="..\..\src\EyeCtrl.Core\EyeCtrl.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      The synthetic gaze streams the replay analyzer validates against, shared with the benchmark
+      suite as a LINK rather than a copy: two drifting definitions of "a fixation stream" would make
+      analyzer results and benchmark results quietly incomparable. Linked rather than referenced
+      because EyeCtrl.Benchmarks carries BenchmarkDotNet, which has no business in a test project
+      (and quality metrics were an explicit non-goal for that suite).
+    -->
+    <Compile Include="..\..\benchmarks\EyeCtrl.Benchmarks\GazeStreamGenerator.cs"
+             Link="Analysis\GazeStreamGenerator.cs" />
+  </ItemGroup>
+
 </Project>

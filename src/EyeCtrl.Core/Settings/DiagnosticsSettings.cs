@@ -19,12 +19,28 @@ public partial class DiagnosticsSettings : ObservableObject, IValidatable
     /// </summary>
     [ObservableProperty] private bool _recordRawGaze;
 
+    /// <summary>
+    /// Whether the two UI-lane instruments run: dispatch enqueue→execute latency, and cursor-ring
+    /// position quantization plus cadence.
+    /// <para>
+    /// Default <c>false</c>. Separate from <see cref="RecordRawGaze"/> deliberately — these measure the
+    /// UI thread and record no gaze coordinates at all, so an operator answering the dispatch-latency
+    /// question should not have to also produce a trace of where they looked. One flag covers both
+    /// instruments because they answer the same session's questions and are run together.
+    /// </para>
+    /// <para>
+    /// Neither instrument changes any behaviour: no dispatch is coalesced, delayed or reordered, and
+    /// the ring is positioned exactly as before. They only observe.
+    /// </para>
+    /// </summary>
+    [ObservableProperty] private bool _measureUiInstruments;
+
     /// <inheritdoc />
     /// <remarks>
-    /// Deliberately empty. A single bool has no invalid value, and a range check here would be a
-    /// liability rather than a safeguard: <c>SettingsService.Load</c> answers ANY validation error by
-    /// discarding the whole file and returning all-defaults, so a new range on a diagnostic setting
-    /// can cost the user every other setting they have configured.
+    /// Deliberately empty. Every setting here is a bool, which has no invalid value, and a range check
+    /// on anything added later would be a liability rather than a safeguard: <c>SettingsService.Load</c>
+    /// answers ANY validation error by discarding the whole file and returning all-defaults, so a new
+    /// range on a diagnostic setting can cost the user every other setting they have configured.
     /// </remarks>
     public IReadOnlyList<string> Validate() => Array.Empty<string>();
 }

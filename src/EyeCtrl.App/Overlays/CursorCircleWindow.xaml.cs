@@ -3,15 +3,17 @@ namespace EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using EyeCtrl.Controls.Theme;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using Serilog;
 
-public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay
+public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, IRingQuantizationInstrument
 {
     // UI Constants
     private const int MinimumCircleSize = 10; // Minimum allowed circle size in pixels
@@ -25,9 +27,119 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay
 
     public void UpdatePosition(PhysicalPoint point)
     {
-        Left = DpiHelper.PhysicalToLogicalX(point.X) - Width / 2;
-        Top = DpiHelper.PhysicalToLogicalY(point.Y) - Height / 2;
+        double left = DpiHelper.PhysicalToLogicalX(point.X) - Width / 2;
+        double top = DpiHelper.PhysicalToLogicalY(point.Y) - Height / 2;
+
+        Left = left;
+        Top = top;
+
+        // Instrument 2 (Stage 2), off unless an operator turned it on — and the setting is re-read per
+        // write, so turning it off mid-session stops the work rather than waiting for a restart.
+        // Strictly an observation of the two writes above: it reads back where the window actually
+        // landed and reports it. Nothing about how the ring is positioned changes.
+        if (_quantizationProbe is not null && _diagnostics?.MeasureUiInstruments == true)
+            RecordQuantization(left, top);
     }
+
+    // ── Instrument 2: ring pixel quantization and cadence ──
+    //
+    // The question: sub-pixel filter output is produced all the way down the pipeline, but the ring is
+    // moved by writing Window.Left/Top on a layered window. If the window manager lands it on whole
+    // device pixels, every fractional pixel is discarded by the LAST stage and no filter — however well
+    // tuned — can make the ring sub-pixel smooth. Answering it promotes or drops the transform-based
+    // overlay endgame, so it is worth measuring rather than assuming.
+
+    private RingQuantizationProbe? _quantizationProbe;
+    private DiagnosticsSettings? _diagnostics;
+    private long _quantizationSamplesSinceReport;
+
+    /// <summary>Writes between summary log lines (~60 s at 33 Hz).</summary>
+    private const long QuantizationReportInterval = 2000;
+
+    /// <summary>
+    /// Attaches the quantization instrument. Called at wiring time only when the diagnostics setting is
+    /// on; leaving it unattached keeps <see cref="UpdatePosition"/> exactly as it was.
+    /// </summary>
+    /// <param name="probe">The accumulator to report observations to.</param>
+    /// <param name="diagnostics">
+    /// Settings carrying the live gate. Read per write so switching the setting off mid-session actually
+    /// stops the measurement — the probe is attached once at startup, so without this "off" would only
+    /// take effect at the next restart, which is not what the setting says. Switching it back ON
+    /// mid-session deliberately does nothing (same discipline as the raw-gaze recorder).
+    /// </param>
+    public void AttachQuantizationProbe(RingQuantizationProbe probe, DiagnosticsSettings diagnostics)
+    {
+        _quantizationProbe = probe;
+        _diagnostics = diagnostics;
+    }
+
+    /// <summary>Emits the instrument's verdict and cadence histogram. Called at shutdown.</summary>
+    public void ReportQuantization()
+    {
+        if (_quantizationProbe is null || _quantizationProbe.Count == 0) return;
+        Log.Information("UI instrument 2 (final) — {Verdict}", _quantizationProbe.Describe());
+        Log.Information("UI instrument 2 (final) — {Cadence}", _quantizationProbe.DescribeCadence());
+    }
+
+    private void RecordQuantization(double requestedLeftDip, double requestedTopDip)
+    {
+        try
+        {
+            // GetWindowRect reports the ACTUAL placement in device pixels — a RECT is integral by
+            // definition, which is precisely why the comparison has to happen in device-pixel space:
+            // in DIPs on a 100 % display, one DIP is one device pixel and total quantization would be
+            // indistinguishable from perfect fidelity.
+            //
+            // LOAD-BEARING ASSUMPTION, recorded because a wrong verdict here drives a roadmap decision:
+            // this read must observe the Left/Top writes that just happened, i.e. WPF must apply HWND
+            // bounds synchronously on the UI thread (setting Window.Left calls through to SetWindowPos
+            // in the same call; only the layered window's CONTENT presents asynchronously). If that is
+            // wrong and moves are deferred by a frame, `residual` stops measuring quantization and
+            // starts measuring per-frame gaze motion — ExactMatchFraction then collapses on any live
+            // gaze and the probe reports DISCARDED from lag alone.
+            //
+            // It could not be verified here: it needs a sourced window, so no headless test can settle
+            // it. PRECONDITION before a DISCARDED verdict is allowed to promote the transform-based
+            // overlay endgame: park the ring at a deliberately fractional STATIC position (gaze still,
+            // or a fixed point) and confirm the residual stays fractional-but-constant. Under lag a
+            // static position reads as a perfect match, which distinguishes the two causes outright.
+            var handle = new WindowInteropHelper(this).Handle;
+            if (handle == IntPtr.Zero) return;          // not yet sourced; nothing to observe
+            if (!GetWindowRect(handle, out var rect)) return;
+
+            _quantizationProbe!.Record(
+                requestedLeftDip, requestedTopDip,
+                rect.Left, rect.Top,
+                DpiHelper.ScaleX, DpiHelper.ScaleY);
+
+            if (++_quantizationSamplesSinceReport >= QuantizationReportInterval)
+            {
+                _quantizationSamplesSinceReport = 0;
+                Log.Information("UI instrument 2 — {Verdict}", _quantizationProbe.Describe());
+                Log.Information("UI instrument 2 — {Cadence}", _quantizationProbe.DescribeCadence());
+            }
+        }
+        catch (Exception ex)
+        {
+            // A diagnostic must never be able to break the cursor ring, which is the user's only
+            // pointer feedback. Detach on the first fault rather than throwing once per sample.
+            _quantizationProbe = null;
+            Log.Warning(ex, "Ring quantization instrument detached after a fault; the ring is unaffected");
+        }
+    }
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct RECT
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
     public void UpdateAppearance(CursorSettings settings)
     {

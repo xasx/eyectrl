@@ -260,6 +260,14 @@ public class AppBootstrapper
         services.AddSingleton<TaskSwitcherViewModel>();
         services.AddSingleton<QuickActionsGridViewModel>();
 
+        // The two Stage-2 UI instruments. Constructed only when the operator turned them on for a
+        // measurement session, so the shipped default leaves both paths exactly as they were; the
+        // registrations resolve to null otherwise, which each consumer reads as "not instrumented".
+        services.AddSingleton<DispatchLatencyProbe?>(_ =>
+            settings.Diagnostics.MeasureUiInstruments ? new DispatchLatencyProbe() : null);
+        services.AddSingleton<RingQuantizationProbe?>(_ =>
+            settings.Diagnostics.MeasureUiInstruments ? new RingQuantizationProbe() : null);
+
         // GazeEngineAdapter (bridges Core events <-> MVVM messages)
         services.AddSingleton(sp => new GazeEngineAdapter(
             sp.GetRequiredService<GazeEngine>(),
@@ -267,7 +275,8 @@ public class AppBootstrapper
             sp.GetRequiredService<IMessenger>(),
             dispatcher,
             sp.GetRequiredService<ILogger<GazeEngineAdapter>>(),
-            sp.GetRequiredService<IControlFinder>()));
+            sp.GetRequiredService<IControlFinder>(),
+            sp.GetService<DispatchLatencyProbe?>()));
 
         // ManualSelectionDwellService (handles ManualSelection dwell detection and indicator updates)
         services.AddSingleton(sp => new ManualSelectionDwellService(

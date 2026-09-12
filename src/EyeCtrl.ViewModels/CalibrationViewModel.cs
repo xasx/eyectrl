@@ -49,7 +49,20 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     // forever: the target then advances with whatever was collected (possibly nothing → the
     // session's existing failure paths take over), which is exactly the old timer behavior as
     // the degraded case.
-    private const int TargetSafetyCapMs = 10_000;
+    //
+    // Raised from 10 s on 2026-09-13. In-band samples accumulate across separate holds, and this
+    // user's holds last a median 0.24 s with searching in between, so filling a target is now a
+    // several-attempt affair by design. Ten seconds would have cut off exactly the user this retune
+    // is for — and cut them off with a failure, since a target that reaches the cap with nothing
+    // in band fails the session.
+    private const int TargetSafetyCapMs = 25_000;
+
+    // ...but only once the user has actually reached the point. Waiting 25 s for gaze that never
+    // arrives is 25 s of a user staring at a dot the tracker cannot follow — and with five targets,
+    // over two minutes before the session admits something is wrong. Arrival is the signal that the
+    // long budget is worth spending: before it, the problem is aim or tracking and more time does not
+    // help; after it, the user is banking samples and time is exactly what they need.
+    private const int NoArrivalCapMs = 8_000;
 
     [ObservableProperty] private CalibrationState _state = CalibrationState.Idle;
     [ObservableProperty] private int _currentTargetIndex;
@@ -63,6 +76,35 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     // settings.TargetColor in the constructor, but the initializer must not carry the
     // outgoing Lime accent this migration removed.
     [ObservableProperty] private string _targetColor = "#A5F3FC";
+
+    /// <summary>
+    /// The tolerance radius in PHYSICAL pixels — how far from the dot gaze may sit and still count.
+    /// The overlay draws a ring of exactly this size, which is the whole point: it is the same number
+    /// the collector enforces, read from the same place, so what the user is shown is what they are
+    /// being held to.
+    /// </summary>
+    [ObservableProperty] private double _bandRadiusPixels;
+
+    /// <summary>
+    /// Radius of the aim DOT in physical pixels, from <see cref="CalibrationSettings.TargetRadiusPixels"/>.
+    /// Distinct from <see cref="BandRadiusPixels"/>, and much smaller: the dot says where to look, the
+    /// band says how close counts. Surfaced because the setting was previously read by nothing — the
+    /// overlay hard-coded the dot size — so changing it did nothing.
+    /// </summary>
+    [ObservableProperty] private double _targetRadiusPixels = 20;
+
+    /// <summary>
+    /// How much of the current target is collected, 0–1, measured in IN-BAND samples rather than
+    /// elapsed time. Progress therefore stalls while the user is off target and resumes where it left
+    /// off — which is honest, and is also the feedback that tells them holding is what advances it.
+    /// </summary>
+    [ObservableProperty] private double _targetProgress;
+
+    /// <summary>
+    /// Whether gaze is inside the band right now. The overlay uses it to make "inside" and "about to
+    /// leave" legible without text, for a user who cannot read a number and hold a fixation at once.
+    /// </summary>
+    [ObservableProperty] private bool _isOnTarget;
 
     public CalibrationViewModel(
         CalibrationSettings settings,
@@ -97,6 +139,8 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         // obvious cause. Required beats convenient here.
         _calibrationFilePath = calibrationFilePath;
         _targetColor = settings.TargetColor;
+        _targetRadiusPixels = settings.TargetRadiusPixels;
+        _bandRadiusPixels = CalibrationGeometry.BandRadiusPx(screenSize);
         _syncContext = SynchronizationContext.Current;
     }
 
@@ -118,6 +162,11 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         _groundTruth?.BeginSession(_providerType, _screenSize, _settings.SettleWindowMs);
         CurrentTargetIndex = 0;
         ProgressPercent = 0;
+        // Published once per session from the same helper the collector uses, so the ring the overlay
+        // draws cannot drift from the tolerance being enforced.
+        BandRadiusPixels = CalibrationGeometry.BandRadiusPx(_screenSize);
+        TargetProgress = 0;
+        IsOnTarget = false;
         ErrorText = null;
         MeanErrorPixels = null;
         State = CalibrationState.Collecting;
@@ -143,19 +192,49 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         Messenger.Send(new CalibrationTargetPositionMessage(pos, CurrentTargetIndex, TotalTargets));
         Messenger.Send(new CalibrationStateChangedMessage(State, (CurrentTargetIndex / (double)TotalTargets) * 100));
 
+        TargetProgress = 0;
+        IsOnTarget = false;
+
         _gazeProvider.GazePointReceived += OnRawGaze;
         _targetShownAtTicks = Environment.TickCount64;
         var generation = _sessionGeneration;
 
-        // Safety cap, not the pacer: samples advance the target once the collector is complete
-        // (see OnRawGaze). This timer only fires when the user never arrives at the point.
-        var capMs = Math.Max(_settings.TargetHoldMs, TargetSafetyCapMs);
-        Task.Delay(capMs).ContinueWith(_ =>
+        // Safety cap, not the pacer: samples advance the target once the collector has enough IN-BAND
+        // ones (see OnRawGaze). This only fires when the user cannot finish the target.
+        //
+        // Two stages, because "never got there" and "got there and is still working at it" deserve
+        // different patience. The first expires early and gives up unless gaze has arrived; the second
+        // spends the full budget on a user who is making progress.
+        ScheduleSafetyCap(generation, Math.Max(_settings.TargetHoldMs, NoArrivalCapMs), isFinal: false);
+    }
+
+    /// <summary>
+    /// Arms one stage of the per-target safety cap.
+    /// </summary>
+    /// <param name="generation">Session generation captured when the target opened; a cancel or
+    /// restart bumps it and this fires into nothing.</param>
+    /// <param name="delayMs">How long this stage waits.</param>
+    /// <param name="isFinal">
+    /// False for the first stage, which only gives up if gaze never arrived; true for the second,
+    /// which advances regardless.
+    /// </param>
+    private void ScheduleSafetyCap(int generation, int delayMs, bool isFinal)
+    {
+        Task.Delay(delayMs).ContinueWith(_ =>
         {
             if (IsDisposed) return;
             PostToSyncContext(() =>
             {
                 if (generation != _sessionGeneration || State != CalibrationState.Collecting) return;
+
+                // Arrived and still collecting: extend once to the full budget rather than cutting off
+                // a user who is banking samples a few at a time.
+                if (!isFinal && _calibrationService.HasArrivedAtTarget)
+                {
+                    ScheduleSafetyCap(generation, Math.Max(1, TargetSafetyCapMs - delayMs), isFinal: true);
+                    return;
+                }
+
                 AdvanceFromCurrentTarget(CurrentTargetIndex);
             });
         });
@@ -182,10 +261,18 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         }
         catch (Exception ex)
         {
+            // Announced exactly as a failure at fit time is (see CompleteSession's catch). The two
+            // paths used to differ — this one sent only the state change — which was survivable while
+            // a target could only fail by collecting nothing after arriving. Since collection became
+            // in-band gated this is the COMMON failure: a user who cannot hold a point fails here, not
+            // at the fit. A listener that learns about one kind of failure and not the other would
+            // show a stale "calibrating" state for the ordinary case.
             _calibrationService.CancelSession();
+            _groundTruth?.AbandonSession();
             ErrorText = ex.Message;
             State = CalibrationState.Failed;
             Messenger.Send(new CalibrationStateChangedMessage(State, 100));
+            Messenger.Send(new CalibrationCompletedMessage(false, null));
         }
     }
 
@@ -220,6 +307,18 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         if (!gaze.IsValid) return;
         _calibrationService.AddRawSample(new PhysicalPoint(gaze.X, gaze.Y));
 
+        // Feedback, published per sample. Progress counts IN-BAND samples, so it stalls while the user
+        // is off target and resumes where it left off rather than restarting — a user who cannot hold
+        // for a full window still sees every successful moment bank. IsOnTarget is the live version of
+        // the same fact, and is what lets the overlay say "you are on it" without words.
+        //
+        // Computed against the same gaze sample the collector just consumed, so the ring cannot show
+        // "on target" for a sample the collector rejected.
+        IsOnTarget = Distance(gaze, CurrentTargetPosition) <= BandRadiusPixels;
+        TargetProgress = _settings.SamplesPerPoint <= 0
+            ? 0
+            : Math.Min(1.0, _calibrationService.CurrentTargetInBandSamples / (double)_settings.SamplesPerPoint);
+
         // The user's pace: advance the moment the target has its samples, past the visible
         // floor. Before this, a fixed timer advanced targets whether or not the user had
         // arrived, and samples were averaged from wherever gaze happened to be.
@@ -229,6 +328,13 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
             var index = CurrentTargetIndex;
             PostToSyncContext(() => AdvanceFromCurrentTarget(index));
         }
+    }
+
+    private static double Distance(GazePoint gaze, PhysicalPoint target)
+    {
+        var dx = gaze.X - target.X;
+        var dy = gaze.Y - target.Y;
+        return Math.Sqrt((dx * dx) + (dy * dy));
     }
 
     private void PostToSyncContext(Action action)

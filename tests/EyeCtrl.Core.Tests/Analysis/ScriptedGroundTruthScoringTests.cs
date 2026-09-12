@@ -270,9 +270,91 @@ public class ScriptedGroundTruthScoringTests : IDisposable
         {
             ScreenWidth = 1920,
             ScreenHeight = 1080,
+            // AttemptedSamples 0 - i.e. coverage unknown - which is what every calibration written
+            // before 2026-09-13 carries. The zone/ratio tests below are about sigma alone and must
+            // keep working on a legacy file.
             Points = points.Select(p => new CalibrationPoint(
                 new PhysicalPoint(p.X, p.Y), new PhysicalPoint(p.X, p.Y), p.SigmaX, p.SigmaY, 30)).ToArray(),
         };
+
+    private static CalibrationData CalibrationWithCoverage(
+        params (double X, double Y, double Sigma, int InBand, int Attempted)[] points) =>
+        new()
+        {
+            ScreenWidth = 1920,
+            ScreenHeight = 1080,
+            Points = points.Select(p => new CalibrationPoint(
+                new PhysicalPoint(p.X, p.Y), new PhysicalPoint(p.X, p.Y),
+                p.Sigma, p.Sigma, p.InBand, p.Attempted)).ToArray(),
+        };
+
+    [Fact]
+    public void SigmaReport_ReportsTheWorstCoverage_NotTheAverage()
+    {
+        // A calibration is fitted THROUGH every point, so one target built from wander bends the whole
+        // transform. An average would let four good targets hide it; the minimum cannot.
+        var report = CalibrationSigmaReport.Build(CalibrationWithCoverage(
+            (960, 540, 2, 30, 30),     // 100%
+            (384, 216, 2, 28, 30),     // 93%
+            (1536, 864, 2, 3, 100)));  // 3% - the one that matters
+
+        Check.That(report.MinCoverage!.Value).IsCloseTo(0.03, 0.001);
+        Check.That(report.Targets[2].Coverage!.Value).IsCloseTo(0.03, 0.001);
+    }
+
+    [Fact]
+    public void SigmaReport_SaysSoWhenALowSigmaRestsOnAlmostNoSamples()
+    {
+        // The 2026-09-12 shape, as it would now be reported. Every target has a tiny sigma because
+        // sigma is computed over in-band samples only - and every target was on point 4% of the time.
+        // The sigma line alone would read as a superb calibration, which is exactly how the original
+        // passed; the coverage figure sits in the same line so it cannot be read without it.
+        var report = CalibrationSigmaReport.Build(CalibrationWithCoverage(
+            (960, 540, 1.5, 4, 100),
+            (384, 216, 1.2, 3, 100)));
+
+        var line = report.Describe();
+
+        Check.That(report.RmsSigmaRadial).IsStrictlyLessThan(3.0);   // looks superb in isolation
+        Check.That(line).Contains("worst-coverage=3%");
+        Check.That(line).Contains("MOST SAMPLES WERE OFF TARGET");
+    }
+
+    [Fact]
+    public void SigmaReport_DoesNotWarnWhenCoverageIsGood()
+    {
+        // The contrast case: without it the warning above would pass against a report that shouted on
+        // every calibration, which would train the operator to ignore it.
+        var report = CalibrationSigmaReport.Build(CalibrationWithCoverage(
+            (960, 540, 1.5, 29, 30),
+            (384, 216, 1.2, 27, 30)));
+
+        var line = report.Describe();
+
+        Check.That(line).Contains("worst-coverage=90%");
+        Check.That(line).Not.Contains("MOST SAMPLES WERE OFF TARGET");
+    }
+
+    [Fact]
+    public void SigmaReport_OnALegacyCalibration_SaysCoverageIsUnknown()
+    {
+        // Not 0%. A calibration written before coverage existed has no evidence either way, and
+        // reporting it as zero would condemn a calibration that may have been perfectly good.
+        var report = CalibrationSigmaReport.Build(CalibrationWith((960, 540, 2, 2)));
+
+        Check.That(report.MinCoverage).IsNull();
+        Check.That(report.Describe()).Contains("worst-coverage=unknown");
+        Check.That(report.DescribeTargets()).Contains("coverage=?");
+    }
+
+    [Fact]
+    public void SigmaReport_PerTargetCoverage_AppearsInTheDetailLine()
+    {
+        var report = CalibrationSigmaReport.Build(CalibrationWithCoverage(
+            (960, 540, 2, 15, 30)));
+
+        Check.That(report.DescribeTargets()).Contains("coverage=50%");
+    }
 
     [Fact]
     public void SigmaReport_ClassifiesCenterCornerAndEdge()

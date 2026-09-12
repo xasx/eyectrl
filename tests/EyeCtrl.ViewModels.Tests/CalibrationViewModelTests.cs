@@ -178,10 +178,16 @@ public class CalibrationViewModelTests
     [Fact]
     public async Task FailedCalibration_SetsStateFailed_AndSendsFailedCompletion()
     {
-        // A sensor stuck on a constant value makes every target's gaze identical, so
-        // CalibrationService.CompleteSession rejects the calibration. The VM must surface that
+        // A sensor stuck on a constant value: gaze never reaches any target. The VM must surface that
         // as Failed + CalibrationCompletedMessage(false, null) — not a silent success.
-        // (That message is sent only from CompleteSession's catch, so awaiting it pins this path.)
+        //
+        // WHERE this fails moved on 2026-09-13 and the test is deliberately agnostic about it. It used
+        // to run all five targets and be rejected at the fit, because identical gaze at every target
+        // gives no variation. With in-band collection the FIRST target already fails: gaze at (1,1) is
+        // nowhere near it, so nothing is collected and EndTarget throws. That is the better failure —
+        // the user learns the tracker is not following them at target one rather than at the end — but
+        // it travels a different code path, and that path was not sending this message at all. Pinning
+        // the message rather than the path is what caught that.
         _settings.SettleWindowMs = 0; // count samples as soon as they arrive
 
         CalibrationCompletedMessage? completion = null;

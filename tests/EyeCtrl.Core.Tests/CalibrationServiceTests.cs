@@ -81,12 +81,25 @@ public class CalibrationServiceTests
         var screen = new PhysicalPoint(1920, 1080);
         service.StartSession(3, screen);
 
+        // On the target, not at an arbitrary (100,100): since 2026-09-13 only samples inside the
+        // band count, so gaze far from the target collects nothing at all.
+        var target = service.GetTargetPosition(0);
         service.BeginTarget(0, settleWindowMs: 0, maxSamples: 5);
         for (int j = 0; j < 50; j++)
-            service.AddRawSample(new PhysicalPoint(100, 100));
+            service.AddRawSample(target);
         var point = service.EndTarget();
 
         Check.That(point.SampleCount).IsEqualTo(5);
+
+        // CORRECTED 2026-09-13. This asserted 49 — every post-settle sample, including the 44 that
+        // arrived after the target was already satisfied — on the reasoning that capping the
+        // statistical set must not silently cap the denominator it is judged against. That reasoning
+        // is right about samples the target still NEEDS and wrong about samples arriving after it is
+        // finished: those were never candidates for inclusion, so counting them made coverage decay
+        // with how long the dot happened to linger, and the coverage gate would have rejected a
+        // perfect calibration on a faster tracker.
+        Check.That(point.AttemptedSamples).IsEqualTo(5);
+        Check.That(point.Coverage).IsEqualTo(1.0);
     }
 
     [Fact]
@@ -202,7 +215,7 @@ public class CalibrationServiceTests
     }
 
     [Fact]
-    public void CompleteSession_Throws_AndDoesNotApply_OnDegenerateCalibration()
+    public void EndTarget_Throws_WhenGazeCollapsedOnOneAxis_BeforeAnyFitIsAttempted()
     {
         // Reproduces the 2026-06-16 failure: gaze Y barely varied across targets that span
         // the whole screen, so the fit's Y-slope explodes and maps gaze far off-screen.
@@ -212,15 +225,22 @@ public class CalibrationServiceTests
         service.StartSession(5, screen);
 
         var targets = CalibrationTargetPositionHelper.GetPositions(5, screen);
-        for (int i = 0; i < 5; i++)
-        {
-            service.BeginTarget(i);
-            for (int j = 0; j < 30; j++)
-                service.AddRawSample(new PhysicalPoint(targets[i].X, i * 3.0)); // Y collapsed
-            service.EndTarget();
-        }
 
-        Check.ThatCode(() => service.CompleteSession(screen, "DISPLAY1")).Throws<InvalidOperationException>();
+        // REWRITTEN 2026-09-13. This used to drive the whole session and assert that CompleteSession
+        // rejected the fit. It now cannot get that far, and that is the improvement: gaze with a
+        // collapsed Y axis is nowhere near the targets, so the in-band gate collects nothing and the
+        // FIRST target fails. The protection moved from "fit it, then notice it is unusable" to
+        // "refuse to build a point out of gaze that was never on the point" — earlier, and with a
+        // message naming the target rather than the transform.
+        //
+        // The fit-level guards are not weakened and are not left untested: IsTransformSane and
+        // HasSufficientGazeVariation are covered directly over constructed points in
+        // CalibrationValidatorTests, and Load still applies both to files written by older builds.
+        service.BeginTarget(0);
+        for (int j = 0; j < 30; j++)
+            service.AddRawSample(new PhysicalPoint(targets[0].X, 0 * 3.0)); // Y collapsed
+
+        Check.ThatCode(() => service.EndTarget()).Throws<InvalidOperationException>();
         Check.That(service.CurrentTransform).IsNull();
     }
 
@@ -297,7 +317,7 @@ public class CalibrationServiceTests
     }
 
     [Fact]
-    public void CompleteSession_Throws_WhenGazeDidNotVaryAcrossTargets()
+    public void EndTarget_Throws_WhenTheSensorIsStuck_BeforeAnyFitIsAttempted()
     {
         // Sensor returned a constant (the 2026-06-16 signature: meanGaze (1,1), stdDev 0)
         // regardless of which target the user looked at.
@@ -305,15 +325,15 @@ public class CalibrationServiceTests
         var screen = new PhysicalPoint(3840, 2400);
         service.StartSession(5, screen);
 
-        for (int i = 0; i < 5; i++)
-        {
-            service.BeginTarget(i);
-            for (int j = 0; j < 27; j++)
-                service.AddRawSample(new PhysicalPoint(1, 1)); // never moves
-            service.EndTarget();
-        }
+        // REWRITTEN 2026-09-13, same reason as the degenerate-fit test above. A sensor stuck at (1,1)
+        // is 900+ px from every target on this screen, so collection refuses the very first one
+        // instead of gathering five useless points and rejecting the fit afterwards. A user now
+        // learns the tracker is not following them at target one, not at the end of the session.
+        service.BeginTarget(0);
+        for (int j = 0; j < 27; j++)
+            service.AddRawSample(new PhysicalPoint(1, 1)); // never moves
 
-        Check.ThatCode(() => service.CompleteSession(screen, "DISPLAY1")).Throws<InvalidOperationException>();
+        Check.ThatCode(() => service.EndTarget()).Throws<InvalidOperationException>();
         Check.That(service.CurrentTransform).IsNull();
     }
 

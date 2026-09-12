@@ -31,9 +31,42 @@ public static class CalibrationValidator
 
     /// <summary>
     /// The largest post-transform residual must stay within this fraction of the screen diagonal
-    /// for a calibration to be accepted. Generous, so only clearly-bad fits are rejected.
+    /// for a calibration to be accepted.
+    /// <para>
+    /// Tightened from 0.20 on 2026-09-13. At 0.20 this allowed 907 px on a 3840×2400 display, which is
+    /// not a gate at all — it is nine times the width of a keyboard key, so a calibration that made
+    /// every key unhittable passed comfortably. The 2026-09-12 fit, with residuals of 450–500 px and
+    /// one target 911 px from its mean, was accepted on exactly this margin and then applied to every
+    /// gaze point the user produced. 0.05 is 226 px here (5 % of the 4528 px DIAGONAL — not of the
+    /// width, which is a different and smaller number it is easy to quote by mistake): still roughly
+    /// two keys wide, so a genuine correction is not rejected, but no longer able to admit a
+    /// calibration that is worse than none.
+    /// </para>
     /// </summary>
-    public const double MaxResidualScreenFraction = 0.20;
+    public const double MaxResidualScreenFraction = 0.05;
+
+    /// <summary>
+    /// A target whose in-band radial σ exceeds this many pixels is too scattered to calibrate from,
+    /// however well the fit happens to pass through it.
+    /// <para>
+    /// Independent of the residual on purpose: the residual measures whether the transform reproduces
+    /// the collected MEANS, and a mean computed from scattered samples can sit exactly on its target
+    /// while describing nothing the user did. Set against the interaction tolerance rather than the
+    /// device floor — the device manages 1–2 px stationary, so 100 px is very loose, and the intent is
+    /// to catch a target built from motion rather than to demand stillness the user cannot produce.
+    /// </para>
+    /// </summary>
+    public const double MaxTargetSigmaRadialPixels = 100.0;
+
+    /// <summary>
+    /// A target must have spent at least this fraction of its attempt inside the band.
+    /// <para>
+    /// The companion to the σ gate, and the one that closes the loophole σ alone leaves: σ is computed
+    /// over in-band samples only, so a target the user was on for 3 samples out of 300 reports a
+    /// beautiful σ. Below half, the point is built from the exceptions rather than the rule.
+    /// </para>
+    /// </summary>
+    public const double MinTargetCoverage = 0.5;
 
     /// <summary>
     /// A raw gaze sample may sit at most this multiple of the screen size beyond an edge before it
@@ -166,6 +199,106 @@ public static class CalibrationValidator
         // Targets barely span this axis → nothing to judge gaze variation against.
         if (targetSpan < 1.0) return true;
         return gazeSpan >= targetSpan * MinGazeVariationRatio;
+    }
+
+    /// <summary>Why one target failed the quality gate, in terms the user can act on.</summary>
+    /// <param name="TargetIndex">Zero-based index in the session's target order.</param>
+    /// <param name="Where">Plain-language position, e.g. "top-left".</param>
+    /// <param name="Reason">One sentence naming the metric and its value.</param>
+    public readonly record struct QualityFailure(int TargetIndex, string Where, string Reason);
+
+    /// <summary>
+    /// Every reason this calibration should be refused, target by target — empty when it may be
+    /// accepted.
+    /// <para>
+    /// Returns a LIST rather than a bool because "accuracy too poor" is what the old gate said, and it
+    /// left the user nothing to change. Which point failed, and whether it failed for scatter or for
+    /// coverage, is the difference between "recalibrate and hope" and "hold the top-left point a
+    /// little longer". For a user whose only input is gaze, a retry they cannot aim is expensive.
+    /// </para>
+    /// </summary>
+    /// <param name="transform">The fitted transform under test.</param>
+    /// <param name="points">The session's collected points, in presentation order.</param>
+    /// <param name="screenSize">Screen size in physical pixels, for the residual budget.</param>
+    public static IReadOnlyList<QualityFailure> FindQualityFailures(
+        ICalibrationTransform transform,
+        IReadOnlyList<CalibrationPoint> points,
+        PhysicalPoint screenSize)
+    {
+        ArgumentNullException.ThrowIfNull(transform);
+        ArgumentNullException.ThrowIfNull(points);
+
+        var failures = new List<QualityFailure>();
+        double diagonal = Math.Sqrt((screenSize.X * screenSize.X) + (screenSize.Y * screenSize.Y));
+        double residualBudget = diagonal * MaxResidualScreenFraction;
+
+        for (int i = 0; i < points.Count; i++)
+        {
+            var point = points[i];
+            var where = DescribePosition(point.Target, screenSize);
+
+            double residual = transform.Apply(point.MeanGaze).DistanceTo(point.Target);
+            if (residual > residualBudget)
+            {
+                failures.Add(new QualityFailure(i, where,
+                    $"the fit misses it by {residual:F0}px (limit {residualBudget:F0}px)"));
+                continue;   // one reason per target: the most severe, not a pile-on
+            }
+
+            double sigmaRadial = Math.Sqrt(
+                (point.StdDevX * point.StdDevX) + (point.StdDevY * point.StdDevY));
+            if (sigmaRadial > MaxTargetSigmaRadialPixels)
+            {
+                failures.Add(new QualityFailure(i, where,
+                    $"gaze was too scattered on it (spread {sigmaRadial:F0}px, limit {MaxTargetSigmaRadialPixels:F0}px)"));
+                continue;
+            }
+
+            // Null coverage means the calibration predates the measurement; it cannot be judged and
+            // must not be failed for being old.
+            if (point.Coverage is { } coverage && coverage < MinTargetCoverage)
+            {
+                failures.Add(new QualityFailure(i, where,
+                    $"gaze was on it only {coverage * 100:F0}% of the time (needs {MinTargetCoverage * 100:F0}%)"));
+            }
+        }
+
+        return failures;
+    }
+
+    /// <summary>
+    /// Renders the failures as one sentence for the user, ending in what to do differently.
+    /// </summary>
+    public static string DescribeFailures(IReadOnlyList<QualityFailure> failures)
+    {
+        ArgumentNullException.ThrowIfNull(failures);
+        if (failures.Count == 0) return string.Empty;
+
+        var detail = string.Join("; ", failures.Select(f => $"{f.Where} — {f.Reason}"));
+
+        // The advice is the same in every case because the cause almost always is: the user moved
+        // during collection. Naming the points is what makes it actionable — they are told WHICH ones
+        // to spend longer on, rather than being sent back to repeat all of them blind.
+        return $"Calibration not accepted. {detail}. "
+             + "Try again and rest on each point until its ring fills — looking away resets nothing, "
+             + "so short looks add up.";
+    }
+
+    /// <summary>Plain-language screen position of a target, for a message a user reads under stress.</summary>
+    private static string DescribePosition(PhysicalPoint target, PhysicalPoint screenSize)
+    {
+        if (!(screenSize.X > 0) || !(screenSize.Y > 0)) return "a point";
+
+        var nx = target.X / screenSize.X;
+        var ny = target.Y / screenSize.Y;
+
+        string vertical = ny <= 1.0 / 3.0 ? "top" : ny >= 2.0 / 3.0 ? "bottom" : "middle";
+        string horizontal = nx <= 1.0 / 3.0 ? "left" : nx >= 2.0 / 3.0 ? "right" : "centre";
+
+        if (vertical == "middle" && horizontal == "centre") return "the centre point";
+        if (vertical == "middle") return $"the {horizontal} point";
+        if (horizontal == "centre") return $"the {vertical} point";
+        return $"the {vertical}-{horizontal} point";
     }
 
     /// <summary>

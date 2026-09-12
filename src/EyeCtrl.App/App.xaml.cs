@@ -615,6 +615,7 @@ public partial class App : Application
         // Same once-only pattern, same reason: the primary four are user-editable in Settings, so
         // a per-startup migration would re-promote an action the user demoted on every launch.
         settings.ActionMenu.MigratePrimaryOnce();
+        settings.ActionMenu.EnsureKeyboardActionOnce();
         // Same once-only pattern: a persisted old-default toolbar size (80) would override the
         // new 120 (mis-dwell fix) forever without this bump.
         settings.Toolbar.MigrateSizeOnce();

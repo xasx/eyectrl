@@ -17,12 +17,17 @@ using Microsoft.Extensions.DependencyInjection;
 [Collection("DpiHelper Tests (App)")]
 public class WindowManagerRegistrationTests
 {
+    // Temp, never the real folder: this container resolves CalibrationService transitively and the
+    // load can rewrite the user's calibration.json. See TestAppDataDir.
+    private static readonly string AppData = TestAppDataDir.Create("window-manager");
+
     private static ServiceProvider BuildProvider()
         => AppBootstrapper.BuildServiceProvider(
             new EyeCtrlSettings(),
-            settingsFilePath: Path.Combine(Path.GetTempPath(), "eyectrl-windowmanager-registration-test.json"),
+            settingsFilePath: Path.Combine(AppData, "settings.json"),
             dispatcher: Dispatcher.CurrentDispatcher,
-            isTestMode: true);
+            isTestMode: true,
+            appDataDir: AppData);
 
     [Fact]
     public void WindowManager_ResolvesFromTheContainer_WithItsLogger()

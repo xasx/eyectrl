@@ -26,15 +26,20 @@ public class TelemetrySinkRegistrationTests
 {
     // Telemetry is gated on AdaptationSettings.Enabled (§9.1), so the delivery assertions below opt in;
     // AdaptationDisabled_* cover the gated-off side.
+    private static readonly string AppData = TestAppDataDir.Create("telemetry-sink");
+
     private static ServiceProvider BuildProvider(bool adaptationEnabled = true)
     {
         var settings = new EyeCtrlSettings();
         settings.Adaptation.Enabled = adaptationEnabled;
         return AppBootstrapper.BuildServiceProvider(
             settings,
-            settingsFilePath: Path.Combine(Path.GetTempPath(), "eyectrl-telemetry-registration-test.json"),
+            settingsFilePath: Path.Combine(AppData, "settings.json"),
             dispatcher: Dispatcher.CurrentDispatcher,
-            isTestMode: true);
+            isTestMode: true,
+            // Temp, never the real folder: this container resolves CalibrationService transitively and
+            // the load can rewrite the user's calibration.json. See TestAppDataDir.
+            appDataDir: AppData);
     }
 
     [Fact]

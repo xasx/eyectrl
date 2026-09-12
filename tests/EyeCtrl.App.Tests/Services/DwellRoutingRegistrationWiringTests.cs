@@ -51,12 +51,18 @@ using Microsoft.Extensions.DependencyInjection;
 [Collection("DpiHelper Tests (App)")]
 public class DwellRoutingRegistrationWiringTests
 {
+    // A temp app-data folder, not the real one. This test resolves CalibrationService without
+    // mentioning it — via ManualSelectionDwellService/ExternalDwellService -> GazeEngine — and that
+    // resolution loads, and can rewrite, calibration.json. See TestAppDataDir.
+    private static readonly string AppData = TestAppDataDir.Create("dwell-routing");
+
     private static ServiceProvider BuildProvider() =>
         AppBootstrapper.BuildServiceProvider(
             new EyeCtrlSettings(),
-            settingsFilePath: Path.Combine(Path.GetTempPath(), "eyectrl-dwell-routing-wiring-test.json"),
+            settingsFilePath: Path.Combine(AppData, "settings.json"),
             dispatcher: Dispatcher.CurrentDispatcher,
-            isTestMode: true);
+            isTestMode: true,
+            appDataDir: AppData);
 
     private static void CheckSingleEntry(
         IReadOnlyList<DwellRoutingRegistration> registrations,

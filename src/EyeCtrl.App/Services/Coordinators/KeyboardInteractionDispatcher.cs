@@ -161,6 +161,12 @@ internal sealed class KeyboardInteractionDispatcher : CoordinatorBase
             return;
         }
 
+        // The ring's keyboard action: no click point, no input simulation — just the show
+        // message. Falls through to the shared target-highlight cleanup below (unlike PinNote,
+        // which duplicates it before its return).
+        if (msg.Action == InteractionAction.Keyboard)
+            Context.Messenger.Send(new KeyboardShowRequestedMessage());
+
         switch (msg.Action)
         {
             case InteractionAction.LeftClick:    Context.InputSimulator.LeftClick(pt);        break;

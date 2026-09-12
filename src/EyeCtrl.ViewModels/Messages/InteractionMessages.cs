@@ -122,6 +122,17 @@ public record ActionMenuDismissedMessage;
 public record PauseToggledMessage;
 public record SelectionModeChangedMessage(SelectionMode Mode);
 public record KeyboardToggledMessage;
+
+/// <summary>Show the gaze keyboard (idempotent — never hides). Sent by the action-menu ring's
+/// Keyboard action; handled with the toolbar toggle's suppression semantics (spec ledger #1-#2).</summary>
+public record KeyboardShowRequestedMessage;
+/// <summary>Hide the gaze keyboard and release fixation suppression. Sent by the keyboard edge
+/// bar's Close button (spec ledger #13) — NOT the text-field seam message.</summary>
+public record KeyboardHideRequestedMessage;
+/// <summary>Flip the keyboard between the Top and Bottom screen edges. Sent by the keyboard edge
+/// bar's Flip button (spec ledger #15).</summary>
+public record KeyboardEdgeToggledMessage;
+
 public record SettingsRequestedMessage;
 public record KeyActivatedMessage(string Key, IReadOnlySet<ModifierKey>? Modifiers = null);
 public record PredictionSelectedMessage(string Word, int DeleteCount = 0);

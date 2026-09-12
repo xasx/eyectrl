@@ -192,4 +192,14 @@ public class KeyboardCoordinatorTests
             }
         }
     }
+
+    [Fact]
+    public void ShouldShow_IsFalse_WhenAlreadyVisible_AndTrueOtherwise()
+    {
+        // The ring's Keyboard action is an idempotent SHOW (spec ledger #1): the guard is the
+        // whole seam — the handler itself touches WPF windows and is not headless-reachable
+        // (same reason ApplyEmojiSkinTone was extracted).
+        Check.That(KeyboardCoordinator.ShouldShow(alreadyVisible: true)).IsFalse();
+        Check.That(KeyboardCoordinator.ShouldShow(alreadyVisible: false)).IsTrue();
+    }
 }

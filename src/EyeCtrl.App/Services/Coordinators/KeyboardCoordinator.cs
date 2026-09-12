@@ -56,6 +56,21 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         messenger.Register<KeyboardCoordinator, KeyboardToggledMessage>(this, (_, _) =>
             context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(!_modal.KeyboardVisible, manageSuppression: true)));
 
+        // Ring / edge-bar show: idempotent (never hides), with the toolbar toggle's
+        // suppression semantics — a show that leaves free-look active would let the next
+        // fixation pop an action menu over the keyboard.
+        messenger.Register<KeyboardCoordinator, KeyboardShowRequestedMessage>(this, (_, _) =>
+            context.Dispatcher.BeginInvoke(() =>
+            {
+                if (ShouldShow(_modal.KeyboardVisible))
+                    SetKeyboardVisible(true, manageSuppression: true);
+            }));
+
+        // Edge-bar Close: the keyboard's own escape — hides AND releases suppression so the
+        // ring comes back (spec ledger #13).
+        messenger.Register<KeyboardCoordinator, KeyboardHideRequestedMessage>(this, (_, _) =>
+            context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(false, manageSuppression: true)));
+
         // ShowKeyboardRequestMessage -> show keyboard for text input
         messenger.Register<KeyboardCoordinator, ShowKeyboardRequestMessage>(this, (_, msg) =>
         {
@@ -214,6 +229,11 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         settingsService.SaveDebounced(settings);
         return KeyboardStackSnapshot.Capture(settings);
     }
+
+    /// <summary>The ring action's idempotence: already visible means the activation is a no-op.
+    /// Split out so the guard is headless-testable — the handler itself touches the real
+    /// KeyboardWindow (same reason as <see cref="ApplyEmojiSkinTone"/>).</summary>
+    internal static bool ShouldShow(bool alreadyVisible) => !alreadyVisible;
 
     private void OnEmojiSkinToneChanged(int tone)
     {

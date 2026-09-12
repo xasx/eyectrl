@@ -26,15 +26,28 @@ using EyeCtrl.Core.Interfaces;
 public class DecoratorForwardingTests
 {
     /// <summary>
-    /// Members every implementer inherits from <see cref="object"/> or declares for its own bookkeeping,
-    /// which a decorator is not obliged to re-declare.
+    /// What this ratchet does NOT catch. Worth stating, because a guard whose limits are unknown gets
+    /// trusted past them:
+    /// <list type="bullet">
+    /// <item>It matches on member NAME, so an added overload of a member the decorator already
+    /// declares slips through — the decorator would satisfy the name and still not forward the new
+    /// signature.</item>
+    /// <item>It does not walk base interfaces. <see cref="IGazeProvider"/> extends only
+    /// <see cref="IDisposable"/> today, whose member the decorator declares anyway; a future base
+    /// interface would go unchecked.</item>
+    /// <item>It scans only <see cref="IGazeProviderDecorator"/>'s own assembly, so a decorator defined
+    /// in Platform or App would not be discovered by the coverage test below.</item>
+    /// </list>
+    /// Each is a widening of the same reflection, deliberately not done now: the failure actually
+    /// observed was a whole member silently missing, and that is what this catches.
+    /// <para>
+    /// There is no exclusion set. An earlier version carried one holding <c>get_Inner</c>, which could
+    /// never match — <c>Inner</c> is declared on <see cref="IGazeProviderDecorator"/>, and the filter
+    /// runs over <see cref="IGazeProvider"/>'s members. An exclusion set that excludes nothing is worse
+    /// than none: it reads as a reviewed list of known-safe omissions, so the next person adds a real
+    /// exclusion to it without noticing that nothing was ever being filtered.
+    /// </para>
     /// </summary>
-    private static readonly HashSet<string> NotForwardingConcerns = new(StringComparer.Ordinal)
-    {
-        // The decorator's own identity, not the inner provider's.
-        "get_Inner",
-    };
-
     [Fact]
     public void RecordingGazeProvider_DeclaresEveryIGazeProviderMember()
     {
@@ -49,7 +62,6 @@ public class DecoratorForwardingTests
         var missing = typeof(IGazeProvider)
             .GetMembers(BindingFlags.Public | BindingFlags.Instance)
             .Select(m => m.Name)
-            .Where(name => !NotForwardingConcerns.Contains(name))
             .Where(name => !declared.Contains(name))
             .Distinct()
             .OrderBy(name => name, StringComparer.Ordinal)

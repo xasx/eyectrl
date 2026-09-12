@@ -5,8 +5,16 @@ using EyeCtrl.Core.Models;
 /// <summary>
 /// Affine (6-parameter) calibration transform.
 /// Maps raw gaze coordinates to screen coordinates via x' = a*x + b*y + c, y' = d*x + e*y + f.
+/// <para>
+/// <b>Sealed deliberately.</b> <c>AffineTransformParameters.TryDescribe</c> identifies a transform it
+/// can serialize into a recording header by testing for this exact type, and replay then reapplies
+/// those six numbers as the WHOLE mapping. A derived type that added a term — a quadratic correction,
+/// say — would pass that check and be replayed as if its first six parameters were all there was,
+/// silently measuring a different signal from the one the live pipeline produced. Sealing makes the
+/// type test mean what it is read as meaning.
+/// </para>
 /// </summary>
-public class AffineTransform : ICalibrationTransform
+public sealed class AffineTransform : ICalibrationTransform
 {
     // x' = a*x + b*y + c,  y' = d*x + e*y + f
     private double _a = 1, _b = 0, _c = 0;

@@ -134,7 +134,8 @@ public partial class App : Application
             InitializeDpi(splash);
 
             // ── Build DI container ──
-            _serviceProvider = AppBootstrapper.BuildServiceProvider(settings, settingsFilePath, Dispatcher, IsTestMode);
+            _serviceProvider = AppBootstrapper.BuildServiceProvider(
+                settings, settingsFilePath, Dispatcher, IsTestMode, AppBootstrapper.DefaultAppDataDir);
 
             // ── Resolve services ──
             var settingsService = _serviceProvider.GetRequiredService<SettingsService>();

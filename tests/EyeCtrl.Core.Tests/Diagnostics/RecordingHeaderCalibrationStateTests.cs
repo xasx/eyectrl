@@ -94,4 +94,18 @@ public class RecordingHeaderCalibrationStateTests
         public double[] GetParameters() => [1, 0, 0, 0, 1, 0];   // six, and still not an affine map
         public void SetParameters(double[] parameters) { }
     }
+
+    [Fact]
+    public void AffineTransform_IsSealed_SoTheTypeCheckCannotBeSubverted()
+    {
+        // TryDescribe identifies a serializable transform by testing for AffineTransform exactly, and
+        // replay then applies those six numbers as the WHOLE mapping. A subclass that added a term — a
+        // quadratic correction, say — would satisfy the type test and be replayed as if its first six
+        // parameters were all there was: a recording that measures a different signal from the one the
+        // pipeline produced, with nothing anywhere saying so.
+        //
+        // Asserted rather than commented because unsealing is a one-word edit that looks harmless, and
+        // nothing else in the codebase would notice.
+        Check.That(typeof(AffineTransform).IsSealed).IsTrue();
+    }
 }

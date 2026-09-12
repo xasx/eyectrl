@@ -35,17 +35,34 @@ using Serilog;
 public class AppBootstrapper
 {
     /// <summary>
+    /// The per-user runtime data folder the shipping app uses: <c>%APPDATA%\EyeCtrl</c>. Named rather
+    /// than defaulted, so that choosing it is an act at the call site — see the
+    /// <c>appDataDir</c> parameter for why a default here was actively unsafe.
+    /// </summary>
+    public static string DefaultAppDataDir =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
+
+    /// <summary>
     /// Configures and builds the service provider with all application dependencies.
     /// </summary>
     /// <param name="settings">The loaded application settings</param>
     /// <param name="settingsFilePath">Path to the settings file</param>
     /// <param name="dispatcher">The UI thread dispatcher</param>
     /// <param name="isTestMode">Whether the app is running in test mode</param>
-    /// <param name="appDataDirOverride">
-    /// Where per-user runtime data lives. Defaults to <c>%APPDATA%\EyeCtrl</c>, which is what the app
-    /// always passes. Overridable ONLY so tests can exercise this container without reading or writing
-    /// the real folder — which holds the user's <c>calibration.json</c>, and a test that clobbered it
-    /// would take away the calibration their only input method depends on.
+    /// <param name="appDataDir">
+    /// Where per-user runtime data lives. The app passes <see cref="DefaultAppDataDir"/>; tests pass a
+    /// temporary directory.
+    /// <para>
+    /// REQUIRED, with no default, and that is the whole point. It began as an optional override and was
+    /// immediately dangerous: this container now loads <c>calibration.json</c> when
+    /// <c>CalibrationService</c> is first resolved, and three pre-existing registration tests resolve it
+    /// transitively (via <c>ManualSelectionDwellService</c> / <c>ExternalDwellService</c> →
+    /// <c>GazeEngine</c>) without knowing they do. With a default they silently read the real
+    /// <c>%APPDATA%\EyeCtrl</c> — and <c>Load</c>'s monitor-name refresh can WRITE it. A test run could
+    /// therefore rewrite the user's live calibration, which is the file their only input method depends
+    /// on. A parameter that must be supplied cannot be forgotten by a test that does not realise it is
+    /// touching this path.
+    /// </para>
     /// </param>
     /// <returns>Configured service provider</returns>
     public static ServiceProvider BuildServiceProvider(
@@ -53,11 +70,10 @@ public class AppBootstrapper
         string settingsFilePath,
         Dispatcher dispatcher,
         bool isTestMode,
-        string? appDataDirOverride = null)
+        string appDataDir)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(appDataDir);
         var services = new ServiceCollection();
-        var appDataDir = appDataDirOverride
-            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
 
         // Logging
         services.AddLogging(builder => builder.AddSerilog(dispose: true));
@@ -226,8 +242,13 @@ public class AppBootstrapper
         //
         // Loading inside the factory removes the ordering question rather than answering it: the first
         // resolution loads, so no consumer can observe an unloaded service, whatever order startup is
-        // rearranged into later. `Load` is a pure read — file, screen and monitor in, fields and a log
-        // line out, no events raised — so nothing depends on it running late.
+        // rearranged into later. `Load` raises no events, so nothing can depend on it running late.
+        //
+        // It is NOT side-effect-free, and the earlier version of this comment claiming it was a "pure
+        // read" was wrong: on a hardware-id match with a stale device name it rewrites the file
+        // (CalibrationService.RefreshPersistedDeviceName). That is exactly why appDataDir is a required
+        // parameter — a caller who does not supply one would have this write land on the user's live
+        // calibration.
         services.AddSingleton(sp =>
         {
             var service = new CalibrationService(sp.GetService<ILogger<CalibrationService>>());

@@ -60,8 +60,8 @@ public class CalibrationLoadOrderingTests : IDisposable
             isTestMode: true,
             // NEVER the real %APPDATA%\EyeCtrl: that folder holds the user's live calibration, and this
             // test writes one. Clobbering it would take away the calibration their only input method
-            // depends on.
-            appDataDirOverride: _appData);
+            // depends on. The parameter is required precisely so this cannot be forgotten.
+            appDataDir: _appData);
 
     /// <summary>Writes a valid calibration for the current display into the fake app-data folder.</summary>
     private void WriteCalibrationForThisMachine()

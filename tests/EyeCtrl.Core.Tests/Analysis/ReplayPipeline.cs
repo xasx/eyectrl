@@ -71,10 +71,22 @@ public static class ReplayPipeline
     {
         ArgumentNullException.ThrowIfNull(recording);
         recording.EnsureUsable();
-        return Run(recording.Samples, candidate, recording.Header.CalibrationTransform);
+        return RunSynthetic(recording.Samples, candidate, recording.Header.CalibrationTransform);
     }
 
-    /// <summary>Replays the stream and returns one frame per input sample, in order.</summary>
+    /// <summary>
+    /// Replays a bare stream of samples and returns one frame per input sample, in order.
+    /// <para>
+    /// For SYNTHETIC streams — <c>GazeStreamGenerator</c>'s, or ones a test builds by hand — which have
+    /// no <c>Recording</c> to carry a header, a trailer or a transform. Named apart from
+    /// <see cref="Run(GazeRecordingFile.Recording, Candidate)"/> rather than overloading it, because
+    /// the two differ in exactly the way a mistake is invisible: this one applies no calibration and
+    /// asks no questions about completeness, so pointing it at a real recording's samples silently
+    /// measures the tracker's raw coordinate space and silently accepts a file with holes in it. That
+    /// had already happened once in this file's own round-trip test. The call site now says which of
+    /// the two it is.
+    /// </para>
+    /// </summary>
     /// <param name="samples">Raw samples, exactly as the device produced them.</param>
     /// <param name="candidate">The pipeline under test.</param>
     /// <param name="calibration">
@@ -88,7 +100,7 @@ public static class ReplayPipeline
     /// having no number, because the number looks fine.
     /// </para>
     /// </param>
-    public static Frame[] Run(
+    public static Frame[] RunSynthetic(
         IReadOnlyList<GazePoint> samples,
         Candidate candidate,
         AffineTransformParameters? calibration = null)

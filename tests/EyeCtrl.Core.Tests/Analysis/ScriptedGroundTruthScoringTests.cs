@@ -82,7 +82,7 @@ public class ScriptedGroundTruthScoringTests : IDisposable
             (new PhysicalPoint(1536, 864), 40.0, 0.0),
         });
 
-        var frames = ReplayPipeline.Run(samples, ReplayPipeline.Unfiltered);
+        var frames = ReplayPipeline.RunSynthetic(samples, ReplayPipeline.Unfiltered);
         var scored = GroundTruthFile.Score(frames, session);
 
         Check.That(scored).HasSize(3);
@@ -104,7 +104,7 @@ public class ScriptedGroundTruthScoringTests : IDisposable
         // arrival, they would be scored against the target and the deviation would explode.
         var (samples, session) = SimulateRun(new[] { (new PhysicalPoint(960, 540), 5.0, 0.0) });
 
-        var frames = ReplayPipeline.Run(samples, ReplayPipeline.Unfiltered);
+        var frames = ReplayPipeline.RunSynthetic(samples, ReplayPipeline.Unfiltered);
         var scored = GroundTruthFile.Score(frames, session);
 
         Check.That(scored).HasSize(1);
@@ -120,7 +120,7 @@ public class ScriptedGroundTruthScoringTests : IDisposable
             (new PhysicalPoint(100, 100), 0.0, 0.0),
             (new PhysicalPoint(900, 900), 0.0, 0.0),
         });
-        var frames = ReplayPipeline.Run(samples, ReplayPipeline.Unfiltered);
+        var frames = ReplayPipeline.RunSynthetic(samples, ReplayPipeline.Unfiltered);
 
         var first = GroundTruthFile.Slice(frames, session.Windows[0]);
         var second = GroundTruthFile.Slice(frames, session.Windows[1]);
@@ -137,7 +137,7 @@ public class ScriptedGroundTruthScoringTests : IDisposable
     {
         // "No data" and "perfect" must never look alike in a report that drives a roadmap decision.
         var (samples, session) = SimulateRun(new[] { (new PhysicalPoint(500, 500), 0.0, 0.0) });
-        var frames = ReplayPipeline.Run(samples, ReplayPipeline.Unfiltered);
+        var frames = ReplayPipeline.RunSynthetic(samples, ReplayPipeline.Unfiltered);
 
         var orphan = new GroundTruthSession(
             GroundTruthSession.CurrentSchemaVersion, "Mouse", 1920, 1080, 300,
@@ -165,7 +165,7 @@ public class ScriptedGroundTruthScoringTests : IDisposable
         for (int i = 0; i < 20; i++, t += StepUs)
             samples.Add(new GazePoint(0, 0, t, IsValid: false));
 
-        var frames = ReplayPipeline.Run(samples, ReplayPipeline.Unfiltered);
+        var frames = ReplayPipeline.RunSynthetic(samples, ReplayPipeline.Unfiltered);
         var session = new GroundTruthSession(
             GroundTruthSession.CurrentSchemaVersion, "Mouse", 1920, 1080, 300,
             new[] { new GroundTruthWindow(0, 960, 540, windowStart, windowStart, t, 20) });
@@ -187,7 +187,7 @@ public class ScriptedGroundTruthScoringTests : IDisposable
         for (int i = 0; i < 20; i++, t += StepUs)
             samples.Add(new GazePoint(965, 540, t, IsValid: true));   // then held, 5 px off target
 
-        var frames = ReplayPipeline.Run(samples, ReplayPipeline.Unfiltered);
+        var frames = ReplayPipeline.RunSynthetic(samples, ReplayPipeline.Unfiltered);
         var session = new GroundTruthSession(
             GroundTruthSession.CurrentSchemaVersion, "Mouse", 1920, 1080, 300,
             new[] { new GroundTruthWindow(0, 960, 540, windowStart, windowStart, t, 30) });

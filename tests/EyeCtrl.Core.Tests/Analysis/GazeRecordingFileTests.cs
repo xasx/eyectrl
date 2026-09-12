@@ -80,7 +80,12 @@ public class GazeRecordingFileTests : IDisposable
         }
 
         var read = GazeRecordingFile.Read(Recording);
-        var frames = ReplayPipeline.Run(read.Samples, ReplayPipeline.Baseline);
+
+        // The RECORDING overload, not the raw one. This test claims to be the path a real session
+        // takes, so it has to take the path a real session takes: the raw overload skips both the
+        // usability gate and the session's calibration transform, and this is the call the next
+        // person analysing a real file will copy.
+        var frames = ReplayPipeline.Run(read, ReplayPipeline.Baseline);
         var shape = GazeMetrics.MeasureStream(read.Samples);
 
         Check.That(frames).HasSize(read.Samples.Count);

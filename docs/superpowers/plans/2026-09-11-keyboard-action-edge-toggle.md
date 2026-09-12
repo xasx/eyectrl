@@ -143,17 +143,24 @@ Expected: **compile error** — `InteractionAction` does not contain a definitio
             + " M9.6,7.4 L11.6,5.4 L13.6,7.4 M9.6,19 L11.6,21 L13.6,19"),
 ```
 
-Same file — the class doc paragraph starting `/// <para><b>Every action is a mouse action, so every icon is a mouse.</b>` now ends with an exception; replace that paragraph's opening sentence with:
+Same file — replace the class-doc paragraph that begins `Every action is a mouse action`
+(≈ lines 17-24) with exactly this (the modifiers/DoubleClick sentences are kept verbatim
+inside it; do not duplicate them elsewhere):
 
 ```csharp
 /// <para>
-/// <b>Most actions are mouse actions, so most icons are mice.</b> The show-keyboard action
-/// (<see cref="ActionIcon.Keyboard"/>) and the edge bar's flip (<see cref="ActionIcon.KeyboardEdge"/>)
-/// are the deliberate exceptions, like <see cref="ActionIcon.More"/>: drawing them as mice
-/// would say they perform a click. Modifiers sit in the margins and never on the body;
+/// <b>Most actions are mouse actions, so most icons are mice.</b> The deliberate exceptions —
+/// <see cref="ActionIcon.More"/> (navigation, not a click), <see cref="ActionIcon.Keyboard"/>
+/// and <see cref="ActionIcon.KeyboardEdge"/> (keyboard commands, not mouse actions) — break
+/// the mouse silhouette on purpose: drawing them as mice would say they perform a click.
+/// Modifiers sit in the margins and never on the body: scroll variants take chevrons at the
+/// right, drag takes motion bars at the left. <see cref="ActionIcon.DoubleClick"/> is the
+/// other exception — it must differ from <see cref="ActionIcon.LeftClick"/> in outline
+/// rather than in detail, because with labels hidden a mark inside the same silhouette is
+/// invisible in peripheral vision, which is where a gaze user finds a target before looking
+/// straight at it.
+/// </para>
 ```
-
-(keep the rest of the paragraph — the DoubleClick exception and the peripheral-vision rule — unchanged).
 
 `src/EyeCtrl.Controls/Icons/ToolbarIconKey.cs` — find the class-doc sentence stating `ActionIcon`'s set "is deliberately all mice" and reword to "was authored as all mice until the keyboard glyphs joined it" so it no longer claims a falsehood.
 
@@ -770,7 +777,9 @@ Expected: compile error — no `VisibilityChanged` on the adapter. (Non-owner ex
 
 In `ShowToolbar`'s lambda, append `_ = 0; OnVisibilityChanged(true);` — no: append exactly `OnVisibilityChanged(true);` after `_toolbarVm.SetActive(true);`. In `HideToolbar`'s lambda, append `OnVisibilityChanged(false);` after the `else { _overlays.PauseIndicator.Hide(); }` block. In `ForceShow`'s lambda, append `OnVisibilityChanged(true);` after `_toolbarVm.SetActive(true);`. `SetActive` and `PositionIndicator` fire nothing (no visibility change).
 
-`ToolbarLifecycleCoordinator.cs` — add a forwarding event and wire it where `_visibility = vis;` is assigned in `Initialize` (after `controller.Attach(vis);`):
+`ToolbarLifecycleCoordinator.cs` — add a forwarding event, and wire it inside
+`SetupToolbarAutoHide()` where `_visibility = vis;` is assigned (after
+`controller.Attach(vis);` — note the assignment lives in that method, not `Initialize`):
 
 ```csharp
     /// <summary>Re-exposes the visibility adapter's edge-detected transition event (spec B3 #5),
@@ -1301,8 +1310,8 @@ git commit -m "feat(edge-bar): keyboard-tracking anchor + Close/Flip definitions
 - Modify: `src/EyeCtrl.App/Services/Coordinators/KeyboardCoordinator.cs`
 
 **Interfaces:**
-- Consumes: `KeyboardEdgeButtons` (Task 9), `ScreenGeometry.KeyboardEdgeBarAnchor` (Task 9), `ApplyKeyboardEdge`/`FlipScreenEdge` (Task 5), `UIConstants.ButtonRadius`.
-- Produces: complete `HandleKeyboardEdgeToggled`; the edge bar shows/hides with the keyboard.
+- Consumes: `KeyboardEdgeButtons` (Task 9), `ScreenGeometry.KeyboardEdgeBarAnchor` (Task 9), `ApplyKeyboardEdge`/`FlipScreenEdge` (Task 5), `UIConstants.ButtonRadius`, `EdgeButtonBarViewModel` (`EyeCtrl.ViewModels`).
+- Produces: complete `HandleKeyboardEdgeToggled`; the edge bar shows/hides with the keyboard; `KeyboardCoordinator.ShouldShowKeyboardEdgeBar(EdgeButtonBarViewModel?)` / `ShouldHideKeyboardEdgeBar(EdgeButtonBarViewModel?)` internal static guard seams (tested headlessly in Task 10's guard fact).
 
 - [ ] **Step 1: Implement**
 
@@ -1563,7 +1572,9 @@ Fix the ctor rationale comment (~:41-42) — "All three are dereferenced uncondi
 
 and soften the two body sentences it invalidates (~:140, ~:166) by prefixing each with "(Settings window only since 2026-09-10:)".
 
-`QuickActionsCoordinatorTests.cs` ~:53 — the comment cites `KeyboardCoordinatorTests.ApplyModalKeyboardState_FansOutToBothControllers_AndTheSharedFlag`; update it to the new test name.
+`QuickActionsCoordinatorTests.cs` ~:53 — the comment cites
+`KeyboardCoordinatorTests.ApplyModalKeyboardState_FansOutTo...` (a truncated prefix that
+still matches the new name — updating it is OPTIONAL polish, not a correctness edit).
 
 - [ ] **Step 4: Run tests to verify they pass**
 

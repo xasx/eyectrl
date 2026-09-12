@@ -48,7 +48,8 @@ public class ActionMenuSettingsPrimaryTests
             InteractionAction.Drag,
             InteractionAction.ScrollUp,
             InteractionAction.ScrollDown,
-            InteractionAction.PinNote);
+            InteractionAction.PinNote,
+            InteractionAction.Keyboard);
     }
 
     [Fact]

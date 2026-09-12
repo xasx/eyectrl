@@ -80,24 +80,30 @@ public class ActionMenuViewModelLayerTests
         Check.That(vm.Items.Where(i => i.Kind == ActionMenuItemKind.Action).Select(i => i.Action))
              .ContainsExactly(
                  InteractionAction.Drag, InteractionAction.ScrollUp,
-                 InteractionAction.ScrollDown, InteractionAction.PinNote);
+                 InteractionAction.ScrollDown, InteractionAction.PinNote,
+                 InteractionAction.Keyboard);
         Check.That(vm.Items.Count(i => i.Kind == ActionMenuItemKind.BackToPrimary)).IsEqualTo(1);
     }
 
     [Fact]
-    public void TheSecondLayer_ReusesTheSameFiveSlots()
+    public void TheSecondLayer_GrowsToSixSlots_WithBackStillOnTheRing()
     {
-        // A slot's gaze path must be identical on both layers, so Back lands exactly where More
-        // was. Anything else makes the user re-aim for a target they just looked at.
+        // Since the Keyboard action joined the default second layer (spec ledger #3), the
+        // layers hold different slot counts (5 vs 6) and the old "Back lands exactly where
+        // More was" symmetry is knowingly given up. Guard the weaker but still load-bearing
+        // property: every layer-two target is a real on-ring position and the Back target
+        // still exists.
         var messenger = new WeakReferenceMessenger();
         using var vm = new ActionMenuViewModel(Defaults(), messenger);
         Show(messenger);
 
-        var layerOnePositions = vm.Items.Select(i => i.Position).ToList();
         vm.ActivateForTest(vm.Items.Single(i => i.Kind == ActionMenuItemKind.OpenMore).Id);
-        var layerTwoPositions = vm.Items.Select(i => i.Position).ToList();
+        var layerTwo = vm.Items.ToList();
 
-        Check.That(layerTwoPositions).ContainsExactly(layerOnePositions);
+        Check.That(layerTwo).HasSize(6);
+        Check.That(layerTwo.Count(i => i.Kind == ActionMenuItemKind.BackToPrimary)).IsEqualTo(1);
+        Check.That(layerTwo.Select(i => i.Position)).ContainsOnlyElementsThatMatch(
+            p => !double.IsNaN(p.X) && !double.IsNaN(p.Y) && !double.IsInfinity(p.X) && !double.IsInfinity(p.Y));
     }
 
     [Fact]
@@ -195,6 +201,6 @@ public class ActionMenuViewModelLayerTests
 
         Check.WithCustomMessage("The redraw handler saw an empty ring — RingVersion was bumped "
                                 + "before Items was filled.")
-             .That(itemsSeenByTheRedrawHandler).IsEqualTo(5);
+             .That(itemsSeenByTheRedrawHandler).IsEqualTo(6);
     }
 }

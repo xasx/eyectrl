@@ -23,8 +23,8 @@ public class ReplayAnalyzerTests
         // of two candidates would be measuring the harness.
         var samples = GazeStreamGenerator.GenerateNoisyFixation();
 
-        var a = ReplayPipeline.Run(samples, ReplayPipeline.Baseline);
-        var b = ReplayPipeline.Run(samples, ReplayPipeline.Baseline);
+        var a = ReplayPipeline.RunSynthetic(samples, ReplayPipeline.Baseline);
+        var b = ReplayPipeline.RunSynthetic(samples, ReplayPipeline.Baseline);
 
         Check.That(a).HasSize(b.Length);
         for (int i = 0; i < a.Length; i++)
@@ -50,8 +50,8 @@ public class ReplayAnalyzerTests
             A: 2.0, B: 0.0, C: 100.0,
             D: 0.0, E: 2.0, F: -50.0);
 
-        var corrected = ReplayPipeline.Run(samples, ReplayPipeline.Unfiltered, transform);
-        var uncorrected = ReplayPipeline.Run(samples, ReplayPipeline.Unfiltered);
+        var corrected = ReplayPipeline.RunSynthetic(samples, ReplayPipeline.Unfiltered, transform);
+        var uncorrected = ReplayPipeline.RunSynthetic(samples, ReplayPipeline.Unfiltered);
 
         // The unfiltered candidate is the identity, so its output IS the corrected input — which makes
         // the arithmetic checkable directly rather than through whatever the filter did to it.
@@ -84,7 +84,7 @@ public class ReplayAnalyzerTests
         };
         var transform = new EyeCtrl.Core.Diagnostics.AffineTransformParameters(2, 0, 0, 0, 2, 0);
 
-        var frames = ReplayPipeline.Run(samples, ReplayPipeline.Unfiltered, transform);
+        var frames = ReplayPipeline.RunSynthetic(samples, ReplayPipeline.Unfiltered, transform);
 
         Check.That(frames[0].Corrected.X).IsEqualTo(200.0);
         Check.That(frames[1].Corrected.X).IsEqualTo(999.0);   // untouched, not 1998
@@ -99,7 +99,7 @@ public class ReplayAnalyzerTests
         // reporting different numbers than it used to.
         var samples = GazeStreamGenerator.GenerateNoisyFixation();
 
-        var frames = ReplayPipeline.Run(samples, ReplayPipeline.Baseline, calibration: null);
+        var frames = ReplayPipeline.RunSynthetic(samples, ReplayPipeline.Baseline, calibration: null);
 
         for (int i = 0; i < samples.Length; i++)
         {
@@ -144,9 +144,9 @@ public class ReplayAnalyzerTests
         // first — the subtlest possible way for this harness to lie.
         var samples = GazeStreamGenerator.GenerateSaccade();
 
-        var a = ReplayPipeline.Run(samples, ReplayPipeline.Baseline);
-        ReplayPipeline.Run(GazeStreamGenerator.GenerateFixation(), ReplayPipeline.Baseline);
-        var b = ReplayPipeline.Run(samples, ReplayPipeline.Baseline);
+        var a = ReplayPipeline.RunSynthetic(samples, ReplayPipeline.Baseline);
+        ReplayPipeline.RunSynthetic(GazeStreamGenerator.GenerateFixation(), ReplayPipeline.Baseline);
+        var b = ReplayPipeline.RunSynthetic(samples, ReplayPipeline.Baseline);
 
         Check.That(a[0].Filtered.X).IsEqualTo(b[0].Filtered.X);
         Check.That(a[^1].Filtered.X).IsEqualTo(b[^1].Filtered.X);
@@ -227,7 +227,7 @@ public class ReplayAnalyzerTests
     {
         // The generator holds NoisyFixation at (960, 540) with zero-mean noise, so deviation measured
         // against that exact point must land within a fraction of a pixel of the self-referential one.
-        var frames = ReplayPipeline.Run(GazeStreamGenerator.GenerateNoisyFixation(), ReplayPipeline.Unfiltered);
+        var frames = ReplayPipeline.RunSynthetic(GazeStreamGenerator.GenerateNoisyFixation(), ReplayPipeline.Unfiltered);
 
         var againstTruth = GazeMetrics.MeasureFixationDeviation(frames, new PhysicalPoint(960, 540));
         var againstCentroid = GazeMetrics.MeasureFixationDeviation(frames);
@@ -240,7 +240,7 @@ public class ReplayAnalyzerTests
     {
         // A held point is frozen, so counting it would credit the pipeline with perfect stability
         // during a blink — flattering exactly the moment tracking is worst.
-        var frames = ReplayPipeline.Run(GazeStreamGenerator.GenerateWithDropout(), ReplayPipeline.Baseline);
+        var frames = ReplayPipeline.RunSynthetic(GazeStreamGenerator.GenerateWithDropout(), ReplayPipeline.Baseline);
 
         var measured = GazeMetrics.MeasureFixationDeviation(frames);
 
@@ -252,7 +252,7 @@ public class ReplayAnalyzerTests
     public void SegmentFixations_FindsOneSegmentPerSaccadeTarget()
     {
         // Five targets, so five dwelling segments — the free-view path, where there is no ground truth.
-        var frames = ReplayPipeline.Run(GazeStreamGenerator.GenerateSaccade(), ReplayPipeline.Unfiltered);
+        var frames = ReplayPipeline.RunSynthetic(GazeStreamGenerator.GenerateSaccade(), ReplayPipeline.Unfiltered);
 
         var segments = GazeMetrics.SegmentFixations(frames, radiusPixels: 50, minSamples: 8);
 
@@ -267,7 +267,7 @@ public class ReplayAnalyzerTests
         var samples = GazeStreamGenerator.GenerateFixation().ToArray();
         samples[400] = samples[400] with { X = samples[400].X + 200 };   // one-sample 200 px excursion
 
-        var frames = ReplayPipeline.Run(samples, ReplayPipeline.Unfiltered);
+        var frames = ReplayPipeline.RunSynthetic(samples, ReplayPipeline.Unfiltered);
         var pops = GazeMetrics.DetectPops(frames, thresholdPixels: 40);
 
         Check.That(pops).HasSize(1);
@@ -285,7 +285,7 @@ public class ReplayAnalyzerTests
         samples[400] = samples[400] with { IsValid = false };
         samples[401] = samples[401] with { X = samples[401].X + 200 };   // recovery pop
 
-        var frames = ReplayPipeline.Run(samples, ReplayPipeline.Unfiltered);
+        var frames = ReplayPipeline.RunSynthetic(samples, ReplayPipeline.Unfiltered);
         var pops = GazeMetrics.DetectPops(frames, thresholdPixels: 40);
 
         Check.That(pops).Not.IsEmpty();
@@ -295,7 +295,7 @@ public class ReplayAnalyzerTests
     [Fact]
     public void DetectPops_FindsNothingInACalmStream()
     {
-        var frames = ReplayPipeline.Run(GazeStreamGenerator.GenerateFixation(), ReplayPipeline.Unfiltered);
+        var frames = ReplayPipeline.RunSynthetic(GazeStreamGenerator.GenerateFixation(), ReplayPipeline.Unfiltered);
 
         Check.That(GazeMetrics.DetectPops(frames, thresholdPixels: 40)).IsEmpty();
     }
@@ -307,7 +307,7 @@ public class ReplayAnalyzerTests
         for (int i = 400; i < 410; i++)
             samples[i] = samples[i] with { X = samples[i].X + 200 };
 
-        var frames = ReplayPipeline.Run(samples, ReplayPipeline.Unfiltered);
+        var frames = ReplayPipeline.RunSynthetic(samples, ReplayPipeline.Unfiltered);
         var pops = GazeMetrics.DetectPops(frames, thresholdPixels: 40);
 
         Check.That(pops).Not.IsEmpty();
@@ -322,7 +322,7 @@ public class ReplayAnalyzerTests
         // An identity filter reaches 100 % of the step on the step sample itself. Any non-zero answer
         // here would mean the latency metric is measuring the harness rather than the filter.
         var samples = Step(from: new PhysicalPoint(500, 500), to: new PhysicalPoint(900, 500), stepAt: 100);
-        var frames = ReplayPipeline.Run(samples, ReplayPipeline.Unfiltered);
+        var frames = ReplayPipeline.RunSynthetic(samples, ReplayPipeline.Unfiltered);
 
         Check.That(GazeMetrics.MeasureStepLatencyMs(frames, 100)).IsEqualTo(0.0);
     }
@@ -335,7 +335,7 @@ public class ReplayAnalyzerTests
         // zero measured for the shipped filter below a finding rather than a broken metric.
         var samples = Step(from: new PhysicalPoint(500, 500), to: new PhysicalPoint(900, 500), stepAt: 100);
         var smoothing = new ReplayPipeline.Candidate("EMA 0.15", () => new SmoothedFilter(0.15));
-        var frames = ReplayPipeline.Run(samples, smoothing);
+        var frames = ReplayPipeline.RunSynthetic(samples, smoothing);
 
         var latency = GazeMetrics.MeasureStepLatencyMs(frames, 100);
 
@@ -352,7 +352,7 @@ public class ReplayAnalyzerTests
         // baseline: if a retuned filter is ever proposed, this is the responsiveness it starts from and
         // the 150 ms ceiling is the budget it may spend.
         var samples = Step(from: new PhysicalPoint(500, 500), to: new PhysicalPoint(900, 500), stepAt: 100);
-        var frames = ReplayPipeline.Run(samples, ReplayPipeline.Baseline);
+        var frames = ReplayPipeline.RunSynthetic(samples, ReplayPipeline.Baseline);
 
         Check.That(GazeMetrics.MeasureStepLatencyMs(frames, 100)).IsEqualTo(0.0);
     }
@@ -360,7 +360,7 @@ public class ReplayAnalyzerTests
     [Fact]
     public void StepLatency_IsNullWhenTheStreamNeverSettles()
     {
-        var frames = ReplayPipeline.Run(GazeStreamGenerator.GenerateNoisyFixation(), ReplayPipeline.Baseline);
+        var frames = ReplayPipeline.RunSynthetic(GazeStreamGenerator.GenerateNoisyFixation(), ReplayPipeline.Baseline);
 
         // No step in this stream: "before" and the final raw point are the same place, so there is
         // nothing to measure — reported honestly as null rather than as a flattering zero.
@@ -372,7 +372,7 @@ public class ReplayAnalyzerTests
     [Fact]
     public void Dwell_ActivatesOnASteadyFixationOverTheTarget()
     {
-        var frames = ReplayPipeline.Run(GazeStreamGenerator.GenerateFixation(), ReplayPipeline.Baseline);
+        var frames = ReplayPipeline.RunSynthetic(GazeStreamGenerator.GenerateFixation(), ReplayPipeline.Baseline);
 
         var dwell = GazeMetrics.MeasureDwell(frames, new PhysicalPoint(960, 540), targetRadiusPixels: 40, dwellMs: 600);
 
@@ -383,7 +383,7 @@ public class ReplayAnalyzerTests
     [Fact]
     public void Dwell_NeverActivatesWhenGazeIsElsewhere()
     {
-        var frames = ReplayPipeline.Run(GazeStreamGenerator.GenerateFixation(), ReplayPipeline.Baseline);
+        var frames = ReplayPipeline.RunSynthetic(GazeStreamGenerator.GenerateFixation(), ReplayPipeline.Baseline);
 
         var dwell = GazeMetrics.MeasureDwell(frames, new PhysicalPoint(100, 100), targetRadiusPixels: 40);
 
@@ -404,7 +404,7 @@ public class ReplayAnalyzerTests
         // as this control either: its cooldown-0 activations cancel the leaves via the
         // resets-minus-activations correction and legitimately yield zero.
         var target = new PhysicalPoint(960, 540);
-        var frames = ReplayPipeline.Run(EnterLeaveStream(target, onTarget: 10, away: 10, cycles: 8),
+        var frames = ReplayPipeline.RunSynthetic(EnterLeaveStream(target, onTarget: 10, away: 10, cycles: 8),
                                         ReplayPipeline.Unfiltered);
 
         var dwell = GazeMetrics.MeasureDwell(frames, target, targetRadiusPixels: 40, dwellMs: 600);
@@ -419,7 +419,7 @@ public class ReplayAnalyzerTests
     {
         // The negative half of the same control: a stream that never leaves the target must not
         // manufacture resets, or the metric would punish the very behaviour it rewards.
-        var frames = ReplayPipeline.Run(GazeStreamGenerator.GenerateFixation(), ReplayPipeline.Baseline);
+        var frames = ReplayPipeline.RunSynthetic(GazeStreamGenerator.GenerateFixation(), ReplayPipeline.Baseline);
 
         var dwell = GazeMetrics.MeasureDwell(frames, new PhysicalPoint(960, 540), targetRadiusPixels: 40, dwellMs: 600);
 
@@ -449,7 +449,7 @@ public class ReplayAnalyzerTests
         // GenerateFixation's dominant component is a 0.3 Hz drift circle. If a real recording looks
         // like this, Signal's falsifier fires and the filter stage is withdrawn — so the metric has to
         // identify the case unambiguously.
-        var frames = ReplayPipeline.Run(GazeStreamGenerator.GenerateFixation(), ReplayPipeline.Unfiltered);
+        var frames = ReplayPipeline.RunSynthetic(GazeStreamGenerator.GenerateFixation(), ReplayPipeline.Unfiltered);
 
         var psd = GazeMetrics.ComputePsd(frames, SampleRateHz);
 
@@ -461,7 +461,7 @@ public class ReplayAnalyzerTests
     {
         // NoisyFixation is near-white ±15 px: the contrasting case, where a low-pass has something to
         // remove. Without this pairing the test above would pass on any stream at all.
-        var frames = ReplayPipeline.Run(GazeStreamGenerator.GenerateNoisyFixation(), ReplayPipeline.Unfiltered);
+        var frames = ReplayPipeline.RunSynthetic(GazeStreamGenerator.GenerateNoisyFixation(), ReplayPipeline.Unfiltered);
 
         var psd = GazeMetrics.ComputePsd(frames, SampleRateHz);
 
@@ -567,13 +567,13 @@ public class ReplayAnalyzerTests
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private static GazeMetrics.FixationDeviation Deviation(GazePoint[] samples) =>
-        GazeMetrics.MeasureFixationDeviation(ReplayPipeline.Run(samples, ReplayPipeline.Unfiltered));
+        GazeMetrics.MeasureFixationDeviation(ReplayPipeline.RunSynthetic(samples, ReplayPipeline.Unfiltered));
 
     private static AcceptanceGate.Measurement Measure(
         GazePoint[] samples, ReplayPipeline.Candidate? candidate = null, string? name = null)
     {
         var used = candidate ?? ReplayPipeline.Baseline;
-        var frames = ReplayPipeline.Run(samples, used);
+        var frames = ReplayPipeline.RunSynthetic(samples, used);
         var deviation = GazeMetrics.MeasureFixationDeviation(frames);
         var dwell = GazeMetrics.MeasureDwell(frames, new PhysicalPoint(960, 540), 40, 600);
 

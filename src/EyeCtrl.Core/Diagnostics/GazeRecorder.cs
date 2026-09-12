@@ -252,12 +252,13 @@ public sealed class GazeRecorder : IGazeRecordingSink
         // exactly as the unguarded one did. The loop re-reads and retries, so the cursor lands on
         // whichever of the two is further ahead however the two threads interleave.
         //
-        // NOT test-covered, deliberately: the rewind is invisible from the file (during overflow the
-        // drain writes a documented torn tail either way, so a content assertion would demand a
-        // guarantee the design does not make) and every attempt to observe the cursor mid-drain needs a
-        // scheduling seam this class does not have. Two such tests were written and both failed to
-        // distinguish the fixed code from the broken code; shipping either would have been worse than
-        // shipping none.
+        // NOT test-covered, deliberately. The rewind's effect IS visible in the file — the next drain
+        // re-emits a stale span — but only inside a region the design already declares untrustworthy:
+        // a rewind can only follow an overflow, and during overflow this drain writes a torn tail
+        // regardless. So there is no contract a content assertion could be written against; one was
+        // tried and failed against the CORRECT code. Observing the cursor mid-drain instead needs a
+        // scheduling seam this class does not have; that was tried too and never caught the broken
+        // version. Shipping either would have been worse than shipping none.
         while (true)
         {
             long current = Interlocked.Read(ref _read);

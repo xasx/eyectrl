@@ -53,9 +53,16 @@ public static class GazeRecordingFile
             : null;
 
         /// <summary>
-        /// Throws unless this recording is complete enough to measure. Every analysis entry point calls
-        /// it first: an opt-out would eventually be taken, and the whole point is that a lossy recording
-        /// must cost the operator a re-collection rather than produce a plausible number.
+        /// Throws unless this recording is complete enough to measure — a lossy recording must cost the
+        /// operator a re-collection rather than produce a plausible number.
+        /// <para>
+        /// Called by every entry point that takes a <see cref="Recording"/>, which is every path a real
+        /// file can travel. <c>ReplayPipeline.RunSynthetic</c> does NOT call it, and cannot: it takes a
+        /// bare sample list, which is what the generated streams are, and there is no recording there to
+        /// judge. That is the honest boundary — the protection is "you cannot analyze a FILE without
+        /// passing the gate", not "no code path exists that skips it". The name is the guard: pointing
+        /// <c>RunSynthetic</c> at a real recording's samples is visible at the call site.
+        /// </para>
         /// </summary>
         public Recording EnsureUsable()
         {

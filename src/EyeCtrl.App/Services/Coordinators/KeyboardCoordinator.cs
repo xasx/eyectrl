@@ -230,6 +230,31 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         return KeyboardStackSnapshot.Capture(settings);
     }
 
+    /// <summary>
+    /// Pure flip: "Top" (any case) → "Bottom", anything else → "Top". The OUTPUT is always
+    /// canonical — <c>KeyboardSettings.Validate</c> is a case-sensitive membership test,
+    /// <c>SettingsService.Save</c> throws on failure, and <c>App.OnExit</c>'s final save is
+    /// unguarded (spec B1 2a).
+    /// </summary>
+    internal static string FlipScreenEdge(string edge) =>
+        string.Equals(edge, "Top", StringComparison.OrdinalIgnoreCase) ? "Bottom" : "Top";
+
+    /// <summary>
+    /// The persistable half of an edge flip: write the canonical flipped value, save debounced,
+    /// and re-capture the reload snapshot AFTER the write (spec C5 — same discipline as
+    /// <see cref="ApplyEmojiSkinTone"/>, whose remarks document the phantom-rebuild failure).
+    /// The window-apply half (SetScreenEdge + edge-bar rebuild) lives in the Context-bound
+    /// handler.
+    /// </summary>
+    internal static (string Flipped, KeyboardStackSnapshot Snapshot) ApplyKeyboardEdge(
+        EyeCtrlSettings settings, SettingsService settingsService)
+    {
+        var flipped = FlipScreenEdge(settings.Keyboard.ScreenEdge);
+        settings.Keyboard.ScreenEdge = flipped;
+        settingsService.SaveDebounced(settings);
+        return (flipped, KeyboardStackSnapshot.Capture(settings));
+    }
+
     /// <summary>The ring action's idempotence: already visible means the activation is a no-op.
     /// Split out so the guard is headless-testable — the handler itself touches the real
     /// KeyboardWindow (same reason as <see cref="ApplyEmojiSkinTone"/>).</summary>

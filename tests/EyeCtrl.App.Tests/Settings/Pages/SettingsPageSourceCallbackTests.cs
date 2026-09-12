@@ -174,4 +174,32 @@ public class SettingsPageSourceCallbackTests
         var firstRow = src.Build().First().Rows[0];
         Check.That(((ToggleSpec)firstRow).Id).IsEqualTo("qa_enabled");
     }
+
+    // 7. DiagnosticsPageSource toggles — each saves and, critically, does NOT rebuild.
+    // Deliberately not a copy of the reset test (DiagnosticsPageSourceTests pins that, along with
+    // the rest of the page): the distinct claim here is the absence of a RebuildContent. A rebuild
+    // tears down and re-creates every row control, which for a gaze user re-registers the dwell
+    // targets under their gaze — so a toggle that rebuilt would cancel the dwell that flipped it,
+    // and could re-trigger on the row now sitting under the same point. Resets rebuild on purpose
+    // (every row's value changed); a single toggle must not.
+    [Fact]
+    public void Diagnostics_Toggles_SaveWithoutRebuildingThePageUnderTheUsersGaze()
+    {
+        var settings = new EyeCtrlSettings();
+        var rec = new RecordingSettingsPageContext(settings);
+        var toggles = new DiagnosticsPageSource(rec.Context).Build()
+            .SelectMany(p => p.Rows).OfType<ToggleSpec>().ToDictionary(t => t.Id);
+
+        toggles["dg_record_raw"].Set(true);
+
+        Check.That(settings.Diagnostics.RecordRawGaze).IsTrue();
+        Check.That(rec.ApplyAndSaveCount).IsEqualTo(1);
+        Check.That(rec.RebuildContentCount).IsEqualTo(0);
+
+        toggles["dg_ui_instruments"].Set(true);
+
+        Check.That(settings.Diagnostics.MeasureUiInstruments).IsTrue();
+        Check.That(rec.ApplyAndSaveCount).IsEqualTo(2);
+        Check.That(rec.RebuildContentCount).IsEqualTo(0);
+    }
 }

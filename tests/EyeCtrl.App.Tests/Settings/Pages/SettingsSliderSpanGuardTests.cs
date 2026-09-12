@@ -136,6 +136,17 @@ public class SettingsSliderSpanGuardTests
         SpanInside(sliders, "av_ext_cooldown", 0, 5000);
     }
 
+    [Fact]
+    public void Diagnostics_HasNoSliders_SoNoSpanCanDriftUnpinned()
+    {
+        // Zero is the assertion, not an omission. This file's coverage is a hand-written list, so a
+        // tab with no sliders would otherwise have no reason to appear in it at all — and the day
+        // someone adds "ring buffer capacity" or "recording size cap" as a slider, the page would
+        // join the set of unpinned spans silently. Failing here is the prompt to pin it.
+        var sliders = Sliders(new DiagnosticsPageSource(TestSettingsPageContext.Build()));
+        Check.That(sliders).IsEmpty();
+    }
+
     private static Dictionary<string, SliderSpec> Sliders(ISettingsPageSource source) =>
         source.Build().SelectMany(p => p.Rows).OfType<SliderSpec>().ToDictionary(s => s.Id);
 

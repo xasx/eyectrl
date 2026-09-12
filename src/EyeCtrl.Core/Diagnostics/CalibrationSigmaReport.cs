@@ -9,7 +9,9 @@ using EyeCtrl.Core.Calibration;
 /// the screen the target sat.
 /// <para>
 /// This is the number every σ-dependent claim in the gaze-jitter debate is gated on, and it has been
-/// sitting unread in <c>calibration.json</c> the whole time: <see cref="CalibrationPoint.StdDevX"/> and
+/// sitting unread in <c>calibration.json</c> the whole time (σ became an IN-BAND figure in 2026-09-13,
+/// so it now measures stillness on the target rather than motion around it; coverage is reported
+/// beside it, and the two must be read together): <see cref="CalibrationPoint.StdDevX"/> and
 /// <see cref="CalibrationPoint.StdDevY"/> are the raw per-axis standard deviations of the samples
 /// collected while the user held each target. Nothing new has to be measured to obtain them — only
 /// read and summarised.
@@ -41,10 +43,18 @@ public static class CalibrationSigmaReport
     /// <param name="Y">Target Y in physical pixels.</param>
     /// <param name="SigmaX">Per-axis standard deviation of the samples held on it, in pixels.</param>
     /// <param name="SigmaY">Per-axis standard deviation, Y.</param>
-    /// <param name="SampleCount">Samples the mean and σ were computed from.</param>
+    /// <param name="SampleCount">In-band samples the mean and σ were computed from.</param>
     /// <param name="ErrorPixels">Distance from target to mean gaze — accuracy, as against σ's precision.</param>
+    /// <param name="Coverage">
+    /// Fraction of this target's attempt spent inside the band, or null when the calibration predates
+    /// the measurement. σ is computed over in-band samples ONLY, so it cannot be read without this:
+    /// three samples out of three hundred give a tight σ that describes nothing. A low σ paired with
+    /// low coverage is the signature of the 2026-09-12 failure, and reporting σ alone is what let it
+    /// pass as precision.
+    /// </param>
     public readonly record struct TargetSigma(
-        Zone Zone, double X, double Y, double SigmaX, double SigmaY, int SampleCount, double ErrorPixels)
+        Zone Zone, double X, double Y, double SigmaX, double SigmaY, int SampleCount, double ErrorPixels,
+        double? Coverage = null)
     {
         /// <summary>Radial σ: the two axes combined into one number, √(σx² + σy²).</summary>
         public double SigmaRadial => Math.Sqrt(SigmaX * SigmaX + SigmaY * SigmaY);
@@ -56,12 +66,18 @@ public static class CalibrationSigmaReport
     /// <param name="MedianSigmaRadial">Median radial σ — the robust counterpart, unmoved by one bad target.</param>
     /// <param name="CenterSigmaRadial">Mean radial σ over centre targets, or null when the layout had none.</param>
     /// <param name="CornerSigmaRadial">Mean radial σ over corner targets, or null when there were none.</param>
+    /// <param name="MinCoverage">
+    /// The worst per-target coverage, or null when no target recorded one. The MINIMUM rather than the
+    /// mean: a calibration is fitted through every point, so one target built from wander bends the
+    /// whole transform, and an average would let four good targets hide it.
+    /// </param>
     public sealed record Report(
         IReadOnlyList<TargetSigma> Targets,
         double RmsSigmaRadial,
         double MedianSigmaRadial,
         double? CenterSigmaRadial,
-        double? CornerSigmaRadial)
+        double? CornerSigmaRadial,
+        double? MinCoverage = null)
     {
         /// <summary>
         /// How much worse the corners are than the centre, as a ratio. Null when the layout lacked
@@ -80,6 +96,20 @@ public static class CalibrationSigmaReport
             var sb = new StringBuilder();
             sb.Append(CultureInfo.InvariantCulture,
                 $"calibration sigma: n={Targets.Count} rms={RmsSigmaRadial:0.##}px median={MedianSigmaRadial:0.##}px");
+
+            // Immediately after the σ figures, not appended as a footnote: the two are one reading, and
+            // a reader who stops at "rms=3px" without seeing "coverage 4%" has drawn the wrong
+            // conclusion from a line that looked complete.
+            if (MinCoverage is { } cov)
+            {
+                sb.Append(CultureInfo.InvariantCulture, $" worst-coverage={cov * 100:0}%");
+                if (cov < 0.5)
+                    sb.Append(" — MOST SAMPLES WERE OFF TARGET; this sigma describes only the few that were not");
+            }
+            else
+            {
+                sb.Append(" worst-coverage=unknown (calibration predates coverage measurement)");
+            }
 
             if (CenterSigmaRadial is { } c) sb.Append(CultureInfo.InvariantCulture, $" center={c:0.##}px");
             if (CornerSigmaRadial is { } k) sb.Append(CultureInfo.InvariantCulture, $" corner={k:0.##}px");
@@ -102,6 +132,9 @@ public static class CalibrationSigmaReport
                 if (sb.Length > 0) sb.Append("; ");
                 sb.Append(CultureInfo.InvariantCulture,
                     $"{t.Zone} ({t.X:0},{t.Y:0}) sigma=({t.SigmaX:0.##},{t.SigmaY:0.##}) radial={t.SigmaRadial:0.##} err={t.ErrorPixels:0.#}px n={t.SampleCount}");
+                sb.Append(t.Coverage is { } cov
+                    ? string.Create(CultureInfo.InvariantCulture, $" coverage={cov * 100:0}%")
+                    : " coverage=?");
             }
             return sb.Length == 0 ? "(no targets)" : sb.ToString();
         }
@@ -119,17 +152,23 @@ public static class CalibrationSigmaReport
         var targets = data.Points
             .Select(p => new TargetSigma(
                 Classify(p.Target.X / data.ScreenWidth, p.Target.Y / data.ScreenHeight),
-                p.Target.X, p.Target.Y, p.StdDevX, p.StdDevY, p.SampleCount, p.EuclideanError()))
+                p.Target.X, p.Target.Y, p.StdDevX, p.StdDevY, p.SampleCount, p.EuclideanError(),
+                p.Coverage))
             .ToArray();
 
         var radial = targets.Select(t => t.SigmaRadial).ToArray();
+
+        // Null when NO target carries a coverage figure (a legacy calibration). A mix is reported on
+        // what is known: a single target measured at 4% is the finding, whatever the others lack.
+        var known = targets.Where(t => t.Coverage is not null).Select(t => t.Coverage!.Value).ToArray();
 
         return new Report(
             targets,
             RmsSigmaRadial: Math.Sqrt(radial.Sum(r => r * r) / radial.Length),
             MedianSigmaRadial: Median(radial),
             CenterSigmaRadial: MeanOrNull(targets, Zone.Center),
-            CornerSigmaRadial: MeanOrNull(targets, Zone.Corner));
+            CornerSigmaRadial: MeanOrNull(targets, Zone.Corner),
+            MinCoverage: known.Length == 0 ? null : known.Min());
     }
 
     // Normalised thresholds rather than pixel ones so the classification survives any screen size.

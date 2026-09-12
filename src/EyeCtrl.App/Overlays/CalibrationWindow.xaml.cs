@@ -60,6 +60,13 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
             case nameof(CalibrationViewModel.CurrentTargetPosition):
                 Dispatcher.Invoke(() => PositionTarget(_viewModel!.CurrentTargetPosition));
                 break;
+            case nameof(CalibrationViewModel.BandRadiusPixels):
+                Dispatcher.Invoke(() => PositionTarget(_viewModel!.CurrentTargetPosition));
+                break;
+            case nameof(CalibrationViewModel.TargetProgress):
+            case nameof(CalibrationViewModel.IsOnTarget):
+                Dispatcher.Invoke(UpdateOnTargetFeedback);
+                break;
             case nameof(CalibrationViewModel.State):
                 Dispatcher.Invoke(() => UpdateVisualState(_viewModel!.State, _viewModel.ProgressPercent));
                 break;
@@ -81,8 +88,76 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
     private void PositionTarget(PhysicalPoint physicalPoint)
     {
         var logical = physicalPoint.ToLogical();
-        Canvas.SetLeft(TargetDot, logical.X - TargetDot.Width / 2);
-        Canvas.SetTop(TargetDot, logical.Y - TargetDot.Height / 2);
+
+        // The dot: the thing to aim at, from the setting that until now was read by nothing.
+        var dotDiameterLogical = DiameterToLogical(_viewModel?.TargetRadiusPixels ?? 20);
+        TargetDot.Width = dotDiameterLogical;
+        TargetDot.Height = dotDiameterLogical;
+        if (TargetDot.RenderTransform is ScaleTransform dotScale)
+        {
+            dotScale.CenterX = dotDiameterLogical / 2;
+            dotScale.CenterY = dotDiameterLogical / 2;
+        }
+        Centre(TargetDot, logical, dotDiameterLogical);
+
+        // The rings: the tolerance actually enforced. Converted from physical px through the same
+        // DPI helper the dot uses, because the collector's radius is in physical pixels and this
+        // canvas is in DIPs — drawing the raw number would be right only at 100 % scaling.
+        var bandDiameterLogical = DiameterToLogical(_viewModel?.BandRadiusPixels ?? 0);
+        foreach (var ring in new[] { ToleranceRing, ProgressRing })
+        {
+            ring.Width = bandDiameterLogical;
+            ring.Height = bandDiameterLogical;
+            Centre(ring, logical, bandDiameterLogical);
+        }
+
+        UpdateOnTargetFeedback();
+    }
+
+    private static void Centre(FrameworkElement element, LogicalPoint logicalCentre, double diameter)
+    {
+        Canvas.SetLeft(element, logicalCentre.X - (diameter / 2));
+        Canvas.SetTop(element, logicalCentre.Y - (diameter / 2));
+    }
+
+    /// <summary>
+    /// Physical-pixel RADIUS to logical DIAMETER, via the app's DPI scale.
+    /// <para>
+    /// Takes the X scale only, so a display whose horizontal and vertical DPI scaling differ would get
+    /// a circle sized by its width. That is deliberate rather than overlooked: these are CIRCLES, and
+    /// the band they represent is a radial distance — one number, equal on both axes by definition
+    /// (see <c>CalibrationGeometry.BandRadiusPx</c>, which scales by the shorter side). Honouring two
+    /// scales would mean drawing an ellipse for a tolerance that is not elliptical, which is a worse
+    /// lie than a slightly wrong size. Windows does not expose independent per-axis scaling in any
+    /// case, and the rest of this file's geometry (<c>ToLogical</c> on the target position) makes the
+    /// same assumption.
+    /// </para>
+    /// </summary>
+    private static double DiameterToLogical(double radiusPhysical)
+    {
+        var edge = new PhysicalPoint(radiusPhysical * 2, radiusPhysical * 2).ToLogical();
+        return Math.Max(2, edge.X);
+    }
+
+    /// <summary>
+    /// Makes "inside the ring" and "about to leave" legible without text. The progress ring brightens
+    /// and thickens as in-band samples accumulate, and the whole ring dims the moment gaze leaves the
+    /// band — so the user learns what advances the target by watching it, which is the only channel
+    /// available to someone who cannot read a number and hold a fixation at the same time.
+    /// </summary>
+    private void UpdateOnTargetFeedback()
+    {
+        if (_viewModel is null) return;
+
+        var progress = Math.Clamp(_viewModel.TargetProgress, 0, 1);
+        ProgressRing.Opacity = progress <= 0 ? 0 : 0.35 + (0.65 * progress);
+        ProgressRing.StrokeThickness = 4 + (8 * progress);
+
+        // The tolerance ring itself is the on/off signal: solid while gaze is inside it, faint while
+        // it is not. Deliberately a property of the RING rather than of the dot — the ring is the
+        // thing whose meaning is being taught.
+        ToleranceRing.Opacity = _viewModel.IsOnTarget ? 0.9 : 0.3;
+        ToleranceRing.StrokeThickness = _viewModel.IsOnTarget ? 4 : 2;
     }
 
     public void UpdateVisualState(CalibrationState state, double progress)

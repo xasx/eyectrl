@@ -104,12 +104,12 @@ public class CalibrationService
 
         _currentTargetIndex = index;
         var target = GetTargetPosition(index);
-        // Acceptance radius scales with the display but never drops below the collector's own
-        // default: on a 1920x1080 screen that is 120 physical px of "close enough to have
-        // arrived", on 4K ~216 — pre-calibration accuracy is what this session measures.
-        var acceptanceRadius = Math.Max(120.0, 0.10 * Math.Min(_screenSize.X, _screenSize.Y));
+        // One radius, from one place: it gates arrival, gates which samples count, and is what the UI
+        // draws. It used to be computed inline here, which is how the drawn target (a 40 px ellipse)
+        // and the enforced tolerance (240 px on this display) drifted an order of magnitude apart.
         _currentCollector = new CalibrationPointCollector(
-            target, settleWindowMs, maxSamples, acceptanceRadiusPx: acceptanceRadius);
+            target, settleWindowMs, maxSamples,
+            bandRadiusPx: CalibrationGeometry.BandRadiusPx(_screenSize));
     }
 
     /// <summary>
@@ -140,6 +140,24 @@ public class CalibrationService
     /// finding the target rather than holding it.
     /// </summary>
     public bool HasArrivedAtTarget => _currentCollector?.HasArrived ?? false;
+
+    /// <summary>
+    /// In-band samples collected for the current target so far. Progress is measured in these, not in
+    /// elapsed time, so a user who holds the target in several short bursts still makes progress.
+    /// </summary>
+    public int CurrentTargetInBandSamples => _currentCollector?.InBandSamples ?? 0;
+
+    /// <summary>
+    /// Fraction of the current target's post-settle samples that landed in the band, or null before
+    /// any have been seen. Surfaced so the UI can show quality while it is still fixable.
+    /// </summary>
+    public double? CurrentTargetCoverage => _currentCollector?.Coverage;
+
+    /// <summary>
+    /// The band radius in force for this session, in physical pixels — what the UI must draw so the
+    /// tolerance the user sees is the tolerance being enforced.
+    /// </summary>
+    public double BandRadiusPx => CalibrationGeometry.BandRadiusPx(_screenSize);
 
     /// <summary>
     /// Ends collection for the current target and returns the computed <see cref="CalibrationPoint"/>.
@@ -211,11 +229,22 @@ public class CalibrationService
             throw new InvalidOperationException(
                 "Calibration produced a distorted transform (gaze would be flipped or amplified). Please recalibrate.");
 
-        double diagonal = Math.Sqrt(screenSize.X * screenSize.X + screenSize.Y * screenSize.Y);
-        double maxResidual = CalibrationValidator.MaxResidualPixels(transform, points);
-        if (maxResidual > diagonal * CalibrationValidator.MaxResidualScreenFraction)
-            throw new InvalidOperationException(
-                $"Calibration accuracy is too poor ({maxResidual:F0}px off target). Please recalibrate.");
+        // Residual, precision AND coverage, per target, with the failing targets named.
+        //
+        // This replaces a single whole-session residual check whose message was "Calibration accuracy
+        // is too poor (NNNpx off target). Please recalibrate." Two things were wrong with that. Its
+        // threshold admitted 907 px on this display — the 2026-09-12 calibration passed it with
+        // 450–500 px residuals and was then applied to every gaze point, which is worse than having no
+        // calibration at all. And its message gave the user nothing: they cannot see which point went
+        // wrong, so a retry is a blind repeat of the thing that just failed, paid for in the one
+        // input channel they have.
+        //
+        // Residual alone would still not be enough now. It measures whether the transform reproduces
+        // the collected MEANS, and a mean built from scattered samples can land exactly on its target
+        // while describing nothing the user did — so scatter and coverage are gated independently.
+        var failures = CalibrationValidator.FindQualityFailures(transform, points, screenSize);
+        if (failures.Count > 0)
+            throw new InvalidOperationException(CalibrationValidator.DescribeFailures(failures));
 
         _currentTransform = transform;
         CurrentData = data;

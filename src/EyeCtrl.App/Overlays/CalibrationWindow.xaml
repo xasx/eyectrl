@@ -14,8 +14,21 @@
         <!-- Glass backdrop -->
         <Rectangle x:Name="Backdrop" Fill="{StaticResource BrushModalBackdrop}" Visibility="Collapsed"/>
 
-        <!-- Target area -->
+        <!-- Target area.
+             Three layers, drawn back to front:
+               ToleranceRing  - the REAL acceptance radius (CalibrationGeometry.BandRadiusPx). Sized in
+                                code-behind from the view model, never from a constant here: this ring
+                                and the collector's gate must be the same number, and a literal in XAML
+                                is exactly how they came to differ by a factor of twelve.
+               ProgressRing   - the same circle, drawn thicker/brighter as in-band samples accumulate.
+               TargetDot      - the small thing to aim AT, sized from CalibrationSettings.TargetRadiusPixels. -->
         <Canvas x:Name="TargetCanvas" Visibility="Collapsed">
+            <Ellipse x:Name="ToleranceRing"
+                     Stroke="{StaticResource BrushAccent}" StrokeThickness="2"
+                     Opacity="0.35" IsHitTestVisible="False"/>
+            <Ellipse x:Name="ProgressRing"
+                     Stroke="{StaticResource BrushAccentSuccess}" StrokeThickness="6"
+                     Opacity="0" IsHitTestVisible="False"/>
             <Ellipse x:Name="TargetDot" Width="40" Height="40"
                      Fill="{StaticResource BrushAccent}" Opacity="0.8"
                      RenderTransformOrigin="0.5,0.5">

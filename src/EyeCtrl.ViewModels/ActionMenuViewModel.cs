@@ -225,6 +225,7 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
         InteractionAction.ScrollRight => "Scroll right",
         InteractionAction.ScrollMode => "Scroll",
         InteractionAction.PinNote => "Pin note",
+        InteractionAction.Keyboard => "Keyboard",
         null => "Back",
         _ => action.Value.ToString(),
     };
@@ -249,6 +250,7 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
         InteractionAction.ScrollRight => ActionIcon.ScrollRight,
         InteractionAction.ScrollMode => ActionIcon.ScrollMode,
         InteractionAction.PinNote => ActionIcon.PinNote,
+        InteractionAction.Keyboard => ActionIcon.Keyboard,
         _ => throw new ArgumentOutOfRangeException(
             nameof(action), action, "No ActionIcon is mapped for this InteractionAction."),
     };

@@ -9,8 +9,8 @@ using EyeCtrl.Core.Models;
 /// icons over its life: Pause swaps to <see cref="Play"/> while paused, and the selection-mode
 /// button shows one of three icons for the mode it is currently in.
 ///
-/// Separate from <see cref="ActionIcon"/> because that set is deliberately all mice — every
-/// action-menu entry is a mouse action. These are application controls and share none of that
+/// Separate from <see cref="ActionIcon"/> because that set was authored as all mice until the
+/// keyboard glyphs joined it. These are application controls and share none of that
 /// vocabulary.
 /// </summary>
 public enum ToolbarIconKey

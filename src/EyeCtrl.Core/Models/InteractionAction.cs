@@ -24,5 +24,7 @@ public enum InteractionAction
     /// <summary>Enter gaze-driven scroll mode.</summary>
     ScrollMode,
     /// <summary>Pin a draggable note at the gaze point.</summary>
-    PinNote
+    PinNote,
+    /// <summary>Show the on-screen gaze keyboard (idempotent — it never hides it).</summary>
+    Keyboard
 }

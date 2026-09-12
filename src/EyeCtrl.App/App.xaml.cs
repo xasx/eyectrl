@@ -210,18 +210,16 @@ public partial class App : Application
                 Log.Information("UI instruments are ON for this session (opt-in): dispatch latency + ring quantization");
             }
 
-            // Load calibration. Screen size must be in PHYSICAL pixels to match what
-            // CompleteSession persists (logical DIPs here would discard calibration on any non-100% DPI).
-            var calibrationPath = Path.Combine(_appDataDir, "calibration.json");
-            var screen = new PhysicalPoint(
-                SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX,
-                SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY);
-            // Match on the monitor's EDID identity, not its \\.\DISPLAYn index: Windows renumbers those
-            // on dock changes/driver updates/reboots, which used to discard the calibration silently.
-            var monitorName = System.Windows.Forms.Screen.PrimaryScreen?.DeviceName ?? "";
-            var monitorHardwareId = EyeCtrl.Platform.Interop.MonitorIdentity.GetHardwareId(monitorName);
-            _serviceProvider.GetRequiredService<CalibrationService>()
-                .Load(calibrationPath, screen, monitorName, monitorHardwareId);
+            // Calibration is loaded by CalibrationService's own DI factory, not here. It used to be
+            // loaded at this line — some eighty lines after the gaze provider was resolved — and the
+            // raw-gaze recorder builds its header from the calibration state when the provider is
+            // constructed. So every recording made on a calibrated machine was stamped
+            // calibrationActive:false with a null transform, and since replay applies that transform
+            // such a recording cannot be replayed as the calibrated session it actually was.
+            //
+            // Moving the load into the factory removes the ordering question instead of re-answering
+            // it in a new place: whoever resolves the service first triggers the load, so no consumer
+            // can see it unloaded however this method is later rearranged.
 
             // ── Event Coordination ──
             // All PropertyChanged and message handlers are now managed by EventCoordinator

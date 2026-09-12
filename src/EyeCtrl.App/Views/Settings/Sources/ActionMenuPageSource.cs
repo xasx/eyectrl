@@ -104,6 +104,7 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
         InteractionAction.ScrollRight => "Scroll Right",
         InteractionAction.ScrollMode => "Scroll Mode",
         InteractionAction.PinNote => "Pin Note",
+        InteractionAction.Keyboard => "Keyboard",
         _ => action.ToString()
     };
 
@@ -134,6 +135,7 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
         InteractionAction.ScrollRight => "Scrolls right from the point you chose.",
         InteractionAction.ScrollMode => "Continuous scrolling, steered by where you look.",
         InteractionAction.PinNote => "Opens a note to type at the point you chose.",
+        InteractionAction.Keyboard => "Opens the gaze keyboard for typing.",
         _ => null
     };
 }

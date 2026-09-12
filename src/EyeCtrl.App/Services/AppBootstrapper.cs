@@ -41,15 +41,23 @@ public class AppBootstrapper
     /// <param name="settingsFilePath">Path to the settings file</param>
     /// <param name="dispatcher">The UI thread dispatcher</param>
     /// <param name="isTestMode">Whether the app is running in test mode</param>
+    /// <param name="appDataDirOverride">
+    /// Where per-user runtime data lives. Defaults to <c>%APPDATA%\EyeCtrl</c>, which is what the app
+    /// always passes. Overridable ONLY so tests can exercise this container without reading or writing
+    /// the real folder — which holds the user's <c>calibration.json</c>, and a test that clobbered it
+    /// would take away the calibration their only input method depends on.
+    /// </param>
     /// <returns>Configured service provider</returns>
     public static ServiceProvider BuildServiceProvider(
         EyeCtrlSettings settings,
         string settingsFilePath,
         Dispatcher dispatcher,
-        bool isTestMode)
+        bool isTestMode,
+        string? appDataDirOverride = null)
     {
         var services = new ServiceCollection();
-        var appDataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
+        var appDataDir = appDataDirOverride
+            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
 
         // Logging
         services.AddLogging(builder => builder.AddSerilog(dispose: true));
@@ -112,12 +120,12 @@ public class AppBootstrapper
             // may have been recalibrated away by the time anyone looks at the recording. Null for a
             // transform type this does not know how to serialize — the analyzer refuses such a recording
             // rather than replaying an uncorrected stream as if it were corrected.
-            AffineTransformParameters? transformParams = null;
-            if (calibration.CurrentTransform is AffineTransform affine)
-            {
-                var p = affine.GetParameters();
-                transformParams = new AffineTransformParameters(p[0], p[1], p[2], p[3], p[4], p[5]);
-            }
+            //
+            // The service is loaded by the time this reads it: it loads in its own factory, and the
+            // GetRequiredService above is what triggers that. Header state is therefore the session's
+            // real state, which it was not while the load happened later in App startup.
+            AffineTransformParameters? transformParams =
+                AffineTransformParameters.TryDescribe(calibration.CurrentTransform);
 
             var header = new GazeRecordingHeader(
                 ProviderType: GazeProviderFactory.GetProviderType(provider).ToString(),
@@ -207,8 +215,40 @@ public class AppBootstrapper
             sp.GetRequiredService<ILogger<ModelDownloadService>>()));
         services.AddSingleton<ModelManagementService>();
 
-        // Calibration
-        services.AddSingleton(sp => new CalibrationService(sp.GetService<ILogger<CalibrationService>>()));
+        // Calibration.
+        //
+        // LOADED IN THE FACTORY, not by the caller afterwards. It used to be constructed here and
+        // loaded from App.xaml.cs some eighty lines later, which made "is a calibration active?" a
+        // question whose answer depended on WHERE in startup you asked it — and the raw-gaze recorder,
+        // resolved earlier, asked too early. Every recording made on a calibrated machine was stamped
+        // calibrationActive:false with a null transform, which since replay began applying that
+        // transform means the recording cannot be replayed as the calibrated session it was.
+        //
+        // Loading inside the factory removes the ordering question rather than answering it: the first
+        // resolution loads, so no consumer can observe an unloaded service, whatever order startup is
+        // rearranged into later. `Load` is a pure read — file, screen and monitor in, fields and a log
+        // line out, no events raised — so nothing depends on it running late.
+        services.AddSingleton(sp =>
+        {
+            var service = new CalibrationService(sp.GetService<ILogger<CalibrationService>>());
+
+            // PHYSICAL pixels, matching what CompleteSession persists; logical DIPs here would discard
+            // the calibration on any non-100% DPI display.
+            var screen = new PhysicalPoint(
+                System.Windows.SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX,
+                System.Windows.SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY);
+
+            // Match on the monitor's EDID identity, not its \\.\DISPLAYn index: Windows renumbers those
+            // on dock changes/driver updates/reboots, which used to discard the calibration silently.
+            var monitorName = System.Windows.Forms.Screen.PrimaryScreen?.DeviceName ?? "";
+            service.Load(
+                Path.Combine(appDataDir, "calibration.json"),
+                screen,
+                monitorName,
+                MonitorIdentity.GetHardwareId(monitorName));
+
+            return service;
+        });
 
         // ControlFinder (AutoSelection mode). Takes the AutoSelection sub-settings by reference so
         // SnapSearchRadiusPixels edits apply without rebuilding this singleton.

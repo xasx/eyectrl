@@ -1,5 +1,6 @@
 namespace EyeCtrl.Core.Diagnostics;
 
+using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 
@@ -72,7 +73,34 @@ public readonly record struct GazeRecordingHeader(
 /// </para>
 /// </summary>
 public readonly record struct AffineTransformParameters(
-    double A, double B, double C, double D, double E, double F);
+    double A, double B, double C, double D, double E, double F)
+{
+    /// <summary>
+    /// Describes a live calibration transform for the recording header, or <c>null</c> when there is
+    /// none — or when it is of a type this recorder cannot serialize.
+    /// <para>
+    /// Separated from the call site and made total (no throw, no partial answer) because the two null
+    /// cases mean opposite things downstream. "No calibration was active" is a fully described session;
+    /// "a calibration was active but is not representable here" is a session the analyzer must refuse,
+    /// and it is <see cref="GazeRecordingHeader.CalibrationActive"/> that tells them apart. A helper
+    /// that conflated the two would make an unreplayable recording look like an uncalibrated one.
+    /// </para>
+    /// </summary>
+    /// <param name="transform">The transform in force, typically <c>CalibrationService.CurrentTransform</c>.</param>
+    public static AffineTransformParameters? TryDescribe(ICalibrationTransform? transform)
+    {
+        // Type-checked rather than trusting GetParameters' length: the interface promises an array
+        // "suitable for persistence" whose meaning is defined by the implementing type, so six doubles
+        // from some future non-affine transform would deserialize into these fields and replay would
+        // apply them as if they were an affine map.
+        if (transform is not AffineTransform affine) return null;
+
+        var p = affine.GetParameters();
+        if (p is not { Length: 6 }) return null;
+
+        return new AffineTransformParameters(p[0], p[1], p[2], p[3], p[4], p[5]);
+    }
+}
 
 /// <summary>
 /// What can only be known once a recording is closed: how much of it was lost.

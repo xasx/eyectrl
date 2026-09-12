@@ -5,6 +5,7 @@ using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.Tests.TestSupport;
 using EyeCtrl.ViewModels.Messages;
 using Microsoft.Extensions.Logging;
 
@@ -26,13 +27,25 @@ public class CalibrationViewModelTests
     private readonly CalibrationSettings _settings = new() { PointCount = 3, TargetHoldMs = 200 };
 
     /// <summary>
+    /// One throwaway folder for this whole class's calibration files, cleaned up at process exit and
+    /// swept if a killed host ever leaves it behind.
+    /// <para>
+    /// It used to be a bare <c>%TEMP%\eyectrl-cal-{guid}.json</c> per call with nothing ever deleting
+    /// them, and a test that completes a calibration writes that file: 286 of them had accumulated
+    /// since 2026-08-17. One folder rather than one per call, because the folder is the unit of
+    /// cleanup and a file per view model would mean hundreds of directories.
+    /// </para>
+    /// </summary>
+    private static readonly string CalibrationDir = TempTestDirectory.Create("viewmodels-calibration");
+
+    /// <summary>
     /// A throwaway calibration path. The constructor argument became required when the
     /// <c>%APPDATA%</c> fallback was removed — which means these tests were
     /// previously pointed at the LIVE <c>%APPDATA%\EyeCtrl\calibration.json</c>, the file whose
     /// corruption silently breaks dwell everywhere. Per-call GUID so nothing can collide.
     /// </summary>
     private static string TempCalibrationPath() => System.IO.Path.Combine(
-        System.IO.Path.GetTempPath(), "eyectrl-cal-" + Guid.NewGuid().ToString("N") + ".json");
+        CalibrationDir, "cal-" + Guid.NewGuid().ToString("N") + ".json");
 
     private CalibrationViewModel CreateVm()
     {

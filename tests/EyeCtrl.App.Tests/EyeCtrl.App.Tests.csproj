@@ -19,5 +19,14 @@
     <ProjectReference Include="..\..\src\EyeCtrl.Contracts\EyeCtrl.Contracts.csproj" />
     <ProjectReference Include="..\..\src\EyeCtrl.Sdk.Abstractions\EyeCtrl.Sdk.Abstractions.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!--
+      Linked, not copied. TempTestDirectory carries the stale-sweep threshold, and a sweep that
+      deletes directories it does not own is the wrong place to keep two copies of a number.
+      Same mechanism as EyeCtrl.Core.Tests linking GazeStreamGenerator.cs.
+    -->
+    <Compile Include="..\TestSupport\TempTestDirectory.cs"
+             Link="TestSupport\TempTestDirectory.cs" />
+  </ItemGroup>
 
 </Project>

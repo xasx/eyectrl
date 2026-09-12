@@ -2,9 +2,10 @@ namespace EyeCtrl.App.Tests.Services;
 
 using System;
 using System.IO;
+using EyeCtrl.Tests.TestSupport;
 
 /// <summary>
-/// The sweep predicate, and the shape of what <see cref="TestAppDataDir"/> hands out.
+/// The sweep predicate, and the shape of what <see cref="TempTestDirectory"/> hands out.
 /// <para>
 /// Worth testing despite being test infrastructure, because the sweep deletes directories it does not
 /// own. If its age rule were wrong it would remove an app-data folder out from under a concurrently
@@ -12,7 +13,7 @@ using System.IO;
 /// failing for a missing file, on another machine, intermittently.
 /// </para>
 /// </summary>
-public class TestAppDataDirTests
+public class TempTestDirectoryTests
 {
     private static readonly DateTime Now = new(2026, 9, 13, 12, 0, 0, DateTimeKind.Utc);
 
@@ -20,8 +21,8 @@ public class TestAppDataDirTests
     public void AFreshFolder_IsNeverStale()
     {
         // The case that matters: a folder written seconds ago belongs to a live run.
-        Check.That(TestAppDataDir.IsStale(Now.AddSeconds(-1), Now)).IsFalse();
-        Check.That(TestAppDataDir.IsStale(Now, Now)).IsFalse();
+        Check.That(TempTestDirectory.IsStale(Now.AddSeconds(-1), Now)).IsFalse();
+        Check.That(TempTestDirectory.IsStale(Now, Now)).IsFalse();
     }
 
     [Theory]
@@ -32,7 +33,7 @@ public class TestAppDataDirTests
     {
         // A debugged test host can sit paused for hours with its folder open, so "old" has to mean
         // far older than any run could plausibly still be going.
-        Check.That(TestAppDataDir.IsStale(Now.AddMinutes(-minutesAgo), Now)).IsFalse();
+        Check.That(TempTestDirectory.IsStale(Now.AddMinutes(-minutesAgo), Now)).IsFalse();
     }
 
     [Fact]
@@ -40,8 +41,8 @@ public class TestAppDataDirTests
     {
         // Strictly greater-than, so the boundary falls on the safe side. An off-by-one here deletes
         // folders a day old, which is exactly the age a long-running CI agent's folder might be.
-        Check.That(TestAppDataDir.IsStale(Now - TestAppDataDir.StaleAfter, Now)).IsFalse();
-        Check.That(TestAppDataDir.IsStale(Now - TestAppDataDir.StaleAfter - TimeSpan.FromSeconds(1), Now))
+        Check.That(TempTestDirectory.IsStale(Now - TempTestDirectory.StaleAfter, Now)).IsFalse();
+        Check.That(TempTestDirectory.IsStale(Now - TempTestDirectory.StaleAfter - TimeSpan.FromSeconds(1), Now))
              .IsTrue();
     }
 
@@ -50,7 +51,7 @@ public class TestAppDataDirTests
     {
         // The litter this exists to remove: left by a run whose process was killed before its exit
         // handler could fire.
-        Check.That(TestAppDataDir.IsStale(Now.AddDays(-7), Now)).IsTrue();
+        Check.That(TempTestDirectory.IsStale(Now.AddDays(-7), Now)).IsTrue();
     }
 
     [Fact]
@@ -58,7 +59,7 @@ public class TestAppDataDirTests
     {
         // Clock skew on a shared CI volume, or a restored backup. Refusing to judge it is the safe
         // reading: a future timestamp is no evidence that the folder is abandoned.
-        Check.That(TestAppDataDir.IsStale(Now.AddDays(1), Now)).IsFalse();
+        Check.That(TempTestDirectory.IsStale(Now.AddDays(1), Now)).IsFalse();
     }
 
     [Fact]
@@ -66,14 +67,14 @@ public class TestAppDataDirTests
     {
         // The GUID is what makes parallel runs safe, so two calls must never collide — and the shared
         // root is what gives the sweep one place to look.
-        var a = TestAppDataDir.Create("selftest");
-        var b = TestAppDataDir.Create("selftest");
+        var a = TempTestDirectory.Create("selftest");
+        var b = TempTestDirectory.Create("selftest");
 
         Check.That(a).IsNotEqualTo(b);
         Check.That(Directory.Exists(a)).IsTrue();
         Check.That(Directory.Exists(b)).IsTrue();
 
-        var root = Path.Combine(Path.GetTempPath(), "eyectrl-tests");
+        var root = TempTestDirectory.Root;
         Check.That(Path.GetDirectoryName(a)).IsEqualTo(root);
         Check.That(Path.GetDirectoryName(b)).IsEqualTo(root);
     }

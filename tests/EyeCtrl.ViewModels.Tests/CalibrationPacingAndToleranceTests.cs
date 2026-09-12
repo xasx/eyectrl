@@ -5,6 +5,7 @@ using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.Tests.TestSupport;
 
 /// <summary>
 /// The spec-visible half of "what the user sees is what is enforced", covered headlessly.
@@ -44,8 +45,13 @@ public class CalibrationPacingAndToleranceTests
         SamplesPerPoint = 10,
     };
 
+    // One folder for the class, deleted at process exit and swept if a killed host leaves it — the
+    // same treatment as CalibrationViewModelTests, and for the same reason: a test that completes a
+    // calibration WRITES this file, so a bare %TEMP% path accumulates one per run forever.
+    private static readonly string CalibrationDir = TempTestDirectory.Create("viewmodels-pacing");
+
     private static string TempPath() => Path.Combine(
-        Path.GetTempPath(), "eyectrl-pacing-" + Guid.NewGuid().ToString("N") + ".json");
+        CalibrationDir, "cal-" + Guid.NewGuid().ToString("N") + ".json");
 
     private CalibrationViewModel CreateVm() => new(
         _settings, _service, _messenger, _provider, Screen, "test-monitor", TempPath());

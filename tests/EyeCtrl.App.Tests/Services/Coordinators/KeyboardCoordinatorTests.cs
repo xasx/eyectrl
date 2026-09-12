@@ -202,4 +202,35 @@ public class KeyboardCoordinatorTests
         Check.That(KeyboardCoordinator.ShouldShow(alreadyVisible: true)).IsFalse();
         Check.That(KeyboardCoordinator.ShouldShow(alreadyVisible: false)).IsTrue();
     }
+
+    // ---- Screen-edge flip (Keyboard ring action, Task 5) ------------------------------------
+    // The flip core behind HandleKeyboardEdgeToggled: a pure case-normalizing flip plus a
+    // persistable half that mutates settings, saves debounced, and refreshes the reload snapshot.
+
+    [Fact]
+    public void FlipScreenEdge_FlipsBothWays_AndNormalizesToCanonicalCase()
+    {
+        // Comparison is case-insensitive but the OUTPUT is canonical: validation is a
+        // case-sensitive membership test and the unguarded exit-time save turns a stray
+        // casing into an app crash (spec B1 2a).
+        Check.That(KeyboardCoordinator.FlipScreenEdge("Top")).IsEqualTo("Bottom");
+        Check.That(KeyboardCoordinator.FlipScreenEdge("Bottom")).IsEqualTo("Top");
+        Check.That(KeyboardCoordinator.FlipScreenEdge("top")).IsEqualTo("Bottom");
+        Check.That(KeyboardCoordinator.FlipScreenEdge("garbage")).IsEqualTo("Top");
+    }
+
+    [Fact]
+    public void ApplyKeyboardEdge_MutatesSettings_PersistsAndReturnsFreshSnapshot()
+    {
+        var settings = new EyeCtrlSettings { Keyboard = { ScreenEdge = "Bottom" } };
+        using var temp = new TempSettingsFile();
+
+        var (flipped, snapshot) = KeyboardCoordinator.ApplyKeyboardEdge(settings, temp.Service);
+
+        Check.That(flipped).IsEqualTo("Top");
+        Check.That(settings.Keyboard.ScreenEdge).IsEqualTo("Top");
+        // The phantom-rebuild guard (spec C5): the snapshot must reflect the write, or the
+        // next settings-apply rebuilds the whole keyboard + prediction stack for nothing.
+        Check.That(snapshot).IsEqualTo(KeyboardStackSnapshot.Capture(settings));
+    }
 }

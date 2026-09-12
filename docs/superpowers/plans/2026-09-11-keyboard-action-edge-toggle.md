@@ -77,8 +77,14 @@ Add after `Receive_ShowActionMenu_ScrollModeItemHasItsIcon`:
 [Fact]
 public void Receive_ShowActionMenu_KeyboardItemHasItsIconAndLabel()
 {
+    // Keyboard ships layer-2 by default (PrimaryActions keeps the four defaults), and a
+    // one-action message partitions it into the SECONDARY set — layer one would hold only
+    // the More target, and Items.Single() would return More (the trap the expected-map fact
+    // documents). Make it primary so Items.Single() is the action itself.
+    var settings = new EyeCtrlSettings();
+    settings.ActionMenu.PrimaryActions = new List<InteractionAction> { InteractionAction.Keyboard };
     var messenger = new WeakReferenceMessenger();
-    using var vm = new ActionMenuViewModel(new EyeCtrlSettings(), messenger);
+    using var vm = new ActionMenuViewModel(settings, messenger);
 
     messenger.Send(new ShowActionMenuMessage(
         new PhysicalPoint(500, 500),
@@ -295,15 +301,66 @@ After the `_primaryMigrated` field's property block (next to `MigratePrimaryOnce
         settings.ActionMenu.EnsureKeyboardActionOnce();
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 4: Update the four existing tests the new default breaks**
+
+Adding `Keyboard` to the default `VisibleActions` (layer 2 — not primary) changes what four
+existing facts see. All four edits belong in THIS task's commit:
+
+1. `tests/EyeCtrl.Core.Tests/Settings/ActionMenuSettingsPrimaryTests.cs:47-51` —
+   `SecondaryActions` `ContainsExactly(Drag, ScrollUp, ScrollDown, PinNote)` gains
+   `InteractionAction.Keyboard` appended LAST (the derived list preserves `VisibleActions`
+   order, and Keyboard is appended last there).
+2. `tests/EyeCtrl.ViewModels.Tests/ActionMenuViewModelLayerTests.cs:80-83` — the
+   second-layer action list `ContainsExactly(...)` likewise appends
+   `InteractionAction.Keyboard` last.
+3. `tests/EyeCtrl.ViewModels.Tests/ActionMenuViewModelLayerTests.cs:90-101` —
+   `TheSecondLayer_ReusesTheSameFiveSlots` asserts `layerTwoPositions
+   ContainsExactly(layerOnePositions)`. That symmetry premise is knowingly broken by the
+   5→6 growth (spec ledger #3): layer one is 5 slots (4 primary + More), layer two becomes
+   6 (5 actions + Back), and the angle step changes, so Back no longer lands where More
+   was. Rewrite the fact as a count + sanity guard, renaming it:
+
+```csharp
+    [Fact]
+    public void TheSecondLayer_GrowsToSixSlots_WithBackStillOnTheRing()
+    {
+        // Since the Keyboard action joined the default second layer (spec ledger #3), the
+        // layers hold different slot counts (5 vs 6) and the old "Back lands exactly where
+        // More was" symmetry is knowingly given up. Guard the weaker but still load-bearing
+        // property: every layer-two target is a real on-ring position and the Back target
+        // still exists.
+        var messenger = new WeakReferenceMessenger();
+        using var vm = new ActionMenuViewModel(Defaults(), messenger);
+        Show(messenger);
+
+        vm.ActivateForTest(vm.Items.Single(i => i.Kind == ActionMenuItemKind.OpenMore).Id);
+        var layerTwo = vm.Items.ToList();
+
+        Check.That(layerTwo).HasSize(6);
+        Check.That(layerTwo.Count(i => i.Kind == ActionMenuItemKind.BackToPrimary)).IsEqualTo(1);
+        Check.That(layerTwo.Select(i => i.Position)).ContainsOnlyElementsThatMatch(
+            p => !double.IsNaN(p.X) && !double.IsNaN(p.Y) && !double.IsInfinity(p.X) && !double.IsInfinity(p.Y));
+    }
+```
+
+(Reuse the file's existing `Defaults()` / `Show()` helpers; keep the original fact's
+`layerOne` extraction only if still needed.)
+
+4. `tests/EyeCtrl.ViewModels.Tests/ActionMenuViewModelLayerTests.cs:198` —
+   `itemsSeenByTheRedrawHandler` `IsEqualTo(5)` becomes `IsEqualTo(6)`.
+
+- [ ] **Step 5: Run tests to verify they pass**
 
 Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~ActionMenuSettings"`
-Expected: PASS (new class + all pre-existing migration facts).
+Expected: PASS (new class + all pre-existing migration facts, including the updated
+`SecondaryActions` fact). Then
+`dotnet test tests/EyeCtrl.ViewModels.Tests --filter "FullyQualifiedName~ActionMenuViewModelLayerTests"`
+Expected: PASS (updated facts).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/EyeCtrl.Core/Settings/ActionMenuSettings.cs src/EyeCtrl.App/App.xaml.cs tests/EyeCtrl.Core.Tests/Settings/ActionMenuSettingsMigrationTests.cs
+git add src/EyeCtrl.Core/Settings/ActionMenuSettings.cs src/EyeCtrl.App/App.xaml.cs tests/EyeCtrl.Core.Tests/Settings/ActionMenuSettingsMigrationTests.cs tests/EyeCtrl.Core.Tests/Settings/ActionMenuSettingsPrimaryTests.cs tests/EyeCtrl.ViewModels.Tests/ActionMenuViewModelLayerTests.cs
 git commit -m "feat(settings): Keyboard action on by default (layer 2) with one-shot migration"
 ```
 

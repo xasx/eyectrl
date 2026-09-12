@@ -51,4 +51,8 @@ public enum ActionIcon
     Help,
     /// <summary>An X — dismisses the menu without performing anything. Navigation, not an action.</summary>
     Close,
+    /// <summary>A keyboard with key rows and a space bar — the ring's show-keyboard action.</summary>
+    Keyboard,
+    /// <summary>A keyboard with up and down chevrons — flips the keyboard between screen edges.</summary>
+    KeyboardEdge,
 }

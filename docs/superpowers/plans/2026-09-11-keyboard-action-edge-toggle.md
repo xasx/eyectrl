@@ -556,6 +556,12 @@ Append to `KeyboardCoordinatorTests` (reuse the file's `TempSettingsFile` nested
     }
 ```
 
+Note: `ApplyKeyboardEdge` covers settings mutation, persistence, and the snapshot refresh.
+The spec's §6 line about asserting the explicit `SetScreenEdge` window call is a **recorded
+deviation**: the call lives in the Context-bound handler and touches a real `KeyboardWindow`,
+so it is not headless-assertable — it is covered by Task 10 review, Task 12's owner pass
+(flip moves the visible keyboard), and the flip handler code being four lines long.
+
 Note: if `EyeCtrlSettings.Keyboard` is not object-initializable inline, construct then assign: `var settings = new EyeCtrlSettings(); settings.Keyboard.ScreenEdge = "Bottom";` — follow whichever compiles.
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -676,6 +682,58 @@ Append to `ToolbarVisibilityAdapterTests` using the file's existing helpers (`En
 ```
 
 (If `ExposedDwellToolbarViewModel` differs in this file's latest form, reuse whatever VM helper the neighboring facts construct — the point is a real `ToolbarViewModel`.)
+
+Append a second UI fact for the spec's summoned-dwellability promise (spec §6): a toolbar
+that was hidden and then shown while the keyboard is up must accumulate dwell on its
+buttons (the messenger + `SetActive(true)` chain — spec B2 #3; `KeyboardVisible` must not
+gate it):
+
+```csharp
+    [StaFact]
+    [Trait("Category", "UI")]
+    public void SummonedToolbar_AccumulatesDwell_WhileKeyboardVisible()
+    {
+        EnsureApplicationWithTokens();
+
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ExposedDwellToolbarViewModel(settings, messenger);
+        var modal = new ModalInteractionState { KeyboardVisible = true };
+        var toolbar = new ToolbarWindow();
+        var indicator = new PauseIndicatorWindow();
+        var overlays = new FakeOverlayManager(toolbar, indicator);
+        var adapter = new ToolbarVisibilityAdapter(overlays, Dispatcher.CurrentDispatcher, vm);
+
+        var progress = new List<double>();
+        vm.DwellDetector.TargetProgress += (id, p) => progress.Add(p);
+
+        try
+        {
+            toolbar.Hide();
+            PumpDispatcher();
+            adapter.ShowToolbar();      // the summon transition — must reactivate dwell
+            PumpDispatcher();
+
+            vm.DwellDetector.AddTarget(new DwellTarget("Keyboard", new PhysicalPoint(100, 100),
+                radius: 50, dwellTimeMs: 1000));
+            vm.Receive(MakeGazeMessage(100, 100, 0));          // enter
+            vm.Receive(MakeGazeMessage(100, 100, 500_000));    // 50% of the dwell
+
+            Check.That(progress).HasElementThatMatches(p => p > 0.4);
+        }
+        finally
+        {
+            modal.KeyboardVisible = false;
+            toolbar.Close();
+            indicator.Close();
+        }
+    }
+```
+
+(Match the neighboring facts' exact helper signatures — `MakeGazeMessage` and the progress
+observation style in `HideToolbar_CallsSetActiveFalse_BeforeToolbarHide` are the models;
+if `DwellDetector.TargetProgress` is not subscribable on the exposed helper, observe
+progress the way that sibling fact does.)
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -861,7 +919,14 @@ internal static class KeyboardYield
 }
 ```
 
-`src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs` — add fields near `_screenEdge`:
+`src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs` — the window lives in
+`EyeCtrl.App.Overlays` and does not import `EyeCtrl.App.Services`; add to its using block:
+
+```csharp
+using EyeCtrl.App.Services;   // KeyboardYield
+```
+
+Add fields near `_screenEdge`:
 
 ```csharp
     // Toolbar occupancy for the yield (spec B3 #6): when the toolbar is on screen at this
@@ -1010,33 +1075,55 @@ git commit -m "feat(keyboard): yield wiring - toolbar transitions and show-time 
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `tests/EyeCtrl.App.Tests/Services/KeyboardEdgeButtonsTests.cs`:
+Create `tests/EyeCtrl.App.Tests/Services/KeyboardEdgeButtonsTests.cs` (model:
+`ActionMenuEdgeButtonsTests.cs` in the same folder — same usings). `DpiHelper` seeds at
+scale 1.0 and the pure overload multiplies through it, so the anchor facts pin 2.0 inside
+the `DpiHelper Tests (App)` collection exactly as `ScreenGeometryTests` does:
 
 ```csharp
 namespace EyeCtrl.App.Tests.Services;
 
+using System.Linq;
+using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 
+[Collection("DpiHelper Tests (App)")]
 public class KeyboardEdgeButtonsTests
 {
-    private const double Inset = KeyboardEdgeButtons.RightEdgeInsetLogical;
-    private const double Radius = 27;   // stand-in for UIConstants.ButtonRadius
-    private const double Margin = ScreenGeometry.EdgeButtonWindowMarginLogical;
+    public KeyboardEdgeButtonsTests()
+    {
+        DpiHelper.Initialize(1.0, 1.0);
+    }
 
     [Fact]
     public void Anchor_TracksTheKeyboardEdge_InsteadOfScreenCenter()
     {
         // Ledger #15 mechanism B: keyboard Top → anchor at 25% height; Bottom → 75%.
-        // Pure overload, 1920x1080 logical, 2.0 scale.
-        var top = ScreenGeometry.KeyboardEdgeBarAnchor(true, Radius, Margin, 1920, 1080);
-        var bottom = ScreenGeometry.KeyboardEdgeBarAnchor(false, Radius, Margin, 1920, 1080);
+        // Pinned at 2.0 scale (the ScreenGeometryTests pattern), 1920x1080 logical.
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var top = ScreenGeometry.KeyboardEdgeBarAnchor(
+                keyboardAtTop: true, logicalRadius: UIConstants.ButtonRadius,
+                logicalWindowMargin: ScreenGeometry.EdgeButtonWindowMarginLogical,
+                logicalScreenWidth: 1920, logicalScreenHeight: 1080);
+            var bottom = ScreenGeometry.KeyboardEdgeBarAnchor(
+                keyboardAtTop: false, logicalRadius: UIConstants.ButtonRadius,
+                logicalWindowMargin: ScreenGeometry.EdgeButtonWindowMarginLogical,
+                logicalScreenWidth: 1920, logicalScreenHeight: 1080);
 
-        Check.That(top.Y).IsEqualTo(2160 * 0.25);       // 540 physical
-        Check.That(bottom.Y).IsEqualTo(2160 * 0.75);    // 1620 physical
-        Check.That(top.X).IsEqualTo(3840 - (Inset + Radius + Margin) * 2);
+            // Y = (1080 * 2) * fraction; X = 3840 - (30 + 50 + 10) * 2 = 3660.
+            Check.That(top.Y).IsCloseTo(540.0, 1e-9);
+            Check.That(bottom.Y).IsCloseTo(1620.0, 1e-9);
+            Check.That(top.X).IsCloseTo(3660.0, 1e-9);
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
     }
 
     [Fact]
@@ -1089,7 +1176,9 @@ public class KeyboardEdgeButtonsTests
 }
 ```
 
-Note: `DpiHelper.LogicalToPhysicalX/Y` scale — if the test host's DPI is not 2.0 these numbers change; check how existing geometry tests handle it and follow them (they likely pin via the pure overload with known scale or the helper reads test DPI; adjust the expected constants to the helper's actual behavior — the invariant to protect is the 0.25/0.75 fractions and the edge offset arithmetic, not a specific scale).
+(The `DpiHelper Tests (App)` collection serializes these against any test that writes the
+scale; the ctor reset plus try/finally restore keep the ambient state at 1.0 for the
+non-anchor facts.)
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -1217,7 +1306,14 @@ git commit -m "feat(edge-bar): keyboard-tracking anchor + Close/Flip definitions
 
 - [ ] **Step 1: Implement**
 
-In `KeyboardCoordinator.OnInitialize`, register the flip message:
+`KeyboardCoordinator.cs` — `UIConstants` lives in `EyeCtrl.ViewModels`, which this file
+does not import; add to its using block:
+
+```csharp
+using EyeCtrl.ViewModels;   // UIConstants (edge-bar anchor radius)
+```
+
+In `OnInitialize`, register the flip message:
 
 ```csharp
         // Edge-bar Flip (spec B1/B4): flip, apply to the window, persist, refresh the
@@ -1241,8 +1337,21 @@ Add the lifecycle methods (near `SetKeyboardVisible`):
     private void ShowKeyboardEdgeBar()
     {
         if (Context is null) return;
+        var bar = Context.OverlayManager.EdgeButtonBar;
+
+        // Reverse-overlap guard (spec B4 #10, the OverlayMessageCoordinator hand-off dance):
+        // if the bar is currently showing ANOTHER context's definitions (scroll Stop, drag
+        // Cancel, the menu pair), do not clobber them — the keyboard stays closable via the
+        // toolbar Keyboard button until that context releases the bar. Skipping is safe in
+        // both directions: showing only when the bar is free-or-ours, hiding only when ours.
+        if (!ShouldShowKeyboardEdgeBar(bar.EdgeBarVm))
+        {
+            Log.Debug("Edge bar busy with another context's buttons; keyboard pair skipped");
+            return;
+        }
+
         var atTop = string.Equals(Context.Settings.Keyboard.ScreenEdge, "Top", StringComparison.OrdinalIgnoreCase);
-        Context.OverlayManager.EdgeButtonBar.ShowButtons(
+        bar.ShowButtons(
             KeyboardEdgeButtons.Definitions(Context.Settings.Dwell.KeyboardKeyDwellMs, atTop),
             ScreenGeometry.KeyboardEdgeBarAnchor(atTop, UIConstants.ButtonRadius));
     }
@@ -1253,10 +1362,25 @@ Add the lifecycle methods (near `SetKeyboardVisible`):
         // keyboard's definitions still own it, mirroring OverlayMessageCoordinator's
         // ActionMenu Close guard.
         var bar = Context?.OverlayManager.EdgeButtonBar;
-        if (bar?.EdgeBarVm?.DefinitionFor(KeyboardEdgeButtons.CloseId) is not null)
-            bar.Hide();
+        if (ShouldHideKeyboardEdgeBar(bar?.EdgeBarVm))
+            bar!.Hide();
     }
+
+    /// <summary>The bar is claimable for the keyboard pair when it holds no definitions at
+    /// all (the common case) or already ours (a flip rebuild).</summary>
+    internal static bool ShouldShowKeyboardEdgeBar(EdgeButtonBarViewModel? barVm) =>
+        barVm is null
+        || barVm.Buttons.Count == 0
+        || barVm.DefinitionFor(KeyboardEdgeButtons.CloseId) is not null;
+
+    /// <summary>The keyboard's hide may clear the bar only while the keyboard pair still
+    /// owns it — another context's stop/cancel buttons must survive.</summary>
+    internal static bool ShouldHideKeyboardEdgeBar(EdgeButtonBarViewModel? barVm) =>
+        barVm?.DefinitionFor(KeyboardEdgeButtons.CloseId) is not null;
 ```
+
+(`EdgeButtonBarViewModel` is `EyeCtrl.ViewModels` — covered by the using added above.
+`Log` is Serilog's static, already used in this file.)
 
 In `SetKeyboardVisible`'s `if (visible)` branch, after `ApplyInitialToolbarOccupancy();` (from Task 8):
 
@@ -1270,16 +1394,68 @@ In the `else` branch, before `Context.Messenger.Send(new HideKeyboardMessage());
             HideKeyboardEdgeBar();
 ```
 
-- [ ] **Step 2: Build + run coordinator + edge-button tests**
+- [ ] **Step 2: Write the failing guard tests**
+
+Append to `tests/EyeCtrl.App.Tests/Services/KeyboardEdgeButtonsTests.cs` (needs
+`using EyeCtrl.Core.Settings;` for `EyeCtrlSettings`):
+
+```csharp
+    [Fact]
+    public void GuardTests_KeyboardPairClaimsFreeBar_ButNeverClobbersOrClearsOthers()
+    {
+        // The shared-bar hand-off (spec B4 #10 / §6): show only when the bar is free or
+        // already ours; hide only while ours. Real EdgeButtonBarViewModel, no WPF windows.
+        var messenger = new WeakReferenceMessenger();
+        var settings = new EyeCtrlSettings();
+        var barVm = new EdgeButtonBarViewModel(settings, messenger);
+
+        // Free bar (no definitions): claimable.
+        Check.That(KeyboardCoordinator.ShouldShowKeyboardEdgeBar(barVm)).IsTrue();
+        Check.That(KeyboardCoordinator.ShouldHideKeyboardEdgeBar(barVm)).IsFalse();
+
+        // Our pair: re-claimable (flip rebuild) and clearable (keyboard hide).
+        barVm.ShowButtons(
+            KeyboardEdgeButtons.Definitions(600, keyboardAtTop: false),
+            new PhysicalPoint(1800, 800));
+        Check.That(KeyboardCoordinator.ShouldShowKeyboardEdgeBar(barVm)).IsTrue();
+        Check.That(KeyboardCoordinator.ShouldHideKeyboardEdgeBar(barVm)).IsTrue();
+
+        // Another context's button (scroll stop shape): never clobbered, never cleared.
+        barVm.ShowButtons(
+            new[] { new EdgeButtonDefinition(
+                "scroll_stop", Symbol: string.Empty, 600,
+                _ => { }, VerticalOffset: 0) },
+            new PhysicalPoint(1800, 800));
+        Check.That(KeyboardCoordinator.ShouldShowKeyboardEdgeBar(barVm)).IsFalse();
+        Check.That(KeyboardCoordinator.ShouldHideKeyboardEdgeBar(barVm)).IsFalse();
+
+        // Hidden bar (Hide clears everything): claimable again.
+        barVm.Hide();
+        Check.That(KeyboardCoordinator.ShouldShowKeyboardEdgeBar(barVm)).IsTrue();
+        Check.That(KeyboardCoordinator.ShouldHideKeyboardEdgeBar(barVm)).IsFalse();
+
+        // Null-tolerant (window not constructed).
+        Check.That(KeyboardCoordinator.ShouldShowKeyboardEdgeBar(null)).IsTrue();
+        Check.That(KeyboardCoordinator.ShouldHideKeyboardEdgeBar(null)).IsFalse();
+    }
+```
+
+- [ ] **Step 3: Run tests**
+
+Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~KeyboardEdgeButtonsTests"`
+Expected: guard fact PASS after Step 1's seams exist (write the guard test first if you
+prefer strict red-green — it fails to compile against the pre-Task-10 coordinator).
+
+- [ ] **Step 4: Build + run coordinator + edge-button tests**
 
 Run: `dotnet build EyeCtrl.slnx`, then `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~KeyboardCoordinatorTests"` and `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~KeyboardEdgeButtonsTests"`
 Expected: all PASS.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add src/EyeCtrl.App/Services/Coordinators/KeyboardCoordinator.cs
-git commit -m "feat(keyboard): edge-bar lifecycle - shows with keyboard, rebuilds on flip, guarded hide"
+git add src/EyeCtrl.App/Services/Coordinators/KeyboardCoordinator.cs tests/EyeCtrl.App.Tests/Services/KeyboardEdgeButtonsTests.cs
+git commit -m "feat(keyboard): edge-bar lifecycle - shows with keyboard, rebuilds on flip, guarded hand-off"
 ```
 
 ---
@@ -1327,27 +1503,23 @@ Replace `ApplyModalKeyboardState_FansOutToBothControllers_AndTheSharedFlag` (Key
         keyboard.ApplyModalKeyboardState(true);
         Check.That(modal.KeyboardVisible).IsTrue();
         Check.That(quickActions.IsSummonSuspended).IsTrue();
-        Check.That(autoHide.IsSuspendedForTesting()).IsFalse();
+        Check.That(autoHide.IsSuspended).IsFalse();
 
         keyboard.ApplyModalKeyboardState(false);
         Check.That(modal.KeyboardVisible).IsFalse();
         Check.That(quickActions.IsSummonSuspended).IsFalse();
-        Check.That(autoHide.IsSuspendedForTesting()).IsFalse();
+        Check.That(autoHide.IsSuspended).IsFalse();
     }
 ```
 
-Note: if `ToolbarAutoHideController` exposes no `IsSuspendedForTesting`, add this to it (next to `SetSuspended`):
-
-```csharp
-    /// <summary>Test seam for the un-pin contract (spec B2): the keyboard path must never
-    /// suspend the controller again — the settings-window path still does.</summary>
-    internal bool IsSuspendedForTesting() => _suspended;
-```
+(`ToolbarAutoHideController` already exposes `internal bool IsSuspended => _suspended;`
+at ToolbarAutoHideController.cs:88 — use it; no new seam needed.)
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ApplyModalKeyboardState"`
-Expected: FAIL on `autoHide.IsSuspendedForTesting()` — after `ApplyModalKeyboardState(true)` the controller IS still suspended (production code unchanged yet).
+Expected: FAIL on the first `autoHide.IsSuspended` assertion — with production unchanged,
+`ApplyModalKeyboardState(true)` still suspends the controller.
 
 - [ ] **Step 3: Implement**
 

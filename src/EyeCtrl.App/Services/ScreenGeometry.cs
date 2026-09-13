@@ -49,4 +49,32 @@ internal static class ScreenGeometry
         var h = DpiHelper.LogicalToPhysicalY(logicalScreenHeight);
         return new PhysicalPoint(w - DpiHelper.LogicalToPhysicalX(rightOffsetLogical), h / 2.0);
     }
+
+    /// <summary>
+    /// Anchor for the keyboard's edge-bar pair, tracking the keyboard's edge (spec ledger #15,
+    /// mechanism B): keyboard Top → 25% of screen height, Bottom → 75%. Same right-edge inset
+    /// arithmetic as <see cref="RightEdgeAnchor"/>, only the vertical position differs.
+    /// </summary>
+    public static PhysicalPoint KeyboardEdgeBarAnchor(
+        bool keyboardAtTop,
+        double logicalRadius,
+        double logicalWindowMargin = EdgeButtonWindowMarginLogical)
+        => KeyboardEdgeBarAnchor(
+            keyboardAtTop, logicalRadius, logicalWindowMargin,
+            SystemParameters.PrimaryScreenWidth, SystemParameters.PrimaryScreenHeight);
+
+    /// <summary>Pure-arithmetic overload, exposed for the same reason as RightEdgeAnchor's.</summary>
+    internal static PhysicalPoint KeyboardEdgeBarAnchor(
+        bool keyboardAtTop,
+        double logicalRadius,
+        double logicalWindowMargin,
+        double logicalScreenWidth,
+        double logicalScreenHeight)
+    {
+        var fraction = keyboardAtTop ? 0.25 : 0.75;
+        var w = DpiHelper.LogicalToPhysicalX(logicalScreenWidth);
+        var h = DpiHelper.LogicalToPhysicalY(logicalScreenHeight);
+        var rightOffsetLogical = KeyboardEdgeButtons.RightEdgeInsetLogical + logicalRadius + logicalWindowMargin;
+        return new PhysicalPoint(w - DpiHelper.LogicalToPhysicalX(rightOffsetLogical), h * fraction);
+    }
 }

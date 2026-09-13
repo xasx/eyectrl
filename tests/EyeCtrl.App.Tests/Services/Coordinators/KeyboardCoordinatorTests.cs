@@ -231,4 +231,21 @@ public class KeyboardCoordinatorTests
         // next settings-apply rebuilds the whole keyboard + prediction stack for nothing.
         Check.That(snapshot).IsEqualTo(KeyboardStackSnapshot.Capture(settings));
     }
+
+    [Fact]
+    public void ToolbarOccupancyFor_MapsVisibilityDockingAndExtent()
+    {
+        // The yield's input mapping (spec B3 #6/#7, ledger #8): the toolbar occupies the
+        // keyboard's edge only when the adapter says visible AND the window is on screen,
+        // and only a docked toolbar HAS an edge — undocked maps to "none", which no
+        // keyboard edge matches in KeyboardYield.
+        Check.That(KeyboardCoordinator.ToolbarOccupancyFor(false, true, true, "bottom", 40))
+            .IsEqualTo((false, "none", 0.0));
+        Check.That(KeyboardCoordinator.ToolbarOccupancyFor(true, false, true, "bottom", 40))
+            .IsEqualTo((false, "none", 0.0));
+        Check.That(KeyboardCoordinator.ToolbarOccupancyFor(true, true, false, "left", 132))
+            .IsEqualTo((true, "none", 132.0));
+        Check.That(KeyboardCoordinator.ToolbarOccupancyFor(true, true, true, "bottom", 132))
+            .IsEqualTo((true, "bottom", 132.0));
+    }
 }

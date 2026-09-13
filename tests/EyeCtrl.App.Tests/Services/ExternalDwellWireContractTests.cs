@@ -38,8 +38,23 @@ public class ExternalDwellWireContractTests
 {
     private readonly string _pipeName = ExternalDwellService.DefaultPipeName + "_test_" + Guid.NewGuid().ToString("N");
 
-    private static GazeEngine NewGazeEngine(StubGazeProvider provider) =>
-        new(provider, new StubInputSimulator(), new EyeCtrlSettings());
+    // Direct (unsmoothed), deliberately. These tests pin the WIRE CONTRACT: that an id, a rect and an
+    // hwnd survive the round trip and that dwell timing works through the pipe. They express that by
+    // raising two synthetic samples 400-800 ms apart at an exact screen position and expecting the
+    // server to see that position — which silently assumed the gaze filter was a pass-through.
+    //
+    // It was: at the pre-Stage-3 defaults a jump of any size drove the adaptive cutoff so high that
+    // alpha reached ~1 and the raw sample came straight back out. That is the pathology the retune
+    // removed, so the retuned filter now needs ~3 samples to cross a large jump and the 2-sample
+    // stimulus lands the filtered point nowhere near the rect. Pinning the filter to Direct removes the
+    // coupling rather than papering over it: nothing in this file is about smoothing, and a protocol
+    // test that only passes while the filter refuses to filter is testing the wrong thing.
+    private static GazeEngine NewGazeEngine(StubGazeProvider provider)
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Cursor.FilterMode = GazeFilterMode.Direct;
+        return new GazeEngine(provider, new StubInputSimulator(), settings);
+    }
 
     private ExternalDwellService NewService(GazeEngine engine, Func<PhysicalPoint, long?> root,
         ExternalDwellSettings settings) =>

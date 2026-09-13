@@ -10,6 +10,11 @@ using EyeCtrl.Core.Settings;
 /// the effective parameter must behave exactly like the same value set as the baseline, and Direct — which
 /// has no smoothing parameter — must ignore it. Verified by step-response differentials (no filter
 /// internals), with beta pinned to 0 on One-Euro so cutoff == minCutoff at every speed.
+/// <para>
+/// The step is a 10 px one. Anything larger trips the retuned One-Euro's jump detector, which runs at
+/// the sample-rate cutoff cap no matter what minCutoff says — so a big step makes every One-Euro
+/// candidate answer identically and the differentials below stop distinguishing anything.
+/// </para>
 /// </summary>
 public class GazeFilterFactoryEffectiveParameterTests
 {
@@ -24,8 +29,10 @@ public class GazeFilterFactoryEffectiveParameterTests
     [Fact]
     public void Create_OneEuro_NullParameter_EqualsTheBaselineComposition()
     {
+        // Read the default rather than restating it: the Stage 3 retune moved it (5.0 → 1.5), and a
+        // literal here would have turned a default change into a failure of the null-parameter contract.
         Check.That(OneEuroStepX(effectiveMinCutoff: null))
-            .IsEqualTo(OneEuroStepX(effectiveMinCutoff: 5.0));
+            .IsEqualTo(OneEuroStepX(effectiveMinCutoff: new CursorSettings().OneEuroMinCutoff));
     }
 
     [Fact]
@@ -50,10 +57,10 @@ public class GazeFilterFactoryEffectiveParameterTests
         Check.That(GazeFilterFactory.Create(settings, 0.1)).IsInstanceOf<DirectFilter>();
     }
 
-    // 12 steady samples at (500,500), then one step to x=600; the step sample's filtered X is the response.
+    // 12 steady samples at (500,500), then one step to x=510; the step sample's filtered X is the response.
     private static double OneEuroStepX(double? effectiveMinCutoff)
     {
-        var settings = new CursorSettings { FilterMode = GazeFilterMode.OneEuro, OneEuroBeta = 0.0 };
+        var settings = new CursorSettings { FilterMode = GazeFilterMode.OneEuro, OneEuroBetaPerDiagonal = 0.0 };
         return StepX(GazeFilterFactory.Create(settings, effectiveMinCutoff));
     }
 
@@ -68,6 +75,6 @@ public class GazeFilterFactoryEffectiveParameterTests
         long ts = 0;
         for (int i = 0; i < 12; i++, ts += 33_000)
             filter.Filter(new GazePoint(500, 500, ts, true));
-        return filter.Filter(new GazePoint(600, 500, ts, true)).X;
+        return filter.Filter(new GazePoint(510, 500, ts, true)).X;
     }
 }

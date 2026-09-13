@@ -10,12 +10,52 @@ public partial class CursorSettings : ObservableObject, IValidatable
     [ObservableProperty] private GazeFilterMode _filterMode = GazeFilterMode.OneEuro;
     /// <summary>Smoothing factor for the EMA filter. 0 = maximum smoothing, 1 = no filtering (higher = more responsive, less smoothing). Valid range: 0–1.</summary>
     [ObservableProperty] private double _smoothingFactor = 0.5;
-    /// <summary>Minimum cutoff frequency in Hz for the 1€ filter. Lower values produce more smoothing. Valid range: 0.1–20.</summary>
-    [ObservableProperty] private double _oneEuroMinCutoff = 5.0;
-    /// <summary>Speed coefficient (beta) for the 1€ filter. Controls responsiveness to rapid movements. Valid range: 0–5.</summary>
-    [ObservableProperty] private double _oneEuroBeta = 0.5;
+    /// <summary>
+    /// Minimum cutoff frequency in Hz for the 1€ filter — the cutoff at rest. Lower values produce more
+    /// smoothing. Valid range: 0.1–20.
+    ///
+    /// Default 1.5, lowered from 5.0 in the Stage 3 filter retune. At the PCEye 5's ~33 Hz a one-pole
+    /// filter attenuates white noise by ~43 % at 5 Hz and ~65 % at 1.5 Hz, for ~32 ms and ~106 ms of lag
+    /// at rest respectively. Spending that lag is affordable because it is only paid AT REST: a saccade
+    /// takes the jump-detector path, which is unaffected by this value.
+    /// </summary>
+    [ObservableProperty] private double _oneEuroMinCutoff = 1.5;
+    /// <summary>
+    /// Speed coefficient (beta) for the 1€ filter: Hz of additional cutoff per
+    /// <see cref="Processing.OneEuroFilter.SpeedNormalizationPixels"/> pixels per second of filtered
+    /// speed. Valid range: 0–60.
+    ///
+    /// Renamed and rescaled in the Stage 3 retune. It was previously <c>OneEuroBeta</c> in Hz per PIXEL
+    /// per second, where the right answer was ~0.01 and the shipped default was 0.5. The rename is
+    /// load-bearing: the persisted JSON key is the migration's only durable marker for "this profile
+    /// still holds a pixel-unit value", and any code still reading the old name fails to compile rather
+    /// than silently reading a number that is now 2000x off.
+    /// </summary>
+    [ObservableProperty] private double _oneEuroBetaPerDiagonal = 20.0;
     /// <summary>Maximum gap in milliseconds to interpolate between missing gaze samples. Valid range: 0–500.</summary>
     [ObservableProperty] private int _maxGapInterpolationMs = 150;
+    /// <summary>
+    /// Radius in pixels of the cursor stabiliser's hysteretic deadband: gaze movement smaller than this
+    /// leaves the published point exactly where it is. 0 disables it.
+    ///
+    /// Clamped at READ time (<c>SettingsService.Load</c>) to 0–15, and deliberately absent from
+    /// <see cref="Validate"/>: a <c>Validate()</c> range on a NEW setting discards the user's ENTIRE
+    /// settings file the first time any profile carries an out-of-range value, which punishes exactly
+    /// the hand-editors the range was meant to protect.
+    ///
+    /// The stabiliser that consumes this is not implemented yet (Stage 3 ticket 4); the setting ships
+    /// with the migration so that the profile does not need a second one later.
+    /// </summary>
+    [ObservableProperty] private double _deadbandRadiusPx = 4.5;
+    /// <summary>
+    /// Consecutive samples outside the deadband required before the stabiliser releases, for excursions
+    /// short of an obvious saccade (which releases immediately). 2 discards isolated single-sample
+    /// outliers — the excursion class that destroys accumulated dwell progress — for 1 sample of delay
+    /// on a marginal release only.
+    ///
+    /// Clamped at read time to 1–5; see <see cref="DeadbandRadiusPx"/> for why not in <see cref="Validate"/>.
+    /// </summary>
+    [ObservableProperty] private int _deadbandConfirmSamples = 2;
     /// <summary>Hex color of the gaze cursor circle (e.g., "#A5F3FC").</summary>
     [ObservableProperty] private string _circleColor = SettingsDefaults.Accent;
     /// <summary>
@@ -70,13 +110,13 @@ public partial class CursorSettings : ObservableObject, IValidatable
                 $"{nameof(OneEuroMinCutoff)} must be between 0.1 and 20");
     }
 
-    partial void OnOneEuroBetaChanging(double value)
+    partial void OnOneEuroBetaPerDiagonalChanging(double value)
     {
-        if (value < 0.0 || value > 5.0)
+        if (value < 0.0 || value > 60.0)
             throw new ArgumentOutOfRangeException(
                 nameof(value),
                 value,
-                $"{nameof(OneEuroBeta)} must be between 0 and 5");
+                $"{nameof(OneEuroBetaPerDiagonal)} must be between 0 and 60");
     }
 
     partial void OnMaxGapInterpolationMsChanging(int value)
@@ -130,7 +170,9 @@ public partial class CursorSettings : ObservableObject, IValidatable
         return ValidationHelper.CollectErrors(
             ValidationHelper.ValidateRange(SmoothingFactor, 0.0, 1.0, nameof(SmoothingFactor)),
             ValidationHelper.ValidateRange(OneEuroMinCutoff, 0.1, 20.0, nameof(OneEuroMinCutoff)),
-            ValidationHelper.ValidateRange(OneEuroBeta, 0.0, 5.0, nameof(OneEuroBeta)),
+            ValidationHelper.ValidateRange(OneEuroBetaPerDiagonal, 0.0, 60.0, nameof(OneEuroBetaPerDiagonal)),
+            // DeadbandRadiusPx / DeadbandConfirmSamples are deliberately NOT here — read-time clamps
+            // only. See their XML docs: a Validate() range on a new setting is a whole-file wipe.
             ValidationHelper.ValidateRange(MaxGapInterpolationMs, 0, 500, nameof(MaxGapInterpolationMs)),
             ValidationHelper.ValidateHexColor(CircleColor, nameof(CircleColor)),
             ValidationHelper.ValidateRange(CircleOpacity, 0.0, 1.0, nameof(CircleOpacity)),

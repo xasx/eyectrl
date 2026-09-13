@@ -50,9 +50,26 @@ public static class ReplayPipeline
     /// <param name="MaxGapMs">The <c>MaxGapInterpolationMs</c> this candidate runs with.</param>
     public sealed record Candidate(string Name, Func<IGazeFilter> CreateFilter, int MaxGapMs = 150);
 
-    /// <summary>The pipeline as shipped today: One-Euro at the current defaults, 150 ms gap budget.</summary>
+    /// <summary>
+    /// The pipeline as it shipped BEFORE the Stage 3 retune: <see cref="LegacyOneEuroFilter"/> at
+    /// minCutoff 5.0 / pixel-unit beta 0.5, 150 ms gap budget. The "before" half of every comparison.
+    /// <para>
+    /// Deliberately pinned to the frozen legacy implementation rather than to <c>new OneEuroFilter()</c>:
+    /// a baseline that tracks the production filter is not a baseline, and every characterisation number
+    /// recorded against it would move with the thing it is supposed to be measuring.
+    /// </para>
+    /// </summary>
     public static Candidate Baseline { get; } = new(
-        "baseline (OneEuro minCutoff 5.0 / beta 0.5)",
+        "baseline (legacy OneEuro minCutoff 5.0 / beta 0.5 px-units)",
+        () => new LegacyOneEuroFilter(),
+        MaxGapMs: 150);
+
+    /// <summary>
+    /// The Stage 3 candidate: the retuned <see cref="OneEuroFilter"/> at the new shipped defaults
+    /// (minCutoff 1.5 Hz, beta 20 Hz per screen-diagonal/s). The "after" half of every comparison.
+    /// </summary>
+    public static Candidate Retuned { get; } = new(
+        "retuned (OneEuro minCutoff 1.5 / beta 20 per-diagonal)",
         () => new OneEuroFilter(),
         MaxGapMs: 150);
 

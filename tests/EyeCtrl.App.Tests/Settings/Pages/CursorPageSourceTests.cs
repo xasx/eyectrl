@@ -101,7 +101,24 @@ public class CursorPageSourceTests
         Check.That(sliders["c_euro_cutoff"].Min).IsEqualTo(0.1);
         Check.That(sliders["c_euro_cutoff"].Max).IsEqualTo(20.0);
         Check.That(sliders["c_euro_beta"].Min).IsEqualTo(0.0);
-        Check.That(sliders["c_euro_beta"].Max).IsEqualTo(5.0);
+        Check.That(sliders["c_euro_beta"].Max).IsEqualTo(60.0);
+        // Reachability, which is what the old spec FAILED and no test caught: the pixel-unit beta
+        // slider ran 0–5 by 0.1 while the correct value was ~0.01, so the only useful position on the
+        // whole control was exactly 0 — tuning the shipped default was not possible through the UI at
+        // all. Both One-Euro defaults must now be positions the slider can actually land on.
+        var defaults = new CursorSettings();
+        Check.That(defaults.OneEuroBetaPerDiagonal).IsEqualTo(20.0);
+        Check.That(defaults.OneEuroMinCutoff).IsEqualTo(1.5);
+        CheckReachable(sliders["c_euro_beta"], defaults.OneEuroBetaPerDiagonal);
+        CheckReachable(sliders["c_euro_cutoff"], defaults.OneEuroMinCutoff);
+
+        static void CheckReachable(SliderSpec slider, double value)
+        {
+            Check.That(value).IsGreaterOrEqualThan(slider.Min);
+            Check.That(value).IsLessOrEqualThan(slider.Max);
+            double steps = (value - slider.Min) / slider.Step;
+            Check.That(Math.Abs(steps - Math.Round(steps))).IsStrictlyLessThan(1e-6);
+        }
     }
 
     [Fact]
@@ -112,7 +129,9 @@ public class CursorPageSourceTests
         settings.Cursor.PositionIndicatorStyle = PositionIndicatorStyle.Pin;
         settings.Cursor.CircleSize = 400;
         settings.Cursor.OneEuroMinCutoff = 12;
-        settings.Cursor.OneEuroBeta = 3;
+        settings.Cursor.OneEuroBetaPerDiagonal = 3;
+        settings.Cursor.DeadbandRadiusPx = 11;
+        settings.Cursor.DeadbandConfirmSamples = 4;
         var source = new CursorPageSource(
             TestSettingsPageContext.Build(settings, showModal: (_, act) => act()));
         source.Build().SelectMany(p => p.Rows).OfType<ButtonSpec>().Single(b => b.Id == "c_reset").OnActivate();
@@ -121,7 +140,11 @@ public class CursorPageSourceTests
         Check.That(settings.Cursor.PositionIndicatorStyle).IsEqualTo(d.PositionIndicatorStyle);
         Check.That(settings.Cursor.CircleSize).IsEqualTo(d.CircleSize);
         Check.That(settings.Cursor.OneEuroMinCutoff).IsEqualTo(d.OneEuroMinCutoff);
-        Check.That(settings.Cursor.OneEuroBeta).IsEqualTo(d.OneEuroBeta);
+        Check.That(settings.Cursor.OneEuroBetaPerDiagonal).IsEqualTo(d.OneEuroBetaPerDiagonal);
+        // The deadband knobs have no slider of their own, which makes them exactly the kind of setting
+        // a reset quietly forgets.
+        Check.That(settings.Cursor.DeadbandRadiusPx).IsEqualTo(d.DeadbandRadiusPx);
+        Check.That(settings.Cursor.DeadbandConfirmSamples).IsEqualTo(d.DeadbandConfirmSamples);
     }
 
     [Fact]

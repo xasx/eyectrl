@@ -64,7 +64,12 @@ public class GazeEngineFilterRecreationTests
         // to the maximum-smoothing floor must lag a step MORE than an identical engine left at the
         // default cutoff. If the trigger were reverted, both engines would behave identically and the
         // strict inequality would fail. Beta is pinned to 0 so cutoff == minCutoff (no speed
-        // adaptation to wash out the difference). OneEuroBeta rides the same rebuild path.
+        // adaptation to wash out the difference). OneEuroBetaPerDiagonal rides the same rebuild path.
+        //
+        // The step below is 10 px, not the 100 px used before the Stage 3 retune: a 100 px step now
+        // trips the jump detector, which by design runs at the cutoff cap and is blind to minCutoff, so
+        // both engines would return the same number and the test would fail for a reason unrelated to
+        // the rebuild trigger it guards.
         double defaultCutoff = StepAfterOptionalChange(newMinCutoff: null);
         double heavySmoothing = StepAfterOptionalChange(newMinCutoff: 0.1); // 0.1 Hz = CursorSettings floor
 
@@ -74,7 +79,7 @@ public class GazeEngineFilterRecreationTests
         {
             var settings = new EyeCtrlSettings();
             settings.Cursor.FilterMode = GazeFilterMode.OneEuro;
-            settings.Cursor.OneEuroBeta = 0.0; // cutoff == minCutoff: isolate the parameter under test
+            settings.Cursor.OneEuroBetaPerDiagonal = 0.0; // cutoff == minCutoff: isolate the parameter under test
 
             var provider = new TestGazeProvider();
             var engine = new GazeEngine(provider, new TestInputSimulator(), settings);
@@ -87,7 +92,7 @@ public class GazeEngineFilterRecreationTests
             if (newMinCutoff is { } cutoff)
                 settings.Cursor.OneEuroMinCutoff = cutoff; // the runtime change under test (rebuild + warm-start)
 
-            provider.SimulateGaze(600, 500, ts); // step right; filtered X reflects the ACTIVE smoothing
+            provider.SimulateGaze(510, 500, ts); // step right; filtered X reflects the ACTIVE smoothing
             return lastX;
         }
     }

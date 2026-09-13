@@ -82,6 +82,21 @@ public sealed class GapInterpolator
         // Carried too, or a rebuild in the middle of a long gap would silently restart the tail as
         // "never seen data" and hand the frozen point back to the fixation detector.
         _sequenceBrokenByGap = other._sequenceBrokenByGap;
+
+        // Learned filter state is carried across the rebuild for the same reason the position is: a
+        // settings change does not make the tracker quieter or noisier, and a fresh One-Euro would judge
+        // the very next sample against its bare jump floor.
+        //
+        // Deliberately expressed against IGazeFilterStateAdopter and NOT against a concrete filter type.
+        // A type test for OneEuroFilter reads correctly today and breaks the day the pipeline gains a
+        // decorator — which the Stage 3 median prefilter is planned as — because the decorator is not a
+        // OneEuroFilter and the test simply goes false. Nothing throws, nothing fails, and the fix this
+        // line exists to deliver quietly stops happening. See IGazeFilterStateAdopter for the forwarding
+        // contract decorators owe, and GazeFilterCompositionTests for the guard that enforces it.
+        //
+        // A mode switch (EMA or Direct on either side) has nothing to hand over and correctly starts clean.
+        if (_filter is IGazeFilterStateAdopter incoming)
+            incoming.AdoptState((other._filter as IGazeFilterStateAdopter)?.CaptureState());
     }
 
     /// <summary>

@@ -137,8 +137,8 @@ public static class ActionIcons
         [ActionIcon.Back] = IconGeometry.FromPathData(
             "M10,5.5 L4.5,11 L10,16.5 M4.5,11 L14.5,11 A5,5 0 0 1 19.5,16 L19.5,19"),
 
-        // Fill-only: three dots, the one icon in the set that is not a mouse. More is navigation,
-        // and drawing it as a mouse would say it performs a click.
+        // Fill-only: three dots. More is one of the set's three non-mouse icons (see the class
+        // doc): navigation, and drawing it as a mouse would say it performs a click.
         [ActionIcon.More] = IconGeometry.FromPathData(null,
             "M3.7,12 A1.9,1.9 0 1 1 7.5,12 A1.9,1.9 0 1 1 3.7,12 Z"
             + " M10.1,12 A1.9,1.9 0 1 1 13.9,12 A1.9,1.9 0 1 1 10.1,12 Z"

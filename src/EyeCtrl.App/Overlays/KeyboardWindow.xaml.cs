@@ -188,10 +188,12 @@ public partial class KeyboardWindow : OverlayWindow
     {
         if (ActualWidth <= 0 || ActualHeight <= 0) return;
 
-        var edge = string.Equals(_screenEdge, "top", StringComparison.OrdinalIgnoreCase) ? "top" : "bottom";
-        (Left, Top) = OverlayPositioning.PlaceAtEdge(SystemParameters.WorkArea, edge, ActualWidth, ActualHeight);
-
+        // One read: the yield clamp and the placement must be measured against the SAME
+        // work-area snapshot, not two reads of a property that can change mid-call.
         var work = SystemParameters.WorkArea;
+        var edge = string.Equals(_screenEdge, "top", StringComparison.OrdinalIgnoreCase) ? "top" : "bottom";
+        (Left, Top) = OverlayPositioning.PlaceAtEdge(work, edge, ActualWidth, ActualHeight);
+
         Top += KeyboardYield.VerticalOffset(
             edge, _toolbarOccupied, _toolbarEdge, _toolbarExtentDip,
             Top, ActualHeight, work.Top, work.Bottom);

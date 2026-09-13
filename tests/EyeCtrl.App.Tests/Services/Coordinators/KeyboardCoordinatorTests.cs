@@ -218,7 +218,7 @@ public class KeyboardCoordinatorTests
     }
 
     [Fact]
-    public void ApplyKeyboardEdge_MutatesSettings_PersistsAndReturnsFreshSnapshot()
+    public void ApplyKeyboardEdge_MutatesSettings_AndReturnsFreshSnapshot()
     {
         var settings = new EyeCtrlSettings { Keyboard = { ScreenEdge = "Bottom" } };
         using var temp = new TempSettingsFile();

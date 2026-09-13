@@ -119,7 +119,7 @@ public class SettingsService
         try
         {
             var json = File.ReadAllText(_filePath);
-            var migratedJson = MigrateDragActions(json);
+            var migratedJson = MigrateCursorFilterUnits(MigrateDragActions(json));
             if (!ReferenceEquals(json, migratedJson))
             {
                 // Atomic, like Save: this is a write during startup, and a torn one would leave the
@@ -145,6 +145,7 @@ public class SettingsService
             // hand-edited file holding an out-of-range value must clamp, not trip the whole-file
             // default below — the file-wipe path punishes exactly the hand-editors the UI serves.
             ClampGazeIndicator(settings.ManualSelection);
+            ClampCursorFilter(settings.Cursor);
 
             // Validate loaded settings
             var validationErrors = settings.Validate();
@@ -183,6 +184,19 @@ public class SettingsService
         {
             _logger?.LogInformation("Clamped out-of-range gaze-indicator settings to their valid ranges.");
         }
+    }
+
+    // The Stage 3 deadband knobs have no setter guard and no Validate() entry on purpose (see their XML
+    // docs), so this is the ONLY thing standing between a hand-edited value and the stabiliser. Clamping
+    // rather than rejecting is the whole design: Load answers a validation error by discarding the user's
+    // entire settings file, and a brand-new setting is the likeliest one to be typed wrong.
+    private void ClampCursorFilter(CursorSettings cursor)
+    {
+        var (radius, confirm) = (cursor.DeadbandRadiusPx, cursor.DeadbandConfirmSamples);
+        cursor.DeadbandRadiusPx = Math.Clamp(radius, 0.0, 15.0);
+        cursor.DeadbandConfirmSamples = Math.Clamp(confirm, 1, 5);
+        if (cursor.DeadbandRadiusPx != radius || cursor.DeadbandConfirmSamples != confirm)
+            _logger?.LogInformation("Clamped out-of-range cursor deadband settings to their valid ranges.");
     }
 
     /// <summary>
@@ -278,6 +292,81 @@ public class SettingsService
         if (onDiskSupervision != null)
             incoming[SupervisionSectionName] = onDiskSupervision.DeepClone();
         return incoming.ToJsonString(JsonOptions);
+    }
+
+    // ── Stage 3 filter retune migration ──────────────────────────────────────────────────────────
+    //
+    // WHY a migration is needed at all: Load deserialises straight onto the object graph, so a changed
+    // default is invisible to every profile that already has the old one written out — and every profile
+    // does, because Save serialises the whole object. Without this entry the retune would ship inert on
+    // the one machine it was designed for.
+    //
+    // THE DETECTION RULE, and its two halves:
+    //
+    //   beta — the JSON key itself is the marker. The pixel-unit value lived under "oneEuroBeta"; the
+    //   rescaled one lives under "oneEuroBetaPerDiagonal". Presence of the old key means "not yet
+    //   migrated", which is durable, unambiguous and idempotent — unlike a value test, which would
+    //   re-migrate a user who later dials the new beta down into the old key's range.
+    //
+    //   minCutoff — no key change is possible (the units are still Hz), so the rule is value-based:
+    //   exactly the old default 5.0 means "never touched", anything else is the user's and is kept. It
+    //   rides the beta key's marker, so it also runs exactly once. The known cost is a user who
+    //   deliberately chose 5.0 and gets moved to 1.5; that is the trade the ticket asks for, and 5.0 was
+    //   a bad value for everyone on this hardware.
+    //
+    // A user-changed beta is CONVERTED, not kept: the units changed underneath it, so preserving the
+    // number would silently change the behaviour, while preserving the behaviour is what "preserve the
+    // value the user chose" has to mean. The conversion is clamped into the new validated range here,
+    // because a persisted out-of-range value makes the [ObservableProperty] setter throw during
+    // deserialisation — which Load answers by discarding the whole file.
+    private const string LegacyBetaKey = "oneEuroBeta";
+    private const string BetaKey = "oneEuroBetaPerDiagonal";
+    private const string MinCutoffKey = "oneEuroMinCutoff";
+    private const string CursorSectionName = "cursor";
+    // Both are exactly representable as doubles, so == against a JSON round-trip is safe.
+    private const double LegacyDefaultBeta = 0.5;
+    private const double LegacyDefaultMinCutoff = 5.0;
+
+    private static string MigrateCursorFilterUnits(string json)
+    {
+        // Cheap reject. "oneEuroBetaPerDiagonal" does not contain the quoted old key, so an
+        // already-migrated file never reaches the parse.
+        if (!json.Contains($"\"{LegacyBetaKey}\"", StringComparison.Ordinal))
+            return json;
+
+        JsonObject? root;
+        try { root = JsonNode.Parse(json) as JsonObject; }
+        catch (JsonException) { return json; }   // unparseable: leave it to Load's own error path
+
+        if (root?[CursorSectionName] is not JsonObject cursor)
+            return json;
+        if (!cursor.Remove(LegacyBetaKey, out var legacy) || legacy is not JsonValue legacyValue)
+            return json;
+
+        // A file carrying BOTH keys has already been migrated and then hand-edited (or written by a
+        // mixed-version pair of processes). Drop the stale key and keep the new value untouched.
+        if (cursor[BetaKey] is null && legacyValue.TryGetValue(out double betaPixelUnits))
+        {
+            var defaults = new CursorSettings();
+            // A legal JSON number can overflow a double: "1e400" parses fine and TryGetValue hands back
+            // positive Infinity (verified, not assumed). Math.Clamp would turn that into 60 — the
+            // MAXIMUM, i.e. the least smoothing on the dial — which is a strange thing to hand someone
+            // whose file was garbage. The default is the better answer, and it is also the only branch
+            // that would save a NaN, which Math.Clamp passes through untouched and the setter's range
+            // guard cannot reject (every comparison against NaN is false).
+            cursor[BetaKey] = betaPixelUnits == LegacyDefaultBeta || !double.IsFinite(betaPixelUnits)
+                ? defaults.OneEuroBetaPerDiagonal
+                : Math.Clamp(betaPixelUnits * Processing.OneEuroFilter.SpeedNormalizationPixels, 0.0, 60.0);
+
+            if (cursor[MinCutoffKey] is JsonValue cutoffValue
+                && cutoffValue.TryGetValue(out double minCutoff)
+                && minCutoff == LegacyDefaultMinCutoff)
+            {
+                cursor[MinCutoffKey] = defaults.OneEuroMinCutoff;
+            }
+        }
+
+        return root.ToJsonString(JsonOptions);
     }
 
     private static string MigrateDragActions(string json)

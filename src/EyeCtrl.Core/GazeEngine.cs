@@ -228,7 +228,7 @@ public class GazeEngine : IDisposable
             if (e.PropertyName is nameof(CursorSettings.FilterMode)
                                or nameof(CursorSettings.MaxGapInterpolationMs)
                                or nameof(CursorSettings.OneEuroMinCutoff)
-                               or nameof(CursorSettings.OneEuroBeta)
+                               or nameof(CursorSettings.OneEuroBetaPerDiagonal)
                                or nameof(CursorSettings.SmoothingFactor))
             {
                 // Request only — the rebuild itself runs on the gaze thread (ApplyPendingInterpolatorRebuild),

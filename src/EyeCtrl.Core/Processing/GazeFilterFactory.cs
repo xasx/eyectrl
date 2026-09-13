@@ -26,8 +26,8 @@ public static class GazeFilterFactory
             GazeFilterMode.Smoothed => new SmoothedFilter(effectiveSmoothingParameter ?? settings.SmoothingFactor),
             // Intentionally identical to Smoothed — see GazeFilterMode.SmoothedWithSnapping docs.
             GazeFilterMode.SmoothedWithSnapping => new SmoothedFilter(effectiveSmoothingParameter ?? settings.SmoothingFactor),
-            GazeFilterMode.OneEuro => new OneEuroFilter(effectiveSmoothingParameter ?? settings.OneEuroMinCutoff, settings.OneEuroBeta),
-            _ => new OneEuroFilter(effectiveSmoothingParameter ?? settings.OneEuroMinCutoff, settings.OneEuroBeta)
+            GazeFilterMode.OneEuro => new OneEuroFilter(effectiveSmoothingParameter ?? settings.OneEuroMinCutoff, settings.OneEuroBetaPerDiagonal),
+            _ => new OneEuroFilter(effectiveSmoothingParameter ?? settings.OneEuroMinCutoff, settings.OneEuroBetaPerDiagonal)
         };
     }
 }

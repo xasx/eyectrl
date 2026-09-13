@@ -344,6 +344,28 @@ public class ReplayAnalyzerTests
     }
 
     [Fact]
+    public void Baseline_OutputIsRatcheted_SoTheFrozenReferenceCannotDriftUnnoticed()
+    {
+        // LegacyOneEuroFilter is a FROZEN copy of the pre-Stage-3 production filter, and every "before"
+        // number in the gate report is measured against it. Frozen is a claim about intent, not a
+        // property the compiler enforces: an edit — a tidy-up, a "fix", a refactor that sweeps the test
+        // project — would silently move the control, and every comparison in this repo would still look
+        // fine while meaning something different.
+        //
+        // So the ratchet is on the OUTPUT, not on the source. These are the bytes the reference produced
+        // on 2026-09-13 for a fixed deterministic stream. If they change, the baseline changed; either
+        // revert it or re-record every number that cites it, deliberately.
+        var frames = ReplayPipeline.RunSynthetic(GazeStreamGenerator.GenerateNoisyFixation(), ReplayPipeline.Baseline);
+        var deviation = GazeMetrics.MeasureFixationDeviation(frames);
+
+        Check.That(deviation.P95Pixels).IsCloseTo(34.711, 1e-3);
+        Check.That(deviation.RmsPixels).IsCloseTo(19.157, 1e-3);
+        Check.That(GazeMetrics.DetectPops(frames).Count).IsEqualTo(32);
+        Check.That(frames[^1].Filtered.X).IsCloseTo(956.4306, 1e-3);
+        Check.That(frames[^1].Filtered.Y).IsCloseTo(528.7823, 1e-3);
+    }
+
+    [Fact]
     public void StepLatency_IsZeroForTheShippedOneEuro_WhichIsTheDebatesPointAboutIt()
     {
         // MEASURED, not assumed: at the shipped minCutoff 5.0 / beta 0.5 the One-Euro filter covers 90 %

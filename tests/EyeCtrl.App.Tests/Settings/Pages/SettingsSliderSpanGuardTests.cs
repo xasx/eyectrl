@@ -81,7 +81,7 @@ public class SettingsSliderSpanGuardTests
         SpanInside(sliders, "c_gap", 0, 500);
         SpanInside(sliders, "c_size", 10, 500);
         SpanInside(sliders, "c_euro_cutoff", 0.1, 20.0);
-        SpanInside(sliders, "c_euro_beta", 0.0, 5.0);
+        SpanInside(sliders, "c_euro_beta", 0.0, 60.0);   // widened with the Stage 3 beta units rescale
     }
 
     [Fact]

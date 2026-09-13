@@ -13,6 +13,20 @@ public class OneEuroFilterTests
         Check.That(result.Y).IsCloseTo(300.0, 0.1);
     }
 
+    /// <summary>
+    /// Also the constraint that rules out one candidate value of <c>OneEuroFilter.JumpFloorPixels</c>.
+    /// This test's step is 400 px per axis, and the innovation on its THIRD sample is 59.0 px — so any
+    /// jump floor at or below 59 keeps that sample on the fast path and this test green, while a floor
+    /// of 60 drops it onto the slow adaptive branch and the output no longer reaches ±5 px in ten
+    /// samples. Swept one value per rebuild: passes at 15/20/25/30/40/50/55/58/59, fails at 60.
+    /// <para>
+    /// Worth stating plainly, because the obvious reading is backwards: the single value this test
+    /// forbids is the debate's own "or a fixed ~60 px" alternative, and everything below it is left
+    /// open. The shipped 15 is therefore chosen from the quiet-stream sigma — it is not forced by this
+    /// test, and it is not untouchable. That matters, because the floor governs exactly one regime in
+    /// practice (an estimator with nothing in it yet), and how that regime is handled is live design.
+    /// </para>
+    /// </summary>
     [Fact]
     public void Filter_StationaryGaze_ConvergesToTarget()
     {

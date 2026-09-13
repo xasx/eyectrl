@@ -507,24 +507,76 @@ public class SettingsPropertyValidationTests
 
     #endregion
 
-    #region CursorSettings - OneEuroBeta Validation
+    #region CursorSettings - OneEuroBetaPerDiagonal Validation
 
     [Theory]
     [InlineData(-0.1)]
-    [InlineData(5.1)]
-    public void OneEuroBeta_OutOfRange_ThrowsArgumentOutOfRange(double value)
+    [InlineData(60.1)]
+    public void OneEuroBetaPerDiagonal_OutOfRange_ThrowsArgumentOutOfRange(double value)
     {
         // Arrange
         var settings = new CursorSettings();
 
         // Act & Assert
         ArgumentOutOfRangeException? ex = null;
-        try { settings.OneEuroBeta = value; }
+        try { settings.OneEuroBetaPerDiagonal = value; }
         catch (ArgumentOutOfRangeException e) { ex = e; }
 
         Check.That(ex).IsNotNull();
         Check.That(ex!.Message).Contains("0");
-        Check.That(ex!.Message).Contains("5");
+        Check.That(ex!.Message).Contains("60");
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(20.0)]
+    [InlineData(60.0)]
+    public void OneEuroBetaPerDiagonal_ValidValue_AllowsChange(double value)
+    {
+        // The widened range is the point of the rescale: the pixel-unit guard topped out at 5, so 20 —
+        // the new default, and the value the retune is built around — was not even legal before.
+        var settings = new CursorSettings();
+
+        settings.OneEuroBetaPerDiagonal = value;
+
+        Check.That(settings.OneEuroBetaPerDiagonal).IsEqualTo(value);
+    }
+
+    #endregion
+
+    #region CursorSettings - the deadband knobs are deliberately UNGUARDED
+
+    [Theory]
+    [InlineData(-5.0)]
+    [InlineData(1000.0)]
+    public void DeadbandRadiusPx_OutOfRange_DoesNotThrowAndDoesNotFailValidate(double value)
+    {
+        // Deliberate asymmetry with every other setting in this file. A setter guard throws during JSON
+        // deserialisation and a Validate() entry fails the whole file — and SettingsService.Load answers
+        // either by returning ALL defaults, i.e. one mistyped number costs the user their entire
+        // configuration. A brand-new setting is the likeliest one to be typed wrong, so the range lives
+        // in SettingsService.ClampCursorFilter instead (pinned end-to-end in SettingsServiceTests).
+        //
+        // This test is the guard against someone "tidying up" by adding the missing range here.
+        var settings = new CursorSettings();
+
+        settings.DeadbandRadiusPx = value;
+
+        Check.That(settings.DeadbandRadiusPx).IsEqualTo(value);
+        Check.That(settings.Validate()).IsEmpty();
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(999)]
+    public void DeadbandConfirmSamples_OutOfRange_DoesNotThrowAndDoesNotFailValidate(int value)
+    {
+        var settings = new CursorSettings();
+
+        settings.DeadbandConfirmSamples = value;
+
+        Check.That(settings.DeadbandConfirmSamples).IsEqualTo(value);
+        Check.That(settings.Validate()).IsEmpty();
     }
 
     #endregion

@@ -14,16 +14,22 @@ using EyeCtrl.Core.Settings;
 /// </summary>
 public class GazeEngineSmoothingRoutingTests
 {
-    // Default EyeCtrlSettings.Cursor: OneEuro, OneEuroMinCutoff 5.0, OneEuroBeta 0.5, SmoothingFactor 0.5.
+    // Shipping defaults are OneEuro / OneEuroMinCutoff 1.5 / OneEuroBetaPerDiagonal 20 /
+    // SmoothingFactor 0.5, but THESE TESTS DO NOT USE THE MINCUTOFF DEFAULT: every expectation below is
+    // written around 5.0 (the pre-Stage-3 default), so Make pins it explicitly. That keeps the arithmetic
+    // in the [InlineData] rows — 5.0 → 2.5 at a half-band fill, and so on — readable and stable across a
+    // future default change, which is a routing test's business rather than a tuning one's.
+    //
     // Beta is pinned to 0 so the One-Euro cutoff == minCutoff at every speed — isolates the parameter under
-    // test (same trick as GazeEngineFilterRecreationTests); with the default beta 0.5 a fast sample spikes
+    // test (same trick as GazeEngineFilterRecreationTests); with the default beta a fast sample spikes
     // the speed-adaptive cutoff and washes the effect out.
     private static (GazeEngine Engine, EffectiveSettingsProvider Provider, TestGazeProvider TestGaze, EyeCtrlSettings Settings) Make(
         GazeFilterMode mode = GazeFilterMode.OneEuro, bool adaptEnabled = true)
     {
         var settings = new EyeCtrlSettings();
         settings.Cursor.FilterMode = mode;
-        settings.Cursor.OneEuroBeta = 0.0;
+        settings.Cursor.OneEuroMinCutoff = 5.0;   // the historical default these tests are written around
+        settings.Cursor.OneEuroBetaPerDiagonal = 0.0;
         settings.Adaptation.Enabled = adaptEnabled;
         var provider = new EffectiveSettingsProvider(settings.Adaptation);
         var testGaze = new TestGazeProvider();
@@ -104,8 +110,40 @@ public class GazeEngineSmoothingRoutingTests
         provider.SetMomentaryFill(AdaptationKnob.Smoothing, DwellContext.Other, forgivingFill: fill, tighteningFill: 0.0);
 
         double effective = engine.EffectiveSmoothingParameter()!.Value;
-        if (mode == GazeFilterMode.OneEuro) settings.Cursor.OneEuroMinCutoff = effective;
-        else settings.Cursor.SmoothingFactor = effective;
+        if (mode == GazeFilterMode.OneEuro)
+            AssignThroughGuard(v => settings.Cursor.OneEuroMinCutoff = v, effective, 1.0, 2.0);
+        else
+            AssignThroughGuard(v => settings.Cursor.SmoothingFactor = v, effective, 0.25, 0.75);
+    }
+
+    /// <summary>
+    /// Assigns <paramref name="value"/> in a way that is guaranteed to reach the property's
+    /// <c>OnXxxChanging</c> guard.
+    /// </summary>
+    /// <remarks>
+    /// <c>[ObservableProperty]</c> generates
+    /// <c>if (!EqualityComparer&lt;T&gt;.Default.Equals(field, value)) { OnXxxChanging(value); … }</c>, so
+    /// assigning a value ONTO ITSELF returns before the guard ever runs. The oracle was written as
+    /// <c>settings.X = engine.Effective()</c>, and on the row where the clamp actually engages
+    /// (baseline 0.1, full fill → composed 0.05 → clamped back to 0.1) those two are equal by
+    /// construction: that row never reached the guard at all.
+    /// <para>
+    /// Worth being exact about what that did and did not cost, because the obvious reading overstates
+    /// it. The short-circuit can only fire when the assigned value already equals the current one — and
+    /// the current one got there through the same guard, so it is provably in range. The dead line could
+    /// therefore never have hidden a live defect in THIS test's shape; it was a guarantee the comment
+    /// claimed and the code did not provide. Nudging first makes the claim true, and keeps it true if a
+    /// future change makes <c>effective</c> differ from the baseline in a case where it is out of range.
+    /// </para>
+    /// <para>
+    /// Both probes must themselves be inside the guarded range, or the nudge throws instead of the
+    /// assignment under test and the failure points at the wrong line.
+    /// </para>
+    /// </remarks>
+    private static void AssignThroughGuard(Action<double> set, double value, double probeA, double probeB)
+    {
+        set(value == probeA ? probeB : probeA);
+        set(value);
     }
 
     [Fact]
@@ -145,6 +183,12 @@ public class GazeEngineSmoothingRoutingTests
         // deferred rebuild, A's live filter must run at the EFFECTIVE minCutoff (5.0 − 0.50×5.0 = 2.5 Hz)
         // and lag a step MORE than B's baseline filter. End-to-end: Changed → knob-aware request →
         // gaze-thread apply → factory overload.
+        //
+        // The step is 10 px, not the 100 px this test used before the Stage 3 retune. A 100 px step now
+        // trips the One-Euro jump detector, which BY DESIGN runs at the sample-rate cutoff cap regardless
+        // of minCutoff — so both engines would answer identically and the inequality would fail for a
+        // reason that has nothing to do with the rebuild wiring under test. 10 px stays under the
+        // detector's floor, where minCutoff is what decides the step response.
         var a = Make(GazeFilterMode.OneEuro);
         var b = Make(GazeFilterMode.OneEuro);
 
@@ -165,8 +209,8 @@ public class GazeEngineSmoothingRoutingTests
         double lastA = 0, lastB = 0;
         a.Engine.CursorMoved += f => lastA = f.Position.X;
         b.Engine.CursorMoved += f => lastB = f.Position.X;
-        a.TestGaze.SimulateGaze(600, 500, ts);
-        b.TestGaze.SimulateGaze(600, 500, ts);
+        a.TestGaze.SimulateGaze(510, 500, ts);
+        b.TestGaze.SimulateGaze(510, 500, ts);
 
         Check.That(lastA).IsStrictlyLessThan(lastB); // the 2.5 Hz filter trails the step further behind
     }

@@ -357,17 +357,26 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     {
         if (Context is null) return;
         var toolbar = Context.OverlayManager.Toolbar;
-        if (!toolbarVisible || !toolbar.IsVisible)
-        {
-            Context.OverlayManager.Keyboard.SetToolbarOccupancy(false, "none", 0);
-            return;
-        }
-
-        // Undocked/floating toolbars raise no transitions and never yield (ledger #8);
-        // "none" matches no keyboard edge in KeyboardYield.
-        var edge = Context.Settings.Toolbar.IsDocked ? Context.Settings.Toolbar.DockedEdge : "none";
-        Context.OverlayManager.Keyboard.SetToolbarOccupancy(true, edge, toolbar.ActualHeight);
+        var (occupied, edge, extent) = ToolbarOccupancyFor(
+            toolbarVisible, toolbar.IsVisible,
+            Context.Settings.Toolbar.IsDocked, Context.Settings.Toolbar.DockedEdge,
+            toolbar.ActualHeight);
+        Context.OverlayManager.Keyboard.SetToolbarOccupancy(occupied, edge, extent);
     }
+
+    /// <summary>
+    /// Pure occupancy mapping for the keyboard yield (spec B3 #6/#7): the toolbar occupies the
+    /// keyboard's edge only when BOTH the adapter reports a visible transition AND the window
+    /// is actually on screen, and only a DOCKED toolbar has an edge at all — undocked maps to
+    /// "none", which no keyboard edge matches in <see cref="KeyboardYield"/> (ledger #8).
+    /// Extracted from <see cref="ApplyToolbarOccupancy"/> so the mapping is headless-testable;
+    /// the caller only adds the WPF reads (Toolbar.IsVisible, ActualHeight).
+    /// </summary>
+    internal static (bool Occupied, string Edge, double ExtentDip) ToolbarOccupancyFor(
+        bool toolbarVisible, bool toolbarWindowVisible, bool isDocked, string dockedEdge, double extentDip)
+        => toolbarVisible && toolbarWindowVisible
+            ? (true, isDocked ? dockedEdge : "none", extentDip)
+            : (false, "none", 0);
 
     private void ApplyInitialToolbarOccupancy()
     {

@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Tests.Services.Coordinators;
 
+using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
@@ -104,5 +106,48 @@ public class KeyboardInteractionDispatcherTests
         var clicked = input.LastMiddleClick!.Value;
         Check.That(clicked.X).IsEqualTo(300);
         Check.That(clicked.Y).IsEqualTo(400);
+    }
+
+    // ---- The ring's Keyboard action (external review I1) ------------------------------------
+    // The KeyboardShowRequestedMessage send is Feature A's only production sender; until now it
+    // appeared in no test, so deleting the intercept left the whole suite green (the mutation
+    // that motivated these facts). HandleActionRequested IS headless-reachable for this action:
+    // IsPreciseTarget bypasses the GazeEngine read, the switch has no Keyboard case, and a
+    // hidden TargetHighlightVM skips the overlay cleanup — only Messenger and the VM are touched.
+
+    [Fact]
+    public void HandleActionRequested_Keyboard_SendsShowMessage_AndNothingElse()
+    {
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator());
+        ctx = ctx with { TargetHighlightVM = new TargetHighlightOverlayViewModel() };
+        var dispatcher = new KeyboardInteractionDispatcher();
+        dispatcher.Initialize(ctx);
+
+        var showCount = 0;
+        ctx.Messenger.Register<object, KeyboardShowRequestedMessage>(this, (_, _) => showCount++);
+
+        dispatcher.HandleActionRequested(new ActionRequestedMessage(
+            InteractionAction.Keyboard, new PhysicalPoint(500, 500), IsPreciseTarget: true));
+
+        Check.That(showCount).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void HandleActionRequested_ClickActions_NeverSendShowMessage()
+    {
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator());
+        ctx = ctx with { TargetHighlightVM = new TargetHighlightOverlayViewModel() };
+        var dispatcher = new KeyboardInteractionDispatcher();
+        dispatcher.Initialize(ctx);
+
+        var showCount = 0;
+        ctx.Messenger.Register<object, KeyboardShowRequestedMessage>(this, (_, _) => showCount++);
+
+        dispatcher.HandleActionRequested(new ActionRequestedMessage(
+            InteractionAction.LeftClick, new PhysicalPoint(500, 500), IsPreciseTarget: true));
+        dispatcher.HandleActionRequested(new ActionRequestedMessage(
+            InteractionAction.ScrollUp, new PhysicalPoint(500, 500), IsPreciseTarget: true));
+
+        Check.That(showCount).IsEqualTo(0);
     }
 }

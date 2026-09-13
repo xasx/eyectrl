@@ -25,6 +25,7 @@ public class CalibrationService
     };
 
     private List<PhysicalPoint>? _targetPositions;
+    private IReadOnlyList<PhysicalPoint>? _readOnlyTargetPositions;
     private CalibrationPointCollector? _currentCollector;
     private readonly List<CalibrationPoint> _collectedPoints = new();
     private int _currentTargetIndex;
@@ -75,11 +76,31 @@ public class CalibrationService
             throw new InvalidOperationException("Session already in progress.");
 
         _targetPositions = CalibrationTargetPositionHelper.GetPositions(pointCount, screenSize).ToList();
+        _readOnlyTargetPositions = _targetPositions.AsReadOnly();
         _collectedPoints.Clear();
         _currentTargetIndex = 0;
         _screenSize = screenSize;
         return _targetPositions.Count;
     }
+
+    /// <summary>
+    /// Every target position for the current session, in order, or empty when no session is running.
+    /// </summary>
+    /// <remarks>
+    /// Exposed so the overlay can show the WHOLE set at once rather than one dot at a time — the user
+    /// reported having to search the screen after every advance. It is the same list
+    /// <see cref="GetTargetPosition"/> indexes into, deliberately: a view that computed its own copy
+    /// from <c>CalibrationTargetPositionHelper</c> could drift from the one being collected against,
+    /// and the drawn target would stop being the enforced target.
+    /// <para>
+    /// A read-only WRAPPER, created once per session rather than per call. Handing out the live
+    /// <c>List</c> would let any consumer reorder or clear the very list the collector indexes into,
+    /// and rebuilding the wrapper per call would break reference identity — which the view model's
+    /// provenance test relies on to prove it publishes THIS list rather than its own recomputation.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<PhysicalPoint> TargetPositions =>
+        _readOnlyTargetPositions ?? Array.Empty<PhysicalPoint>();
 
     /// <summary>Returns the target position for the given index in physical screen pixels.</summary>
     /// <param name="index">Zero-based target index.</param>
@@ -251,6 +272,7 @@ public class CalibrationService
         LastLoadRejection = null;
 
         _targetPositions = null;
+        _readOnlyTargetPositions = null;
         _collectedPoints.Clear();
         return data;
     }
@@ -259,6 +281,7 @@ public class CalibrationService
     public void CancelSession()
     {
         _targetPositions = null;
+        _readOnlyTargetPositions = null;
         _collectedPoints.Clear();
         _currentCollector = null;
     }

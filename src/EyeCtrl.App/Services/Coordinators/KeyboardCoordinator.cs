@@ -87,6 +87,11 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
             Log.Debug("Keyboard hidden");
         });
 
+        // Yield wiring (spec B3 #7): react to real toolbar transitions, and on keyboard show
+        // query the window directly — the startup show bypasses the adapter, so a tracked
+        // adapter flag can read "not occupied" while the toolbar is on screen.
+        _toolbar.ToolbarVisibilityChanged += OnToolbarVisibilityChanged;
+
         context.OverlayManager.Keyboard.SkinToneChanged += OnEmojiSkinToneChanged;
     }
 
@@ -172,6 +177,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         if (visible)
         {
             Context.OverlayManager.Keyboard.Show();
+            ApplyInitialToolbarOccupancy();
             if (manageSuppression)
             {
                 Context.GazeEngine.SuppressFixation = true;
@@ -266,12 +272,41 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         _keyboardSnapshot = ApplyEmojiSkinTone(Context.Settings, Context.SettingsService, tone);
     }
 
+    private void OnToolbarVisibilityChanged(bool toolbarVisible)
+    {
+        if (Context is null) return;
+        Context.Dispatcher.BeginInvoke(() => ApplyToolbarOccupancy(toolbarVisible));
+    }
+
+    private void ApplyToolbarOccupancy(bool toolbarVisible)
+    {
+        if (Context is null) return;
+        var toolbar = Context.OverlayManager.Toolbar;
+        if (!toolbarVisible || !toolbar.IsVisible)
+        {
+            Context.OverlayManager.Keyboard.SetToolbarOccupancy(false, "none", 0);
+            return;
+        }
+
+        // Undocked/floating toolbars raise no transitions and never yield (ledger #8);
+        // "none" matches no keyboard edge in KeyboardYield.
+        var edge = Context.Settings.Toolbar.IsDocked ? Context.Settings.Toolbar.DockedEdge : "none";
+        Context.OverlayManager.Keyboard.SetToolbarOccupancy(true, edge, toolbar.ActualHeight);
+    }
+
+    private void ApplyInitialToolbarOccupancy()
+    {
+        if (Context is null) return;
+        ApplyToolbarOccupancy(Context.OverlayManager.Toolbar.IsVisible);
+    }
+
     protected override void OnDispose()
     {
         _predictionFactory.Dispose();
         if (Context is not null)
         {
             Context.OverlayManager.Keyboard.SkinToneChanged -= OnEmojiSkinToneChanged;
+            _toolbar.ToolbarVisibilityChanged -= OnToolbarVisibilityChanged;
         }
     }
 }

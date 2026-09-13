@@ -21,24 +21,57 @@ public class KeyboardEdgeButtonsTests
     [Fact]
     public void Anchor_TracksTheKeyboardEdge_InsteadOfScreenCenter()
     {
-        // Ledger #15 mechanism B: keyboard Top → anchor at 25% height; Bottom → 75%.
-        // Pinned at 2.0 scale (the ScreenGeometryTests pattern), 1920x1080 logical.
+        // Ledger #15 mechanism B: keyboard Top → anchor at 25% of the WORK-AREA height,
+        // Bottom → 75%, offset from the work-area top. Pinned at 2.0 scale (the
+        // ScreenGeometryTests pattern), 1920x1080 logical work area with top 0.
         DpiHelper.Initialize(2.0, 2.0);
         try
         {
             var top = ScreenGeometry.KeyboardEdgeBarAnchor(
                 keyboardAtTop: true, logicalRadius: UIConstants.ButtonRadius,
                 logicalWindowMargin: ScreenGeometry.EdgeButtonWindowMarginLogical,
-                logicalScreenWidth: 1920, logicalScreenHeight: 1080);
+                logicalScreenWidth: 1920, logicalWorkAreaTop: 0, logicalWorkAreaHeight: 1080);
             var bottom = ScreenGeometry.KeyboardEdgeBarAnchor(
                 keyboardAtTop: false, logicalRadius: UIConstants.ButtonRadius,
                 logicalWindowMargin: ScreenGeometry.EdgeButtonWindowMarginLogical,
-                logicalScreenWidth: 1920, logicalScreenHeight: 1080);
+                logicalScreenWidth: 1920, logicalWorkAreaTop: 0, logicalWorkAreaHeight: 1080);
 
             // Y = (1080 * 2) * fraction; X = 3840 - (30 + 50 + 10) * 2 = 3660.
             Check.That(top.Y).IsCloseTo(540.0, 1e-9);
             Check.That(bottom.Y).IsCloseTo(1620.0, 1e-9);
             Check.That(top.X).IsCloseTo(3660.0, 1e-9);
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
+    [Fact]
+    public void Anchor_IsMeasuredAgainstTheWorkArea_NotTheScreen()
+    {
+        // The keyboard positions itself via SystemParameters.WorkArea (KeyboardWindow's
+        // PlaceAtEdge), so the bar tracking it must share that rectangle: with a 24-DIP
+        // bottom taskbar on a 1080 screen the bottom anchor sits at 0.75 * 1056 = 792
+        // (physical 1584 at 2x), NOT 0.75 * 1080 — and a nonzero work-area top shifts the
+        // whole band down by exactly that top (I3, external implementation review).
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var bottom = ScreenGeometry.KeyboardEdgeBarAnchor(
+                keyboardAtTop: false, logicalRadius: UIConstants.ButtonRadius,
+                logicalWindowMargin: ScreenGeometry.EdgeButtonWindowMarginLogical,
+                logicalScreenWidth: 1920, logicalWorkAreaTop: 0, logicalWorkAreaHeight: 1056);
+
+            Check.That(bottom.Y).IsCloseTo(1584.0, 1e-9);
+
+            var withTop = ScreenGeometry.KeyboardEdgeBarAnchor(
+                keyboardAtTop: true, logicalRadius: UIConstants.ButtonRadius,
+                logicalWindowMargin: ScreenGeometry.EdgeButtonWindowMarginLogical,
+                logicalScreenWidth: 1920, logicalWorkAreaTop: 24, logicalWorkAreaHeight: 1056);
+
+            // Y = (24 + 1056 * 0.25) * 2 = (24 + 264) * 2 = 576.
+            Check.That(withTop.Y).IsCloseTo(576.0, 1e-9);
         }
         finally
         {

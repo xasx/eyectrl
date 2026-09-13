@@ -52,8 +52,11 @@ internal static class ScreenGeometry
 
     /// <summary>
     /// Anchor for the keyboard's edge-bar pair, tracking the keyboard's edge (spec ledger #15,
-    /// mechanism B): keyboard Top → 25% of screen height, Bottom → 75%. Same right-edge inset
-    /// arithmetic as <see cref="RightEdgeAnchor"/>, only the vertical position differs.
+    /// mechanism B): keyboard Top → 25% of work-area height, Bottom → 75%, offset from the
+    /// work-area TOP (not the screen top) so a taskbar shrinks the band the bar and the
+    /// keyboard — which positions itself via <see cref="SystemParameters.WorkArea"/> — share.
+    /// Same right-edge inset arithmetic as <see cref="RightEdgeAnchor"/>, only the vertical
+    /// position differs.
     /// </summary>
     public static PhysicalPoint KeyboardEdgeBarAnchor(
         bool keyboardAtTop,
@@ -61,7 +64,7 @@ internal static class ScreenGeometry
         double logicalWindowMargin = EdgeButtonWindowMarginLogical)
         => KeyboardEdgeBarAnchor(
             keyboardAtTop, logicalRadius, logicalWindowMargin,
-            SystemParameters.PrimaryScreenWidth, SystemParameters.PrimaryScreenHeight);
+            SystemParameters.PrimaryScreenWidth, SystemParameters.WorkArea.Top, SystemParameters.WorkArea.Height);
 
     /// <summary>Pure-arithmetic overload, exposed for the same reason as RightEdgeAnchor's.</summary>
     internal static PhysicalPoint KeyboardEdgeBarAnchor(
@@ -69,12 +72,14 @@ internal static class ScreenGeometry
         double logicalRadius,
         double logicalWindowMargin,
         double logicalScreenWidth,
-        double logicalScreenHeight)
+        double logicalWorkAreaTop,
+        double logicalWorkAreaHeight)
     {
         var fraction = keyboardAtTop ? 0.25 : 0.75;
         var w = DpiHelper.LogicalToPhysicalX(logicalScreenWidth);
-        var h = DpiHelper.LogicalToPhysicalY(logicalScreenHeight);
+        var y = DpiHelper.LogicalToPhysicalY(logicalWorkAreaTop)
+                + DpiHelper.LogicalToPhysicalY(logicalWorkAreaHeight) * fraction;
         var rightOffsetLogical = KeyboardEdgeButtons.RightEdgeInsetLogical + logicalRadius + logicalWindowMargin;
-        return new PhysicalPoint(w - DpiHelper.LogicalToPhysicalX(rightOffsetLogical), h * fraction);
+        return new PhysicalPoint(w - DpiHelper.LogicalToPhysicalX(rightOffsetLogical), y);
     }
 }

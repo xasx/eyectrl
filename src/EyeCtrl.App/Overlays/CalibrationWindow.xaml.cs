@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Shapes;
 using System.Windows.Threading;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Calibration;
@@ -18,6 +19,30 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
     private CalibrationViewModel? _viewModel;
     private Storyboard? _pulseAnimation;
     private DispatcherTimer? _autoDismissTimer;
+
+    /// <summary>
+    /// How long the active target takes to slide to its next position.
+    /// </summary>
+    /// <remarks>
+    /// Long enough to be seen as movement rather than a jump — the whole point is that motion, not
+    /// reading, says where to look — and short enough that the drawn ring trails the enforced band only
+    /// briefly. 220 ms is roughly the latency of a voluntary saccade, so the user's eye arrives about
+    /// when the target does instead of chasing it.
+    /// </remarks>
+    private static readonly TimeSpan TargetSlideDuration = TimeSpan.FromMilliseconds(220);
+
+    /// <summary>
+    /// One marker per target for the whole session, index-aligned with
+    /// <c>CalibrationViewModel.TargetPositions</c>. Built once when the set is published and only
+    /// restyled afterwards, so an advance never rebuilds visuals mid-animation.
+    /// </summary>
+    private readonly List<Ellipse> _targetSetMarkers = new();
+
+    /// <summary>
+    /// Bumped by every slide, so a superseded animation's completion handler can recognise itself as
+    /// stale and stay out of the way. See <see cref="MoveActiveLayerTo"/>.
+    /// </summary>
+    private int _slideGeneration;
 
     public CalibrationWindow()
     {
@@ -57,18 +82,34 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
     {
         switch (e.PropertyName)
         {
+            case nameof(CalibrationViewModel.TargetPositions):
+                Dispatcher.Invoke(BuildTargetSet);
+                break;
+            case nameof(CalibrationViewModel.CurrentTargetIndex):
+                Dispatcher.Invoke(UpdateTargetSetStates);
+                break;
             case nameof(CalibrationViewModel.CurrentTargetPosition):
-                Dispatcher.Invoke(() => PositionTarget(_viewModel!.CurrentTargetPosition));
+                // Animated: the move itself is what tells the user where to look next, so it must be
+                // seen rather than teleported past. Sizing is applied immediately; only the position
+                // slides.
+                Dispatcher.Invoke(() => PositionTarget(_viewModel!.CurrentTargetPosition, animate: true));
                 break;
             case nameof(CalibrationViewModel.BandRadiusPixels):
-                Dispatcher.Invoke(() => PositionTarget(_viewModel!.CurrentTargetPosition));
+                Dispatcher.Invoke(() => PositionTarget(_viewModel!.CurrentTargetPosition, animate: false));
                 break;
             case nameof(CalibrationViewModel.TargetProgress):
             case nameof(CalibrationViewModel.IsOnTarget):
                 Dispatcher.Invoke(UpdateOnTargetFeedback);
                 break;
             case nameof(CalibrationViewModel.State):
-                Dispatcher.Invoke(() => UpdateVisualState(_viewModel!.State, _viewModel.ProgressPercent));
+                Dispatcher.Invoke(() =>
+                {
+                    UpdateVisualState(_viewModel!.State, _viewModel.ProgressPercent);
+                    // StatusOf is state-dependent — the set is published while the session is still
+                    // Idle, so without this every marker would stay in its "upcoming" styling and the
+                    // first target would be drawn twice.
+                    UpdateTargetSetStates();
+                });
                 break;
             case nameof(CalibrationViewModel.TargetColor):
                 Dispatcher.Invoke(() =>
@@ -85,7 +126,7 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
         }
     }
 
-    private void PositionTarget(PhysicalPoint physicalPoint)
+    private void PositionTarget(PhysicalPoint physicalPoint, bool animate)
     {
         var logical = physicalPoint.ToLogical();
 
@@ -98,7 +139,7 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
             dotScale.CenterX = dotDiameterLogical / 2;
             dotScale.CenterY = dotDiameterLogical / 2;
         }
-        Centre(TargetDot, logical, dotDiameterLogical);
+        CentreOnLayerOrigin(TargetDot, dotDiameterLogical);
 
         // The rings: the tolerance actually enforced. Converted from physical px through the same
         // DPI helper the dot uses, because the collector's radius is in physical pixels and this
@@ -108,16 +149,174 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
         {
             ring.Width = bandDiameterLogical;
             ring.Height = bandDiameterLogical;
-            Centre(ring, logical, bandDiameterLogical);
+            CentreOnLayerOrigin(ring, bandDiameterLogical);
         }
 
+        MoveActiveLayerTo(logical, animate);
         UpdateOnTargetFeedback();
     }
 
-    private static void Centre(FrameworkElement element, LogicalPoint logicalCentre, double diameter)
+    /// <summary>
+    /// Places a visual so its centre sits on <see cref="ActiveTargetLayer"/>'s origin. The layer then
+    /// carries the screen position for all three at once — which is what lets an advance animate one
+    /// pair of coordinates instead of three that could drift apart mid-slide.
+    /// </summary>
+    private static void CentreOnLayerOrigin(FrameworkElement element, double diameter)
     {
-        Canvas.SetLeft(element, logicalCentre.X - (diameter / 2));
-        Canvas.SetTop(element, logicalCentre.Y - (diameter / 2));
+        Canvas.SetLeft(element, -(diameter / 2));
+        Canvas.SetTop(element, -(diameter / 2));
+    }
+
+    /// <summary>
+    /// Moves the active target's visuals to <paramref name="logicalCentre"/>, sliding when this is an
+    /// advance and snapping otherwise.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The motion IS the instruction.</b> The previous overlay drew one dot and teleported it, so
+    /// after every advance the user had to find it again. A short slide points at the new location
+    /// using movement, which peripheral vision detects without being looked at directly — the one
+    /// channel available to someone who cannot read a cue and hold a fixation at the same time.
+    /// </para>
+    /// <para>
+    /// <b>Presentation only.</b> The view model has already moved to the new target and the collector is
+    /// already gating on it before this runs; nothing here feeds back into either. The cost is that for
+    /// the length of the slide the drawn ring trails the enforced band, so it is kept short — and the
+    /// destination is not a mystery in the meantime, because every target is on screen already.
+    /// </para>
+    /// <para>
+    /// <b>The animation is released on completion, deliberately.</b> A held WPF animation outranks
+    /// later direct writes to the same property: leaving it in place would silently swallow the next
+    /// <c>Canvas.SetLeft</c> — including the one that repositions after a band-radius change — and the
+    /// symptom would be a target stuck at the previous location with no error anywhere.
+    /// </para>
+    /// </remarks>
+    private void MoveActiveLayerTo(LogicalPoint logicalCentre, bool animate)
+    {
+        var currentLeft = Canvas.GetLeft(ActiveTargetLayer);
+        var currentTop = Canvas.GetTop(ActiveTargetLayer);
+        bool hasPrevious = !double.IsNaN(currentLeft) && !double.IsNaN(currentTop);
+
+        if (!animate || !hasPrevious || !IsVisible)
+        {
+            SnapActiveLayerTo(logicalCentre);
+            return;
+        }
+
+        // Each slide claims a generation. A handler whose generation has been superseded does nothing:
+        // without that, a fast advance (or a band-radius change landing mid-slide) lets the OLD
+        // animation's Completed fire after the new one started and write its captured destination,
+        // parking the target at the previous position. This repo has been bitten by held animations
+        // outranking direct writes before; the same class of bug, one step removed.
+        var generation = ++_slideGeneration;
+        Slide(Canvas.LeftProperty, currentLeft, logicalCentre.X);
+        Slide(Canvas.TopProperty, currentTop, logicalCentre.Y);
+
+        void Slide(DependencyProperty property, double from, double to)
+        {
+            var animation = new DoubleAnimation(from, to, new Duration(TargetSlideDuration))
+            {
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseInOut },
+                FillBehavior = FillBehavior.HoldEnd,
+            };
+            animation.Completed += (_, _) =>
+            {
+                if (generation != _slideGeneration) return;
+                ActiveTargetLayer.BeginAnimation(property, null);
+                ActiveTargetLayer.SetValue(property, to);
+            };
+            ActiveTargetLayer.BeginAnimation(property, animation);
+        }
+    }
+
+    private void SnapActiveLayerTo(LogicalPoint logicalCentre)
+    {
+        // Also claims a generation: a snap must invalidate any slide still in flight, or that slide's
+        // completion would drag the layer back to where it was heading.
+        _slideGeneration++;
+        ActiveTargetLayer.BeginAnimation(Canvas.LeftProperty, null);
+        ActiveTargetLayer.BeginAnimation(Canvas.TopProperty, null);
+        Canvas.SetLeft(ActiveTargetLayer, logicalCentre.X);
+        Canvas.SetTop(ActiveTargetLayer, logicalCentre.Y);
+    }
+
+    /// <summary>
+    /// Draws one marker for every target in the session, so the next location is on screen before the
+    /// current one finishes.
+    /// </summary>
+    /// <remarks>
+    /// This is the other half of the fix, and the more important half: the slide shows where the target
+    /// went, but only because the destination was already visible does the user stop having to search.
+    /// Markers are deliberately small and quiet — they are a map, not competition for the active
+    /// target, which keeps the full-size band ring and the pulse.
+    /// </remarks>
+    private void BuildTargetSet()
+    {
+        TargetSetCanvas.Children.Clear();
+        _targetSetMarkers.Clear();
+
+        var positions = _viewModel?.TargetPositions ?? Array.Empty<PhysicalPoint>();
+        var diameter = Math.Max(6, DiameterToLogical(_viewModel?.TargetRadiusPixels ?? 20) * 0.5);
+
+        foreach (var position in positions)
+        {
+            var logical = position.ToLogical();
+            var marker = new Ellipse
+            {
+                Width = diameter,
+                Height = diameter,
+                StrokeThickness = 2,
+                IsHitTestVisible = false,
+            };
+            Canvas.SetLeft(marker, logical.X - (diameter / 2));
+            Canvas.SetTop(marker, logical.Y - (diameter / 2));
+            TargetSetCanvas.Children.Add(marker);
+            _targetSetMarkers.Add(marker);
+        }
+
+        UpdateTargetSetStates();
+    }
+
+    /// <summary>
+    /// Restyles each marker for what its target is doing now. Three states, distinguished by shape and
+    /// weight rather than by colour alone, and none of them carrying text.
+    /// </summary>
+    /// <remarks>
+    /// The CURRENT target's marker is hidden outright: the active layer already draws that position at
+    /// full size with the band ring, and two marks on one spot would read as two targets. That is also
+    /// what keeps "only the current target accepts gaze" visually unambiguous — exactly one place on
+    /// screen ever has a ring around it.
+    /// </remarks>
+    private void UpdateTargetSetStates()
+    {
+        if (_viewModel is null) return;
+
+        for (int i = 0; i < _targetSetMarkers.Count; i++)
+        {
+            var marker = _targetSetMarkers[i];
+            switch (_viewModel.StatusOf(i))
+            {
+                case CalibrationTargetStatus.Current:
+                    marker.Visibility = Visibility.Hidden;
+                    break;
+
+                case CalibrationTargetStatus.Done:
+                    // Filled and settled: progress through the set, readable at a glance.
+                    marker.Visibility = Visibility.Visible;
+                    marker.Fill = Tokens.BrushAccentSuccess;
+                    marker.Stroke = Tokens.BrushAccentSuccess;
+                    marker.Opacity = 0.55;
+                    break;
+
+                default:
+                    // Hollow and faint: present, clearly not the one being asked for.
+                    marker.Visibility = Visibility.Visible;
+                    marker.Fill = null;
+                    marker.Stroke = Tokens.BrushTextDim;
+                    marker.Opacity = 0.45;
+                    break;
+            }
+        }
     }
 
     /// <summary>

@@ -106,6 +106,43 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     /// </summary>
     [ObservableProperty] private bool _isOnTarget;
 
+    /// <summary>
+    /// Every target position for this session, in the order they will be presented. Empty when idle.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Published so the overlay can render the WHOLE set for the session instead of one dot at a time.
+    /// The user reported having to "search where the next point is" after every advance; showing the
+    /// upcoming targets means the next location is known before the current one completes, and the
+    /// active target can move there visibly rather than teleporting.
+    /// </para>
+    /// <para>
+    /// Set once per session and not replaced on advance — the collection is stable so a view can build
+    /// its visuals once and only restyle them as <see cref="CurrentTargetIndex"/> moves. Comes from
+    /// <c>CalibrationService.TargetPositions</c>, the same list the collector gates against, so what is
+    /// drawn cannot drift from what is enforced.
+    /// </para>
+    /// </remarks>
+    [ObservableProperty] private IReadOnlyList<PhysicalPoint> _targetPositions = Array.Empty<PhysicalPoint>();
+
+    /// <summary>
+    /// What the target at <paramref name="index"/> is doing, derived from <see cref="CurrentTargetIndex"/>.
+    /// </summary>
+    /// <remarks>
+    /// Derived rather than stored, so it cannot disagree with the index that actually drives collection.
+    /// Outside a collecting session everything reads <see cref="CalibrationTargetStatus.Upcoming"/>:
+    /// during Training and Active the targets are no longer shown at all, and claiming "Current" for one
+    /// of them would invite a view to keep drawing a live ring over a finished session.
+    /// </remarks>
+    public CalibrationTargetStatus StatusOf(int index)
+    {
+        if (State != CalibrationState.Collecting) return CalibrationTargetStatus.Upcoming;
+        if (index < CurrentTargetIndex) return CalibrationTargetStatus.Done;
+        return index == CurrentTargetIndex
+            ? CalibrationTargetStatus.Current
+            : CalibrationTargetStatus.Upcoming;
+    }
+
     public CalibrationViewModel(
         CalibrationSettings settings,
         CalibrationService calibrationService,
@@ -159,6 +196,10 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     {
         _sessionGeneration++;
         TotalTargets = _calibrationService.StartSession(_settings.PointCount, _screenSize);
+        // Taken from the service, not recomputed here: the overlay draws these and the collector gates
+        // on them, and two independent calls to the position helper is exactly how a drawn target and
+        // an enforced target come to differ.
+        TargetPositions = _calibrationService.TargetPositions;
         _groundTruth?.BeginSession(_providerType, _screenSize, _settings.SettleWindowMs);
         CurrentTargetIndex = 0;
         ProgressPercent = 0;

@@ -1634,3 +1634,17 @@ git log --oneline -12   # one commit per task, clean history
 - **Spec coverage:** A: §3.2 items 1-8 → Tasks 1,1,1,2,4,4,4,3 ✓. B1 → Tasks 4/5/10 ✓. B2 → Task 11 (+ ToolbarIconKey/ActionIcons docs in Task 1) ✓. B3 #5-#8 → Tasks 6,7,8 ✓. B4 #9-#12 → Tasks 9,10 ✓. §6 breakage inventory → Task 11 rewrites the fan-out test + QuickActions comment; `ToolbarViewModelTests`, band tests, `AppLaunchTests` untouched by design ✓. Ledger #15 → Task 9 slot math + Task 10 rebuild ✓.
 - **Ordering invariant:** the un-pin (Task 11) lands only after the edge bar (Tasks 9-10) gives the keyboard its escape; `_toolbar` is re-dereferenced (Task 8) before its old dereference is removed (Task 11).
 - **Type consistency:** `KeyboardEdgeButtons.Definitions(int, bool)` used in Task 10 matches Task 9's definition; `ApplyKeyboardEdge` tuple consumed in Task 10; `SetToolbarOccupancy(bool, string, double)` consistent across Tasks 7/8.
+
+---
+
+## Post-execution addendum — reverse-overlap trace (external implementation review)
+
+Spec B4 #10 required the reverse overlap (keyboard opened mid-scroll/mid-drag while the
+stop/cancel button owns the bar) to be traced in the plan; this plan omitted it, and an
+external implementation review caught the consequence: the keyboard's Close/Flip could be
+permanently lost for the session. The full trace now lives in the spec (B4 #10,
+"Reverse-overlap trace"); the resolution is a retry claim — `KeyboardCoordinator
+._keyboardPairWanted` plus `ShouldRetryKeyboardEdgeBar` re-claiming on
+`EdgeButtonBarViewModel.ButtonSetChanged` — committed alongside this addendum. The
+reachable path is the toolbar's Keyboard toggle during scroll/drag mode; both owning
+contexts end with an unguarded `EdgeButtonBar.Hide()`.

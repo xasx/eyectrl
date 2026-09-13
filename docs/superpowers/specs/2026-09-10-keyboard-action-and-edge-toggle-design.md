@@ -306,6 +306,23 @@ hides. The edge bar works in emoji mode too (it is not part of the keyboard wind
     mid-scroll/mid-drag while the stop/cancel button owns the bar — must be traced in
     the plan; it is the same hand-off dance documented at
     `OverlayMessageCoordinator.cs:153-169`.
+
+    *Reverse-overlap trace (written post-implementation, external review round; resolved
+    with a retry claim):* the reachable path is ring-independent — the toolbar stays
+    dwellable in scroll mode, so its Keyboard button (a TOGGLE, `ToolbarViewModel.cs:195`)
+    can open the keyboard while the scroll Stop (`ScrollModeController.cs:75`) or drag
+    Cancel button owns the bar; both contexts end with an unguarded
+    `EdgeButtonBar.Hide()` (`ScrollModeController.cs:106`, `DragCoordinator.cs:82,90`),
+    which would otherwise strand a keyboard that is up, suppressing fixation, with no
+    Close and no Flip. Resolution: the skipped show records
+    `KeyboardCoordinator._keyboardPairWanted`, and every
+    `EdgeButtonBarViewModel.ButtonSetChanged` (raised by `Hide()` and by every
+    show/add/remove) re-runs `ShowKeyboardEdgeBar` through
+    `ShouldRetryKeyboardEdgeBar` — re-claim only when the pair is still wanted, the
+    keyboard is still visible, and the bar is FREE (`Buttons.Count == 0`; "already ours"
+    is the flip path, not a retry). Until the re-claim the keyboard remains closable via
+    the toolbar's Keyboard toggle (a toggle, unlike the ring's idempotent show), which
+    needs a summoned toolbar — the weaker escape C3 documents, hence the retry.
 11. **Gaze needs no new routing:** the bar's dwell runs off `GazeCursorMovedMessage`
     (`DwellOverlayViewModelBase`), which flows throughout the keyboard session —
     `SuppressFixation` gates only the fixation detector (GazeEngine.cs:538), not the

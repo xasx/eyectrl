@@ -165,4 +165,29 @@ public class KeyboardEdgeButtonsTests
         Check.That(KeyboardCoordinator.ShouldShowKeyboardEdgeBar(null)).IsTrue();
         Check.That(KeyboardCoordinator.ShouldHideKeyboardEdgeBar(null)).IsFalse();
     }
+
+    [Fact]
+    public void RetryTests_KeyboardPairReclaimsOnlyWhenWantedVisibleAndBarFree()
+    {
+        // The B4 #10 reverse-overlap retry: a keyboard whose show was skipped while scroll/
+        // drag owned the bar re-claims it when that context's unguarded Hide empties the
+        // bar — but only while the pair is still wanted, the keyboard is still up, and the
+        // bar is FREE ("already ours" is the flip path, not a retry).
+        var messenger = new WeakReferenceMessenger();
+        var settings = new EyeCtrlSettings();
+        var barVm = new EdgeButtonBarViewModel(settings, messenger);
+
+        Check.That(KeyboardCoordinator.ShouldRetryKeyboardEdgeBar(true, true, barVm)).IsTrue();
+
+        Check.That(KeyboardCoordinator.ShouldRetryKeyboardEdgeBar(false, true, barVm)).IsFalse();
+        Check.That(KeyboardCoordinator.ShouldRetryKeyboardEdgeBar(true, false, barVm)).IsFalse();
+        Check.That(KeyboardCoordinator.ShouldRetryKeyboardEdgeBar(true, true, null)).IsFalse();
+
+        barVm.ShowButtons(
+            new[] { new EdgeButtonDefinition(
+                "scroll_stop", Symbol: string.Empty, 600,
+                _ => { }, VerticalOffset: 0) },
+            new PhysicalPoint(1800, 800));
+        Check.That(KeyboardCoordinator.ShouldRetryKeyboardEdgeBar(true, true, barVm)).IsFalse();
+    }
 }

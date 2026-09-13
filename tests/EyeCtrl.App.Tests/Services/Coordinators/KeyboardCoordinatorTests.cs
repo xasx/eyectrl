@@ -67,14 +67,12 @@ public class KeyboardCoordinatorTests
     }
 
     [Fact]
-    public void ApplyModalKeyboardState_FansOutToBothControllers_AndTheSharedFlag()
+    public void ApplyModalKeyboardState_FansOutToQuickActionsSummon_AndPublishesTheSharedFlag()
     {
-        // The cross-cluster seam the decomposition introduced: showing the keyboard must suspend BOTH
-        // the toolbar auto-hide and the quick-actions hot-edge summon, and publish the shared
-        // ModalInteractionState flag that ToolbarLifecycleCoordinator's gaze-thread early-out reads.
-        // Before the split these were three field writes in one method; now they cross three objects,
-        // so a wiring mistake (e.g. a per-coordinator ModalInteractionState instead of the shared one)
-        // would silently strand the flag. This drives the real seam, not a copy of it.
+        // Spec B2 (ledger #9): showing the keyboard suspends ONLY the quick-actions hot-edge
+        // summon and publishes the shared ModalInteractionState flag the gaze-thread early-out
+        // reads. The toolbar auto-hide suspension is deliberately gone — the toolbar un-pins
+        // while the keyboard is up, and the keyboard's own escape is the edge-bar Close.
         var modal = new ModalInteractionState();
 
         var summon = new QuickActionsSummonController("left", 1920, 1080, 400, 5000);
@@ -92,13 +90,13 @@ public class KeyboardCoordinatorTests
 
         keyboard.ApplyModalKeyboardState(true);
         Check.That(modal.KeyboardVisible).IsTrue();
-        Check.That(toolbar.IsAutoHideSuspended).IsTrue();
         Check.That(quickActions.IsSummonSuspended).IsTrue();
+        Check.That(autoHide.IsSuspended).IsFalse();
 
         keyboard.ApplyModalKeyboardState(false);
         Check.That(modal.KeyboardVisible).IsFalse();
-        Check.That(toolbar.IsAutoHideSuspended).IsFalse();
         Check.That(quickActions.IsSummonSuspended).IsFalse();
+        Check.That(autoHide.IsSuspended).IsFalse();
     }
 
     // ---- Emoji skin-tone persistence (issue #58) -------------------------------------------

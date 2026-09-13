@@ -39,8 +39,9 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     public KeyboardCoordinator(ModalInteractionState modal,
         QuickActionsCoordinator quickActions, ToolbarLifecycleCoordinator toolbar)
     {
-        // All three are dereferenced unconditionally by ApplyModalKeyboardState, so reject nulls at
-        // the ctor rather than at first keyboard toggle.
+        // _modal is read by ApplyModalKeyboardState; _quickActions by the same; _toolbar by the
+        // yield subscription in OnInitialize (ToolbarVisibilityChanged). All three are live
+        // dependencies, so reject nulls at the ctor rather than at first keyboard toggle.
         _modal = modal ?? throw new ArgumentNullException(nameof(modal));
         _quickActions = quickActions ?? throw new ArgumentNullException(nameof(quickActions));
         _toolbar = toolbar ?? throw new ArgumentNullException(nameof(toolbar));
@@ -256,20 +257,16 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         barVm?.DefinitionFor(KeyboardEdgeButtons.CloseId) is not null;
 
     /// <summary>
-    /// Publishes a keyboard-visibility change to the two cross-cluster consumers: the toolbar
-    /// auto-hide and quick-actions summon suspend seams, plus the shared
-    /// <see cref="ModalInteractionState.KeyboardVisible"/> flag that the gaze-routing early-out in
-    /// <see cref="ToolbarLifecycleCoordinator"/> reads on the gaze thread.
+    /// Publishes a keyboard-visibility change to the quick-actions summon-suspend seam and the
+    /// shared <see cref="ModalInteractionState.KeyboardVisible"/> flag that the gaze-routing
+    /// early-out in <see cref="ToolbarLifecycleCoordinator"/> reads on the gaze thread.
+    /// The toolbar auto-hide is deliberately NOT suspended anymore (spec B2, ledger #9): the
+    /// toolbar un-pins while the keyboard is up and edge-summons on demand; the keyboard's own
+    /// escape is the edge-bar Close. Suspending before publishing the flag still matters — no
+    /// gaze sample may observe <c>KeyboardVisible</c> while the quick-actions summon is live.
     /// </summary>
-    /// <remarks>
-    /// Split out of <see cref="SetKeyboardVisible"/> so the fan-out is reachable in a headless test:
-    /// the remainder of SetKeyboardVisible touches the real <c>KeyboardWindow</c>. Order matters —
-    /// suspend the controllers BEFORE publishing the flag, so no gaze sample can observe
-    /// KeyboardVisible while auto-hide is still live.
-    /// </remarks>
     internal void ApplyModalKeyboardState(bool visible)
     {
-        _toolbar.SetAutoHideSuspended(visible);
         _quickActions.SetSummonSuspended(visible);
         _modal.KeyboardVisible = visible;
     }

@@ -2,6 +2,7 @@ namespace EyeCtrl.ViewModels.Tests;
 
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
@@ -86,13 +87,15 @@ public class ActionMenuViewModelLayerTests
     }
 
     [Fact]
-    public void TheSecondLayer_GrowsToSixSlots_WithBackStillOnTheRing()
+    public void TheSecondLayer_GrowsToSixSlots_OnOneRingWithEvenGaps()
     {
         // Since the Keyboard action joined the default second layer (spec ledger #3), the
         // layers hold different slot counts (5 vs 6) and the old "Back lands exactly where
-        // More was" symmetry is knowingly given up. Guard the weaker but still load-bearing
-        // property: every layer-two target is a real on-ring position and the Back target
-        // still exists.
+        // More was" symmetry is knowingly given up — with 6 slots More's old 72° slot
+        // becomes 60°, so no slot can re-occupy a layer-one angle. What IS load-bearing:
+        // every layer-two target sits at exactly the ring radius from the menu centre, the
+        // six angular gaps are even (angleStep re-divided by the new count — the regression
+        // the deleted slot-symmetry fact used to catch), and the Back target still exists.
         var messenger = new WeakReferenceMessenger();
         using var vm = new ActionMenuViewModel(Defaults(), messenger);
         Show(messenger);
@@ -102,9 +105,26 @@ public class ActionMenuViewModelLayerTests
 
         Check.That(layerTwo).HasSize(6);
         Check.That(layerTwo.Count(i => i.Kind == ActionMenuItemKind.BackToPrimary)).IsEqualTo(1);
-        Check.That(layerTwo.Select(i => i.Position)).ContainsOnlyElementsThatMatch(
-            p => !double.IsNaN(p.X) && !double.IsNaN(p.Y) && !double.IsInfinity(p.X) && !double.IsInfinity(p.Y));
+
+        // Every slot sits at exactly the ring radius from the menu centre (900, 500 — the
+        // Show() helper's centre)...
+        var expectedRadius = DpiHelper.LogicalToPhysicalX(vm.EffectiveRingRadius);
+        Check.That(layerTwo.Select(i => DistanceFrom(i.Position)))
+             .ContainsOnlyElementsThatMatch(d => Math.Abs(d - expectedRadius) < 1e-6);
+
+        var angles = layerTwo.Select(i => AngleFromCenter(i.Position)).OrderBy(a => a).ToList();
+        for (var i = 0; i < angles.Count; i++)
+        {
+            var next = i + 1 < angles.Count ? angles[i + 1] : angles[0] + 360;
+            Check.That(next - angles[i]).IsCloseTo(60, 1e-6);
+        }
     }
+
+    private static double AngleFromCenter(PhysicalPoint p) =>
+        Math.Atan2(p.Y - 500, p.X - 900) * 180 / Math.PI;
+
+    private static double DistanceFrom(PhysicalPoint p) =>
+        Math.Sqrt(Math.Pow(p.X - 900, 2) + Math.Pow(p.Y - 500, 2));
 
     [Fact]
     public void DwellingBackOnTheSecondLayer_ReturnsToTheFirst()

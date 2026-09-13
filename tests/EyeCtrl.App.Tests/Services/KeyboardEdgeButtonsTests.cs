@@ -71,7 +71,7 @@ public class KeyboardEdgeButtonsTests
     {
         var messenger = new WeakReferenceMessenger();
         KeyboardHideRequestedMessage? received = null;
-        messenger.Register<object?, KeyboardHideRequestedMessage>(this, (_, m) => received = m);
+        messenger.Register<object, KeyboardHideRequestedMessage>(this, (_, m) => received = m);
 
         var close = KeyboardEdgeButtons.Definitions(600, keyboardAtTop: false)
             .Single(d => d.Id == KeyboardEdgeButtons.CloseId);
@@ -85,7 +85,7 @@ public class KeyboardEdgeButtonsTests
     {
         var messenger = new WeakReferenceMessenger();
         KeyboardEdgeToggledMessage? received = null;
-        messenger.Register<object?, KeyboardEdgeToggledMessage>(this, (_, m) => received = m);
+        messenger.Register<object, KeyboardEdgeToggledMessage>(this, (_, m) => received = m);
 
         var flip = KeyboardEdgeButtons.Definitions(600, keyboardAtTop: true)
             .Single(d => d.Id == KeyboardEdgeButtons.FlipId);

@@ -72,9 +72,10 @@ public class RepeatModeEntryPathTests
         using var controller = new RepeatModeController();
         controller.Initialize(ctx);
 
-        // The adapter's cursor-forwarding role, replicated: engine → messenger.
-        engine.CursorMoved += (p, ts) => dispatcher.BeginInvoke(() =>
-            messenger.Send(new GazeCursorMovedMessage(p, ts)));
+        // The adapter's cursor-forwarding role, replicated: engine → messenger. Main publishes
+        // a GazeFrame (gap flag); the dwell surfaces skip gap-held samples downstream.
+        engine.CursorMoved += frame => dispatcher.BeginInvoke(() =>
+            messenger.Send(new GazeCursorMovedMessage(frame.Position, frame.TimestampMicroseconds)));
 
         // Open the menu (the toolbar button's message) and place the row target.
         messenger.Send(new ModesMenuToggledMessage());

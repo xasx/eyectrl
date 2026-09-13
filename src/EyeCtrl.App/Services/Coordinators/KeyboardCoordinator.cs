@@ -229,6 +229,14 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         }
 
         var atTop = string.Equals(Context.Settings.Keyboard.ScreenEdge, "Top", StringComparison.OrdinalIgnoreCase);
+
+        // Reaching this show with a free bar after a RING activation depends on dispatcher FIFO:
+        // InteractionManager fires HideActionMenu before ActionRequested (both queued at
+        // DispatcherPriority.Normal), so OverlayMessageCoordinator's close handler clears the
+        // menu's pair before this show runs — one hop of margin. If that ordering ever inverts,
+        // the ring action silently produces a keyboard whose Close/Flip were skipped by the
+        // guard above (its Log.Debug the only trace). Same invisible guarantee as
+        // OverlayMessageCoordinator.cs:119-121.
         bar.ShowButtons(
             KeyboardEdgeButtons.Definitions(Context.Settings.Dwell.KeyboardKeyDwellMs, atTop),
             ScreenGeometry.KeyboardEdgeBarAnchor(atTop, UIConstants.ButtonRadius));
@@ -262,13 +270,22 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     /// early-out in <see cref="ToolbarLifecycleCoordinator"/> reads on the gaze thread.
     /// The toolbar auto-hide is deliberately NOT suspended anymore (spec B2, ledger #9): the
     /// toolbar un-pins while the keyboard is up and edge-summons on demand; the keyboard's own
-    /// escape is the edge-bar Close. Suspending before publishing the flag still matters — no
-    /// gaze sample may observe <c>KeyboardVisible</c> while the quick-actions summon is live.
+    /// escape is the edge-bar Close. Ordering matters in both directions: on show the summon
+    /// suspends BEFORE the flag publishes; on hide the flag clears BEFORE the summon resumes —
+    /// no gaze sample may observe <c>KeyboardVisible</c> while the quick-actions summon is live.
     /// </summary>
     internal void ApplyModalKeyboardState(bool visible)
     {
-        _quickActions.SetSummonSuspended(visible);
-        _modal.KeyboardVisible = visible;
+        if (visible)
+        {
+            _quickActions.SetSummonSuspended(true);
+            _modal.KeyboardVisible = true;
+        }
+        else
+        {
+            _modal.KeyboardVisible = false;
+            _quickActions.SetSummonSuspended(false);
+        }
     }
 
     /// <summary>

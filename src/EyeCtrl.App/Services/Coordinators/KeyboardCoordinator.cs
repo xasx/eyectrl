@@ -27,6 +27,12 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     private readonly ToolbarLifecycleCoordinator _toolbar;
     private readonly PredictionStackFactory _predictionFactory = new();
     private KeyboardStackSnapshot? _keyboardSnapshot;
+    // Set when ShowKeyboardEdgeBar had to skip because another context owned the shared bar;
+    // cleared when the pair is (re)shown or the keyboard hides. Drives the B4 #10 retry.
+    private bool _keyboardPairWanted;
+    // The bar VM the ButtonSetChanged retry subscription is attached to (attached lazily on
+    // the first keyboard show — the VM only exists once OverlayManager.Initialize has run).
+    private EdgeButtonBarViewModel? _hookedEdgeBarVm;
     // Owned HERE — moved from EventCoordinator.Initialize. Used by LoadKeyboard's
     // recent-emoji path and as the model-dir root for PredictionStackFactory.Rebuild.
     private string? _appDataDir;
@@ -216,17 +222,22 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     {
         if (Context is null) return;
         var bar = Context.OverlayManager.EdgeButtonBar;
+        HookEdgeBarNotifications(bar);
 
         // Reverse-overlap guard (spec B4 #10, the OverlayMessageCoordinator hand-off dance):
         // if the bar is currently showing ANOTHER context's definitions (scroll Stop, drag
-        // Cancel, the menu pair), do not clobber them — the keyboard stays closable via the
-        // toolbar Keyboard button until that context releases the bar. Skipping is safe in
-        // both directions: showing only when the bar is free-or-ours, hiding only when ours.
+        // Cancel, the menu pair), do not clobber them. Skipping is safe in both directions:
+        // showing only when the bar is free-or-ours, hiding only when ours. A skip is NOT the
+        // end of the story (see the trace at B4 #10 in the keyboard spec): the keyboard stays
+        // closable via the toolbar's Keyboard toggle, and the skip records _keyboardPairWanted
+        // so the pair is re-claimed the moment the other context releases the bar.
         if (!ShouldShowKeyboardEdgeBar(bar.EdgeBarVm))
         {
-            Log.Debug("Edge bar busy with another context's buttons; keyboard pair skipped");
+            _keyboardPairWanted = true;
+            Log.Debug("Edge bar busy with another context's buttons; keyboard pair skipped (retry when free)");
             return;
         }
+        _keyboardPairWanted = false;
 
         var atTop = string.Equals(Context.Settings.Keyboard.ScreenEdge, "Top", StringComparison.OrdinalIgnoreCase);
 
@@ -244,6 +255,9 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
 
     private void HideKeyboardEdgeBar()
     {
+        // The keyboard is going away — a pending retry claim dies with it.
+        _keyboardPairWanted = false;
+
         // Guarded hand-off (spec B4 #10): the bar is shared — only clear it while the
         // keyboard's definitions still own it, mirroring OverlayMessageCoordinator's
         // ActionMenu Close guard.
@@ -263,6 +277,38 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     /// owns it — another context's stop/cancel buttons must survive.</summary>
     internal static bool ShouldHideKeyboardEdgeBar(EdgeButtonBarViewModel? barVm) =>
         barVm?.DefinitionFor(KeyboardEdgeButtons.CloseId) is not null;
+
+    /// <summary>The retry decision for a keyboard pair that lost the show race (spec B4 #10
+    /// reverse-overlap trace): only a keyboard that WANTS the bar, is STILL up, and sees the
+    /// bar FREE again (the other context ended and its unguarded Hide emptied it) may
+    /// re-claim. "Already ours" is not a retry — that is ShowKeyboardEdgeBar's own flip path.
+    /// Extracted so the decision is headless-testable; the caller adds the event wiring.</summary>
+    internal static bool ShouldRetryKeyboardEdgeBar(
+        bool pairWanted, bool keyboardVisible, EdgeButtonBarViewModel? barVm) =>
+        pairWanted && keyboardVisible && barVm is not null && barVm.Buttons.Count == 0;
+
+    private void HookEdgeBarNotifications(EdgeButtonBarWindow bar)
+    {
+        if (_hookedEdgeBarVm is not null) return;
+        var vm = bar.EdgeBarVm;
+        if (vm is null) return;
+        _hookedEdgeBarVm = vm;
+        vm.ButtonSetChanged += OnEdgeBarButtonSetChanged;
+    }
+
+    private void OnEdgeBarButtonSetChanged()
+    {
+        if (Context is null) return;
+        Context.Dispatcher.BeginInvoke(() =>
+        {
+            if (Context is null) return;
+            var bar = Context.OverlayManager.EdgeButtonBar;
+            if (!ShouldRetryKeyboardEdgeBar(_keyboardPairWanted, _modal.KeyboardVisible, bar.EdgeBarVm))
+                return;
+            Log.Debug("Edge bar freed; re-claiming it for the keyboard pair");
+            ShowKeyboardEdgeBar();
+        });
+    }
 
     /// <summary>
     /// Publishes a keyboard-visibility change to the quick-actions summon-suspend seam and the
@@ -392,5 +438,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
             Context.OverlayManager.Keyboard.SkinToneChanged -= OnEmojiSkinToneChanged;
             _toolbar.ToolbarVisibilityChanged -= OnToolbarVisibilityChanged;
         }
+        if (_hookedEdgeBarVm is not null)
+            _hookedEdgeBarVm.ButtonSetChanged -= OnEdgeBarButtonSetChanged;
     }
 }

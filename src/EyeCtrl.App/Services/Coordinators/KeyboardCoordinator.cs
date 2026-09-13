@@ -9,6 +9,7 @@ using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.ViewModels;   // UIConstants (edge-bar anchor radius)
 using EyeCtrl.ViewModels.Messages;
 using Serilog;
 
@@ -86,6 +87,11 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
             context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(false, manageSuppression: false));
             Log.Debug("Keyboard hidden");
         });
+
+        // Edge-bar Flip (spec B1/B4): flip, apply to the window, persist, refresh the
+        // snapshot, and rebuild the bar at the keyboard's new edge (ledger #15).
+        messenger.Register<KeyboardCoordinator, KeyboardEdgeToggledMessage>(this, (_, _) =>
+            context.Dispatcher.BeginInvoke(HandleKeyboardEdgeToggled));
 
         // Yield wiring (spec B3 #7): react to real toolbar transitions, and on keyboard show
         // query the window directly — the startup show bypasses the adapter, so a tracked
@@ -178,6 +184,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         {
             Context.OverlayManager.Keyboard.Show();
             ApplyInitialToolbarOccupancy();
+            ShowKeyboardEdgeBar();
             if (manageSuppression)
             {
                 Context.GazeEngine.SuppressFixation = true;
@@ -190,9 +197,63 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
             Context.OverlayManager.Keyboard.Hide();
             if (manageSuppression)
                 Context.GazeEngine.SuppressFixation = false;
+            HideKeyboardEdgeBar();
             Context.Messenger.Send(new HideKeyboardMessage());
         }
     }
+
+    private void HandleKeyboardEdgeToggled()
+    {
+        if (Context is null) return;
+        var (flipped, snapshot) = ApplyKeyboardEdge(Context.Settings, Context.SettingsService);
+        Context.OverlayManager.Keyboard.SetScreenEdge(flipped);
+        _keyboardSnapshot = snapshot;
+        ShowKeyboardEdgeBar();
+    }
+
+    private void ShowKeyboardEdgeBar()
+    {
+        if (Context is null) return;
+        var bar = Context.OverlayManager.EdgeButtonBar;
+
+        // Reverse-overlap guard (spec B4 #10, the OverlayMessageCoordinator hand-off dance):
+        // if the bar is currently showing ANOTHER context's definitions (scroll Stop, drag
+        // Cancel, the menu pair), do not clobber them — the keyboard stays closable via the
+        // toolbar Keyboard button until that context releases the bar. Skipping is safe in
+        // both directions: showing only when the bar is free-or-ours, hiding only when ours.
+        if (!ShouldShowKeyboardEdgeBar(bar.EdgeBarVm))
+        {
+            Log.Debug("Edge bar busy with another context's buttons; keyboard pair skipped");
+            return;
+        }
+
+        var atTop = string.Equals(Context.Settings.Keyboard.ScreenEdge, "Top", StringComparison.OrdinalIgnoreCase);
+        bar.ShowButtons(
+            KeyboardEdgeButtons.Definitions(Context.Settings.Dwell.KeyboardKeyDwellMs, atTop),
+            ScreenGeometry.KeyboardEdgeBarAnchor(atTop, UIConstants.ButtonRadius));
+    }
+
+    private void HideKeyboardEdgeBar()
+    {
+        // Guarded hand-off (spec B4 #10): the bar is shared — only clear it while the
+        // keyboard's definitions still own it, mirroring OverlayMessageCoordinator's
+        // ActionMenu Close guard.
+        var bar = Context?.OverlayManager.EdgeButtonBar;
+        if (ShouldHideKeyboardEdgeBar(bar?.EdgeBarVm))
+            bar!.Hide();
+    }
+
+    /// <summary>The bar is claimable for the keyboard pair when it holds no definitions at
+    /// all (the common case) or already ours (a flip rebuild).</summary>
+    internal static bool ShouldShowKeyboardEdgeBar(EdgeButtonBarViewModel? barVm) =>
+        barVm is null
+        || barVm.Buttons.Count == 0
+        || barVm.DefinitionFor(KeyboardEdgeButtons.CloseId) is not null;
+
+    /// <summary>The keyboard's hide may clear the bar only while the keyboard pair still
+    /// owns it — another context's stop/cancel buttons must survive.</summary>
+    internal static bool ShouldHideKeyboardEdgeBar(EdgeButtonBarViewModel? barVm) =>
+        barVm?.DefinitionFor(KeyboardEdgeButtons.CloseId) is not null;
 
     /// <summary>
     /// Publishes a keyboard-visibility change to the two cross-cluster consumers: the toolbar

@@ -3,8 +3,10 @@ namespace EyeCtrl.App.Tests.Services;
 using System.Linq;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
+using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 
@@ -90,5 +92,44 @@ public class KeyboardEdgeButtonsTests
         flip.Activate(messenger);
 
         Check.That(received).IsNotNull();
+    }
+
+    [Fact]
+    public void GuardTests_KeyboardPairClaimsFreeBar_ButNeverClobbersOrClearsOthers()
+    {
+        // The shared-bar hand-off (spec B4 #10 / §6): show only when the bar is free or
+        // already ours; hide only while ours. Real EdgeButtonBarViewModel, no WPF windows.
+        var messenger = new WeakReferenceMessenger();
+        var settings = new EyeCtrlSettings();
+        var barVm = new EdgeButtonBarViewModel(settings, messenger);
+
+        // Free bar (no definitions): claimable.
+        Check.That(KeyboardCoordinator.ShouldShowKeyboardEdgeBar(barVm)).IsTrue();
+        Check.That(KeyboardCoordinator.ShouldHideKeyboardEdgeBar(barVm)).IsFalse();
+
+        // Our pair: re-claimable (flip rebuild) and clearable (keyboard hide).
+        barVm.ShowButtons(
+            KeyboardEdgeButtons.Definitions(600, keyboardAtTop: false),
+            new PhysicalPoint(1800, 800));
+        Check.That(KeyboardCoordinator.ShouldShowKeyboardEdgeBar(barVm)).IsTrue();
+        Check.That(KeyboardCoordinator.ShouldHideKeyboardEdgeBar(barVm)).IsTrue();
+
+        // Another context's button (scroll stop shape): never clobbered, never cleared.
+        barVm.ShowButtons(
+            new[] { new EdgeButtonDefinition(
+                "scroll_stop", Symbol: string.Empty, 600,
+                _ => { }, VerticalOffset: 0) },
+            new PhysicalPoint(1800, 800));
+        Check.That(KeyboardCoordinator.ShouldShowKeyboardEdgeBar(barVm)).IsFalse();
+        Check.That(KeyboardCoordinator.ShouldHideKeyboardEdgeBar(barVm)).IsFalse();
+
+        // Hidden bar (Hide clears everything): claimable again.
+        barVm.Hide();
+        Check.That(KeyboardCoordinator.ShouldShowKeyboardEdgeBar(barVm)).IsTrue();
+        Check.That(KeyboardCoordinator.ShouldHideKeyboardEdgeBar(barVm)).IsFalse();
+
+        // Null-tolerant (window not constructed).
+        Check.That(KeyboardCoordinator.ShouldShowKeyboardEdgeBar(null)).IsTrue();
+        Check.That(KeyboardCoordinator.ShouldHideKeyboardEdgeBar(null)).IsFalse();
     }
 }

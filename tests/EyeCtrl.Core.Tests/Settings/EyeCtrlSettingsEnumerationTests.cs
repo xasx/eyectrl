@@ -5,11 +5,11 @@ using EyeCtrl.Core.Settings;
 public class EyeCtrlSettingsEnumerationTests
 {
     [Fact]
-    public void EnumerateSubSettings_Yields20Entries_AllValidatable()
+    public void EnumerateSubSettings_Yields21Entries_AllValidatable()
     {
         var subs = new EyeCtrlSettings().EnumerateSubSettings().ToList();
 
-        Check.That(subs).HasSize(20);
+        Check.That(subs).HasSize(21);
         Check.That(subs.All(t => t.Settings is IValidatable)).IsTrue();
     }
 

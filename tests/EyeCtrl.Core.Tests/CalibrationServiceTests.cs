@@ -236,9 +236,16 @@ public class CalibrationServiceTests
         // The fit-level guards are not weakened and are not left untested: IsTransformSane and
         // HasSufficientGazeVariation are covered directly over constructed points in
         // CalibrationValidatorTests, and Load still applies both to files written by older builds.
+        // The off-target Y is DERIVED from the target and the band, not the literal 0 this used to use.
+        // At the 5 % margin (calibration-ux ticket 1) the first target sits at (120,120) on this screen
+        // while the band radius is 240 px, so gaze pinned at Y=0 is now INSIDE the band and the collector
+        // accepts it — the test was passing on a coincidence of the old 20 % margin, not on the property
+        // it names. Two band radii away says "nowhere near the target" in a way a layout change cannot
+        // quietly invalidate again.
+        var offTargetY = targets[0].Y + (2 * CalibrationGeometry.BandRadiusPx(screen));
         service.BeginTarget(0);
         for (int j = 0; j < 30; j++)
-            service.AddRawSample(new PhysicalPoint(targets[0].X, 0 * 3.0)); // Y collapsed
+            service.AddRawSample(new PhysicalPoint(targets[0].X, offTargetY)); // Y collapsed AND off target
 
         Check.ThatCode(() => service.EndTarget()).Throws<InvalidOperationException>();
         Check.That(service.CurrentTransform).IsNull();
@@ -325,13 +332,28 @@ public class CalibrationServiceTests
         var screen = new PhysicalPoint(3840, 2400);
         service.StartSession(5, screen);
 
-        // REWRITTEN 2026-09-13, same reason as the degenerate-fit test above. A sensor stuck at (1,1)
-        // is 900+ px from every target on this screen, so collection refuses the very first one
-        // instead of gathering five useless points and rejecting the fit afterwards. A user now
-        // learns the tracker is not following them at target one, not at the end of the session.
+        // REWRITTEN 2026-09-13, same reason as the degenerate-fit test above: collection refuses the
+        // very first target instead of gathering five useless points and rejecting the fit afterwards,
+        // so the user learns the tracker is not following them at target one.
+        //
+        // AMENDED for calibration-ux ticket 1, and the amendment records a real behaviour change rather
+        // than a test repair. The original stuck value was the literal (1,1) of the 2026-06-16 incident,
+        // justified as "900+ px from every target on this screen". At the 5 % margin the first target is
+        // at (120,120) and the band radius is 240 px, so (1,1) is 168 px away — INSIDE the band. That
+        // exact signature is therefore no longer caught at target one; it is caught later, by the
+        // cross-target collapse check, which needs more than one point. Detection is delayed for a
+        // sensor stuck near the screen origin specifically, not lost.
+        //
+        // The stuck point is derived from the target so the property under test survives the next
+        // layout change.
+        var target0 = service.GetTargetPosition(0);
+        var stuckAt = new PhysicalPoint(
+            target0.X + (2 * CalibrationGeometry.BandRadiusPx(screen)),
+            target0.Y + (2 * CalibrationGeometry.BandRadiusPx(screen)));
+
         service.BeginTarget(0);
         for (int j = 0; j < 27; j++)
-            service.AddRawSample(new PhysicalPoint(1, 1)); // never moves
+            service.AddRawSample(stuckAt); // never moves
 
         Check.ThatCode(() => service.EndTarget()).Throws<InvalidOperationException>();
         Check.That(service.CurrentTransform).IsNull();

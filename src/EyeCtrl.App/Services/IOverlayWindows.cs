@@ -210,6 +210,12 @@ public interface IGlassBackdropOverlay
     void ApplyBackdrop(BackdropSettings settings);
     void DrawHideButton(PhysicalPoint buttonCenter, double progress = 0);
     void UpdateHideButtonProgress(double progress);
+
+    /// <summary>Shows the "Press Esc to exit" hint — the caregiver-facing signage for manual selection.</summary>
+    void ShowEscapeHint();
+
+    /// <summary>Hides the escape hint.</summary>
+    void HideEscapeHint();
 }
 
 /// <summary>The calibration surface.</summary>

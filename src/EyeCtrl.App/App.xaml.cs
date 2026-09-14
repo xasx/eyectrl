@@ -418,15 +418,48 @@ public partial class App : Application
         {
             splash?.Close();
             Log.Fatal(ex, "Failed to start EyeCtrl");
-            Log.CloseAndFlush();
+            // Shutdown BEFORE showing any dialog: OnExit releases the single-instance mutex, and a
+            // blocking MessageBox shown first held the mutex for as long as nobody clicked OK —
+            // for a gaze-only user that turned one failed boot into "no relaunch can succeed
+            // until a caregiver arrives". The dispatcher drains while the box's native message
+            // pump runs, so OnExit completes under the dialog. OnExit also flushes the log.
+            Shutdown();
+            // The box itself auto-dismisses: nobody present may be able to click OK, and an
+            // unattended retry loop (Run key, caregiver script) must be able to make progress.
+            DismissMessageBoxAfter(StartupErrorTitle, TimeSpan.FromSeconds(20));
             MessageBox.Show(
                 $"EyeCtrl failed to start:\n{ex.Message}",
-                "EyeCtrl — Startup Error",
+                StartupErrorTitle,
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
-            Shutdown();
         }
     }
+
+    private const string StartupErrorTitle = "EyeCtrl — Startup Error";
+
+    /// <summary>Finds a top-level window by exact title and posts WM_CLOSE to it after
+    /// <paramref name="delay"/> — the auto-dismiss for the startup-error box. Best-effort: a box
+    /// that stays up no longer holds anything (shutdown already ran).</summary>
+    private static async void DismissMessageBoxAfter(string title, TimeSpan delay)
+    {
+        try
+        {
+            await Task.Delay(delay).ConfigureAwait(false);
+            var hwnd = FindWindowW(null, title);
+            if (hwnd != IntPtr.Zero)
+                PostMessageW(hwnd, 0x0010 /* WM_CLOSE */, IntPtr.Zero, IntPtr.Zero);
+        }
+        catch
+        {
+            // Ignore: worst case the box stays until clicked.
+        }
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    private static extern IntPtr FindWindowW(string? className, string? windowName);
+
+    [DllImport("user32.dll")]
+    private static extern bool PostMessageW(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
 
     protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
     {

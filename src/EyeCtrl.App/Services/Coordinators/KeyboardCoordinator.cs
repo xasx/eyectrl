@@ -99,17 +99,41 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
 
         if (File.Exists(layoutPath))
         {
-            var layout = KeyboardLayoutLoader.Load(layoutPath);
-            keyboard.LoadLayout(layout,
-                settings.Keyboard.KeySizeMultiplier,
-                settings.Dwell.KeyboardKeyDwellMs,
-                settings.Dwell.KeyboardPredictionDwellMs,
-                settings.Dwell.DwellCooldownMs);
+            // A corrupt layout or emoji file must degrade the keyboard, not kill boot. The
+            // exception used to escape into App.OnStartup's catch, whose failure path ends in
+            // Shutdown() — the whole app (cursor included) dead over one resource file, with a
+            // modal box the user may be unable to dismiss. Emoji loading is skipped when the
+            // layout failed: SetEmojiData assumes a loaded keyboard.
+            var layoutLoaded = false;
+            try
+            {
+                var layout = KeyboardLayoutLoader.Load(layoutPath);
+                keyboard.LoadLayout(layout,
+                    settings.Keyboard.KeySizeMultiplier,
+                    settings.Dwell.KeyboardKeyDwellMs,
+                    settings.Dwell.KeyboardPredictionDwellMs,
+                    settings.Dwell.DwellCooldownMs);
+                layoutLoaded = true;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Keyboard layout {Path} failed to load; the keyboard is unavailable this session", layoutPath);
+            }
 
-            var emojiPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "Emojis", "emojis.json");
-            var recentPath = Path.Combine(_appDataDir!, "recent_emojis.json");
-            keyboard.SetEmojiData(emojiPath, recentPath);
-            keyboard.SetSkinTone(settings.Keyboard.EmojiSkinTone);
+            if (layoutLoaded)
+            {
+                try
+                {
+                    var emojiPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "Emojis", "emojis.json");
+                    var recentPath = Path.Combine(_appDataDir!, "recent_emojis.json");
+                    keyboard.SetEmojiData(emojiPath, recentPath);
+                    keyboard.SetSkinTone(settings.Keyboard.EmojiSkinTone);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Emoji data failed to load; the emoji panel is unavailable this session");
+                }
+            }
         }
 
         if (settings.Keyboard.PredictionEnabled && string.IsNullOrEmpty(settings.Keyboard.LanguagePack))

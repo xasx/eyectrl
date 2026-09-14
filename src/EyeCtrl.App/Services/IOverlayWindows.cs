@@ -100,6 +100,13 @@ public interface IManualSelectionOverlay
 
     /// <summary>Maps a point on the magnified view back to the real screen coordinate.</summary>
     PhysicalPoint GetRealPhysicalPoint(PhysicalPoint gazeOnScreen);
+
+    /// <summary>
+    /// The centre, in physical pixels, of the capture currently displayed. The capture rectangle is
+    /// clamped to the screen, so near an edge this is not the centre that was requested; every
+    /// mapping between the magnified view and real screen coordinates reads this value.
+    /// </summary>
+    PhysicalPoint EffectiveCaptureCenter { get; }
 }
 
 /// <summary>The radial action menu.</summary>
@@ -186,6 +193,13 @@ public interface IManualSelectionIndicatorOverlay
     void UpdateOuterDiameter(double diameter);
     void AnimateReset(double targetDiameter, int durationMs);
     void RaiseToTop();
+
+    /// <summary>
+    /// Sets the held dwell anchor's mark. The anchor is a fixed screen point (the dot moves, the
+    /// anchor does not), so it is drawn in the same window as the dot but offset from it; callers
+    /// pass <paramref name="visible"/> false to release the mark.
+    /// </summary>
+    void UpdateAnchor(double screenX, double screenY, bool visible);
 }
 
 /// <summary>The dimming backdrop behind modal overlays.</summary>

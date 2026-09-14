@@ -14,13 +14,13 @@ public static class ScreenCaptureService
     private static extern bool DeleteObject(IntPtr hObject);
 
     /// <summary>
-    /// Captures a square region of the screen centered on the given point.
-    /// Returns a BitmapSource suitable for WPF ImageBrush.
+    /// Captures a square region of the screen centered on the given point. The request is clamped
+    /// to the screen, so the returned rectangle is the effective one — near an edge its centre is
+    /// not the requested centre.
     /// </summary>
-    public static BitmapSource? CaptureRegion(PhysicalPoint center, int radius)
+    public static CaptureResult? CaptureRegion(PhysicalPoint center, int radius)
     {
-        var screenWidth = (int)DpiHelper.LogicalToPhysicalX(SystemParameters.PrimaryScreenWidth);
-        var screenHeight = (int)DpiHelper.LogicalToPhysicalY(SystemParameters.PrimaryScreenHeight);
+        var (screenWidth, screenHeight) = PhysicalScreenSize();
 
         var region = CaptureRegionMath.Compute((int)center.X, (int)center.Y, radius, screenWidth, screenHeight);
         if (region == null) return null;
@@ -36,15 +36,31 @@ public static class ScreenCaptureService
         var hBitmap = bitmap.GetHbitmap();
         try
         {
-            return Imaging.CreateBitmapSourceFromHBitmap(
+            var image = Imaging.CreateBitmapSourceFromHBitmap(
                 hBitmap,
                 IntPtr.Zero,
                 Int32Rect.Empty,
                 BitmapSizeOptions.FromEmptyOptions());
+            return new CaptureResult(image, captureX, captureY, captureSize);
         }
         finally
         {
             DeleteObject(hBitmap);
         }
     }
+
+    /// <summary>
+    /// The centre, in physical pixels, of the image a capture of <paramref name="radius"/> around
+    /// <paramref name="center"/> will produce. Available before the capture runs, for callers that
+    /// must place something against the image before it arrives.
+    /// </summary>
+    public static PhysicalPoint GetEffectiveCenter(PhysicalPoint center, int radius)
+    {
+        var (screenWidth, screenHeight) = PhysicalScreenSize();
+        return CaptureViewMapping.EffectiveCaptureCenter(center, radius, screenWidth, screenHeight);
+    }
+
+    private static (int Width, int Height) PhysicalScreenSize()
+        => ((int)DpiHelper.LogicalToPhysicalX(SystemParameters.PrimaryScreenWidth),
+            (int)DpiHelper.LogicalToPhysicalY(SystemParameters.PrimaryScreenHeight));
 }

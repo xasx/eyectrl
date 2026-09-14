@@ -33,11 +33,12 @@ public class SettingsSliderSpanGuardTests
     public void Selection_SliderSpans_StayInsideTheValidatedRanges()
     {
         var sliders = Sliders(new SelectionPageSource(TestSettingsPageContext.Build()));
-        Check.That(sliders).HasSize(10);
+        Check.That(sliders).HasSize(11);
         Check.That(sliders.Keys).Contains(new[]
-            { "s_rad", "s_mag", "s_grace", "s_highlightThickness", "s_snapRadius" });
+            { "s_rad", "s_mag", "s_grace", "s_hold", "s_highlightThickness", "s_snapRadius" });
         SpanInside(sliders, "s_rad", 50, 500);
         SpanInside(sliders, "s_mag", 1.5, 5.0);
+        SpanInside(sliders, "s_hold", 20, 300);
         SpanInside(sliders, "s_highlightThickness", 1, 10);
         SpanInside(sliders, "s_snapRadius", 16, 96);
         SpanInside(sliders, "s_gi_outer", 20, 200);

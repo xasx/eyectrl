@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Services;
 
 using System;
+using System.Collections.Generic;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.Logging;
@@ -37,6 +38,25 @@ public class ManualSelectionDwellService : IDisposable
     private bool _gracePeriodActive;
     private bool _isActive;
 
+    // Commit-rule state. The anchor seats on stability onset and is then HELD: it is not re-centred
+    // on the live gaze (that made the distance to the hit-tested point identically zero, so the
+    // target radius was unreachable and every sample counted as inside). The commit point is the
+    // running centroid of the held samples, which recovers accuracy under noise.
+    private readonly Queue<PhysicalPoint> _stabilitySamples = new();
+    private PhysicalPoint? _anchor;
+    private PhysicalPoint? _commitPoint;
+    private double _commitSumX;
+    private double _commitSumY;
+    private int _commitCount;
+    private int _consecutiveOutOfHoldSamples;
+
+    /// <summary>
+    /// Onset window as a fraction of the hold radius: the seating cluster must be this tight
+    /// before the anchor seats. Tied to the hold radius so the one strictness knob
+    /// (<see cref="ManualSelectionSettings.HoldRadiusLogical"/>) loosens seating and holding together.
+    /// </summary>
+    private const double OnsetRadiusHoldFraction = 0.5;
+
     public ManualSelectionDwellService(
         IMessenger messenger,
         ILogger<ManualSelectionDwellService> logger,
@@ -66,7 +86,12 @@ public class ManualSelectionDwellService : IDisposable
     {
         // Initialize state
         _manualSelectionCenter = message.Center;
-        _manualSelectionRadius = message.Radius * DpiHelper.ScaleX; // Store physical pixel radius
+        // The acceptance region is the VISIBLE rim: radius x magnification DIP, in physical pixels.
+        // The old expression (radius x ScaleX) gated dwell at half the drawn circle, so ~75% of what
+        // the user could see was dead. The invariant is "the boundary the user can see is the
+        // boundary that decides", and ScaleX is what makes it hold on a scaled display — the gaze
+        // point and this radius are both physical, and the drawn rim is logical.
+        _manualSelectionRadius = message.Radius * message.Magnification * DpiHelper.ScaleX;
         _isActive = true;
         _gracePeriodActive = false;
         _manualSelectionStartTimestamp = 0;
@@ -78,18 +103,25 @@ public class ManualSelectionDwellService : IDisposable
         _dwellDetector.TargetActivated += OnDwellActivated;
         _dwellDetector.TargetProgress += OnDwellProgress;
 
-        // Create a virtual dwell target at the initial gaze position
-        // The radius is scaled by magnification since we're in ManualSelection space
-        var scaledRadius = _settings.Dwell.FixationRadiusPixels / message.Magnification;
+        // Hold tolerance is a property of the eye and lives in SCREEN space (DIP). Magnification
+        // relates screen space to content space, so it must not appear here — neither multiplied
+        // nor divided. (The expression this replaces divided FixationRadiusPixels by magnification;
+        // that shape is the fingerprint of treating the hold target as content-space, and not
+        // scaling it is precisely what delivers the 1/magnification precision gain.)
+        var holdRadiusPhysical = _settings.ManualSelection.HoldRadiusLogical * DpiHelper.ScaleX;
         var dwellTime = _settings.Dwell.ManualSelectionActionMenuDwellMs;
 
+        // The target is created at the initial gaze point and moved to the seated anchor once
+        // stability onset seats it. Samples are not fed to the detector before then, so no dwell
+        // can accumulate against a point the user has not actually settled on.
         var target = new DwellTarget(
             ManualSelectionDwellTargetId,
-            message.GazePoint, // Initial position (will be updated as gaze moves)
-            scaledRadius,
+            message.GazePoint,
+            holdRadiusPhysical,
             dwellTime);
 
         _dwellDetector.AddTarget(target);
+        ClearCommitState();
 
         // Per-session registration keyed by this service: re-registering replaces the previous
         // session's entry (owner-keyed registry), so only the live detector is ever routed to.
@@ -120,6 +152,7 @@ public class ManualSelectionDwellService : IDisposable
         _gracePeriodActive = false;
         _manualSelectionCenter = null;
         _manualSelectionRadius = null;
+        ClearCommitState();
 
         _logger.LogDebug("ManualSelection dwell tracking stopped");
     }
@@ -162,9 +195,6 @@ public class ManualSelectionDwellService : IDisposable
         var pt = message.Position;
         var ts = message.TimestampMicroseconds;
 
-        // Track last gaze point for dwell completion
-        _lastGazePoint = pt;
-
         // 1. Update indicator position (even during grace period)
         UpdateIndicatorPosition(pt);
 
@@ -186,11 +216,109 @@ public class ManualSelectionDwellService : IDisposable
             return;
         }
 
-        // 4. Update dwell target position to follow gaze
-        _dwellDetector.UpdateTargetCenter(ManualSelectionDwellTargetId, pt);
+        // 4. Commit rule: the anchor must exist before dwell can accumulate, and once it exists it
+        //    is held. Only samples within the hold radius are fed to the detector; an isolated
+        //    out-of-hold sample is skipped rather than treated as gaze-left.
+        if (_anchor is null)
+        {
+            if (!TrySeatAnchor(pt))
+                return;
+        }
+        else if (!IsWithinHoldRadius(pt))
+        {
+            _consecutiveOutOfHoldSamples++;
+            if (_consecutiveOutOfHoldSamples > _settings.ManualSelection.HoldOutlierSkipLimit)
+            {
+                // Not an isolated outlier: the user moved. Drop the anchor, reset the dwell and
+                // start looking for a new stability onset from this sample.
+                ResetDwell();
+                TrySeatAnchor(pt);
+            }
+            return;
+        }
+        else
+        {
+            _consecutiveOutOfHoldSamples = 0;
+            AccumulateCommitPoint(pt);
+        }
 
         // 5. Update dwell detector
         _dwellDetector.Update(pt, ts);
+    }
+
+    /// <summary>
+    /// Seats the dwell anchor on stability onset: at least
+    /// <see cref="ManualSelectionSettings.StabilitySampleCount"/> of the last
+    /// <see cref="ManualSelectionSettings.StabilityWindowSize"/> samples must lie within the onset
+    /// window of the newest sample. The anchor is their centroid, and it also seeds the commit
+    /// centroid, so seating error is ~sigma/sqrt(K).
+    /// </summary>
+    private bool TrySeatAnchor(PhysicalPoint sample)
+    {
+        var sampleCount = _settings.ManualSelection.StabilitySampleCount;
+        var windowSize = Math.Max(_settings.ManualSelection.StabilityWindowSize, sampleCount);
+
+        _stabilitySamples.Enqueue(sample);
+        while (_stabilitySamples.Count > windowSize)
+            _stabilitySamples.Dequeue();
+
+        var onsetRadius = HoldRadiusPhysical * OnsetRadiusHoldFraction;
+        var onsetRadiusSq = onsetRadius * onsetRadius;
+
+        var inlierCount = 0;
+        double sumX = 0, sumY = 0;
+        foreach (var candidate in _stabilitySamples)
+        {
+            var dx = candidate.X - sample.X;
+            var dy = candidate.Y - sample.Y;
+            if (dx * dx + dy * dy <= onsetRadiusSq)
+            {
+                inlierCount++;
+                sumX += candidate.X;
+                sumY += candidate.Y;
+            }
+        }
+
+        if (inlierCount < sampleCount)
+            return false;
+
+        var anchor = new PhysicalPoint(sumX / inlierCount, sumY / inlierCount);
+        _anchor = anchor;
+        _stabilitySamples.Clear();
+        _consecutiveOutOfHoldSamples = 0;
+
+        _commitSumX = sumX;
+        _commitSumY = sumY;
+        _commitCount = inlierCount;
+        _commitPoint = anchor;
+
+        _dwellDetector?.UpdateTargetCenter(ManualSelectionDwellTargetId, anchor);
+
+        _logger.LogDebug(
+            "ManualSelection anchor seated at ({X}, {Y}) from {Count} stable samples",
+            anchor.X, anchor.Y, inlierCount);
+
+        DispatchSafe(() => _messenger.Send(new ManualSelectionAnchorChangedMessage(anchor)), "anchor-seated");
+        return true;
+    }
+
+    private void AccumulateCommitPoint(PhysicalPoint sample)
+    {
+        _commitSumX += sample.X;
+        _commitSumY += sample.Y;
+        _commitCount++;
+        _commitPoint = new PhysicalPoint(_commitSumX / _commitCount, _commitSumY / _commitCount);
+    }
+
+    private void ClearCommitState()
+    {
+        _anchor = null;
+        _commitPoint = null;
+        _commitSumX = 0;
+        _commitSumY = 0;
+        _commitCount = 0;
+        _consecutiveOutOfHoldSamples = 0;
+        _stabilitySamples.Clear();
     }
 
     /// <param name="handler">
@@ -230,18 +358,16 @@ public class ManualSelectionDwellService : IDisposable
             // already backed out of. Bail out instead.
             if (_dwellDetector == null) return;
 
-            // We need to get the actual target to retrieve its center
-            // Since DwellDetector doesn't expose targets, we'll use the last gaze position
-            // This is acceptable because dwell activation happens when gaze is on target
             _logger.LogInformation("ManualSelection dwell completed");
 
             // Reset indicator
             _messenger.Send(new ResetManualSelectionIndicatorMessage());
 
-            // We don't have access to the exact point, but we can send a completion message
-            // The EventCoordinator will need to track the last known gaze position
-            // For now, use the ManualSelection center as fallback (this will be improved)
-            _messenger.Send(new ManualSelectionDwellCompletedMessage(_lastGazePoint ?? _manualSelectionCenter!.Value));
+            // Commit at the running centroid of the held samples, not at the live gaze point: the
+            // centroid averages out the noise that a single sample would commit, which is what
+            // recovers accuracy now that the target no longer tracks the gaze.
+            _messenger.Send(new ManualSelectionDwellCompletedMessage(
+                _commitPoint ?? _manualSelectionCenter!.Value));
         }, "dwell-activated");
     }
 
@@ -252,8 +378,6 @@ public class ManualSelectionDwellService : IDisposable
         DispatchSafe(() => UpdateIndicatorProgress(progress), "dwell-progress");
     }
 
-    private PhysicalPoint? _lastGazePoint;
-
     private bool IsWithinManualSelectionBounds(PhysicalPoint gazePoint)
     {
         if (_manualSelectionCenter == null || _manualSelectionRadius == null) return false;
@@ -263,11 +387,33 @@ public class ManualSelectionDwellService : IDisposable
         return (dx * dx + dy * dy) <= (_manualSelectionRadius.Value * _manualSelectionRadius.Value);
     }
 
+    /// <summary>Hold tolerance in physical pixels — the same DIP value the user set, converted to
+    /// the space the gaze and the target live in. Magnification is deliberately absent.</summary>
+    private double HoldRadiusPhysical => _settings.ManualSelection.HoldRadiusLogical * DpiHelper.ScaleX;
+
+    private bool IsWithinHoldRadius(PhysicalPoint gazePoint)
+    {
+        if (_anchor is not { } anchor) return false;
+
+        var dx = gazePoint.X - anchor.X;
+        var dy = gazePoint.Y - anchor.Y;
+        var radius = HoldRadiusPhysical;
+        return (dx * dx + dy * dy) <= (radius * radius);
+    }
+
     private void ResetDwell()
     {
+        var hadAnchor = _anchor is not null;
+        ClearCommitState();
+
         _dwellDetector?.ResetAllState();
 
         DispatchSafe(() => _messenger.Send(new ResetManualSelectionIndicatorMessage()), "indicator-reset");
+
+        // Release the mark only when there was one; out-of-bounds samples arrive every frame once
+        // the gaze has left the circle, and re-sending null would be noise on the messenger.
+        if (hadAnchor)
+            DispatchSafe(() => _messenger.Send(new ManualSelectionAnchorChangedMessage(null)), "anchor-released");
     }
 
     private void UpdateIndicatorPosition(PhysicalPoint gazePoint)

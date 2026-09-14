@@ -30,6 +30,12 @@ internal sealed class SelectionPageSource : ISettingsPageSource
                 new SliderSpec("s_grace", "Grace Period (ms)", 0, 2000, 50, 0,
                     () => s.ManualSelection.ManualSelectionGracePeriodMs, v => { s.ManualSelection.ManualSelectionGracePeriodMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = "Dwell waits this long after manual selection opens." },
+                // The strictness knob for the anchored commit rule: raise toward the circle's
+                // logical radius for "always clicks, sometimes off-target", lower for "clicks where
+                // you aimed, sometimes refuses".
+                new SliderSpec("s_hold", "Hold Tolerance (px)", 20, 300, 5, 0,
+                    () => s.ManualSelection.HoldRadiusLogical, v => { s.ManualSelection.HoldRadiusLogical = v; _ctx.ApplyAndSave(); })
+                    { Description = "How far your gaze may drift from the held point before the selection restarts. Larger is more forgiving." },
                 new ColorPickerSpec("s_highlight", "Highlight Color",
                     () => s.AutoSelection.HighlightColor, v => { s.AutoSelection.HighlightColor = v; _ctx.ApplyAndSave(); },
                     SettingsWindow.ControlBtnRadius)

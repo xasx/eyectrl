@@ -221,6 +221,14 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
             case nameof(ManualSelectionGazeIndicatorViewModel.OuterCircleDiameter):
                 ManualSelectionIndicator.UpdateOuterDiameter(Context.ManualSelectionIndicatorVM.OuterCircleDiameter);
                 break;
+            case nameof(ManualSelectionGazeIndicatorViewModel.AnchorX):
+            case nameof(ManualSelectionGazeIndicatorViewModel.AnchorY):
+            case nameof(ManualSelectionGazeIndicatorViewModel.IsAnchorVisible):
+                ManualSelectionIndicator.UpdateAnchor(
+                    Context.ManualSelectionIndicatorVM.AnchorX,
+                    Context.ManualSelectionIndicatorVM.AnchorY,
+                    Context.ManualSelectionIndicatorVM.IsAnchorVisible);
+                break;
             case nameof(ManualSelectionGazeIndicatorViewModel.IsVisible):
                 if (Context.ManualSelectionIndicatorVM.IsVisible) ManualSelectionIndicator.Show();
                 else ManualSelectionIndicator.Hide();

@@ -26,4 +26,11 @@ public static class CaptureRegionMath
 
         return (captureX, captureY, captureSize);
     }
+
+    /// <summary>
+    /// The centre of a capture rectangle, in physical pixels. Single derivation for both the
+    /// rectangle a capture actually returned and one predicted before it runs.
+    /// </summary>
+    public static PhysicalPoint CenterOf((int x, int y, int size) region)
+        => new(region.x + region.size / 2.0, region.y + region.size / 2.0);
 }

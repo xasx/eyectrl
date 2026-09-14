@@ -82,6 +82,9 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
         var captureRadius = zoomRadius != null
             ? (int)(zoomRadius.Value * DpiHelper.ScaleX)          // zoomRadius is logical (DIP) px → convert to physical px for capture
             : (int)(previewRadius * DpiHelper.ScaleX);            // previewRadius is logical px → convert to physical
+        // The capture rectangle is clamped to the screen, so the image's centre is the effective
+        // one, not the requested centre. The marker must be placed against the image actually shown.
+        var effectiveCaptureCenter = ScreenCaptureService.GetEffectiveCenter(captureCenter, captureRadius);
         var captureCanvasCenter = canvasCenter;
         var captureCircleSize = previewCircleSize;
         var captureBorderColor = borderColor;
@@ -96,15 +99,17 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
         if (zoomCenter != null && zoomRadius != null)
         {
             double scale = previewCircleSize / (2.0 * captureRadius);
-            indicatorOffsetX = (center.X - zoomCenter.Value.X) * scale;
-            indicatorOffsetY = (center.Y - zoomCenter.Value.Y) * scale;
+            var markerPoint = CaptureViewMapping.ToViewPoint(effectiveCaptureCenter, canvasCenter, scale, center);
+            indicatorOffsetX = markerPoint.X - canvasCenter.X;
+            indicatorOffsetY = markerPoint.Y - canvasCenter.Y;
             (indicatorOffsetX, indicatorOffsetY) = ClampToScreen(indicatorOffsetX, indicatorOffsetY, previewCircleSize);
         }
         else if (gazePoint != null && gazePoint != center)
         {
             double scale = previewCircleSize / (2.0 * captureRadius);
-            indicatorOffsetX = (indicatorPoint.X - captureCenter.X) * scale;
-            indicatorOffsetY = (indicatorPoint.Y - captureCenter.Y) * scale;
+            var markerPoint = CaptureViewMapping.ToViewPoint(effectiveCaptureCenter, canvasCenter, scale, indicatorPoint);
+            indicatorOffsetX = markerPoint.X - canvasCenter.X;
+            indicatorOffsetY = markerPoint.Y - canvasCenter.Y;
             (indicatorOffsetX, indicatorOffsetY) = ClampToScreen(indicatorOffsetX, indicatorOffsetY, previewCircleSize);
         }
 
@@ -116,14 +121,14 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
             try
             {
                 await Task.Delay(ScreenCaptureDelayMs, captureToken);
-                var capturedImage = ScreenCaptureService.CaptureRegion(captureCenter, captureRadius);
-                if (capturedImage == null) return;
+                var capture = ScreenCaptureService.CaptureRegion(captureCenter, captureRadius);
+                if (capture == null) return;
 
                 var previewEllipse = new Ellipse
                 {
                     Width = captureCircleSize,
                     Height = captureCircleSize,
-                    Fill = new ImageBrush(capturedImage) { Stretch = Stretch.Fill },
+                    Fill = new ImageBrush(capture.Value.Image) { Stretch = Stretch.Fill },
                     Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString(captureBorderColor)),
                     StrokeThickness = PreviewCircleBorderThickness
                 };

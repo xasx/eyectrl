@@ -576,6 +576,120 @@ public class ExternalDwellServiceTests
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
     }
 
+    // --- Ownership-gate security tests (local attacker on the dwell pipe) ---
+
+    // A second connection re-registering an id owned by the first client must NOT steal the
+    // dwell channel: the activation still routes to the owning client, the thief gets nothing.
+    [Fact]
+    public void SecondConnection_RegisterStealAttempt_TargetStaysWithOwner()
+    {
+        RunOnStaThread(() =>
+        {
+            var provider = new StubGazeProvider();
+            using var engine = new GazeEngine(provider, new StubInputSimulator(), new EyeCtrlSettings());
+            using var svc = NewService(engine, _ => 7);
+            svc.Start();
+
+            var (ownerLine, thiefLine) = TwoClientsRegisterStealAndDwell(provider, _pipeName).GetAwaiter().GetResult();
+
+            Check.That(ownerLine).IsNotNull();            // owner still receives the activation
+            Check.That(ownerLine).Contains("\"id\":\"btn\"");
+            Check.That(thiefLine).IsNull();               // the thief received nothing
+        });
+    }
+
+    // A foreign unregister must be ignored: only the owning connection may remove a target.
+    // Without the gate, one pipe message from any client could permanently kill the user's
+    // dwell-clicks in the affected SDK app.
+    [Fact]
+    public void ForeignUnregister_IsIgnored_TargetSurvives()
+    {
+        RunOnStaThread(() =>
+        {
+            var provider = new StubGazeProvider();
+            using var engine = new GazeEngine(provider, new StubInputSimulator(), new EyeCtrlSettings());
+            using var svc = NewService(engine, _ => 7);
+            svc.Start();
+
+            var (ownerLine, thiefLine) = RegisterForeignUnregisterAndDwell(provider, _pipeName).GetAwaiter().GetResult();
+
+            Check.That(ownerLine).IsNotNull();            // the target survived the foreign unregister
+            Check.That(ownerLine).Contains("\"id\":\"btn\"");
+        });
+    }
+
+    // Owner registers "btn"; a second connection sends its own register for the same id (steal
+    // attempt); dwell completes. Returns (owner's activation line, thief's first line or null).
+    private static async Task<(string? ownerLine, string? thiefLine)> TwoClientsRegisterStealAndDwell(
+        StubGazeProvider provider, string pipeName)
+    {
+        var (r1, w1, r2, w2, client1, client2) = await ConnectTwoClients(pipeName);
+        await using (client1)
+        await using (client2)
+        {
+            await w1.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+                new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
+            await Task.Delay(200);
+
+            await w2.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+                new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
+            await Task.Delay(200);
+
+            provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
+            provider.Raise(new GazePoint(100, 100, 800_000, IsValid: true));
+
+            var read1 = r1.ReadLineAsync();
+            var ownerLine = await Task.WhenAny(read1, Task.Delay(2000)) == read1 ? await read1 : null;
+
+            var read2 = r2.ReadLineAsync();
+            var thiefLine = await Task.WhenAny(read2, Task.Delay(300)) == read2 ? await read2 : null;
+
+            return (ownerLine, thiefLine);
+        }
+    }
+
+    // Owner registers "btn"; a second connection sends an unregister for it; dwell completes.
+    // Returns (owner's activation line, thief's first line or null).
+    private static async Task<(string? ownerLine, string? thiefLine)> RegisterForeignUnregisterAndDwell(
+        StubGazeProvider provider, string pipeName)
+    {
+        var (r1, w1, r2, w2, client1, client2) = await ConnectTwoClients(pipeName);
+        await using (client1)
+        await using (client2)
+        {
+            await w1.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+                new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
+            await Task.Delay(200);
+
+            await w2.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+                new UnregisterMessage { Id = "btn" }, WireJson.Options));
+            await Task.Delay(200);
+
+            provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
+            provider.Raise(new GazePoint(100, 100, 800_000, IsValid: true));
+
+            var read1 = r1.ReadLineAsync();
+            var ownerLine = await Task.WhenAny(read1, Task.Delay(2000)) == read1 ? await read1 : null;
+
+            return (ownerLine, null);
+        }
+    }
+
+    private static async Task<(StreamReader r1, StreamWriter w1, StreamReader r2, StreamWriter w2,
+        NamedPipeClientStream client1, NamedPipeClientStream client2)> ConnectTwoClients(string pipeName)
+    {
+        var client1 = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client1.ConnectAsync(2000);
+        var w1 = new StreamWriter(client1, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        var r1 = new StreamReader(client1, Encoding.UTF8, false, 1024, leaveOpen: true);
+
+        var client2 = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client2.ConnectAsync(2000);
+        var w2 = new StreamWriter(client2, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        var r2 = new StreamReader(client2, Encoding.UTF8, false, 1024, leaveOpen: true);
+        return (r1, w1, r2, w2, client1, client2);
+    }
+
     private sealed class StubGazeProvider : IGazeProvider
     {
         public bool IsConnected => true;

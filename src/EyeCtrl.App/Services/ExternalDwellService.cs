@@ -15,6 +15,7 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Platform.Ipc;
+using EyeCtrl.Platform.Interop;
 using EyeCtrl.ViewModels.Messages;
 using Microsoft.Extensions.Logging;
 
@@ -111,10 +112,18 @@ public sealed class ExternalDwellService : IDisposable
 
         // The PipeConnection IS this channel's per-connection state: the server hands it back to
         // every line handler and to teardown, so nothing here has to map a pipe to its writer.
+        //
+        // SECURITY: the pipe carries register/unregister commands that shape the user's dwell-click
+        // channel, so it must not be connectable by arbitrary local processes. The default DACL of
+        // the plain NamedPipeServerStream constructor grants read to Everyone; the explicit ACL
+        // below restricts the pipe to the current user (SDK client apps run as the same user).
+        // Same construction as HeartbeatPipeServer — see the warning in that file about copying
+        // the unsecured constructor.
         _pipeServer = new NewlineJsonPipeServer<PipeConnection>(
-            () => new NamedPipeServerStream(_pipeName, PipeDirection.InOut,
+            () => NamedPipeServerStreamAcl.Create(_pipeName, PipeDirection.InOut,
                 NamedPipeServerStream.MaxAllowedServerInstances,
-                PipeTransmissionMode.Byte, PipeOptions.Asynchronous),
+                PipeTransmissionMode.Byte, PipeOptions.Asynchronous, inBufferSize: 0, outBufferSize: 0,
+                new NamedPipeSecurityBuilder().BuildCurrentUserOnly()),
             createState: pipe =>
             {
                 var conn = new PipeConnection(pipe, ex => _logger.LogWarning(ex, "External dwell pipe: write failed"));
@@ -285,6 +294,18 @@ public sealed class ExternalDwellService : IDisposable
             case RegisterMessage r:
                 lock (_stateLock)
                 {
+                    // Ownership gate: a target id belongs to the connection that registered it.
+                    // A second connection re-registering an existing id must not silently steal
+                    // the channel — that would reroute the user's dwell activations to the new
+                    // client (UpdateMessage below has always been gated this way). The owner
+                    // keeps the id until it unregisters or disconnects; a same-connection
+                    // re-register stays an idempotent rect refresh.
+                    if (_connByTarget.TryGetValue(r.Id, out var owner) && !ReferenceEquals(owner, conn))
+                    {
+                        _logger.LogWarning(
+                            "External dwell pipe: rejected register of target {Id} from a client that does not own it", r.Id);
+                        break;
+                    }
                     conn.Hwnd = r.Hwnd;
                     conn.TargetIds.Add(r.Id);
                     _connByTarget[r.Id] = conn;
@@ -324,6 +345,15 @@ public sealed class ExternalDwellService : IDisposable
             case UnregisterMessage un:
                 lock (_stateLock)
                 {
+                    // Ownership gate (mirrors Update): only the owning connection may unregister
+                    // a target. Without this, any connected client could remove another client's
+                    // targets and permanently kill the user's ability to dwell-click in that app.
+                    if (!conn.TargetIds.Contains(un.Id))
+                    {
+                        _logger.LogWarning(
+                            "External dwell pipe: rejected unregister of target {Id} from a client that does not own it", un.Id);
+                        break;
+                    }
                     conn.TargetIds.Remove(un.Id);
                     _connByTarget.Remove(un.Id);
                     _targetsById.Remove(un.Id);

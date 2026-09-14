@@ -146,6 +146,7 @@ public class SettingsService
             // default below — the file-wipe path punishes exactly the hand-editors the UI serves.
             ClampGazeIndicator(settings.ManualSelection);
             ClampCursorFilter(settings.Cursor);
+            SanitizeLanguagePack(settings.Keyboard);
 
             // Validate loaded settings
             var validationErrors = settings.Validate();
@@ -197,6 +198,18 @@ public class SettingsService
         cursor.DeadbandConfirmSamples = Math.Clamp(confirm, 1, 5);
         if (cursor.DeadbandRadiusPx != radius || cursor.DeadbandConfirmSamples != confirm)
             _logger?.LogInformation("Clamped out-of-range cursor deadband settings to their valid ranges.");
+    }
+
+    // LanguagePack is a path ingredient (dictionary/trie reads, user-dictionary write), so a
+    // hand-edited "..\..\evil" would read and write outside the intended trees. Reset to empty
+    // (auto-detect) — same clamp-not-reject design as above: a validation error would wipe the
+    // whole settings file over one string.
+    private void SanitizeLanguagePack(KeyboardSettings keyboard)
+    {
+        if (KeyboardSettings.IsValidLanguagePack(keyboard.LanguagePack)) return;
+        _logger?.LogWarning("Ignoring malformed keyboard language pack '{Lang}'; falling back to auto-detection.",
+            keyboard.LanguagePack);
+        keyboard.LanguagePack = "";
     }
 
     /// <summary>

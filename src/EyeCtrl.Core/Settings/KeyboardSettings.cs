@@ -50,6 +50,19 @@ public partial class KeyboardSettings : ObservableObject, IValidatable
     private static readonly string[] ValidLayouts = { "QWERTY", "AZERTY", "QWERTZ" };
     private static readonly string[] ValidScreenEdges = { "Top", "Bottom" };
 
+    private static readonly System.Text.RegularExpressions.Regex LanguagePackPattern =
+        new("^[a-z]{2}(-[A-Za-z]{2})?$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// Whether <paramref name="value"/> is a safe language-pack code (two-letter ISO, optional
+    /// region, or empty for auto-detect). The value is a PATH INGREDIENT — dictionary and trie
+    /// reads and the user-dictionary write all interpolate it — so a hand-edited
+    /// <c>..\..\evil</c> would read and write outside the app-data/install trees. Sanitized to
+    /// empty (never a validation error: that would wipe the whole settings file for one string).
+    /// </summary>
+    public static bool IsValidLanguagePack(string? value) =>
+        string.IsNullOrEmpty(value) || LanguagePackPattern.IsMatch(value);
+
     /// <inheritdoc />
     public IReadOnlyList<string> Validate()
     {

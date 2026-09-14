@@ -28,6 +28,15 @@ public class PredictionStackFactory : IDisposable
         }
 
         var langCode = settings.Keyboard.LanguagePack;
+        if (!KeyboardSettings.IsValidLanguagePack(langCode))
+        {
+            // Defense in depth on top of SettingsService.Load's sanitize: the code is a path
+            // ingredient on the dictionary/trie READ paths and the user-dictionary WRITE path,
+            // so nothing but a two-letter code (or empty) may reach Path.Combine. Invalid falls
+            // back to the no-dictionary degradation (FileDictionaryProvider handles a missing file).
+            Log.Warning("Ignoring malformed language pack '{Lang}'; prediction runs without dictionaries.", langCode);
+            langCode = "";
+        }
         var dictPath = Path.Combine(baseDir, "Resources", "Dictionaries", $"{langCode}.json");
         var provider = new FileDictionaryProvider(dictPath, appDataDir, langCode);
         var wordPredictor = new WordPredictor(provider, settings.Keyboard.ActiveLayout);

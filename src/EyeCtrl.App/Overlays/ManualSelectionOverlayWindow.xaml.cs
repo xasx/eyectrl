@@ -89,13 +89,12 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow, IManualSelect
 
     public PhysicalPoint GetRealPhysicalPoint(PhysicalPoint gazeOnScreen)
     {
-        // Window Left/Width are DIPs, and so is the mapped view; the mapping converts back to
-        // physical pixels itself.
-        var windowCenter = new Point(Left + Width / 2, Top + Height / 2);
-        var gazeInView = new Point(
-            DpiHelper.PhysicalToLogicalX(gazeOnScreen.X),
-            DpiHelper.PhysicalToLogicalY(gazeOnScreen.Y));
-
-        return CaptureViewMapping.ToRealPoint(EffectiveCaptureCenter, windowCenter, _magnification, gazeInView);
+        // Zero arithmetic here by design: the mapping owns the DIP->physical conversion of the
+        // window geometry, so the units cannot drift between this call site and the mapping.
+        return CaptureViewMapping.ToRealPoint(
+            EffectiveCaptureCenter,
+            new Rect(Left, Top, Width, Height),
+            _magnification,
+            gazeOnScreen);
     }
 }

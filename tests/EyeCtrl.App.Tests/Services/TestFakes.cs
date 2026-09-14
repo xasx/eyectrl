@@ -168,22 +168,29 @@ internal static class TestFakes
     internal static IOverlayManager MakeOverlayManager(
         IEdgeButtonBar? edgeButtonBar = null,
         IToolbarOverlay? toolbar = null,
-        IPauseIndicatorOverlay? pauseIndicator = null)
-        => new PartialOverlayManager(edgeButtonBar, toolbar, pauseIndicator);
+        IPauseIndicatorOverlay? pauseIndicator = null,
+        IManualSelectionOverlay? manualSelection = null,
+        IManualSelectionIndicatorOverlay? manualSelectionIndicator = null)
+        => new PartialOverlayManager(
+            edgeButtonBar, toolbar, pauseIndicator, manualSelection, manualSelectionIndicator);
 
     private sealed class PartialOverlayManager : IOverlayManager
     {
         private readonly IEdgeButtonBar? _bar;
         private readonly IToolbarOverlay? _toolbar;
         private readonly IPauseIndicatorOverlay? _pauseIndicator;
+        private readonly IManualSelectionOverlay? _manualSelection;
+        private readonly IManualSelectionIndicatorOverlay? _manualSelectionIndicator;
 
         public IModesMenuOverlay ModesMenu => throw new NotImplementedException();
         public IRepeatCursorOverlay RepeatCursor => throw new NotImplementedException();
 
         public PartialOverlayManager(IEdgeButtonBar? bar, IToolbarOverlay? toolbar,
-            IPauseIndicatorOverlay? pauseIndicator)
+            IPauseIndicatorOverlay? pauseIndicator, IManualSelectionOverlay? manualSelection,
+            IManualSelectionIndicatorOverlay? manualSelectionIndicator)
         {
             _bar = bar; _toolbar = toolbar; _pauseIndicator = pauseIndicator;
+            _manualSelection = manualSelection; _manualSelectionIndicator = manualSelectionIndicator;
         }
 
         public IEdgeButtonBar EdgeButtonBar =>
@@ -197,10 +204,12 @@ internal static class TestFakes
 
         public ICursorCircleOverlay CursorCircle => throw new NotImplementedException();
         public IActivationButtonOverlay ActivationButton => throw new NotImplementedException();
-        public IManualSelectionOverlay ManualSelectionOverlay => throw new NotImplementedException();
+        public IManualSelectionOverlay ManualSelectionOverlay =>
+            _manualSelection ?? throw new NotImplementedException("test supplied no manual-selection overlay");
         public IActionMenuOverlay ActionMenu => throw new NotImplementedException();
         public KeyboardWindow Keyboard => throw new NotImplementedException();
-        public IManualSelectionIndicatorOverlay ManualSelectionIndicator => throw new NotImplementedException();
+        public IManualSelectionIndicatorOverlay ManualSelectionIndicator =>
+            _manualSelectionIndicator ?? throw new NotImplementedException("test supplied no manual-selection indicator");
         public IGlassBackdropOverlay GlassBackdrop => throw new NotImplementedException();
         public ICalibrationOverlay Calibration => throw new NotImplementedException();
         public ITargetHighlightOverlay TargetHighlight => throw new NotImplementedException();

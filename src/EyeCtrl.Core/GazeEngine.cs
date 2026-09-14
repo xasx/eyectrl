@@ -86,6 +86,15 @@ public class GazeEngine : IDisposable
     private readonly object _handlerLock = new();
     private readonly HandlerFaultReporter _faults;
 
+    // Consecutive faults escaping ProcessGazePoint (the per-sample pipeline body). The per-sample
+    // fault containment in OnGazePoint keeps the stream alive across them; these two fields exist
+    // to escalate once per episode when the fault is SUSTAINED — every sample rejected for ~5s at
+    // 30Hz — which is the "app alive, cursor dead" state nothing else detects (samples are
+    // published before the faulting step, so the heartbeat stays fresh).
+    private int _consecutiveSampleFaults;
+    private bool _sustainedSampleFaultEpisodeLogged;
+    private const int SustainedSampleFaultThreshold = 150;
+
     /// <summary>Interaction state machine controlling fixation → activation → action flow.</summary>
     public InteractionManager InteractionManager { get; }
     private volatile bool _suppressFixation;
@@ -506,6 +515,37 @@ public class GazeEngine : IDisposable
     }
 
     private void OnGazePoint(GazePoint gaze)
+    {
+        // Everything below runs on the gaze thread inside the provider's callback. A throw there
+        // used to unwind into the provider — on Tobii across the native dispatch frame — where the
+        // poll loop treats it as a DEVICE error: disconnect, backoff, reconnect. A data-dependent
+        // fault (a non-finite sample through the total-fail coordinate mapper, zero screen metrics
+        // during a display transition, a degenerate calibration transform) then recurred on the
+        // first sample of every reconnect: a reconnect storm with a live-looking heartbeat and a
+        // dead cursor. Contain it here instead: skip the sample, keep the stream alive, and
+        // escalate once when faults are sustained. A skipped sample is invisible (the next one is
+        // milliseconds away); a reconnect cycle costs seconds and hides the cause.
+        try
+        {
+            ProcessGazePoint(gaze);
+            _consecutiveSampleFaults = 0;
+            _sustainedSampleFaultEpisodeLogged = false;
+        }
+        catch (Exception ex)
+        {
+            _consecutiveSampleFaults++;
+            _faults.Report("gaze sample fault", ex);
+            if (_consecutiveSampleFaults >= SustainedSampleFaultThreshold && !_sustainedSampleFaultEpisodeLogged)
+            {
+                _sustainedSampleFaultEpisodeLogged = true;
+                _faults.Report(
+                    $"gaze pipeline rejected {_consecutiveSampleFaults} consecutive samples — " +
+                    "cursor output is dead while the process stays alive", ex);
+            }
+        }
+    }
+
+    private void ProcessGazePoint(GazePoint gaze)
     {
         // Deferred reconfiguration (requested on the dispatcher thread) runs here on the gaze thread first,
         // before any _fixationDetector/_centroidTracker/_gapInterpolator use below, so all mutations of the

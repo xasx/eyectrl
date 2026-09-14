@@ -161,6 +161,12 @@ public class ManualSelectionRecaptureTests
         public void Hide() { }
 
         public PhysicalPoint GetRealPhysicalPoint(PhysicalPoint gazeOnScreen) => gazeOnScreen;
+
+        // Not exercised by this test — the recapture path this test pins never reads it (only
+        // production's GetRealPhysicalPoint / anchor placement does). Throw rather than default to
+        // (0,0): this repo has already been bitten by a real value silently reading as zero.
+        public PhysicalPoint EffectiveCaptureCenter =>
+            throw new NotImplementedException("Recapture tests do not exercise the effective capture centre");
     }
 
     /// <summary>Records Show/Hide so a test can assert the backdrop was never torn down.</summary>
@@ -227,6 +233,7 @@ public class ManualSelectionRecaptureTests
             public void UpdateOuterDiameter(double diameter) { }
             public void AnimateReset(double targetDiameter, int durationMs) { }
             public void RaiseToTop() { }
+            public void UpdateAnchor(double screenX, double screenY, bool visible) { }
         }
 
         private sealed class NoOpCursorCircle : ICursorCircleOverlay

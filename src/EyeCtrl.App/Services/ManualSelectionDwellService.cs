@@ -161,20 +161,29 @@ public class ManualSelectionDwellService : IDisposable
     /// A recapture keeps the same geometry but shows fresh content underneath: any dwell progress
     /// already accumulated against the stale screenshot must not silently carry over into a commit
     /// against the new one, and the grace period restarts so gaze that happens to be resting the
-    /// instant the new content appears isn't immediately eligible to commit. Mirrors
-    /// <see cref="ResetDwell"/>'s reset call, deliberately WITHOUT tearing down and recreating the
-    /// target/session itself (geometry, radius, registry registration) — that stays exactly as it
-    /// is; ticket 4 owns the targeting rule.
+    /// instant the new content appears isn't immediately eligible to commit. Also clears the
+    /// commit-rule state (anchor, held samples, running centroid) the same way <see cref="ResetDwell"/>
+    /// does — an anchor seated against the stale screenshot, and any commit-centroid samples
+    /// accumulated against it, must not survive into a commit against the new one, and the drawn
+    /// anchor mark must not be left pointing at content that no longer exists. Deliberately WITHOUT
+    /// tearing down and recreating the target/session itself (geometry, radius, registry
+    /// registration) — that stays exactly as it is; ticket 4 owns the targeting rule.
     /// </summary>
     private void OnRecapture()
     {
         if (!_isActive || _dwellDetector == null) return;
+
+        var hadAnchor = _anchor is not null;
+        ClearCommitState();
 
         _dwellDetector.ResetAllState();
         _gracePeriodActive = false;
         _manualSelectionStartTimestamp = 0;
 
         DispatchSafe(() => _messenger.Send(new ResetManualSelectionIndicatorMessage()), "recapture-reset");
+
+        if (hadAnchor)
+            DispatchSafe(() => _messenger.Send(new ManualSelectionAnchorChangedMessage(null)), "anchor-released");
     }
 
     private void OnGazeMoved(GazeCursorMovedMessage message)

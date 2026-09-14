@@ -89,6 +89,14 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
             if (_toolbarInitialized && !_modal.KeyboardVisible && !_modal.SettingsOpen)
                 return;
 
+            // Pause gates the KEYBOARD feed only (the toolbar deliberately keeps receiving samples
+            // so gaze can unpause). The engine stops moving the cursor and detecting fixations
+            // while paused, but the keyboard's own dwell used to keep accumulating on the frozen
+            // ring position — typing into whatever app held focus while the user believed input
+            // was fully released. Read per sample on the gaze thread, like the modal flags above;
+            // a one-frame-stale read at worst types one key past the pause.
+            var keyboardGated = Context.GazeEngine.InteractionManager.CurrentState == InteractionState.Paused;
+
             Context.Dispatcher.BeginInvoke(() =>
             {
                 toolbar.UpdateGaze(point, timestamp);
@@ -105,8 +113,9 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
                 // The keyboard is a dwell surface (key dwell, prediction dwell, emoji categories), so a
                 // gap-held sample must not reach it — a blink over a key would otherwise type it. The
                 // toolbar and settings routes above are geometry-only (target placement) and are fed
-                // regardless.
-                if (_modal.KeyboardVisible && keyboard.IsVisible && !frame.IsInGap)
+                // regardless. Paused samples are skipped for the same reason: input must not leave
+                // EyeCtrl while the user believes pause released it.
+                if (!keyboardGated && _modal.KeyboardVisible && keyboard.IsVisible && !frame.IsInGap)
                     keyboard.UpdateGaze(point, timestamp);
 
                 // Route the sample to the settings window iff it is open (the visibility check lives

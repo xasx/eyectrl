@@ -89,6 +89,14 @@ public record UpdateManualSelectionIndicatorProgressMessage(double Progress);
 /// </summary>
 public record ResetManualSelectionIndicatorMessage;
 
+/// <summary>
+/// Sent by ManualSelectionDwellService when the dwell anchor seats (<see cref="Anchor"/> is the
+/// held point) or is released (<see cref="Anchor"/> is null). The anchor is what the dwell commits
+/// to; the gaze dot may drift from it, and drawing the two as distinct marks is what shows that
+/// drift-vs-intent gap before the commit. Physical screen pixels.
+/// </summary>
+public record ManualSelectionAnchorChangedMessage(PhysicalPoint? Anchor);
+
 // ViewModel -> Core
 public record ActivationCompletedMessage;
 public record ActionSelectedMessage(InteractionAction Action);

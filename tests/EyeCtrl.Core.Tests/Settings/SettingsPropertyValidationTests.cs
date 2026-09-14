@@ -1019,3 +1019,47 @@ public class GazeIndicatorValidationTests
         Check.That(s.Validate()).HasElementThatMatches(e => e.Contains(property, StringComparison.Ordinal));
     }
 }
+
+/// <summary>
+/// The manual-selection targeting settings that landed with the anchored commit rule. Their ranges
+/// are also the Selection page sliders' span guard, so widening one here without the slider (or
+/// vice versa) is caught by SettingsSliderSpanGuardTests.
+/// </summary>
+public class ManualSelectionTargetingSettingsValidationTests
+{
+    [Fact]
+    public void TargetingDefaults_ProduceNoValidationErrors()
+    {
+        var errors = new ManualSelectionSettings().Validate();
+        Check.That(errors.Where(e =>
+            e.Contains("HoldRadius", StringComparison.Ordinal)
+            || e.Contains("Stability", StringComparison.Ordinal)
+            || e.Contains("HoldOutlier", StringComparison.Ordinal))).IsEmpty();
+    }
+
+    [Theory]
+    [InlineData(nameof(ManualSelectionSettings.HoldRadiusLogical), 500.0)]
+    [InlineData(nameof(ManualSelectionSettings.HoldRadiusLogical), 5.0)]
+    [InlineData(nameof(ManualSelectionSettings.StabilitySampleCount), 1)]
+    [InlineData(nameof(ManualSelectionSettings.StabilitySampleCount), 31)]
+    [InlineData(nameof(ManualSelectionSettings.StabilityWindowSize), 1)]
+    [InlineData(nameof(ManualSelectionSettings.StabilityWindowSize), 61)]
+    [InlineData(nameof(ManualSelectionSettings.HoldOutlierSkipLimit), 31)]
+    public void Targeting_OutOfRange_IsRejected(string property, double bad)
+    {
+        var s = new ManualSelectionSettings();
+        var prop = s.GetType().GetProperty(property)!;
+        prop.SetValue(s, Convert.ChangeType(bad, prop.PropertyType));
+        Check.That(s.Validate()).HasElementThatMatches(e => e.Contains(property, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void StabilityWindowSize_BelowSampleCount_IsRejected()
+    {
+        // K > M would make stability onset impossible and manual selection would silently stop
+        // activating; SettingsService lifts the loaded value instead of failing validation.
+        var s = new ManualSelectionSettings { StabilitySampleCount = 7, StabilityWindowSize = 5 };
+        Check.That(s.Validate())
+            .HasElementThatMatches(e => e.Contains("StabilityWindowSize", StringComparison.Ordinal));
+    }
+}

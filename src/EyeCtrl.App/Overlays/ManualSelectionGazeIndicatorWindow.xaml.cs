@@ -9,7 +9,19 @@ using EyeCtrl.Core.Services;
 
 public partial class ManualSelectionGazeIndicatorWindow : OverlayWindow, IManualSelectionIndicatorOverlay
 {
-    private double _maxDiameter = 30;
+    /// <summary>The crosshair's bounding square in DIP; its intersection marks the anchor point.</summary>
+    private const double AnchorMarkSize = 24;
+
+    // The window must be big enough to hold the gaze dot AND the anchor mark, which can sit a full
+    // hold radius away from the gaze. The dot is centred, so the window half-size is the hold
+    // radius plus the dot's own half-size.
+    private double _windowDiameter = 30;
+
+    private double _gazeScreenX;
+    private double _gazeScreenY;
+    private double _anchorScreenX;
+    private double _anchorScreenY;
+    private bool _anchorVisible;
 
     public ManualSelectionGazeIndicatorWindow()
     {
@@ -20,13 +32,16 @@ public partial class ManualSelectionGazeIndicatorWindow : OverlayWindow, IManual
 
     /// <summary>
     /// Configure sizes and appearance. Call once after construction or when settings change.
+    /// <paramref name="holdRadiusLogical"/> sizes the window so the anchor mark stays visible when
+    /// it sits a full hold radius away from the gaze.
     /// </summary>
-    public void Configure(double outerDiameter, double centerDotDiameter, double strokeThickness, double opacity)
+    public void Configure(double outerDiameter, double centerDotDiameter, double strokeThickness,
+        double opacity, double holdRadiusLogical)
     {
-        _maxDiameter = outerDiameter;
+        _windowDiameter = outerDiameter + 2 * holdRadiusLogical;
 
-        Width = outerDiameter;
-        Height = outerDiameter;
+        Width = _windowDiameter;
+        Height = _windowDiameter;
 
         OuterCircle.Width = outerDiameter;
         OuterCircle.Height = outerDiameter;
@@ -50,6 +65,7 @@ public partial class ManualSelectionGazeIndicatorWindow : OverlayWindow, IManual
 
         CenterOuterCircle();
         CenterDotElement();
+        PositionAnchorMark();
     }
 
     /// <summary>
@@ -57,8 +73,27 @@ public partial class ManualSelectionGazeIndicatorWindow : OverlayWindow, IManual
     /// </summary>
     public void UpdatePosition(double screenX, double screenY)
     {
-        Left = DpiHelper.PhysicalToLogicalX(screenX) - _maxDiameter / 2;
-        Top = DpiHelper.PhysicalToLogicalY(screenY) - _maxDiameter / 2;
+        _gazeScreenX = screenX;
+        _gazeScreenY = screenY;
+
+        Left = DpiHelper.PhysicalToLogicalX(screenX) - _windowDiameter / 2;
+        Top = DpiHelper.PhysicalToLogicalY(screenY) - _windowDiameter / 2;
+
+        // The anchor is a fixed screen point, so moving the window over the gaze must move the mark
+        // the other way to keep it on that point.
+        PositionAnchorMark();
+    }
+
+    /// <summary>
+    /// Sets the held dwell anchor's mark. The anchor is a fixed screen point; the mark is drawn at
+    /// the anchor-gaze offset inside this window. Pass <paramref name="visible"/> false to release.
+    /// </summary>
+    public void UpdateAnchor(double screenX, double screenY, bool visible)
+    {
+        _anchorScreenX = screenX;
+        _anchorScreenY = screenY;
+        _anchorVisible = visible;
+        PositionAnchorMark();
     }
 
     /// <summary>
@@ -100,17 +135,36 @@ public partial class ManualSelectionGazeIndicatorWindow : OverlayWindow, IManual
 
     private void CenterOuterCircle()
     {
-        System.Windows.Controls.Canvas.SetLeft(OuterCircle, (_maxDiameter - OuterCircle.Width) / 2);
-        System.Windows.Controls.Canvas.SetTop(OuterCircle, (_maxDiameter - OuterCircle.Height) / 2);
-        System.Windows.Controls.Canvas.SetLeft(OuterCircleHalo, (_maxDiameter - OuterCircleHalo.Width) / 2);
-        System.Windows.Controls.Canvas.SetTop(OuterCircleHalo, (_maxDiameter - OuterCircleHalo.Height) / 2);
+        System.Windows.Controls.Canvas.SetLeft(OuterCircle, (_windowDiameter - OuterCircle.Width) / 2);
+        System.Windows.Controls.Canvas.SetTop(OuterCircle, (_windowDiameter - OuterCircle.Height) / 2);
+        System.Windows.Controls.Canvas.SetLeft(OuterCircleHalo, (_windowDiameter - OuterCircleHalo.Width) / 2);
+        System.Windows.Controls.Canvas.SetTop(OuterCircleHalo, (_windowDiameter - OuterCircleHalo.Height) / 2);
     }
 
     private void CenterDotElement()
     {
-        System.Windows.Controls.Canvas.SetLeft(CenterDot, (_maxDiameter - CenterDot.Width) / 2);
-        System.Windows.Controls.Canvas.SetTop(CenterDot, (_maxDiameter - CenterDot.Height) / 2);
-        System.Windows.Controls.Canvas.SetLeft(CenterDotHalo, (_maxDiameter - CenterDotHalo.Width) / 2);
-        System.Windows.Controls.Canvas.SetTop(CenterDotHalo, (_maxDiameter - CenterDotHalo.Height) / 2);
+        System.Windows.Controls.Canvas.SetLeft(CenterDot, (_windowDiameter - CenterDot.Width) / 2);
+        System.Windows.Controls.Canvas.SetTop(CenterDot, (_windowDiameter - CenterDot.Height) / 2);
+        System.Windows.Controls.Canvas.SetLeft(CenterDotHalo, (_windowDiameter - CenterDotHalo.Width) / 2);
+        System.Windows.Controls.Canvas.SetTop(CenterDotHalo, (_windowDiameter - CenterDotHalo.Height) / 2);
+    }
+
+    private void PositionAnchorMark()
+    {
+        var visibility = _anchorVisible ? Visibility.Visible : Visibility.Collapsed;
+        AnchorMark.Visibility = visibility;
+        AnchorMarkHalo.Visibility = visibility;
+        if (!_anchorVisible) return;
+
+        // Window-local DIP position of the anchor = window centre + the anchor-gaze offset.
+        var centerX = _windowDiameter / 2
+            + DpiHelper.PhysicalToLogicalX(_anchorScreenX) - DpiHelper.PhysicalToLogicalX(_gazeScreenX);
+        var centerY = _windowDiameter / 2
+            + DpiHelper.PhysicalToLogicalY(_anchorScreenY) - DpiHelper.PhysicalToLogicalY(_gazeScreenY);
+
+        System.Windows.Controls.Canvas.SetLeft(AnchorMark, centerX - AnchorMarkSize / 2);
+        System.Windows.Controls.Canvas.SetTop(AnchorMark, centerY - AnchorMarkSize / 2);
+        System.Windows.Controls.Canvas.SetLeft(AnchorMarkHalo, centerX - AnchorMarkSize / 2);
+        System.Windows.Controls.Canvas.SetTop(AnchorMarkHalo, centerY - AnchorMarkSize / 2);
     }
 }

@@ -117,7 +117,8 @@ public class OverlayManager : IOverlayManager
             settings.ManualSelection.GazeIndicatorOuterDiameter,
             settings.ManualSelection.GazeIndicatorCenterDotDiameter,
             settings.ManualSelection.GazeIndicatorStrokeThickness,
-            settings.ManualSelection.GazeIndicatorOpacity);
+            settings.ManualSelection.GazeIndicatorOpacity,
+            settings.ManualSelection.HoldRadiusLogical);
 
         // Set DataContext for windows that use MVVM binding
         _cursorCircle.DataContext = viewModels.CursorCircle;

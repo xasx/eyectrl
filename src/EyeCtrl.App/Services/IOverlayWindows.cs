@@ -100,6 +100,13 @@ public interface IManualSelectionOverlay
 
     /// <summary>Maps a point on the magnified view back to the real screen coordinate.</summary>
     PhysicalPoint GetRealPhysicalPoint(PhysicalPoint gazeOnScreen);
+
+    /// <summary>
+    /// The centre, in physical pixels, of the capture currently displayed. The capture rectangle is
+    /// clamped to the screen, so near an edge this is not the centre that was requested; every
+    /// mapping between the magnified view and real screen coordinates reads this value.
+    /// </summary>
+    PhysicalPoint EffectiveCaptureCenter { get; }
 }
 
 /// <summary>The radial action menu.</summary>

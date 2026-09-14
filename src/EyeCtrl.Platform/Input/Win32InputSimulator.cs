@@ -4,6 +4,7 @@ using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Sends mouse/keyboard input via Win32 SendInput.
@@ -21,10 +22,13 @@ public class Win32InputSimulator : IInputSimulator
     private static int ScreenHeight => NativeMethods.GetSystemMetrics(NativeMethods.SM_CYSCREEN);
 
     private readonly IMouseCoordinateMapper _coordinateMapper;
+    private readonly ILogger<Win32InputSimulator>? _logger;
 
-    public Win32InputSimulator(IMouseCoordinateMapper coordinateMapper)
+    public Win32InputSimulator(IMouseCoordinateMapper coordinateMapper,
+        ILogger<Win32InputSimulator>? logger = null)
     {
         _coordinateMapper = coordinateMapper;
+        _logger = logger;
     }
 
     public void MoveCursor(PhysicalPoint point)
@@ -263,15 +267,37 @@ public class Win32InputSimulator : IInputSimulator
     [ThreadStatic]
     private static NativeMethods.INPUT[]? t_singleInput;
 
-    private static void SendSingleInput(NativeMethods.INPUT input)
+    // Rate limit for blocked-injection logging: a UIPI block (elevated foreground window) is
+    // persistent, so an unbounded log would fire per frame. UI-thread and gaze-thread callers
+    // share this instance field; the worst race is one extra line.
+    private long _lastBlockedLogTicks;
+
+    private void SendSingleInput(NativeMethods.INPUT input)
     {
         var buffer = t_singleInput ??= new NativeMethods.INPUT[1];
         buffer[0] = input;
-        NativeMethods.SendInput(1, buffer, s_inputSize);
+        SendRaw(1, buffer);
     }
 
-    private static void SendInputs(params NativeMethods.INPUT[] inputs)
+    private void SendInputs(params NativeMethods.INPUT[] inputs) =>
+        SendRaw((uint)inputs.Length, inputs);
+
+    private void SendRaw(uint count, NativeMethods.INPUT[] inputs)
     {
-        NativeMethods.SendInput((uint)inputs.Length, inputs, s_inputSize);
+        var sent = NativeMethods.SendInput(count, inputs, s_inputSize);
+        if (sent == count) return;
+
+        // SendInput does not throw on a block: it returns 0 when the foreground process has
+        // higher integrity (elevated windows, the secure desktop). Every event is then silently
+        // dropped, and for a gaze-only user "nothing happens" is indistinguishable from
+        // "paused" without this log. Rate-limited above.
+        var now = Environment.TickCount64;
+        if (now - _lastBlockedLogTicks > 30_000)
+        {
+            _lastBlockedLogTicks = now;
+            _logger?.LogWarning(
+                "SendInput injected {Sent}/{Count} events (Win32 error {ErrorCode}) — input into elevated or secure-desktop windows is blocked by Windows",
+                sent, count, Marshal.GetLastWin32Error());
+        }
     }
 }

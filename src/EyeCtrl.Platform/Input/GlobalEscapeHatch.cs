@@ -31,6 +31,17 @@ public sealed class GlobalEscapeHatch : IGlobalEscapeHatch
     private const uint WmQuit = 0x0012;
     private const int VkEscape = 0x1B;
 
+    /// <summary>WM_APP+1: posted by the re-arm timer to the pump thread (same seam as WM_QUIT).
+    /// Internal so tests can synthesize it through the interop fake.</summary>
+    internal const uint WmReArm = 0x8001;
+
+    /// <summary>How often the pump re-arms the hook. Windows silently removes an LL hook whose
+    /// callback exceeds LowLevelHooksTimeout (heavy load, debugger attached) — no notification,
+    /// the stale handle keeps <see cref="IsActive"/> true, and ESC is dead system-wide. The
+    /// interval is a trade-off: short enough that a silently-removed hatch heals quickly, long
+    /// enough that healthy operation never churns the global hook chain.</summary>
+    private static readonly TimeSpan ReArmInterval = TimeSpan.FromMinutes(5);
+
     /// <summary>The native seam, so Platform.Tests can drive the lifecycle without a real hook.</summary>
     internal interface ILowLevelKeyboardInterop
     {
@@ -55,6 +66,7 @@ public sealed class GlobalEscapeHatch : IGlobalEscapeHatch
     private volatile IntPtr _hookHandle;
     private uint _hookThreadId;
     private volatile bool _disposed;
+    private System.Threading.Timer? _reArmTimer;
 
     public event Action? EscapePressed;
 
@@ -104,9 +116,21 @@ public sealed class GlobalEscapeHatch : IGlobalEscapeHatch
 
         _logger.LogInformation("Global escape hatch installed: ESC anywhere ends drag or repeat mode");
 
+        // See ReArmInterval: the pool timer posts WmReArm to this pump thread; the pump installs
+        // a fresh hook and only then drops the stale one, so ESC coverage never gaps.
+        _reArmTimer = new System.Threading.Timer(
+            _ => { try { _interop.PostThreadMessage(_hookThreadId, WmReArm, IntPtr.Zero, IntPtr.Zero); } catch { } },
+            null,
+            ReArmInterval,
+            ReArmInterval);
+
         try
         {
-            while (_interop.GetMessage(out _, IntPtr.Zero, 0, 0) > 0) { }
+            while (_interop.GetMessage(out var msg, IntPtr.Zero, 0, 0) > 0)
+            {
+                if (msg.Message == WmReArm)
+                    ReArmHook();
+            }
         }
         catch (Exception ex)
         {
@@ -114,9 +138,48 @@ public sealed class GlobalEscapeHatch : IGlobalEscapeHatch
         }
         finally
         {
+            _reArmTimer?.Dispose();
+            _reArmTimer = null;
             try { _interop.UnhookWindowsHookEx(_hookHandle); }
             catch { /* teardown is best-effort; process exit removes the hook anyway */ }
             _hookHandle = IntPtr.Zero;
+            if (!_disposed)
+                _logger.LogWarning(
+                    "Global escape hatch pump exited without Dispose — ESC will not end drag/repeat; the gaze exits remain available");
+        }
+    }
+
+    /// <summary>
+    /// Installs a fresh hook and only then unhooks the previous handle, so ESC coverage never
+    /// gaps. Heals the silent-removal case (callback exceeded LowLevelHooksTimeout): nothing
+    /// notifies us when Windows drops an LL hook, and the stale handle would otherwise keep
+    /// <see cref="IsActive"/> lying forever. A failed install keeps the previous hook.
+    /// </summary>
+    private void ReArmHook()
+    {
+        if (_disposed || _hookProc is null) return;
+        try
+        {
+            var fresh = _interop.SetWindowsHookEx(
+                WhKeyboardLl, _hookProc, _interop.GetModuleHandle(IntPtr.Zero), 0);
+            if (fresh == IntPtr.Zero)
+            {
+                _logger.LogWarning(
+                    "Global escape hatch re-arm failed (Win32 error {ErrorCode}); previous hook kept",
+                    Marshal.GetLastWin32Error());
+                return;
+            }
+            var stale = _hookHandle;
+            _hookHandle = fresh;
+            if (stale != IntPtr.Zero && stale != fresh)
+            {
+                try { _interop.UnhookWindowsHookEx(stale); }
+                catch { /* best-effort; a leaked stale hook dies with the process */ }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Global escape hatch re-arm threw; previous hook kept");
         }
     }
 

@@ -21,8 +21,13 @@ using EyeCtrl.Core.Models;
 /// day it appears — its setup must be extended in <see cref="DriveIntoState"/>, and that throws
 /// rather than silently testing FreeLook. Note the one asymmetry: <see cref="InteractionState.RepeatMode"/>
 /// is inert via its own earlier branch in <c>OnFixationStarted</c>, not this guard, so deleting only
-/// the guard leaves that case green while the other seven go red. The invariant is still pinned —
-/// by whichever branch actually enforces it.
+/// the guard leaves that case green while the other seven go red; deleting that branch as well turns
+/// this case red too. The invariant is pinned by whichever branch actually enforces it.
+/// </para>
+/// <para>
+/// <see cref="InteractionState.ScrollMode"/> overlaps an older, narrower test —
+/// <c>InteractionManagerScrollModeTests.FixationStarted_IsIgnoredInScrollMode</c>. That test is left
+/// in place; this theory is the broader pin, covering every state from one enumeration.
 /// </para>
 /// </summary>
 public class InteractionManagerFreeLookInvariantTests

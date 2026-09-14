@@ -153,7 +153,7 @@ public class GazeEngineAdapter : IDisposable
         // been. The branch is one null check on a readonly field.
         if (_dispatchProbe is null)
         {
-            _dispatcher.BeginInvoke(() => _messenger.Send(new GazeCursorMovedMessage(frame)));
+            _dispatcher.BeginInvoke(() => SendCursorMovedSafe(frame));
             return;
         }
 
@@ -164,7 +164,7 @@ public class GazeEngineAdapter : IDisposable
         // through a session is not one this instrument claims to produce.)
         if (!_settings.Diagnostics.MeasureUiInstruments)
         {
-            _dispatcher.BeginInvoke(() => _messenger.Send(new GazeCursorMovedMessage(frame)));
+            _dispatcher.BeginInvoke(() => SendCursorMovedSafe(frame));
             return;
         }
 
@@ -178,8 +178,32 @@ public class GazeEngineAdapter : IDisposable
             // Recorded FIRST: the number wanted is the wait, not the wait plus the downstream work.
             _dispatchProbe.Execute(enqueued);
             ReportDispatchLatencyPeriodically();
-            _messenger.Send(new GazeCursorMovedMessage(frame));
+            SendCursorMovedSafe(frame);
         });
+    }
+
+    // WeakReferenceMessenger delivers synchronously to every recipient, on the UI thread, at the
+    // gaze rate (30-120 Hz): one throwing recipient used to reach DispatcherUnhandledException —
+    // instantly burning the standalone fault budget and killing the process. Contain the send
+    // itself: the fault is logged (rate-limited to one line per 30s) and the NEXT frame proceeds
+    // to the same recipients, so a transient fault self-heals and a persistent one stays visible
+    // in the log without stranding the user. Runs on the UI thread only, so no synchronization.
+    private long _lastCursorSendFaultMs;
+    private void SendCursorMovedSafe(GazeFrame frame)
+    {
+        try
+        {
+            _messenger.Send(new GazeCursorMovedMessage(frame));
+        }
+        catch (Exception ex)
+        {
+            var now = Environment.TickCount64;
+            if (now - _lastCursorSendFaultMs > 30_000)
+            {
+                _lastCursorSendFaultMs = now;
+                _logger.LogError(ex, "GazeCursorMovedMessage recipient threw (contained; further lines suppressed for 30s)");
+            }
+        }
     }
 
     // Emitted periodically rather than only at shutdown: a measurement session that ends in a crash,

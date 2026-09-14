@@ -187,6 +187,13 @@ public class EscapeHatchWiringTests
         public void Hide() { }
 
         public PhysicalPoint GetRealPhysicalPoint(PhysicalPoint gazeOnScreen) => gazeOnScreen;
+
+        // Forward-compat stub for ticket 2's IManualSelectionOverlay.EffectiveCaptureCenter: legal
+        // on this branch today (extra member), required once that interface change lands. Throw
+        // rather than default — (0,0) reads as a plausible coordinate, and this repo has already
+        // been bitten by a real value that silently looked like zero.
+        public PhysicalPoint EffectiveCaptureCenter =>
+            throw new NotImplementedException("ESC wiring tests do not exercise the capture centre");
     }
 
     /// <summary>No-op gaze dot.</summary>

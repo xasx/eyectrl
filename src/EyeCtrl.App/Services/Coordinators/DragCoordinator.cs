@@ -160,6 +160,16 @@ internal sealed class DragCoordinator : CoordinatorBase
         _buttonHeld = false;
     }
 
+    /// <summary>
+    /// Last-gasp release for fatal-exception paths: sends the matching MouseUp for a held drag
+    /// button and NOTHING else — no overlay work, no interaction-state transitions, either of
+    /// which may be mid-tear when the process is dying. A SendInput button-down is OS-global
+    /// state that outlives the process: dying with the button held leaves the successor in
+    /// FreeLook, where the user's gaze becomes a drag they cannot stop. Callable from any
+    /// thread (a single Win32 send); idempotent via <see cref="_buttonHeld"/>.
+    /// </summary>
+    internal void ReleaseHeldButtonForFatalExit() => ReleaseHeldButton(_dragGrabOrigin);
+
     // Release FIRST on both paths, before any overlay work.
     //
     // These used to hide the edge-button bar first, which put two overlay dereferences ahead of

@@ -131,9 +131,11 @@ public sealed class HeartbeatPublisher : IDisposable
         // Wake the single writer. The semaphore has capacity 1, so if a signal is already pending
         // (a stamp arrived while the writer was mid-send), Release throws SemaphoreFullException —
         // swallow it: the freshest payload is already in _pending, and the pending signal will
-        // wake the writer to drain it. Never throw on the Dispatcher thread.
+        // wake the writer to drain it. ObjectDisposedException covers a tick that raced Dispose
+        // (the app is exiting; there is nothing left to wake). Never throw on the Dispatcher thread.
         try { _sendSignal.Release(); }
         catch (SemaphoreFullException) { /* already signaled — writer will pick up _pending */ }
+        catch (ObjectDisposedException) { /* disposing raced a tick — exiting anyway */ }
     }
 
     /// <summary>

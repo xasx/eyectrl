@@ -66,6 +66,24 @@ public class DragCoordinatorTests
     }
 
     [Fact]
+    public void FatalExitRelease_AfterSetupFailureReleased_DoesNotSendASecondMouseUp()
+    {
+        // The fatal-exit release must be idempotent like every other release path: after a
+        // setup-failure release the button is no longer held, and a second MouseUp could release
+        // a caregiver's physically held button.
+        var input = new TestFakes.FakeInputSimulator();
+        var c = new DragCoordinator();
+        c.Initialize(TestFakes.MakeDragContext(input));
+
+        c.OnDragStarted(new PhysicalPoint(30, 40));   // presses; setup fails; auto-releases
+        c.ReleaseHeldButtonForFatalExit();            // must be a no-op
+
+        Check.That(input.MouseDownCount).IsEqualTo(1);
+        Check.That(input.MouseUpCount).IsEqualTo(1);
+        Check.That(input.ButtonsBalanced).IsTrue();
+    }
+
+    [Fact]
     public void SetupFailure_DoesNotEscapeIntoTheDispatcher()
     {
         // Sibling to the above and the reason it matters: the throw must be contained, not merely

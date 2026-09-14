@@ -47,6 +47,13 @@ public partial class App : Application
     private AppRestartCoordinator? _restartCoordinator;
     private DisplayGeometryWatcher? _displayGeometryWatcher;
     private string _appDataDir = null!;
+    private DispatcherTimer? _heartbeatTimer;
+
+    // Dispatcher-fault budget for the standalone crash policy (see InitializeApp's
+    // DispatcherUnhandledException registration). Touched only on the UI thread.
+    private readonly Queue<long> _dispatcherFaults = new();
+    private const int DispatcherFaultBudgetCount = 10;
+    private static readonly long DispatcherFaultWindowMs = (long)TimeSpan.FromSeconds(60).TotalMilliseconds;
 
     /// <summary>
     /// When true, the app uses MouseGazeProvider and skips the splash delay.
@@ -315,10 +322,10 @@ public partial class App : Application
             // which the supervisor has adopted an app that is not yet stamping.
             _heartbeatPublisher = new HeartbeatPublisher(supervised: settings.Supervision.Enabled);
             gazeEngine.GazeSampled += _ => _heartbeatPublisher.OnGazeSample();
-            var heartbeatTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
-            heartbeatTimer.Tick += (_, _) =>
+            _heartbeatTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            _heartbeatTimer.Tick += (_, _) =>
                 _heartbeatPublisher.Stamp(gazeProvider.IsConnected, im.CurrentState == InteractionState.Paused);
-            heartbeatTimer.Start();
+            _heartbeatTimer.Start();
 
             // ── Restart coordination ──
             // After the publisher, because the supervised strategy probes the same pipe.
@@ -437,6 +444,31 @@ public partial class App : Application
 
     private const string StartupErrorTitle = "EyeCtrl — Startup Error";
 
+    /// <summary>Rolling window for the standalone dispatcher-fault budget. Called only from the
+    /// UI thread (the DispatcherUnhandledException handler), so no synchronization.</summary>
+    private bool ConsumeDispatcherFaultBudget()
+    {
+        var now = Environment.TickCount64;
+        while (_dispatcherFaults.Count > 0 && now - _dispatcherFaults.Peek() > DispatcherFaultWindowMs)
+            _dispatcherFaults.Dequeue();
+        if (_dispatcherFaults.Count >= DispatcherFaultBudgetCount)
+            return false;
+        _dispatcherFaults.Enqueue(now);
+        return true;
+    }
+
+    /// <summary>
+    /// A SendInput drag button-down is OS-global state that outlives the process: dying with the
+    /// button held leaves the successor in FreeLook, where the user's gaze becomes a drag they
+    /// cannot stop. Best-effort and exception-free — callers are fatal-exception paths with
+    /// nothing left to protect.
+    /// </summary>
+    private void ReleaseHeldDragButtonForFatalExit()
+    {
+        try { _eventCoordinator?.ReleaseHeldDragButtonForFatalExit(); }
+        catch { /* the process is dying anyway */ }
+    }
+
     /// <summary>Finds a top-level window by exact title and posts WM_CLOSE to it after
     /// <paramref name="delay"/> — the auto-dismiss for the startup-error box. Best-effort: a box
     /// that stays up no longer holds anything (shutdown already ran).</summary>
@@ -476,21 +508,34 @@ public partial class App : Application
     {
         Log.Information("Shutdown");
 
+        // Every step is best-effort: an exception in any step used to skip every step after it —
+        // including the single-instance mutex release and the log flush — and then rethrow into
+        // the dying dispatcher. The ORDER below is unchanged (see the original ordering notes).
+        void Step(string what, Action act)
+        {
+            try { act(); }
+            catch (Exception ex) { Log.Error(ex, "OnExit step failed: {Step}", what); }
+        }
+
         // Stamp the final shuttingDown:true payload BEFORE tearing down services — the supervisor
         // needs this authenticated clean-shutdown signal within its 5s deadline to distinguish a
         // graceful exit (no restart) from a crash. Cancels the writer loop and drains it (bounded).
         // Carries the restart intent to the supervisor. False for every ordinary exit —
         // and also for a self-restart, where a replacement is already coming up and a
         // supervisor-launched second instance would just lose the race for the mutex.
-        _heartbeatPublisher?.SignalShuttingDown(
-            restartRequested: _restartCoordinator?.SupervisorRelaunchRequested ?? false);
+        Step("signal shutting down", () => _heartbeatPublisher?.SignalShuttingDown(
+            restartRequested: _restartCoordinator?.SupervisorRelaunchRequested ?? false));
+
+        // Stop ticking before the publisher goes away: a tick racing Dispose would call Stamp on
+        // a disposed publisher from the dispatcher.
+        Step("stop heartbeat timer", () => _heartbeatTimer?.Stop());
 
         // Before the coordinators: SystemEvents holds a static reference to the handler, so an
         // un-unsubscribed watcher outlives the app object and would fire into disposed services.
-        _displayGeometryWatcher?.Dispose();
+        Step("dispose display geometry watcher", () => _displayGeometryWatcher?.Dispose());
 
-        _trayIconManager?.Dispose();
-        _eventCoordinator?.Dispose();
+        Step("dispose tray icon", () => _trayIconManager?.Dispose());
+        Step("dispose event coordinator", () => _eventCoordinator?.Dispose());
 
         if (_serviceProvider != null)
         {
@@ -498,9 +543,12 @@ public partial class App : Application
             var settings = _serviceProvider.GetRequiredService<EyeCtrlSettings>();
             var settingsService = _serviceProvider.GetRequiredService<SettingsService>();
 
-            gazeEngine.Stop();
-            settingsService.Save(settings);
-            _serviceProvider.GetRequiredService<AdaptationLearner>().Persist(); // best-effort (§11); never throws
+            Step("stop gaze engine", () => gazeEngine.Stop());
+            // Best-effort by design: Save throws on validation failure, and a failed final save
+            // must not cost the caller its remaining teardown (previously this throw skipped
+            // provider disposal, the mutex release and the log flush).
+            Step("save settings", () => settingsService.Save(settings));
+            Step("persist adaptation state", () => _serviceProvider.GetRequiredService<AdaptationLearner>().Persist()); // best-effort (§11); never throws
             // (User dictionary is saved by EventCoordinator.Dispose above, via PredictionStackFactory.)
 
             // Instrument 2's final verdict, before the overlays go away. Instrument 1 reports from
@@ -516,20 +564,20 @@ public partial class App : Application
             catch (Exception ex) { Log.Warning(ex, "Could not emit the ring-quantization summary"); }
 
             var adapter = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
-            adapter.Dispose();
-            gazeEngine.Dispose();
-            _serviceProvider.GetRequiredService<ExternalDwellService>().Dispose();
-            _serviceProvider.Dispose(); // Disposes all IDisposable singletons including ManualSelectionDwellService
+            Step("dispose gaze adapter", () => adapter.Dispose());
+            Step("dispose gaze engine", () => gazeEngine.Dispose());
+            Step("dispose external dwell service", () => _serviceProvider.GetRequiredService<ExternalDwellService>().Dispose());
+            Step("dispose service provider", () => _serviceProvider.Dispose()); // Disposes all IDisposable singletons including ManualSelectionDwellService
         }
 
-        _heartbeatPublisher?.Dispose();
+        Step("dispose heartbeat publisher", () => _heartbeatPublisher?.Dispose());
 
         // Release the single-instance mutex LAST. A restart child is queued on it
         // (Task 6's waiting acquire) and starts initialising the instant it is released, so
         // everything this instance still owns — the settings file, the Tobii device, the
         // external-dwell pipe — must already be released. Releasing it at the TOP of OnExit
         // was harmless only while a second instance exited immediately instead of waiting.
-        _singleInstance?.Dispose();
+        Step("release single-instance mutex", () => _singleInstance?.Dispose());
 
         Log.CloseAndFlush();
         base.OnExit(e);
@@ -657,17 +705,31 @@ public partial class App : Application
 
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {
+            ReleaseHeldDragButtonForFatalExit();
             Log.Fatal(args.ExceptionObject as Exception, "Unhandled exception (terminating={IsTerminating})",
                 args.IsTerminating);
             Log.CloseAndFlush();
         };
 
-        // Deliberately do NOT set args.Handled = true. We log + let the process
-        // crash so the supervisor's respawn owns recovery, rather than the app
-        // limping on in a corrupt state.
+        // Crash policy, two regimes:
+        // - Supervision ENABLED: a UI-thread fault deliberately kills the process (log only, no
+        //   e.Handled) so the supervisor's respawn owns recovery, rather than the app limping
+        //   on in a corrupt state.
+        // - Standalone (the current live configuration): nothing respawns this process. A crash
+        //   strands a gaze-only user until a caregiver arrives, so the policy is log-and-continue
+        //   under a budget: more than DispatcherFaultBudgetCount dispatcher faults per minute is
+        //   a hard-looping UI, and dying (relaunchable) beats an app that wedges input invisibly.
+        // In BOTH death cases the held drag button is released first — a SendInput button-down
+        // outlives the process.
         DispatcherUnhandledException += (_, args) =>
         {
             Log.Error(args.Exception, "Unhandled dispatcher exception");
+            if (settings.Supervision.Enabled || !ConsumeDispatcherFaultBudget())
+            {
+                ReleaseHeldDragButtonForFatalExit();
+                return; // deliberately unhandled: the process dies
+            }
+            args.Handled = true;
         };
 
         // Safety net for fire-and-forget async work (notably the heartbeat writer

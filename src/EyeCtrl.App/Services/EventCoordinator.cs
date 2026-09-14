@@ -168,6 +168,10 @@ public class EventCoordinator : IEventCoordinator
     // window construction. SetKeyboardVisible / OnEmojiSkinToneChanged moved to KeyboardCoordinator
     // (cluster 3).
 
+    /// <summary>See <see cref="DragCoordinator.ReleaseHeldButtonForFatalExit"/>: App's
+    /// fatal-exception paths reach the drag coordinator through here (it is not in DI).</summary>
+    internal void ReleaseHeldDragButtonForFatalExit() => _dragCoordinator?.ReleaseHeldButtonForFatalExit();
+
     public void Dispose()
     {
         if (_disposed) return;

@@ -136,14 +136,19 @@ public class DwellRoutingOwnerRegistrationTests
         interactionManager.OnActivationButtonDwelled();
         var dwellPoint = new PhysicalPoint(510, 510); // well inside the 200 px bounds, on the target
         messenger.Send(new GazeCursorMovedMessage(dwellPoint, 100_000));
-        // Grace over (350 ms elapsed); this sample enters the dwell target at t = 450 ms.
+        // Grace over (350 ms elapsed); five stable samples seat the anchor (stability onset, K=5),
+        // and the sample that seats it enters the dwell target at t = 530 ms.
         messenger.Send(new GazeCursorMovedMessage(dwellPoint, 450_000));
+        messenger.Send(new GazeCursorMovedMessage(dwellPoint, 470_000));
+        messenger.Send(new GazeCursorMovedMessage(dwellPoint, 490_000));
+        messenger.Send(new GazeCursorMovedMessage(dwellPoint, 510_000));
+        messenger.Send(new GazeCursorMovedMessage(dwellPoint, 530_000));
         // 399 ms of dwell < halved 400 ms — must not complete. Against the 800 ms baseline this
         // would be less than half done; the check below is what proves the map landed at all.
-        messenger.Send(new GazeCursorMovedMessage(dwellPoint, 849_000));
+        messenger.Send(new GazeCursorMovedMessage(dwellPoint, 929_000));
         Check.That(completed).IsNull();
         // Exactly 400 ms of dwell → completes.
-        messenger.Send(new GazeCursorMovedMessage(dwellPoint, 850_000));
+        messenger.Send(new GazeCursorMovedMessage(dwellPoint, 930_000));
         Check.That(completed).IsNotNull();
         Check.That(completed!.PrecisePoint.X).IsCloseTo(dwellPoint.X, 0.005);
         Check.That(completed!.PrecisePoint.Y).IsCloseTo(dwellPoint.Y, 0.005);

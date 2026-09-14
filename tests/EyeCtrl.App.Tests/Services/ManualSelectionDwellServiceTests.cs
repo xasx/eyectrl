@@ -212,12 +212,17 @@ public class ManualSelectionDwellServiceTests
             progressUpdateReceived = true;
         });
 
-        // Act - Start the grace period, then send two gazes within bounds after it.
-        // The dwell detector only *enters* the target on the first post-grace sample; a
-        // second sample is required before it emits a progress update.
+        // Act - Start the grace period, then seat the anchor with five stable post-grace samples
+        // (stability onset is K=5), then advance the dwell so progress is emitted.
+        // The dwell detector only *enters* the target on the sample that seats the anchor; a
+        // further sample is required before it emits a progress update.
         _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(500, 500), 100_000)); // Start grace period
-        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(505, 505), 400_000)); // After grace period — dwell begins
-        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(505, 505), 600_000)); // Dwell advances → progress emitted
+        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(505, 505), 400_000)); // After grace — stability window opens
+        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(505, 505), 433_333));
+        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(505, 505), 466_666));
+        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(505, 505), 500_000));
+        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(505, 505), 533_333)); // K-th sample seats the anchor → dwell begins
+        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(505, 505), 566_666)); // Dwell advances → progress emitted
 
         // Assert
         Check.That(progressUpdateReceived).IsTrue();
@@ -244,12 +249,12 @@ public class ManualSelectionDwellServiceTests
             completionMessage = m;
         });
 
-        // Act - Simulate dwell completion by sending steady gaze for required duration
-        // Need: 300ms grace + 800ms dwell = 1100ms total
+        // Act - Simulate dwell completion by sending steady gaze for required duration.
+        // Need: 300ms grace + 5-sample stability onset (~167ms) + 800ms dwell ≈ 1.27s.
         var dwellPoint = new PhysicalPoint(510, 510);
         var startTime = 0L;
 
-        for (int i = 0; i < 40; i++) // Send gaze at ~30Hz for 1.33 seconds (sufficient for 1100ms)
+        for (int i = 0; i < 45; i++) // Send gaze at ~30Hz for 1.5 seconds (sufficient for ~1.27s)
         {
             var timestamp = startTime + (i * 33_333); // 33ms intervals
             _messenger.Send(new GazeCursorMovedMessage(dwellPoint, timestamp));
@@ -411,5 +416,400 @@ public class ManualSelectionDwellServiceTests
         Check.That(_indicatorVM.IndicatorY).IsCloseTo(510, 0.005);
 
         _messenger.Unregister<UpdateManualSelectionIndicatorPositionMessage>(this);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+    // Targeting unit: the visible-rim boundary, the anchored hold and the centroid commit.
+    //
+    // These probes are deliberately discriminating. Under the old rule the dwell target was
+    // re-centred on the live gaze every sample, so the distance to the hit-tested point was
+    // identically zero: the boundary, the radius and the commit point all had no observable
+    // effect and the whole suite stayed green. Each test below is paired with a mutation in the
+    // fix it pins — reverting that fix turns the test red.
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Sample spacing for the targeting probes: 50 ms at ~20 Hz.</summary>
+    private const long TargetingSampleSpacingUs = 50_000;
+
+    /// <summary>Grace is 300 ms, so samples 0–5 are inside it and sample 6 is the first post-grace sample.</summary>
+    private const int FirstPostGraceSampleIndex = 6;
+
+    private void StartSession(PhysicalPoint center, PhysicalPoint gazePoint)
+    {
+        _messenger.Send(new StartManualSelectionMessage(center, 200, 2.0, gazePoint));
+        _interactionManager.OnFixationStarted(gazePoint);
+        _interactionManager.OnActivationButtonDwelled();
+    }
+
+    private void SendGaze(PhysicalPoint point, int sampleIndex)
+        => _messenger.Send(new GazeCursorMovedMessage(point, sampleIndex * TargetingSampleSpacingUs));
+
+    private void SendGazeRun(PhysicalPoint point, int count)
+    {
+        for (var i = 0; i < count; i++)
+            SendGaze(point, i);
+    }
+
+    /// <summary>
+    /// Boundary probe at distance 300 px: outside the OLD dead ring (radius x ScaleX = 200) and
+    /// inside the visible rim (radius x magnification x ScaleX = 400). Reverting the boundary
+    /// expression to the old one makes this reset.
+    /// </summary>
+    [Fact]
+    public void OnGazeMoved_InsideVisibleRimOutsideDeadRing_DoesNotReset()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+
+        var resets = 0;
+        _messenger.Register<ResetManualSelectionIndicatorMessage>(this, (r, m) => resets++);
+
+        SendGazeRun(new PhysicalPoint(800, 500), 14);
+
+        Check.WithCustomMessage(
+                "The boundary the user can see is the boundary that decides: a gaze inside the "
+                + "visible rim must not reset, even outside the old radius x ScaleX dead ring.")
+            .That(resets).IsEqualTo(0);
+
+        _messenger.Unregister<ResetManualSelectionIndicatorMessage>(this);
+    }
+
+    /// <summary>Upper bound of the same invariant: beyond the visible rim the dwell still resets.</summary>
+    [Fact]
+    public void OnGazeMoved_OutsideVisibleRim_Resets()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+
+        var resets = 0;
+        _messenger.Register<ResetManualSelectionIndicatorMessage>(this, (r, m) => resets++);
+
+        SendGazeRun(new PhysicalPoint(950, 500), 14); // distance 450 > 400 px rim
+
+        Check.WithCustomMessage("A gaze outside the visible rim must reset.")
+            .That(resets).IsStrictlyGreaterThan(0);
+
+        _messenger.Unregister<ResetManualSelectionIndicatorMessage>(this);
+    }
+
+    /// <summary>
+    /// The visible rim is a physical-pixel radius, so it must carry DpiHelper.ScaleX: at 150 %
+    /// scaling a 450 px offset is inside the 600 px rim. Dropping ScaleX from the boundary
+    /// expression (the version that passes every other test) makes this reset.
+    /// </summary>
+    [Fact]
+    public void OnGazeMoved_VisibleRim_ScalesWithDisplayDpi()
+    {
+        DpiHelper.Initialize(1.5, 1.5);
+        try
+        {
+            StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+
+            var resets = 0;
+            _messenger.Register<ResetManualSelectionIndicatorMessage>(this, (r, m) => resets++);
+
+            SendGazeRun(new PhysicalPoint(950, 500), 14); // 450 px: inside 200 x 2.0 x 1.5 = 600
+
+            Check.WithCustomMessage(
+                    "At 150 % scaling the visible rim is 600 physical px; a 450 px offset is inside it. "
+                    + "A boundary missing ScaleX would gate at 400 and reset.")
+                .That(resets).IsEqualTo(0);
+
+            _messenger.Unregister<ResetManualSelectionIndicatorMessage>(this);
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
+    /// <summary>
+    /// The user's reported symptom: a dwell anywhere in the visible circle must complete, and at
+    /// the point aimed at. Under the old boundary this probe (300 px of the 400 px rim) resets
+    /// forever and never completes.
+    /// </summary>
+    [Fact]
+    public void OnDwellCompleted_NearTheVisibleRim_CommitsAtTheAimedPoint()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+
+        ManualSelectionDwellCompletedMessage? completed = null;
+        _messenger.Register<ManualSelectionDwellCompletedMessage>(this, (r, m) => completed = m);
+
+        var point = new PhysicalPoint(800, 500);
+        for (var i = 0; i < 60 && completed is null; i++)
+            SendGaze(point, i);
+
+        Check.WithCustomMessage("A dwell inside the visible rim must complete.")
+            .That(completed).IsNotNull();
+        Check.That(completed!.PrecisePoint.X).IsCloseTo(800, 0.01);
+        Check.That(completed!.PrecisePoint.Y).IsCloseTo(500, 0.01);
+
+        _messenger.Unregister<ManualSelectionDwellCompletedMessage>(this);
+    }
+
+    /// <summary>
+    /// Committing at the running centroid, not the last sample. The stream holds at the anchor and
+    /// then sits 60 px off it (still inside the 72 px hold); the commit must land on the mean of the
+    /// held samples. Committing at the last gaze point misses by ~37 px and turns this red.
+    /// </summary>
+    [Fact]
+    public void OnDwellCompleted_CommitsAtRunningCentroid_NotLastSample()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+
+        ManualSelectionDwellCompletedMessage? completed = null;
+        _messenger.Register<ManualSelectionDwellCompletedMessage>(this, (r, m) => completed = m);
+
+        double sumX = 0, sumY = 0;
+        var count = 0;
+        PhysicalPoint last = default;
+        for (var i = 0; i < 60 && completed is null; i++)
+        {
+            // p0–p18 at the anchor, then 60 px off it (inside the hold radius) for the tail.
+            var point = i < 19 ? new PhysicalPoint(500, 500) : new PhysicalPoint(560, 500);
+            if (i >= FirstPostGraceSampleIndex)
+            {
+                sumX += point.X;
+                sumY += point.Y;
+                count++;
+            }
+            last = point;
+            SendGaze(point, i);
+        }
+
+        Check.That(completed).IsNotNull();
+        var expectedX = sumX / count;
+        var expectedY = sumY / count;
+        Check.That(completed!.PrecisePoint.X).IsCloseTo(expectedX, 0.01);
+        Check.That(completed!.PrecisePoint.Y).IsCloseTo(expectedY, 0.01);
+
+        Check.WithCustomMessage("The probe must discriminate: the last sample sits far from the centroid.")
+            .That(Math.Abs(last.X - expectedX)).IsStrictlyGreaterThan(30);
+
+        _messenger.Unregister<ManualSelectionDwellCompletedMessage>(this);
+    }
+
+    /// <summary>
+    /// The hold gate itself: a gaze that never settles can never seat an anchor, so it never
+    /// commits. Under the old follow-gaze rule the dwell completes on this stream.
+    /// </summary>
+    [Fact]
+    public void OnGazeMoved_GazeMovingOutsideHoldRadius_DoesNotComplete()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+
+        var completed = false;
+        _messenger.Register<ManualSelectionDwellCompletedMessage>(this, (r, m) => completed = true);
+
+        // Alternating 200 px apart: at most 4 of any 7-sample window can be within the onset
+        // window, so K=5 stability never onsets and no anchor ever seats.
+        for (var i = 0; i < 80; i++)
+            SendGaze(i % 2 == 0 ? new PhysicalPoint(400, 500) : new PhysicalPoint(600, 500), i);
+
+        Check.WithCustomMessage("A gaze that never stabilises must not commit.")
+            .That(completed).IsFalse();
+
+        _messenger.Unregister<ManualSelectionDwellCompletedMessage>(this);
+    }
+
+    /// <summary>
+    /// Skip-N: one isolated out-of-hold sample must not break an in-flight dwell, and must not
+    /// release the anchor. Treating any out-of-hold sample as gaze-left releases the anchor and
+    /// delays completion past the probe.
+    /// </summary>
+    [Fact]
+    public void OnGazeMoved_IsolatedOutlierSample_DoesNotBreakDwell()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+
+        var completed = false;
+        var anchorReleases = 0;
+        _messenger.Register<ManualSelectionDwellCompletedMessage>(this, (r, m) => completed = true);
+        _messenger.Register<ManualSelectionAnchorChangedMessage>(this, (r, m) =>
+        {
+            if (m.Anchor is null) anchorReleases++;
+        });
+
+        // Seat at sample 10 (first five post-grace samples), dwell completes at sample 26; one
+        // isolated jump to 200 px off the anchor at sample 13 is skipped.
+        for (var i = 0; i < 31; i++)
+            SendGaze(i == 13 ? new PhysicalPoint(700, 500) : new PhysicalPoint(500, 500), i);
+
+        Check.WithCustomMessage("An isolated outlier must not break the dwell.").That(completed).IsTrue();
+        Check.WithCustomMessage("An isolated outlier must not release the anchor.").That(anchorReleases).IsEqualTo(0);
+
+        _messenger.Unregister<ManualSelectionDwellCompletedMessage>(this);
+        _messenger.Unregister<ManualSelectionAnchorChangedMessage>(this);
+    }
+
+    /// <summary>
+    /// The other half of skip-N: more consecutive out-of-hold samples than the skip limit is a real
+    /// move, so the anchor is released.
+    /// </summary>
+    [Fact]
+    public void OnGazeMoved_SustainedOutOfHoldGaze_ReleasesAnchor()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+
+        var anchorReleases = 0;
+        _messenger.Register<ManualSelectionAnchorChangedMessage>(this, (r, m) =>
+        {
+            if (m.Anchor is null) anchorReleases++;
+        });
+
+        for (var i = 0; i < 11; i++)
+            SendGaze(new PhysicalPoint(500, 500), i); // seats at sample 10
+        for (var i = 11; i < 15; i++)
+            SendGaze(new PhysicalPoint(700, 500), i); // 200 px off, 4 consecutive > skip limit 3
+
+        Check.That(anchorReleases).IsEqualTo(1);
+
+        _messenger.Unregister<ManualSelectionAnchorChangedMessage>(this);
+    }
+
+    /// <summary>
+    /// Seating at the cluster centroid, not at the newest sample. The cluster is deliberately
+    /// asymmetric so the centroid (500, 500.4) differs from the newest sample (500, 498).
+    /// </summary>
+    [Fact]
+    public void OnGazeMoved_StabilityOnset_SeatsAnchorAtClusterCentroid()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+
+        ManualSelectionAnchorChangedMessage? seated = null;
+        _messenger.Register<ManualSelectionAnchorChangedMessage>(this, (r, m) =>
+        {
+            if (m.Anchor is not null) seated = m;
+        });
+
+        SendGazeRun(new PhysicalPoint(500, 500), FirstPostGraceSampleIndex);
+        SendGaze(new PhysicalPoint(500, 500), 6);
+        SendGaze(new PhysicalPoint(504, 500), 7);
+        SendGaze(new PhysicalPoint(496, 500), 8);
+        SendGaze(new PhysicalPoint(500, 504), 9);
+        SendGaze(new PhysicalPoint(500, 498), 10);
+
+        Check.That(seated).IsNotNull();
+        Check.That(seated!.Anchor!.Value.X).IsCloseTo(500, 0.01);
+        Check.That(seated!.Anchor!.Value.Y).IsCloseTo(500.4, 0.01);
+
+        _messenger.Unregister<ManualSelectionAnchorChangedMessage>(this);
+    }
+
+    /// <summary>
+    /// Hold tolerance is screen-space, so magnification must not appear in it — neither multiplied
+    /// nor divided. 50 px is inside the 72 px hold and outside a divided 36 px one.
+    /// </summary>
+    [Fact]
+    public void OnGazeMoved_HoldTolerance_IsNotDividedByMagnification()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+
+        var completed = false;
+        var anchorReleases = 0;
+        _messenger.Register<ManualSelectionDwellCompletedMessage>(this, (r, m) => completed = true);
+        _messenger.Register<ManualSelectionAnchorChangedMessage>(this, (r, m) =>
+        {
+            if (m.Anchor is null) anchorReleases++;
+        });
+
+        for (var i = 0; i < 11; i++)
+            SendGaze(new PhysicalPoint(500, 500), i); // seats at sample 10
+        for (var i = 11; i < 40; i++)
+            SendGaze(new PhysicalPoint(550, 500), i); // 50 px: inside 72, outside 72/2
+
+        Check.WithCustomMessage("A 50 px offset is inside the 72 DIP hold and must keep the dwell alive.")
+            .That(anchorReleases).IsEqualTo(0);
+        Check.That(completed).IsTrue();
+
+        _messenger.Unregister<ManualSelectionDwellCompletedMessage>(this);
+        _messenger.Unregister<ManualSelectionAnchorChangedMessage>(this);
+    }
+
+    /// <summary>
+    /// The multiplied half of the same invariant: 100 px is outside the 72 px hold and inside a
+    /// 72 x 2 = 144 px one.
+    /// </summary>
+    [Fact]
+    public void OnGazeMoved_HoldTolerance_IsNotMultipliedByMagnification()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+
+        var anchorReleases = 0;
+        _messenger.Register<ManualSelectionAnchorChangedMessage>(this, (r, m) =>
+        {
+            if (m.Anchor is null) anchorReleases++;
+        });
+
+        for (var i = 0; i < 11; i++)
+            SendGaze(new PhysicalPoint(500, 500), i); // seats at sample 10
+        for (var i = 11; i < 15; i++)
+            SendGaze(new PhysicalPoint(600, 500), i); // 100 px: outside 72, inside 144
+
+        Check.WithCustomMessage("A 100 px offset is outside the 72 DIP hold and must release the anchor.")
+            .That(anchorReleases).IsEqualTo(1);
+
+        _messenger.Unregister<ManualSelectionAnchorChangedMessage>(this);
+    }
+
+    /// <summary>
+    /// The hold radius is a DIP value converted to physical pixels, so it carries ScaleX like the
+    /// boundary does. At 150 % a 90 px offset is inside the 108 px hold; without ScaleX it would
+    /// fall outside 72 and release the anchor.
+    /// </summary>
+    [Fact]
+    public void OnGazeMoved_HoldTolerance_ScalesWithDisplayDpi()
+    {
+        DpiHelper.Initialize(1.5, 1.5);
+        try
+        {
+            StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+
+            var anchorReleases = 0;
+            _messenger.Register<ManualSelectionAnchorChangedMessage>(this, (r, m) =>
+            {
+                if (m.Anchor is null) anchorReleases++;
+            });
+
+            for (var i = 0; i < 11; i++)
+                SendGaze(new PhysicalPoint(500, 500), i); // seats at sample 10
+            for (var i = 11; i < 15; i++)
+                SendGaze(new PhysicalPoint(590, 500), i); // 90 px: inside 72 x 1.5 = 108, outside 72
+
+            Check.WithCustomMessage("At 150 % scaling the hold is 108 physical px; 90 px is inside it.")
+                .That(anchorReleases).IsEqualTo(0);
+
+            _messenger.Unregister<ManualSelectionAnchorChangedMessage>(this);
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
+    /// <summary>
+    /// The strictness knob: HoldRadiusLogical is read from settings, so raising it toward the
+    /// visible rim loosens the hold without any code change. A hardcoded 72 px would release here.
+    /// </summary>
+    [Fact]
+    public void OnGazeMoved_RaisedHoldToleranceSetting_LoosensTheHold()
+    {
+        _settings.ManualSelection.HoldRadiusLogical = 200;
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+
+        var anchorReleases = 0;
+        _messenger.Register<ManualSelectionAnchorChangedMessage>(this, (r, m) =>
+        {
+            if (m.Anchor is null) anchorReleases++;
+        });
+
+        for (var i = 0; i < 11; i++)
+            SendGaze(new PhysicalPoint(500, 500), i); // seats at sample 10
+        for (var i = 11; i < 15; i++)
+            SendGaze(new PhysicalPoint(650, 500), i); // 150 px: outside the default 72, inside 200
+
+        Check.WithCustomMessage("HoldRadiusLogical must be read from settings, not hardcoded.")
+            .That(anchorReleases).IsEqualTo(0);
+
+        _messenger.Unregister<ManualSelectionAnchorChangedMessage>(this);
     }
 }

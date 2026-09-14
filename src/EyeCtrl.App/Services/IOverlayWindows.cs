@@ -193,6 +193,13 @@ public interface IManualSelectionIndicatorOverlay
     void UpdateOuterDiameter(double diameter);
     void AnimateReset(double targetDiameter, int durationMs);
     void RaiseToTop();
+
+    /// <summary>
+    /// Sets the held dwell anchor's mark. The anchor is a fixed screen point (the dot moves, the
+    /// anchor does not), so it is drawn in the same window as the dot but offset from it; callers
+    /// pass <paramref name="visible"/> false to release the mark.
+    /// </summary>
+    void UpdateAnchor(double screenX, double screenY, bool visible);
 }
 
 /// <summary>The dimming backdrop behind modal overlays.</summary>

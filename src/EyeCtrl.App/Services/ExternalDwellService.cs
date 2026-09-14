@@ -37,6 +37,12 @@ public sealed class ExternalDwellService : IDisposable
     /// </summary>
     private readonly string _pipeName;
 
+    /// <summary>Registration caps: a hostile or buggy client must not be able to grow the
+    /// target tables (and per-frame gating cost) without bound. A register over a cap is
+    /// rejected and logged; the connection itself stays alive for its existing targets.</summary>
+    internal const int MaxTargetsPerConnection = 512;
+    internal const int MaxTotalTargets = 4096;
+
     private readonly ExternalDwellSettings _settings;
     private readonly GazeEngine _gazeEngine;
     private readonly Dispatcher _dispatcher;
@@ -304,6 +310,13 @@ public sealed class ExternalDwellService : IDisposable
                     {
                         _logger.LogWarning(
                             "External dwell pipe: rejected register of target {Id} from a client that does not own it", r.Id);
+                        break;
+                    }
+                    if (conn.TargetIds.Count >= MaxTargetsPerConnection || _targetsById.Count >= MaxTotalTargets)
+                    {
+                        _logger.LogWarning(
+                            "External dwell pipe: rejected register of target {Id} over registration cap (connection {ConnCount}/{PerConn}, total {Total}/{MaxTotal})",
+                            r.Id, conn.TargetIds.Count, MaxTargetsPerConnection, _targetsById.Count, MaxTotalTargets);
                         break;
                     }
                     conn.Hwnd = r.Hwnd;

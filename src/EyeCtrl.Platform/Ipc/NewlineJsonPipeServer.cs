@@ -12,6 +12,12 @@ using System.Text;
 /// and a Dispose that cancels, drains and disposes every connection. Callers own pipe
 /// construction (plain vs ACL-secured) and line parsing.
 /// <para>
+/// Lines are bounded by <see cref="DefaultMaxLineLength"/> (constructor-overridable): a
+/// line that exceeds the cap drops its connection — an unbounded ReadLine would let any
+/// client grow the receiving process's memory without bound by streaming bytes with no
+/// newline. The server itself keeps serving other connections.
+/// </para>
+/// <para>
 /// Per-connection state is a first-class parameter rather than something each caller
 /// re-invents: <typeparamref name="TState"/> is built once per accepted pipe by
 /// <c>createState</c>, handed to every line handler, and released by <c>onClosed</c>. It
@@ -33,11 +39,16 @@ public sealed class NewlineJsonPipeServer<TState> : IDisposable
     /// </summary>
     public delegate bool LineHandler(string line, TState state);
 
+    /// <summary>Default cap on one pipe line, in characters. Generous for both servers' real
+    /// messages (heartbeat payloads and dwell register lines are a few hundred bytes).</summary>
+    public const int DefaultMaxLineLength = 64 * 1024;
+
     private readonly Func<NamedPipeServerStream> _createPipe;
     private readonly Func<NamedPipeServerStream, TState> _createState;
     private readonly LineHandler _handleLine;
     private readonly Action<TState>? _onClosed;
     private readonly Action<Exception, string?, string?>? _log;
+    private readonly int _maxLineLength;
     private readonly object _stateLock = new();
     private readonly List<NamedPipeServerStream> _connections = new();
     private CancellationTokenSource? _cts;
@@ -48,18 +59,21 @@ public sealed class NewlineJsonPipeServer<TState> : IDisposable
     /// <param name="handleLine">Consumes one line against that state; false means "unparseable".</param>
     /// <param name="onClosed">Per-connection teardown, run exactly once when the read loop ends.</param>
     /// <param name="log">(exception, line, context) — <c>line</c> is non-null only for a bad message.</param>
+    /// <param name="maxLineLength">Cap on one line in characters; an overlong line drops the connection.</param>
     public NewlineJsonPipeServer(
         Func<NamedPipeServerStream> createPipe,
         Func<NamedPipeServerStream, TState> createState,
         LineHandler handleLine,
         Action<TState>? onClosed = null,
-        Action<Exception, string?, string?>? log = null)
+        Action<Exception, string?, string?>? log = null,
+        int maxLineLength = DefaultMaxLineLength)
     {
         _createPipe = createPipe;
         _createState = createState;
         _handleLine = handleLine;
         _onClosed = onClosed;
         _log = log;
+        _maxLineLength = maxLineLength;
     }
 
     public void Start()
@@ -130,15 +144,23 @@ public sealed class NewlineJsonPipeServer<TState> : IDisposable
         try
         {
             using var reader = new StreamReader(pipe, Encoding.UTF8, false, 1024, leaveOpen: true);
+            var lineReader = new BoundedLineReader(reader, _maxLineLength);
             while (!token.IsCancellationRequested && pipe.IsConnected)
             {
                 string? line;
                 try
                 {
-                    line = await reader.ReadLineAsync(token);
+                    line = await lineReader.ReadLineAsync(token);
                 }
                 catch (OperationCanceledException)
                 {
+                    break;
+                }
+                catch (LineTooLongException ex)
+                {
+                    // A line beyond the cap is a protocol violation, not a parse hiccup: the
+                    // sender is either hostile or broken. Drop the connection; keep accepting.
+                    _log?.Invoke(ex, null, $"pipe line exceeded {_maxLineLength} chars; dropping connection");
                     break;
                 }
                 catch
@@ -188,6 +210,80 @@ public sealed class NewlineJsonPipeServer<TState> : IDisposable
             {
             }
         }
+    }
+
+    /// <summary>
+    /// Reads one newline-terminated line, refusing to buffer more than
+    /// <paramref name="maxLineLength"/> characters: a client streaming bytes with no newline must
+    /// not be able to grow the receiving process's memory without bound. Handles multiple lines
+    /// per read chunk (carrying the remainder), the \r of a \r\n terminator (not counted against
+    /// the cap), EOF mid-line (returns the partial line, matching StreamReader.ReadLineAsync),
+    /// and EOF at a line boundary (returns null). Exceeding the cap throws
+    /// <see cref="LineTooLongException"/>.
+    /// </summary>
+    private sealed class BoundedLineReader(StreamReader reader, int maxLineLength)
+    {
+        private readonly char[] _chunk = new char[256];
+        private readonly StringBuilder _line = new(128);
+        // The chunk buffer is aliased as the pending span: a new ReadAsync only happens after the
+        // previous chunk was fully consumed, so the reuse never overwrites unread characters.
+        private int _pendingLength;
+        private int _pendingIndex;
+        private bool _pendingCr;
+
+        public async Task<string?> ReadLineAsync(CancellationToken token)
+        {
+            while (true)
+            {
+                while (_pendingIndex < _pendingLength)
+                {
+                    var ch = _chunk[_pendingIndex++];
+                    if (ch == '\n')
+                    {
+                        _pendingCr = false;
+                        var result = _line.ToString();
+                        _line.Clear();
+                        return result;
+                    }
+                    if (ch == '\r')
+                    {
+                        // '\r' may be the first half of a "\r\n" terminator; decide on the next char.
+                        _pendingCr = true;
+                        continue;
+                    }
+                    if (_pendingCr)
+                    {
+                        _line.Append('\r');
+                        _pendingCr = false;
+                    }
+                    _line.Append(ch);
+                    if (_line.Length > maxLineLength)
+                        throw new LineTooLongException();
+                }
+
+                var n = await reader.ReadAsync(_chunk.AsMemory(), token);
+                if (n == 0)
+                {
+                    if (_pendingCr)
+                    {
+                        _line.Append('\r');
+                        _pendingCr = false;
+                    }
+                    if (_line.Length == 0)
+                        return null;
+                    var tail = _line.ToString();
+                    _line.Clear();
+                    return tail;
+                }
+                _pendingLength = n;
+                _pendingIndex = 0;
+            }
+        }
+    }
+
+    private sealed class LineTooLongException : Exception
+    {
+        public LineTooLongException() : base("pipe line exceeded the maximum length") { }
     }
 
     public void Dispose()

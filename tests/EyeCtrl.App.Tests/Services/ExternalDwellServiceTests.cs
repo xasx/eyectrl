@@ -690,6 +690,68 @@ public class ExternalDwellServiceTests
         return (r1, w1, r2, w2, client1, client2);
     }
 
+    // A register past the per-connection cap (512) must be rejected WITHOUT dropping the
+    // connection: the client's existing targets keep working. Bound registration state is the
+    // OOM defence for the target tables.
+    [Fact]
+    public void RegisterOverPerConnectionCap_RejectedButConnectionServes()
+    {
+        RunOnStaThread(() =>
+        {
+            var provider = new StubGazeProvider();
+            using var engine = new GazeEngine(provider, new StubInputSimulator(), new EyeCtrlSettings());
+            using var svc = NewService(engine, _ => 7);
+            svc.Start();
+
+            var (legit, overCap) = RegisterUpToCapThenDwell(provider, _pipeName).GetAwaiter().GetResult();
+
+            Check.That(legit).IsNotNull();               // a capped-connection target still fires
+            Check.That(legit).Contains("\"id\":\"t0\""); // t0's tile activated after the rejection
+            Check.That(overCap).IsNull();                // the over-cap target never activates
+        });
+    }
+
+    // Registers exactly MaxTargetsPerConnection targets on non-overlapping tiles, then one more
+    // on a far tile (rejected over the cap). Dwells t0 (clean filter history, like the other
+    // dwell tests), then dwells the over-cap tile long enough for the gaze filter to converge —
+    // a wrongly-registered t512 would activate, a rejected one leaves the pipe silent.
+    private static async Task<(string? legit, string? overCap)> RegisterUpToCapThenDwell(
+        StubGazeProvider provider, string pipeName)
+    {
+        await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client.ConnectAsync(2000);
+        await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        using var r = new StreamReader(client, Encoding.UTF8, false, 1024, leaveOpen: true);
+
+        var batch = new StringBuilder();
+        for (var i = 0; i < ExternalDwellService.MaxTargetsPerConnection; i++)
+            batch.AppendLine(JsonSerializer.Serialize<WireMessage>(
+                new RegisterMessage { Id = $"t{i}", Rect = new SdkRect(i * 100, 0, 100, 100), Hwnd = 7 }, WireJson.Options));
+        await w.WriteAsync(batch);
+        await Task.Delay(500); // let the server drain the batched registrations
+
+        // One past the cap, on its own far tile.
+        await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+            new RegisterMessage { Id = "t512", Rect = new SdkRect(60000, 0, 100, 100), Hwnd = 7 }, WireJson.Options));
+        await Task.Delay(300);
+
+        // Dwell on t0's tile: two samples like the other dwell tests.
+        provider.Raise(new GazePoint(50, 50, 0, IsValid: true));
+        provider.Raise(new GazePoint(50, 50, 800_000, IsValid: true));
+        var read1 = r.ReadLineAsync();
+        var legit = await Task.WhenAny(read1, Task.Delay(2000)) == read1 ? await read1 : null;
+
+        // Dwell the over-cap tile: many samples so the One-Euro filter converges onto it; a
+        // registered t512 accrues 800ms and fires, a rejected one stays silent.
+        for (var i = 0; i < 20; i++)
+            provider.Raise(new GazePoint(60050, 50, 1_000_000 + i * 100_000, IsValid: true));
+        provider.Raise(new GazePoint(60050, 50, 3_200_000, IsValid: true));
+        var read2 = r.ReadLineAsync();
+        var overCap = await Task.WhenAny(read2, Task.Delay(2000)) == read2 ? await read2 : null;
+
+        return (legit, overCap);
+    }
+
     private sealed class StubGazeProvider : IGazeProvider
     {
         public bool IsConnected => true;

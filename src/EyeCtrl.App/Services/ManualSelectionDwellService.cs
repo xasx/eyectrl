@@ -78,6 +78,7 @@ public class ManualSelectionDwellService : IDisposable
         _messenger.Register<StartManualSelectionMessage>(this, (r, m) => OnManualSelectionStarted(m));
         _messenger.Register<EndManualSelectionMessage>(this, (r, m) => OnManualSelectionEnded());
         _messenger.Register<ManualSelectionHiddenMessage>(this, (r, m) => OnManualSelectionEnded());
+        _messenger.Register<ManualSelectionRecaptureMessage>(this, (r, m) => OnRecapture());
         _messenger.Register<GazeCursorMovedMessage>(this, (r, m) => OnGazeMoved(m));
     }
 
@@ -154,6 +155,26 @@ public class ManualSelectionDwellService : IDisposable
         ClearCommitState();
 
         _logger.LogDebug("ManualSelection dwell tracking stopped");
+    }
+
+    /// <summary>
+    /// A recapture keeps the same geometry but shows fresh content underneath: any dwell progress
+    /// already accumulated against the stale screenshot must not silently carry over into a commit
+    /// against the new one, and the grace period restarts so gaze that happens to be resting the
+    /// instant the new content appears isn't immediately eligible to commit. Mirrors
+    /// <see cref="ResetDwell"/>'s reset call, deliberately WITHOUT tearing down and recreating the
+    /// target/session itself (geometry, radius, registry registration) — that stays exactly as it
+    /// is; ticket 4 owns the targeting rule.
+    /// </summary>
+    private void OnRecapture()
+    {
+        if (!_isActive || _dwellDetector == null) return;
+
+        _dwellDetector.ResetAllState();
+        _gracePeriodActive = false;
+        _manualSelectionStartTimestamp = 0;
+
+        DispatchSafe(() => _messenger.Send(new ResetManualSelectionIndicatorMessage()), "recapture-reset");
     }
 
     private void OnGazeMoved(GazeCursorMovedMessage message)

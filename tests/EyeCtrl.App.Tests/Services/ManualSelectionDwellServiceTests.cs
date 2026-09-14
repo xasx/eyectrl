@@ -293,6 +293,59 @@ public class ManualSelectionDwellServiceTests
     }
 
     [Fact]
+    public void Recapture_ResetsGraceAndDwellProgress_ButKeepsTheSessionAlive()
+    {
+        // Arrange
+        var startMessage = new StartManualSelectionMessage(
+            new PhysicalPoint(500, 500),
+            200,
+            2.0,
+            new PhysicalPoint(500, 500));
+        _messenger.Send(startMessage);
+        _interactionManager.OnFixationStarted(startMessage.GazePoint);
+        _interactionManager.OnActivationButtonDwelled();
+
+        ManualSelectionDwellCompletedMessage? completionMessage = null;
+        _messenger.Register<ManualSelectionDwellCompletedMessage>(this, (r, m) => completionMessage = m);
+
+        var dwellPoint = new PhysicalPoint(510, 510);
+        long ts = 0;
+        const long stepUs = 33_333;
+
+        void Feed(int samples)
+        {
+            for (int i = 0; i < samples; i++)
+            {
+                ts += stepUs;
+                _messenger.Send(new GazeCursorMovedMessage(dwellPoint, ts));
+            }
+        }
+
+        // Cross the 300ms grace period and build real progress toward the 800ms dwell — about
+        // 667ms elapsed in total, comfortably under the ~1100ms (grace + dwell) it would take an
+        // uninterrupted dwell to complete.
+        Feed(20);
+        Check.That(completionMessage).IsNull();
+
+        // Act — recapture: grace and dwell progress must both restart from here.
+        _messenger.Send(new ManualSelectionRecaptureMessage());
+
+        // Assert — feed enough MORE samples that total elapsed since the ORIGINAL start now
+        // exceeds the ~1100ms an uninterrupted dwell would need (667ms + 533ms ≈ 1200ms), while
+        // elapsed since the RECAPTURE stays well short of a fresh 1100ms cycle. Completing here
+        // would mean the pre-recapture progress silently survived the reset.
+        Feed(16);
+        Check.That(completionMessage).IsNull();
+
+        // Assert — a full fresh grace+dwell cycle from the recapture must still be able to
+        // complete: the reset must not have torn down or otherwise disabled the session.
+        Feed(20);
+        Check.That(completionMessage).IsNotNull();
+
+        _messenger.Unregister<ManualSelectionDwellCompletedMessage>(this);
+    }
+
+    [Fact]
     public void OnManualSelectionEnded_CleansUpResources()
     {
         // Arrange

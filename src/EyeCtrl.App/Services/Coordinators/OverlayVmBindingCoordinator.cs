@@ -176,6 +176,14 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
         {
             ManualSelectionOverlay.UpdateCenter(Context.ManualSelectionVM.Center, Context.ManualSelectionVM.Radius, Context.ManualSelectionVM.Magnification);
         }
+        else if (e.PropertyName == nameof(ManualSelectionOverlayViewModel.RecaptureVersion) && Context.ManualSelectionVM.IsVisible)
+        {
+            // Same call as a Center change, but keyed off the version counter instead of Center's
+            // own equality check: a recapture must refresh the screenshot even when Center/Radius/
+            // Magnification are all unchanged from the last capture (the normal case — the view
+            // stays put; only the content underneath is refreshed).
+            ManualSelectionOverlay.UpdateCenter(Context.ManualSelectionVM.Center, Context.ManualSelectionVM.Radius, Context.ManualSelectionVM.Magnification);
+        }
         else if (e.PropertyName == nameof(ManualSelectionOverlayViewModel.IsVisible))
         {
             if (Context.ManualSelectionVM.IsVisible)

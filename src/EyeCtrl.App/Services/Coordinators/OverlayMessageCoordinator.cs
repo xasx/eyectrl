@@ -262,12 +262,18 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
     }
 
     /// <summary>
-    /// Pool thread (global hatch): ESC pressed anywhere in the system leaves manual selection —
-    /// the only way out of it that does not consume the user's gaze. Marshaled to the UI thread
-    /// BEFORE the state read and the exit call: the hatch fires on its own hook thread, and both
-    /// exit paths raise events whose handlers touch overlay windows (the drag/repeat hatch
-    /// handlers' pattern). The state guard lives INSIDE the dispatched action so it decides from
-    /// the state at execution time, not at key time.
+    /// Pool thread (global hatch): ESC pressed anywhere in the system leaves manual selection, the
+    /// action menu, or gaze-driven scroll mode — the only way out of any of them that does not
+    /// consume the user's gaze. Marshaled to the UI thread BEFORE the state read and the exit
+    /// call: the hatch fires on its own hook thread, and every exit path raises events whose
+    /// handlers touch overlay windows (the drag/repeat hatch handlers' pattern). The state guard
+    /// lives INSIDE the dispatched action so it decides from the state at execution time, not at
+    /// key time.
+    ///
+    /// Dragging and RepeatMode are deliberately NOT handled here: <see cref="DragCoordinator"/>
+    /// and <see cref="RepeatModeController"/> already subscribe to
+    /// <c>EscapeHatch.EscapePressed</c> directly and guard on their own state, so adding branches
+    /// for them here would double-handle the same key press.
     /// </summary>
     private void OnEscapePressed()
     {
@@ -280,13 +286,23 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
             {
                 im.OnManualSelectionBack();
             }
-            else if (im.CurrentState == InteractionState.ManualSelectionActionMenuVisible)
+            else if (im.CurrentState is InteractionState.ManualSelectionActionMenuVisible
+                                      or InteractionState.ActionMenuVisible)
             {
                 // Deliberately the full exit, not the menu's Back step: stepping back would leave
                 // the user inside the modal magnifier, so ESC would have interrupted only halfway.
                 // OnActionMenuDismissed is the state machine's own "way out from either state"
-                // (the right-edge Close path) and tears the magnifier down too.
+                // (the right-edge Close path) and tears the magnifier down too. Widened from
+                // ManualSelectionActionMenuVisible alone to also cover the plain action menu:
+                // OnActionMenuDismissed already guards both states internally, and ESC dismissing
+                // the plain menu is the same "way out" story as the manual one.
                 im.OnActionMenuDismissed();
+            }
+            else if (im.CurrentState == InteractionState.ScrollMode)
+            {
+                // Gaze-driven scrolling: a caregiver cannot stop it without the user's gaze,
+                // exactly the argument the two branches above are built on.
+                im.ExitScrollMode();
             }
         });
     }

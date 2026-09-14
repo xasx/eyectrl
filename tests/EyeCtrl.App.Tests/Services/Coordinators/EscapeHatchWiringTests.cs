@@ -156,6 +156,124 @@ public class EscapeHatchWiringTests
         Check.That(im.CurrentState).IsEqualTo(InteractionState.FreeLook);
     }
 
+    // ── Scroll mode (ticket: ESC exits scroll mode — the sharper gap, per the ticket, since
+    // gaze-driven scrolling is something a caregiver otherwise cannot stop at all) ──
+
+    [StaFact]
+    public void ScrollMode_EscapeWhileActive_ExitsToFreeLook()
+    {
+        var dispatcher = Dispatcher.CurrentDispatcher;
+        var im = new InteractionManager();
+        var hatch = new TestFakes.FakeEscapeHatch();
+        using var coordinator = NewOverlayMessageCoordinator();
+        coordinator.Initialize(MakeManualSelectionContext(dispatcher, im, hatch));
+
+        im.OnFixationStarted(new PhysicalPoint(100, 100));
+        im.OnActivationButtonDwelled();
+        im.OnActionSelected(InteractionAction.ScrollMode);
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.ScrollMode);
+
+        hatch.Press();
+        Pump(dispatcher);
+
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.FreeLook);
+        Check.That(im.ScrollAnchor).IsNull();
+    }
+
+    [StaFact]
+    public void ScrollMode_EscapeOutsideTheMode_ExitsNothing()
+    {
+        // Also stands in for a general "ESC does not overreach" guard: Fixation is a state none
+        // of OnEscapePressed's branches should touch, so a regression that widened any one of
+        // them (e.g. an unconditional else) would flip this from Fixation.
+        var dispatcher = Dispatcher.CurrentDispatcher;
+        var im = new InteractionManager();
+        var hatch = new TestFakes.FakeEscapeHatch();
+        using var coordinator = NewOverlayMessageCoordinator();
+        coordinator.Initialize(MakeManualSelectionContext(dispatcher, im, hatch));
+
+        im.OnFixationStarted(new PhysicalPoint(100, 100));
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.Fixation);
+
+        hatch.Press();
+        Pump(dispatcher);
+
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.Fixation);
+    }
+
+    // ── Plain action menu (ticket: ESC should also dismiss the non-manual action menu — the
+    // existing else-if widened to cover ActionMenuVisible, since OnActionMenuDismissed already
+    // guards both states internally) ──
+
+    [StaFact]
+    public void ActionMenu_EscapeWhileVisible_DismissesToFreeLook()
+    {
+        var dispatcher = Dispatcher.CurrentDispatcher;
+        var im = new InteractionManager();
+        var hatch = new TestFakes.FakeEscapeHatch();
+        using var coordinator = NewOverlayMessageCoordinator();
+        coordinator.Initialize(MakeManualSelectionContext(dispatcher, im, hatch));
+
+        im.OnFixationStarted(new PhysicalPoint(100, 100));
+        im.OnActivationButtonDwelled();
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.ActionMenuVisible);
+
+        hatch.Press();
+        Pump(dispatcher);
+
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.FreeLook);
+    }
+
+    // ── Dragging / RepeatMode (ticket: decide whether ESC should reach them here too) ──
+    //
+    // Decision: NO. DragCoordinator and RepeatModeController already subscribe to
+    // EscapeHatch.EscapePressed directly (see the Drag_*/Repeat_* tests above) and guard on their
+    // own state, so a branch here would double-handle the same key press. These two guard tests
+    // pin that decision from OverlayMessageCoordinator's side: pressing ESC while Dragging or
+    // RepeatMode, with ONLY OverlayMessageCoordinator subscribed (no DragCoordinator/
+    // RepeatModeController in the picture), must leave the state untouched — a regression that
+    // widened OnEscapePressed's condition to also catch these states would strand the user, since
+    // OnManualSelectionBack/OnActionMenuDismissed/ExitScrollMode all no-op outside their own
+    // states and would not actually end either mode.
+
+    [StaFact]
+    public void Dragging_EscapeViaOverlayMessageCoordinator_LeavesDraggingUntouched()
+    {
+        var dispatcher = Dispatcher.CurrentDispatcher;
+        var im = new InteractionManager();
+        var hatch = new TestFakes.FakeEscapeHatch();
+        using var coordinator = NewOverlayMessageCoordinator();
+        coordinator.Initialize(MakeManualSelectionContext(dispatcher, im, hatch));
+
+        im.OnFixationStarted(new PhysicalPoint(100, 100));
+        im.OnActivationButtonDwelled();
+        im.OnActionSelected(InteractionAction.Drag);
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.Dragging);
+
+        hatch.Press();
+        Pump(dispatcher);
+
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.Dragging);
+    }
+
+    [StaFact]
+    public void RepeatMode_EscapeViaOverlayMessageCoordinator_LeavesRepeatModeUntouched()
+    {
+        var dispatcher = Dispatcher.CurrentDispatcher;
+        var im = new InteractionManager();
+        var hatch = new TestFakes.FakeEscapeHatch();
+        using var coordinator = NewOverlayMessageCoordinator();
+        coordinator.Initialize(MakeManualSelectionContext(dispatcher, im, hatch));
+
+        im.EnterRepeatMode(InteractionAction.LeftClick);
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.RepeatMode);
+
+        hatch.Press();
+        Pump(dispatcher);
+
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.RepeatMode);
+    }
+
     private static OverlayMessageCoordinator NewOverlayMessageCoordinator()
     {
         var modal = new ModalInteractionState();

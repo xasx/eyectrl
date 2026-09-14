@@ -95,7 +95,20 @@ public sealed class ProcessController
         // runs after this synchronous block) would otherwise double-count. KillInitiated covers that.
         KillInitiated = true;
         if (_process is { HasExited: false })
-            _process.Kill(entireProcessTree: true);
+        {
+            try
+            {
+                _process.Kill(entireProcessTree: true);
+            }
+            catch (Exception ex)
+            {
+                // The kill can throw (the process raced natural exit between the HasExited check
+                // and Kill, or access was denied). ForceKill runs on the supervisor's dispatcher,
+                // which has no other handler — the WATCHDOG would die exactly when it is supposed
+                // to be recovering the app. The late Process.Exited feeds ProcessExited either way.
+                Serilog.Log.Error(ex, "ForceKill: Process.Kill threw (raced natural exit or access denied).");
+            }
+        }
     }
 
     /// <summary>Disposes the previously-bound handle before a relaunch/adopt.</summary>

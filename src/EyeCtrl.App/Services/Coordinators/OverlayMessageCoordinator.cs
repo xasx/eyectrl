@@ -10,11 +10,12 @@ using Serilog;
 
 /// <summary>
 /// Owns the message-driven half of <see cref="EventCoordinator"/>'s overlay surface: the
-/// ManualSelection/action-menu/backdrop-dismiss/calibration message registrations. Extracted from
-/// the former <c>OverlayBindingCoordinator</c> as part of the sub-coordinator decomposition
-/// (cluster 1), split along the stimulus axis in T10 — the property-change-driven half lives in
-/// <see cref="OverlayVmBindingCoordinator"/>. Reaches back into that sibling for the one cross-side
-/// seam (<c>_vmBinding.HideBackdrop()</c>) since the backdrop window is owned there.
+/// ManualSelection/action-menu/backdrop-dismiss/calibration message registrations, plus the
+/// global ESC-hatch subscription that leaves manual selection (the one fully modal view).
+/// Extracted from the former <c>OverlayBindingCoordinator</c> as part of the sub-coordinator
+/// decomposition (cluster 1), split along the stimulus axis in T10 — the property-change-driven
+/// half lives in <see cref="OverlayVmBindingCoordinator"/>. Reaches back into that sibling for the
+/// one cross-side seam (<c>_vmBinding.HideBackdrop()</c>) since the backdrop window is owned there.
 /// </summary>
 internal sealed class OverlayMessageCoordinator : CoordinatorBase
 {
@@ -39,6 +40,11 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
     protected override void OnInitialize()
     {
         SetupMessageHandlers();
+
+        // The global ESC hatch. Manual selection is the one fully modal view, so the caregiver's
+        // gaze-independent interrupt has to reach it — the hatch sees keystrokes system-wide,
+        // even while a third-party app holds the foreground.
+        Context!.EscapeHatch.EscapePressed += OnEscapePressed;
     }
 
     private void SetupMessageHandlers()
@@ -255,4 +261,39 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
             }));
     }
 
+    /// <summary>
+    /// Pool thread (global hatch): ESC pressed anywhere in the system leaves manual selection —
+    /// the only way out of it that does not consume the user's gaze. Marshaled to the UI thread
+    /// BEFORE the state read and the exit call: the hatch fires on its own hook thread, and both
+    /// exit paths raise events whose handlers touch overlay windows (the drag/repeat hatch
+    /// handlers' pattern). The state guard lives INSIDE the dispatched action so it decides from
+    /// the state at execution time, not at key time.
+    /// </summary>
+    private void OnEscapePressed()
+    {
+        var context = Context;
+        if (context is null) return;
+        context.Dispatcher.BeginInvoke(() =>
+        {
+            var im = context.InteractionManager;
+            if (im.CurrentState == InteractionState.ManualSelectionActive)
+            {
+                im.OnManualSelectionBack();
+            }
+            else if (im.CurrentState == InteractionState.ManualSelectionActionMenuVisible)
+            {
+                // Deliberately the full exit, not the menu's Back step: stepping back would leave
+                // the user inside the modal magnifier, so ESC would have interrupted only halfway.
+                // OnActionMenuDismissed is the state machine's own "way out from either state"
+                // (the right-edge Close path) and tears the magnifier down too.
+                im.OnActionMenuDismissed();
+            }
+        });
+    }
+
+    protected override void OnDispose()
+    {
+        if (Context is null) return;
+        Context.EscapeHatch.EscapePressed -= OnEscapePressed;
+    }
 }

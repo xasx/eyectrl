@@ -50,7 +50,7 @@ public class GazeEngineSampleFaultContainmentTests
             provider.SimulateGaze(new GazePoint(100, 200, 1_000_000 + i, IsValid: true));
 
         Check.That(logger.Faults).HasSize(2);
-        Check.That(logger.Faults[1].Message).Contains("consecutive samples");
+        Check.That(logger.Faults[1].Message).Contains("rejecting every sample");
     }
 
     private static EyeCtrlSettings NewDirectSettings()

@@ -538,9 +538,12 @@ public class GazeEngine : IDisposable
             if (_consecutiveSampleFaults >= SustainedSampleFaultThreshold && !_sustainedSampleFaultEpisodeLogged)
             {
                 _sustainedSampleFaultEpisodeLogged = true;
+                // Constant, per HandlerFaultReporter's contract: the context string doubles as
+                // the rate-limit key, so a per-episode interpolation would mint an unbounded
+                // dictionary entry set (one per distinct count). The threshold itself carries
+                // the magnitude; the exception carries the cause.
                 _faults.Report(
-                    $"gaze pipeline rejected {_consecutiveSampleFaults} consecutive samples — " +
-                    "cursor output is dead while the process stays alive", ex);
+                    "gaze pipeline rejecting every sample — cursor output is dead while the process stays alive", ex);
             }
         }
     }

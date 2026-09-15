@@ -4,5 +4,17 @@
         xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
         WindowStyle="None" AllowsTransparency="False" Background="Transparent"
         Topmost="True" ShowInTaskbar="False">
-    <Canvas x:Name="BackdropCanvas" IsHitTestVisible="False"/>
+    <Grid>
+        <Canvas x:Name="BackdropCanvas" IsHitTestVisible="False"/>
+
+        <!-- Escape hint: mirrors CalibrationWindow's CancelHint (placement, wording, styling), so a
+             caregiver who does not recognise the dwell-driven Close button still finds a way out
+             that does not need the user's gaze. Collapsed by default; ShowEscapeHint/HideEscapeHint
+             toggle it. This window already excludes itself from screen capture (ExcludeFromScreenCapture
+             below), so the hint never gets baked into the manual-selection magnifier's captured image. -->
+        <TextBlock x:Name="EscapeHint" Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}"
+                   HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                   Margin="0,0,20,20" Visibility="Collapsed" IsHitTestVisible="False"
+                   Text="Press Esc to exit"/>
+    </Grid>
 </overlays:OverlayWindow>

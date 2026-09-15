@@ -131,12 +131,12 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
                 Canvas.SetTop(previewEllipse, captureCanvasCenter.Y - captureCircleSize / 2);
                 MenuCanvas.Children.Insert(0, previewEllipse); // Insert at back so buttons stay on top
             }
-            catch (TaskCanceledException) { }
             catch
             {
-                // GDI+ capture/preview construction can fail transiently (secure desktop, session
-                // lock, RDP transition). Catching here also fully observes the async lambda's
-                // task — any other escape would fault it unobserved.
+                // Cancellation (window re-shown, token superseded) and GDI+ capture/preview
+                // failures (secure desktop, session lock, RDP transition) alike: no preview
+                // this time, the menu itself is unaffected. Catching here also fully observes
+                // the async lambda's task — any other escape would fault it unobserved.
             }
         });
 

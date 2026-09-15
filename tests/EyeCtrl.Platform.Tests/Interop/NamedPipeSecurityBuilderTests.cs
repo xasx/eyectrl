@@ -38,4 +38,28 @@ public class NamedPipeSecurityBuilderTests
 
         Check.That(allRules).HasSize(1);
     }
+
+    // The accept loop creates the pipe's SECOND instance after the first client connects (and a
+    // reconnect needs another). Creating a subsequent instance requires FILE_CREATE_PIPE_INSTANCE
+    // on the first instance's own DACL: a ReadWrite-only rule DENIES it (verified empirically in
+    // the branch review), permanently killing the channel after one connection — latent in the
+    // supervisor's heartbeat pipe for as long as only one connection per launch ever happened.
+    // This test pins the FullControl rule by BEHAVIOUR: both instances must construct.
+    [Fact]
+    public void BuildCurrentUserOnly_AllowsCreatingASecondPipeInstance()
+    {
+        var pipeName = "eyectrl_acl_test_" + Guid.NewGuid().ToString("N");
+        var security = new NamedPipeSecurityBuilder().BuildCurrentUserOnly();
+
+        using var first = NamedPipeServerStreamAcl.Create(
+            pipeName, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances,
+            PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 0, 0, security);
+
+        using var second = NamedPipeServerStreamAcl.Create(
+            pipeName, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances,
+            PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 0, 0, security);
+
+        Check.That(first.IsConnected).IsFalse();
+        Check.That(second.IsConnected).IsFalse();
+    }
 }

@@ -96,4 +96,50 @@ public class NewlineJsonPipeServerTests
         Check.That(received).HasSize(1);
         Check.That(received[0]).IsEqualTo("12345678");
     }
+
+    // Terminator semantics DELIBERATELY diverge from StreamReader.ReadLineAsync in one case: a
+    // lone '\r' is CONTENT here (ReadLine treats it as a terminator), and the first CR of a
+    // "\r\n" pair is never counted against the cap. Raw CRs are illegal inside JSON strings, so
+    // no shipped message is affected; the choice is what lets a "\r\r\r…" stream keep growing
+    // the line (below) instead of being swallowed forever.
+    [Fact]
+    public async Task LoneCarriageReturn_IsContent_NotATerminator()
+    {
+        var pipeName = PipeName();
+        var received = new List<string>();
+        using var server = NewServer(pipeName, received, maxLineLength: 8);
+        server.Start();
+
+        await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client.ConnectAsync(2000);
+        await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        await w.WriteAsync("a\r\rb\n");
+
+        for (var i = 0; i < 20 && received.Count == 0; i++)
+            await Task.Delay(50);
+
+        Check.That(received).HasSize(1);
+        Check.That(received[0]).IsEqualTo("a\r\rb"); // both lone CRs are content; '\n' ends the line
+    }
+
+    // An endless "\r\r\r…" stream used to be swallowed one CR at a time without growing the
+    // line: the cap never tripped and the connection was held open indefinitely. Consecutive
+    // CRs now append, so the stream trips the cap and only that connection is dropped.
+    [Fact]
+    public async Task EndlessCarriageReturnStream_TripsTheCap_AndDropsTheConnection()
+    {
+        var pipeName = PipeName();
+        var received = new List<string>();
+        using var closed = new AutoResetEvent(false);
+        using var server = NewServer(pipeName, received, closed: closed, maxLineLength: 8);
+        server.Start();
+
+        await using var bad = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await bad.ConnectAsync(2000);
+        await using var w = new StreamWriter(bad, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        await w.WriteAsync(new string('\r', 40));
+
+        Check.That(closed.WaitOne(2000)).IsTrue();
+        Check.That(received).IsEmpty();
+    }
 }

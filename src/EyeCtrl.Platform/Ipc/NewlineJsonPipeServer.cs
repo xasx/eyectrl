@@ -247,7 +247,17 @@ public sealed class NewlineJsonPipeServer<TState> : IDisposable
                     }
                     if (ch == '\r')
                     {
-                        // '\r' may be the first half of a "\r\n" terminator; decide on the next char.
+                        // A '\r' may be the first half of a "\r\n" terminator; decide on the next
+                        // char. A SECOND consecutive '\r' is content, not a collapsed terminator
+                        // (matches StreamReader only for the first CR — see the class doc): it is
+                        // appended, which also means an endless "\r\r\r…" stream keeps growing the
+                        // line and trips the cap instead of holding the connection open forever.
+                        if (_pendingCr)
+                        {
+                            _line.Append('\r');
+                            if (_line.Length > maxLineLength)
+                                throw new LineTooLongException();
+                        }
                         _pendingCr = true;
                         continue;
                     }

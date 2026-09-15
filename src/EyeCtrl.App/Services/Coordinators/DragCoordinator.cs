@@ -44,8 +44,15 @@ internal sealed class DragCoordinator : CoordinatorBase
     /// been reset or be mid-transition, and a release that consults it would then skip the release
     /// precisely when it matters. What must be undone is the SendInput call, so the flag tracks the
     /// SendInput call.
+    /// <para>
+    /// An int (0/1) consumed with <see cref="Interlocked"/>, not a bool: the fatal-exit release
+    /// runs on the FAULTING thread (AppDomain.UnhandledException can fire on any thread), so a
+    /// plain check-then-act could double-send MouseUp against a simultaneous legitimate release —
+    /// or, with no memory barrier, never observe the press at all. Exchange makes the release
+    /// exactly-once across every path, cross-thread.
+    /// </para>
     /// </summary>
-    private bool _buttonHeld;
+    private int _osButtonHeld;
     protected override void OnInitialize()
     {
         var context = Context!;
@@ -94,7 +101,7 @@ internal sealed class DragCoordinator : CoordinatorBase
 
         _dragGrabOrigin = grabOrigin;
         Context.InputSimulator.MouseDown(grabOrigin);
-        _buttonHeld = true;
+        Volatile.Write(ref _osButtonHeld, 1);
 
         // Everything from here to the cancel button being on screen is the window in which the
         // button is down and the user has no way to let go of it. A throw in it used to escape
@@ -155,9 +162,22 @@ internal sealed class DragCoordinator : CoordinatorBase
     /// </summary>
     private void ReleaseHeldButton(PhysicalPoint at)
     {
-        if (!_buttonHeld || Context is null) return;
-        Context.InputSimulator.MouseUp(at);
-        _buttonHeld = false;
+        if (Context is null) return;
+        // Claim with Exchange (not read-then-write): exactly one caller across ALL paths —
+        // dispatcher, dispose, and the cross-thread fatal-exit release — sends the MouseUp.
+        if (Interlocked.Exchange(ref _osButtonHeld, 0) == 0) return;
+        try
+        {
+            Context.InputSimulator.MouseUp(at);
+        }
+        catch
+        {
+            // A FAILED send leaves the release outstanding, not done: restore the claim so the
+            // next release path (OnDispose is the retry) still fires — the guarantee the
+            // dispose/cancel/drop ordering tests pin.
+            Volatile.Write(ref _osButtonHeld, 1);
+            throw;
+        }
     }
 
     /// <summary>
@@ -165,8 +185,9 @@ internal sealed class DragCoordinator : CoordinatorBase
     /// button and NOTHING else — no overlay work, no interaction-state transitions, either of
     /// which may be mid-tear when the process is dying. A SendInput button-down is OS-global
     /// state that outlives the process: dying with the button held leaves the successor in
-    /// FreeLook, where the user's gaze becomes a drag they cannot stop. Callable from any
-    /// thread (a single Win32 send); idempotent via <see cref="_buttonHeld"/>.
+    /// FreeLook, where the user's gaze becomes a drag they cannot stop. Safe from any thread
+    /// (AppDomain.UnhandledException fires on the faulting thread): the Interlocked flag makes
+    /// the release exactly-once against every other release path.
     /// </summary>
     internal void ReleaseHeldButtonForFatalExit() => ReleaseHeldButton(_dragGrabOrigin);
 

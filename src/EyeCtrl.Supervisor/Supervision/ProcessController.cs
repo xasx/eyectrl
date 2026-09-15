@@ -105,7 +105,10 @@ public sealed class ProcessController
                 // The kill can throw (the process raced natural exit between the HasExited check
                 // and Kill, or access was denied). ForceKill runs on the supervisor's dispatcher,
                 // which has no other handler — the WATCHDOG would die exactly when it is supposed
-                // to be recovering the app. The late Process.Exited feeds ProcessExited either way.
+                // to be recovering the app. Raced natural exit still feeds ProcessExited via the
+                // late Process.Exited; ACCESS-DENIED does not (no Exited will arrive, and
+                // KillInitiated stays set until the next Launch/Adopt clears it, suppressing the
+                // next strike) — unreachable for a same-user child in practice.
                 Serilog.Log.Error(ex, "ForceKill: Process.Kill threw (raced natural exit or access denied).");
             }
         }

@@ -91,18 +91,21 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
         Context.Messenger.Register<OverlayMessageCoordinator, ManualSelectionCloseMessage>(this, (_, _) =>
             Context.Dispatcher.BeginInvoke(() => im.OnManualSelectionBack()));
 
-        // ManualSelectionRecaptureMessage -> re-capture at same fixation point
+        // ManualSelectionRecaptureMessage -> re-capture at the existing view geometry. Deliberately
+        // does NOT resend StartManualSelectionMessage: that re-derives Center from FixationPoint,
+        // which teleports the magnifier away from wherever ViewPosition placed it and bypasses
+        // ManualSelectionLayoutHelper.CalculateDisplayPoint. RequestRecapture bumps a version
+        // counter instead (the RingVersion idiom), so OverlayVmBindingCoordinator refreshes the
+        // screenshot in place even though Center/Radius/Magnification never change here. Also no
+        // longer calls HideBackdrop(): the backdrop window already excludes itself from capture
+        // (GlassBackdropWindow.xaml.cs), so hiding it was never load-bearing — only cost the user
+        // one of their three exits from the modal view.
         Context.Messenger.Register<OverlayMessageCoordinator, ManualSelectionRecaptureMessage>(this, (_, _) =>
             Context.Dispatcher.BeginInvoke(() =>
             {
-                if (im.CurrentState == InteractionState.ManualSelectionActive && im.FixationPoint != null)
+                if (im.CurrentState == InteractionState.ManualSelectionActive)
                 {
-                    _vmBinding.HideBackdrop();
-                    Context.Messenger.Send(new StartManualSelectionMessage(
-                        im.FixationPoint.Value,
-                        Context.Settings.ManualSelection.CircleRadiusPixels,
-                        Context.Settings.ManualSelection.MagnificationLevel,
-                        im.FixationPoint.Value));
+                    Context.ManualSelectionVM.RequestRecapture();
                 }
             }));
 

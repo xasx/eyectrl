@@ -297,6 +297,88 @@ public class ManualSelectionDwellServiceTests
         _messenger.Unregister<ManualSelectionDwellCompletedMessage>(this);
     }
 
+    /// <summary>
+    /// The post-merge defect found when this ticket's fix met ticket 4's commit-rule state
+    /// (anchor, held samples, running commit centroid — none of which existed when this test was
+    /// first written): a recapture must not let a commit centroid seeded before the recapture
+    /// survive into the commit that fires after it, and the stale anchor mark must be released
+    /// rather than left pointing at content that no longer exists.
+    /// <para>
+    /// D is deliberately chosen INSIDE the stale anchor's 72 px hold radius, not outside it. A
+    /// point outside the stale hold radius would trip the pre-existing "sustained out-of-hold"
+    /// self-heal (<see cref="ResetDwell"/> via <c>HoldOutlierSkipLimit</c>) after a few samples
+    /// regardless of whether recapture itself clears anything — passing even with
+    /// <c>ClearCommitState()</c> removed from <c>OnRecapture</c>, which defeats the point of this
+    /// test. Staying inside the stale hold radius means a leaked anchor is never challenged by that
+    /// other mechanism, so only OnRecapture's own reset can be what clears it.
+    /// </para>
+    /// Uses the StartSession/SendGaze helpers and 50 ms sample spacing the targeting probes below
+    /// already establish.
+    /// </summary>
+    [Fact]
+    public void Recapture_DoesNotLetAPreRecaptureCommitCentroidSurviveIntoTheNextCommit()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+
+        ManualSelectionDwellCompletedMessage? completed = null;
+        _messenger.Register<ManualSelectionDwellCompletedMessage>(this, (r, m) => completed = m);
+
+        var anchorReleased = false;
+        _messenger.Register<ManualSelectionAnchorChangedMessage>(this, (r, m) =>
+        {
+            if (m.Anchor is null) anchorReleased = true;
+        });
+
+        // Seat an anchor at A=(500,500): six samples inside the 300ms grace, then five more that
+        // seat it (mirrors OnGazeMoved_StabilityOnset_SeatsAnchorAtClusterCentroid).
+        var anchorPoint = new PhysicalPoint(500, 500);
+        SendGazeRun(anchorPoint, FirstPostGraceSampleIndex);
+        for (var i = FirstPostGraceSampleIndex; i < FirstPostGraceSampleIndex + 5; i++)
+            SendGaze(anchorPoint, i);
+
+        // Pull the commit centroid toward B=(540,500) — inside the 72 px hold radius, so these
+        // samples accumulate into the running commit average rather than resetting the dwell.
+        // 5 samples * 50ms = 250ms of dwell elapsed, comfortably under the 800ms requirement, so
+        // this must not have completed yet.
+        var driftPoint = new PhysicalPoint(540, 500);
+        var nextIndex = FirstPostGraceSampleIndex + 5;
+        for (var i = nextIndex; i < nextIndex + 5; i++)
+            SendGaze(driftPoint, i);
+        nextIndex += 5;
+
+        Check.WithCustomMessage("Test setup must not have already completed before the recapture.")
+            .That(completed).IsNull();
+
+        // Act — recapture: the anchor and its commit centroid (seeded near A/B) must not survive.
+        _messenger.Send(new ManualSelectionRecaptureMessage());
+
+        Check.WithCustomMessage(
+                "The stale anchor mark must be released on recapture, not left pointing at content "
+                + "that no longer exists.")
+            .That(anchorReleased).IsTrue();
+
+        // Feed a fresh point D — 40 px from the STALE anchor A, inside its 72 px hold radius — until
+        // a fresh grace + stability-onset + dwell cycle completes. If the anchor/commit state had
+        // not been cleared, D would read as "still within the old hold" and accumulate onto the
+        // stale A/B sum rather than seating and committing fresh.
+        var freshPoint = new PhysicalPoint(500, 540);
+        for (var i = nextIndex; i < nextIndex + 80 && completed is null; i++)
+            SendGaze(freshPoint, i);
+
+        Check.WithCustomMessage("A full fresh cycle after the recapture must still be able to complete.")
+            .That(completed).IsNotNull();
+
+        // The commit must be seeded ONLY from post-recapture samples at D — not blended with the
+        // A/B centroid the pre-recapture drift built up (a stale, un-cleared _commitSumX/Y would
+        // pull this off (500, 540) by several pixels, since D falls inside the stale hold radius and
+        // would silently accumulate onto it instead of starting fresh).
+        Check.That(completed!.PrecisePoint.X).IsCloseTo(500, 0.01);
+        Check.That(completed!.PrecisePoint.Y).IsCloseTo(540, 0.01);
+
+        _messenger.Unregister<ManualSelectionDwellCompletedMessage>(this);
+        _messenger.Unregister<ManualSelectionAnchorChangedMessage>(this);
+    }
+
     [Fact]
     public void OnManualSelectionEnded_CleansUpResources()
     {

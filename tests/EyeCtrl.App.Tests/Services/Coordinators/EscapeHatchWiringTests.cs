@@ -206,6 +206,7 @@ public class EscapeHatchWiringTests
         public void UpdateOuterDiameter(double diameter) { }
         public void AnimateReset(double targetDiameter, int durationMs) { }
         public void RaiseToTop() { }
+        public void UpdateAnchor(double screenX, double screenY, bool visible) { }
     }
 
     /// <summary>Drains the dispatcher queue: run everything queued at/above Background priority.</summary>

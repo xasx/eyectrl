@@ -115,7 +115,7 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
                 // toolbar and settings routes above are geometry-only (target placement) and are fed
                 // regardless. Paused samples are skipped for the same reason: input must not leave
                 // EyeCtrl while the user believes pause released it.
-                if (!keyboardGated && _modal.KeyboardVisible && keyboard.IsVisible && !frame.IsInGap)
+                if (ShouldFeedKeyboardSample(keyboardGated, _modal.KeyboardVisible, keyboard.IsVisible, frame.IsInGap))
                     keyboard.UpdateGaze(point, timestamp);
 
                 // Route the sample to the settings window iff it is open (the visibility check lives
@@ -126,6 +126,15 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
 
         Context.GazeEngine.CursorMoved += _gazeMovedHandler;
     }
+
+    /// <summary>
+    /// The keyboard-feed gate, extracted so it is unit-testable headlessly: the keyboard is OS text
+    /// injection, so it must be fed only when unpaused AND the modal state says the keyboard is open
+    /// AND the window is visible AND the sample is a real measurement (not gap-held). Review found
+    /// the inline version had zero test coverage — neutralizing it broke no test.
+    /// </summary>
+    internal static bool ShouldFeedKeyboardSample(bool paused, bool modalKeyboardVisible, bool keyboardIsVisible, bool isInGap) =>
+        !paused && modalKeyboardVisible && keyboardIsVisible && !isInGap;
 
     /// <summary>Suspend/resume the auto-hide dwell (called by Keyboard/Settings coordinators when a
     /// modal opens). Wraps <see cref="ToolbarAutoHideController.SetSuspended"/>.</summary>

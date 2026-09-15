@@ -198,6 +198,10 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     public void SimulateTargetProgress(string buttonId, double progress)
         => OnTargetProgress(buttonId, progress);
 
+    // Deliberately dwellable while paused (DwellOverlayViewModelBase.DwellActiveWhilePaused):
+    // the toolbar band is the gaze-reachable unpause affordance (pause deliberately does not gate toolbar dwell).
+    protected override bool DwellActiveWhilePaused => true;
+
     protected override void OnTargetActivated(string targetId)
     {
         if (_buttonLookup.TryGetValue(targetId, out var btn))

@@ -84,6 +84,10 @@ public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
         ButtonSetChanged?.Invoke();
     }
 
+    // Deliberately dwellable while paused (DwellOverlayViewModelBase.DwellActiveWhilePaused):
+    // the edge bar's buttons are release affordances (e.g. drag cancel) — they must stay dwellable in any state that could strand the user.
+    protected override bool DwellActiveWhilePaused => true;
+
     protected override void OnTargetActivated(string targetId)
     {
         if (_definitions.TryGetValue(targetId, out var def))

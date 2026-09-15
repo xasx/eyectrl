@@ -35,6 +35,38 @@ public class ToolbarLifecycleCoordinatorTests
         Check.ThatCode(() => new ToolbarLifecycleCoordinator(null!)).Throws<ArgumentNullException>();
     }
 
+    // The keyboard-feed gate (OS text injection). Review found the inline condition had zero
+    // coverage — neutralizing the pause term broke no test. These pin every term.
+    [Fact]
+    public void ShouldFeedKeyboardSample_IsFalse_WhilePaused()
+    {
+        Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
+            paused: true, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: false)).IsFalse();
+    }
+
+    [Fact]
+    public void ShouldFeedKeyboardSample_IsFalse_WhenModalStateOrWindowClosed()
+    {
+        Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
+            paused: false, modalKeyboardVisible: false, keyboardIsVisible: true, isInGap: false)).IsFalse();
+        Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
+            paused: false, modalKeyboardVisible: true, keyboardIsVisible: false, isInGap: false)).IsFalse();
+    }
+
+    [Fact]
+    public void ShouldFeedKeyboardSample_IsFalse_ForGapHeldSamples()
+    {
+        Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
+            paused: false, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: true)).IsFalse();
+    }
+
+    [Fact]
+    public void ShouldFeedKeyboardSample_IsTrue_OnlyWhenEveryGateIsOpen()
+    {
+        Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
+            paused: false, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: false)).IsTrue();
+    }
+
     [Fact]
     public void SetAutoHideSuspended_ForwardsToTheController()
     {

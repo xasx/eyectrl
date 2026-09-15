@@ -145,6 +145,10 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
             _settings.Dwell.DragReleaseButtonDwellMs));
     }
 
+    // Deliberately dwellable while paused (DwellOverlayViewModelBase.DwellActiveWhilePaused):
+    // the drag trail's release/settle button is the gaze way out of a live drag — a safety release must never go inert.
+    protected override bool DwellActiveWhilePaused => true;
+
     protected override void OnTargetActivated(string targetId)
     {
         if (targetId == ReleaseTargetId)

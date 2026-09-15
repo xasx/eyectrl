@@ -193,7 +193,14 @@ public class GazeEngineAdapter : IDisposable
     {
         try
         {
-            _messenger.Send(new GazeCursorMovedMessage(frame));
+            // IsPaused is read here on the UI thread at delivery time: CurrentState is written on
+            // this thread, so the flag rides the message without a cross-thread read, and the
+            // pause gate in DwellOverlayViewModelBase sees the state as of dispatch, one frame
+            // stale at worst.
+            _messenger.Send(new GazeCursorMovedMessage(frame)
+            {
+                IsPaused = _interactionManager.CurrentState == InteractionState.Paused
+            });
         }
         catch (Exception ex)
         {

@@ -752,6 +752,56 @@ public class ExternalDwellServiceTests
         return (legit, overCap);
     }
 
+    // A client sitting at EXACTLY the cap must still be able to refresh its own targets' rects
+    // (idempotent re-register): a capped refresh would freeze every target at stale geometry
+    // while the connection still looks healthy — dwell silently lands on the wrong rectangles.
+    [Fact]
+    public void ReRegisterAtCap_RefreshesTheExistingTargetsRect()
+    {
+        RunOnStaThread(() =>
+        {
+            var provider = new StubGazeProvider();
+            using var engine = new GazeEngine(provider, new StubInputSimulator(), new EyeCtrlSettings());
+            using var svc = NewService(engine, _ => 7);
+            svc.Start();
+
+            var activated = RegisterToCapThenReregisterAndDwell(provider, _pipeName).GetAwaiter().GetResult();
+
+            Check.That(activated).IsNotNull();               // the refresh was accepted at the cap
+            Check.That(activated).Contains("\"id\":\"t0\""); // and dwell used the NEW rect
+        });
+    }
+
+    // Registers MaxTargetsPerConnection tiles, then re-registers t0 MOVED to a far tile (a
+    // same-connection id the caps must not reject) and dwells the far tile. This dwell is the
+    // test's first, so the gaze filter warm-starts on the target — two samples suffice.
+    private static async Task<string?> RegisterToCapThenReregisterAndDwell(
+        StubGazeProvider provider, string pipeName)
+    {
+        await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client.ConnectAsync(2000);
+        await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        using var r = new StreamReader(client, Encoding.UTF8, false, 1024, leaveOpen: true);
+
+        var batch = new StringBuilder();
+        for (var i = 0; i < ExternalDwellService.MaxTargetsPerConnection; i++)
+            batch.AppendLine(JsonSerializer.Serialize<WireMessage>(
+                new RegisterMessage { Id = $"t{i}", Rect = new SdkRect(i * 100, 0, 100, 100), Hwnd = 7 }, WireJson.Options));
+        await w.WriteAsync(batch);
+        await Task.Delay(500);
+
+        // t0's rect refreshed to a far tile — the register that the cap used to reject.
+        await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+            new RegisterMessage { Id = "t0", Rect = new SdkRect(100000, 0, 100, 100), Hwnd = 7 }, WireJson.Options));
+        await Task.Delay(300);
+
+        provider.Raise(new GazePoint(100050, 50, 0, IsValid: true));
+        provider.Raise(new GazePoint(100050, 50, 900_000, IsValid: true));
+
+        var read = r.ReadLineAsync();
+        return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
+    }
+
     private sealed class StubGazeProvider : IGazeProvider
     {
         public bool IsConnected => true;

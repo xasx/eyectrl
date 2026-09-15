@@ -312,8 +312,13 @@ public sealed class ExternalDwellService : IDisposable
                             "External dwell pipe: rejected register of target {Id} from a client that does not own it", r.Id);
                         break;
                     }
-                    if (conn.TargetIds.Count >= MaxTargetsPerConnection || _targetsById.Count >= MaxTotalTargets)
+                    if (!conn.TargetIds.Contains(r.Id)
+                        && (conn.TargetIds.Count >= MaxTargetsPerConnection || _targetsById.Count >= MaxTotalTargets))
                     {
+                        // A same-connection re-register adds nothing to the tables (idempotent
+                        // rect refresh) and must never be capped: a client at exactly the cap
+                        // could otherwise no longer refresh ANY rect, freezing every target at
+                        // stale geometry while the connection looks healthy.
                         _logger.LogWarning(
                             "External dwell pipe: rejected register of target {Id} over registration cap (connection {ConnCount}/{PerConn}, total {Total}/{MaxTotal})",
                             r.Id, conn.TargetIds.Count, MaxTargetsPerConnection, _targetsById.Count, MaxTotalTargets);

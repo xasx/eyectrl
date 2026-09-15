@@ -25,6 +25,30 @@ public partial class ManualSelectionSettings : ObservableObject, IValidatable
     /// <summary>Duration in milliseconds of the reset animation when the gaze indicator returns to center.</summary>
     [ObservableProperty] private int _gazeIndicatorResetAnimationMs = 100;
 
+    /// <summary>
+    /// Hold tolerance in DIP: how far the gaze may sit from the seated dwell anchor before the
+    /// dwell is abandoned. This is the strictness knob — raise it toward the visible circle's
+    /// logical radius for "always clicks, sometimes off-target", lower it for "clicks where you
+    /// aimed, sometimes refuses". Magnification is deliberately NOT applied: hold tolerance is a
+    /// property of the eye and lives in screen space, so it does not scale with the magnifier.
+    /// Default 72 (the action-menu ring buttons are 70 DIP at the same 600 ms dwell, so this is
+    /// a lower bound on what the user can hold, not a measured sigma).
+    /// </summary>
+    [ObservableProperty] private double _holdRadiusLogical = 72.0;
+
+    /// <summary>Stability samples (K) required inside the onset window before the dwell anchor
+    /// seats. Conservative by design: sigma is unmeasured, so it governs K. Valid range: 2–30.</summary>
+    [ObservableProperty] private int _stabilitySampleCount = 5;
+
+    /// <summary>Size of the sample window (M) scanned for stability onset. Values below
+    /// <see cref="StabilitySampleCount"/> are lifted to it. Valid range: 2–60.</summary>
+    [ObservableProperty] private int _stabilityWindowSize = 7;
+
+    /// <summary>Consecutive out-of-hold samples tolerated (skip-N) before the anchor is dropped
+    /// and the dwell restarts. Absorbs isolated gaze outliers; DwellDetector is timestamp-based,
+    /// so elapsed dwell time survives the skipped samples. Valid range: 0–30.</summary>
+    [ObservableProperty] private int _holdOutlierSkipLimit = 3;
+
     partial void OnCircleRadiusPixelsChanging(int value)
     {
         if (value < 50 || value > 500)
@@ -53,6 +77,14 @@ public partial class ManualSelectionSettings : ObservableObject, IValidatable
             ValidationHelper.ValidateRange(GazeIndicatorCenterDotDiameter, 2, 40, nameof(GazeIndicatorCenterDotDiameter)),
             ValidationHelper.ValidateRange(GazeIndicatorStrokeThickness, 0.5, 10, nameof(GazeIndicatorStrokeThickness)),
             ValidationHelper.ValidateRange(GazeIndicatorOpacity, 0.1, 1.0, nameof(GazeIndicatorOpacity)),
-            ValidationHelper.ValidateRange(GazeIndicatorResetAnimationMs, 0, 1000, nameof(GazeIndicatorResetAnimationMs)));
+            ValidationHelper.ValidateRange(GazeIndicatorResetAnimationMs, 0, 1000, nameof(GazeIndicatorResetAnimationMs)),
+            ValidationHelper.ValidateRange(HoldRadiusLogical, 20, 300, nameof(HoldRadiusLogical)),
+            ValidationHelper.ValidateRange(StabilitySampleCount, 2, 30, nameof(StabilitySampleCount)),
+            ValidationHelper.ValidateRange(StabilityWindowSize, 2, 60, nameof(StabilityWindowSize)),
+            ValidationHelper.ValidateRange(HoldOutlierSkipLimit, 0, 30, nameof(HoldOutlierSkipLimit)),
+            StabilityWindowSize >= StabilitySampleCount
+                ? null
+                : $"{nameof(StabilityWindowSize)} must be at least {nameof(StabilitySampleCount)} " +
+                  $"({StabilityWindowSize} < {StabilitySampleCount})");
     }
 }

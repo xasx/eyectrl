@@ -108,5 +108,34 @@ public partial class EdgeButtonBarWindow : OverlayWindow, IEdgeButtonBar
             state.PropertyChanged += handler;
             _progressSubs.Add((state, handler));
         }
+
+        // A new button set has just landed, so this window has to end up in FRONT of whatever else
+        // was raised in the same beat. Nothing upstream guarantees that, for two independent
+        // reasons:
+        //
+        //   1. OverlayManager shows this window only from the view model's IsVisible
+        //      PropertyChanged (Initialize, the ButtonSetChanged/PropertyChanged pair). A context
+        //      that takes the bar over while it is ALREADY showing — the action menu parks its own
+        //      Close/Help here, and manual selection takes it back on the ring's Back step — writes
+        //      IsVisible = true over true. [ObservableProperty] short-circuits an equal value, the
+        //      handler never runs, and no Show() happens.
+        //   2. A Show() would not have been enough anyway. See RaiseToTop's own doc comment on
+        //      OverlayWindow: "a second Show() is a no-op that would not re-raise it".
+        //
+        // Manual selection is where that cost the user something. OverlayVmBindingCoordinator
+        // raises the fullscreen glass backdrop from a handler subscribed one line BEFORE the one
+        // that calls ShowButtons, so Close and Recapture — two of the three gaze-driven ways out of
+        // that modal view — were laid out correctly, armed for dwell correctly, and invisible
+        // underneath an acrylic sheet. Window.IsVisible stayed true throughout, which is why the
+        // whole suite stayed green; EdgeButtonBarZOrderTests reads the Win32 Z-order instead.
+        //
+        // This belongs here rather than at the manual-selection call site because every context
+        // sharing this bar reaches ShowButtons the same way — drag cancel, scroll stop, repeat stop
+        // — and each of them can be handed the bar while it is already up.
+        //
+        // Reached only when there are buttons to show: the empty-set early return above is the path
+        // Hide() always takes, so tearing the bar down never raises an empty window over whatever
+        // replaces it.
+        RaiseToTop();
     }
 }

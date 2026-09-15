@@ -4,6 +4,7 @@ using System;
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
@@ -112,20 +113,7 @@ internal sealed class SupervisorApp : Application
 
     // Dispatcher-fault budget for the containment handlers registered in Initialize. Touched
     // only on the UI thread, so no synchronization.
-    private readonly Queue<long> _dispatcherFaults = new();
-    private const int DispatcherFaultBudgetCount = 10;
-    private static readonly long DispatcherFaultWindowMs = (long)TimeSpan.FromSeconds(60).TotalMilliseconds;
-
-    private bool ConsumeDispatcherFaultBudget()
-    {
-        var now = Environment.TickCount64;
-        while (_dispatcherFaults.Count > 0 && now - _dispatcherFaults.Peek() > DispatcherFaultWindowMs)
-            _dispatcherFaults.Dequeue();
-        if (_dispatcherFaults.Count >= DispatcherFaultBudgetCount)
-            return false;
-        _dispatcherFaults.Enqueue(now);
-        return true;
-    }
+    private readonly RollingFaultBudget _dispatcherFaultBudget = new(10, TimeSpan.FromSeconds(60));
 
     public void Initialize()
     {
@@ -150,7 +138,7 @@ internal sealed class SupervisorApp : Application
         DispatcherUnhandledException += (_, args) =>
         {
             Log.Error(args.Exception, "Unhandled supervisor dispatcher exception");
-            if (ConsumeDispatcherFaultBudget())
+            if (DispatcherCrashPolicy.ShouldKeepRunning(supervisionEnabled: false, _dispatcherFaultBudget))
                 args.Handled = true; // the watchdog stays up
             else
                 Log.Fatal("Supervisor dispatcher fault budget exhausted; giving up (hard loop).");

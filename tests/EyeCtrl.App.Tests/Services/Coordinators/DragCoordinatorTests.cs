@@ -159,6 +159,31 @@ public class DragCoordinatorTests
     }
 
     [StaFact]
+    public void FatalExitRelease_DuringALiveDrag_SendsTheMouseUp()
+    {
+        // The POSITIVE case for the fatal-exit path (review finding #9: only the negative,
+        // not-held case was covered). Same genuinely-held setup as the dispose test: on STA
+        // with a working edge bar, OnDragStarted's setup SUCCEEDS, so the button is down with
+        // no abort having released it. This is the state a fatal exception elsewhere in the
+        // process must not strand — the press outlives the process.
+        var input = new TestFakes.FakeInputSimulator();
+        var (context, bar) = TestFakes.MakeDragContextWithBar(input);
+        var c = new DragCoordinator();
+        c.Initialize(context);
+
+        c.OnDragStarted(new PhysicalPoint(300, 300));
+
+        Check.That(bar.ShownButtonIds).ContainsExactly("Drag_cancel"); // setup succeeded — no abort
+        Check.That(input.MouseDownCount).IsEqualTo(1);
+        Check.That(input.MouseUpCount).IsEqualTo(0);                   // genuinely held
+
+        c.ReleaseHeldButtonForFatalExit();
+
+        Check.That(input.MouseUpCount).IsEqualTo(1);
+        Check.That(input.ButtonsBalanced).IsTrue();
+    }
+
+    [StaFact]
     public void DisposeDuringALiveDrag_ReleasesTheButton()
     {
         // THE headline path, and until IOverlayManager.EdgeButtonBar was narrowed to an interface

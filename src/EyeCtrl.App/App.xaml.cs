@@ -51,9 +51,7 @@ public partial class App : Application
 
     // Dispatcher-fault budget for the standalone crash policy (see InitializeApp's
     // DispatcherUnhandledException registration). Touched only on the UI thread.
-    private readonly Queue<long> _dispatcherFaults = new();
-    private const int DispatcherFaultBudgetCount = 10;
-    private static readonly long DispatcherFaultWindowMs = (long)TimeSpan.FromSeconds(60).TotalMilliseconds;
+    private readonly RollingFaultBudget _dispatcherFaultBudget = new(10, TimeSpan.FromSeconds(60));
 
     /// <summary>
     /// When true, the app uses MouseGazeProvider and skips the splash delay.
@@ -444,19 +442,6 @@ public partial class App : Application
 
     private const string StartupErrorTitle = "EyeCtrl — Startup Error";
 
-    /// <summary>Rolling window for the standalone dispatcher-fault budget. Called only from the
-    /// UI thread (the DispatcherUnhandledException handler), so no synchronization.</summary>
-    private bool ConsumeDispatcherFaultBudget()
-    {
-        var now = Environment.TickCount64;
-        while (_dispatcherFaults.Count > 0 && now - _dispatcherFaults.Peek() > DispatcherFaultWindowMs)
-            _dispatcherFaults.Dequeue();
-        if (_dispatcherFaults.Count >= DispatcherFaultBudgetCount)
-            return false;
-        _dispatcherFaults.Enqueue(now);
-        return true;
-    }
-
     /// <summary>
     /// A SendInput drag button-down is OS-global state that outlives the process: dying with the
     /// button held leaves the successor in FreeLook, where the user's gaze becomes a drag they
@@ -724,7 +709,7 @@ public partial class App : Application
         DispatcherUnhandledException += (_, args) =>
         {
             Log.Error(args.Exception, "Unhandled dispatcher exception");
-            if (settings.Supervision.Enabled || !ConsumeDispatcherFaultBudget())
+            if (!DispatcherCrashPolicy.ShouldKeepRunning(settings.Supervision.Enabled, _dispatcherFaultBudget))
             {
                 ReleaseHeldDragButtonForFatalExit();
                 return; // deliberately unhandled: the process dies

@@ -226,6 +226,11 @@ internal static class TestFakes
             PhysicalPoint? gazePoint = null, bool recapture = true) { }
         public void Hide() { }
         public PhysicalPoint GetRealPhysicalPoint(PhysicalPoint gazeOnScreen) => gazeOnScreen;
+
+        // Integration stub. Throw rather than return default: (0,0) is a plausible-looking
+        // coordinate, and this repo has been bitten by a real value that silently read as zero.
+        public PhysicalPoint EffectiveCaptureCenter =>
+            throw new NotImplementedException("this fake does not exercise the capture centre");
     }
 
     /// <summary>No-op gaze dot.</summary>
@@ -238,6 +243,7 @@ internal static class TestFakes
         public void UpdateOuterDiameter(double diameter) { }
         public void AnimateReset(double targetDiameter, int durationMs) { }
         public void RaiseToTop() { }
+        public void UpdateAnchor(double screenX, double screenY, bool visible) { }
     }
 
     private sealed class PartialOverlayManager : IOverlayManager

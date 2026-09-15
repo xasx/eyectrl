@@ -94,6 +94,10 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
     /// </summary>
     public bool IsOnScreen => IsVisible && !_slidingOut;
 
+    /// <summary>The toolbar's on-screen thickness in DIP — the extent the keyboard yields by at
+    /// a shared edge (see <c>KeyboardCoordinator.ToolbarOccupancyFor</c>).</summary>
+    public double ExtentDip => ActualHeight;
+
     /// <summary>Whether the docked edge slides along Y (top/bottom) rather than X (left/right).</summary>
     private bool SlideAxisIsY => _slideEdge is "top" or "bottom";
 

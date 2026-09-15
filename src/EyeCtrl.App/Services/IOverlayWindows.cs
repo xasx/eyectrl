@@ -153,6 +153,12 @@ public interface IToolbarOverlay
     /// <summary>True when visible AND not in the middle of sliding away.</summary>
     bool IsOnScreen { get; }
 
+    /// <summary>The toolbar's on-screen thickness in DIP (its window height) — the extent the
+    /// keyboard yields by when both sit at the same edge (KeyboardCoordinator's occupancy
+    /// mapping). Intent-level like the slide members: the seam speaks DIP because both
+    /// surfaces position in DIP, so callers must not feed it the physical-px rect.</summary>
+    double ExtentDip { get; }
+
     /// <summary>Shows the toolbar already in its resting position, with no animation.</summary>
     void ShowAtRest();
 

@@ -287,7 +287,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         bool pairWanted, bool keyboardVisible, EdgeButtonBarViewModel? barVm) =>
         pairWanted && keyboardVisible && barVm is not null && barVm.Buttons.Count == 0;
 
-    private void HookEdgeBarNotifications(EdgeButtonBarWindow bar)
+    private void HookEdgeBarNotifications(IEdgeButtonBar bar)
     {
         if (_hookedEdgeBarVm is not null) return;
         var vm = bar.EdgeBarVm;
@@ -406,7 +406,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         var (occupied, edge, extent) = ToolbarOccupancyFor(
             toolbarVisible, toolbar.IsVisible,
             Context.Settings.Toolbar.IsDocked, Context.Settings.Toolbar.DockedEdge,
-            toolbar.ActualHeight);
+            toolbar.ExtentDip);
         Context.OverlayManager.Keyboard.SetToolbarOccupancy(occupied, edge, extent);
     }
 
@@ -416,7 +416,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     /// is actually on screen, and only a DOCKED toolbar has an edge at all — undocked maps to
     /// "none", which no keyboard edge matches in <see cref="KeyboardYield"/> (ledger #8).
     /// Extracted from <see cref="ApplyToolbarOccupancy"/> so the mapping is headless-testable;
-    /// the caller only adds the WPF reads (Toolbar.IsVisible, ActualHeight).
+    /// the caller only adds the window reads (Toolbar.IsVisible, Toolbar.ExtentDip).
     /// </summary>
     internal static (bool Occupied, string Edge, double ExtentDip) ToolbarOccupancyFor(
         bool toolbarVisible, bool toolbarWindowVisible, bool isDocked, string dockedEdge, double extentDip)

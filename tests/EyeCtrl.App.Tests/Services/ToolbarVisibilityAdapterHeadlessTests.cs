@@ -45,6 +45,9 @@ public class ToolbarVisibilityAdapterHeadlessTests
         public bool IsSliding { get; private set; }
         public bool IsOnScreen => IsVisible && !_slidingOut;
 
+        // Stand-in thickness; nothing in the adapter branches on the value.
+        public double ExtentDip => 132;
+
         private bool _slidingOut;
 
         public void Show() { IsVisible = true; _log.Add("Toolbar.Show"); }

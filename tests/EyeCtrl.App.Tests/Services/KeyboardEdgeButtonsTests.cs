@@ -80,23 +80,23 @@ public class KeyboardEdgeButtonsTests
     }
 
     [Fact]
-    public void Definitions_FlipTakesTheKeyboardFacingSlot_InBothDirections()
+    public void Definitions_SlotOrderIsFixed_CloseAboveFlip()
     {
-        foreach (var (keyboardAtTop, flipSign) in new[] { (true, -1.0), (false, 1.0) })
-        {
-            var defs = KeyboardEdgeButtons.Definitions(600, keyboardAtTop);
-            var flip = defs.Single(d => d.Id == KeyboardEdgeButtons.FlipId);
-            var close = defs.Single(d => d.Id == KeyboardEdgeButtons.CloseId);
+        // Owner pass 2026-09-16: "the buttons shall not flip. Close always above flip" —
+        // the ANCHOR tracks the keyboard (the two anchor facts above), but the pair's
+        // internal order is constant at both edges, so a learned gaze path never swaps.
+        var defs = KeyboardEdgeButtons.Definitions(600);
+        var flip = defs.Single(d => d.Id == KeyboardEdgeButtons.FlipId);
+        var close = defs.Single(d => d.Id == KeyboardEdgeButtons.CloseId);
 
-            Check.That(Math.Sign(flip.VerticalOffset)).IsEqualTo(flipSign);
-            Check.That(Math.Sign(close.VerticalOffset)).IsEqualTo(-flipSign);
-            Check.That(flip.DwellMs).IsEqualTo(600);
-            Check.That(close.DwellMs).IsEqualTo(600);
-            Check.That(flip.Icon).IsEqualTo(ActionIcon.KeyboardEdge);
-            Check.That(close.Icon).IsEqualTo(ActionIcon.Close);
-            Check.That(flip.Label).IsEqualTo("Flip");
-            Check.That(close.Label).IsEqualTo("Close");
-        }
+        Check.That(close.VerticalOffset).IsStrictlyLessThan(0);
+        Check.That(flip.VerticalOffset).IsStrictlyGreaterThan(0);
+        Check.That(flip.DwellMs).IsEqualTo(600);
+        Check.That(close.DwellMs).IsEqualTo(600);
+        Check.That(flip.Icon).IsEqualTo(ActionIcon.KeyboardEdge);
+        Check.That(close.Icon).IsEqualTo(ActionIcon.Close);
+        Check.That(flip.Label).IsEqualTo("Flip");
+        Check.That(close.Label).IsEqualTo("Close");
     }
 
     [Fact]
@@ -106,7 +106,7 @@ public class KeyboardEdgeButtonsTests
         KeyboardHideRequestedMessage? received = null;
         messenger.Register<object, KeyboardHideRequestedMessage>(this, (_, m) => received = m);
 
-        var close = KeyboardEdgeButtons.Definitions(600, keyboardAtTop: false)
+        var close = KeyboardEdgeButtons.Definitions(600)
             .Single(d => d.Id == KeyboardEdgeButtons.CloseId);
         close.Activate(messenger);
 
@@ -120,7 +120,7 @@ public class KeyboardEdgeButtonsTests
         KeyboardEdgeToggledMessage? received = null;
         messenger.Register<object, KeyboardEdgeToggledMessage>(this, (_, m) => received = m);
 
-        var flip = KeyboardEdgeButtons.Definitions(600, keyboardAtTop: true)
+        var flip = KeyboardEdgeButtons.Definitions(600)
             .Single(d => d.Id == KeyboardEdgeButtons.FlipId);
         flip.Activate(messenger);
 
@@ -142,7 +142,7 @@ public class KeyboardEdgeButtonsTests
 
         // Our pair: re-claimable (flip rebuild) and clearable (keyboard hide).
         barVm.ShowButtons(
-            KeyboardEdgeButtons.Definitions(600, keyboardAtTop: false),
+            KeyboardEdgeButtons.Definitions(600),
             new PhysicalPoint(1800, 800));
         Check.That(KeyboardCoordinator.ShouldShowKeyboardEdgeBar(barVm)).IsTrue();
         Check.That(KeyboardCoordinator.ShouldHideKeyboardEdgeBar(barVm)).IsTrue();

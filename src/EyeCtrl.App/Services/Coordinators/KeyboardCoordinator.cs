@@ -249,7 +249,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         // guard above (its Log.Debug the only trace). Same invisible guarantee as
         // OverlayMessageCoordinator.cs:119-121.
         bar.ShowButtons(
-            KeyboardEdgeButtons.Definitions(Context.Settings.Dwell.KeyboardKeyDwellMs, atTop),
+            KeyboardEdgeButtons.Definitions(Context.Settings.Dwell.KeyboardKeyDwellMs),
             ScreenGeometry.KeyboardEdgeBarAnchor(atTop, UIConstants.ButtonRadius));
     }
 

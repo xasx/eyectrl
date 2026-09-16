@@ -226,6 +226,23 @@ public class ModelRegistryService
         return Path.Combine(_modelsDirectory, GetTokenizerFileName(modelId));
     }
 
+    /// <summary>
+    /// The registry's expected SHA-256 for the model file, or null when none is recorded (custom
+    /// models may ship without one by design). Used by the load path to verify integrity AT LOAD
+    /// time — the download path checks the same value, but a file planted directly on disk (AV
+    /// quarantine replacement, disk corruption, tampering) bypasses the download check entirely.
+    /// </summary>
+    public string? GetModelSha256(string modelId) =>
+        _registry.TryGetValue(modelId, out var entry) && !string.IsNullOrEmpty(entry.Sha256)
+            ? entry.Sha256
+            : null;
+
+    /// <summary>As <see cref="GetModelSha256"/>, for the tokenizer file.</summary>
+    public string? GetTokenizerSha256(string modelId) =>
+        _registry.TryGetValue(modelId, out var entry) && !string.IsNullOrEmpty(entry.TokenizerSha256)
+            ? entry.TokenizerSha256
+            : null;
+
     /// <summary>Checks whether both model and tokenizer files exist on disk for a model ID.</summary>
     /// <param name="modelId">Model identifier.</param>
     /// <returns>True if both files exist.</returns>

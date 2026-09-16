@@ -340,6 +340,28 @@ public class WordPredictor
     /// per language; the headroom above that is for learned vocabulary). Public for tests.</summary>
     public const int MaxDictionaryWords = 50_000;
 
+    /// <summary>
+    /// A copy of the current word frequencies (base + learned). The background prediction-stack
+    /// rebuild snapshots this before starting a build and diffs it against the state at swap
+    /// time, so words learned on the OLD stack while the new one built are carried over.
+    /// </summary>
+    public IReadOnlyDictionary<string, int> WordFrequencies => new Dictionary<string, int>(_words);
+
+    /// <summary>
+    /// Applies positive frequency deltas (word → additional uses). The inverse of the snapshot
+    /// diff: each entry adds to whatever the new stack already knows, so a word learned N times
+    /// during the build window ends up N higher, never lower, and never duplicated.
+    /// </summary>
+    public void LearnWordDeltas(IEnumerable<KeyValuePair<string, int>> deltas)
+    {
+        foreach (var (word, delta) in deltas)
+        {
+            if (delta <= 0 || string.IsNullOrEmpty(word)) continue;
+            var lower = word.ToLowerInvariant();
+            _words[lower] = Math.Max(1, _words.GetValueOrDefault(lower) + delta);
+        }
+    }
+
     /// <summary>Learns a sequence of words for bigram and phrase prediction.</summary>
     /// <param name="words">The words in order as typed by the user.</param>
     public void LearnSequence(string[] words)

@@ -24,7 +24,10 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     private readonly ModalInteractionState _modal;
     private readonly QuickActionsCoordinator _quickActions;
     private readonly ToolbarLifecycleCoordinator _toolbar;
-    private readonly PredictionStackFactory _predictionFactory = new();
+    // Constructed synchronously so the property seams below work before Initialize; OnInitialize
+    // replaces it with the background-mode instance (dispatcher-marshaled swaps). Not readonly
+    // for exactly that replacement.
+    private PredictionStackFactory _predictionFactory = new();
     private KeyboardStackSnapshot? _keyboardSnapshot;
     // Owned HERE — moved from EventCoordinator.Initialize. Used by LoadKeyboard's
     // recent-emoji path and as the model-dir root for PredictionStackFactory.Rebuild.
@@ -73,6 +76,16 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         });
 
         context.OverlayManager.Keyboard.SkinToneChanged += OnEmojiSkinToneChanged;
+
+        // Background-mode prediction stack: swaps land on THIS thread and re-bind the keyboard
+        // here. Building the stack is multi-second work (dictionaries, trie, ONNX session) that
+        // used to run inside LoadKeyboard — freezing the boot splash and, worse, freezing all
+        // gaze UI on every mid-session settings apply. Rebuild now returns the OLD stack (or
+        // null on first boot) immediately; the swap callback below installs the new one.
+        _predictionFactory.Dispose();
+        _predictionFactory = new PredictionStackFactory(work => context.Dispatcher.BeginInvoke(work));
+        _predictionFactory.StackSwapped +=
+            orchestrator => context.OverlayManager.Keyboard.SetOrchestrator(orchestrator);
     }
 
     /// <summary>Stores the model registry for the next <see cref="LoadKeyboard"/> rebuild. Keyboard

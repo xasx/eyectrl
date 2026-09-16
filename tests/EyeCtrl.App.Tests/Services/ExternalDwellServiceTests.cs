@@ -703,7 +703,7 @@ public class ExternalDwellServiceTests
             using var svc = NewService(engine, _ => 7);
             svc.Start();
 
-            var (legit, overCap) = RegisterUpToCapThenDwell(provider, _pipeName).GetAwaiter().GetResult();
+            var (legit, overCap) = RegisterUpToCapThenDwell(svc, provider, _pipeName).GetAwaiter().GetResult();
 
             Check.That(legit).IsNotNull();               // a capped-connection target still fires
             Check.That(legit).Contains("\"id\":\"t0\""); // t0's tile activated after the rejection
@@ -716,7 +716,7 @@ public class ExternalDwellServiceTests
     // dwell tests), then dwells the over-cap tile long enough for the gaze filter to converge —
     // a wrongly-registered t512 would activate, a rejected one leaves the pipe silent.
     private static async Task<(string? legit, string? overCap)> RegisterUpToCapThenDwell(
-        StubGazeProvider provider, string pipeName)
+        ExternalDwellService svc, StubGazeProvider provider, string pipeName)
     {
         await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(2000);
@@ -728,7 +728,7 @@ public class ExternalDwellServiceTests
             batch.AppendLine(JsonSerializer.Serialize<WireMessage>(
                 new RegisterMessage { Id = $"t{i}", Rect = new SdkRect(i * 100, 0, 100, 100), Hwnd = 7 }, WireJson.Options));
         await w.WriteAsync(batch);
-        await Task.Delay(500); // let the server drain the batched registrations
+        await WaitForTargetCountAsync(svc, ExternalDwellService.MaxTargetsPerConnection);
 
         // One past the cap, on its own far tile.
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
@@ -765,7 +765,7 @@ public class ExternalDwellServiceTests
             using var svc = NewService(engine, _ => 7);
             svc.Start();
 
-            var activated = RegisterToCapThenReregisterAndDwell(provider, _pipeName).GetAwaiter().GetResult();
+            var activated = RegisterToCapThenReregisterAndDwell(svc, provider, _pipeName).GetAwaiter().GetResult();
 
             Check.That(activated).IsNotNull();               // the refresh was accepted at the cap
             Check.That(activated).Contains("\"id\":\"t0\""); // and dwell used the NEW rect
@@ -776,7 +776,7 @@ public class ExternalDwellServiceTests
     // same-connection id the caps must not reject) and dwells the far tile. This dwell is the
     // test's first, so the gaze filter warm-starts on the target — two samples suffice.
     private static async Task<string?> RegisterToCapThenReregisterAndDwell(
-        StubGazeProvider provider, string pipeName)
+        ExternalDwellService svc, StubGazeProvider provider, string pipeName)
     {
         await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(2000);
@@ -788,7 +788,7 @@ public class ExternalDwellServiceTests
             batch.AppendLine(JsonSerializer.Serialize<WireMessage>(
                 new RegisterMessage { Id = $"t{i}", Rect = new SdkRect(i * 100, 0, 100, 100), Hwnd = 7 }, WireJson.Options));
         await w.WriteAsync(batch);
-        await Task.Delay(500);
+        await WaitForTargetCountAsync(svc, ExternalDwellService.MaxTargetsPerConnection);
 
         // t0's rect refreshed to a far tile — the register that the cap used to reject.
         await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
@@ -800,6 +800,35 @@ public class ExternalDwellServiceTests
 
         var read = r.ReadLineAsync();
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
+    }
+
+    // Poll observable server state (TargetCountForTests) until the batched registrations have
+    // landed — sturdier than a fixed sleep, which is the flake-shaped part under load.
+    private static async Task WaitForTargetCountAsync(ExternalDwellService svc, int expected)
+    {
+        for (var i = 0; i < 200 && svc.TargetCountForTests < expected; i++)
+            await Task.Delay(25);
+        Check.That(svc.TargetCountForTests).IsEqualTo(expected);
+    }
+
+    // --- Pipe-supplied rect sanity clamp ---
+
+    [Fact]
+    public void ToRect_ClampsHostileExtremes_IntoASaneScreenRange()
+    {
+        // JSON rejects NaN/Infinity, but legal extremes (1e308) would otherwise flow through
+        // DpiHelper into WPF window positioning. Far beyond any real screen is enough.
+        var hostile = ExternalDwellService.ToRect(new SdkRect(1e308, -1e308, 1e308, 1e308));
+        Check.That(hostile.X).IsEqualTo(100_000);
+        Check.That(hostile.Y).IsEqualTo(-100_000);
+        Check.That(hostile.Width).IsEqualTo(100_000);
+        Check.That(hostile.Height).IsEqualTo(100_000);
+
+        var normal = ExternalDwellService.ToRect(new SdkRect(10, 20, 30, 40));
+        Check.That(normal.X).IsEqualTo(10);
+        Check.That(normal.Y).IsEqualTo(20);
+        Check.That(normal.Width).IsEqualTo(30);
+        Check.That(normal.Height).IsEqualTo(40);
     }
 
     private sealed class StubGazeProvider : IGazeProvider

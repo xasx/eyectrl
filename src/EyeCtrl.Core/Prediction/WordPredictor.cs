@@ -307,10 +307,38 @@ public class WordPredictor
     {
         var lower = normalizedWord.ToLowerInvariant();
         if (_words.ContainsKey(lower))
+        {
             _words[lower]++;
-        else
-            _words[lower] = 1;
+            return;
+        }
+
+        if (_words.Count >= MaxDictionaryWords)
+        {
+            // Bound the per-keystroke scan (GetSuggestions is O(n) over this dictionary) and
+            // the persisted file: an all-day communicator learns novel words forever, an
+            // unbounded dictionary turns every keystroke into a slower full scan. Evict the
+            // globally least-frequent entry — with 10k-word base dictionaries and this cap,
+            // that is a learned word in practice, never head-of-dictionary vocabulary.
+            string? leastFrequent = null;
+            var minFrequency = int.MaxValue;
+            foreach (var kv in _words)
+            {
+                if (kv.Value < minFrequency)
+                {
+                    minFrequency = kv.Value;
+                    leastFrequent = kv.Key;
+                }
+            }
+            if (leastFrequent is not null)
+                _words.Remove(leastFrequent);
+        }
+
+        _words[lower] = 1;
     }
+
+    /// <summary>Hard bound on the learned-words dictionary (base dictionaries ship 10,000 words
+    /// per language; the headroom above that is for learned vocabulary). Public for tests.</summary>
+    public const int MaxDictionaryWords = 50_000;
 
     /// <summary>Learns a sequence of words for bigram and phrase prediction.</summary>
     /// <param name="words">The words in order as typed by the user.</param>

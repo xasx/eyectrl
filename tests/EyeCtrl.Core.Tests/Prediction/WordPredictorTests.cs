@@ -11,6 +11,32 @@ public class WordPredictorTests
     }
 
     [Fact]
+    public void LearnWord_AtTheCap_EvictsTheLeastFrequent_InsteadOfGrowingForever()
+    {
+        // An all-day communicator learns novel words indefinitely; without a bound, the
+        // per-keystroke O(n) suggestion scan and the persisted file both degrade without
+        // limit. At the cap the globally least-frequent entry — with 10k-word base
+        // dictionaries, a LEARNED word in practice — is evicted, never head vocabulary.
+        var words = new Dictionary<string, int>();
+        for (var i = 0; i < WordPredictor.MaxDictionaryWords; i++)
+            words[$"base{i}"] = 10_000 + i;              // head vocabulary, high frequency
+        words["rarely"] = 1;                              // the eviction candidate
+        var predictor = CreatePredictor(words);
+
+        predictor.LearnWord("brandnewword");
+
+        var suggestions = predictor.GetSuggestions("rarely", null, maxCount: 5, fullText: "");
+        Check.That(suggestions.Any(r =>
+            r.Word.Equals("rarely", StringComparison.OrdinalIgnoreCase))).IsFalse(); // evicted; fuzzy may fill the list
+
+        var learned = predictor.GetSuggestions("brandnewword", null, maxCount: 5, fullText: "");
+        Check.That(learned).HasElementThatMatches(r =>
+            r.Word.Equals("brandnewword", StringComparison.OrdinalIgnoreCase)); // smart-capitalized
+        // (Head vocabulary is untouched by construction: eviction removes the MINIMUM-frequency
+        // entry, and every base word outranks the learned tail.)
+    }
+
+    [Fact]
     public void GetSuggestions_MatchesPrefix()
     {
         var predictor = CreatePredictor(new()

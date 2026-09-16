@@ -21,6 +21,13 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
     private const int MaxNotes = 8;
     private const int DwellTimeMs = 600;
 
+    // The window that held the OS foreground before a note edit grabbed it. FocusEditor
+    // activates the note window; without a restore, FinishEdit leaves the (now display-mode)
+    // note holding focus — gaze-typed text would keep landing in the note instead of the app
+    // the user was in. Restored via SetForegroundWindow: at FinishEdit our own process IS the
+    // foreground process, so the foreground-lock restriction does not apply.
+    private IntPtr _preEditForegroundWindow;
+
     public IReadOnlyList<NoteData> ActiveNotes => _notes.AsReadOnly();
     public bool IsAtCapacity => _windows.Count >= MaxNotes;
 
@@ -105,6 +112,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         note.State = NoteState.Edit;
         window.SetState(NoteState.Edit);
         window.SetText(note.Text);
+        _preEditForegroundWindow = GetForegroundWindow();
         window.FocusEditor();
         // Keep only this note's close target active; edit/move removed and other notes frozen.
         _dwellDetector.ClearTargets();
@@ -122,7 +130,22 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         window.SetState(NoteState.Display);
         window.SetText(text);
         ReRegisterAllTargets();
+
+        // Give the OS foreground back to whatever the user was in before the edit took it.
+        if (_preEditForegroundWindow != IntPtr.Zero)
+        {
+            try { SetForegroundWindow(_preEditForegroundWindow); }
+            catch { /* best-effort: a closed target window just leaves focus where it is */ }
+            _preEditForegroundWindow = IntPtr.Zero;
+        }
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
 
     public void StartMove(string id)
     {

@@ -160,6 +160,14 @@ public sealed class ExternalDwellService : IDisposable
         _pipeServer.Start();
     }
 
+    /// <summary>Diagnostics/testing hook: the number of registered dwell targets. Read under
+    /// the state lock, so tests can POLL for batched registrations to settle instead of
+    /// sleeping a fixed delay (review nit: a fixed sleep is the flake-shaped part).</summary>
+    internal int TargetCountForTests
+    {
+        get { lock (_stateLock) return _targetsById.Count; }
+    }
+
     private void OnCursorMoved(GazeFrame frame)
     {
         if (!_settings.Enabled
@@ -391,7 +399,19 @@ public sealed class ExternalDwellService : IDisposable
         _ = Task.Run(() => conn.Send(json));
     }
 
-    private static PhysicalRect ToRect(SdkRect r) => new(r.X, r.Y, r.Width, r.Height);
+    // Pipe-supplied doubles reach WPF window positioning (DwellFeedbackOverlay.ShowAt); JSON
+    // rejects NaN/Infinity, but legal extremes (1e308) would flow through DpiHelper into
+    // double-based layout math. Clamp to a range far beyond any physical screen so a hostile or
+    // buggy rect can never push layout out of bounds.
+    internal static PhysicalRect ToRect(SdkRect r)
+    {
+        const double limit = 100_000;
+        return new PhysicalRect(
+            Math.Clamp(r.X, -limit, limit),
+            Math.Clamp(r.Y, -limit, limit),
+            Math.Clamp(r.Width, 0, limit),
+            Math.Clamp(r.Height, 0, limit));
+    }
 
     private static long? RootWindowAtPointImpl(PhysicalPoint p)
     {

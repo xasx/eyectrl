@@ -13,6 +13,7 @@ using Serilog.Events;
 public static class SupervisorLoggingInitializer
 {
     private const int RetainedLogFileCount = 7; // Number of daily log files to keep (7-day retention)
+    private const long MaxLogSizeBytes = 50 * 1024 * 1024; // 50 MB/day before a size roll
 
     /// <summary>
     /// Initializes Serilog with daily rolling file logging.
@@ -28,6 +29,8 @@ public static class SupervisorLoggingInitializer
                 Path.Combine(logsDirectory, "supervisor-.log"),
                 rollingInterval: RollingInterval.Day,
                 retainedFileCountLimit: RetainedLogFileCount,
+                fileSizeLimitBytes: MaxLogSizeBytes, // size cap alongside the daily roll (see app LoggingInitializer)
+                rollOnFileSizeLimit: true,
                 outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] [{SourceContext}] {Message:lj}{NewLine}{Exception}")
             .CreateLogger();
     }

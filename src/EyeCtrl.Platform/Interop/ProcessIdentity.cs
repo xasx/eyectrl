@@ -11,6 +11,10 @@ internal static partial class ProcessIdentity
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetNamedPipeServerProcessId(SafePipeHandle pipe, out uint serverProcessId);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool ProcessIdToSessionId(uint processId, out uint sessionId);
 
     // [Out] char[] — NOT StringBuilder (SYSLIB1051). See NativeMethods.cs:102.

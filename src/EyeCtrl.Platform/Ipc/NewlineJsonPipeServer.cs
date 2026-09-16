@@ -43,6 +43,12 @@ public sealed class NewlineJsonPipeServer<TState> : IDisposable
     /// messages (heartbeat payloads and dwell register lines are a few hundred bytes).</summary>
     public const int DefaultMaxLineLength = 64 * 1024;
 
+    /// <summary>Backoff bounds for pipe-create retries (name squatted / ACL failure): fast
+    /// first retry so a transient race heals instantly, capped so a permanent squatter costs at
+    /// most one attempt and one log line per interval.</summary>
+    private const int CreateRetryMinMs = 500;
+    private const int CreateRetryMaxMs = 30_000;
+
     private readonly Func<NamedPipeServerStream> _createPipe;
     private readonly Func<NamedPipeServerStream, TState> _createState;
     private readonly LineHandler _handleLine;
@@ -86,6 +92,8 @@ public sealed class NewlineJsonPipeServer<TState> : IDisposable
 
     private async Task AcceptLoopAsync(CancellationToken token)
     {
+        var createBackoffMs = CreateRetryMinMs;
+        var createFailures = 0;
         while (!token.IsCancellationRequested)
         {
             NamedPipeServerStream pipe;
@@ -93,14 +101,32 @@ public sealed class NewlineJsonPipeServer<TState> : IDisposable
             {
                 pipe = _createPipe();
             }
-            catch (Exception ex)
+            catch (OperationCanceledException)
             {
-                // Pipe creation failed (e.g. ACL, or another process already owns the name).
-                // Abort the loop: retrying a construction that cannot succeed would spin. This
-                // permanently disables the channel, so callers should wire `log` to see it.
-                _log?.Invoke(ex, null, "pipe create failed");
                 break;
             }
+            catch (Exception ex)
+            {
+                // Pipe creation failed — typically ANOTHER PROCESS OWNS THE NAME (squatter), or
+                // an ACL problem. Breaking here (the old behaviour) permanently disabled the
+                // channel: a supervisor that loses its pipe once never recovers, and the app it
+                // is supposed to watch runs unwatched. Retry with capped backoff instead: if the
+                // squatter dies or releases the name, the channel comes back on its own. A
+                // genuinely permanent failure still costs at most one log line + one attempt per
+                // CreateRetryMaxMs, not a spin.
+                createFailures++;
+                _log?.Invoke(ex, null,
+                    $"pipe create failed (attempt {createFailures}); retrying in {createBackoffMs}ms");
+                try { await Task.Delay(createBackoffMs, token); }
+                catch (OperationCanceledException) { break; }
+                createBackoffMs = Math.Min(createBackoffMs * 2, CreateRetryMaxMs);
+                continue;
+            }
+
+            if (createFailures > 0)
+                _log?.Invoke(null, null, $"pipe create recovered after {createFailures} failed attempts");
+            createFailures = 0;
+            createBackoffMs = CreateRetryMinMs;
 
             try
             {

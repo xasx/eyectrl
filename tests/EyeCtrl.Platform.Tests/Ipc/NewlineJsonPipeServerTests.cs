@@ -53,6 +53,47 @@ public class NewlineJsonPipeServerTests
         Check.That(received[0]).IsEqualTo("ok");
     }
 
+    // A pipe-create failure (name squatted / ACL error) used to permanently kill the accept
+    // loop — one failure and the channel never came back. It now retries with capped backoff,
+    // so when the name frees the channel recovers on its own.
+    [Fact]
+    public async Task CreateFailure_IsRetried_ChannelRecoversWhenCreateSucceeds()
+    {
+        var pipeName = PipeName();
+        var received = new List<string>();
+        var attempts = 0;
+        using var server = new NewlineJsonPipeServer<string>(
+            () =>
+            {
+                if (Interlocked.Increment(ref attempts) <= 2)
+                    throw new IOException("simulated squatted name");
+                return new NamedPipeServerStream(pipeName, PipeDirection.InOut,
+                    NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+            },
+            createState: _ => "",
+            handleLine: (line, _) => { received.Add(line); return true; });
+        server.Start();
+
+        // Retries land at +500ms and +1500ms; poll for the channel instead of sleeping a fixed total.
+        for (var i = 0; i < 100 && received.Count == 0; i++)
+        {
+            try
+            {
+                await using var probe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+                await probe.ConnectAsync(200);
+                await using var w = new StreamWriter(probe, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+                await w.WriteLineAsync("after-recovery");
+            }
+            catch (TimeoutException) { }
+            catch (IOException) { }
+            await Task.Delay(50);
+        }
+
+        Check.That(attempts).IsGreaterOrEqualThan(3); // it really did fail twice first
+        Check.That(received).HasSize(1);
+        Check.That(received[0]).IsEqualTo("after-recovery");
+    }
+
     // Several lines arriving in one read chunk must all be delivered, in order — the bounded
     // reader carries the remainder of a chunk after each returned line instead of discarding it.
     [Fact]

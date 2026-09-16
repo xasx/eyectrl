@@ -98,7 +98,7 @@ public class ExternalDwellWireContractTests
                 new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 5000 });
             svc.Start();
 
-            using var client = new DwellClient(_pipeName);
+            using var client = new DwellClient(_pipeName) { VerifyServerIdentity = false };
             var fake = new FakeDwellAdapter("btn", hwnd: 7, new SdkRect(0, 0, 200, 200));
             client.RegisterAdapter(fake);
             client.Start();
@@ -123,7 +123,7 @@ public class ExternalDwellWireContractTests
                 new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 5000 });
             svc.Start();
 
-            using var client = new DwellClient(_pipeName);
+            using var client = new DwellClient(_pipeName) { VerifyServerIdentity = false };
             var fake = new FakeDwellAdapter("btn", hwnd: 7, new SdkRect(0, 0, 200, 200));
             client.RegisterAdapter(fake);
             client.Start();
@@ -165,7 +165,7 @@ public class ExternalDwellWireContractTests
                 new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 0 });
             svc.Start();
 
-            using var client = new DwellClient(_pipeName);
+            using var client = new DwellClient(_pipeName) { VerifyServerIdentity = false };
             var fake = new FakeDwellAdapter("btn", hwnd: 7, new SdkRect(0, 0, 200, 200));
             client.RegisterAdapter(fake);
             client.Start();
@@ -218,7 +218,7 @@ public class ExternalDwellWireContractTests
             using var svc1 = NewService(engine, _ => 7, settings);
             svc1.Start();
 
-            using var client = new DwellClient(_pipeName);
+            using var client = new DwellClient(_pipeName) { VerifyServerIdentity = false };
             var fake = new FakeDwellAdapter("btn", hwnd: 7, new SdkRect(0, 0, 200, 200));
             client.RegisterAdapter(fake);
             client.Start();
@@ -308,7 +308,7 @@ public class ExternalDwellWireContractTests
                 new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 5000 });
             svc.Start();
 
-            using var client = new DwellClient(_pipeName);
+            using var client = new DwellClient(_pipeName) { VerifyServerIdentity = false };
             var fake = new FakeDwellAdapter("btn", hwnd: 7, new SdkRect(0, 0, 200, 200));
             client.RegisterAdapter(fake);
             client.Start();
@@ -350,7 +350,7 @@ public class ExternalDwellWireContractTests
                 new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 0 });
             svc.Start();
 
-            using var client = new DwellClient(_pipeName);
+            using var client = new DwellClient(_pipeName) { VerifyServerIdentity = false };
             var fake = new FakeDwellAdapter("btn", hwnd: 7, new SdkRect(0, 0, 200, 200));
             client.RegisterAdapter(fake);
             client.Start();

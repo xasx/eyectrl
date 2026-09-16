@@ -278,24 +278,22 @@ hides. The edge bar works in emoji mode too (it is not part of the keyboard wind
 
 9. **Reuse the shared edge-button bar, not new chrome — and the bar tracks the keyboard
    (ledger #15).** New static `KeyboardEdgeButtons` mirroring `ActionMenuEdgeButtons`
-   (the menu's Close/Help pair), but keyboard-edge-dependent:
-   `Definitions(int dwellMs, bool keyboardAtTop)` returns two `EdgeButtonDefinition`s at
-   a right-edge anchor that sits **toward the keyboard's edge** — `ScreenGeometry`
-   gains a vertical-position variant of `RightEdgeAnchor` (default offset ≈ 75%/25% of
-   work-area height, exact constant plan-level):
-   - **Flip** in the keyboard-facing slot (`Label: "Flip"`,
-     `Icon: ActionIcon.KeyboardEdge`, new glyph — keyboard with up/down arrows);
-     activation sends `KeyboardEdgeToggledMessage` (B1).
-   - **Close** screen-center-ward (`Icon: ActionIcon.Close` existing, `Label: "Close"`);
+   (the menu's Close/Help pair): `Definitions(int dwellMs)` returns two
+   `EdgeButtonDefinition`s in a **fixed order — Close above (−offset), Flip below
+   (+offset), at both edges** (owner live pass 2026-09-16: "the buttons shall not flip.
+   Close always above flip") — anchored toward the keyboard's edge via
+   `ScreenGeometry.KeyboardEdgeBarAnchor` (25%/75% of work-area height):
+   - **Close** above (`Icon: ActionIcon.Close` existing, `Label: "Close"`);
      activation sends `KeyboardHideRequestedMessage`.
+   - **Flip** below (`Label: "Flip"`, `Icon: ActionIcon.KeyboardEdge`, new glyph —
+     keyboard with up/down arrows); activation sends `KeyboardEdgeToggledMessage` (B1).
    - Labels always on for both — the `ActionMenuEdgeButtons` convention: "the escape
      hatch cannot rely on being recognised". Dwell time: the keyboard's own key dwell
      (`Dwell.KeyboardKeyDwellMs`) — the bar is part of the keyboard session. Telemetry
      context `DwellContext.EdgeButtonBar` already exists.
-   - On flip, `HandleKeyboardEdgeToggled` re-runs `ShowButtons` with the new
-     edge-dependent set and anchor; vacated positions carry no dwell target (no
-     dwell-transfer hazard). The anchor follows the keyboard's edge **setting**, not
-     the B3 yield offset.
+   - On flip, `HandleKeyboardEdgeToggled` re-runs `ShowButtons` with the same pair at the
+     new anchor; vacated positions carry no dwell target (no dwell-transfer hazard). The
+     anchor follows the keyboard's edge **setting**, not the B3 yield offset.
 10. **Show/hide wiring in `KeyboardCoordinator.SetKeyboardVisible`:** show →
     `Context.OverlayManager.EdgeButtonBar.ShowButtons(KeyboardEdgeButtons.Definitions(
     dwellMs), anchor)`; hide → `Hide()` **only if the bar still shows our definitions**
@@ -365,7 +363,7 @@ and the emoji grid is built in code, not layout).
 | 12 | Edge-bar mechanics: **`KeyboardEdgeButtons` context set on the shared bar, guarded hide, keyboard key dwell, labels always on** | The bar is already context-driven (menu Close/Help, drag Cancel, scroll Stop) with a documented hand-off protocol; joining it costs two definitions + show/hide calls. Labels-on and the anchor mirror `ActionMenuEdgeButtons` verbatim, so the bar reads the same whichever context owns it | A dedicated keyboard-side window (new chrome, new dwell plumbing, more surface to maintain) |
 | 13 | Close semantics: `KeyboardHideRequestedMessage` → `SetKeyboardVisible(false, manageSuppression: true)` | Releasing suppression (re-enabling fixation and the ring) is the point of an explicit dismiss; symmetric twin of Feature A's show message. The sender-less `HideKeyboardRequestMessage` is reserved for the text-field seam (`manageSuppression: false`) and must not be reused | Reusing `KeyboardToggledMessage` (toggle semantics — an accidental hide from a dedicated Close is meaningless); the sender-less hide message |
 | 14 | Flip is reachable **only while the keyboard is visible** (the bar hides with the keyboard) | The flip matters exactly when the keyboard occludes something; the Settings row remains the initial-edge chooser; pre-positioning was a nicety nobody asked for | Keeping a second flip surface for the hidden state |
-| 15 | Flip always sits **nearer the keyboard**, and the whole **bar tracks the keyboard's edge** (owner pick, mechanism B): keyboard Bottom → bar below screen center on the right edge, Flip in the lowest slot; keyboard Top → bar above center, Flip in the top slot; Close always screen-center-ward. `KeyboardEdgeButtons.Definitions` is keyboard-edge-dependent (slot order + anchor), and `HandleKeyboardEdgeToggled` rebuilds the bar at the new anchor on every flip. Vacated positions carry no dwell target, so a gaze resting where Flip just was hits nothing — no dwell-transfer hazard. The anchor follows the keyboard's **edge setting**, not the B3 yield offset (a screen-edge element, like the action-view bar). Exact anchor offset toward the edge is plan-level (mockup ≈ 75%/25% of work-area height) | (A) swap slots at the fixed action-view anchor — the old Flip position becomes Close, so a gaze resting there through the cooldown can trigger Close; fixed Close-above/Flip-below regardless of keyboard position (owner rejected: "flip should always be closer to the keyboard. Thus, it moves with keyboard position") |
+| 15 | **SUPERSEDED IN PART by the owner live pass (2026-09-16): the ANCHOR tracks the keyboard's edge (25%/75% of work-area height — mechanism B stands), but the SLOT ORDER is fixed: Close always above, Flip always below, at both edges** ("the buttons shall not flip. Close always above flip"). `Definitions(dwellMs)` is order-constant; only `KeyboardEdgeBarAnchor(atTop, …)` is edge-dependent, and `HandleKeyboardEdgeToggled` rebuilds the pair at the new anchor on every flip. Vacated positions carry no dwell target, so a gaze resting where a button just was hits nothing. The anchor follows the keyboard's **edge setting**, not the B3 yield offset | The round-5 design (Flip always in the keyboard-facing slot) — superseded: the owner values a stable learned order over proximity on the live bar; (A) swap slots at the fixed action-view anchor (dwell-transfer hazard); a fixed pair at a fixed screen-center anchor (no tracking at all) |
 
 ## 6. Testing
 

@@ -107,7 +107,10 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     {
         // Gap-held samples carry the frozen last valid position, so they are skipped rather than fed
         // (see DwellOverlayViewModelBase.Receive) — a blink over a toolbar button must not complete it.
-        if (!_dwellingActive || message.IsInGap) return;
+        // The pause term routes through the shared gate (round-2 finding 2): this override used to
+        // reimplement the checks, silently bypassing DwellActiveWhilePaused below and leaving the
+        // toolbar's unpause opt-in as dead code.
+        if (!_dwellingActive || !SampleMayDwell(message)) return;
         DwellDetector.Update(message.Position, message.TimestampMicroseconds);
     }
 

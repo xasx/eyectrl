@@ -41,11 +41,33 @@ public abstract partial class DwellOverlayViewModelBase : MessengerViewModelBase
     /// Whether this surface keeps accumulating dwell while the interaction state is Paused. The
     /// default is false — paused means input must not leave EyeCtrl: the keyboard types, quick
     /// actions send keystrokes and launch executives, the task switcher switches windows, all
-    /// into whatever the OS foreground is. Override with <c>true</c> ONLY for the safety surfaces
-    /// whose dwell is the user's way OUT of a stuck state: the toolbar band (gaze-unpause), the
-    /// modes menu (holds the pause toggle), the edge bar and the drag trail (release affordances).
+    /// into whatever the OS foreground is. Override with <c>true</c> ONLY for surfaces whose
+    /// dwell is the user's way OUT of a stuck state — the toolbar band (gaze-unpause), the modes
+    /// menu (holds the pause toggle), the edge bar and the drag trail (release affordances) —
+    /// and for overlays whose ONLY dismissal is a dwell (task switcher tiles, quick actions):
+    /// those opt in and gate the EFFECT instead via <see cref="LastSampleWasPaused"/>.
     /// </summary>
     protected virtual bool DwellActiveWhilePaused => false;
+
+    /// <summary>
+    /// Whether the most recent received sample was paused. Set by <see cref="Receive"/> BEFORE
+    /// the detector update, so an activation fired by that update observes its sample's pause
+    /// state. Activation handlers on surfaces that opted into <see cref="DwellActiveWhilePaused"/>
+    /// use this to suppress their OS-input effect while still performing their own dismissal —
+    /// gating the dwell itself would make the dismissal unreachable (round-2 blocker: a paused
+    /// task switcher with a dead close path is an inescapable fullscreen overlay).
+    /// </summary>
+    protected bool LastSampleWasPaused { get; private set; }
+
+    /// <summary>
+    /// The shared per-sample dwell gate: a gap-held sample never accumulates, and a paused
+    /// sample accumulates only on surfaces that opted in via <see cref="DwellActiveWhilePaused"/>.
+    /// Subclasses that override <see cref="Receive"/> MUST route through this — round-2 finding
+    /// 2: three overrides reimplemented their own checks and silently bypassed the pause gate,
+    /// leaving two of the opt-ins as dead code.
+    /// </summary>
+    protected bool SampleMayDwell(GazeCursorMovedMessage message) =>
+        !message.IsInGap && (!message.IsPaused || DwellActiveWhilePaused);
 
     /// <summary>
     /// Feeds the sample to the dwell detector while visible. A gap-held sample is skipped entirely —
@@ -57,7 +79,8 @@ public abstract partial class DwellOverlayViewModelBase : MessengerViewModelBase
     /// </summary>
     public virtual void Receive(GazeCursorMovedMessage message)
     {
-        if (IsVisible && !message.IsInGap && (!message.IsPaused || DwellActiveWhilePaused))
+        LastSampleWasPaused = message.IsPaused;
+        if (IsVisible && SampleMayDwell(message))
             DwellDetector.Update(message.Position, message.TimestampMicroseconds);
     }
 

@@ -58,7 +58,12 @@ public partial class ScrollOverlayViewModel : DwellOverlayViewModelBase
 
     public override void Receive(GazeCursorMovedMessage message)
     {
-        if (!IsVisible) return;
+        // Route through the shared sample gate (round-2 finding 2): this override replaced
+        // base.Receive entirely, silently bypassing the pause gate — and its output IS OS input
+        // (TargetVelocityChanged drives ScrollWorker → SendInput.Scroll). Unreachable today
+        // (TogglePause refuses Paused from ScrollMode and fixation is dead while paused), but
+        // the gate makes the stated contract true instead of aspirational.
+        if (!IsVisible || !SampleMayDwell(message)) return;
 
         var (vx, vy) = ScrollEngine.ComputeVelocity(
             message.Position, _anchor, _scrollSettings.Sensitivity,

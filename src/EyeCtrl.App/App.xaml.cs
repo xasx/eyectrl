@@ -702,8 +702,8 @@ public partial class App : Application
         //   on in a corrupt state.
         // - Standalone (the current live configuration): nothing respawns this process. A crash
         //   strands a gaze-only user until a caregiver arrives, so the policy is log-and-continue
-        //   under a budget: more than DispatcherFaultBudgetCount dispatcher faults per minute is
-        //   a hard-looping UI, and dying (relaunchable) beats an app that wedges input invisibly.
+        //   under a budget (RollingFaultBudget: 10 faults / 60s) — a hard-looping UI, and dying
+        //   (relaunchable) beats an app that wedges input invisibly.
         // In BOTH death cases the held drag button is released first — a SendInput button-down
         // outlives the process.
         DispatcherUnhandledException += (_, args) =>

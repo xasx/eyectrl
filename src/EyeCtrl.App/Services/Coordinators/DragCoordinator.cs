@@ -175,6 +175,11 @@ internal sealed class DragCoordinator : CoordinatorBase
             // A FAILED send leaves the release outstanding, not done: restore the claim so the
             // next release path (OnDispose is the retry) still fires — the guarantee the
             // dispose/cancel/drop ordering tests pin.
+            // Residual window (round-2 nit 3, documented): between the Exchange above and this
+            // restore, the flag reads 0 — a concurrent fatal-exit release landing there returns
+            // having done nothing, and the process dies with the button held. Reachable only if
+            // MouseUp THROWS: the shipped Win32InputSimulator cannot (SendRaw logs shortfalls
+            // instead of throwing); the only thrower is the tests' ThrowOnFirstReleaseSimulator.
             Volatile.Write(ref _osButtonHeld, 1);
             throw;
         }

@@ -386,6 +386,65 @@ public class KeyboardGateProbeTests
         finally { probe.Dispose(); }
     }
 
+    /// <summary>
+    /// Hiding while the emoji grid is up must reopen in the letters layout with the prediction bar
+    /// back. This is a WINDOW test, not a VM test on purpose: the VM's reset is correct on its own,
+    /// but the window only reacts to property changes, and while emoji mode held the surface
+    /// <c>ActiveSubLayoutId</c> already points at the underlying sublayout — so resetting it is a
+    /// no-op and nothing else rebuilds the text grid. The VM/View seam hiding a state has produced
+    /// three defects in this ticket set (the gate, T1's latch, this); a VM-only assertion cannot
+    /// see any of them.
+    /// </summary>
+    [StaFact]
+    public void HideInEmojiMode_ReopensInTheLettersLayout()
+    {
+        var probe = Open(ShippedQwerty(), 2.0, emojiJsonPath: ShippedEmojiJson());
+        try
+        {
+            long ts = 1_000;
+            DwellOn(probe, "switchEmoji", ref ts);
+            Check.WithCustomMessage(
+                    "Dwelling 'switchEmoji' did not enter emoji mode — the rest of this test would "
+                    + "assert a transition that never happened.")
+                .That(probe.Vm.IsEmojiMode).IsTrue();
+
+            // The production hide/show path: the coordinator sends the messages, the VM's
+            // properties change, and the window must mirror them. The VM must first be OPEN —
+            // it starts hidden, and a set to the value a property already holds is a no-op, so a
+            // bare `IsVisible = false` here would never reach the reset.
+            probe.Vm.IsVisible = true;
+            probe.Vm.IsVisible = false;
+            probe.Vm.IsVisible = true;
+
+            Check.That(probe.Vm.IsEmojiMode).IsFalse();
+            Check.That(probe.Vm.ActiveSubLayoutId).IsEqualTo("letters");
+
+            // The window's surface must have followed: text keys re-registered, emoji grid gone,
+            // prediction bar visible again.
+            probe.Content.UpdateLayout();
+            probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
+            var centres = Centres(probe.Window);
+            Check.WithCustomMessage(
+                    "The window still shows the emoji surface after a hide in emoji mode: the letters "
+                    + "layout's escape key is absent while the emoji grid's ABC key is still a live "
+                    + "target. The VM says text mode, so UpdateGaze would run the prediction branch "
+                    + "over emoji visuals.")
+                .That(centres.ContainsKey("switchSub:numbers")).IsTrue();
+            Check.WithCustomMessage("The emoji grid's ABC key is still registered as a dwell target.")
+                .That(centres.ContainsKey("special_switchText")).IsFalse();
+            Check.WithCustomMessage(
+                    "The prediction bar stayed collapsed after leaving emoji mode, so the keyboard "
+                    + "reopens missing its only editing affordance.")
+                .That(PredictionBarVisibility(probe.Window)).IsEqualTo(Visibility.Visible);
+        }
+        finally { probe.Dispose(); }
+    }
+
+    private static Visibility PredictionBarVisibility(KeyboardWindow w) =>
+        ((FrameworkElement)typeof(KeyboardWindow)
+            .GetField("PredictionBar", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(w)!).Visibility;
+
     /// <summary>Out to <paramref name="targetSubLayoutId"/>, then back to letters.</summary>
     private static void RoundTrip(Probe probe, string outKeyId, string targetSubLayoutId, ref long ts)
     {

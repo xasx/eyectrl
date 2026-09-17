@@ -59,7 +59,14 @@ public class KeyboardGapCreditTests
             .That(fired).IsEmpty();
     }
 
-    /// <summary>Nothing resets the tracker on hide, so the hidden interval is credited on reopen.</summary>
+    /// <summary>
+    /// The hidden interval is credited on reopen under a tracker that keeps its state — pinned as
+    /// the CLAMP's own probe: the VM starts hidden, so <c>IsVisible = false</c> below is a no-op
+    /// and this test never triggers the hide reset (it is a clamp test wearing a reset test's
+    /// name). The reset is proven separately by
+    /// <c>KeyboardHideResetTests.Hide_DiscardsAccumulatedDwell_EvenWhenTheHiddenIntervalIsUnderTheGapClamp</c>,
+    /// whose hidden interval is shorter than the clamp, so only the reset can pass it.
+    /// </summary>
     [Fact]
     public void HiddenInterval_DoesNotActivateAKeyOnReopen()
     {
@@ -103,5 +110,41 @@ public class KeyboardGapCreditTests
                 + $"{firedBeforeClamp}, which is what made a blink indistinguishable from a dwell; "
                 + "after it, no gap may fire at any length.")
             .That(fired.Count > 0).IsFalse();
+    }
+
+    /// <summary>
+    /// Pins WHERE the clamp starts, not just that it exists: the comparison is strictly
+    /// greater-than, so a 150 ms step (the bound) still credits and completes a pre-accumulated
+    /// dwell, while 151 ms restarts it. No other row distinguishes <c>&gt;</c> from <c>&gt;=</c> —
+    /// the cooldown test's 600→750 ms step is exactly 150 and would pass under either. 150 is
+    /// <c>MaxContinuousSampleGapUs</c> expressed in milliseconds, kept as a literal so this pin
+    /// fails loudly if the bound moves.
+    /// </summary>
+    [Theory]
+    [InlineData(150, true)]
+    [InlineData(151, false)]
+    public void GapBoundary_IsStrictlyGreaterThan(int gapMs, bool fires)
+    {
+        const int dwellMs = 500;
+        var fired = new List<string>();
+        var vm = new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        vm.KeyDwellCompleted += fired.Add;
+        vm.Configure(keyDwellMs: dwellMs, cooldownMs: 400);
+
+        // 400 ms of held gaze, every step well inside the bound so the accumulation is clean.
+        vm.ProcessKeyGaze(OneKey, new PhysicalPoint(100, 100), true, 0);
+        for (long t = 50_000; t <= 400_000; t += 50_000)
+            vm.ProcessKeyGaze(OneKey, new PhysicalPoint(100, 100), true, t);
+        Check.WithCustomMessage(
+                "Pre-accumulation fired on its own — the boundary row would be vacuous.")
+            .That(fired).IsEmpty();
+
+        vm.ProcessKeyGaze(OneKey, new PhysicalPoint(100, 100), true, 400_000 + (gapMs * 1000L));
+
+        Check.WithCustomMessage(
+                $"gap={gapMs} ms after 400 ms of held gaze against a {dwellMs} ms dwell. The clamp is "
+                + "strictly greater-than, so 150 ms (the bound) still credits to 550 ms and fires, and "
+                + "151 ms restarts instead. Only this pair distinguishes > from >=.")
+            .That(fired.Count > 0).IsEqualTo(fires);
     }
 }

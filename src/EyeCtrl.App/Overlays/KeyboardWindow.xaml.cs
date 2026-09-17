@@ -129,11 +129,10 @@ public partial class KeyboardWindow : OverlayWindow
             ClearKeyState,
             _sink,
             _dwellRegistry);
-        _emojiManager.ExitRequested += () =>
-        {
-            _viewModel.IsEmojiMode = false;
-            ExitEmojiMode();
-        };
+        // The flag reaction in OnViewModelPropertyChanged owns the exit, so the ABC key and a hide
+        // (which resets the flag) flow through the same path. Calling ExitEmojiMode() here as well
+        // would rebuild the text grid twice.
+        _emojiManager.ExitRequested += () => _viewModel.IsEmojiMode = false;
         _emojiManager.SkinToneChanged += tone => SkinToneChanged?.Invoke(tone);
     }
 
@@ -306,6 +305,16 @@ public partial class KeyboardWindow : OverlayWindow
                 break;
             case nameof(KeyboardViewModel.ActiveSubLayoutId):
                 RebuildKeys();
+                break;
+            case nameof(KeyboardViewModel.IsEmojiMode):
+                // The flag can change WITHOUT an activation: hiding resets it (T1b), and
+                // ActiveSubLayoutId's own reset is frequently a no-op while emoji mode held the
+                // underlying sublayout — so without this case nothing rebuilds the text grid and
+                // the window sits on the emoji surface while the VM reports text mode. The window
+                // owns the emoji surface, so it mirrors the flag. The CategoryBar check keeps this
+                // a no-op in text mode, where ExitEmojiMode would rebuild an already-text grid.
+                if (_viewModel?.IsEmojiMode == false && CategoryBar.Visibility == Visibility.Visible)
+                    ExitEmojiMode();
                 break;
         }
     }

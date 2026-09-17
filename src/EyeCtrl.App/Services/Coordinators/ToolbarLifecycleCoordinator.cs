@@ -123,7 +123,11 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
                 // the whole gap. The actual bound is the credited-elapsed clamp in
                 // KeyboardViewModel.ProcessKeyGaze (MaxContinuousSampleGapUs). Do not remove the clamp on
                 // this gate's authority: this comment once claimed the gate stopped blink typing, and F3
-                // is what that false claim cost. The toolbar and settings routes above are geometry-only
+                // is what that false claim cost. Do not remove the GATE on the clamp's authority either:
+                // held samples fed at tracker cadence stay under MaxContinuousSampleGapUs and would
+                // re-credit a blink as dwell — the gate creates the silence, the clamp interprets it, and
+                // each looks removable while the other holds. The toolbar and settings routes above are
+                // geometry-only
                 // (target placement) and are fed regardless. Paused samples are skipped for the same
                 // reason: input must not leave EyeCtrl while the user believes pause released it.
                 if (ShouldFeedKeyboardSample(keyboardGated, _modal.KeyboardVisible, keyboard.IsVisible, frame.IsInGap))

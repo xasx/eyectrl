@@ -43,10 +43,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     ///
     /// <para>
     /// Known residual: the bound is larger than
-    /// <c>AdaptationDwellRanges.KeyboardMinDwellMs</c> (100 ms), so at the minimum key dwell a
-    /// 100–150 ms stall would still be credited and could fire. Accepted, and recorded so it is
-    /// not rediscovered as a bug: no shipped configuration uses a 100 ms key dwell (the default
-    /// is 450 ms; every other surface dwells 600–700 ms), and lowering the bound to 100 ms would
+    /// <c>AdaptationDwellRanges.KeyboardMinDwellMs</c> (100 ms), the minimum a configuration may
+    /// select, so at a minimum-dwell setting a 100–150 ms stall would still be credited and could
+    /// fire. Accepted, and recorded so it is not rediscovered as a bug: the default key dwell is
+    /// 450 ms and every other surface dwells 600–700 ms, while lowering the bound to 100 ms would
     /// restart ordinary dwells on a single dropped frame at 30 Hz.
     /// </para>
     /// </summary>

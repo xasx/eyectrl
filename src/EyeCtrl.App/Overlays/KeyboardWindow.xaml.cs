@@ -283,7 +283,9 @@ public partial class KeyboardWindow : OverlayWindow
             _predictionDwellDetector.Update(screenPoint, timestampMicroseconds);
         }
 
-        _viewModel.ProcessKeyGaze(_keyScreenPositions, screenPoint, IsGazeInsideKeyArea(screenPoint), timestampMicroseconds);
+        _viewModel.ProcessKeyGaze(_keyScreenPositions, screenPoint,
+            TryGetKeyRowsScreenRect(out var keyArea) && keyArea.Contains(screenPoint.X, screenPoint.Y),
+            timestampMicroseconds);
     }
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -434,18 +436,36 @@ public partial class KeyboardWindow : OverlayWindow
     }
 
     /// <summary>
-    /// Check if gaze is inside the key grid area (KeyRows panel), NOT the full window.
-    /// This prevents the nearest-key algorithm from conflicting with prediction bar
-    /// and category bar dwell targets at the top of the window.
+    /// The key grid's on-screen rectangle (KeyRows panel), NOT the full window — this is what
+    /// keeps the nearest-key algorithm from conflicting with prediction-bar and category-bar
+    /// dwell targets at the top of the window.
+    ///
+    /// <para>
+    /// BOTH corners go through <see cref="UIElement.PointToScreen"/>, so the rectangle comes out
+    /// in physical pixels even though the extents handed to the second corner are DIPs. Those DIP
+    /// extents must never be ADDED to a <c>PointToScreen</c> result: that mixed-unit
+    /// rectangle was the key-grid defect — at the user's 200% scale it accepted only the grid's
+    /// top-left quadrant, leaving 30 of the 40 shipped qwerty keys (and every sub-layout escape
+    /// key) unreachable. <c>DpiHelper</c> does not drive <c>PointToScreen</c>; the visual tree's
+    /// own transform does, so no manual scaling belongs here. Precedent for the two-corner shape:
+    /// <c>EyeCtrl.Sdk.Wpf/WpfElementAdapter.TryGetScreenRect</c>.
+    /// </para>
+    ///
+    /// <para>
+    /// False when the element is not rendered (or not in a live presentation source) — the same
+    /// condition the previous single-corner form swallowed via its catch — never a partial rect.
+    /// </para>
     /// </summary>
-    private bool IsGazeInsideKeyArea(PhysicalPoint gazePoint)
+    private bool TryGetKeyRowsScreenRect(out PhysicalRect rect)
     {
+        rect = default;
         try
         {
-            if (KeyRows.ActualHeight <= 0) return false;
+            if (KeyRows.ActualWidth <= 0 || KeyRows.ActualHeight <= 0) return false;
             var topLeft = KeyRows.PointToScreen(new Point(0, 0));
-            return gazePoint.X >= topLeft.X && gazePoint.X <= topLeft.X + KeyRows.ActualWidth
-                && gazePoint.Y >= topLeft.Y && gazePoint.Y <= topLeft.Y + KeyRows.ActualHeight;
+            var bottomRight = KeyRows.PointToScreen(new Point(KeyRows.ActualWidth, KeyRows.ActualHeight));
+            rect = new PhysicalRect(topLeft.X, topLeft.Y, bottomRight.X - topLeft.X, bottomRight.Y - topLeft.Y);
+            return true;
         }
         catch (InvalidOperationException)
         {

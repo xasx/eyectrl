@@ -176,6 +176,14 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
         {
             ManualSelectionOverlay.UpdateCenter(Context.ManualSelectionVM.Center, Context.ManualSelectionVM.Radius, Context.ManualSelectionVM.Magnification);
         }
+        else if (e.PropertyName == nameof(ManualSelectionOverlayViewModel.RecaptureVersion) && Context.ManualSelectionVM.IsVisible)
+        {
+            // Same call as a Center change, but keyed off the version counter instead of Center's
+            // own equality check: a recapture must refresh the screenshot even when Center/Radius/
+            // Magnification are all unchanged from the last capture (the normal case — the view
+            // stays put; only the content underneath is refreshed).
+            ManualSelectionOverlay.UpdateCenter(Context.ManualSelectionVM.Center, Context.ManualSelectionVM.Radius, Context.ManualSelectionVM.Magnification);
+        }
         else if (e.PropertyName == nameof(ManualSelectionOverlayViewModel.IsVisible))
         {
             if (Context.ManualSelectionVM.IsVisible)
@@ -183,6 +191,13 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 cursorCircle.Hide();
                 activationButton.HideImmediate();
                 ShowBackdropIfEnabled();
+                // The magnifier is the one view that currently renders no textual sign that ESC
+                // works — the ring it can dwell into already carries labelled Close/Help buttons.
+                // Not mirrored at the action-menu backdrop call site: OnManualSelectionDwell hides
+                // this VM (IsVisible -> false, running the else-branch's HideBackdrop below) before
+                // the ring's own ShowBackdropIfEnabled call re-shows the window, so the hint
+                // correctly turns off rather than needing a second toggle there.
+                _glassBackdrop?.ShowEscapeHint();
                 ManualSelectionOverlay.Show(Context.ManualSelectionVM.Center, Context.ManualSelectionVM.Radius, Context.ManualSelectionVM.Magnification, Context.ManualSelectionVM.GazePoint, Context.ManualSelectionVM.Recapture);
                 ManualSelectionIndicator.Show();
                 // Keep the gaze dot above the opaque magnifier: the Show() above is a no-op if the
@@ -213,6 +228,14 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
             case nameof(ManualSelectionGazeIndicatorViewModel.OuterCircleDiameter):
                 ManualSelectionIndicator.UpdateOuterDiameter(Context.ManualSelectionIndicatorVM.OuterCircleDiameter);
                 break;
+            case nameof(ManualSelectionGazeIndicatorViewModel.AnchorX):
+            case nameof(ManualSelectionGazeIndicatorViewModel.AnchorY):
+            case nameof(ManualSelectionGazeIndicatorViewModel.IsAnchorVisible):
+                ManualSelectionIndicator.UpdateAnchor(
+                    Context.ManualSelectionIndicatorVM.AnchorX,
+                    Context.ManualSelectionIndicatorVM.AnchorY,
+                    Context.ManualSelectionIndicatorVM.IsAnchorVisible);
+                break;
             case nameof(ManualSelectionGazeIndicatorViewModel.IsVisible):
                 if (Context.ManualSelectionIndicatorVM.IsVisible) ManualSelectionIndicator.Show();
                 else ManualSelectionIndicator.Hide();
@@ -230,20 +253,8 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
             {
                 var anchor = ScreenGeometry.RightEdgeAnchor(RightEdgeInsetLogical, UIConstants.ButtonRadius);
                 var dwell = Context.Settings.Dwell.ManualSelectionSideButtonDwellMs;
-                // Match the former side-button layout: full-size buttons (UIConstants.ButtonRadius)
-                // separated so their edges are ManualSelectionSideButtonGap apart, centred on the anchor.
-                var radius = UIConstants.ButtonRadius;
-                var offset = DpiHelper.LogicalToPhysicalY(radius + UIConstants.ManualSelectionSideButtonGap / 2);
-                var defs = new[]
-                {
-                    new EdgeButtonDefinition("ManualSelection_close", "\u2715", dwell,
-                        m => m.Send(new ManualSelectionCloseMessage()), VerticalOffset: -offset,
-                        RadiusLogical: radius),
-                    new EdgeButtonDefinition("ManualSelection_recapture", "\u21BB", dwell,
-                        m => m.Send(new ManualSelectionRecaptureMessage()), VerticalOffset: offset,
-                        RadiusLogical: radius),
-                };
-                Context.OverlayManager.EdgeButtonBar.ShowButtons(defs, anchor);
+                Context.OverlayManager.EdgeButtonBar.ShowButtons(
+                    ManualSelectionEdgeButtons.Definitions(dwell), anchor);
             }
             else
             {

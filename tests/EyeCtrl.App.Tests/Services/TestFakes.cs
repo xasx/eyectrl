@@ -168,22 +168,107 @@ internal static class TestFakes
     internal static IOverlayManager MakeOverlayManager(
         IEdgeButtonBar? edgeButtonBar = null,
         IToolbarOverlay? toolbar = null,
-        IPauseIndicatorOverlay? pauseIndicator = null)
-        => new PartialOverlayManager(edgeButtonBar, toolbar, pauseIndicator);
+        IPauseIndicatorOverlay? pauseIndicator = null,
+        IManualSelectionOverlay? manualSelection = null,
+        IManualSelectionIndicatorOverlay? manualSelectionIndicator = null,
+        ICursorCircleOverlay? cursorCircle = null,
+        IActivationButtonOverlay? activationButton = null,
+        IGlassBackdropOverlay? glassBackdrop = null)
+        => new PartialOverlayManager(
+            edgeButtonBar, toolbar, pauseIndicator, manualSelection, manualSelectionIndicator,
+            cursorCircle, activationButton, glassBackdrop);
+
+    /// <summary>No-op cursor circle: records nothing, just satisfies the interface.</summary>
+    internal sealed class FakeCursorCircleOverlay : ICursorCircleOverlay
+    {
+        public void Show() { }
+        public void Hide() { }
+        public void UpdatePosition(PhysicalPoint point) { }
+        public void UpdateAppearance(CursorSettings settings) { }
+    }
+
+    /// <summary>No-op activation button: records nothing, just satisfies the interface.</summary>
+    internal sealed class FakeActivationButtonOverlay : IActivationButtonOverlay
+    {
+        public void Show() { }
+        public void ShowAt(PhysicalPoint position, double offset) { }
+        public void Hide() { }
+        public void HideImmediate() { }
+        public void UpdateDwellProgress(double progress) { }
+    }
+
+    /// <summary>Records escape-hint show/hide calls so a coordinator test can assert on them
+    /// without constructing a real WPF window.</summary>
+    internal sealed class FakeGlassBackdropOverlay : IGlassBackdropOverlay
+    {
+        public bool EscapeHintVisible { get; private set; }
+        public List<string> Calls { get; } = new();
+
+        public void Show() => Calls.Add("Show");
+
+        // Mirrors GlassBackdropWindow.Hide(), which also collapses the hint so it never carries
+        // over into an unrelated later use of the window.
+        public void Hide() { EscapeHintVisible = false; Calls.Add("Hide"); }
+
+        public void ApplyBackdrop(BackdropSettings settings) => Calls.Add("ApplyBackdrop");
+        public void DrawHideButton(PhysicalPoint buttonCenter, double progress = 0) => Calls.Add("DrawHideButton");
+        public void UpdateHideButtonProgress(double progress) => Calls.Add("UpdateHideButtonProgress");
+        public void ShowEscapeHint() { EscapeHintVisible = true; Calls.Add("ShowEscapeHint"); }
+        public void HideEscapeHint() { EscapeHintVisible = false; Calls.Add("HideEscapeHint"); }
+    }
+
+    /// <summary>No-op magnifier: satisfies coordinator tests that never let a handler reach it.</summary>
+    internal sealed class FakeManualSelectionOverlay : IManualSelectionOverlay
+    {
+        public void Show(PhysicalPoint center, int radius, double magnification,
+            PhysicalPoint? gazePoint = null, bool recapture = true) { }
+        public void UpdateCenter(PhysicalPoint center, int radius, double magnification,
+            PhysicalPoint? gazePoint = null, bool recapture = true) { }
+        public void Hide() { }
+        public PhysicalPoint GetRealPhysicalPoint(PhysicalPoint gazeOnScreen) => gazeOnScreen;
+
+        // Integration stub. Throw rather than return default: (0,0) is a plausible-looking
+        // coordinate, and this repo has been bitten by a real value that silently read as zero.
+        public PhysicalPoint EffectiveCaptureCenter =>
+            throw new NotImplementedException("this fake does not exercise the capture centre");
+    }
+
+    /// <summary>No-op gaze dot.</summary>
+    internal sealed class FakeManualSelectionIndicatorOverlay : IManualSelectionIndicatorOverlay
+    {
+        public bool IsVisible => false;
+        public void Show() { }
+        public void Hide() { }
+        public void UpdatePosition(double screenX, double screenY) { }
+        public void UpdateOuterDiameter(double diameter) { }
+        public void AnimateReset(double targetDiameter, int durationMs) { }
+        public void RaiseToTop() { }
+        public void UpdateAnchor(double screenX, double screenY, bool visible) { }
+    }
 
     private sealed class PartialOverlayManager : IOverlayManager
     {
         private readonly IEdgeButtonBar? _bar;
         private readonly IToolbarOverlay? _toolbar;
         private readonly IPauseIndicatorOverlay? _pauseIndicator;
+        private readonly IManualSelectionOverlay? _manualSelection;
+        private readonly IManualSelectionIndicatorOverlay? _manualSelectionIndicator;
+        private readonly ICursorCircleOverlay? _cursorCircle;
+        private readonly IActivationButtonOverlay? _activationButton;
+        private readonly IGlassBackdropOverlay? _glassBackdrop;
 
         public IModesMenuOverlay ModesMenu => throw new NotImplementedException();
         public IRepeatCursorOverlay RepeatCursor => throw new NotImplementedException();
 
         public PartialOverlayManager(IEdgeButtonBar? bar, IToolbarOverlay? toolbar,
-            IPauseIndicatorOverlay? pauseIndicator)
+            IPauseIndicatorOverlay? pauseIndicator, IManualSelectionOverlay? manualSelection,
+            IManualSelectionIndicatorOverlay? manualSelectionIndicator,
+            ICursorCircleOverlay? cursorCircle = null, IActivationButtonOverlay? activationButton = null,
+            IGlassBackdropOverlay? glassBackdrop = null)
         {
             _bar = bar; _toolbar = toolbar; _pauseIndicator = pauseIndicator;
+            _manualSelection = manualSelection; _manualSelectionIndicator = manualSelectionIndicator;
+            _cursorCircle = cursorCircle; _activationButton = activationButton; _glassBackdrop = glassBackdrop;
         }
 
         public IEdgeButtonBar EdgeButtonBar =>
@@ -195,13 +280,18 @@ internal static class TestFakes
         public IPauseIndicatorOverlay PauseIndicator =>
             _pauseIndicator ?? throw new NotImplementedException("test supplied no pause indicator");
 
-        public ICursorCircleOverlay CursorCircle => throw new NotImplementedException();
-        public IActivationButtonOverlay ActivationButton => throw new NotImplementedException();
-        public IManualSelectionOverlay ManualSelectionOverlay => throw new NotImplementedException();
+        public ICursorCircleOverlay CursorCircle =>
+            _cursorCircle ?? throw new NotImplementedException("test supplied no cursor circle");
+        public IActivationButtonOverlay ActivationButton =>
+            _activationButton ?? throw new NotImplementedException("test supplied no activation button");
+        public IManualSelectionOverlay ManualSelectionOverlay =>
+            _manualSelection ?? throw new NotImplementedException("test supplied no manual-selection overlay");
         public IActionMenuOverlay ActionMenu => throw new NotImplementedException();
         public KeyboardWindow Keyboard => throw new NotImplementedException();
-        public IManualSelectionIndicatorOverlay ManualSelectionIndicator => throw new NotImplementedException();
-        public IGlassBackdropOverlay GlassBackdrop => throw new NotImplementedException();
+        public IManualSelectionIndicatorOverlay ManualSelectionIndicator =>
+            _manualSelectionIndicator ?? throw new NotImplementedException("test supplied no manual-selection indicator");
+        public IGlassBackdropOverlay GlassBackdrop =>
+            _glassBackdrop ?? throw new NotImplementedException("test supplied no glass backdrop");
         public ICalibrationOverlay Calibration => throw new NotImplementedException();
         public ITargetHighlightOverlay TargetHighlight => throw new NotImplementedException();
         public ITrackStatusOverlay TrackStatus => throw new NotImplementedException();

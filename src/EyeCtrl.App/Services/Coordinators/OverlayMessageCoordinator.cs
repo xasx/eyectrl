@@ -10,11 +10,12 @@ using Serilog;
 
 /// <summary>
 /// Owns the message-driven half of <see cref="EventCoordinator"/>'s overlay surface: the
-/// ManualSelection/action-menu/backdrop-dismiss/calibration message registrations. Extracted from
-/// the former <c>OverlayBindingCoordinator</c> as part of the sub-coordinator decomposition
-/// (cluster 1), split along the stimulus axis in T10 — the property-change-driven half lives in
-/// <see cref="OverlayVmBindingCoordinator"/>. Reaches back into that sibling for the one cross-side
-/// seam (<c>_vmBinding.HideBackdrop()</c>) since the backdrop window is owned there.
+/// ManualSelection/action-menu/backdrop-dismiss/calibration message registrations, plus the
+/// global ESC-hatch subscription that leaves manual selection (the one fully modal view).
+/// Extracted from the former <c>OverlayBindingCoordinator</c> as part of the sub-coordinator
+/// decomposition (cluster 1), split along the stimulus axis in T10 — the property-change-driven
+/// half lives in <see cref="OverlayVmBindingCoordinator"/>. Reaches back into that sibling for the
+/// one cross-side seam (<c>_vmBinding.HideBackdrop()</c>) since the backdrop window is owned there.
 /// </summary>
 internal sealed class OverlayMessageCoordinator : CoordinatorBase
 {
@@ -39,6 +40,11 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
     protected override void OnInitialize()
     {
         SetupMessageHandlers();
+
+        // The global ESC hatch. Manual selection is the one fully modal view, so the caregiver's
+        // gaze-independent interrupt has to reach it — the hatch sees keystrokes system-wide,
+        // even while a third-party app holds the foreground.
+        Context!.EscapeHatch.EscapePressed += OnEscapePressed;
     }
 
     private void SetupMessageHandlers()
@@ -85,18 +91,21 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
         Context.Messenger.Register<OverlayMessageCoordinator, ManualSelectionCloseMessage>(this, (_, _) =>
             Context.Dispatcher.BeginInvoke(() => im.OnManualSelectionBack()));
 
-        // ManualSelectionRecaptureMessage -> re-capture at same fixation point
+        // ManualSelectionRecaptureMessage -> re-capture at the existing view geometry. Deliberately
+        // does NOT resend StartManualSelectionMessage: that re-derives Center from FixationPoint,
+        // which teleports the magnifier away from wherever ViewPosition placed it and bypasses
+        // ManualSelectionLayoutHelper.CalculateDisplayPoint. RequestRecapture bumps a version
+        // counter instead (the RingVersion idiom), so OverlayVmBindingCoordinator refreshes the
+        // screenshot in place even though Center/Radius/Magnification never change here. Also no
+        // longer calls HideBackdrop(): the backdrop window already excludes itself from capture
+        // (GlassBackdropWindow.xaml.cs), so hiding it was never load-bearing — only cost the user
+        // one of their three exits from the modal view.
         Context.Messenger.Register<OverlayMessageCoordinator, ManualSelectionRecaptureMessage>(this, (_, _) =>
             Context.Dispatcher.BeginInvoke(() =>
             {
-                if (im.CurrentState == InteractionState.ManualSelectionActive && im.FixationPoint != null)
+                if (im.CurrentState == InteractionState.ManualSelectionActive)
                 {
-                    _vmBinding.HideBackdrop();
-                    Context.Messenger.Send(new StartManualSelectionMessage(
-                        im.FixationPoint.Value,
-                        Context.Settings.ManualSelection.CircleRadiusPixels,
-                        Context.Settings.ManualSelection.MagnificationLevel,
-                        im.FixationPoint.Value));
+                    Context.ManualSelectionVM.RequestRecapture();
                 }
             }));
 
@@ -255,4 +264,55 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
             }));
     }
 
+    /// <summary>
+    /// Pool thread (global hatch): ESC pressed anywhere in the system leaves manual selection, the
+    /// action menu, or gaze-driven scroll mode — the only way out of any of them that does not
+    /// consume the user's gaze. Marshaled to the UI thread BEFORE the state read and the exit
+    /// call: the hatch fires on its own hook thread, and every exit path raises events whose
+    /// handlers touch overlay windows (the drag/repeat hatch handlers' pattern). The state guard
+    /// lives INSIDE the dispatched action so it decides from the state at execution time, not at
+    /// key time.
+    ///
+    /// Dragging and RepeatMode are deliberately NOT handled here: <see cref="DragCoordinator"/>
+    /// and <see cref="RepeatModeController"/> already subscribe to
+    /// <c>EscapeHatch.EscapePressed</c> directly and guard on their own state, so adding branches
+    /// for them here would double-handle the same key press.
+    /// </summary>
+    private void OnEscapePressed()
+    {
+        var context = Context;
+        if (context is null) return;
+        context.Dispatcher.BeginInvoke(() =>
+        {
+            var im = context.InteractionManager;
+            if (im.CurrentState == InteractionState.ManualSelectionActive)
+            {
+                im.OnManualSelectionBack();
+            }
+            else if (im.CurrentState is InteractionState.ManualSelectionActionMenuVisible
+                                      or InteractionState.ActionMenuVisible)
+            {
+                // Deliberately the full exit, not the menu's Back step: stepping back would leave
+                // the user inside the modal magnifier, so ESC would have interrupted only halfway.
+                // OnActionMenuDismissed is the state machine's own "way out from either state"
+                // (the right-edge Close path) and tears the magnifier down too. Widened from
+                // ManualSelectionActionMenuVisible alone to also cover the plain action menu:
+                // OnActionMenuDismissed already guards both states internally, and ESC dismissing
+                // the plain menu is the same "way out" story as the manual one.
+                im.OnActionMenuDismissed();
+            }
+            else if (im.CurrentState == InteractionState.ScrollMode)
+            {
+                // Gaze-driven scrolling: a caregiver cannot stop it without the user's gaze,
+                // exactly the argument the two branches above are built on.
+                im.ExitScrollMode();
+            }
+        });
+    }
+
+    protected override void OnDispose()
+    {
+        if (Context is null) return;
+        Context.EscapeHatch.EscapePressed -= OnEscapePressed;
+    }
 }

@@ -100,6 +100,13 @@ public interface IManualSelectionOverlay
 
     /// <summary>Maps a point on the magnified view back to the real screen coordinate.</summary>
     PhysicalPoint GetRealPhysicalPoint(PhysicalPoint gazeOnScreen);
+
+    /// <summary>
+    /// The centre, in physical pixels, of the capture currently displayed. The capture rectangle is
+    /// clamped to the screen, so near an edge this is not the centre that was requested; every
+    /// mapping between the magnified view and real screen coordinates reads this value.
+    /// </summary>
+    PhysicalPoint EffectiveCaptureCenter { get; }
 }
 
 /// <summary>The radial action menu.</summary>
@@ -146,6 +153,12 @@ public interface IToolbarOverlay
     /// <summary>True when visible AND not in the middle of sliding away.</summary>
     bool IsOnScreen { get; }
 
+    /// <summary>The toolbar's on-screen thickness in DIP (its window height) — the extent the
+    /// keyboard yields by when both sit at the same edge (KeyboardCoordinator's occupancy
+    /// mapping). Intent-level like the slide members: the seam speaks DIP because both
+    /// surfaces position in DIP, so callers must not feed it the physical-px rect.</summary>
+    double ExtentDip { get; }
+
     /// <summary>Shows the toolbar already in its resting position, with no animation.</summary>
     void ShowAtRest();
 
@@ -186,6 +199,13 @@ public interface IManualSelectionIndicatorOverlay
     void UpdateOuterDiameter(double diameter);
     void AnimateReset(double targetDiameter, int durationMs);
     void RaiseToTop();
+
+    /// <summary>
+    /// Sets the held dwell anchor's mark. The anchor is a fixed screen point (the dot moves, the
+    /// anchor does not), so it is drawn in the same window as the dot but offset from it; callers
+    /// pass <paramref name="visible"/> false to release the mark.
+    /// </summary>
+    void UpdateAnchor(double screenX, double screenY, bool visible);
 }
 
 /// <summary>The dimming backdrop behind modal overlays.</summary>
@@ -196,6 +216,12 @@ public interface IGlassBackdropOverlay
     void ApplyBackdrop(BackdropSettings settings);
     void DrawHideButton(PhysicalPoint buttonCenter, double progress = 0);
     void UpdateHideButtonProgress(double progress);
+
+    /// <summary>Shows the "Press Esc to exit" hint — the caregiver-facing signage for manual selection.</summary>
+    void ShowEscapeHint();
+
+    /// <summary>Hides the escape hint.</summary>
+    void HideEscapeHint();
 }
 
 /// <summary>The calibration surface.</summary>

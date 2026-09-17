@@ -31,6 +31,7 @@ public class HaloZOrderTests
         ("src/EyeCtrl.App/Overlays/ActivationButtonWindow.xaml", "ProgressArcHalo", "ProgressArc"),
         ("src/EyeCtrl.App/Overlays/ManualSelectionGazeIndicatorWindow.xaml", "OuterCircleHalo", "OuterCircle"),
         ("src/EyeCtrl.App/Overlays/ManualSelectionGazeIndicatorWindow.xaml", "CenterDotHalo", "CenterDot"),
+        ("src/EyeCtrl.App/Overlays/ManualSelectionGazeIndicatorWindow.xaml", "AnchorMarkHalo", "AnchorMark"),
         ("src/EyeCtrl.App/Overlays/ScrollOverlayWindow.xaml", "VelocityRingHalo", "VelocityRing"),
         ("src/EyeCtrl.App/Overlays/CueOverlayWindow.xaml", "BadgeHalo", "Badge"),
         ("src/EyeCtrl.App/Overlays/ManualSelectionOverlayWindow.xaml", "RimHalo", "Rim"),

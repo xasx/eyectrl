@@ -17,9 +17,24 @@ public partial class ManualSelectionOverlayViewModel : DwellOverlayViewModelBase
     [ObservableProperty] private double _magnification;
     [ObservableProperty] private PhysicalPoint _gazePoint = new(0, 0);
 
+    /// <summary>
+    /// Bumped on every recapture request. The magnifier's screenshot refresh keys off this
+    /// property rather than <see cref="Center"/>: a recapture deliberately leaves Center/Radius/
+    /// Magnification unchanged (the view stays wherever it was placed), so [ObservableProperty]'s
+    /// equal-value short-circuit would otherwise swallow every recapture after the first. Same
+    /// idiom as <c>ActionMenuViewModel.RingVersion</c>.
+    /// </summary>
+    [ObservableProperty] private int _recaptureVersion;
+
     /// <summary>Whether the next show should capture a fresh screenshot (true) or reuse the existing
     /// one (false, e.g. navigating back from the action menu). Set before <see cref="IsVisible"/>.</summary>
     public bool Recapture { get; private set; } = true;
+
+    /// <summary>
+    /// Requested by the recapture edge button. Bumps <see cref="RecaptureVersion"/> so the bound
+    /// window re-captures at the existing geometry without moving.
+    /// </summary>
+    public void RequestRecapture() => RecaptureVersion++;
 
     public ManualSelectionOverlayViewModel(EyeCtrlSettings settings, IMessenger messenger,
         IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)

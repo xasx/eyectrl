@@ -145,6 +145,7 @@ public class SettingsService
             // hand-edited file holding an out-of-range value must clamp, not trip the whole-file
             // default below — the file-wipe path punishes exactly the hand-editors the UI serves.
             ClampGazeIndicator(settings.ManualSelection);
+            ClampManualSelectionTargeting(settings.ManualSelection);
             ClampCursorFilter(settings.Cursor);
             SanitizeLanguagePack(settings.Keyboard);
 
@@ -184,6 +185,25 @@ public class SettingsService
             || ms.GazeIndicatorResetAnimationMs != anim)
         {
             _logger?.LogInformation("Clamped out-of-range gaze-indicator settings to their valid ranges.");
+        }
+    }
+
+    // The commit-rule settings landed unguarded-by-setter, like the gaze-indicator visuals, so a
+    // hand-edited file must clamp rather than trip the whole-file default. StabilityWindowSize is
+    // additionally lifted to StabilitySampleCount: K > M would make stability onset impossible and
+    // manual selection would silently stop activating.
+    private void ClampManualSelectionTargeting(ManualSelectionSettings ms)
+    {
+        var (hold, k, m, skip) = (
+            ms.HoldRadiusLogical, ms.StabilitySampleCount, ms.StabilityWindowSize, ms.HoldOutlierSkipLimit);
+        ms.HoldRadiusLogical = Math.Clamp(hold, 20, 300);
+        ms.StabilitySampleCount = Math.Clamp(k, 2, 30);
+        ms.StabilityWindowSize = Math.Clamp(Math.Max(m, ms.StabilitySampleCount), 2, 60);
+        ms.HoldOutlierSkipLimit = Math.Clamp(skip, 0, 30);
+        if (ms.HoldRadiusLogical != hold || ms.StabilitySampleCount != k
+            || ms.StabilityWindowSize != m || ms.HoldOutlierSkipLimit != skip)
+        {
+            _logger?.LogInformation("Clamped out-of-range manual-selection targeting settings to their valid ranges.");
         }
     }
 

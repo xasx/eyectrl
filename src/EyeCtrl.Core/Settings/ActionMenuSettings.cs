@@ -15,7 +15,8 @@ public partial class ActionMenuSettings : ObservableObject, IValidatable
         InteractionAction.DoubleClick, InteractionAction.Drag,
         InteractionAction.ScrollUp, InteractionAction.ScrollDown,
         InteractionAction.ScrollMode,
-        InteractionAction.PinNote
+        InteractionAction.PinNote,
+        InteractionAction.Keyboard
     };
 
     /// <summary>
@@ -90,6 +91,29 @@ public partial class ActionMenuSettings : ObservableObject, IValidatable
         PrimaryMigrated = true;
     }
 
+    /// <summary>
+    /// Whether <see cref="EnsureKeyboardActionOnce"/> has already run for this settings file.
+    /// Absent from every pre-2026-09 file (so it loads false) and set on the first migration.
+    /// Same pattern and reason as <see cref="DefaultsMigrated"/>: the action did not exist
+    /// when any existing file was written, so the one-shot add cannot re-add anything the
+    /// user deliberately removed.
+    /// </summary>
+    [ObservableProperty] private bool _keyboardActionMigrated;
+
+    /// <summary>
+    /// Adds <see cref="InteractionAction.Keyboard"/> to <see cref="VisibleActions"/> exactly
+    /// once per settings file. The startup caller must use this rather than editing the list —
+    /// see <see cref="KeyboardActionMigrated"/>.
+    /// </summary>
+    public void EnsureKeyboardActionOnce()
+    {
+        if (KeyboardActionMigrated) return;
+        if (VisibleActions is null) VisibleActions = new List<InteractionAction>();
+        if (!VisibleActions.Contains(InteractionAction.Keyboard))
+            VisibleActions.Add(InteractionAction.Keyboard);
+        KeyboardActionMigrated = true;
+    }
+
     /// <inheritdoc />
     public IReadOnlyList<string> Validate()
     {
@@ -119,7 +143,8 @@ public partial class ActionMenuSettings : ObservableObject, IValidatable
             InteractionAction.DoubleClick, InteractionAction.Drag,
             InteractionAction.ScrollUp, InteractionAction.ScrollDown,
             InteractionAction.ScrollMode,
-            InteractionAction.PinNote
+            InteractionAction.PinNote,
+            InteractionAction.Keyboard
         };
 
         foreach (var action in defaults)

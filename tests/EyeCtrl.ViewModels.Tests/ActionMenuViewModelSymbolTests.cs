@@ -46,6 +46,30 @@ public class ActionMenuViewModelSymbolTests
     }
 
     [Fact]
+    public void Receive_ShowActionMenu_KeyboardItemHasItsIconAndLabel()
+    {
+        // Keyboard ships layer-2 by default (PrimaryActions keeps the four defaults), and a
+        // one-action message partitions it into the SECONDARY set — layer one would hold only
+        // the More target, and Items.Single() would return More (the trap the expected-map fact
+        // documents). Make it primary so Items.Single() is the action itself.
+        var settings = new EyeCtrlSettings();
+        settings.ActionMenu.PrimaryActions = new List<InteractionAction> { InteractionAction.Keyboard };
+        var messenger = new WeakReferenceMessenger();
+        using var vm = new ActionMenuViewModel(settings, messenger);
+
+        messenger.Send(new ShowActionMenuMessage(
+            new PhysicalPoint(500, 500),
+            new List<InteractionAction> { InteractionAction.Keyboard },
+            ShowBack: false,
+            DwellTimeMs: 600,
+            new PhysicalPoint(500, 500)));
+
+        var item = vm.Items.Single();
+        Check.That(item.Icon).IsEqualTo(ActionIcon.Keyboard);
+        Check.That(item.Label).IsEqualTo("Keyboard");
+    }
+
+    [Fact]
     public void EveryAction_MapsToADistinctIcon()
     {
         var expected = new Dictionary<InteractionAction, ActionIcon>
@@ -61,6 +85,7 @@ public class ActionMenuViewModelSymbolTests
             [InteractionAction.ScrollRight] = ActionIcon.ScrollRight,
             [InteractionAction.ScrollMode] = ActionIcon.ScrollMode,
             [InteractionAction.PinNote] = ActionIcon.PinNote,
+            [InteractionAction.Keyboard] = ActionIcon.Keyboard,
         };
 
         // Fails if a new InteractionAction is added without an icon.

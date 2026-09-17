@@ -184,4 +184,31 @@ public class SettingsServiceTests
         }
         finally { File.Delete(tempPath); }
     }
+
+    [Fact]
+    public void Load_ClampsOutOfRangeManualSelectionTargeting_InsteadOfResettingEverything()
+    {
+        var tempPath = Path.Combine(Path.GetTempPath(), $"eyectrl_test_{Guid.NewGuid()}.json");
+        try
+        {
+            var settings = new EyeCtrlSettings();
+            settings.Dwell.ActivationButtonDwellMs = 600;
+            var service = new SettingsService(tempPath);
+            service.Save(settings);
+
+            // Hand-edit the file the way a user would: an out-of-range hold radius and a stability
+            // window below K (which would otherwise make onset impossible and selection dead).
+            var root = JsonNode.Parse(File.ReadAllText(tempPath))!.AsObject();
+            root["manualSelection"]!["holdRadiusLogical"] = 5000;
+            root["manualSelection"]!["stabilityWindowSize"] = 1;
+            File.WriteAllText(tempPath, root.ToJsonString());
+
+            var loaded = service.Load();
+            Check.That(loaded.ManualSelection.HoldRadiusLogical).IsEqualTo(300);
+            Check.That(loaded.ManualSelection.StabilityWindowSize)
+                .IsEqualTo(loaded.ManualSelection.StabilitySampleCount);
+            Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(600);
+        }
+        finally { File.Delete(tempPath); }
+    }
 }

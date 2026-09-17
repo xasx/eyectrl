@@ -12,6 +12,7 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow, IManualSelect
     private const int ScreenCaptureDelayMs = 100; // Delay before capturing screen to let WPF render
 
     private PhysicalPoint? _captureCenter;
+    private PhysicalPoint? _effectiveCaptureCenter;
     private double _magnification;
 
     public ManualSelectionOverlayWindow()
@@ -62,9 +63,15 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow, IManualSelect
         await Task.Delay(ScreenCaptureDelayMs);
         try
         {
-            var source = ScreenCaptureService.CaptureRegion(center, radius);
-            if (source != null)
-                ManualSelectionBrush.ImageSource = source;
+            var capture = ScreenCaptureService.CaptureRegion(center, radius);
+            if (capture != null)
+            {
+                // The capture is clamped to the screen, so its centre is the effective one. Written
+                // here, with the image, and never when the capture is requested: a request-time value
+                // would describe an image the user is not yet looking at.
+                _effectiveCaptureCenter = capture.Value.EffectiveCenter;
+                ManualSelectionBrush.ImageSource = capture.Value.Image;
+            }
         }
         catch
         {
@@ -83,19 +90,21 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow, IManualSelect
         CaptureAndDisplay(_captureCenter!.Value, physicalRadius);
     }
 
+    /// <summary>
+    /// The centre, in physical pixels, of the capture currently displayed — the effective centre
+    /// after the capture rectangle was clamped to the screen. Falls back to the requested centre
+    /// until the first image is displayed. Every view↔screen mapping reads this accessor.
+    /// </summary>
+    public PhysicalPoint EffectiveCaptureCenter => _effectiveCaptureCenter ?? _captureCenter!.Value;
+
     public PhysicalPoint GetRealPhysicalPoint(PhysicalPoint gazeOnScreen)
     {
-        // Window Left/Width are DIPs; convert back to physical to match gazeOnScreen
-        var windowCenterX = DpiHelper.LogicalToPhysicalX(Left + Width / 2);
-        var windowCenterY = DpiHelper.LogicalToPhysicalY(Top + Height / 2);
-
-        var offsetX = gazeOnScreen.X - windowCenterX;
-        var offsetY = gazeOnScreen.Y - windowCenterY;
-
-        // Scale back from magnified to original coordinates
-        var realX = _captureCenter!.Value.X + offsetX / _magnification;
-        var realY = _captureCenter!.Value.Y + offsetY / _magnification;
-
-        return new PhysicalPoint(realX, realY);
+        // Zero arithmetic here by design: the mapping owns the DIP->physical conversion of the
+        // window geometry, so the units cannot drift between this call site and the mapping.
+        return CaptureViewMapping.ToRealPoint(
+            EffectiveCaptureCenter,
+            new Rect(Left, Top, Width, Height),
+            _magnification,
+            gazeOnScreen);
     }
 }

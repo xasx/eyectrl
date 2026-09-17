@@ -5,6 +5,7 @@ using EyeCtrl.App.Services;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using EyeCtrl.App.Services;   // KeyboardYield
 using EyeCtrl.Controls;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Adaptation;
@@ -75,6 +76,11 @@ public partial class KeyboardWindow : OverlayWindow
     private double _keySize;
     private int _predictionDwellMs;
     private string _screenEdge = "bottom";
+    // Toolbar occupancy for the yield (spec B3 #6): when the toolbar is on screen at this
+    // keyboard's edge, RepositionOnScreen shifts the window by its extent toward center.
+    private bool _toolbarOccupied;
+    private string _toolbarEdge = "none";
+    private double _toolbarExtentDip;
     private bool _predictionTargetsInitialized;
     private string? _previousNearestKeyId;
 
@@ -156,6 +162,19 @@ public partial class KeyboardWindow : OverlayWindow
         RepositionOnScreen();
     }
 
+    /// <summary>
+    /// Sets the toolbar occupancy the yield consumes (spec B3 #6). Extent is the toolbar
+    /// window's ActualHeight in DIP — both windows position in DIP via PlaceAtEdge; do NOT
+    /// pass the coordinator's cached physical-px rect.
+    /// </summary>
+    public void SetToolbarOccupancy(bool occupied, string edge, double extentDip)
+    {
+        _toolbarOccupied = occupied;
+        _toolbarEdge = occupied ? edge : "none";
+        _toolbarExtentDip = extentDip;
+        RepositionOnScreen();
+    }
+
     public void SetEmojiData(string emojiJsonPath, string recentEmojiPath)
     {
         _emojiManager?.SetEmojiData(emojiJsonPath, recentEmojiPath);
@@ -169,8 +188,15 @@ public partial class KeyboardWindow : OverlayWindow
     {
         if (ActualWidth <= 0 || ActualHeight <= 0) return;
 
+        // One read: the yield clamp and the placement must be measured against the SAME
+        // work-area snapshot, not two reads of a property that can change mid-call.
+        var work = SystemParameters.WorkArea;
         var edge = string.Equals(_screenEdge, "top", StringComparison.OrdinalIgnoreCase) ? "top" : "bottom";
-        (Left, Top) = OverlayPositioning.PlaceAtEdge(SystemParameters.WorkArea, edge, ActualWidth, ActualHeight);
+        (Left, Top) = OverlayPositioning.PlaceAtEdge(work, edge, ActualWidth, ActualHeight);
+
+        Top += KeyboardYield.VerticalOffset(
+            edge, _toolbarOccupied, _toolbarEdge, _toolbarExtentDip,
+            Top, ActualHeight, work.Top, work.Bottom);
     }
 
     private void RebuildKeys()

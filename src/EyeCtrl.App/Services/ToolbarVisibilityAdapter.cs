@@ -15,11 +15,33 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
     private readonly Dispatcher _dispatcher;
     private readonly ToolbarViewModel _toolbarVm;
 
+    // Edge-detect + event (spec B3 #5). _lastVisible seeds true because App.ShowOverlays
+    // shows the toolbar directly at startup without passing through this adapter — the
+    // adapter never sees that transition, and seeding false would emit a spurious "true"
+    // on the first re-assert.
+    private bool _lastVisible = true;
+
+    /// <summary>
+    /// Fires once per real show/hide transition, ON the UI thread (inside each dispatcher
+    /// lambda, after the window calls). Re-asserts — SetPaused/ReassertVisibility call the
+    /// hide paths repeatedly — are deduplicated. NOTE: not every driver funnels through the
+    /// adapter (App.ShowOverlays shows the toolbar directly), so consumers must not treat
+    /// silence as "hidden" (spec B3 #7).
+    /// </summary>
+    public event Action<bool>? VisibilityChanged;
+
     public ToolbarVisibilityAdapter(IOverlayManager overlays, Dispatcher dispatcher, ToolbarViewModel toolbarVm)
     {
         _overlays = overlays;
         _dispatcher = dispatcher;
         _toolbarVm = toolbarVm;
+    }
+
+    private void OnVisibilityChanged(bool visible)
+    {
+        if (_lastVisible == visible) return;
+        _lastVisible = visible;
+        VisibilityChanged?.Invoke(visible);
     }
 
     public void ShowToolbar() => _dispatcher.BeginInvoke(() =>
@@ -41,6 +63,7 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
         // floating (zero slide vector) or already on screen.
         Log.Information("Toolbar summoned: slide-in {Mode}",
             _overlays.Toolbar.IsSliding ? "animating" : "instant");
+        OnVisibilityChanged(true);
     });
 
     public void HideToolbar(bool paused) => _dispatcher.BeginInvoke(() =>
@@ -60,6 +83,10 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
             {
                 _overlays.PauseIndicator.Hide();
             }
+            // The hide completes inside this callback (the instant short-circuit included), so
+            // the transition event fires with it — the keyboard un-yields only after the band
+            // has cleared, mirroring the show path's after-the-window-call ordering.
+            OnVisibilityChanged(false);
         });
         // Gated on IsSliding — i.e. only when a slide actually starts — unlike ShowToolbar's
         // unconditional line. The gate keeps this line TRUTHFUL, not merely quiet: HideToolbar is
@@ -88,6 +115,7 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
         _overlays.Toolbar.ShowAtRest();
         _overlays.PauseIndicator.Hide();
         _toolbarVm.SetActive(true);
+        OnVisibilityChanged(true);
     });
 
     public void PositionIndicator(string edge) => _dispatcher.BeginInvoke(() => _overlays.PauseIndicator.SetEdge(edge));

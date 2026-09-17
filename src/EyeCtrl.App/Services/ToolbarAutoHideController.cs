@@ -137,7 +137,9 @@ public sealed class ToolbarAutoHideController
         _suspended = suspended;
         if (suspended)
         {
-            // Recover from hidden so the user isn't stranded while a modal is up.
+            // Recover from hidden so the user isn't stranded while the Settings window is up (the
+            // keyboard no longer suspends auto-hide — its escape is the edge-bar Close; see the
+            // 2026-09-10 keyboard spec).
             if (_state == State.Hidden && _enabled)
                 _visibility?.ForceShow();
             _state = State.Visible;

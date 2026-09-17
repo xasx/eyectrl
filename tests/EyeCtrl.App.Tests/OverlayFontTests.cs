@@ -77,11 +77,13 @@ public class OverlayFontTests
     {
         // The other tests above only construct bare OverlayWindow; base-constructor-first is a
         // C# guarantee, but spec §8.8's claim is that the assignment reaches all *derived*
-        // window classes, so this proves it on one. GlassBackdropWindow is picked because its
+        // window classes, so this proves it on one. EdgeButtonBarWindow is picked because its
         // XAML has no {StaticResource} lookups (plain Canvas, no Style), so — like the bare
         // OverlayWindow tests above — it constructs cleanly with no Application and needs no
-        // WpfApplicationGate; GlassBackdropWindowTests already constructs it the same way.
-        var window = new GlassBackdropWindow();
+        // WpfApplicationGate. GlassBackdropWindow served this role until it gained the
+        // escape-hint {StaticResource} references (BrushTextDim, FontSizeBody); it now needs the
+        // gate (see GlassBackdropWindowTests), so this test moved to a window that still doesn't.
+        var window = new EdgeButtonBarWindow();
         Check.That(window.FontFamily.Source).IsEqualTo(Tokens.FontFamilyStandard);
     }
 

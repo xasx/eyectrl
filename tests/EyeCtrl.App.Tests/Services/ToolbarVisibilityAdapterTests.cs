@@ -6,6 +6,7 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
+using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
@@ -252,6 +253,113 @@ public class ToolbarVisibilityAdapterTests
         }
         finally
         {
+            toolbar.Close();
+            indicator.Close();
+        }
+    }
+
+    /// <summary>
+    /// Spec B3 #5: VisibilityChanged fires once per real transition and not on re-asserts —
+    /// SetPaused/ReassertVisibility call HideToolbar repeatedly, so an un-edge-detected event
+    /// would fire continuously and the keyboard would churn. Also pins the UI-thread contract
+    /// (fired inside the dispatcher lambda: a gaze-thread send would write window Left/Top off
+    /// the UI thread, which this app turns into a process kill). Since the slide landed, the
+    /// hide event fires inside SlideOutThenHide's completion callback — CompleteSlideForTest
+    /// drives it the same way the paused-indicator fact above does.
+    /// </summary>
+    [StaFact]
+    [Trait("Category", "UI")]
+    public void VisibilityChanged_FiresOncePerTransition_NotOnReasserts_AndOnUiThread()
+    {
+        EnsureApplicationWithTokens();
+
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ExposedDwellToolbarViewModel(settings, messenger);
+        var toolbar = new ToolbarWindow();
+        var indicator = new PauseIndicatorWindow();
+        var overlays = new FakeOverlayManager(toolbar, indicator);
+        var adapter = new ToolbarVisibilityAdapter(overlays, Dispatcher.CurrentDispatcher, vm);
+
+        var fired = new List<(int ThreadId, bool Visible)>();
+        adapter.VisibilityChanged += visible => fired.Add((Environment.CurrentManagedThreadId, visible));
+
+        try
+        {
+            toolbar.Show();
+            PumpDispatcher();
+            toolbar.SetMode(isDocked: true, edge: "Top");
+
+            adapter.HideToolbar(paused: false);
+            PumpDispatcher();
+            toolbar.CompleteSlideForTest();
+            PumpDispatcher();
+
+            adapter.HideToolbar(paused: false);   // re-assert — must NOT fire again
+            PumpDispatcher();
+            toolbar.CompleteSlideForTest();
+            PumpDispatcher();
+
+            adapter.ShowToolbar();
+            PumpDispatcher();
+
+            adapter.ForceShow();                  // already visible — must NOT fire
+            PumpDispatcher();
+
+            Check.That(fired).HasSize(2);
+            Check.That(fired[0].Visible).IsFalse();
+            Check.That(fired[1].Visible).IsTrue();
+            Check.That(fired.Select(f => f.ThreadId)).ContainsOnlyElementsThatMatch(
+                id => id == Environment.CurrentManagedThreadId);
+        }
+        finally
+        {
+            toolbar.Close();
+            indicator.Close();
+        }
+    }
+
+    /// <summary>
+    /// Spec §6 (summoned-dwellability) / B2 #3: a toolbar hidden and then shown while the
+    /// keyboard is up must accumulate dwell on its buttons — the ShowToolbar messenger +
+    /// SetActive(true) chain reactivates dwell and KeyboardVisible must not gate it. Progress
+    /// is observed through the real DwellDetector, exactly like the sibling facts.
+    /// </summary>
+    [StaFact]
+    [Trait("Category", "UI")]
+    public void SummonedToolbar_AccumulatesDwell_WhileKeyboardVisible()
+    {
+        EnsureApplicationWithTokens();
+
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ExposedDwellToolbarViewModel(settings, messenger);
+        var modal = new ModalInteractionState { KeyboardVisible = true };
+        var toolbar = new ToolbarWindow();
+        var indicator = new PauseIndicatorWindow();
+        var overlays = new FakeOverlayManager(toolbar, indicator);
+        var adapter = new ToolbarVisibilityAdapter(overlays, Dispatcher.CurrentDispatcher, vm);
+
+        var progress = new List<double>();
+        vm.DwellDetector.TargetProgress += (id, p) => progress.Add(p);
+
+        try
+        {
+            toolbar.Hide();
+            PumpDispatcher();
+            adapter.ShowToolbar();      // the summon transition — must reactivate dwell
+            PumpDispatcher();
+
+            vm.DwellDetector.AddTarget(new DwellTarget("Keyboard", new PhysicalPoint(100, 100),
+                radius: 50, dwellTimeMs: 1000));
+            vm.Receive(MakeGazeMessage(100, 100, 0));          // enter
+            vm.Receive(MakeGazeMessage(100, 100, 500_000));    // 50% of the dwell
+
+            Check.That(progress).HasElementThatMatches(p => p > 0.4);
+        }
+        finally
+        {
+            modal.KeyboardVisible = false;
             toolbar.Close();
             indicator.Close();
         }

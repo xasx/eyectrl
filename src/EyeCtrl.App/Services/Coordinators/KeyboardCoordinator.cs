@@ -9,6 +9,7 @@ using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.ViewModels;   // UIConstants (edge-bar anchor radius)
 using EyeCtrl.ViewModels.Messages;
 using Serilog;
 
@@ -29,6 +30,12 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     // for exactly that replacement.
     private PredictionStackFactory _predictionFactory = new();
     private KeyboardStackSnapshot? _keyboardSnapshot;
+    // Set when ShowKeyboardEdgeBar had to skip because another context owned the shared bar;
+    // cleared when the pair is (re)shown or the keyboard hides. Drives the B4 #10 retry.
+    private bool _keyboardPairWanted;
+    // The bar VM the ButtonSetChanged retry subscription is attached to (attached lazily on
+    // the first keyboard show — the VM only exists once OverlayManager.Initialize has run).
+    private EdgeButtonBarViewModel? _hookedEdgeBarVm;
     // Owned HERE — moved from EventCoordinator.Initialize. Used by LoadKeyboard's
     // recent-emoji path and as the model-dir root for PredictionStackFactory.Rebuild.
     private string? _appDataDir;
@@ -41,8 +48,9 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     public KeyboardCoordinator(ModalInteractionState modal,
         QuickActionsCoordinator quickActions, ToolbarLifecycleCoordinator toolbar)
     {
-        // All three are dereferenced unconditionally by ApplyModalKeyboardState, so reject nulls at
-        // the ctor rather than at first keyboard toggle.
+        // _modal is read by ApplyModalKeyboardState; _quickActions by the same; _toolbar by the
+        // yield subscription in OnInitialize (ToolbarVisibilityChanged). All three are live
+        // dependencies, so reject nulls at the ctor rather than at first keyboard toggle.
         _modal = modal ?? throw new ArgumentNullException(nameof(modal));
         _quickActions = quickActions ?? throw new ArgumentNullException(nameof(quickActions));
         _toolbar = toolbar ?? throw new ArgumentNullException(nameof(toolbar));
@@ -59,6 +67,21 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         messenger.Register<KeyboardCoordinator, KeyboardToggledMessage>(this, (_, _) =>
             context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(!_modal.KeyboardVisible, manageSuppression: true)));
 
+        // Ring / edge-bar show: idempotent (never hides), with the toolbar toggle's
+        // suppression semantics — a show that leaves free-look active would let the next
+        // fixation pop an action menu over the keyboard.
+        messenger.Register<KeyboardCoordinator, KeyboardShowRequestedMessage>(this, (_, _) =>
+            context.Dispatcher.BeginInvoke(() =>
+            {
+                if (ShouldShow(_modal.KeyboardVisible))
+                    SetKeyboardVisible(true, manageSuppression: true);
+            }));
+
+        // Edge-bar Close: the keyboard's own escape — hides AND releases suppression so the
+        // ring comes back (spec ledger #13).
+        messenger.Register<KeyboardCoordinator, KeyboardHideRequestedMessage>(this, (_, _) =>
+            context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(false, manageSuppression: true)));
+
         // ShowKeyboardRequestMessage -> show keyboard for text input
         messenger.Register<KeyboardCoordinator, ShowKeyboardRequestMessage>(this, (_, msg) =>
         {
@@ -74,6 +97,16 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
             context.Dispatcher.BeginInvoke(() => SetKeyboardVisible(false, manageSuppression: false));
             Log.Debug("Keyboard hidden");
         });
+
+        // Edge-bar Flip (spec B1/B4): flip, apply to the window, persist, refresh the
+        // snapshot, and rebuild the bar at the keyboard's new edge (ledger #15).
+        messenger.Register<KeyboardCoordinator, KeyboardEdgeToggledMessage>(this, (_, _) =>
+            context.Dispatcher.BeginInvoke(HandleKeyboardEdgeToggled));
+
+        // Yield wiring (spec B3 #7): react to real toolbar transitions, and on keyboard show
+        // query the window directly — the startup show bypasses the adapter, so a tracked
+        // adapter flag can read "not occupied" while the toolbar is on screen.
+        _toolbar.ToolbarVisibilityChanged += OnToolbarVisibilityChanged;
 
         context.OverlayManager.Keyboard.SkinToneChanged += OnEmojiSkinToneChanged;
 
@@ -194,6 +227,8 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         if (visible)
         {
             Context.OverlayManager.Keyboard.Show();
+            ApplyInitialToolbarOccupancy();
+            ShowKeyboardEdgeBar();
             if (manageSuppression)
             {
                 Context.GazeEngine.SuppressFixation = true;
@@ -206,27 +241,134 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
             Context.OverlayManager.Keyboard.Hide();
             if (manageSuppression)
                 Context.GazeEngine.SuppressFixation = false;
+            HideKeyboardEdgeBar();
             Context.Messenger.Send(new HideKeyboardMessage());
         }
     }
 
+    private void HandleKeyboardEdgeToggled()
+    {
+        if (Context is null) return;
+        var (flipped, snapshot) = ApplyKeyboardEdge(Context.Settings, Context.SettingsService);
+        Context.OverlayManager.Keyboard.SetScreenEdge(flipped);
+        _keyboardSnapshot = snapshot;
+        ShowKeyboardEdgeBar();
+    }
+
+    private void ShowKeyboardEdgeBar()
+    {
+        if (Context is null) return;
+        var bar = Context.OverlayManager.EdgeButtonBar;
+        HookEdgeBarNotifications(bar);
+
+        // Reverse-overlap guard (spec B4 #10, the OverlayMessageCoordinator hand-off dance):
+        // if the bar is currently showing ANOTHER context's definitions (scroll Stop, drag
+        // Cancel, the menu pair), do not clobber them. Skipping is safe in both directions:
+        // showing only when the bar is free-or-ours, hiding only when ours. A skip is NOT the
+        // end of the story (see the trace at B4 #10 in the keyboard spec): the keyboard stays
+        // closable via the toolbar's Keyboard toggle, and the skip records _keyboardPairWanted
+        // so the pair is re-claimed the moment the other context releases the bar.
+        if (!ShouldShowKeyboardEdgeBar(bar.EdgeBarVm))
+        {
+            _keyboardPairWanted = true;
+            Log.Debug("Edge bar busy with another context's buttons; keyboard pair skipped (retry when free)");
+            return;
+        }
+        _keyboardPairWanted = false;
+
+        var atTop = string.Equals(Context.Settings.Keyboard.ScreenEdge, "Top", StringComparison.OrdinalIgnoreCase);
+
+        // Reaching this show with a free bar after a RING activation depends on dispatcher FIFO:
+        // InteractionManager fires HideActionMenu before ActionRequested (both queued at
+        // DispatcherPriority.Normal), so OverlayMessageCoordinator's close handler clears the
+        // menu's pair before this show runs — one hop of margin. If that ordering ever inverts,
+        // the ring action silently produces a keyboard whose Close/Flip were skipped by the
+        // guard above (its Log.Debug the only trace). Same invisible guarantee as
+        // OverlayMessageCoordinator.cs:119-121.
+        bar.ShowButtons(
+            KeyboardEdgeButtons.Definitions(Context.Settings.Dwell.KeyboardKeyDwellMs),
+            ScreenGeometry.KeyboardEdgeBarAnchor(atTop, UIConstants.ButtonRadius));
+    }
+
+    private void HideKeyboardEdgeBar()
+    {
+        // The keyboard is going away — a pending retry claim dies with it.
+        _keyboardPairWanted = false;
+
+        // Guarded hand-off (spec B4 #10): the bar is shared — only clear it while the
+        // keyboard's definitions still own it, mirroring OverlayMessageCoordinator's
+        // ActionMenu Close guard.
+        var bar = Context?.OverlayManager.EdgeButtonBar;
+        if (ShouldHideKeyboardEdgeBar(bar?.EdgeBarVm))
+            bar!.Hide();
+    }
+
+    /// <summary>The bar is claimable for the keyboard pair when it holds no definitions at
+    /// all (the common case) or already ours (a flip rebuild).</summary>
+    internal static bool ShouldShowKeyboardEdgeBar(EdgeButtonBarViewModel? barVm) =>
+        barVm is null
+        || barVm.Buttons.Count == 0
+        || barVm.DefinitionFor(KeyboardEdgeButtons.CloseId) is not null;
+
+    /// <summary>The keyboard's hide may clear the bar only while the keyboard pair still
+    /// owns it — another context's stop/cancel buttons must survive.</summary>
+    internal static bool ShouldHideKeyboardEdgeBar(EdgeButtonBarViewModel? barVm) =>
+        barVm?.DefinitionFor(KeyboardEdgeButtons.CloseId) is not null;
+
+    /// <summary>The retry decision for a keyboard pair that lost the show race (spec B4 #10
+    /// reverse-overlap trace): only a keyboard that WANTS the bar, is STILL up, and sees the
+    /// bar FREE again (the other context ended and its unguarded Hide emptied it) may
+    /// re-claim. "Already ours" is not a retry — that is ShowKeyboardEdgeBar's own flip path.
+    /// Extracted so the decision is headless-testable; the caller adds the event wiring.</summary>
+    internal static bool ShouldRetryKeyboardEdgeBar(
+        bool pairWanted, bool keyboardVisible, EdgeButtonBarViewModel? barVm) =>
+        pairWanted && keyboardVisible && barVm is not null && barVm.Buttons.Count == 0;
+
+    private void HookEdgeBarNotifications(IEdgeButtonBar bar)
+    {
+        if (_hookedEdgeBarVm is not null) return;
+        var vm = bar.EdgeBarVm;
+        if (vm is null) return;
+        _hookedEdgeBarVm = vm;
+        vm.ButtonSetChanged += OnEdgeBarButtonSetChanged;
+    }
+
+    private void OnEdgeBarButtonSetChanged()
+    {
+        if (Context is null) return;
+        Context.Dispatcher.BeginInvoke(() =>
+        {
+            if (Context is null) return;
+            var bar = Context.OverlayManager.EdgeButtonBar;
+            if (!ShouldRetryKeyboardEdgeBar(_keyboardPairWanted, _modal.KeyboardVisible, bar.EdgeBarVm))
+                return;
+            Log.Debug("Edge bar freed; re-claiming it for the keyboard pair");
+            ShowKeyboardEdgeBar();
+        });
+    }
+
     /// <summary>
-    /// Publishes a keyboard-visibility change to the two cross-cluster consumers: the toolbar
-    /// auto-hide and quick-actions summon suspend seams, plus the shared
-    /// <see cref="ModalInteractionState.KeyboardVisible"/> flag that the gaze-routing early-out in
-    /// <see cref="ToolbarLifecycleCoordinator"/> reads on the gaze thread.
+    /// Publishes a keyboard-visibility change to the quick-actions summon-suspend seam and the
+    /// shared <see cref="ModalInteractionState.KeyboardVisible"/> flag that the gaze-routing
+    /// early-out in <see cref="ToolbarLifecycleCoordinator"/> reads on the gaze thread.
+    /// The toolbar auto-hide is deliberately NOT suspended anymore (spec B2, ledger #9): the
+    /// toolbar un-pins while the keyboard is up and edge-summons on demand; the keyboard's own
+    /// escape is the edge-bar Close. Ordering matters in both directions: on show the summon
+    /// suspends BEFORE the flag publishes; on hide the flag clears BEFORE the summon resumes —
+    /// no gaze sample may observe <c>KeyboardVisible</c> while the quick-actions summon is live.
     /// </summary>
-    /// <remarks>
-    /// Split out of <see cref="SetKeyboardVisible"/> so the fan-out is reachable in a headless test:
-    /// the remainder of SetKeyboardVisible touches the real <c>KeyboardWindow</c>. Order matters —
-    /// suspend the controllers BEFORE publishing the flag, so no gaze sample can observe
-    /// KeyboardVisible while auto-hide is still live.
-    /// </remarks>
     internal void ApplyModalKeyboardState(bool visible)
     {
-        _toolbar.SetAutoHideSuspended(visible);
-        _quickActions.SetSummonSuspended(visible);
-        _modal.KeyboardVisible = visible;
+        if (visible)
+        {
+            _quickActions.SetSummonSuspended(true);
+            _modal.KeyboardVisible = true;
+        }
+        else
+        {
+            _modal.KeyboardVisible = false;
+            _quickActions.SetSummonSuspended(false);
+        }
     }
 
     /// <summary>
@@ -252,10 +394,77 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         return KeyboardStackSnapshot.Capture(settings);
     }
 
+    /// <summary>
+    /// Pure flip: "Top" (any case) → "Bottom", anything else → "Top". The OUTPUT is always
+    /// canonical — <c>KeyboardSettings.Validate</c> is a case-sensitive membership test,
+    /// <c>SettingsService.Save</c> throws on failure, and <c>App.OnExit</c>'s final save is
+    /// unguarded (spec B1 2a).
+    /// </summary>
+    internal static string FlipScreenEdge(string edge) =>
+        string.Equals(edge, "Top", StringComparison.OrdinalIgnoreCase) ? "Bottom" : "Top";
+
+    /// <summary>
+    /// The persistable half of an edge flip: write the canonical flipped value, save debounced,
+    /// and re-capture the reload snapshot AFTER the write (spec C5 — same discipline as
+    /// <see cref="ApplyEmojiSkinTone"/>, whose remarks document the phantom-rebuild failure).
+    /// The window-apply half (SetScreenEdge + edge-bar rebuild) lives in the Context-bound
+    /// handler.
+    /// </summary>
+    internal static (string Flipped, KeyboardStackSnapshot Snapshot) ApplyKeyboardEdge(
+        EyeCtrlSettings settings, SettingsService settingsService)
+    {
+        var flipped = FlipScreenEdge(settings.Keyboard.ScreenEdge);
+        settings.Keyboard.ScreenEdge = flipped;
+        settingsService.SaveDebounced(settings);
+        return (flipped, KeyboardStackSnapshot.Capture(settings));
+    }
+
+    /// <summary>The ring action's idempotence: already visible means the activation is a no-op.
+    /// Split out so the guard is headless-testable — the handler itself touches the real
+    /// KeyboardWindow (same reason as <see cref="ApplyEmojiSkinTone"/>).</summary>
+    internal static bool ShouldShow(bool alreadyVisible) => !alreadyVisible;
+
     private void OnEmojiSkinToneChanged(int tone)
     {
         if (Context is null) return;
         _keyboardSnapshot = ApplyEmojiSkinTone(Context.Settings, Context.SettingsService, tone);
+    }
+
+    private void OnToolbarVisibilityChanged(bool toolbarVisible)
+    {
+        if (Context is null) return;
+        Context.Dispatcher.BeginInvoke(() => ApplyToolbarOccupancy(toolbarVisible));
+    }
+
+    private void ApplyToolbarOccupancy(bool toolbarVisible)
+    {
+        if (Context is null) return;
+        var toolbar = Context.OverlayManager.Toolbar;
+        var (occupied, edge, extent) = ToolbarOccupancyFor(
+            toolbarVisible, toolbar.IsVisible,
+            Context.Settings.Toolbar.IsDocked, Context.Settings.Toolbar.DockedEdge,
+            toolbar.ExtentDip);
+        Context.OverlayManager.Keyboard.SetToolbarOccupancy(occupied, edge, extent);
+    }
+
+    /// <summary>
+    /// Pure occupancy mapping for the keyboard yield (spec B3 #6/#7): the toolbar occupies the
+    /// keyboard's edge only when BOTH the adapter reports a visible transition AND the window
+    /// is actually on screen, and only a DOCKED toolbar has an edge at all — undocked maps to
+    /// "none", which no keyboard edge matches in <see cref="KeyboardYield"/> (ledger #8).
+    /// Extracted from <see cref="ApplyToolbarOccupancy"/> so the mapping is headless-testable;
+    /// the caller only adds the window reads (Toolbar.IsVisible, Toolbar.ExtentDip).
+    /// </summary>
+    internal static (bool Occupied, string Edge, double ExtentDip) ToolbarOccupancyFor(
+        bool toolbarVisible, bool toolbarWindowVisible, bool isDocked, string dockedEdge, double extentDip)
+        => toolbarVisible && toolbarWindowVisible
+            ? (true, isDocked ? dockedEdge : "none", extentDip)
+            : (false, "none", 0);
+
+    private void ApplyInitialToolbarOccupancy()
+    {
+        if (Context is null) return;
+        ApplyToolbarOccupancy(Context.OverlayManager.Toolbar.IsVisible);
     }
 
     protected override void OnDispose()
@@ -264,6 +473,9 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         if (Context is not null)
         {
             Context.OverlayManager.Keyboard.SkinToneChanged -= OnEmojiSkinToneChanged;
+            _toolbar.ToolbarVisibilityChanged -= OnToolbarVisibilityChanged;
         }
+        if (_hookedEdgeBarVm is not null)
+            _hookedEdgeBarVm.ButtonSetChanged -= OnEdgeBarButtonSetChanged;
     }
 }

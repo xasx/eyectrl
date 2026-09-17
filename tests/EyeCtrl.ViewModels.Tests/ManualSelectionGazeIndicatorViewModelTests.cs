@@ -56,4 +56,46 @@ public class ManualSelectionGazeIndicatorViewModelTests
         Check.That(vm.IndicatorX).IsEqualTo(1000d);
         Check.That(vm.IndicatorY).IsEqualTo(560d);
     }
+
+    [Fact]
+    public void Receive_ManualSelectionAnchorChangedMessage_ShowsTheAnchorMarkAtTheAnchor()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ManualSelectionGazeIndicatorViewModel(messenger);
+        vm.Configure(new EyeCtrlSettings());
+
+        messenger.Send(new ManualSelectionAnchorChangedMessage(new PhysicalPoint(720, 480)));
+
+        Check.That(vm.IsAnchorVisible).IsTrue();
+        Check.That(vm.AnchorX).IsEqualTo(720d);
+        Check.That(vm.AnchorY).IsEqualTo(480d);
+    }
+
+    [Fact]
+    public void Receive_ManualSelectionAnchorChangedMessage_WithNull_ReleasesTheAnchorMark()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ManualSelectionGazeIndicatorViewModel(messenger);
+        vm.Configure(new EyeCtrlSettings());
+        messenger.Send(new ManualSelectionAnchorChangedMessage(new PhysicalPoint(720, 480)));
+        Check.That(vm.IsAnchorVisible).IsTrue();
+
+        messenger.Send(new ManualSelectionAnchorChangedMessage(null));
+
+        Check.That(vm.IsAnchorVisible).IsFalse();
+    }
+
+    [Fact]
+    public void Receive_EndManualSelectionMessage_ReleasesTheAnchorMarkToo()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ManualSelectionGazeIndicatorViewModel(messenger);
+        vm.Configure(new EyeCtrlSettings());
+        messenger.Send(new ManualSelectionAnchorChangedMessage(new PhysicalPoint(720, 480)));
+        Check.That(vm.IsAnchorVisible).IsTrue();
+
+        messenger.Send(new EndManualSelectionMessage());
+
+        Check.That(vm.IsAnchorVisible).IsFalse();
+    }
 }

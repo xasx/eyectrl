@@ -89,6 +89,14 @@ public record UpdateManualSelectionIndicatorProgressMessage(double Progress);
 /// </summary>
 public record ResetManualSelectionIndicatorMessage;
 
+/// <summary>
+/// Sent by ManualSelectionDwellService when the dwell anchor seats (<see cref="Anchor"/> is the
+/// held point) or is released (<see cref="Anchor"/> is null). The anchor is what the dwell commits
+/// to; the gaze dot may drift from it, and drawing the two as distinct marks is what shows that
+/// drift-vs-intent gap before the commit. Physical screen pixels.
+/// </summary>
+public record ManualSelectionAnchorChangedMessage(PhysicalPoint? Anchor);
+
 // ViewModel -> Core
 public record ActivationCompletedMessage;
 public record ActionSelectedMessage(InteractionAction Action);
@@ -114,6 +122,17 @@ public record ActionMenuDismissedMessage;
 public record PauseToggledMessage;
 public record SelectionModeChangedMessage(SelectionMode Mode);
 public record KeyboardToggledMessage;
+
+/// <summary>Show the gaze keyboard (idempotent — never hides). Sent by the action-menu ring's
+/// Keyboard action; handled with the toolbar toggle's suppression semantics (spec ledger #1-#2).</summary>
+public record KeyboardShowRequestedMessage;
+/// <summary>Hide the gaze keyboard and release fixation suppression. Sent by the keyboard edge
+/// bar's Close button (spec ledger #13) — NOT the text-field seam message.</summary>
+public record KeyboardHideRequestedMessage;
+/// <summary>Flip the keyboard between the Top and Bottom screen edges. Sent by the keyboard edge
+/// bar's Flip button (spec ledger #15).</summary>
+public record KeyboardEdgeToggledMessage;
+
 public record SettingsRequestedMessage;
 public record KeyActivatedMessage(string Key, IReadOnlySet<ModifierKey>? Modifiers = null);
 public record PredictionSelectedMessage(string Word, int DeleteCount = 0);

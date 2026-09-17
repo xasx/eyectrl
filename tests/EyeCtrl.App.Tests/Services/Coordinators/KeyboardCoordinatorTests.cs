@@ -67,14 +67,12 @@ public class KeyboardCoordinatorTests
     }
 
     [Fact]
-    public void ApplyModalKeyboardState_FansOutToBothControllers_AndTheSharedFlag()
+    public void ApplyModalKeyboardState_FansOutToQuickActionsSummon_AndPublishesTheSharedFlag()
     {
-        // The cross-cluster seam the decomposition introduced: showing the keyboard must suspend BOTH
-        // the toolbar auto-hide and the quick-actions hot-edge summon, and publish the shared
-        // ModalInteractionState flag that ToolbarLifecycleCoordinator's gaze-thread early-out reads.
-        // Before the split these were three field writes in one method; now they cross three objects,
-        // so a wiring mistake (e.g. a per-coordinator ModalInteractionState instead of the shared one)
-        // would silently strand the flag. This drives the real seam, not a copy of it.
+        // Spec B2 (ledger #9): showing the keyboard suspends ONLY the quick-actions hot-edge
+        // summon and publishes the shared ModalInteractionState flag the gaze-thread early-out
+        // reads. The toolbar auto-hide suspension is deliberately gone — the toolbar un-pins
+        // while the keyboard is up, and the keyboard's own escape is the edge-bar Close.
         var modal = new ModalInteractionState();
 
         var summon = new QuickActionsSummonController("left", 1920, 1080, 400, 5000);
@@ -92,13 +90,13 @@ public class KeyboardCoordinatorTests
 
         keyboard.ApplyModalKeyboardState(true);
         Check.That(modal.KeyboardVisible).IsTrue();
-        Check.That(toolbar.IsAutoHideSuspended).IsTrue();
         Check.That(quickActions.IsSummonSuspended).IsTrue();
+        Check.That(autoHide.IsSuspended).IsFalse();
 
         keyboard.ApplyModalKeyboardState(false);
         Check.That(modal.KeyboardVisible).IsFalse();
-        Check.That(toolbar.IsAutoHideSuspended).IsFalse();
         Check.That(quickActions.IsSummonSuspended).IsFalse();
+        Check.That(autoHide.IsSuspended).IsFalse();
     }
 
     // ---- Emoji skin-tone persistence (issue #58) -------------------------------------------
@@ -191,5 +189,63 @@ public class KeyboardCoordinatorTests
                 }
             }
         }
+    }
+
+    [Fact]
+    public void ShouldShow_IsFalse_WhenAlreadyVisible_AndTrueOtherwise()
+    {
+        // The ring's Keyboard action is an idempotent SHOW (spec ledger #1): the guard is the
+        // whole seam — the handler itself touches WPF windows and is not headless-reachable
+        // (same reason ApplyEmojiSkinTone was extracted).
+        Check.That(KeyboardCoordinator.ShouldShow(alreadyVisible: true)).IsFalse();
+        Check.That(KeyboardCoordinator.ShouldShow(alreadyVisible: false)).IsTrue();
+    }
+
+    // ---- Screen-edge flip (Keyboard ring action, Task 5) ------------------------------------
+    // The flip core behind HandleKeyboardEdgeToggled: a pure case-normalizing flip plus a
+    // persistable half that mutates settings, saves debounced, and refreshes the reload snapshot.
+
+    [Fact]
+    public void FlipScreenEdge_FlipsBothWays_AndNormalizesToCanonicalCase()
+    {
+        // Comparison is case-insensitive but the OUTPUT is canonical: validation is a
+        // case-sensitive membership test and the unguarded exit-time save turns a stray
+        // casing into an app crash (spec B1 2a).
+        Check.That(KeyboardCoordinator.FlipScreenEdge("Top")).IsEqualTo("Bottom");
+        Check.That(KeyboardCoordinator.FlipScreenEdge("Bottom")).IsEqualTo("Top");
+        Check.That(KeyboardCoordinator.FlipScreenEdge("top")).IsEqualTo("Bottom");
+        Check.That(KeyboardCoordinator.FlipScreenEdge("garbage")).IsEqualTo("Top");
+    }
+
+    [Fact]
+    public void ApplyKeyboardEdge_MutatesSettings_AndReturnsFreshSnapshot()
+    {
+        var settings = new EyeCtrlSettings { Keyboard = { ScreenEdge = "Bottom" } };
+        using var temp = new TempSettingsFile();
+
+        var (flipped, snapshot) = KeyboardCoordinator.ApplyKeyboardEdge(settings, temp.Service);
+
+        Check.That(flipped).IsEqualTo("Top");
+        Check.That(settings.Keyboard.ScreenEdge).IsEqualTo("Top");
+        // The phantom-rebuild guard (spec C5): the snapshot must reflect the write, or the
+        // next settings-apply rebuilds the whole keyboard + prediction stack for nothing.
+        Check.That(snapshot).IsEqualTo(KeyboardStackSnapshot.Capture(settings));
+    }
+
+    [Fact]
+    public void ToolbarOccupancyFor_MapsVisibilityDockingAndExtent()
+    {
+        // The yield's input mapping (spec B3 #6/#7, ledger #8): the toolbar occupies the
+        // keyboard's edge only when the adapter says visible AND the window is on screen,
+        // and only a docked toolbar HAS an edge — undocked maps to "none", which no
+        // keyboard edge matches in KeyboardYield.
+        Check.That(KeyboardCoordinator.ToolbarOccupancyFor(false, true, true, "bottom", 40))
+            .IsEqualTo((false, "none", 0.0));
+        Check.That(KeyboardCoordinator.ToolbarOccupancyFor(true, false, true, "bottom", 40))
+            .IsEqualTo((false, "none", 0.0));
+        Check.That(KeyboardCoordinator.ToolbarOccupancyFor(true, true, false, "left", 132))
+            .IsEqualTo((true, "none", 132.0));
+        Check.That(KeyboardCoordinator.ToolbarOccupancyFor(true, true, true, "bottom", 132))
+            .IsEqualTo((true, "bottom", 132.0));
     }
 }

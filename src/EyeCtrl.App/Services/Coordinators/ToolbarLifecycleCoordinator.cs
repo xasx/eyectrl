@@ -34,6 +34,11 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
     public ToolbarLifecycleCoordinator(ModalInteractionState modal) =>
         _modal = modal ?? throw new ArgumentNullException(nameof(modal));
 
+    /// <summary>Re-exposes the visibility adapter's edge-detected transition event (spec B3 #5),
+    /// so KeyboardCoordinator can yield the keyboard without referencing the adapter. Fires on
+    /// the UI thread.</summary>
+    public event Action<bool>? ToolbarVisibilityChanged;
+
     // Test seams (production never calls these): inject a pre-built controller so the suspend/resume
     // path can be exercised without the SystemParameters/DpiHelper/live-window creation path in
     // SetupToolbarAutoHide, and read back the suspended state without reflection. Mirrors
@@ -249,6 +254,7 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
 
         var vis = new ToolbarVisibilityAdapter(Context.OverlayManager, Context.Dispatcher, Context.ToolbarVM);
         controller.Attach(vis);
+        vis.VisibilityChanged += visible => ToolbarVisibilityChanged?.Invoke(visible);
 
         _autoHide = controller;
         _visibility = vis;

@@ -15,12 +15,16 @@ using EyeCtrl.Core.Models;
 /// </para>
 ///
 /// <para>
-/// <b>Every action is a mouse action, so every icon is a mouse.</b> Modifiers sit in the margins
-/// and never on the body: scroll variants take chevrons at the right, drag takes motion bars at
-/// the left. <see cref="ActionIcon.DoubleClick"/> is the deliberate exception — it must differ
-/// from <see cref="ActionIcon.LeftClick"/> in outline rather than in detail, because with labels
-/// hidden a mark inside the same silhouette is invisible in peripheral vision, which is where a
-/// gaze user finds a target before looking straight at it.
+/// <b>Most actions are mouse actions, so most icons are mice.</b> The deliberate exceptions —
+/// <see cref="ActionIcon.More"/> (navigation, not a click), <see cref="ActionIcon.Keyboard"/>
+/// and <see cref="ActionIcon.KeyboardEdge"/> (keyboard commands, not mouse actions) — break
+/// the mouse silhouette on purpose: drawing them as mice would say they perform a click.
+/// Modifiers sit in the margins and never on the body: scroll variants take chevrons at the
+/// right, drag takes motion bars at the left. <see cref="ActionIcon.DoubleClick"/> is the
+/// other exception — it must differ from <see cref="ActionIcon.LeftClick"/> in outline
+/// rather than in detail, because with labels hidden a mark inside the same silhouette is
+/// invisible in peripheral vision, which is where a gaze user finds a target before looking
+/// straight at it.
 /// </para>
 ///
 /// <para>
@@ -113,11 +117,28 @@ public static class ActionIcons
             + " M8.6,12.5 L15.4,12.5 M8.6,16.5 L13,16.5 M12,5.8 L12,7.5",
             "M9.8,3.6 A2.2,2.2 0 1 1 14.2,3.6 A2.2,2.2 0 1 1 9.8,3.6 Z"),
 
+        // A keyboard: rounded body, one dash row, a second short row, and a centred space bar.
+        // The first non-mouse ACTION icon — see the revised class doc above.
+        [ActionIcon.Keyboard] = IconGeometry.FromPathData(
+            "M6,7.5 L18,7.5 A2.5,2.5 0 0 1 20.5,10 L20.5,15 A2.5,2.5 0 0 1 18,17.5 L6,17.5 A2.5,2.5 0 0 1 3.5,15 L3.5,10 A2.5,2.5 0 0 1 6,7.5 Z"
+            + " M6.8,10.7 L9.2,10.7 M10.7,10.7 L13.3,10.7 M14.8,10.7 L17.2,10.7"
+            + " M6.8,13.2 L9.2,13.2 M14.8,13.2 L17.2,13.2"
+            + " M9.7,15.7 L14.3,15.7"),
+
+        // A compact keyboard with chevrons above and below: the edge bar's flip-to-other-edge
+        // affordance. Chevrons change the outline from the plain Keyboard glyph, per the
+        // peripheral-vision rule in the class doc.
+        [ActionIcon.KeyboardEdge] = IconGeometry.FromPathData(
+            "M7,10.2 L16.2,10.2 A2,2 0 0 1 18.2,12.2 L18.2,14.2 A2,2 0 0 1 16.2,16.2 L7,16.2 A2,2 0 0 1 5,14.2 L5,12.2 A2,2 0 0 1 7,10.2 Z"
+            + " M7.8,12 L9.8,12 M10.8,12 L12.8,12 M13.8,12 L15.4,12"
+            + " M7.8,14.4 L15.4,14.4"
+            + " M9.6,7.4 L11.6,5.4 L13.6,7.4 M9.6,19 L11.6,21 L13.6,19"),
+
         [ActionIcon.Back] = IconGeometry.FromPathData(
             "M10,5.5 L4.5,11 L10,16.5 M4.5,11 L14.5,11 A5,5 0 0 1 19.5,16 L19.5,19"),
 
-        // Fill-only: three dots, the one icon in the set that is not a mouse. More is navigation,
-        // and drawing it as a mouse would say it performs a click.
+        // Fill-only: three dots. More is one of the set's three non-mouse icons (see the class
+        // doc): navigation, and drawing it as a mouse would say it performs a click.
         [ActionIcon.More] = IconGeometry.FromPathData(null,
             "M3.7,12 A1.9,1.9 0 1 1 7.5,12 A1.9,1.9 0 1 1 3.7,12 Z"
             + " M10.1,12 A1.9,1.9 0 1 1 13.9,12 A1.9,1.9 0 1 1 10.1,12 Z"

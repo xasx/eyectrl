@@ -4,6 +4,10 @@
 **Status:** Validated (summon assumption verified on PCEye 5)
 **Author:** EyeCtrl Team
 
+> **Superseded in part (2026-09-10):** keyboard-open no longer suspends auto-hide or
+> force-shows the toolbar — see `2026-09-10-keyboard-action-and-edge-toggle-design.md` B2
+> (ledger #9). The Settings-window behavior described below is unchanged.
+
 ## Problem
 
 When a real eye tracker is driving the app, the always-visible docked toolbar (`ToolbarWindow`) sits on screen permanently, even when the user is not using it. For an eye-gaze-driven workflow this is wasted screen real estate and a dwell-miss hazard: the toolbar's buttons are large dwell targets, and they remain active whether or not the user wants to interact with them.
@@ -137,7 +141,7 @@ Rendering: a new minimal overlay window, `PauseIndicatorWindow`, derived from `O
 ## Edge cases
 
 1. **Mouse/test mode** — controller never hides (gated on provider type). Toolbar is always visible, as today.
-2. **Keyboard or settings window open** — auto-hide is **suspended** while either is open. The `_keyboardVisible`/`_settingsOpen` flags are `private volatile bool` on `EventCoordinator` (`EventCoordinator.cs:41-42`), not accessible to a standalone controller. Mechanism: `EventCoordinator` calls `controller.Suspend(true)` when either flag becomes true and `controller.Suspend(false)` when both clear — mirroring the existing `OnSettingsChanged` ping pattern already used to refresh the cached rect. While suspended: no hide transitions occur; if currently hidden, the toolbar is force-shown so the user is not stranded. Re-evaluates when they close.
+2. **Settings window open** — (Keyboard-open no longer suspends auto-hide since 2026-09-10 — see `2026-09-10-keyboard-action-and-edge-toggle-design.md` B2, ledger #9; its escape is the keyboard edge bar's Close.) Auto-hide is **suspended** while the Settings window is open. The `_settingsOpen` flag is a `private volatile bool` on `EventCoordinator` (`EventCoordinator.cs:41-42`), not accessible to a standalone controller. Mechanism: `EventCoordinator` calls `controller.Suspend(true)` when it becomes true and `controller.Suspend(false)` when it clears — mirroring the existing `OnSettingsChanged` ping pattern already used to refresh the cached rect. While suspended: no hide transitions occur; if currently hidden, the toolbar is force-shown so the user is not stranded. Re-evaluates when it closes.
 3. **Calibration running** — suspended when `_context.CalibrationService.IsSessionActive` (`CalibrationService.cs:45`) is true. (The eye-care wiring does not itself check calibration — it delegates to `EyeCareService`; here we name the explicit gate.) No hide/summon during calibration.
 4. **Toolbar re-summoned while paused** — edge bar hides, the full toolbar (with the resume button) shows.
 5. **Invalid samples** — ignored for both hide and summon. They reset neither timer, so a brief blink mid-idle-count does not restart the 5s.
@@ -163,7 +167,7 @@ Cases:
 - No summon when looking past a non-docked edge.
 - Summon requires sustained off-screen for `SUMMON_DELAY` (a single off-edge sample does not summon).
 - Blink (invalid sample) does not reset the idle countdown.
-- Suspended while keyboard open; suspended while settings open; force-show if hidden when a modal opens.
+- (Settings window only since 2026-09-10:) Suspended while settings open; force-show if hidden when the Settings window opens.
 - Suspended during calibration.
 - Pause while hidden shows the edge bar; resume hides it.
 - Summon while paused hides the edge bar and shows the toolbar.

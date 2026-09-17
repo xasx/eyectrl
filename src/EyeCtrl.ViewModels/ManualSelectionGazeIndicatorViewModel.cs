@@ -12,7 +12,8 @@ public partial class ManualSelectionGazeIndicatorViewModel : MessengerViewModelB
     IRecipient<ManualSelectionHiddenMessage>,
     IRecipient<UpdateManualSelectionIndicatorPositionMessage>,
     IRecipient<UpdateManualSelectionIndicatorProgressMessage>,
-    IRecipient<ResetManualSelectionIndicatorMessage>
+    IRecipient<ResetManualSelectionIndicatorMessage>,
+    IRecipient<ManualSelectionAnchorChangedMessage>
 {
     // Stable configuration value from settings (never changes after Configure)
     private double _outerCircleDiameterSetting;
@@ -20,6 +21,11 @@ public partial class ManualSelectionGazeIndicatorViewModel : MessengerViewModelB
     // Position in screen coordinates (magnified space)
     [ObservableProperty] private double _indicatorX;
     [ObservableProperty] private double _indicatorY;
+
+    // Held dwell anchor: where the dwell is committed to, distinct from the live gaze dot.
+    [ObservableProperty] private double _anchorX;
+    [ObservableProperty] private double _anchorY;
+    [ObservableProperty] private bool _isAnchorVisible;
 
     // Outer circle diameter — animated from OuterDiameter → CenterDotDiameter during fixation
     [ObservableProperty] private double _outerCircleDiameter;
@@ -63,6 +69,7 @@ public partial class ManualSelectionGazeIndicatorViewModel : MessengerViewModelB
     public void Receive(EndManualSelectionMessage message)
     {
         IsVisible = false;
+        IsAnchorVisible = false;
         FixationProgress = 0.0;
         OuterCircleDiameter = _outerCircleDiameterSetting;
     }
@@ -70,6 +77,7 @@ public partial class ManualSelectionGazeIndicatorViewModel : MessengerViewModelB
     public void Receive(ManualSelectionHiddenMessage message)
     {
         IsVisible = false;
+        IsAnchorVisible = false;
         FixationProgress = 0.0;
         OuterCircleDiameter = _outerCircleDiameterSetting;
     }
@@ -87,6 +95,20 @@ public partial class ManualSelectionGazeIndicatorViewModel : MessengerViewModelB
     public void Receive(ResetManualSelectionIndicatorMessage message)
     {
         ResetFixation();
+    }
+
+    public void Receive(ManualSelectionAnchorChangedMessage message)
+    {
+        if (message.Anchor is { } anchor)
+        {
+            AnchorX = anchor.X;
+            AnchorY = anchor.Y;
+            IsAnchorVisible = true;
+        }
+        else
+        {
+            IsAnchorVisible = false;
+        }
     }
 
     /// <summary>

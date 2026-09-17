@@ -95,7 +95,18 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     {
         base.Hide();
         ClearContent();
+        HideEscapeHint();
     }
+
+    // ── Escape hint ──
+
+    /// <summary>Shows the "Press Esc to exit" hint (bottom-right, mirrors CalibrationWindow's CancelHint).</summary>
+    public void ShowEscapeHint() => EscapeHint.Visibility = Visibility.Visible;
+
+    /// <summary>Hides the escape hint. Also called from <see cref="Hide"/> so a stale hint never
+    /// carries over into an unrelated later use of this window (e.g. the plain action menu, which
+    /// never asks for it).</summary>
+    public void HideEscapeHint() => EscapeHint.Visibility = Visibility.Collapsed;
 
     private void EnsureHandle()
     {

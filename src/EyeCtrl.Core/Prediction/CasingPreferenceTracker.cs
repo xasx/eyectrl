@@ -89,6 +89,21 @@ public class CasingPreferenceTracker
     }
 
     /// <summary>
+    /// Applies a frequency delta to one (lowerword → variant) entry — the delta-merge
+    /// counterpart of <see cref="GetAllPreferences"/> snapshots. Used by the background
+    /// prediction-stack swap.
+    /// </summary>
+    internal void LearnEntry(string lowerWord, string variant, int countDelta)
+    {
+        if (countDelta <= 0 || string.IsNullOrWhiteSpace(lowerWord) || string.IsNullOrWhiteSpace(variant))
+            return;
+        if (!_casingVariants.ContainsKey(lowerWord))
+            _casingVariants[lowerWord] = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        _casingVariants[lowerWord][variant] = _casingVariants[lowerWord].GetValueOrDefault(variant) + countDelta;
+        _preferredCasingCache.Remove(lowerWord); // the merge may change the winning variant
+    }
+
+    /// <summary>
     /// Loads casing preferences from a previously serialized state.
     /// Clears existing data before loading.
     /// </summary>

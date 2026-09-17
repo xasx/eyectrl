@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.LM;
+using Microsoft.Extensions.Logging;
 using Serilog;
 
 /// <summary>
@@ -29,8 +30,31 @@ using Serilog;
 /// </summary>
 public class PredictionStackFactory : IDisposable
 {
+    /// <summary>
+    /// Minimal MEL-to-Serilog bridge for Core types constructed outside DI (review finding 9:
+    /// the dictionary provider's IO failures were silently swallowed because no logger was
+    /// passed). Category = T's name, level-mapped.
+    /// </summary>
+    private static class SerilogLoggerProvider<T>
+    {
+        public static ILogger<T> Create() => new Bridge();
+        private sealed class Bridge : ILogger<T>
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+            public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Warning;
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            {
+                var message = $"{typeof(T).Name}: {formatter(state, exception)}";
+                if (logLevel == LogLevel.Error)
+                    global::Serilog.Log.Error(exception, "{Message}", message);
+                else
+                    global::Serilog.Log.Warning(exception, "{Message}", message);
+            }
+        }
+    }
+
     private PredictionOrchestrator? _current;
-    private bool _disposed;
+    private volatile bool _disposed;
     private readonly Action<Action>? _postToUi;
     private readonly CancellationTokenSource _disposeCts = new();
     private int _buildGeneration;
@@ -60,6 +84,10 @@ public class PredictionStackFactory : IDisposable
         {
             // Cheap (a save + dispose, no builds) and must take effect immediately even in
             // background mode: the user just turned prediction OFF.
+            // The generation bump is load-bearing (review finding 1): without it, an in-flight
+            // build started BEFORE the disable still passes every generation check and swaps a
+            // live prediction stack back in — silently re-enabling what the user turned off.
+            Interlocked.Increment(ref _buildGeneration);
             SaveAndDisposeCurrent();
             _current = null;
             if (_postToUi is not null)
@@ -78,26 +106,30 @@ public class PredictionStackFactory : IDisposable
             return _current;
         }
 
-        // Background mode. Persist the old stack's dictionary NOW, on the caller's (UI) thread:
-        // the new stack LOADS from disk on the pool thread, so everything learned on the old
-        // stack must be on disk before the build reads it (the synchronous flow got this for
-        // free by disposing before building). Cheap: these are small JSON writes; the expensive
-        // parts of a rebuild are the trie/ONNX/dictionary LOADS, which stay off the UI thread.
-        try
-        {
-            _current?.WordPredictor.SaveUserDictionary();
-        }
-        catch (Exception ex)
-        {
-            Log.Warning(ex, "Failed to save user dictionary before background rebuild");
-        }
-
-        // Snapshot AFTER the save, on the UI thread (word learning is UI-thread): the delta
-        // against the swap-time state is exactly what was learned during the build window.
-        var before = _current?.WordPredictor.WordFrequencies;
+        // Background mode. Snapshot the old stack's full learned state NOW, on the caller's (UI)
+        // thread — cheap dictionary copies, no IO (review finding 3: the save this replaces was
+        // a 6-file, up-to-37 MB write set ON the UI thread). The snapshot is persisted at the
+        // HEAD of the build task, so the new stack still loads a disk state that includes
+        // everything learned before the rebuild started (the ordering the synchronous flow got
+        // for free), while serialization and writing happen off the UI thread.
+        var before = _current?.WordPredictor.CaptureLearnedState();
 
         _ = Task.Run(
-            () => Build(settings, baseDir, appDataDir, modelRegistry, _disposeCts.Token),
+            () =>
+            {
+                if (before is not null)
+                {
+                    try
+                    {
+                        WriteStateToDisk(before, baseDir, appDataDir, settings);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warning(ex, "Failed to persist learned state before background build; the build continues from the last on-disk state");
+                    }
+                }
+                return Build(settings, baseDir, appDataDir, modelRegistry, _disposeCts.Token);
+            },
             _disposeCts.Token)
             .ContinueWith(
                 t =>
@@ -140,28 +172,61 @@ public class PredictionStackFactory : IDisposable
 
     /// <summary>
     /// The background-mode swap, on the UI thread (word learning cannot interleave): diff the old
-    /// stack's current frequencies against the pre-build snapshot, apply the learned deltas to the
-    /// new stack, then save + dispose the old (persisting the tail for the NEXT boot as well) and
-    /// publish the new one.
+    /// stack's CURRENT full learned state against the pre-build snapshot and apply the delta to
+    /// the new stack — words AND bigrams AND phrases AND casing. Then dispose the old stack
+    /// WITHOUT saving: its pre-window state is already on disk (the build-task head wrote the
+    /// snapshot), and its window state now lives in the new stack, whose own next save persists
+    /// the union. Saving here instead would let the new stack's in-memory (pre-tail) state
+    /// clobber the tail at ITS next save — the silent-destruction bug of review finding 2.
     /// </summary>
-    private void SwapInWithLearnedTail(PredictionOrchestrator built, IReadOnlyDictionary<string, int>? before)
+    private void SwapInWithLearnedTail(PredictionOrchestrator built, PredictionLearnedState? before)
     {
         var old = _current;
         if (old is not null && before is not null)
-        {
-            var deltas = new List<KeyValuePair<string, int>>();
-            foreach (var (word, after) in old.WordPredictor.WordFrequencies)
-            {
-                var delta = after - before.GetValueOrDefault(word);
-                if (delta > 0)
-                    deltas.Add(new(word, delta));
-            }
-            if (deltas.Count > 0)
-                built.WordPredictor.LearnWordDeltas(deltas);
-        }
+            built.WordPredictor.ApplyLearnedDelta(before, old.WordPredictor.CaptureLearnedState());
 
-        SaveAndDisposeCurrent();
+        try
+        {
+            old?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Failed to dispose the superseded prediction stack");
+        }
         _current = built;
+    }
+
+    /// <summary>
+    /// Persists a learned-state snapshot through a provider, off the UI thread. Mirrors what
+    /// <c>WordPredictor.SaveUserDictionary</c> writes, but from an already-captured snapshot.
+    /// </summary>
+    private static void WriteStateToDisk(
+        PredictionLearnedState state, string baseDir, string appDataDir, EyeCtrlSettings settings)
+    {
+        var langCode = KeyboardSettings.IsValidLanguagePack(settings.Keyboard.LanguagePack)
+            ? settings.Keyboard.LanguagePack
+            : "";
+        var provider = new FileDictionaryProvider(
+            Path.Combine(baseDir, "Resources", "Dictionaries", $"{langCode}.json"),
+            appDataDir,
+            langCode,
+            SerilogLoggerProvider<FileDictionaryProvider>.Create());
+
+        provider.Save(new Dictionary<string, int>(state.Words));
+        provider.SaveBigrams(Unwrap(state.Bigrams));
+        provider.SaveBigramTimestamps(Unwrap(state.BigramTimestamps));
+        provider.SavePhrases(Unwrap(state.Phrases));
+        provider.SavePhraseTimestamps(Unwrap(state.PhraseTimestamps));
+        provider.SaveCasingPreferences(Unwrap(state.Casing));
+    }
+
+    private static Dictionary<string, Dictionary<string, TValue>> Unwrap<TValue>(
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, TValue>> nested)
+    {
+        var result = new Dictionary<string, Dictionary<string, TValue>>(nested.Count);
+        foreach (var (key, inner) in nested)
+            result[key] = new Dictionary<string, TValue>(inner);
+        return result;
     }
 
     private static PredictionOrchestrator? Build(
@@ -184,7 +249,8 @@ public class PredictionStackFactory : IDisposable
             langCode = "";
         }
         var dictPath = Path.Combine(baseDir, "Resources", "Dictionaries", $"{langCode}.json");
-        var provider = new FileDictionaryProvider(dictPath, appDataDir, langCode);
+        var provider = new FileDictionaryProvider(dictPath, appDataDir, langCode,
+            SerilogLoggerProvider<FileDictionaryProvider>.Create());
         var wordPredictor = new WordPredictor(provider, settings.Keyboard.ActiveLayout);
         wordPredictor.ApplyDecay(settings.Keyboard.DecayEnabled, settings.Keyboard.DecayHalfLifeDays);
 
@@ -277,7 +343,18 @@ public class PredictionStackFactory : IDisposable
             }
         }
 
-        token.ThrowIfCancellationRequested();
+        try
+        {
+            token.ThrowIfCancellationRequested();
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation landing between the LM predictor's construction and the final check
+            // would otherwise orphan its native InferenceSession — every other discard path
+            // disposes (review finding 6).
+            lmPredictor?.Dispose();
+            throw;
+        }
 
         return new PredictionOrchestrator(wordPredictor, trieIndex, lmPredictor, settings.Keyboard.MLSuggestionsEnabled);
     }

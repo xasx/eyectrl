@@ -336,6 +336,89 @@ public class WordPredictor
         _words[lower] = 1;
     }
 
+    /// <summary>
+    /// Captures the full learned state (words, bigrams, phrases, casing — with timestamps) as
+    /// immutable copies. Cheap (dictionary copies, no serialization); the background
+    /// prediction-stack rebuild snapshots this on the UI thread before a build and diffs it at
+    /// swap time. See <see cref="ApplyLearnedDelta"/>.
+    /// </summary>
+    public PredictionLearnedState CaptureLearnedState() => new()
+    {
+        Words = WordFrequencies,
+        Bigrams = CopyNested(_bigrams.GetAllBigrams()),
+        BigramTimestamps = CopyNested(_bigrams.GetAllTimestamps()),
+        Phrases = CopyNested(_phrases.GetAllPhrases()),
+        PhraseTimestamps = CopyNested(_phrases.GetAllTimestamps()),
+        Casing = CopyNested(_casingPreferences.GetAllPreferences()),
+    };
+
+    /// <summary>
+    /// Applies the learning that happened between <paramref name="before"/> was captured and NOW
+    /// — as observed on THIS instance's sibling (the old stack): pass
+    /// <c>old.CaptureLearnedState()</c> as <paramref name="after"/> on the NEW instance. Every
+    /// positive delta (new entries and frequency increases) is applied additively; nothing is
+    /// ever lowered, so a decayed baseline on the new stack is preserved.
+    /// </summary>
+    public void ApplyLearnedDelta(PredictionLearnedState before, PredictionLearnedState after)
+    {
+        ArgumentNullException.ThrowIfNull(before);
+        ArgumentNullException.ThrowIfNull(after);
+
+        // Words: additive deltas (the round-1 mechanism, now routed through the same entry point).
+        var wordDeltas = new List<KeyValuePair<string, int>>();
+        foreach (var (word, freq) in after.Words)
+        {
+            var delta = freq - before.Words.GetValueOrDefault(word);
+            if (delta > 0)
+                wordDeltas.Add(new(word, delta));
+        }
+        LearnWordDeltas(wordDeltas);
+
+        ApplyNestedDelta(before.Bigrams, after.Bigrams, after.BigramTimestamps,
+            (a, b, d, ts) => _bigrams.LearnEntry(a, b, d, ts));
+        ApplyNestedDelta(before.Phrases, after.Phrases, after.PhraseTimestamps,
+            (a, b, d, ts) => _phrases.LearnEntry(a, b, d, ts));
+
+        foreach (var (lower, variants) in after.Casing)
+        {
+            var beforeVariants = before.Casing.GetValueOrDefault(lower);
+            foreach (var (variant, freq) in variants)
+            {
+                var delta = freq - (beforeVariants?.GetValueOrDefault(variant) ?? 0);
+                if (delta > 0)
+                    _casingPreferences.LearnEntry(lower, variant, delta);
+            }
+        }
+    }
+
+    private static void ApplyNestedDelta(
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> before,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> after,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, DateTimeOffset>> afterTimestamps,
+        Action<string, string, int, DateTimeOffset> apply)
+    {
+        foreach (var (outer, entries) in after)
+        {
+            var beforeEntries = before.GetValueOrDefault(outer);
+            var timestamps = afterTimestamps.GetValueOrDefault(outer);
+            foreach (var (inner, freq) in entries)
+            {
+                var delta = freq - (beforeEntries?.GetValueOrDefault(inner) ?? 0);
+                if (delta > 0)
+                    apply(outer, inner, delta, timestamps?.GetValueOrDefault(inner) ?? DateTimeOffset.UtcNow);
+            }
+        }
+    }
+
+    private static Dictionary<string, IReadOnlyDictionary<string, TValue>> CopyNested<TValue>(
+        Dictionary<string, Dictionary<string, TValue>> source)
+    {
+        var copy = new Dictionary<string, IReadOnlyDictionary<string, TValue>>(source.Count);
+        foreach (var (key, inner) in source)
+            copy[key] = new Dictionary<string, TValue>(inner);
+        return copy;
+    }
+
     /// <summary>Hard bound on the learned-words dictionary (base dictionaries ship 10,000 words
     /// per language; the headroom above that is for learned vocabulary). Public for tests.</summary>
     public const int MaxDictionaryWords = 50_000;

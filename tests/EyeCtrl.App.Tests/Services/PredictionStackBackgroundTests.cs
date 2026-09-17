@@ -105,20 +105,33 @@ public class PredictionStackBackgroundTests : IDisposable
     }
 
     [Fact]
-    public void WordsLearnedDuringTheBuildWindow_CarryOverToTheNewStack()
+    public void LearningDuringTheBuildWindow_CarriesOver_WordsAndBigrams()
     {
         using var factory = NewBackgroundFactory();
         factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
         Pump();
-        factory.Current!.LearnWord("zebratail");
-        factory.Current!.LearnWord("zebratail");
 
-        factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
-        Pump(); // the swap merges the learned tail
+        // The learning below happens AFTER Rebuild returns and BEFORE the swap — the real
+        // build window. (Learning before Rebuild would only prove the save-before-build
+        // ordering: the word would reach the new stack via its file loads and the delta
+        // merge would never run — that is how the round-1 version of this test failed to
+        // cover its own subject.)
+        var rebuild = factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
+        rebuild!.LearnSequence(new[] { "zebratail", "surfsalot" });
+        rebuild!.LearnWord("zebratail");
+
+        Pump(); // the swap merges the window's learned tail into the new stack
 
         var suggestions = factory.Current!.WordPredictor
             .GetSuggestions("zebrata", null, 5).Select(r => r.Word).ToList();
         Check.That(suggestions).Contains("zebratail");
+
+        // Bigrams: the merged tail must survive the new stack's own save — the destruction
+        // path the review demonstrated (swap-time save overwritten by the new stack's next
+        // save used to erase the window's bigrams).
+        factory.Dispose(); // persists the new stack's state (words AND bigrams)
+        var bigramsPath = Path.Combine(_appDataDir, "user_dictionary_en_bigrams.json");
+        Check.That(File.ReadAllText(bigramsPath)).Contains("surfsalot");
     }
 
     [Fact]
@@ -127,20 +140,25 @@ public class PredictionStackBackgroundTests : IDisposable
         using var factory = NewBackgroundFactory();
         factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
         Pump();
-        var generation1 = factory.Current;
+        var serving = factory.Current;
 
-        // Two rebuilds before the UI runs anything: generation 2 supersedes generation 1 while
-        // both continuations sit in the queue.
-        factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
-        factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
-        Pump();
-
-        Check.That(ReferenceEquals(factory.Current, generation1)).IsFalse();
-        // Exactly one swap event, one live stack: the discarded build neither swapped nor leaked
-        // an event at the keyboard.
+        // Subscribe BEFORE the rebuilds: a swap count is only meaningful when the subscription
+        // is in place for every event (the previous version subscribed after the pump and
+        // asserted 0 == 0 — it could not fail).
         var swappedSeen = 0;
         factory.StackSwapped += _ => swappedSeen++;
-        Check.That(swappedSeen).IsEqualTo(0); // (subscription after the fact: sanity only)
+
+        // Two rebuilds before the UI runs anything: generation 2 supersedes generation 1 while
+        // both continuations sit in the queue. Exactly ONE swap may land.
+        var firstBinding = factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
+        var secondBinding = factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
+        Check.That(ReferenceEquals(firstBinding, serving)).IsTrue(); // both callers got the old stack
+        Check.That(ReferenceEquals(secondBinding, serving)).IsTrue();
+        Pump();
+
+        Check.That(swappedSeen).IsEqualTo(1);                            // one swap, not two
+        Check.That(factory.Current).IsNotNull();
+        Check.That(ReferenceEquals(factory.Current, serving)).IsFalse(); // a NEW stack landed, once
     }
 
     [Fact]
@@ -167,47 +185,89 @@ public class PredictionStackBackgroundTests : IDisposable
     [Fact]
     public void Dispose_CancelsInFlightBuild_NoSwapArrivesAfterwards()
     {
-        using (var factory = NewBackgroundFactory())
-        {
-            factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
-            // No Pump(): the build finishes on the pool thread and its continuation queues, but
-            // Dispose must cancel/ignore it rather than let a swap hit a torn-down factory.
-            factory.Dispose();
-        }
+        using var factory = NewBackgroundFactory();
+        var swaps = new List<PredictionOrchestrator?>();
+        factory.StackSwapped += o => swaps.Add(o);
 
-        Drain();
-        // Surviving queued work (if any) must not throw — assert the pump ran clean by reaching here.
-        Check.That(_uiQueue.Count).IsLessOrEqualThan(10);
+        factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
+        // No Pump(): the build finishes on the pool thread and its continuation may queue, but
+        // Dispose must cancel/ignore it rather than let a swap hit a torn-down factory.
+        factory.Dispose();
+
+        Drain(); // run any marshal that DID queue: its re-check must drop it silently
+        Thread.Sleep(200); // give a late continuation a beat to (wrongly) enqueue
+
+        Check.That(swaps).IsEmpty();   // the thing this test's name has always promised
+        Check.That(factory.Current).IsNull();
     }
 
     [Fact]
-    public async Task RebuildsAreSafeUnderRealAsyncTiming()
+    public void DisableDuringInFlightBuild_TheBuildMustNotSwitchPredictionBackOn()
     {
-        // The queued-marshal tests above are deterministic; this one exercises the ACTUAL thread
-        // pool timing (build racing the UI marshal racing a second rebuild) looking for crashes,
-        // double-swaps, or use-after-dispose — the failure modes the marshal dance exists for.
-        var queue = new System.Collections.Concurrent.ConcurrentQueue<Action>();
-        using var factory = new PredictionStackFactory(work => queue.Enqueue(work));
-        var swaps = 0;
-        factory.StackSwapped += _ => Interlocked.Increment(ref swaps);
+        // Review finding 1 (the blocker): the disable path never bumped the generation
+        // counter, so a build started before the disable passed every generation check and
+        // swapped a live prediction stack back in — re-enabling what the user turned off,
+        // ONNX session included, until the next rebuild.
+        using var factory = NewBackgroundFactory();
+        factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
+        Pump();
 
-        var rebuild1 = Task.Run(() => factory.Rebuild(Settings(), _baseDir, _appDataDir, null));
-        var rebuild2 = Task.Run(() => factory.Rebuild(Settings(), _baseDir, _appDataDir, null));
-        await Task.WhenAll(rebuild1, rebuild2);
+        var inFlight = factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
+        Check.That(inFlight).IsNotNull(); // an old stack is serving while the build runs
 
-        // Drain as a real dispatcher would, while a third rebuild races the drain.
-        var rebuild3 = Task.Run(() => factory.Rebuild(Settings(), _baseDir, _appDataDir, null));
-        for (var i = 0; i < 200; i++)
+        var disabled = Settings();
+        disabled.Keyboard.PredictionEnabled = false;
+        Check.That(factory.Rebuild(disabled, _baseDir, _appDataDir, modelRegistry: null)).IsNull();
+
+        // Drain for long enough that the in-flight build's continuation and marshal both
+        // arrive and run — a single Pump() can drain-and-exit before the build's marshal is
+        // enqueued, which would pass this test without exercising anything.
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(3);
+        while (DateTime.UtcNow < deadline)
         {
-            while (queue.TryDequeue(out var work))
-                work();
-            await Task.Delay(10);
+            while (_uiQueue.Count > 0)
+                _uiQueue.Dequeue()();
+            Thread.Sleep(50);
         }
-        await rebuild3;
 
-        Check.That(swaps).IsLessOrEqualThan(3);
-        Check.That(swaps).IsGreaterOrEqualThan(1);
-        Check.That(factory.Current).IsNotNull();
+        Check.That(factory.Current).IsNull(); // prediction stays OFF — the build died in its checks
+    }
+
+    [Fact]
+    public void GenerationAdvanceBetweenPoolCheckAndMarshal_TheStaleMarshalIsDropped()
+    {
+        // The marshal re-check exists for exactly one window: a build's CONTINUATION passed the
+        // pool-thread generation check, then a newer Rebuild bumped the generation BEFORE the
+        // marshaled swap ran. Deleting the re-check (review mutation A) survived the whole suite
+        // because no test could hit that window — the queue-level supersede test never gets a
+        // stale item past the pool check. This test runs the FIRST marshal only AFTER a second
+        // Rebuild has advanced the generation, which is the window itself.
+        using var factory = NewBackgroundFactory();
+        factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
+        Pump();
+        var serving = factory.Current;
+
+        var swaps = new List<PredictionOrchestrator?>();
+        factory.StackSwapped += o => swaps.Add(o);
+
+        // Generation 1: wait until its marshal is ENQUEUED — that means its pool-thread
+        // generation check has already passed.
+        factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (_uiQueue.Count == 0 && DateTime.UtcNow < deadline)
+            Thread.Sleep(10);
+        Check.WithCustomMessage("generation-1 marshal never enqueued").That(_uiQueue.Count).IsStrictlyGreaterThan(0);
+
+        // Now advance the generation (rebuild 2), THEN run the stale gen-1 marshal.
+        factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
+        _uiQueue.Dequeue()(); // the stale marshal: its re-check must drop it
+
+        Check.That(swaps).IsEmpty();                              // no event from the stale build
+        Check.That(ReferenceEquals(factory.Current, serving)).IsTrue(); // nothing swapped
+
+        Pump(); // generation 2's marshal lands
+        Check.That(swaps).HasSize(1);
+        Check.That(ReferenceEquals(factory.Current, serving)).IsFalse();
     }
 
     // ── Load-time integrity (the deferred audit item, now safe off the UI thread) ─────────

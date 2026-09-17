@@ -230,13 +230,21 @@ public class KeyboardGateProbeTests
             .That(centres.ContainsKey(keyId)).IsTrue();
 
         var centre = centres[keyId];
-        probe.Window.UpdateGaze(centre, ts); ts += 1_000;
+        var latchTs = ts;
+        probe.Window.UpdateGaze(centre, latchTs); ts += 1_000;
         Check.WithCustomMessage(
                 $"Gaze at '{keyId}''s own reported centre did not latch it "
                 + $"(latched '{probe.Vm.NearestKeyId}') — the dwell that follows would never complete.")
             .That(probe.Vm.NearestKeyId).IsEqualTo(keyId);
 
-        probe.Window.UpdateGaze(centre, ts + DwellUs); ts += DwellUs + 1_000;
+        // Hold it for a full dwell in a CONTINUOUS 50 ms stream, then the completing sample. A
+        // single jump to latchTs + 500 ms would be restarted by the F3 gap clamp (any silence
+        // over 150 ms resets the dwell rather than being credited) and the activation would never
+        // happen — the same class of fixture trap as the post-rebuild layout pass above.
+        for (var t = latchTs + 50_000; t < latchTs + DwellUs; t += 50_000)
+            probe.Window.UpdateGaze(centre, t);
+        probe.Window.UpdateGaze(centre, latchTs + DwellUs);
+        ts = latchTs + DwellUs + 1_000;
     }
 
     // ---- positive half: no key is dead ----

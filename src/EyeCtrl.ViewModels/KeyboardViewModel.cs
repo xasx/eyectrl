@@ -20,9 +20,28 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     // Gaze tracking state
     private long _nearestKeyEnteredTimestamp;
     private long _keyCooldownEndTimestamp;
+    private long _lastSampleTimestampUs;
     private int _keyDwellMs;
     private int _baselineKeyDwellMs;
     private int _cooldownMs;
+
+    /// <summary>
+    /// Longest interval between two DELIVERED gaze samples that may still count as continuous
+    /// dwell. The tracker measures elapsed time from timestamps, so a pause longer than this must
+    /// restart the dwell rather than be credited — otherwise the first sample after a blink, a
+    /// tracker dropout or a hidden interval receives the whole pause as held time and fires the
+    /// key with no progress ever shown (F3). Withholding gap-held samples upstream cannot bound
+    /// this: a pause is a timestamp fact, not a delivery fact.
+    ///
+    /// <para>
+    /// 150 ms is 4.5x the 33 ms interval of the slowest supported tracker rate (30 Hz), so live
+    /// scheduler jitter cannot trip it, while every real interruption exceeds it (a blink is
+    /// typically 100–400 ms; the measured incident was 3 s). Deliberately NOT
+    /// <c>CursorSettings.MaxGapInterpolationMs</c>: that is a user-tunable knob whose range
+    /// (0–500) reaches past the keyboard dwell, so it cannot be the keyboard's safety bound.
+    /// </para>
+    /// </summary>
+    private const long MaxContinuousSampleGapUs = 150 * MathConstants.MicrosecondsPerMillisecond;
 
     private readonly IStruggleTelemetrySink? _sink;
     private readonly EffectiveSettingsProvider? _effectiveSettings;
@@ -94,6 +113,31 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     public void Receive(ShowKeyboardMessage message) => IsVisible = true;
     public void Receive(HideKeyboardMessage message) => IsVisible = false;
 
+    // Hiding ends the keyboard's interaction context. Every other dwell-owning surface resets its
+    // detector state on that transition; the keyboard was the only one that did not, so a stale
+    // tracker credited the whole hidden interval on the first sample after reopen (F3's reopen
+    // trigger). Reset on the property rather than inside Receive(HideKeyboardMessage): a direct
+    // IsVisible write takes the same path, and the tracker cannot disagree with the flag.
+    partial void OnIsVisibleChanged(bool value)
+    {
+        if (!value)
+            ResetInteractionState();
+    }
+
+    /// <summary>
+    /// Clears the state that describes the CURRENT interaction. Called when the keyboard hides:
+    /// accumulated dwell must not survive into the next open (the hidden interval is not held
+    /// gaze), and neither must <see cref="NearestKeyId"/>, which would otherwise latch a key from
+    /// a layout the next sample's positions may not even contain.
+    /// </summary>
+    private void ResetInteractionState()
+    {
+        NearestKeyId = null;
+        NearestKeyProgress = 0;
+        _nearestKeyEnteredTimestamp = 0;
+        _lastSampleTimestampUs = 0;
+    }
+
     /// <summary>
     /// Nearest-key dwell tracking: finds the closest key to the gaze point and
     /// tracks dwell time directly. Eliminates dead zones between keys and avoids
@@ -103,6 +147,11 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         PhysicalPoint gazePoint, bool isGazeInsideWindow, long timestampUs)
     {
         if (keyScreenPositions.Count == 0 || _keyDwellMs <= 0) return;
+
+        // How long the stream was silent since the last DELIVERED sample, measured before this
+        // sample replaces the mark. See MaxContinuousSampleGapUs.
+        long sinceLastSampleUs = timestampUs - _lastSampleTimestampUs;
+        _lastSampleTimestampUs = timestampUs;
 
         if (!isGazeInsideWindow)
         {
@@ -149,16 +198,27 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         }
         else if (nearestId != null)
         {
-            long elapsed = timestampUs - _nearestKeyEnteredTimestamp;
-            NearestKeyProgress = Math.Min(1.0, (double)elapsed / (_keyDwellMs * MathConstants.MicrosecondsPerMillisecond));
-
-            if (elapsed >= _keyDwellMs * MathConstants.MicrosecondsPerMillisecond)
+            if (sinceLastSampleUs > MaxContinuousSampleGapUs)
             {
-                EmitActivation(keyScreenPositions, gazePoint, nearestId, timestampUs);
+                // The stream paused (blink, tracker dropout, hidden interval). Crediting the pause
+                // here is the F3 defect — a timestamp-based clock counts the silence as held gaze.
+                // Restart instead, so only continuous gaze completes the dwell.
                 NearestKeyProgress = 0;
-                NearestKeyId = null;
-                _keyCooldownEndTimestamp = timestampUs + (_cooldownMs * MathConstants.MicrosecondsPerMillisecond);
-                KeyDwellCompleted?.Invoke(nearestId);
+                _nearestKeyEnteredTimestamp = timestampUs;
+            }
+            else
+            {
+                long elapsed = timestampUs - _nearestKeyEnteredTimestamp;
+                NearestKeyProgress = Math.Min(1.0, (double)elapsed / (_keyDwellMs * MathConstants.MicrosecondsPerMillisecond));
+
+                if (elapsed >= _keyDwellMs * MathConstants.MicrosecondsPerMillisecond)
+                {
+                    EmitActivation(keyScreenPositions, gazePoint, nearestId, timestampUs);
+                    NearestKeyProgress = 0;
+                    NearestKeyId = null;
+                    _keyCooldownEndTimestamp = timestampUs + (_cooldownMs * MathConstants.MicrosecondsPerMillisecond);
+                    KeyDwellCompleted?.Invoke(nearestId);
+                }
             }
         }
     }

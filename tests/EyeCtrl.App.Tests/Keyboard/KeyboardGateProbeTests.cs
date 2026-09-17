@@ -269,13 +269,26 @@ public class KeyboardGateProbeTests
     // ---- negative half: nothing else is live. DO NOT DELETE (see class doc). ----
 
     /// <summary>
-    /// Establishes a LIVE nearest key first, THEN moves gaze clear of the grid. Both halves are
-    /// load-bearing: <c>NearestKeyId</c> is null at construction, so a bare <c>IsNull</c> after a
-    /// reset sample is the vacuous assignment-back oracle this repo has been bitten by — it passes
-    /// against the correct fix for the wrong reason. The 1 ms step also matters: at a dwell-length
-    /// interval step 1 would ACTIVATE, the post-activation cooldown would null
-    /// <c>NearestKeyId</c> at <c>KeyboardViewModel.cs:119-127</c>, and step 2 would pass with the
-    /// gate uninvolved.
+    /// Establishes a LIVE nearest key first, THEN moves gaze clear of the grid.
+    ///
+    /// <para>
+    /// Both halves are load-bearing. Step 1 exists because <c>NearestKeyId</c> is null at
+    /// construction, so a bare <c>IsNull</c> after a reset sample is the vacuous assignment-back
+    /// oracle this repo has been bitten by — it passes against the correct fix for the wrong
+    /// reason.
+    /// </para>
+    ///
+    /// <para>
+    /// The 1 ms step is load-bearing too. Under a gate that never says no, the nearest key to the
+    /// point 2000 px clear of the grid is the grid's top-left corner, and step 1 latches that same
+    /// key (it is the dictionary's first entry). A dwell-length gap would therefore take step 2
+    /// into the same-nearest branch and reach the activation at
+    /// <c>KeyboardViewModel.cs:155-161</c>, whose branch nulls <c>NearestKeyId</c> itself
+    /// (<c>:159</c>) — so the assertion would pass with the gate uninvolved. The post-activation
+    /// cooldown (<c>:119-127</c>) only keeps a LATER sample null; it is not what clears the first
+    /// one, and citing it would name the wrong mechanism. 1 ms keeps step 2 far short of the
+    /// 500 ms dwell, so no activation branch can run.
+    /// </para>
     /// </summary>
     [StaTheory]
     [InlineData(1.0)]

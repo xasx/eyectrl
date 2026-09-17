@@ -20,11 +20,15 @@ using NFluent;
 /// </para>
 ///
 /// <para>
-/// Why a count of two <c>PointToScreen(</c> calls rather than a content check: the correct form
-/// passes the DIP extents *as arguments* to the second <c>PointToScreen</c> call, so no
-/// substring rule can distinguish "ActualWidth used correctly" from "ActualWidth added to the
-/// result" without parsing. Requiring both corners removes the mixed-unit expression by
-/// construction — with two physical corners there is no extent left to add — and DpiHelper is
+/// Why the pins are shaped this way. Counting two <c>PointToScreen(</c> calls was the first
+/// attempt, on the reasoning that with two physical corners there is no extent left to add —
+/// and that reasoning is wrong, measured: a rect rebuilt as
+/// <c>new PhysicalRect(topLeft.X, topLeft.Y, ActualWidth, ActualHeight)</c> beside the declared
+/// (unused) second corner keeps the count at two and stayed green. The argument pin closes it by
+/// reading the <c>PhysicalRect</c> call's own arguments and rejecting the element extents there —
+/// the one place the mix can re-enter without disturbing the corner derivation. It is
+/// deliberately not a pin on one spelling of the subtraction: honest extraction of width and
+/// height into locals leaves the arguments free of extents and stays green. DpiHelper is
 /// separately banned because it does not drive <c>PointToScreen</c> (the measured
 /// <c>ActualWidth * DpiHelper.ScaleX</c> variant stayed at 10/30 live keys at scale 2.0).
 /// </para>
@@ -55,6 +59,15 @@ public class KeyboardGateCensusTests
                 + "rectangle is in physical pixels, the same contract OverlayPositioning's "
                 + "TryGetScreenCenter carries.")
             .That(body.Contains("new PhysicalRect(")).IsTrue();
+        var rectArguments = ExtractCallArguments(body, "new PhysicalRect(");
+        Check.WithCustomMessage(
+                "The PhysicalRect must be built from the two corner POINTS, never from "
+                + "ActualWidth/ActualHeight. Two PointToScreen calls plus a rect built from the "
+                + "element extents is the DIP-extents revert with the second corner left declared "
+                + "(the count check alone stayed green on exactly that shape), so the extents must "
+                + "be kept out of the rect construction itself.")
+            .That(rectArguments.Contains("ActualWidth") || rectArguments.Contains("ActualHeight"))
+            .IsFalse();
         Check.WithCustomMessage(
                 "The gate must not touch DpiHelper: it does not drive PointToScreen, and the "
                 + "measured ActualWidth * DpiHelper.ScaleX variant was indistinguishable from the "
@@ -86,5 +99,23 @@ public class KeyboardGateCensusTests
         var end = source.IndexOf("\n    }", start, StringComparison.Ordinal);
         Check.That(end).IsStrictlyGreaterThan(-1);
         return source[start..end];
+    }
+
+    /// <summary>
+    /// The text between the first <paramref name="call"/>'s opening parenthesis and its matching
+    /// close, so a pin can inspect a call's arguments without pinning the surrounding statement.
+    /// </summary>
+    private static string ExtractCallArguments(string text, string call)
+    {
+        var open = text.IndexOf(call, StringComparison.Ordinal);
+        Check.That(open).IsStrictlyGreaterThan(-1);
+        var start = open + call.Length;
+        var depth = 1;
+        for (var i = start; i < text.Length; i++)
+        {
+            if (text[i] == '(') depth++;
+            else if (text[i] == ')' && --depth == 0) return text[start..i];
+        }
+        throw new InvalidOperationException($"Unbalanced parentheses after '{call}'.");
     }
 }

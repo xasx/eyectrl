@@ -255,6 +255,22 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 var dwell = Context.Settings.Dwell.ManualSelectionSideButtonDwellMs;
                 Context.OverlayManager.EdgeButtonBar.ShowButtons(
                     ManualSelectionEdgeButtons.Definitions(dwell), anchor);
+                // ShowButtons now raises the bar to the top of the top-most band (see
+                // EdgeButtonBarWindow.SyncButtons for why it has to), which lands it over the gaze
+                // dot as well as over the backdrop it was hiding behind. The indicator window spans
+                // the whole hold radius around the gaze, so it overlaps whichever edge button the
+                // user is aiming at — and an opaque 100 DIP circle on top of it removes "where am I
+                // looking" at the exact moment they are aiming at their way out of a modal view.
+                // Fixation is this user's scarce resource; that feedback is worth most precisely
+                // where it is hardest to hold.
+                //
+                // Here rather than inside the bar because only this coordinator knows about both
+                // windows, and it is the same repair as the RaiseToTop in the sibling handler above
+                // — that one keeps the dot over the opaque magnifier, this one keeps it over the
+                // opaque edge buttons. Ordering is load-bearing: this handler is subscribed AFTER
+                // OnManualSelectionVMPropertyChanged (see SetupPropertyChangedHandlers), so the
+                // indicator's own raise has already happened by now and cannot serve.
+                Context.OverlayManager.ManualSelectionIndicator.RaiseToTop();
             }
             else
             {

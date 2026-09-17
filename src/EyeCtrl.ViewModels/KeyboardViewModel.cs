@@ -116,8 +116,9 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     // Hiding ends the keyboard's interaction context. Every other dwell-owning surface resets its
     // detector state on that transition; the keyboard was the only one that did not, so a stale
     // tracker credited the whole hidden interval on the first sample after reopen (F3's reopen
-    // trigger). Reset on the property rather than inside Receive(HideKeyboardMessage): a direct
-    // IsVisible write takes the same path, and the tracker cannot disagree with the flag.
+    // trigger) and a non-default sub-layout/emoji mode reopened as a trap. Reset on the property
+    // rather than inside Receive(HideKeyboardMessage): a direct IsVisible write takes the same
+    // path, and the state cannot disagree with the flag.
     partial void OnIsVisibleChanged(bool value)
     {
         if (!value)
@@ -127,8 +128,17 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// <summary>
     /// Clears the state that describes the CURRENT interaction. Called when the keyboard hides:
     /// accumulated dwell must not survive into the next open (the hidden interval is not held
-    /// gaze), and neither must <see cref="NearestKeyId"/>, which would otherwise latch a key from
+    /// gaze) and neither must <see cref="NearestKeyId"/>, which would otherwise latch a key from
     /// a layout the next sample's positions may not even contain.
+    ///
+    /// <para>
+    /// Mode state resets too. <see cref="ActiveSubLayoutId"/> and <see cref="IsEmojiMode"/> used
+    /// to survive hide/show, so a user who hid the keyboard while inside the numbers, symbols or
+    /// function layout — or emoji mode — reopened into the same layout and had to find their way
+    /// back with the keys in front of them. Reopening should be the recovery a confused
+    /// gaze-only user reaches for first, not a second trap. The trade is one extra dwell to get
+    /// back to a non-default layout, against a session-long trap.
+    /// </para>
     /// </summary>
     private void ResetInteractionState()
     {
@@ -136,6 +146,9 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         NearestKeyProgress = 0;
         _nearestKeyEnteredTimestamp = 0;
         _lastSampleTimestampUs = 0;
+
+        IsEmojiMode = false;
+        ActiveSubLayoutId = _layout?.DefaultSubLayout ?? "letters";
     }
 
     /// <summary>

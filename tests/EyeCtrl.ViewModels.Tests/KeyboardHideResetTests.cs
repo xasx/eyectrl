@@ -1,6 +1,7 @@
 namespace EyeCtrl.ViewModels.Tests;
 
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
@@ -9,16 +10,17 @@ using EyeCtrl.ViewModels.Messages;
 /// <summary>
 /// T1b: hiding the keyboard must end its interaction context. The keyboard was the only
 /// dwell-owning surface that did not reset on its context transition (the toolbar, settings,
-/// note manager and manual-selection surfaces all reset), so two things survived a hide:
+/// note manager and manual-selection surfaces all reset), so three things survived a hide:
 /// accumulated dwell — credited in full on the first sample after reopen (F3's second trigger) —
-/// and <see cref="KeyboardViewModel.NearestKeyId"/>, which could latch a key from a layout the
-/// next sample's positions no longer contain.
+/// <see cref="KeyboardViewModel.NearestKeyId"/>, which could latch a key from a layout the next
+/// sample's positions no longer contain, and the mode state (<c>ActiveSubLayoutId</c> /
+/// <c>IsEmojiMode</c>), which reopened into the same layout or emoji grid.
 ///
 /// <para>
-/// These tests deliberately do not rely on the gap clamp to cover for the reset. The hidden
-/// interval in the discriminating test (100 ms) is SHORTER than the clamp's 150 ms threshold, so
-/// only a real reset stops the pre-hide progress from being credited across it: 400 ms of gaze +
-/// a 100 ms hide + one sample is exactly the 500 ms dwell under a tracker that keeps its state.
+/// The dwell test deliberately does not rely on the gap clamp to cover for the reset. Its hidden
+/// interval (100 ms) is SHORTER than the clamp's 150 ms threshold, so only a real reset stops the
+/// pre-hide progress from being credited across it: 400 ms of gaze + a 100 ms hide + one sample
+/// is exactly the 500 ms dwell under a tracker that keeps its state.
 /// </para>
 /// </summary>
 public class KeyboardHideResetTests
@@ -27,6 +29,17 @@ public class KeyboardHideResetTests
 
     private static readonly Dictionary<string, PhysicalPoint> OneKey =
         new() { ["key_0_1"] = new PhysicalPoint(100, 100) };
+
+    private static KeyboardLayout TwoSubLayouts() => new()
+    {
+        Name = "Test",
+        DefaultSubLayout = "letters",
+        SubLayouts = new Dictionary<string, SubLayout>
+        {
+            ["letters"] = new() { Label = "ABC", Rows = new List<List<KeyDefinition>>() },
+            ["numbers"] = new() { Label = "123", Rows = new List<List<KeyDefinition>>() },
+        },
+    };
 
     private static KeyboardViewModel NewVm(IMessenger messenger, List<string> fired)
     {
@@ -95,5 +108,33 @@ public class KeyboardHideResetTests
                 "The production hide path (HideKeyboardMessage) did not reset the tracker. The "
                 + "reset must not be reachable only by writing IsVisible directly.")
             .That(vm.NearestKeyId).IsNull();
+    }
+
+    [Fact]
+    public void Hide_ResetsSubLayoutAndEmojiMode()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var fired = new List<string>();
+        var vm = NewVm(messenger, fired);
+        vm.SetLayout(TwoSubLayouts());
+        vm.IsVisible = true;
+        vm.SwitchSubLayout("numbers");
+        vm.IsEmojiMode = true;
+
+        Check.That(vm.ActiveSubLayoutId).IsEqualTo("numbers");
+        Check.That(vm.IsEmojiMode).IsTrue();
+
+        messenger.Send(new HideKeyboardMessage());
+
+        Check.WithCustomMessage(
+                "Hiding left the keyboard in a non-default sub-layout. ActiveSubLayoutId survives "
+                + "hide/show, so a user who hid inside the numbers/symbols/function layout must "
+                + "find the switch key again in that same layout — close-and-reopen should be the "
+                + "recovery, not another trap.")
+            .That(vm.ActiveSubLayoutId).IsEqualTo("letters");
+        Check.WithCustomMessage(
+                "Hiding left emoji mode on. IsEmojiMode survives hide/show and swaps the whole "
+                + "key surface, so reopening straight back into the emoji grid is the same trap.")
+            .That(vm.IsEmojiMode).IsFalse();
     }
 }

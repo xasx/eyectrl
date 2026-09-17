@@ -40,6 +40,15 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// <c>CursorSettings.MaxGapInterpolationMs</c>: that is a user-tunable knob whose range
     /// (0–500) reaches past the keyboard dwell, so it cannot be the keyboard's safety bound.
     /// </para>
+    ///
+    /// <para>
+    /// Known residual: the bound is larger than
+    /// <c>AdaptationDwellRanges.KeyboardMinDwellMs</c> (100 ms), so at the minimum key dwell a
+    /// 100–150 ms stall would still be credited and could fire. Accepted, and recorded so it is
+    /// not rediscovered as a bug: no shipped configuration uses a 100 ms key dwell (the default
+    /// is 450 ms; every other surface dwells 600–700 ms), and lowering the bound to 100 ms would
+    /// restart ordinary dwells on a single dropped frame at 30 Hz.
+    /// </para>
     /// </summary>
     private const long MaxContinuousSampleGapUs = 150 * MathConstants.MicrosecondsPerMillisecond;
 

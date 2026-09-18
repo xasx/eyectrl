@@ -273,29 +273,122 @@ public class AppFixture : IAsyncLifetime
     }
 
     /// <summary>
-    /// Returns true if the app is currently paused (cursor circle is offscreen or not found).
+    /// Returns true if the app is currently paused. Pause is signalled by the PAUSE INDICATOR,
+    /// not the cursor circle: the ring also hides while the settings modal is open, which used
+    /// to make this check false-positive and strand every later test in a bogus recovery path.
     /// </summary>
     public bool IsAppPaused()
     {
-        var cursorCircle = FindWindow("CursorCircle_Window");
-        return cursorCircle == null || cursorCircle.Properties.IsOffscreen.Value;
+        var indicator = FindWindow("PauseIndicator_Window");
+        return indicator is not null && indicator.Properties.IsOffscreen.Value == false;
     }
 
     /// <summary>
-    /// Ensures the app is in unpaused state. If paused, dwells on the pause button to unpause.
-    /// Call at the start of tests that require the app to be unpaused.
+    /// Full inter-test hygiene: closes the settings modal, closes the keyboard, unpauses if
+    /// paused, and summons the toolbar band. The band AUTO-HIDES after ~5s of idle gaze and the
+    /// settings/keyboard modals hide the ring — tests written before auto-hide shipped assumed
+    /// everything stayed visible, which is how this suite rotted. Any test that asserts on the
+    /// ring, the band, or dwell behavior should start with this.
+    /// </summary>
+    public async Task EnsureGazeUiVisibleAsync()
+    {
+        await CloseSettingsIfOpenAsync();
+        if (IsAppPaused())
+        {
+            await SummonToolbarFromEdgeAsync();
+            var toolbar = await WaitForWindowVisibleAsync("Toolbar_Window", TimeSpan.FromSeconds(5));
+            var pauseBtn = await WaitForElementAsync(toolbar, "Toolbar_Button_Pause", TimeSpan.FromSeconds(5));
+            await SimulateDwellOn(pauseBtn);
+            await Task.Delay(300); // Allow state change to propagate
+        }
+        await SummonToolbarFromEdgeAsync();
+        await EnsureKeyboardClosedAsync();
+    }
+
+    /// <summary>
+    /// Waits until the pause indicator matches <paramref name="visible"/>. It appears only after
+    /// the toolbar's slide-out animation completes on pause, so a fixed delay after the dwell
+    /// races the animation.
+    /// </summary>
+    public async Task WaitForPauseIndicatorAsync(bool visible, TimeSpan? timeout = null)
+    {
+        var effectiveTimeout = timeout ?? TimeSpan.FromSeconds(5);
+        var deadline = DateTime.UtcNow + effectiveTimeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (IsPauseIndicatorVisible() == visible) return;
+            await Task.Delay(150);
+        }
+
+        throw new TimeoutException(
+            $"Pause indicator did not become {(visible ? "visible" : "hidden")} within {effectiveTimeout.TotalSeconds}s");
+    }
+
+    /// <summary>Whether the pause indicator is currently on screen — the product's pause signal.</summary>
+    public bool IsPauseIndicatorVisible()
+    {
+        var indicator = FindWindow("PauseIndicator_Window");
+        return indicator is not null && indicator.Properties.IsOffscreen.Value == false;
+    }
+
+    /// <summary>
+    /// Ensures the app is in unpaused state. While paused the toolbar band is slid out and HIDDEN
+    /// (the click-through <c>PauseIndicator_Window</c> marks the docked edge); the unpause path
+    /// is the product's own: hold gaze at the edge until the auto-hide controller summons the
+    /// band back, then dwell the Pause/Play button. The settings modal is closed first because
+    /// it HIDES the cursor circle — tests asserting on the ring would otherwise misread an open
+    /// settings window as "paused".
     /// </summary>
     public async Task EnsureAppUnpausedAsync()
     {
+        await CloseSettingsIfOpenAsync();
         if (!IsAppPaused()) return;
 
-        var toolbar = FindWindow("Toolbar_Window");
-        if (toolbar == null) return;
-        var pauseBtn = FindElement(toolbar, "Toolbar_Button_Pause");
-        if (pauseBtn == null) return;
-
+        await SummonToolbarFromEdgeAsync();
+        var toolbar = await WaitForWindowVisibleAsync("Toolbar_Window", TimeSpan.FromSeconds(5));
+        var pauseBtn = await WaitForElementAsync(toolbar, "Toolbar_Button_Pause", TimeSpan.FromSeconds(5));
         await SimulateDwellOn(pauseBtn);
         await Task.Delay(300); // Allow state change to propagate
+    }
+
+    /// <summary>Closes the settings window via the UIA window pattern if it is open.</summary>
+    public async Task CloseSettingsIfOpenAsync()
+    {
+        var settings = FindWindow("Settings_Window");
+        if (settings is null || settings.Properties.IsOffscreen.Value) return;
+        try { settings.AsWindow().Close(); }
+        catch { /* already closing */ }
+        await Task.Delay(400); // let OnSettingsWindowClosed restore the ring
+    }
+
+    /// <summary>
+    /// Holds the cursor (test-mode gaze) at the docked-edge summon strip long enough for the
+    /// auto-hide controller's summon delay, then waits for the toolbar band to slide back in.
+    /// Uses the pause indicator's bounds when paused; otherwise the bottom edge of the desktop
+    /// (the docked edge, in physical pixels).
+    /// </summary>
+    public async Task SummonToolbarFromEdgeAsync()
+    {
+        int x, y;
+        var indicator = FindWindow("PauseIndicator_Window");
+        if (indicator is not null && indicator.Properties.IsOffscreen.Value == false)
+        {
+            var rect = indicator.BoundingRectangle;
+            x = (int)(rect.X + rect.Width / 2);
+            y = (int)(rect.Y + rect.Height / 2);
+        }
+        else
+        {
+            var screen = _automation!.GetDesktop().BoundingRectangle;
+            x = (int)(screen.X + screen.Width / 2);
+            y = (int)(screen.Y + screen.Height - 5);
+        }
+
+        SetCursorPos(x, y);
+        // Summon delay (default 400ms) + slide animation; generous margin for loaded runs.
+        await Task.Delay(1500);
+        await WaitForWindowVisibleAsync("Toolbar_Window", TimeSpan.FromSeconds(5));
+        MoveCursorAway();
     }
 
     /// <summary>
@@ -315,10 +408,10 @@ public class AppFixture : IAsyncLifetime
     {
         if (!IsKeyboardVisible()) return;
 
-        var toolbar = FindWindow("Toolbar_Window");
-        if (toolbar == null) return;
-        var kbBtn = FindElement(toolbar, "Toolbar_Button_Keyboard");
-        if (kbBtn == null) return;
+        // The band may be auto-hidden; summon it so the keyboard button is where we dwell.
+        await SummonToolbarFromEdgeAsync();
+        var toolbar = await WaitForWindowVisibleAsync("Toolbar_Window", TimeSpan.FromSeconds(5));
+        var kbBtn = await WaitForElementAsync(toolbar, "Toolbar_Button_Keyboard", TimeSpan.FromSeconds(5));
 
         await SimulateDwellOn(kbBtn);
         await Task.Delay(500); // Allow keyboard to close and UI to settle

@@ -188,8 +188,7 @@ public class ToolbarViewModelTests
         messenger.Register<PauseToggledMessage>(this, (_, _) => paused = true);
 
         long dwellUs = (_settings.Dwell.ToolbarButtonDwellMs + 100) * 1000L;
-        vm.Receive(new GazeCursorMovedMessage(center, 0));
-        vm.Receive(new GazeCursorMovedMessage(center, dwellUs));
+        DwellDrive.Hold(0, dwellUs, t => vm.Receive(new GazeCursorMovedMessage(center, t)));
 
         Check.That(paused).IsTrue();
     }

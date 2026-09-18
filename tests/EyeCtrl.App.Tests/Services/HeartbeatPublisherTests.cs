@@ -20,6 +20,44 @@ public class HeartbeatPublisherTests
     private readonly string _pipeName = "eyectrl_watch_test_" + Guid.NewGuid().ToString("N");
 
     [Fact]
+    public async Task SquattedWatchPipe_IsRejected_ProbeReportsUnreachable_AndNothingIsWritten()
+    {
+        // eyectrl_watch is machine-global: any local process can hold the name. A heartbeat
+        // send or probe that reaches a squatter both leaks liveness data and — worse — makes
+        // TryReachSupervisor answer "supervisor reachable", corrupting restart decisions. The
+        // publisher must treat a server that is not the supervisor exe as ABSENT: probe false,
+        // and not one byte written. This test's server lives in the test host, i.e. it is a
+        // squatter by identity.
+        using var squatter = new NamedPipeServerStream(_pipeName, PipeDirection.In,
+            NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, PipeOptions.Asynchronous,
+            inBufferSize: 4096, outBufferSize: 4096);
+        var drain = Task.Run<string?>(async () =>
+        {
+            try
+            {
+                await squatter.WaitForConnectionAsync();
+                using var reader = new StreamReader(squatter, Encoding.UTF8, false, 1024, leaveOpen: true);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                try { return await reader.ReadLineAsync(cts.Token); }
+                catch (OperationCanceledException) { return null; }
+            }
+            catch (Exception)
+            {
+                // The rejected client disconnects — from the server side that is a broken pipe,
+                // which IS "nothing was written". Only a written payload can return a line.
+                return null;
+            }
+        });
+
+        using var pub = new HeartbeatPublisher(supervised: false, pipeName: _pipeName);
+        pub.EnablePublishing();
+        var reached = pub.TryReachSupervisor();
+
+        Check.That(reached).IsFalse();
+        Check.That(await drain).IsNull(); // nothing was ever written to the squatter
+    }
+
+    [Fact]
     public void Stamp_ReflectsLastGazeSample()
     {
         var pub = new HeartbeatPublisher(supervised: false, pipeName: _pipeName);
@@ -77,7 +115,8 @@ public class HeartbeatPublisherTests
             catch (Exception ex) { received.TrySetException(ex); }
         }, testToken);
 
-        using var pub = new HeartbeatPublisher(supervised: false, pipeName: _pipeName);
+        using var pub = new HeartbeatPublisher(supervised: false, pipeName: _pipeName)
+            { TrustAnyServerForTests = true }; // in-process test server, not the supervisor exe
         pub.EnablePublishing();   // the send is now gated on this; the F2 assertion still stands
 
         var original = SynchronizationContext.Current;

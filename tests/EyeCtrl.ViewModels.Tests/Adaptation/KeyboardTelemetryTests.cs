@@ -27,6 +27,17 @@ public class KeyboardTelemetryTests
         return vm;
     }
 
+    /// <summary>
+    /// Feeds a continuous stream (one sample per 50 ms) up to <paramref name="throughUs"/>. The
+    /// tracker restarts a dwell whenever the stream stops for more than 150 ms (the F3 gap clamp),
+    /// so sparse sample pairs no longer model a continuous hold.
+    /// </summary>
+    private static void HoldGaze(KeyboardViewModel vm, PhysicalPoint at, long throughUs)
+    {
+        for (long t = 50_000; t <= throughUs; t += 50_000)
+            vm.ProcessKeyGaze(TwoKeys, at, isGazeInsideWindow: true, t);
+    }
+
     [Fact]
     public void KeyDwellCompletes_EmitsActivated_TaggedKeyboard()
     {
@@ -34,7 +45,7 @@ public class KeyboardTelemetryTests
         var vm = MakeVm(sink);
 
         vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(100, 100), isGazeInsideWindow: true, 0);
-        vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(100, 100), isGazeInsideWindow: true, 200_000);
+        HoldGaze(vm, new PhysicalPoint(100, 100), 200_000);
 
         Check.That(sink.Outcomes).HasSize(1);
         var o = sink.Outcomes[0];
@@ -93,7 +104,7 @@ public class KeyboardTelemetryTests
         var vm = MakeVm(sink, keyDwellMs: 200, cooldownMs: 400);
 
         vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(100, 100), true, 0);
-        vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(100, 100), true, 200_000);   // activates A
+        HoldGaze(vm, new PhysicalPoint(100, 100), 200_000);                       // activates A
         vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(100, 100), true, 230_000);   // still within cooldown
         vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(400, 100), true, 260_000);   // still within cooldown
 
@@ -110,7 +121,7 @@ public class KeyboardTelemetryTests
         vm.KeyDwellCompleted += id => completed = id;
 
         vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(100, 100), true, 0);
-        vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(100, 100), true, 200_000);
+        HoldGaze(vm, new PhysicalPoint(100, 100), 200_000);
 
         Check.That(completed).IsEqualTo("A");
     }

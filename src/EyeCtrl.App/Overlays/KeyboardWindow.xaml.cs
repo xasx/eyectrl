@@ -54,6 +54,13 @@ public partial class KeyboardWindow : OverlayWindow
     private readonly Dictionary<string, KeyDefinition> _keyDefinitions = new();
     private readonly Dictionary<string, PhysicalPoint> _keyScreenPositions = new();
     private readonly List<DwellOutlineOverlay> _predictionOutlines = new();
+    // The list the bar RENDERED. OnPredictionDwelled resolves its index against this, never
+    // against a fresh GetSuggestionsWithContext() call: that call re-polls the LM
+    // (TryGetResults consumes on read) and re-sorts on merge, so a re-fetch at activation both
+    // risks inserting a word that was never on screen and consumes the LM output before the
+    // render that follows can show it — the render call is what triggers the inference, so the
+    // dwell window is exactly the race window. Do not "simplify" this back to a re-fetch.
+    private List<PredictionResult> _renderedPredictions = new();
 
     private KeyboardViewModel? _viewModel;
     private EmojiGridManager? _emojiManager;
@@ -129,11 +136,10 @@ public partial class KeyboardWindow : OverlayWindow
             ClearKeyState,
             _sink,
             _dwellRegistry);
-        _emojiManager.ExitRequested += () =>
-        {
-            _viewModel.IsEmojiMode = false;
-            ExitEmojiMode();
-        };
+        // The flag reaction in OnViewModelPropertyChanged owns the exit, so the ABC key and a hide
+        // (which resets the flag) flow through the same path. Calling ExitEmojiMode() here as well
+        // would rebuild the text grid twice.
+        _emojiManager.ExitRequested += () => _viewModel.IsEmojiMode = false;
         _emojiManager.SkinToneChanged += tone => SkinToneChanged?.Invoke(tone);
     }
 
@@ -273,17 +279,40 @@ public partial class KeyboardWindow : OverlayWindow
 
         UpdateKeyScreenPositions();
 
+        // One predicate, both surfaces. The prediction bar's hit areas are circles of each cell's
+        // half-diagonal, which bulge DOWN into the key grid (up to two key rows for a sentence
+        // completion), so running both detectors on the same point let a reach for a key complete
+        // a suggestion and insert a word the user never dwelled. The partition is the key-area
+        // rect, not a per-key distance, and both sides receive the same verdict.
+        //
+        // Boundary dither — a gaze alternating across the rect edge — resets each surface in turn
+        // and so types nothing: a narrow dead zone, safe-direction, deliberately not engineered
+        // around.
+        var gazeInsideKeyArea = TryGetKeyRowsScreenRect(out var keyArea)
+            && keyArea.Contains(screenPoint.X, screenPoint.Y);
+
         if (_viewModel.IsEmojiMode)
         {
             _emojiManager?.UpdateCategoryTargets(screenPoint, timestampMicroseconds);
         }
-        else
+        else if (!gazeInsideKeyArea)
         {
             UpdatePredictionTargetPositions();
             _predictionDwellDetector.Update(screenPoint, timestampMicroseconds);
         }
+        else
+        {
+            // Reset, and only reset. Position re-registration is deliberately NOT run here, so a
+            // target cannot be re-added with a stale radius while the gaze is on the keys; the
+            // first sample back outside refreshes positions (add or update-centre) before it
+            // accumulates. That is the reset-then-add order: the reset always precedes any later
+            // add. ResetAllState is quiet when repeated (it raises progress 0 only for a target
+            // whose IsGazeInside is set), so running it per inside sample emits once, on entry,
+            // and the target's outline clears instead of freezing mid-progress.
+            _predictionDwellDetector.ResetAllState();
+        }
 
-        _viewModel.ProcessKeyGaze(_keyScreenPositions, screenPoint, IsGazeInsideKeyArea(screenPoint), timestampMicroseconds);
+        _viewModel.ProcessKeyGaze(_keyScreenPositions, screenPoint, gazeInsideKeyArea, timestampMicroseconds);
     }
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -304,6 +333,16 @@ public partial class KeyboardWindow : OverlayWindow
                 break;
             case nameof(KeyboardViewModel.ActiveSubLayoutId):
                 RebuildKeys();
+                break;
+            case nameof(KeyboardViewModel.IsEmojiMode):
+                // The flag can change WITHOUT an activation: hiding resets it (T1b), and
+                // ActiveSubLayoutId's own reset is frequently a no-op while emoji mode held the
+                // underlying sublayout — so without this case nothing rebuilds the text grid and
+                // the window sits on the emoji surface while the VM reports text mode. The window
+                // owns the emoji surface, so it mirrors the flag. The CategoryBar check keeps this
+                // a no-op in text mode, where ExitEmojiMode would rebuild an already-text grid.
+                if (_viewModel?.IsEmojiMode == false && CategoryBar.Visibility == Visibility.Visible)
+                    ExitEmojiMode();
                 break;
         }
     }
@@ -434,18 +473,61 @@ public partial class KeyboardWindow : OverlayWindow
     }
 
     /// <summary>
-    /// Check if gaze is inside the key grid area (KeyRows panel), NOT the full window.
-    /// This prevents the nearest-key algorithm from conflicting with prediction bar
-    /// and category bar dwell targets at the top of the window.
+    /// The key grid's on-screen rectangle (KeyRows panel), NOT the full window — this is what
+    /// keeps the nearest-key algorithm from conflicting with prediction-bar and category-bar
+    /// dwell targets at the top of the window, and (see <see cref="UpdateGaze"/>) what withholds
+    /// prediction samples while the gaze is on the keys. The gate is load-bearing in both
+    /// directions.
+    ///
+    /// <para>
+    /// BOTH corners go through <see cref="UIElement.PointToScreen"/>, so the rectangle comes out
+    /// in physical pixels even though the extents handed to the second corner are DIPs. Those DIP
+    /// extents must never be ADDED to a <c>PointToScreen</c> result: that mixed-unit
+    /// rectangle was the key-grid defect — at the user's 200% scale it accepted only the grid's
+    /// top-left quadrant, leaving 30 of the 40 shipped qwerty keys (and every sub-layout escape
+    /// key) unreachable. <c>DpiHelper</c> does not drive <c>PointToScreen</c>; the visual tree's
+    /// own transform does, so no manual scaling belongs here. Precedent for the two-corner shape:
+    /// <c>EyeCtrl.Sdk.Wpf/WpfElementAdapter.TryGetScreenRect</c>.
+    /// </para>
+    ///
+    /// <para>
+    /// False when the element is not rendered (or not in a live presentation source) — the same
+    /// condition the previous single-corner form swallowed via its catch — never a partial rect.
+    /// </para>
     /// </summary>
-    private bool IsGazeInsideKeyArea(PhysicalPoint gazePoint)
+    private bool TryGetKeyRowsScreenRect(out PhysicalRect rect)
     {
+        rect = default;
         try
         {
-            if (KeyRows.ActualHeight <= 0) return false;
+            if (KeyRows.ActualWidth <= 0 || KeyRows.ActualHeight <= 0) return false;
             var topLeft = KeyRows.PointToScreen(new Point(0, 0));
-            return gazePoint.X >= topLeft.X && gazePoint.X <= topLeft.X + KeyRows.ActualWidth
-                && gazePoint.Y >= topLeft.Y && gazePoint.Y <= topLeft.Y + KeyRows.ActualHeight;
+            var bottomRight = KeyRows.PointToScreen(new Point(KeyRows.ActualWidth, KeyRows.ActualHeight));
+            rect = new PhysicalRect(topLeft.X, topLeft.Y, bottomRight.X - topLeft.X, bottomRight.Y - topLeft.Y);
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The element's on-screen rectangle in physical pixels, both corners through
+    /// <see cref="UIElement.PointToScreen"/>. False when the element is not laid out (zero size) or
+    /// not in a live presentation source — a placement pass must publish nothing from such an
+    /// element and must not latch on a pass where any element failed.
+    /// </summary>
+    private static bool TryGetScreenRect(FrameworkElement element, out PhysicalRect rect)
+    {
+        rect = default;
+        if (element.ActualWidth <= 0 || element.ActualHeight <= 0) return false;
+        try
+        {
+            var topLeft = element.PointToScreen(new Point(0, 0));
+            var bottomRight = element.PointToScreen(new Point(element.ActualWidth, element.ActualHeight));
+            rect = new PhysicalRect(topLeft.X, topLeft.Y, bottomRight.X - topLeft.X, bottomRight.Y - topLeft.Y);
+            return true;
         }
         catch (InvalidOperationException)
         {
@@ -457,26 +539,45 @@ public partial class KeyboardWindow : OverlayWindow
     {
         if (PredictionBar.Children.Count == 0) return;
 
+        // Ported from ToolbarWindow's FacesAreArranged/latch shape: guard BEFORE publishing, and
+        // latch only when EVERY cell placed. The latch used to fire on a pass that happened,
+        // including one where every iteration bailed — the radius-0 targets from unarranged cells
+        // and the five targets stacked at screen (0,0) from a source-less pass were permanent,
+        // because the else-branch only rebases geometry it was given and can never repair it.
+        bool allPlaced = true;
         for (int i = 0; i < PredictionBar.Children.Count; i++)
         {
             var predId = $"pred_{i}";
-            if (PredictionBar.Children[i] is not Border btn) continue;
-
-            if (!OverlayPositioning.TryGetScreenCenter(btn, out var pos))
+            if (PredictionBar.Children[i] is not Border btn)
+            {
+                allPlaced = false;
                 continue;
+            }
+
+            if (!TryGetScreenRect(btn, out var cellRect))
+            {
+                allPlaced = false;
+                continue;
+            }
+
             if (!_predictionTargetsInitialized)
-            {
-                // Use half-diagonal so the circular hit area covers the full rectangle
-                var halfDiag = Math.Sqrt(btn.ActualWidth * btn.ActualWidth + btn.ActualHeight * btn.ActualHeight) / 2;
-                _predictionDwellDetector.RemoveTarget(predId);
-                _predictionDwellDetector.AddTarget(new DwellTarget(predId, pos, DpiHelper.LogicalToPhysicalX(halfDiag), _predictionDwellMs));
-            }
+                // The cell's own rectangle. The circumscribed circle this replaces was ~4x the
+                // cell's area and its overhang reached into the margins and the key grid.
+                _predictionDwellDetector.AddTarget(new DwellTarget(predId, cellRect, _predictionDwellMs));
             else
-            {
-                _predictionDwellDetector.UpdateTargetCenter(predId, pos);
-            }
+                // RebaseTarget, NOT UpdateTargetCenter: the latter writes only Center, and
+                // HitTest ignores Center once Bounds is set — a silent no-op here that would
+                // freeze the hit area where the bar first rendered.
+                //
+                // RebaseTarget re-applies this registration's stored geometry map, and
+                // GeometryRouter always applies one (MakeMap never returns null) — identity with
+                // adaptation off, the shipped default, so the rect stays exact here; with
+                // adaptation on the routed margin rides the new rect by design.
+                _predictionDwellDetector.RebaseTarget(predId, cellRect);
         }
-        _predictionTargetsInitialized = true;
+
+        if (allPlaced)
+            _predictionTargetsInitialized = true;
     }
 
     public void UpdatePredictions()
@@ -489,6 +590,8 @@ public partial class KeyboardWindow : OverlayWindow
         PredictionBar.Children.Clear();
 
         var suggestions = _viewModel.GetSuggestionsWithContext();
+        // Capture exactly what gets rendered: OnPredictionDwelled indexes THIS list.
+        _renderedPredictions = suggestions;
 
         for (int i = 0; i < suggestions.Count; i++)
         {
@@ -568,7 +671,9 @@ public partial class KeyboardWindow : OverlayWindow
             _predictionOutlines.Add(DwellOutlineOverlay.Attach(btn, labelOrStack));
 
             PredictionBar.Children.Add(btn);
-            _predictionDwellDetector.AddTarget(new DwellTarget(predId, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(_keySize / 2), _predictionDwellMs));
+            // No placeholder target here: a (0,0) target is never placeable and, if the latch
+            // below latched on a pass that could not place anything, it would live forever.
+            // Targets are published by UpdatePredictionTargetPositions only from a placed cell.
         }
     }
 
@@ -634,14 +739,13 @@ public partial class KeyboardWindow : OverlayWindow
     {
         if (_viewModel == null || !targetId.StartsWith("pred_")) return;
 
-        if (int.TryParse(targetId.AsSpan(5), out var index))
+        // Index the RENDERED list — see _renderedPredictions for why a re-fetch here is both a
+        // wrong-word hazard and an LM-starvation bug.
+        if (int.TryParse(targetId.AsSpan(5), out var index)
+            && index >= 0 && index < _renderedPredictions.Count)
         {
-            var suggestions = _viewModel.GetSuggestionsWithContext();
-            if (index < suggestions.Count)
-            {
-                _viewModel.HandlePredictionSelected(suggestions[index].Word);
-                UpdatePredictions();
-            }
+            _viewModel.HandlePredictionSelected(_renderedPredictions[index].Word);
+            UpdatePredictions();
         }
     }
 

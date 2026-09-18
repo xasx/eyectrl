@@ -112,6 +112,31 @@ public class DwellDetectorTelemetryTests
         Check.That(sink.Outcomes[0].ProgressAtEnd).IsEqualTo(0.3);
     }
 
+    /// <summary>
+    /// The abandon/telemetry path must not credit a gap either. Without the clamp, the stale
+    /// <c>EnteredTimestamp</c> made a 330 ms silence mid-dwell read as ~780 ms of held gaze, so a
+    /// blink that interrupted a 1000 ms dwell was reported as an abandonment at high progress.
+    /// </summary>
+    [Fact]
+    public void GapBeforeLeaving_DoesNotEmitAbandoned()
+    {
+        var sink = new RecordingSink();
+        var detector = new DwellDetector(context: DwellContext.Keyboard, sink: sink);
+        detector.AddTarget(new DwellTarget("k", new PhysicalPoint(100, 100), radius: 30, dwellTimeMs: 1000));
+
+        // 480 ms of the dwell, then 330 ms in which the caller skips every gap-held sample, then
+        // the first real sample leaves the target.
+        long t = DriveInside(detector, new PhysicalPoint(100, 100), 16, startTs: 0);
+        detector.Update(new PhysicalPoint(700, 700), t + 300_000);
+
+        Check.WithCustomMessage(
+                "A silent interval mid-dwell produced an abandonment outcome: the gap was credited "
+                + "to the stale EnteredTimestamp, so telemetry reported ~780 ms of held gaze for an "
+                + "interaction a blink interrupted. The abandon path needs the same clamp as "
+                + "activation.")
+            .That(sink.Outcomes).IsEmpty();
+    }
+
     [Fact]
     public void FilterExcludesTargetMidDwell_EmitsNothing()
     {

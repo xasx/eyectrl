@@ -167,7 +167,29 @@ public class FileDictionaryProvider : IDictionaryProvider
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
-        File.WriteAllText(path, JsonSerializer.Serialize(data, s_writeOptions));
+        // Atomic write (review finding 9): a plain WriteText overwrite can be observed
+        // half-written by a concurrent reader (the background prediction-stack build loads
+        // these files on the pool thread while another rebuild's head-of-task write runs).
+        // Serialize to a temp file in the SAME directory, then File.Replace swaps it in
+        // atomically. File.Replace requires the target to exist; first-write uses Move.
+        var json = JsonSerializer.Serialize(data, s_writeOptions);
+        var temp = path + ".tmp";
+        File.WriteAllText(temp, json);
+        try
+        {
+            if (File.Exists(path))
+                File.Replace(temp, path, destinationBackupFileName: null);
+            else
+                File.Move(temp, path);
+        }
+        catch (IOException) when (File.Exists(temp))
+        {
+            // Replace can fail transiently (antivirus locks, a reader holding the target on
+            // platforms without share-delete). Fall back to the direct overwrite rather than
+            // losing the save; the reader's LoadJson already handles IO errors.
+            File.Delete(temp);
+            File.WriteAllText(path, json);
+        }
     }
 
     /// <summary>

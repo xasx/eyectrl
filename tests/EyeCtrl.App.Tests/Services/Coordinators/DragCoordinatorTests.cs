@@ -66,6 +66,24 @@ public class DragCoordinatorTests
     }
 
     [Fact]
+    public void FatalExitRelease_AfterSetupFailureReleased_DoesNotSendASecondMouseUp()
+    {
+        // The fatal-exit release must be idempotent like every other release path: after a
+        // setup-failure release the button is no longer held, and a second MouseUp could release
+        // a caregiver's physically held button.
+        var input = new TestFakes.FakeInputSimulator();
+        var c = new DragCoordinator();
+        c.Initialize(TestFakes.MakeDragContext(input));
+
+        c.OnDragStarted(new PhysicalPoint(30, 40));   // presses; setup fails; auto-releases
+        c.ReleaseHeldButtonForFatalExit();            // must be a no-op
+
+        Check.That(input.MouseDownCount).IsEqualTo(1);
+        Check.That(input.MouseUpCount).IsEqualTo(1);
+        Check.That(input.ButtonsBalanced).IsTrue();
+    }
+
+    [Fact]
     public void SetupFailure_DoesNotEscapeIntoTheDispatcher()
     {
         // Sibling to the above and the reason it matters: the throw must be contained, not merely
@@ -135,6 +153,31 @@ public class DragCoordinatorTests
 
         try { c.Dispose(); }
         catch (NullReferenceException) { /* harness has no OverlayManager; release precedes it */ }
+
+        Check.That(input.MouseUpCount).IsEqualTo(1);
+        Check.That(input.ButtonsBalanced).IsTrue();
+    }
+
+    [StaFact]
+    public void FatalExitRelease_DuringALiveDrag_SendsTheMouseUp()
+    {
+        // The POSITIVE case for the fatal-exit path (review finding #9: only the negative,
+        // not-held case was covered). Same genuinely-held setup as the dispose test: on STA
+        // with a working edge bar, OnDragStarted's setup SUCCEEDS, so the button is down with
+        // no abort having released it. This is the state a fatal exception elsewhere in the
+        // process must not strand — the press outlives the process.
+        var input = new TestFakes.FakeInputSimulator();
+        var (context, bar) = TestFakes.MakeDragContextWithBar(input);
+        var c = new DragCoordinator();
+        c.Initialize(context);
+
+        c.OnDragStarted(new PhysicalPoint(300, 300));
+
+        Check.That(bar.ShownButtonIds).ContainsExactly("Drag_cancel"); // setup succeeded — no abort
+        Check.That(input.MouseDownCount).IsEqualTo(1);
+        Check.That(input.MouseUpCount).IsEqualTo(0);                   // genuinely held
+
+        c.ReleaseHeldButtonForFatalExit();
 
         Check.That(input.MouseUpCount).IsEqualTo(1);
         Check.That(input.ButtonsBalanced).IsTrue();

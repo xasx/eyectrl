@@ -1,11 +1,13 @@
 namespace EyeCtrl.App.Services;
 
+using System.IO;
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Platform.Interop;
 
 /// <summary>
 /// Stamps a <see cref="HeartbeatPayload"/> on the UI thread (DispatcherTimer) and sends it over
@@ -131,9 +133,11 @@ public sealed class HeartbeatPublisher : IDisposable
         // Wake the single writer. The semaphore has capacity 1, so if a signal is already pending
         // (a stamp arrived while the writer was mid-send), Release throws SemaphoreFullException —
         // swallow it: the freshest payload is already in _pending, and the pending signal will
-        // wake the writer to drain it. Never throw on the Dispatcher thread.
+        // wake the writer to drain it. ObjectDisposedException covers a tick that raced Dispose
+        // (the app is exiting; there is nothing left to wake). Never throw on the Dispatcher thread.
         try { _sendSignal.Release(); }
         catch (SemaphoreFullException) { /* already signaled — writer will pick up _pending */ }
+        catch (ObjectDisposedException) { /* disposing raced a tick — exiting anyway */ }
     }
 
     /// <summary>
@@ -316,9 +320,47 @@ public sealed class HeartbeatPublisher : IDisposable
             return false;
         }
         await connectTask.ConfigureAwait(false); // observe exceptions if connect threw
+
+        // Server identity: pipe names are machine-global, so any local process can hold
+        // eyectrl_watch — a squatter receives our heartbeats (liveness spoofing) and makes
+        // TryReachSupervisor lie "supervisor reachable", corrupting restart decisions. The
+        // kernel names the creator of the connected instance; accept only the supervisor exe
+        // in this session. Rejected sends return false: to every caller that is
+        // indistinguishable from "no supervisor", which is exactly what a squatted channel
+        // should be treated as.
+        if (!PipeServerIsSupervisor(client))
+            return false;
+
         var json = JsonSerializer.Serialize(payload, JsonOptions) + "\n";
         await client.WriteAsync(Encoding.UTF8.GetBytes(json), token).ConfigureAwait(false);
         return true;
+    }
+
+    /// <summary>
+    /// Whether the connected pipe's server must be the supervisor exe (see SendOneAsync). Tests
+    /// that host their OWN in-process watch server set this to true; production never does.
+    /// </summary>
+    internal bool TrustAnyServerForTests { get; set; }
+
+    /// <summary>
+    /// Accepts the pipe's server only if it is the supervisor executable (by file name — the
+    /// supervisor may run from a relocated copy) in this Windows session. Fails closed.
+    /// </summary>
+    private bool PipeServerIsSupervisor(NamedPipeClientStream client)
+    {
+        if (TrustAnyServerForTests) return true;
+        try
+        {
+            if (!PipeServerIdentity.ServerIsSameSession(client)) return false;
+            if (!PipeServerIdentity.TryGetServerExePath(client, out var exe) || exe is null) return false;
+            var expected = SupervisorLauncher.ResolveExePath();
+            return expected is not null && string.Equals(
+                Path.GetFileName(exe), Path.GetFileName(expected), StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>

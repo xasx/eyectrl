@@ -15,6 +15,7 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Platform.Ipc;
+using EyeCtrl.Platform.Interop;
 using EyeCtrl.ViewModels.Messages;
 using Microsoft.Extensions.Logging;
 
@@ -35,6 +36,12 @@ public sealed class ExternalDwellService : IDisposable
     /// prevent that, being process-local; not sharing the name is the only real fix. See issue #76.
     /// </summary>
     private readonly string _pipeName;
+
+    /// <summary>Registration caps: a hostile or buggy client must not be able to grow the
+    /// target tables (and per-frame gating cost) without bound. A register over a cap is
+    /// rejected and logged; the connection itself stays alive for its existing targets.</summary>
+    internal const int MaxTargetsPerConnection = 512;
+    internal const int MaxTotalTargets = 4096;
 
     private readonly ExternalDwellSettings _settings;
     private readonly GazeEngine _gazeEngine;
@@ -111,10 +118,18 @@ public sealed class ExternalDwellService : IDisposable
 
         // The PipeConnection IS this channel's per-connection state: the server hands it back to
         // every line handler and to teardown, so nothing here has to map a pipe to its writer.
+        //
+        // SECURITY: the pipe carries register/unregister commands that shape the user's dwell-click
+        // channel, so it must not be connectable by arbitrary local processes. The default DACL of
+        // the plain NamedPipeServerStream constructor grants read to Everyone; the explicit ACL
+        // below restricts the pipe to the current user (SDK client apps run as the same user).
+        // Same construction as HeartbeatPipeServer — see the warning in that file about copying
+        // the unsecured constructor.
         _pipeServer = new NewlineJsonPipeServer<PipeConnection>(
-            () => new NamedPipeServerStream(_pipeName, PipeDirection.InOut,
+            () => NamedPipeServerStreamAcl.Create(_pipeName, PipeDirection.InOut,
                 NamedPipeServerStream.MaxAllowedServerInstances,
-                PipeTransmissionMode.Byte, PipeOptions.Asynchronous),
+                PipeTransmissionMode.Byte, PipeOptions.Asynchronous, inBufferSize: 0, outBufferSize: 0,
+                new NamedPipeSecurityBuilder().BuildCurrentUserOnly()),
             createState: pipe =>
             {
                 var conn = new PipeConnection(pipe, ex => _logger.LogWarning(ex, "External dwell pipe: write failed"));
@@ -143,6 +158,14 @@ public sealed class ExternalDwellService : IDisposable
     public void Start()
     {
         _pipeServer.Start();
+    }
+
+    /// <summary>Diagnostics/testing hook: the number of registered dwell targets. Read under
+    /// the state lock, so tests can POLL for batched registrations to settle instead of
+    /// sleeping a fixed delay (review nit: a fixed sleep is the flake-shaped part).</summary>
+    internal int TargetCountForTests
+    {
+        get { lock (_stateLock) return _targetsById.Count; }
     }
 
     private void OnCursorMoved(GazeFrame frame)
@@ -285,6 +308,30 @@ public sealed class ExternalDwellService : IDisposable
             case RegisterMessage r:
                 lock (_stateLock)
                 {
+                    // Ownership gate: a target id belongs to the connection that registered it.
+                    // A second connection re-registering an existing id must not silently steal
+                    // the channel — that would reroute the user's dwell activations to the new
+                    // client (UpdateMessage below has always been gated this way). The owner
+                    // keeps the id until it unregisters or disconnects; a same-connection
+                    // re-register stays an idempotent rect refresh.
+                    if (_connByTarget.TryGetValue(r.Id, out var owner) && !ReferenceEquals(owner, conn))
+                    {
+                        _logger.LogWarning(
+                            "External dwell pipe: rejected register of target {Id} from a client that does not own it", r.Id);
+                        break;
+                    }
+                    if (!conn.TargetIds.Contains(r.Id)
+                        && (conn.TargetIds.Count >= MaxTargetsPerConnection || _targetsById.Count >= MaxTotalTargets))
+                    {
+                        // A same-connection re-register adds nothing to the tables (idempotent
+                        // rect refresh) and must never be capped: a client at exactly the cap
+                        // could otherwise no longer refresh ANY rect, freezing every target at
+                        // stale geometry while the connection looks healthy.
+                        _logger.LogWarning(
+                            "External dwell pipe: rejected register of target {Id} over registration cap (connection {ConnCount}/{PerConn}, total {Total}/{MaxTotal})",
+                            r.Id, conn.TargetIds.Count, MaxTargetsPerConnection, _targetsById.Count, MaxTotalTargets);
+                        break;
+                    }
                     conn.Hwnd = r.Hwnd;
                     conn.TargetIds.Add(r.Id);
                     _connByTarget[r.Id] = conn;
@@ -324,6 +371,15 @@ public sealed class ExternalDwellService : IDisposable
             case UnregisterMessage un:
                 lock (_stateLock)
                 {
+                    // Ownership gate (mirrors Update): only the owning connection may unregister
+                    // a target. Without this, any connected client could remove another client's
+                    // targets and permanently kill the user's ability to dwell-click in that app.
+                    if (!conn.TargetIds.Contains(un.Id))
+                    {
+                        _logger.LogWarning(
+                            "External dwell pipe: rejected unregister of target {Id} from a client that does not own it", un.Id);
+                        break;
+                    }
                     conn.TargetIds.Remove(un.Id);
                     _connByTarget.Remove(un.Id);
                     _targetsById.Remove(un.Id);
@@ -343,7 +399,19 @@ public sealed class ExternalDwellService : IDisposable
         _ = Task.Run(() => conn.Send(json));
     }
 
-    private static PhysicalRect ToRect(SdkRect r) => new(r.X, r.Y, r.Width, r.Height);
+    // Pipe-supplied doubles reach WPF window positioning (DwellFeedbackOverlay.ShowAt); JSON
+    // rejects NaN/Infinity, but legal extremes (1e308) would flow through DpiHelper into
+    // double-based layout math. Clamp to a range far beyond any physical screen so a hostile or
+    // buggy rect can never push layout out of bounds.
+    internal static PhysicalRect ToRect(SdkRect r)
+    {
+        const double limit = 100_000;
+        return new PhysicalRect(
+            Math.Clamp(r.X, -limit, limit),
+            Math.Clamp(r.Y, -limit, limit),
+            Math.Clamp(r.Width, 0, limit),
+            Math.Clamp(r.Height, 0, limit));
+    }
 
     private static long? RootWindowAtPointImpl(PhysicalPoint p)
     {

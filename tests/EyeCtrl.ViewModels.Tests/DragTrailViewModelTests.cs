@@ -123,8 +123,7 @@ public class DragTrailViewModelTests
         _messenger.Register<DragDropMessage>(_messenger, (_, msg) => dropMsg = msg);
 
         var releasePos = vm.ReleaseButtonCenter;
-        _messenger.Send(new GazeCursorMovedMessage(releasePos, 100_000));
-        _messenger.Send(new GazeCursorMovedMessage(releasePos, 400_000));
+        DwellDrive.Hold(_messenger, releasePos, 100_000, 400_000);
 
         Check.That(dropMsg).IsNotNull();
     }

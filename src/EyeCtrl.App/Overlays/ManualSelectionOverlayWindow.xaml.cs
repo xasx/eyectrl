@@ -61,14 +61,24 @@ public partial class ManualSelectionOverlayWindow : OverlayWindow, IManualSelect
     private async void CaptureAndDisplay(PhysicalPoint center, int radius)
     {
         await Task.Delay(ScreenCaptureDelayMs);
-        var capture = ScreenCaptureService.CaptureRegion(center, radius);
-        if (capture != null)
+        try
         {
-            // The capture is clamped to the screen, so its centre is the effective one. Written
-            // here, with the image, and never when the capture is requested: a request-time value
-            // would describe an image the user is not yet looking at.
-            _effectiveCaptureCenter = capture.Value.EffectiveCenter;
-            ManualSelectionBrush.ImageSource = capture.Value.Image;
+            var capture = ScreenCaptureService.CaptureRegion(center, radius);
+            if (capture != null)
+            {
+                // The capture is clamped to the screen, so its centre is the effective one. Written
+                // here, with the image, and never when the capture is requested: a request-time value
+                // would describe an image the user is not yet looking at.
+                _effectiveCaptureCenter = capture.Value.EffectiveCenter;
+                ManualSelectionBrush.ImageSource = capture.Value.Image;
+            }
+        }
+        catch
+        {
+            // GDI+ capture fails transiently on the secure desktop (UAC), session lock and RDP
+            // transitions. This is an async void continuation on the dispatcher: an escaping
+            // throw is process-fatal, and for a gaze-only user the process is the input channel.
+            // The magnifier simply shows no snapshot this time.
         }
     }
 

@@ -4,6 +4,7 @@ using System;
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
@@ -110,6 +111,10 @@ internal sealed class SupervisorApp : Application
     // Guards against reentrancy if a pipe event fires while a tick is draining on the dispatcher.
     private readonly object _loopLock = new();
 
+    // Dispatcher-fault budget for the containment handlers registered in Initialize. Touched
+    // only on the UI thread, so no synchronization.
+    private readonly RollingFaultBudget _dispatcherFaultBudget = new(10, TimeSpan.FromSeconds(60));
+
     public void Initialize()
     {
         var appDataDir = Path.Combine(
@@ -121,6 +126,34 @@ internal sealed class SupervisorApp : Application
         // 1. Logging — supervisor-.log (distinct from the app's eyectrl-.log).
         SupervisorLoggingInitializer.Initialize(logsDir);
         Log.Information("Supervisor starting up.");
+
+        // 1b. Fault containment. The supervisor is the WATCHDOG: nothing watches it, and dying
+        // silently means the app runs unwatched from that moment — a later app crash is
+        // unrecovered. The supervisor previously registered no handlers at all: any dispatcher
+        // fault (a throwing tick, a pipe event, a tray/menu handler) killed it outright.
+        // Dispatcher faults now log-and-continue under the same budget the app uses — the
+        // state machine re-derives recovery on the next tick, and a hard-looping supervisor
+        // (budget exceeded) still dies rather than wedging invisibly. Terminating faults are
+        // flushed for post-mortem; unobserved task faults are observed.
+        DispatcherUnhandledException += (_, args) =>
+        {
+            Log.Error(args.Exception, "Unhandled supervisor dispatcher exception");
+            if (DispatcherCrashPolicy.ShouldKeepRunning(supervisionEnabled: false, _dispatcherFaultBudget))
+                args.Handled = true; // the watchdog stays up
+            else
+                Log.Fatal("Supervisor dispatcher fault budget exhausted; giving up (hard loop).");
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            Log.Fatal(args.ExceptionObject as Exception,
+                "Unhandled supervisor exception (terminating={IsTerminating})", args.IsTerminating);
+            Log.CloseAndFlush();
+        };
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            Log.Error(args.Exception, "Unobserved supervisor task exception (observed set to prevent crash)");
+            args.SetObserved();
+        };
 
         // 2. Settings — supervisor owns ONLY the Supervision section (SettingsWriter.Supervisor).
         _settingsService = new SettingsService(settingsPath, SettingsWriter.Supervisor);
@@ -570,13 +603,24 @@ internal sealed class SupervisorApp : Application
             // Paused-retry handoff: relaunch with --paused so the retried instance is inert (no
             // SendInput) until the user is ready, without mutating the persisted setting. Transition
             // the machine to IdleWatch so the retried app's first heartbeat can ADOPT it back into
-            // Supervising (otherwise it stays FallenBack, which has no HeartbeatReceived case, so the
-            // retried app would be unsupervised — no crash recovery, no clean-exit detection).
+            // Supervising (otherwise it stays FallenBack, which has no HeartbeatReceived case, so
+            // the retried app would be unsupervised — no crash recovery, no clean-exit detection).
             Log.Information("FallenBack dialog Retry: relaunching app with --paused and returning to IdleWatch.");
+            try
+            {
+                _pc.Launch(_appExePath, paused: true);
+                WireProcessExited();
+                EnsurePipeStarted();
+            }
+            catch (Exception ex)
+            {
+                // The same Process.Start failure DoLaunchApp guards against (app exe missing) applies
+                // here — at the user's most vulnerable moment. The dialog STAYS OPEN so the user can
+                // retry after the cause is fixed, instead of the exception killing the supervisor.
+                Log.Error(ex, "FallenBack retry: launch failed; dialog stays open, machine stays in FallenBack.");
+                return;
+            }
             dialog.Close();
-            _pc.Launch(_appExePath, paused: true);
-            WireProcessExited();
-            EnsurePipeStarted();
             // Re-arm IdleWatch so the next verified heartbeat adopts the retried instance. Feeding an
             // explicit input (rather than poking State) keeps the transition through the machine's API.
             HandleInput(new FallenBackRetry(DateTime.UtcNow));

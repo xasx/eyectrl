@@ -11,6 +11,46 @@ using System.Collections.Concurrent;
 /// </summary>
 public class DwellDetector
 {
+    /// <summary>
+    /// Longest silence between two DELIVERED samples that may still be credited as continuous
+    /// dwell. Every caller skips gap-held samples before this detector (the shared
+    /// <c>DwellOverlayViewModelBase.SampleMayDwell</c> gate and its overrides; the keyboard's
+    /// coordinator similarly withholds them), so a blink arrives here as a silence — and a
+    /// timestamp-based clock would credit the whole silence to the first real sample after it.
+    /// A silence at or beyond this bound re-anchors accumulated dwell to the current sample
+    /// (restart); there is no cap, so a shorter silence resumes exactly where it left off.
+    ///
+    /// <para>
+    /// 150 ms is <c>CursorSettings.MaxGapInterpolationMs</c>'s default — the engine's own boundary
+    /// for "too long to hold": <c>GapInterpolator</c> breaks the sequence at
+    /// <c>gap &gt;= maxGap</c>. Using the same bound and the same <c>&gt;=</c> comparison means a
+    /// silence the engine refuses to hold always restarts a dwell. That is deliberately the
+    /// engine's boundary rather than a multiple of a sample rate: the detector sees samples after
+    /// dispatcher marshaling, not the tracker's cadence, so a cadence-derived multiplier would be
+    /// reasoning about the wrong clock. It is a fixed constant, not the setting — the setting is
+    /// user-tunable to 500 ms, past every standard dwell, so it cannot be the dwell safety bound.
+    /// Deliberately one-directional: raising <c>MaxGapInterpolationMs</c> makes the engine hold
+    /// longer silences, but this bound does not follow it — the setting is a cursor-smoothing
+    /// knob, and stricter-than-the-engine is the only safe direction.
+    /// </para>
+    ///
+    /// <para>
+    /// Over-clamping is app-wide (toolbar, action menu, settings, emoji tabs all ride this
+    /// detector), which is why the bound is generous rather than tight, and why the sub-bound
+    /// resume behaviour is pinned by its own row. These dwells are 600–700 ms, so 150 ms is a
+    /// fifth of the window.
+    /// </para>
+    ///
+    /// <para>
+    /// Known residual: for consumers on the keyboard dwell family (prediction bar, emoji category
+    /// tabs — <c>AdaptationDwellRanges.KeyboardMinDwellMs</c> = 100) a stall between 100 and
+    /// 150 ms is still credited and can complete a dwell; for the standard surfaces
+    /// (<c>StandardMinDwellMs</c> = 200) the bound is below the minimum dwell, so a stall alone
+    /// cannot complete one. Accepted and recorded so it is not rediscovered as a bug.
+    /// </para>
+    /// </summary>
+    private const long MaxCreditedSampleGapUs = 150 * MathConstants.MicrosecondsPerMillisecond;
+
     private readonly ConcurrentDictionary<string, DwellTarget> _targets = new();
 
     // Copy-on-write snapshot of _targets for allocation-free, thread-safe enumeration on the
@@ -226,11 +266,31 @@ public class DwellDetector
     public void Update(PhysicalPoint gazePoint, long timestampMicroseconds,
         Func<DwellTarget, bool>? targetFilter)
     {
+        // Silence since the last DELIVERED sample, measured before this stamp replaces it. Every
+        // Update is a delivered sample — including cooldown, filtered and non-nearest passes — so
+        // this is the stream's cadence, not any target's state.
+        long sinceLastSampleUs = timestampMicroseconds - _lastTimestamp;
         _lastTimestamp = timestampMicroseconds;
 
         // Read the copy-on-write snapshot once: a stable, immutable view for this call. Iterating it
         // allocates nothing and never throws under concurrent add/remove (the array is never mutated).
         var targets = _targetsSnapshot;
+
+        // A silence at the bound is not held gaze. Re-anchor accumulated dwell to now BEFORE any
+        // path reads it, so the activation computation below and the abandon telemetry further
+        // down both consume bounded state instead of each patching its own arithmetic — and so the
+        // case where the first post-gap sample already leaves the target is covered too (a
+        // nearest-arm-only check would miss it). At most one target holds a timestamp (the code
+        // below clears every non-nearest one), so this is a single-target operation in practice.
+        // The continuation arm emits the resulting 0 progress; the abandon arm already does.
+        if (sinceLastSampleUs >= MaxCreditedSampleGapUs)
+        {
+            for (int i = 0; i < targets.Length; i++)
+            {
+                if (targets[i].EnteredTimestamp.HasValue)
+                    targets[i].EnteredTimestamp = timestampMicroseconds;
+            }
+        }
 
         // Cooldown: skip all dwell accumulation if within cooldown period
         if (_lastActivationTimestamp.HasValue &&

@@ -124,12 +124,28 @@ public partial class QuickActionsGridViewModel : DwellOverlayViewModelBase,
             _settings.Dwell.ToolbarButtonDwellMs));
     }
 
+    // Deliberately dwellable while paused (DwellOverlayViewModelBase.DwellActiveWhilePaused):
+    // the close button's dwell is a dismissal, and on the toolbar-driven show path (which does
+    // not arm the hot-edge auto-dismiss) it is the ONLY one — gating the dwell would trap a
+    // paused-open grid. The EFFECT is gated instead in OnTargetActivated: while paused any tile
+    // dwell only dismisses; a quick action (SendText / keystrokes / Process.Start — OS input)
+    // never fires.
+    protected override bool DwellActiveWhilePaused => true;
+
     protected override void OnTargetActivated(string targetId)
     {
         if (targetId == CloseTargetId)
         {
             HideOverlay();
             return;   // close button: dismiss, no selection
+        }
+        if (LastSampleWasPaused)
+        {
+            // Paused: the dwell is a DISMISS, never an execution. The grid hides rather than
+            // sits inert — inert-but-visible is indistinguishable from a hang for a gaze-only
+            // user.
+            HideOverlay();
+            return;
         }
         var tile = Tiles.FirstOrDefault(t => t.Action.Id == targetId);
         if (tile != null)

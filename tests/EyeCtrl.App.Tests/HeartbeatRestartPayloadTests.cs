@@ -171,7 +171,7 @@ public class HeartbeatRestartPayloadTests
     {
         var received = ReceiveOneAsync(TimeSpan.FromSeconds(5));
 
-        using var publisher = new HeartbeatPublisher(supervised: true, pipeName: _pipeName);
+        using var publisher = new HeartbeatPublisher(supervised: true, pipeName: _pipeName) { TrustAnyServerForTests = true };
         publisher.SignalShuttingDown(restartRequested: true);
 
         var payload = await received;
@@ -185,7 +185,7 @@ public class HeartbeatRestartPayloadTests
     {
         var received = ReceiveOneAsync(TimeSpan.FromSeconds(5));
 
-        using var publisher = new HeartbeatPublisher(supervised: true, pipeName: _pipeName);
+        using var publisher = new HeartbeatPublisher(supervised: true, pipeName: _pipeName) { TrustAnyServerForTests = true };
         publisher.SignalShuttingDown();
 
         var payload = await received;
@@ -200,7 +200,8 @@ public class HeartbeatRestartPayloadTests
         var received = ReceiveOneAsync(TimeSpan.FromSeconds(5));
 
         using var publisher = new HeartbeatPublisher(
-            supervised: true, pipeName: _pipeName, probeWait: GenerousProbeWait);
+            supervised: true, pipeName: _pipeName, probeWait: GenerousProbeWait)
+            { TrustAnyServerForTests = true };
         var reachable = publisher.TryReachSupervisor();
 
         Check.That(reachable).IsTrue();
@@ -211,7 +212,7 @@ public class HeartbeatRestartPayloadTests
     public void TryReachSupervisor_IsFalse_WhenNothingIsListening()
     {
         // No server stood up. This is the case that must stop a restart dead.
-        using var publisher = new HeartbeatPublisher(supervised: true, pipeName: _pipeName);
+        using var publisher = new HeartbeatPublisher(supervised: true, pipeName: _pipeName) { TrustAnyServerForTests = true };
         Check.That(publisher.TryReachSupervisor()).IsFalse();
     }
 
@@ -235,7 +236,8 @@ public class HeartbeatRestartPayloadTests
         // must wait for its own send rather than abandoning it after 500ms and leaving delivery
         // to chance.
         using var publisher = new HeartbeatPublisher(
-            supervised: true, pipeName: _pipeName, probeWait: GenerousProbeWait);
+            supervised: true, pipeName: _pipeName, probeWait: GenerousProbeWait)
+            { TrustAnyServerForTests = true };
         _ = publisher.TryReachSupervisor();
         var probePayload = await probe;
         Check.That(probePayload!.ShuttingDown).IsFalse();
@@ -261,7 +263,8 @@ public class HeartbeatRestartPayloadTests
         // A session that started unsupervised can be upgraded when the user chooses to
         // start a supervisor. Until then the probe must stay false — see below.
         using var publisher = new HeartbeatPublisher(
-            supervised: false, pipeName: _pipeName, probeWait: GenerousProbeWait);
+            supervised: false, pipeName: _pipeName, probeWait: GenerousProbeWait)
+            { TrustAnyServerForTests = true };
         Check.That(publisher.TryReachSupervisor()).IsFalse();
 
         // Note the payload asserted below is the PROBE's. EnablePublishing itself sends nothing:

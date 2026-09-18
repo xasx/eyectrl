@@ -52,6 +52,24 @@ public class BigramModel
     }
 
     /// <summary>
+    /// Applies a count delta to one bigram entry with an explicit timestamp — the delta-merge
+    /// counterpart of the <see cref="GetAllBigrams"/>/<see cref="GetAllTimestamps"/> snapshots.
+    /// Used by the background prediction-stack swap to carry learning that happened on the OLD
+    /// stack while the new one built.
+    /// </summary>
+    internal void LearnEntry(string word1, string word2, int countDelta, DateTimeOffset timestamp)
+    {
+        if (countDelta <= 0 || string.IsNullOrWhiteSpace(word1) || string.IsNullOrWhiteSpace(word2))
+            return;
+        if (!_bigrams.ContainsKey(word1))
+            _bigrams[word1] = new Dictionary<string, int>();
+        _bigrams[word1][word2] = _bigrams[word1].GetValueOrDefault(word2) + countDelta;
+        if (!_timestamps.ContainsKey(word1))
+            _timestamps[word1] = new Dictionary<string, DateTimeOffset>();
+        _timestamps[word1][word2] = timestamp;
+    }
+
+    /// <summary>
     /// Gets the most likely next words given a previous word.
     /// </summary>
     /// <param name="previousWord">The context word.</param>

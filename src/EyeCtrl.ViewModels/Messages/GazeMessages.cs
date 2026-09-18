@@ -36,6 +36,16 @@ public record GazeCursorMovedMessage(GazeFrame Frame)
     /// Recipients that accumulate dwell MUST skip their <c>DwellDetector.Update</c> for such a sample.
     /// </summary>
     public bool IsInGap => Frame.IsInGap;
+
+    /// <summary>
+    /// <c>true</c> while the interaction state is Paused. Dwell surfaces that inject OS input —
+    /// keyboard, quick actions, task switcher — MUST skip their <c>DwellDetector.Update</c> for
+    /// such a sample: input must not leave EyeCtrl while the user believes pause released it.
+    /// The safety surfaces that deliberately stay dwellable to unpause (toolbar band, modes
+    /// menu, edge bar, drag trail) opt out of the gate via
+    /// <c>DwellOverlayViewModelBase.DwellActiveWhilePaused</c>.
+    /// </summary>
+    public bool IsPaused { get; init; }
 }
 
 /// <summary>

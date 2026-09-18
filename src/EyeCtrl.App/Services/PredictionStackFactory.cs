@@ -1,15 +1,76 @@
 namespace EyeCtrl.App.Services;
 
 using System.IO;
+using System.Security.Cryptography;
+using System.Threading;
+using System.Threading.Tasks;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.LM;
+using Microsoft.Extensions.Logging;
 using Serilog;
 
+/// <summary>
+/// Builds prediction stacks (dictionaries + sentence-completion trie + tokenizer + ONNX LM).
+/// <para>
+/// <b>Background mode (production):</b> constructed with a <c>postToUi</c> marshal,
+/// <see cref="Rebuild"/> returns the CURRENT stack immediately — the old one keeps serving while
+/// the new one builds on the thread pool. Building the stack is multi-second work (dictionaries,
+/// a 2–3 MB trie, and an ONNX <c>InferenceSession</c> for a 360M model); running it on the UI
+/// thread froze the splash at boot and froze all gaze UI on every settings-apply while a
+/// gaze-only user was mid-interaction. When the build completes, the factory merges the words
+/// learned on the old stack during the build window into the new stack, saves + disposes the
+/// old, swaps, and raises <see cref="StackSwapped"/> on the UI thread.
+/// </para>
+/// <para>
+/// <b>Synchronous mode (default constructor, tests):</b> <see cref="Rebuild"/> builds inline and
+/// returns the new stack — the historical contract, kept byte-for-byte so existing callers and
+/// tests are unaffected.
+/// </para>
+/// </summary>
 public class PredictionStackFactory : IDisposable
 {
+    /// <summary>
+    /// Minimal MEL-to-Serilog bridge for Core types constructed outside DI (review finding 9:
+    /// the dictionary provider's IO failures were silently swallowed because no logger was
+    /// passed). Category = T's name, level-mapped.
+    /// </summary>
+    private static class SerilogLoggerProvider<T>
+    {
+        public static ILogger<T> Create() => new Bridge();
+        private sealed class Bridge : ILogger<T>
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+            public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Warning;
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            {
+                var message = $"{typeof(T).Name}: {formatter(state, exception)}";
+                if (logLevel == LogLevel.Error)
+                    global::Serilog.Log.Error(exception, "{Message}", message);
+                else
+                    global::Serilog.Log.Warning(exception, "{Message}", message);
+            }
+        }
+    }
+
     private PredictionOrchestrator? _current;
-    private bool _disposed;
+    private volatile bool _disposed;
+    private readonly Action<Action>? _postToUi;
+    private readonly CancellationTokenSource _disposeCts = new();
+    private int _buildGeneration;
+
+    /// <summary>
+    /// Raised on the UI THREAD (through the constructor's marshal) after a background build
+    /// swapped a new stack in — including a swap to <c>null</c>. Subscribers re-bind their
+    /// consumer (KeyboardCoordinator calls <c>SetOrchestrator</c>). Not raised in synchronous
+    /// mode: the caller already holds the returned stack.
+    /// </summary>
+    public event Action<PredictionOrchestrator?>? StackSwapped;
+
+    public PredictionStackFactory(Action<Action>? postToUi = null)
+    {
+        _postToUi = postToUi;
+    }
 
     public PredictionOrchestrator? Current => _current;
 
@@ -19,19 +80,181 @@ public class PredictionStackFactory : IDisposable
         string appDataDir,
         ModelRegistryService? modelRegistry)
     {
-        SaveAndDisposeCurrent();
-
         if (!settings.Keyboard.PredictionEnabled)
         {
+            // Cheap (a save + dispose, no builds) and must take effect immediately even in
+            // background mode: the user just turned prediction OFF.
+            // The generation bump is load-bearing (review finding 1): without it, an in-flight
+            // build started BEFORE the disable still passes every generation check and swaps a
+            // live prediction stack back in — silently re-enabling what the user turned off.
+            Interlocked.Increment(ref _buildGeneration);
+            SaveAndDisposeCurrent();
             _current = null;
+            if (_postToUi is not null)
+                _postToUi(() => StackSwapped?.Invoke(null));
             return null;
         }
 
+        var generation = Interlocked.Increment(ref _buildGeneration);
+
+        if (_postToUi is null)
+        {
+            // Synchronous mode: save + dispose the old, build the new from the just-saved files,
+            // return it — identical to the pre-background behaviour.
+            SaveAndDisposeCurrent();
+            _current = Build(settings, baseDir, appDataDir, modelRegistry, CancellationToken.None);
+            return _current;
+        }
+
+        // Background mode. Snapshot the old stack's full learned state NOW, on the caller's (UI)
+        // thread — cheap dictionary copies, no IO (review finding 3: the save this replaces was
+        // a 6-file, up-to-37 MB write set ON the UI thread). The snapshot is persisted at the
+        // HEAD of the build task, so the new stack still loads a disk state that includes
+        // everything learned before the rebuild started (the ordering the synchronous flow got
+        // for free), while serialization and writing happen off the UI thread.
+        var before = _current?.WordPredictor.CaptureLearnedState();
+
+        _ = Task.Run(
+            () =>
+            {
+                if (before is not null)
+                {
+                    try
+                    {
+                        WriteStateToDisk(before, baseDir, appDataDir, settings);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warning(ex, "Failed to persist learned state before background build; the build continues from the last on-disk state");
+                    }
+                }
+                return Build(settings, baseDir, appDataDir, modelRegistry, _disposeCts.Token);
+            },
+            _disposeCts.Token)
+            .ContinueWith(
+                t =>
+                {
+                    if (t.IsFaulted)
+                    {
+                        Log.Error(t.Exception, "Background prediction-stack build failed; the previous stack keeps serving");
+                        return;
+                    }
+
+                    var built = t.IsCanceled ? null : t.Result;
+                    if (built is null || _disposed || Volatile.Read(ref _buildGeneration) != generation)
+                    {
+                        // Superseded by a newer rebuild, cancelled by Dispose, or shutting down.
+                        // DISCARD AND DISPOSE: a discarded stack still owns an LM predictor
+                        // (an ONNX InferenceSession is native memory) — dropping the reference
+                        // without Dispose leaks it.
+                        built?.Dispose();
+                        return;
+                    }
+
+                    _postToUi(() =>
+                    {
+                        // Re-check under the marshal: a newer rebuild may have arrived while this
+                        // continuation waited for the UI thread.
+                        if (_disposed || Volatile.Read(ref _buildGeneration) != generation)
+                        {
+                            built.Dispose();
+                            return;
+                        }
+                        SwapInWithLearnedTail(built, before);
+                        StackSwapped?.Invoke(_current);
+                    });
+                },
+                TaskScheduler.Default);
+
+        // The OLD stack (or null on first build) — it keeps serving until the swap lands.
+        return _current;
+    }
+
+    /// <summary>
+    /// The background-mode swap, on the UI thread (word learning cannot interleave): diff the old
+    /// stack's CURRENT full learned state against the pre-build snapshot and apply the delta to
+    /// the new stack — words AND bigrams AND phrases AND casing. Then dispose the old stack
+    /// WITHOUT saving: its pre-window state is already on disk (the build-task head wrote the
+    /// snapshot), and its window state now lives in the new stack, whose own next save persists
+    /// the union. Saving here instead would let the new stack's in-memory (pre-tail) state
+    /// clobber the tail at ITS next save — the silent-destruction bug of review finding 2.
+    /// </summary>
+    private void SwapInWithLearnedTail(PredictionOrchestrator built, PredictionLearnedState? before)
+    {
+        var old = _current;
+        if (old is not null && before is not null)
+            built.WordPredictor.ApplyLearnedDelta(before, old.WordPredictor.CaptureLearnedState());
+
+        try
+        {
+            old?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Failed to dispose the superseded prediction stack");
+        }
+        _current = built;
+    }
+
+    /// <summary>
+    /// Persists a learned-state snapshot through a provider, off the UI thread. Mirrors what
+    /// <c>WordPredictor.SaveUserDictionary</c> writes, but from an already-captured snapshot.
+    /// </summary>
+    private static void WriteStateToDisk(
+        PredictionLearnedState state, string baseDir, string appDataDir, EyeCtrlSettings settings)
+    {
+        var langCode = KeyboardSettings.IsValidLanguagePack(settings.Keyboard.LanguagePack)
+            ? settings.Keyboard.LanguagePack
+            : "";
+        var provider = new FileDictionaryProvider(
+            Path.Combine(baseDir, "Resources", "Dictionaries", $"{langCode}.json"),
+            appDataDir,
+            langCode,
+            SerilogLoggerProvider<FileDictionaryProvider>.Create());
+
+        provider.Save(new Dictionary<string, int>(state.Words));
+        provider.SaveBigrams(Unwrap(state.Bigrams));
+        provider.SaveBigramTimestamps(Unwrap(state.BigramTimestamps));
+        provider.SavePhrases(Unwrap(state.Phrases));
+        provider.SavePhraseTimestamps(Unwrap(state.PhraseTimestamps));
+        provider.SaveCasingPreferences(Unwrap(state.Casing));
+    }
+
+    private static Dictionary<string, Dictionary<string, TValue>> Unwrap<TValue>(
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, TValue>> nested)
+    {
+        var result = new Dictionary<string, Dictionary<string, TValue>>(nested.Count);
+        foreach (var (key, inner) in nested)
+            result[key] = new Dictionary<string, TValue>(inner);
+        return result;
+    }
+
+    private static PredictionOrchestrator? Build(
+        EyeCtrlSettings settings,
+        string baseDir,
+        string appDataDir,
+        ModelRegistryService? modelRegistry,
+        CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+
         var langCode = settings.Keyboard.LanguagePack;
+        if (!KeyboardSettings.IsValidLanguagePack(langCode))
+        {
+            // Defense in depth on top of SettingsService.Load's sanitize: the code is a path
+            // ingredient on the dictionary/trie READ paths and the user-dictionary WRITE path,
+            // so nothing but a two-letter code (or empty) may reach Path.Combine. Invalid falls
+            // back to the no-dictionary degradation (FileDictionaryProvider handles a missing file).
+            Log.Warning("Ignoring malformed language pack '{Lang}'; prediction runs without dictionaries.", langCode);
+            langCode = "";
+        }
         var dictPath = Path.Combine(baseDir, "Resources", "Dictionaries", $"{langCode}.json");
-        var provider = new FileDictionaryProvider(dictPath, appDataDir, langCode);
+        var provider = new FileDictionaryProvider(dictPath, appDataDir, langCode,
+            SerilogLoggerProvider<FileDictionaryProvider>.Create());
         var wordPredictor = new WordPredictor(provider, settings.Keyboard.ActiveLayout);
         wordPredictor.ApplyDecay(settings.Keyboard.DecayEnabled, settings.Keyboard.DecayHalfLifeDays);
+
+        token.ThrowIfCancellationRequested();
 
         SentenceCompletionIndex? trieIndex = null;
         var triePath = Path.Combine(baseDir, "Resources", "Completions", $"completions_{langCode}.bin");
@@ -49,6 +272,8 @@ public class PredictionStackFactory : IDisposable
             }
         }
 
+        token.ThrowIfCancellationRequested();
+
         ILanguageModelPredictor? lmPredictor = null;
         if (settings.Keyboard.MLSuggestionsEnabled && modelRegistry != null)
         {
@@ -63,9 +288,28 @@ public class PredictionStackFactory : IDisposable
                 try
                 {
                     if (File.Exists(tokenizerPath))
-                        tokenizer = new LMTokenizer(tokenizerPath);
+                    {
+                        // Integrity at LOAD time (the deferred audit item, safe here because this
+                        // runs on the background thread — hashing the model never touches the UI):
+                        // the download path already verifies the same value, but a file replaced
+                        // on disk directly bypasses it. An empty registry hash (custom models, by
+                        // design) skips the check.
+                        var expectedTokenizerHash = modelRegistry.GetTokenizerSha256(modelSize);
+                        if (expectedTokenizerHash is null || VerifyFileSha256(tokenizerPath, expectedTokenizerHash))
+                        {
+                            tokenizer = new LMTokenizer(tokenizerPath);
+                        }
+                        else
+                        {
+                            Log.Error(
+                                "Tokenizer at {Path} failed its SHA-256 integrity check; LM suggestions disabled for this build",
+                                tokenizerPath);
+                        }
+                    }
                     else
+                    {
                         Log.Warning("Tokenizer file not found at {Path}; LM suggestions disabled", tokenizerPath);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -74,17 +318,64 @@ public class PredictionStackFactory : IDisposable
 
                 var modelPath = modelRegistry.GetModelPath(modelSize);
 
-                lmPredictor = new SmallLMPredictor(
-                    modelsDir,
-                    modelSize,
-                    settings.Keyboard.PreferGPU,
-                    tokenizer: tokenizer,
-                    modelPath: modelPath);
+                // Same load-time check for the model itself — most valuable here: the model is
+                // EXECUTED (ONNX runtime parses and runs it), so a swapped file is not just wrong
+                // predictions, it is unvalidated input to a large native parse surface.
+                var expectedModelHash = modelRegistry.GetModelSha256(modelSize);
+                if (expectedModelHash is not null && File.Exists(modelPath)
+                    && !VerifyFileSha256(modelPath, expectedModelHash))
+                {
+                    Log.Error(
+                        "Model at {Path} failed its SHA-256 integrity check; LM suggestions disabled for this build",
+                        modelPath);
+                }
+                else
+                {
+                    token.ThrowIfCancellationRequested(); // no point building a session we are discarding
+
+                    lmPredictor = new SmallLMPredictor(
+                        modelsDir,
+                        modelSize,
+                        settings.Keyboard.PreferGPU,
+                        tokenizer: tokenizer,
+                        modelPath: modelPath);
+                }
             }
         }
 
-        _current = new PredictionOrchestrator(wordPredictor, trieIndex, lmPredictor, settings.Keyboard.MLSuggestionsEnabled);
-        return _current;
+        try
+        {
+            token.ThrowIfCancellationRequested();
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation landing between the LM predictor's construction and the final check
+            // would otherwise orphan its native InferenceSession — every other discard path
+            // disposes (review finding 6).
+            lmPredictor?.Dispose();
+            throw;
+        }
+
+        return new PredictionOrchestrator(wordPredictor, trieIndex, lmPredictor, settings.Keyboard.MLSuggestionsEnabled);
+    }
+
+    /// <summary>Streaming SHA-256 of a file compared case-insensitively against a hex digest.
+    /// Internal for tests.</summary>
+    internal static bool VerifyFileSha256(string path, string expectedHex)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var sha = SHA256.Create();
+            var hash = sha.ComputeHash(stream);
+            var actual = Convert.ToHexString(hash);
+            return string.Equals(actual, expectedHex, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Failed to hash {Path} for integrity verification", path);
+            return false; // fail closed: an unreadable file must not load as if verified
+        }
     }
 
     public void SaveAndDisposeCurrent()
@@ -110,6 +401,8 @@ public class PredictionStackFactory : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _disposeCts.Cancel();
         SaveAndDisposeCurrent();
+        _disposeCts.Dispose();
     }
 }

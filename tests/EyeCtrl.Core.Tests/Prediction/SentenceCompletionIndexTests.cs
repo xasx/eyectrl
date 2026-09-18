@@ -138,5 +138,46 @@ public class SentenceCompletionIndexTests
         Check.ThatCode(() => SentenceCompletionIndex.Load(stream)).Throws<InvalidDataException>();
     }
 
+    [Fact]
+    public void Load_DeepSingleChildChain_ThrowsCatchableInvalidData_NotStackOverflow()
+    {
+        // The attack/corruption shape: 300 chained one-child nodes. The old recursive loader
+        // descended once per edge and died with an uncatchable StackOverflowException — no
+        // caller-side try/catch (PredictionStackFactory's included) could do anything. The
+        // budgeted iterative loader must refuse with a CATCHABLE InvalidDataException so the
+        // app degrades to "no sentence completions" instead of dying.
+        using var stream = new MemoryStream();
+        using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
+        {
+            writer.Write(0x54524945); // magic
+            writer.Write(1);          // version
+            for (var i = 0; i < 300; i++)
+            {
+                writer.Write((byte)0); // flags: no completions
+                writer.Write(1);       // exactly one child
+                writer.Write("a");     // edge label
+            }
+            writer.Write((byte)0);     // deepest node: no completions
+            writer.Write(0);           // no children
+        }
+        stream.Position = 0;
 
+        Check.ThatCode(() => SentenceCompletionIndex.Load(stream)).Throws<InvalidDataException>();
+    }
+
+    [Fact]
+    public void Load_NegativeChildCount_ThrowsInvalidDataException()
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
+        {
+            writer.Write(0x54524945); // magic
+            writer.Write(1);          // version
+            writer.Write((byte)0);    // flags: no completions
+            writer.Write(-1);         // corrupt child count
+        }
+        stream.Position = 0;
+
+        Check.ThatCode(() => SentenceCompletionIndex.Load(stream)).Throws<InvalidDataException>();
+    }
 }

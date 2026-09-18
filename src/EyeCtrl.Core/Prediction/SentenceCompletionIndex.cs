@@ -105,7 +105,8 @@ public class SentenceCompletionIndex
     /// <summary>Deserializes a trie from a binary stream.</summary>
     /// <param name="stream">The input stream.</param>
     /// <returns>A new <see cref="SentenceCompletionIndex"/> populated from the stream.</returns>
-    /// <exception cref="InvalidDataException">Thrown when the stream has an invalid magic number or unsupported version.</exception>
+    /// <exception cref="InvalidDataException">Thrown when the stream has an invalid magic number,
+    /// unsupported version, or fails a depth/node-count budget (corrupt or crafted file).</exception>
     public static SentenceCompletionIndex Load(Stream stream)
     {
         using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
@@ -117,11 +118,56 @@ public class SentenceCompletionIndex
             throw new InvalidDataException($"Unsupported trie version: {version}");
 
         var index = new SentenceCompletionIndex();
-        LoadNode(reader, index._root);
+
+        // Iterative with explicit budgets. The recursive LoadNode descended once per child edge,
+        // so a corrupt or crafted file whose nodes each declare exactly one child recursed ~one
+        // frame per few bytes of file — a StackOverflowException, which NO caller can catch (the
+        // PredictionStackFactory try/catch is useless against it; the process simply dies).
+        // Iteration plus depth/node caps turns that corruption into a catchable
+        // InvalidDataException, which the caller already degrades to "no sentence completions".
+        const int MaxDepth = 128;          // trie depth is word length; real words are far shorter
+        const long MaxNodes = 2_000_000;   // generous multiple of the largest shipped trie
+
+        long nodes = 1;
+        var rootChildren = ReadNodeHeader(reader, index._root);
+        // Frame = (node, parent, child edges still unread, depth). A node finishes when its last
+        // child edge is consumed; finishing folds its frequency into its parent's — exactly the
+        // recursive post-order `node.Frequency += child.Frequency`.
+        var stack = new Stack<(TrieNode Node, TrieNode? Parent, int Remaining, int Depth)>();
+        stack.Push((index._root, null, rootChildren, 0));
+
+        while (stack.Count > 0)
+        {
+            var frame = stack.Peek();
+            if (frame.Remaining == 0)
+            {
+                stack.Pop();
+                if (frame.Parent is { } parent)
+                    parent.Frequency += frame.Node.Frequency;
+                continue;
+            }
+
+            if (frame.Depth + 1 > MaxDepth)
+                throw new InvalidDataException($"Trie file corrupt: depth exceeds {MaxDepth}");
+            if (++nodes > MaxNodes)
+                throw new InvalidDataException($"Trie file corrupt: node count exceeds {MaxNodes}");
+
+            var label = reader.ReadString();
+            var child = new TrieNode();
+            var childCount = ReadNodeHeader(reader, child);
+            frame.Node.Children[label] = child;
+
+            // Tuples are copies: republish the parent frame with one fewer pending edge.
+            stack.Pop();
+            stack.Push((frame.Node, frame.Parent, frame.Remaining - 1, frame.Depth));
+            stack.Push((child, frame.Node, childCount, frame.Depth + 1));
+        }
         return index;
     }
 
-    private static void LoadNode(BinaryReader reader, TrieNode node)
+    /// <summary>Reads one node's own payload (flags, completions) and returns its child count.
+    /// Corruption guard: negative counts are rejected instead of underflowing the loops.</summary>
+    private static int ReadNodeHeader(BinaryReader reader, TrieNode node)
     {
         var flags = reader.ReadByte();
         var hasCompletions = (flags & 1) != 0;
@@ -129,6 +175,8 @@ public class SentenceCompletionIndex
         if (hasCompletions)
         {
             var count = reader.ReadInt32();
+            if (count < 0)
+                throw new InvalidDataException($"Trie file corrupt: negative completion count {count}");
             for (int i = 0; i < count; i++)
             {
                 var word = reader.ReadString();
@@ -139,14 +187,9 @@ public class SentenceCompletionIndex
         }
 
         var childCount = reader.ReadInt32();
-        for (int i = 0; i < childCount; i++)
-        {
-            var word = reader.ReadString();
-            var child = new TrieNode();
-            node.Children[word] = child;
-            LoadNode(reader, child);
-            node.Frequency += child.Frequency;
-        }
+        if (childCount < 0)
+            throw new InvalidDataException($"Trie file corrupt: negative child count {childCount}");
+        return childCount;
     }
 
     private class TrieNode

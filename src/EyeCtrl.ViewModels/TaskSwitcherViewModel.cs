@@ -85,10 +85,19 @@ public partial class TaskSwitcherViewModel : DwellOverlayViewModelBase,
         Tiles.Clear();
     }
 
+    // Deliberately dwellable while paused (DwellOverlayViewModelBase.DwellActiveWhilePaused):
+    // a tile dwell is this overlay's ONLY dismissal (no close tile, no auto-dismiss, ESC does not
+    // reach it), so gating the dwell would make a paused switcher an inescapable fullscreen
+    // overlay (round-2 blocker). The EFFECT is gated instead in OnTargetActivated: while paused
+    // a tile dwell dismisses, it never switches windows.
+    protected override bool DwellActiveWhilePaused => true;
+
     protected override void OnTargetActivated(string targetId)
     {
-        // targetId is the hwnd string
-        if (IntPtr.TryParse(targetId, out var hwnd))
+        // targetId is the hwnd string. While paused the dwell is a DISMISS, never a switch —
+        // suppressing the selection send (OS input) but keeping HideOverlay is what keeps the
+        // overlay escapable while still obeying "no input leaves EyeCtrl while paused".
+        if (!LastSampleWasPaused && IntPtr.TryParse(targetId, out var hwnd))
         {
             _messenger.Send(new TaskSwitcherSelectionMessage(hwnd));
         }

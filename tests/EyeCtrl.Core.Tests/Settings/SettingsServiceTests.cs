@@ -33,6 +33,33 @@ public class SettingsServiceTests
     }
 
     [Fact]
+    public void Load_MalformedLanguagePack_IsSanitizedToEmpty_OtherSettingsSurvive()
+    {
+        // LanguagePack is a path ingredient (dictionary/trie reads, user-dictionary write): a
+        // hand-edited "..\..\evil" must be reset to "" (auto-detect) WITHOUT tripping the
+        // whole-file defaults wipe — that would punish one bad string by reverting every
+        // configured value the user relies on.
+        var tempPath = Path.Combine(Path.GetTempPath(), $"eyectrl_test_{Guid.NewGuid()}.json");
+        try
+        {
+            var json = """
+            {
+                "keyboard": { "languagePack": "..\\..\\evil", "keySizeMultiplier": 1.5 },
+                "dwell": { "activationButtonDwellMs": 800 }
+            }
+            """;
+            File.WriteAllText(tempPath, json);
+            var service = new SettingsService(tempPath);
+            var settings = service.Load();
+
+            Check.That(settings.Keyboard.LanguagePack).IsEqualTo("");
+            Check.That(settings.Keyboard.KeySizeMultiplier).IsEqualTo(1.5);
+            Check.That(settings.Dwell.ActivationButtonDwellMs).IsEqualTo(800);
+        }
+        finally { File.Delete(tempPath); }
+    }
+
+    [Fact]
     public void Load_MigratesDragStartToDrag_InVisibleActions()
     {
         var tempPath = Path.Combine(Path.GetTempPath(), $"eyectrl_test_{Guid.NewGuid()}.json");

@@ -31,8 +31,15 @@ GitHub Actions runs on `push` to `main` and `pull_request` targeting `main`:
   benchmark generator tests, and gates on coverage thresholds (≥50% line, ≥45% branch)
 
 UI tests (`Category=UI`, FlaUI) are **not** run in CI — they need an interactive desktop
-session that the headless `windows-latest` runner doesn't provide. Run them locally with
-`dotnet test --filter "Category=UI"`.
+session that the headless `windows-latest` runner doesn't provide. Locally, note the split:
+
+- The **app-launching** FlaUI tests (keyboard/toolbar/settings/startup — everything using
+  `AppFixture`) are **opt-in** via `EYECTRL_UI_TESTS=1`, because they launch the real app and
+  drive the OS cursor, seizing control from a gaze-only user:
+  `EYECTRL_UI_TESTS=1 dotnet test tests/EyeCtrl.App.Tests --filter "Category=UI"`.
+  Without the variable those tests SKIP (cleanly) — a plain `--filter "Category=UI"` runs only
+  the non-launching UI tests and silently skips the rest.
+- The remaining `Category=UI` tests (STA/XAML/window-construction tests) run without the gate.
 
 No linter or formatter is configured.
 
@@ -123,7 +130,12 @@ SDK is .NET 10.0.102 (pinned in `global.json`).
 Get-Process -Name "dotnet","testhost*","EyeCtrl*" -ErrorAction SilentlyContinue
 ```
 
-- `ExternalDwellServiceTests` fails 8/8 when run **alone** (`--filter "FullyQualifiedName~ExternalDwellServiceTests"`) with `XamlParseException: resource "BrushAccent" not found`. It builds a `DwellFeedbackOverlay` whose XAML resolves app-level brushes, so it depends on another test in the same host having populated `Application.Current.Resources`. Long-standing and unrelated to any given branch — run the whole `EyeCtrl.App.Tests` project instead of that class in isolation.
+- `ExternalDwellServiceTests` **runs fine in isolation** now — its `RunOnStaThread` helper calls
+  `WpfApplicationGate.EnsureApplicationWithTokens()`, which creates the Application singleton and
+  merges the overlay token dictionary on demand. (It used to fail 8/8 standalone with
+  `XamlParseException: resource "BrushAccent" not found`, depending on another test having
+  populated `Application.Current.Resources` first; running the whole `EyeCtrl.App.Tests` project
+  remains the safer default.)
 
 ## Dependencies & Quirks
 

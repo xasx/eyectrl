@@ -98,6 +98,24 @@ public class PhraseModel
     }
 
     /// <summary>
+    /// Applies a count delta to one (prefix → full phrase) entry with an explicit timestamp —
+    /// the delta-merge counterpart of the <see cref="GetAllPhrases"/> snapshots. Used by the
+    /// background prediction-stack swap; unlike <see cref="LearnPhraseWithTimestamp"/> it does
+    /// NOT fan out sub-phrases (the snapshot diff has already resolved the fan-out).
+    /// </summary>
+    internal void LearnEntry(string prefix, string fullPhrase, int countDelta, DateTimeOffset timestamp)
+    {
+        if (countDelta <= 0 || string.IsNullOrWhiteSpace(prefix) || string.IsNullOrWhiteSpace(fullPhrase))
+            return;
+        if (!_phrases.ContainsKey(prefix))
+            _phrases[prefix] = new Dictionary<string, int>();
+        _phrases[prefix][fullPhrase] = _phrases[prefix].GetValueOrDefault(fullPhrase) + countDelta;
+        if (!_timestamps.ContainsKey(prefix))
+            _timestamps[prefix] = new Dictionary<string, DateTimeOffset>();
+        _timestamps[prefix][fullPhrase] = timestamp;
+    }
+
+    /// <summary>
     /// Gets phrases that start with the given prefix.
     /// </summary>
     /// <param name="prefix">The prefix to match (can be one or more words).</param>

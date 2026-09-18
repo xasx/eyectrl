@@ -56,6 +56,19 @@ public class ExternalDwellServiceTests
             engine, Dispatcher.CurrentDispatcher, NullLogger<ExternalDwellService>.Instance,
             new WeakReferenceMessenger(), root, pipeName: _pipeName);
 
+    /// <summary>
+    /// Raises valid samples at (x,y) at 50 ms cadence from <paramref name="fromUs"/> through
+    /// <paramref name="toUs"/> inclusive. The dwell detector's gap clamp restarts a dwell on a
+    /// single step of 150 ms or more, so the old two-sample pattern (t=0 then t=800 ms) no longer
+    /// accumulates — and an activation assertion would fail for a reason unrelated to the test.
+    /// </summary>
+    private static void RaiseHold(StubGazeProvider provider, double x, double y, long fromUs, long toUs)
+    {
+        for (var t = fromUs; t < toUs; t += 50_000)
+            provider.Raise(new GazePoint(x, y, t, IsValid: true));
+        provider.Raise(new GazePoint(x, y, toUs, IsValid: true));
+    }
+
     private static void RunOnStaThread(Action action)
     {
         using var done = new ManualResetEventSlim();
@@ -172,8 +185,7 @@ public class ExternalDwellServiceTests
         settings.Enabled = true;
 
         // Dwell over the target: enter (t=0), complete after DefaultDwellMs (800 ms in microseconds).
-        provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
-        provider.Raise(new GazePoint(100, 100, 800_000, IsValid: true));
+        RaiseHold(provider, 100, 100, 0, 800_000);
 
         var read = r.ReadLineAsync();
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
@@ -270,8 +282,7 @@ public class ExternalDwellServiceTests
 
         settings.Enabled = true;
 
-        provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
-        provider.Raise(new GazePoint(100, 100, 800_000, IsValid: true));
+        RaiseHold(provider, 100, 100, 0, 800_000);
 
         var read = r.ReadLineAsync();
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
@@ -353,8 +364,7 @@ public class ExternalDwellServiceTests
             new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
         await Task.Delay(200);
 
-        provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
-        provider.Raise(new GazePoint(100, 100, 800_000, IsValid: true));
+        RaiseHold(provider, 100, 100, 0, 800_000);
 
         var read = r.ReadLineAsync();
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
@@ -397,8 +407,7 @@ public class ExternalDwellServiceTests
             new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
         await Task.Delay(200);
 
-        provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
-        provider.Raise(new GazePoint(100, 100, 800_000, IsValid: true));
+        RaiseHold(provider, 100, 100, 0, 800_000);
         var read1 = r.ReadLineAsync();
         var first = await Task.WhenAny(read1, Task.Delay(2000)) == read1 ? await read1 : null;
 
@@ -462,8 +471,7 @@ public class ExternalDwellServiceTests
 
         entry.Apply(ms => ms / 2);
 
-        provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
-        provider.Raise(new GazePoint(100, 100, 420_000, IsValid: true));
+        RaiseHold(provider, 100, 100, 0, 420_000);
 
         var read = r.ReadLineAsync();
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
@@ -515,8 +523,7 @@ public class ExternalDwellServiceTests
 
         entry.ApplyGeometry(ext => ext + 20); // min half-extent 100 → 120 ⇒ +20 per side
 
-        provider.Raise(new GazePoint(205, 100, 0, IsValid: true));
-        provider.Raise(new GazePoint(205, 100, 800_000, IsValid: true));
+        RaiseHold(provider, 205, 100, 0, 800_000);
 
         var read = r.ReadLineAsync();
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
@@ -569,11 +576,261 @@ public class ExternalDwellServiceTests
 
         entry.ApplyGeometry(null);
 
-        provider.Raise(new GazePoint(30, 50, 0, IsValid: true));
-        provider.Raise(new GazePoint(30, 50, 800_000, IsValid: true));
+        RaiseHold(provider, 30, 50, 0, 800_000);
 
         var read = r.ReadLineAsync();
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
+    }
+
+    // --- Ownership-gate security tests (local attacker on the dwell pipe) ---
+
+    // A second connection re-registering an id owned by the first client must NOT steal the
+    // dwell channel: the activation still routes to the owning client, the thief gets nothing.
+    [Fact]
+    public void SecondConnection_RegisterStealAttempt_TargetStaysWithOwner()
+    {
+        RunOnStaThread(() =>
+        {
+            var provider = new StubGazeProvider();
+            using var engine = new GazeEngine(provider, new StubInputSimulator(), new EyeCtrlSettings());
+            using var svc = NewService(engine, _ => 7);
+            svc.Start();
+
+            var (ownerLine, thiefLine) = TwoClientsRegisterStealAndDwell(provider, _pipeName).GetAwaiter().GetResult();
+
+            Check.That(ownerLine).IsNotNull();            // owner still receives the activation
+            Check.That(ownerLine).Contains("\"id\":\"btn\"");
+            Check.That(thiefLine).IsNull();               // the thief received nothing
+        });
+    }
+
+    // A foreign unregister must be ignored: only the owning connection may remove a target.
+    // Without the gate, one pipe message from any client could permanently kill the user's
+    // dwell-clicks in the affected SDK app.
+    [Fact]
+    public void ForeignUnregister_IsIgnored_TargetSurvives()
+    {
+        RunOnStaThread(() =>
+        {
+            var provider = new StubGazeProvider();
+            using var engine = new GazeEngine(provider, new StubInputSimulator(), new EyeCtrlSettings());
+            using var svc = NewService(engine, _ => 7);
+            svc.Start();
+
+            var (ownerLine, thiefLine) = RegisterForeignUnregisterAndDwell(provider, _pipeName).GetAwaiter().GetResult();
+
+            Check.That(ownerLine).IsNotNull();            // the target survived the foreign unregister
+            Check.That(ownerLine).Contains("\"id\":\"btn\"");
+        });
+    }
+
+    // Owner registers "btn"; a second connection sends its own register for the same id (steal
+    // attempt); dwell completes. Returns (owner's activation line, thief's first line or null).
+    private static async Task<(string? ownerLine, string? thiefLine)> TwoClientsRegisterStealAndDwell(
+        StubGazeProvider provider, string pipeName)
+    {
+        var (r1, w1, r2, w2, client1, client2) = await ConnectTwoClients(pipeName);
+        await using (client1)
+        await using (client2)
+        {
+            await w1.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+                new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
+            await Task.Delay(200);
+
+            await w2.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+                new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
+            await Task.Delay(200);
+
+            RaiseHold(provider, 100, 100, 0, 800_000);
+
+            var read1 = r1.ReadLineAsync();
+            var ownerLine = await Task.WhenAny(read1, Task.Delay(2000)) == read1 ? await read1 : null;
+
+            var read2 = r2.ReadLineAsync();
+            var thiefLine = await Task.WhenAny(read2, Task.Delay(300)) == read2 ? await read2 : null;
+
+            return (ownerLine, thiefLine);
+        }
+    }
+
+    // Owner registers "btn"; a second connection sends an unregister for it; dwell completes.
+    // Returns (owner's activation line, thief's first line or null).
+    private static async Task<(string? ownerLine, string? thiefLine)> RegisterForeignUnregisterAndDwell(
+        StubGazeProvider provider, string pipeName)
+    {
+        var (r1, w1, r2, w2, client1, client2) = await ConnectTwoClients(pipeName);
+        await using (client1)
+        await using (client2)
+        {
+            await w1.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+                new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
+            await Task.Delay(200);
+
+            await w2.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+                new UnregisterMessage { Id = "btn" }, WireJson.Options));
+            await Task.Delay(200);
+
+            RaiseHold(provider, 100, 100, 0, 800_000);
+
+            var read1 = r1.ReadLineAsync();
+            var ownerLine = await Task.WhenAny(read1, Task.Delay(2000)) == read1 ? await read1 : null;
+
+            return (ownerLine, null);
+        }
+    }
+
+    private static async Task<(StreamReader r1, StreamWriter w1, StreamReader r2, StreamWriter w2,
+        NamedPipeClientStream client1, NamedPipeClientStream client2)> ConnectTwoClients(string pipeName)
+    {
+        var client1 = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client1.ConnectAsync(2000);
+        var w1 = new StreamWriter(client1, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        var r1 = new StreamReader(client1, Encoding.UTF8, false, 1024, leaveOpen: true);
+
+        var client2 = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client2.ConnectAsync(2000);
+        var w2 = new StreamWriter(client2, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        var r2 = new StreamReader(client2, Encoding.UTF8, false, 1024, leaveOpen: true);
+        return (r1, w1, r2, w2, client1, client2);
+    }
+
+    // A register past the per-connection cap (512) must be rejected WITHOUT dropping the
+    // connection: the client's existing targets keep working. Bound registration state is the
+    // OOM defence for the target tables.
+    [Fact]
+    public void RegisterOverPerConnectionCap_RejectedButConnectionServes()
+    {
+        RunOnStaThread(() =>
+        {
+            var provider = new StubGazeProvider();
+            using var engine = new GazeEngine(provider, new StubInputSimulator(), new EyeCtrlSettings());
+            using var svc = NewService(engine, _ => 7);
+            svc.Start();
+
+            var (legit, overCap) = RegisterUpToCapThenDwell(svc, provider, _pipeName).GetAwaiter().GetResult();
+
+            Check.That(legit).IsNotNull();               // a capped-connection target still fires
+            Check.That(legit).Contains("\"id\":\"t0\""); // t0's tile activated after the rejection
+            Check.That(overCap).IsNull();                // the over-cap target never activates
+        });
+    }
+
+    // Registers exactly MaxTargetsPerConnection targets on non-overlapping tiles, then one more
+    // on a far tile (rejected over the cap). Dwells t0 (clean filter history, like the other
+    // dwell tests), then dwells the over-cap tile long enough for the gaze filter to converge —
+    // a wrongly-registered t512 would activate, a rejected one leaves the pipe silent.
+    private static async Task<(string? legit, string? overCap)> RegisterUpToCapThenDwell(
+        ExternalDwellService svc, StubGazeProvider provider, string pipeName)
+    {
+        await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client.ConnectAsync(2000);
+        await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        using var r = new StreamReader(client, Encoding.UTF8, false, 1024, leaveOpen: true);
+
+        var batch = new StringBuilder();
+        for (var i = 0; i < ExternalDwellService.MaxTargetsPerConnection; i++)
+            batch.AppendLine(JsonSerializer.Serialize<WireMessage>(
+                new RegisterMessage { Id = $"t{i}", Rect = new SdkRect(i * 100, 0, 100, 100), Hwnd = 7 }, WireJson.Options));
+        await w.WriteAsync(batch);
+        await WaitForTargetCountAsync(svc, ExternalDwellService.MaxTargetsPerConnection);
+
+        // One past the cap, on its own far tile.
+        await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+            new RegisterMessage { Id = "t512", Rect = new SdkRect(60000, 0, 100, 100), Hwnd = 7 }, WireJson.Options));
+        await Task.Delay(300);
+
+        // Dwell on t0's tile continuously, like the other dwell tests.
+        RaiseHold(provider, 50, 50, 0, 800_000);
+        var read1 = r.ReadLineAsync();
+        var legit = await Task.WhenAny(read1, Task.Delay(2000)) == read1 ? await read1 : null;
+
+        // Dwell the over-cap tile with a continuous stream: the One-Euro filter converges onto it,
+        // the gap clamp cannot restart the dwell, and a registered t512 accrues 800 ms and fires
+        // while a rejected one stays silent.
+        for (var t = 1_000_000L; t <= 3_200_000L; t += 50_000)
+            provider.Raise(new GazePoint(60050, 50, t, IsValid: true));
+        var read2 = r.ReadLineAsync();
+        var overCap = await Task.WhenAny(read2, Task.Delay(2000)) == read2 ? await read2 : null;
+
+        return (legit, overCap);
+    }
+
+    // A client sitting at EXACTLY the cap must still be able to refresh its own targets' rects
+    // (idempotent re-register): a capped refresh would freeze every target at stale geometry
+    // while the connection still looks healthy — dwell silently lands on the wrong rectangles.
+    [Fact]
+    public void ReRegisterAtCap_RefreshesTheExistingTargetsRect()
+    {
+        RunOnStaThread(() =>
+        {
+            var provider = new StubGazeProvider();
+            using var engine = new GazeEngine(provider, new StubInputSimulator(), new EyeCtrlSettings());
+            using var svc = NewService(engine, _ => 7);
+            svc.Start();
+
+            var activated = RegisterToCapThenReregisterAndDwell(svc, provider, _pipeName).GetAwaiter().GetResult();
+
+            Check.That(activated).IsNotNull();               // the refresh was accepted at the cap
+            Check.That(activated).Contains("\"id\":\"t0\""); // and dwell used the NEW rect
+        });
+    }
+
+    // Registers MaxTargetsPerConnection tiles, then re-registers t0 MOVED to a far tile (a
+    // same-connection id the caps must not reject) and dwells the far tile. This dwell is the
+    // test's first, so the gaze filter warm-starts on the target — two samples suffice.
+    private static async Task<string?> RegisterToCapThenReregisterAndDwell(
+        ExternalDwellService svc, StubGazeProvider provider, string pipeName)
+    {
+        await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client.ConnectAsync(2000);
+        await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        using var r = new StreamReader(client, Encoding.UTF8, false, 1024, leaveOpen: true);
+
+        var batch = new StringBuilder();
+        for (var i = 0; i < ExternalDwellService.MaxTargetsPerConnection; i++)
+            batch.AppendLine(JsonSerializer.Serialize<WireMessage>(
+                new RegisterMessage { Id = $"t{i}", Rect = new SdkRect(i * 100, 0, 100, 100), Hwnd = 7 }, WireJson.Options));
+        await w.WriteAsync(batch);
+        await WaitForTargetCountAsync(svc, ExternalDwellService.MaxTargetsPerConnection);
+
+        // t0's rect refreshed to a far tile — the register that the cap used to reject.
+        await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+            new RegisterMessage { Id = "t0", Rect = new SdkRect(100000, 0, 100, 100), Hwnd = 7 }, WireJson.Options));
+        await Task.Delay(300);
+
+        RaiseHold(provider, 100050, 50, 0, 900_000);
+
+        var read = r.ReadLineAsync();
+        return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
+    }
+
+    // Poll observable server state (TargetCountForTests) until the batched registrations have
+    // landed — sturdier than a fixed sleep, which is the flake-shaped part under load.
+    private static async Task WaitForTargetCountAsync(ExternalDwellService svc, int expected)
+    {
+        for (var i = 0; i < 200 && svc.TargetCountForTests < expected; i++)
+            await Task.Delay(25);
+        Check.That(svc.TargetCountForTests).IsEqualTo(expected);
+    }
+
+    // --- Pipe-supplied rect sanity clamp ---
+
+    [Fact]
+    public void ToRect_ClampsHostileExtremes_IntoASaneScreenRange()
+    {
+        // JSON rejects NaN/Infinity, but legal extremes (1e308) would otherwise flow through
+        // DpiHelper into WPF window positioning. Far beyond any real screen is enough.
+        var hostile = ExternalDwellService.ToRect(new SdkRect(1e308, -1e308, 1e308, 1e308));
+        Check.That(hostile.X).IsEqualTo(100_000);
+        Check.That(hostile.Y).IsEqualTo(-100_000);
+        Check.That(hostile.Width).IsEqualTo(100_000);
+        Check.That(hostile.Height).IsEqualTo(100_000);
+
+        var normal = ExternalDwellService.ToRect(new SdkRect(10, 20, 30, 40));
+        Check.That(normal.X).IsEqualTo(10);
+        Check.That(normal.Y).IsEqualTo(20);
+        Check.That(normal.Width).IsEqualTo(30);
+        Check.That(normal.Height).IsEqualTo(40);
     }
 
     private sealed class StubGazeProvider : IGazeProvider

@@ -84,8 +84,9 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
         // A gap-held sample repeats the last valid position, so every write below would be a no-op
         // anyway — but the two detectors would still accumulate against it, completing a release dwell
         // or flipping FreeDrag→Settling on a blink. Skip the whole sample; nothing here is stale as a
-        // result, because the position has not changed.
-        if (message.IsInGap) return;
+        // result, because the position has not changed. The pause term routes through the shared
+        // SampleMayDwell gate (round-2 finding 2) so DwellActiveWhilePaused below is actually live.
+        if (!SampleMayDwell(message)) return;
 
         CursorPosition = message.Position;
         DwellDetector.Update(message.Position, message.TimestampMicroseconds);
@@ -144,6 +145,10 @@ public partial class DragTrailViewModel : DwellOverlayViewModelBase,
             ReleaseTargetId, ReleaseButtonCenter, btnRadius,
             _settings.Dwell.DragReleaseButtonDwellMs));
     }
+
+    // Deliberately dwellable while paused (DwellOverlayViewModelBase.DwellActiveWhilePaused):
+    // the drag trail's release/settle button is the gaze way out of a live drag — a safety release must never go inert.
+    protected override bool DwellActiveWhilePaused => true;
 
     protected override void OnTargetActivated(string targetId)
     {

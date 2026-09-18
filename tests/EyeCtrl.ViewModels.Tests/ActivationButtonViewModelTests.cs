@@ -47,9 +47,9 @@ public class ActivationButtonViewModelTests
         // Show button at (500, 300)
         _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300)));
 
-        // Send gaze within radius for half the dwell time
-        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(500, 300), 0));
-        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(500, 300), 500_000)); // 500ms
+        // Send gaze within radius for half the dwell time, at a realistic cadence (the detector
+        // restarts a dwell on any single step of 150 ms or more).
+        DwellDrive.Hold(_messenger, new PhysicalPoint(500, 300), 0, 500_000); // 500ms
 
         Check.That(vm.DwellProgress > 0.4).IsTrue();
         Check.That(vm.DwellProgress < 0.6).IsTrue();
@@ -66,8 +66,7 @@ public class ActivationButtonViewModelTests
         _messenger.Register<ActivationCompletedMessage>(_messenger, (_, _) => activated = true);
 
         _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300)));
-        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(500, 300), 0));
-        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(500, 300), 200_000)); // 200ms > 100ms dwell
+        DwellDrive.Hold(_messenger, new PhysicalPoint(500, 300), 0, 200_000); // reaches the 200ms dwell
 
         Check.That(activated).IsTrue();
     }

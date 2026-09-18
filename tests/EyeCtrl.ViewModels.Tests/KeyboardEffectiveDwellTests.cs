@@ -19,6 +19,18 @@ public class KeyboardEffectiveDwellTests
     private static Dictionary<string, PhysicalPoint> Keys() =>
         new() { ["a"] = new PhysicalPoint(100, 100) };
 
+    /// <summary>
+    /// Feeds a continuous stream (one sample per 50 ms) up to <paramref name="throughUs"/>. The
+    /// tracker restarts a dwell whenever the stream stops for more than 150 ms (the F3 gap clamp),
+    /// so sparse sample pairs no longer model a continuous hold.
+    /// </summary>
+    private static void HoldGaze(KeyboardViewModel vm,
+        Dictionary<string, PhysicalPoint> keys, long throughUs)
+    {
+        for (long t = 50_000; t <= throughUs; t += 50_000)
+            vm.ProcessKeyGaze(keys, new PhysicalPoint(100, 100), true, t);
+    }
+
     [Fact]
     public void Configure_ComposesTheEffectiveDwell()
     {
@@ -31,7 +43,7 @@ public class KeyboardEffectiveDwellTests
         vm.KeyDwellCompleted += _ => completed = true;
         var keys = Keys();
         vm.ProcessKeyGaze(keys, new PhysicalPoint(100, 100), true, 0);
-        vm.ProcessKeyGaze(keys, new PhysicalPoint(100, 100), true, 450_000);
+        HoldGaze(vm, keys, 450_000);
         Check.That(completed).IsTrue(); // 450 ms >= effective 700−0.40×700 = 420, not the 700 baseline
     }
 
@@ -42,7 +54,7 @@ public class KeyboardEffectiveDwellTests
         vm.Configure(keyDwellMs: 700, cooldownMs: 0);
         var keys = Keys();
         vm.ProcessKeyGaze(keys, new PhysicalPoint(100, 100), true, 0);
-        vm.ProcessKeyGaze(keys, new PhysicalPoint(100, 100), true, 350_000); // half of 700
+        HoldGaze(vm, keys, 350_000); // half of 700
 
         provider.SetMomentaryFill(AdaptationKnob.DwellTime, DwellContext.Other, 1.0, 0.0); // → 420
 
@@ -61,7 +73,7 @@ public class KeyboardEffectiveDwellTests
         var keys = Keys();
 
         vm.ProcessKeyGaze(keys, new PhysicalPoint(100, 100), true, 0);
-        vm.ProcessKeyGaze(keys, new PhysicalPoint(100, 100), true, 650_000);
+        HoldGaze(vm, keys, 650_000);
 
         Check.That(vm.NearestKeyProgress).IsCloseTo(650.0 / 700.0, 0.01); // still accumulating vs 700
     }
@@ -82,6 +94,7 @@ public class KeyboardEffectiveDwellTests
         var keys = Keys();
 
         vm.ProcessKeyGaze(keys, new PhysicalPoint(100, 100), true, 0);
+        HoldGaze(vm, keys, 1450_000);
         vm.ProcessKeyGaze(keys, new PhysicalPoint(100, 100), true, 1490_000);
         Check.That(completed).IsFalse(); // 1490 < 1500 — a 2000 effective would not have fired either, ...
 

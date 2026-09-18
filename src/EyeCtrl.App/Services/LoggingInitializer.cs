@@ -11,11 +11,12 @@ using Serilog.Events;
 public static class LoggingInitializer
 {
     private const int RetainedLogFileCount = 7; // Number of daily log files to keep
+    private const long MaxLogSizeBytes = 50 * 1024 * 1024; // 50 MB/day before a size roll
 
     /// <summary>
     /// Initializes Serilog with rolling file logging.
     /// </summary>
-    /// <param name="logsDirectory">Directory where log files should be stored</param>
+    /// <param name="logsDirectory">Directory where log files should be kept</param>
     public static void Initialize(string logsDirectory)
     {
         Directory.CreateDirectory(logsDirectory);
@@ -26,6 +27,11 @@ public static class LoggingInitializer
                 Path.Combine(logsDirectory, "eyectrl-.log"),
                 rollingInterval: RollingInterval.Day,
                 retainedFileCountLimit: RetainedLogFileCount,
+                // Size cap: a pathological flapping state machine or a stuck retry loop logs
+                // per-action at Information; on a machine nobody reboots the day's file could
+                // grow without bound otherwise. The count limit bounds both time and size rolls.
+                fileSizeLimitBytes: MaxLogSizeBytes,
+                rollOnFileSizeLimit: true,
                 outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] [{SourceContext}] {Message:lj}{NewLine}{Exception}")
             .CreateLogger();
     }

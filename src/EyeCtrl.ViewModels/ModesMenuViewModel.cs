@@ -91,6 +91,10 @@ public partial class ModesMenuViewModel : DwellOverlayViewModelBase,
             DwellDetector.AddTarget(new DwellTarget(id, center, radius, _rowDwellMs));
     }
 
+    // Deliberately dwellable while paused (DwellOverlayViewModelBase.DwellActiveWhilePaused):
+    // the modes menu holds the gaze-reachable pause toggle — gating it would make pause a one-way door.
+    protected override bool DwellActiveWhilePaused => true;
+
     protected override void OnTargetActivated(string targetId)
     {
         var row = Rows.FirstOrDefault(r => r.Id == targetId);

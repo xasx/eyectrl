@@ -81,10 +81,10 @@ public class TaskSwitcherViewModelTests
         var center = new PhysicalPoint(500, 400);
         vm.UpdateTilePosition(hwnd, center);
 
-        // Dwell: gaze enters the tile, then remains past the dwell time (700 ms default → µs).
+        // Dwell: gaze enters the tile and remains past the dwell time (700 ms default → µs),
+        // sampled continuously — a single step past 150 ms restarts the dwell.
         var dwellUs = settings.Dwell.ToolbarButtonDwellMs * 1000L;
-        messenger.Send(new GazeCursorMovedMessage(center, 0));
-        messenger.Send(new GazeCursorMovedMessage(center, dwellUs + 1));
+        DwellDrive.Hold(messenger, center, 0, dwellUs + 1);
 
         Check.That(selected).IsEqualTo(hwnd);
         Check.That(vm.IsVisible).IsFalse();  // overlay dismissed after a selection

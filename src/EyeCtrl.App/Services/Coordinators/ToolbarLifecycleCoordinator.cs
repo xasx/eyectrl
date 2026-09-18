@@ -94,6 +94,14 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
             if (_toolbarInitialized && !_modal.KeyboardVisible && !_modal.SettingsOpen)
                 return;
 
+            // Pause gates the KEYBOARD feed only (the toolbar deliberately keeps receiving samples
+            // so gaze can unpause). The engine stops moving the cursor and detecting fixations
+            // while paused, but the keyboard's own dwell used to keep accumulating on the frozen
+            // ring position — typing into whatever app held focus while the user believed input
+            // was fully released. Read per sample on the gaze thread, like the modal flags above;
+            // a one-frame-stale read at worst types one key past the pause.
+            var keyboardGated = Context.GazeEngine.InteractionManager.CurrentState == InteractionState.Paused;
+
             Context.Dispatcher.BeginInvoke(() =>
             {
                 toolbar.UpdateGaze(point, timestamp);
@@ -108,10 +116,21 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
                 _toolbarInitialized = toolbar.TargetsInitialized;
 
                 // The keyboard is a dwell surface (key dwell, prediction dwell, emoji categories), so a
-                // gap-held sample must not reach it — a blink over a key would otherwise type it. The
-                // toolbar and settings routes above are geometry-only (target placement) and are fed
-                // regardless.
-                if (_modal.KeyboardVisible && keyboard.IsVisible && !frame.IsInGap)
+                // gap-held sample is withheld from it: a held position carries no evidence of where the
+                // user is looking, and feeding it would keep dwell progress alive over a blink. That is
+                // a display/semantics guard, NOT the anti-blink bound. Withholding is not a pause — the
+                // tracker is timestamp-based, and the first real sample after a gap used to be credited
+                // the whole gap. The actual bound is the credited-elapsed clamp in
+                // KeyboardViewModel.ProcessKeyGaze (MaxContinuousSampleGapUs). Do not remove the clamp on
+                // this gate's authority: this comment once claimed the gate stopped blink typing, and F3
+                // is what that false claim cost. Do not remove the GATE on the clamp's authority either:
+                // held samples fed at tracker cadence stay under MaxContinuousSampleGapUs and would
+                // re-credit a blink as dwell — the gate creates the silence, the clamp interprets it, and
+                // each looks removable while the other holds. The toolbar and settings routes above are
+                // geometry-only
+                // (target placement) and are fed regardless. Paused samples are skipped for the same
+                // reason: input must not leave EyeCtrl while the user believes pause released it.
+                if (ShouldFeedKeyboardSample(keyboardGated, _modal.KeyboardVisible, keyboard.IsVisible, frame.IsInGap))
                     keyboard.UpdateGaze(point, timestamp);
 
                 // Route the sample to the settings window iff it is open (the visibility check lives
@@ -122,6 +141,15 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
 
         Context.GazeEngine.CursorMoved += _gazeMovedHandler;
     }
+
+    /// <summary>
+    /// The keyboard-feed gate, extracted so it is unit-testable headlessly: the keyboard is OS text
+    /// injection, so it must be fed only when unpaused AND the modal state says the keyboard is open
+    /// AND the window is visible AND the sample is a real measurement (not gap-held). Review found
+    /// the inline version had zero test coverage — neutralizing it broke no test.
+    /// </summary>
+    internal static bool ShouldFeedKeyboardSample(bool paused, bool modalKeyboardVisible, bool keyboardIsVisible, bool isInGap) =>
+        !paused && modalKeyboardVisible && keyboardIsVisible && !isInGap;
 
     /// <summary>Suspend/resume the auto-hide dwell (called by Keyboard/Settings coordinators when a
     /// modal opens). Wraps <see cref="ToolbarAutoHideController.SetSuspended"/>.</summary>

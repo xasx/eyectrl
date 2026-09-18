@@ -125,6 +125,83 @@ public class GlobalEscapeHatchTests
         Check.That(hatch.IsActive).IsFalse();
     }
 
+    [Fact]
+    public void ReArmMessage_InstallsFreshHook_BeforeUnhookingTheStaleOne()
+    {
+        // Windows silently removes an LL hook whose callback exceeded LowLevelHooksTimeout —
+        // no notification, the stale handle keeps IsActive true, ESC dead system-wide. The
+        // pump's re-arm path heals it. The safety property under test is ORDER, observed
+        // through one journal: the fresh hook's install must precede the stale handle's
+        // unhook, so ESC coverage never gaps. (An earlier version of this test asserted only
+        // presence — it stayed green with the order inverted, found by review mutation.)
+        var interop = new ReArmingFakeInterop();
+        using var hatch = new GlobalEscapeHatch(interop);
+
+        // The pump consumes the scripted WmReArm while the hatch is still live; wait for BOTH
+        // halves of the swap so the journal is quiescent when asserted.
+        Check.That(interop.SecondInstall.Wait(2000)).IsTrue();
+        Check.That(interop.StaleUnhooked.Wait(2000)).IsTrue();
+        Check.That(hatch.IsActive).IsTrue();                                 // fresh handle active
+        Check.That(interop.Journal).ContainsExactly(
+            "install",          // initial
+            "install",          // re-arm: fresh FIRST...
+            "unhook:1");        // ...stale dropped only after
+
+        hatch.Dispose();
+        Check.That(interop.Journal).ContainsExactly(
+            "install", "install", "unhook:1", "unhook:2");                   // final unhook at dispose
+    }
+
+    private sealed class ReArmingFakeInterop : GlobalEscapeHatch.ILowLevelKeyboardInterop
+    {
+        private readonly Queue<uint> _messages = new(new uint[] { GlobalEscapeHatch.WmReArm });
+        private readonly ManualResetEventSlim _quit = new(false);
+
+        public ManualResetEventSlim SecondInstall { get; } = new(false);
+        public ManualResetEventSlim StaleUnhooked { get; } = new(false);
+        public List<string> Journal { get; } = new();
+
+        public IntPtr SetWindowsHookEx(int idHook, LowLevelHookProc lpfn, IntPtr hMod, uint dwThreadId)
+        {
+            Journal.Add("install");
+            if (Journal.Count(c => c == "install") == 2)
+                SecondInstall.Set();
+            return new(Journal.Count(c => c == "install"));
+        }
+
+        public int CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam) => 0;
+
+        public bool UnhookWindowsHookEx(IntPtr hhk)
+        {
+            Journal.Add($"unhook:{hhk}");
+            if (hhk.ToInt64() == 1) StaleUnhooked.Set();
+            return true;
+        }
+
+        public uint GetCurrentThreadId() => 7u;
+
+        public bool PostThreadMessage(uint threadId, uint msg, IntPtr wParam, IntPtr lParam)
+        {
+            if (msg == 0x0012) _quit.Set(); // WM_QUIT
+            return true;
+        }
+
+        // Scripts the re-arm message, then blocks like the real pump until WM_QUIT.
+        public int GetMessage(out NativeMethods.MSG msg, IntPtr hWnd, uint min, uint max)
+        {
+            msg = default;
+            if (_messages.Count > 0)
+            {
+                msg.Message = _messages.Dequeue();
+                return 1;
+            }
+            _quit.Wait(TimeSpan.FromSeconds(5));
+            return 0;
+        }
+
+        public IntPtr GetModuleHandle(IntPtr name) => new(2);
+    }
+
     private sealed class ThrowingInterop : GlobalEscapeHatch.ILowLevelKeyboardInterop
     {
         public IntPtr SetWindowsHookEx(int idHook, LowLevelHookProc lpfn, IntPtr hMod, uint dwThreadId)

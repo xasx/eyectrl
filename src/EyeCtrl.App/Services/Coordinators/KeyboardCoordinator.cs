@@ -25,7 +25,10 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     private readonly ModalInteractionState _modal;
     private readonly QuickActionsCoordinator _quickActions;
     private readonly ToolbarLifecycleCoordinator _toolbar;
-    private readonly PredictionStackFactory _predictionFactory = new();
+    // Constructed synchronously so the property seams below work before Initialize; OnInitialize
+    // replaces it with the background-mode instance (dispatcher-marshaled swaps). Not readonly
+    // for exactly that replacement.
+    private PredictionStackFactory _predictionFactory = new();
     private KeyboardStackSnapshot? _keyboardSnapshot;
     // Set when ShowKeyboardEdgeBar had to skip because another context owned the shared bar;
     // cleared when the pair is (re)shown or the keyboard hides. Drives the B4 #10 retry.
@@ -106,6 +109,16 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         _toolbar.ToolbarVisibilityChanged += OnToolbarVisibilityChanged;
 
         context.OverlayManager.Keyboard.SkinToneChanged += OnEmojiSkinToneChanged;
+
+        // Background-mode prediction stack: swaps land on THIS thread and re-bind the keyboard
+        // here. Building the stack is multi-second work (dictionaries, trie, ONNX session) that
+        // used to run inside LoadKeyboard — freezing the boot splash and, worse, freezing all
+        // gaze UI on every mid-session settings apply. Rebuild now returns the OLD stack (or
+        // null on first boot) immediately; the swap callback below installs the new one.
+        _predictionFactory.Dispose();
+        _predictionFactory = new PredictionStackFactory(work => context.Dispatcher.BeginInvoke(work));
+        _predictionFactory.StackSwapped +=
+            orchestrator => context.OverlayManager.Keyboard.SetOrchestrator(orchestrator);
     }
 
     /// <summary>Stores the model registry for the next <see cref="LoadKeyboard"/> rebuild. Keyboard
@@ -132,17 +145,41 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
 
         if (File.Exists(layoutPath))
         {
-            var layout = KeyboardLayoutLoader.Load(layoutPath);
-            keyboard.LoadLayout(layout,
-                settings.Keyboard.KeySizeMultiplier,
-                settings.Dwell.KeyboardKeyDwellMs,
-                settings.Dwell.KeyboardPredictionDwellMs,
-                settings.Dwell.DwellCooldownMs);
+            // A corrupt layout or emoji file must degrade the keyboard, not kill boot. The
+            // exception used to escape into App.OnStartup's catch, whose failure path ends in
+            // Shutdown() — the whole app (cursor included) dead over one resource file, with a
+            // modal box the user may be unable to dismiss. Emoji loading is skipped when the
+            // layout failed: SetEmojiData assumes a loaded keyboard.
+            var layoutLoaded = false;
+            try
+            {
+                var layout = KeyboardLayoutLoader.Load(layoutPath);
+                keyboard.LoadLayout(layout,
+                    settings.Keyboard.KeySizeMultiplier,
+                    settings.Dwell.KeyboardKeyDwellMs,
+                    settings.Dwell.KeyboardPredictionDwellMs,
+                    settings.Dwell.DwellCooldownMs);
+                layoutLoaded = true;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Keyboard layout {Path} failed to load; the keyboard is unavailable this session", layoutPath);
+            }
 
-            var emojiPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "Emojis", "emojis.json");
-            var recentPath = Path.Combine(_appDataDir!, "recent_emojis.json");
-            keyboard.SetEmojiData(emojiPath, recentPath);
-            keyboard.SetSkinTone(settings.Keyboard.EmojiSkinTone);
+            if (layoutLoaded)
+            {
+                try
+                {
+                    var emojiPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "Emojis", "emojis.json");
+                    var recentPath = Path.Combine(_appDataDir!, "recent_emojis.json");
+                    keyboard.SetEmojiData(emojiPath, recentPath);
+                    keyboard.SetSkinTone(settings.Keyboard.EmojiSkinTone);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Emoji data failed to load; the emoji panel is unavailable this session");
+                }
+            }
         }
 
         if (settings.Keyboard.PredictionEnabled && string.IsNullOrEmpty(settings.Keyboard.LanguagePack))

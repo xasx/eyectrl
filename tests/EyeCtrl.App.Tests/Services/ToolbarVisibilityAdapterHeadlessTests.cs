@@ -127,9 +127,6 @@ public class ToolbarVisibilityAdapterHeadlessTests
         Dispatcher.PushFrame(frame);
     }
 
-    private static GazeCursorMovedMessage Gaze(double x, double y, long us) =>
-        new(new PhysicalPoint(x, y), us);
-
     [Fact]
     public void HideToolbar_DeactivatesDwellBeforeHiding()
     {
@@ -139,8 +136,7 @@ public class ToolbarVisibilityAdapterHeadlessTests
         // that reset is how SetActive is observed without the method being virtual.
         vm.DwellDetector.AddTarget(new DwellTarget("Close", new PhysicalPoint(100, 100),
             radius: 50, dwellTimeMs: 1000));
-        vm.Receive(Gaze(100, 100, 0));
-        vm.Receive(Gaze(100, 100, 500_000));
+        ToolbarGazeDrive.Stream(vm, 100, 100, 500_000);
         Check.That(vm.LastProgress).IsEqualTo(0.5);
 
         log.Clear();
@@ -203,8 +199,7 @@ public class ToolbarVisibilityAdapterHeadlessTests
         // Dwell is live again: gaze now accumulates where it previously could not.
         vm.DwellDetector.AddTarget(new DwellTarget("Close", new PhysicalPoint(100, 100),
             radius: 50, dwellTimeMs: 1000));
-        vm.Receive(Gaze(100, 100, 0));
-        vm.Receive(Gaze(100, 100, 500_000));
+        ToolbarGazeDrive.Stream(vm, 100, 100, 500_000);
         Check.That(vm.LastProgress).IsEqualTo(0.5);
     }
 

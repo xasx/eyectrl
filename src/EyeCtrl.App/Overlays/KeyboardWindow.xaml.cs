@@ -796,9 +796,21 @@ public partial class KeyboardWindow : OverlayWindow
             if (label == null) continue;
             if (_keyDefinitions.TryGetValue(id, out var key) && string.IsNullOrEmpty(key.SpecialAction))
             {
-                label.Text = _viewModel.IsShifted && !string.IsNullOrEmpty(key.ShiftOutput)
-                    ? key.ShiftOutput
-                    : key.Label;
+                // Only keys with a shift variant are written: a key without one has nothing to
+                // swap, so the write below has no legitimate effect and exactly one destructive
+                // one. Emoji.Wpf.TextBlock.Text HIDES System.Windows.Controls.TextBlock.Text --
+                // declared `new`, not an override, so there are two distinct DPs -- and the label
+                // slot is typed as the base class, so this write lands on the BASE DP: on an
+                // Emoji.Wpf glyph it replaces the EmojiInline with a plain Run and every visible
+                // cell renders monochrome after the first activation. It does not recover:
+                // re-running the derived setter with the same value never re-fires its callback
+                // (the derived DP never changed), and nothing rebuilds the grid after an
+                // activation, so the cells stay monochrome until a category or page change.
+                // This is not a pointless early return; deleting it is what loses the emoji
+                // grid's colour.
+                if (string.IsNullOrEmpty(key.ShiftOutput)) continue;
+
+                label.Text = _viewModel.IsShifted ? key.ShiftOutput : key.Label;
             }
         }
     }

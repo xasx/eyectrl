@@ -13,6 +13,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Controls;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -140,27 +141,35 @@ public class KeyboardEmojiDwellFeedbackTests
             probe.Window.UpdateGaze(at, t);
     }
 
+    /// <summary>
+    /// Enters emoji mode through the real activation path — dwelling the shipped layout's
+    /// <c>switchEmoji</c> key — and refreshes the grid's positions. Ticket 1's fixture trap
+    /// applies to the caller's next read: after the layout rebuild no pass has run, so every new
+    /// cell centre collapses to one unarranged point until <c>UpdateLayout</c>.
+    /// </summary>
+    private static void EnterEmojiMode(Probe probe)
+    {
+        probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 0);
+
+        Check.WithCustomMessage(
+                "The shipped qwerty layout has no live switchEmoji key centre, so emoji mode "
+                + "could not be entered and everything below would be vacuous.")
+            .That(KeyCentres(probe.Window).ContainsKey("switchEmoji")).IsTrue();
+        Feed(probe, KeyCentres(probe.Window)["switchEmoji"], 30_000, 480_000);
+        Check.WithCustomMessage("Dwelling switchEmoji did not enter emoji mode.")
+            .That(probe.Vm.IsEmojiMode).IsTrue();
+
+        probe.Content.UpdateLayout();
+        probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 510_000);
+    }
+
     [StaFact]
     public void EmojiCells_ShowDwellProgress_AndKeepTheirGlyphInTheTree()
     {
         var probe = Open();
         try
         {
-            probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 0);
-
-            // Enter emoji mode through the real activation path: dwell the shipped key.
-            Check.WithCustomMessage(
-                    "The shipped qwerty layout has no live switchEmoji key centre, so emoji mode "
-                    + "could not be entered and everything below would be vacuous.")
-                .That(KeyCentres(probe.Window).ContainsKey("switchEmoji")).IsTrue();
-            Feed(probe, KeyCentres(probe.Window)["switchEmoji"], 30_000, 480_000);
-            Check.WithCustomMessage("Dwelling switchEmoji did not enter emoji mode.")
-                .That(probe.Vm.IsEmojiMode).IsTrue();
-
-            // Ticket 1's fixture trap: after a layout rebuild no pass has run, so every new cell
-            // centre collapses to one unarranged point until UpdateLayout.
-            probe.Content.UpdateLayout();
-            probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 510_000);
+            EnterEmojiMode(probe);
 
             var visuals = KeyVisuals(probe.Window);
             var outlines = KeyOutlines(probe.Window);
@@ -194,6 +203,13 @@ public class KeyboardEmojiDwellFeedbackTests
                 .That(KeyCentres(probe.Window).ContainsKey(CellId)).IsTrue();
 
             var fillAtRest = ((SolidColorBrush)container.Background).Color;
+            // Binds the live cell to the token the Controls perceptibility gate measures: without
+            // this, changing EmojiGridBackgroundColor would leave that gate passing while it
+            // measures a surface the grid no longer uses.
+            Check.WithCustomMessage(
+                    $"The cell's fill is {fillAtRest}, not Tokens.SurfaceMedium — the outline's "
+                    + "perceptibility against the emoji cells is then gated on the wrong surface.")
+                .That(fillAtRest).IsEqualTo(Tokens.SurfaceMedium);
             Feed(probe, KeyCentres(probe.Window)[CellId], 1_000_000, 1_180_000);
 
             Check.WithCustomMessage(
@@ -218,6 +234,57 @@ public class KeyboardEmojiDwellFeedbackTests
                 .That(KeyVisuals(probe.Window)[CellId].Container.Child)
                 .IsSameReferenceAs(outline.Layout);
             Check.That(((Grid)container.Child).Children[0]).IsSameReferenceAs(glyph);
+        }
+        finally { probe.Dispose(); }
+    }
+
+    /// <summary>
+    /// The activation path is the one a mid-dwell probe does not reach: completing the dwell
+    /// calls <c>ActivateKey</c>, which raises <c>ActiveModifiers</c> unconditionally, and
+    /// <c>UpdateShiftDisplay</c> then writes every cell's label. That write binds to the BASE
+    /// <c>TextBlock.Text</c> property (the label slot is base-typed), which replaces the
+    /// Emoji.Wpf <c>EmojiInline</c> with a plain <c>Run</c> — the whole visible grid loses its
+    /// colour after the first emoji. The damage does not recover: re-running the derived setter
+    /// with the same value suppresses its callback (the derived DP never changed), and nothing
+    /// rebuilds the grid after an activation — <c>OnKeyDwellCompleted</c> takes the
+    /// no-<c>SpecialAction</c> branch and never calls <c>BuildGrid</c> — so the cells stay
+    /// monochrome until a category or page change. This test dwells to COMPLETION: a test that
+    /// stops at 90 % of the path is how that shipped green.
+    /// </summary>
+    [StaFact]
+    public void EmojiCell_Activation_KeepsItsColorGlyph()
+    {
+        var probe = Open();
+        try
+        {
+            EnterEmojiMode(probe);
+
+            var visuals = KeyVisuals(probe.Window);
+            var outlines = KeyOutlines(probe.Window);
+            Check.That(visuals.ContainsKey(CellId)).IsTrue();
+            Check.That(KeyCentres(probe.Window).ContainsKey(CellId)).IsTrue();
+
+            var container = visuals[CellId].Container;
+            Check.That(container.Child).IsSameReferenceAs(outlines[CellId].Layout);
+            var glyph = (Emoji.Wpf.TextBlock)((Grid)container.Child).Children[0];
+            Check.That(glyph.EmojiInlines.Any()).IsTrue();
+
+            var activations = 0;
+            probe.Vm.KeyDwellCompleted += id => { if (id == CellId) activations++; };
+
+            // Enters at 1_000_000, completes at 1_450_000; the endpoint must stay on the step grid.
+            Feed(probe, KeyCentres(probe.Window)[CellId], 1_000_000, 1_480_000);
+
+            Check.WithCustomMessage(
+                    "The cell never activated, so the post-activation assertion would be vacuous "
+                    + "(the dwell would have to reach the full key-dwell time to raise "
+                    + "ActiveModifiers through ActivateKey).")
+                .That(activations).IsEqualTo(1);
+            Check.WithCustomMessage(
+                    "Activating the emoji destroyed its colour rendering: the base-typed "
+                    + "TextBlock.Text write in UpdateShiftDisplay replaced the EmojiInline with a "
+                    + "plain Run. Every visible cell goes monochrome after the first emoji.")
+                .That(glyph.EmojiInlines.Any()).IsTrue();
         }
         finally { probe.Dispose(); }
     }

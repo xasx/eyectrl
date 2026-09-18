@@ -27,8 +27,9 @@ public class PauseGateRound2Tests
 
     private static void Dwell(IMessenger m, bool paused, long t0, long t1)
     {
-        m.Send(Sample(t0, paused));
-        m.Send(Sample(t1, paused));
+        // Continuous cadence: the detector restarts a dwell when a single step reaches its 150 ms
+        // gap bound, so two far-apart samples no longer model a hold.
+        DwellDrive.Hold(t0, t1, t => m.Send(Sample(t, paused)));
     }
 
     // ── Task switcher: the round-2 BLOCKER ────────────────────────────────────────────────
@@ -164,8 +165,7 @@ public class PauseGateRound2Tests
         var rowId = vm.RowDefinitions[0].Id;
         vm.SetRowScreenPositions(new[] { (rowId, new PhysicalPoint(50, 50), 40.0) });
 
-        messenger.Send(Sample(0, paused: true));
-        messenger.Send(Sample(200_000, paused: true));
+        DwellDrive.Hold(0, 200_000, t => messenger.Send(Sample(t, paused: true)));
 
         Check.That(vm.Buttons.First(b => b.Id == rowId).DwellProgress).IsStrictlyGreaterThan(0);
     }

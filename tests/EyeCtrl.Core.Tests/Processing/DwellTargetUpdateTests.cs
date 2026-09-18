@@ -5,6 +5,19 @@ using EyeCtrl.Core.Processing;
 
 public class DwellTargetUpdateTests
 {
+    /// <summary>
+    /// Feeds samples at <paramref name="p"/> from <paramref name="fromUs"/> through
+    /// <paramref name="toUs"/> inclusive at 30 ms cadence. The detector's gap clamp restarts a
+    /// dwell on a single 150 ms step, so the two-samples-far-apart pattern these tests used no
+    /// longer models a hold. Endpoints are exact: every progress assertion stays at its old time.
+    /// </summary>
+    private static void Drive(DwellDetector d, PhysicalPoint p, long fromUs, long toUs)
+    {
+        for (var t = fromUs; t < toUs; t += 30_000)
+            d.Update(p, t);
+        d.Update(p, toUs);
+    }
+
     [Fact]
     public void UpdateTargetGeometry_EnlargingMidDwell_PreservesProgress()
     {
@@ -14,9 +27,9 @@ public class DwellTargetUpdateTests
         d.TargetActivated += _ => activated = true;
 
         d.Update(new PhysicalPoint(100, 100), 0);        // enter
-        d.Update(new PhysicalPoint(100, 100), 150_000);  // 50% progress
+        Drive(d, new PhysicalPoint(100, 100), 30_000, 150_000);  // 50% progress
         d.UpdateTargetGeometry("t", 60);                 // enlarge radius; must preserve EnteredTimestamp
-        d.Update(new PhysicalPoint(100, 100), 300_000);  // reaches 300 ms → activates (progress not reset)
+        Drive(d, new PhysicalPoint(100, 100), 180_000, 300_000);  // reaches 300 ms → activates (progress not reset)
 
         Check.That(activated).IsTrue();
     }
@@ -31,12 +44,12 @@ public class DwellTargetUpdateTests
 
         // (140,100) is 40 px out — outside the base radius of 30.
         d.Update(new PhysicalPoint(140, 100), 0);
-        d.Update(new PhysicalPoint(140, 100), 200_000);
+        Drive(d, new PhysicalPoint(140, 100), 30_000, 200_000);
         Check.That(activated).IsFalse();
 
         d.UpdateTargetGeometry("t", 20); // radius 30 → 50, now covers the point
         d.Update(new PhysicalPoint(140, 100), 300_000);
-        d.Update(new PhysicalPoint(140, 100), 500_000);
+        Drive(d, new PhysicalPoint(140, 100), 330_000, 500_000);
 
         Check.That(activated).IsTrue();
     }
@@ -54,12 +67,12 @@ public class DwellTargetUpdateTests
 
         // (150,120) is 10 px right of the rect's right edge (x = 140).
         d.Update(new PhysicalPoint(150, 120), 0);
-        d.Update(new PhysicalPoint(150, 120), 200_000);
+        Drive(d, new PhysicalPoint(150, 120), 30_000, 200_000);
         Check.That(activated).IsFalse();
 
         d.UpdateTargetGeometry("r", 20); // outset 20 px per side → right edge 160
         d.Update(new PhysicalPoint(150, 120), 300_000);
-        d.Update(new PhysicalPoint(150, 120), 500_000);
+        Drive(d, new PhysicalPoint(150, 120), 330_000, 500_000);
 
         Check.That(activated).IsTrue();
     }
@@ -79,12 +92,12 @@ public class DwellTargetUpdateTests
 
         // 45 px out: outside radius 40, so ten applications did not compound to 130.
         d.Update(new PhysicalPoint(145, 100), 0);
-        d.Update(new PhysicalPoint(145, 100), 200_000);
+        Drive(d, new PhysicalPoint(145, 100), 30_000, 200_000);
         Check.That(activated).IsFalse();
 
         // 35 px out: inside radius 40, so the single margin did apply.
         d.Update(new PhysicalPoint(135, 100), 300_000);
-        d.Update(new PhysicalPoint(135, 100), 500_000);
+        Drive(d, new PhysicalPoint(135, 100), 330_000, 500_000);
         Check.That(activated).IsTrue();
     }
 
@@ -116,7 +129,7 @@ public class DwellTargetUpdateTests
         bool activated = false;
         d.TargetActivated += _ => activated = true;
         d.Update(new PhysicalPoint(120, 120), 0); // the former center
-        d.Update(new PhysicalPoint(120, 120), 200_000);
+        Drive(d, new PhysicalPoint(120, 120), 30_000, 200_000);
 
         // Degenerate (zero-area) rect at the center still hit-tests its own corner point; the contract
         // being pinned is "no inversion / no crash", not a particular hit outcome.
@@ -135,7 +148,7 @@ public class DwellTargetUpdateTests
         d.TargetActivated += _ => activated = true;
 
         d.Update(new PhysicalPoint(100, 100), 0);        // enter (EnteredTimestamp = 0)
-        d.Update(new PhysicalPoint(100, 100), 150_000);  // 150 ms of 300 ms — not yet activated
+        Drive(d, new PhysicalPoint(100, 100), 30_000, 150_000);  // 150 ms of 300 ms — not yet activated
         Check.That(activated).IsFalse();
 
         d.SetEffectiveDwellTime(_ => 100);               // shorten to 100 ms; must NOT reset the timer
@@ -158,7 +171,7 @@ public class DwellTargetUpdateTests
         d.SetEffectiveDwellTime(half);
 
         d.Update(new PhysicalPoint(0, 0), 0);
-        d.Update(new PhysicalPoint(0, 0), 490_000);
+        Drive(d, new PhysicalPoint(0, 0), 30_000, 490_000);
         Check.That(d.GetProgress("t") > 0.9).IsTrue(); // ~490/500, not 490/125 — no compounding
     }
 
@@ -172,7 +185,7 @@ public class DwellTargetUpdateTests
         d.AddTarget(new DwellTarget("t", new PhysicalPoint(0, 0), radius: 10, dwellTimeMs: 1000));
 
         d.Update(new PhysicalPoint(0, 0), 0);
-        d.Update(new PhysicalPoint(0, 0), 450_000);
+        Drive(d, new PhysicalPoint(0, 0), 30_000, 450_000);
         bool activated = false;
         d.TargetActivated += _ => activated = true;
         d.Update(new PhysicalPoint(0, 0), 500_000); // 500 ms >= effective 500 ms (not the 1000 baseline)
@@ -191,7 +204,7 @@ public class DwellTargetUpdateTests
         d.SetEffectiveDwellTime(null);
 
         d.Update(new PhysicalPoint(0, 0), 0);
-        d.Update(new PhysicalPoint(0, 0), 600_000); // 600 < 1000 baseline → still inside, not activated
+        Drive(d, new PhysicalPoint(0, 0), 30_000, 600_000); // 600 < 1000 baseline → still inside, not activated
         Check.That(d.GetProgress("t")).IsCloseTo(0.6, 0.01);
     }
 
@@ -207,7 +220,7 @@ public class DwellTargetUpdateTests
         d.TargetActivated += _ => activated = true;
 
         d.Update(new PhysicalPoint(120, 100), 0);        // 20 px — inside the base 30: enter
-        d.Update(new PhysicalPoint(120, 100), 150_000);  // half done
+        Drive(d, new PhysicalPoint(120, 100), 30_000, 150_000);  // half done
         Check.That(d.GetProgress("t")).IsCloseTo(0.5, 0.01);
 
         d.SetEffectiveGeometry(ext => ext * 1.5);        // 30 → 45
@@ -252,7 +265,7 @@ public class DwellTargetUpdateTests
         d.AddTarget(new DwellTarget("t", new PhysicalPoint(0, 0), radius: 30, dwellTimeMs: 1000));
 
         d.Update(new PhysicalPoint(50, 0), 0);      // 50 > 30 base, < 60 effective — enters immediately
-        d.Update(new PhysicalPoint(50, 0), 999_000);
+        Drive(d, new PhysicalPoint(50, 0), 30_000, 999_000);
         Check.That(d.GetProgress("t")).IsCloseTo(0.999, 0.001);
     }
 
@@ -307,7 +320,7 @@ public class DwellTargetUpdateTests
         d.TargetActivated += _ => activated = true;
 
         d.Update(new PhysicalPoint(50, 0), 0);       // margin-only point: inside 60, outside base 30
-        d.Update(new PhysicalPoint(50, 0), 500_000); // half done
+        Drive(d, new PhysicalPoint(50, 0), 30_000, 500_000); // half done
         Check.That(d.GetProgress("t")).IsCloseTo(0.5, 0.01);
 
         d.SetEffectiveGeometry(null);               // restore: gaze now outside

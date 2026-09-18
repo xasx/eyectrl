@@ -73,8 +73,7 @@ public class ActionMenuViewModelTests
 
         // Simulate gaze on the first item
         var itemPos = vm.Items[0].Position;
-        _messenger.Send(new GazeCursorMovedMessage(itemPos, 0));
-        _messenger.Send(new GazeCursorMovedMessage(itemPos, 200_000)); // 200ms > 100ms dwell
+        DwellDrive.Hold(_messenger, itemPos, 0, 200_000); // reaches the 100ms dwell
 
         Check.That(selectedAction).IsEqualTo(InteractionAction.LeftClick);
     }

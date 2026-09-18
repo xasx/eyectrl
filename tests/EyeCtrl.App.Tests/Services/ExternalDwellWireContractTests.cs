@@ -131,8 +131,7 @@ public class ExternalDwellWireContractTests
             long t = WaitUntilRegistered(engine, provider, x: 100, y: 100, tUs: 0);
 
             // Enter rect A (0,0–200,200) and accumulate to 50%.
-            provider.Raise(new GazePoint(100, 100, t, IsValid: true));
-            provider.Raise(new GazePoint(100, 100, t + 400_000, IsValid: true));
+            RaiseHold(provider, 100, 100, t, t + 400_000);
             Check.That(engine.SuppressFixation).IsTrue();   // mid-dwell over a gated target
 
             // The control moves to B (300,0–500,200); the layout-changed nudge must arrive as an
@@ -141,10 +140,11 @@ public class ExternalDwellWireContractTests
             client.OnAdapterLayoutChanged("btn");
             Thread.Sleep(250);   // server applies the update (no ack in the protocol; bounded settle)
 
-            // Gaze follows to B's center. 800ms since the ORIGINAL enter → must activate now. If the
-            // update never arrived, this point is outside A and the dwell resets; if the update were
-            // treated as a re-register, the target merely re-enters with zero progress. Both fail here.
-            provider.Raise(new GazePoint(400, 100, t + 800_000, IsValid: true));
+            // Gaze follows to B's center, continuously — the gap clamp must not be what decides
+            // this. 800ms since the ORIGINAL enter → must activate now. If the update never
+            // arrived, this point is outside A and the dwell resets; if the update were treated as
+            // a re-register, the target merely re-enters with zero progress. Both fail here.
+            RaiseHold(provider, 400, 100, t + 450_000, t + 800_000);
 
             var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
             while (DateTime.UtcNow < deadline && fake.Activations == 0) Thread.Sleep(20);
@@ -173,8 +173,7 @@ public class ExternalDwellWireContractTests
             long t = WaitUntilRegistered(engine, provider, x: 100, y: 100, tUs: 0);
 
             // Mid-dwell at 50%.
-            provider.Raise(new GazePoint(100, 100, t, IsValid: true));
-            provider.Raise(new GazePoint(100, 100, t + 400_000, IsValid: true));
+            RaiseHold(provider, 100, 100, t, t + 400_000);
             Check.That(engine.SuppressFixation).IsTrue();
 
             client.UnregisterAdapter("btn");
@@ -288,8 +287,7 @@ public class ExternalDwellWireContractTests
             new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
         await Task.Delay(250);   // let the server register the target
 
-        provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
-        provider.Raise(new GazePoint(100, 100, 800_000, IsValid: true));
+        RaiseHold(provider, 100, 100, 0, 800_000);
 
         var read = r.ReadLineAsync();
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
@@ -316,8 +314,7 @@ public class ExternalDwellWireContractTests
             long t = WaitUntilRegistered(engine, provider, x: 100, y: 100, tUs: 0);
 
             // First dwell completes → exactly one activation delivered to the adapter.
-            provider.Raise(new GazePoint(100, 100, t, IsValid: true));
-            provider.Raise(new GazePoint(100, 100, t + 800_000, IsValid: true));
+            RaiseHold(provider, 100, 100, t, t + 800_000);
             var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
             while (DateTime.UtcNow < deadline && fake.Activations == 0) Thread.Sleep(20);
             Check.That(fake.Activations).IsEqualTo(1);
@@ -404,9 +401,22 @@ public class ExternalDwellWireContractTests
     }
 
     /// <summary>
-    /// Raises enter/complete gaze pairs with advancing synthetic timestamps until the adapter
-    /// activates, so tests absorb connect/register/backoff latency without wall-clock coupling:
-    /// dwell completion itself is driven by the synthetic timestamps, never by real elapsed time.
+    /// Raises valid samples at (x,y) at 50 ms cadence from <paramref name="fromUs"/> through
+    /// <paramref name="toUs"/> inclusive. The dwell detector's gap clamp restarts a dwell on a
+    /// single step of 150 ms or more, so a two-sample enter/complete pair no longer accumulates.
+    /// </summary>
+    private static void RaiseHold(StubGazeProvider provider, double x, double y, long fromUs, long toUs)
+    {
+        for (var t = fromUs; t < toUs; t += 50_000)
+            provider.Raise(new GazePoint(x, y, t, IsValid: true));
+        provider.Raise(new GazePoint(x, y, toUs, IsValid: true));
+    }
+
+    /// <summary>
+    /// Drives a full dwell with advancing synthetic timestamps until the adapter activates, so
+    /// tests absorb connect/register/backoff latency without wall-clock coupling: dwell completion
+    /// itself is driven by the synthetic timestamps, never by real elapsed time. Each attempt is a
+    /// continuous 50 ms stream — the detector restarts on any single step of 150 ms or more.
     /// </summary>
     private static void DwellUntilActivated(StubGazeProvider provider, FakeDwellAdapter adapter,
         double x, double y, ref long tUs)
@@ -415,8 +425,7 @@ public class ExternalDwellWireContractTests
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(6);
         while (DateTime.UtcNow < deadline && adapter.Activations == baseline)
         {
-            provider.Raise(new GazePoint(x, y, tUs, IsValid: true));
-            provider.Raise(new GazePoint(x, y, tUs + 800_000, IsValid: true));
+            RaiseHold(provider, x, y, tUs, tUs + 800_000);
             tUs += 1_000_000;
 
             // Give the activated line time to travel back through the pipe and the client's read

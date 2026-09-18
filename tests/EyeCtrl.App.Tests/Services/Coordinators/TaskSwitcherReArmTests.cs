@@ -135,14 +135,16 @@ public class TaskSwitcherReArmTests
         }
 
         /// <summary>
-        /// Whether toolbar dwell is live: two gaze updates on a positioned target — the first
-        /// records entry and emits nothing, the second accumulates. Routed through Receive, the
-        /// view-model's own dwell gate, so progress reaching the target proves SetActive(true) ran.
+        /// Whether toolbar dwell is live: a continuous 50 ms stream of gaze on a positioned target
+        /// accumulates progress. Routed through Receive, the view-model's own dwell gate, so
+        /// progress reaching the target proves SetActive(true) ran. The stream matters: the
+        /// detector's gap clamp restarts a dwell on any single step of 150 ms or more, so a
+        /// two-sample pair would report "not accumulating" for the wrong reason.
         /// </summary>
         internal bool DwellAccumulates()
         {
-            ToolbarVm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), 0));
-            ToolbarVm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), 500_000));
+            for (var t = 0L; t <= 500_000; t += 50_000)
+                ToolbarVm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), t));
             return ToolbarVm.LastProgress > 0;
         }
 

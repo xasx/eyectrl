@@ -48,11 +48,10 @@ public class GlassBackdropViewModelTests
         BackdropDismissMessage? received = null;
         messenger.Register<BackdropDismissMessage>(this, (_, m) => received = m);
 
-        // Simulate gaze inside hide button for full dwell duration
+        // Simulate gaze inside hide button for the full dwell duration, at a realistic cadence.
         long now = 1_000_000;
         long dwellUs = settings.Dwell.BackdropHideButtonDwellMs * MathConstants.MicrosecondsPerMillisecond;
-        messenger.Send(new GazeCursorMovedMessage(buttonCenter, now));
-        messenger.Send(new GazeCursorMovedMessage(buttonCenter, now + dwellUs));
+        DwellDrive.Hold(messenger, buttonCenter, now, now + dwellUs);
 
         Check.That(received).IsNotNull();
     }
@@ -98,8 +97,7 @@ public class GlassBackdropViewModelTests
 
         long now = 1_000_000;
         long halfDwellUs = settings.Dwell.BackdropHideButtonDwellMs * MathConstants.MicrosecondsPerMillisecond / 2;
-        messenger.Send(new GazeCursorMovedMessage(buttonCenter, now));
-        messenger.Send(new GazeCursorMovedMessage(buttonCenter, now + halfDwellUs));
+        DwellDrive.Hold(messenger, buttonCenter, now, now + halfDwellUs);
         Check.That(vm.HideButtonProgress > 0).IsTrue();
 
         // Move gaze away — progress should reset
@@ -119,8 +117,7 @@ public class GlassBackdropViewModelTests
 
         long now = 1_000_000;
         long halfDwellUs = settings.Dwell.BackdropHideButtonDwellMs * MathConstants.MicrosecondsPerMillisecond / 2;
-        messenger.Send(new GazeCursorMovedMessage(buttonCenter, now));
-        messenger.Send(new GazeCursorMovedMessage(buttonCenter, now + halfDwellUs));
+        DwellDrive.Hold(messenger, buttonCenter, now, now + halfDwellUs);
 
         Check.That(vm.HideButtonProgress > 0.4 && vm.HideButtonProgress < 0.6).IsTrue();
     }

@@ -63,7 +63,10 @@ public class DwellDetectorTests
         var target = new DwellTarget("test", new PhysicalPoint(100, 100), radius: 30, dwellTimeMs: 300);
         detector.AddTarget(target);
 
+        // Sampled continuously: a single 150 ms step is exactly the gap clamp's bound and would
+        // restart the dwell instead of accumulating.
         detector.Update(new PhysicalPoint(100, 100), 0);
+        detector.Update(new PhysicalPoint(100, 100), 100_000);
         detector.Update(new PhysicalPoint(100, 100), 150_000);
 
         double progress = detector.GetProgress("test");
@@ -260,9 +263,47 @@ public class DwellDetectorTests
         bool activated = false;
         detector.TargetActivated += _ => activated = true;
 
-        detector.Update(new PhysicalPoint(100, 100), 0);
-        detector.Update(new PhysicalPoint(100, 100), 250_000);
+        // Continuous cadence: the two-sample version relied on an unbounded 250 ms step, which the
+        // gap clamp now restarts.
+        long t = 0;
+        for (int i = 0; i < 9; i++)
+        {
+            detector.Update(new PhysicalPoint(100, 100), t);
+            t += 30_000;
+        }
 
         Check.That(activated).IsTrue();
+    }
+
+    /// <summary>
+    /// Pins the clamp's boundary: a silence shorter than <c>MaxCreditedSampleGapUs</c> resumes (the
+    /// anti-over-clamp guard), and the bound itself restarts. The comparison is <c>&gt;=</c>,
+    /// matching <c>GapInterpolator</c>'s own sequence-break comparison at
+    /// <c>CursorSettings.MaxGapInterpolationMs</c>'s 150 ms default — a silence the engine refuses
+    /// to hold must not complete a dwell. 150 is that constant in milliseconds, kept literal so
+    /// this pin fails loudly if the bound moves.
+    /// </summary>
+    [Theory]
+    [InlineData(149, true)]
+    [InlineData(150, false)]
+    public void GapBoundary_UnderResumes_AtBoundRestarts(int gapMs, bool fires)
+    {
+        var detector = new DwellDetector();
+        detector.AddTarget(new DwellTarget("t", new PhysicalPoint(100, 100), radius: 30, dwellTimeMs: 500));
+        bool activated = false;
+        detector.TargetActivated += _ => activated = true;
+
+        // 390 ms of held gaze at 30 ms cadence, then one step of gapMs.
+        long lastDelivered = 0;
+        for (int i = 0; i < 14; i++)
+        {
+            lastDelivered = i * 30_000L;
+            detector.Update(new PhysicalPoint(100, 100), lastDelivered);
+        }
+
+        detector.Update(new PhysicalPoint(100, 100), lastDelivered + (gapMs * 1000L));
+
+        // 390 + 149 credits to 539 ms and fires; 390 + 150 restarts and cannot.
+        Check.That(activated).IsEqualTo(fires);
     }
 }

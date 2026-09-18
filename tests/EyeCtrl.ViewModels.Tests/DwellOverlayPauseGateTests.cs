@@ -42,8 +42,7 @@ public class DwellOverlayPauseGateTests
         vm.IsVisible = true;
         vm.AddTargetAt("go");
 
-        messenger.Send(Sample(0, paused: false));
-        messenger.Send(Sample(900_000, paused: false));
+        DwellDrive.Hold(0, 900_000, t => messenger.Send(Sample(t, paused: false)));
 
         Check.That(vm.Activated).ContainsExactly("go");
     }
@@ -58,8 +57,7 @@ public class DwellOverlayPauseGateTests
         vm.IsVisible = true;
         vm.AddTargetAt("go");
 
-        messenger.Send(Sample(0, paused: true));
-        messenger.Send(Sample(900_000, paused: true));
+        DwellDrive.Hold(0, 900_000, t => messenger.Send(Sample(t, paused: true)));
 
         Check.That(vm.Activated).ContainsExactly("go");
     }

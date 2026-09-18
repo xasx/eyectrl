@@ -82,8 +82,7 @@ public class ToolbarVisibilityAdapterTests
             // gate) so the seed itself proves dwell is active going in.
             vm.DwellDetector.AddTarget(new DwellTarget("Close", new PhysicalPoint(100, 100),
                 radius: 50, dwellTimeMs: 1000));
-            vm.Receive(MakeGazeMessage(100, 100, 0));          // enter
-            vm.Receive(MakeGazeMessage(100, 100, 500_000));    // 50% of the 1000ms dwell
+            ToolbarGazeDrive.Stream(vm, 100, 100, 500_000);     // 50% of the 1000ms dwell
             Check.That(vm.LastProgress).IsEqualTo(0.5);
 
             // Record the ordered sequence of side effects. TargetProgress(id,0) fires synchronously
@@ -159,8 +158,7 @@ public class ToolbarVisibilityAdapterTests
             PumpDispatcher();
 
             // After ShowToolbar re-activates dwell, gaze now accumulates.
-            vm.Receive(MakeGazeMessage(100, 100, 0));
-            vm.Receive(MakeGazeMessage(100, 100, 500_000));
+            ToolbarGazeDrive.Stream(vm, 100, 100, 500_000);
             Check.That(vm.LastProgress).IsEqualTo(0.5);
             Check.That(toolbar.IsVisible).IsTrue();
         }
@@ -203,8 +201,7 @@ public class ToolbarVisibilityAdapterTests
             PumpDispatcher();
 
             // After ForceShow re-activates dwell, gaze accumulates.
-            vm.Receive(MakeGazeMessage(100, 100, 0));
-            vm.Receive(MakeGazeMessage(100, 100, 500_000));
+            ToolbarGazeDrive.Stream(vm, 100, 100, 500_000);
             Check.That(vm.LastProgress).IsEqualTo(0.5);
             Check.That(toolbar.IsVisible).IsTrue();
         }
@@ -352,8 +349,7 @@ public class ToolbarVisibilityAdapterTests
 
             vm.DwellDetector.AddTarget(new DwellTarget("Keyboard", new PhysicalPoint(100, 100),
                 radius: 50, dwellTimeMs: 1000));
-            vm.Receive(MakeGazeMessage(100, 100, 0));          // enter
-            vm.Receive(MakeGazeMessage(100, 100, 500_000));    // 50% of the dwell
+            ToolbarGazeDrive.Stream(vm, 100, 100, 500_000);     // 50% of the dwell
 
             Check.That(progress).HasElementThatMatches(p => p > 0.4);
         }

@@ -512,6 +512,29 @@ public partial class KeyboardWindow : OverlayWindow
         }
     }
 
+    /// <summary>
+    /// The element's on-screen rectangle in physical pixels, both corners through
+    /// <see cref="UIElement.PointToScreen"/>. False when the element is not laid out (zero size) or
+    /// not in a live presentation source — a placement pass must publish nothing from such an
+    /// element and must not latch on a pass where any element failed.
+    /// </summary>
+    private static bool TryGetScreenRect(FrameworkElement element, out PhysicalRect rect)
+    {
+        rect = default;
+        if (element.ActualWidth <= 0 || element.ActualHeight <= 0) return false;
+        try
+        {
+            var topLeft = element.PointToScreen(new Point(0, 0));
+            var bottomRight = element.PointToScreen(new Point(element.ActualWidth, element.ActualHeight));
+            rect = new PhysicalRect(topLeft.X, topLeft.Y, bottomRight.X - topLeft.X, bottomRight.Y - topLeft.Y);
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
     private void UpdatePredictionTargetPositions()
     {
         if (PredictionBar.Children.Count == 0) return;
@@ -521,19 +544,17 @@ public partial class KeyboardWindow : OverlayWindow
             var predId = $"pred_{i}";
             if (PredictionBar.Children[i] is not Border btn) continue;
 
-            if (!OverlayPositioning.TryGetScreenCenter(btn, out var pos))
-                continue;
+            if (!TryGetScreenRect(btn, out var cellRect)) continue;
+
             if (!_predictionTargetsInitialized)
-            {
-                // Use half-diagonal so the circular hit area covers the full rectangle
-                var halfDiag = Math.Sqrt(btn.ActualWidth * btn.ActualWidth + btn.ActualHeight * btn.ActualHeight) / 2;
-                _predictionDwellDetector.RemoveTarget(predId);
-                _predictionDwellDetector.AddTarget(new DwellTarget(predId, pos, DpiHelper.LogicalToPhysicalX(halfDiag), _predictionDwellMs));
-            }
+                // The cell's own rectangle. The circumscribed circle this replaces was ~4x the
+                // cell's area and its overhang reached into the margins and the key grid.
+                _predictionDwellDetector.AddTarget(new DwellTarget(predId, cellRect, _predictionDwellMs));
             else
-            {
-                _predictionDwellDetector.UpdateTargetCenter(predId, pos);
-            }
+                // RebaseTarget, NOT UpdateTargetCenter: the latter writes only Center, and
+                // HitTest ignores Center once Bounds is set — a silent no-op here that would
+                // freeze the hit area where the bar first rendered.
+                _predictionDwellDetector.RebaseTarget(predId, cellRect);
         }
         _predictionTargetsInitialized = true;
     }

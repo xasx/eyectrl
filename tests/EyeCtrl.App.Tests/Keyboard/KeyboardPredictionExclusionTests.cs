@@ -440,6 +440,125 @@ public class KeyboardPredictionExclusionTests
         finally { probe.Dispose(); }
     }
 
+    // ---- T4: prediction target geometry (rects, not circumscribed circles) ----
+
+    /// <summary>The cell's on-screen rectangle in physical pixels, both corners through PointToScreen.</summary>
+    private static PhysicalRect CellRect(FrameworkElement cell)
+    {
+        var tl = cell.PointToScreen(new Point(0, 0));
+        var br = cell.PointToScreen(new Point(cell.ActualWidth, cell.ActualHeight));
+        return new PhysicalRect(tl.X, tl.Y, br.X - tl.X, br.Y - tl.Y);
+    }
+
+    /// <summary>
+    /// The hit area must be the cell's own rectangle. The shipped circle is circumscribed, so it
+    /// overhangs every edge — the excess is the bug. This point sits 5 DIP right of the cell (well
+    /// outside the rect) but inside the old circle, and in the bar row, so the key-area exclusion
+    /// cannot be what keeps it silent: only rect geometry can.
+    /// </summary>
+    [StaFact]
+    public void PredictionHitArea_IsTheCellRect_NotACircumscribedCircle()
+    {
+        var probe = Open(new Dictionary<string, int> { ["hello"] = 1000 });
+        try
+        {
+            string? inserted = null;
+            probe.Messenger.Register<PredictionSelectedMessage>(probe, (_, m) => inserted = m.Word);
+
+            probe.Vm.CurrentInput = "hel";
+            probe.Window.UpdatePredictions();
+            probe.Content.UpdateLayout();
+            probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 0);
+
+            var cell = (FrameworkElement)probe.Window.PredictionBar.Children[0];
+            var rect = CellRect(cell);
+            var overhang = new PhysicalPoint(rect.X + rect.Width + 5, rect.CenterY);
+
+            Check.WithCustomMessage(
+                    "The overhang probe is inside the key area, so the ticket-3 exclusion would "
+                    + "silence it and this test would not measure the hit geometry at all.")
+                .That(IsInsideKeyArea(probe.Window, overhang)).IsFalse();
+            Check.WithCustomMessage(
+                    "The overhang probe is outside the cell's circumscribed circle, so it cannot "
+                    + "distinguish the circle from the rect — the probe is measuring nothing.")
+                .That(IsInsidePredictionCircle(probe.Window, 0, overhang)).IsTrue();
+
+            Feed(probe, overhang, 30_000, 540_000);
+            Check.WithCustomMessage(
+                    "A point 5 DIP OUTSIDE the suggestion cell completed its dwell: the hit area "
+                    + "is the circumscribed circle, whose overhang (about 4x the cell's area) "
+                    + "reaches into the margins and — for the shapes this bar renders — over the "
+                    + "key grid.")
+                .That(inserted).IsNull();
+
+            // Positive guard: the rect must still cover the cell it represents.
+            var centre = new PhysicalPoint(rect.CenterX, rect.CenterY);
+            Feed(probe, centre, 570_000, 1_110_000);
+            Check.WithCustomMessage(
+                    "The cell's own centre no longer completes its dwell — the rect is wrong.")
+                .That(inserted).IsEqualTo("hello");
+        }
+        finally { probe.Dispose(); }
+    }
+
+    /// <summary>
+    /// Regression guard for the geometry swap itself, NOT a pre-fix defect probe: the shipped
+    /// circle tracks the bar through <c>UpdateTargetCenter</c>, so this passes today. It exists
+    /// because the naive circle→rect swap leaves <c>UpdateTargetCenter</c> in the per-frame path,
+    /// which writes only <c>Center</c> and is a silent no-op on a rect target — the hit area then
+    /// freezes where the bar first rendered, a brand-new "the suggestion won't dwell" bug. Only
+    /// <c>RebaseTarget</c> moves a rect target's geometry.
+    /// </summary>
+    [StaFact]
+    public void PredictionHitArea_TracksTheBar_MidDwell()
+    {
+        var probe = Open(new Dictionary<string, int> { ["hello"] = 1000 });
+        try
+        {
+            string? inserted = null;
+            probe.Messenger.Register<PredictionSelectedMessage>(probe, (_, m) => inserted = m.Word);
+
+            probe.Vm.CurrentInput = "hel";
+            probe.Window.UpdatePredictions();
+            probe.Content.UpdateLayout();
+            probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 0);
+
+            var cell = (FrameworkElement)probe.Window.PredictionBar.Children[0];
+            var before = CellRect(cell);
+
+            // Half the dwell on the cell at its ORIGINAL position...
+            Feed(probe, new PhysicalPoint(before.CenterX, before.CenterY), 30_000, 180_000);
+
+            // ...then move the bar under the live dwell. Translate with a layout PROPERTY, not a
+            // transform: a translation inside LayoutTransform is ignored by the layout engine by
+            // design (it honours scale, rotate and skew — the fixture's scale relies on that, so
+            // scale composing and translation not composing are consistent rather than
+            // contradictory). The shift guard below exists because a bar that never moved would
+            // make the tracking assertion vacuous.
+            probe.Window.PredictionBar.Margin = new Thickness(150, 0, 0, 6);
+            probe.Content.UpdateLayout();
+
+            var moved = CellRect((FrameworkElement)probe.Window.PredictionBar.Children[0]);
+            Check.WithCustomMessage(
+                    $"The bar did not actually move (before {before.X:F1},{before.Y:F1} -> after "
+                    + $"{moved.X:F1},{moved.Y:F1}), so the tracking assertion below would be vacuous.")
+                .That(Math.Abs(moved.X - before.X) + Math.Abs(moved.Y - before.Y)).IsStrictlyGreaterThan(10);
+
+            // Continue the SAME dwell at the MOVED centre. The placement pass must carry the hit
+            // area with the bar (RebaseTarget); a straight circle→rect swap that leaves
+            // UpdateTargetCenter in this path keeps the rect where it was first published, this
+            // continuation misses, and the dwell never completes — the frozen-hit-area regression.
+            Feed(probe, new PhysicalPoint(moved.CenterX, moved.CenterY), 210_000, 540_000);
+
+            Check.WithCustomMessage(
+                    "The bar moved mid-dwell and the target did not follow: the placement path "
+                    + "wrote only Center (a no-op on a rect target), freezing the hit area where "
+                    + "the bar first rendered under a live dwell.")
+                .That(inserted).IsEqualTo("hello");
+        }
+        finally { probe.Dispose(); }
+    }
+
     // ---- regression guard, already green pre-fix: the bar does not accumulate key dwell ----
 
     /// <summary>

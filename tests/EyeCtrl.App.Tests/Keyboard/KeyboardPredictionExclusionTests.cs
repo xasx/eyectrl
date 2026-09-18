@@ -157,6 +157,18 @@ public class KeyboardPredictionExclusionTests
 
     private static void Feed(Probe probe, PhysicalPoint at, long fromUs, long toUs, long stepUs = 30_000)
     {
+        // The endpoint must be reachable on the step grid. (to - from) % step != 0 silently drops
+        // the final sample, and when that sample is the one that completes a dwell the test fails
+        // exactly as if the feature were broken. This happened while writing the LM-starvation
+        // row: a 530 ms endpoint on a 30 ms grid stopped at 510 ms, the accept never ran, and the
+        // red output read as the LM defect. This helper is shared into the later tickets, so the
+        // guard is structural rather than one-off — round every endpoint to the cadence.
+        Check.WithCustomMessage(
+                $"Feed({fromUs}..{toUs}) step {stepUs}: the endpoint is not reachable on the step "
+                + "grid, so the final sample would be dropped and a completion at the endpoint "
+                + "would silently never happen. Round the endpoint to the cadence.")
+            .That((toUs - fromUs) % stepUs).IsEqualTo(0);
+
         for (var t = fromUs; t <= toUs; t += stepUs)
             probe.Window.UpdateGaze(at, t);
     }
@@ -228,7 +240,7 @@ public class KeyboardPredictionExclusionTests
             // a detector that never accumulates would pass the rest for the wrong reason.
             var progress = new List<double>();
             probe.PredictionDetector.TargetProgress += (_, p) => progress.Add(p);
-            Feed(probe, barCentre, 30_000, 200_000);
+            Feed(probe, barCentre, 30_000, 180_000);
             Check.WithCustomMessage(
                     "Pre-entry prediction progress never left 0 on the bar, so the exclusion "
                     + "assertion would be vacuous.")
@@ -242,7 +254,7 @@ public class KeyboardPredictionExclusionTests
                 .That(IsInsidePredictionCircle(probe.Window, 0, overlap)).IsTrue();
 
             var beforeMove = progress.Count;
-            Feed(probe, overlap, 230_000, 1_830_000);
+            Feed(probe, overlap, 230_000, 1_820_000);
 
             Check.WithCustomMessage("Fewer than two key activations occurred, so the hold did not "
                     + "cross the window this test exists for.")
@@ -288,7 +300,22 @@ public class KeyboardPredictionExclusionTests
                     + "would be impossible and this test vacuous.")
                 .That(IsInsidePredictionCircle(probe.Window, 0, centre)).IsTrue();
 
-            Feed(probe, centre, 30_000, 1_830_000);
+            // Arming read: the circle check above is computed from the RENDERED visuals, so a
+            // detector that renders cells but registers no targets would pass both it and the
+            // no-insert assertion for the wrong reason. Prove the prediction target is alive on
+            // the bar first — the same family as T1's live-key leg.
+            var progress = new List<double>();
+            probe.PredictionDetector.TargetProgress += (_, p) => progress.Add(p);
+            var barCentre = ScreenCentre((FrameworkElement)probe.Window.PredictionBar.Children[0]);
+            Feed(probe, barCentre, 30_000, 180_000);
+            Check.WithCustomMessage(
+                    "Prediction progress never left 0 on the bar, so the Win-key no-insert "
+                    + "assertion below would be vacuous — the detector may be dead on arrival.")
+                .That(progress.LastOrDefault()).IsStrictlyGreaterThan(0.0);
+
+            // Continue into the Win key. The accumulated 180 ms must not matter: under the fix the
+            // first sample inside the key area resets the prediction target.
+            Feed(probe, centre, 210_000, 1_830_000);
 
             Check.WithCustomMessage("The Win key itself never activated — the gaze hold was not "
                     + "being processed as a key gaze.")
@@ -355,7 +382,7 @@ public class KeyboardPredictionExclusionTests
                 .That(RenderedWords(probe.Window)).Contains("hello");
 
             var barCentre = ScreenCentre((FrameworkElement)probe.Window.PredictionBar.Children[0]);
-            Feed(probe, barCentre, 30_000, 200_000);
+            Feed(probe, barCentre, 30_000, 180_000);
 
             // Mid-dwell the typed prefix changes, so a RE-FETCH at activation would resolve index
             // 0 against a different list ("world") while the bar still displays "hello".

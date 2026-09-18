@@ -119,6 +119,25 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             AdaptationDwellRanges.KeyboardMinDwellMs, AdaptationDwellRanges.KeyboardMaxDwellMs);
     }
 
+    // The dwell the LATCHED key must be held for. App-escaping keys (enter, tab, Escape, Delete,
+    // shortcut:*, F1–F12) are exempt from the DwellTime knob's forgiving direction. That direction
+    // is SHORTER and is driven automatically by the user's own abandonment, so without the
+    // exemption it shortens the most consequential keys first, for whoever is struggling most.
+    //
+    // The floor is the user's configured baseline (KeyboardKeyDwellMs), not a new absolute value:
+    // the gate — "not subject to the forgiving knob" — costs zero today. The absolute raise to
+    // 600 ms is the separable policy should, recorded (and deliberately not taken) in
+    // KeyboardSpecialActions.AppEscapingPolicyFloorMs; the max() below is shaped so taking it is a
+    // one-line change that cannot shorten a user's larger setting. Tightening still raises these
+    // keys above the floor: Math.Max is monotone in the composed value.
+    private int KeyDwellMsFor(string? keyId)
+    {
+        if (!KeyboardSpecialActions.IsAppEscaping(keyId))
+            return _keyDwellMs;
+        int floor = Math.Max(_baselineKeyDwellMs, KeyboardSpecialActions.AppEscapingPolicyFloorMs);
+        return Math.Max(_keyDwellMs, floor);
+    }
+
     public void Receive(ShowKeyboardMessage message) => IsVisible = true;
     public void Receive(HideKeyboardMessage message) => IsVisible = false;
 
@@ -231,9 +250,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             else
             {
                 long elapsed = timestampUs - _nearestKeyEnteredTimestamp;
-                NearestKeyProgress = Math.Min(1.0, (double)elapsed / (_keyDwellMs * MathConstants.MicrosecondsPerMillisecond));
+                int dwellMs = KeyDwellMsFor(nearestId);
+                NearestKeyProgress = Math.Min(1.0, (double)elapsed / (dwellMs * MathConstants.MicrosecondsPerMillisecond));
 
-                if (elapsed >= _keyDwellMs * MathConstants.MicrosecondsPerMillisecond)
+                if (elapsed >= dwellMs * MathConstants.MicrosecondsPerMillisecond)
                 {
                     EmitActivation(keyScreenPositions, gazePoint, nearestId, timestampUs);
                     NearestKeyProgress = 0;
@@ -254,7 +274,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     {
         if (_sink is null || NearestKeyId is null) return;
         long elapsed = timestampUs - _nearestKeyEnteredTimestamp;
-        double progress = Math.Min(1.0, (double)elapsed / (_keyDwellMs * MathConstants.MicrosecondsPerMillisecond));
+        // Progress against the abandoned KEY's own dwell (the escaping floor included), so an
+        // escaping key's abandonment is not over-reported relative to the letters around it.
+        int dwellMs = KeyDwellMsFor(NearestKeyId);
+        double progress = Math.Min(1.0, (double)elapsed / (dwellMs * MathConstants.MicrosecondsPerMillisecond));
         // Shared with DwellDetector: cross-context comparability in Phase-1b scoring depends on every
         // surface using the same cut-off.
         if (progress < TelemetryThresholds.AbandonProgress) return;

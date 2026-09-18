@@ -25,10 +25,14 @@ public class KeyboardEffectiveDwellTests
     /// so sparse sample pairs no longer model a continuous hold.
     /// </summary>
     private static void HoldGaze(KeyboardViewModel vm,
-        Dictionary<string, PhysicalPoint> keys, long throughUs)
+        Dictionary<string, PhysicalPoint> keys, long throughUs) =>
+        HoldGazeAt(vm, keys, new PhysicalPoint(100, 100), throughUs);
+
+    private static void HoldGazeAt(KeyboardViewModel vm,
+        Dictionary<string, PhysicalPoint> keys, PhysicalPoint at, long throughUs)
     {
         for (long t = 50_000; t <= throughUs; t += 50_000)
-            vm.ProcessKeyGaze(keys, new PhysicalPoint(100, 100), true, t);
+            vm.ProcessKeyGaze(keys, at, true, t);
     }
 
     [Fact]
@@ -100,5 +104,141 @@ public class KeyboardEffectiveDwellTests
 
         vm.ProcessKeyGaze(keys, new PhysicalPoint(100, 100), true, 1500_000);
         Check.That(completed).IsTrue(); // ...but only the clamped-to-1500 value fires AT 1500
+    }
+
+    // --- the app-escaping floor (KeyboardSpecialActions.AppEscapingPolicyFloorMs) ---
+
+    private static readonly PhysicalPoint LetterAt = new(100, 100);
+    private static readonly PhysicalPoint EscapeAt = new(400, 100);
+    private static readonly PhysicalPoint NavigationAt = new(700, 100);
+
+    private static Dictionary<string, PhysicalPoint> LetterEscapeAndNavigation() => new()
+    {
+        ["a"] = LetterAt,
+        ["enter"] = EscapeAt,
+        ["key:ArrowUp"] = NavigationAt,
+    };
+
+    /// <summary>
+    /// Maximum forgiving deflection: a full momentary fill plus the maximum learned fill. The
+    /// composition clamps the sum to the forgiving band edge, so with a 450 ms baseline the composed
+    /// dwell is 450 − 0.40 × 450 = 270 ms — the shortest the knob can ever ask for. Used to prove the
+    /// escaping floor holds at the knob's extreme, not merely at a comfortable position.
+    /// </summary>
+    private static void DriveToMaximumForgivingDeflection(EffectiveSettingsProvider provider)
+    {
+        provider.SetMomentaryFill(AdaptationKnob.DwellTime, DwellContext.Other, 1.0, 0.0);
+        provider.SetLearnedFill(AdaptationKnob.DwellTime, 0.5);
+    }
+
+    /// <summary>
+    /// A continuous 50 ms stream at <paramref name="at"/> from <paramref name="firstUs"/> through
+    /// <paramref name="throughUs"/> inclusive. The F3 gap clamp restarts a dwell on any &gt;150 ms
+    /// silence, so a hold has to be fed sample by sample.
+    /// </summary>
+    private static void HoldAt(KeyboardViewModel vm, Dictionary<string, PhysicalPoint> keys,
+        PhysicalPoint at, long firstUs, long throughUs)
+    {
+        for (long t = firstUs; t <= throughUs; t += 50_000)
+            vm.ProcessKeyGaze(keys, at, true, t);
+    }
+
+    [Fact]
+    public void EscapingKey_HoldsTheConfiguredBaseline_WhileTheLetterShortens()
+    {
+        var (vm, provider, _) = Make();
+        DriveToMaximumForgivingDeflection(provider);
+        vm.Configure(keyDwellMs: 450, cooldownMs: 0);
+
+        var keys = LetterEscapeAndNavigation();
+        var fired = new List<string>();
+        vm.KeyDwellCompleted += fired.Add;
+
+        // Positive control, same run, same provider state: the composed dwell really did move to
+        // 270 for a letter (fires by 300 ms), so the escaping assertion below is earned rather than
+        // measured on an inert pipeline.
+        vm.ProcessKeyGaze(keys, LetterAt, true, 0);
+        HoldAt(vm, keys, LetterAt, 50_000, 250_000);
+        Check.That(fired).Not.Contains("a"); // 250 < 270
+        vm.ProcessKeyGaze(keys, LetterAt, true, 300_000);
+        Check.WithCustomMessage(
+                "The letter did not follow the composed shorter dwell, so the pipeline was not live " +
+                "and the escaping assertion below would be vacuous.")
+            .That(fired).Contains("a");
+
+        // The escaping key must NOT follow the shortened value: the floor-broken mutation fires it
+        // at 270 ms, i.e. during the hold below. It holds the configured 450 ms baseline —
+        // floor-as-gate, not the deferred 600 ms policy (which would not fire until 1100 ms here).
+        vm.ProcessKeyGaze(keys, EscapeAt, true, 500_000); // latch
+        HoldAt(vm, keys, EscapeAt, 550_000, 900_000);     // up to 400 ms elapsed
+        Check.WithCustomMessage(
+                "An app-escaping key fired below its floor under maximum forgiving deflection. The " +
+                "keyboard is shortening the keys whose misfire the user cannot undo, fastest for " +
+                "whoever is struggling most — the exact inversion this gate exists to stop.")
+            .That(fired).Not.Contains("enter");
+        vm.ProcessKeyGaze(keys, EscapeAt, true, 950_000); // 450 ms elapsed
+        Check.WithCustomMessage(
+                "The escaping key never fired, so the floor became a dead key. The floor is the " +
+                "configured baseline (450) — not a raise, and not the deferred 600 ms policy.")
+            .That(fired).Contains("enter");
+    }
+
+    [Fact]
+    public void EscapingKey_DoesNotShortenAHigherConfiguredBaseline()
+    {
+        // KeyboardKeyDwellMs is user-settable up to 1500. A floor that substitutes the policy value
+        // for the configured baseline (`return 600`, or max(composed, policy) with no baseline term)
+        // would SHORTEN this user's setting. The floor must be
+        // max(composed, max(baseline, policy)); composed here is 900 − 360 = 540.
+        var (vm, provider, _) = Make();
+        DriveToMaximumForgivingDeflection(provider);
+        vm.Configure(keyDwellMs: 900, cooldownMs: 0);
+
+        var keys = LetterEscapeAndNavigation();
+        var fired = new List<string>();
+        vm.KeyDwellCompleted += fired.Add;
+
+        // Positive control: the letter moved to 540 (fires between 500 and 550), so the knob is live.
+        vm.ProcessKeyGaze(keys, LetterAt, true, 0);
+        HoldAt(vm, keys, LetterAt, 50_000, 500_000);
+        Check.That(fired).Not.Contains("a"); // 500 < 540
+        vm.ProcessKeyGaze(keys, LetterAt, true, 550_000);
+        Check.WithCustomMessage("The letter did not follow the composed 540 ms value.")
+            .That(fired).Contains("a");
+
+        // The escaping key holds the USER'S 900 ms, not the composed 540 and not a 600 policy value.
+        vm.ProcessKeyGaze(keys, EscapeAt, true, 600_000); // latch
+        HoldAt(vm, keys, EscapeAt, 650_000, 1_450_000);   // up to 850 ms elapsed
+        Check.WithCustomMessage(
+                "The escaping key fired below the user's configured 900 ms — the floor is shortening " +
+                "the user's own setting or substituting a policy value for it.")
+            .That(fired).Not.Contains("enter");
+        vm.ProcessKeyGaze(keys, EscapeAt, true, 1_500_000); // 900 ms elapsed
+        Check.WithCustomMessage("The escaping key never fired, so the floor became a dead key.")
+            .That(fired).Contains("enter");
+    }
+
+    [Fact]
+    public void NavigationKeys_StayFullyAdaptive_NotPartOfTheEscapingClass()
+    {
+        // Arrows/Home/End/Page keys are pressed in runs and a wrong one is undone by one opposing
+        // press. They must get the shortened 270 ms — if the class ever widens to "all key: actions",
+        // navigation silently loses the forgiving response where speed matters most.
+        var (vm, provider, _) = Make();
+        DriveToMaximumForgivingDeflection(provider);
+        vm.Configure(keyDwellMs: 450, cooldownMs: 0);
+
+        var keys = LetterEscapeAndNavigation();
+        var fired = new List<string>();
+        vm.KeyDwellCompleted += fired.Add;
+
+        vm.ProcessKeyGaze(keys, NavigationAt, true, 0);
+        HoldAt(vm, keys, NavigationAt, 50_000, 250_000);
+        Check.That(fired).Not.Contains("key:ArrowUp"); // 250 < 270
+        vm.ProcessKeyGaze(keys, NavigationAt, true, 300_000);
+        Check.WithCustomMessage(
+                "A navigation key did not follow the composed shorter dwell — it is being treated as " +
+                "app-escaping, which taxes every arrow run for no safety gain.")
+            .That(fired).Contains("key:ArrowUp");
     }
 }

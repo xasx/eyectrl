@@ -222,10 +222,17 @@ public partial class KeyboardWindow : OverlayWindow
                 var key = subLayout.Rows[rowIdx][keyIdx];
                 // Special-action keys (backspace, enter, modifiers, etc.) get a STABLE id from their
                 // SpecialAction, so they carry the same TargetId across layouts/sub-layouts (the backspace
-                // key sits at different row/col per sub-layout, so key_{row}_{col} would be unstable). This
-                // lets struggle-detection's accidental-activation corroboration match it by id. SpecialAction
-                // values are unique within a sub-layout (verified per layout), so the id stays unique. Regular
-                // keys (no SpecialAction) keep the positional id.
+                // key sits at different row/col per sub-layout, so key_{row}_{col} would be unstable).
+                //
+                // This convention is SAFETY-CRITICAL now, not telemetry: KeyboardSpecialActions.IsAppEscaping
+                // classifies a key by this id, and KeyboardViewModel holds the escaping keys' dwell floor
+                // under it. Collapsing the id to a positional form would un-class every escaping key and
+                // silently evaporate that floor. The old justification — struggle-detection's Backspace
+                // corroboration matching by id — is deliberately DISABLED (AppBootstrapper passes
+                // backspaceTargetId: null), so do not read its absence as "nothing depends on the id".
+                // Pinned by KeyboardGateProbeTests.SpecialActionKeys_RegisterUnderTheirSpecialActionId.
+                // SpecialAction values are unique within a sub-layout (verified per layout), so the id stays
+                // unique. Regular keys (no SpecialAction) keep the positional id.
                 var id = !string.IsNullOrEmpty(key.SpecialAction) ? key.SpecialAction : $"key_{rowIdx}_{keyIdx}";
 
                 var label = new TextBlock

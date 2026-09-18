@@ -473,13 +473,40 @@ public class AppBootstrapper
         // effective-settings provider (1b-①) are already registered above; here we add the monitor,
         // controller, and coordinator. The coordinator ticks the monitor→controller pipeline on a
         // dispatcher timer, enable-gated on AdaptationSettings.Enabled (off by default) — inert until opted in.
-        // backspaceTargetId: the keyboard Backspace special-action id (KeyDefinition), enabling the
-        // key→Backspace corroboration half of accidental-activation detection (§13.1). The geometric
-        // re-approach half works without it; this adds the keyboard-specific reversal signal.
+        //
+        // backspaceTargetId: null, deliberately. DO NOT "restore" it to "backspace".
+        //
+        // The corroboration it enabled is backwards for this user. A wrong key fires from gaze BIAS
+        // (measured ~2 key widths; within-fixation scatter is 0.064 key widths, so scatter cannot cross
+        // a key gap) → the user presses Backspace to undo it → ScoreAccidental counts that CORRECTION as
+        // evidence the keyboard activates too easily → and accidental-activation is the one drive that
+        // TIGHTENS the dwell knob (AdaptationController.Tick). So the machine answers a user who is
+        // already struggling by making the keyboard slower — a ratchet toward 675 ms that re-arms on
+        // every correction. A user who is struggling is the one who presses Backspace most, so it
+        // tightens fastest for exactly the person it must not.
+        //
+        // The reason is the category error, not the magnitude: the monitor cannot distinguish
+        // "activated too easily" from "activated the wrong thing", and those want opposite responses.
+        // Backspace is the user's only correction gesture; scoring it as a failure inverts the meaning
+        // of the only feedback they can give. The monitor cannot tell the two apart yet, so off is
+        // strictly better than backwards for this drive. The geometric re-approach half of accidental
+        // detection needs no target id and is unchanged: at shipped geometry (70 DIP keys at this
+        // user's 2.0 display scale = 148 px centre pitch) its 40 px cone cannot reach an adjacent key,
+        // so it cannot corroborate a keyboard correction — but it is still live, and at a small
+        // key-size multiplier on a 1.0-scale display (39 px centre pitch) it could. What is disarmed
+        // here is the Backspace path, not keyboard tightening as a structural possibility.
+        //
+        // The keyboard-side companion is the app-escaping dwell floor (KeyboardSpecialActions /
+        // KeyboardViewModel.KeyDwellMsFor), which holds enter/tab/Escape/Delete/F-keys/shortcuts at
+        // the configured baseline while adaptation shortens everything else.
+        //
+        // Pinned by EyeCtrl.App.Tests.Services.StruggleMonitorRegistrationTests (the app-resolved
+        // monitor must carry a null target) and by the Core loop test that shows the identical
+        // correction stream lengthening dwell only when this id is supplied.
         services.AddSingleton(sp => new StruggleMonitor(
             sp.GetRequiredService<BufferingTelemetrySink>(),
             sp.GetRequiredService<EyeCtrlSettings>().EyeCare,
-            backspaceTargetId: "backspace"));
+            backspaceTargetId: null));
         services.AddSingleton(sp => new AdaptationController(
             sp.GetRequiredService<EffectiveSettingsProvider>(),
             sp.GetRequiredService<EyeCtrlSettings>().Adaptation,

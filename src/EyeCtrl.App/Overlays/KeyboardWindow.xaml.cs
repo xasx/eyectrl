@@ -473,7 +473,6 @@ public partial class KeyboardWindow : OverlayWindow
     }
 
     /// <summary>
-    /// <summary>
     /// The element's on-screen rectangle in physical pixels, both corners through
     /// <see cref="UIElement.PointToScreen"/>. The DIP extents go IN as arguments to the second
     /// corner, never ADDED to a <c>PointToScreen</c> result: that mixed-unit rectangle was the

@@ -29,6 +29,9 @@ public class DwellDetector
     /// dispatcher marshaling, not the tracker's cadence, so a cadence-derived multiplier would be
     /// reasoning about the wrong clock. It is a fixed constant, not the setting — the setting is
     /// user-tunable to 500 ms, past every standard dwell, so it cannot be the dwell safety bound.
+    /// Deliberately one-directional: raising <c>MaxGapInterpolationMs</c> makes the engine hold
+    /// longer silences, but this bound does not follow it — the setting is a cursor-smoothing
+    /// knob, and stricter-than-the-engine is the only safe direction.
     /// </para>
     ///
     /// <para>

@@ -128,10 +128,15 @@ public class DwellOverlayViewModelBaseTests
         vm.AddTestTarget(center, 100, 600);
         vm.IsVisible = true;
 
-        messenger.Send(new GazeCursorMovedMessage(center, 1_000_000));
+        messenger.Send(new GazeCursorMovedMessage(center, 1_000_000));   // enter
+        messenger.Send(new GazeCursorMovedMessage(center, 1_050_000));   // 50 ms of real progress
         messenger.Send(Held(center, 1_100_000));
         messenger.Send(Held(center, 1_200_000));
         Check.That(vm.Activated).IsNull();
+        Check.WithCustomMessage(
+                "The pre-gap accumulation is zero, so the post-gap progress assertion below would "
+                + "be vacuous — it must distinguish an emitted reset from a kept value.")
+            .That(vm.LastProgress).IsStrictlyGreaterThan(0.0);
 
         messenger.Send(new GazeCursorMovedMessage(center, 1_600_000));   // 400 ms of silence
 
@@ -139,8 +144,23 @@ public class DwellOverlayViewModelBaseTests
                 "A 400 ms silence completed a 600 ms dwell. Gap-held samples are skipped, not "
                 + "paused: the whole silence was credited to the first real sample after it.")
             .That(vm.Activated).IsNull();
+        // Pin restart-not-abandon explicitly. The null-activation assert above cannot tell the two
+        // apart, and this read cannot either: an implementation that clears the target on the gap
+        // and re-enters it in the SAME pass produces an identical progress stream and identical
+        // completion timing to a re-anchor — verified by mutation, a deliberate abandon-and-reenter
+        // passes this whole test — so there is no observable difference to catch. What this read
+        // DOES pin is that the restart is visible on its own frame: a re-anchor that emits nothing
+        // passes every other assertion while the outline sits at the pre-gap value for one frame.
+        Check.WithCustomMessage(
+                "The restart did not present as a reset: progress after the gap sample should be "
+                + "≈0. A non-zero value here means the dwell kept its pre-gap progress instead of "
+                + "re-anchoring.")
+            .That(vm.LastProgress).IsCloseTo(0.0, 0.02);
 
-        // The restarted dwell still completes on a continuous stream — the target was not abandoned.
+        // The restarted dwell still completes on a continuous stream. Drive's first sample is one
+        // cadence after the gap (afterUs + 30 ms), so an implementation that ABANDONED the target
+        // instead of restarting it must re-enter at 1.63 s and misses this deadline: restart
+        // (entered 1.6 s) completes at 2.2 s, re-entry at 1.63 s completes at 2.23 s.
         Drive(messenger, center, 1_600_000, 2_200_000);
         Check.That(vm.Activated).IsEqualTo("t1");
     }

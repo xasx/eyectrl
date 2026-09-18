@@ -442,6 +442,12 @@ public class KeyboardPredictionExclusionTests
 
     // ---- T4: prediction target geometry (rects, not circumscribed circles) ----
 
+    /// <summary>Every prediction target currently registered with the detector, via reflection.</summary>
+    private static List<DwellTarget> RegisteredTargets(DwellDetector detector) =>
+        ((System.Collections.Concurrent.ConcurrentDictionary<string, DwellTarget>)typeof(DwellDetector)
+            .GetField("_targets", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(detector)!).Values.ToList();
+
     /// <summary>The cell's on-screen rectangle in physical pixels, both corners through PointToScreen.</summary>
     private static PhysicalRect CellRect(FrameworkElement cell)
     {
@@ -449,6 +455,9 @@ public class KeyboardPredictionExclusionTests
         var br = cell.PointToScreen(new Point(cell.ActualWidth, cell.ActualHeight));
         return new PhysicalRect(tl.X, tl.Y, br.X - tl.X, br.Y - tl.Y);
     }
+
+    private static bool HasPositiveExtents(DwellTarget t) =>
+        t.Bounds is { } b ? b.Width > 0 && b.Height > 0 : t.Radius > 0;
 
     /// <summary>
     /// The hit area must be the cell's own rectangle. The shipped circle is circumscribed, so it
@@ -555,6 +564,95 @@ public class KeyboardPredictionExclusionTests
                     + "wrote only Center (a no-op on a rect target), freezing the hit area where "
                     + "the bar first rendered under a live dwell.")
                 .That(inserted).IsEqualTo("hello");
+        }
+        finally { probe.Dispose(); }
+    }
+
+    // ---- T4 Part B: the placement latch ----
+
+    /// <summary>
+    /// An unarranged placement pass must publish nothing, and must not latch. Today the pass
+    /// publishes a radius-0 target and sets the latch, permanently: the else-branch only ever
+    /// updates centres, so the degenerate target survives every later pass. The recovery half
+    /// proves the latch stayed clear — after layout, a later pass must place real geometry.
+    /// </summary>
+    [StaFact]
+    public void UnarrangedPlacementPass_DoesNotPublishDegenerateTargets_AndRecovers()
+    {
+        var probe = Open(new Dictionary<string, int> { ["hello"] = 1000 });
+        try
+        {
+            probe.Vm.CurrentInput = "hel";
+            probe.Window.UpdatePredictions();
+            // Deliberately no UpdateLayout: the new cells have ActualWidth == 0.
+
+            probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 0);
+
+            Check.WithCustomMessage(
+                    "A degenerate prediction target was published from an unarranged pass "
+                    + "(radius 0 or zero-extent rect). The else-branch never repairs geometry, so "
+                    + "that target is permanently undwellable.")
+                .That(RegisteredTargets(probe.PredictionDetector)
+                    .Where(t => !HasPositiveExtents(t)).Select(t => t.Id).ToList())
+                .IsEmpty();
+
+            probe.Content.UpdateLayout();
+            probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 30_000);
+
+            Check.WithCustomMessage(
+                    "After layout, no valid prediction target exists — the earlier pass latched "
+                    + "and the later one only updated centres, never repairing the geometry.")
+                .That(RegisteredTargets(probe.PredictionDetector)).Not.IsEmpty();
+            Check.WithCustomMessage(
+                    "A target is still degenerate after layout, so the latch was set before "
+                    + "placement succeeded and the degenerate geometry survived.")
+                .That(RegisteredTargets(probe.PredictionDetector)
+                    .Where(t => !HasPositiveExtents(t)).Select(t => t.Id).ToList())
+                .IsEmpty();
+        }
+        finally { probe.Dispose(); }
+    }
+
+    /// <summary>
+    /// Rendering must not register placeholder targets at screen (0,0). Today it registers one per
+    /// suggestion, and a pass that hits every <c>continue</c> (no presentation source) latches the
+    /// flag with those placeholders still live — five dwell targets stacked at the screen's
+    /// top-left. After the fix targets are published only from a successfully placed, arranged
+    /// cell, so this is empty until the first placement pass and cell-centred afterwards.
+    /// </summary>
+    [StaFact]
+    public void RenderedBar_RegistersNoTargetAtTheTopLeftCorner()
+    {
+        var probe = Open(new Dictionary<string, int> { ["hello"] = 1000 });
+        try
+        {
+            probe.Vm.CurrentInput = "hel";
+            probe.Window.UpdatePredictions();
+
+            Check.WithCustomMessage(
+                    "Rendering registered a prediction target at screen (0,0) — the placeholder. "
+                    + "On a pass that cannot place any cell (unarranged, or no presentation "
+                    + "source) the latch would keep those placeholders live forever.")
+                .That(RegisteredTargets(probe.PredictionDetector)
+                    .Where(t => t.Center.X == 0 && t.Center.Y == 0).Select(t => t.Id).ToList())
+                .IsEmpty();
+
+            probe.Content.UpdateLayout();
+            probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 0);
+
+            var cells = probe.Window.PredictionBar.Children.Cast<FrameworkElement>().ToList();
+            var targets = RegisteredTargets(probe.PredictionDetector);
+            Check.That(targets).HasSize(cells.Count);
+            for (var i = 0; i < cells.Count; i++)
+            {
+                var expected = CellRect(cells[i]);
+                var actual = targets.Single(t => t.Id == $"pred_{i}");
+                Check.WithCustomMessage(
+                        $"Target pred_{i} does not sit on its cell: centre "
+                        + $"({actual.Center.X},{actual.Center.Y}) vs ({expected.CenterX},{expected.CenterY}).")
+                    .That(actual.Center.X).IsCloseTo(expected.CenterX, 0.5);
+                Check.That(actual.Center.Y).IsCloseTo(expected.CenterY, 0.5);
+            }
         }
         finally { probe.Dispose(); }
     }

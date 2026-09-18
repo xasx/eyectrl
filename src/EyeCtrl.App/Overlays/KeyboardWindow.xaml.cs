@@ -539,12 +539,26 @@ public partial class KeyboardWindow : OverlayWindow
     {
         if (PredictionBar.Children.Count == 0) return;
 
+        // Ported from ToolbarWindow's FacesAreArranged/latch shape: guard BEFORE publishing, and
+        // latch only when EVERY cell placed. The latch used to fire on a pass that happened,
+        // including one where every iteration bailed — the radius-0 targets from unarranged cells
+        // and the five targets stacked at screen (0,0) from a source-less pass were permanent,
+        // because the else-branch only rebases geometry it was given and can never repair it.
+        bool allPlaced = true;
         for (int i = 0; i < PredictionBar.Children.Count; i++)
         {
             var predId = $"pred_{i}";
-            if (PredictionBar.Children[i] is not Border btn) continue;
+            if (PredictionBar.Children[i] is not Border btn)
+            {
+                allPlaced = false;
+                continue;
+            }
 
-            if (!TryGetScreenRect(btn, out var cellRect)) continue;
+            if (!TryGetScreenRect(btn, out var cellRect))
+            {
+                allPlaced = false;
+                continue;
+            }
 
             if (!_predictionTargetsInitialized)
                 // The cell's own rectangle. The circumscribed circle this replaces was ~4x the
@@ -556,7 +570,9 @@ public partial class KeyboardWindow : OverlayWindow
                 // freeze the hit area where the bar first rendered.
                 _predictionDwellDetector.RebaseTarget(predId, cellRect);
         }
-        _predictionTargetsInitialized = true;
+
+        if (allPlaced)
+            _predictionTargetsInitialized = true;
     }
 
     public void UpdatePredictions()
@@ -650,7 +666,9 @@ public partial class KeyboardWindow : OverlayWindow
             _predictionOutlines.Add(DwellOutlineOverlay.Attach(btn, labelOrStack));
 
             PredictionBar.Children.Add(btn);
-            _predictionDwellDetector.AddTarget(new DwellTarget(predId, new PhysicalPoint(0, 0), DpiHelper.LogicalToPhysicalX(_keySize / 2), _predictionDwellMs));
+            // No placeholder target here: a (0,0) target is never placeable and, if the latch
+            // below latched on a pass that could not place anything, it would live forever.
+            // Targets are published by UpdatePredictionTargetPositions only from a placed cell.
         }
     }
 

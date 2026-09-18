@@ -272,19 +272,40 @@ public partial class KeyboardWindow : OverlayWindow
 
         UpdateKeyScreenPositions();
 
+        // One predicate, both surfaces. The prediction bar's hit areas are circles of each cell's
+        // half-diagonal, which bulge DOWN into the key grid (up to two key rows for a sentence
+        // completion), so running both detectors on the same point let a reach for a key complete
+        // a suggestion and insert a word the user never dwelled. The partition is the key-area
+        // rect, not a per-key distance, and both sides receive the same verdict.
+        //
+        // Boundary dither — a gaze alternating across the rect edge — resets each surface in turn
+        // and so types nothing: a narrow dead zone, safe-direction, deliberately not engineered
+        // around.
+        var gazeInsideKeyArea = TryGetKeyRowsScreenRect(out var keyArea)
+            && keyArea.Contains(screenPoint.X, screenPoint.Y);
+
         if (_viewModel.IsEmojiMode)
         {
             _emojiManager?.UpdateCategoryTargets(screenPoint, timestampMicroseconds);
         }
-        else
+        else if (!gazeInsideKeyArea)
         {
             UpdatePredictionTargetPositions();
             _predictionDwellDetector.Update(screenPoint, timestampMicroseconds);
         }
+        else
+        {
+            // Reset, and only reset. Position re-registration is deliberately NOT run here, so a
+            // target cannot be re-added with a stale radius while the gaze is on the keys; the
+            // first sample back outside refreshes positions (add or update-centre) before it
+            // accumulates. That is the reset-then-add order: the reset always precedes any later
+            // add. ResetAllState is quiet when repeated (it raises progress 0 only for a target
+            // whose IsGazeInside is set), so running it per inside sample emits once, on entry,
+            // and the target's outline clears instead of freezing mid-progress.
+            _predictionDwellDetector.ResetAllState();
+        }
 
-        _viewModel.ProcessKeyGaze(_keyScreenPositions, screenPoint,
-            TryGetKeyRowsScreenRect(out var keyArea) && keyArea.Contains(screenPoint.X, screenPoint.Y),
-            timestampMicroseconds);
+        _viewModel.ProcessKeyGaze(_keyScreenPositions, screenPoint, gazeInsideKeyArea, timestampMicroseconds);
     }
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -447,7 +468,9 @@ public partial class KeyboardWindow : OverlayWindow
     /// <summary>
     /// The key grid's on-screen rectangle (KeyRows panel), NOT the full window — this is what
     /// keeps the nearest-key algorithm from conflicting with prediction-bar and category-bar
-    /// dwell targets at the top of the window.
+    /// dwell targets at the top of the window, and (see <see cref="UpdateGaze"/>) what withholds
+    /// prediction samples while the gaze is on the keys. The gate is load-bearing in both
+    /// directions.
     ///
     /// <para>
     /// BOTH corners go through <see cref="UIElement.PointToScreen"/>, so the rectangle comes out

@@ -2,10 +2,12 @@ namespace EyeCtrl.App.Tests.Services;
 
 using System.IO;
 using System.IO.Pipes;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Windows.Threading;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Tests.Fixtures;
@@ -50,6 +52,37 @@ public class ExternalDwellServiceTests
 
     private static GazeEngine NewGazeEngine() =>
         new(new StubGazeProvider(), new StubInputSimulator(), new EyeCtrlSettings());
+
+    [Fact]
+    public void Dispose_DetachesTheSettingsPropertyChangedHandler()
+    {
+        RunOnStaThread(() =>
+        {
+            var settings = new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 0 };
+            int before = SettingsSubscriberCount(settings);
+            using var engine = NewGazeEngine();
+            var svc = new ExternalDwellService(settings, engine, Dispatcher.CurrentDispatcher,
+                NullLogger<ExternalDwellService>.Instance, new WeakReferenceMessenger(), _ => null,
+                pipeName: _pipeName);
+            Check.That(SettingsSubscriberCount(settings)).IsStrictlyGreaterThan(before);
+
+            svc.Dispose();
+            Check.That(SettingsSubscriberCount(settings)).IsEqualTo(before);
+        });
+    }
+
+    // Same reflection guard as GazeEngineDisposeTests: the service subscribes the settings
+    // singleton in its ctor, so a handler Dispose forgets to detach keeps the disposed
+    // service reachable forever (that is exactly how the leak shipped — an anonymous
+    // lambda nothing could unsubscribe).
+    private static int SettingsSubscriberCount(ExternalDwellSettings settings)
+    {
+        var field = typeof(ObservableObject).GetField(
+            nameof(ObservableObject.PropertyChanged),
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        var handler = (Delegate?)field!.GetValue(settings);
+        return handler?.GetInvocationList().Length ?? 0;
+    }
 
     private ExternalDwellService NewService(GazeEngine engine, Func<PhysicalPoint, long?> root) =>
         new(new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 0 },

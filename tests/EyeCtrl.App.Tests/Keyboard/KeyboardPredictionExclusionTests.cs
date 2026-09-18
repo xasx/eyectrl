@@ -88,21 +88,30 @@ public class KeyboardPredictionExclusionTests
             .GetField("_predictionDwellDetector", BindingFlags.NonPublic | BindingFlags.Instance)!
             .GetValue(w)!;
 
-    /// <summary>The words the bar currently displays, in cell order.</summary>
+    /// <summary>
+    /// The words the bar currently displays, in cell order. The cell's child is a
+    /// <c>DwellOutlineOverlay</c> Grid wrapping the original label (plus two Rectangles), so the
+    /// label has to be found through the wrapper — a flat <c>Child as TextBlock</c> read returns
+    /// an empty string and quietly makes "the bar rendered something" pass on nothing.
+    /// </summary>
     private static List<string> RenderedWords(KeyboardWindow w) =>
-        w.PredictionBar.Children.Cast<Border>()
-            .Select(b => b.Child switch
-            {
-                TextBlock tb => tb.Text,
-                StackPanel sp => sp.Children.OfType<TextBlock>().FirstOrDefault()?.Text ?? "",
-                _ => ""
-            }).ToList();
+        w.PredictionBar.Children.Cast<Border>().Select(b => CellText(b.Child)).ToList();
+
+    private static string CellText(UIElement? element) => element switch
+    {
+        TextBlock tb when !string.IsNullOrEmpty(tb.Text) => tb.Text,
+        Border border => CellText(border.Child),
+        Panel panel => panel.Children.Cast<UIElement>()
+            .Select(CellText).FirstOrDefault(t => !string.IsNullOrEmpty(t)) ?? "",
+        ContentControl content when content.Content is UIElement child => CellText(child),
+        _ => ""
+    };
 
     /// <summary>
     /// A laid-out keyboard at effective scale 1.0 with a working prediction orchestrator, hosted
     /// in an HwndSource that is never made visible.
     /// </summary>
-    private static Probe Open(Dictionary<string, int> words)
+    private static Probe Open(Dictionary<string, int> words, ILanguageModelPredictor? lm = null)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var messenger = new WeakReferenceMessenger();
@@ -111,7 +120,7 @@ public class KeyboardPredictionExclusionTests
 
         var vm = new KeyboardViewModel(settings, messenger);
         vm.SetOrchestrator(new PredictionOrchestrator(
-            new WordPredictor(new InMemoryDictProvider(words), "QWERTY")));
+            new WordPredictor(new InMemoryDictProvider(words), "QWERTY"), lmPredictor: lm));
 
         var w = new KeyboardWindow();
         w.SetViewModel(vm);
@@ -289,6 +298,117 @@ public class KeyboardPredictionExclusionTests
                     + "suggestion's half-diagonal hit circle, and the prediction detector ran "
                     + "unconditionally. This is the field symptom.")
                 .That(inserted).IsNull();
+        }
+        finally { probe.Dispose(); }
+    }
+
+    // ---- Part B: the activation path must index the RENDERED list, never a re-fetch ----
+
+    /// <summary>
+    /// Consume-once LM stand-in: `TryGetResults` hands its pending result over exactly once, like
+    /// `SmallLMPredictor`, so a re-fetch at activation starves the next render.
+    /// </summary>
+    private sealed class FakeLmPredictor : ILanguageModelPredictor
+    {
+        private IReadOnlyList<PredictionResult>? _pending;
+
+        public bool IsAvailable => true;
+        public int PredictCalls { get; private set; }
+        public int PollCount { get; private set; }
+
+        public void Predict(string context, string? prefix = null) => PredictCalls++;
+
+        public IReadOnlyList<PredictionResult>? TryGetResults()
+        {
+            PollCount++;
+            var results = _pending;
+            _pending = null;
+            return results;
+        }
+
+        public void Complete(string word) =>
+            _pending = new List<PredictionResult>
+            {
+                new(word, 5.0, PredictionType.LMSuggestion, 0.5)
+            };
+
+        public void Cancel() { }
+
+        public void Dispose() { }
+    }
+
+    [StaFact]
+    public void PredictionDwell_InsertsTheRenderedWord_NotARefetchedOne()
+    {
+        var probe = Open(new Dictionary<string, int> { ["hello"] = 1000, ["world"] = 1000 });
+        try
+        {
+            string? inserted = null;
+            probe.Messenger.Register<PredictionSelectedMessage>(probe, (_, m) => inserted = m.Word);
+
+            probe.Vm.CurrentInput = "hel";
+            probe.Window.UpdatePredictions();
+            probe.Content.UpdateLayout();
+            probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 0);
+
+            Check.WithCustomMessage("The bar did not render the prefix's word.")
+                .That(RenderedWords(probe.Window)).Contains("hello");
+
+            var barCentre = ScreenCentre((FrameworkElement)probe.Window.PredictionBar.Children[0]);
+            Feed(probe, barCentre, 30_000, 200_000);
+
+            // Mid-dwell the typed prefix changes, so a RE-FETCH at activation would resolve index
+            // 0 against a different list ("world") while the bar still displays "hello".
+            probe.Vm.CurrentInput = "wor";
+            Check.WithCustomMessage(
+                    "The rendered list changed mid-dwell, so this test would not exercise the "
+                    + "render/activate divergence at all.")
+                .That(RenderedWords(probe.Window)).Contains("hello");
+
+            Feed(probe, barCentre, 230_000, 530_000);   // completes at 500 ms from entry
+
+            Check.WithCustomMessage(
+                    "The inserted word came from a re-fetch, not from the rendered list: the user "
+                    + "dwelled 'hello' and got a word that was never on screen. "
+                    + "HandlePredictionSelected then learns that wrong word into the persisted "
+                    + "dictionary, which the user cannot repair by gaze.")
+                .That(inserted).IsEqualTo("hello");
+        }
+        finally { probe.Dispose(); }
+    }
+
+    [StaFact]
+    public void LmResults_RenderOnTheFirstFetchAfterASuggestionIsAccepted()
+    {
+        var lm = new FakeLmPredictor();
+        var probe = Open(new Dictionary<string, int> { ["hello"] = 1000 }, lm);
+        try
+        {
+            probe.Vm.CurrentInput = "hel";
+            probe.Window.UpdatePredictions();   // the render call triggers the LM inference
+            probe.Content.UpdateLayout();
+            Check.WithCustomMessage("The render call did not trigger LM inference — nothing to starve.")
+                .That(lm.PredictCalls).IsStrictlyGreaterThan(0);
+
+            lm.Complete("llmanswer");
+            probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 0);
+
+            string? inserted = null;
+            probe.Messenger.Register<PredictionSelectedMessage>(probe, (_, m) => inserted = m.Word);
+
+            var barCentre = ScreenCentre((FrameworkElement)probe.Window.PredictionBar.Children[0]);
+            Feed(probe, barCentre, 30_000, 540_000);   // accept the rendered suggestion
+
+            Check.WithCustomMessage("The suggestion was never accepted, so the render that follows "
+                    + "never ran — this test would be vacuous.")
+                .That(inserted).IsEqualTo("hello");
+            Check.WithCustomMessage(
+                    "The LM result never rendered: the activation path re-fetched, consumed the "
+                    + "pending result for its throwaway list, and the render that follows polled "
+                    + $"null. The model ran, cost its inference, and the user never saw it. "
+                    + $"[polls={lm.PollCount}, predictCalls={lm.PredictCalls}, "
+                    + $"rendered={string.Join(",", RenderedWords(probe.Window))}]")
+                .That(RenderedWords(probe.Window)).Contains("llmanswer");
         }
         finally { probe.Dispose(); }
     }

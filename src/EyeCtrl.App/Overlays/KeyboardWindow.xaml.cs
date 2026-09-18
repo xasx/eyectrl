@@ -54,6 +54,13 @@ public partial class KeyboardWindow : OverlayWindow
     private readonly Dictionary<string, KeyDefinition> _keyDefinitions = new();
     private readonly Dictionary<string, PhysicalPoint> _keyScreenPositions = new();
     private readonly List<DwellOutlineOverlay> _predictionOutlines = new();
+    // The list the bar RENDERED. OnPredictionDwelled resolves its index against this, never
+    // against a fresh GetSuggestionsWithContext() call: that call re-polls the LM
+    // (TryGetResults consumes on read) and re-sorts on merge, so a re-fetch at activation both
+    // risks inserting a word that was never on screen and consumes the LM output before the
+    // render that follows can show it — the render call is what triggers the inference, so the
+    // dwell window is exactly the race window. Do not "simplify" this back to a re-fetch.
+    private List<PredictionResult> _renderedPredictions = new();
 
     private KeyboardViewModel? _viewModel;
     private EmojiGridManager? _emojiManager;
@@ -541,6 +548,8 @@ public partial class KeyboardWindow : OverlayWindow
         PredictionBar.Children.Clear();
 
         var suggestions = _viewModel.GetSuggestionsWithContext();
+        // Capture exactly what gets rendered: OnPredictionDwelled indexes THIS list.
+        _renderedPredictions = suggestions;
 
         for (int i = 0; i < suggestions.Count; i++)
         {
@@ -686,14 +695,13 @@ public partial class KeyboardWindow : OverlayWindow
     {
         if (_viewModel == null || !targetId.StartsWith("pred_")) return;
 
-        if (int.TryParse(targetId.AsSpan(5), out var index))
+        // Index the RENDERED list — see _renderedPredictions for why a re-fetch here is both a
+        // wrong-word hazard and an LM-starvation bug.
+        if (int.TryParse(targetId.AsSpan(5), out var index)
+            && index >= 0 && index < _renderedPredictions.Count)
         {
-            var suggestions = _viewModel.GetSuggestionsWithContext();
-            if (index < suggestions.Count)
-            {
-                _viewModel.HandlePredictionSelected(suggestions[index].Word);
-                UpdatePredictions();
-            }
+            _viewModel.HandlePredictionSelected(_renderedPredictions[index].Word);
+            UpdatePredictions();
         }
     }
 

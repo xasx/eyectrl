@@ -416,6 +416,7 @@ public class KeyboardGateProbeTests
             // classifier would pass a hand-built lowercase set and classify nothing in flight.
             Check.That(KeyboardSpecialActions.IsAppEscaping("enter")).IsTrue();
             Check.That(KeyboardSpecialActions.IsAppEscaping("key:Escape")).IsTrue();
+            Check.That(KeyboardSpecialActions.IsAppEscaping("key:Insert")).IsTrue();
             Check.That(KeyboardSpecialActions.IsAppEscaping("shortcut:Ctrl+C")).IsTrue();
             Check.That(KeyboardSpecialActions.IsAppEscaping("key:ArrowUp")).IsFalse(); // navigation stays adaptive
         }

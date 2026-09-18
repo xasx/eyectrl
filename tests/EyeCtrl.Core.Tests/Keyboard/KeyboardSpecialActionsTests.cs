@@ -17,6 +17,7 @@ public class KeyboardSpecialActionsTests
     [InlineData("tab")]
     [InlineData("key:Escape")]
     [InlineData("key:Delete")]
+    [InlineData("key:Insert")] // overwrite mode: silent, compounding damage a repeat does not undo
     [InlineData("key:F1")]
     [InlineData("key:F12")]
     [InlineData("shortcut:Ctrl+A")]
@@ -46,8 +47,8 @@ public class KeyboardSpecialActionsTests
     [InlineData("key:End")]
     [InlineData("key:PageUp")]
     [InlineData("key:PageDown")]
-    // Insert is a toggle a second press reverses; PrintScreen has no destructive effect.
-    [InlineData("key:Insert")]
+    // PrintScreen copies the screen and destroys nothing — unlike Insert, which it is deliberately
+    // not bundled with.
     [InlineData("key:PrintScreen")]
     [InlineData("key:SomethingElse")] // an unknown key: action is not a licence to classify it
     // Text composition and correction.

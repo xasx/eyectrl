@@ -120,8 +120,8 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     }
 
     // The dwell the LATCHED key must be held for. App-escaping keys (enter, tab, Escape, Delete,
-    // shortcut:*, F1–F12) are exempt from the DwellTime knob's forgiving direction. That direction
-    // is SHORTER and is driven automatically by the user's own abandonment, so without the
+    // Insert, shortcut:*, F1–F12) are exempt from the DwellTime knob's forgiving direction. That
+    // direction is SHORTER and is driven automatically by the user's own abandonment, so without the
     // exemption it shortens the most consequential keys first, for whoever is struggling most.
     //
     // The floor is the user's configured baseline (KeyboardKeyDwellMs), not a new absolute value:

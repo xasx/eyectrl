@@ -36,15 +36,24 @@ using System.Collections.Generic;
 public static class KeyboardSpecialActions
 {
     /// <summary>
-    /// The named <c>key:</c> actions that leave or destroy state: Escape and Delete, plus F1–F12.
-    /// Navigation names (arrows, Home/End, PageUp/PageDown) are deliberately absent — see the class
-    /// remarks. Insert and PrintScreen are absent too: Insert is a toggle a second press reverses,
-    /// and PrintScreen has no destructive effect.
+    /// The named <c>key:</c> actions that leave or destroy state: Escape, Delete and Insert, plus
+    /// F1–F12. Navigation names (arrows, Home/End, PageUp/PageDown) are deliberately absent — see
+    /// the class remarks. PrintScreen is absent too, for a different reason: it copies the screen to
+    /// the clipboard and destroys nothing.
+    /// <para>
+    /// Insert is IN, and the reason is not "a second press reverses it". That is true of the MODE and
+    /// false of the DAMAGE: overwrite silently replaces one character per keystroke, most fields show
+    /// no indicator, and pressing Insert again restores the mode and none of the text. The failure is
+    /// silent and compounding, and the repeat the old rationale offered as its remedy does not undo
+    /// it. At policy 0 including it costs nothing today — it only exempts the key from adaptive
+    /// shortening.
+    /// </para>
     /// </summary>
     private static readonly HashSet<string> EscapingNamedActions = new(StringComparer.OrdinalIgnoreCase)
     {
         "Escape",
         "Delete",
+        "Insert",
         "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
     };
 
@@ -63,8 +72,16 @@ public static class KeyboardSpecialActions
     /// within-fixation noise), and a longer hold is a real cost to a user whose steady gaze is their
     /// scarce resource. Setting this constant to 600 is the entire policy change — the composition is
     /// <c>max(composed, max(configuredBaseline, this))</c>, so a user's larger setting is never
-    /// shortened, and this also becomes the instrument for the gate's other action: lowering the
-    /// global key dwell.
+    /// shortened.
+    /// </para>
+    /// <para>
+    /// <b>Accepted residual — the gate's second clause is NOT discharged.</b> This floor is the
+    /// configured baseline, so it falls with the baseline: ticket 7 makes it safe to turn adaptation
+    /// ON (the forgiving direction can no longer shorten these keys) and does NOT make it safe to
+    /// lower the global keyboard dwell. That action stays blocked until an absolute value is chosen
+    /// here. Recorded in the constant it applies to so whoever considers either change reads it here
+    /// rather than rediscovering it as a bug — ticket 2's 150 ms <c>MaxContinuousSampleGapUs</c>
+    /// residual is the precedent.
     /// </para>
     /// </summary>
     public const int AppEscapingPolicyFloorMs = 0;

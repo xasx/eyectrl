@@ -176,6 +176,12 @@ public class KeyboardEffectiveDwellTests
                 "keyboard is shortening the keys whose misfire the user cannot undo, fastest for " +
                 "whoever is struggling most — the exact inversion this gate exists to stop.")
             .That(fired).Not.Contains("enter");
+        Check.WithCustomMessage(
+                "The progress ring reads full while the escaping key has not fired — the ring is " +
+                "tracking the shortened composed value instead of the floor, so the user sees a " +
+                "completed dwell and no activation, on the keys they must search for rather than " +
+                "touch-type.")
+            .That(vm.NearestKeyProgress).IsStrictlyLessThan(1.0); // 400 ms of a 450 ms floor = 0.889
         vm.ProcessKeyGaze(keys, EscapeAt, true, 950_000); // 450 ms elapsed
         Check.WithCustomMessage(
                 "The escaping key never fired, so the floor became a dead key. The floor is the " +
@@ -215,6 +221,45 @@ public class KeyboardEffectiveDwellTests
             .That(fired).Not.Contains("enter");
         vm.ProcessKeyGaze(keys, EscapeAt, true, 1_500_000); // 900 ms elapsed
         Check.WithCustomMessage("The escaping key never fired, so the floor became a dead key.")
+            .That(fired).Contains("enter");
+    }
+
+    [Fact]
+    public void EscapingKey_FollowsTightening_AboveTheFloor()
+    {
+        // The floor is a LOWER BOUND, not a replacement. When accidental-activation tightening raises
+        // the composed dwell, escaping keys must rise with it: a floor written as `return floor`
+        // leaves enter at 450 while the letters rise to 675 — the most consequential keys become the
+        // easiest to hit, the same category error in the opposite direction. Full tightening fill on
+        // a 450 ms baseline composes to 450 + 0.50×450 = 675.
+        var (vm, provider, _) = Make();
+        provider.SetMomentaryFill(AdaptationKnob.DwellTime, DwellContext.Other, 0.0, 1.0);
+        vm.Configure(keyDwellMs: 450, cooldownMs: 0);
+
+        var keys = LetterEscapeAndNavigation();
+        var fired = new List<string>();
+        vm.KeyDwellCompleted += fired.Add;
+
+        // Positive control, same run: the letter follows the tightening fill to 675, so the escape
+        // assertion below is measured on a live pipeline rather than an inert one.
+        vm.ProcessKeyGaze(keys, LetterAt, true, 0);
+        HoldAt(vm, keys, LetterAt, 50_000, 650_000); // 650 < 675
+        Check.That(fired).Not.Contains("a");
+        vm.ProcessKeyGaze(keys, LetterAt, true, 700_000); // 700 >= 675
+        Check.WithCustomMessage("The letter did not follow the tightening fill to 675 ms.")
+            .That(fired).Contains("a");
+
+        // The escaping key must follow the SAME raised value — the floor bounds it from below only.
+        vm.ProcessKeyGaze(keys, EscapeAt, true, 750_000); // latch
+        HoldAt(vm, keys, EscapeAt, 800_000, 1_400_000);   // up to 650 ms elapsed
+        Check.WithCustomMessage(
+                "The escaping key did not follow the tightening fill (it fired before 675 ms, or the " +
+                "composition dropped the tightening sub-band). A floor that replaces the composed " +
+                "value instead of bounding it makes the most consequential keys the easiest to hit " +
+                "while every letter slows down.")
+            .That(fired).Not.Contains("enter");
+        vm.ProcessKeyGaze(keys, EscapeAt, true, 1_425_000); // 675 ms elapsed
+        Check.WithCustomMessage("The escaping key never fired at the tightened value.")
             .That(fired).Contains("enter");
     }
 

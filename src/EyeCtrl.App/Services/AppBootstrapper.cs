@@ -497,8 +497,8 @@ public class AppBootstrapper
         // here is the Backspace path, not keyboard tightening as a structural possibility.
         //
         // The keyboard-side companion is the app-escaping dwell floor (KeyboardSpecialActions /
-        // KeyboardViewModel.KeyDwellMsFor), which holds enter/tab/Escape/Delete/F-keys/shortcuts at
-        // the configured baseline while adaptation shortens everything else.
+        // KeyboardViewModel.KeyDwellMsFor), which holds enter/tab/Escape/Delete/Insert/F-keys/shortcuts
+        // at the configured baseline while adaptation shortens everything else.
         //
         // Pinned by EyeCtrl.App.Tests.Services.StruggleMonitorRegistrationTests (the app-resolved
         // monitor must carry a null target) and by the Core loop test that shows the identical

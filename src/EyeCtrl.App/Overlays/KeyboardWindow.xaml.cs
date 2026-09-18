@@ -568,6 +568,11 @@ public partial class KeyboardWindow : OverlayWindow
                 // RebaseTarget, NOT UpdateTargetCenter: the latter writes only Center, and
                 // HitTest ignores Center once Bounds is set — a silent no-op here that would
                 // freeze the hit area where the bar first rendered.
+                //
+                // RebaseTarget re-applies this registration's stored geometry map, and
+                // GeometryRouter always applies one (MakeMap never returns null) — identity with
+                // adaptation off, the shipped default, so the rect stays exact here; with
+                // adaptation on the routed margin rides the new rect by design.
                 _predictionDwellDetector.RebaseTarget(predId, cellRect);
         }
 

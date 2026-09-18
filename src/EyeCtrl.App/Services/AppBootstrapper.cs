@@ -498,7 +498,7 @@ public class AppBootstrapper
         //
         // The keyboard-side companion is the app-escaping dwell floor (KeyboardSpecialActions /
         // KeyboardViewModel.KeyDwellMsFor), which holds enter/tab/Escape/Delete/Insert/F-keys/shortcuts
-        // at the configured baseline while adaptation shortens everything else.
+        // at or above the 600 ms policy floor while adaptation shortens everything else.
         //
         // Pinned by EyeCtrl.App.Tests.Services.StruggleMonitorRegistrationTests (the app-resolved
         // monitor must carry a null target) and by the Core loop test that shows the identical

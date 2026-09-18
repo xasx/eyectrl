@@ -58,33 +58,29 @@ public static class KeyboardSpecialActions
     };
 
     /// <summary>
-    /// Absolute policy floor above the configured baseline, in milliseconds — <b>deliberately 0 in
-    /// this change</b>, which makes the floor exactly the user's configured
-    /// <c>KeyboardKeyDwellMs</c> (450 today). Exempting the escaping keys from the forgiving knob is
-    /// the gate; raising their value to 600 is the separable <em>should</em>, and it is a live
-    /// behavior change (a slower keyboard on the very next build) that this ticket must not take
-    /// silently.
-    /// <para>
-    /// 600 remains the recorded candidate: every other consequential action uses 600–700 ms (menus,
-    /// drag, scroll, edge buttons 600; activation button and toolbar 700), so 600 would make the
-    /// keyboard internally consistent. The counter-argument is equally on record: the accidental rate
-    /// at 450 is unmeasured and probably low (space and enter are 18.7 sigma apart at the measured
-    /// within-fixation noise), and a longer hold is a real cost to a user whose steady gaze is their
-    /// scarce resource. Setting this constant to 600 is the entire policy change — the composition is
-    /// <c>max(composed, max(configuredBaseline, this))</c>, so a user's larger setting is never
+    /// Absolute policy floor for the app-escaping keys, in milliseconds. Composed at the point of use
+    /// as <c>max(composed, max(configuredBaseline, this))</c>, so it is a lower bound under BOTH the
+    /// forgiving knob and a lowered configured baseline, and a user's larger setting is never
     /// shortened.
+    /// <para>
+    /// 600 is a DECISION, not a default. Every other consequential action uses 600–700 ms (menus,
+    /// drag, scroll, edge buttons 600; activation button and toolbar 700), so 600 makes the keyboard
+    /// internally consistent with a rule it already applies everywhere else. The counter-argument was
+    /// on record when the decision was taken — the accidental rate at 450 is unmeasured and probably
+    /// low (space and enter are 18.7 sigma apart at the measured within-fixation noise), and a longer
+    /// hold is a real cost to a user whose steady gaze is their scarce resource. It was overridden
+    /// deliberately: "I'd rather have the guard than the measurement" (user, 2026-09-19). Do not move
+    /// this value silently in either direction — the guard test exists for that.
     /// </para>
     /// <para>
-    /// <b>Accepted residual — the gate's second clause is NOT discharged.</b> This floor is the
-    /// configured baseline, so it falls with the baseline: ticket 7 makes it safe to turn adaptation
-    /// ON (the forgiving direction can no longer shorten these keys) and does NOT make it safe to
-    /// lower the global keyboard dwell. That action stays blocked until an absolute value is chosen
-    /// here. Recorded in the constant it applies to so whoever considers either change reads it here
-    /// rather than rediscovering it as a bug — ticket 2's 150 ms <c>MaxContinuousSampleGapUs</c>
-    /// residual is the precedent.
+    /// <b>The gate's second clause is discharged by this value.</b> Because the floor is absolute,
+    /// lowering the configured global key dwell no longer drags the escaping keys down with it: at a
+    /// 100 ms baseline they hold 600 while the letters sit at 100. (While the floor was the baseline
+    /// this clause was undischarged — a lowered baseline lowered the floor. That residual is closed
+    /// by the choice of this constant.)
     /// </para>
     /// </summary>
-    public const int AppEscapingPolicyFloorMs = 0;
+    public const int AppEscapingPolicyFloorMs = 600;
 
     /// <summary>
     /// Whether an accidental activation of <paramref name="keyId"/> can leave the application or

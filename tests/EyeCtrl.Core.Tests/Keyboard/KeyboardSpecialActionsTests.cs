@@ -74,13 +74,17 @@ public class KeyboardSpecialActionsTests
         Check.That(KeyboardSpecialActions.IsAppEscaping(keyId)).IsFalse();
 
     [Fact]
-    public void AppEscapingPolicyFloorMs_IsDeferredAtZero_NotSilentlyRaised()
+    public void AppEscapingPolicyFloorMs_Is600_TheChosenPolicyValue()
     {
-        // The exemption from the forgiving knob is the gate and it ships; the 600 ms raise is the
-        // separable should, and it is a LIVE behavior change (a slower keyboard with adaptation off).
-        // Recording it as a constant-with-comment is the deferral — raising it here is the deliberate
-        // act, and this assertion makes that act visible in review. See the constant's doc for the
-        // full argument on both sides before changing it.
-        Check.That(KeyboardSpecialActions.AppEscapingPolicyFloorMs).IsEqualTo(0);
+        // This guard fired when the constant moved from 0 to 600 — that is it working, not a reason
+        // to delete it. Its job is to make ANY movement of this value loudly deliberate: re-aim it
+        // with the constant, never before it and never around it.
+        //
+        // 600 was chosen by the user on 2026-09-19 on consequence-asymmetry grounds: a misfired
+        // escaping key is the one failure this app cannot undo, while the extra hold is a measured
+        // cost that was deliberately accepted ("I'd rather have the guard than the measurement").
+        // The counter-argument (unmeasured accidental rate at 450; space/enter 18.7 sigma apart;
+        // steadiness is the user's scarce resource) is on record in the constant's doc.
+        Check.That(KeyboardSpecialActions.AppEscapingPolicyFloorMs).IsEqualTo(600);
     }
 }

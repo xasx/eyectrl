@@ -124,12 +124,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     // direction is SHORTER and is driven automatically by the user's own abandonment, so without the
     // exemption it shortens the most consequential keys first, for whoever is struggling most.
     //
-    // The floor is the user's configured baseline (KeyboardKeyDwellMs), not a new absolute value:
-    // the gate — "not subject to the forgiving knob" — costs zero today. The absolute raise to
-    // 600 ms is the separable policy should, recorded (and deliberately not taken) in
-    // KeyboardSpecialActions.AppEscapingPolicyFloorMs; the max() below is shaped so taking it is a
-    // one-line change that cannot shorten a user's larger setting. Tightening still raises these
-    // keys above the floor: Math.Max is monotone in the composed value.
+    // The floor is max(configured baseline, AppEscapingPolicyFloorMs), and the policy value is 600:
+    // an absolute floor that also survives a lowered baseline (see its doc for the decision). The
+    // max() keeps a user's larger setting intact, and a tightening fill still raises these keys above
+    // the floor — Math.Max is monotone in the composed value.
     private int KeyDwellMsFor(string? keyId)
     {
         if (!KeyboardSpecialActions.IsAppEscaping(keyId))

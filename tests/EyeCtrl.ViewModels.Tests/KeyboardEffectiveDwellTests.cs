@@ -144,7 +144,7 @@ public class KeyboardEffectiveDwellTests
     }
 
     [Fact]
-    public void EscapingKey_HoldsTheConfiguredBaseline_WhileTheLetterShortens()
+    public void EscapingKey_HoldsThePolicyFloor_WhileTheLetterShortens()
     {
         var (vm, provider, _) = Make();
         DriveToMaximumForgivingDeflection(provider);
@@ -166,11 +166,11 @@ public class KeyboardEffectiveDwellTests
                 "and the escaping assertion below would be vacuous.")
             .That(fired).Contains("a");
 
-        // The escaping key must NOT follow the shortened value: the floor-broken mutation fires it
-        // at 270 ms, i.e. during the hold below. It holds the configured 450 ms baseline —
-        // floor-as-gate, not the deferred 600 ms policy (which would not fire until 1100 ms here).
+        // The escaping key must NOT follow the shortened value: the floor-broken mutations fire it
+        // at 270 (exemption gone) or 450 (constant reverted to 0), both during the hold below. It
+        // holds the 600 ms absolute policy floor.
         vm.ProcessKeyGaze(keys, EscapeAt, true, 500_000); // latch
-        HoldAt(vm, keys, EscapeAt, 550_000, 900_000);     // up to 400 ms elapsed
+        HoldAt(vm, keys, EscapeAt, 550_000, 1_050_000);   // up to 550 ms elapsed
         Check.WithCustomMessage(
                 "An app-escaping key fired below its floor under maximum forgiving deflection. The " +
                 "keyboard is shortening the keys whose misfire the user cannot undo, fastest for " +
@@ -181,11 +181,11 @@ public class KeyboardEffectiveDwellTests
                 "tracking the shortened composed value instead of the floor, so the user sees a " +
                 "completed dwell and no activation, on the keys they must search for rather than " +
                 "touch-type.")
-            .That(vm.NearestKeyProgress).IsStrictlyLessThan(1.0); // 400 ms of a 450 ms floor = 0.889
-        vm.ProcessKeyGaze(keys, EscapeAt, true, 950_000); // 450 ms elapsed
+            .That(vm.NearestKeyProgress).IsStrictlyLessThan(1.0); // 550 ms of a 600 ms floor = 0.917
+        vm.ProcessKeyGaze(keys, EscapeAt, true, 1_100_000); // 600 ms elapsed
         Check.WithCustomMessage(
                 "The escaping key never fired, so the floor became a dead key. The floor is the " +
-                "configured baseline (450) — not a raise, and not the deferred 600 ms policy.")
+                "600 ms absolute policy value.")
             .That(fired).Contains("enter");
     }
 
@@ -193,9 +193,11 @@ public class KeyboardEffectiveDwellTests
     public void EscapingKey_DoesNotShortenAHigherConfiguredBaseline()
     {
         // KeyboardKeyDwellMs is user-settable up to 1500. A floor that substitutes the policy value
-        // for the configured baseline (`return 600`, or max(composed, policy) with no baseline term)
-        // would SHORTEN this user's setting. The floor must be
-        // max(composed, max(baseline, policy)); composed here is 900 − 360 = 540.
+        // for the configured baseline (`return AppEscapingPolicyFloorMs`, or max(composed, policy)
+        // with no baseline term) would SHORTEN this user's setting — and with the policy now at 600
+        // this is the test that proves max(900, 600) = 900. The composition is
+        // max(composed, max(baseline, policy)); composed here is 900 − 360 = 540. Do not "simplify"
+        // it to the policy constant.
         var (vm, provider, _) = Make();
         DriveToMaximumForgivingDeflection(provider);
         vm.Configure(keyDwellMs: 900, cooldownMs: 0);
@@ -225,13 +227,51 @@ public class KeyboardEffectiveDwellTests
     }
 
     [Fact]
+    public void EscapingFloor_ExceedsASmallConfiguredBaseline_Intentionally()
+    {
+        // KeyboardKeyDwellMs allows 100. With the 600 policy floor, an escaping key then sits at 600
+        // while the letters sit at 100 — a 6x spread inside one keyboard. Intended: the floor is
+        // absolute, and nothing clamps it back toward the baseline (the keyboard guard clamp is
+        // [100, 1500], and 600 is inside it). This also pins the gate's discharged second clause:
+        // a lowered global key dwell no longer drags the escaping keys down.
+        var (vm, provider, _) = Make();
+        DriveToMaximumForgivingDeflection(provider);
+        vm.Configure(keyDwellMs: 100, cooldownMs: 0);
+
+        var keys = LetterEscapeAndNavigation();
+        var fired = new List<string>();
+        vm.KeyDwellCompleted += fired.Add;
+
+        // Positive control: the letter sits at the 100 ms keyboard minimum (the composed 60 is
+        // clamped up by the provider's ValidMin and the keyboard's guard), so the knob is live and
+        // the spread is real.
+        vm.ProcessKeyGaze(keys, LetterAt, true, 0);
+        HoldAt(vm, keys, LetterAt, 50_000, 50_000);
+        Check.That(fired).Not.Contains("a"); // 50 < 100
+        vm.ProcessKeyGaze(keys, LetterAt, true, 100_000);
+        Check.WithCustomMessage("The letter did not fire at its 100 ms baseline.")
+            .That(fired).Contains("a");
+
+        vm.ProcessKeyGaze(keys, EscapeAt, true, 200_000); // latch
+        HoldAt(vm, keys, EscapeAt, 250_000, 750_000);     // up to 550 ms elapsed
+        Check.WithCustomMessage(
+                "The escaping key did not hold 600 ms against a 100 ms baseline — the floor is " +
+                "tracking the baseline again, so lowering the global key dwell shortens the keys " +
+                "this gate exists to protect.")
+            .That(fired).Not.Contains("enter");
+        vm.ProcessKeyGaze(keys, EscapeAt, true, 800_000); // 600 ms elapsed
+        Check.WithCustomMessage("The escaping key never fired at the 600 ms floor.")
+            .That(fired).Contains("enter");
+    }
+
+    [Fact]
     public void EscapingKey_FollowsTightening_AboveTheFloor()
     {
         // The floor is a LOWER BOUND, not a replacement. When accidental-activation tightening raises
         // the composed dwell, escaping keys must rise with it: a floor written as `return floor`
-        // leaves enter at 450 while the letters rise to 675 — the most consequential keys become the
-        // easiest to hit, the same category error in the opposite direction. Full tightening fill on
-        // a 450 ms baseline composes to 450 + 0.50×450 = 675.
+        // leaves enter capped at 600 while the letters rise to 675 — the most consequential keys
+        // become the easiest to hit, the same category error in the opposite direction. Full
+        // tightening fill on a 450 ms baseline composes to 450 + 0.50×450 = 675.
         var (vm, provider, _) = Make();
         provider.SetMomentaryFill(AdaptationKnob.DwellTime, DwellContext.Other, 0.0, 1.0);
         vm.Configure(keyDwellMs: 450, cooldownMs: 0);

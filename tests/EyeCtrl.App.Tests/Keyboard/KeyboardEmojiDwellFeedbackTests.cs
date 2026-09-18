@@ -254,8 +254,9 @@ public class KeyboardEmojiDwellFeedbackTests
     /// <para>
     /// Every registered cell is asserted, not one: the claim is that the whole visible grid
     /// loses its colour, so a write that spared the cell the test happened to look at must fail
-    /// here. Each cell's glyph identity is pinned too — surviving is the requirement, and
-    /// surviving as the SAME glyph is what proves the cell was neither rebuilt nor swapped.
+    /// here. The post-activation assertions read the LIVE glyph rather than a reference captured
+    /// before the dwell — the property is that every visible cell still shows a colour glyph,
+    /// not that it is the same object as before. See the loop for the declined alternative.
     /// </para>
     /// </summary>
     [StaFact]
@@ -276,9 +277,11 @@ public class KeyboardEmojiDwellFeedbackTests
                 .OrderBy(id => id, StringComparer.Ordinal)
                 .ToList();
             Check.WithCustomMessage(
-                    "No emoji cell is registered for the current page, so the post-activation "
-                    + "assertions below would pass vacuously.")
-                .That(cells).Not.IsEmpty();
+                    $"Only {cells.Count} emoji cell(s) are registered for the current page: a "
+                    + "single-cell page would silently collapse this test back to asserting one "
+                    + "of the grid, the exact shape the whole-page loop exists to close. Page "
+                    + "size is not pinned — only that the loop has more than one cell to cover.")
+                .That(cells.Count).IsStrictlyGreaterThan(1);
 
             var glyphs = new Dictionary<string, Emoji.Wpf.TextBlock>();
             foreach (var id in cells)
@@ -306,17 +309,26 @@ public class KeyboardEmojiDwellFeedbackTests
                 .That(activations).IsEqualTo(1);
             foreach (var id in cells)
             {
+                // Reading the LIVE glyph, not the reference captured before the dwell. Identity
+                // was considered and declined: it also catches "flattened, then rebuilt
+                // correctly" -- a bug present but masked by the rebuild -- which is the honest
+                // counter-argument. It was declined anyway because it reddens on a legitimate
+                // grid rebuild, e.g. refreshing the page after TrackEmojiInRecents, which a user
+                // experiences as working correctly; a ratchet that fires on honest refactors gets
+                // deleted by the next person. The property is that every visible cell still
+                // shows a colour glyph, not that it is the same object as before. Do not tighten
+                // this back into a reference check.
+                var live = ((Grid)visuals[id].Container.Child).Children[0];
+                Check.WithCustomMessage(
+                        $"Activating {CellId} replaced {id}'s glyph element, so the cell no longer "
+                        + "renders an emoji.")
+                    .That(live).IsInstanceOf<Emoji.Wpf.TextBlock>();
                 Check.WithCustomMessage(
                         $"Activating {CellId} destroyed {id}'s colour rendering: the base-typed "
                         + "TextBlock.Text write in UpdateShiftDisplay replaced the EmojiInline "
                         + "with a plain Run. Every visible cell goes monochrome after the first "
                         + "emoji.")
-                    .That(glyphs[id].EmojiInlines.Any()).IsTrue();
-                Check.WithCustomMessage(
-                        $"{id}: the cell no longer holds the glyph it did before the dwell, so its "
-                        + "content was rebuilt or swapped rather than left alone.")
-                    .That(((Grid)visuals[id].Container.Child).Children[0])
-                    .IsSameReferenceAs(glyphs[id]);
+                    .That(((Emoji.Wpf.TextBlock)live).EmojiInlines.Any()).IsTrue();
             }
         }
         finally { probe.Dispose(); }

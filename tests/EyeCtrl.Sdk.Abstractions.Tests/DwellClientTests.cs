@@ -46,8 +46,16 @@ public class DwellClientTests
         var serverTask = Task.Run(async () =>
         {
             await squatter.WaitForConnectionAsync();
-            using var writer = new System.IO.StreamWriter(squatter, new System.Text.UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
-            await writer.WriteLineAsync("""{"type":"activated","id":"btn"}""");
+            // The client may reject our identity and disconnect before or below this write —
+            // a broken pipe here IS the behavior under test (it never reads from a squatter),
+            // so a failed write is a pass-shaped outcome, not an error. The reject raced the
+            // write on 2 of 3 CI runs; locally the write always won.
+            try
+            {
+                using var writer = new System.IO.StreamWriter(squatter, new System.Text.UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+                await writer.WriteLineAsync("""{"type":"activated","id":"btn"}""");
+            }
+            catch (System.IO.IOException) { }
             await Task.Delay(TimeSpan.FromSeconds(2)); // hold open: the client would read if it trusted us
         });
 

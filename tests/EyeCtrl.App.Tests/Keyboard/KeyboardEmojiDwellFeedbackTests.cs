@@ -250,6 +250,13 @@ public class KeyboardEmojiDwellFeedbackTests
     /// no-<c>SpecialAction</c> branch and never calls <c>BuildGrid</c> — so the cells stay
     /// monochrome until a category or page change. This test dwells to COMPLETION: a test that
     /// stops at 90 % of the path is how that shipped green.
+    ///
+    /// <para>
+    /// Every registered cell is asserted, not one: the claim is that the whole visible grid
+    /// loses its colour, so a write that spared the cell the test happened to look at must fail
+    /// here. Each cell's glyph identity is pinned too — surviving is the requirement, and
+    /// surviving as the SAME glyph is what proves the cell was neither rebuilt nor swapped.
+    /// </para>
     /// </summary>
     [StaFact]
     public void EmojiCell_Activation_KeepsItsColorGlyph()
@@ -264,10 +271,27 @@ public class KeyboardEmojiDwellFeedbackTests
             Check.That(visuals.ContainsKey(CellId)).IsTrue();
             Check.That(KeyCentres(probe.Window).ContainsKey(CellId)).IsTrue();
 
-            var container = visuals[CellId].Container;
-            Check.That(container.Child).IsSameReferenceAs(outlines[CellId].Layout);
-            var glyph = (Emoji.Wpf.TextBlock)((Grid)container.Child).Children[0];
-            Check.That(glyph.EmojiInlines.Any()).IsTrue();
+            var cells = visuals.Keys
+                .Where(id => id.StartsWith("emoji_", StringComparison.Ordinal))
+                .OrderBy(id => id, StringComparer.Ordinal)
+                .ToList();
+            Check.WithCustomMessage(
+                    "No emoji cell is registered for the current page, so the post-activation "
+                    + "assertions below would pass vacuously.")
+                .That(cells).Not.IsEmpty();
+
+            var glyphs = new Dictionary<string, Emoji.Wpf.TextBlock>();
+            foreach (var id in cells)
+            {
+                var cellContainer = visuals[id].Container;
+                Check.WithCustomMessage($"{id}: the cell's child is not its dwell outline layout.")
+                    .That(cellContainer.Child).IsSameReferenceAs(outlines[id].Layout);
+                Check.WithCustomMessage($"{id}: the outline did not wrap the cell's glyph.")
+                    .That(((Grid)cellContainer.Child).Children[0]).IsInstanceOf<Emoji.Wpf.TextBlock>();
+                glyphs[id] = (Emoji.Wpf.TextBlock)((Grid)cellContainer.Child).Children[0];
+                Check.WithCustomMessage($"{id}: the glyph carries no emoji inlines at rest.")
+                    .That(glyphs[id].EmojiInlines.Any()).IsTrue();
+            }
 
             var activations = 0;
             probe.Vm.KeyDwellCompleted += id => { if (id == CellId) activations++; };
@@ -276,15 +300,24 @@ public class KeyboardEmojiDwellFeedbackTests
             Feed(probe, KeyCentres(probe.Window)[CellId], 1_000_000, 1_480_000);
 
             Check.WithCustomMessage(
-                    "The cell never activated, so the post-activation assertion would be vacuous "
+                    "The cell never activated, so the post-activation assertions would be vacuous "
                     + "(the dwell would have to reach the full key-dwell time to raise "
                     + "ActiveModifiers through ActivateKey).")
                 .That(activations).IsEqualTo(1);
-            Check.WithCustomMessage(
-                    "Activating the emoji destroyed its colour rendering: the base-typed "
-                    + "TextBlock.Text write in UpdateShiftDisplay replaced the EmojiInline with a "
-                    + "plain Run. Every visible cell goes monochrome after the first emoji.")
-                .That(glyph.EmojiInlines.Any()).IsTrue();
+            foreach (var id in cells)
+            {
+                Check.WithCustomMessage(
+                        $"Activating {CellId} destroyed {id}'s colour rendering: the base-typed "
+                        + "TextBlock.Text write in UpdateShiftDisplay replaced the EmojiInline "
+                        + "with a plain Run. Every visible cell goes monochrome after the first "
+                        + "emoji.")
+                    .That(glyphs[id].EmojiInlines.Any()).IsTrue();
+                Check.WithCustomMessage(
+                        $"{id}: the cell no longer holds the glyph it did before the dwell, so its "
+                        + "content was rebuilt or swapped rather than left alone.")
+                    .That(((Grid)visuals[id].Container.Child).Children[0])
+                    .IsSameReferenceAs(glyphs[id]);
+            }
         }
         finally { probe.Dispose(); }
     }

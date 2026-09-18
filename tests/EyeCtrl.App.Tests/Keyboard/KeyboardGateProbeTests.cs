@@ -51,7 +51,7 @@ using Xunit;
 /// <para><b>Why a live source is required, and why it is an HwndSource rather than Show().</b>
 /// <c>PointToScreen</c> throws <see cref="InvalidOperationException"/> without a
 /// <see cref="PresentationSource"/> — and the gate CATCHES that and returns false
-/// (<c>KeyboardWindow.xaml.cs TryGetKeyRowsScreenRect</c>). So a test over a sourceless visual
+/// (<c>KeyboardWindow.xaml.cs TryGetScreenRect</c>). So a test over a sourceless visual
 /// reports "outside" for every input and is green against the bug, against the fix, AND against
 /// <c>return false;</c>. A source is therefore mandatory, and the <c>IsNotNull</c> guard in
 /// <c>Open</c> is what stops this file ever going quietly vacuous.</para>

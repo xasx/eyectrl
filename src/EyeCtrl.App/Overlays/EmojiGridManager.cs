@@ -47,6 +47,8 @@ public class EmojiGridManager
 
     private readonly StackPanel _keyRows;
     private readonly StackPanel _categoryBar;
+    // The content element is handed to the registrar, never set as the Border's own Child: the
+    // registrar wraps it in the dwell outline, and an already-parented child makes Attach throw.
     private readonly Action<string, KeyDefinition, Border, TextBlock?> _registerKeyVisual;
     private readonly Func<double> _getKeySize;
     private readonly Action _clearKeyState;
@@ -167,11 +169,10 @@ public class EmojiGridManager
                     Height = keySize,
                     Margin = new Thickness(2),
                     Background = new SolidColorBrush(EmojiGridBackgroundColor),
-                    CornerRadius = Tokens.StandardCornerRadius,
-                    Child = emojiChild
+                    CornerRadius = Tokens.StandardCornerRadius
                 };
 
-                _registerKeyVisual(id, keyDef, container, null);
+                _registerKeyVisual(id, keyDef, container, emojiChild);
                 rowPanel.Children.Add(container);
             }
 
@@ -445,11 +446,10 @@ public class EmojiGridManager
                 Height = keySize * SkinToneCellScale,
                 Margin = new Thickness(4),
                 Background = new SolidColorBrush(isActive ? KeyColorHighlight : KeyColorNormal),
-                CornerRadius = Tokens.StandardCornerRadius,
-                Child = skinChild
+                CornerRadius = Tokens.StandardCornerRadius
             };
 
-            _registerKeyVisual(id, keyDef, container, null);
+            _registerKeyVisual(id, keyDef, container, skinChild);
             rowPanel.Children.Add(container);
         }
 
@@ -485,8 +485,7 @@ public class EmojiGridManager
             Height = keySize,
             Margin = new Thickness(2),
             Background = new SolidColorBrush(KeyColorSwitch),
-            CornerRadius = Tokens.StandardCornerRadius,
-            Child = label
+            CornerRadius = Tokens.StandardCornerRadius
         };
 
         _registerKeyVisual(id, keyDef, container, label);

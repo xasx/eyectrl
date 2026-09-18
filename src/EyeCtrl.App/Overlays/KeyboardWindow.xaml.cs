@@ -261,7 +261,6 @@ public partial class KeyboardWindow : OverlayWindow
                     CornerRadius = Tokens.StandardCornerRadius
                 };
                 _keyBrushes[id] = keyBrush;
-                _keyOutlines[id] = DwellOutlineOverlay.Attach(container, label);
 
                 System.Windows.Automation.AutomationProperties.SetAutomationId(label, $"Keyboard_Key_{id}");
 
@@ -822,8 +821,19 @@ public partial class KeyboardWindow : OverlayWindow
         UpdateShiftDisplay();
     }
 
+    /// <summary>
+    /// Registers a dwell target and gives it dwell feedback in one act. Every surface that
+    /// registers a key visual passes through here — the text grid directly, and the emoji cells,
+    /// skin-tone swatches and special buttons through the <see cref="EmojiGridManager"/>
+    /// registrar — so "registered as a dwell target" and "has dwell feedback" cannot come apart.
+    /// The emoji grid shipped with no feedback for exactly as long as attachment lived at each
+    /// call site; a funnel makes that silent omission structurally impossible to repeat.
+    /// </summary>
+    /// <param name="container">The target's border. Its <c>Child</c> must be unset: the outline
+    /// wraps <paramref name="label"/> and installs the wrapper as the Child.</param>
     private void RegisterKeyVisual(string id, KeyDefinition keyDef, Border container, TextBlock? label)
     {
+        _keyOutlines[id] = DwellOutlineOverlay.Attach(container, label);
         _keyDefinitions[id] = keyDef;
         _keyVisuals[id] = (container, label);
     }

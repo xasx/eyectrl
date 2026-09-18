@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Services;
 
+using System.ComponentModel;
 using System.IO;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
@@ -54,6 +55,9 @@ public sealed class ExternalDwellService : IDisposable
     private readonly Dictionary<string, long> _hwndById = new();
     private readonly DwellFeedbackOverlay _feedback;
     private readonly IDwellDetectorRegistry? _dwellRegistry;
+    // Named so Dispose can detach it — an anonymous lambda here would keep every disposed
+    // service reachable from the (singleton) settings object forever.
+    private readonly PropertyChangedEventHandler _settingsChangedHandler;
 
     private readonly object _stateLock = new();
     private readonly List<PipeConnection> _connections = new();
@@ -104,7 +108,7 @@ public sealed class ExternalDwellService : IDisposable
             map => { lock (_stateLock) _detector.SetEffectiveDwellTime(map); },
             map => { lock (_stateLock) _detector.SetEffectiveGeometry(map); }));
         _feedback = new DwellFeedbackOverlay();
-        _settings.PropertyChanged += (_, e) =>
+        _settingsChangedHandler = (_, e) =>
         {
             if (e.PropertyName == nameof(ExternalDwellSettings.CooldownMs))
                 lock (_stateLock) _detector.SetCooldown(_settings.CooldownMs);
@@ -114,6 +118,7 @@ public sealed class ExternalDwellService : IDisposable
             // re-enable (their tracker would send Update, which the server drops once TargetIds is
             // cleared), and it's unnecessary — disabled frames are simply not processed.
         };
+        _settings.PropertyChanged += _settingsChangedHandler;
         _gazeEngine.CursorMoved += OnCursorMoved;
 
         // The PipeConnection IS this channel's per-connection state: the server hands it back to
@@ -431,6 +436,7 @@ public sealed class ExternalDwellService : IDisposable
         if (_disposed) return;
         _disposed = true;
         _gazeEngine.CursorMoved -= OnCursorMoved;
+        _settings.PropertyChanged -= _settingsChangedHandler;
         ReleaseSuppression();
         // Unregister BEFORE further teardown: the registry entry holds this detector through its
         // applier, and a disposing service must not receive any further routed maps.

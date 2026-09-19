@@ -20,7 +20,10 @@ public class KeyboardTelemetryTests
         ["B"] = new PhysicalPoint(400, 100),
     };
 
-    private static KeyboardViewModel MakeVm(RecordingSink sink, int keyDwellMs = 200, int cooldownMs = 400)
+    // 300, not 200: the keyboard family's floor (AdaptationDwellRanges.KeyboardMinDwellMs) clamps
+    // any configured baseline below it, so a 200 here would silently become 300 and every sample
+    // count in this file would be measuring the clamp rather than the telemetry.
+    private static KeyboardViewModel MakeVm(RecordingSink sink, int keyDwellMs = 300, int cooldownMs = 400)
     {
         var vm = new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger(), sink);
         vm.Configure(keyDwellMs, cooldownMs);
@@ -45,7 +48,7 @@ public class KeyboardTelemetryTests
         var vm = MakeVm(sink);
 
         vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(100, 100), isGazeInsideWindow: true, 0);
-        HoldGaze(vm, new PhysicalPoint(100, 100), 200_000);
+        HoldGaze(vm, new PhysicalPoint(100, 100), 300_000);
 
         Check.That(sink.Outcomes).HasSize(1);
         var o = sink.Outcomes[0];
@@ -62,7 +65,7 @@ public class KeyboardTelemetryTests
         var vm = MakeVm(sink);
 
         vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(100, 100), true, 0);        // enter A
-        vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(400, 100), true, 100_000);  // switch to B (A at 50%)
+        vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(400, 100), true, 150_000);  // switch to B (A at 50%)
 
         Check.That(sink.Outcomes).HasSize(1);
         Check.That(sink.Outcomes[0].Kind).IsEqualTo(OutcomeKind.Abandoned);
@@ -77,7 +80,7 @@ public class KeyboardTelemetryTests
         var vm = MakeVm(sink);
 
         vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(100, 100), true, 0);          // enter A
-        vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(100, 100), false, 100_000);   // gaze leaves the key area
+        vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(100, 100), false, 150_000);   // gaze leaves the key area at 50%
 
         Check.That(sink.Outcomes).HasSize(1);
         Check.That(sink.Outcomes[0].Kind).IsEqualTo(OutcomeKind.Abandoned);
@@ -92,7 +95,7 @@ public class KeyboardTelemetryTests
         var vm = MakeVm(sink);
 
         vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(100, 100), true, 0);         // enter A
-        vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(400, 100), true, 30_000);    // switch at ~15% (<0.3)
+        vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(400, 100), true, 30_000);    // switch at ~10% (< the abandon cut-off)
 
         Check.That(sink.Outcomes).IsEmpty();
     }
@@ -101,12 +104,12 @@ public class KeyboardTelemetryTests
     public void Cooldown_AfterActivation_NeverEmitsAbandoned()
     {
         var sink = new RecordingSink();
-        var vm = MakeVm(sink, keyDwellMs: 200, cooldownMs: 400);
+        var vm = MakeVm(sink, keyDwellMs: 300, cooldownMs: 400);
 
         vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(100, 100), true, 0);
-        HoldGaze(vm, new PhysicalPoint(100, 100), 200_000);                       // activates A
-        vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(100, 100), true, 230_000);   // still within cooldown
-        vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(400, 100), true, 260_000);   // still within cooldown
+        HoldGaze(vm, new PhysicalPoint(100, 100), 300_000);                       // activates A
+        vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(100, 100), true, 330_000);   // still within cooldown
+        vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(400, 100), true, 360_000);   // still within cooldown
 
         Check.That(sink.Outcomes.TrueForAll(o => o.Kind == OutcomeKind.Activated)).IsTrue();
         Check.That(sink.Outcomes).HasSize(1);
@@ -116,12 +119,12 @@ public class KeyboardTelemetryTests
     public void NullSink_StillFiresKeyDwellCompleted_NeverThrows()
     {
         var vm = new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger()); // no sink
-        vm.Configure(200, 400);
+        vm.Configure(300, 400);
         string? completed = null;
         vm.KeyDwellCompleted += id => completed = id;
 
         vm.ProcessKeyGaze(TwoKeys, new PhysicalPoint(100, 100), true, 0);
-        HoldGaze(vm, new PhysicalPoint(100, 100), 200_000);
+        HoldGaze(vm, new PhysicalPoint(100, 100), 300_000);
 
         Check.That(completed).IsEqualTo("A");
     }

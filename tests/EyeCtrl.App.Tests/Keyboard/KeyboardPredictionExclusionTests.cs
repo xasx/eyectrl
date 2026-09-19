@@ -12,6 +12,7 @@ using System.Windows.Media;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
@@ -695,5 +696,31 @@ public class KeyboardPredictionExclusionTests
             Check.That(inserted).IsNull();
         }
         finally { probe.Dispose(); }
+    }
+
+    // ---- the keyboard family's blink-credit floor reaches this surface ----
+
+    [StaFact]
+    public void PredictionDetector_RegistersTheKeyboardFamilyRange_SoTheAdaptiveFloorBinds()
+    {
+        // The bar rides the shared DwellDetector through DwellTimeRouter, whose map composes the
+        // forgiving fill against the target's baseline and then clamps to the registration's range.
+        // That range is what keeps the knob's 0.6x composition (180 ms at the 300 ms family minimum)
+        // from reaching a stall-completable dwell, so the prediction surface must register the
+        // keyboard family, not Standard (200 — the same 180 ms composition would be admitted and a
+        // 149 ms credited silence would leave 31 ms of real gaze). The emoji registration is pinned
+        // in DwellRoutingOwnerRegistrationTests; this is the prediction half, and the key grid's half
+        // is behavioural in EyeCtrl.ViewModels.Tests.KeyboardEffectiveDwellTests.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var registry = new DwellDetectorRegistry();
+        var window = new KeyboardWindow(dwellRegistry: registry);
+        try
+        {
+            var entry = registry.Registrations.Single();
+            Check.That(entry.Context).IsEqualTo(DwellContext.KeyboardPrediction);
+            Check.That(entry.MinDwellMs).IsEqualTo(AdaptationDwellRanges.KeyboardMinDwellMs);
+            Check.That(entry.MaxDwellMs).IsEqualTo(AdaptationDwellRanges.KeyboardMaxDwellMs);
+        }
+        finally { window.Close(); }
     }
 }

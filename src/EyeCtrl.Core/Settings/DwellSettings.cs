@@ -15,9 +15,9 @@ public partial class DwellSettings : ObservableObject, IValidatable
     [ObservableProperty] private int _manualSelectionActionMenuDwellMs = 600;
     /// <summary>Dwell time in milliseconds for toolbar buttons. Valid range: 200–2000.</summary>
     [ObservableProperty] private int _toolbarButtonDwellMs = 700;
-    /// <summary>Dwell time in milliseconds for keyboard keys. Valid range: 100–1500.</summary>
+    /// <summary>Dwell time in milliseconds for keyboard keys. Valid range: 300–1500.</summary>
     [ObservableProperty] private int _keyboardKeyDwellMs = 450;
-    /// <summary>Dwell time in milliseconds for prediction suggestion buttons. Valid range: 100–1500.</summary>
+    /// <summary>Dwell time in milliseconds for prediction suggestion buttons. Valid range: 300–1500.</summary>
     [ObservableProperty] private int _keyboardPredictionDwellMs = 500;
     /// <summary>Radius in pixels within which gaze samples are considered a fixation. Valid range: 10–200.</summary>
     [ObservableProperty] private double _fixationRadiusPixels = 50;
@@ -83,20 +83,20 @@ public partial class DwellSettings : ObservableObject, IValidatable
 
     partial void OnKeyboardKeyDwellMsChanging(int value)
     {
-        if (value < 100 || value > 1500)
+        if (value < 300 || value > 1500)
             throw new ArgumentOutOfRangeException(
                 nameof(value),
                 value,
-                $"{nameof(KeyboardKeyDwellMs)} must be between 100 and 1500");
+                $"{nameof(KeyboardKeyDwellMs)} must be between 300 and 1500");
     }
 
     partial void OnKeyboardPredictionDwellMsChanging(int value)
     {
-        if (value < 100 || value > 1500)
+        if (value < 300 || value > 1500)
             throw new ArgumentOutOfRangeException(
                 nameof(value),
                 value,
-                $"{nameof(KeyboardPredictionDwellMs)} must be between 100 and 1500");
+                $"{nameof(KeyboardPredictionDwellMs)} must be between 300 and 1500");
     }
 
     partial void OnFixationRadiusPixelsChanging(double value)
@@ -168,8 +168,8 @@ public partial class DwellSettings : ObservableObject, IValidatable
             ValidationHelper.ValidateRange(ActionMenuDwellMs, 200, 2000, nameof(ActionMenuDwellMs)),
             ValidationHelper.ValidateRange(ManualSelectionActionMenuDwellMs, 200, 2000, nameof(ManualSelectionActionMenuDwellMs)),
             ValidationHelper.ValidateRange(ToolbarButtonDwellMs, 200, 2000, nameof(ToolbarButtonDwellMs)),
-            ValidationHelper.ValidateRange(KeyboardKeyDwellMs, 100, 1500, nameof(KeyboardKeyDwellMs)),
-            ValidationHelper.ValidateRange(KeyboardPredictionDwellMs, 100, 1500, nameof(KeyboardPredictionDwellMs)),
+            ValidationHelper.ValidateRange(KeyboardKeyDwellMs, 300, 1500, nameof(KeyboardKeyDwellMs)),
+            ValidationHelper.ValidateRange(KeyboardPredictionDwellMs, 300, 1500, nameof(KeyboardPredictionDwellMs)),
             ValidationHelper.ValidateRange(FixationRadiusPixels, 10.0, 200.0, nameof(FixationRadiusPixels)),
             VelocityThresholdPxPerSec > 0
                 ? null

@@ -16,8 +16,31 @@ public static class AdaptationDwellRanges
     public const int StandardMinDwellMs = 200;
     /// <summary>See <see cref="StandardMinDwellMs"/>.</summary>
     public const int StandardMaxDwellMs = 2000;
-    /// <summary>KeyboardKeyDwellMs / KeyboardPredictionDwellMs (also the emoji grid's category tabs, which read KeyboardKeyDwellMs): 100–1500 ms.</summary>
-    public const int KeyboardMinDwellMs = 100;
+    /// <summary>
+    /// KeyboardKeyDwellMs / KeyboardPredictionDwellMs (also the emoji grid's category tabs, which
+    /// read KeyboardKeyDwellMs): 300–1500 ms.
+    /// <para>
+    /// The floor exists because both keyboard paths credit a silence of up to 150 ms as held gaze
+    /// (<c>KeyboardViewModel.MaxContinuousSampleGapUs</c> for the key grid, which credits exactly
+    /// 150 ms, and <c>DwellDetector.MaxCreditedSampleGapUs</c> for the prediction bar, emoji tabs
+    /// and the other shared surfaces, which restarts at 150 ms). At a 150 ms dwell one short blink
+    /// completes a key. ANY floor above 150 closes that SINGLE-stall case; 300 is chosen because it
+    /// is the value already published to the user (ticket 7's close-out) and recorded beside
+    /// <c>KeyboardSpecialActions.AppEscapingPolicyFloorMs</c>, so the code enforces the number the
+    /// user was told. Its supporting property: at 300 the largest single credited stall supplies at
+    /// most half of the dwell, so the user must contribute at least as much real gaze as the silence
+    /// could fake. The clamp is PER GAP, not cumulative — see
+    /// <c>DwellDetector.MaxCreditedSampleGapUs</c> for the multi-stall qualifier.
+    /// </para>
+    /// <para>
+    /// Every keyboard-family path is floored here: <c>DwellSettings</c>' guards and the Dwell
+    /// sliders stop a low baseline being written or configured, and this constant re-clamps the
+    /// ADAPTIVE effective value — the forgiving knob shortens toward 0.6×baseline, so with a 300
+    /// baseline it would otherwise reach 180. The floor therefore has to sit above the baseline
+    /// guard, not merely equal it.
+    /// </para>
+    /// </summary>
+    public const int KeyboardMinDwellMs = 300;
     /// <summary>See <see cref="KeyboardMinDwellMs"/>.</summary>
     public const int KeyboardMaxDwellMs = 1500;
     /// <summary>ExternalDwellSettings.DefaultDwellMs: 200–3000 ms — NOT Standard; a legal 2500 ms baseline restored through [200, 2000] would be truncated.</summary>

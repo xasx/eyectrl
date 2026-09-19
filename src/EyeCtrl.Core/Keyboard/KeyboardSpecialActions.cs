@@ -80,18 +80,28 @@ public static class KeyboardSpecialActions
     /// by the choice of this constant.)
     /// </para>
     /// <para>
-    /// <b>Practical bound when lowering <c>KeyboardKeyDwellMs</c>: not below ~300 ms.</b> The gate's
-    /// discharge does not make every baseline safe. Ticket 2's <c>MaxContinuousSampleGapUs</c> credits
-    /// a stall of up to 150 ms as held gaze, so the real gaze required is <c>dwell − 150</c>; at a
-    /// 150 ms setting that is zero and one short blink completes a key. ~300 ms is twice the
-    /// credit bound. The exposure below 300 is bounded but not zero — it is every key outside this
-    /// class (letters, <c>space</c>, <c>backspace</c>, <c>deleteWord</c>, <c>switch*</c>,
-    /// <c>modifier:*</c>, <c>toggle:capslock</c>), where a stray activation costs one visible
-    /// Backspace. The escaping keys themselves are protected here, and more strongly than the gate
-    /// asked: at 600 ms a blink inside the credit bound is a quarter of the dwell, so 450 ms of real
-    /// gaze is still required. Ticket 2 accepted its residual on the premise "no shipped
-    /// configuration uses 100 ms key dwell (default 450)" — recommending a lower baseline removes
-    /// that premise, which is why this bound is recorded beside the discharge.
+    /// <b>The keyboard family's floor is 300 ms, and it is now enforced, not merely recommended.</b>
+    /// The gate's discharge does not make every baseline safe. Ticket 2's
+    /// <c>MaxContinuousSampleGapUs</c> credits a stall of up to 150 ms as held gaze, so the real
+    /// gaze required is <c>dwell − 150</c>; at a 150 ms setting that is zero and one short blink
+    /// completes a key. ANY floor above 150 closes that SINGLE-stall case — the clamp is per gap, so
+    /// N credited silences still contribute up to 150·N and the multi-stall path scales with the
+    /// floor rather than closing (see <c>DwellDetector.MaxCreditedSampleGapUs</c> for the accepted
+    /// qualifier). 300 is chosen over a minimal 151 for two reasons: it is the value already
+    /// published to the user (ticket 7's close-out), and it adds the property that one credited
+    /// stall supplies at most half of the dwell. It is enforced on every path that can reach a
+    /// keyboard-family dwell: <c>AdaptationDwellRanges.KeyboardMinDwellMs</c> = 300 is
+    /// simultaneously the <c>DwellSettings</c> guard floor, the <c>d_key</c>/<c>d_pred</c> slider
+    /// minimum, and the adaptive routing clamp (without it the forgiving knob shortens toward
+    /// 0.6×baseline). A hand-edited file below it is clamped at load rather than rejected, so the
+    /// rest of the file survives. The exposure below 300 was bounded but not zero — it is every key
+    /// outside this class (letters, <c>space</c>, <c>backspace</c>, <c>deleteWord</c>,
+    /// <c>switch*</c>, <c>modifier:*</c>, <c>toggle:capslock</c>), where a stray activation costs
+    /// one visible Backspace. That is why ticket 2's residual premise — "no shipped configuration
+    /// uses 100 ms key dwell" — could no longer carry it once lowering the baseline was recommended.
+    /// The escaping keys are protected here, and more strongly than the gate asked: at 600 ms a
+    /// blink inside the credit bound is a quarter of the dwell, so 450 ms of real gaze is still
+    /// required.
     /// </para>
     /// </summary>
     public const int AppEscapingPolicyFloorMs = 600;

@@ -42,12 +42,18 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// </para>
     ///
     /// <para>
-    /// Known residual: the bound is larger than
-    /// <c>AdaptationDwellRanges.KeyboardMinDwellMs</c> (100 ms), the minimum a configuration may
-    /// select, so at a minimum-dwell setting a 100–150 ms stall would still be credited and could
-    /// fire. Accepted, and recorded so it is not rediscovered as a bug: the default key dwell is
-    /// 450 ms and every other surface dwells 600–700 ms, while lowering the bound to 100 ms would
-    /// restart ordinary dwells on a single dropped frame at 30 Hz.
+    /// 300 ms is the keyboard family's floor (<c>AdaptationDwellRanges.KeyboardMinDwellMs</c>), so
+    /// this bound is now below the minimum dwell a key can have: a SINGLE credited silence (at most
+    /// this bound — exactly 150 ms is still credited here, unlike the shared detector's
+    /// <c>&gt;=</c>) supplies at most half of a completed key, and the user must contribute at
+    /// least as much real gaze as that silence could fake. The clamp is per gap, so N silences
+    /// still contribute up to 150·N; the multi-stall qualifier and why it is accepted are recorded
+    /// on <c>DwellDetector.MaxCreditedSampleGapUs</c>. The floor is enforced on every path — the
+    /// <c>DwellSettings</c> guards and the Dwell sliders stop a lower baseline being written or
+    /// configured, and <see cref="ApplyEffectiveKeyDwell"/> re-clamps the ADAPTIVE value, which the
+    /// forgiving knob would otherwise shorten to 0.6×baseline (180 ms at a 300 ms baseline). The
+    /// residual this paragraph used to record — a 100–150 ms stall crediting at a 100 ms minimum —
+    /// is closed by that floor; do not re-derive the old 100 ms minimum from this constant.
     /// </para>
     /// </summary>
     private const long MaxContinuousSampleGapUs = 150 * MathConstants.MicrosecondsPerMillisecond;
@@ -108,7 +114,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     // SetEffectiveDwellTime pins. NB: no early-return on a null provider — Configure MUST assign
     // _keyDwellMs even without one, or ProcessKeyGaze's `<= 0` guard silently kills the keyboard
     // (review round 1, blocker 2). The clamp also covers the no-provider path; it is identity there
-    // because KeyboardKeyDwellMs's own guard is exactly [100, 1500].
+    // because KeyboardKeyDwellMs's own guard is exactly [300, 1500].
     private void ApplyEffectiveKeyDwell()
     {
         if (_baselineKeyDwellMs <= 0)

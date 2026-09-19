@@ -75,7 +75,7 @@ public class DwellRoutingOwnerRegistrationTests
         var entry = registry.Registrations[0];
         Check.That(entry.Context).IsEqualTo(DwellContext.Emoji);
         // Keyboard range, not Standard: the category tabs read KeyboardKeyDwellMs, so the emoji
-        // grid's validated span is the keyboard guard family [100, 1500].
+        // grid's validated span is the keyboard guard family [300, 1500].
         Check.That(entry.MinDwellMs).IsEqualTo(AdaptationDwellRanges.KeyboardMinDwellMs);
         Check.That(entry.MaxDwellMs).IsEqualTo(AdaptationDwellRanges.KeyboardMaxDwellMs);
         Check.That(entry.ApplyGeometry).IsNotNull();

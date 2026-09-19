@@ -26,8 +26,8 @@ public class DwellDetectorRegistryTests
     [Theory]
     [InlineData(nameof(DwellSettings.ActivationButtonDwellMs), 200, 2000, nameof(AdaptationDwellRanges.StandardMinDwellMs), nameof(AdaptationDwellRanges.StandardMaxDwellMs))]
     [InlineData(nameof(DwellSettings.ToolbarButtonDwellMs), 200, 2000, nameof(AdaptationDwellRanges.StandardMinDwellMs), nameof(AdaptationDwellRanges.StandardMaxDwellMs))]
-    [InlineData(nameof(DwellSettings.KeyboardKeyDwellMs), 100, 1500, nameof(AdaptationDwellRanges.KeyboardMinDwellMs), nameof(AdaptationDwellRanges.KeyboardMaxDwellMs))]
-    [InlineData(nameof(DwellSettings.KeyboardPredictionDwellMs), 100, 1500, nameof(AdaptationDwellRanges.KeyboardMinDwellMs), nameof(AdaptationDwellRanges.KeyboardMaxDwellMs))]
+    [InlineData(nameof(DwellSettings.KeyboardKeyDwellMs), 300, 1500, nameof(AdaptationDwellRanges.KeyboardMinDwellMs), nameof(AdaptationDwellRanges.KeyboardMaxDwellMs))]
+    [InlineData(nameof(DwellSettings.KeyboardPredictionDwellMs), 300, 1500, nameof(AdaptationDwellRanges.KeyboardMinDwellMs), nameof(AdaptationDwellRanges.KeyboardMaxDwellMs))]
     public void Ranges_MatchTheirGuardFamilies(string propertyName, int min, int max, string minField, string maxField)
     {
         var settings = new DwellSettings();

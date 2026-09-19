@@ -86,9 +86,9 @@ public class KeyboardEffectiveDwellTests
     public void FullTighteningFill_AtKeyboardGuardCeiling_ClampsAt1500()
     {
         // Baseline 1500 is KeyboardKeyDwellMs's own guard max; a full tightening fill asks for
-        // 1500 + 0.50×1500 = 2250, which the provider's union clamp [100, 2000] caps at 2000. The
-        // keyboard's own [100, 1500] clamp must hold the line at 1500 — without it, key dwell
-        // would silently wait until 2000.
+        // 1500 + 0.50×1500 = 2250, which the provider's [100, 3000] union admits (the keyboard
+        // family's range is the narrower one). The keyboard's own [300, 1500] clamp must hold the
+        // line at 1500 — without it, key dwell would silently wait until 2250.
         var (vm, provider, _) = Make();
         provider.SetMomentaryFill(AdaptationKnob.DwellTime, DwellContext.Other, forgivingFill: 0.0, tighteningFill: 1.0);
         vm.Configure(keyDwellMs: 1500, cooldownMs: 0);
@@ -121,9 +121,12 @@ public class KeyboardEffectiveDwellTests
 
     /// <summary>
     /// Maximum forgiving deflection: a full momentary fill plus the maximum learned fill. The
-    /// composition clamps the sum to the forgiving band edge, so with a 450 ms baseline the composed
-    /// dwell is 450 − 0.40 × 450 = 270 ms — the shortest the knob can ever ask for. Used to prove the
-    /// escaping floor holds at the knob's extreme, not merely at a comfortable position.
+    /// composition clamps the sum to the forgiving band edge, so with a 450 ms baseline the knob
+    /// asks for 450 − 0.40 × 450 = 270 ms. The APPLIED value is the family floor's business: the
+    /// keyboard clamp (<c>AdaptationDwellRanges.KeyboardMinDwellMs</c> = 300) lifts 270 back to 300,
+    /// and for baselines from 500 ms up the ask itself is at or above 300 and applies unchanged.
+    /// Used to prove the escaping floor holds at the knob's extreme, not merely at a comfortable
+    /// position — including when the extreme is the family floor.
     /// </summary>
     private static void DriveToMaximumForgivingDeflection(EffectiveSettingsProvider provider)
     {
@@ -154,16 +157,23 @@ public class KeyboardEffectiveDwellTests
         var fired = new List<string>();
         vm.KeyDwellCompleted += fired.Add;
 
-        // Positive control, same run, same provider state: the composed dwell really did move to
-        // 270 for a letter (fires by 300 ms), so the escaping assertion below is earned rather than
-        // measured on an inert pipeline.
+        // Positive control, same run, same provider state: the composed ask is 270 but the family
+        // floor (300) is the applied value, so the letter must NOT fire at 280 and must fire by
+        // 300. The 280 probe is what distinguishes the clamp from the raw composition — without it
+        // the letter fires at 270 and this run goes red.
         vm.ProcessKeyGaze(keys, LetterAt, true, 0);
         HoldAt(vm, keys, LetterAt, 50_000, 250_000);
-        Check.That(fired).Not.Contains("a"); // 250 < 270
+        Check.That(fired).Not.Contains("a"); // 250 < the 270 ask
+        vm.ProcessKeyGaze(keys, LetterAt, true, 280_000);
+        Check.WithCustomMessage(
+                "The letter fired before the 300 ms family floor: the adaptive clamp is not applied, " +
+                "so the forgiving knob shortened the keyboard dwell into the blink-credit window " +
+                "(the composed ask at this baseline is 270).")
+            .That(fired).Not.Contains("a");
         vm.ProcessKeyGaze(keys, LetterAt, true, 300_000);
         Check.WithCustomMessage(
-                "The letter did not follow the composed shorter dwell, so the pipeline was not live " +
-                "and the escaping assertion below would be vacuous.")
+                "The letter did not follow the composed shorter dwell (clamped to the family floor), " +
+                "so the pipeline was not live and the escaping assertion below would be vacuous.")
             .That(fired).Contains("a");
 
         // The escaping key must NOT follow the shortened value: the floor-broken mutations fire it
@@ -229,37 +239,37 @@ public class KeyboardEffectiveDwellTests
     [Fact]
     public void EscapingFloor_ExceedsASmallConfiguredBaseline_Intentionally()
     {
-        // KeyboardKeyDwellMs allows 100. With the 600 policy floor, an escaping key then sits at 600
-        // while the letters sit at 100 — a 6x spread inside one keyboard. Intended: the floor is
-        // absolute, and nothing clamps it back toward the baseline (the keyboard guard clamp is
-        // [100, 1500], and 600 is inside it). This also pins the gate's discharged second clause:
-        // a lowered global key dwell no longer drags the escaping keys down.
+        // The smallest keyboard baseline the guards admit is 300. With the 600 policy floor, an
+        // escaping key then sits at 600 while the letters sit at 300 — a 2x spread inside one
+        // keyboard. Intended: the floor is absolute, and nothing clamps it back toward the baseline
+        // (the keyboard guard clamp is [300, 1500], and 600 is inside it). This also pins the
+        // gate's discharged second clause: a lowered global key dwell no longer drags the escaping
+        // keys down.
         var (vm, provider, _) = Make();
         DriveToMaximumForgivingDeflection(provider);
-        vm.Configure(keyDwellMs: 100, cooldownMs: 0);
+        vm.Configure(keyDwellMs: 300, cooldownMs: 0);
 
         var keys = LetterEscapeAndNavigation();
         var fired = new List<string>();
         vm.KeyDwellCompleted += fired.Add;
 
-        // Positive control: the letter sits at the 100 ms keyboard minimum (the composed 60 is
-        // clamped up by the provider's ValidMin and the keyboard's guard), so the knob is live and
-        // the spread is real.
+        // Positive control: the letter sits at the 300 ms keyboard minimum (the composed ask is
+        // 180; the family floor lifts it back to 300), so the knob is live and the spread is real.
         vm.ProcessKeyGaze(keys, LetterAt, true, 0);
-        HoldAt(vm, keys, LetterAt, 50_000, 50_000);
-        Check.That(fired).Not.Contains("a"); // 50 < 100
-        vm.ProcessKeyGaze(keys, LetterAt, true, 100_000);
-        Check.WithCustomMessage("The letter did not fire at its 100 ms baseline.")
+        HoldAt(vm, keys, LetterAt, 50_000, 250_000);
+        Check.That(fired).Not.Contains("a"); // 250 < 300
+        vm.ProcessKeyGaze(keys, LetterAt, true, 300_000);
+        Check.WithCustomMessage("The letter did not fire at its 300 ms baseline.")
             .That(fired).Contains("a");
 
-        vm.ProcessKeyGaze(keys, EscapeAt, true, 200_000); // latch
-        HoldAt(vm, keys, EscapeAt, 250_000, 750_000);     // up to 550 ms elapsed
+        vm.ProcessKeyGaze(keys, EscapeAt, true, 400_000); // latch
+        HoldAt(vm, keys, EscapeAt, 450_000, 950_000);     // up to 550 ms elapsed
         Check.WithCustomMessage(
-                "The escaping key did not hold 600 ms against a 100 ms baseline — the floor is " +
+                "The escaping key did not hold 600 ms against a 300 ms baseline — the floor is " +
                 "tracking the baseline again, so lowering the global key dwell shortens the keys " +
                 "this gate exists to protect.")
             .That(fired).Not.Contains("enter");
-        vm.ProcessKeyGaze(keys, EscapeAt, true, 800_000); // 600 ms elapsed
+        vm.ProcessKeyGaze(keys, EscapeAt, true, 1_000_000); // 600 ms elapsed
         Check.WithCustomMessage("The escaping key never fired at the 600 ms floor.")
             .That(fired).Contains("enter");
     }
@@ -307,8 +317,9 @@ public class KeyboardEffectiveDwellTests
     public void NavigationKeys_StayFullyAdaptive_NotPartOfTheEscapingClass()
     {
         // Arrows/Home/End/Page keys are pressed in runs and a wrong one is undone by one opposing
-        // press. They must get the shortened 270 ms — if the class ever widens to "all key: actions",
-        // navigation silently loses the forgiving response where speed matters most.
+        // press. They must follow the shortened value down to the family floor (300 ms) — if the
+        // class ever widens to "all key: actions", navigation silently loses the forgiving response
+        // where speed matters most.
         var (vm, provider, _) = Make();
         DriveToMaximumForgivingDeflection(provider);
         vm.Configure(keyDwellMs: 450, cooldownMs: 0);
@@ -319,11 +330,74 @@ public class KeyboardEffectiveDwellTests
 
         vm.ProcessKeyGaze(keys, NavigationAt, true, 0);
         HoldAt(vm, keys, NavigationAt, 50_000, 250_000);
-        Check.That(fired).Not.Contains("key:ArrowUp"); // 250 < 270
+        Check.That(fired).Not.Contains("key:ArrowUp"); // 250 < 300
         vm.ProcessKeyGaze(keys, NavigationAt, true, 300_000);
         Check.WithCustomMessage(
                 "A navigation key did not follow the composed shorter dwell — it is being treated as " +
                 "app-escaping, which taxes every arrow run for no safety gain.")
             .That(fired).Contains("key:ArrowUp");
+    }
+
+    [Fact]
+    public void HandEditedFileBelowTheFloor_LoadsClamped_AndACreditedStallCannotCompleteTheKey()
+    {
+        // The whole path a hand-editor actually walks: the file on disk holds the old minimum (100,
+        // legal when it was written), SettingsService.Load must clamp it to the family floor rather
+        // than discard the file, and the keyboard built from what Load returns must not be
+        // completable by a single 150 ms silence — the configuration the credit bound used to hand
+        // to a blink. The behavioural probes come FIRST so a full floor revert reds on the stall,
+        // not on a configuration assertion; the loaded-value assertion that follows catches the
+        // partial revert where Load's setter throw is answered with all-defaults (450, safe but the
+        // user's file is gone, which is the failure the raw-JSON clamp exists to prevent).
+        var tempPath = Path.Combine(Path.GetTempPath(), $"eyectrl_keydwell_{Guid.NewGuid()}.json");
+        try
+        {
+            File.WriteAllText(tempPath, """
+            {
+                "dwell": { "keyboardKeyDwellMs": 100, "activationButtonDwellMs": 800 }
+            }
+            """);
+            var loaded = new SettingsService(tempPath).Load();
+            Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(800); // the rest of the file survives
+
+            loaded.Adaptation.Enabled = true;
+            var provider = new EffectiveSettingsProvider(loaded.Adaptation);
+            var vm = new KeyboardViewModel(loaded, new WeakReferenceMessenger(),
+                sink: null, effectiveSettings: provider);
+            DriveToMaximumForgivingDeflection(provider);
+            vm.Configure(keyDwellMs: loaded.Dwell.KeyboardKeyDwellMs, cooldownMs: 0);
+
+            var keys = Keys();
+            bool completed = false;
+            vm.KeyDwellCompleted += _ => completed = true;
+
+            vm.ProcessKeyGaze(keys, new PhysicalPoint(100, 100), true, 0);
+            // 150 ms is at this tracker's credit bound, and it CREDITS it as held gaze (it restarts
+            // only on a gap strictly greater than MaxContinuousSampleGapUs; the shared detector's
+            // operator is the opposite, and its boundary is pinned in KeyboardDwellFloorRoutingTests).
+            vm.ProcessKeyGaze(keys, new PhysicalPoint(100, 100), true, 150_000);
+            Check.WithCustomMessage(
+                    "A single credited 150 ms stall completed a keyboard dwell: the loaded baseline " +
+                    "or its adaptive composition reached the blink-credit zone.")
+                .That(completed).IsFalse();
+
+            // Past the composed ask (180 at this baseline) and the old 100 ms value, before the floor.
+            vm.ProcessKeyGaze(keys, new PhysicalPoint(100, 100), true, 200_000);
+            Check.WithCustomMessage(
+                    "The dwell completed before the 300 ms family floor, so the keyboard was " +
+                    "reachable inside the blink-credit window.")
+                .That(completed).IsFalse();
+
+            vm.ProcessKeyGaze(keys, new PhysicalPoint(100, 100), true, 250_000);
+            vm.ProcessKeyGaze(keys, new PhysicalPoint(100, 100), true, 300_000);
+            Check.WithCustomMessage("The key never fired, so the assertions above were vacuous.")
+                .That(completed).IsTrue();
+
+            Check.WithCustomMessage(
+                    "A below-floor keyboard dwell loaded from disk was not lifted to the family " +
+                    "floor — the clamp is missing (whole-file default wipe) or the floor moved.")
+                .That(loaded.Dwell.KeyboardKeyDwellMs).IsEqualTo(300);
+        }
+        finally { File.Delete(tempPath); }
     }
 }

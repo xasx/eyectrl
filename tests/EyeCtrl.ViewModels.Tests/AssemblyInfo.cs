@@ -6,3 +6,6 @@ using EyeCtrl.Tests.TestSupport;
 // DpiHelperWriterIsolationTests in EyeCtrl.App.Tests, which requires this declaration for every test
 // project holding a DpiHelper writer.
 [assembly: DpiHelperRestore]
+
+// The effect half; see DpiHelperScaleObserverAttribute.
+[assembly: DpiHelperScaleObserver]

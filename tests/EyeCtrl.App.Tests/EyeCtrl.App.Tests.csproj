@@ -29,6 +29,8 @@
              Link="TestSupport\TempTestDirectory.cs" />
     <Compile Include="..\TestSupport\DpiHelperRestoreAttribute.cs"
              Link="TestSupport\DpiHelperRestoreAttribute.cs" />
+    <Compile Include="..\TestSupport\DpiHelperScaleObserverAttribute.cs"
+             Link="TestSupport\DpiHelperScaleObserverAttribute.cs" />
   </ItemGroup>
 
 </Project>

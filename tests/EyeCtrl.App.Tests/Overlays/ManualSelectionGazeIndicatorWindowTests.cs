@@ -22,8 +22,9 @@ using Xunit;
 /// <para>
 /// Sits in the DpiHelper collection because it writes the process-global scale (the guard's rule
 /// for writers) and calls the WPF application gate; both collections are DisableParallelization, so
-/// this never overlaps another window-constructing class. The scale is restored in a finally, the
-/// obligation the collection docs put on every writer.
+/// this never overlaps another window-constructing class. The scale is restored in a finally here,
+/// and the assembly-wide DpiHelperRestore hook resets it after every test besides — the finally is
+/// this class's own cleanup, not a per-writer obligation the collection docs place on classes.
 /// </para>
 /// </summary>
 [Collection("DpiHelper Tests (App)")]

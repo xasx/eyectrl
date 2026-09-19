@@ -311,11 +311,14 @@ public class KeyboardEmojiDwellFeedbackTests
                     + "ActiveModifiers through ActivateKey). Completed key dwells seen (every id "
                     + "recorded): "
                     + (completed.Count == 0 ? "none" : string.Join(", ", completed))
-                    + ". None means no key completed at all — which is also what a neighbouring "
-                    + "dwell surface stealing the sample looks like, since the category tab arrives "
-                    + "as a target activation and never as a key completion. A different id means a "
-                    + "neighbouring CELL completed instead, which puts the fault in cell centres "
-                    + "rather than in accumulation.")
+                    + ". Live key centres at failure: " + KeyCentres(probe.Window).Count
+                    + " (a near-zero count means the grid's registry was emptied mid-dwell — the "
+                    + "scale-2.0 symptom — while a full count with no completion means the gaze "
+                    + "never accumulated on this cell). None means no key completed at all — which "
+                    + "is also what a neighbouring dwell surface stealing the sample looks like, "
+                    + "since the category tab arrives as a target activation and never as a key "
+                    + "completion. A different id means a neighbouring CELL completed instead, "
+                    + "which puts the fault in cell centres rather than in accumulation.")
                 .That(completed.Count(id => id == CellId)).IsEqualTo(1);
             foreach (var id in cells)
             {

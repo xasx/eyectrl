@@ -56,10 +56,28 @@ using Xunit.v3;
 /// so as a bare trailing statement an assertion failure skips. What closes that hazard is an
 /// assembly-wide per-test hook (<c>DpiHelperRestore</c>, linked from <c>tests/TestSupport</c> and
 /// declared by every test project that holds a writer). It cannot be forgotten by a class and it
-/// reaches writers this scan cannot classify. Both halves are pinned below —
-/// <see cref="TheRestoreHook_IsInstalledOnThisAssembly"/> on the compiled assembly and
-/// <see cref="EveryWriterBearingProject_InstallsTheRestoreHook"/> on the source — so this
-/// paragraph is backed by assertions rather than read as a guarantee.
+/// reaches writers this scan cannot classify.
+/// </para>
+///
+/// <para>
+/// Presence is not effect, so the hook ships with an observer. <c>DpiHelperScaleObserver</c> fails
+/// every test that STARTS on a non-1.0 scale — the external signature of a restore that stopped
+/// running — and resets before throwing so a one-off failure does not also fail every later test on
+/// the residue. That takes the load off the pins below: a mutation that merely conditions the
+/// hook's <c>After</c> is invisible to a declaration check and to a direct call of <c>After</c>,
+/// but the observer reddens on it in a real run. What remains unobserved is the observer itself:
+/// disabling it silently leaves the restore protecting the suite and removes the detection. That is
+/// the deliberate top layer — a detector for the detector would recurse — and it is why the
+/// observer's presence is pinned by declaration, reflection and collection here.
+/// </para>
+///
+/// <para>
+/// What is pinned below, all four on the compiled assembly or on the source rather than in prose:
+/// <see cref="TheRestoreHook_IsInstalledOnThisAssembly"/> and
+/// <see cref="TheScaleObserver_IsInstalledOnThisAssembly"/> (declared, compiled, and collected by
+/// xUnit for the running test), <see cref="TheRestoreHook_ResetsTheScaleWhenInvoked"/> (the reset
+/// itself), and <see cref="EveryWriterBearingProject_InstallsBothScaleGuards"/> (every project
+/// holding a writer declares both guards).
 /// </para>
 ///
 /// <para>
@@ -117,11 +135,13 @@ public class DpiHelperWriterIsolationTests
         RegexOptions.Compiled);
 
     /// <summary>
-    /// The assembly-level declaration that installs the per-test restore hook. Matched as source
-    /// text because the projects it must appear in are separate assemblies this one cannot reflect
-    /// over; the declaration in THIS assembly is additionally pinned at runtime by
-    /// <see cref="TheRestoreHook_IsInstalledOnThisAssembly"/>. A rename of the attribute fails to
-    /// compile the declaration, and fails this regex loudly in the same build — it cannot go quiet.
+    /// The assembly-level declarations that install the scale guards — the restore hook and the
+    /// start-scale observer. Matched as source text because the projects they must appear in are
+    /// separate assemblies this one cannot reflect over; the declarations in THIS assembly are
+    /// additionally pinned at runtime by <see cref="TheRestoreHook_IsInstalledOnThisAssembly"/> and
+    /// <see cref="TheScaleObserver_IsInstalledOnThisAssembly"/>. A rename of either attribute fails
+    /// to compile its declaration, and fails this regex loudly in the same build — it cannot go
+    /// quiet.
     ///
     /// <para>
     /// Anchored to the start of a line on purpose. Unanchored, it also matched the
@@ -133,8 +153,8 @@ public class DpiHelperWriterIsolationTests
     /// App.Tests declaration removed.
     /// </para>
     /// </summary>
-    private static readonly Regex RestoreHookDeclaration = new(
-        @"^\s*\[\s*assembly\s*:\s*DpiHelperRestore(?:Attribute)?\s*\]",
+    private static readonly Regex ScaleGuardDeclaration = new(
+        @"^\s*\[\s*assembly\s*:\s*(?<guard>DpiHelperRestore|DpiHelperScaleObserver)(?:Attribute)?\s*\]",
         RegexOptions.Compiled | RegexOptions.Multiline);
 
     /// <summary>
@@ -207,34 +227,55 @@ public class DpiHelperWriterIsolationTests
     /// link had been dropped from the project file.
     /// </summary>
     [Fact]
-    public void TheRestoreHook_IsInstalledOnThisAssembly()
+    public void TheRestoreHook_IsInstalledOnThisAssembly() =>
+        AssertGuardInstalledAndCollected<DpiHelperRestoreAttribute>(
+            "This assembly declares no [assembly: DpiHelperRestore], so nothing resets "
+            + "DpiHelper's process-global scale between tests. A writer then changes what every "
+            + "later test reads — that is how the scale reached 2.0 for the emoji dwell probe "
+            + "and made the category tab steal its sample. Add the declaration (the attribute "
+            + "type is linked from tests/TestSupport); do not put the restore back on each "
+            + "class, because forgetting it is the defect.",
+            "This test runs without the assembly-level DpiHelperRestore hook attached, so "
+            + "nothing resets DpiHelper's process-global scale between tests here even though "
+            + "the attribute is declared. xUnit no longer collects it from the assembly — "
+            + "re-establish the per-test reset (see DpiHelperRestoreAttribute's own summary) "
+            + "rather than deleting this check or restoring per class.");
+
+    /// <summary>
+    /// The start-scale observer is compiled into THIS assembly and attached to this test. It is the
+    /// effect half of the restore: the hook makes a leak harmless, the observer makes a restore
+    /// that stopped working fail loudly at the first test that starts corrupted.
+    /// </summary>
+    [Fact]
+    public void TheScaleObserver_IsInstalledOnThisAssembly() =>
+        AssertGuardInstalledAndCollected<DpiHelperScaleObserverAttribute>(
+            "This assembly declares no [assembly: DpiHelperScaleObserver], so a per-test restore "
+            + "that stopped working would corrupt every later test silently instead of failing the "
+            + "first test that starts on a non-1.0 scale. Add the declaration (the attribute type "
+            + "is linked from tests/TestSupport).",
+            "This test runs without the assembly-level DpiHelperScaleObserver attached even though "
+            + "the attribute is declared, so a broken restore would go unnoticed. xUnit no longer "
+            + "collects it from the assembly — see DpiHelperScaleObserverAttribute's own summary "
+            + "rather than deleting this check.");
+
+    /// <summary>
+    /// Guards the guard for both scale attributes: declared-and-compiled (reflection) and attached
+    /// to the running test (the runner's own attribute list). The second is what neither a source
+    /// scan nor a reflection read can establish, and what would rot silently on an xUnit change.
+    /// </summary>
+    private static void AssertGuardInstalledAndCollected<TGuard>(string notInstalled, string notCollected)
+        where TGuard : Attribute
     {
-        var hooks = typeof(DpiHelperWriterIsolationTests).Assembly
-            .GetCustomAttributes(typeof(DpiHelperRestoreAttribute), inherit: false);
+        var declared = typeof(DpiHelperWriterIsolationTests).Assembly
+            .GetCustomAttributes(typeof(TGuard), inherit: false);
 
-        Check.WithCustomMessage(
-                "This assembly declares no [assembly: DpiHelperRestore], so nothing resets "
-                + "DpiHelper's process-global scale between tests. A writer then changes what every "
-                + "later test reads — that is how the scale reached 2.0 for the emoji dwell probe "
-                + "and made the category tab steal its sample. Add the declaration (the attribute "
-                + "type is linked from tests/TestSupport); do not put the restore back on each "
-                + "class, because forgetting it is the defect.")
-            .That(hooks).HasSize(1);
+        Check.WithCustomMessage(notInstalled).That(declared).HasSize(1);
 
-        // Declaration is not invocation. This checks the hook xUnit actually attached to the test
-        // that is running, which neither a source scan nor a reflection read of the assembly can
-        // establish, and which is the link that would rot silently on an xUnit change.
         var collected = ((IXunitTest)TestContext.Current.Test!).TestMethod.BeforeAfterTestAttributes
-            .OfType<DpiHelperRestoreAttribute>()
+            .OfType<TGuard>()
             .ToList();
 
-        Check.WithCustomMessage(
-                "This test runs without the assembly-level DpiHelperRestore hook attached, so "
-                + "nothing resets DpiHelper's process-global scale between tests here even though "
-                + "the attribute is declared. xUnit no longer collects it from the assembly — "
-                + "re-establish the per-test reset (see DpiHelperRestoreAttribute's own summary) "
-                + "rather than deleting this check or restoring per class.")
-            .That(collected).HasSize(1);
+        Check.WithCustomMessage(notCollected).That(collected).HasSize(1);
     }
 
     /// <summary>
@@ -260,11 +301,12 @@ public class DpiHelperWriterIsolationTests
     }
 
     /// <summary>
-    /// Every test project holding a direct writer declares the assembly-wide hook, so the ordinal
-    /// leak is closed for projects whose own test classes this guard cannot watch at runtime.
+    /// Every test project holding a direct writer declares both assembly-wide scale guards, so the
+    /// ordinal leak is closed for projects whose own test classes this guard cannot watch at
+    /// runtime, and a restore that stops working is detected there too.
     /// </summary>
     [Fact]
-    public void EveryWriterBearingProject_InstallsTheRestoreHook()
+    public void EveryWriterBearingProject_InstallsBothScaleGuards()
     {
         var writerProjects = new List<string>();
         var violations = new List<string>();
@@ -277,11 +319,22 @@ public class DpiHelperWriterIsolationTests
 
             writerProjects.Add(project.Name);
 
-            if (!files.Any(f => RestoreHookDeclaration.IsMatch(f.Text)))
+            var declared = files
+                .SelectMany(f => ScaleGuardDeclaration.Matches(f.Text).Cast<Match>())
+                .Select(m => m.Groups["guard"].Value)
+                .ToHashSet(StringComparer.Ordinal);
+
+            if (!declared.Contains("DpiHelperRestore"))
                 violations.Add(
                     $"{project.Name}: contains a {WriterCallDisplay} writer but declares no "
                     + "[assembly: DpiHelperRestore], so a test that leaves a non-1.0 scale changes "
                     + "what every later test in that assembly reads.");
+
+            if (!declared.Contains("DpiHelperScaleObserver"))
+                violations.Add(
+                    $"{project.Name}: declares no [assembly: DpiHelperScaleObserver], so a per-test "
+                    + "restore that stopped working would corrupt later tests silently instead of "
+                    + "failing the first one that starts on a non-1.0 scale.");
         }
 
         // Guards the guard: matching nothing would let this pass vacuously.
@@ -291,12 +344,13 @@ public class DpiHelperWriterIsolationTests
             .That(writerProjects).Not.IsEmpty();
 
         Check.WithCustomMessage(
-                "A test assembly writes DpiHelper's process-global scale without installing the "
-                + "assembly-wide per-test restore hook. Per-class restore was the discipline that "
-                + "failed here: five tests in DisplayGeometryWatcherTests left the scale at 2.0 "
-                + "while the one test that restored did so outside a finally, and the emoji dwell "
-                + "probe then read the wrong scale. Add [assembly: DpiHelperRestore] (the type is "
-                + "linked from tests/TestSupport) rather than restoring per class.\n  "
+                "A test assembly writes DpiHelper's process-global scale without installing both "
+                + "assembly-wide scale guards — the per-test restore hook and its effect observer. "
+                + "Per-class restore was the discipline that failed here: five tests in "
+                + "DisplayGeometryWatcherTests left the scale at 2.0 while the one test that "
+                + "restored did so outside a finally, and the emoji dwell probe then read the wrong "
+                + "scale. Add both declarations (the types are linked from tests/TestSupport) "
+                + "rather than restoring per class.\n  "
                 + string.Join("\n  ", violations))
             .That(violations)
             .IsEmpty();

@@ -260,9 +260,11 @@ public class ModelManagementService
     /// the prediction bar changing on the user's only text-input surface, with the loading
     /// indicator and GPU preference both defaulting on. That is the ticket-7 hazard (a fix that
     /// silently changes a daily surface), so it is a decision, not an omission. No migration is
-    /// needed for the same reason: nothing else reads whether an id is downloaded, so this does
-    /// not change what any stored value means — a download is simply the first moment the repair
-    /// is earned, and until then a "360M" install behaves exactly as it does today.
+    /// needed either: this adds a write at download time and changes what no reader makes of an
+    /// existing stored id — the prediction stack still loads whatever id is stored and still
+    /// degrades to no LM when that file is absent, and the models page still reads
+    /// downloaded-ness from the files. A "360M" install behaves exactly as today until the user
+    /// downloads or selects a model.
     /// </para>
     /// </summary>
     private void ActivateDownloadedModelIfNothingRealIsActive(string modelId)
@@ -276,9 +278,9 @@ public class ModelManagementService
     }
 
     /// <summary>
-    /// Sets the active model. The single writer of <c>Keyboard.MLModelSize</c> — the UI, both
-    /// download paths and startup reconciliation all route through here so the setting and the
-    /// registry's <see cref="ModelRegistryService.ActiveModelId"/> cannot disagree.
+    /// Sets the active model. The single writer of <c>Keyboard.MLModelSize</c> — the UI and both
+    /// download paths route through here so the setting and the registry's
+    /// <see cref="ModelRegistryService.ActiveModelId"/> stay in step.
     /// </summary>
     public void SetActiveModel(string? modelId)
     {

@@ -171,11 +171,13 @@ internal sealed class ModelsPageSource : ISettingsPageSource
             _ctx.Invoke(() =>
             {
                 if (!result.IsSuccess) _ctx.ShowError(result.Error ?? "Download failed.");
-                // ApplyAndSave is not bookkeeping here: it is BOTH the persistence and the
-                // trigger that reloads the prediction stack (SettingsChanged -> ReloadIfChanged,
-                // whose KeyboardStackSnapshot carries MLModelSize). Without it a bundled
-                // download that activates a model changes nothing the user can observe — the
-                // service test stays green while the feature is dead. Mirrors the custom path.
+                // ApplyAndSave persists and raises SettingsChanged -> ReloadIfChanged, which
+                // rebuilds the prediction stack only when the settings snapshot changed. Without
+                // it a bundled download that activates a model changes nothing the user can
+                // observe — the service test stays green while the feature is dead. But it is
+                // not a guarantee that every download reloads: downloading the model the setting
+                // ALREADY names leaves MLModelSize unchanged, so it reaches this call and still
+                // does not rebuild — the LM stays off until restart (tracked as its own ticket).
                 else _ctx.ApplyAndSave();
                 _ctx.RebuildContent();
             });

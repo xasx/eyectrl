@@ -97,15 +97,22 @@ public class ModelsPageSourceTests
         Check.That(File.Exists(Path.Combine(scope.Dir, "smollm2-135m.onnx"))).IsTrue();
         Check.That(File.Exists(Path.Combine(scope.Dir, "smollm2-135m.tokenizer.json"))).IsTrue();
 
-        // The service activation is worthless unless the PAGE applies it: ApplyAndSave is the
-        // only persistence AND the only reload trigger (SettingsChanged -> ReloadIfChanged,
-        // KeyboardStackSnapshot includes MLModelSize). RebuildContent alone redraws the list.
-        // Before this, a bundled download activated the model in the service and nothing else
-        // happened — green service test, dead feature.
+        // The service activation is worthless unless the PAGE applies it: ApplyAndSave persists
+        // and raises SettingsChanged -> ReloadIfChanged, which rebuilds only when the settings
+        // snapshot changed; RebuildContent alone redraws the list. Before this, a bundled
+        // download activated the model in the service and nothing else happened — green service
+        // test, dead feature.
+        //
+        // The property is "a successful bundled download reaches the save chain"; == 1 is
+        // tighter and holds because one download makes exactly one save. If this ever fires on
+        // an honest second save, the answer is IsStrictlyGreaterThan(0) — do not delete the pin.
+        // These assertions read the LOCAL `settings`, the object the service writes; the
+        // recording context builds its own Settings when none is passed, so `_ctx.Settings` is a
+        // different instance and a future page-level assertion must not read it instead.
         Check.WithCustomMessage(
                 "A successful bundled download must call ApplyAndSave (got "
-                + rec.ApplyAndSaveCount + "). It is both the settings persistence and the "
-                + "prediction-stack reload trigger; RebuildContent alone changes nothing.")
+                + rec.ApplyAndSaveCount + "): the persistence and the reload trigger for a "
+                + "changed snapshot. RebuildContent alone changes nothing.")
             .That(rec.ApplyAndSaveCount).IsEqualTo(1);
         Check.That(settings.Keyboard.MLModelSize).IsEqualTo("135M");
         Check.That(registry.ActiveModelId).IsEqualTo("135M");

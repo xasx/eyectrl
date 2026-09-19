@@ -359,9 +359,16 @@ public class ModelManagementServiceTests
         var tempDir = NewTempDir();
         try
         {
-            // "Off" is a deliberate choice, but a download is a fresh act aimed at model X and
-            // the download has to make X usable — this preserves the pre-existing conditional's
-            // intent ("activate when nothing else is active", which lists Off explicitly).
+            // "Off" is a deliberate choice, but activating here is not a silent override: the
+            // download completes on the page the user is looking at, ApplyAndSave and
+            // RebuildContent both fire, and the combo re-renders with the new model selected.
+            // That is the difference from the startup repair this fix rejects — same outcome,
+            // except there the user did nothing and would see nothing. Reversal costs one dwell
+            // on a control they already used to reach "Off".
+            //
+            // Tripwire: this holds only while a download is a deliberate dwell + confirm on a
+            // single caller. If a download ever starts itself (auto-update, background prefetch),
+            // activating over "Off" becomes a silent override and this decision must be revisited.
             var settings = new EyeCtrlSettings();
             settings.Keyboard.MLModelSize = "Off";
             var (registry, mgmt) = BuildServices(tempDir, settings, ThreeBundledModels(),
@@ -413,12 +420,14 @@ public class ModelManagementServiceTests
 
     // ── The invariant (ticket 8) ──
     //
-    // The defect is two fields that could disagree: the setting the prediction stack reads
-    // (Keyboard.MLModelSize) and the registry's ActiveModelId. A write path left them on a
-    // value no model satisfied, and the download paths then had nothing to repair it with.
-    // The pin is that every entry point leaves the pair describing the same active model —
-    // "Off" deliberately has two spellings (SetActiveModel normalizes to null on the registry;
-    // the constructor seed stores it verbatim), so compare the EFFECTIVE value.
+    // NOT the original defect: those two fields — the setting the prediction stack reads
+    // (Keyboard.MLModelSize) and the registry's ActiveModelId — always AGREED, on a value no
+    // model satisfied, and both download paths simply never wrote either of them. What this pin
+    // protects is the regression the fix could introduce: a future entry point that updates one
+    // field and not the other, the same class of divergence in the opposite direction. Every
+    // entry point must leave the pair describing the same active model — "Off" deliberately has
+    // two spellings (SetActiveModel normalizes to null on the registry; the constructor seed
+    // stores it verbatim), so compare the EFFECTIVE value.
 
     [Fact]
     public async Task EveryEntryPoint_KeepsSettingAndRegistryInStep()

@@ -1,4 +1,4 @@
-﻿namespace EyeCtrl.App.Views.Settings;
+namespace EyeCtrl.App.Views.Settings;
 
 using EyeCtrl.Core.Models;
 
@@ -20,7 +20,7 @@ internal sealed class QuickActionsPageSource : ISettingsPageSource
     /// button in a <c>LabelledRowMinHeight</c> (150 DIP) box, so an action costs 300 DIP and the
     /// n-th action's two circles land at 75 + 300n and 225 + 300n. The content cell on the
     /// 1920x1080 display this application is used on is 688 DIP, so it holds four rows — i.e.
-    /// TWO actions: circles at 75, 225, 375, 525, with 163 DIP to spare.
+    /// TWO actions: circles at 75, 225, 375, 525, with 88 DIP to spare.
     /// </para>
     /// <para>
     /// This was 4, which put EIGHT rows on a four-row page: the third action's Delete landed at
@@ -160,7 +160,7 @@ internal sealed class QuickActionsPageSource : ISettingsPageSource
         var editor = _ctx.ViewModel.QuickActionsEditor;
         var pages = new List<PageSpec>();
 
-        // Add action leads, and that ORDER IS LOAD-BEARING \u2014 see QaConfigRowsPerPage.
+        // Add action leads, and that ORDER IS LOAD-BEARING — see QaConfigRowsPerPage.
         var config = new List<SettingsRowSpec>
         {
             new ButtonSpec("qa_add", "\uFF0B  Add action", () => GoTo(QaView.PickType), ButtonKind.Default, Width: 360, Height: 100),

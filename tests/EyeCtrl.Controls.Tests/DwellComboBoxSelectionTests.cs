@@ -393,6 +393,44 @@ public class DwellComboBoxSelectionTests
     }
 
     /// <summary>
+    /// The empty-value branch, which nothing observed until review: an empty stored code matches
+    /// no option either, so without the guard it renders "⚠  (not available)" — a warning pill
+    /// naming nothing. The guard keeps that branch silent.
+    ///
+    /// <para>
+    /// The positive control runs FIRST and in the same test, because the assertion below is a
+    /// negative one: without it, this test would also pass on a combo that never shows a marker
+    /// at all — the absence of evidence wearing a test's name.
+    /// </para>
+    /// <para>
+    /// The guard is a trade, not a truth: for <c>k_layout</c> an empty <c>ActiveLayout</c> IS the
+    /// silent row this ticket exists to abolish. It is kept because a marker with no value in it
+    /// tells the user less, and because fixing the empty-layout row belongs in that getter.
+    /// </para>
+    /// </summary>
+    /// <param name="stored">The unset stored value: empty, or only whitespace.</param>
+    [StaTheory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void StoredCodeThatIsEmpty_ShowsNoMarker_WhileARealStoredValueStillDoes(string stored)
+    {
+        var real = Build(["Off", "1.5B"], "360M");
+        Check.WithCustomMessage(
+                "a real stored value matching no option must show the marker — without this "
+                + "control the assertion below would pass on a combo that never shows one.")
+            .That(UnmatchedMarker(real).Visibility).IsEqualTo(Visibility.Visible);
+
+        var empty = Build(["Off", "1.5B"], stored);
+        Check.WithCustomMessage(
+                $"the stored value is '{stored}', which is not a value at all — a marker would "
+                + "name nothing, telling the user less than the silent row does. The marker must "
+                + "stay collapsed and the glyphs must claim nothing.")
+            .That(UnmatchedMarker(empty).Visibility).IsEqualTo(Visibility.Collapsed);
+        Check.That(OptionText(empty, 0)).StartsWith("\u25CB ");
+        Check.That(OptionText(empty, 1)).StartsWith("\u25CB ");
+    }
+
+    /// <summary>
     /// The marker is a statement, not a choice: it must add no dwell target and no
     /// <c>Children</c> entry. A registered target that activates nothing is worse than no
     /// target — a gaze user completes a dwell, gets the feedback, and nothing changes.
@@ -418,7 +456,7 @@ public class DwellComboBoxSelectionTests
     /// <para>
     /// In the Contrast theme the marker's outline cannot be told from an unselected option's by
     /// any token the palette has — <c>AccentWarning</c> vs <c>BorderSubtle</c> is 1.07:1, and
-    /// <c>AccentWarning</c> vs <c>ToggleOn</c> 1.29:1 — and under protanopia hue does not rescue
+    /// <c>AccentWarning</c> vs <c>ToggleOn</c> 1.28:1 — and under protanopia hue does not rescue
     /// a 1.07 either. So the warning glyph and the words are not decoration: they ARE the
     /// marker, and a "tidy-up" that reduced it to a coloured pill would satisfy every
     /// contrast-over-surface gate while making the row say nothing at all. This test is what

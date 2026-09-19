@@ -19,7 +19,7 @@ using Xunit;
 /// <b>The state does not ride the outline colour, and these tests say so.</b> A marker must be
 /// distinguishable from the two option states around it — <see cref="ITheme.ToggleOn"/> and
 /// <see cref="ITheme.BorderSubtle"/> — and in <see cref="ContrastTheme"/> no token does that:
-/// <c>AccentWarning</c> is 1.07:1 against the unselected white and 1.29:1 against the selected
+/// <c>AccentWarning</c> is 1.07:1 against the unselected white and 1.28:1 against the selected
 /// green, <c>AccentSuccess</c> is byte-identical to <c>ToggleOn</c>, and the best available
 /// token is <c>AccentDanger</c> at 1.88:1 against the selected state. Colour alone therefore
 /// CANNOT carry this state in the theme chosen by the users who need structure most. The state
@@ -137,8 +137,9 @@ public class ComboBoxUnmatchedMarkerContrastTests
     /// A fact about the palette, asserted so the reasoning above cannot decay into a stale
     /// comment: <c>AccentWarning</c> — the marker's chosen outline — cannot be told from an
     /// unselected option's outline (<c>BorderSubtle</c>) or from a selected one
-    /// (<c>ToggleOn</c>) in any registered theme. Measured worst of the two: 2.36 / 2.38 / 1.28
-    /// across Midnight / Ember / Contrast.
+    /// (<c>ToggleOn</c>) in any registered theme. The BEST of the two pairings is only
+    /// 2.36 / 2.38 / 1.28 across Midnight / Ember / Contrast — still under the 3:1 floor — and
+    /// the genuine worst is 1.81 / 1.89 / 1.07.
     ///
     /// <para>
     /// This is WHY the marker carries its state in the glyph and the words. If a palette edit

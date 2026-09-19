@@ -40,10 +40,18 @@ using EyeCtrl.Core.Processing;
 /// <para>
 /// The state is carried by the WARNING GLYPH and the WORDS, not by the outline colour. In the
 /// Contrast theme no token separates an outline from both the selected and the unselected option
-/// outlines — <c>AccentWarning</c> is 1.07:1 from <c>BorderSubtle</c> and 1.29:1 from
+/// outlines — <c>AccentWarning</c> is 1.07:1 from <c>BorderSubtle</c> and 1.28:1 from
 /// <c>ToggleOn</c> there — so colour is a redundant channel for normal vision and never the only
 /// one. Both facts are asserted by Theme.ComboBoxUnmatchedMarkerContrastTests, and the glyph and
 /// wording are pinned by DwellComboBoxSelectionTests.TheUnmatchedMarker_CarriesTheStateInItsTextNotItsColour.
+/// </para>
+/// <para>
+/// Reach, for the record: the thirteen other combo call sites keep the marker collapsed and
+/// therefore pay only three WPF objects per construction — no layout space, identical rendering —
+/// until a stored value no option matches appears, which is the generalisation this composite is
+/// supposed to offer. Where one can (k_layout and k_lang read stored values that a hand-edited
+/// settings.json or a build that renamed a value can leave invalid), the marker is exactly the
+/// state the user has to be shown.
 /// </para>
 /// </remarks>
 public class DwellComboBox : IDwellComposite
@@ -362,10 +370,15 @@ public class DwellComboBox : IDwellComposite
             _optionTexts[j].Text = (selected ? "\u25C9 " : "\u25CB ") + _displayOptions[j];
         }
 
-        // The empty-code guard exists so a combo whose value has not been set yet (the validation
-        // tests construct one with a "" getter) does not render "⚠ (not available)". An empty
-        // value is "nothing configured", which is what an all-◯ row already says; only a REAL
-        // value that matches no option is a state the user must be told about.
+        // The empty-code guard keeps a combo whose value has not been set from rendering
+        // "⚠  (not available)" — a warning pill naming nothing, which tells the user less than
+        // the silent row it would replace. The trade is narrower than "an empty value is nothing
+        // configured": for k_layout an empty ActiveLayout IS the silent row this whole change
+        // exists to abolish (the keyboard runs on its own fallback while the combo names
+        // nothing), and the guard leaves that row silent. It is kept because a marker with no
+        // value in it is worse, not because the empty row is right — if k_layout's empty row is
+        // ever fixed, the fix is a default in its getter, not this guard. Pinned by
+        // DwellComboBoxSelectionTests.StoredCodeThatIsEmpty_ShowsNoMarker_WhileARealStoredValueStillDoes.
         var unmatched = selectedIndex < 0 && !string.IsNullOrWhiteSpace(storedCode);
         _unmatchedMarker.Visibility = unmatched ? Visibility.Visible : Visibility.Collapsed;
         if (unmatched)

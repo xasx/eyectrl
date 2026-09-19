@@ -198,7 +198,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         var wavPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "click.wav");
         keyboard.SetSoundService(new KeyboardSoundService(settings.Keyboard, wavPath));
 
-        _keyboardSnapshot = KeyboardStackSnapshot.Capture(settings, _modelRegistry);
+        _keyboardSnapshot = CaptureSnapshot(settings);
     }
 
     /// <summary>Seam consumed by SettingsUiCoordinator (T7): reload the keyboard iff the captured
@@ -208,12 +208,26 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     /// setting — still rebuilds the prediction stack (ticket 11).</summary>
     internal bool ReloadIfChanged(EyeCtrlSettings settings, IInputSimulator input, SettingsService ss)
     {
-        var snap = KeyboardStackSnapshot.Capture(settings, _modelRegistry);
+        var snap = CaptureSnapshot(settings);
         if (!ShouldReload(_keyboardSnapshot, snap)) return false;
         if (Context is null) return false; // defensive — the seam is only reachable post-Initialize
         LoadKeyboard(Context.OverlayManager.Keyboard, settings, input, ss);
         return true;
     }
+
+    /// <summary>
+    /// The stored and comparison captures of the reload seam, collapsed into one site so a wrong
+    /// registry here cannot make the two DISAGREE — which is not the same as making it testable:
+    /// a null here still leaves the suite green, because nothing headlessly drives these two call
+    /// sites. What the collapse buys is the failure mode: with one site, a wrong term is wrong in
+    /// both captures, so the residual is the ticket-11 defect returning (no reload). With two
+    /// independent sites, one wrong term produced a phantom diff that reloaded the keyboard and
+    /// the ONNX model on every apply, forever. Better residual, not a guard — read it as no more
+    /// than that. The two static helpers are genuinely pinned by the direct term assertions in
+    /// KeyboardCoordinatorTests.
+    /// </summary>
+    private KeyboardStackSnapshot CaptureSnapshot(EyeCtrlSettings settings) =>
+        KeyboardStackSnapshot.Capture(settings, _modelRegistry);
 
     /// <summary>
     /// The reload decision itself, extracted so it is headless-testable: <see cref="ReloadIfChanged"/>
@@ -223,6 +237,13 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     /// because an apply happened": a guard weakened to always reload would rebuild the layout
     /// (resetting dwell under the user) and load a multi-hundred-MB ONNX model on every slider
     /// step.
+    /// <para>
+    /// Known residual, accepted rather than pinned: the WIRING that consumes this decision
+    /// (<see cref="ReloadIfChanged"/>'s call into <see cref="LoadKeyboard"/>) is unreachable from
+    /// a unit test through the same Context early-out, so a mutation that deletes the call
+    /// survives the suite. Extracting this method made the decision testable, not the wiring; the
+    /// alternative was a spelling ratchet on the <c>if</c>, which this codebase deletes on sight.
+    /// </para>
     /// </summary>
     internal static bool ShouldReload(KeyboardStackSnapshot? stored, KeyboardStackSnapshot current) =>
         stored != current;

@@ -170,6 +170,12 @@ public class ModelsPageSourceTests
         Check.That(settings.Keyboard.MLModelSize).IsEqualTo("360M");
         var current = KeyboardStackSnapshot.Capture(settings, registry);
         Check.That(current.ActiveModelOnDisk).IsTrue();
+        // "Without a setting changing" made exact: only the disk term may differ from what
+        // LoadKeyboard stored — every setting must be identical.
+        Check.WithCustomMessage(
+                "Only the disk term may differ after the download; every setting must be " +
+                "identical to what LoadKeyboard stored.")
+            .That(current with { ActiveModelOnDisk = false }).IsEqualTo(stored);
         Check.WithCustomMessage(
                 "The page's ApplyAndSave must leave a snapshot the reload decision can see move; " +
                 "otherwise the LM stays off until restart — the defect.")

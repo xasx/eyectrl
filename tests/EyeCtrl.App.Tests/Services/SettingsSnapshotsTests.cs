@@ -106,9 +106,11 @@ public class SettingsSnapshotsTests
         var before = KeyboardStackSnapshot.Capture(s, registry);
         Check.That(before.ActiveModelOnDisk).IsFalse();
 
-        // Negative control in the same run: with nothing changed the captures are equal, so the
-        // equality guard cannot fire. This is also the assertion that refuses the worst
-        // implementation — a guard weakened to always reload would red here.
+        // Negative control in the same run: with nothing changed, two captures are equal — the
+        // determinism Capture must have for the stored-versus-fresh comparison to mean anything.
+        // It does NOT pin the reload guard: mutating ShouldReload to always-true leaves this test
+        // green and reddens KeyboardCoordinatorTests.ShouldReload_... instead. This comment
+        // claimed the opposite until that mutation proved it false; do not restore the claim.
         Check.That(KeyboardStackSnapshot.Capture(s, registry)).IsEqualTo(before);
 
         // The transition: the files appear. Planted AFTER the registry exists and without touching
@@ -120,10 +122,11 @@ public class SettingsSnapshotsTests
         var after = KeyboardStackSnapshot.Capture(s, registry);
         Check.That(after.ActiveModelOnDisk).IsTrue();
         Check.WithCustomMessage(
-                "Downloading the model MLModelSize already names changes no setting; if the " +
-                "snapshot does not move, ReloadIfChanged suppresses the rebuild and the LM stays " +
-                "off until restart — the defect.")
-            .That(after).IsNotEqualTo(before);
+                "Downloading the model MLModelSize already names changes no setting; the only " +
+                "field that may differ is the disk term — every setting must be identical. If " +
+                "the snapshot does not move, ReloadIfChanged suppresses the rebuild and the LM " +
+                "stays off until restart — the defect.")
+            .That(after with { ActiveModelOnDisk = false }).IsEqualTo(before);
     }
 
     /// <summary>A registry on <paramref name="dir"/> whose manifest lists the active model id

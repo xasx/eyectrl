@@ -44,6 +44,13 @@ public sealed record KeyboardStackSnapshot(
     /// by whichever settings apply comes next. There is deliberately no watcher — the reload it
     /// triggers loads the model, so the only acceptable trigger is something the user did.
     /// </para>
+    /// <para>
+    /// Known and accepted: with ML suggestions off the term can still flip and trigger a full
+    /// reload that cannot change the prediction result (<c>PredictionStackFactory.Build</c> only
+    /// reads the model files when <c>MLSuggestionsEnabled</c> is true). Gating the term on that
+    /// setting was declined — it would make the term lie about the filesystem and couple the disk
+    /// fact to how the stack happens to use it. Recorded so it is not rediscovered as a bug.
+    /// </para>
     /// </param>
     public static KeyboardStackSnapshot Capture(EyeCtrlSettings s, ModelRegistryService? models) => new(
         s.Keyboard.ActiveLayout,

@@ -250,7 +250,19 @@ public class ModelManagementService
     /// <c>Keyboard.MLModelSize</c>, so the stored default <c>"360M"</c> — with no 360M file on
     /// disk — is neither empty nor <c>"Off"</c>, and the old inline equivalent of this check
     /// (<c>IsNullOrEmpty || == "Off"</c>) therefore never fired. The predicate is the FILE, never
-    /// the id's spelling.
+    /// the id's spelling. Both spellings of "no active model" are checked because the seed stores
+    /// <c>"Off"</c> verbatim while <see cref="SetActiveModel"/> normalizes it to null — do not
+    /// "simplify" either away.
+    /// </para>
+    /// <para>
+    /// Deliberately per-download, never at startup. A startup repair would turn this dormant
+    /// defect live on the first launch of an affected install — a 1.67 GB ONNX model loading and
+    /// the prediction bar changing on the user's only text-input surface, with the loading
+    /// indicator and GPU preference both defaulting on. That is the ticket-7 hazard (a fix that
+    /// silently changes a daily surface), so it is a decision, not an omission. No migration is
+    /// needed for the same reason: nothing else reads whether an id is downloaded, so this does
+    /// not change what any stored value means — a download is simply the first moment the repair
+    /// is earned, and until then a "360M" install behaves exactly as it does today.
     /// </para>
     /// </summary>
     private void ActivateDownloadedModelIfNothingRealIsActive(string modelId)
@@ -261,39 +273,6 @@ public class ModelManagementService
             && _registryService.IsModelDownloaded(active);
         if (!activeIsOnDisk)
             SetActiveModel(modelId);
-    }
-
-    /// <summary>
-    /// Repairs a stored active-model id that names a model which is not on disk, by activating
-    /// the only downloaded model — when there is exactly one.
-    /// <para>
-    /// There is no migration for this setting, so an install whose stored id is the <c>"360M"</c>
-    /// default (never downloaded) holds a value that was never valid: no session can honour it,
-    /// even after a model is downloaded and shows as "✓ Downloaded". With several downloaded
-    /// models the choice among them is genuinely the user's and guessing one (largest? newest?)
-    /// would silently override it, so this declines. <c>"Off"</c> and empty name no model at all:
-    /// that is a deliberate choice, and startup — unlike a completed download — has no fresh act
-    /// to honour, so it is left alone here.
-    /// </para>
-    /// </summary>
-    /// <returns><c>true</c> when the active model changed.</returns>
-    public bool ReconcileActiveModel()
-    {
-        var active = _registryService.ActiveModelId;
-        if (string.IsNullOrEmpty(active) || string.Equals(active, "Off", StringComparison.OrdinalIgnoreCase))
-            return false;
-        if (_registryService.IsModelDownloaded(active))
-            return false;
-
-        var downloaded = _registryService.SelectableModels;
-        if (downloaded.Count != 1)
-            return false;
-
-        _logger?.LogInformation(
-            "Active model {Active} is not downloaded; activating the only downloaded model {Model}",
-            active, downloaded[0].Id);
-        SetActiveModel(downloaded[0].Id);
-        return true;
     }
 
     /// <summary>

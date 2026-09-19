@@ -96,6 +96,19 @@ public class ModelsPageSourceTests
         Check.That(mgmt.CurrentDownloadId).IsNull();   // terminal path clears the in-flight state
         Check.That(File.Exists(Path.Combine(scope.Dir, "smollm2-135m.onnx"))).IsTrue();
         Check.That(File.Exists(Path.Combine(scope.Dir, "smollm2-135m.tokenizer.json"))).IsTrue();
+
+        // The service activation is worthless unless the PAGE applies it: ApplyAndSave is the
+        // only persistence AND the only reload trigger (SettingsChanged -> ReloadIfChanged,
+        // KeyboardStackSnapshot includes MLModelSize). RebuildContent alone redraws the list.
+        // Before this, a bundled download activated the model in the service and nothing else
+        // happened — green service test, dead feature.
+        Check.WithCustomMessage(
+                "A successful bundled download must call ApplyAndSave (got "
+                + rec.ApplyAndSaveCount + "). It is both the settings persistence and the "
+                + "prediction-stack reload trigger; RebuildContent alone changes nothing.")
+            .That(rec.ApplyAndSaveCount).IsEqualTo(1);
+        Check.That(settings.Keyboard.MLModelSize).IsEqualTo("135M");
+        Check.That(registry.ActiveModelId).IsEqualTo("135M");
     }
 
     private sealed class FakeOkHandler : HttpMessageHandler

@@ -411,30 +411,49 @@ public class ModelManagementServiceTests
         }
     }
 
-    // ── Startup reconciliation (ticket 8, coordinator scope) ──
+    // ── The invariant (ticket 8) ──
     //
-    // Download-time activation only helps FUTURE downloads; the reporting user already
-    // downloaded 1.67 GB that has never run. A stored id that names a model not on disk is
-    // not a choice the user made — it is the default that was never true — so startup repairs
-    // it, but only when unambiguous (exactly one downloaded model). Several downloaded
-    // models are a real choice among them, and are left to Settings.
+    // The defect is two fields that could disagree: the setting the prediction stack reads
+    // (Keyboard.MLModelSize) and the registry's ActiveModelId. A write path left them on a
+    // value no model satisfied, and the download paths then had nothing to repair it with.
+    // The pin is that every entry point leaves the pair describing the same active model —
+    // "Off" deliberately has two spellings (SetActiveModel normalizes to null on the registry;
+    // the constructor seed stores it verbatim), so compare the EFFECTIVE value.
 
     [Fact]
-    public void ReconcileActiveModel_StaleIdWithOneDownloadedModel_ActivatesIt()
+    public async Task EveryEntryPoint_KeepsSettingAndRegistryInStep()
     {
         var tempDir = NewTempDir();
         try
         {
             var settings = new EyeCtrlSettings();
-            var (registry, mgmt) = BuildServices(tempDir, settings, ThreeBundledModels(), _ => Task.FromResult(NotFound()));
+            var (registry, mgmt) = BuildServices(tempDir, settings, ThreeBundledModels(),
+                req => Task.FromResult(req.RequestUri!.AbsolutePath.EndsWith("tokenizer.json")
+                    ? Ok(new byte[64])
+                    : Ok(new byte[2048])));
 
-            PutModelOnDisk(registry, "1.5B");
+            CheckInStep(settings, registry, "the constructor seed");
 
-            var changed = mgmt.ReconcileActiveModel();
+            mgmt.SetActiveModel("1.5B");
+            CheckInStep(settings, registry, "SetActiveModel");
 
-            Check.That(changed).IsTrue();
-            Check.That(settings.Keyboard.MLModelSize).IsEqualTo("1.5B");
-            Check.That(registry.ActiveModelId).IsEqualTo("1.5B");
+            mgmt.SetActiveModel("Off");
+            CheckInStep(settings, registry, "SetActiveModel(\"Off\"), which the registry normalizes to null");
+
+            // Nothing real is active ("Off") and a download completes: it activates.
+            var bundled = await mgmt.DownloadBundledModelAsync(
+                "135M", "https://example.com/smol/model.onnx", "",
+                "https://example.com/smol/tokenizer.json", "",
+                TestContext.Current.CancellationToken);
+            Check.That(bundled.IsSuccess).IsTrue();
+            Check.That(registry.ActiveModelId).IsEqualTo("135M");
+            CheckInStep(settings, registry, "a bundled download");
+
+            mgmt.SetActiveModel("Off");
+            var custom = await mgmt.DownloadCustomModelAsync(CustomModelUrl, TestContext.Current.CancellationToken);
+            Check.That(custom.IsSuccess).IsTrue();
+            Check.That(registry.ActiveModelId).IsEqualTo("repo");
+            CheckInStep(settings, registry, "a custom download");
         }
         finally
         {
@@ -442,73 +461,15 @@ public class ModelManagementServiceTests
         }
     }
 
-    [Fact]
-    public void ReconcileActiveModel_StaleIdWithTwoDownloadedModels_DoesNotGuess()
+    private static void CheckInStep(EyeCtrlSettings settings, ModelRegistryService registry, string entryPoint)
     {
-        var tempDir = NewTempDir();
-        try
-        {
-            var settings = new EyeCtrlSettings();
-            var (registry, mgmt) = BuildServices(tempDir, settings, ThreeBundledModels(), _ => Task.FromResult(NotFound()));
-
-            PutModelOnDisk(registry, "1.5B");
-            PutModelOnDisk(registry, "135M");
-
-            var changed = mgmt.ReconcileActiveModel();
-
-            Check.That(changed).IsFalse();
-            Check.That(settings.Keyboard.MLModelSize).IsEqualTo("360M");
-            Check.That(registry.ActiveModelId).IsEqualTo("360M");
-        }
-        finally
-        {
-            Cleanup(tempDir);
-        }
-    }
-
-    [Fact]
-    public void ReconcileActiveModel_OffWithDownloadedModels_LeavesOffAlone()
-    {
-        var tempDir = NewTempDir();
-        try
-        {
-            var settings = new EyeCtrlSettings();
-            settings.Keyboard.MLModelSize = "Off";
-            var (registry, mgmt) = BuildServices(tempDir, settings, ThreeBundledModels(), _ => Task.FromResult(NotFound()));
-
-            PutModelOnDisk(registry, "1.5B");
-
-            var changed = mgmt.ReconcileActiveModel();
-
-            Check.That(changed).IsFalse();
-            Check.That(settings.Keyboard.MLModelSize).IsEqualTo("Off");
-            Check.That(registry.ActiveModelId).IsEqualTo("Off");
-        }
-        finally
-        {
-            Cleanup(tempDir);
-        }
-    }
-
-    [Fact]
-    public void ReconcileActiveModel_NoDownloadedModels_DoesNothing()
-    {
-        var tempDir = NewTempDir();
-        try
-        {
-            var settings = new EyeCtrlSettings();
-            var (registry, mgmt) = BuildServices(tempDir, settings, ThreeBundledModels(), _ => Task.FromResult(NotFound()));
-
-            var changed = mgmt.ReconcileActiveModel();
-
-            Check.That(changed).IsFalse();
-            Check.That(settings.Keyboard.MLModelSize).IsEqualTo("360M");
-            Check.That(registry.ActiveModelId).IsEqualTo("360M");
-        }
-        finally
-        {
-            Cleanup(tempDir);
-        }
+        var effective = string.IsNullOrEmpty(registry.ActiveModelId) ? "Off" : registry.ActiveModelId;
+        Check.WithCustomMessage(
+                $"After {entryPoint}, Keyboard.MLModelSize ({settings.Keyboard.MLModelSize}) and "
+                + $"registry.ActiveModelId ({registry.ActiveModelId ?? "<null>"}) must describe the "
+                + "same active model: they are two views of one choice, written by two different "
+                + "services, and this pair disagreeing is the defect.")
+            .That(effective).IsEqualTo(settings.Keyboard.MLModelSize);
     }
 
     private static ModelManifest ThreeBundledModels() => new()

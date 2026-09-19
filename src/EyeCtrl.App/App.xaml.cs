@@ -264,15 +264,6 @@ public partial class App : Application
             var modelManagement = _serviceProvider.GetRequiredService<ModelManagementService>();
             _eventCoordinator.SetModelServices(modelRegistry, modelDownload, modelManagement);
 
-            // Repair a stored active-model id that names a model which is not on disk — the
-            // "360M" default is exactly that, and there is no migration for this setting. Without
-            // this, the download fix only helps FUTURE downloads: the user who reported it already
-            // downloaded a model that has never run. Must precede LoadKeyboard, which builds the
-            // prediction stack from the same setting; the repair is persisted so the file stops
-            // lying. Reconciles only when unambiguous (see ModelManagementService.ReconcileActiveModel).
-            if (modelManagement.ReconcileActiveModel())
-                settingsService.SaveDebounced(settings);
-
             // Load keyboard using EventCoordinator
             _eventCoordinator.LoadKeyboard(overlayManager.Keyboard, settings, inputSimulator, settingsService);
 

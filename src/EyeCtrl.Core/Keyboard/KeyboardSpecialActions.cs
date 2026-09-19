@@ -79,6 +79,20 @@ public static class KeyboardSpecialActions
     /// this clause was undischarged — a lowered baseline lowered the floor. That residual is closed
     /// by the choice of this constant.)
     /// </para>
+    /// <para>
+    /// <b>Practical bound when lowering <c>KeyboardKeyDwellMs</c>: not below ~300 ms.</b> The gate's
+    /// discharge does not make every baseline safe. Ticket 2's <c>MaxContinuousSampleGapUs</c> credits
+    /// a stall of up to 150 ms as held gaze, so the real gaze required is <c>dwell − 150</c>; at a
+    /// 150 ms setting that is zero and one short blink completes a key. ~300 ms is twice the
+    /// credit bound. The exposure below 300 is bounded but not zero — it is every key outside this
+    /// class (letters, <c>space</c>, <c>backspace</c>, <c>deleteWord</c>, <c>switch*</c>,
+    /// <c>modifier:*</c>, <c>toggle:capslock</c>), where a stray activation costs one visible
+    /// Backspace. The escaping keys themselves are protected here, and more strongly than the gate
+    /// asked: at 600 ms a blink inside the credit bound is a quarter of the dwell, so 450 ms of real
+    /// gaze is still required. Ticket 2 accepted its residual on the premise "no shipped
+    /// configuration uses 100 ms key dwell (default 450)" — recommending a lower baseline removes
+    /// that premise, which is why this bound is recorded beside the discharge.
+    /// </para>
     /// </summary>
     public const int AppEscapingPolicyFloorMs = 600;
 

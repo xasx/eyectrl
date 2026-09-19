@@ -32,7 +32,7 @@ internal sealed class DwellPageSource : ISettingsPageSource
                     { Description = "How long to rest on EyeCtrl's own buttons." },
                 new SliderSpec("d_key", "Keyboard Key (ms)", 100, 1000, 25, 0,
                     () => d.KeyboardKeyDwellMs, v => { d.KeyboardKeyDwellMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = "How long to rest on a key before it fires." },
+                    { Description = "How long to rest on a key before it fires. Keys that can leave the app or destroy work use 600 ms." },
                 new SliderSpec("d_pred", "Prediction (ms)", 100, 1000, 25, 0,
                     () => d.KeyboardPredictionDwellMs, v => { d.KeyboardPredictionDwellMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = "Dwell for the word suggestions above the keyboard." },

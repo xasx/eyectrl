@@ -107,7 +107,7 @@ runtimes can consume them; the app side is net10):
 | `EyeCtrl.Contracts` | Wire contracts | `net8.0`. Dwell pipe name, `SdkRect`, wire JSON + messages — shared verbatim by the app's pipe server and the SDK's `DwellClient` |
 | `EyeCtrl.Sdk.Abstractions` | SDK core | `net8.0`. `DwellClient`, `DwellHeadCore`, element-adapter contracts for cooperating apps |
 | `EyeCtrl.Sdk.Wpf` | SDK (WPF) | `net8.0-windows`, `UseWPF`. `Dwell` attachable control + WPF element adapter for WPF host apps |
-| `EyeCtrl.Sdk.WinUI` | SDK (WinUI 3) | `net8.0-windows10.0.19041`. `EyeCtrlDwell` control + WinUI coordinates/adapter |
+| `EyeCtrl.Sdk.WinUI` | SDK (WinUI 3) | `net8.0-windows10.0.19041.0`. `EyeCtrlDwell` control + WinUI coordinates/adapter |
 | `EyeCtrl.Supervisor` | Watchdog process | `WinExe`, `net10.0-windows`, `UseWPF` + `UseWindowsForms`. Heartbeat IPC, crash supervision, fallback launch chain, caregiver setup UI |
 | `EyeCtrl.LM` | ONNX LM | `net10.0` leaf project. `SmallLMPredictor` + `LMTokenizer`. References Core. |
 | `EyeCtrl.EyeCare` | Eye-care logic | `net10.0` leaf project. Scheduler, fatigue monitor, gaze exercises, scoring. References Core. |

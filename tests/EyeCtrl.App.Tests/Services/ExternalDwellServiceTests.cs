@@ -61,7 +61,10 @@ public class ExternalDwellServiceTests
             var settings = new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 0 };
             int before = SettingsSubscriberCount(settings);
             using var engine = NewGazeEngine();
-            var svc = new ExternalDwellService(settings, engine, Dispatcher.CurrentDispatcher,
+            // using + the explicit Dispose below: the assert must observe the detached state,
+            // and a failed first assertion must not leak the service and its overlay window.
+            // The second Dispose is a no-op behind the _disposed guard.
+            using var svc = new ExternalDwellService(settings, engine, Dispatcher.CurrentDispatcher,
                 NullLogger<ExternalDwellService>.Instance, new WeakReferenceMessenger(), _ => null,
                 pipeName: _pipeName);
             Check.That(SettingsSubscriberCount(settings)).IsStrictlyGreaterThan(before);

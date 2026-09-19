@@ -18,6 +18,12 @@
     -->
     <Compile Include="..\TestSupport\TempTestDirectory.cs"
              Link="TestSupport\TempTestDirectory.cs" />
+    <!--
+      Linked, not copied: the hook is one rule, and a second copy is a second rule. See the
+      attribute's summary and tests/EyeCtrl.ViewModels.Tests/AssemblyInfo.cs.
+    -->
+    <Compile Include="..\TestSupport\DpiHelperRestoreAttribute.cs"
+             Link="TestSupport\DpiHelperRestoreAttribute.cs" />
   </ItemGroup>
 
 </Project>

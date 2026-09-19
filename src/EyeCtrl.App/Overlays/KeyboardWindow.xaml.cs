@@ -222,10 +222,17 @@ public partial class KeyboardWindow : OverlayWindow
                 var key = subLayout.Rows[rowIdx][keyIdx];
                 // Special-action keys (backspace, enter, modifiers, etc.) get a STABLE id from their
                 // SpecialAction, so they carry the same TargetId across layouts/sub-layouts (the backspace
-                // key sits at different row/col per sub-layout, so key_{row}_{col} would be unstable). This
-                // lets struggle-detection's accidental-activation corroboration match it by id. SpecialAction
-                // values are unique within a sub-layout (verified per layout), so the id stays unique. Regular
-                // keys (no SpecialAction) keep the positional id.
+                // key sits at different row/col per sub-layout, so key_{row}_{col} would be unstable).
+                //
+                // This convention is SAFETY-CRITICAL now, not telemetry: KeyboardSpecialActions.IsAppEscaping
+                // classifies a key by this id, and KeyboardViewModel holds the escaping keys' dwell floor
+                // under it. Collapsing the id to a positional form would un-class every escaping key and
+                // silently evaporate that floor. The old justification — struggle-detection's Backspace
+                // corroboration matching by id — is deliberately DISABLED (AppBootstrapper passes
+                // backspaceTargetId: null), so do not read its absence as "nothing depends on the id".
+                // Pinned by KeyboardGateProbeTests.SpecialActionKeys_RegisterUnderTheirSpecialActionId.
+                // SpecialAction values are unique within a sub-layout (verified per layout), so the id stays
+                // unique. Regular keys (no SpecialAction) keep the positional id.
                 var id = !string.IsNullOrEmpty(key.SpecialAction) ? key.SpecialAction : $"key_{rowIdx}_{keyIdx}";
 
                 var label = new TextBlock
@@ -261,7 +268,6 @@ public partial class KeyboardWindow : OverlayWindow
                     CornerRadius = Tokens.StandardCornerRadius
                 };
                 _keyBrushes[id] = keyBrush;
-                _keyOutlines[id] = DwellOutlineOverlay.Attach(container, label);
 
                 System.Windows.Automation.AutomationProperties.SetAutomationId(label, $"Keyboard_Key_{id}");
 
@@ -288,7 +294,7 @@ public partial class KeyboardWindow : OverlayWindow
         // Boundary dither — a gaze alternating across the rect edge — resets each surface in turn
         // and so types nothing: a narrow dead zone, safe-direction, deliberately not engineered
         // around.
-        var gazeInsideKeyArea = TryGetKeyRowsScreenRect(out var keyArea)
+        var gazeInsideKeyArea = TryGetScreenRect(KeyRows, out var keyArea)
             && keyArea.Contains(screenPoint.X, screenPoint.Y);
 
         if (_viewModel.IsEmojiMode)
@@ -473,50 +479,24 @@ public partial class KeyboardWindow : OverlayWindow
     }
 
     /// <summary>
-    /// The key grid's on-screen rectangle (KeyRows panel), NOT the full window — this is what
-    /// keeps the nearest-key algorithm from conflicting with prediction-bar and category-bar
-    /// dwell targets at the top of the window, and (see <see cref="UpdateGaze"/>) what withholds
-    /// prediction samples while the gaze is on the keys. The gate is load-bearing in both
-    /// directions.
-    ///
-    /// <para>
-    /// BOTH corners go through <see cref="UIElement.PointToScreen"/>, so the rectangle comes out
-    /// in physical pixels even though the extents handed to the second corner are DIPs. Those DIP
-    /// extents must never be ADDED to a <c>PointToScreen</c> result: that mixed-unit
-    /// rectangle was the key-grid defect — at the user's 200% scale it accepted only the grid's
-    /// top-left quadrant, leaving 30 of the 40 shipped qwerty keys (and every sub-layout escape
-    /// key) unreachable. <c>DpiHelper</c> does not drive <c>PointToScreen</c>; the visual tree's
-    /// own transform does, so no manual scaling belongs here. Precedent for the two-corner shape:
-    /// <c>EyeCtrl.Sdk.Wpf/WpfElementAdapter.TryGetScreenRect</c>.
-    /// </para>
-    ///
-    /// <para>
-    /// False when the element is not rendered (or not in a live presentation source) — the same
-    /// condition the previous single-corner form swallowed via its catch — never a partial rect.
-    /// </para>
-    /// </summary>
-    private bool TryGetKeyRowsScreenRect(out PhysicalRect rect)
-    {
-        rect = default;
-        try
-        {
-            if (KeyRows.ActualWidth <= 0 || KeyRows.ActualHeight <= 0) return false;
-            var topLeft = KeyRows.PointToScreen(new Point(0, 0));
-            var bottomRight = KeyRows.PointToScreen(new Point(KeyRows.ActualWidth, KeyRows.ActualHeight));
-            rect = new PhysicalRect(topLeft.X, topLeft.Y, bottomRight.X - topLeft.X, bottomRight.Y - topLeft.Y);
-            return true;
-        }
-        catch (InvalidOperationException)
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
     /// The element's on-screen rectangle in physical pixels, both corners through
-    /// <see cref="UIElement.PointToScreen"/>. False when the element is not laid out (zero size) or
-    /// not in a live presentation source — a placement pass must publish nothing from such an
-    /// element and must not latch on a pass where any element failed.
+    /// <see cref="UIElement.PointToScreen"/>. The DIP extents go IN as arguments to the second
+    /// corner, never ADDED to a <c>PointToScreen</c> result: that mixed-unit rectangle was the
+    /// key-grid defect — at the user's 200% scale it accepted only the grid's top-left quadrant,
+    /// leaving 30 of the 40 shipped qwerty keys (and every sub-layout escape key) unreachable.
+    /// <c>DpiHelper</c> does not drive <c>PointToScreen</c>; the visual tree's own transform does,
+    /// so no manual scaling belongs here. Two-corner precedent in another project:
+    /// <c>EyeCtrl.Sdk.Wpf/WpfElementAdapter.TryGetScreenRect</c>.
+    ///
+    /// <para>
+    /// Serves the key-grid gate (see <see cref="UpdateGaze"/>, where it keeps the nearest-key
+    /// algorithm from conflicting with prediction-bar and category-bar dwell targets, and
+    /// withholds prediction samples while the gaze is on the keys) and the prediction cells'
+    /// placement. False when the element is not laid out (zero size) or not in a live presentation
+    /// source — the condition the original single-corner form swallowed via its catch, never a
+    /// partial rect — and a placement pass must publish nothing from such an element and must not
+    /// latch on a pass where any element failed.
+    /// </para>
     /// </summary>
     private static bool TryGetScreenRect(FrameworkElement element, out PhysicalRect rect)
     {
@@ -823,9 +803,21 @@ public partial class KeyboardWindow : OverlayWindow
             if (label == null) continue;
             if (_keyDefinitions.TryGetValue(id, out var key) && string.IsNullOrEmpty(key.SpecialAction))
             {
-                label.Text = _viewModel.IsShifted && !string.IsNullOrEmpty(key.ShiftOutput)
-                    ? key.ShiftOutput
-                    : key.Label;
+                // Only keys with a shift variant are written: a key without one has nothing to
+                // swap, so the write below has no legitimate effect and exactly one destructive
+                // one. Emoji.Wpf.TextBlock.Text HIDES System.Windows.Controls.TextBlock.Text --
+                // declared `new`, not an override, so there are two distinct DPs -- and the label
+                // slot is typed as the base class, so this write lands on the BASE DP: on an
+                // Emoji.Wpf glyph it replaces the EmojiInline with a plain Run and every visible
+                // cell renders monochrome after the first activation. It does not recover:
+                // re-running the derived setter with the same value never re-fires its callback
+                // (the derived DP never changed), and nothing rebuilds the grid after an
+                // activation, so the cells stay monochrome until a category or page change.
+                // This is not a pointless early return; deleting it is what loses the emoji
+                // grid's colour.
+                if (string.IsNullOrEmpty(key.ShiftOutput)) continue;
+
+                label.Text = _viewModel.IsShifted ? key.ShiftOutput : key.Label;
             }
         }
     }
@@ -848,8 +840,19 @@ public partial class KeyboardWindow : OverlayWindow
         UpdateShiftDisplay();
     }
 
+    /// <summary>
+    /// Registers a dwell target and gives it dwell feedback in one act. Every surface that
+    /// registers a key visual passes through here — the text grid directly, and the emoji cells,
+    /// skin-tone swatches and special buttons through the <see cref="EmojiGridManager"/>
+    /// registrar — so "registered as a dwell target" and "has dwell feedback" cannot come apart.
+    /// The emoji grid shipped with no feedback for exactly as long as attachment lived at each
+    /// call site; a funnel makes that silent omission structurally impossible to repeat.
+    /// </summary>
+    /// <param name="container">The target's border. Its <c>Child</c> must be unset: the outline
+    /// wraps <paramref name="label"/> and installs the wrapper as the Child.</param>
     private void RegisterKeyVisual(string id, KeyDefinition keyDef, Border container, TextBlock? label)
     {
+        _keyOutlines[id] = DwellOutlineOverlay.Attach(container, label);
         _keyDefinitions[id] = keyDef;
         _keyVisuals[id] = (container, label);
     }

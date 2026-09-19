@@ -198,20 +198,55 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         var wavPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "click.wav");
         keyboard.SetSoundService(new KeyboardSoundService(settings.Keyboard, wavPath));
 
-        _keyboardSnapshot = KeyboardStackSnapshot.Capture(settings);
+        _keyboardSnapshot = CaptureSnapshot(settings);
     }
 
-    /// <summary>Seam consumed by SettingsUiCoordinator (T7): reload the keyboard iff the
-    /// layout-affecting settings changed, so T7 doesn't read <c>_keyboardSnapshot</c>.
-    /// Returns <c>true</c> if reloaded.</summary>
+    /// <summary>Seam consumed by SettingsUiCoordinator (T7): reload the keyboard iff the captured
+    /// stack inputs changed, so T7 doesn't read <c>_keyboardSnapshot</c>. Returns <c>true</c> if
+    /// reloaded. The inputs include the snapshot's filesystem term (<c>ActiveModelOnDisk</c>), so
+    /// a completed download of the model <c>MLModelSize</c> already names — which changes no
+    /// setting — still rebuilds the prediction stack (ticket 11).</summary>
     internal bool ReloadIfChanged(EyeCtrlSettings settings, IInputSimulator input, SettingsService ss)
     {
-        var snap = KeyboardStackSnapshot.Capture(settings);
-        if (_keyboardSnapshot == snap) return false;
+        var snap = CaptureSnapshot(settings);
+        if (!ShouldReload(_keyboardSnapshot, snap)) return false;
         if (Context is null) return false; // defensive — the seam is only reachable post-Initialize
         LoadKeyboard(Context.OverlayManager.Keyboard, settings, input, ss);
         return true;
     }
+
+    /// <summary>
+    /// The stored and comparison captures of the reload seam, collapsed into one site so a wrong
+    /// registry here cannot make the two DISAGREE — which is not the same as making it testable:
+    /// a null here still leaves the suite green, because nothing headlessly drives these two call
+    /// sites. What the collapse buys is the failure mode: with one site, a wrong term is wrong in
+    /// both captures, so the residual is the ticket-11 defect returning (no reload). With two
+    /// independent sites, one wrong term produced a phantom diff that reloaded the keyboard and
+    /// the ONNX model on every apply, forever. Better residual, not a guard — read it as no more
+    /// than that. The two static helpers are genuinely pinned by the direct term assertions in
+    /// KeyboardCoordinatorTests.
+    /// </summary>
+    private KeyboardStackSnapshot CaptureSnapshot(EyeCtrlSettings settings) =>
+        KeyboardStackSnapshot.Capture(settings, _modelRegistry);
+
+    /// <summary>
+    /// The reload decision itself, extracted so it is headless-testable: <see cref="ReloadIfChanged"/>
+    /// returns <c>false</c> before reaching this when <c>Context</c> is null, which is every unit
+    /// test — asserting on <see cref="ReloadIfChanged"/> directly would be vacuously false whatever
+    /// the snapshots said. The property is "reload iff the captured inputs moved", never "reload
+    /// because an apply happened": a guard weakened to always reload would rebuild the layout
+    /// (resetting dwell under the user) and load a multi-hundred-MB ONNX model on every slider
+    /// step.
+    /// <para>
+    /// Known residual, accepted rather than pinned: the WIRING that consumes this decision
+    /// (<see cref="ReloadIfChanged"/>'s call into <see cref="LoadKeyboard"/>) is unreachable from
+    /// a unit test through the same Context early-out, so a mutation that deletes the call
+    /// survives the suite. Extracting this method made the decision testable, not the wiring; the
+    /// alternative was a spelling ratchet on the <c>if</c>, which this codebase deletes on sight.
+    /// </para>
+    /// </summary>
+    internal static bool ShouldReload(KeyboardStackSnapshot? stored, KeyboardStackSnapshot current) =>
+        stored != current;
 
     // manageSuppression: true for the toolbar toggle (deliberately pauses fixation while the
     // keyboard is up); false for the text-field auto-show/hide request path, which must NOT touch
@@ -249,7 +284,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     private void HandleKeyboardEdgeToggled()
     {
         if (Context is null) return;
-        var (flipped, snapshot) = ApplyKeyboardEdge(Context.Settings, Context.SettingsService);
+        var (flipped, snapshot) = ApplyKeyboardEdge(Context.Settings, Context.SettingsService, _modelRegistry);
         Context.OverlayManager.Keyboard.SetScreenEdge(flipped);
         _keyboardSnapshot = snapshot;
         ShowKeyboardEdgeBar();
@@ -385,13 +420,20 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     /// it, so skipping the refresh would make the next settings-apply see a phantom diff and rebuild
     /// the whole keyboard (and its prediction stack) just because the user picked a skin tone.
     /// Capture must therefore happen AFTER the write.
+    ///
+    /// <paramref name="modelRegistry"/> is forwarded to the capture so the refreshed snapshot
+    /// carries the same live <c>ActiveModelOnDisk</c> term the other capture sites compute —
+    /// passing null (or any constant) here would refresh the snapshot with a term that disagrees
+    /// with the next <see cref="ReloadIfChanged"/> capture and rebuild the whole keyboard on the
+    /// following apply.
     /// </remarks>
     internal static KeyboardStackSnapshot ApplyEmojiSkinTone(
-        EyeCtrlSettings settings, SettingsService settingsService, int tone)
+        EyeCtrlSettings settings, SettingsService settingsService, int tone,
+        ModelRegistryService? modelRegistry)
     {
         settings.Keyboard.EmojiSkinTone = tone;
         settingsService.SaveDebounced(settings);
-        return KeyboardStackSnapshot.Capture(settings);
+        return KeyboardStackSnapshot.Capture(settings, modelRegistry);
     }
 
     /// <summary>
@@ -406,17 +448,17 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     /// <summary>
     /// The persistable half of an edge flip: write the canonical flipped value, save debounced,
     /// and re-capture the reload snapshot AFTER the write (spec C5 — same discipline as
-    /// <see cref="ApplyEmojiSkinTone"/>, whose remarks document the phantom-rebuild failure).
-    /// The window-apply half (SetScreenEdge + edge-bar rebuild) lives in the Context-bound
-    /// handler.
+    /// <see cref="ApplyEmojiSkinTone"/>, whose remarks document the phantom-rebuild failure and
+    /// the reason the registry is threaded through). The window-apply half (SetScreenEdge +
+    /// edge-bar rebuild) lives in the Context-bound handler.
     /// </summary>
     internal static (string Flipped, KeyboardStackSnapshot Snapshot) ApplyKeyboardEdge(
-        EyeCtrlSettings settings, SettingsService settingsService)
+        EyeCtrlSettings settings, SettingsService settingsService, ModelRegistryService? modelRegistry)
     {
         var flipped = FlipScreenEdge(settings.Keyboard.ScreenEdge);
         settings.Keyboard.ScreenEdge = flipped;
         settingsService.SaveDebounced(settings);
-        return (flipped, KeyboardStackSnapshot.Capture(settings));
+        return (flipped, KeyboardStackSnapshot.Capture(settings, modelRegistry));
     }
 
     /// <summary>The ring action's idempotence: already visible means the activation is a no-op.
@@ -427,7 +469,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     private void OnEmojiSkinToneChanged(int tone)
     {
         if (Context is null) return;
-        _keyboardSnapshot = ApplyEmojiSkinTone(Context.Settings, Context.SettingsService, tone);
+        _keyboardSnapshot = ApplyEmojiSkinTone(Context.Settings, Context.SettingsService, tone, _modelRegistry);
     }
 
     private void OnToolbarVisibilityChanged(bool toolbarVisible)

@@ -51,7 +51,7 @@ using Xunit;
 /// <para><b>Why a live source is required, and why it is an HwndSource rather than Show().</b>
 /// <c>PointToScreen</c> throws <see cref="InvalidOperationException"/> without a
 /// <see cref="PresentationSource"/> — and the gate CATCHES that and returns false
-/// (<c>KeyboardWindow.xaml.cs TryGetKeyRowsScreenRect</c>). So a test over a sourceless visual
+/// (<c>KeyboardWindow.xaml.cs TryGetScreenRect</c>). So a test over a sourceless visual
 /// reports "outside" for every input and is green against the bug, against the fix, AND against
 /// <c>return false;</c>. A source is therefore mandatory, and the <c>IsNotNull</c> guard in
 /// <c>Open</c> is what stops this file ever going quietly vacuous.</para>
@@ -118,6 +118,28 @@ public class KeyboardGateProbeTests
     private static KeyboardLayout ShippedQwerty() =>
         KeyboardLayoutLoader.Load(Path.Combine(SourceScanner.RepoRoot().FullName,
             "src", "EyeCtrl.App", "Resources", "Layouts", "qwerty.json"));
+
+    /// <summary>One row exercising every id shape the escaping classifier keys off, plus a regular key.</summary>
+    private static KeyboardLayout SpecialActionLayout()
+    {
+        var rows = new List<List<KeyDefinition>>
+        {
+            new()
+            {
+                new KeyDefinition { Label = "q", Output = "q", Width = 1.0 },
+                new KeyDefinition { Label = "Enter", Output = "", SpecialAction = "enter", Width = 1.0 },
+                new KeyDefinition { Label = "Esc", Output = "", SpecialAction = "key:Escape", Width = 1.0 },
+                new KeyDefinition { Label = "Up", Output = "", SpecialAction = "key:ArrowUp", Width = 1.0 },
+                new KeyDefinition { Label = "Copy", Output = "", SpecialAction = "shortcut:Ctrl+C", Width = 1.0 },
+            },
+        };
+        return new KeyboardLayout
+        {
+            Name = "SpecialActions",
+            DefaultSubLayout = "letters",
+            SubLayouts = new Dictionary<string, SubLayout> { ["letters"] = new() { Label = "abc", Rows = rows } },
+        };
+    }
 
     private static string ShippedEmojiJson() =>
         Path.Combine(SourceScanner.RepoRoot().FullName,
@@ -331,6 +353,72 @@ public class KeyboardGateProbeTests
                     + "mechanism (the nearest-key search has no maximum distance), so if this fails, "
                     + "gaze anywhere on screen types while the keyboard is open.")
                 .That(probe.Vm.NearestKeyId).IsNull();
+        }
+        finally { probe.Dispose(); }
+    }
+
+    // ---- the id convention the escaping dwell floor is classified from ----
+
+    /// <summary>
+    /// Pins the id convention at <c>KeyboardWindow.RebuildKeys</c>: for every key with a
+    /// <c>SpecialAction</c>, the registered dwell-target id IS the SpecialAction string.
+    ///
+    /// <para>
+    /// This is safety-critical now: <c>KeyboardSpecialActions.IsAppEscaping</c> classifies a key by
+    /// that id and <c>KeyboardViewModel</c> holds the escaping keys' dwell floor under it. A change
+    /// to the id minting — a prefix, a lowercasing, a sanitized form — would silently un-class every
+    /// app-escaping key and drop the floor while the whole suite stayed green. The test runs the real
+    /// window over a synthetic layout and reads the ids it actually registered, so it holds for any
+    /// implementation that keeps the property and fails for one that only looks equivalent.
+    /// </para>
+    ///
+    /// <para>
+    /// The regular key's positional id is part of the pin: it must stay distinguishable from the
+    /// <c>key:</c> action prefix, or every letter would silently enter the escaping class and lose the
+    /// forgiving response.
+    /// </para>
+    /// </summary>
+    [StaFact]
+    public void SpecialActionKeys_RegisterUnderTheirSpecialActionId()
+    {
+        var layout = SpecialActionLayout();
+        var probe = Open(layout, 1.0);
+        try
+        {
+            var ids = new HashSet<string>(Centres(probe.Window).Keys);
+            var specialActions = layout.SubLayouts.Values
+                .SelectMany(sub => sub.Rows.SelectMany(r => r))
+                .Where(k => !string.IsNullOrEmpty(k.SpecialAction))
+                .Select(k => k.SpecialAction!)
+                .ToList();
+
+            // Guard the guard: an empty special set would make the loop below vacuous.
+            Check.WithCustomMessage("The synthetic layout registered no special-action keys.")
+                .That(specialActions.Count).IsEqualTo(4);
+
+            foreach (var action in specialActions)
+                Check.WithCustomMessage(
+                        $"Special-action key '{action}' registered as '{string.Join(", ", ids.OrderBy(k => k, StringComparer.Ordinal))}'. "
+                        + "The id must BE the SpecialAction: KeyboardSpecialActions.IsAppEscaping classifies on "
+                        + "that convention and nothing fails loudly if it breaks.")
+                    .That(ids.Contains(action)).IsTrue();
+
+            Check.WithCustomMessage(
+                    "The regular key's positional id collided with (or became indistinguishable from) a "
+                    + "special-action id — if it starts matching the escaping grammar, the floor lands on "
+                    + "every letter.")
+                .That(ids.Contains("key_0_0")).IsTrue();
+            Check.That(KeyboardSpecialActions.IsAppEscaping("key_0_0")).IsFalse();
+
+            // The classifier must agree with the ids the window just minted (the other side of the
+            // coupling: changing the classifier's grammar fails here, changing the minting fails in
+            // the loop above). The ids are the REAL CASED layout strings — a lowercase-only
+            // classifier would pass a hand-built lowercase set and classify nothing in flight.
+            Check.That(KeyboardSpecialActions.IsAppEscaping("enter")).IsTrue();
+            Check.That(KeyboardSpecialActions.IsAppEscaping("key:Escape")).IsTrue();
+            Check.That(KeyboardSpecialActions.IsAppEscaping("key:Insert")).IsTrue();
+            Check.That(KeyboardSpecialActions.IsAppEscaping("shortcut:Ctrl+C")).IsTrue();
+            Check.That(KeyboardSpecialActions.IsAppEscaping("key:ArrowUp")).IsFalse(); // navigation stays adaptive
         }
         finally { probe.Dispose(); }
     }

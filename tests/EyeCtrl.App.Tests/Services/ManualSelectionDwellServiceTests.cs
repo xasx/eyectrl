@@ -16,7 +16,7 @@ using Xunit;
 /// <summary>
 /// Defines the App-layer test collection that isolates DpiHelper's process-global scale.
 ///
-/// Membership rule: any class that CALLS DpiHelper.Initialize. xUnit v3 gives a
+/// Membership rule: any class that CALLS DpiHelper.Initialize or DpiHelper.Update. xUnit v3 gives a
 /// DisableParallelization collection an EXCLUSIVE phase — it runs concurrently with no other
 /// collection, parallel or non-parallel — so confining the writers here is sufficient on its
 /// own: while a writer runs nothing else runs, and no reader can observe the scale change
@@ -43,7 +43,11 @@ using Xunit;
 ///
 /// What exclusivity does NOT give you is ordering. A writer that leaks a non-1.0 scale still
 /// changes what a later collection reads, because the order between non-parallel collections is
-/// not contractual. Every writer here restores 1.0 in a Dispose or a finally — keep it so.
+/// not contractual. That half is closed by the assembly-wide DpiHelperRestore hook (AssemblyInfo.cs,
+/// declared here and in every writer-bearing project), not by each writer remembering a Dispose or
+/// a finally — five tests in DisplayGeometryWatcherTests leaked 2.0 and the one that restored did
+/// so outside a finally. Keep the hook and keep every writer in this collection; do not
+/// reintroduce a per-class restore obligation.
 ///
 /// Naming a type is NOT enough to qualify — the source-census tests match filenames like
 /// "SettingsWindow.xaml" as text, and several helpers (EyeCareBannerWindow.ComputeDwellGeometry,

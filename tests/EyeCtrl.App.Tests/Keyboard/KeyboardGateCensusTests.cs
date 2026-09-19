@@ -46,7 +46,9 @@ public class KeyboardGateCensusTests
     {
         var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
             "src", "EyeCtrl.App", "Overlays", "KeyboardWindow.xaml.cs"));
-        var body = ExtractMethod(source, "private bool TryGetKeyRowsScreenRect(out PhysicalRect rect)");
+        // Ticket 5 consolidated the two identical private helpers into this one (the T1 helper was
+        // this method with KeyRows bound), so the pin follows the surviving two-corner form.
+        var body = ExtractMethod(source, "private static bool TryGetScreenRect(FrameworkElement element, out PhysicalRect rect)");
 
         Check.WithCustomMessage(
                 "The key-grid gate must derive BOTH corners through PointToScreen. One corner plus "
@@ -80,6 +82,15 @@ public class KeyboardGateCensusTests
                 "The gate result must be consumed through PhysicalRect.Contains — comparing raw "
                 + "bounds arithmetic at the call site is how the DIP/physical mix gets back in.")
             .That(updateGaze.Contains(".Contains(screenPoint.X, screenPoint.Y)")).IsTrue();
+        // Pins the element binding only — never the local variable's name. The gate measuring
+        // KeyRows is the property; renaming the out variable is an honest refactor and a ratchet
+        // that fires on one gets deleted by the next person, costing more than the gap it closed.
+        Check.WithCustomMessage(
+                "The rect helper must be bound to KeyRows at the call site. The method name no "
+                + "longer carries the element now that the same helper also places prediction "
+                + "cells, so binding a different element here would measure the wrong surface "
+                + "while every other check still passed.")
+            .That(updateGaze.Contains("TryGetScreenRect(KeyRows")).IsTrue();
     }
 
     private static int CountOccurrences(string text, string needle)

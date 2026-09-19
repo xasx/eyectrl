@@ -16,12 +16,32 @@ using Xunit;
 /// the supervisor could not see it, because a stale-geometry app still delivers frames so the
 /// heartbeat stayed fresh. These pin the refresh and, as importantly, the cases where it must NOT
 /// fire.
+///
+/// <para>
+/// This class drives the production watcher, whose <c>Apply</c> calls
+/// <c>DpiHelper.Update(2.0, 2.0)</c> for this user's real display geometry, so every test here that
+/// applies <c>Uhd</c> changes a process-global that later tests read. It restores per test in
+/// <see cref="Dispose"/>, which runs even when an assertion throws — unlike the bare trailing
+/// statement the scale-republication test used to end with. <c>Dispose</c> runs after xUnit's
+/// <c>BeforeAfterTestAttribute.After</c>, which is why restore-on-dispose is enough here: an
+/// <c>After</c>-time assert could not see this class's cleanup, but the next test can. The
+/// assembly-wide <c>DpiHelperRestore</c> hook is the second half — it covers indirect writers no
+/// class-level cleanup governs, which is what made this class's five non-restoring tests reach
+/// <c>KeyboardEmojiDwellFeedbackTests</c> and activate its category tab instead of its cell.
+/// </para>
 /// </summary>
 [Collection("DpiHelper Tests (App)")]
-public class DisplayGeometryWatcherTests
+public class DisplayGeometryWatcherTests : IDisposable
 {
     private static readonly DisplayGeometry Hd = new(1920, 1080, 1.0, 1.0);
     private static readonly DisplayGeometry Uhd = new(3840, 2160, 2.0, 2.0);
+
+    /// <summary>
+    /// Per-test restore for the scale the production watcher republishes. xUnit disposes the test
+    /// instance even when the test failed, which is the property the old trailing restore lacked.
+    /// Belt-and-braces beside the assembly-wide hook; see the class doc.
+    /// </summary>
+    public void Dispose() => DpiHelper.Initialize(1.0, 1.0);
 
     private sealed class Harness
     {
@@ -101,7 +121,9 @@ public class DisplayGeometryWatcherTests
 
         Check.That(scaleSeenByConsumer).IsEqualTo(2.0);
         Check.That(DpiHelper.ScaleX).IsEqualTo(2.0);
-        DpiHelper.Initialize(1.0, 1.0);
+        // No restore here: the class Dispose restores per test, including when the assertions
+        // above fail. This line used to be a bare trailing Initialize(1.0, 1.0) — one failed
+        // assertion away from leaking 2.0 into every later test.
     }
 
     [Fact]

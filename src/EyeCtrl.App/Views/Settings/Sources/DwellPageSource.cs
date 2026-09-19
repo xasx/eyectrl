@@ -30,10 +30,14 @@ internal sealed class DwellPageSource : ISettingsPageSource
                 new SliderSpec("d_tool", "Toolbar / Settings (ms)", 200, 1500, 50, 0,
                     () => d.ToolbarButtonDwellMs, v => { d.ToolbarButtonDwellMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = "How long to rest on EyeCtrl's own buttons." },
-                new SliderSpec("d_key", "Keyboard Key (ms)", 100, 1000, 25, 0,
+                // 300 is the keyboard family's blink-credit floor, shared with the Core guard and the
+                // adaptive clamp (Core.Adaptation.AdaptationDwellRanges.KeyboardMinDwellMs; the bound
+                // and its derivation live beside KeyboardSpecialActions.AppEscapingPolicyFloorMs).
+                // Below it a single credited blink can complete the dwell.
+                new SliderSpec("d_key", "Keyboard Key (ms)", Core.Adaptation.AdaptationDwellRanges.KeyboardMinDwellMs, 1000, 25, 0,
                     () => d.KeyboardKeyDwellMs, v => { d.KeyboardKeyDwellMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = "How long to rest on a key before it fires." },
-                new SliderSpec("d_pred", "Prediction (ms)", 100, 1000, 25, 0,
+                    { Description = "How long to rest on a key before it fires. Keys that can leave the app or destroy work use 600 ms." },
+                new SliderSpec("d_pred", "Prediction (ms)", Core.Adaptation.AdaptationDwellRanges.KeyboardMinDwellMs, 1000, 25, 0,
                     () => d.KeyboardPredictionDwellMs, v => { d.KeyboardPredictionDwellMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = "Dwell for the word suggestions above the keyboard." },
                 new SliderSpec("d_rad", "Fixation Radius (px)", 20, 120, 5, 0,

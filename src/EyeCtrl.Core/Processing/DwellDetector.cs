@@ -42,11 +42,24 @@ public class DwellDetector
     /// </para>
     ///
     /// <para>
-    /// Known residual: for consumers on the keyboard dwell family (prediction bar, emoji category
-    /// tabs — <c>AdaptationDwellRanges.KeyboardMinDwellMs</c> = 100) a stall between 100 and
-    /// 150 ms is still credited and can complete a dwell; for the standard surfaces
-    /// (<c>StandardMinDwellMs</c> = 200) the bound is below the minimum dwell, so a stall alone
-    /// cannot complete one. Accepted and recorded so it is not rediscovered as a bug.
+    /// The bound is below EVERY configured minimum dwell: the keyboard family's floor is
+    /// <c>AdaptationDwellRanges.KeyboardMinDwellMs</c> = 300 (prediction bar, emoji category tabs)
+    /// and the standard surfaces' is <c>StandardMinDwellMs</c> = 200, so a SINGLE credited silence
+    /// cannot complete a dwell on its own. Note the comparison operator asymmetry with the key grid:
+    /// this detector restarts on <c>&gt;=</c> this bound (exactly 150 ms is a restart), while
+    /// <c>KeyboardViewModel.MaxContinuousSampleGapUs</c> credits exactly 150 ms and restarts only
+    /// above it — tests must speak for the path whose operator they model.
+    /// </para>
+    ///
+    /// <para>
+    /// The clamp is PER GAP, not cumulative: N credited silences contribute up to 150·N, so a dwell
+    /// of D can still be assembled from <c>ceil(D/150)</c> stalls — two at the 300 ms floor, three
+    /// at the shipped 450 ms default. That multi-stall path is open at every floor and was already
+    /// open before the floor existed; it is accepted because a DELIVERED sample must intervene
+    /// between stalls (a sample between two silences means gaze was reported on the key, and a real
+    /// blink is one long gap, not a series of short ones), whereas the single-stall case needs no
+    /// reported gaze at all. Do not restate the claim as "no stall can complete a dwell" — the exact
+    /// property is the single one above.
     /// </para>
     /// </summary>
     private const long MaxCreditedSampleGapUs = 150 * MathConstants.MicrosecondsPerMillisecond;

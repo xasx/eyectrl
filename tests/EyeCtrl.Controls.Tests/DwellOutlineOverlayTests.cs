@@ -220,6 +220,41 @@ public class DwellOutlineOverlayTests
     }
 
     /// <summary>
+    /// The emoji grid joined the outlined dwell targets with ticket 6, and its fills are not the
+    /// key ramp's: cells sit on <c>SurfaceMedium</c>, the special buttons on
+    /// <c>SurfaceKeySwitch</c>, and the ACTIVE skin-tone swatch on <c>ToggleOn</c>. Measured
+    /// (WCAG): accent-on-SurfaceMedium 11.12 / 10.22 / 14.69 (Midnight / Ember / Contrast), with
+    /// halo 1.42 / 1.42 / 1.14; accent-on-SurfaceKeySwitch 6.27 / 7.26 / 7.07, halo 2.51 / 2.00 /
+    /// 2.37; accent-on-ToggleOn 3.13 / 3.00 / 1.09, halo 5.04 / 4.83 / 15.30. As on the ACTIVE
+    /// modifier, the Contrast theme's swatch is a case the halo exists for: the accent alone is
+    /// 1.09:1 there, the halo 15.30:1.
+    /// </summary>
+    [Theory]
+    [InlineData("SurfaceMedium")]
+    [InlineData("SurfaceKeySwitch")]
+    [InlineData("ToggleOn")]
+    public void TheOutline_IsPerceptibleAgainstTheEmojiSurfaces_InEveryTheme(string fillName)
+    {
+        foreach (var theme in ThemeRegistry.All)
+        {
+            var fill = fillName switch
+            {
+                "SurfaceMedium" => theme.SurfaceMedium,
+                "SurfaceKeySwitch" => theme.SurfaceKeySwitch,
+                _ => theme.ToggleOn
+            };
+
+            var best = Math.Max(Contrast(theme.Accent, fill), Contrast(theme.StrokeHalo, fill));
+            Check.WithCustomMessage(
+                    $"{theme.Name}: outline vs {fillName} reaches only {best:F2}:1 (accent "
+                    + $"{Contrast(theme.Accent, fill):F2}, halo {Contrast(theme.StrokeHalo, fill):F2}) "
+                    + "— an emoji dwell target must clear 3:1 by one term or the other, or the "
+                    + "user cannot see the progress.")
+                .That(best).IsStrictlyGreaterThan(3.0);
+        }
+    }
+
+    /// <summary>
     /// A padded target must still be outlined at its own edge, not at its content box.
     ///
     /// A WPF Border arranges its Child inside its Padding, so an overlay installed as that Child

@@ -134,6 +134,8 @@ public class ModelManagementService
                 }
             }
 
+            ActivateDownloadedModelIfNothingRealIsActive(modelId);
+
             var success = ModelDownloadResult.Success(modelId);
             Complete(success);
             return success;
@@ -215,11 +217,7 @@ public class ModelManagementService
             _registryService.AddCustomModel(finalName, displayName, url, "", sizeBytes,
                 tokenizerUrl, "", _settings.Keyboard);
 
-            if (string.IsNullOrEmpty(_registryService.ActiveModelId) || _registryService.ActiveModelId == "Off")
-            {
-                _settings.Keyboard.MLModelSize = finalName;
-                _registryService.ActiveModelId = finalName;
-            }
+            ActivateDownloadedModelIfNothingRealIsActive(finalName);
 
             var success = ModelDownloadResult.Success(finalName);
             Complete(success);
@@ -244,7 +242,45 @@ public class ModelManagementService
     }
 
     /// <summary>
-    /// Sets the active model.
+    /// Makes a just-downloaded model active unless a real, downloaded model already is.
+    /// <para>
+    /// A completed download is a deliberate act aimed at <paramref name="modelId"/>, so that is
+    /// the model to activate when nothing usable is active. "Nothing usable" includes the case
+    /// this defect is made of: <see cref="ModelRegistryService"/> seeds <c>ActiveModelId</c> from
+    /// <c>Keyboard.MLModelSize</c>, so the stored default <c>"360M"</c> — with no 360M file on
+    /// disk — is neither empty nor <c>"Off"</c>, and the old inline equivalent of this check
+    /// (<c>IsNullOrEmpty || == "Off"</c>) therefore never fired. The predicate is the FILE, never
+    /// the id's spelling. Both spellings of "no active model" are checked because the seed stores
+    /// <c>"Off"</c> verbatim while <see cref="SetActiveModel"/> normalizes it to null — do not
+    /// "simplify" either away.
+    /// </para>
+    /// <para>
+    /// Deliberately per-download, never at startup. A startup repair would turn this dormant
+    /// defect live on the first launch of an affected install — a 1.67 GB ONNX model loading and
+    /// the prediction bar changing on the user's only text-input surface, with the loading
+    /// indicator and GPU preference both defaulting on. That is the ticket-7 hazard (a fix that
+    /// silently changes a daily surface), so it is a decision, not an omission. No migration is
+    /// needed either: this adds a write at download time and changes what no reader makes of an
+    /// existing stored id — the prediction stack still loads whatever id is stored and still
+    /// degrades to no LM when that file is absent, and the models page still reads
+    /// downloaded-ness from the files. A "360M" install behaves exactly as today until the user
+    /// downloads or selects a model.
+    /// </para>
+    /// </summary>
+    private void ActivateDownloadedModelIfNothingRealIsActive(string modelId)
+    {
+        var active = _registryService.ActiveModelId;
+        var activeIsOnDisk = !string.IsNullOrEmpty(active)
+            && !string.Equals(active, "Off", StringComparison.OrdinalIgnoreCase)
+            && _registryService.IsModelDownloaded(active);
+        if (!activeIsOnDisk)
+            SetActiveModel(modelId);
+    }
+
+    /// <summary>
+    /// Sets the active model. The single writer of <c>Keyboard.MLModelSize</c> — the UI and both
+    /// download paths route through here so the setting and the registry's
+    /// <see cref="ModelRegistryService.ActiveModelId"/> stay in step.
     /// </summary>
     public void SetActiveModel(string? modelId)
     {

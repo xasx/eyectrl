@@ -234,6 +234,7 @@ public class SettingsPropertyValidationTests
 
     [Theory]
     [InlineData(99)]
+    [InlineData(299)] // the old 100 ms floor is now inside the blink-credit window
     [InlineData(1501)]
     public void KeyboardKeyDwellMs_OutOfRange_ThrowsArgumentOutOfRange(int value)
     {
@@ -246,8 +247,19 @@ public class SettingsPropertyValidationTests
         catch (ArgumentOutOfRangeException e) { ex = e; }
 
         Check.That(ex).IsNotNull();
-        Check.That(ex!.Message).Contains("100");
+        Check.That(ex!.Message).Contains("300");
         Check.That(ex!.Message).Contains("1500");
+    }
+
+    [Theory]
+    [InlineData(300)] // the family floor itself
+    [InlineData(450)]
+    [InlineData(1500)]
+    public void KeyboardKeyDwellMs_ValidValue_AllowsChange(int value)
+    {
+        var settings = new DwellSettings();
+        settings.KeyboardKeyDwellMs = value;
+        Check.That(settings.KeyboardKeyDwellMs).IsEqualTo(value);
     }
 
     #endregion
@@ -256,6 +268,7 @@ public class SettingsPropertyValidationTests
 
     [Theory]
     [InlineData(99)]
+    [InlineData(299)] // the old 100 ms floor is now inside the blink-credit window
     [InlineData(1501)]
     public void KeyboardPredictionDwellMs_OutOfRange_ThrowsArgumentOutOfRange(int value)
     {

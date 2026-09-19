@@ -60,10 +60,13 @@ public sealed class EffectiveSettingsProvider
             // Tolerance: forgiving = looser = larger (+); no tightening. Range 10–200 (DwellSettings guard).
             [AdaptationKnob.FixationRadius] = new(
                 +1.0, static a => a.ToleranceLooserMaxFraction, 0.0, null, 10.0, 200.0),
-            // Dwell: forgiving = shorter (−); the one quarantined tightening = longer (+). Range = union of
-            // the 12 dwell-time guards [100, 3000]: the 11 DwellSettings guards plus the twelfth,
-            // ExternalDwellSettings.DefaultDwellMs (200–3000), so the quarantined tightening on a legal
-            // 2500 ms External baseline composes toward LONGER (clamped to 3000), never truncated to the
+            // Dwell: forgiving = shorter (−); the one quarantined tightening = longer (+). Range = the
+            // WIDER [100, 3000] superset of the dwell-time guards: the guards themselves span
+            // [200, 3000] since the keyboard family's floor rose to 300 (keyboard keys/prediction/
+            // emoji tabs 300–1500, standard surfaces 200–2000, External 200–3000). The provider keeps
+            // the extra headroom as the safety net — the operative floors are the guards and the
+            // per-surface routing clamps — because the quarantined tightening on a legal 2500 ms
+            // External baseline must compose toward LONGER (clamped to 3000), never truncated to the
             // Standard 2000 (a direction inversion to shorter = easier accidental re-activation).
             // Per-surface ranges re-applied at dwell routing.
             [AdaptationKnob.DwellTime] = new(

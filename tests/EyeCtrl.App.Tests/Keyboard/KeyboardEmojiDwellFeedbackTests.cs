@@ -296,8 +296,11 @@ public class KeyboardEmojiDwellFeedbackTests
                     .That(glyphs[id].EmojiInlines.Any()).IsTrue();
             }
 
-            var activations = 0;
-            probe.Vm.KeyDwellCompleted += id => { if (id == CellId) activations++; };
+            // Every completed id is recorded, not just this cell's: "the cell never activated" is
+            // otherwise silent about whether nothing completed or a neighbour did, and those are
+            // different faults (dwell accumulation/cooldown vs cell centres). Changes no assertion.
+            var completed = new List<string>();
+            probe.Vm.KeyDwellCompleted += completed.Add;
 
             // Enters at 1_000_000, completes at 1_450_000; the endpoint must stay on the step grid.
             Feed(probe, KeyCentres(probe.Window)[CellId], 1_000_000, 1_480_000);
@@ -305,8 +308,15 @@ public class KeyboardEmojiDwellFeedbackTests
             Check.WithCustomMessage(
                     "The cell never activated, so the post-activation assertions would be vacuous "
                     + "(the dwell would have to reach the full key-dwell time to raise "
-                    + "ActiveModifiers through ActivateKey).")
-                .That(activations).IsEqualTo(1);
+                    + "ActiveModifiers through ActivateKey). Completed key dwells seen (every id "
+                    + "recorded): "
+                    + (completed.Count == 0 ? "none" : string.Join(", ", completed))
+                    + ". None means no key completed at all — which is also what a neighbouring "
+                    + "dwell surface stealing the sample looks like, since the category tab arrives "
+                    + "as a target activation and never as a key completion. A different id means a "
+                    + "neighbouring CELL completed instead, which puts the fault in cell centres "
+                    + "rather than in accumulation.")
+                .That(completed.Count(id => id == CellId)).IsEqualTo(1);
             foreach (var id in cells)
             {
                 // Reading the LIVE glyph, not the reference captured before the dwell. Identity

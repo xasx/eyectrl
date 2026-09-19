@@ -27,6 +27,8 @@
     -->
     <Compile Include="..\TestSupport\TempTestDirectory.cs"
              Link="TestSupport\TempTestDirectory.cs" />
+    <Compile Include="..\TestSupport\DpiHelperRestoreAttribute.cs"
+             Link="TestSupport\DpiHelperRestoreAttribute.cs" />
   </ItemGroup>
 
 </Project>

@@ -72,7 +72,10 @@ internal sealed class QuickActionsPageSource : ISettingsPageSource
     /// <para>
     /// Gated, like its two siblings, by
     /// <c>HandChunkedPageFitTests.EveryHandChunkedPage_KeepsItsDwellCirclesInsideTheContentCell</c>
-    /// — nothing re-paginates these pages by height, so this constant IS the pagination.
+    /// (reachability) and by
+    /// <c>HandChunkedPageFitTests.EveryChunkedQuickActionsPage_KeepsHalfARowOfTrailingSlack</c>
+    /// (the 88-DIP slack this comment advertises — reachability alone would tolerate a fifth
+    /// row's 13) — nothing re-paginates these pages by height, so this constant IS the pagination.
     /// </para>
     /// </summary>
     private const int QaConfigRowsPerPage = 4;

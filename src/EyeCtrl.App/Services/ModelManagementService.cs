@@ -134,6 +134,8 @@ public class ModelManagementService
                 }
             }
 
+            ActivateDownloadedModelIfNothingRealIsActive(modelId);
+
             var success = ModelDownloadResult.Success(modelId);
             Complete(success);
             return success;
@@ -215,11 +217,7 @@ public class ModelManagementService
             _registryService.AddCustomModel(finalName, displayName, url, "", sizeBytes,
                 tokenizerUrl, "", _settings.Keyboard);
 
-            if (string.IsNullOrEmpty(_registryService.ActiveModelId) || _registryService.ActiveModelId == "Off")
-            {
-                _settings.Keyboard.MLModelSize = finalName;
-                _registryService.ActiveModelId = finalName;
-            }
+            ActivateDownloadedModelIfNothingRealIsActive(finalName);
 
             var success = ModelDownloadResult.Success(finalName);
             Complete(success);
@@ -244,7 +242,64 @@ public class ModelManagementService
     }
 
     /// <summary>
-    /// Sets the active model.
+    /// Makes a just-downloaded model active unless a real, downloaded model already is.
+    /// <para>
+    /// A completed download is a deliberate act aimed at <paramref name="modelId"/>, so that is
+    /// the model to activate when nothing usable is active. "Nothing usable" includes the case
+    /// this defect is made of: <see cref="ModelRegistryService"/> seeds <c>ActiveModelId</c> from
+    /// <c>Keyboard.MLModelSize</c>, so the stored default <c>"360M"</c> — with no 360M file on
+    /// disk — is neither empty nor <c>"Off"</c>, and the old inline equivalent of this check
+    /// (<c>IsNullOrEmpty || == "Off"</c>) therefore never fired. The predicate is the FILE, never
+    /// the id's spelling.
+    /// </para>
+    /// </summary>
+    private void ActivateDownloadedModelIfNothingRealIsActive(string modelId)
+    {
+        var active = _registryService.ActiveModelId;
+        var activeIsOnDisk = !string.IsNullOrEmpty(active)
+            && !string.Equals(active, "Off", StringComparison.OrdinalIgnoreCase)
+            && _registryService.IsModelDownloaded(active);
+        if (!activeIsOnDisk)
+            SetActiveModel(modelId);
+    }
+
+    /// <summary>
+    /// Repairs a stored active-model id that names a model which is not on disk, by activating
+    /// the only downloaded model — when there is exactly one.
+    /// <para>
+    /// There is no migration for this setting, so an install whose stored id is the <c>"360M"</c>
+    /// default (never downloaded) holds a value that was never valid: no session can honour it,
+    /// even after a model is downloaded and shows as "✓ Downloaded". With several downloaded
+    /// models the choice among them is genuinely the user's and guessing one (largest? newest?)
+    /// would silently override it, so this declines. <c>"Off"</c> and empty name no model at all:
+    /// that is a deliberate choice, and startup — unlike a completed download — has no fresh act
+    /// to honour, so it is left alone here.
+    /// </para>
+    /// </summary>
+    /// <returns><c>true</c> when the active model changed.</returns>
+    public bool ReconcileActiveModel()
+    {
+        var active = _registryService.ActiveModelId;
+        if (string.IsNullOrEmpty(active) || string.Equals(active, "Off", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (_registryService.IsModelDownloaded(active))
+            return false;
+
+        var downloaded = _registryService.SelectableModels;
+        if (downloaded.Count != 1)
+            return false;
+
+        _logger?.LogInformation(
+            "Active model {Active} is not downloaded; activating the only downloaded model {Model}",
+            active, downloaded[0].Id);
+        SetActiveModel(downloaded[0].Id);
+        return true;
+    }
+
+    /// <summary>
+    /// Sets the active model. The single writer of <c>Keyboard.MLModelSize</c> — the UI, both
+    /// download paths and startup reconciliation all route through here so the setting and the
+    /// registry's <see cref="ModelRegistryService.ActiveModelId"/> cannot disagree.
     /// </summary>
     public void SetActiveModel(string? modelId)
     {

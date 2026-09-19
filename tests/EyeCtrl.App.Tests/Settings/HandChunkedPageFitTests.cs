@@ -1,4 +1,4 @@
-﻿namespace EyeCtrl.App.Tests.Settings;
+namespace EyeCtrl.App.Tests.Settings;
 
 using System;
 using System.Collections.Generic;
@@ -574,6 +574,89 @@ public class HandChunkedPageFitTests
                 "No hand-chunked page was measured at all. The sources were discovered and "
                 + "constructed, so this means every one of them emitted zero pages — every "
                 + "assertion above then passed over nothing.")
+            .That(pagesChecked).IsStrictlyGreaterThan(0);
+    }
+
+    /// <summary>
+    /// Half of the 150 DIP row pitch: the least slack every CHUNKED quick-actions page keeps
+    /// between its page bottom and the content budget. All of them currently leave 88 (four
+    /// rows against the 688 DIP cell); see <see cref="QaPresetsPerPage"/>'s own remarks for why
+    /// 13 — what a fifth row's last circle would leave — "is not a margin to rely on".
+    /// </summary>
+    private const double MinTrailingSlackDip = 75;
+
+    /// <summary>
+    /// The trailing-margin companion to the reachability guard: every page whose shape one of
+    /// <c>QuickActionsPageSource</c>'s chunk constants controls must keep at least
+    /// <see cref="MinTrailingSlackDip"/> of slack below its last row.
+    ///
+    /// <para>
+    /// Reachability alone gates at FIVE rows — the last circle's centre lands at 675 against
+    /// the 688 budget and the guard above stays green (measured during the PR #155 review:
+    /// <c>QaConfigRowsPerPage = 5</c> passed it; only 6 went red). But the constants' own
+    /// comments all advertise the fuller shape — four rows, 88 to spare — and
+    /// <see cref="QaPresetsPerPage"/>'s remarks reject exactly the 13-DIP margin a fifth row
+    /// would leave. This pins the advertised shape, so a future "five into four is tidier"
+    /// edit fails here instead of silently shaving the margin the comments claim.
+    /// </para>
+    /// <para>
+    /// ONE page is out of scope BY NAME: the type picker (<c>QaView.PickType</c>), whose
+    /// hard-wired Back + four type buttons is the 13-DIP page this class's remarks document
+    /// as legitimately reachable-but-overflowing. Re-chunking the tab's entry point is a UX
+    /// decision this guard does not take; the exclusion is a named view with its reason
+    /// stated, not an anonymous entry in a suppression list.
+    /// </para>
+    /// </summary>
+    [StaFact]
+    public void EveryChunkedQuickActionsPage_KeepsHalfARowOfTrailingSlack()
+    {
+        var root = SettingsContentFitTests.Xml();
+        var budget = ContentHeightBudget(root);
+        var columnWidth = ContentColumnWidth(root);
+
+        var offenders = new List<Offender>();
+        var pagesChecked = 0;
+
+        foreach (var (fixture, source) in FixturesOf(typeof(QuickActionsPageSource)))
+        {
+            foreach (var (view, pages) in ViewsOf(source))
+            {
+                if (view == nameof(QuickActionsPageSource.QaView.PickType)) continue;
+
+                for (var p = 0; p < pages.Count; p++)
+                {
+                    var (pageHeight, _) = Place(pages[p], columnWidth);
+                    pagesChecked++;
+
+                    if (pageHeight > budget - MinTrailingSlackDip)
+                        offenders.Add(new Offender(
+                            nameof(QuickActionsPageSource), view, fixture, p + 1, pages.Count,
+                            pageHeight, "(page bottom)", pageHeight));
+                }
+            }
+        }
+
+        var context = string.Format(
+            CultureInfo.InvariantCulture,
+            "(budget {0:F2} DIP, slack floor {1:F0} DIP, {2:F2} DIP content column, "
+            + "{3} pages checked)",
+            budget, MinTrailingSlackDip, columnWidth, pagesChecked);
+
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "These hand-chunked pages leave less than half a row of slack below their last "
+                + "row {0}:{1}{2}{1}Reachability alone tolerates a fifth row — its last circle "
+                + "still lands inside the cell — but the chunk constants' own remarks reject that "
+                + "13 DIP margin as one the restyle could shave again tomorrow. Reduce the "
+                + "source's per-page count (QuickActionsPageSource.QaConfigRowsPerPage, "
+                + "QaActionsPerPage or QaPresetsPerPage) until the page keeps its advertised "
+                + "88 DIP of slack.",
+                context, Environment.NewLine,
+                string.Join(Environment.NewLine, offenders.Select(o => o.Describe()))))
+            .That(offenders).IsEmpty();
+
+        Check.WithCustomMessage(
+                "No chunked page was measured — the trailing-slack guard swept an empty set.")
             .That(pagesChecked).IsStrictlyGreaterThan(0);
     }
 }

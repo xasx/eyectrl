@@ -28,6 +28,23 @@ using EyeCtrl.Core.Processing;
 /// matters: selection is persistent state, dwell progress is transient, and keeping them on
 /// different elements is what stops either from clobbering the other.
 /// </para>
+/// <para>
+/// A stored code that matches no option — the Active Model combo naming a model whose files were
+/// deleted, a layout name from an older build, a hand-edited settings.json — used to render as a
+/// row with NO option selected and nothing on screen to explain it. The composite now names the
+/// stored value in an unmatched-value marker appended after the options: a pill reading
+/// "⚠ {value} (not available)", outlined in <see cref="Tokens.AccentWarning"/>. It is a
+/// statement, not a choice — it registers no dwell target — and it is shown only while no option
+/// matches, so it can never contradict the selection highlight.
+/// </para>
+/// <para>
+/// The state is carried by the WARNING GLYPH and the WORDS, not by the outline colour. In the
+/// Contrast theme no token separates an outline from both the selected and the unselected option
+/// outlines — <c>AccentWarning</c> is 1.07:1 from <c>BorderSubtle</c> and 1.29:1 from
+/// <c>ToggleOn</c> there — so colour is a redundant channel for normal vision and never the only
+/// one. Both facts are asserted by Theme.ComboBoxUnmatchedMarkerContrastTests, and the glyph and
+/// wording are pinned by DwellComboBoxSelectionTests.TheUnmatchedMarker_CarriesTheStateInItsTextNotItsColour.
+/// </para>
 /// </remarks>
 public class DwellComboBox : IDwellComposite
 {
@@ -54,6 +71,17 @@ public class DwellComboBox : IDwellComposite
     private readonly List<TextBlock> _optionTexts = new();
     private readonly List<Border> _optionBorders = new();
     private readonly WrapPanel _panel;
+
+    /// <summary>
+    /// The unmatched-value marker: the pill that names a stored code no option matches, so the
+    /// row never renders as "nothing configured" without saying what is configured. Added to
+    /// <see cref="_panel"/> after the options and collapsed unless
+    /// <see cref="Refresh"/> finds no match. Deliberately NOT a <see cref="DwellButton"/> and
+    /// never registered: it states the current value, so completing a dwell on it would promise
+    /// a change it cannot make.
+    /// </summary>
+    private readonly Border _unmatchedMarker;
+    private readonly TextBlock _unmatchedText;
 
     private readonly string[] _displayOptions;
     private readonly string[] _codeOptions;
@@ -154,7 +182,6 @@ public class DwellComboBox : IDwellComposite
                 {
                     _setCode(capturedCode);
                     Refresh();
-                    UpdateOptionSelectionStyles();
                 },
                 BtnBase, category, radiusPhysical, dwellMs,
                 width: 0, height: 100);
@@ -170,7 +197,7 @@ public class DwellComboBox : IDwellComposite
             {
                 Margin = new Thickness(0, 0, 8, 8),
                 CornerRadius = Tokens.StandardCornerRadius,
-                // Sane default only: UpdateOptionSelectionStyles() repaints every wrapper at
+                // Sane default only: Refresh() repaints every wrapper at
                 // the end of this constructor and on every selection change. Kept so a refactor
                 // that stops calling it cannot leave a row of invisible borders behind.
                 BorderBrush = Tokens.BrushBorderSubtle,
@@ -184,8 +211,49 @@ public class DwellComboBox : IDwellComposite
             _panel.Children.Add(optionBorder);
         }
 
+        // The unmatched-value marker, built from the same chrome as an option — same fill, same
+        // 100 DIP box, same 2 DIP outline — so it reads as part of the row rather than as a
+        // caption floating beside it. Only the outline's colour and the label differ, and both
+        // are pinned against the palette by Theme.ComboBoxUnmatchedMarkerContrastTests. The
+        // fill Border mirrors DwellButton.Root's geometry exactly (DwellButton applies the same
+        // MinWidth/Height/Padding/CornerRadius to its own Root in this constructor).
+        _unmatchedText = new TextBlock
+        {
+            Foreground = Tokens.BrushTextPrimary,
+            FontSize = Tokens.FontSizeTitle,
+            FontWeight = Tokens.FontWeightMedium,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+            // Wraps for the same reason an option's caption does: a long stored id must stay
+            // inside the content column rather than push the pill past the card edge, where its
+            // text would be drawn over pixels the user cannot see. The WrapPanel wraps the pill
+            // to the next line when it cannot fit beside the options.
+            TextWrapping = TextWrapping.Wrap
+        };
+
+        var unmatchedFill = new Border
+        {
+            Background = Tokens.BrushSurfaceMedium,
+            CornerRadius = Tokens.StandardCornerRadius,
+            MinWidth = 150,
+            Height = 100,
+            Padding = new Thickness(20, 0, 20, 0),
+            Child = _unmatchedText
+        };
+
+        _unmatchedMarker = new Border
+        {
+            Margin = new Thickness(0, 0, 8, 8),
+            CornerRadius = Tokens.StandardCornerRadius,
+            BorderBrush = Tokens.BrushAccentWarning,
+            BorderThickness = new Thickness(OptionBorderThickness),
+            Child = unmatchedFill,
+            Visibility = Visibility.Collapsed
+        };
+        _panel.Children.Add(_unmatchedMarker);
+
         Refresh();
-        UpdateOptionSelectionStyles();
     }
 
     /// <summary>
@@ -245,41 +313,62 @@ public class DwellComboBox : IDwellComposite
     }
 
     /// <summary>
-    /// Repaints each option wrapper's <c>BorderBrush</c> to mark the currently selected code
-    /// value. Only the brush is written, never the thickness — see
-    /// <see cref="OptionBorderThickness"/>. The indicator sits on the wrapper rather than on the
-    /// button itself so that it cannot be clobbered by dwell feedback, which
-    /// <see cref="DwellButton.ApplyProgress"/> renders as
-    /// <see cref="DwellButton.ProgressBar"/> inside the button.
+    /// The index of the option whose code equals <paramref name="code"/>, or -1 when none does.
+    /// The ONE matching rule on this composite: <see cref="Refresh"/> calls it once and feeds
+    /// every visual mark from the single result, so the outline colour, the ◉/◯ glyph and the
+    /// unmatched-value marker cannot disagree about what is selected. (They used to be matched in
+    /// two places against two separate reads of <c>_getCode()</c> — the shape that lets a fix
+    /// reach one site and miss the other.)
     /// </summary>
-    private void UpdateOptionSelectionStyles()
+    private int IndexOfOption(string code)
     {
-        var selectedCode = _getCode();
-
-        for (int i = 0; i < _optionBorders.Count && i < _codeOptions.Length; i++)
+        for (int i = 0; i < _codeOptions.Length; i++)
         {
-            var isSelected = _codeOptions[i] == selectedCode;
-            _optionBorders[i].BorderBrush = isSelected ? Tokens.BrushToggleOn : Tokens.BrushBorderSubtle;
+            if (_codeOptions[i] == code)
+                return i;
         }
+
+        return -1;
     }
 
     /// <summary>
-    /// Updates each option's text indicator (◉ = selected, ◯ = unselected).
-    /// Does not touch background colours; selection highlight is handled separately by
-    /// <see cref="UpdateOptionSelectionStyles"/>.
+    /// Repaints every visual that carries selection state, from one match: each option wrapper's
+    /// <c>BorderBrush</c>, each option's ◉/◯ glyph, and the unmatched-value marker. Only brushes
+    /// and text are written, never the wrapper thickness — see
+    /// <see cref="OptionBorderThickness"/>.
     /// </summary>
+    /// <remarks>
+    /// The selection highlight sits on the wrapper rather than on the button itself so that it
+    /// cannot be clobbered by dwell feedback, which <see cref="DwellButton.ApplyProgress"/>
+    /// renders as <see cref="DwellButton.ProgressBar"/> inside the button. The glyph write does
+    /// not touch backgrounds; <c>Root.Background</c> is <see cref="DwellButton"/>'s own brush
+    /// instance — replacing it here is what used to orphan the colour swatches' dwell feedback
+    /// (fixed 2026-08-20), so leave it to the button.
+    /// </remarks>
     private void Refresh()
     {
-        // Only update the text indicator; selection highlight is handled by UpdateOptionSelectionStyles()
-        // via the outer border's BorderBrush alone. Root.Background is DwellButton's own
-        // brush instance — replacing it here is what used to orphan the colour swatches' dwell
-        // feedback (fixed 2026-08-20), so leave it to the button.
-        var active = _getCode();
-        for (int j = 0; j < _options.Count; j++)
+        var storedCode = _getCode();
+        var selectedIndex = IndexOfOption(storedCode);
+
+        for (int i = 0; i < _optionBorders.Count && i < _codeOptions.Length; i++)
         {
-            bool selected = j < _codeOptions.Length && _codeOptions[j] == active;
-            if (j < _optionTexts.Count)
-                _optionTexts[j].Text = (selected ? "\u25C9 " : "\u25CB ") + _displayOptions[j];
+            _optionBorders[i].BorderBrush =
+                i == selectedIndex ? Tokens.BrushToggleOn : Tokens.BrushBorderSubtle;
         }
+
+        for (int j = 0; j < _options.Count && j < _optionTexts.Count; j++)
+        {
+            bool selected = j == selectedIndex;
+            _optionTexts[j].Text = (selected ? "\u25C9 " : "\u25CB ") + _displayOptions[j];
+        }
+
+        // The empty-code guard exists so a combo whose value has not been set yet (the validation
+        // tests construct one with a "" getter) does not render "⚠ (not available)". An empty
+        // value is "nothing configured", which is what an all-◯ row already says; only a REAL
+        // value that matches no option is a state the user must be told about.
+        var unmatched = selectedIndex < 0 && !string.IsNullOrWhiteSpace(storedCode);
+        _unmatchedMarker.Visibility = unmatched ? Visibility.Visible : Visibility.Collapsed;
+        if (unmatched)
+            _unmatchedText.Text = $"\u26A0 {storedCode} (not available)";
     }
 }

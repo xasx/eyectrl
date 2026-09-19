@@ -183,7 +183,7 @@ public class DwellComboBoxSelectionTests
 
     /// <summary>
     /// Every other test here inspects a combo built with its selection already in place, which
-    /// leaves the transition itself uncovered: dropping the <c>UpdateOptionSelectionStyles()</c>
+    /// leaves the transition itself uncovered: dropping the <c>Refresh()</c>
     /// call from the activation lambda keeps them all green while the highlight would never move
     /// on screen. So drive a real dwell activation through the registrar and check both halves —
     /// the highlight moves, and the already-laid-out row does not.
@@ -291,6 +291,225 @@ public class DwellComboBoxSelectionTests
                 "the default form must still draw its own heading — SettingsWindow and every "
                 + "other caller passes no flag and expects the row it always got.")
             .That(panel.Children.OfType<TextBlock>().Single().Text).IsEqualTo("Mode");
+    }
+
+    // ────── A stored code that matches no option ──────
+
+    /// <summary>
+    /// The panel the option wrappers live in, reached through a wrapper rather than a field,
+    /// so the test sees the same tree the user does.
+    /// </summary>
+    private static WrapPanel OptionPanel(DwellComboBox combo) =>
+        (WrapPanel)OptionWrappers(combo)[0].Parent;
+
+    /// <summary>
+    /// The one panel child that is not an option wrapper: the unmatched-value marker. Asserted
+    /// to be exactly one rather than picked with <c>First()</c>, because "no marker at all" is
+    /// the defect this suite must be able to see — an exception from an empty sequence names
+    /// nothing, and a second non-option child would make every assertion below ambiguous.
+    /// </summary>
+    private static Border UnmatchedMarker(DwellComboBox combo)
+    {
+        var wrappers = OptionWrappers(combo);
+        var extras = OptionPanel(combo).Children.OfType<Border>()
+            .Where(b => !wrappers.Contains(b)).ToList();
+
+        Check.WithCustomMessage(
+                $"the combo panel holds {extras.Count} non-option border(s); exactly one "
+                + "unmatched-value marker is expected (visible or collapsed). A stored code "
+                + "matching no option used to render as nothing selected.")
+            .That(extras).HasSize(1);
+
+        return extras[0];
+    }
+
+    /// <summary>The marker's caption — the panel it draws the stored value on.</summary>
+    private static TextBlock MarkerLabel(DwellComboBox combo) =>
+        (TextBlock)((Border)UnmatchedMarker(combo).Child).Child;
+
+    /// <summary>The ◉/◯ caption of option <paramref name="index"/>.</summary>
+    private static string OptionText(DwellComboBox combo, int index) =>
+        ((TextBlock)((DwellButton)combo.Children[index]).Content!).Text;
+
+    /// <summary>
+    /// The user's own state, in the user's own values: settings name <c>"360M"</c>, the models
+    /// folder holds only <c>"1.5B"</c>, so the row offers <c>["Off", "1.5B"]</c>. Every option
+    /// renders unselected — as it must, because no option IS selected — and the stored value
+    /// itself is what gets marked, as an unavailable entry, so the row stops being silent about
+    /// a value that is configured.
+    /// </summary>
+    [StaFact]
+    public void StoredCodeMatchingNoOption_MarksNoOption_AndShowsTheStoredValueAsUnavailable()
+    {
+        var combo = Build(["Off", "1.5B"], "360M");
+
+        var colours = OutlineColours(combo);
+        Check.WithCustomMessage(
+                $"'360M' matches no option, so no option may wear the selected outline; the row "
+                + $"paints [{string.Join(", ", colours)}] (ToggleOn is {Tokens.ToggleOn})")
+            .That(colours).ContainsOnlyElementsThatMatch(c => c == Tokens.BorderSubtle);
+
+        foreach (var (text, i) in new[] { (OptionText(combo, 0), 0), (OptionText(combo, 1), 1) })
+        {
+            Check.WithCustomMessage(
+                    $"option {i} reads '{text}' — it wears the ◉ selected glyph while 360M "
+                    + "matches nothing, so two things would claim to be selected.")
+                .That(text.StartsWith("\u25C9")).IsFalse();
+        }
+
+        Check.WithCustomMessage(
+                "the stored value 360M is not named anywhere in the row, so a gaze user has no "
+                + "way to see what is configured.")
+            .That(MarkerLabel(combo).Text).Contains("360M");
+        Check.WithCustomMessage(
+                "the marker names 360M but does not say it is unavailable, so it reads as a "
+                + "third live option.")
+            .That(MarkerLabel(combo).Text).Contains("not available");
+        Check.That(UnmatchedMarker(combo).Visibility).IsEqualTo(Visibility.Visible);
+    }
+
+    /// <summary>
+    /// The normal case, and the reason the fix cannot be "mark everything": a stored code that
+    /// IS an option must render exactly as it always did — green outline and ◉ on that option —
+    /// with the marker gone. This is the test that reddens if the fix treats a valid id as
+    /// stale, and it also reddens if the marker is simply always visible.
+    /// </summary>
+    [StaFact]
+    public void StoredCodeMatchingAnOption_MarksIt_AndHidesTheUnmatchedMarker()
+    {
+        var combo = Build(["Off", "1.5B"], "1.5B");
+
+        Check.WithCustomMessage(
+                $"'1.5B' is one of the options, so it must be outlined in ToggleOn "
+                + $"({Tokens.ToggleOn}); the row paints "
+                + $"[{string.Join(", ", OutlineColours(combo))}]")
+            .That(OutlineColours(combo)[1]).IsEqualTo(Tokens.ToggleOn);
+        Check.That(OptionText(combo, 1)).StartsWith("\u25C9 ");
+        Check.That(OptionText(combo, 0)).StartsWith("\u25CB ");
+        Check.WithCustomMessage(
+                "the unmatched marker is on screen while the stored value matches an option, "
+                + "so the row claims a value is unavailable when it is not.")
+            .That(UnmatchedMarker(combo).Visibility).IsEqualTo(Visibility.Collapsed);
+    }
+
+    /// <summary>
+    /// The marker is a statement, not a choice: it must add no dwell target and no
+    /// <c>Children</c> entry. A registered target that activates nothing is worse than no
+    /// target — a gaze user completes a dwell, gets the feedback, and nothing changes.
+    /// </summary>
+    [StaFact]
+    public void StoredCodeMatchingNoOption_AddsNoDwellTarget()
+    {
+        var registrar = new FakeDwellRegistrar();
+        var combo = Build(registrar, ["Off", "1.5B"], "360M");
+
+        combo.Attach(new StackPanel());
+
+        Check.That(combo.Children).HasSize(2);
+        Check.WithCustomMessage(
+                $"the registrar holds [{string.Join(", ", registrar.Registered)}]; the options "
+                + "are the only things on this row a dwell may complete on.")
+            .That(registrar.Registered).ContainsExactly("cb_0", "cb_1");
+    }
+
+    /// <summary>
+    /// The state is carried by the text and the glyph, and this test holds it there.
+    ///
+    /// <para>
+    /// In the Contrast theme the marker's outline cannot be told from an unselected option's by
+    /// any token the palette has — <c>AccentWarning</c> vs <c>BorderSubtle</c> is 1.07:1, and
+    /// <c>AccentWarning</c> vs <c>ToggleOn</c> 1.29:1 — and under protanopia hue does not rescue
+    /// a 1.07 either. So the warning glyph and the words are not decoration: they ARE the
+    /// marker, and a "tidy-up" that reduced it to a coloured pill would satisfy every
+    /// contrast-over-surface gate while making the row say nothing at all. This test is what
+    /// fails in that world.
+    /// </para>
+    /// </summary>
+    [StaFact]
+    public void TheUnmatchedMarker_CarriesTheStateInItsTextNotItsColour()
+    {
+        var combo = Build(["Off", "1.5B"], "360M");
+
+        var markerText = MarkerLabel(combo).Text;
+        Check.WithCustomMessage(
+                $"the marker reads '{markerText}'. Its glyph must be neither ◉ nor ◯ — those two "
+                + "are the option vocabulary, and a marker wearing one of them would read as an "
+                + "option in a state rather than as the stored value the options do not contain.")
+            .That(markerText.StartsWith("\u25C9") || markerText.StartsWith("\u25CB")).IsFalse();
+        Check.WithCustomMessage(
+                $"the marker reads '{markerText}', which does not name the stored value — the "
+                + "one thing the row previously failed to show.")
+            .That(markerText).Contains("360M");
+        Check.WithCustomMessage(
+                $"the marker reads '{markerText}', which never says the value is unavailable — "
+                + "the state the user has to be told.")
+            .That(markerText).Contains("not available");
+    }
+
+    /// <summary>
+    /// The marker's appearance is linked to the palette sweep in
+    /// <c>Theme.ComboBoxUnmatchedMarkerContrastTests</c> by VALUE, exactly as the slider
+    /// steppers' outline is: the sweep measures <c>AccentWarning</c> against the page and the
+    /// marker fill, and it cannot fail on a code change. Repointing the marker at another
+    /// token — or dropping the outline entirely — leaves that sweep measuring a pairing the
+    /// control does not use. The same file records the palette fact that makes the TEXT the
+    /// carrier: no token separates the outline from both option states in Contrast, so the
+    /// colour is a redundant channel and the glyph and wording are load-bearing.
+    /// </summary>
+    [StaFact]
+    public void TheUnmatchedMarker_NamesItsBrushAndThickness()
+    {
+        var combo = Build(["Off", "1.5B"], "360M");
+        var marker = UnmatchedMarker(combo);
+        var option = OptionWrappers(combo)[0];
+
+        Check.WithCustomMessage(
+                $"the marker's outline is {marker.BorderThickness} where an option's is "
+                + $"{option.BorderThickness} — the row's state marks must not differ in weight.")
+            .That(marker.BorderThickness).IsEqualTo(option.BorderThickness);
+
+        Check.WithCustomMessage(
+                $"the marker's outline is {marker.BorderBrush}, not AccentWarning "
+                + $"({Tokens.AccentWarning}). Theme.ComboBoxUnmatchedMarkerContrastTests measures "
+                + "AccentWarning against SurfaceDark and SurfaceMedium; any other token leaves "
+                + "that sweep green over a marker the user cannot see.")
+            .That(((SolidColorBrush)marker.BorderBrush).Color).IsEqualTo(Tokens.AccentWarning);
+
+        var fill = (Border)marker.Child;
+        Check.WithCustomMessage(
+                $"the marker's fill is {fill.Background}, not SurfaceMedium "
+                + $"({Tokens.SurfaceMedium}) — the fill the sweep pairs the outline and the label "
+                + "against.")
+            .That(((SolidColorBrush)fill.Background).Color).IsEqualTo(Tokens.SurfaceMedium);
+
+        Check.That(((SolidColorBrush)MarkerLabel(combo).Foreground).Color)
+            .IsEqualTo(Tokens.TextPrimary);
+    }
+
+    /// <summary>
+    /// The marker tracks the live selection, not just the construction-time one: activating an
+    /// option after an unmatched start must hide the marker and move the highlight in the same
+    /// pass. This is the repair path the user takes — dwell the Qwen entry — and it is the
+    /// reason the marker is refreshed from the activation lambda rather than only in the
+    /// constructor.
+    /// </summary>
+    [StaFact]
+    public void ActivatingAnOption_AfterAnUnmatchedStart_HidesTheMarker_AndMarksTheOption()
+    {
+        var registrar = new FakeDwellRegistrar();
+        var combo = Build(registrar, ["Off", "1.5B"], "360M");
+        AttachAndMeasure(combo);
+        Check.That(UnmatchedMarker(combo).Visibility).IsEqualTo(Visibility.Visible);
+
+        registrar.Activate("cb_1");
+
+        Check.WithCustomMessage(
+                "after selecting 1.5B the unmatched marker is still on screen — the row keeps "
+                + "saying a value is unavailable after the user has just replaced it.")
+            .That(UnmatchedMarker(combo).Visibility).IsEqualTo(Visibility.Collapsed);
+        Check.That(OutlineColours(combo)[1]).IsEqualTo(Tokens.ToggleOn);
+        Check.That(OptionText(combo, 1)).StartsWith("\u25C9 ");
+        Check.That(OutlineColours(combo)[0]).IsEqualTo(Tokens.BorderSubtle);
     }
 
     /// <summary>

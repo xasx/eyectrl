@@ -187,6 +187,36 @@ public class SettingsPageSourceCallbackTests
         Check.That(listPage.OfType<ToggleSpec>().Select(t => t.Id)).Contains("qa_enabled");
     }
 
+    // 6b. QuickActionsPageSource landing page — GoTo must reset the page index. The picker's
+    // OnActivate callbacks return to the List view; if the picker was left on page 1 (14
+    // keyboard presets, 3 per page), the List used to open on its page 1 — the config tail
+    // ({Dismiss Timeout, Grid Columns}) — instead of the qa_add page. The recording context's
+    // RebuildContent does NOT clamp (only the real window does), so a surviving index is
+    // observed raw here.
+    [Fact]
+    public void QuickActions_PresetAdd_FromPickerPage1_LandsOnTheListLandingPage()
+    {
+        var rec = new RecordingSettingsPageContext(viewModel: QaTestSupport.MakeViewModel());
+        var editor = rec.Context.ViewModel.QuickActionsEditor;
+        var pages = rec.Context.ViewModel.Settings;
+        var src = new QuickActionsPageSource(rec.Context);
+
+        // Sit on page 1 of the shortcut picker, then add a preset from it — its callback
+        // returns to the List view.
+        src.GoTo(QuickActionsPageSource.QaView.PickShortcut);
+        pages.CurrentPage = 1;
+        var preset = src.Build()[1].Rows.OfType<ButtonSpec>()
+            .First(b => !b.Id.StartsWith("qa_back"));
+        int before = editor.Actions.Count;
+        preset.OnActivate();
+        Check.That(editor.Actions.Count).IsStrictlyGreaterThan(before);
+
+        // The List must land on page 0, where qa_add lives.
+        Check.That(pages.CurrentPage).IsEqualTo(0);
+        Check.That(src.Build()[0].Rows.OfType<ButtonSpec>().Select(b => b.Id))
+            .Contains("qa_add");
+    }
+
     // 7. DiagnosticsPageSource toggles — each saves and, critically, does NOT rebuild.
     // Deliberately not a copy of the reset test (DiagnosticsPageSourceTests pins that, along with
     // the rest of the page): the distinct claim here is the absence of a RebuildContent. A rebuild

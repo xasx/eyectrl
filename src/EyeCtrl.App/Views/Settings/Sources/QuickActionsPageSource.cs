@@ -135,6 +135,12 @@ internal sealed class QuickActionsPageSource : ISettingsPageSource
     internal void GoTo(QaView v)
     {
         _view = v;
+        // Every view's page 0 is its landing page. A page index carried over from the view we
+        // left lands the user mid-view: returning from a multi-page picker used to open the
+        // config tail ({Dismiss Timeout, Grid Columns}) instead of the qa_add page, because
+        // the picker's index survived into the List's re-chunked pages. ShowTab resets the
+        // page for the same reason when switching tabs.
+        _ctx.ViewModel.Settings.CurrentPage = 0;
         _ctx.RebuildContent();
     }
 

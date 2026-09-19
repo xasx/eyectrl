@@ -53,11 +53,12 @@ public class SettingsSliderSpanGuardTests
     }
 
     [Fact]
-    public void Keyboard_SliderSpan_StaysInsideTheValidatedRange()
+    public void Keyboard_SliderSpans_StayInsideTheValidatedRanges()
     {
         var sliders = Sliders(new KeyboardPageSource(TestSettingsPageContext.Build()));
-        Check.That(sliders).HasSize(1);
+        Check.That(sliders).HasSize(2);
         SpanInside(sliders, "k_size", 0.5, 2.0);
+        SpanInside(sliders, "k_pred_count", 1, 5);
     }
 
     [Fact]

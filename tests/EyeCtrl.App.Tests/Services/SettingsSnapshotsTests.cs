@@ -41,6 +41,7 @@ public class SettingsSnapshotsTests
             nameof(KeyboardSettings.EmojiSuggestionsEnabled),
             nameof(KeyboardSettings.ShowLMLoadingIndicator),
             nameof(KeyboardSettings.CustomModels),               // managed by ModelRegistryService
+            nameof(KeyboardSettings.MaxSuggestions),             // read live in KeyboardViewModel per keystroke
         };
 
         var all = typeof(KeyboardSettings)

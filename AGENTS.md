@@ -93,14 +93,22 @@ Check.That(actual).IsCloseTo(Math.PI, 1e-10);  // ±1e-10 absolute
 
 ## Architecture
 
-Three-layer + ViewModels:
+Three-layer + ViewModels, plus the dwell-SDK line for external apps (the `Sdk.*` +
+`Contracts` projects target **net8.0** on purpose so external integrators on older
+runtimes can consume them; the app side is net10):
 
 | Project | Layer | Key details |
 |---------|-------|-------------|
 | `EyeCtrl.Core` | Domain logic | Framework-agnostic. GazeEngine, DwellDetector, OneEuroFilter, settings, keyboard layouts, word prediction |
 | `EyeCtrl.Platform` | OS/SDK bridge | `unsafe` blocks, Win32 SendInput, Tobii SDK via conditional `TOBII_AVAILABLE` (only when SDK DLLs are present on disk) |
 | `EyeCtrl.ViewModels` | MVVM layer | CommunityToolkit.Mvvm v8.4.2, `[ObservableProperty]` source generators, `WeakReferenceMessenger` |
-| `EyeCtrl.App` | WPF app entrypoint | `WinExe`, `net10.0-windows`, `UseWPF` + `UseWindowsForms`. App.xaml.cs is the central wiring hub (DI, overlay lifecycle) |
+| `EyeCtrl.App` | WPF app entrypoint | `WinExe`, `net10.0-windows`, `UseWPF` + `UseWindowsForms`. App.xaml.cs is entry/tray/overlay lifecycle; DI wiring lives in `Services/AppBootstrapper.cs`, event flow in `Services/Coordinators/` |
+| `EyeCtrl.Controls` | Gaze control library | `net10.0-windows`, `UseWPF`. DwellArcButton, DwellButton/Toggle/Slider/ComboBox, dwell outline overlay, icons |
+| `EyeCtrl.Contracts` | Wire contracts | `net8.0`. Dwell pipe name, `SdkRect`, wire JSON + messages — shared verbatim by the app's pipe server and the SDK's `DwellClient` |
+| `EyeCtrl.Sdk.Abstractions` | SDK core | `net8.0`. `DwellClient`, `DwellHeadCore`, element-adapter contracts for cooperating apps |
+| `EyeCtrl.Sdk.Wpf` | SDK (WPF) | `net8.0-windows`, `UseWPF`. `Dwell` attachable control + WPF element adapter for WPF host apps |
+| `EyeCtrl.Sdk.WinUI` | SDK (WinUI 3) | `net8.0-windows10.0.19041.0`. `EyeCtrlDwell` control + WinUI coordinates/adapter |
+| `EyeCtrl.Supervisor` | Watchdog process | `WinExe`, `net10.0-windows`, `UseWPF` + `UseWindowsForms`. Heartbeat IPC, crash supervision, fallback launch chain, caregiver setup UI |
 | `EyeCtrl.LM` | ONNX LM | `net10.0` leaf project. `SmallLMPredictor` + `LMTokenizer`. References Core. |
 | `EyeCtrl.EyeCare` | Eye-care logic | `net10.0` leaf project. Scheduler, fatigue monitor, gaze exercises, scoring. References Core. |
 

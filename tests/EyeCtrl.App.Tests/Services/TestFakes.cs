@@ -124,38 +124,66 @@ internal static class TestFakes
         return (ctx, bar);
     }
 
-    /// <summary>Records what the app asked the edge bar to do.</summary>
+    /// <summary>
+    /// Records what the app asked the edge bar to do, over a REAL <see cref="EdgeButtonBarViewModel"/>.
+    ///
+    /// <para>
+    /// <see cref="EdgeBarVm"/> used to return <c>null</c>, which is not a neutral stub: production
+    /// reads it to decide whether the bar currently belongs to the caller, and a null reference
+    /// silently answers "no" to every such question. The one that matters is in
+    /// <c>OverlayMessageCoordinator</c>'s <c>HideActionMenuMessage</c> handler —
+    /// <c>bar?.EdgeBarVm?.DefinitionFor(ActionMenuEdgeButtons.CloseId) is not null</c> — the guard
+    /// that stops a deferred menu-dismiss from clearing the drag's cancel button and scroll mode's
+    /// stop button, i.e. the only way out of a drag for a user whose sole input channel is an eye
+    /// tracker. With a null view model that condition was unreachable, so no test in this suite had
+    /// ever executed the guard it protects, in either direction.
+    /// </para>
+    ///
+    /// <para>
+    /// Delegating to a real view model keeps <see cref="Calls"/> and <see cref="ShownButtonIds"/>
+    /// exactly as they were while making <c>DefinitionFor</c> answer truthfully. The view model is
+    /// pure data plus a <c>DwellDetector</c>; it needs no WPF, which is the same reason
+    /// <see cref="MakeDragContextWithBar"/> became possible at all.
+    /// </para>
+    /// </summary>
     internal sealed class FakeEdgeButtonBar : IEdgeButtonBar
     {
+        private readonly EdgeButtonBarViewModel _vm =
+            new(new EyeCtrlSettings(), new WeakReferenceMessenger());
+
         public List<string> Calls { get; } = new();
 
         public List<string> ShownButtonIds { get; } = new();
 
-        public EdgeButtonBarViewModel? EdgeBarVm => null;
+        public EdgeButtonBarViewModel? EdgeBarVm => _vm;
 
         public void ShowButtons(IReadOnlyList<EdgeButtonDefinition> definitions, PhysicalPoint edgeAnchor)
         {
             Calls.Add("ShowButtons");
             ShownButtonIds.Clear();
             ShownButtonIds.AddRange(definitions.Select(d => d.Id));
+            _vm.ShowButtons(definitions, edgeAnchor);
         }
 
         public void AddButton(EdgeButtonDefinition definition)
         {
             Calls.Add("AddButton:" + definition.Id);
             ShownButtonIds.Add(definition.Id);
+            _vm.AddButton(definition);
         }
 
         public void RemoveButton(string id)
         {
             Calls.Add("RemoveButton:" + id);
             ShownButtonIds.Remove(id);
+            _vm.RemoveButton(id);
         }
 
         public void Hide()
         {
             Calls.Add("Hide");
             ShownButtonIds.Clear();
+            _vm.Hide();
         }
     }
 

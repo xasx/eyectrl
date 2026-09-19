@@ -467,7 +467,8 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         // Pass full text context for smart capitalization if enabled
         var fullText = _settings.Keyboard.SmartCapitalizationEnabled ? _recentText : null;
 
-        return _orchestrator.GetSuggestions(CurrentInput, _previousWord, maxCount: 5, fullText: fullText);
+        return _orchestrator.GetSuggestions(CurrentInput, _previousWord,
+            maxCount: _settings.Keyboard.MaxSuggestions, fullText: fullText);
     }
 
     public void HandlePredictionSelected(string word)

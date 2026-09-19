@@ -11,6 +11,13 @@ public partial class KeyboardSettings : ObservableObject, IValidatable
     [ObservableProperty] private double _keySizeMultiplier = 1.0;
     /// <summary>Whether word prediction suggestions are shown above the keyboard.</summary>
     [ObservableProperty] private bool _predictionEnabled = true;
+    /// <summary>
+    /// Maximum number of suggestions in the prediction bar. Valid range: 1–5. Fewer suggestions
+    /// means fewer dwell targets to mis-hit; the bar renders one cell per suggestion, so a lower
+    /// count simply leaves the tail empty. The renderer is dynamic — 5 is today's hard-coded
+    /// fill and stays the default.
+    /// </summary>
+    [ObservableProperty] private int _maxSuggestions = 5;
     /// <summary>Language pack identifier for dictionary loading.</summary>
     [ObservableProperty] private string _languagePack = "";
     /// <summary>Edge of the screen where the keyboard is docked (Top or Bottom).</summary>
@@ -70,7 +77,8 @@ public partial class KeyboardSettings : ObservableObject, IValidatable
             ValidationHelper.ValidateStringEnum(ActiveLayout, ValidLayouts, nameof(ActiveLayout)),
             ValidationHelper.ValidateRange(KeySizeMultiplier, 0.5, 2.0, nameof(KeySizeMultiplier)),
             ValidationHelper.ValidateStringEnum(ScreenEdge, ValidScreenEdges, nameof(ScreenEdge)),
-            ValidationHelper.ValidateRange(DecayHalfLifeDays, 1, 365, nameof(DecayHalfLifeDays))
+            ValidationHelper.ValidateRange(DecayHalfLifeDays, 1, 365, nameof(DecayHalfLifeDays)),
+            ValidationHelper.ValidateRange(MaxSuggestions, 1, 5, nameof(MaxSuggestions))
         );
     }
 }

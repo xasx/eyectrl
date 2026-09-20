@@ -285,11 +285,23 @@ public partial class KeyboardWindow : OverlayWindow
 
         UpdateKeyScreenPositions();
 
-        // One predicate, both surfaces. The prediction bar's hit areas are circles of each cell's
+        // One predicate, three surfaces. The prediction bar's hit areas are circles of each cell's
         // half-diagonal, which bulge DOWN into the key grid (up to two key rows for a sentence
         // completion), so running both detectors on the same point let a reach for a key complete
-        // a suggestion and insert a word the user never dwelled. The partition is the key-area
-        // rect, not a per-key distance, and both sides receive the same verdict.
+        // a suggestion and insert a word the user never dwelled. The emoji category bar has the
+        // same shape, one surface later: its tabs' hit areas are the same half-diagonal circles,
+        // and the bar sits directly above the grid, so the top band of the first emoji row lies
+        // inside the tab circles above it. Without the verdict a reach for a top-row emoji
+        // completes the category tab, whose handler rebuilds the grid and empties the key
+        // registry under the live dwell. Ticket 3 partitioned prediction from keys on this
+        // predicate; the category bar is the surface it did not reach. The partition is the
+        // key-area rect, not a per-key distance, and every side receives the same verdict.
+        //
+        // Both detectors run the same configured dwell from the same sample, so a category
+        // activation from the grid is not a race that sometimes loses: the category update is the
+        // earlier statement and takes every tie. That is why the shape here is exclusion — a
+        // reset after the category fires cannot un-fire it, and deferring the rebuild would hand
+        // the user both the category change and the emoji they were reaching for.
         //
         // Boundary dither — a gaze alternating across the rect edge — resets each surface in turn
         // and so types nothing: a narrow dead zone, safe-direction, deliberately not engineered
@@ -299,7 +311,13 @@ public partial class KeyboardWindow : OverlayWindow
 
         if (_viewModel.IsEmojiMode)
         {
-            _emojiManager?.UpdateCategoryTargets(screenPoint, timestampMicroseconds);
+            if (!gazeInsideKeyArea)
+                _emojiManager?.UpdateCategoryTargets(screenPoint, timestampMicroseconds);
+            else
+                // Reset, and only reset — same reasoning as the prediction branch below: skipping
+                // the update without it would credit the on-grid interval to the tab on the next
+                // off-grid sample while that excursion was under the detector's gap clamp.
+                _emojiManager?.ResetCategoryState();
         }
         else if (!gazeInsideKeyArea)
         {

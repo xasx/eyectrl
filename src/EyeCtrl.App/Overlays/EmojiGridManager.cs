@@ -80,6 +80,13 @@ public class EmojiGridManager
         IStruggleTelemetrySink? sink = null,
         IDwellDetectorRegistry? dwellRegistry = null)
     {
+        // 0 is a construction placeholder, not a value this detector ever evaluates gaze with.
+        // KeyboardWindow.LoadLayout calls SetCooldown(settings.Dwell.DwellCooldownMs) (validated
+        // 100..5000, DwellSettings) with the same value the key grid gets via Configure, so the
+        // two surfaces are deliberately configured identically. Between SetViewModel (which
+        // creates this manager) and LoadLayout the detector has no targets — BuildCategoryTabs
+        // has not run — so the 0 is unobservable, and changing it would be a no-op dressed as a
+        // fix. Read it as "not yet configured", never as an endorsement of a 0 cooldown.
         _categoryDwellDetector = new DwellDetector(cooldownMs: 0, context: DwellContext.Emoji, sink: sink);
         _keyRows = keyRows;
         _categoryBar = categoryBar;
@@ -270,6 +277,19 @@ public class EmojiGridManager
         UpdateCategoryTargetPositions();
         _categoryDwellDetector.Update(gazePoint, timestampMicroseconds);
     }
+
+    /// <summary>
+    /// Clears in-progress category-tab dwell — the category side of the positional partition
+    /// documented in <c>KeyboardWindow.UpdateGaze</c>, called whenever the gaze is inside the
+    /// key/emoji grid. The reset (rather than merely skipping the update) is what makes the
+    /// verdict exact: an untouched detector would credit the on-grid interval to the tab on the
+    /// next off-grid sample whenever that excursion was under its own 150 ms gap clamp
+    /// (<c>DwellDetector.MaxCreditedSampleGapUs</c>), and would leave the tab's outline frozen
+    /// mid-progress instead of clearing it. Quiet when repeated — <c>ResetAllState</c> raises
+    /// progress 0 only for a target whose <c>IsGazeInside</c> is set, so per-sample calls emit
+    /// once, on entry — the same reset-then-add reasoning the prediction branch records.
+    /// </summary>
+    public void ResetCategoryState() => _categoryDwellDetector.ResetAllState();
 
     private void UpdateCategoryTargetPositions()
     {

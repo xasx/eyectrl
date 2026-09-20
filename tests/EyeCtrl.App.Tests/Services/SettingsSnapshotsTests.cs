@@ -103,4 +103,20 @@ public class SettingsSnapshotsTests
         s.Toolbar.Size = 96;
         Check.That(ToolbarSnapshot.Capture(s)).IsNotEqualTo(before);
     }
+
+    [Fact]
+    public void KeyboardStackSnapshot_MaxSuggestionsChange_SnapshotsAreEqual()
+    {
+        // Executable half of the census exclusion: MaxSuggestions must stay OUT of the snapshot
+        // (read live per keystroke — no dictionary reload / orchestrator rebuild on a count
+        // change). The census set alone cannot detect someone ADDING it to Capture, because the
+        // census only unions the two name sets; this can. If this ever fails, either remove the
+        // property from KeyboardStackSnapshot or move it to `captured` and accept the rebuild.
+        var s = new EyeCtrlSettings();
+        var before = KeyboardStackSnapshot.Capture(s);
+        s.Keyboard.MaxSuggestions = 2;
+        Check.That(KeyboardStackSnapshot.Capture(s)).IsEqualTo(before);
+        // NOTE for the feat/keyboard-action-edge-toggle merge: that branch adds a registry
+        // parameter to Capture — adapt this call the same way as the neighbours above.
+    }
 }

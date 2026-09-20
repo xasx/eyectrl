@@ -20,6 +20,9 @@ using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using NFluent;
+using Serilog;
+using Serilog.Core;
+using Serilog.Events;
 using Xunit;
 
 /// <summary>
@@ -748,5 +751,213 @@ public class KeyboardCategoryGridExclusionTests
                 .IsEqualTo((long)gridDwellMs * MathConstants.MicrosecondsPerMillisecond);
         }
         finally { probe.Dispose(); }
+    }
+
+    // ---- the log evidence: a category activation and the collapse it causes are readable ----
+
+    /// <summary>
+    /// Captures the events the subject logs while a test drives it. The assertions below read the
+    /// structured properties and compare counts against the registrar's own dictionary, never a
+    /// rendered message, so an honest rewording of a message does not red them.
+    /// </summary>
+    private sealed class CapturingSink : ILogEventSink
+    {
+        public List<LogEvent> Events { get; } = new();
+        public void Emit(LogEvent logEvent) => Events.Add(logEvent);
+    }
+
+    private static string? StringProperty(LogEvent logEvent, string name) =>
+        logEvent.Properties.TryGetValue(name, out var value)
+        && value is ScalarValue { Value: string s } ? s : null;
+
+    private static int? IntProperty(LogEvent logEvent, string name) =>
+        logEvent.Properties.TryGetValue(name, out var value)
+        && value is ScalarValue { Value: int i } ? i : null;
+
+    private static bool BoolProperty(LogEvent logEvent, string name) =>
+        logEvent.Properties.TryGetValue(name, out var value)
+        && value is ScalarValue { Value: bool b } && b;
+
+    private static string Describe(IEnumerable<LogEvent> events) =>
+        string.Join("\n    ", events.Select(e => $"[{e.Level}] {e.RenderMessage()}"));
+
+    /// <summary>
+    /// The observability half of the grid/category interaction: reading the production log has to
+    /// be enough to tell that a category activation fired and that it collapsed the grid — the
+    /// 43 -> 2 signature that diagnosed tickets 12 and 13 — and that the skin-tone tab put the
+    /// selector on screen. Before this, the emoji grid logged nothing, and two live runs could
+    /// neither confirm nor refute a shipped fix.
+    ///
+    /// <para>
+    /// The counts are compared against <c>_keyVisuals</c> — the registrar's own dictionary, i.e.
+    /// the grid that is actually on screen — so a hardcoded or desynchronised count fails. The
+    /// glyph check is the privacy half of the log contract: this grid is the user's only
+    /// text-entry surface, and a log that records which emoji they selected is a keystroke log
+    /// written to disk in plain text and rotated into files that outlive the session.
+    /// </para>
+    /// </summary>
+    [StaFact]
+    public void CategoryActivation_AndTheGridCollapse_LeaveLogEvidence()
+    {
+        var probe = Open(1.0);
+        var sink = new CapturingSink();
+        var previousLogger = Log.Logger;
+        try
+        {
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.Verbose()
+                .WriteTo.Sink(sink)
+                .CreateLogger();
+
+            EnterEmojiMode(probe);
+
+            // The glyphs on screen, read before the activation replaces them: the privacy
+            // assertion at the end checks none of them appears anywhere in the captured events.
+            var glyphs = KeyVisuals(probe.Window)
+                .Where(kv => kv.Key.StartsWith("emoji_", StringComparison.Ordinal)
+                    || kv.Key.StartsWith("skin_", StringComparison.Ordinal))
+                .Select(kv => ((Emoji.Wpf.TextBlock)kv.Value.Label!).Text)
+                .Where(text => !string.IsNullOrEmpty(text))
+                .ToList();
+            Check.WithCustomMessage(
+                    "No emoji glyph was read from the live grid, so the privacy assertion at the "
+                    + "end of this test would be vacuous — the grid did not build, or its labels "
+                    + "are not the Emoji.Wpf glyphs this test expects.")
+                .That(glyphs).Not.IsEmpty();
+
+            var populatedCells = KeyVisuals(probe.Window).Count;
+            var enteredRebuilds = sink.Events.Where(e => e.Properties.ContainsKey("Cells")).ToList();
+            Check.WithCustomMessage(
+                    "Entering emoji mode logged no rebuild line carrying the live cell count, so a "
+                    + "live run cannot tell a populated grid from a collapsed one. Captured "
+                    + "events: " + Describe(sink.Events))
+                .That(enteredRebuilds).HasSize(1);
+            var entered = enteredRebuilds[0];
+            Check.WithCustomMessage(
+                    $"The rebuild line is at {entered.Level}; the production file runs at "
+                    + "Information, so a Debug line reaches nothing (KeyboardCoordinator's "
+                    + "text-input Debug line has never appeared in a log).")
+                .That(entered.Level).IsEqualTo(LogEventLevel.Information);
+            Check.WithCustomMessage(
+                    $"The rebuild line reported {IntProperty(entered, "Cells")} cells while the "
+                    + $"registrar holds {populatedCells}. The count must be read from the rebuilt "
+                    + "grid, or the 43 -> 2 signature this line exists for is fiction.")
+                .That(IntProperty(entered, "Cells")).IsEqualTo(populatedCells);
+            Check.WithCustomMessage(
+                    $"Emoji mode must enter on a category other than 'recent' (the recents file is "
+                    + $"fresh), but the rebuild line names '{StringProperty(entered, "Category")}' "
+                    + "— activating cat_recent would then be a no-op and the collapse assertions "
+                    + "below would never be exercised.")
+                .That(StringProperty(entered, "Category")).IsNotEqualTo("recent");
+            Check.WithCustomMessage(
+                    "Entering emoji mode did not log the mode line, so the log cannot place the "
+                    + "start of the session.")
+                .That(sink.Events.Select(e => StringProperty(e, "State"))).Contains("entered");
+
+            var detector = CategoryDetector(probe.Window);
+            var tab = CategoryTargets(detector).SingleOrDefault(t => t.Id == "cat_recent");
+            Check.WithCustomMessage(
+                    "The category bar registered no 'cat_recent' target, so the activation below "
+                    + "could never happen and every assertion after it would be vacuous.")
+                .That(tab).IsNotNull();
+            Check.WithCustomMessage(
+                    $"The cat_recent centre ({tab!.Center.X:F1},{tab.Center.Y:F1}) is inside the key "
+                    + "area, so UpdateGaze would reset the tab instead of dwelling it and the "
+                    + "activation below would never happen.")
+                .That(IsInsideKeyArea(probe.Window, tab.Center)).IsFalse();
+
+            var phaseStart = sink.Events.Count;
+            Feed(probe, tab.Center, 1_000_000, 1_600_000);
+            var phase = sink.Events.Skip(phaseStart).ToList();
+
+            var activation = phase.SingleOrDefault(e => e.Properties.ContainsKey("Changed"));
+            Check.WithCustomMessage(
+                    "Dwelling cat_recent logged no category-activation line. The first question a "
+                    + "live log has to answer is whether a category activation fired at all, since "
+                    + "that is what steals an emoji dwell under the grid/tab geometry. Captured "
+                    + "events: " + Describe(phase))
+                .That(activation).IsNotNull();
+            Check.WithCustomMessage(
+                    $"The activation line names '{StringProperty(activation!, "Category")}', not "
+                    + "the tab that was dwelled (cat_recent).")
+                .That(StringProperty(activation!, "Category")).IsEqualTo("cat_recent");
+            Check.WithCustomMessage(
+                    "The activation line does not say whether the activation actually changed the "
+                    + "category; without it a reader cannot tell a real switch from a re-fire on "
+                    + "a parked gaze.")
+                .That(BoolProperty(activation!, "Changed")).IsTrue();
+
+            var collapsed = phase.SingleOrDefault(e => e.Properties.ContainsKey("Cells"));
+            Check.WithCustomMessage(
+                    "The activation must be followed by the rebuild it caused; the collapse of "
+                    + "the live cell count is the signature this line exists to expose. Captured "
+                    + "events: " + Describe(phase))
+                .That(collapsed).IsNotNull();
+            Check.WithCustomMessage(
+                    $"The post-activation rebuild line reported {IntProperty(collapsed!, "Cells")} "
+                    + $"cells while the registrar holds {KeyVisuals(probe.Window).Count}; the count "
+                    + "must be measured from the grid.")
+                .That(IntProperty(collapsed!, "Cells")).IsEqualTo(KeyVisuals(probe.Window).Count);
+            Check.WithCustomMessage(
+                    $"After activating the empty 'recent' category the grid still registers "
+                    + $"{KeyVisuals(probe.Window).Count} cells, the same as the {populatedCells} "
+                    + "before it: the empty-category premise did not hold and this test never "
+                    + "measured the collapse it claims to.")
+                .That(KeyVisuals(probe.Window).Count).IsStrictlyLessThan(populatedCells);
+
+            foreach (var glyph in glyphs)
+            {
+                var codepoints = string.Join(" ", glyph.Select(c => $"U+{(int)c:X4}"));
+                Check.WithCustomMessage(
+                        $"A captured event carries the glyph {codepoints} the user was dwelling. "
+                        + "This grid is the user's only text-entry surface: the log is plain text "
+                        + "on disk, rotated into files that outlive the session, and a record of "
+                        + "which emoji they selected is a keystroke log of their communication. "
+                        + "Log ids, counts and outcomes — never the glyph. Captured events: "
+                        + Describe(sink.Events))
+                    .That(sink.Events.Any(e =>
+                        e.RenderMessage().Contains(glyph, StringComparison.Ordinal)
+                        || e.Properties.Values.Any(v =>
+                            v.ToString().Contains(glyph, StringComparison.Ordinal))))
+                    .IsFalse();
+            }
+
+            // The skin-tone path has no changed-guard, so it is the one that can re-fire under a
+            // parked gaze; both its lines must be readable, and the selector swap registers cells
+            // rather than rebuilding the grid, so no rebuild line belongs here either.
+            var skinToneTab = CategoryTargets(detector).SingleOrDefault(t => t.Id == "cat__skinTone");
+            Check.WithCustomMessage(
+                    "The category bar registered no 'cat__skinTone' target, so the selector path "
+                    + "below could never be exercised.")
+                .That(skinToneTab).IsNotNull();
+            var skinPhaseStart = sink.Events.Count;
+            Feed(probe, skinToneTab!.Center, 2_000_000, 2_600_000);
+            var skinPhase = sink.Events.Skip(skinPhaseStart).ToList();
+
+            Check.WithCustomMessage(
+                    "Dwelling the skin-tone tab logged no activation line naming it, so a reader "
+                    + "cannot tell a tab dwell from a deliberate press of the palette button. "
+                    + "Captured events: " + Describe(skinPhase))
+                .That(skinPhase.Select(e => StringProperty(e, "Category")))
+                .Contains("cat__skinTone");
+            Check.WithCustomMessage(
+                    "The skin-tone selector was shown without a line saying so — the one path the "
+                    + "brief flags for repeat volume under a parked gaze, and the outcome a reader "
+                    + "needs to explain a grid that vanished mid-dwell. Captured events: "
+                    + Describe(skinPhase))
+                .That(skinPhase.Select(e => StringProperty(e, "Panel")))
+                .Contains("skin-tone selector");
+
+            probe.Vm.IsEmojiMode = false;
+            Check.WithCustomMessage(
+                    "Leaving emoji mode logged no mode line, so a log read cannot tell where the "
+                    + "emoji session ended. Captured events: " + Describe(sink.Events))
+                .That(sink.Events.Select(e => StringProperty(e, "State"))).Contains("exited");
+        }
+        finally
+        {
+            Log.Logger = previousLogger;
+            probe.Dispose();
+        }
     }
 }

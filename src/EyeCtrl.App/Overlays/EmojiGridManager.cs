@@ -513,12 +513,15 @@ public class EmojiGridManager
 
         // No changed-guard, unlike the category branch: parked gaze on the skin-tone tab re-fires
         // this per dwell+cooldown cycle, and the tab's own activation line fires with it — two
-        // lines per cycle. That is ~2.4 lines/s (~200k lines/day) at the shipped 450 ms dwell and
-        // 400 ms cooldown, up to 5 lines/s (~430k/day) at the validated floors, where a day of
-        // parked gaze would just touch the 50 MB cap and roll. One line per fire is deliberate —
-        // deduplicating the repeat would hide the stuck-gaze signal — so the realistic cost is
-        // legibility: it buries other lines while it lasts, not rotation.
-        Log.Information("Emoji {Panel} shown", "skin-tone selector");
+        // lines per cycle. ~2.4 lines/s / ~203k lines/day at the shipped 450 ms dwell and 400 ms
+        // cooldown, up to ~5/s / ~432k/day at the validated floors. At the measured ~80 B/line
+        // that is 16-35 MB/day, so even the floors sit at 69 % of the 50 MB cap and never roll.
+        // One line per fire is deliberate — deduplicating the repeat would hide the stuck-gaze
+        // signal — so the cost is legibility: it buries other lines while it lasts, not rotation.
+        // cells= belongs on THIS line, not only on the rebuild it replaced: this is the line that
+        // repeats, and without its own count a reader carries the previous rebuild's value
+        // forward and misreads the swap.
+        Log.Information("Emoji {Panel} shown: cells={Cells}", "skin-tone selector", CountLiveCells());
     }
 
     private void AddSpecialButton(StackPanel row, string text, string action, double widthMultiplier)

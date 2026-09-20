@@ -10,6 +10,7 @@ using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
+using Serilog;
 using EmojiTextBlock = Emoji.Wpf.TextBlock;
 
 public class EmojiGridManager
@@ -131,6 +132,16 @@ public class EmojiGridManager
 
         _categoryBar.Visibility = Visibility.Visible;
 
+        // Mode boundaries and grid rebuilds only. The logging design's event-only policy
+        // (docs/plans/2026-03-07-logging-design.md) forbids dwell progress and gaze points, so
+        // nothing on this surface logs per sample: OnCategoryProgress stays silent by design.
+        // Every line carries ids, counts and outcomes — never a glyph, never the emoji a user
+        // selected, because the log is plain text on disk and this grid is their only text-entry
+        // surface. No per-cell id either (never "emoji_7"): emojis.json ships in the install
+        // directory beside this code, so (category, page, index, tone) is a total function onto
+        // the glyph — a cell id would be an ENCODED selection, not an anonymous one. Category,
+        // page and cell count are logged because the diagnosis needs them and none names a cell.
+        Log.Information("Emoji mode {State}", "entered");
         BuildCategoryTabs();
         BuildGrid();
     }
@@ -139,6 +150,7 @@ public class EmojiGridManager
     {
         _emojiPage = 0;
         _categoryBar.Visibility = Visibility.Collapsed;
+        Log.Information("Emoji mode {State}", "exited");
     }
 
     public void BuildGrid()
@@ -201,7 +213,24 @@ public class EmojiGridManager
             AddSpecialButton(bottomRow, "\u25B6", "emojiPage:next", 1.0);
 
         _keyRows.Children.Add(bottomRow);
+
+        // The live cell count is the diagnostic that named the last two defects: a category
+        // activation rebuilds this grid, and when it lands on an empty page the count collapses
+        // (measured live: 43 -> 2). One line per rebuild, with the count measured from the tree
+        // the rebuild just populated, so the log can answer "did a category activation steal an
+        // emoji dwell" — while saying nothing about which emoji is where.
+        Log.Information("Emoji grid rebuilt: category={Category} page={Page} cells={Cells}",
+            _activeEmojiCategory, _emojiPage, CountLiveCells());
     }
+
+    /// <summary>
+    /// The dwell cells the grid currently shows — every rebuilt cell is registered through
+    /// <see cref="BuildGrid"/>'s or <see cref="ShowSkinToneSelector"/>'s registrar call and lands
+    /// in <c>_keyRows</c> as one <see cref="Border"/>. Counted from that tree rather than from a
+    /// parallel tally so the logged count cannot drift from what was actually registered.
+    /// </summary>
+    private int CountLiveCells() =>
+        _keyRows.Children.OfType<StackPanel>().Sum(row => row.Children.OfType<Border>().Count());
 
     public void HandleAction(string action)
     {
@@ -424,11 +453,14 @@ public class EmojiGridManager
 
         if (catId == "_skinTone")
         {
+            Log.Information("Emoji category activated: {Category} (skin-tone selector)", targetId);
             ShowSkinToneSelector();
             return;
         }
 
-        if (_activeEmojiCategory != catId)
+        var changed = _activeEmojiCategory != catId;
+        Log.Information("Emoji category activated: {Category} changed={Changed}", targetId, changed);
+        if (changed)
         {
             _activeEmojiCategory = catId;
             _emojiPage = 0;
@@ -478,6 +510,15 @@ public class EmojiGridManager
         var backRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
         AddSpecialButton(backRow, "Back", "skinToneBack", 2.0);
         _keyRows.Children.Add(backRow);
+
+        // No changed-guard, unlike the category branch: parked gaze on the skin-tone tab re-fires
+        // this per dwell+cooldown cycle (~1.2/s at the shipped 450 ms dwell and 400 ms cooldown,
+        // up to 2.5/s at the validated floors), so this line repeats while the gaze is parked.
+        // One line per fire is deliberate — deduplicating the repeat would hide the stuck-gaze
+        // signal — and the detector's own cooldown bounds it (~100k-200k lines/day at worst),
+        // under the 50 MB cap's ~400k lines/day. The cost is legibility while it lasts, not
+        // rotation: it buries other lines rather than rolling them out.
+        Log.Information("Emoji {Panel} shown", "skin-tone selector");
     }
 
     private void AddSpecialButton(StackPanel row, string text, string action, double widthMultiplier)

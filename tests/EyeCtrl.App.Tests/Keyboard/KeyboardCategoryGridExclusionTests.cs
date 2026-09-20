@@ -13,6 +13,7 @@ using System.Windows.Media;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
+using EyeCtrl.Core;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -35,8 +36,10 @@ using Xunit;
 /// key for any point inside that rect), the circles fall short by <b>0.25 px</b> at 0.5 and cross
 /// it by <b>6.50 px</b> at 1.0 and <b>20.99 px</b> at 2.0 — 49 px and 122 px wide chords. The
 /// 2+6+2 DIP gutters between the bar and the grid are fixed while the half-diagonal radius scales,
-/// so exposure grows proportionally worse with key size, worst at the user's own 200 % display —
-/// the ticket's hint that 0.5 "wants re-checking" is inverted; 0.5 is the safe end.
+/// so exposure grows proportionally worse with key size — worst at <c>KeySizeMultiplier</c> 2.0,
+/// the same physical geometry a 200 % display produces at multiplier 1.0 (higher DPI scales the
+/// radius and the distances together, so the multiplier is the only axis that moves one and not
+/// the other) — the ticket's hint that 0.5 "wants re-checking" is inverted; 0.5 is the safe end.
 /// A reach for a top-row emoji then
 /// completes a category tab, whose handler rebuilds the grid and empties the key registry under
 /// the live dwell. This is ticket 3's
@@ -54,7 +57,11 @@ using Xunit;
 /// from the bar. It is a regression guard for the other half of the acceptance, not evidence of a
 /// second fix. <see cref="CategoryHitCircles_NeverSwallowAnEmojiCellCentre"/> is a geometry census,
 /// not a probe: the invariant it asserts holds before and after, and it exists so the clearance
-/// the ticket asks for is measured at every shipped multiplier rather than assumed to scale.
+/// the ticket asks for is measured at every shipped multiplier rather than assumed to scale;
+/// <see cref="CategoryClearance_GrowsWithTheMultiplier_ItDoesNotScaleInvariantly"/> pins the shape
+/// of that measurement (exposure grows with the multiplier — the absolute figures are diagnostic,
+/// not asserted), and <see cref="CategoryAndGridDetectors_RunTheSameDwell"/> pins the
+/// <c>P == K</c> premise of the tie-break argument recorded in <c>UpdateGaze</c>.
 /// </para>
 ///
 /// <para>
@@ -441,13 +448,22 @@ public class KeyboardCategoryGridExclusionTests
 
     /// <summary>
     /// Pins the reset, not merely the skip. A category dwell is most of the way through (300 ms of
-    /// 450), the gaze crosses onto the grid for 90 ms — under the detector's own 150 ms gap clamp,
-    /// so a later off-grid sample would silently credit the excursion if the detector were only
-    /// skipped — and then returns to the tab for another 300 ms. Under the reset the dwell
-    /// restarted on return (entry at +420 ms, needs +870 ms), so no activation may occur in the
-    /// return window; a skip-without-reset fires at +450 ms, the first return samples, crediting
-    /// the 90 ms spent on the grid. That is the difference between "the grid cannot accumulate
-    /// category dwell" and "the grid merely pauses it".
+    /// 450), the gaze crosses onto the grid for a 90 ms on-grid interval — three fed samples, so
+    /// the DETECTOR sees no sample for 120 ms between the last pre-excursion tab sample and the
+    /// first return sample, under its 150 ms gap clamp, meaning a later off-grid sample would
+    /// silently credit the interval if the detector were only skipped — and then returns to the
+    /// tab for another 300 ms. Under the reset the dwell restarted on return (entry at +420 ms,
+    /// needs +870 ms), so no activation may occur in the return window; a skip-without-reset
+    /// fires at +450 ms, the first return samples, crediting the interval spent on the grid. That
+    /// is the difference between "the grid cannot accumulate category dwell" and "the grid merely
+    /// pauses it".
+    ///
+    /// <para>
+    /// The teeth of this test are the 120 ms detector-visible gap, and that is why it is asserted
+    /// rather than assumed: at or above the detector's <c>MaxCreditedSampleGapUs</c> the
+    /// <c>Update</c> re-anchors <c>EnteredTimestamp</c> for free, a skip-without-reset passes, and
+    /// this test silently stops measuring the reset. A one-sample cadence change is all it takes.
+    /// </para>
     /// </summary>
     [StaTheory]
     [InlineData(1.0)]
@@ -472,32 +488,55 @@ public class KeyboardCategoryGridExclusionTests
             var tab = CategoryTargets(detector).Single(t => t.Id == probePoint.TabId);
 
             const long t0 = 1_000_000;
-            const long step = 30_000;
+            const long stepUs = 30_000;
+            const int preExcursionSamples = 10;   // 0..10 → 300 ms of tab dwell, below the 450 ms
+            const int onGridSamples = 3;          // 330..390 ms: 3 samples, 60 ms of feed
+            const int returnSamples = 10;         // 420..720 ms: no activation under the reset
+            const int controlSamples = 10;        // keeps holding; the restarted dwell completes
+            // DwellDetector.MaxCreditedSampleGapUs is private; its value is the 150 ms bound the
+            // detector re-anchors at (>=). Cited so this test cannot drift from the mechanism.
+            const long detectorGapClampUs = 150_000;
+
+            long lastPreExcursionUs = t0 + preExcursionSamples * stepUs;
+            long firstReturnUs = t0 + (preExcursionSamples + onGridSamples + 1) * stepUs;
+            long detectorVisibleGapUs = firstReturnUs - lastPreExcursionUs;
+            Check.WithCustomMessage(
+                    $"The on-grid excursion presents a {detectorVisibleGapUs} us gap to the "
+                    + $"detector, at or above its {detectorGapClampUs} us re-anchor clamp. At or "
+                    + "above the clamp DwellDetector.Update re-anchors EnteredTimestamp for free, "
+                    + "so a skip-without-reset restarts the tab even without ResetCategoryState and "
+                    + "this test stops measuring the reset. Keep the gap strictly below the clamp.")
+                .That(detectorVisibleGapUs).IsStrictlyLessThan(detectorGapClampUs);
 
             // 300 ms on the tab — below the 450 ms dwell, so no activation can fire yet.
-            Feed(probe, tab.Center, t0, t0 + 10 * step);
+            Feed(probe, tab.Center, t0, lastPreExcursionUs);
             Check.WithCustomMessage(
-                    $"The tab activated after only 300 ms of a 450 ms dwell, so the pre-excursion "
-                    + "state this test depends on never existed.")
+                    $"The tab activated after only {preExcursionSamples * stepUs / 1000} ms of a "
+                    + "450 ms dwell, so the pre-excursion state this test depends on never existed.")
                 .That(activations).IsEmpty();
 
-            // 90 ms on the grid: every sample is inside both the key area and the tab circle.
-            Feed(probe, probePoint.Point, t0 + 11 * step, t0 + 13 * step);
+            // Every grid sample is inside both the key area and the tab circle.
+            Feed(probe, probePoint.Point,
+                t0 + (preExcursionSamples + 1) * stepUs,
+                t0 + (preExcursionSamples + onGridSamples) * stepUs);
 
-            // Back on the tab for 300 ms. Under the reset no activation is possible (the dwell
-            // restarted at t0+14·step and needs 15 steps); under skip-only the original entry's
-            // elapsed crosses 450 ms here and the tab fires.
-            Feed(probe, tab.Center, t0 + 14 * step, t0 + 24 * step);
+            // Back on the tab. Under the reset no activation is possible (the dwell restarted at
+            // firstReturnUs and needs 450 ms of continued gaze); under skip-without-reset the
+            // original entry's elapsed crosses the dwell here and the tab fires.
+            Feed(probe, tab.Center, firstReturnUs, firstReturnUs + returnSamples * stepUs);
             Check.WithCustomMessage(
-                    $"The category tab activated after a 90 ms excursion onto the emoji grid: the "
-                    + "on-grid interval was credited to the tab dwell even though the gaze was "
-                    + "inside the key area. The grid must reset category accumulation, not pause it "
-                    + "(under 150 ms, the detector's own gap clamp will not re-anchor for you). "
+                    $"The category tab activated after a {onGridSamples * stepUs / 1000} ms feed of "
+                    + "excursion onto the emoji grid: the on-grid interval was credited to the tab "
+                    + "dwell even though the gaze was inside the key area. The grid must reset "
+                    + "category accumulation, not pause it (under the detector's gap clamp, the "
+                    + "clamp will not re-anchor for you). "
                     + $"Activations: {string.Join(", ", activations)}.")
                 .That(activations).IsEmpty();
 
             // Positive control: keep holding; the restarted dwell must still be able to complete.
-            Feed(probe, tab.Center, t0 + 25 * step, t0 + 35 * step);
+            Feed(probe, tab.Center,
+                firstReturnUs + (returnSamples + 1) * stepUs,
+                firstReturnUs + (returnSamples + 1 + controlSamples) * stepUs);
             Check.WithCustomMessage(
                     "The tab never activated after the excursion even with a full dwell's worth of "
                     + "continued gaze, so the 'not credited' assertion above may have been reading "
@@ -571,6 +610,14 @@ public class KeyboardCategoryGridExclusionTests
     /// the failure message carries the live worst-pair numbers for both boundaries. At 0.5 the
     /// circle misses the grid entirely; at 1.0 and 2.0 it crosses the <c>KeyRows</c> edge and
     /// penetrates the cells' top band, which is exactly the overlap the defect probe uses.
+    ///
+    /// <para>
+    /// The absolute figures are <b>diagnostic, not asserted</b>: a layout tweak can move them
+    /// without changing the defect or the safe core (measured — changing the tab margin deepens
+    /// every band and this stays green), so pinning them would be a ratchet that fires on honest
+    /// layout work. The asserted properties are the safe core here and the monotonic shape in
+    /// <see cref="CategoryClearance_GrowsWithTheMultiplier_ItDoesNotScaleInvariantly"/>.
+    /// </para>
     /// </summary>
     [StaTheory]
     [InlineData(0.5)]
@@ -604,6 +651,101 @@ public class KeyboardCategoryGridExclusionTests
                     + $"radius {rectPenetration.Radius:F2}, tab centre to rect {rectPenetration.DistanceToGrid:F2}); "
                     + "positive means the circle crosses the edge into the grid.")
                 .That(worstToCentre.ToCentre).IsStrictlyGreaterThan(0.0);
+        }
+        finally { probe.Dispose(); }
+    }
+
+    /// <summary>
+    /// Acceptance criterion 2's shape, measured rather than assumed: the exposure does not scale
+    /// invariantly. The tab circle's half-diagonal grows with the multiplier while the 2+6+2 DIP
+    /// gutters between the bar and the grid do not, so both the rect penetration and the
+    /// cell-centre clearance are strictly increasing in the multiplier — the ticket's steer that
+    /// 0.5 "wants re-checking" is inverted. The absolute figures stay diagnostic (see the census);
+    /// this pins only the ordering, which survives both honest directions of layout change: a
+    /// deeper gutter shifts every value but cannot flatten the growth, and a gutter that removes
+    /// the overlap makes the penetrations all negative and still ordered.
+    /// </summary>
+    [StaFact]
+    public void CategoryClearance_GrowsWithTheMultiplier_ItDoesNotScaleInvariantly()
+    {
+        var measurements = new List<(double Multiplier, double RectPenetration, double MinCentreClearance)>();
+        foreach (var multiplier in new[] { 0.5, 1.0, 2.0 })
+        {
+            var probe = Open(multiplier);
+            try
+            {
+                EnterEmojiMode(probe);
+                var clearances = CategoryClearances(probe);
+                Check.WithCustomMessage(
+                        $"At KeySizeMultiplier {multiplier} the census measured nothing — no "
+                        + "category target or no emoji cell was registered, so the ordering below "
+                        + "would be built from an empty measurement.")
+                    .That(clearances).Not.IsEmpty();
+
+                measurements.Add((multiplier,
+                    CategoryRectPenetration(probe).Penetration,
+                    clearances.Min(c => c.ToCentre)));
+            }
+            finally { probe.Dispose(); }
+        }
+
+        var measured = string.Join(", ",
+            measurements.Select(m => $"m={m.Multiplier}: rectPenetration={m.RectPenetration:F2}px, "
+                + $"minCentreClearance={m.MinCentreClearance:F2}px"));
+        for (var i = 1; i < measurements.Count; i++)
+        {
+            Check.WithCustomMessage(
+                    $"The category/grid exposure did not grow with KeySizeMultiplier: {measured}. "
+                    + "Ticket 13's acceptance asked for the clearance to be measured rather than "
+                    + "assumed to scale; with fixed DIP gutters and a scaling half-diagonal both "
+                    + "quantities are increasing in the multiplier, and 0.5 is the safe end. If a "
+                    + "geometry change made this fail, it most likely reduced the exposure rather "
+                    + "than grew it — re-read the measurement before treating it as a regression.")
+                .That(measurements[i].RectPenetration)
+                .IsStrictlyGreaterThan(measurements[i - 1].RectPenetration);
+            Check.WithCustomMessage(
+                    $"The cell-centre clearance did not grow with KeySizeMultiplier: {measured}.")
+                .That(measurements[i].MinCentreClearance)
+                .IsStrictlyGreaterThan(measurements[i - 1].MinCentreClearance);
+        }
+    }
+
+    /// <summary>
+    /// The <c>P == K</c> premise of the tie-break argument recorded in
+    /// <c>KeyboardWindow.UpdateGaze</c>: both surfaces run the same configured dwell, so a
+    /// category activation from the grid is decided by statement order and not by a shorter
+    /// clock. <c>LoadLayout</c> is what enforces it — <c>_viewModel.Configure(keyDwellMs, ...)</c>
+    /// and <c>_emojiManager.SetKeyDwellMs(keyDwellMs)</c> one line apart — and nothing else
+    /// asserts it: dropping the emoji half makes the category dwell 0 and trips
+    /// <see cref="GridExcursion_MidDwell_DoesNotCreditTheOnGridInterval"/> on its own premise,
+    /// which sends the next maintainer to that test's timings instead of here. Read from the
+    /// live detectors, not from the constants.
+    /// </summary>
+    [StaTheory]
+    [InlineData(1.0)]
+    [InlineData(2.0)]
+    public void CategoryAndGridDetectors_RunTheSameDwell(double keySizeMultiplier)
+    {
+        var probe = Open(keySizeMultiplier);
+        try
+        {
+            EnterEmojiMode(probe);
+            var categoryTarget = CategoryTargets(CategoryDetector(probe.Window))
+                .First(t => t.Id.StartsWith("cat_", StringComparison.Ordinal));
+            var gridDwellMs = (int)typeof(KeyboardViewModel)
+                .GetField("_keyDwellMs", BindingFlags.NonPublic | BindingFlags.Instance)!
+                .GetValue(probe.Vm)!;
+
+            Check.WithCustomMessage(
+                    $"At KeySizeMultiplier {keySizeMultiplier} the category tab runs "
+                    + $"{categoryTarget.DwellTimeMicroseconds} us while the key/emoji grid runs "
+                    + $"{gridDwellMs} ms. UpdateGaze's tie-break argument — the category update is "
+                    + "the earlier statement and takes every tie — presupposes both surfaces run "
+                    + "the SAME configured dwell, which LoadLayout enforces by passing one "
+                    + "keyDwellMs to Configure and SetKeyDwellMs. A mismatch means the tab and the "
+                    + "grid are racing on different clocks.")
+                .That(categoryTarget.DwellTimeMicroseconds)
+                .IsEqualTo((long)gridDwellMs * MathConstants.MicrosecondsPerMillisecond);
         }
         finally { probe.Dispose(); }
     }

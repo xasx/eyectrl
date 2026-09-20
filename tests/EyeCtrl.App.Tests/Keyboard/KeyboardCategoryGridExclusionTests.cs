@@ -905,23 +905,6 @@ public class KeyboardCategoryGridExclusionTests
                     + "measured the collapse it claims to.")
                 .That(KeyVisuals(probe.Window).Count).IsStrictlyLessThan(populatedCells);
 
-            foreach (var glyph in glyphs)
-            {
-                var codepoints = string.Join(" ", glyph.Select(c => $"U+{(int)c:X4}"));
-                Check.WithCustomMessage(
-                        $"A captured event carries the glyph {codepoints} the user was dwelling. "
-                        + "This grid is the user's only text-entry surface: the log is plain text "
-                        + "on disk, rotated into files that outlive the session, and a record of "
-                        + "which emoji they selected is a keystroke log of their communication. "
-                        + "Log ids, counts and outcomes — never the glyph. Captured events: "
-                        + Describe(sink.Events))
-                    .That(sink.Events.Any(e =>
-                        e.RenderMessage().Contains(glyph, StringComparison.Ordinal)
-                        || e.Properties.Values.Any(v =>
-                            v.ToString().Contains(glyph, StringComparison.Ordinal))))
-                    .IsFalse();
-            }
-
             // The skin-tone path has no changed-guard, so it is the one that can re-fire under a
             // parked gaze; both its lines must be readable, and the selector swap registers cells
             // rather than rebuilding the grid, so no rebuild line belongs here either.
@@ -940,19 +923,44 @@ public class KeyboardCategoryGridExclusionTests
                     + "Captured events: " + Describe(skinPhase))
                 .That(skinPhase.Select(e => StringProperty(e, "Category")))
                 .Contains("cat__skinTone");
+            var selectorShown = skinPhase.SingleOrDefault(e => e.Properties.ContainsKey("Panel"));
             Check.WithCustomMessage(
                     "The skin-tone selector was shown without a line saying so — the one path the "
                     + "brief flags for repeat volume under a parked gaze, and the outcome a reader "
                     + "needs to explain a grid that vanished mid-dwell. Captured events: "
                     + Describe(skinPhase))
-                .That(skinPhase.Select(e => StringProperty(e, "Panel")))
-                .Contains("skin-tone selector");
+                .That(selectorShown).IsNotNull();
+            Check.WithCustomMessage(
+                    $"The selector-shown line reported {IntProperty(selectorShown!, "Cells")} cells "
+                    + $"while the selector registered {KeyVisuals(probe.Window).Count}. This line "
+                    + "repeats and it replaced the grid, so without its own count a reader carries "
+                    + "the previous rebuild's cells= forward and misreads the swap.")
+                .That(IntProperty(selectorShown!, "Cells")).IsEqualTo(KeyVisuals(probe.Window).Count);
 
             probe.Vm.IsEmojiMode = false;
             Check.WithCustomMessage(
                     "Leaving emoji mode logged no mode line, so a log read cannot tell where the "
                     + "emoji session ended. Captured events: " + Describe(sink.Events))
                 .That(sink.Events.Select(e => StringProperty(e, "State"))).Contains("exited");
+
+            // Last, so it covers every event the two-minute session produced — both feeds and the
+            // exit — not just the first phase's.
+            foreach (var glyph in glyphs)
+            {
+                var codepoints = string.Join(" ", glyph.Select(c => $"U+{(int)c:X4}"));
+                Check.WithCustomMessage(
+                        $"A captured event carries the glyph {codepoints} the user was dwelling. "
+                        + "This grid is the user's only text-entry surface: the log is plain text "
+                        + "on disk, rotated into files that outlive the session, and a record of "
+                        + "which emoji they selected is a keystroke log of their communication. "
+                        + "Log ids, counts and outcomes — never the glyph. Captured events: "
+                        + Describe(sink.Events))
+                    .That(sink.Events.Any(e =>
+                        e.RenderMessage().Contains(glyph, StringComparison.Ordinal)
+                        || e.Properties.Values.Any(v =>
+                            v.ToString().Contains(glyph, StringComparison.Ordinal))))
+                    .IsFalse();
+            }
         }
         finally
         {

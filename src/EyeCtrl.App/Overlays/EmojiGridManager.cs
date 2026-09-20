@@ -512,12 +512,12 @@ public class EmojiGridManager
         _keyRows.Children.Add(backRow);
 
         // No changed-guard, unlike the category branch: parked gaze on the skin-tone tab re-fires
-        // this per dwell+cooldown cycle (~1.2/s at the shipped 450 ms dwell and 400 ms cooldown,
-        // up to 2.5/s at the validated floors), so this line repeats while the gaze is parked.
-        // One line per fire is deliberate — deduplicating the repeat would hide the stuck-gaze
-        // signal — and the detector's own cooldown bounds it (~100k-200k lines/day at worst),
-        // under the 50 MB cap's ~400k lines/day. The cost is legibility while it lasts, not
-        // rotation: it buries other lines rather than rolling them out.
+        // this per dwell+cooldown cycle, and the tab's own activation line fires with it — two
+        // lines per cycle. That is ~2.4 lines/s (~200k lines/day) at the shipped 450 ms dwell and
+        // 400 ms cooldown, up to 5 lines/s (~430k/day) at the validated floors, where a day of
+        // parked gaze would just touch the 50 MB cap and roll. One line per fire is deliberate —
+        // deduplicating the repeat would hide the stuck-gaze signal — so the realistic cost is
+        // legibility: it buries other lines while it lasts, not rotation.
         Log.Information("Emoji {Panel} shown", "skin-tone selector");
     }
 

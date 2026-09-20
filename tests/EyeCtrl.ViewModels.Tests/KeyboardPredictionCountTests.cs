@@ -7,35 +7,40 @@ using EyeCtrl.Core.Settings;
 /// <summary>
 /// The suggestion count flows from KeyboardSettings.MaxSuggestions through
 /// GetSuggestionsWithContext to the orchestrator — the bar renders suggestions.Count cells, so
-/// the count here IS the count the user sees. New file (not added to KeyboardViewModelTests)
-/// because that file is under active edit on feat/keyboard-action-edge-toggle.
+/// the count here IS the count the user sees. Self-contained on purpose (review round 1,
+/// finding 3): the shared InMemoryDictionaryProvider lives in KeyboardViewModelTests.cs, the
+/// exact file this work avoids because feat/keyboard-action-edge-toggle is actively editing it —
+/// a local fixture keeps this file compiling no matter how that one is reshaped.
 /// </summary>
 public class KeyboardPredictionCountTests
 {
-    private static KeyboardViewModel Create(KeyboardSettings keyboard, out WeakReferenceMessenger messenger)
+    private sealed class SixWordHelProvider : IDictionaryProvider
     {
-        messenger = new WeakReferenceMessenger();
-        var settings = new EyeCtrlSettings();
-        settings.Keyboard.MaxSuggestions = keyboard.MaxSuggestions;
-        // Capitalization is orthogonal to the count and on by default — off, so the word
-        // assertions don't depend on "capitalizes at start" behavior.
-        settings.Keyboard.SmartCapitalizationEnabled = false;
-        var vm = new KeyboardViewModel(settings, messenger);
-
-        // Six "hel" words at descending frequencies so the dictionary alone fills a 5-slot bar.
-        var provider = new InMemoryDictionaryProvider(new()
+        private readonly Dictionary<string, int> _words = new()
         {
             { "hello", 100 }, { "help", 90 }, { "helm", 80 },
             { "helium", 70 }, { "helmet", 60 }, { "helix", 50 }
-        });
-        vm.SetOrchestrator(new PredictionOrchestrator(new WordPredictor(provider)));
+        };
+        public Dictionary<string, int> Load() => new(_words);
+        public void Save(Dictionary<string, int> words) { }
+    }
+
+    private static KeyboardViewModel Create(int maxSuggestions)
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Keyboard.MaxSuggestions = maxSuggestions;
+        // Capitalization is orthogonal to the count and on by default — off, so the word
+        // assertions don't depend on "capitalizes at start" behavior.
+        settings.Keyboard.SmartCapitalizationEnabled = false;
+        var vm = new KeyboardViewModel(settings, new WeakReferenceMessenger());
+        vm.SetOrchestrator(new PredictionOrchestrator(new WordPredictor(new SixWordHelProvider())));
         return vm;
     }
 
     [Fact]
     public void GetSuggestions_DefaultsToFiveSlots()
     {
-        var vm = Create(new KeyboardSettings(), out _);
+        var vm = Create(5);
         vm.CurrentInput = "hel";
 
         Check.That(vm.GetSuggestionsWithContext()).HasSize(5);
@@ -44,8 +49,7 @@ public class KeyboardPredictionCountTests
     [Fact]
     public void GetSuggestions_RespectsMaxSuggestions()
     {
-        var keyboard = new KeyboardSettings { MaxSuggestions = 2 };
-        var vm = Create(keyboard, out _);
+        var vm = Create(2);
         vm.CurrentInput = "hel";
 
         var suggestions = vm.GetSuggestionsWithContext();
@@ -56,8 +60,7 @@ public class KeyboardPredictionCountTests
     [Fact]
     public void GetSuggestions_MaxSuggestionsOfOne_YieldsSingleBest()
     {
-        var keyboard = new KeyboardSettings { MaxSuggestions = 1 };
-        var vm = Create(keyboard, out _);
+        var vm = Create(1);
         vm.CurrentInput = "hel";
 
         var suggestions = vm.GetSuggestionsWithContext();

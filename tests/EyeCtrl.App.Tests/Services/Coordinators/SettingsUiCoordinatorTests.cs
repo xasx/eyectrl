@@ -59,4 +59,21 @@ public class SettingsUiCoordinatorTests
         Check.ThatCode(() => new SettingsUiCoordinator(modal, quickActions, null!, keyboard)).Throws<ArgumentNullException>();
         Check.ThatCode(() => new SettingsUiCoordinator(modal, quickActions, toolbar, null!)).Throws<ArgumentNullException>();
     }
+
+    // ── Prediction-bar refresh gate (review round 2, finding 1) ─────────────────────────────
+    // The inline version of this decision shipped with zero executable coverage — deleting the
+    // whole block broke no test — so the predicate is extracted and pinned here, the same remedy
+    // ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample received for the same discovery.
+
+    [Theory]
+    [InlineData(true, true, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, false, false)]
+    [InlineData(false, true, true)]
+    public void ShouldRefreshPredictionBar_DecidesOnReloadAndKeyboardVisibility(
+        bool reloaded, bool keyboardVisible, bool expected)
+    {
+        Check.That(SettingsUiCoordinator.ShouldRefreshPredictionBar(reloaded, keyboardVisible))
+            .IsEqualTo(expected);
+    }
 }

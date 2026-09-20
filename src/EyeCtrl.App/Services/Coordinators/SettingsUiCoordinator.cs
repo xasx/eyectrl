@@ -195,14 +195,24 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         // suggestion count left stale cells whose completed dwell OnPredictionDwelled silently
         // swallowed (index guard, no redraw). Refresh the bar instead: idempotent, and it
         // retires the unreachable targets the moment the setting moves.
-        if (!_keyboard.ReloadIfChanged(s, Context.InputSimulator, Context.SettingsService)
-            && _modal.KeyboardVisible)
+        if (ShouldRefreshPredictionBar(
+                _keyboard.ReloadIfChanged(s, Context.InputSimulator, Context.SettingsService),
+                _modal.KeyboardVisible))
         {
             Context.OverlayManager.Keyboard.UpdatePredictions();
         }
 
         Log.Information("Settings saved");
     }
+
+    /// <summary>
+    /// The prediction-bar refresh gate, extracted so it is unit-testable headlessly: review round 2
+    /// deleted the entire inline block and no test failed — the same zero-coverage discovery that
+    /// produced <c>ShouldFeedKeyboardSample</c> one file over. A reload already rebuilt the bar, so
+    /// refresh only when it did NOT run and the keyboard can be showing cells at all.
+    /// </summary>
+    internal static bool ShouldRefreshPredictionBar(bool reloaded, bool keyboardVisible) =>
+        !reloaded && keyboardVisible;
 
     private void OnSettingsWindowClosed(object? sender, EventArgs e)
     {

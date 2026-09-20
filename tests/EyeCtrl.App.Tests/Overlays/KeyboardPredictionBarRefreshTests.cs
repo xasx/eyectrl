@@ -12,10 +12,10 @@ using EyeCtrl.ViewModels;
 /// prediction bar is built from whatever <see cref="KeyboardViewModel.GetSuggestionsWithContext"/>
 /// returns at redraw time, so a lowered MaxSuggestions redraws to fewer LIVE cells — no stale
 /// cells left dwellable with a completed dwell that silently does nothing. The wiring itself
-/// (SettingsUiCoordinator.OnSettingsChanged → UpdatePredictions) is one untested-inline line in a
-/// method whose body has never been coordinator-testable; this window test is the headless half
-/// of the evidence, the other half is code review.
+/// (SettingsUiCoordinator.OnSettingsChanged → UpdatePredictions) is covered by the extracted
+/// ShouldRefreshPredictionBar predicate; this window test is the effect half over the real bar.
 /// </summary>
+[Collection("WpfApplication")] // constructs a real KeyboardWindow through WpfApplicationGate — see the gate's rule
 public class KeyboardPredictionBarRefreshTests
 {
     private sealed class SixWordHelProvider : EyeCtrl.Core.Prediction.IDictionaryProvider

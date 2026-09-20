@@ -137,8 +137,7 @@ public class OverlayTelemetryWiringTests
 
         messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300)));
         Check.That(vm.IsVisible).IsTrue();
-        messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(500, 300), 0));
-        messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(500, 300), 200_000));
+        DwellDrive.Hold(messenger, new PhysicalPoint(500, 300), 0, 200_000);
 
         Check.That(sink.Outcomes).Not.IsEmpty();
         Check.That(sink.Outcomes[0].Kind).IsEqualTo(OutcomeKind.Activated);

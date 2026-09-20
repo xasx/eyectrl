@@ -116,10 +116,20 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
                 _toolbarInitialized = toolbar.TargetsInitialized;
 
                 // The keyboard is a dwell surface (key dwell, prediction dwell, emoji categories), so a
-                // gap-held sample must not reach it — a blink over a key would otherwise type it. The
-                // toolbar and settings routes above are geometry-only (target placement) and are fed
-                // regardless. Paused samples are skipped for the same reason: input must not leave
-                // EyeCtrl while the user believes pause released it.
+                // gap-held sample is withheld from it: a held position carries no evidence of where the
+                // user is looking, and feeding it would keep dwell progress alive over a blink. That is
+                // a display/semantics guard, NOT the anti-blink bound. Withholding is not a pause — the
+                // tracker is timestamp-based, and the first real sample after a gap used to be credited
+                // the whole gap. The actual bound is the credited-elapsed clamp in
+                // KeyboardViewModel.ProcessKeyGaze (MaxContinuousSampleGapUs). Do not remove the clamp on
+                // this gate's authority: this comment once claimed the gate stopped blink typing, and F3
+                // is what that false claim cost. Do not remove the GATE on the clamp's authority either:
+                // held samples fed at tracker cadence stay under MaxContinuousSampleGapUs and would
+                // re-credit a blink as dwell — the gate creates the silence, the clamp interprets it, and
+                // each looks removable while the other holds. The toolbar and settings routes above are
+                // geometry-only
+                // (target placement) and are fed regardless. Paused samples are skipped for the same
+                // reason: input must not leave EyeCtrl while the user believes pause released it.
                 if (ShouldFeedKeyboardSample(keyboardGated, _modal.KeyboardVisible, keyboard.IsVisible, frame.IsInGap))
                     keyboard.UpdateGaze(point, timestamp);
 

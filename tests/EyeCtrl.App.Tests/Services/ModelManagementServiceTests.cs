@@ -281,6 +281,237 @@ public class ModelManagementServiceTests
         }
     }
 
+    // ── Activation on download (ticket 8) ──
+    //
+    // The defect: a completed download wrote MLModelSize ZERO times. ActiveModelId is seeded
+    // FROM MLModelSize (ModelRegistryService's constructor), so the stored default "360M" —
+    // with no 360M file on disk — made the old inline "activate only if empty or Off"
+    // conditional permanently false. Downloading a model could never activate it.
+
+    [Fact]
+    public async Task DownloadBundledModelAsync_StaleActiveModelId_ActivatesDownloadedModel()
+    {
+        var tempDir = NewTempDir();
+        try
+        {
+            // The reporting user's shape: the setting (and therefore the registry seed) names
+            // "360M", which was never downloaded. The model they actually downloaded is "1.5B".
+            var settings = new EyeCtrlSettings();
+            var (registry, mgmt) = BuildServices(tempDir, settings, ThreeBundledModels(),
+                req => Task.FromResult(req.RequestUri!.AbsolutePath.EndsWith("tokenizer.json")
+                    ? Ok(new byte[64])
+                    : Ok(new byte[2048])));
+
+            Check.That(settings.Keyboard.MLModelSize).IsEqualTo("360M");
+            Check.That(registry.ActiveModelId).IsEqualTo("360M");
+            Check.That(registry.IsModelDownloaded("360M")).IsFalse();
+
+            var result = await mgmt.DownloadBundledModelAsync(
+                "1.5B", "https://example.com/qwen/model.onnx", "",
+                "https://example.com/qwen/tokenizer.json", "",
+                TestContext.Current.CancellationToken);
+
+            Check.That(result.IsSuccess).IsTrue();
+            Check.That(settings.Keyboard.MLModelSize).IsEqualTo("1.5B");
+            Check.That(registry.ActiveModelId).IsEqualTo("1.5B");
+        }
+        finally
+        {
+            Cleanup(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadBundledModelAsync_RealDownloadedActiveModel_DoesNotSwitchAway()
+    {
+        var tempDir = NewTempDir();
+        try
+        {
+            var settings = new EyeCtrlSettings();
+            var (registry, mgmt) = BuildServices(tempDir, settings, ThreeBundledModels(),
+                req => Task.FromResult(req.RequestUri!.AbsolutePath.EndsWith("tokenizer.json")
+                    ? Ok(new byte[64])
+                    : Ok(new byte[2048])));
+
+            // A model the user genuinely has and deliberately selected.
+            PutModelOnDisk(registry, "1.5B");
+            mgmt.SetActiveModel("1.5B");
+            Check.That(registry.IsModelDownloaded("1.5B")).IsTrue();
+
+            var result = await mgmt.DownloadBundledModelAsync(
+                "135M", "https://example.com/smol/model.onnx", "",
+                "https://example.com/smol/tokenizer.json", "",
+                TestContext.Current.CancellationToken);
+
+            Check.That(result.IsSuccess).IsTrue();
+            Check.That(settings.Keyboard.MLModelSize).IsEqualTo("1.5B");
+            Check.That(registry.ActiveModelId).IsEqualTo("1.5B");
+        }
+        finally
+        {
+            Cleanup(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadBundledModelAsync_ActiveOff_ActivatesDownloadedModel()
+    {
+        var tempDir = NewTempDir();
+        try
+        {
+            // "Off" is a deliberate choice, but activating here is not a silent override: the
+            // download completes on the page the user is looking at, ApplyAndSave and
+            // RebuildContent both fire, and the combo re-renders with the new model selected.
+            // That is the difference from the startup repair this fix rejects — same outcome,
+            // except there the user did nothing and would see nothing. Reversal costs one dwell
+            // on a control they already used to reach "Off".
+            //
+            // Tripwire: this holds only while a download is a deliberate dwell + confirm on a
+            // single caller. If a download ever starts itself (auto-update, background prefetch),
+            // activating over "Off" becomes a silent override and this decision must be revisited.
+            var settings = new EyeCtrlSettings();
+            settings.Keyboard.MLModelSize = "Off";
+            var (registry, mgmt) = BuildServices(tempDir, settings, ThreeBundledModels(),
+                req => Task.FromResult(req.RequestUri!.AbsolutePath.EndsWith("tokenizer.json")
+                    ? Ok(new byte[64])
+                    : Ok(new byte[2048])));
+
+            Check.That(registry.ActiveModelId).IsEqualTo("Off");
+
+            var result = await mgmt.DownloadBundledModelAsync(
+                "1.5B", "https://example.com/qwen/model.onnx", "",
+                "https://example.com/qwen/tokenizer.json", "",
+                TestContext.Current.CancellationToken);
+
+            Check.That(result.IsSuccess).IsTrue();
+            Check.That(settings.Keyboard.MLModelSize).IsEqualTo("1.5B");
+            Check.That(registry.ActiveModelId).IsEqualTo("1.5B");
+        }
+        finally
+        {
+            Cleanup(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadCustomModelAsync_StaleActiveModelId_ActivatesDownloadedModel()
+    {
+        var tempDir = NewTempDir();
+        try
+        {
+            var settings = new EyeCtrlSettings();
+            var (registry, mgmt) = BuildServices(tempDir, settings, ThreeBundledModels(),
+                req => Task.FromResult(req.RequestUri!.AbsolutePath.EndsWith("tokenizer.json")
+                    ? Ok(new byte[64])
+                    : Ok(new byte[2048])));
+
+            var result = await mgmt.DownloadCustomModelAsync(CustomModelUrl, TestContext.Current.CancellationToken);
+
+            Check.That(result.IsSuccess).IsTrue();
+            Check.That(result.ModelId).IsEqualTo("repo");
+            Check.That(settings.Keyboard.MLModelSize).IsEqualTo("repo");
+            Check.That(registry.ActiveModelId).IsEqualTo("repo");
+        }
+        finally
+        {
+            Cleanup(tempDir);
+        }
+    }
+
+    // ── The invariant (ticket 8) ──
+    //
+    // NOT the original defect: those two fields — the setting the prediction stack reads
+    // (Keyboard.MLModelSize) and the registry's ActiveModelId — always AGREED, on a value no
+    // model satisfied, and both download paths simply never wrote either of them. What this pin
+    // protects is the regression the fix could introduce: a future entry point that updates one
+    // field and not the other, the same class of divergence in the opposite direction. Every
+    // entry point must leave the pair describing the same active model — "Off" deliberately has
+    // two spellings (SetActiveModel normalizes to null on the registry; the constructor seed
+    // stores it verbatim), so compare the EFFECTIVE value.
+
+    [Fact]
+    public async Task EveryEntryPoint_KeepsSettingAndRegistryInStep()
+    {
+        var tempDir = NewTempDir();
+        try
+        {
+            var settings = new EyeCtrlSettings();
+            var (registry, mgmt) = BuildServices(tempDir, settings, ThreeBundledModels(),
+                req => Task.FromResult(req.RequestUri!.AbsolutePath.EndsWith("tokenizer.json")
+                    ? Ok(new byte[64])
+                    : Ok(new byte[2048])));
+
+            CheckInStep(settings, registry, "the constructor seed");
+
+            mgmt.SetActiveModel("1.5B");
+            CheckInStep(settings, registry, "SetActiveModel");
+
+            mgmt.SetActiveModel("Off");
+            CheckInStep(settings, registry, "SetActiveModel(\"Off\"), which the registry normalizes to null");
+
+            // Nothing real is active ("Off") and a download completes: it activates.
+            var bundled = await mgmt.DownloadBundledModelAsync(
+                "135M", "https://example.com/smol/model.onnx", "",
+                "https://example.com/smol/tokenizer.json", "",
+                TestContext.Current.CancellationToken);
+            Check.That(bundled.IsSuccess).IsTrue();
+            Check.That(registry.ActiveModelId).IsEqualTo("135M");
+            CheckInStep(settings, registry, "a bundled download");
+
+            mgmt.SetActiveModel("Off");
+            var custom = await mgmt.DownloadCustomModelAsync(CustomModelUrl, TestContext.Current.CancellationToken);
+            Check.That(custom.IsSuccess).IsTrue();
+            Check.That(registry.ActiveModelId).IsEqualTo("repo");
+            CheckInStep(settings, registry, "a custom download");
+        }
+        finally
+        {
+            Cleanup(tempDir);
+        }
+    }
+
+    private static void CheckInStep(EyeCtrlSettings settings, ModelRegistryService registry, string entryPoint)
+    {
+        var effective = string.IsNullOrEmpty(registry.ActiveModelId) ? "Off" : registry.ActiveModelId;
+        Check.WithCustomMessage(
+                $"After {entryPoint}, Keyboard.MLModelSize ({settings.Keyboard.MLModelSize}) and "
+                + $"registry.ActiveModelId ({registry.ActiveModelId ?? "<null>"}) must describe the "
+                + "same active model: they are two views of one choice, written by two different "
+                + "services, and this pair disagreeing is the defect.")
+            .That(effective).IsEqualTo(settings.Keyboard.MLModelSize);
+    }
+
+    private static ModelManifest ThreeBundledModels() => new()
+    {
+        Models =
+        {
+            ["135M"] = new ModelEntry
+            {
+                DisplayName = "SmolLM2 135M",
+                Url = "https://example.com/smol/model.onnx",
+                TokenizerUrl = "https://example.com/smol/tokenizer.json",
+            },
+            ["360M"] = new ModelEntry
+            {
+                DisplayName = "SmolLM2 360M",
+                Url = "https://example.com/smol360/model.onnx",
+                TokenizerUrl = "https://example.com/smol360/tokenizer.json",
+            },
+            ["1.5B"] = new ModelEntry
+            {
+                DisplayName = "Qwen2.5 1.5B",
+                Url = "https://example.com/qwen/model.onnx",
+                TokenizerUrl = "https://example.com/qwen/tokenizer.json",
+            },
+        },
+    };
+
+    private static void PutModelOnDisk(ModelRegistryService registry, string modelId)
+    {
+        File.WriteAllText(registry.GetModelPath(modelId), "onnx");
+        File.WriteAllText(registry.GetTokenizerPath(modelId), "{}");
+    }
+
     private static (ModelRegistryService, ModelManagementService) BuildServices(
         string tempDir, EyeCtrlSettings settings, ModelManifest manifest,
         Func<HttpRequestMessage, Task<HttpResponseMessage>> responder)

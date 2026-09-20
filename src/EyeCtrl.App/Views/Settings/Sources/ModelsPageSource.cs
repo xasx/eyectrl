@@ -171,6 +171,15 @@ internal sealed class ModelsPageSource : ISettingsPageSource
             _ctx.Invoke(() =>
             {
                 if (!result.IsSuccess) _ctx.ShowError(result.Error ?? "Download failed.");
+                // ApplyAndSave persists and raises SettingsChanged -> ReloadIfChanged, which
+                // rebuilds the prediction stack when the captured stack inputs changed. One of
+                // those inputs is NOT a setting: KeyboardStackSnapshot carries whether the file
+                // MLModelSize names is on disk. Downloading the model the setting ALREADY names
+                // changes no setting but does flip that term from absent to present, so the
+                // reload fires and the LM goes live without a restart (ticket 11). Without the
+                // disk term the snapshot stayed equal here and the rebuild was suppressed —
+                // green service test, feature dead until restart.
+                else _ctx.ApplyAndSave();
                 _ctx.RebuildContent();
             });
         }

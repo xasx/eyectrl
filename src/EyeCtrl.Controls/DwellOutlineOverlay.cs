@@ -36,6 +36,14 @@ using EyeCtrl.Controls.Theme;
 /// halo reaches 15.30:1.
 /// </para>
 /// <para>
+/// The emoji grid's fills joined later and hold the same relationship. Cells sit on
+/// <c>SurfaceMedium</c>, where the accent reads 11.12:1 (10.22 Ember, 14.69 Contrast); the
+/// special buttons on <c>SurfaceKeySwitch</c> (6.27, 7.26, 7.07); the ACTIVE skin-tone swatch
+/// on <c>ToggleOn</c>, which is the second case the halo exists for — accent 3.13:1 (3.00 Ember,
+/// 1.09 Contrast), halo 5.04 / 4.83 / 15.30. Measured, and gated in
+/// <c>DwellOutlineOverlayTests</c> so a fill change re-opens the question.
+/// </para>
+/// <para>
 /// Constant geometry: both outlines exist from construction and only their
 /// <see cref="Shape.StrokeThickness"/> moves, so <see cref="SetProgress"/> writes two doubles
 /// and allocates nothing. Dwell updates arrive at gaze rate.

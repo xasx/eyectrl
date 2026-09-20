@@ -20,6 +20,14 @@
     -->
     <Compile Include="..\..\benchmarks\EyeCtrl.Benchmarks\GazeStreamGenerator.cs"
              Link="Analysis\GazeStreamGenerator.cs" />
+    <!--
+      Linked, not copied: the hook is one rule, and a second copy is a second rule. See the
+      attribute's summary and tests/EyeCtrl.Core.Tests/AssemblyInfo.cs.
+    -->
+    <Compile Include="..\TestSupport\DpiHelperRestoreAttribute.cs"
+             Link="TestSupport\DpiHelperRestoreAttribute.cs" />
+    <Compile Include="..\TestSupport\DpiHelperScaleObserverAttribute.cs"
+             Link="TestSupport\DpiHelperScaleObserverAttribute.cs" />
   </ItemGroup>
 
 </Project>

@@ -211,4 +211,66 @@ public class SettingsServiceTests
         }
         finally { File.Delete(tempPath); }
     }
+
+    [Fact]
+    public void Load_ClampsKeyboardDwellsBelowTheFloor_InsteadOfResettingEverything()
+    {
+        // The keyboard family's floor rose to 300 (half of it is the 150 ms blink-credit bound). A
+        // file saved before that floor — or hand-edited below it — holds 100, which the raised setter
+        // guard would now reject DURING deserialisation; Load answers a setter throw with a brand-new
+        // EyeCtrlSettings, wiping every configured value over one number that was legal when written.
+        // The raw-JSON clamp must lift both keyboard dwells and keep the rest of the file.
+        var tempPath = Path.Combine(Path.GetTempPath(), $"eyectrl_test_{Guid.NewGuid()}.json");
+        try
+        {
+            var settings = new EyeCtrlSettings();
+            settings.Dwell.ActivationButtonDwellMs = 600;
+            settings.Cursor.SmoothingFactor = 0.7;
+            var service = new SettingsService(tempPath);
+            service.Save(settings);
+
+            // Hand-edit the file the way a user would: the two keyboard dwells below the floor.
+            var root = JsonNode.Parse(File.ReadAllText(tempPath))!.AsObject();
+            root["dwell"]!["keyboardKeyDwellMs"] = 100;
+            root["dwell"]!["keyboardPredictionDwellMs"] = 150;
+            File.WriteAllText(tempPath, root.ToJsonString());
+
+            var loaded = service.Load();
+            Check.That(loaded.Dwell.KeyboardKeyDwellMs).IsEqualTo(300);
+            Check.That(loaded.Dwell.KeyboardPredictionDwellMs).IsEqualTo(300);
+            Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(600);
+            Check.That(loaded.Cursor.SmoothingFactor).IsEqualTo(0.7);
+
+            // The lift is persisted: the stale number must not sit on disk to be re-read (or shown
+            // by another tool) as the user's setting.
+            var onDisk = JsonNode.Parse(File.ReadAllText(tempPath))!.AsObject();
+            Check.That((int)onDisk["dwell"]!["keyboardKeyDwellMs"]!).IsEqualTo(300);
+        }
+        finally { File.Delete(tempPath); }
+    }
+
+    [Fact]
+    public void Load_ClampsAKeyboardDwellAboveTheCeiling_InsteadOfResettingEverything()
+    {
+        // The other end of the same clamp: a dwell past 1500 would wait past every other surface in
+        // the app, and the pre-floor behaviour (whole-file default wipe) is the one outcome the
+        // hand-editor must not get for a mistyped digit.
+        var tempPath = Path.Combine(Path.GetTempPath(), $"eyectrl_test_{Guid.NewGuid()}.json");
+        try
+        {
+            var settings = new EyeCtrlSettings();
+            settings.Dwell.ActivationButtonDwellMs = 600;
+            var service = new SettingsService(tempPath);
+            service.Save(settings);
+
+            var root = JsonNode.Parse(File.ReadAllText(tempPath))!.AsObject();
+            root["dwell"]!["keyboardKeyDwellMs"] = 4000;
+            File.WriteAllText(tempPath, root.ToJsonString());
+
+            var loaded = service.Load();
+            Check.That(loaded.Dwell.KeyboardKeyDwellMs).IsEqualTo(1500);
+            Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(600);
+        }
+        finally { File.Delete(tempPath); }
+    }
 }

@@ -6,7 +6,9 @@ using System.Threading.Tasks;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.Tests.TestSupport;
 using Xunit;
 
 public class KeyboardCoordinatorTests
@@ -110,7 +112,7 @@ public class KeyboardCoordinatorTests
         var settings = new EyeCtrlSettings();
         using var temp = new TempSettingsFile();
 
-        KeyboardCoordinator.ApplyEmojiSkinTone(settings, temp.Service, 5);
+        KeyboardCoordinator.ApplyEmojiSkinTone(settings, temp.Service, 5, modelRegistry: null);
 
         Check.That(settings.Keyboard.EmojiSkinTone).IsEqualTo(5);
     }
@@ -123,11 +125,12 @@ public class KeyboardCoordinatorTests
         // full keyboard + prediction-stack rebuild on the next settings-apply.
         var settings = new EyeCtrlSettings();
         using var temp = new TempSettingsFile();
+        var registry = NewRegistry(settings);
 
-        var snapshot = KeyboardCoordinator.ApplyEmojiSkinTone(settings, temp.Service, 3);
+        var snapshot = KeyboardCoordinator.ApplyEmojiSkinTone(settings, temp.Service, 3, registry);
 
         Check.That(snapshot.EmojiSkinTone).IsEqualTo(3);
-        Check.That(snapshot).IsEqualTo(KeyboardStackSnapshot.Capture(settings));
+        Check.That(snapshot).IsEqualTo(KeyboardStackSnapshot.Capture(settings, registry));
     }
 
     [Fact]
@@ -138,10 +141,92 @@ public class KeyboardCoordinatorTests
         var settings = new EyeCtrlSettings();
         using var temp = new TempSettingsFile();
 
-        KeyboardCoordinator.ApplyEmojiSkinTone(settings, temp.Service, 4);
+        KeyboardCoordinator.ApplyEmojiSkinTone(settings, temp.Service, 4, modelRegistry: null);
 
         var loaded = await temp.WaitForToneAsync(4, TestContext.Current.CancellationToken);
         Check.That(loaded.Keyboard.EmojiSkinTone).IsEqualTo(4);
+    }
+
+    // ---- The snapshot's filesystem term (ticket 11) ------------------------------------------
+    // KeyboardStackSnapshot carries whether the active model's files are on disk so a download of
+    // the model MLModelSize already names (no setting changes) still moves the snapshot and
+    // reloads the stack. The term is computed once, inside Capture; the registry is a REQUIRED
+    // parameter so every capture site — including the two static helpers below — has to supply the
+    // live one. These tests drive both halves: the decision, and the helpers that must not drift.
+
+    [Fact]
+    public void ShouldReload_IsFalseWhenNothingMoved_AndTrueWhenTheActiveModelAppears()
+    {
+        var settings = new EyeCtrlSettings();               // MLModelSize defaults to "360M"
+        var registry = NewRegistry(settings);
+        var stored = KeyboardStackSnapshot.Capture(settings, registry);   // startup: files absent
+
+        // Negative control: an apply with nothing changed must not reload. This is the assertion
+        // that refuses the worst implementation — a guard weakened to always reload would rebuild
+        // the layout (resetting dwell under the user) and load the ONNX model on every slider step.
+        Check.WithCustomMessage(
+                "An unchanged apply must not reload: the guard is what keeps a slider step from " +
+                "rebuilding the keyboard and loading the model.")
+            .That(KeyboardCoordinator.ShouldReload(stored, KeyboardStackSnapshot.Capture(settings, registry)))
+            .IsFalse();
+
+        // Positive control, same run: the same settings, files now on disk (planted AFTER the
+        // registry was built, so the cached entry.IsDownloaded stays false) -> the decision turns
+        // true. This is the defect's transition: no setting changed.
+        PutActiveModelOnDisk(registry);
+        Check.WithCustomMessage(
+                "Downloading the model MLModelSize already names moves the snapshot via its disk " +
+                "term; the decision must see it or the LM stays off until restart.")
+            .That(KeyboardCoordinator.ShouldReload(stored, KeyboardStackSnapshot.Capture(settings, registry)))
+            .IsTrue();
+    }
+
+    [Fact]
+    public void ApplyHelpers_CarryTheLiveDiskTerm_NotAConstant()
+    {
+        // The two static capture helpers have no registry of their own; the required parameter is
+        // what makes each caller pass the live one. A helper that ignored it (null or a constant)
+        // would refresh the stored snapshot with a term that disagrees with the next
+        // ReloadIfChanged capture — a phantom diff that rebuilds the whole keyboard on the
+        // following apply.
+        var settings = new EyeCtrlSettings { Keyboard = { ScreenEdge = "Bottom" } };
+        using var temp = new TempSettingsFile();
+        var registry = NewRegistry(settings);
+        PutActiveModelOnDisk(registry);   // planted AFTER construction: cached IsDownloaded stays false
+
+        var toneSnapshot = KeyboardCoordinator.ApplyEmojiSkinTone(settings, temp.Service, 3, registry);
+        Check.That(toneSnapshot.ActiveModelOnDisk).IsTrue();
+        Check.That(toneSnapshot).IsEqualTo(KeyboardStackSnapshot.Capture(settings, registry));
+
+        var (_, edgeSnapshot) = KeyboardCoordinator.ApplyKeyboardEdge(settings, temp.Service, registry);
+        Check.That(edgeSnapshot.ActiveModelOnDisk).IsTrue();
+        Check.That(edgeSnapshot).IsEqualTo(KeyboardStackSnapshot.Capture(settings, registry));
+    }
+
+    /// <summary>A registry on a unique temp dir whose manifest lists "360M", with NO files on
+    /// disk until <see cref="PutActiveModelOnDisk"/> plants them.</summary>
+    private static ModelRegistryService NewRegistry(EyeCtrlSettings settings) =>
+        new(TempTestDirectory.Create("keyboard-coordinator"),
+            new ModelManifest
+            {
+                Models =
+                {
+                    ["360M"] = new ModelEntry
+                    {
+                        DisplayName = "SmolLM2 360M",
+                        Url = "https://example.invalid/model.onnx",
+                        TokenizerUrl = "https://example.invalid/tokenizer.json",
+                    },
+                },
+            },
+            settings);
+
+    /// <summary>Plants the active model's files through the registry's own paths, AFTER the
+    /// registry exists — the discriminator against the stale <c>entry.IsDownloaded</c> flag.</summary>
+    private static void PutActiveModelOnDisk(ModelRegistryService registry)
+    {
+        File.WriteAllText(registry.GetModelPath("360M"), "onnx");
+        File.WriteAllText(registry.GetTokenizerPath("360M"), "{}");
     }
 
     /// <summary>
@@ -222,14 +307,15 @@ public class KeyboardCoordinatorTests
     {
         var settings = new EyeCtrlSettings { Keyboard = { ScreenEdge = "Bottom" } };
         using var temp = new TempSettingsFile();
+        var registry = NewRegistry(settings);
 
-        var (flipped, snapshot) = KeyboardCoordinator.ApplyKeyboardEdge(settings, temp.Service);
+        var (flipped, snapshot) = KeyboardCoordinator.ApplyKeyboardEdge(settings, temp.Service, registry);
 
         Check.That(flipped).IsEqualTo("Top");
         Check.That(settings.Keyboard.ScreenEdge).IsEqualTo("Top");
         // The phantom-rebuild guard (spec C5): the snapshot must reflect the write, or the
         // next settings-apply rebuilds the whole keyboard + prediction stack for nothing.
-        Check.That(snapshot).IsEqualTo(KeyboardStackSnapshot.Capture(settings));
+        Check.That(snapshot).IsEqualTo(KeyboardStackSnapshot.Capture(settings, registry));
     }
 
     [Fact]

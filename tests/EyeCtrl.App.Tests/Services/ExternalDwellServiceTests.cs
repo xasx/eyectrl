@@ -92,6 +92,19 @@ public class ExternalDwellServiceTests
             engine, Dispatcher.CurrentDispatcher, NullLogger<ExternalDwellService>.Instance,
             new WeakReferenceMessenger(), root, pipeName: _pipeName);
 
+    /// <summary>
+    /// Raises valid samples at (x,y) at 50 ms cadence from <paramref name="fromUs"/> through
+    /// <paramref name="toUs"/> inclusive. The dwell detector's gap clamp restarts a dwell on a
+    /// single step of 150 ms or more, so the old two-sample pattern (t=0 then t=800 ms) no longer
+    /// accumulates — and an activation assertion would fail for a reason unrelated to the test.
+    /// </summary>
+    private static void RaiseHold(StubGazeProvider provider, double x, double y, long fromUs, long toUs)
+    {
+        for (var t = fromUs; t < toUs; t += 50_000)
+            provider.Raise(new GazePoint(x, y, t, IsValid: true));
+        provider.Raise(new GazePoint(x, y, toUs, IsValid: true));
+    }
+
     private static void RunOnStaThread(Action action)
     {
         using var done = new ManualResetEventSlim();
@@ -208,8 +221,7 @@ public class ExternalDwellServiceTests
         settings.Enabled = true;
 
         // Dwell over the target: enter (t=0), complete after DefaultDwellMs (800 ms in microseconds).
-        provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
-        provider.Raise(new GazePoint(100, 100, 800_000, IsValid: true));
+        RaiseHold(provider, 100, 100, 0, 800_000);
 
         var read = r.ReadLineAsync();
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
@@ -306,8 +318,7 @@ public class ExternalDwellServiceTests
 
         settings.Enabled = true;
 
-        provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
-        provider.Raise(new GazePoint(100, 100, 800_000, IsValid: true));
+        RaiseHold(provider, 100, 100, 0, 800_000);
 
         var read = r.ReadLineAsync();
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
@@ -389,8 +400,7 @@ public class ExternalDwellServiceTests
             new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
         await Task.Delay(200);
 
-        provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
-        provider.Raise(new GazePoint(100, 100, 800_000, IsValid: true));
+        RaiseHold(provider, 100, 100, 0, 800_000);
 
         var read = r.ReadLineAsync();
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
@@ -433,8 +443,7 @@ public class ExternalDwellServiceTests
             new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
         await Task.Delay(200);
 
-        provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
-        provider.Raise(new GazePoint(100, 100, 800_000, IsValid: true));
+        RaiseHold(provider, 100, 100, 0, 800_000);
         var read1 = r.ReadLineAsync();
         var first = await Task.WhenAny(read1, Task.Delay(2000)) == read1 ? await read1 : null;
 
@@ -498,8 +507,7 @@ public class ExternalDwellServiceTests
 
         entry.Apply(ms => ms / 2);
 
-        provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
-        provider.Raise(new GazePoint(100, 100, 420_000, IsValid: true));
+        RaiseHold(provider, 100, 100, 0, 420_000);
 
         var read = r.ReadLineAsync();
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
@@ -551,8 +559,7 @@ public class ExternalDwellServiceTests
 
         entry.ApplyGeometry(ext => ext + 20); // min half-extent 100 → 120 ⇒ +20 per side
 
-        provider.Raise(new GazePoint(205, 100, 0, IsValid: true));
-        provider.Raise(new GazePoint(205, 100, 800_000, IsValid: true));
+        RaiseHold(provider, 205, 100, 0, 800_000);
 
         var read = r.ReadLineAsync();
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
@@ -605,8 +612,7 @@ public class ExternalDwellServiceTests
 
         entry.ApplyGeometry(null);
 
-        provider.Raise(new GazePoint(30, 50, 0, IsValid: true));
-        provider.Raise(new GazePoint(30, 50, 800_000, IsValid: true));
+        RaiseHold(provider, 30, 50, 0, 800_000);
 
         var read = r.ReadLineAsync();
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;
@@ -671,8 +677,7 @@ public class ExternalDwellServiceTests
                 new RegisterMessage { Id = "btn", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
             await Task.Delay(200);
 
-            provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
-            provider.Raise(new GazePoint(100, 100, 800_000, IsValid: true));
+            RaiseHold(provider, 100, 100, 0, 800_000);
 
             var read1 = r1.ReadLineAsync();
             var ownerLine = await Task.WhenAny(read1, Task.Delay(2000)) == read1 ? await read1 : null;
@@ -701,8 +706,7 @@ public class ExternalDwellServiceTests
                 new UnregisterMessage { Id = "btn" }, WireJson.Options));
             await Task.Delay(200);
 
-            provider.Raise(new GazePoint(100, 100, 0, IsValid: true));
-            provider.Raise(new GazePoint(100, 100, 800_000, IsValid: true));
+            RaiseHold(provider, 100, 100, 0, 800_000);
 
             var read1 = r1.ReadLineAsync();
             var ownerLine = await Task.WhenAny(read1, Task.Delay(2000)) == read1 ? await read1 : null;
@@ -771,17 +775,16 @@ public class ExternalDwellServiceTests
             new RegisterMessage { Id = "t512", Rect = new SdkRect(60000, 0, 100, 100), Hwnd = 7 }, WireJson.Options));
         await Task.Delay(300);
 
-        // Dwell on t0's tile: two samples like the other dwell tests.
-        provider.Raise(new GazePoint(50, 50, 0, IsValid: true));
-        provider.Raise(new GazePoint(50, 50, 800_000, IsValid: true));
+        // Dwell on t0's tile continuously, like the other dwell tests.
+        RaiseHold(provider, 50, 50, 0, 800_000);
         var read1 = r.ReadLineAsync();
         var legit = await Task.WhenAny(read1, Task.Delay(2000)) == read1 ? await read1 : null;
 
-        // Dwell the over-cap tile: many samples so the One-Euro filter converges onto it; a
-        // registered t512 accrues 800ms and fires, a rejected one stays silent.
-        for (var i = 0; i < 20; i++)
-            provider.Raise(new GazePoint(60050, 50, 1_000_000 + i * 100_000, IsValid: true));
-        provider.Raise(new GazePoint(60050, 50, 3_200_000, IsValid: true));
+        // Dwell the over-cap tile with a continuous stream: the One-Euro filter converges onto it,
+        // the gap clamp cannot restart the dwell, and a registered t512 accrues 800 ms and fires
+        // while a rejected one stays silent.
+        for (var t = 1_000_000L; t <= 3_200_000L; t += 50_000)
+            provider.Raise(new GazePoint(60050, 50, t, IsValid: true));
         var read2 = r.ReadLineAsync();
         var overCap = await Task.WhenAny(read2, Task.Delay(2000)) == read2 ? await read2 : null;
 
@@ -831,8 +834,7 @@ public class ExternalDwellServiceTests
             new RegisterMessage { Id = "t0", Rect = new SdkRect(100000, 0, 100, 100), Hwnd = 7 }, WireJson.Options));
         await Task.Delay(300);
 
-        provider.Raise(new GazePoint(100050, 50, 0, IsValid: true));
-        provider.Raise(new GazePoint(100050, 50, 900_000, IsValid: true));
+        RaiseHold(provider, 100050, 50, 0, 900_000);
 
         var read = r.ReadLineAsync();
         return await Task.WhenAny(read, Task.Delay(2000)) == read ? await read : null;

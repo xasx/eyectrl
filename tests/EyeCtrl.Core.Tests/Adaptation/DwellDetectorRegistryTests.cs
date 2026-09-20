@@ -7,6 +7,18 @@ using EyeCtrl.Core.Settings;
 
 public class DwellDetectorRegistryTests
 {
+    /// <summary>
+    /// Feeds samples at <paramref name="p"/> from <paramref name="fromUs"/> through
+    /// <paramref name="toUs"/> inclusive at 30 ms cadence: the detector's gap clamp restarts a
+    /// dwell on a single 150 ms step, so a two-sample pair no longer models a hold.
+    /// </summary>
+    private static void Drive(DwellDetector d, PhysicalPoint p, long fromUs, long toUs)
+    {
+        for (var t = fromUs; t < toUs; t += 30_000)
+            d.Update(p, t);
+        d.Update(p, toUs);
+    }
+
     // Drift guard (the FixationRadius precedent): the range constants duplicate the DwellSettings
     // guards. Assigning min/max catches a NARROWED guard (the setter throws) and the equality checks
     // catch the CONSTANT drifting in either direction. A guard WIDENED beyond its constant is NOT
@@ -14,8 +26,8 @@ public class DwellDetectorRegistryTests
     [Theory]
     [InlineData(nameof(DwellSettings.ActivationButtonDwellMs), 200, 2000, nameof(AdaptationDwellRanges.StandardMinDwellMs), nameof(AdaptationDwellRanges.StandardMaxDwellMs))]
     [InlineData(nameof(DwellSettings.ToolbarButtonDwellMs), 200, 2000, nameof(AdaptationDwellRanges.StandardMinDwellMs), nameof(AdaptationDwellRanges.StandardMaxDwellMs))]
-    [InlineData(nameof(DwellSettings.KeyboardKeyDwellMs), 100, 1500, nameof(AdaptationDwellRanges.KeyboardMinDwellMs), nameof(AdaptationDwellRanges.KeyboardMaxDwellMs))]
-    [InlineData(nameof(DwellSettings.KeyboardPredictionDwellMs), 100, 1500, nameof(AdaptationDwellRanges.KeyboardMinDwellMs), nameof(AdaptationDwellRanges.KeyboardMaxDwellMs))]
+    [InlineData(nameof(DwellSettings.KeyboardKeyDwellMs), 300, 1500, nameof(AdaptationDwellRanges.KeyboardMinDwellMs), nameof(AdaptationDwellRanges.KeyboardMaxDwellMs))]
+    [InlineData(nameof(DwellSettings.KeyboardPredictionDwellMs), 300, 1500, nameof(AdaptationDwellRanges.KeyboardMinDwellMs), nameof(AdaptationDwellRanges.KeyboardMaxDwellMs))]
     public void Ranges_MatchTheirGuardFamilies(string propertyName, int min, int max, string minField, string maxField)
     {
         var settings = new DwellSettings();
@@ -133,7 +145,7 @@ public class DwellDetectorRegistryTests
         registration.Apply(ms => ms / 2);
 
         detector.Update(new PhysicalPoint(0, 0), 0);
-        detector.Update(new PhysicalPoint(0, 0), 450_000);
+        Drive(detector, new PhysicalPoint(0, 0), 30_000, 450_000);
         Check.That(detector.GetProgress("t")).IsCloseTo(0.9, 0.01); // 450/500, not 450/1000
     }
 
@@ -150,7 +162,7 @@ public class DwellDetectorRegistryTests
         // One probe kills both absent-wiring defects: 45 px is outside the base radius (geometry
         // must have grown it) and 490 ms is past the halved dwell (the dwell map must have landed).
         detector.Update(new PhysicalPoint(45, 0), 0);
-        detector.Update(new PhysicalPoint(45, 0), 490_000);
+        Drive(detector, new PhysicalPoint(45, 0), 30_000, 490_000);
         Check.That(detector.GetProgress("t")).IsCloseTo(490.0 / 500.0, 0.001);
     }
 

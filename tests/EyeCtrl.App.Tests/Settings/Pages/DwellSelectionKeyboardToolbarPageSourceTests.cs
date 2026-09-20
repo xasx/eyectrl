@@ -2,6 +2,8 @@ namespace EyeCtrl.App.Tests.Settings.Pages;
 
 using EyeCtrl.App.Views;
 using EyeCtrl.App.Views.Settings;
+using EyeCtrl.Core.Adaptation;
+using EyeCtrl.Core.Settings;
 using NFluent;
 using Xunit;
 
@@ -81,8 +83,8 @@ public class DwellSelectionKeyboardToolbarPageSourceTests
             ["d_menu"] = (200, 2000),
             ["d_ManualSelection"] = (200, 2000),
             ["d_tool"] = (200, 2000),
-            ["d_key"] = (100, 1500),
-            ["d_pred"] = (100, 1500),
+            ["d_key"] = (300, 1500),
+            ["d_pred"] = (300, 1500),
             ["d_rad"] = (10, 200),
             ["d_cooldown"] = (100, 5000),
         };
@@ -93,5 +95,32 @@ public class DwellSelectionKeyboardToolbarPageSourceTests
             Check.That(sliders[id].Min).IsGreaterOrEqualThan(guard.Min);
             Check.That(sliders[id].Max).IsLessOrEqualThan(guard.Max);
         }
+    }
+
+    [Fact]
+    public void KeyboardSliders_FloorAtTheFamilyMinimum_NotBelowTheBlinkCreditBound()
+    {
+        // The keyboard dwells are the family that can be lowered toward the 150 ms blink-credit
+        // bounds (KeyboardViewModel.MaxContinuousSampleGapUs and DwellDetector.MaxCreditedSampleGapUs):
+        // at a 150 ms dwell a single short blink completes a key. The family floor lives in
+        // AdaptationDwellRanges.KeyboardMinDwellMs, is shared by the Core guard and the adaptive
+        // routing clamp, and both sliders must offer nothing below it. The behavioural floor itself
+        // is pinned where it can be measured (KeyboardEffectiveDwellTests in ViewModels,
+        // KeyboardDwellFloorRoutingTests in App); this pins the UI range to the same constant so the
+        // three cannot drift apart silently.
+        var sliders = new DwellPageSource(TestSettingsPageContext.Build()).Build()
+            .SelectMany(p => p.Rows).OfType<SliderSpec>()
+            .ToDictionary(s => s.Id);
+
+        Check.That(sliders["d_key"].Min).IsEqualTo(AdaptationDwellRanges.KeyboardMinDwellMs);
+        Check.That(sliders["d_pred"].Min).IsEqualTo(AdaptationDwellRanges.KeyboardMinDwellMs);
+
+        // Derive the lower bound from the setters rather than trusting the hand-restated guards
+        // dictionary in Dwell_SliderSpans_StayInsideTheValidatedRanges: the slider minimum must be a
+        // value DwellSettings ACCEPTS, so a raised guard cannot leave a slider offering a value whose
+        // Set crashes the UI thread (DwellSlider.Adjust clamps to the spec Min then sets unguarded).
+        var dwell = new DwellSettings();
+        Check.ThatCode(() => dwell.KeyboardKeyDwellMs = (int)sliders["d_key"].Min).DoesNotThrow();
+        Check.ThatCode(() => dwell.KeyboardPredictionDwellMs = (int)sliders["d_pred"].Min).DoesNotThrow();
     }
 }

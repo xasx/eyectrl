@@ -157,6 +157,8 @@ public class AdaptationBenchmarks
 
         var eyeCare = new EyeCtrlSettings().EyeCare;
         eyeCare.FatigueMonitorEnabled = true; // worst case: the fatigue amplifier scan also runs
+        // backspaceTargetId: a deliberate synthetic worst case for the scorer — production passes
+        // null (AppBootstrapper disarms it), so this is not live wiring.
         return new StruggleMonitor(sink, eyeCare, backspaceTargetId: "backspace");
     }
 

@@ -203,6 +203,19 @@ public class KeyboardViewModelTests
         Check.That(vm.NearestKeyId).IsEqualTo("key_0_0");
     }
 
+    /// <summary>
+    /// Feeds a continuous stream (one sample per 50 ms) up to <paramref name="throughUs"/>.
+    /// Sparse two-sample pairs no longer model a hold: the tracker restarts a dwell whenever the
+    /// stream stops for more than 150 ms (a pause is not evidence of held gaze), so tests that
+    /// want elapsed time to accumulate must deliver a realistic cadence.
+    /// </summary>
+    private static void HoldGaze(KeyboardViewModel vm,
+        Dictionary<string, PhysicalPoint> positions, long throughUs)
+    {
+        for (long t = 50_000; t <= throughUs; t += 50_000)
+            vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, t);
+    }
+
     [Fact]
     public void ProcessKeyGaze_AccumulatesDwellProgress()
     {
@@ -218,8 +231,8 @@ public class KeyboardViewModelTests
         vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 0);
         Check.That(vm.NearestKeyProgress).IsEqualTo(0.0); // just entered, no progress yet
 
-        // Second frame: 250ms later = 50% progress
-        vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 250_000);
+        // 250 ms of continuous gaze (sampled every 50 ms) = 50% progress
+        HoldGaze(vm, positions, 250_000);
         Check.That(vm.NearestKeyProgress).IsCloseTo(0.5, 0.005);
     }
 
@@ -238,7 +251,7 @@ public class KeyboardViewModelTests
         };
 
         vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 0);
-        vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 500_000);
+        HoldGaze(vm, positions, 500_000);
 
         Check.That(activatedKeyId).IsEqualTo("key_0_0");
     }
@@ -260,7 +273,7 @@ public class KeyboardViewModelTests
 
         // Activate
         vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 0);
-        vm.ProcessKeyGaze(positions, new PhysicalPoint(100, 100), true, 500_000);
+        HoldGaze(vm, positions, 500_000);
         Check.That(activationCount).IsEqualTo(1);
 
         // During cooldown (100ms after activation, cooldown is 200ms)

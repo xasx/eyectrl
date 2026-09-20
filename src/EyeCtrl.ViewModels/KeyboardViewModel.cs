@@ -20,9 +20,43 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     // Gaze tracking state
     private long _nearestKeyEnteredTimestamp;
     private long _keyCooldownEndTimestamp;
+    private long _lastSampleTimestampUs;
     private int _keyDwellMs;
     private int _baselineKeyDwellMs;
     private int _cooldownMs;
+
+    /// <summary>
+    /// Longest interval between two DELIVERED gaze samples that may still count as continuous
+    /// dwell. The tracker measures elapsed time from timestamps, so a pause longer than this must
+    /// restart the dwell rather than be credited — otherwise the first sample after a blink, a
+    /// tracker dropout or a hidden interval receives the whole pause as held time and fires the
+    /// key with no progress ever shown (F3). Withholding gap-held samples upstream cannot bound
+    /// this: a pause is a timestamp fact, not a delivery fact.
+    ///
+    /// <para>
+    /// 150 ms is 4.5x the 33 ms interval of the slowest supported tracker rate (30 Hz), so live
+    /// scheduler jitter cannot trip it, while every real interruption exceeds it (a blink is
+    /// typically 100–400 ms; the measured incident was 3 s). Deliberately NOT
+    /// <c>CursorSettings.MaxGapInterpolationMs</c>: that is a user-tunable knob whose range
+    /// (0–500) reaches past the keyboard dwell, so it cannot be the keyboard's safety bound.
+    /// </para>
+    ///
+    /// <para>
+    /// 300 ms is the keyboard family's floor (<c>AdaptationDwellRanges.KeyboardMinDwellMs</c>), so
+    /// this bound is now below the minimum dwell a key can have: a SINGLE credited silence (at most
+    /// this bound — exactly 150 ms is still credited here, unlike the shared detector's
+    /// <c>&gt;=</c>) supplies at most half of a completed key, and the user must contribute at
+    /// least as much real gaze as that silence could fake. The clamp is per gap, so N silences
+    /// still contribute up to 150·N; the multi-stall qualifier and why it is accepted are recorded
+    /// on <c>DwellDetector.MaxCreditedSampleGapUs</c>. The floor is enforced on every path — the
+    /// <c>DwellSettings</c> guards and the Dwell sliders stop a lower baseline being written or
+    /// configured, and <see cref="ApplyEffectiveKeyDwell"/> re-clamps the ADAPTIVE value, which the
+    /// forgiving knob would otherwise shorten to 0.6×baseline (180 ms at a 300 ms baseline). The
+    /// residual this paragraph used to record — a 100–150 ms stall crediting at a 100 ms minimum —
+    /// is closed by that floor; do not re-derive the old 100 ms minimum from this constant.
+    /// </para>
+    /// </summary>
+    private const long MaxContinuousSampleGapUs = 150 * MathConstants.MicrosecondsPerMillisecond;
 
     private readonly IStruggleTelemetrySink? _sink;
     private readonly EffectiveSettingsProvider? _effectiveSettings;
@@ -80,7 +114,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     // SetEffectiveDwellTime pins. NB: no early-return on a null provider — Configure MUST assign
     // _keyDwellMs even without one, or ProcessKeyGaze's `<= 0` guard silently kills the keyboard
     // (review round 1, blocker 2). The clamp also covers the no-provider path; it is identity there
-    // because KeyboardKeyDwellMs's own guard is exactly [100, 1500].
+    // because KeyboardKeyDwellMs's own guard is exactly [300, 1500].
     private void ApplyEffectiveKeyDwell()
     {
         if (_baselineKeyDwellMs <= 0)
@@ -91,8 +125,63 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             AdaptationDwellRanges.KeyboardMinDwellMs, AdaptationDwellRanges.KeyboardMaxDwellMs);
     }
 
+    // The dwell the LATCHED key must be held for. App-escaping keys (enter, tab, Escape, Delete,
+    // Insert, shortcut:*, F1–F12) are exempt from the DwellTime knob's forgiving direction. That
+    // direction is SHORTER and is driven automatically by the user's own abandonment, so without the
+    // exemption it shortens the most consequential keys first, for whoever is struggling most.
+    //
+    // The floor is max(configured baseline, AppEscapingPolicyFloorMs), and the policy value is 600:
+    // an absolute floor that also survives a lowered baseline (see its doc for the decision). The
+    // max() keeps a user's larger setting intact, and a tightening fill still raises these keys above
+    // the floor — Math.Max is monotone in the composed value.
+    private int KeyDwellMsFor(string? keyId)
+    {
+        if (!KeyboardSpecialActions.IsAppEscaping(keyId))
+            return _keyDwellMs;
+        int floor = Math.Max(_baselineKeyDwellMs, KeyboardSpecialActions.AppEscapingPolicyFloorMs);
+        return Math.Max(_keyDwellMs, floor);
+    }
+
     public void Receive(ShowKeyboardMessage message) => IsVisible = true;
     public void Receive(HideKeyboardMessage message) => IsVisible = false;
+
+    // Hiding ends the keyboard's interaction context. Every other dwell-owning surface resets its
+    // detector state on that transition; the keyboard was the only one that did not, so a stale
+    // tracker credited the whole hidden interval on the first sample after reopen (F3's reopen
+    // trigger) and a non-default sub-layout/emoji mode reopened as a trap. Reset on the property
+    // rather than inside Receive(HideKeyboardMessage): a direct IsVisible write takes the same
+    // path, and the state cannot disagree with the flag.
+    partial void OnIsVisibleChanged(bool value)
+    {
+        if (!value)
+            ResetInteractionState();
+    }
+
+    /// <summary>
+    /// Clears the state that describes the CURRENT interaction. Called when the keyboard hides:
+    /// accumulated dwell must not survive into the next open (the hidden interval is not held
+    /// gaze) and neither must <see cref="NearestKeyId"/>, which would otherwise latch a key from
+    /// a layout the next sample's positions may not even contain.
+    ///
+    /// <para>
+    /// Mode state resets too. <see cref="ActiveSubLayoutId"/> and <see cref="IsEmojiMode"/> used
+    /// to survive hide/show, so a user who hid the keyboard while inside the numbers, symbols or
+    /// function layout — or emoji mode — reopened into the same layout and had to find their way
+    /// back with the keys in front of them. Reopening should be the recovery a confused
+    /// gaze-only user reaches for first, not a second trap. The trade is one extra dwell to get
+    /// back to a non-default layout, against a session-long trap.
+    /// </para>
+    /// </summary>
+    private void ResetInteractionState()
+    {
+        NearestKeyId = null;
+        NearestKeyProgress = 0;
+        _nearestKeyEnteredTimestamp = 0;
+        _lastSampleTimestampUs = 0;
+
+        IsEmojiMode = false;
+        ActiveSubLayoutId = _layout?.DefaultSubLayout ?? "letters";
+    }
 
     /// <summary>
     /// Nearest-key dwell tracking: finds the closest key to the gaze point and
@@ -103,6 +192,11 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         PhysicalPoint gazePoint, bool isGazeInsideWindow, long timestampUs)
     {
         if (keyScreenPositions.Count == 0 || _keyDwellMs <= 0) return;
+
+        // How long the stream was silent since the last DELIVERED sample, measured before this
+        // sample replaces the mark. See MaxContinuousSampleGapUs.
+        long sinceLastSampleUs = timestampUs - _lastSampleTimestampUs;
+        _lastSampleTimestampUs = timestampUs;
 
         if (!isGazeInsideWindow)
         {
@@ -149,16 +243,28 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         }
         else if (nearestId != null)
         {
-            long elapsed = timestampUs - _nearestKeyEnteredTimestamp;
-            NearestKeyProgress = Math.Min(1.0, (double)elapsed / (_keyDwellMs * MathConstants.MicrosecondsPerMillisecond));
-
-            if (elapsed >= _keyDwellMs * MathConstants.MicrosecondsPerMillisecond)
+            if (sinceLastSampleUs > MaxContinuousSampleGapUs)
             {
-                EmitActivation(keyScreenPositions, gazePoint, nearestId, timestampUs);
+                // The stream paused (blink, tracker dropout, hidden interval). Crediting the pause
+                // here is the F3 defect — a timestamp-based clock counts the silence as held gaze.
+                // Restart instead, so only continuous gaze completes the dwell.
                 NearestKeyProgress = 0;
-                NearestKeyId = null;
-                _keyCooldownEndTimestamp = timestampUs + (_cooldownMs * MathConstants.MicrosecondsPerMillisecond);
-                KeyDwellCompleted?.Invoke(nearestId);
+                _nearestKeyEnteredTimestamp = timestampUs;
+            }
+            else
+            {
+                long elapsed = timestampUs - _nearestKeyEnteredTimestamp;
+                int dwellMs = KeyDwellMsFor(nearestId);
+                NearestKeyProgress = Math.Min(1.0, (double)elapsed / (dwellMs * MathConstants.MicrosecondsPerMillisecond));
+
+                if (elapsed >= dwellMs * MathConstants.MicrosecondsPerMillisecond)
+                {
+                    EmitActivation(keyScreenPositions, gazePoint, nearestId, timestampUs);
+                    NearestKeyProgress = 0;
+                    NearestKeyId = null;
+                    _keyCooldownEndTimestamp = timestampUs + (_cooldownMs * MathConstants.MicrosecondsPerMillisecond);
+                    KeyDwellCompleted?.Invoke(nearestId);
+                }
             }
         }
     }
@@ -172,7 +278,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     {
         if (_sink is null || NearestKeyId is null) return;
         long elapsed = timestampUs - _nearestKeyEnteredTimestamp;
-        double progress = Math.Min(1.0, (double)elapsed / (_keyDwellMs * MathConstants.MicrosecondsPerMillisecond));
+        // Progress against the abandoned KEY's own dwell (the escaping floor included), so an
+        // escaping key's abandonment is not over-reported relative to the letters around it.
+        int dwellMs = KeyDwellMsFor(NearestKeyId);
+        double progress = Math.Min(1.0, (double)elapsed / (dwellMs * MathConstants.MicrosecondsPerMillisecond));
         // Shared with DwellDetector: cross-context comparability in Phase-1b scoring depends on every
         // surface using the same cut-off.
         if (progress < TelemetryThresholds.AbandonProgress) return;

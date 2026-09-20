@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Threading;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Models;
 using Microsoft.Extensions.Logging;
 
@@ -119,7 +120,8 @@ public class SettingsService
         try
         {
             var json = File.ReadAllText(_filePath);
-            var migratedJson = MigrateCursorFilterUnits(MigrateDragActions(json));
+            var migratedJson = ClampKeyboardDwellFloor(
+                MigrateCursorFilterUnits(MigrateDragActions(json)));
             if (!ReferenceEquals(json, migratedJson))
             {
                 // Atomic, like Save: this is a write during startup, and a torn one would leave the
@@ -400,6 +402,61 @@ public class SettingsService
         }
 
         return root.ToJsonString(JsonOptions);
+    }
+
+    // ── Keyboard dwell floor clamp ───────────────────────────────────────────────────────────────
+    //
+    // WHY raw JSON and not the deserialized object: KeyboardKeyDwellMs / KeyboardPredictionDwellMs
+    // are [ObservableProperty] setters whose guards now floor at
+    // AdaptationDwellRanges.KeyboardMinDwellMs (300). That floor closes the SINGLE-stall case (a
+    // dwell can no longer be completed by one credited ≤150 ms silence — the per-gap multi-stall
+    // qualifier lives on DwellDetector.MaxCreditedSampleGapUs) — but a file written before the
+    // floor existed, or hand-edited below it, makes the setter throw DURING deserialisation, and
+    // Load answers a setter throw with a brand-new EyeCtrlSettings: the user loses every configured
+    // value over one number that was legal when it was written. Clamping at the JSON node, before
+    // the deserialiser runs, is the only point that can keep the rest of the file.
+    //
+    // Clamp, not reject, is the design already used for hand-editable unguarded values
+    // (ClampGazeIndicator / ClampManualSelectionTargeting / ClampCursorFilter / SanitizeLanguagePack):
+    // the file-wipe path punishes exactly the hand-editors the UI serves, and this profile
+    // demonstrably hand-edits it (three settings.json.bak-* files on record). Values above the
+    // guard ceiling clamp too — a dwell past 1500 would wait past every other surface in the app,
+    // and the ceiling is the guard's own number.
+    private const string DwellSectionName = "dwell";
+    private const string KeyboardKeyDwellMsKey = "keyboardKeyDwellMs";
+    private const string KeyboardPredictionDwellMsKey = "keyboardPredictionDwellMs";
+
+    private static string ClampKeyboardDwellFloor(string json)
+    {
+        // Cheap reject: neither key present means nothing to clamp (the common already-legal file).
+        if (!json.Contains($"\"{KeyboardKeyDwellMsKey}\"", StringComparison.Ordinal)
+            && !json.Contains($"\"{KeyboardPredictionDwellMsKey}\"", StringComparison.Ordinal))
+            return json;
+
+        JsonObject? root;
+        try { root = JsonNode.Parse(json) as JsonObject; }
+        catch (JsonException) { return json; }   // unparseable: leave it to Load's own error path
+
+        if (root?[DwellSectionName] is not JsonObject dwell)
+            return json;
+
+        bool clampedKey = ClampDwellField(dwell, KeyboardKeyDwellMsKey);
+        bool clampedPrediction = ClampDwellField(dwell, KeyboardPredictionDwellMsKey);
+        return clampedKey || clampedPrediction ? root.ToJsonString(JsonOptions) : json;
+    }
+
+    private static bool ClampDwellField(JsonObject dwell, string key)
+    {
+        if (dwell[key] is not JsonValue node
+            || !node.TryGetValue(out int value)
+            || (value >= AdaptationDwellRanges.KeyboardMinDwellMs && value <= AdaptationDwellRanges.KeyboardMaxDwellMs))
+        {
+            return false;
+        }
+
+        dwell[key] = Math.Clamp(value, AdaptationDwellRanges.KeyboardMinDwellMs,
+            AdaptationDwellRanges.KeyboardMaxDwellMs);
+        return true;
     }
 
     private static string MigrateDragActions(string json)

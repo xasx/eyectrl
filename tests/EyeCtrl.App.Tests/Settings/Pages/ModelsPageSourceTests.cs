@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Tests.Settings.Pages;
 using System.IO;
 using System.Net.Http;
 using EyeCtrl.App.Services;
+using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
@@ -96,6 +97,26 @@ public class ModelsPageSourceTests
         Check.That(mgmt.CurrentDownloadId).IsNull();   // terminal path clears the in-flight state
         Check.That(File.Exists(Path.Combine(scope.Dir, "smollm2-135m.onnx"))).IsTrue();
         Check.That(File.Exists(Path.Combine(scope.Dir, "smollm2-135m.tokenizer.json"))).IsTrue();
+
+        // The service activation is worthless unless the PAGE applies it: ApplyAndSave persists
+        // and raises SettingsChanged -> ReloadIfChanged, which rebuilds only when the settings
+        // snapshot changed; RebuildContent alone redraws the list. Before this, a bundled
+        // download activated the model in the service and nothing else happened — green service
+        // test, dead feature.
+        //
+        // The property is "a successful bundled download reaches the save chain"; == 1 is
+        // tighter and holds because one download makes exactly one save. If this ever fires on
+        // an honest second save, the answer is IsStrictlyGreaterThan(0) — do not delete the pin.
+        // These assertions read the LOCAL `settings`, the object the service writes; the
+        // recording context builds its own Settings when none is passed, so `_ctx.Settings` is a
+        // different instance and a future page-level assertion must not read it instead.
+        Check.WithCustomMessage(
+                "A successful bundled download must call ApplyAndSave (got "
+                + rec.ApplyAndSaveCount + "): the persistence and the reload trigger for a "
+                + "changed snapshot. RebuildContent alone changes nothing.")
+            .That(rec.ApplyAndSaveCount).IsEqualTo(1);
+        Check.That(settings.Keyboard.MLModelSize).IsEqualTo("135M");
+        Check.That(registry.ActiveModelId).IsEqualTo("135M");
     }
 
     private sealed class FakeOkHandler : HttpMessageHandler
@@ -106,6 +127,87 @@ public class ModelsPageSourceTests
             {
                 Content = new ByteArrayContent(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 })
             });
+    }
+
+    // Ticket 11, end to end at the level the reload actually consumes: a default install names
+    // "360M" with no 360M on disk, and the user downloads exactly that model on the page. No
+    // setting changes, so the old settings-only snapshot stayed equal and ReloadIfChanged
+    // suppressed the rebuild — the LM stayed off until restart. The snapshot now carries the
+    // disk term, so the same completion moves it and the decision fires. The negative control
+    // is in the same run: a second capture with nothing changed is equal, which is what refuses
+    // a guard weakened to always reload.
+    [Fact]
+    public async Task DownloadOfTheModelTheSettingNames_MovesTheSnapshot_WithoutASettingChanging()
+    {
+        using var scope = ModelTestFakes.Create();
+        var manifest = new ModelManifest
+        {
+            Models =
+            {
+                ["360M"] = new ModelEntry
+                {
+                    DisplayName = "SmolLM2 360M", Url = "https://example.invalid/model.onnx",
+                    Sha256 = "", SizeBytes = 10,
+                    TokenizerUrl = "https://example.invalid/tokenizer.json", TokenizerSha256 = "",
+                },
+            },
+        };
+        var settings = new EyeCtrlSettings();
+        var registry = new ModelRegistryService(scope.Dir, manifest, settings);
+        var download = new ModelDownloadService(scope.Dir, new HttpClient(new FakeOkHandler()));
+        var mgmt = new ModelManagementService(registry, download, settings);
+        var rec = new RecordingSettingsPageContext(registry: registry, modelManagement: mgmt);
+        var src = new ModelsPageSource(rec.Context);
+
+        // What LoadKeyboard stored at startup: the setting names 360M and its files are absent.
+        var stored = KeyboardStackSnapshot.Capture(settings, registry);
+        Check.That(stored.ActiveModelOnDisk).IsFalse();
+
+        await DwellDownloadAndConfirmAsync(src, rec, "md_dl_360M");
+
+        // The transition, end to end: no setting moved, the files are on disk, and the decision
+        // the settings apply runs sees the difference.
+        Check.That(settings.Keyboard.MLModelSize).IsEqualTo("360M");
+        var current = KeyboardStackSnapshot.Capture(settings, registry);
+        Check.That(current.ActiveModelOnDisk).IsTrue();
+        // "Without a setting changing" made exact: only the disk term may differ from what
+        // LoadKeyboard stored — every setting must be identical.
+        Check.WithCustomMessage(
+                "Only the disk term may differ after the download; every setting must be " +
+                "identical to what LoadKeyboard stored.")
+            .That(current with { ActiveModelOnDisk = false }).IsEqualTo(stored);
+        Check.WithCustomMessage(
+                "The page's ApplyAndSave must leave a snapshot the reload decision can see move; " +
+                "otherwise the LM stays off until restart — the defect.")
+            .That(KeyboardCoordinator.ShouldReload(stored, current)).IsTrue();
+
+        // Negative control in the same run: nothing changed since that apply, so a reload now
+        // would be a gratuitous rebuild.
+        Check.WithCustomMessage("An unchanged apply must not reload.")
+            .That(KeyboardCoordinator.ShouldReload(current, KeyboardStackSnapshot.Capture(settings, registry)))
+            .IsFalse();
+    }
+
+    /// <summary>Dwells a model's download button, confirms the modal, and waits for the page's
+    /// completion callback (RebuildContent). The download runs on the thread pool, so this is
+    /// the same bounded poll the end-to-end test above uses.</summary>
+    private static async Task DwellDownloadAndConfirmAsync(
+        ModelsPageSource src, RecordingSettingsPageContext rec, string buttonId)
+    {
+        var button = src.Build().Single().Rows.OfType<ButtonSpec>().Single(b => b.Id == buttonId);
+        button.OnActivate();
+        Check.That(rec.LastModalOnYes).IsNotNull();
+        rec.LastModalOnYes!();
+
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (DateTime.UtcNow < deadline && rec.RebuildContentCount == 0 && rec.Errors.Count == 0)
+            await Task.Delay(50, TestContext.Current.CancellationToken);
+
+        Check.WithCustomMessage(
+                "The download never completed: rebuild=" + rec.RebuildContentCount
+                + ", errors=" + (rec.Errors.Count == 0 ? "<none>" : string.Join(" | ", rec.Errors)))
+            .That(rec.RebuildContentCount).IsStrictlyGreaterThan(0);
+        Check.That(rec.Errors).IsEmpty();
     }
 
     // The 2026-08-17 round-3 finding: downloads ran invisibly — the button kept saying

@@ -75,7 +75,7 @@ public class DwellRoutingOwnerRegistrationTests
         var entry = registry.Registrations[0];
         Check.That(entry.Context).IsEqualTo(DwellContext.Emoji);
         // Keyboard range, not Standard: the category tabs read KeyboardKeyDwellMs, so the emoji
-        // grid's validated span is the keyboard guard family [100, 1500].
+        // grid's validated span is the keyboard guard family [300, 1500].
         Check.That(entry.MinDwellMs).IsEqualTo(AdaptationDwellRanges.KeyboardMinDwellMs);
         Check.That(entry.MaxDwellMs).IsEqualTo(AdaptationDwellRanges.KeyboardMaxDwellMs);
         Check.That(entry.ApplyGeometry).IsNotNull();
@@ -143,7 +143,11 @@ public class DwellRoutingOwnerRegistrationTests
         messenger.Send(new GazeCursorMovedMessage(dwellPoint, 490_000));
         messenger.Send(new GazeCursorMovedMessage(dwellPoint, 510_000));
         messenger.Send(new GazeCursorMovedMessage(dwellPoint, 530_000));
-        // 399 ms of dwell < halved 400 ms — must not complete. Against the 800 ms baseline this
+        // Sample the dwell continuously: the detector's gap clamp restarts on a single 150 ms
+        // step, and the gap between 530 and the completion probe is 399 ms by design.
+        for (var t = 550_000; t < 929_000; t += 20_000)
+            messenger.Send(new GazeCursorMovedMessage(dwellPoint, t));
+        // 399 ms of dwell < halved 400 ms - must not complete. Against the 800 ms baseline this
         // would be less than half done; the check below is what proves the map landed at all.
         messenger.Send(new GazeCursorMovedMessage(dwellPoint, 929_000));
         Check.That(completed).IsNull();

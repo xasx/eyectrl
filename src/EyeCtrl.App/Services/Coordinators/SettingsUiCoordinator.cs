@@ -188,8 +188,18 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         }
 
         // The keyboard snapshot compare + reload lives on KeyboardCoordinator (cluster 3), exposed
-        // as the ReloadIfChanged seam.
-        _keyboard.ReloadIfChanged(s, Context.InputSimulator, Context.SettingsService);
+        // as the ReloadIfChanged seam. When the snapshot did NOT change (live-read settings like
+        // MaxSuggestions, ShowPredictionConfidence, ShowPredictionTypes), the keyboard still
+        // displays cells built from the OLD values — and the keyboard stays visible and dwellable
+        // under the settings window (gaze feeds it on KeyboardVisible alone), so a lowered
+        // suggestion count left stale cells whose completed dwell OnPredictionDwelled silently
+        // swallowed (index guard, no redraw). Refresh the bar instead: idempotent, and it
+        // retires the unreachable targets the moment the setting moves.
+        if (!_keyboard.ReloadIfChanged(s, Context.InputSimulator, Context.SettingsService)
+            && _modal.KeyboardVisible)
+        {
+            Context.OverlayManager.Keyboard.UpdatePredictions();
+        }
 
         Log.Information("Settings saved");
     }

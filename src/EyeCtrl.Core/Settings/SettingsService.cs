@@ -150,6 +150,7 @@ public class SettingsService
             ClampManualSelectionTargeting(settings.ManualSelection);
             ClampCursorFilter(settings.Cursor);
             SanitizeLanguagePack(settings.Keyboard);
+            ClampMaxSuggestions(settings.Keyboard);
 
             // Validate loaded settings
             var validationErrors = settings.Validate();
@@ -220,6 +221,17 @@ public class SettingsService
         cursor.DeadbandConfirmSamples = Math.Clamp(confirm, 1, 5);
         if (cursor.DeadbandRadiusPx != radius || cursor.DeadbandConfirmSamples != confirm)
             _logger?.LogInformation("Clamped out-of-range cursor deadband settings to their valid ranges.");
+    }
+
+    // Same bargain as the neighbours above: MaxSuggestions is a brand-new hand-editable int and
+    // the likeliest single value to be typed wrong; an out-of-range one must cost one wrong count,
+    // not the user's entire settings file.
+    private void ClampMaxSuggestions(KeyboardSettings keyboard)
+    {
+        var count = keyboard.MaxSuggestions;
+        keyboard.MaxSuggestions = Math.Clamp(count, 1, 5);
+        if (keyboard.MaxSuggestions != count)
+            _logger?.LogInformation("Clamped out-of-range MaxSuggestions to the 1-5 range.");
     }
 
     // LanguagePack is a path ingredient (dictionary/trie reads, user-dictionary write), so a

@@ -61,6 +61,7 @@ internal sealed class RecordingSettingsPageContext
             calibration ?? new CalibrationService(),
             _messenger,
             restart: null!,
+            dictionary: null,
             showModal: CaptureModal,
             showError: message => { _errors.Add(message); _log.Add(ErrorEntry); },
             applyAndSave: () => { ApplyAndSaveCount++; _log.Add(ApplyAndSaveEntry); },

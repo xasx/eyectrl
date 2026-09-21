@@ -185,6 +185,7 @@ public partial class SettingsWindow : OverlayWindow
     private readonly IMessenger _messenger;
     private readonly CalibrationService _calibrationService;
     private readonly AppRestartCoordinator _restartCoordinator;
+    private readonly UserDictionaryService? _dictionaryService;
     private readonly int _dwellMs;
 
     private readonly SettingsPageContext _ctx;
@@ -258,7 +259,8 @@ public partial class SettingsWindow : OverlayWindow
         ModelManagementService modelManagementService,
         IMessenger messenger,
         CalibrationService calibrationService,
-        AppRestartCoordinator restartCoordinator)
+        AppRestartCoordinator restartCoordinator,
+        UserDictionaryService? dictionaryService = null)
     {
         InitializeComponent();
 
@@ -276,6 +278,7 @@ public partial class SettingsWindow : OverlayWindow
         _messenger = messenger;
         _calibrationService = calibrationService;
         _restartCoordinator = restartCoordinator;
+        _dictionaryService = dictionaryService;
         _dwellMs = settings.Dwell.ToolbarButtonDwellMs;
 
         // An accepted restart must also be visible. The handshake allows the replacement up
@@ -374,7 +377,7 @@ public partial class SettingsWindow : OverlayWindow
         // bag carries the view-delegate seam (ShowModal etc.) so sources stay WPF-free.
         _ctx = new SettingsPageContext(
             _settings, _viewModel, _registryService, _modelManagementService,
-            _calibrationService, _messenger, _restartCoordinator,
+            _calibrationService, _messenger, _restartCoordinator, _dictionaryService,
             ShowModal, ShowError, ApplyAndSave, RebuildContent, a => Dispatcher.Invoke(a), Close,
             () => System.Windows.Clipboard.GetText() ?? "");
         _cursorSource = new CursorPageSource(_ctx);

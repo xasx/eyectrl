@@ -89,6 +89,11 @@ public class AppBootstrapper
             SettingsWriter.App,
             sp.GetRequiredService<ILogger<SettingsService>>()));
 
+        // Dictionary management (prediction controls #22): the settings page's view into the
+        // learned words. The live prediction factory arrives late via SetFactory (KeyboardCoordinator
+        // constructs it per keyboard init, not DI).
+        services.AddSingleton(_ => new UserDictionaryService(settings, appDataDir));
+
         // Platform services
         services.AddSingleton<IMouseCoordinateMapper, MouseCoordinateMapper>();
         services.AddSingleton<IInputSimulator, Win32InputSimulator>();

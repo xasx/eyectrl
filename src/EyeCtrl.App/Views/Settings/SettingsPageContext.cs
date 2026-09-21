@@ -23,6 +23,13 @@ internal sealed class SettingsPageContext
     public IMessenger Messenger { get; }
     public AppRestartCoordinator Restart { get; }
 
+    /// <summary>
+    /// Learned-words management for the Keyboard tab's dictionary page (prediction controls #22).
+    /// Null in the headless test context (and any degraded host): the Keyboard page then builds
+    /// without its dictionary page.
+    /// </summary>
+    public UserDictionaryService? Dictionary { get; }
+
     /// <param name="showModal"><c>(message, onYes)</c> — the two-button Yes/No modal. A thin wrapper
     /// over <see cref="ViewModel"/><c>.ShowModal(message, onYes)</c>; kept on the context for
     /// call-site readability. The General tab's three-choice modal bypasses it and calls
@@ -41,6 +48,7 @@ internal sealed class SettingsPageContext
         EyeCtrlSettings settings, SettingsWindowViewModel viewModel,
         ModelRegistryService registry, ModelManagementService modelManagement,
         CalibrationService calibration, IMessenger messenger, AppRestartCoordinator restart,
+        UserDictionaryService? dictionary,
         Action<string, Action> showModal, Action<string> showError,
         Action applyAndSave, Action rebuildContent, Action<Action> invoke, Action close,
         Func<string> readClipboard)
@@ -52,6 +60,7 @@ internal sealed class SettingsPageContext
         Calibration = calibration;
         Messenger = messenger;
         Restart = restart;
+        Dictionary = dictionary;
         ShowModal = showModal;
         ShowError = showError;
         ApplyAndSave = applyAndSave;

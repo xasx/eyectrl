@@ -426,6 +426,15 @@ public partial class KeyboardWindow : OverlayWindow
             return;
         }
 
+        if (lowerAction == "addword")
+        {
+            // UpdatePredictions is the visible half of the contract: the learned word appears in
+            // the bar immediately, so the key never dwells into silence (the TrackedEye lesson).
+            _viewModel.HandleAddWord();
+            UpdatePredictions();
+            return;
+        }
+
         if (lowerAction == "enter")
         {
             _viewModel.HandleEnter();

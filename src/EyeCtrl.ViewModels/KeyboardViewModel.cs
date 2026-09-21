@@ -393,6 +393,20 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     }
 
     /// <summary>
+    /// The "Add Word" layout key (Fn clipboard row): teaches the predictor the word currently
+    /// being typed, on demand. Space-commit learning stays the silent default; this is the
+    /// explicit path for a word the user WANTS predicted before it has ever been committed —
+    /// the newly learned word surfaces in the bar on the caller's refresh. A local teach action,
+    /// not a typing action: no keystroke to the OS, the input keeps its word, and the next-word
+    /// context does not advance (committing is Space's job). Empty input is a no-op.
+    /// </summary>
+    public void HandleAddWord()
+    {
+        if (CurrentInput.Length == 0) return;
+        _orchestrator?.LearnWord(CurrentInput);
+    }
+
+    /// <summary>
     /// Cuts the final word and the separators after it ("thank you " → "thank "). A word is a
     /// run of letters or digits, because mainstream apps' Ctrl+Backspace stops at hyphens and
     /// other punctuation ("well-known " loses "known", keeps "well-") — the bookkeeping must
@@ -400,8 +414,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// </summary>
     private static string TrimLastWord(string text)
     {
-        var end = text.Length;
-        while (end > 0 && !char.IsLetterOrDigit(text[end - 1])) end--;
+        var end = text.Length;        while (end > 0 && !char.IsLetterOrDigit(text[end - 1])) end--;
         var start = end;
         while (start > 0 && char.IsLetterOrDigit(text[start - 1])) start--;
         return text[..start];

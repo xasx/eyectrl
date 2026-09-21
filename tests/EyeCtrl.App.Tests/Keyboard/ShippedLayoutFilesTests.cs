@@ -19,7 +19,7 @@ public class ShippedLayoutFilesTests
     // test exists to catch.
     private static readonly string[] KnownActions =
     [
-        "backspace", "enter", "tab", "space", "deleteWord", "switchEmoji",
+        "backspace", "enter", "tab", "space", "deleteWord", "switchEmoji", "addWord",
         "modifier:shift", "modifier:ctrl", "modifier:alt", "modifier:win", "toggle:capslock"
     ];
 
@@ -83,6 +83,39 @@ public class ShippedLayoutFilesTests
                      "shortcut:Ctrl+Z", "shortcut:Ctrl+Y", "shortcut:Ctrl+A"
                  })
             Check.WithCustomMessage(chord).That(actions).Contains(chord);
+    }
+
+    [Theory]
+    [MemberData(nameof(LayoutNames))]
+    public void TheFunctionSubLayout_CarriesAddWord(string file)
+    {
+        // The explicit teach-the-predictor key (prediction controls #22). It lives on the Fn
+        // clipboard row — the utility-action family — not beside Bksp: adding there would have
+        // squeezed the already-narrowed Shift/Bksp pair on the 960-DIP screen.
+        var layout = Load(file);
+
+        var actions = layout.SubLayouts["function"].Rows.SelectMany(r => r)
+            .Select(k => k.SpecialAction).ToList();
+        Check.WithCustomMessage($"{layout.Name} function addWord")
+             .That(actions).Contains("addWord");
+    }
+
+    [Theory]
+    [MemberData(nameof(LayoutNames))]
+    public void AddWord_DoesNotWidenTheKeyboard(string file)
+    {
+        // The row carrying Add Word must stay under the letters sublayout's widest row, which
+        // defines the keyboard's width: a wider utility row would widen the whole SizeToContent
+        // window and shift every dwell target.
+        var layout = Load(file);
+
+        var lettersWidest = layout.SubLayouts["letters"].Rows
+            .Max(r => r.Sum(k => k.Width));
+        var addWordRow = layout.SubLayouts["function"].Rows
+            .Single(r => r.Any(k => k.SpecialAction == "addWord"));
+        Check.WithCustomMessage(
+                 $"{layout.Name}: add-word row width {addWordRow.Sum(k => k.Width)} vs letters widest {lettersWidest}")
+             .That(addWordRow.Sum(k => k.Width)).IsLessOrEqualThan(lettersWidest);
     }
 
     [Theory]

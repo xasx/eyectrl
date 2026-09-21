@@ -195,7 +195,8 @@
           { "label": "Cut", "output": "", "width": 1.7, "specialAction": "shortcut:Ctrl+X" },
           { "label": "Undo", "output": "", "width": 1.7, "specialAction": "shortcut:Ctrl+Z" },
           { "label": "Redo", "output": "", "width": 1.7, "specialAction": "shortcut:Ctrl+Y" },
-          { "label": "Sel All", "output": "", "width": 1.7, "specialAction": "shortcut:Ctrl+A" }
+          { "label": "Sel All", "output": "", "width": 1.7, "specialAction": "shortcut:Ctrl+A" },
+          { "label": "Add Word", "output": "", "width": 1.4, "specialAction": "addWord" }
         ],
         [
           { "label": "ABC", "output": "", "width": 2.0, "specialAction": "switchSub:letters" },

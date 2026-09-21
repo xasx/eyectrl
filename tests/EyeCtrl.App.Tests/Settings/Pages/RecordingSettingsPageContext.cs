@@ -44,7 +44,8 @@ internal sealed class RecordingSettingsPageContext
         ModelRegistryService? registry = null,
         ModelManagementService? modelManagement = null,
         CalibrationService? calibration = null,
-        string clipboard = "")
+        string clipboard = "",
+        UserDictionaryService? dictionary = null)
     {
         // Recipients are kept alive by `this` for the scope of the test (WeakReferenceMessenger
         // holds them weakly). Only the message types a page source actually Sends are registered —
@@ -61,7 +62,7 @@ internal sealed class RecordingSettingsPageContext
             calibration ?? new CalibrationService(),
             _messenger,
             restart: null!,
-            dictionary: null,
+            dictionary: dictionary,
             showModal: CaptureModal,
             showError: message => { _errors.Add(message); _log.Add(ErrorEntry); },
             applyAndSave: () => { ApplyAndSaveCount++; _log.Add(ApplyAndSaveEntry); },

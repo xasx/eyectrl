@@ -41,6 +41,7 @@ Each row records where it shipped — `main` unless the row says otherwise. List
 | 5 | Scroll was discrete notch actions only | **Implemented (radar/anchor variable-speed).** `ScrollEngine` is a gaze-joystick: dead-zone (`DeadZoneRadiusPixels = 30`) around an `anchor` point → proportional velocity → clamp at `MaxVelocityNotchesPerSec = 60`; `ScrollModeController` mounts it on the right edge (`RightEdgeAnchor`). This **is** TD Control's radar/anchor variant. |
 | 6 | No adaptive dwell | **Implemented.** Full Adaptation subsystem: `EyeCtrl.Core/Adaptation/` (`AdaptationController`, `StruggleMonitor`, `AdaptationKnob`, `EffectiveSettingsProvider`, `EffectiveValue`, `FailureModeAssessment`, `DwellContext`/`DwellOutcome`, `BufferingTelemetrySink`) + App-side `AdaptationCoordinator`, `AdaptationActivation`, `AdaptationCueService`, `AdaptationLog`. Struggle evidence re-tunes effective dwell settings. (In-flight `feat/struggle-detection-phase1a/1b` add per-surface telemetry wiring + cue/drift overlays on top of this core.) |
 | 21 | **Mouse/OSK polish bundle** — middle click, word-delete key, clipboard keys on the Fn layer | **Implemented 2026-09-08** on `feat/mouse-osk-polish` (`2ded5589`; PR #138). `InteractionAction.MiddleClick` + `IInputSimulator.MiddleClick` + `MOUSEEVENTF_MIDDLE*` flags + ring icon/label/description — ships **OFF** by default (like ScrollLeft/ScrollRight) because a fifth default secondary action breaks the ring's 4+More/4+Back layer slot symmetry (`ActionMenuViewModelLayerTests.TheSecondLayer_ReusesTheSameFiveSlots`); enable via Settings → Action Menu. `deleteWord` key (Ctrl+Backspace with word-wise CurrentInput/`_recentText` bookkeeping, `KeyboardViewModel.HandleDeleteWord`) beside Bksp in every sublayout of all 3 layouts, Shift/Bksp narrowed to compensate on the 960-DIP screen. New `shortcut:<chord>` layout grammar powers the Fn clipboard row (Copy/Paste/Cut/Undo/Redo/Sel All); `EyeCtrl.Core/Keyboard/KeyboardShortcut.TryParse` is the single chord parser, now also used by `QuickActionDispatcher.ExecuteKeyboardShortcut`. `ShippedLayoutFilesTests` guards the shipped layouts: parse, known grammar only, DelWd + clipboard present, specialAction ids unique per sublayout. |
+| 22 | **Prediction controls** — configurable suggestion count, add-word key, dictionary editor | **Implemented 2026-09-20/22, complete on `main`** (PR #160 + PR #162; two external review rounds each). Slice 1: `KeyboardSettings.MaxSuggestions` (1–5, default 5) + `k_pred_count` slider on the Keyboard tab. Slice 2 (PR #162): an **Add Word** key on the Fn clipboard row (learns CurrentInput without committing; the word shows in the bar immediately), and a **learned-words dictionary page** in Settings (`UserDictionaryService` lists learned = user-file keys minus base keys, filtered to real word shapes; deletes go through the LIVE prediction stack via `WordPredictor.ForgetWord` + `PredictionStackFactory.ForgetWords` one-swap tombstones so in-flight background builds can't resurrect a deleted word; three-state write results with error surface). |
 
 ---
 
@@ -48,9 +49,7 @@ Each row records where it shipped — `main` unless the row says otherwise. List
 
 ### Tier 1 — High sensibility (still open)
 
-| # | Gap | Source | Rationale + likely seam |
-|---|---|---|---|
-| 22 | **Prediction controls** — configurable suggestion count, add-word key, dictionary editor | OptiKey (dictionary management console, "Add To Dictionary" key) | **Slice 1 (suggestion count) implemented 2026-09-20** on `feat/prediction-count`: `KeyboardSettings.MaxSuggestions` (1–5, default 5 = the old hard-coded fill), one-line call-site change in `KeyboardViewModel.GetSuggestionsWithContext`, `k_pred_count` slider on the Keyboard tab (+ reset handler + span/snapshot guards). The bar renders one cell per suggestion (dynamic), so the count needs no layout change and applies from the next keystroke; the orchestrator already caps the merged words+LM+completions list at `maxCount`. **Remaining:** the add-word key (touches the keyboard surface — gated on the live `feat/keyboard-action-edge-toggle` session, which carries dozens of unmerged patches including `KeyboardViewModel`/`KeyboardWindow` edits) and the dictionary-management settings page (seam: `Prediction/FileDictionaryProvider.cs`, which currently learns only silently). |
+*No open Tier-1 gaps. The last one, #22 prediction controls, completed 2026-09-22 (PR #160 + PR #162) — see the Resolved table.*
 
 ### Tier 2 — Medium sensibility (moderate–high effort, solid value, on-mission)
 
@@ -62,7 +61,8 @@ Each row records where it shipped — `main` unless the row says otherwise. List
 | 10 | **Drawing Mode** — free-path hold-and-drag with intentional-movement threshold + 8-direction straight-line catch-up | TD Control | The basic `Drag` action exists (`InteractionAction.Drag` → `MouseDown` + gaze-follow), but there is no 8-direction lock, jitter threshold, or straight-line catch-up. Incremental on the drag path. Confirmed not on `main`. |
 | 11 | **Dead-key / diacritic composition** (`´` then `e` → `é`) | Both | EyeCtrl emits Unicode directly via `Win32InputSimulator.SendText`; per-layout dead-key tables unlock more languages cheaply. Confirmed not on `main`. |
 | 12 | **More keyboard languages** (TD Control ships 14 incl. CJK/IME) | Both | EyeCtrl ships 3 JSON layouts: `qwerty`/`azerty`/`qwertz` (`src/EyeCtrl.App/Resources/Layouts/`). Latin-script additions are easy via JSON; **CJK/IME is a large separate project — keep out of scope.** |
-| 23 | **Per-eye tracking (TrackedEye Left/Right/Both)** — *new 2026-09-08* | TD Control (`"TrackedEye": "Both"`; binaries offer Left/Right/Both) | Zero hits for per-eye selection anywhere in `src/` (verified 2026-09-08). Seam: `TobiiStreamEngineProvider` eye filtering + a setting + a Calibration-page row. Small change; unlocks monocular/strabismus users — pure accessibility value. |
+
+**Parked — #23 per-eye tracking (TrackedEye Left/Right/Both).** License-gated on this owner's hardware: the unlicensed consumer Stream Engine path returns `TOBII_ERROR_INSUFFICIENT_LICENSE` for `tobii_set_enabled_eye` (field-validated 2026-09-19 — zero user-visible difference with or without the branch). The complete implementation is preserved on branch `feat/tracked-eye` (worktree `.worktrees/tracked-eye`); resurrect by rebasing it if a Tobii license ever materializes. Until then this gap is declined, not queued.
 
 ### Tier 3 — Lower sensibility for EyeCtrl (high effort, or off-mission)
 
@@ -81,15 +81,16 @@ Each row records where it shipped — `main` unless the row says otherwise. List
 
 ---
 
-## Suggested implementation order (refreshed 2026-09-08)
+## Suggested implementation order (re-ranked 2026-09-22 for this owner's hardware)
 
-The head of the August queue — the mouse/OSK polish bundle — shipped 2026-09-08 on `feat/mouse-osk-polish` (#21), and **repeat-click mode (#4) shipped the same day** on `feat/repeat-click-mode` (stacked on PR #138): locked `RepeatMode` + one-shot `RepeatLastAction`, both OFF by default. Remaining near-term queue:
+Re-ranked after the owner stated the actual hardware (2026-09-22): one Tobii tracker with **no license** (→ #23 parked, see the Tier-2 note), a **single display** (→ multi-monitor #7 has no second screen to validate with), and **no adaptive switch** (→ #8 has nothing to trigger with; a caregiver-oriented global-hotkey trigger remains possible but has no switch use case here). **#7 and #8 are declined-for-this-user, not queued.** With #22 prediction controls complete on `main` (PR #160 + PR #162), the value-ranked queue for a single-display gaze-only owner:
 
-1. **Per-eye tracking (#23)** — small provider change, outsized accessibility value.
-2. **Prediction controls (#22)** — suggestion-count setting first (one setting row), then the add-word key, then the dictionary editor.
-3. **Multi-monitor (#7)** — the documented `MOUSEEVENTF_VIRTUALDESK` fix; the biggest single effort on this list.
-4. **Switch / key-triggered activation (#8)** — a plain global-hotkey trigger first (also useful to caregivers), DirectInput/gamepad later.
-5. Demand-driven: **profiles (#9)**, **dead keys (#11)**, **drawing mode (#10)**, dwell-completion audio cue.
+1. **Dead keys / diacritic composition (#11)** — direct typing-feedback value for de/fr text entry.
+2. **Dwell-completion audio cue** — small, direct confirmation value for a gaze-only typist.
+3. **Drawing mode (#10)** — bigger, niche.
+4. **Profiles (#9)** — single-user household, low.
+
+(Robustness work that is not a competitive gap — e.g. issue #153 settings-load tolerance — is tracked in the issue queue and prioritized there.)
 
 Tier 3 should be **declined unless a user explicitly asks** — they either duplicate existing capability (UIA snap, #14), conflict with EyeCtrl's positioning (AAC, #13), or carry cost disproportionate to value (localization, webcam, cloud, multi-key capture #24).
 
@@ -135,6 +136,8 @@ The TD Control install is a useful design reference for any Tier 1/2 item. Paths
 ---
 
 ## Change-log
+
+- **2026-09-22 (queue re-rank for owner hardware):** Gap #23 per-eye tracking moved out of the Tier-2 table to **Parked** — the implementation is complete on branch `feat/tracked-eye` but license-gated (`tobii_set_enabled_eye` → `TOBII_ERROR_INSUFFICIENT_LICENSE`, field-validated 2026-09-19). #7 multi-monitor and #8 switch input marked **declined-for-this-user** in the queue (single display, no switch hardware — stated by the owner 2026-09-22). #22 prediction controls recorded **complete** (slice 1 merged as PR #160, add-word key + dictionary page as PR #162) and moved to Resolved; Tier 1 is now empty. Queue re-ranked around what a single-display gaze-only owner actually touches (typing/prediction, dwell quality, settings robustness, eye care).
 
 - **2026-09-08 (b — gap #4 implemented):** `feat/repeat-click-mode` (stacked on PR #138's `feat/mouse-osk-polish`) closes the last original Tier-1 gap. Core: `InteractionState.RepeatMode` + `InteractionManager` last-click memory (`LastRepeatableAction`), locked `RepeatAction`, guarded `FireRepeatTick`/`ExitRepeatMode`, `TogglePause` blocked while repeating, `InteractionActionExtensions.IsRepeatableClick` classification; `RepeatLastAction` converts to the remembered click inside `OnActionSelected` so dispatch stays on the single `ActionRequested` path. App: `RepeatModeController` (stop button ⏹ on the right edge, `DispatcherTimer` ticking the locked click at `GazeEngine.StableCentroid` every `RepeatSettings.IntervalMs`, VK_ESCAPE hatch), `GazeEngine` cursor-follow + `CursorCircleViewModel` visibility extended to RepeatMode (the circle is the mode's only aiming feedback). Settings: `RepeatSettings` (IntervalMs 250–5000 default 1000, exposed in Advanced; StopButtonDwellMs unexposed like scroll-stop). Ring: two new `InteractionAction` members (values 11/12, appended), renewal-arrow mouse icons, labels/descriptions — **both OFF by default** (layer-slot symmetry). Design ledger: `docs/superpowers/specs/2026-09-08-repeat-click-mode-design.md` (D1–D15).
 - **2026-09-08 (refresh + first implementation slice):** Third run, same method — parallel read-only sweeps of the EyeCtrl code (src + tests, every claim path-cited), the live TD Control v1.80.1 install (full `Settings.json`, keyboard layout XMLs + language packs, curated binary-strings feature hunt), and the OptiKey README + ~25 wiki pages. Findings: **#2 shipped to `main`** (`WindowAction` + `Win32WindowManager` + presets) — moved to Resolved; `ShowDesktop` intentionally skipped (Win+D reachable via the OSK's Win modifier). **The mouse/OSK polish bundle (#21) was implemented the same day** on `feat/mouse-osk-polish` (`2ded5589`): middle click (OFF by default to preserve layer slot symmetry), `deleteWord` key, Fn clipboard row via the new `shortcut:<chord>` grammar, shared `KeyboardShortcut` parser, `ShippedLayoutFilesTests` grammar guard. New gaps ranked: #22 prediction controls (Tier 1), #23 per-eye tracking (Tier 2), #24 multi-key capture + #25 misc declines (Tier 3). All suites green after the slice: Core 1224 / ViewModels 307 / Platform 88 / Controls 299 / App non-UI 821 / Supervisor 79. `detect_changes` flagged HIGH — expected: the changed flows all pass through the `OnKeyDwellCompleted`/`KeyboardViewModel` hubs, touched only with additive branches.

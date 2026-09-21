@@ -281,6 +281,68 @@ public class SettingsServiceLoadToleranceTests
     }
 
     [Fact]
+    public void Load_NonObjectRoot_StillReturnsWholeFileDefaults()
+    {
+        // D5, the other no-data shape: well-formed JSON whose root is not an object.
+        var path = TempPath();
+        try
+        {
+            File.WriteAllText(path, "42");
+            var loaded = new SettingsService(path).Load();
+            var defaults = new EyeCtrlSettings();
+            Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(defaults.Dwell.ActivationButtonDwellMs);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Load_NullSubProperty_IsDropped_OtherPropertiesSurvive()
+    {
+        // JSON null into a non-nullable value-type property is a deserialize error — the same
+        // class as a setter throw, so the drop-one repair handles it per property.
+        var path = TempPath();
+        try
+        {
+            var json = """
+            {
+                "cursor": { "smoothingFactor": null, "circleSize": 300 },
+                "dwell": { "activationButtonDwellMs": 800 }
+            }
+            """;
+            File.WriteAllText(path, json);
+
+            var loaded = new SettingsService(path).Load();
+            Check.That(loaded.Cursor.SmoothingFactor).IsEqualTo(0.5);           // dropped -> default
+            Check.That(loaded.Cursor.CircleSize).IsEqualTo(300);                // survived
+            Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(800);    // survived
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Load_ArrayWhereSectionBelongs_ResetsSection_SiblingsSurvive()
+    {
+        // An array cannot deserialize into any settings class — the "not an object" branch of
+        // the repair resets the section and keeps going.
+        var path = TempPath();
+        try
+        {
+            var json = """
+            {
+                "dwell": [1, 2, 3],
+                "cursor": { "smoothingFactor": 0.7 }
+            }
+            """;
+            File.WriteAllText(path, json);
+
+            var loaded = new SettingsService(path).Load();
+            Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(700);    // default instance
+            Check.That(loaded.Cursor.SmoothingFactor).IsEqualTo(0.7);           // survived
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
     public void Load_RepairedSettings_CanBeSavedWithoutThrowing()
     {
         // The repaired in-memory state must satisfy Save()'s validate-and-throw contract —

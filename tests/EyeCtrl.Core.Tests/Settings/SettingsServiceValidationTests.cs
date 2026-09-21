@@ -46,9 +46,11 @@ public class SettingsServiceValidationTests : IDisposable
     }
 
     [Fact]
-    public void Load_InvalidJsonSettings_ShouldReturnDefaults()
+    public void Load_MultipleInvalidValuesInOneSection_ResetThatSection()
     {
-        // Arrange
+        // Two bad values in cursor (out-of-range smoothingFactor + invalid hex circleColor)
+        // exceed the single-fault drop-one repair, so the cursor SECTION reverts to defaults —
+        // per-setting tolerance (#153), not the pre-#153 whole-file wipe this test pinned.
         var service = new SettingsService(_testFilePath);
 
         // Write invalid settings JSON
@@ -63,19 +65,20 @@ public class SettingsServiceValidationTests : IDisposable
         // Act
         var settings = service.Load();
 
-        // Assert - should return defaults instead of invalid settings
+        // Assert - cursor section is defaults
         var defaults = new EyeCtrlSettings();
         Check.That(settings.Cursor.SmoothingFactor).IsEqualTo(defaults.Cursor.SmoothingFactor);
         Check.That(settings.Cursor.CircleColor).IsEqualTo(defaults.Cursor.CircleColor);
     }
 
     [Fact]
-    public void Load_CorruptedStringEnum_ShouldReturnDefaults()
+    public void Load_CorruptedStringEnumsInOneSection_ResetThatSection()
     {
-        // Arrange
+        // Two corrupted string enums in keyboard exceed the single-fault repair; the section
+        // reverts to defaults while the policy itself stays per-section (#153).
         var service = new SettingsService(_testFilePath);
 
-        // Write settings with invalid string enum
+        // Write settings with invalid string enums
         var invalidJson = @"{
             ""keyboard"": {
                 ""activeLayout"": ""DVORAK"",
@@ -87,16 +90,19 @@ public class SettingsServiceValidationTests : IDisposable
         // Act
         var settings = service.Load();
 
-        // Assert - should return defaults
+        // Assert - keyboard section is defaults
         var defaults = new EyeCtrlSettings();
         Check.That(settings.Keyboard.ActiveLayout).IsEqualTo(defaults.Keyboard.ActiveLayout);
         Check.That(settings.Keyboard.ScreenEdge).IsEqualTo(defaults.Keyboard.ScreenEdge);
     }
 
     [Fact]
-    public void Load_OutOfRangeValues_ShouldReturnDefaults()
+    public void Load_OutOfRangeValues_CostOnlyTheDamagedProperty()
     {
-        // Arrange
+        // The PascalCase "ManualSelection" key never binds (naming-policy matching is
+        // policy-name-only), so those values are unknown members and the section keeps its
+        // defaults. toolbar.size=500 is a single validation fault: drop-one reverts just that
+        // property (to default 120) — the pre-#153 whole-file wipe is gone.
         var service = new SettingsService(_testFilePath);
 
         // Write settings with out-of-range values
@@ -114,7 +120,7 @@ public class SettingsServiceValidationTests : IDisposable
         // Act
         var settings = service.Load();
 
-        // Assert - should return defaults
+        // Assert
         var defaults = new EyeCtrlSettings();
         Check.That(settings.ManualSelection.CircleRadiusPixels).IsEqualTo(defaults.ManualSelection.CircleRadiusPixels);
         Check.That(settings.ManualSelection.MagnificationLevel).IsEqualTo(defaults.ManualSelection.MagnificationLevel);

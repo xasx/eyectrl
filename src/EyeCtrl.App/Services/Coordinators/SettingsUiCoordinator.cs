@@ -142,7 +142,8 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
                 Context.Messenger,
                 Context.CalibrationService,
                 _restartCoordinator ?? throw new InvalidOperationException(
-                    "Restart coordinator not set; SetRestartCoordinator must be called at startup."));
+                    "Restart coordinator not set; SetRestartCoordinator must be called at startup."),
+                Context.UserDictionary);
 
             _settingsWindow.SettingsChanged += OnSettingsChanged;
             _settingsWindow.Closed += OnSettingsWindowClosed;

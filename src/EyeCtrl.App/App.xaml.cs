@@ -246,7 +246,8 @@ public partial class App : Application
                 _serviceProvider.GetRequiredService<IInstalledAppProvider>(),
                 modesMenuVm,
                 repeatCursorVm,
-                _serviceProvider.GetRequiredService<IGlobalEscapeHatch>());
+                _serviceProvider.GetRequiredService<IGlobalEscapeHatch>(),
+                _serviceProvider.GetRequiredService<UserDictionaryService>());
             _eventCoordinator.Initialize(coordinationContext);
 
             // Surface a degraded hatch at startup (review PR #142): a failed or policy-blocked

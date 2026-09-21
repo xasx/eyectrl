@@ -24,12 +24,14 @@ internal static class TestSettingsPageContext
         CalibrationService? calibration = null,
         IMessenger? messenger = null,
         Action<string, Action>? showModal = null,
-        Func<string>? readClipboard = null) => new(
+        Func<string>? readClipboard = null,
+        UserDictionaryService? dictionary = null) => new(
         settings ?? new EyeCtrlSettings(),
         viewModel!, registry!, modelManagement!,
         calibration ?? new CalibrationService(),
         messenger!,
         restart: null!,
+        dictionary: dictionary,
         showModal: showModal ?? ((_, _) => { }),
         showError: _ => { },
         applyAndSave: () => { }, rebuildContent: () => { }, invoke: _ => { },

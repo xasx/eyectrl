@@ -59,6 +59,15 @@ public class PredictionStackFactory : IDisposable
     private readonly CancellationTokenSource _disposeCts = new();
     private int _buildGeneration;
 
+    // Tombstones for ForgetWords: words deleted while a background build was in flight. Such a
+    // build loaded the pre-forget on-disk state, and the swap's ApplyLearnedDelta only ever
+    // ADDS — without this drain every deletion made inside a rebuild window would resurrect at
+    // swap and persist again on the next save. Guarded by its own lock: ForgetWords arrives on
+    // the UI thread, the drain runs in the swap (also UI, but the set deserves no ordering
+    // assumptions).
+    private readonly object _forgetLock = new();
+    private readonly HashSet<string> _pendingForgets = [];
+
     /// <summary>
     /// Raised on the UI THREAD (through the constructor's marshal) after a background build
     /// swapped a new stack in — including a swap to <c>null</c>. Subscribers re-bind their
@@ -185,6 +194,10 @@ public class PredictionStackFactory : IDisposable
         if (old is not null && before is not null)
             built.WordPredictor.ApplyLearnedDelta(before, old.WordPredictor.CaptureLearnedState());
 
+        // Drain forget-tombstones AFTER the delta: deletions that raced this build must win over
+        // both the delta (which only adds) and the pre-forget state the build loaded from disk.
+        ApplyPendingForgetsTo(built.WordPredictor);
+
         try
         {
             old?.Dispose();
@@ -194,6 +207,52 @@ public class PredictionStackFactory : IDisposable
             Log.Warning(ex, "Failed to dispose the superseded prediction stack");
         }
         _current = built;
+    }
+
+    /// <summary>
+    /// Removes words from the live prediction stack NOW (in-memory plus an immediate persist) and
+    /// records them as tombstones so a background build already in flight cannot resurrect them
+    /// at swap time. No live stack yet (prediction disabled or pre-keyboard-init): the tombstone
+    /// still arms the next swap, and the caller's own file rewrite is the durable half.
+    /// </summary>
+    public void ForgetWords(IEnumerable<string> words)
+    {
+        List<string> forgotten = [];
+        lock (_forgetLock)
+        {
+            foreach (var word in words)
+            {
+                if (string.IsNullOrWhiteSpace(word)) continue;
+                var lower = word.ToLowerInvariant();
+                if (_pendingForgets.Add(lower)) forgotten.Add(lower);
+            }
+        }
+
+        var current = _current;
+        if (current is not null && forgotten.Count > 0)
+        {
+            foreach (var word in forgotten)
+                current.WordPredictor.ForgetWord(word);
+            current.WordPredictor.SaveUserDictionary();
+        }
+    }
+
+    /// <summary>
+    /// Applies and clears the pending-forget tombstones against a freshly swapped-in stack.
+    /// Internal for direct testing; the swap is its only production caller. Tombstones live
+    /// exactly one swap: a build started AFTER the forget loads the already-rewritten files, so
+    /// it needs no correction — and a user who deliberately re-learns the word (Add Word key)
+    /// after this swap is not fighting a stale tombstone.
+    /// </summary>
+    internal void ApplyPendingForgetsTo(WordPredictor predictor)
+    {
+        lock (_forgetLock)
+        {
+            if (_pendingForgets.Count == 0) return;
+            foreach (var word in _pendingForgets)
+                predictor.ForgetWord(word);
+            _pendingForgets.Clear();
+        }
     }
 
     /// <summary>

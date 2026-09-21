@@ -54,6 +54,52 @@ internal sealed class KeyboardPageSource : ISettingsPageSource
                     }),
                     ButtonKind.Reset, Width: 380, Height: 100),
             ]),
+            .. DictionaryPage(),
         ];
+    }
+
+    // ── Learned-words management (prediction controls #22) ──────────────────────────────────
+    // The QA pattern: per-word Delete with a confirm modal and a rebuild, plus a Clear-all.
+    // Built only when the host supplies the service — the headless test context does not, and
+    // the Keyboard page then renders exactly as before.
+    private IEnumerable<PageSpec> DictionaryPage()
+    {
+        var dictionary = _ctx.Dictionary;
+        if (dictionary is null) yield break;
+
+        var learned = dictionary.GetLearnedWords();
+        if (learned.Count == 0)
+        {
+            yield return new PageSpec([
+                new LabelSpec(() =>
+                    "No learned words yet. They collect as you type; the Add Word key (Fn row) adds one on the spot."),
+            ]);
+            yield break;
+        }
+
+        var rows = new List<SettingsRowSpec>();
+        foreach (var word in learned)
+        {
+            var captured = word;
+            rows.Add(new LabelSpec(() => $"“{captured}”"));
+            rows.Add(new ButtonSpec("kb_wd_del_" + captured,
+                "✕  Remove from dictionary",
+                () => _ctx.ShowModal($"Remove “{captured}” from the learned dictionary?", () =>
+                {
+                    dictionary.ForgetWord(captured);
+                    _ctx.RebuildContent();
+                }),
+                ButtonKind.Delete, Width: 420, Height: 70));
+        }
+
+        rows.Add(new ButtonSpec("kb_wd_clear", "Remove ALL Learned Words",
+            () => _ctx.ShowModal($"Remove all {learned.Count} learned words?", () =>
+            {
+                dictionary.ClearLearned();
+                _ctx.RebuildContent();
+            }),
+            ButtonKind.Reset, Width: 420, Height: 100));
+
+        yield return new PageSpec(rows);
     }
 }

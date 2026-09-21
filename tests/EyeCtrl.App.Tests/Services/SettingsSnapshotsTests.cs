@@ -187,11 +187,11 @@ public class SettingsSnapshotsTests
         // change). The census set alone cannot detect someone ADDING it to Capture, because the
         // census only unions the two name sets; this can. If this ever fails, either remove the
         // property from KeyboardStackSnapshot or move it to `captured` and accept the rebuild.
+        // Real registry (no on-disk model — both captures share it, so its terms cannot differ).
         var s = new EyeCtrlSettings();
-        var before = KeyboardStackSnapshot.Capture(s);
+        var registry = NewRegistry(TempTestDirectory.Create("snapshots-max-suggestions"), s);
+        var before = KeyboardStackSnapshot.Capture(s, registry);
         s.Keyboard.MaxSuggestions = 2;
-        Check.That(KeyboardStackSnapshot.Capture(s)).IsEqualTo(before);
-        // NOTE for the feat/keyboard-action-edge-toggle merge: that branch adds a registry
-        // parameter to Capture — adapt this call the same way as the neighbours above.
+        Check.That(KeyboardStackSnapshot.Capture(s, registry)).IsEqualTo(before);
     }
 }

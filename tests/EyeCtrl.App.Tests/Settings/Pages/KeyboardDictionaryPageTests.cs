@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Tests.Settings.Pages;
 using System.IO;
 using System.Text.Json;
 using EyeCtrl.App.Services;
+using EyeCtrl.Core.Prediction;
 using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Core.Settings;
 
@@ -88,6 +89,57 @@ public class KeyboardDictionaryPageTests : IDisposable
         // The rebuilt page shows the empty-state hint instead of rows.
         Check.That(rebuilt[1].Rows.OfType<ButtonSpec>()).IsEmpty();
         Check.That(rebuilt[1].Rows[0]).IsInstanceOf<LabelSpec>();
+    }
+
+    [Fact]
+    public void DeleteWord_LiveOnlyAddWordLearn_NoErrorDialog()
+    {
+        // Round-2 N2-A through the page: a never-persisted learn deletes cleanly — no ShowError,
+        // the rebuild shows it gone.
+        using var factory = new PredictionStackFactory();
+        var orchestrator = factory.Rebuild(
+            new EyeCtrlSettings { Keyboard = new KeyboardSettings { LanguagePack = "en" } },
+            _baseDir, _appDataDir, modelRegistry: null);
+        orchestrator!.WordPredictor.LearnWord("zeppelin");
+
+        var service = CreateService();
+        service.SetFactory(factory);
+        var recorder = new RecordingSettingsPageContext(dictionary: service);
+        var pages = new KeyboardPageSource(recorder.Context).Build();
+
+        pages[1].Rows.OfType<ButtonSpec>()
+            .Single(b => b.Id == "kb_wd_del_zeppelin").OnActivate();
+        recorder.LastModalOnYes!(); // the recorder records the modal; the test confirms it
+
+        Check.That(recorder.Errors).IsEmpty();
+        // zeppelin (the live-only learn) is gone; aardvark from the file legitimately remains.
+        Check.That(service.GetLearnedWords()).ContainsExactly("aardvark");
+    }
+
+    [Fact]
+    public void DeleteWord_ReadOnlyFile_ShowsError()
+    {
+        // Round-2 N2-B through the page: a real write failure surfaces as ShowError, and the
+        // throw never escapes the dwell-activated callback.
+        var service = CreateService();
+        var path = Path.Combine(_appDataDir, "user_dictionary_en.json");
+        var attributes = File.GetAttributes(path);
+        File.SetAttributes(path, FileAttributes.ReadOnly);
+        RecordingSettingsPageContext recorder;
+        try
+        {
+            recorder = new RecordingSettingsPageContext(dictionary: service);
+            var pages = new KeyboardPageSource(recorder.Context).Build();
+            pages[1].Rows.OfType<ButtonSpec>()
+                .Single(b => b.Id == "kb_wd_del_zeppelin").OnActivate();
+            recorder.LastModalOnYes!();
+        }
+        finally
+        {
+            File.SetAttributes(path, attributes);
+        }
+
+        Check.That(recorder.Errors).HasSize(1);
     }
 
     public void Dispose()

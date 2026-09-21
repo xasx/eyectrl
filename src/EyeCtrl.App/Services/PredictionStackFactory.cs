@@ -203,6 +203,9 @@ public class PredictionStackFactory : IDisposable
         // Drain forget-tombstones AFTER the delta: deletions that raced this build must win over
         // both the delta (which only adds) and the pre-forget state the build loaded from disk.
         // Only stamps at-or-before this build's generation apply; older stamps expire here.
+        // Known and deliberate cost (round-2 review N4): a re-learn issued INSIDE the build
+        // window is dropped — ApplyLearnedDelta cannot lower, and the tombstone wins; the word
+        // is on disk only if a later save wrote it, so re-teaching after the swap sticks.
         ApplyPendingForgetsTo(built.WordPredictor, generation);
 
         try
@@ -251,7 +254,10 @@ public class PredictionStackFactory : IDisposable
     }
 
     /// <summary>The live stack's predictor, when one is serving (null before the first build,
-    /// while prediction is disabled, and pre-keyboard-init).</summary>
+    /// while prediction is disabled, and pre-keyboard-init). Read on the UI thread only —
+    /// that is where _current is written (the swap posts to it) and where the settings page
+    /// asks; WordFrequencies copies the bare underlying dictionary, so a cross-thread read
+    /// would race the learning writes.</summary>
     public WordPredictor? CurrentWordPredictor => _current?.WordPredictor;
 
     /// <summary>

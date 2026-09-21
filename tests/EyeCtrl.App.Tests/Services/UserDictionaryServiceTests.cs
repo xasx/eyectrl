@@ -62,10 +62,18 @@ public class UserDictionaryServiceTests : IDisposable
         // Review finding 3, measured on the shipped layouts: every keystroke the predictor sees
         // is learned incidentally, so the merged file collects ~50 single-char/punctuation rows
         // per language. None of those are words a user can decide about.
-        WriteUserFile(new() { ["hello"] = 120, ["!"] = 900, ["q"] = 800, ["well-known"] = 7, ["zeppelin"] = 5 });
+        WriteUserFile(new()
+        {
+            ["hello"] = 120, ["!"] = 900, ["q"] = 800, ["22"] = 700,
+            ["well-known"] = 7, ["zeppelin"] = 5, ["don't"] = 4, ["covid-19"] = 3, ["mvp2"] = 2
+        });
         var service = Create();
 
-        Check.That(service.GetLearnedWords()).ContainsExactly("zeppelin");
+        // Junk (bare punctuation, single chars, digit-only) stays hidden; real words WITH
+        // hyphens/apostrophes/digits are listed and removable (round-2 N1 — the letters-only
+        // predicate made such Add Word learns permanently unremovable).
+        Check.That(service.GetLearnedWords())
+            .ContainsExactly("well-known", "zeppelin", "don't", "covid-19", "mvp2");
     }
 
     [Fact]
@@ -100,6 +108,44 @@ public class UserDictionaryServiceTests : IDisposable
     }
 
     [Fact]
+    public void ForgetWord_LiveOnlyAddWordLearn_IsNotReportedAsAWriteFailure()
+    {
+        // Round-2 N2-A: the page lists never-persisted learns; deleting one must NOT fire the
+        // error dialog — nothing-to-remove is the normal outcome for them.
+        WriteUserFile(new() { ["hello"] = 120 });
+        using var factory = new PredictionStackFactory();
+        var orchestrator = factory.Rebuild(_settings, _baseDir, _appDataDir, modelRegistry: null);
+        orchestrator!.WordPredictor.LearnWord("zeppelin"); // live only, never saved
+        var service = Create();
+        service.SetFactory(factory);
+
+        Check.That(service.ForgetWord("zeppelin"))
+            .IsEqualTo(UserDictionaryService.DictionaryWriteResult.NothingToRemove);
+        Check.That(orchestrator.WordPredictor.GetSuggestions("zep")
+            .Select(w => w.Word)).Not.Contains("zeppelin");
+    }
+
+    [Fact]
+    public void ForgetWord_ReadOnlyFile_IsAWriteFailure_NotAThrow()
+    {
+        // Round-2 N2-B: read succeeded, write throws — the caller gets WriteFailed instead of
+        // an exception escaping a dwell-activated modal callback.
+        WriteUserFile(new() { ["hello"] = 120, ["zeppelin"] = 5 });
+        var path = Path.Combine(_appDataDir, "user_dictionary_en.json");
+        var attributes = File.GetAttributes(path);
+        File.SetAttributes(path, FileAttributes.ReadOnly);
+        try
+        {
+            var result = Create().ForgetWord("zeppelin");
+            Check.That(result).IsEqualTo(UserDictionaryService.DictionaryWriteResult.WriteFailed);
+        }
+        finally
+        {
+            File.SetAttributes(path, attributes);
+        }
+    }
+
+    [Fact]
     public void ForgetWord_MissingUserFile_StillForgetsTheLiveStack()
     {
         // Review finding 5: the file half is a no-op (no file), so an early return would strand
@@ -110,7 +156,8 @@ public class UserDictionaryServiceTests : IDisposable
         var service = Create();
         service.SetFactory(factory);
 
-        Check.That(service.ForgetWord("zeppelin")).IsFalse(); // no file to rewrite
+        Check.That(service.ForgetWord("zeppelin"))
+            .IsEqualTo(UserDictionaryService.DictionaryWriteResult.NothingToRemove); // no file
         Check.That(orchestrator.WordPredictor.GetSuggestions("zep")
             .Select(w => w.Word)).Not.Contains("zeppelin"); // live half still ran
     }
@@ -153,16 +200,21 @@ public class UserDictionaryServiceTests : IDisposable
         // The in-flight-rebuild guard: a word forgotten while a background build was loading the
         // pre-forget disk state (stamp >= that build's generation) is removed from the freshly
         // swapped-in stack too, and the tombstone dies with that swap.
+        // Generations are production-reachable (round-2 N8): a sync Rebuild runs first, so the
+        // counter sits at 1 and the forget stamps 1. The racing build IS generation 1; a later
+        // build would be 2. (Rebuild increments before use, so 0 never reaches a swap.)
+        WriteUserFile(new() { ["hello"] = 120 });
         using var factory = new PredictionStackFactory();
-        factory.ForgetWords(["zeppelin"]); // no live stack: tombstone only, stamped gen 0
+        factory.Rebuild(_settings, _baseDir, _appDataDir, modelRegistry: null); // generation 1
+        factory.ForgetWords(["zeppelin"]); // stamps 1
 
         var predictor = new WordPredictor(new HelloProvider());
         predictor.LearnWord("zeppelin");
-        factory.ApplyPendingForgetsTo(predictor, buildGeneration: 0); // the racing build's swap
+        factory.ApplyPendingForgetsTo(predictor, buildGeneration: 1); // the racing build's swap
         Check.That(predictor.GetSuggestions("zep").Select(s => s.Word)).Not.Contains("zeppelin");
 
         predictor.LearnWord("zeppelin"); // re-learn AFTER the swap must not be tombstoned again
-        factory.ApplyPendingForgetsTo(predictor, buildGeneration: 0);
+        factory.ApplyPendingForgetsTo(predictor, buildGeneration: 1);
         Check.That(predictor.GetSuggestions("zep").Select(s => s.Word)).Contains("zeppelin");
     }
 
@@ -172,18 +224,20 @@ public class UserDictionaryServiceTests : IDisposable
         // Review finding 2: a tombstone armed when NO build was in flight must not fire at an
         // arbitrary later swap - that build loaded the already-rewritten files, and a re-learn
         // that happened in between must survive it.
+        WriteUserFile(new() { ["hello"] = 120 });
         using var factory = new PredictionStackFactory();
-        factory.ForgetWords(["zeppelin"]); // stamped at generation 0, nothing in flight
+        factory.Rebuild(_settings, _baseDir, _appDataDir, modelRegistry: null); // generation 1
+        factory.ForgetWords(["zeppelin"]); // stamps 1, nothing in flight
 
         var predictor = new WordPredictor(new HelloProvider());
         predictor.LearnWord("zeppelin"); // re-learn BEFORE the later build's swap
-        factory.ApplyPendingForgetsTo(predictor, buildGeneration: 1); // a NEWER build swaps in
+        factory.ApplyPendingForgetsTo(predictor, buildGeneration: 2); // a NEWER build swaps in
         Check.That(predictor.GetSuggestions("zep").Select(s => s.Word)).Contains("zeppelin");
 
         // And the stamp is consumed/expired, not left armed for yet another swap.
         predictor.ForgetWord("zeppelin");
         predictor.LearnWord("zeppelin");
-        factory.ApplyPendingForgetsTo(predictor, buildGeneration: 2);
+        factory.ApplyPendingForgetsTo(predictor, buildGeneration: 3);
         Check.That(predictor.GetSuggestions("zep").Select(s => s.Word)).Contains("zeppelin");
     }
 
@@ -216,20 +270,27 @@ public class UserDictionaryServiceTests : IDisposable
         // already read) but before the pump executes the swap is provably inside the window.
         WriteUserFile(new() { ["hello"] = 120, ["zeppelin"] = 5 });
         var swaps = new System.Collections.Concurrent.ConcurrentQueue<Action>();
-        using var factory = new PredictionStackFactory(swaps.Enqueue);
+        int enqueued = 0; // cumulative: the pump consumes the queue, so Count alone under-reports
+        using var factory = new PredictionStackFactory(work =>
+        {
+            swaps.Enqueue(work);
+            System.Threading.Interlocked.Increment(ref enqueued);
+        });
 
         Action pump = () => { if (swaps.TryDequeue(out var run)) run(); };
 
-        // Boot: first background build, pumped, puts a live stack in place.
+        // Boot: first background build, pumped, puts a live stack in place. Waits are
+        // COUNT-based (round-2 review N6): "queue non-empty" is only equivalent while every
+        // earlier enqueue has been pumped, and one stale entry answers the wrong question.
         factory.Rebuild(_settings, _baseDir, _appDataDir, modelRegistry: null);
-        await PumpUntilNonEmptyAsync(swaps);
+        await PumpUntilEnqueuedAsync(() => System.Threading.Volatile.Read(ref enqueued), expected: 1);
         pump();
         Check.That(factory.CurrentWordPredictor).IsNotNull();
 
         // A second build goes in flight; when its continuation has queued the swap, the
         // build has finished and loaded whatever was on disk at its head — the pre-forget file.
         factory.Rebuild(_settings, _baseDir, _appDataDir, modelRegistry: null);
-        await PumpUntilNonEmptyAsync(swaps);
+        await PumpUntilEnqueuedAsync(() => System.Threading.Volatile.Read(ref enqueued), expected: 2);
         factory.ForgetWords(["zeppelin"]); // INSIDE the window: swap queued, not yet run
         pump();
 
@@ -239,22 +300,25 @@ public class UserDictionaryServiceTests : IDisposable
         // And a deliberate re-learn survives a LATER build's swap (stamps expire, finding 2).
         factory.CurrentWordPredictor.LearnWord("zeppelin");
         factory.Rebuild(_settings, _baseDir, _appDataDir, modelRegistry: null);
-        await PumpUntilNonEmptyAsync(swaps);
+        await PumpUntilEnqueuedAsync(() => System.Threading.Volatile.Read(ref enqueued), expected: 3);
         pump();
         Check.That(factory.CurrentWordPredictor.GetSuggestions("zep")
             .Select(w => w.Word)).Contains("zeppelin");
     }
 
-    private static async Task PumpUntilNonEmptyAsync(
-        System.Collections.Concurrent.ConcurrentQueue<Action> swaps)
+    private static async Task PumpUntilEnqueuedAsync(System.Func<int> enqueued, int expected)
     {
         // The build task is tiny; poll briefly for the continuation to queue its swap. A fixed
         // delay would flake on a loaded runner — the repo's WaitFor-poll convention instead.
+        // The reader is a closure over the CUMULATIVE counter (the pump drains the queue, so
+        // its live Count under-reports once anything has been pumped — and an int parameter
+        // would freeze the value at call time).
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-        while (swaps.IsEmpty)
+        while (enqueued() < expected)
         {
             if (DateTime.UtcNow > deadline)
-                throw new TimeoutException("The background build never queued its swap.");
+                throw new TimeoutException(
+                    $"The background build never queued its swap (have {enqueued()}, want {expected}).");
             await Task.Delay(10);
         }
     }

@@ -303,6 +303,20 @@ public class WordPredictor
         LearnWordInternal(normalizedWord);
     }
 
+    /// <summary>
+    /// Removes a word from the in-memory dictionary — the dictionary-management counterpart of
+    /// <see cref="LearnWord(string)"/>. Storage keys are lowercase invariant, so the lookup is
+    /// too. Does NOT touch bigrams, phrases, or casing preferences: those decay on their own and
+    /// cannot resurrect a word whose dictionary entry is gone. The caller owns persistence —
+    /// pair this with <see cref="SaveUserDictionary"/> or the removal returns with the next save.
+    /// </summary>
+    /// <returns><c>true</c> if the word was present and removed.</returns>
+    public bool ForgetWord(string word)
+    {
+        if (string.IsNullOrWhiteSpace(word)) return false;
+        return _words.Remove(word.ToLowerInvariant());
+    }
+
     private void LearnWordInternal(string normalizedWord)
     {
         var lower = normalizedWord.ToLowerInvariant();

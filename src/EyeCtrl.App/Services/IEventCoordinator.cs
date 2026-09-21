@@ -89,9 +89,7 @@ public record EventCoordinationContext(
     ModesMenuViewModel ModesMenuVM,
     RepeatCursorViewModel RepeatCursorVM,
     IGlobalEscapeHatch EscapeHatch,
-    /// <summary>
-    /// Dictionary management for the settings UI (prediction controls #22). Nullable: the test
-    /// context bag passes null and the Keyboard page builds without its dictionary page. The
-    /// factory inside arrives late (SetFactory at keyboard init — the SetModelServices pattern).
-    /// </summary>
+    // Dictionary management for the settings UI (prediction controls #22). Nullable: the test
+    // context bag passes null and the Keyboard page builds without its dictionary page. The
+    // factory inside arrives late (SetFactory at keyboard init — the SetModelServices pattern).
     UserDictionaryService? UserDictionary = null);

@@ -59,14 +59,16 @@ public class PredictionStackFactory : IDisposable
     private readonly CancellationTokenSource _disposeCts = new();
     private int _buildGeneration;
 
-    // Tombstones for ForgetWords: words deleted while a background build was in flight. Such a
-    // build loaded the pre-forget on-disk state, and the swap's ApplyLearnedDelta only ever
-    // ADDS — without this drain every deletion made inside a rebuild window would resurrect at
-    // swap and persist again on the next save. Guarded by its own lock: ForgetWords arrives on
-    // the UI thread, the drain runs in the swap (also UI, but the set deserves no ordering
-    // assumptions).
+    // Tombstones for ForgetWords, stamped with the build generation current at forget time.
+    // Only a build that was ALREADY in flight (generation <= the stamp) loaded pre-forget disk
+    // state — for it, the swap's ApplyLearnedDelta (which only ever ADDS) would resurrect the
+    // word, so the swap drains it. A LATER build loads the rewritten files and needs no
+    // correction; its swap is where older stamps expire, so a deliberate re-learn in between
+    // (Add Word key) is not fighting a stale tombstone. Guarded by its own lock: ForgetWords
+    // arrives on the UI thread, the drain runs in the swap (also UI, but the map deserves no
+    // ordering assumptions).
     private readonly object _forgetLock = new();
-    private readonly HashSet<string> _pendingForgets = [];
+    private readonly Dictionary<string, int> _pendingForgets = [];
 
     /// <summary>
     /// Raised on the UI THREAD (through the constructor's marshal) after a background build
@@ -109,7 +111,10 @@ public class PredictionStackFactory : IDisposable
         if (_postToUi is null)
         {
             // Synchronous mode: save + dispose the old, build the new from the just-saved files,
-            // return it — identical to the pre-background behaviour.
+            // return it — identical to the pre-background behaviour. No tombstone drain here,
+            // on purpose: the save wrote post-forget state and the build loads those files, so
+            // there is no stale-disk window to correct (the asymmetry with the swap is real but
+            // not an omission — stamps from this mode simply expire at any later background swap).
             SaveAndDisposeCurrent();
             _current = Build(settings, baseDir, appDataDir, modelRegistry, CancellationToken.None);
             return _current;
@@ -169,7 +174,7 @@ public class PredictionStackFactory : IDisposable
                             built.Dispose();
                             return;
                         }
-                        SwapInWithLearnedTail(built, before);
+                        SwapInWithLearnedTail(built, before, generation);
                         StackSwapped?.Invoke(_current);
                     });
                 },
@@ -188,7 +193,8 @@ public class PredictionStackFactory : IDisposable
     /// the union. Saving here instead would let the new stack's in-memory (pre-tail) state
     /// clobber the tail at ITS next save — the silent-destruction bug of review finding 2.
     /// </summary>
-    private void SwapInWithLearnedTail(PredictionOrchestrator built, PredictionLearnedState? before)
+    private void SwapInWithLearnedTail(
+        PredictionOrchestrator built, PredictionLearnedState? before, int generation)
     {
         var old = _current;
         if (old is not null && before is not null)
@@ -196,7 +202,8 @@ public class PredictionStackFactory : IDisposable
 
         // Drain forget-tombstones AFTER the delta: deletions that raced this build must win over
         // both the delta (which only adds) and the pre-forget state the build loaded from disk.
-        ApplyPendingForgetsTo(built.WordPredictor);
+        // Only stamps at-or-before this build's generation apply; older stamps expire here.
+        ApplyPendingForgetsTo(built.WordPredictor, generation);
 
         try
         {
@@ -218,13 +225,19 @@ public class PredictionStackFactory : IDisposable
     public void ForgetWords(IEnumerable<string> words)
     {
         List<string> forgotten = [];
+        var generation = Volatile.Read(ref _buildGeneration);
         lock (_forgetLock)
         {
             foreach (var word in words)
             {
                 if (string.IsNullOrWhiteSpace(word)) continue;
                 var lower = word.ToLowerInvariant();
-                if (_pendingForgets.Add(lower)) forgotten.Add(lower);
+                // Arm/refresh the tombstone AND queue the live removal regardless of whether the
+                // word was already pending: gating the live remove on the tombstone dedup meant a
+                // repeated forget (delete, re-learn, delete again) left the word LIVE while the
+                // page showed it gone (review finding 1).
+                _pendingForgets[lower] = generation;
+                forgotten.Add(lower);
             }
         }
 
@@ -237,21 +250,34 @@ public class PredictionStackFactory : IDisposable
         }
     }
 
+    /// <summary>The live stack's predictor, when one is serving (null before the first build,
+    /// while prediction is disabled, and pre-keyboard-init).</summary>
+    public WordPredictor? CurrentWordPredictor => _current?.WordPredictor;
+
     /// <summary>
-    /// Applies and clears the pending-forget tombstones against a freshly swapped-in stack.
-    /// Internal for direct testing; the swap is its only production caller. Tombstones live
-    /// exactly one swap: a build started AFTER the forget loads the already-rewritten files, so
-    /// it needs no correction — and a user who deliberately re-learns the word (Add Word key)
-    /// after this swap is not fighting a stale tombstone.
+    /// Applies the forget-tombstones that THIS build needs and expires the rest, against the
+    /// freshly swapped-in stack. Internal for direct testing; the swap is its only production
+    /// caller. A stamp applies when the forget happened at-or-after this build's generation
+    /// started (the build read pre-forget disk); a stamp from an EARLIER generation is expired
+    /// by this build's clean disk read and is dropped, not applied — so a re-learn that happened
+    /// between the forget and a later build survives (review finding 2).
     /// </summary>
-    internal void ApplyPendingForgetsTo(WordPredictor predictor)
+    internal void ApplyPendingForgetsTo(WordPredictor predictor, int buildGeneration)
     {
         lock (_forgetLock)
         {
             if (_pendingForgets.Count == 0) return;
-            foreach (var word in _pendingForgets)
+            List<string> applies = [];
+            List<string> expired = [];
+            foreach (var (word, forgottenAt) in _pendingForgets)
+                (forgottenAt >= buildGeneration ? applies : expired).Add(word);
+            foreach (var word in expired)
+                _pendingForgets.Remove(word);
+            foreach (var word in applies)
+            {
                 predictor.ForgetWord(word);
-            _pendingForgets.Clear();
+                _pendingForgets.Remove(word);
+            }
         }
     }
 

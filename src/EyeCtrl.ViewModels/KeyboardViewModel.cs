@@ -414,7 +414,8 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// </summary>
     private static string TrimLastWord(string text)
     {
-        var end = text.Length;        while (end > 0 && !char.IsLetterOrDigit(text[end - 1])) end--;
+        var end = text.Length;
+        while (end > 0 && !char.IsLetterOrDigit(text[end - 1])) end--;
         var start = end;
         while (start > 0 && char.IsLetterOrDigit(text[start - 1])) start--;
         return text[..start];

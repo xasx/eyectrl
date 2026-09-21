@@ -86,7 +86,11 @@ internal sealed class KeyboardPageSource : ISettingsPageSource
                 "✕  Remove from dictionary",
                 () => _ctx.ShowModal($"Remove “{captured}” from the learned dictionary?", () =>
                 {
-                    dictionary.ForgetWord(captured);
+                    // False = the file rewrite failed (missing/corrupt/locked): the word is still
+                    // gone from the live session, but say so rather than letting the rebuild
+                    // imply a durable removal that did not happen.
+                    if (!dictionary.ForgetWord(captured))
+                        _ctx.ShowError($"Removed “{captured}” for this session, but the dictionary file could not be updated.");
                     _ctx.RebuildContent();
                 }),
                 ButtonKind.Delete, Width: 420, Height: 70));
@@ -95,7 +99,8 @@ internal sealed class KeyboardPageSource : ISettingsPageSource
         rows.Add(new ButtonSpec("kb_wd_clear", "Remove ALL Learned Words",
             () => _ctx.ShowModal($"Remove all {learned.Count} learned words?", () =>
             {
-                dictionary.ClearLearned();
+                if (!dictionary.ClearLearned())
+                    _ctx.ShowError("Removed for this session, but the dictionary file could not be updated.");
                 _ctx.RebuildContent();
             }),
             ButtonKind.Reset, Width: 420, Height: 100));

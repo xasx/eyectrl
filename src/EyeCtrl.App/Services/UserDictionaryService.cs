@@ -48,41 +48,58 @@ public sealed class UserDictionaryService
     public void SetFactory(PredictionStackFactory factory) => _factory = factory;
 
     /// <summary>
-    /// Learned words: user-file keys absent from the base dictionary, most-used first. The user
-    /// file stores the MERGED dictionary (SaveUserDictionary writes predictor state wholesale),
-    /// so "learned" is the set difference — the novel words typing introduced; a base word the
-    /// user merely used often is not a dictionary entry they added.
+    /// Learned WORDS: multi-letter, letters-only entries that are not base-dictionary vocabulary,
+    /// most-used first. The user file stores the MERGED dictionary (SaveUserDictionary writes
+    /// predictor state wholesale), so "learned" is the set difference; single characters and
+    /// punctuation land in that file as typing noise (every keystroke the predictor sees is
+    /// learned incidentally) and are not dictionary words. When a live stack is attached, the
+    /// LIVE dictionary is the source — it includes Add Word learns that have not been persisted
+    /// yet, so the page can undo them in the same session.
     /// </summary>
     public IReadOnlyList<string> GetLearnedWords()
     {
         var (basePath, userPath) = Paths();
-        var userWords = ReadUserFile(userPath);
-        if (userWords.Count == 0) return [];
-
         var baseWords = ReadBaseWords(basePath);
-        return userWords
-            .Where(kv => !baseWords.Contains(kv.Key))
+
+        IEnumerable<KeyValuePair<string, int>> source =
+            _factory?.CurrentWordPredictor is { } live ? live.WordFrequencies : ReadUserFile(userPath);
+
+        return source
+            .Where(kv => IsLearnedWord(kv.Key) && !baseWords.Contains(kv.Key))
             .OrderByDescending(kv => kv.Value)
             .ThenBy(kv => kv.Key, StringComparer.Ordinal)
             .Select(kv => kv.Key)
             .ToList();
     }
 
-    /// <summary>Removes one learned word from the user file and the live stack.</summary>
-    public void ForgetWord(string word)
+    /// <summary>Two or more letters — a word a user can recognize and decide about.</summary>
+    private static bool IsLearnedWord(string key) =>
+        key.Length > 1 && key.All(char.IsLetter);
+
+    /// <summary>
+    /// Removes one learned word from the user file and the live stack. Returns whether the FILE
+    /// rewrite happened (false: file missing, empty, or unreadable). The live forget runs even
+    /// then — a corrupt file must not strand the word in predictor memory (the inverse of the
+    /// resurrection rule).
+    /// </summary>
+    public bool ForgetWord(string word)
     {
-        if (!RewriteUserFileWithout([word])) return;
+        var removed = RewriteUserFileWithout([word]);
         _factory?.ForgetWords([word]);
+        return removed;
     }
 
-    /// <summary>Removes every learned word (file + live stack) in one pass.</summary>
-    public void ClearLearned()
+    /// <summary>Removes every learned word (file + live stack) in one pass; same return contract
+    /// as <see cref="ForgetWord"/>.</summary>
+    public bool ClearLearned()
     {
         var learned = GetLearnedWords();
-        if (learned.Count == 0) return;
-        if (!RewriteUserFileWithout(learned)) return;
+        if (learned.Count == 0) return true;
+        var removed = RewriteUserFileWithout(learned);
         _factory?.ForgetWords(learned);
-        Log.Information("Cleared {Count} learned dictionary words", learned.Count);
+        if (removed)
+            Log.Information("Cleared {Count} learned dictionary words", learned.Count);
+        return removed;
     }
 
     /// <summary>Same arithmetic as PredictionStackFactory.Build: sanitize, then both file paths.</summary>

@@ -206,6 +206,59 @@ public class UserDictionaryServiceTests : IDisposable
         Check.That(predictor.GetSuggestions("zep").Select(w => w.Word)).Not.Contains("zeppelin");
     }
 
+    [Fact]
+    public async Task ForgetWords_DuringABackgroundBuild_TheProductionSwapPathDrainsIt()
+    {
+        // The gap round 1 named: no test executed the production background path
+        // (Rebuild -> build task -> continuation -> SwapInWithLearnedTail -> drain). The
+        // postToUi seam makes the in-flight window DETERMINISTIC: swaps are enqueued, not
+        // run, so a forget issued after the continuation queued (build done, stale disk
+        // already read) but before the pump executes the swap is provably inside the window.
+        WriteUserFile(new() { ["hello"] = 120, ["zeppelin"] = 5 });
+        var swaps = new System.Collections.Concurrent.ConcurrentQueue<Action>();
+        using var factory = new PredictionStackFactory(swaps.Enqueue);
+
+        Action pump = () => { if (swaps.TryDequeue(out var run)) run(); };
+
+        // Boot: first background build, pumped, puts a live stack in place.
+        factory.Rebuild(_settings, _baseDir, _appDataDir, modelRegistry: null);
+        await PumpUntilNonEmptyAsync(swaps);
+        pump();
+        Check.That(factory.CurrentWordPredictor).IsNotNull();
+
+        // A second build goes in flight; when its continuation has queued the swap, the
+        // build has finished and loaded whatever was on disk at its head — the pre-forget file.
+        factory.Rebuild(_settings, _baseDir, _appDataDir, modelRegistry: null);
+        await PumpUntilNonEmptyAsync(swaps);
+        factory.ForgetWords(["zeppelin"]); // INSIDE the window: swap queued, not yet run
+        pump();
+
+        Check.That(factory.CurrentWordPredictor!.GetSuggestions("zep")
+            .Select(w => w.Word)).Not.Contains("zeppelin");
+
+        // And a deliberate re-learn survives a LATER build's swap (stamps expire, finding 2).
+        factory.CurrentWordPredictor.LearnWord("zeppelin");
+        factory.Rebuild(_settings, _baseDir, _appDataDir, modelRegistry: null);
+        await PumpUntilNonEmptyAsync(swaps);
+        pump();
+        Check.That(factory.CurrentWordPredictor.GetSuggestions("zep")
+            .Select(w => w.Word)).Contains("zeppelin");
+    }
+
+    private static async Task PumpUntilNonEmptyAsync(
+        System.Collections.Concurrent.ConcurrentQueue<Action> swaps)
+    {
+        // The build task is tiny; poll briefly for the continuation to queue its swap. A fixed
+        // delay would flake on a loaded runner — the repo's WaitFor-poll convention instead.
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (swaps.IsEmpty)
+        {
+            if (DateTime.UtcNow > deadline)
+                throw new TimeoutException("The background build never queued its swap.");
+            await Task.Delay(10);
+        }
+    }
+
     private sealed class HelloProvider : IDictionaryProvider
     {
         private readonly Dictionary<string, int> _words = new() { { "hello", 100 } };

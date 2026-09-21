@@ -11,7 +11,10 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Service for persisting and loading application settings as JSON.
-/// Performs validation before saving and returns safe defaults on load failure.
+/// Performs validation before saving and loads damaged files with per-setting tolerance
+/// (issue #153): a defect costs the offending property or, at worst, its section — never
+/// the whole file. Whole-file defaults remain only when there is no data to salvage
+/// (missing/unreadable/unparseable file).
 /// </summary>
 /// <remarks>
 /// Single-writer ownership (spec, "Lost updates, not just corruption"): each instance is constructed
@@ -109,10 +112,46 @@ public class SettingsService
     }
 
     /// <summary>
-    /// Loads settings from disk. Returns defaults if the file does not exist, is malformed,
-    /// or contains validation errors.
+    /// Loads settings from disk with per-setting tolerance (issue #153).
     /// </summary>
-    /// <returns>The loaded and validated <see cref="EyeCtrlSettings"/>, or a new default instance on failure.</returns>
+    /// <returns>
+    /// The loaded settings. A damaged value costs that property (dropped to its default) or, when
+    /// its section has several defects, that section — never the whole file. Whole-file defaults
+    /// are returned only when there is no data to salvage: the file is missing, unreadable, or
+    /// unparseable.
+    /// </returns>
+    /// <remarks>
+    /// Design ledger (owner-vetoable; alternatives were considered and rejected as noted):
+    /// <list type="bullet">
+    /// <item><b>D1 — the Clamp family stays.</b> Clamps preserve the user's intent where a range
+    /// is known (a mistyped 250 clamps to 200 rather than dropping to the default). The general
+    /// repair below is the safety net around them, not a replacement: retiring the clamps would
+    /// trade intent-preserving recovery for property drops.</item>
+    /// <item><b>D2 — section acceptance is judged standalone, at the JSON-node level.</b> A section
+    /// is acceptable iff it deserializes without throwing (setter guards included) AND, after the
+    /// read-time clamps, passes its own <c>Validate()</c>. The root <c>Validate()</c> returns flat
+    /// strings with no property attribution; restructuring all 21 implementations to return
+    /// structured results was rejected as a far larger refactor with Save-message churn for no
+    /// additional recovery. Node-level evaluation buys the attribution for free.</item>
+    /// <item><b>D3 — single-fault repair.</b> A section failing D2 is retried with each single
+    /// property dropped; the first accepting candidate wins (that property reverts to its default,
+    /// the section's other values survive). Two or more faults in one section revert the section
+    /// to defaults. Full multi-drop search was rejected: unbounded, and which of several bad
+    /// values to keep has no principled answer. The overwhelmingly common real damage is one
+    /// hand-edited typo.</item>
+    /// <item><b>D4 — root enum scalars</b> (viewPosition, selectionMode) get the same
+    /// probe-or-drop treatment as sections.</item>
+    /// <item><b>D5 — whole-file defaults only for the no-data classes:</b> missing file, unreadable
+    /// file (IO), unparseable JSON, non-object root, and a residual whole-graph failure after
+    /// repair (defensive; every surviving node was proven deserializable standalone). With no parsed
+    /// data there is nothing to preserve, so the catch-all's behavior is unchanged in kind.</item>
+    /// <item><b>D6 — repairs are in-memory only.</b> Unlike the lossless migrations above (which
+    /// write back), repairs are lossy; persisting user-data loss at load time, before any user
+    /// visibility, would amplify a repair bug's blast radius from this session's view to the file
+    /// itself. The repaired state reaches disk on the next organic Save — the same path by which
+    /// the old whole-file defaults reached it.</item>
+    /// </list>
+    /// </remarks>
     public EyeCtrlSettings Load()
     {
         if (!File.Exists(_filePath)) return new EyeCtrlSettings();
@@ -135,31 +174,35 @@ public class SettingsService
                 }
                 catch (Exception ex) { _logger?.LogWarning(ex, "Failed to persist migrated settings to {FilePath}", _filePath); }
             }
-            var settings = JsonSerializer.Deserialize<EyeCtrlSettings>(migratedJson, JsonOptions) ?? new EyeCtrlSettings();
 
-            // Migration: seed SelectionMode from deprecated ManualSelection.Enabled
-            if (settings.SelectionMode == SelectionMode.None && settings.ManualSelection.Enabled)
+            // Fast path — the intact file (the overwhelming case): one deserialize plus the same
+            // seed/clamp/validate work Load has always done. The clamp family runs before
+            // validation so the hand-editable values it protects are judged post-clamp.
+            var settings = TryDeserializeWholeGraph(migratedJson);
+            if (settings is not null && !HasNullSection(settings))
             {
-                settings.SelectionMode = SelectionMode.ManualSelection;
+                SeedSelectionMode(settings);
+                ApplyLoadClamps(settings);
+                if (settings.Validate().Count == 0)
+                    return settings;
             }
 
-            // The gaze-indicator visuals were unvalidated before they got ranges (2026-08-29); a
-            // hand-edited file holding an out-of-range value must clamp, not trip the whole-file
-            // default below — the file-wipe path punishes exactly the hand-editors the UI serves.
-            ClampGazeIndicator(settings.ManualSelection);
-            ClampManualSelectionTargeting(settings.ManualSelection);
-            ClampCursorFilter(settings.Cursor);
-            SanitizeLanguagePack(settings.Keyboard);
-            ClampMaxSuggestions(settings.Keyboard);
+            // Tolerant path — something in the file is damaged. Instead of the issue-#153
+            // whole-file wipe, repair per setting (ledger D2-D4). Unparseable JSON throws from
+            // JsonNode.Parse into the catch below: no parsed data, nothing to preserve (D5).
+            settings = LoadWithSectionRepair(migratedJson);
+            SeedSelectionMode(settings);
+            ApplyLoadClamps(settings);
 
-            // Validate loaded settings
-            var validationErrors = settings.Validate();
-            if (validationErrors.Count > 0)
+            // Belt and braces: every surviving section was accepted standalone (deserialize +
+            // clamp + validate), so this is reachable only if a DEFAULTS object fails its own
+            // Validate — a code bug pinned impossible by Validate_DefaultInstance_HasNoErrors.
+            // Fail safe, and loudly.
+            var residualErrors = settings.Validate();
+            if (residualErrors.Count > 0)
             {
-                _logger?.LogWarning("Settings validation errors found in {FilePath}: {Errors}",
-                    _filePath, string.Join("; ", validationErrors));
-
-                // Return defaults for safety
+                _logger?.LogError("Settings still invalid after section repair of {FilePath}: {Errors}",
+                    _filePath, string.Join("; ", residualErrors));
                 return new EyeCtrlSettings();
             }
 
@@ -167,10 +210,182 @@ public class SettingsService
         }
         catch (Exception ex)
         {
+            // D5: missing/unreadable file, unparseable JSON, non-object root, or a residual
+            // whole-graph failure after repair — nothing salvageable.
             _logger?.LogError(ex, "Error loading settings from {FilePath}", _filePath);
             return new EyeCtrlSettings();
         }
     }
+
+    private EyeCtrlSettings? TryDeserializeWholeGraph(string json)
+    {
+        try { return JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions); }
+        catch { return null; }
+    }
+
+    private static bool HasNullSection(EyeCtrlSettings settings) =>
+        settings.EnumerateSubSettings().Any(t => t.Settings is null);
+
+    // Migration: seed SelectionMode from deprecated ManualSelection.Enabled
+    private static void SeedSelectionMode(EyeCtrlSettings settings)
+    {
+        if (settings.SelectionMode == SelectionMode.None && settings.ManualSelection.Enabled)
+            settings.SelectionMode = SelectionMode.ManualSelection;
+    }
+
+    // The gaze-indicator visuals were unvalidated before they got ranges (2026-08-29); a
+    // hand-edited file holding an out-of-range value must clamp, not trip a rejection — the
+    // file-wipe path punished exactly the hand-editors the UI serves. This dispatch point is
+    // shared by the fast path, the section-acceptance probe, and the post-repair pass, so a
+    // section is always judged exactly as it will be returned (a clampable value is clamped,
+    // never dropped, even inside the repair).
+    private void ApplyLoadClamps(EyeCtrlSettings settings)
+    {
+        foreach (var (_, section) in settings.EnumerateSubSettings())
+            ClampSection(section);
+    }
+
+    private void ClampSection(object? section)
+    {
+        switch (section)
+        {
+            case ManualSelectionSettings ms:
+                ClampGazeIndicator(ms);
+                ClampManualSelectionTargeting(ms);
+                break;
+            case CursorSettings cursor:
+                ClampCursorFilter(cursor);
+                break;
+            case KeyboardSettings keyboard:
+                SanitizeLanguagePack(keyboard);
+                ClampMaxSuggestions(keyboard);
+                break;
+        }
+    }
+
+    // ── Per-setting tolerance (issue #153) ───────────────────────────────────────────────────────
+    //
+    // The repair pass re-anchors on JsonNode.Parse: if the file parses, ANY later failure — a
+    // setter-guard throw during deserialization, a JsonException from a bad enum string or a
+    // type mismatch, a Validate() rejection — is attributable to a node and therefore
+    // recoverable per setting. Each section is probed standalone; a failing section gets the
+    // single-fault drop-one retry (D3), then defaults; the root enum scalars are probed and
+    // dropped the same way (D4). The repaired tree is deserialized once more as a whole graph.
+
+    private static readonly (string Name, Type Type)[] RootScalarProperties =
+    [
+        ("ViewPosition", typeof(ViewPosition)),
+        ("SelectionMode", typeof(SelectionMode)),
+    ];
+
+    private EyeCtrlSettings LoadWithSectionRepair(string json)
+    {
+        if (JsonNode.Parse(json) is not JsonObject root)
+            throw new JsonException("Settings file root is not a JSON object.");
+
+        foreach (var (clrName, sectionType) in SectionTypes())
+        {
+            var key = ResolveKey(root, clrName);
+            if (key is null) continue;   // absent: the fresh default instance applies
+            if (root[key] is not JsonObject section)
+            {
+                // A null literal, scalar, or array where a section object belongs.
+                root.Remove(key);
+                _logger?.LogWarning("Settings section '{Section}' in {FilePath} is not an object; reset to defaults.",
+                    clrName, _filePath);
+                continue;
+            }
+
+            if (SectionAccepts(section, sectionType)) continue;
+
+            if (TryDropOneAccept(section, sectionType, out var repaired, out var dropped))
+            {
+                root[key] = repaired;
+                _logger?.LogWarning("Invalid setting '{Section}.{Property}' in {FilePath} dropped; it reverts to its default and the rest of the file loads.",
+                    clrName, dropped, _filePath);
+            }
+            else
+            {
+                root.Remove(key);
+                _logger?.LogWarning("Settings section '{Section}' in {FilePath} has multiple invalid values; the section reverts to defaults and the rest of the file loads.",
+                    clrName, _filePath);
+            }
+        }
+
+        foreach (var (name, type) in RootScalarProperties)
+        {
+            var key = ResolveKey(root, name);
+            if (key is null) continue;
+            if (root[key] is not JsonNode)   // null literal
+            {
+                root.Remove(key);
+                continue;
+            }
+            try { _ = root[key]!.Deserialize(type, JsonOptions); }
+            catch (Exception ex)
+            {
+                root.Remove(key);
+                _logger?.LogWarning(ex, "Invalid setting '{Property}' in {FilePath} dropped; it reverts to its default.",
+                    name, _filePath);
+            }
+        }
+
+        return root.Deserialize<EyeCtrlSettings>(JsonOptions) ?? new EyeCtrlSettings();
+    }
+
+    /// <summary>The section map for the repair pass: every sub-settings property from
+    /// <see cref="EyeCtrlSettings.EnumerateSubSettings"/> (the drift-guarded single source of
+    /// truth) paired with its declared property type.</summary>
+    private static IEnumerable<(string ClrName, Type SectionType)> SectionTypes() =>
+        new EyeCtrlSettings().EnumerateSubSettings()
+            .Select(t => (t.Name, typeof(EyeCtrlSettings).GetProperty(t.Name)!.PropertyType));
+
+    /// <summary>D2: a section is acceptable iff it deserializes without throwing (setter guards
+    /// included) AND, after the read-time clamps, passes its own Validate().</summary>
+    private bool SectionAccepts(JsonObject section, Type sectionType)
+    {
+        try
+        {
+            if (section.Deserialize(sectionType, JsonOptions) is not { } candidate) return false;
+            ClampSection(candidate);
+            return candidate is not IValidatable validatable || validatable.Validate().Count == 0;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>D3: single-fault repair — retry the section with each property dropped in turn;
+    /// the first candidate that accepts wins. Returns false when no single drop fixes the
+    /// section (multi-fault), leaving the caller to default the section wholesale.</summary>
+    private bool TryDropOneAccept(JsonObject section, Type sectionType,
+        out JsonObject repaired, out string dropped)
+    {
+        foreach (var key in section.Select(k => k.Key).ToList())
+        {
+            repaired = section.DeepClone().AsObject();
+            repaired.Remove(key);
+            if (SectionAccepts(repaired, sectionType))
+            {
+                dropped = key;
+                return true;
+            }
+        }
+        repaired = null!;
+        dropped = null!;
+        return false;
+    }
+
+    /// <summary>Section keys bind exactly the way the deserializer binds them: the naming-policy
+    /// name only ("dwell"). A differently-spelled key ("Dwell") is an unknown member STJ ignores
+    /// — the established unknown-JSON-member contract — so the repair must not go looking for it:
+    /// it can never influence the outcome. Verified empirically on net10: a PascalCase section
+    /// key neither binds nor throws.</summary>
+    private static string? ResolveKey(JsonObject root, string clrName) =>
+        root.ContainsKey(JsonNamingPolicy.CamelCase.ConvertName(clrName))
+            ? JsonNamingPolicy.CamelCase.ConvertName(clrName)
+            : null;
 
     private void ClampGazeIndicator(ManualSelectionSettings ms)
     {

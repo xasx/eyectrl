@@ -23,14 +23,22 @@ using Xunit;
 /// </summary>
 public class SettingsPageSourceCallbackTests
 {
-    // 1. KeyboardPageSource reset — the field-copy list is the transcription's load-bearing detail.
-    // It restores exactly the settings that have a ROW on the Keyboard tab (completeness is
-    // guarded by KeyboardPageSourceResetDriftTests, which enumerates the rows — this test no
-    // longer hand-lists them; the list here had already drifted twice: MaxSuggestions joined the
-    // handler in #160 unnoticed, and ClickSoundEnabled was the miss that filed #157) and must
-    // NOT touch anything else — SmartCapitalizationEnabled is the canary, chosen because it has
-    // no row on the tab: set false before reset, must stay false, proving the reset did not
-    // wholesale-replace the Keyboard object. Base: 385211f lines 796-808.
+    // 1. KeyboardPageSource reset — three complementary detectors, each with a named job
+    // (review round 1 straightened out which detector proves what):
+    //   - IsSameReferenceAs: the reset must be a FIELD COPY on the live Keyboard object, never
+    //     a wholesale replacement. The rowless canary cannot prove this — a captured reference
+    //     survives its own object's replacement silently.
+    //   - The rowless canary (SmartCapitalizationEnabled): the field copy must not reach fields
+    //     with no row on the Keyboard tab (reset overreach).
+    //   - The per-field asserts below read the RAW properties through the captured k reference
+    //     and are deliberate despite the drift guard: the guard compares getter views, and a
+    //     wrong reset value a getter-side mapping renders identically (k_lang writing "en"
+    //     instead of the default "" — both display "en") is invisible to it. Do NOT prune this
+    //     list down to "the guard owns completeness" — that mutation class is caught ONLY here.
+    // Completeness itself — every row on the page restored — is KeyboardPageSourceResetDriftTests'
+    // job (it enumerates rows; a hand-listed field list had already drifted twice: MaxSuggestions
+    // joined the handler in #160 unnoticed, ClickSoundEnabled was the miss that filed #157).
+    // Base: 385211f lines 796-808.
     [Fact]
     public void Keyboard_Reset_OnConfirmedModal_ClearsLanguagePack_AndLeavesRowlessFieldsAlone()
     {
@@ -61,7 +69,8 @@ public class SettingsPageSourceCallbackTests
         Check.That(k.KeySizeMultiplier).IsEqualTo(defaults.KeySizeMultiplier);
         Check.That(k.PredictionEnabled).IsEqualTo(defaults.PredictionEnabled);
         Check.That(k.ScreenEdge).IsEqualTo(defaults.ScreenEdge);
-        Check.That(k.SmartCapitalizationEnabled).IsFalse();   // KEY: untouched, not wholesale-reset
+        Check.That(k.SmartCapitalizationEnabled).IsFalse();   // canary: reset must not reach rowless fields
+        Check.That(settings.Keyboard).IsSameReferenceAs(k);   // field copy, not object replacement
         Check.That(rec.ApplyAndSaveCount).IsEqualTo(1);
         Check.That(rec.RebuildContentCount).IsEqualTo(1);
     }

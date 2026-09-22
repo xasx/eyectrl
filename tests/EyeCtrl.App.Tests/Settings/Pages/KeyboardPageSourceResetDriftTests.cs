@@ -35,8 +35,10 @@ using EyeCtrl.App.Views.Settings;
 /// settings-bound spec KIND cannot join the page silently exempt.</para>
 ///
 /// <para>Duplicate settings-row Ids surface as a raw ArgumentException from the expected-map
-/// ToDictionary — loud, it names the Id, and it is (checked) the suite's only row-Id-uniqueness
-/// gate. Acceptable failure mode; noted here so it is not read as an accident.</para>
+/// ToDictionary — loud, it names the Id, and it is the only such gate covering the Keyboard
+/// page: sibling page-source tests key their own pages' rows by Id the same way, so the
+/// failure mode is suite-wide, not unique here. Acceptable; noted so it is not read as an
+/// accident.</para>
 /// </summary>
 public class KeyboardPageSourceResetDriftTests
 {
@@ -50,16 +52,29 @@ public class KeyboardPageSourceResetDriftTests
         // named in the failure — against the pre-fix handler that row was k_sound.
         var ctx = TestSettingsPageContext.Build(showModal: (_, act) => act());
         var rows = new KeyboardPageSource(ctx).Build().SelectMany(p => p.Rows).ToList();
+
+        // A page with no settings rows would pass the guard vacuously (review round 2, N5),
+        // and the empty-build shape is not hypothetical: a future row group gated on a
+        // host-supplied service (the dictionary page's `if (dictionary is null) yield break`)
+        // would empty the guard headlessly with no signal. A theory over an empty set proves
+        // nothing (SettingsRowPitchTests).
+        Check.WithCustomMessage(
+            "No settings rows were enumerated from KeyboardPageSource.Build() — the guard would "
+            + "pass vacuously. Either the page stopped rendering settings rows or IsSettingsRow "
+            + "went stale.")
+            .That(rows.Where(IsSettingsRow).ToList()).Not.IsEmpty();
+
         foreach (var row in rows.Where(IsSettingsRow))
         {
             Perturb(row);
-            // A row whose Set is a no-op reads its default before AND after the reset, so the
-            // guard would pass vacuously for it (review round 1, finding 1: a dead setter
-            // survived 9/9 green). Require the perturbation to have actually landed before the
-            // reset is allowed to look correct.
+            // A row whose Set is dead or mis-wired reads its default before AND after the
+            // reset, so the guard would pass vacuously for it (review round 1, finding 1: a
+            // dead setter survived 9/9 green; round 2's N1 showed a mis-wired setter — writing
+            // a property its Get does not read — is the same failure). Require the
+            // perturbation to have actually landed before the reset is allowed to look correct.
             Check.WithCustomMessage(
-                $"Perturbing '{row.Id}' did not change its value — the row's own Set is a no-op, "
-                + "so this row's reset is not actually under test.")
+                $"Perturbing '{row.Id}' did not change the value its own Get reads — a dead or "
+                + "mis-wired setter, so this row's reset is not actually under test.")
                 .That(Read(row)).Not.IsEqualTo(expected[row.Id]);
         }
 
@@ -90,13 +105,19 @@ public class KeyboardPageSourceResetDriftTests
         // the unreachable default-arms in Read/Perturb (review round 1, finding 5). Reflection
         // over the shipping assembly, mirroring the completeness gate's page-source check
         // (SettingsRowDescriptionCompletenessTests).
-        var unaccounted = typeof(SettingsRowSpec).Assembly
+        var specTypes = typeof(SettingsRowSpec).Assembly
             .GetTypes()
             .Where(t => t is { IsClass: true, IsAbstract: false })
             .Where(t => typeof(SettingsRowSpec).IsAssignableFrom(t))
+            .ToList();
+
+        // Exemptions are keyed by FullName, not Name: a type named LabelSpec in another
+        // namespace would collide with the simple-name key and slip through unnamed
+        // (review round 2, N6).
+        var unaccounted = specTypes
             .Where(t => !SettingsKinds.Any(k => k.IsAssignableFrom(t)))
-            .Where(t => !NotASettingsKind.ContainsKey(t.Name))
-            .Select(t => t.Name)
+            .Where(t => !NotASettingsKind.ContainsKey(t.FullName!))
+            .Select(t => t.FullName!)
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToList();
 
@@ -110,14 +131,8 @@ public class KeyboardPageSourceResetDriftTests
 
         // An exemption naming a kind that no longer exists is stale bookkeeping that would
         // quietly excuse a future spec reusing the name.
-        var declared = typeof(SettingsRowSpec).Assembly
-            .GetTypes()
-            .Where(t => t is { IsClass: true, IsAbstract: false })
-            .Where(t => typeof(SettingsRowSpec).IsAssignableFrom(t))
-            .Select(t => t.Name)
-            .ToHashSet(StringComparer.Ordinal);
         var phantom = NotASettingsKind.Keys
-            .Where(name => !declared.Contains(name))
+            .Where(name => specTypes.All(t => t.FullName != name))
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToList();
 
@@ -128,8 +143,9 @@ public class KeyboardPageSourceResetDriftTests
 
     /// <summary>
     /// The settings-bound spec kinds the guard can read and perturb. Membership is
-    /// assignability (subclass-tolerant, same semantics as the old `is` filter), so a subtype
-    /// of a settings kind is covered automatically; anything ELSE must appear in
+    /// assignability — every spec kind is sealed today, so this is type equality in practice,
+    /// but a subclass WOULD be covered automatically if a kind were ever unsealed (same
+    /// semantics as the old `is` filter). Anything ELSE must appear in
     /// <see cref="NotASettingsKind"/> or the reflection gate above fails.
     /// </summary>
     private static readonly HashSet<Type> SettingsKinds =
@@ -137,11 +153,11 @@ public class KeyboardPageSourceResetDriftTests
         typeof(SliderSpec), typeof(ToggleSpec), typeof(ComboBoxSpec), typeof(ColorPickerSpec)
     ];
 
-    /// <summary>Spec kinds deliberately outside <see cref="SettingsKinds"/>, each with the reason.</summary>
+    /// <summary>Spec kinds deliberately outside <see cref="SettingsKinds"/>, keyed by FullName, each with the reason.</summary>
     private static readonly Dictionary<string, string> NotASettingsKind = new(StringComparer.Ordinal)
     {
-        [nameof(ButtonSpec)] = "action row — binds no setting to restore",
-        [nameof(LabelSpec)] = "static text — binds no setting",
+        [typeof(ButtonSpec).FullName!] = "action row — binds no setting to restore",
+        [typeof(LabelSpec).FullName!] = "static text — binds no setting",
     };
 
     private static bool IsSettingsRow(SettingsRowSpec r) =>
@@ -180,7 +196,13 @@ public class KeyboardPageSourceResetDriftTests
             case ComboBoxSpec c:
             {
                 var options = c.Code ?? c.Display;
-                c.Set(options.First(o => !string.Equals(o, c.Get(), StringComparison.Ordinal)));
+                var candidate = options.FirstOrDefault(
+                    o => !string.Equals(o, c.Get(), StringComparison.Ordinal));
+                if (candidate is null)
+                    throw new InvalidOperationException(
+                        $"Cannot perturb '{c.Id}': no option differs from its current value "
+                        + $"'{c.Get()}' (single-option combo, or a getter outside the option list).");
+                c.Set(candidate);
                 break;
             }
             case ColorPickerSpec p:

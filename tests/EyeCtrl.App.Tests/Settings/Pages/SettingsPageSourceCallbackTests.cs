@@ -34,10 +34,14 @@ public class SettingsPageSourceCallbackTests
     //     and are deliberate despite the drift guard: the guard compares getter views, and a
     //     wrong reset value a getter-side mapping renders identically (k_lang writing "en"
     //     instead of the default "" — both display "en") is invisible to it. Do NOT prune this
-    //     list down to "the guard owns completeness" — that mutation class is caught ONLY here.
+    //     list down to "the guard owns completeness" — of the five, the k_lang assert is the
+    //     suite's ONLY detector for that class (the other four are belt-and-braces: wrong
+    //     values through lossless getters are also caught by the guard itself).
     // Completeness itself — every row on the page restored — is KeyboardPageSourceResetDriftTests'
-    // job (it enumerates rows; a hand-listed field list had already drifted twice: MaxSuggestions
-    // joined the handler in #160 unnoticed, ClickSoundEnabled was the miss that filed #157).
+    // job (it enumerates rows; the hand-listed field list drifted once: ClickSoundEnabled was
+    // the miss that filed #157. #160's MaxSuggestions landed safely — its reset line shipped
+    // in the same commit as its own regression test — but left THIS file's "exactly four
+    // fields" comment stale, which is the comment drift the guard now makes impossible).
     // Base: 385211f lines 796-808.
     [Fact]
     public void Keyboard_Reset_OnConfirmedModal_ClearsLanguagePack_AndLeavesRowlessFieldsAlone()

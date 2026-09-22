@@ -150,11 +150,14 @@ public class SettingsService
     /// <item><b>D5 — whole-file defaults only for the no-data classes:</b> missing file, unreadable
     /// file (IO), unparseable JSON, non-object root, and a residual whole-graph failure after
     /// repair (defensive; every surviving node was proven deserializable standalone). Duplicate
-    /// keys land here too when the fast path's last-wins also fails: the repair's JsonNode
-    /// lookup refuses ambiguous access (ArgumentException), which the catch answers with
-    /// defaults. (Save's raw-baseline read has the same pre-existing duplicate-key exposure —
-    /// recorded as follow-up, unchanged here.) With no parsed data there is nothing to
-    /// preserve, so the catch-all's behavior is unchanged in kind.</item>
+    /// keys are scoped by where they sit (round-2 finding 6): at the ROOT the repair's JsonNode
+    /// lookup refuses the ambiguous access (ArgumentException) and the catch answers with
+    /// whole-file defaults; INSIDE a section the same refusal reads as a multi-fault verdict, so
+    /// only that section defaults (TryDropOneAccept guard) and the Save-time supervision heal
+    /// falls back to the incoming section instead of throwing. (Save's raw-baseline read has the
+    /// same pre-existing ROOT-scope duplicate-key exposure — recorded as follow-up, unchanged
+    /// here.) With no parsed data there is nothing to preserve, so the catch-all's behavior is
+    /// unchanged in kind.</item>
     /// <item><b>D6 — repairs are in-memory only.</b> Unlike the lossless migrations above (which
     /// write back), repairs are lossy; persisting user-data loss at load time, before any user
     /// visibility, would amplify a repair bug's blast radius from this session's view to the file
@@ -297,18 +300,28 @@ public class SettingsService
     // dropped the same way (D4). The repaired tree is deserialized once more as a whole graph.
 
     // D4 (#153 review F2): derived by reflection, never hand-maintained — every public
-    // writable root property that is not a section (IValidatable). A future root scalar
-    // joins the probe set automatically; two pin tests make the addition and any drift
+    // instance writable root property that is not a section (IValidatable). A future root
+    // scalar joins the probe set automatically; two pin tests make the addition and any drift
     // from this filter visible (NonSectionWritableProperties_AreExactlyTheRootScalars,
     // RootScalarRepairSet_IsDerivedByReflection_NotHandMaintained). Internal for the latter.
     internal static readonly (string Name, Type Type)[] RootScalarProperties =
     [
         .. typeof(EyeCtrlSettings).GetProperties()
-            .Where(p => p.GetSetMethod() is not null
+            .Where(p => p.GetSetMethod() is { IsStatic: false }
                 && p.GetIndexParameters().Length == 0
                 && !typeof(IValidatable).IsAssignableFrom(p.PropertyType))
             .Select(p => (p.Name, p.PropertyType)),
     ];
+
+    /// <summary>The scalar analogue of a range check for enums: an integer the string-enum
+    /// converter accepted that names no defined member. [Flags] enums are exempt —
+    /// <see cref="Enum.IsDefined"/> rejects legitimate combinations (A|B), and both root
+    /// scalars are plain today, so a future [Flags] root scalar must not be silently
+    /// defaulted by this gate (round-2 finding 8).</summary>
+    internal static bool IsUndefinedEnumValue(Type type, object? value) =>
+        type.IsEnum
+        && !type.IsDefined(typeof(FlagsAttribute), inherit: false)
+        && !Enum.IsDefined(type, value!);
 
     // The enum members of the scalar set, for the fast path's defined-value gate (F3): the
     // repair probe re-checks deserialized values, but an undefined enum integer never throws
@@ -323,7 +336,7 @@ public class SettingsService
     private static bool RootScalarsAreDefined(EyeCtrlSettings settings)
     {
         foreach (var property in RootEnumScalarProperties)
-            if (!Enum.IsDefined(property.PropertyType, property.GetValue(settings)!))
+            if (IsUndefinedEnumValue(property.PropertyType, property.GetValue(settings)))
                 return false;
         return true;
     }
@@ -376,8 +389,9 @@ public class SettingsService
                 var value = root[key]!.Deserialize(type, JsonOptions);
                 // Scalars have no Validate(); for enums, defined-ness is the scalar analogue —
                 // JsonStringEnumConverter accepts any integer, so "viewPosition": 999 would
-                // otherwise survive as an undefined enum value (#153 review F3).
-                if (value is null || (type.IsEnum && !Enum.IsDefined(type, value)))
+                // otherwise survive as an undefined enum value (#153 review F3). [Flags]
+                // combinations are exempt via IsUndefinedEnumValue (round-2 finding 8).
+                if (value is null || IsUndefinedEnumValue(type, value))
                     throw new InvalidOperationException($"Invalid value for root setting '{name}'.");
             }
             catch (Exception ex)
@@ -438,16 +452,26 @@ public class SettingsService
     private bool TryDropOneAccept(JsonObject section, Type sectionType,
         out JsonObject repaired, out string dropped)
     {
-        foreach (var key in section.Select(k => k.Key).ToList())
+        // A section with INNER duplicate keys makes the DOM refuse ambiguous access
+        // (ArgumentException from enumeration/indexing). That refusal reads as a multi-fault
+        // verdict — same as an unrepairable section — so the caller defaults the section and
+        // siblings survive (round-2 finding 1; without this guard the throw escaped Load's
+        // repair AND, worse, Save's overlay: every debounced settings write was silently
+        // swallowed and the file could never heal).
+        try
         {
-            repaired = section.DeepClone().AsObject();
-            repaired.Remove(key);
-            if (SectionAccepts(repaired, sectionType))
+            foreach (var key in section.Select(k => k.Key).ToList())
             {
-                dropped = key;
-                return true;
+                repaired = section.DeepClone().AsObject();
+                repaired.Remove(key);
+                if (SectionAccepts(repaired, sectionType))
+                {
+                    dropped = key;
+                    return true;
+                }
             }
         }
+        catch (ArgumentException) { }
         repaired = null!;
         dropped = null!;
         return false;
@@ -644,10 +668,22 @@ public class SettingsService
             {
                 incoming[SupervisionSectionName] = onDiskSupervision.DeepClone();
             }
-            else if (TryDropOneAccept(onDiskSupervision, typeof(SupervisionSettings), out var repairedNode, out _)
+            else if (TryDropOneAccept(onDiskSupervision, typeof(SupervisionSettings), out var repairedNode, out var droppedKey)
                 && TryAcceptSection(repairedNode, typeof(SupervisionSettings), out var repairedSupervision))
             {
-                incoming[SupervisionSectionName] = JsonSerializer.SerializeToNode(repairedSupervision, JsonOptions);
+                // Heal IN PLACE: overwrite every schema-known key on the raw node with its
+                // accepted value (the dropped one becomes an explicit default) instead of
+                // replacing the node with the serialized instance — a replacement would drop
+                // unknown/future keys the valid-path raw overlay preserves verbatim (round-2
+                // finding 4). The raw node is duplicate-free here: a duplicate section fails
+                // TryDropOneAccept and lands in the branch below.
+                var healed = onDiskSupervision.DeepClone().AsObject();
+                var acceptedValues = JsonSerializer.SerializeToNode(repairedSupervision, JsonOptions)!.AsObject();
+                foreach (var (key, value) in acceptedValues)
+                    healed[key] = value?.DeepClone();
+                incoming[SupervisionSectionName] = healed;
+                _logger?.LogWarning("Invalid on-disk setting 'supervision.{Property}' in {FilePath} dropped; the section heals on this save.",
+                    droppedKey, _filePath);
             }
             else
             {

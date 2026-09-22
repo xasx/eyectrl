@@ -138,18 +138,34 @@ public class SettingsService
     /// the section's other values survive). Two or more faults in one section revert the section
     /// to defaults. Full multi-drop search was rejected: unbounded, and which of several bad
     /// values to keep has no principled answer. The overwhelmingly common real damage is one
-    /// hand-edited typo.</item>
-    /// <item><b>D4 — root enum scalars</b> (viewPosition, selectionMode) get the same
-    /// probe-or-drop treatment as sections.</item>
+    /// hand-edited typo. Known cost (#153 review F4): a section-level reset also reverts that
+    /// section's once-only migration flags (e.g. ActionMenu's), so the next launch re-runs those
+    /// migrations for that section — the same re-add risk the pre-#153 wipe imposed on the whole
+    /// file, now scoped to one section.</item>
+    /// <item><b>D4 — root scalar properties</b> (derived by reflection: every public writable
+    /// non-section property — today viewPosition and selectionMode; a new one joins
+    /// automatically, made visible by the enumeration pin test) are probed with the scalar
+    /// analogue of D2: deserialize, plus a defined-value check for enums (the string-enum
+    /// converter accepts any integer). Scalars have no <c>Validate()</c> of their own.</item>
     /// <item><b>D5 — whole-file defaults only for the no-data classes:</b> missing file, unreadable
     /// file (IO), unparseable JSON, non-object root, and a residual whole-graph failure after
-    /// repair (defensive; every surviving node was proven deserializable standalone). With no parsed
-    /// data there is nothing to preserve, so the catch-all's behavior is unchanged in kind.</item>
+    /// repair (defensive; every surviving node was proven deserializable standalone). Duplicate
+    /// keys land here too when the fast path's last-wins also fails: the repair's JsonNode
+    /// lookup refuses ambiguous access (ArgumentException), which the catch answers with
+    /// defaults. (Save's raw-baseline read has the same pre-existing duplicate-key exposure —
+    /// recorded as follow-up, unchanged here.) With no parsed data there is nothing to
+    /// preserve, so the catch-all's behavior is unchanged in kind.</item>
     /// <item><b>D6 — repairs are in-memory only.</b> Unlike the lossless migrations above (which
     /// write back), repairs are lossy; persisting user-data loss at load time, before any user
     /// visibility, would amplify a repair bug's blast radius from this session's view to the file
     /// itself. The repaired state reaches disk on the next organic Save — the same path by which
-    /// the old whole-file defaults reached it.</item>
+    /// the old whole-file defaults reached it. One carve-out found in review (F1): the App
+    /// writer's raw supervision overlay would have preserved a damaged on-disk supervision
+    /// section forever (the Supervisor loads but never saves), so that overlay now heals a
+    /// damaged section with the on-disk values the same drop-one verdict produces (valid
+    /// siblings survive, the healed default is written explicitly); only a multi-fault section
+    /// falls back to the incoming snapshot. A valid on-disk section still always wins — a
+    /// Supervisor write is always valid: its Save validates first.</item>
     /// </list>
     /// </remarks>
     public EyeCtrlSettings Load()
@@ -176,15 +192,26 @@ public class SettingsService
             }
 
             // Fast path — the intact file (the overwhelming case): one deserialize plus the same
-            // seed/clamp/validate work Load has always done. The clamp family runs before
-            // validation so the hand-editable values it protects are judged post-clamp.
+            // clamp/validate work Load has always done. The clamp family runs before validation
+            // so the hand-editable values it protects are judged post-clamp. The scalar check
+            // matters here, not only in the repair: an undefined enum INTEGER deserializes
+            // "fine" (the string-enum converter accepts any int) and root Validate() covers only
+            // sections — without this guard, "viewPosition": 999 would return from the fast
+            // path before the tolerant path ever sees it (#153 review F3). The SelectionMode
+            // seed runs only PAST validation: an empty root Validate guarantees no null section
+            // (a null section is itself a validation error), and the seed dereferences
+            // ManualSelection — that ordering is what lets a "manualSelection": null file take
+            // the tolerant path instead of NRE-ing here (pinned by
+            // Load_NullManualSelectionSection_DoesNotThrow_SiblingsSurvive).
             var settings = TryDeserializeWholeGraph(migratedJson);
-            if (settings is not null && !HasNullSection(settings))
+            if (settings is not null)
             {
-                SeedSelectionMode(settings);
                 ApplyLoadClamps(settings);
-                if (settings.Validate().Count == 0)
+                if (settings.Validate().Count == 0 && RootScalarsAreDefined(settings))
+                {
+                    SeedSelectionMode(settings);
                     return settings;
+                }
             }
 
             // Tolerant path — something in the file is damaged. Instead of the issue-#153
@@ -222,9 +249,6 @@ public class SettingsService
         try { return JsonSerializer.Deserialize<EyeCtrlSettings>(json, JsonOptions); }
         catch { return null; }
     }
-
-    private static bool HasNullSection(EyeCtrlSettings settings) =>
-        settings.EnumerateSubSettings().Any(t => t.Settings is null);
 
     // Migration: seed SelectionMode from deprecated ManualSelection.Enabled
     private static void SeedSelectionMode(EyeCtrlSettings settings)
@@ -272,11 +296,37 @@ public class SettingsService
     // single-fault drop-one retry (D3), then defaults; the root enum scalars are probed and
     // dropped the same way (D4). The repaired tree is deserialized once more as a whole graph.
 
-    private static readonly (string Name, Type Type)[] RootScalarProperties =
+    // D4 (#153 review F2): derived by reflection, never hand-maintained — every public
+    // writable root property that is not a section (IValidatable). A future root scalar
+    // joins the probe set automatically; two pin tests make the addition and any drift
+    // from this filter visible (NonSectionWritableProperties_AreExactlyTheRootScalars,
+    // RootScalarRepairSet_IsDerivedByReflection_NotHandMaintained). Internal for the latter.
+    internal static readonly (string Name, Type Type)[] RootScalarProperties =
     [
-        ("ViewPosition", typeof(ViewPosition)),
-        ("SelectionMode", typeof(SelectionMode)),
+        .. typeof(EyeCtrlSettings).GetProperties()
+            .Where(p => p.GetSetMethod() is not null
+                && p.GetIndexParameters().Length == 0
+                && !typeof(IValidatable).IsAssignableFrom(p.PropertyType))
+            .Select(p => (p.Name, p.PropertyType)),
     ];
+
+    // The enum members of the scalar set, for the fast path's defined-value gate (F3): the
+    // repair probe re-checks deserialized values, but an undefined enum integer never throws
+    // and never reaches the repair unless the fast path refuses it first.
+    private static readonly System.Reflection.PropertyInfo[] RootEnumScalarProperties =
+    [
+        .. RootScalarProperties
+            .Where(t => t.Type.IsEnum)
+            .Select(t => typeof(EyeCtrlSettings).GetProperty(t.Name)!),
+    ];
+
+    private static bool RootScalarsAreDefined(EyeCtrlSettings settings)
+    {
+        foreach (var property in RootEnumScalarProperties)
+            if (!Enum.IsDefined(property.PropertyType, property.GetValue(settings)!))
+                return false;
+        return true;
+    }
 
     private EyeCtrlSettings LoadWithSectionRepair(string json)
     {
@@ -321,7 +371,15 @@ public class SettingsService
                 root.Remove(key);
                 continue;
             }
-            try { _ = root[key]!.Deserialize(type, JsonOptions); }
+            try
+            {
+                var value = root[key]!.Deserialize(type, JsonOptions);
+                // Scalars have no Validate(); for enums, defined-ness is the scalar analogue —
+                // JsonStringEnumConverter accepts any integer, so "viewPosition": 999 would
+                // otherwise survive as an undefined enum value (#153 review F3).
+                if (value is null || (type.IsEnum && !Enum.IsDefined(type, value)))
+                    throw new InvalidOperationException($"Invalid value for root setting '{name}'.");
+            }
             catch (Exception ex)
             {
                 root.Remove(key);
@@ -341,20 +399,38 @@ public class SettingsService
             .Select(t => (t.Name, typeof(EyeCtrlSettings).GetProperty(t.Name)!.PropertyType));
 
     /// <summary>D2: a section is acceptable iff it deserializes without throwing (setter guards
-    /// included) AND, after the read-time clamps, passes its own Validate().</summary>
-    private bool SectionAccepts(JsonObject section, Type sectionType)
+    /// included) AND, after the read-time clamps, passes its own Validate(). This variant also
+    /// hands back the accepted (clamped) instance, for callers that need the repaired VALUES —
+    /// a minus-one-key JSON node is sparse, and "dropped to default" must read back as an
+    /// explicit default where the result is written to disk.</summary>
+    private bool TryAcceptSection(JsonObject section, Type sectionType,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out object? accepted)
     {
         try
         {
-            if (section.Deserialize(sectionType, JsonOptions) is not { } candidate) return false;
+            if (section.Deserialize(sectionType, JsonOptions) is not { } candidate)
+            {
+                accepted = null;
+                return false;
+            }
             ClampSection(candidate);
-            return candidate is not IValidatable validatable || validatable.Validate().Count == 0;
+            if (candidate is IValidatable validatable && validatable.Validate().Count > 0)
+            {
+                accepted = null;
+                return false;
+            }
+            accepted = candidate;
+            return true;
         }
         catch (Exception)
         {
+            accepted = null;
             return false;
         }
     }
+
+    private bool SectionAccepts(JsonObject section, Type sectionType) =>
+        TryAcceptSection(section, sectionType, out _);
 
     /// <summary>D3: single-fault repair — retry the section with each property dropped in turn;
     /// the first candidate that accepts wins. Returns false when no single drop fixes the
@@ -548,11 +624,38 @@ public class SettingsService
         }
 
         // App owns everything EXCEPT Supervision: start from the incoming (valid) snapshot, then
-        // overlay the raw on-disk Supervision so the supervisor's section survives even when the file
-        // as a whole failed validation. If disk had no Supervision section, keep the incoming default.
-        var onDiskSupervision = baseline?[SupervisionSectionName];
-        if (onDiskSupervision != null)
-            incoming[SupervisionSectionName] = onDiskSupervision.DeepClone();
+        // overlay the raw on-disk Supervision so the supervisor's section survives even when the
+        // file as a whole is damaged. If disk had no Supervision section, keep the incoming default.
+        //
+        // EXCEPT when the on-disk section is itself damaged: the Supervisor loads but never saves,
+        // so a raw overlay would preserve the damage on disk forever — repaired in memory every
+        // launch, never healed (#153 review F1). Then the overlay uses the on-disk section's
+        // REPAIRED values (same drop-one verdict as Load), serialized whole so the healed default
+        // is explicit on disk — valid siblings survive and only the damage heals. Keeping the
+        // incoming section instead would discard those siblings whenever the caller saves a
+        // snapshot it never loaded (Save(new EyeCtrlSettings()), the pattern the writer-ownership
+        // tests themselves use); that fallback remains only for a multi-fault section. The
+        // ownership guarantee is intact: the Supervisor's own writes are always valid (its Save
+        // validates before writing), so a VALID on-disk section still always wins the overlay.
+        var onDiskSupervision = baseline?[SupervisionSectionName] as JsonObject;
+        if (onDiskSupervision is not null)
+        {
+            if (SectionAccepts(onDiskSupervision, typeof(SupervisionSettings)))
+            {
+                incoming[SupervisionSectionName] = onDiskSupervision.DeepClone();
+            }
+            else if (TryDropOneAccept(onDiskSupervision, typeof(SupervisionSettings), out var repairedNode, out _)
+                && TryAcceptSection(repairedNode, typeof(SupervisionSettings), out var repairedSupervision))
+            {
+                incoming[SupervisionSectionName] = JsonSerializer.SerializeToNode(repairedSupervision, JsonOptions);
+            }
+            else
+            {
+                _logger?.LogWarning(
+                    "On-disk settings section 'supervision' in {FilePath} has multiple invalid values; keeping the in-memory section so the damage heals on this save.",
+                    _filePath);
+            }
+        }
         return incoming.ToJsonString(JsonOptions);
     }
 

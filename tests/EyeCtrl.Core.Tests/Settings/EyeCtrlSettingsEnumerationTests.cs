@@ -35,4 +35,23 @@ public class EyeCtrlSettingsEnumerationTests
     {
         Check.That(new EyeCtrlSettings().Validate()).IsEmpty();
     }
+
+    [Fact]
+    public void NonSectionWritableProperties_AreExactlyTheRootScalars()
+    {
+        // #153 review F2: SettingsService's tolerant path derives its root-scalar probe set
+        // by THIS filter (public setter, not a section/IValidatable) — reflection, not a
+        // hand-maintained list, so a NEW root scalar joins the repair automatically. This
+        // pin makes such an addition visible: update the expected set consciously and add
+        // repair coverage for the new property's failure shapes.
+        var nonSection = typeof(EyeCtrlSettings).GetProperties()
+            .Where(p => p.GetSetMethod() is not null
+                && p.GetIndexParameters().Length == 0
+                && !typeof(IValidatable).IsAssignableFrom(p.PropertyType))
+            .Select(p => p.Name)
+            .OrderBy(n => n)
+            .ToList();
+
+        Check.That(nonSection).ContainsExactly("SelectionMode", "ViewPosition");
+    }
 }

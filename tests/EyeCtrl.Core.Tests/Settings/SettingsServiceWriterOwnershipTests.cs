@@ -54,19 +54,27 @@ public class SettingsServiceWriterOwnershipTests
     }
 
     [Fact]
-    public void AppWriter_PreservesSupervision_EvenWhenOnDiskFileFailsValidation()
+    public void AppWriter_PreservesSupervision_EvenWhenOnDiskFileIsDamagedElsewhere()
     {
-        // Regression: Save re-read the on-disk state via Load(), which returns ALL DEFAULTS when the
-        // file fails validation. So an App writer would silently reset a supervisor-owned Supervision
-        // value it must preserve. Preservation must read the RAW on-disk section, not a re-validated
-        // (defaulted) load.
+        // Regression: Save re-read the on-disk state via Load(), which (pre-#153) returned
+        // ALL DEFAULTS when the file failed validation. So an App writer would silently reset
+        // a supervisor-owned Supervision value it must preserve. Preservation must read the
+        // RAW on-disk section, not a re-validated (defaulted) load.
+        //
+        // #153 review evolution: this test originally put the invalid value INSIDE
+        // supervision (maxRetries=0) as a device to fail the whole-file validation. Since
+        // per-setting tolerance, that shape is exactly the never-healing damage of review
+        // finding F1 — the overlay is now acceptance-conditional and such a section HEALS
+        // (pinned in SettingsServiceLoadToleranceTests). The ownership guarantee this test
+        // actually guards is re-expressed with the damage OUTSIDE the owned section: a valid
+        // supervision section survives an App save no matter what else in the file is broken.
         var path = TempPath();
         try
         {
-            // Raw on-disk file: the supervisor persisted Enabled=true, but the file ALSO has an
-            // out-of-range value (maxRetries=0, below the 1..20 range) so Load() fails validation and
-            // returns defaults (Enabled=false). Written raw to simulate a hand-edited / older file.
-            File.WriteAllText(path, "{\"supervision\":{\"enabled\":true,\"maxRetries\":0}}");
+            // Raw on-disk file: the supervisor persisted Enabled=true (valid section), but the
+            // file ALSO has a damaged dwell section, so the file as a whole needs repair.
+            File.WriteAllText(path,
+                "{\"supervision\":{\"enabled\":true},\"dwell\":{\"activationButtonDwellMs\":50}}");
 
             // App saves its own (valid) snapshot — Supervision.Enabled defaults to false.
             var app = new SettingsService(path, SettingsWriter.App);

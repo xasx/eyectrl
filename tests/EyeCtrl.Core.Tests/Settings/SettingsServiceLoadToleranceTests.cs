@@ -15,8 +15,8 @@ using EyeCtrl.Core.Settings;
 //   D4  root scalar properties (reflection-derived: every public writable non-section
 //       property) are probed with deserialize +, for enums, a defined-value check;
 //   D5  whole-file defaults survive only for the no-data classes: missing file, unreadable
-//       file, unparseable JSON, non-object root — and duplicate keys where the fast path's
-//       last-wins also fails (the repair's JsonNode lookup refuses ambiguous access);
+//       file, unparseable JSON, non-object root — and ROOT-scope duplicate keys; duplicates
+//       INSIDE a section cost only that section (DOM ambiguity refusal = multi-fault);
 //   D6  repairs are in-memory only — they reach disk on the next organic Save, whose
 //       supervision overlay heals a damaged on-disk section from the on-disk values
 //       (drop-one verdict, valid siblings survive) instead of preserving it forever
@@ -476,13 +476,14 @@ public class SettingsServiceLoadToleranceTests
     [Fact]
     public void RootScalarRepairSet_IsDerivedByReflection_NotHandMaintained()
     {
-        // F2 hardening: the TYPE pin (NonSectionWritableProperties_...) catches a new root
-        // scalar, but not a revert of the implementation to a hand-maintained list that
-        // happens to hold today's two names. This asserts the implementation's probe set IS
-        // the reflection-derived set, so the revert mutation dies as soon as any third
-        // scalar exists (or now, if the filters drift apart).
+        // F2 hardening. HONEST SCOPE (round-2 finding 3): this compares NAME SETS, so a
+        // hand-maintained list holding today's two names passes — the guard fires only once
+        // a third root scalar exists (the type-derived set then names it, the hand list
+        // does not). Together with the literal pin, any drift between the implementation's
+        // filter and the type's shape becomes visible at the first change; it cannot catch
+        // a same-names revert made today with no type change.
         var derived = typeof(EyeCtrlSettings).GetProperties()
-            .Where(p => p.GetSetMethod() is not null
+            .Where(p => p.GetSetMethod() is { IsStatic: false }
                 && p.GetIndexParameters().Length == 0
                 && !typeof(IValidatable).IsAssignableFrom(p.PropertyType))
             .Select(p => p.Name)
@@ -491,6 +492,21 @@ public class SettingsServiceLoadToleranceTests
 
         var actual = SettingsService.RootScalarProperties.Select(t => t.Name).OrderBy(n => n).ToList();
         Check.That(actual).ContainsExactly(derived);
+    }
+
+    [Flags]
+    private enum ProbeFlagsDummy { None = 0, A = 1, B = 2 }
+
+    [Fact]
+    public void IsUndefinedEnumValue_FlagsCombinationsAreExempt_PlainEnumsAreNot()
+    {
+        // Round-2 finding 8: Enum.IsDefined rejects legitimate [Flags] combinations (A|B);
+        // the defined-value gates must not silently default a future [Flags] root scalar.
+        Check.That(SettingsService.IsUndefinedEnumValue(typeof(ProbeFlagsDummy), ProbeFlagsDummy.A | ProbeFlagsDummy.B)).IsFalse();
+        Check.That(SettingsService.IsUndefinedEnumValue(typeof(ProbeFlagsDummy), (ProbeFlagsDummy)999)).IsFalse(); // exempt whole type
+        Check.That(SettingsService.IsUndefinedEnumValue(typeof(ViewPosition), (ViewPosition)999)).IsTrue();
+        Check.That(SettingsService.IsUndefinedEnumValue(typeof(ViewPosition), ViewPosition.AtCenter)).IsFalse();
+        Check.That(SettingsService.IsUndefinedEnumValue(typeof(string), null)).IsFalse();   // non-enum: not our verdict
     }
 
     [Fact]
@@ -551,7 +567,8 @@ public class SettingsServiceLoadToleranceTests
         // F5: STJ itself is last-wins and tolerates duplicates on the fast path — but when
         // the LAST duplicate is the damaged one, the fast path throws and the repair's
         // JsonNode lookup refuses the ambiguous access (ArgumentException), landing in the
-        // catch. Pinned so the D5 ledger line stays honest.
+        // catch. Pinned so the D5 ledger line stays honest. (ROOT-scope duplicate; the
+        // section-scope variant below must cost only its section.)
         var path = TempPath();
         try
         {
@@ -565,6 +582,116 @@ public class SettingsServiceLoadToleranceTests
 
             var loaded = new SettingsService(path).Load();
             Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(700);      // whole-file defaults
+        }
+        finally { File.Delete(path); }
+    }
+
+    // ── Review round 2 (#153): F1 regression + hardening ────────────────────────────────────────
+
+    [Fact]
+    public void Load_InnerDuplicateKeys_CostOnlyThatSection_SiblingsSurvive()
+    {
+        // Round-2 finding 1 (Load symptom): duplicate keys INSIDE a section made
+        // TryDropOneAccept throw (the DOM refuses ambiguous access) — which escaped Load's
+        // repair and wiped the whole file, contradicting the per-setting contract. The
+        // refusal must read as a multi-fault verdict: that section defaults, siblings live.
+        var path = TempPath();
+        try
+        {
+            var json = """
+            {
+                "dwell": { "activationButtonDwellMs": 800, "activationButtonDwellMs": 50 },
+                "cursor": { "smoothingFactor": 0.7 }
+            }
+            """;
+            File.WriteAllText(path, json);
+
+            var loaded = new SettingsService(path).Load();
+            Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(700);      // damaged section defaults
+            Check.That(loaded.Cursor.SmoothingFactor).IsEqualTo(0.7);             // sibling survives
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Save_InnerDuplicateKeysInSupervision_DoesNotThrow_AndHeals()
+    {
+        // Round-2 finding 1 (Save symptom, the merge-gating one): the same refusal on the
+        // WRITE path threw ArgumentException out of Save — every debounced save silently
+        // swallowed forever, the file could never heal (F1's failure mode one level down).
+        // Bisected c9bb5e5b ok -> 31e44197 threw.
+        var path = TempPath();
+        try
+        {
+            var json = """
+            {
+                "dwell": { "activationButtonDwellMs": 800 },
+                "supervision": { "maxRetries": 7, "maxRetries": 999 }
+            }
+            """;
+            File.WriteAllText(path, json);
+            var service = new SettingsService(path);
+
+            var loaded = service.Load();
+            Check.ThatCode(() => service.Save(loaded)).DoesNotThrow();
+
+            // The write healed the ambiguous section: one maxRetries, the incoming value.
+            var onDisk = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+            Check.That(onDisk["supervision"]!.AsObject().Count(k => k.Key == "maxRetries")).IsEqualTo(1);
+            Check.That((int)onDisk["supervision"]!["maxRetries"]!).IsEqualTo(3);
+            Check.That((int)onDisk["dwell"]!["activationButtonDwellMs"]!).IsEqualTo(800);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Save_DamagedSupervisionWithUnknownKeys_HealsWithoutDroppingThem()
+    {
+        // Round-2 finding 4: serializing the healed section from the accepted instance
+        // dropped unknown/future keys the raw overlay preserves verbatim. The heal must
+        // merge into the raw node: schema keys take the accepted values, unknown keys stay.
+        var path = TempPath();
+        try
+        {
+            var json = """
+            {
+                "supervision": { "maxRetries": 999, "futureKnob": "keep-me" },
+                "dwell": { "activationButtonDwellMs": 800 }
+            }
+            """;
+            File.WriteAllText(path, json);
+
+            new SettingsService(path, SettingsWriter.App).Save(new EyeCtrlSettings());
+
+            var onDisk = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+            Check.That((string?)onDisk["supervision"]!["futureKnob"]!).IsEqualTo("keep-me");  // unknown key kept
+            Check.That((int)onDisk["supervision"]!["maxRetries"]!).IsEqualTo(3);              // damage healed
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Save_NonObjectSupervisionOnDisk_HealsToASectionObject()
+    {
+        // Round-2 finding 7: the overlay's `as JsonObject` narrowing means a scalar/array
+        // supervision section no longer gets preserved verbatim (pre-round-2 it was) — the
+        // incoming section heals it. Pinned; the N7 revert (any-node overlay) must fail it.
+        var path = TempPath();
+        try
+        {
+            var json = """
+            {
+                "supervision": 5,
+                "dwell": { "activationButtonDwellMs": 800 }
+            }
+            """;
+            File.WriteAllText(path, json);
+
+            new SettingsService(path, SettingsWriter.App).Save(new EyeCtrlSettings());
+
+            var onDisk = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+            Check.That(onDisk["supervision"]).IsNotNull();
+            Check.That(onDisk["supervision"]!.AsObject().ContainsKey("maxRetries")).IsTrue(); // object, healed
         }
         finally { File.Delete(path); }
     }

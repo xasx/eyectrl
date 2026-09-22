@@ -64,26 +64,35 @@ public class SettingsServiceWriterOwnershipTests
         // #153 review evolution: this test originally put the invalid value INSIDE
         // supervision (maxRetries=0) as a device to fail the whole-file validation. Since
         // per-setting tolerance, that shape is exactly the never-healing damage of review
-        // finding F1 — the overlay is now acceptance-conditional and such a section HEALS
-        // (pinned in SettingsServiceLoadToleranceTests). The ownership guarantee this test
-        // actually guards is re-expressed with the damage OUTSIDE the owned section: a valid
-        // supervision section survives an App save no matter what else in the file is broken.
+        // finding F1 — the overlay now heals it (pinned in SettingsServiceLoadToleranceTests).
+        // The ownership guarantee this test actually guards is re-expressed with the damage
+        // OUTSIDE the owned section: a valid supervision section survives an App save no
+        // matter what else in the file is broken.
+        //
+        // Round-2 finding 2: the futureKey makes the RAW-read invariant itself testable
+        // again. Per-setting tolerance dissolved the original discrimination (a Load()-based
+        // baseline now returns valid supervision values fine) — but a validating round-trip
+        // DROPS unknown keys, while the raw overlay preserves them verbatim. Revert Save's
+        // baseline to a Load() (mutation N1) and this assertion is what dies.
         var path = TempPath();
         try
         {
-            // Raw on-disk file: the supervisor persisted Enabled=true (valid section), but the
-            // file ALSO has a damaged dwell section, so the file as a whole needs repair.
+            // Raw on-disk file: the supervisor persisted Enabled=true plus a key this schema
+            // doesn't know (stand-in for a future version's knob), but the file ALSO has a
+            // damaged dwell section, so the file as a whole needs repair.
             File.WriteAllText(path,
-                "{\"supervision\":{\"enabled\":true},\"dwell\":{\"activationButtonDwellMs\":50}}");
+                "{\"supervision\":{\"enabled\":true,\"futureKey\":\"keep-me\"},\"dwell\":{\"activationButtonDwellMs\":50}}");
 
             // App saves its own (valid) snapshot — Supervision.Enabled defaults to false.
             var app = new SettingsService(path, SettingsWriter.App);
             app.Save(new EyeCtrlSettings());
 
-            // Read the persisted file RAW (a validating Load would re-default it) and assert the
-            // supervisor's Enabled=true survived — the app must not clobber a section it doesn't own.
+            // Read the persisted file RAW (a validating Load would re-default it) and assert
+            // the supervisor's section survived untouched — values AND unknown keys: the app
+            // must not clobber a section it doesn't own.
             var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path))!;
             Check.That(node["supervision"]!["enabled"]!.GetValue<bool>()).IsTrue();
+            Check.That(node["supervision"]!["futureKey"]!.GetValue<string>()).IsEqualTo("keep-me");
         }
         finally { File.Delete(path); }
     }

@@ -45,7 +45,7 @@ public class EyeCtrlSettingsEnumerationTests
         // pin makes such an addition visible: update the expected set consciously and add
         // repair coverage for the new property's failure shapes.
         var nonSection = typeof(EyeCtrlSettings).GetProperties()
-            .Where(p => p.GetSetMethod() is not null
+            .Where(p => p.GetSetMethod() is { IsStatic: false }
                 && p.GetIndexParameters().Length == 0
                 && !typeof(IValidatable).IsAssignableFrom(p.PropertyType))
             .Select(p => p.Name)

@@ -49,7 +49,8 @@ internal sealed class KeyboardPageSource : ISettingsPageSource
                         k.KeySizeMultiplier = def.KeySizeMultiplier;
                         k.PredictionEnabled = def.PredictionEnabled;
                         k.MaxSuggestions = def.MaxSuggestions;
-                        k.LanguagePack = "";
+                        k.LanguagePack = def.LanguagePack;
+                        k.ClickSoundEnabled = def.ClickSoundEnabled;
                         k.ScreenEdge = def.ScreenEdge;
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();

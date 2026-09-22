@@ -24,17 +24,20 @@ using Xunit;
 public class SettingsPageSourceCallbackTests
 {
     // 1. KeyboardPageSource reset — the field-copy list is the transcription's load-bearing detail.
-    // It must clear LanguagePack and restore exactly the four fields the base reset touches
-    // (ActiveLayout/KeySizeMultiplier/PredictionEnabled/ScreenEdge) and must NOT touch anything
-    // else — ClickSoundEnabled is the canary: it is set false before reset and must stay false,
-    // proving the reset did not wholesale-replace the Keyboard object. Base: 385211f lines 796-808.
+    // It restores exactly the settings that have a ROW on the Keyboard tab (completeness is
+    // guarded by KeyboardPageSourceResetDriftTests, which enumerates the rows — this test no
+    // longer hand-lists them; the list here had already drifted twice: MaxSuggestions joined the
+    // handler in #160 unnoticed, and ClickSoundEnabled was the miss that filed #157) and must
+    // NOT touch anything else — SmartCapitalizationEnabled is the canary, chosen because it has
+    // no row on the tab: set false before reset, must stay false, proving the reset did not
+    // wholesale-replace the Keyboard object. Base: 385211f lines 796-808.
     [Fact]
-    public void Keyboard_Reset_OnConfirmedModal_ClearsLanguagePack_AndRestoresFourFieldsOnly()
+    public void Keyboard_Reset_OnConfirmedModal_ClearsLanguagePack_AndLeavesRowlessFieldsAlone()
     {
         var settings = new EyeCtrlSettings();
         var k = settings.Keyboard;
         k.LanguagePack = "fr";
-        k.ClickSoundEnabled = false;          // canary — must survive the reset untouched
+        k.SmartCapitalizationEnabled = false; // canary — no row on the tab, must survive untouched
         k.ActiveLayout = "AZERTY";
         k.KeySizeMultiplier = 1.5;
         k.PredictionEnabled = false;
@@ -53,12 +56,12 @@ public class SettingsPageSourceCallbackTests
         rec.LastModalOnYes!();                // simulate the user confirming
 
         var defaults = new KeyboardSettings();
-        Check.That(k.LanguagePack).IsEqualTo("");
+        Check.That(k.LanguagePack).IsEqualTo(defaults.LanguagePack);
         Check.That(k.ActiveLayout).IsEqualTo(defaults.ActiveLayout);
         Check.That(k.KeySizeMultiplier).IsEqualTo(defaults.KeySizeMultiplier);
         Check.That(k.PredictionEnabled).IsEqualTo(defaults.PredictionEnabled);
         Check.That(k.ScreenEdge).IsEqualTo(defaults.ScreenEdge);
-        Check.That(k.ClickSoundEnabled).IsFalse();   // KEY: untouched, not wholesale-reset
+        Check.That(k.SmartCapitalizationEnabled).IsFalse();   // KEY: untouched, not wholesale-reset
         Check.That(rec.ApplyAndSaveCount).IsEqualTo(1);
         Check.That(rec.RebuildContentCount).IsEqualTo(1);
     }

@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
+using EyeCtrl.App.Tests.Settings.Pages;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
@@ -201,6 +202,44 @@ public class KeyboardCoordinatorTests
         var (_, edgeSnapshot) = KeyboardCoordinator.ApplyKeyboardEdge(settings, temp.Service, registry);
         Check.That(edgeSnapshot.ActiveModelOnDisk).IsTrue();
         Check.That(edgeSnapshot).IsEqualTo(KeyboardStackSnapshot.Capture(settings, registry));
+    }
+
+    // ---- The snapshot's verification-verdict term ---------------------------------------------
+    // The 17th snapshot member: the active model's ledger verdict, read live in Capture under
+    // the same spelling rules as ActiveModelOnDisk (no active model / "Off" / files absent ->
+    // the neutral term). These three drive the live read and every neutral spelling.
+
+    [Fact]
+    public void Capture_ReadsActiveModelVerdict_Live()
+    {
+        using var scope = ModelTestFakes.Create();
+        var (registry, _) = scope.WithHashedDownloadedBundled();
+        registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
+        var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "135M" } };
+
+        var snap = KeyboardStackSnapshot.Capture(settings, registry);
+
+        Check.That(snap.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.Failed);
+    }
+
+    [Fact]
+    public void Capture_NoModel_NeutralVerdictTerm()
+    {
+        using var scope = ModelTestFakes.Create();
+        var snap = KeyboardStackSnapshot.Capture(new EyeCtrlSettings(), scope.EmptyRegistry());
+        Check.That(snap.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
+    }
+
+    [Fact]
+    public void Capture_OffOrEmptyModelSize_NeutralVerdictTerm()
+    {
+        using var scope = ModelTestFakes.Create();
+        var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "Off" } };
+        var snap = KeyboardStackSnapshot.Capture(settings, scope.EmptyRegistry());
+        Check.That(snap.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
     }
 
     /// <summary>A registry on a unique temp dir whose manifest lists "360M", with NO files on

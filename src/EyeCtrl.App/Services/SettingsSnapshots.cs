@@ -19,13 +19,19 @@ public sealed record KeyboardStackSnapshot(
     int KeyboardKeyDwellMs,
     int KeyboardPredictionDwellMs,
     int DwellCooldownMs,
-    bool ActiveModelOnDisk)
+    bool ActiveModelOnDisk,
+    ModelVerificationOutcome ActiveModelVerification)
 {
     /// <summary>
     /// Captures every input the prediction stack is rebuilt from: the settings above, plus whether
     /// the file <c>MLModelSize</c> names is on disk — the one input that is not a setting. It is
     /// what makes the reload able to see a completed download of the model the setting ALREADY
     /// names: no setting changes, but the files appear.
+    /// <para>
+    /// The new term is the active model's most recent verification outcome — the ledger value
+    /// the running stack was built under. A repair re-download flips it (Failed → Verified),
+    /// which is what makes ShouldReload fire where ActiveModelOnDisk cannot (present → present).
+    /// </para>
     /// </summary>
     /// <param name="models">
     /// The registry the active model's file presence is read from. REQUIRED — not an optional
@@ -68,7 +74,8 @@ public sealed record KeyboardStackSnapshot(
         s.Dwell.KeyboardKeyDwellMs,
         s.Dwell.KeyboardPredictionDwellMs,
         s.Dwell.DwellCooldownMs,
-        IsActiveModelOnDisk(s, models));
+        IsActiveModelOnDisk(s, models),
+        ActiveModelVerificationOf(s, models));
 
     private static bool IsActiveModelOnDisk(EyeCtrlSettings s, ModelRegistryService? models)
     {
@@ -80,6 +87,19 @@ public sealed record KeyboardStackSnapshot(
             && !string.IsNullOrEmpty(id)
             && !string.Equals(id, "Off", StringComparison.OrdinalIgnoreCase)
             && models.IsModelDownloaded(id);
+    }
+
+    private static ModelVerificationOutcome ActiveModelVerificationOf(
+        EyeCtrlSettings s, ModelRegistryService? models)
+    {
+        // Same spelling rules as IsActiveModelOnDisk: no active model means the neutral term.
+        var id = s.Keyboard.MLModelSize;
+        return models is not null
+            && !string.IsNullOrEmpty(id)
+            && !string.Equals(id, "Off", StringComparison.OrdinalIgnoreCase)
+            && models.IsModelDownloaded(id)
+                ? models.GetVerification(id)
+                : ModelVerificationOutcome.NotYetVerified;
     }
 }
 

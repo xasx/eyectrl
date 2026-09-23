@@ -21,9 +21,8 @@ the repair actually reload the stack. The pause indicator is commanded exclusive
 
 **Spec:** `docs/superpowers/specs/2026-09-23-visual-findings-design.md` (revision 5, SHIP).
 Work in `.worktrees/visual-findings` on `fix/visual-findings-2026-09`.
-Plan revision 3 — review round 1 of the plan (4C/4H/3M/7L) and round 2 (5H/M + 4M/L + 2L, all
-compile/build defects concentrated in Task 2) verified against source and folded; round 2
-confirmed every round-1 design fix sound.
+Plan revision 4 — review round 1 (4C/4H/3M/7L) and round 2 (N1–N12) folded; round 3 verdict
+**executable**, with its one test-teeth fix (R1) and five hardening items (R2–R6) folded here.
 
 ## Global Constraints
 
@@ -254,8 +253,9 @@ git commit -m "feat(core): per-model verification ledger on ModelRegistryService
   plan review N5)
 - Modify: `tests/EyeCtrl.App.Tests/Settings/Pages/ModelTestFakes.cs` (hash-carrying fake)
 - Test: `tests/EyeCtrl.App.Tests/Services/PredictionStackFactoryVerificationTests.cs` (create)
-- Linked, not modified: `tests/EyeCtrl.LM.Tests/TestTokenizerJson.cs` (`Write(path)` — the
-  valid-tokenizer fixture; plan review N5)
+- Linked, not modified: `tests/EyeCtrl.LM.Tests/TestTokenizerJson.cs` — MOVED to
+  `tests/TestSupport/TestTokenizerJson.cs` and linked from both csproj files (see Step 2a;
+  plan review R4)
 
 **Interfaces:**
 - Consumes: Task 1's ledger.
@@ -282,11 +282,22 @@ git commit -m "feat(core): per-model verification ledger on ModelRegistryService
 - [ ] **Step 2: Link the tokenizer fixture, then extend `ModelTestFakes.ModelTestScope`.**
 
   a) In `tests/EyeCtrl.App.Tests/EyeCtrl.App.Tests.csproj`, link the existing valid-tokenizer
-  fixture from the LM test project (the established linked-helper pattern this csproj already
-  uses for `TempTestDirectory.cs`):
+  fixture. It MOVES first (plan review R4): every existing cross-project link comes from the
+  shared `tests/TestSupport/` folder, and linking directly into `EyeCtrl.LM.Tests` would break
+  the App.Tests build without warning on any LM.Tests-side move or rename. So:
+  `git mv tests/EyeCtrl.LM.Tests/TestTokenizerJson.cs tests/TestSupport/TestTokenizerJson.cs`,
+  then link it from BOTH csproj files (keep the file's namespace — links compile
+  cross-namespace):
 
 ```xml
-    <Compile Include="..\EyeCtrl.LM.Tests\TestTokenizerJson.cs"
+    <!-- EyeCtrl.App.Tests.csproj -->
+    <Compile Include="..\TestSupport\TestTokenizerJson.cs"
+             Link="TestSupport\TestTokenizerJson.cs" />
+```
+
+```xml
+    <!-- EyeCtrl.LM.Tests.csproj (unchanged path semantics, new location) -->
+    <Compile Include="..\TestSupport\TestTokenizerJson.cs"
              Link="TestSupport\TestTokenizerJson.cs" />
 ```
 
@@ -528,36 +539,82 @@ public class PredictionStackFactoryVerificationTests : IDisposable
   superseded continuations are observably dropped:
 
 ```csharp
-    // Plan review N7: only the WINNING swap publishes (round-1 C3). A superseded build's
-    // continuation must neither write the ledger nor raise the event. The invariant that
-    // holds at rest: the LAST event verdict equals the ledger value.
+    // Plan review N7 + R1: only the WINNING swap publishes (round-1 C3), and the test must be
+    // able to FAIL for exactly that regression. The two builds therefore DISAGREE, and the
+    // loser is forced to finish LAST: call 1 of the predictor seam blocks on a gate, then
+    // returns an AVAILABLE stub (classifies Verified — the dangerous verdict); call 2 returns
+    // an UNAVAILABLE stub (classifies Failed) and wins the swap. The discarded orchestrator
+    // disposes its LM (PredictionOrchestrator.cs:150), so the loser's stub signals "loser is
+    // gone" from its own Dispose. A mutation that writes the ledger inside Build fails this:
+    // the late loser would flip the ledger to Verified after the winner's Failed.
     [Fact]
-    public void SupersededBuild_PublishesNothing_LastEventVerdictMatchesLedger()
+    public void SupersededBuild_PublishesNothing_LoserFinishingLastWritesNothing()
     {
         using var scope = ModelTestFakes.Create();
         var (registry, _) = scope.WithHashedDownloadedBundled();
-        var factory = NewBackgroundFactory();
+
+        var loserMayFinish = new ManualResetEventSlim(false);
+        var loserDisposed = new ManualResetEventSlim(false);
+        var seamCalls = 0;
         var swaps = new List<(PredictionOrchestrator? Orchestrator,
             (string ModelId, ModelVerificationOutcome Outcome)? Verification)>();
-        factory.StackSwapped += (o, v) => swaps.Add((o, v));
+
+        var factory = new PredictionStackFactory(work => _uiQueue.Enqueue(work))
+        {
+            PredictorFactoryOverride = (_, _, _, _) =>
+            {
+                if (Interlocked.Increment(ref seamCalls) == 1)
+                {
+                    // Build #1: blocked so build #2 wins the race deterministically.
+                    loserMayFinish.Wait();
+                    loserDisposed.Set(); // read back from PredictionOrchestrator.Dispose
+                    return new AvailableLmPredictor();   // classifies Verified
+                }
+                return new UnavailableLmPredictor();     // classifies Failed — the winner
+            },
+        };
+        var swapsGuard = new object();
+        factory.StackSwapped += (o, v) => { lock (swapsGuard) swaps.Add((o, v)); };
 
         var settings = Settings();
         settings.Keyboard.MLSuggestionsEnabled = true;
         settings.Keyboard.MLModelSize = "135M";
 
-        // Two rebuilds; the second supersedes the first (generation bump). Whatever the
-        // thread-pool interleaving, at most one continuation passes the generation re-check.
-        factory.Rebuild(settings, _baseDir, _appDataDir, registry);
-        factory.Rebuild(settings, _baseDir, _appDataDir, registry);
+        factory.Rebuild(settings, _baseDir, _appDataDir, registry); // blocks in the seam
+        factory.Rebuild(settings, _baseDir, _appDataDir, registry); // wins, swaps, Failed
         Pump();
 
-        Check.That(swaps).Not.IsEmpty();
-        var last = swaps[^1];
-        if (last.Verification is not null)
-        {
-            Check.That(registry.GetVerification(last.Verification.Value.ModelId))
-                .IsEqualTo(last.Verification.Value.Outcome);
-        }
+        lock (swapsGuard) Check.That(swaps.Count).IsEqualTo(1);
+        Check.That(registry.GetVerification("135M"))
+            .IsEqualTo(ModelVerificationOutcome.Failed);
+
+        // Release the loser, wait for its discard-dispose, then run its continuation: it must
+        // pass the generation re-check's discard branch and publish NOTHING.
+        loserMayFinish.Set();
+        Check.That(loserDisposed.Wait(TimeSpan.FromSeconds(10))).IsTrue();
+        Drain();
+
+        lock (swapsGuard) Check.That(swaps.Count).IsEqualTo(1);
+        Check.That(registry.GetVerification("135M"))
+            .IsEqualTo(ModelVerificationOutcome.Failed);
+    }
+
+    private sealed class AvailableLmPredictor : ILanguageModelPredictor
+    {
+        public bool IsAvailable => true;
+        public void Predict(string context, string? prefix = null) { }
+        public IReadOnlyList<PredictionResult>? TryGetResults() => null;
+        public void Cancel() { }
+        public void Dispose() { }
+    }
+
+    private sealed class UnavailableLmPredictor : ILanguageModelPredictor
+    {
+        public bool IsAvailable => false;
+        public void Predict(string context, string? prefix = null) { }
+        public IReadOnlyList<PredictionResult>? TryGetResults() => null;
+        public void Cancel() { }
+        public void Dispose() { }
     }
 
     // The winning swap's event argument equals the value written to the ledger — the two
@@ -577,7 +634,8 @@ public class PredictionStackFactoryVerificationTests : IDisposable
         factory.Rebuild(settings, _baseDir, _appDataDir, registry);
         Pump();
 
-        Check.That(eventVerdict).IsNotNull();
+        // R3: NFluent-on-nullable-tuple is not a known overload — use HasValue.
+        Check.That(eventVerdict.HasValue).IsTrue();
         Check.That(registry.GetVerification(eventVerdict!.Value.ModelId))
             .IsEqualTo(eventVerdict.Value.Outcome);
     }
@@ -656,8 +714,9 @@ public class PredictionStackFactoryVerificationTests : IDisposable
   method writes no shared state: the verdict travels out through the return value, and the
   callers decide publication.
 
-    Inside the LM block, load the tokenizer through the seam, construct the predictor through
-    the seam, compute `lmLive`, and classify — keeping the ORIGINAL mismatch gate's
+    Inside the LM block, load the tokenizer with the PRODUCTION loader (the tokenizer seam was
+    removed in this revision — only the predictor seam remains; plan review R6), construct the
+    predictor through that seam, and classify — keeping the ORIGINAL mismatch gate's
     construction semantics EXACTLY (plan review C1: the mismatch arm constructs nothing; every
     other arm constructs, including empty-hash custom models):
 
@@ -1362,6 +1421,29 @@ git commit -m "feat(app): ButtonKind.Danger — non-destructive danger styling f
 
         Check.That(modals).IsEmpty(); // the guard fired before the modal
     }
+
+    // R2: positive control for the guard test above — with an IDLE management the activation
+    // records exactly one modal, titled as a re-download. This also pins the repair row's
+    // modal wiring, which no other test covers.
+    [Fact]
+    public void RepairRow_Activation_IdleManagement_OpensExactlyOneReDownloadModal()
+    {
+        using var scope = ModelTestFakes.Create();
+        var (registry, mgmt) = scope.WithHashedDownloadedBundled();
+        registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
+
+        var modals = new List<string>();
+        var ctx = TestSettingsPageContext.Build(
+            registry: registry, modelManagement: mgmt,
+            showModal: (title, _) => modals.Add(title));
+
+        var repair = new ModelsPageSource(ctx).Build().Single().Rows
+            .OfType<ButtonSpec>().Single(b => b.Id == "md_fix_135M");
+        repair.OnActivate();
+
+        Check.That(modals).HasSize(1);
+        Check.That(modals[0]).Contains("Re-download");
+    }
 ```
 
   (`BusyManagement` and the `showModal` recorder parameter already exist — ModelTestFakes.cs:151
@@ -1505,10 +1587,21 @@ git commit -m "feat(app): ButtonKind.Danger — non-destructive danger styling f
         label.Measure(new System.Windows.Size(label.ActualWidth, double.PositiveInfinity));
         var wrappedHeight = label.DesiredSize.Height;
 
-        // The text must wrap to more than one line for THIS label (sanity: the measure is
-        // live), and the wrapped height must fit the button's inner box.
+        // R5: compare against the label's OWN row height (it sits in the layout Grid's label
+        // row, above the progress-bar row) — comparing to the button's outer 100 DIP would
+        // pass a label that clips inside its row.
         Check.That(wrappedHeight).IsStrictlyGreaterThan(0);
-        Check.That(wrappedHeight).IsStrictlyLessThan(100);
+        if (label.Parent is System.Windows.Controls.Grid layoutGrid
+            && System.Windows.Controls.Grid.GetRow(label) < layoutGrid.RowDefinitions.Count)
+        {
+            var row = System.Windows.Controls.Grid.GetRow(label);
+            var rowHeight = layoutGrid.RowDefinitions[row].ActualHeight;
+            Check.That(wrappedHeight).IsLessOrEqualThan(rowHeight + 0.5);
+        }
+        else
+        {
+            Check.That(wrappedHeight).IsStrictlyLessThan(100); // fallback: outer height
+        }
     }
 
     private static IEnumerable<System.Windows.Controls.TextBlock> FindTextBlocks(

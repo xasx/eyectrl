@@ -298,6 +298,78 @@ public class KeyboardCoordinatorTests
         Check.That(merged).IsEqualTo(stored);
     }
 
+    [Fact]
+    public void BeforeFirstSwap_AnApplyAgainstTheSeedSnapshot_DoesNotReload()
+    {
+        // Spec O2a: "no reload for an apply that lands before the first swap". The seed from
+        // LoadKeyboard is a plain Capture — it reads the ledger live at seed time — and nothing
+        // patches the stored verdict term until the first swap lands. An apply in that window
+        // therefore compares the seed's verdict against the same live ledger state and must see
+        // NO diff (a spurious reload here would rebuild the layout and reload the model under
+        // the user mid-session). Same arrange as the M2 sequence above, minus the swap step.
+        using var scope = ModelTestFakes.Create();
+        var (registry, _) = scope.WithHashedDownloadedBundled();
+        registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
+        var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "135M" } };
+
+        var stored = KeyboardStackSnapshot.Capture(settings, registry);   // the LoadKeyboard seed
+        Check.That(stored.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.Failed);
+
+        Check.That(KeyboardCoordinator.ShouldReload(
+            stored, KeyboardStackSnapshot.Capture(settings, registry))).IsFalse();
+    }
+
+    // ---- Non-swap verdict preservation (plan review C4, the missed writers) --------------------
+    // The swap handler patches and never re-captures, but two OTHER writers assign a FULL fresh
+    // Capture to _keyboardSnapshot: the edge flip and the skin-tone change. Their own settings
+    // terms genuinely moved, yet Capture also re-reads the verdict term from the ledger LIVE —
+    // so a repair download's Verified landing between the worker's ReportVerification and the
+    // ApplyAndSave continuation would be absorbed while the running stack is still the Failed
+    // one: the next apply compares equal, skips the reload, and the LM stays dictionary-only
+    // while the Models row shows the download verified. Both handlers now compose
+    // WithPreservedVerdict(_keyboardSnapshot, <seam>); this drives each half exactly as its
+    // handler drives it (the handlers themselves are Context-bound and not headless-reachable,
+    // same accepted residual as the WithSwappedVerdict wiring).
+
+    [Fact]
+    public void NonSwapReCaptures_PreserveTheStoredVerdict_NotTheLedgersMidWindowState()
+    {
+        using var scope = ModelTestFakes.Create();
+        var (registry, _) = scope.WithHashedDownloadedBundled();
+        registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
+        var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "135M", ScreenEdge = "Bottom" } };
+
+        // Seed: what the swap patch would have stored — the running stack's own Failed verdict.
+        var stored = KeyboardStackSnapshot.Capture(settings, registry);
+        Check.That(stored.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.Failed);
+
+        // The download writer lands mid-window: the ledger flips BEFORE the repair reload.
+        registry.ReportVerification("135M", ModelVerificationOutcome.Verified);
+
+        // The user changes skin tone / flips the keyboard edge inside that window — the two
+        // handler seams, merged exactly as the handlers merge.
+        using var temp = new TempSettingsFile();
+        var toneSnapshot = KeyboardCoordinator.ApplyEmojiSkinTone(settings, temp.Service, 3, registry);
+        var mergedTone = KeyboardCoordinator.WithPreservedVerdict(stored, toneSnapshot);
+        Check.That(mergedTone.EmojiSkinTone).IsEqualTo(3);              // the moved term IS adopted
+        Check.That(mergedTone.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.Failed);               // the verdict is NOT
+
+        var (_, edgeSnapshot) = KeyboardCoordinator.ApplyKeyboardEdge(settings, temp.Service, registry);
+        var mergedEdge = KeyboardCoordinator.WithPreservedVerdict(stored, edgeSnapshot);
+        Check.That(mergedEdge.ScreenEdge).IsEqualTo("Top");             // the flip IS adopted
+        Check.That(mergedEdge.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.Failed);
+
+        // The payoff: with the verdict preserved, the next apply's live compare still sees
+        // Failed != Verified and fires the repair reload (the compare path MUST keep reading
+        // the ledger live — that liveness is what makes the repair reload fire).
+        Check.That(KeyboardCoordinator.ShouldReload(
+            mergedEdge, KeyboardStackSnapshot.Capture(settings, registry))).IsTrue();
+    }
+
     /// <summary>A registry on a unique temp dir whose manifest lists "360M", with NO files on
     /// disk until <see cref="PutActiveModelOnDisk"/> plants them.</summary>
     private static ModelRegistryService NewRegistry(EyeCtrlSettings settings) =>

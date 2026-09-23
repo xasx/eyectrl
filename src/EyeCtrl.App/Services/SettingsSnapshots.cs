@@ -23,14 +23,16 @@ public sealed record KeyboardStackSnapshot(
     ModelVerificationOutcome ActiveModelVerification)
 {
     /// <summary>
-    /// Captures every input the prediction stack is rebuilt from: the settings above, plus whether
-    /// the file <c>MLModelSize</c> names is on disk — the one input that is not a setting. It is
+    /// Captures every input the prediction stack is rebuilt from: the settings above, plus two
+    /// inputs read from live model state rather than from settings — whether the files
+    /// <c>MLModelSize</c> names are on disk (<c>ActiveModelOnDisk</c>), and the active model's
+    /// most recent verification outcome (<c>ActiveModelVerification</c>). The disk term is
     /// what makes the reload able to see a completed download of the model the setting ALREADY
     /// names: no setting changes, but the files appear.
     /// <para>
-    /// The new term is the active model's most recent verification outcome — the ledger value
-    /// the running stack was built under. A repair re-download flips it (Failed → Verified),
-    /// which is what makes ShouldReload fire where ActiveModelOnDisk cannot (present → present).
+    /// ActiveModelVerification is the ledger value the running stack was built under. A repair
+    /// re-download flips it (Failed → Verified), which is what makes ShouldReload fire where
+    /// ActiveModelOnDisk cannot (present → present).
     /// </para>
     /// </summary>
     /// <param name="models">

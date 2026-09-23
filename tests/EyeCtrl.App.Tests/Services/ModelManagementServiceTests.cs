@@ -189,6 +189,50 @@ public class ModelManagementServiceTests
     }
 
     [Fact]
+    public async Task DownloadBundledModelAsync_Success_ModelHashOnly_DoesNotReportVerified()
+    {
+        // The mixed arm of the M1+N4 gate: model hash checked, tokenizer hash empty (transport
+        // trust on the tokenizer only). This is the one row that distinguishes the gate's &&
+        // from an || — with an ||, a half-verified download would report Verified, and the
+        // ledger term would then claim an integrity the tokenizer bytes never had.
+        var tempDir = NewTempDir();
+        try
+        {
+            var settings = new EyeCtrlSettings();
+            var modelBytes = new byte[] { 0x05 };
+            var manifest = new ModelManifest
+            {
+                Models =
+                {
+                    ["135M"] = new ModelEntry
+                    {
+                        DisplayName = "SmolLM2 135M",
+                        Url = "https://example.com/onnx/model.onnx",
+                        Sha256 = ModelTestScope.Sha256Hex(modelBytes),
+                        SizeBytes = modelBytes.Length,
+                        TokenizerUrl = "https://example.com/onnx/tokenizer.json",
+                        TokenizerSha256 = "",
+                    },
+                },
+            };
+            var (registry, mgmt) = BuildServices(tempDir, settings, manifest,
+                req => Task.FromResult(req.RequestUri!.AbsolutePath.EndsWith("tokenizer.json")
+                    ? Ok(new byte[] { 0x06 })
+                    : Ok(modelBytes)));
+
+            var result = await mgmt.DownloadBundledModelAsync(
+                "135M", "https://example.com/onnx/model.onnx", manifest.Models["135M"].Sha256,
+                "https://example.com/onnx/tokenizer.json", "",
+                TestContext.Current.CancellationToken);
+
+            Check.That(result.IsSuccess).IsTrue();
+            Check.That(registry.GetVerification("135M"))
+                .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
+        }
+        finally { Cleanup(tempDir); }
+    }
+
+    [Fact]
     public async Task DownloadCustomModelAsync_WhileWorkflowActive_SecondCallReturnsBusy()
     {
         var tempDir = NewTempDir();

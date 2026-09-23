@@ -242,6 +242,62 @@ public class KeyboardCoordinatorTests
             .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
     }
 
+    // ---- Swap-time snapshot PATCH (the repair reload path) ------------------------------------
+    // When a background build swaps in, the handler PATCHES the stored snapshot's verdict term
+    // with the verdict THAT build reported — never re-captures. These drive the full M2
+    // startup-repair sequence over a real registry (each step changes real ledger state), and
+    // the model-mismatch guard.
+
+    [Fact]
+    public void SwapSequence_StartupRepairCycle_MovesStoredExactlyAsTheSpecRequires()
+    {
+        using var scope = ModelTestFakes.Create();
+        var (registry, _) = scope.WithHashedDownloadedBundled();
+        var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "135M" } };
+
+        // 1. Seed (LoadKeyboard's :205 capture): no verdict yet.
+        var stored = KeyboardStackSnapshot.Capture(settings, registry);
+        Check.That(stored.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
+
+        // 2. Background build finishes corrupt -> swap publishes ("135M", Failed).
+        registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
+        stored = KeyboardCoordinator.WithSwappedVerdict(
+            stored, ("135M", ModelVerificationOutcome.Failed));
+        Check.That(stored.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.Failed);
+
+        // 3. First apply after startup: compare capture reads the same ledger state —
+        //    NO reload (the N3 spurious-reload regression).
+        Check.That(KeyboardCoordinator.ShouldReload(
+            stored, KeyboardStackSnapshot.Capture(settings, registry))).IsFalse();
+
+        // 4. Repair: the download reports Verified into the ledger; the next apply's compare
+        //    capture sees Failed != Verified -> RELOAD (the C1 repair path).
+        registry.ReportVerification("135M", ModelVerificationOutcome.Verified);
+        Check.That(KeyboardCoordinator.ShouldReload(
+            stored, KeyboardStackSnapshot.Capture(settings, registry))).IsTrue();
+
+        // 5. A swap-to-null (prediction disabled) carries no verdict -> the stored Failed term
+        //    is KEPT, not refreshed from the ledger (plan review C4a).
+        var kept = KeyboardCoordinator.WithSwappedVerdict(stored, null);
+        Check.That(kept.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.Failed);
+    }
+
+    [Fact]
+    public void WithSwappedVerdict_VerdictForADifferentModel_IsIgnored()
+    {
+        using var scope = ModelTestFakes.Create();
+        var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "135M" } };
+        var stored = KeyboardStackSnapshot.Capture(settings, scope.EmptyRegistry());
+
+        var merged = KeyboardCoordinator.WithSwappedVerdict(
+            stored, ("360M", ModelVerificationOutcome.Verified));
+
+        Check.That(merged).IsEqualTo(stored);
+    }
+
     /// <summary>A registry on a unique temp dir whose manifest lists "360M", with NO files on
     /// disk until <see cref="PutActiveModelOnDisk"/> plants them.</summary>
     private static ModelRegistryService NewRegistry(EyeCtrlSettings settings) =>

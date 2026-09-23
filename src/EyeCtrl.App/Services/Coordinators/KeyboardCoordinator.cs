@@ -117,8 +117,17 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         // null on first boot) immediately; the swap callback below installs the new one.
         _predictionFactory.Dispose();
         _predictionFactory = new PredictionStackFactory(work => context.Dispatcher.BeginInvoke(work));
-        _predictionFactory.StackSwapped +=
-            (orchestrator, _) => context.OverlayManager.Keyboard.SetOrchestrator(orchestrator);
+        _predictionFactory.StackSwapped += (orchestrator, verification) =>
+        {
+            context.OverlayManager.Keyboard.SetOrchestrator(orchestrator);
+
+            // Swap-time snapshot PATCH (spec N3/O2/R1 + plan review C4): the seed from
+            // LoadKeyboard stays until the first swap; each swap moves ONLY the verdict term,
+            // with the verdict the swapped build itself reported. No re-capture — a fresh one
+            // would re-read live disk/ledger state the running stack was never built against.
+            if (_keyboardSnapshot is not null)
+                _keyboardSnapshot = WithSwappedVerdict(_keyboardSnapshot, verification);
+        };
         // Hand the fresh factory to the dictionary page's service (SetModelServices pattern):
         // its ForgetWords needs the LIVE stack so a settings-page delete takes effect at once
         // and survives the in-flight-rebuild window.
@@ -251,6 +260,25 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     /// </summary>
     internal static bool ShouldReload(KeyboardStackSnapshot? stored, KeyboardStackSnapshot current) =>
         stored != current;
+
+    /// <summary>
+    /// PATCHES the stored snapshot's verdict term with the verdict the swapped build reported
+    /// (plan review C4): never re-captures. A fresh CaptureSnapshot here would re-read the
+    /// ledger AND ActiveModelOnDisk live — absorbing a download report that landed after the
+    /// build checked disk (silently un-fixing the repair reload) and storing on-disk state the
+    /// running stack was never built against (the ticket-11 bug, back). A null verdict
+    /// (swap-to-null) keeps the stored term, i.e. the previous verdict. A verdict for a model
+    /// other than the stored active model is ignored.
+    /// </summary>
+    internal static KeyboardStackSnapshot WithSwappedVerdict(
+        KeyboardStackSnapshot stored,
+        (string ModelId, ModelVerificationOutcome Outcome)? verification)
+    {
+        if (verification is not { } swap
+            || !string.Equals(swap.ModelId, stored.MLModelSize, StringComparison.OrdinalIgnoreCase))
+            return stored;
+        return stored with { ActiveModelVerification = swap.Outcome };
+    }
 
     // manageSuppression: true for the toolbar toggle (deliberately pauses fixation while the
     // keyboard is up); false for the text-field auto-show/hide request path, which must NOT touch

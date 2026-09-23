@@ -100,8 +100,11 @@ public class ToolbarVisibilityAdapterHeadlessTests
 
         public string? Edge { get; private set; }
 
-        public void Show() => _log.Add("Indicator.Show");
-        public void Hide() => _log.Add("Indicator.Hide");
+        public bool Visible { get; private set; }
+
+        public void Show() { Visible = true; _log.Add("Indicator.Show"); }
+        public void Hide() { Visible = false; _log.Add("Indicator.Hide"); }
+        public void RaiseToTop() => _log.Add("Indicator.RaiseToTop");
         public void SetEdge(string edge) { Edge = edge; _log.Add("Indicator.SetEdge"); }
     }
 
@@ -155,33 +158,73 @@ public class ToolbarVisibilityAdapterHeadlessTests
     }
 
     [Fact]
-    public void HideToolbar_WhilePaused_RaisesTheIndicator()
+    public void SetPauseIndicator_True_ShowsAndRaises()
     {
-        // Paused + hidden + no feedback is the spec violation this branch exists to prevent: the
-        // user has no way to tell the app is paused rather than broken.
         var (adapter, log, _, _) = Build();
+        adapter.SetPauseIndicator(true);
+        Pump();
+        Check.That(log).Contains("Indicator.Show");
+        Check.That(log).Contains("Indicator.RaiseToTop");
+    }
 
+    [Fact]
+    public void SetPauseIndicator_IsEdgeGuarded()
+    {
+        var (adapter, log, _, _) = Build();
+        adapter.SetPauseIndicator(true);
+        adapter.SetPauseIndicator(true);
+        Pump();
+        Check.That(log.Count(t => t == "Indicator.Show")).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void Unpause_WhileBandVisible_HidesStrip()
+    {
+        var (adapter, log, _, _) = Build();
+        adapter.SetPauseIndicator(true);
+        adapter.SetPauseIndicator(false); // the H1 row: nothing else would dismiss the strip
+        Pump();
+        Check.That(log).Contains("Indicator.Hide");
+        Check.That(log.Count(t => t == "Indicator.Hide")).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void Summon_WhileStripCommanded_RaisesIndicatorAfterTheBandShow()
+    {
+        var (adapter, log, _, _) = Build();
+        adapter.SetPauseIndicator(true);
+        Pump();      // the command must have RUN before the log is cleared
+        log.Clear();
+        adapter.ShowToolbar();
+        Pump();
+        var bandIndex = log.IndexOf("Toolbar.ShowThenSlideIn");
+        var raiseIndex = log.IndexOf("Indicator.RaiseToTop");
+        Check.That(raiseIndex).IsStrictlyGreaterThan(bandIndex);
+    }
+
+    [Fact]
+    public void Summon_WithoutStrip_DoesNotRaise()
+    {
+        var (adapter, log, _, _) = Build();
+        adapter.ShowToolbar();
+        Pump();
+        Check.That(log).Not.Contains("Indicator.RaiseToTop");
+    }
+
+    [Fact]
+    public void HideToolbar_NeitherShowsNorHidesNorRaisesTheStrip()
+    {
+        var (adapter, log, _, _) = Build();
+        adapter.SetPauseIndicator(true);
+        Pump();      // the command must have RUN before the log is cleared
+        log.Clear();
         adapter.HideToolbar(paused: true);
         Pump();
-
-        Check.That(log).Contains("Indicator.Show");
-        Check.That(log).Not.Contains("Indicator.Hide");
+        Check.That(log.Where(t => t.StartsWith("Indicator."))).IsEmpty();
     }
 
     [Fact]
-    public void HideToolbar_WhileRunning_LeavesTheIndicatorDown()
-    {
-        var (adapter, log, _, _) = Build();
-
-        adapter.HideToolbar(paused: false);
-        Pump();
-
-        Check.That(log).Contains("Indicator.Hide");
-        Check.That(log).Not.Contains("Indicator.Show");
-    }
-
-    [Fact]
-    public void ShowToolbar_ShowsTheToolbarAndClearsTheIndicator()
+    public void ShowToolbar_SummonsTheBandAnimated_AndLeavesAnUncommandedStripAlone()
     {
         var (adapter, log, vm, _) = Build();
         vm.SetActive(false);
@@ -189,12 +232,10 @@ public class ToolbarVisibilityAdapterHeadlessTests
         adapter.ShowToolbar();
         Pump();
 
-        // A summon animates in, and the indicator is cleared FIRST so it is not left underneath
-        // the incoming band.
+        // The summon animates in, and the strip is NOT the band show's business: with no
+        // SetPauseIndicator(true) on record, a summon neither hides nor raises it.
         Check.That(log).Contains("Toolbar.ShowThenSlideIn");
-        Check.That(log).Contains("Indicator.Hide");
-        Check.That(log.IndexOf("Indicator.Hide"))
-            .IsStrictlyLessThan(log.IndexOf("Toolbar.ShowThenSlideIn"));
+        Check.That(log.Where(t => t.StartsWith("Indicator."))).IsEmpty();
 
         // Dwell is live again: gaze now accumulates where it previously could not.
         vm.DwellDetector.AddTarget(new DwellTarget("Close", new PhysicalPoint(100, 100),
@@ -204,11 +245,14 @@ public class ToolbarVisibilityAdapterHeadlessTests
     }
 
     [Fact]
-    public void ForceShow_ShowsTheToolbarAndClearsTheIndicator()
+    public void ForceShow_ShowsTheBandAtRest_RaisingACommandedStripAfter()
     {
         // The tray fallback and suspend-recover path — the one that un-strands a user whose
         // toolbar auto-hid while a modal was up.
         var (adapter, log, _, _) = Build();
+        adapter.SetPauseIndicator(true);
+        Pump();      // the command must have RUN before the log is cleared
+        log.Clear();
 
         adapter.ForceShow();
         Pump();
@@ -218,7 +262,11 @@ public class ToolbarVisibilityAdapterHeadlessTests
         // animated path. ShowAtRest also cancels any in-flight slide and defuses its pending Hide.
         Check.That(log).Contains("Toolbar.ShowAtRest");
         Check.That(log).Not.Contains("Toolbar.ShowThenSlideIn");
-        Check.That(log).Contains("Indicator.Hide");
+        // The band show never hides the strip; a commanded strip is raised back above it.
+        Check.That(log).Not.Contains("Indicator.Hide");
+        var raiseIndex = log.IndexOf("Indicator.RaiseToTop");
+        var bandIndex = log.IndexOf("Toolbar.ShowAtRest");
+        Check.That(raiseIndex).IsStrictlyGreaterThan(bandIndex);
     }
 
     [Fact]

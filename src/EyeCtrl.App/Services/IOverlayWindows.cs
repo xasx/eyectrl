@@ -187,6 +187,10 @@ public interface IPauseIndicatorOverlay
     void Show();
     void Hide();
     void SetEdge(string edge);
+
+    /// <summary>Re-asserts this window above sibling topmost overlays shown after it
+    /// (OverlayWindow.RaiseToTop: SetWindowPos HWND_TOPMOST | SWP_NOACTIVATE).</summary>
+    void RaiseToTop();
 }
 
 /// <summary>The manual-selection gaze dot.</summary>

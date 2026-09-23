@@ -52,8 +52,8 @@ public sealed record ButtonSpec(
 /// <param name="Text">Deferred so dynamic labels (calibration status) re-evaluate on each rebuild.</param>
 /// <param name="Wrap">
 /// Wrap text wider than the content column to a second line (default) instead of clipping it —
-/// status text must stay fully readable for a gaze user. Off by default: rule-like labels (a run
-/// of one glyph) must clip at the column edge, not stack into a block of strokes.
+/// status text must stay fully readable for a gaze user. Rule-like labels (a run of one glyph)
+/// must clip at the column edge, not stack into a block of strokes.
 /// </param>
 public sealed record LabelSpec(Func<string> Text, bool Wrap = true) : SettingsRowSpec("", "");
 

@@ -57,7 +57,15 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
         // Mirror InteractionManager.Paused into the toolbar auto-hide controller. This registration
         // moved here from EventCoordinator.SetupMessageHandlers as part of the cluster-6 extraction.
         context.Messenger.Register<ToolbarLifecycleCoordinator, StateChangedMessage>(this, (_, msg) =>
-            _autoHide?.SetPaused(msg.NewState == InteractionState.Paused));
+        {
+            var paused = msg.NewState == InteractionState.Paused;
+            _autoHide?.SetPaused(paused);
+            // The strip is a pure function of paused state (spec H1/N2): one command per flip.
+            // The startup-paused push arrives here from App.OnStartup's TogglePause, which runs
+            // AFTER ShowOverlays — that ordering is load-bearing for the strip's z-order (O4);
+            // see the comment at App.xaml.cs.
+            _visibility?.SetPauseIndicator(paused);
+        });
 
         // The screen changed size or scale. Both of this controller's geometry values were captured
         // once at startup and could never be updated — the summon region, which is the escape

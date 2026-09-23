@@ -418,4 +418,105 @@ public class ModelsPageSourceTests
         Check.That(ctx.Errors).HasSize(1);
         Check.That(ctx.Errors[0]).Contains("disk on fire");
     }
+
+    // ── Failed-verdict repair row (verification ledger, Task 1) ────────────────────────────
+    // A downloaded, hash-gated entry whose ledger verdict is Failed is UNUSABLE: the stack fell
+    // back to the dictionary and the user sees no sign of it on this tab. The row below is the
+    // tab's only signal, and its activation is the first remedy.
+
+    [Fact]
+    public void Build_FailedVerdict_RendersDangerRepairRow()
+    {
+        using var scope = ModelTestFakes.Create();
+        var (registry, mgmt) = scope.WithHashedDownloadedBundled();
+        registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
+        var ctx = TestSettingsPageContext.Build(registry: registry, modelManagement: mgmt);
+
+        var rows = new ModelsPageSource(ctx).Build().Single().Rows;
+        var repair = rows.OfType<ButtonSpec>().SingleOrDefault(b => b.Id == "md_fix_135M");
+
+        Check.That(repair).IsNotNull();
+        Check.That(repair!.Kind).IsEqualTo(ButtonKind.Danger);
+        Check.That(repair.Label).Contains("model unusable");
+        Check.That(repair.Label).Contains("dwell to re-download");
+    }
+
+    [Fact]
+    public void Build_FailedRow_InFlightTakesPrecedence()
+    {
+        using var scope = ModelTestFakes.Create();
+        var (registry, mgmt) = scope.WithHashedDownloadedBundled();
+        registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
+        mgmt.CurrentDownloadId = "135M";
+        var ctx = TestSettingsPageContext.Build(registry: registry, modelManagement: mgmt);
+
+        var rows = new ModelsPageSource(ctx).Build().Single().Rows;
+
+        Check.That(rows.OfType<ButtonSpec>().Where(b => b.Id == "md_fix_135M")).IsEmpty();
+        Check.That(rows.OfType<LabelSpec>().Select(l => l.Text()))
+            .HasElementThatMatches(t => t.Contains("downloading"));
+    }
+
+    [Fact]
+    public void Build_VerifiedOrUnverified_KeepsTodayRows()
+    {
+        using var scope = ModelTestFakes.Create();
+        var (registry, mgmt) = scope.WithHashedDownloadedBundled();
+        registry.ReportVerification("135M", ModelVerificationOutcome.Verified);
+        var ctx = TestSettingsPageContext.Build(registry: registry, modelManagement: mgmt);
+
+        var rows = new ModelsPageSource(ctx).Build().Single().Rows;
+
+        Check.That(rows.OfType<ButtonSpec>().Where(b => b.Id.StartsWith("md_fix_"))).IsEmpty();
+        Check.That(rows.OfType<LabelSpec>().Select(l => l.Text()))
+            .HasElementThatMatches(t => t.Contains("✓ Downloaded"));
+    }
+
+    [Fact]
+    public void RepairRow_Activation_WhileDownloading_RefusesBeforeTheModal()
+    {
+        // L3+N9: the repair arm must refuse a second download exactly like the download arm —
+        // BEFORE showing the modal, with an error — not with an error after the user confirmed.
+        // The busy fake is constructed over the SAME registry that carries the Failed verdict
+        // (ManagementThatIsBusy builds its own empty registry, which would render no row).
+        using var scope = ModelTestFakes.Create();
+        var (registry, _) = scope.WithHashedDownloadedBundled();
+        registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
+        var busy = new BusyManagement(registry, new ModelDownloadService(scope.Dir),
+            new EyeCtrlSettings()); // IsDownloading => true (ModelTestFakes.cs:151)
+
+        var modals = new List<string>();
+        var ctx = TestSettingsPageContext.Build(
+            registry: registry, modelManagement: busy,
+            showModal: (title, _) => modals.Add(title)); // Build already takes this (cs :26)
+
+        var repair = new ModelsPageSource(ctx).Build().Single().Rows
+            .OfType<ButtonSpec>().Single(b => b.Id == "md_fix_135M");
+        repair.OnActivate();
+
+        Check.That(modals).IsEmpty(); // the guard fired before the modal
+    }
+
+    // R2: positive control for the guard test above — with an IDLE management the activation
+    // records exactly one modal, titled as a re-download. This also pins the repair row's
+    // modal wiring, which no other test covers.
+    [Fact]
+    public void RepairRow_Activation_IdleManagement_OpensExactlyOneReDownloadModal()
+    {
+        using var scope = ModelTestFakes.Create();
+        var (registry, mgmt) = scope.WithHashedDownloadedBundled();
+        registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
+
+        var modals = new List<string>();
+        var ctx = TestSettingsPageContext.Build(
+            registry: registry, modelManagement: mgmt,
+            showModal: (title, _) => modals.Add(title));
+
+        var repair = new ModelsPageSource(ctx).Build().Single().Rows
+            .OfType<ButtonSpec>().Single(b => b.Id == "md_fix_135M");
+        repair.OnActivate();
+
+        Check.That(modals).HasSize(1);
+        Check.That(modals[0]).Contains("Re-download");
+    }
 }

@@ -11,6 +11,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Xml.Linq;
 using EyeCtrl.App.Views;
+using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Controls;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
@@ -64,6 +65,23 @@ public class SettingsContentFitTests
     /// who is likely to be running heavy display scaling, plausibly has.
     /// </summary>
     private const double NarrowDisplayWidthDip = 800;
+
+    /// <summary>
+    /// Hit radius and dwell duration for the row-level probes below, matching what the settings
+    /// render path registers: <see cref="SettingsWindow.ControlBtnRadius"/> and the 800 ms every
+    /// dwell control in this file is probed at (HandChunkedPageFitTests, SettingsRowLayoutTests).
+    /// </summary>
+    private const double RadiusPhysical = SettingsWindow.ControlBtnRadius;
+
+    /// <inheritdoc cref="RadiusPhysical"/>
+    private const int DwellMs = 800;
+
+    /// <summary>
+    /// The content column on the 1920x1080 display this application is actually used on, the
+    /// same width SettingsRowLayoutTests probes its rows at: roomy, so a label measurement here
+    /// is the label's own fit inside the button, not a squeeze by the column.
+    /// </summary>
+    private const double WideColumnWidth = 1424.0;
 
     /// <summary>A registrar that records nothing: this test measures layout, never dwell.</summary>
     private sealed class NullRegistrar : IDwellRegistrar
@@ -1113,6 +1131,83 @@ public class SettingsContentFitTests
                     + "repoint this guard at the element that carries the header's height now — "
                     + "do not delete it: nothing else in the headless suites notices.")
                 .That(body).Contains(term);
+        }
+    }
+
+    /// <summary>
+    /// The Models tab's failed-model repair row carries the longest label any settings button
+    /// declares — three clauses, with the "dwell to re-download" call to action at the END, so
+    /// a clipped last line would cut off exactly the part that tells the user what to do.
+    /// Measured through <see cref="SettingsWindow.CreateControl"/> so production changes to
+    /// DwellButton's font, padding or wrap behaviour make THIS test fail, not a probe.
+    /// </summary>
+    [StaFact]
+    public void TheRepairRow_WrapsItsLabel_InsideTheRealDangerButton()
+    {
+        // M3+N8: measure through SettingsWindow.CreateControl so production changes to
+        // DwellButton's font, padding or wrap behaviour make THIS test fail, not a probe.
+        // AND re-measure the inner TextBlock unclamped: UIElement.Measure clamps DesiredSize
+        // to the available size, so a height read off an arranged child inside a fixed-height
+        // button can never exceed that height and the assertion would be vacuous.
+        //
+        // The repair row is 106 DIP tall, not the 100 DIP floor every other Models button
+        // uses: this label wraps to THREE lines (95.77 DIP at FontSizeTitle 24) and the dwell
+        // progress bar takes the bottom 6 DIP, so a 100 DIP button leaves the label row 94 and
+        // clips the third line — the one whose tail carries the "dwell to re-download"
+        // instruction. 106 gives the label its full 100. Controller decision 2026-09-23 when
+        // the brief's verbatim Height: 100 failed this very assertion by 1.27 DIP.
+        const double repairButtonHeight = 106;
+        const string repairLabel = "⚠ Qwen2.5 1.5B (q4f16) — model unusable · predictions fall " +
+            "back to dictionary · dwell to re-download";
+        var control = (DwellControl)SettingsWindow.CreateControl(
+            new ButtonSpec("md_fix_fit", repairLabel, () => { },
+                ButtonKind.Danger, Width: 544, Height: repairButtonHeight),
+            new SettingsAutoPagination.NoopDwellRegistrar(),
+            RadiusPhysical, DwellMs, WideColumnWidth);
+
+        var host = new System.Windows.Controls.Grid();
+        TextElement.SetFontFamily(host, Tokens.FontStandard);
+        control.Attach(host);
+        host.Measure(new System.Windows.Size(544, double.PositiveInfinity));
+        host.Arrange(new System.Windows.Rect(0, 0, 544, host.DesiredSize.Height));
+        host.UpdateLayout();
+
+        var label = FindTextBlocks(control.Root)
+            .OrderByDescending(t => t.Text?.Length ?? 0).First();
+
+        // Unclamped re-measure at the width the button actually gives the text:
+        label.Measure(new System.Windows.Size(label.ActualWidth, double.PositiveInfinity));
+        var wrappedHeight = label.DesiredSize.Height;
+
+        // R5: compare against the label's OWN row height (it sits in the layout Grid's label
+        // row, above the progress-bar row) — comparing to the button's outer height would
+        // pass a label that clips inside its row.
+        Check.That(wrappedHeight).IsStrictlyGreaterThan(0);
+        if (label.Parent is System.Windows.Controls.Grid layoutGrid
+            && System.Windows.Controls.Grid.GetRow(label) < layoutGrid.RowDefinitions.Count)
+        {
+            var row = System.Windows.Controls.Grid.GetRow(label);
+            var rowHeight = layoutGrid.RowDefinitions[row].ActualHeight;
+            Check.That(wrappedHeight).IsLessOrEqualThan(rowHeight + 0.5);
+        }
+        else
+        {
+            Check.That(wrappedHeight).IsStrictlyLessThan(repairButtonHeight); // fallback: outer height
+        }
+    }
+
+    private static IEnumerable<System.Windows.Controls.TextBlock> FindTextBlocks(
+        System.Windows.Media.Visual root)
+    {
+        for (var i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            if (System.Windows.Media.VisualTreeHelper.GetChild(root, i)
+                is not System.Windows.Media.Visual child)
+                continue;
+            if (child is System.Windows.Controls.TextBlock tb)
+                yield return tb;
+            foreach (var nested in FindTextBlocks(child))
+                yield return nested;
         }
     }
 

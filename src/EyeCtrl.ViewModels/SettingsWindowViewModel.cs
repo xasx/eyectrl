@@ -85,17 +85,35 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
         _pagDwell = new DwellDetector(dwellSettings.DwellCooldownMs);
         _modalDwell = new DwellDetector(dwellSettings.DwellCooldownMs);
 
-        // Wire up unified event handlers
-        _tabDwell.TargetActivated += id => OnTargetActivated(id, DwellCategory.Tab);
+        // Wire up unified event handlers. Each activation lambda dispatches first and publishes
+        // DwellActivationMessage (the dwell-completion cue's trigger) ONLY when the dispatch
+        // actually did something — a stale target (view-teardown leftover) must stay silent.
+        _tabDwell.TargetActivated += id =>
+        {
+            if (HandleTargetActivated(id, DwellCategory.Tab))
+                Messenger.Send(new DwellActivationMessage());
+        };
         _tabDwell.TargetProgress += (id, p) => OnTargetProgress(id, p, DwellCategory.Tab);
 
-        _controlDwell.TargetActivated += id => OnTargetActivated(id, DwellCategory.Control);
+        _controlDwell.TargetActivated += id =>
+        {
+            if (HandleTargetActivated(id, DwellCategory.Control))
+                Messenger.Send(new DwellActivationMessage());
+        };
         _controlDwell.TargetProgress += (id, p) => OnTargetProgress(id, p, DwellCategory.Control);
 
-        _pagDwell.TargetActivated += id => OnTargetActivated(id, DwellCategory.Pagination);
+        _pagDwell.TargetActivated += id =>
+        {
+            if (HandleTargetActivated(id, DwellCategory.Pagination))
+                Messenger.Send(new DwellActivationMessage());
+        };
         _pagDwell.TargetProgress += (id, p) => OnTargetProgress(id, p, DwellCategory.Pagination);
 
-        _modalDwell.TargetActivated += id => OnTargetActivated(id, DwellCategory.Modal);
+        _modalDwell.TargetActivated += id =>
+        {
+            if (HandleTargetActivated(id, DwellCategory.Modal))
+                Messenger.Send(new DwellActivationMessage());
+        };
         _modalDwell.TargetProgress += (id, p) => OnTargetProgress(id, p, DwellCategory.Modal);
     }
 
@@ -175,16 +193,27 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
     /// Triggers the activation logic for a registered target without a real gaze dwell.
     /// Used by mouse-click fallbacks in the view and by unit tests.
     /// </summary>
+    /// <remarks>
+    /// Calls <see cref="HandleTargetActivated"/> directly, bypassing the detector-event
+    /// lambdas, so it never publishes <see cref="Messages.DwellActivationMessage"/>:
+    /// a mouse click is not a dwell completion and must not sound the cue.
+    /// </remarks>
     public void SimulateActivated(string id, DwellCategory category)
     {
-        OnTargetActivated(id, category);
+        HandleTargetActivated(id, category);
     }
 
     #endregion
 
     #region Unified Event Handlers
 
-    private void OnTargetActivated(string id, DwellCategory category)
+    /// <summary>
+    /// Runs the activation logic for a dwell target and reports whether it actually did
+    /// something. The subscription lambdas publish <see cref="Messages.DwellActivationMessage"/>
+    /// only on a <c>true</c> return — a stale target id (an action the view's teardown already
+    /// removed) is a documented no-op and must not announce itself.
+    /// </summary>
+    private bool HandleTargetActivated(string id, DwellCategory category)
     {
         switch (category)
         {
@@ -192,7 +221,7 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
                 if (id == "close")
                 {
                     Messenger.Send(new CloseSettingsMessage());
-                    return;
+                    return true;
                 }
                 // The sidebar's tab-list pager rides the Tab category (it is sidebar chrome
                 // beside the tabs), so its ids arrive at this arm too. They must run the action
@@ -201,23 +230,35 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
                 if (id is "tab_prev" or "tab_next")
                 {
                     if (_tabActions.TryGetValue(id, out var pagerAction))
+                    {
                         pagerAction.Invoke();
-                    return;
+                        return true;
+                    }
+                    return false;
                 }
                 _settingsViewModel.ShowTab(id);
                 ActiveTabId = id;
                 if (_tabActions.TryGetValue(id, out var tabAction))
                     tabAction.Invoke();
-                break;
+                return true;
 
             case DwellCategory.Pagination:
-                if (id == "pag_prev")
-                    _settingsViewModel.PreviousPage();
-                else if (id == "pag_next")
-                    _settingsViewModel.NextPage();
-                if (_pagActions.TryGetValue(id, out var pagAction))
-                    pagAction.Invoke();
-                break;
+                if (id is "pag_prev" or "pag_next")
+                {
+                    if (id == "pag_prev")
+                        _settingsViewModel.PreviousPage();
+                    else if (id == "pag_next")
+                        _settingsViewModel.NextPage();
+                    if (_pagActions.TryGetValue(id, out var pagAction))
+                        pagAction.Invoke();
+                    return true;
+                }
+                if (_pagActions.TryGetValue(id, out var extra))
+                {
+                    extra.Invoke();
+                    return true;
+                }
+                return false;
 
             case DwellCategory.Modal:
                 // Cache both callbacks before HideModal() clears the modal state.
@@ -241,12 +282,18 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
                 }
 
                 modalAction?.Invoke();
-                break;
+                return choice is not null || modalAction is not null;
 
             case DwellCategory.Control:
                 if (_controlActions.TryGetValue(id, out var controlAction))
+                {
                     controlAction.Invoke();
-                break;
+                    return true;
+                }
+                return false;
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(category), category, null);
         }
     }
 

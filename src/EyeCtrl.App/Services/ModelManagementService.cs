@@ -134,6 +134,12 @@ public class ModelManagementService
                 }
             }
 
+            // Spec M1+N4: Verified ONLY when both artifacts were hash-checked. An empty hash
+            // means ModelDownloadService skipped the check (transport trust), which is weaker
+            // than the stack writer's Verified — report nothing there.
+            if (!string.IsNullOrEmpty(sha256) && !string.IsNullOrEmpty(tokenizerSha256))
+                _registryService.ReportVerification(modelId, ModelVerificationOutcome.Verified);
+
             ActivateDownloadedModelIfNothingRealIsActive(modelId);
 
             var success = ModelDownloadResult.Success(modelId);

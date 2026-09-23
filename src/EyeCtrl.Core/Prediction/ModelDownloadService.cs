@@ -200,9 +200,10 @@ public class ModelDownloadService : IDisposable
     /// <remarks>
     /// Integrity policy: when <paramref name="expectedSha256"/> is empty the hash check is skipped by
     /// design and the download is trusted on the basis of HTTPS transport security. This applies to
-    /// custom (user-supplied URL) models — whose hash can't be known in advance — and to bundled models
-    /// whose manifest omits a hash (the shipped models.json currently leaves these empty). Populate the
-    /// manifest's sha256 / tokenizerSha256 fields to enable end-to-end content verification.
+    /// custom (user-supplied URL) models — whose hash can't be known in advance — and to any caller
+    /// that passes an empty hash — the shipped models.json populates every hash, and
+    /// `PredictionStackFactory` enforces them at load. Populate the manifest's sha256 /
+    /// tokenizerSha256 fields to enable end-to-end content verification.
     /// </remarks>
     public async Task<bool> DownloadModelAsync(
         string modelId,

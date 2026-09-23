@@ -7,6 +7,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using EyeCtrl.App.Services;
+using EyeCtrl.App.Tests.Settings.Pages;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
 using Xunit;
@@ -106,6 +107,85 @@ public class ModelManagementServiceTests
         {
             Cleanup(tempDir);
         }
+    }
+
+    [Fact]
+    public async Task DownloadBundledModelAsync_Success_WithBothHashes_ReportsVerified()
+    {
+        var tempDir = NewTempDir();
+        try
+        {
+            var settings = new EyeCtrlSettings();
+            var modelBytes = new byte[] { 0x05 };
+            var tokBytes = new byte[] { 0x06 };
+            var manifest = new ModelManifest
+            {
+                Models =
+                {
+                    ["135M"] = new ModelEntry
+                    {
+                        DisplayName = "SmolLM2 135M",
+                        Url = "https://example.com/onnx/model.onnx",
+                        Sha256 = ModelTestScope.Sha256Hex(modelBytes),
+                        SizeBytes = modelBytes.Length,
+                        TokenizerUrl = "https://example.com/onnx/tokenizer.json",
+                        TokenizerSha256 = ModelTestScope.Sha256Hex(tokBytes),
+                    },
+                },
+            };
+            var (registry, mgmt) = BuildServices(tempDir, settings, manifest,
+                req => Task.FromResult(req.RequestUri!.AbsolutePath.EndsWith("tokenizer.json")
+                    ? Ok(tokBytes)
+                    : Ok(modelBytes)));
+
+            var result = await mgmt.DownloadBundledModelAsync(
+                "135M", "https://example.com/onnx/model.onnx", manifest.Models["135M"].Sha256,
+                "https://example.com/onnx/tokenizer.json", manifest.Models["135M"].TokenizerSha256,
+                TestContext.Current.CancellationToken);
+
+            Check.That(result.IsSuccess).IsTrue();
+            Check.That(registry.GetVerification("135M"))
+                .IsEqualTo(ModelVerificationOutcome.Verified);
+        }
+        finally { Cleanup(tempDir); }
+    }
+
+    [Fact]
+    public async Task DownloadBundledModelAsync_Success_WithEmptyHashes_DoesNotReportVerified()
+    {
+        var tempDir = NewTempDir();
+        try
+        {
+            var settings = new EyeCtrlSettings();
+            var manifest = new ModelManifest
+            {
+                Models =
+                {
+                    ["135M"] = new ModelEntry
+                    {
+                        DisplayName = "SmolLM2 135M",
+                        Url = "https://example.com/onnx/model.onnx",
+                        TokenizerUrl = "https://example.com/onnx/tokenizer.json",
+                        // Sha256 / TokenizerSha256 left empty: the download service skips the
+                        // check (transport trust) — weaker than the stack writer's Verified.
+                    },
+                },
+            };
+            var (registry, mgmt) = BuildServices(tempDir, settings, manifest,
+                req => Task.FromResult(req.RequestUri!.AbsolutePath.EndsWith("tokenizer.json")
+                    ? Ok(new byte[] { 0x06 })
+                    : Ok(new byte[] { 0x05 })));
+
+            var result = await mgmt.DownloadBundledModelAsync(
+                "135M", "https://example.com/onnx/model.onnx", "",
+                "https://example.com/onnx/tokenizer.json", "",
+                TestContext.Current.CancellationToken);
+
+            Check.That(result.IsSuccess).IsTrue();
+            Check.That(registry.GetVerification("135M"))
+                .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
+        }
+        finally { Cleanup(tempDir); }
     }
 
     [Fact]

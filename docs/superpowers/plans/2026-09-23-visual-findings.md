@@ -8,43 +8,42 @@ strip visible while the toolbar band is summoned, and replace the fake `'─'` d
 real full-width separator.
 
 **Architecture:** A per-model verification ledger on `ModelRegistryService` (Core, framework-free)
-is written by `PredictionStackFactory` at stack build (verdict derived from LM availability, not
-cause enumeration) and by the download path (both hashes checked). `ModelsPageSource` renders the
-failed state as a danger `ButtonSpec` row wired to the existing download flow, and rebuilds on a
-new `VerificationChanged` event. A new snapshot term plus swap-time capture (fed the build's own
-verdict) makes the repair actually reload the prediction stack. The pause indicator becomes a
-pure function of paused state via `IToolbarVisibility.SetPauseIndicator`, with conditional
-`RaiseToTop()` calls in the band show paths. A `SeparatorSpec` renders as a private nested
-`IDwellComposite` so neither consumer switch changes.
+is written by the stack-build swap continuation and by the download path — never by `Build`
+itself, which only *classifies* and returns the verdict alongside the orchestrator, so
+superseded builds publish nothing. `ModelsPageSource` renders the failed state as a danger
+`ButtonSpec` row wired to the existing download flow and rebuilds on `VerificationChanged`.
+A new snapshot term, patched (not re-captured) at swap time with the build's own verdict, makes
+the repair actually reload the stack. The pause indicator is commanded exclusively via
+`IToolbarVisibility.SetPauseIndicator`; band show paths conditionally `RaiseToTop()`. A
+`SeparatorSpec` renders as a private nested `IDwellComposite` so neither consumer switch changes.
 
-**Tech Stack:** .NET 10 (net10.0 / net10.0-windows), WPF, xUnit v3 + NFluent, CommunityToolkit
-patterns already in repo.
+**Tech Stack:** .NET 10 (net10.0 / net10.0-windows), WPF, xUnit v3 + NFluent.
 
 **Spec:** `docs/superpowers/specs/2026-09-23-visual-findings-design.md` (revision 5, SHIP).
 Work in `.worktrees/visual-findings` on `fix/visual-findings-2026-09`.
+This is plan revision 2 — external review round 1 of the plan (4C/4H/3M/7L) verified and folded.
 
 ## Global Constraints
 
-- NFluent 3.1.0 assertions (`Check.That(...)`), xUnit v3 `[Fact]`; global usings `Xunit` + `NFluent`
-  come from `tests/Directory.Build.props` — do not add per-file usings for them.
+- NFluent 3.1.0 assertions (`Check.That(...)`), xUnit v3 `[Fact]`; global usings `Xunit` +
+  `NFluent` come from `tests/Directory.Build.props` — do not add per-file usings for them.
 - No mocking library: real services over unique temp dirs (`ModelTestFakes` pattern) or
-  hand-written fakes. Unique pipe/dir names per test (`AGENTS.md` pipe rule).
+  hand-written fakes/stubs. Unique pipe/dir names per test (`AGENTS.md` pipe rule).
 - File-scoped namespaces, Allman braces, `_camelCase` fields, `var` for obvious types, no
   `#region`.
 - German-locale box: never parse formatted numbers in tests; `dotnet test` output is German
   (`Fehler!` = fail).
-- Run ONE test project per `dotnet test` invocation (MSB1008 on this SDK).
-- **GitNexus impact pass (`impact({target, direction: "upstream"})` or CLI) before editing each
-  symbol the spec lists** — `ModelRegistryService`, `PredictionStackFactory`,
-  `ModelManagementService`, `ModelsPageSource`, `KeyboardStackSnapshot`/`KeyboardCoordinator`,
-  `ToolbarVisibilityAdapter`, `ToolbarLifecycleCoordinator`, `IToolbarVisibility`, the settings
-  row renderer, `ButtonKind` consumers. Report risk; treat UNKNOWN as unresolved (text-search
-  before proceeding).
-- Never launch the app without the owner's explicit OK (input-channel rule). The live pass at
-  the end is owner-gated.
-- No push. Three commit groups as marked.
-- The worktree was created with LFS checked out (verified 2026-09-23) — completions are real
-  binaries.
+- During tasks, run ONE test project per `dotnet test` invocation (MSB1008 on this SDK). The
+  final verification may use the `EyeCtrl.slnx` form, but **against a recorded baseline, not an
+  expectation of zero failures** — see the final task.
+- **Before every commit step below:** run GitNexus `detect_changes` (MCP `detect_changes` or
+  `node .gitnexus/run.cjs detect-changes --scope unstaged`) and confirm the changed-symbol set
+  matches the task's files; investigate anything unexpected before committing (CLAUDE.md rule).
+- **GitNexus impact pass before the first edit to each symbol the spec lists** — per-task Step 1
+  names them. Report risk; treat UNKNOWN as unresolved (text-search before proceeding).
+- Never launch the app without the owner's explicit OK (input-channel rule) — the live pass at
+  the end needs TWO separate consents (launch; repair-download). No push.
+- The worktree was created with LFS checked out (verified 2026-09-23).
 
 ---
 
@@ -60,10 +59,12 @@ Work in `.worktrees/visual-findings` on `fix/visual-findings-2026-09`.
 - Produces: `enum ModelVerificationOutcome { NotYetVerified, Verified, Failed }` (namespace
   `EyeCtrl.Core.Prediction`); `void ReportVerification(string modelId, ModelVerificationOutcome
   outcome)`; `ModelVerificationOutcome GetVerification(string modelId)`; `event Action?
-  VerificationChanged` — raised only when a value *changes*. Later tasks consume all three.
+  VerificationChanged` — raised whenever the stored value CHANGES, including on the FIRST
+  report (`NotYetVerified → Failed` is exactly the startup transition the Models page must
+  rebuild on).
 
-- [ ] **Step 1: Run the GitNexus impact pass on `ModelRegistryService`** (upstream). Note
-  consumers; expected risk LOW-MEDIUM (Core service, many readers). Do not proceed on UNKNOWN.
+- [ ] **Step 1: GitNexus impact pass on `ModelRegistryService`** (upstream). Note consumers;
+  expected risk LOW-MEDIUM. Do not proceed on UNKNOWN.
 
 - [ ] **Step 2: Write the failing tests**
 
@@ -101,15 +102,20 @@ public class ModelRegistryServiceVerificationTests : IDisposable
     }
 
     [Fact]
-    public void ReportVerification_RoundTrips()
+    public void ReportVerification_FirstReport_Raises()
     {
+        // NotYetVerified -> Failed is the startup transition the Models page must rebuild on:
+        // the first report is a CHANGE, not a silent insert (plan review C2).
+        var changes = 0;
+        _registry.VerificationChanged += () => changes++;
+
         _registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
-        Check.That(_registry.GetVerification("135M"))
-            .IsEqualTo(ModelVerificationOutcome.Failed);
+
+        Check.That(changes).IsEqualTo(1);
     }
 
     [Fact]
-    public void ReportVerification_Overwrites_AndRaisesChangedOnlyOnChange()
+    public void ReportVerification_RoundTrips_AndRaisesOnlyOnChange()
     {
         var changes = 0;
         _registry.VerificationChanged += () => changes++;
@@ -138,14 +144,15 @@ public class ModelRegistryServiceVerificationTests : IDisposable
 Run: `dotnet test tests/EyeCtrl.Core.Tests --filter "FullyQualifiedName~ModelRegistryServiceVerification"`
 Expected: FAIL — `ModelVerificationOutcome` / `ReportVerification` do not exist (compile error).
 
-- [ ] **Step 4: Implement.** In `ModelRegistryService.cs`, add the enum just above the class and
-  the ledger inside it (the class already has a `_lock` field; the concurrent dictionary makes
-  the ledger lock-free — writers run on background/gaze threads, the reader on the UI thread):
+- [ ] **Step 4: Implement.** Add the enum above the class; use the class's existing `_lock`
+  for the ledger (plan review C2: the concurrent-dictionary sketch never raised on the first
+  report — `GetOrAdd` returns the value it just inserted — and the two operations were not
+  atomic; the lock makes read-modify-write one operation with the previous value defaulting to
+  `NotYetVerified`):
 
 ```csharp
 namespace EyeCtrl.Core.Prediction;
 
-using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using EyeCtrl.Core.Settings;
 
@@ -166,80 +173,108 @@ public enum ModelVerificationOutcome
 }
 ```
 
-Inside the class, next to the other fields:
+Inside the class, next to the other members:
 
 ```csharp
-    // Writers: PredictionStackFactory.Build (background/gaze thread) and
-    // ModelManagementService download completion (worker thread). Reader: the settings UI
-    // thread during page build. Verified/Failed semantics per ModelVerificationOutcome.
-    private readonly ConcurrentDictionary<string, ModelVerificationOutcome> _verification =
+    // Writers: the stack-build swap continuation (background thread) and the download
+    // completion path (worker thread). Reader: the settings UI thread during page build.
+    private readonly Dictionary<string, ModelVerificationOutcome> _verification =
         new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Raised on the writer's thread whenever a model's verdict CHANGES (not on
-    /// same-value writes). The Models page subscribes to rebuild while open.</summary>
+    /// <summary>Raised on the writer's thread whenever a model's verdict CHANGES — including
+    /// the first report (NotYetVerified -> something). The Models page subscribes to rebuild
+    /// while open.</summary>
     public event Action? VerificationChanged;
 
     /// <summary>Records the most recent verification outcome for a model. Same-value writes
     /// are no-ops and do not raise <see cref="VerificationChanged"/>.</summary>
     public void ReportVerification(string modelId, ModelVerificationOutcome outcome)
     {
-        var previous = _verification.GetOrAdd(modelId, outcome);
-        if (!_verification.TryUpdate(modelId, outcome, previous) && previous == outcome) return;
-        if (previous != outcome) VerificationChanged?.Invoke();
+        bool changed;
+        lock (_lock)
+        {
+            var previous = _verification.TryGetValue(modelId, out var value)
+                ? value
+                : ModelVerificationOutcome.NotYetVerified;
+            changed = previous != outcome;
+            _verification[modelId] = outcome;
+        }
+
+        // Raise OUTSIDE the lock: subscribers (the Models page rebuild) run UI work.
+        if (changed) VerificationChanged?.Invoke();
     }
 
     /// <summary>The latest verification outcome reported for a model; the default for a model
     /// nobody reported on is <see cref="ModelVerificationOutcome.NotYetVerified"/>.</summary>
-    public ModelVerificationOutcome GetVerification(string modelId) =>
-        _verification.TryGetValue(modelId, out var outcome)
-            ? outcome
-            : ModelVerificationOutcome.NotYetVerified;
+    public ModelVerificationOutcome GetVerification(string modelId)
+    {
+        lock (_lock)
+        {
+            return _verification.TryGetValue(modelId, out var outcome)
+                ? outcome
+                : ModelVerificationOutcome.NotYetVerified;
+        }
+    }
 ```
-
-If `GetOrAdd`/`TryUpdate` feels heavier than needed, the simpler equivalent is a `lock
-(_lock)` around a plain `Dictionary` get/set with a change check — prefer whichever reads
-better; the contract is the tests above.
 
 - [ ] **Step 5: Run to verify pass** — same filter as Step 3. Expected: 4/4 PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: detect_changes, then commit**
 
 ```bash
+node .gitnexus/run.cjs detect-changes --scope unstaged
 git add src/EyeCtrl.Core/Prediction/ModelRegistryService.cs tests/EyeCtrl.Core.Tests/Prediction/ModelRegistryServiceVerificationTests.cs
 git commit -m "feat(core): per-model verification ledger on ModelRegistryService"
 ```
 
-### Task 2: `PredictionStackFactory` reports the verdict it built under
+### Task 2: `Build` classifies and returns the verdict; publication happens at swap/sync only
 
 **Files:**
-- Modify: `src/EyeCtrl.App/Services/PredictionStackFactory.cs` (LM block ~lines 368–435)
+- Modify: `src/EyeCtrl.App/Services/PredictionStackFactory.cs`
+  (`Build` is `private static` at :323; the LM block sits at :368–435; `Rebuild`'s disabled
+  early-out :94–107; sync branch :111–121; swap continuation :148–181)
+- Modify: `src/EyeCtrl.Core/Prediction/PredictionOrchestrator.cs` (diagnostic accessor)
 - Test: `tests/EyeCtrl.App.Tests/Services/PredictionStackFactoryVerificationTests.cs` (create)
-- Modify: `tests/EyeCtrl.App.Tests/Settings/Pages/ModelTestFakes.cs` (add a hash-carrying fake)
+- Modify: `tests/EyeCtrl.App.Tests/Settings/Pages/ModelTestFakes.cs` (hash-carrying fake)
 
 **Interfaces:**
-- Consumes: Task 1's `ReportVerification`/`GetVerification`/`ModelVerificationOutcome`.
-- Produces: on the factory — `public (string ModelId, ModelVerificationOutcome Outcome)?
-  LastBuildVerification { get; private set; }` — the verdict THE BUILD REPORTED, or null when
-  the build verified nothing (prediction off, model off, model absent, custom/no-hash). Task 5's
-  swap-time capture consumes this (final-review R1: the stored snapshot must take the build's
-  own verdict, never a ledger re-read).
+- Consumes: Task 1's ledger.
+- Produces:
+  - `Build` returns `(PredictionOrchestrator? Orchestrator, (string ModelId,
+    ModelVerificationOutcome Outcome)? Verification)` — it CLASSIFIES (pure
+    `ClassifyLmOutcome`) but writes NO ledger and NO shared state. `Rebuild`'s public
+    signature is UNCHANGED (still returns `PredictionOrchestrator?`).
+  - The **swap continuation** — after the generation check, on the UI thread — reports the
+    verdict to the ledger and passes it to the swap event; the **sync branch** reports to the
+    ledger immediately. Discarded builds publish nothing (plan review C3: an instance property
+    written from thread-pool threads let a superseded build overwrite the winner and report
+    `Failed` over a repair's `Verified`).
+  - `StackSwapped` changes to `event Action<PredictionOrchestrator?,
+    (string ModelId, ModelVerificationOutcome Outcome)?>? StackSwapped;` — Task 5's handler
+    consumes the second argument. `LastBuildVerification` (revision 1) is GONE.
+  - `PredictionOrchestrator` gains `public ILanguageModelPredictor? LanguageModel =>
+    _lmPredictor;` (mirrors the existing public `WordPredictor` accessor) so the C1 regression
+    test can assert the no-hash build still carries an LM.
 
-- [ ] **Step 1: GitNexus impact pass on `PredictionStackFactory`** (upstream). Expected: the
-  keyboard reload path and LM consumers; no edits to callers.
+- [ ] **Step 1: GitNexus impact pass on `PredictionStackFactory`** (upstream) — the reload
+  path and `StackSwapped` subscribers (KeyboardCoordinator :120–121 today).
 
-- [ ] **Step 2: Extend `ModelTestFakes.WithDownloadedBundled` with a hash-carrying overload**
-  (append below the existing method — the existing one stays, all its callers unchanged):
+- [ ] **Step 2: Extend `ModelTestFakes.ModelTestScope`** — a hash-carrying downloaded fixture
+  whose manifest hashes are COMPUTED from the bytes it writes (plan review L4 — revision 1
+  took hashes as arguments but wrote hard-coded bytes, a mismatch trap):
 
 ```csharp
     /// <summary>
-    /// Same as <see cref="WithDownloadedBundled(string)"/> but the manifest entry carries REAL
-    /// SHA-256 hashes of the dropped bytes, so the prediction stack's hash gate actually passes
-    /// for them. (The 1-byte fake files cannot initialize ONNX, so the predictor still ends up
-    /// unavailable — which is exactly the deterministic state the factory tests assert.)
+    /// One bundled model on disk whose manifest carries REAL SHA-256 hashes of the exact bytes
+    /// written, so the prediction stack's hash gate passes them. The 1-byte fake files cannot
+    /// initialize ONNX, so the predictor still ends up unavailable — the deterministic state
+    /// the factory tests assert.
     /// </summary>
-    public (ModelRegistryService registry, ModelManagementService mgmt) WithDownloadedBundled(
-        string id, string sha256, string tokenizerSha256)
+    public (ModelRegistryService registry, ModelManagementService mgmt)
+        WithHashedDownloadedBundled(string id = "135M")
     {
+        var modelBytes = new byte[] { 0x01 };
+        var tokBytes = new byte[] { 0x02 };
         var manifest = new ModelManifest
         {
             Models =
@@ -248,10 +283,10 @@ git commit -m "feat(core): per-model verification ledger on ModelRegistryService
                 {
                     DisplayName = "Test " + id,
                     Url = "https://example.invalid/model.onnx",
-                    Sha256 = sha256,
-                    SizeBytes = 1,
+                    Sha256 = Sha256Hex(modelBytes),
+                    SizeBytes = modelBytes.Length,
                     TokenizerUrl = "https://example.invalid/tokenizer.json",
-                    TokenizerSha256 = tokenizerSha256,
+                    TokenizerSha256 = Sha256Hex(tokBytes),
                 },
             },
         };
@@ -259,22 +294,16 @@ git commit -m "feat(core): per-model verification ledger on ModelRegistryService
         var onnx = ModelConstants.ModelFileNames.TryGetValue(id, out var named)
             ? named
             : $"{id.ToLowerInvariant()}.onnx";
-        var modelBytes = new byte[] { 0x01 };
         File.WriteAllBytes(Path.Combine(Dir, onnx), modelBytes);
-        File.WriteAllBytes(Path.Combine(Dir, onnx.Replace(".onnx", ".tokenizer.json")),
-            new byte[] { 0x02 });
+        File.WriteAllBytes(Path.Combine(Dir, onnx.Replace(".onnx", ".tokenizer.json")), tokBytes);
 
         var registry = BuildRegistry(manifest, settings);
         var mgmt = new ModelManagementService(registry, new ModelDownloadService(Dir), settings);
         return (registry, mgmt);
     }
-```
 
-Also add a static hash helper to `ModelTestScope`:
-
-```csharp
-    /// <summary>Lowercase hex SHA-256 of the given bytes — what a manifest entry must carry for
-    /// the stack's hash gate to pass those bytes.</summary>
+    /// <summary>Lowercase hex SHA-256 of the given bytes — what a manifest entry must carry
+    /// for the stack's hash gate to pass those bytes.</summary>
     public static string Sha256Hex(byte[] bytes)
     {
         using var sha = System.Security.Cryptography.SHA256.Create();
@@ -287,6 +316,7 @@ Also add a static hash helper to `ModelTestScope`:
 ```csharp
 namespace EyeCtrl.App.Tests.Services;
 
+using System.IO;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
@@ -304,47 +334,155 @@ public class PredictionStackFactoryVerificationTests : IDisposable
         Keyboard = { PredictionEnabled = true, MLSuggestionsEnabled = true, MLModelSize = modelSize },
     };
 
+    // The C2 classifier, table-tested (plan review M1): these six rows are the whole decision,
+    // so a mutation that misreports any cause fails here.
+    [Theory]
+    [InlineData(false, true, true, true, true)]  // model absent        -> nothing reported
+    [InlineData(true, false, true, true, true)]  // no manifest hash    -> nothing reported
+    [InlineData(true, true, false, true, true)]  // hash mismatch       -> Failed (even though
+                                                 //                        the PREDICTOR would be fine)
+    [InlineData(true, true, true, false, true)]  // predictor null      -> Failed
+    [InlineData(true, true, true, true, false)]  // tokenizer missing   -> Failed
+    [InlineData(true, true, true, true, true)]   // everything live     -> Verified
+    public void ClassifyLmOutcome_CoversTheWholeDecisionTable(
+        bool modelFileExists, bool hashGated, bool hashOk,
+        bool predictorAvailable, bool tokenizerLoaded)
+    {
+        var (reports, outcome) = PredictionStackFactory.ClassifyLmOutcome(
+            modelFileExists, hashGated, hashOk, predictorAvailable, tokenizerLoaded);
+
+        if (!modelFileExists || !hashGated)
+        {
+            Check.That(reports).IsFalse();
+        }
+        else if (!hashOk || !predictorAvailable || !tokenizerLoaded)
+        {
+            Check.That(reports).IsTrue();
+            Check.That(outcome).IsEqualTo(ModelVerificationOutcome.Failed);
+        }
+        else
+        {
+            Check.That(reports).IsTrue();
+            Check.That(outcome).IsEqualTo(ModelVerificationOutcome.Verified);
+        }
+    }
+
+    private sealed class AvailableLmPredictor : ILanguageModelPredictor
+    {
+        public bool IsAvailable => true;
+        public void Predict(string context, string? prefix = null) { }
+        public IReadOnlyList<PredictionResult>? TryGetResults() => null;
+        public void Cancel() { }
+        public void Dispose() { }
+    }
+
+    // M1's integration arm: a live predictor + loaded tokenizer MUST classify Verified through
+    // the sync build, so a mutation that hard-codes Failed cannot ship silently (it would show
+    // the repair row on every healthy install and loop re-downloads).
+    [Fact]
+    public void SyncBuild_LivePredictorAndTokenizer_ReportsVerified()
+    {
+        var (registry, _) = _scope.WithHashedDownloadedBundled();
+        var factory = new PredictionStackFactory
+        {
+            // Seams: production defaults are null (real LMTokenizer / real SmallLMPredictor).
+            TokenizerLoaderOverride = _ => new LoadedTokenizer(),
+            PredictorFactoryOverride = (_, _, _, _) => new AvailableLmPredictor(),
+        };
+
+        factory.Rebuild(SettingsFor("135M"), AppDomain.CurrentDomain.BaseDirectory,
+            _scope.Dir, registry);
+
+        Check.That(registry.GetVerification("135M"))
+            .IsEqualTo(ModelVerificationOutcome.Verified);
+        Check.That(factory.Current!.LanguageModel).IsNotNull();
+    }
+
+    private sealed class LoadedTokenizer : LMTokenizer
+    {
+        // LMTokenizer's ctor parses a file; the override path never feeds this tokenzier to
+        // the real predictor, so an empty-parse subclass is the cheapest valid instance.
+        // If LMTokenizer is sealed or has no accessible chain, fall back to pointing the
+        // override at a REAL minimal tokenizer file written into the scope dir (the production
+        // loader, given a file whose bytes the manifest hashes).
+        public LoadedTokenizer() : base(WriteMinimalTokenizer()) { }
+
+        private static string WriteMinimalTokenizer()
+        {
+            var path = Path.Combine(Path.GetTempPath(), "eyectrl_tok_test_" + Guid.NewGuid() + ".json");
+            File.WriteAllText(path, "{}");
+            return path;
+        }
+    }
+
     [Fact]
     public void SyncBuild_PresentHashGatedModel_UnavailableLm_ReportsFailed()
     {
-        var bytes = new byte[] { 0x01 };
-        var tokBytes = new byte[] { 0x02 };
-        var (registry, _) = _scope.WithDownloadedBundled(
-            "135M", ModelTestScope.Sha256Hex(bytes), ModelTestScope.Sha256Hex(tokBytes));
+        var (registry, _) = _scope.WithHashedDownloadedBundled();
 
         var factory = new PredictionStackFactory(); // sync mode: Build completes inside Rebuild
-        factory.Rebuild(SettingsFor("135M"), AppDomain.CurrentDomain.BaseDirectory,
-            _scope.Dir, registry);
+        var orchestrator = factory.Rebuild(SettingsFor("135M"),
+            AppDomain.CurrentDomain.BaseDirectory, _scope.Dir, registry);
 
         Check.That(registry.GetVerification("135M"))
             .IsEqualTo(ModelVerificationOutcome.Failed);
-        Check.That(factory.LastBuildVerification).IsNotNull();
-        Check.That(factory.LastBuildVerification!.Value.ModelId).IsEqualTo("135M");
-        Check.That(factory.LastBuildVerification!.Value.Outcome)
-            .IsEqualTo(ModelVerificationOutcome.Failed);
     }
 
+    // Plan review C1: the original code CONSTRUCTS the predictor for every model that passes
+    // the mismatch gate — including custom models, whose manifest hash is always empty. The
+    // revision-1 plan dropped that construction in the no-report arm; this row pins it.
     [Fact]
-    public void SyncBuild_EmptyManifestHash_NoReport_LedgerStaysNotYetVerified()
+    public void SyncBuild_EmptyManifestHash_StillConstructsTheLm()
     {
-        var (registry, _) = _scope.WithDownloadedBundled(); // Sha256 = "" (exempt, custom-style)
+        var (registry, _) = _scope.WithDownloadedBundled(); // Sha256 = "" (custom-style)
         var factory = new PredictionStackFactory();
+
         factory.Rebuild(SettingsFor("135M"), AppDomain.CurrentDomain.BaseDirectory,
             _scope.Dir, registry);
 
         Check.That(registry.GetVerification("135M"))
-            .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
-        Check.That(factory.LastBuildVerification).IsNull();
+            .IsEqualTo(ModelVerificationOutcome.NotYetVerified); // nothing reported
+        Check.That(factory.Current!.LanguageModel).IsNotNull();  // but the LM is built
     }
 
     [Fact]
-    public void SyncBuild_ModelFileAbsent_NoReport()
+    public void SyncBuild_HashMismatch_PredictorNotConstructed_ReportsFailed()
     {
-        var bytes = new byte[] { 0x01 };
-        var (registry, _) = _scope.WithDownloadedBundled(
-            "135M", ModelTestScope.Sha256Hex(bytes), ModelTestScope.Sha256Hex(bytes));
-        // Remove BOTH files: the model is named+hashed but not on disk -> the factory must not
-        // claim anything (the Models tab shows the plain Download button for it).
+        // Manifest hashes that do NOT match the on-disk bytes: mismatch arm — no predictor,
+        // Failed reported (the SmallLMPredictor is deliberately not constructed today either).
+        var (registry, _) = _scope.WithHashedDownloadedBundled();
+        var settings = SettingsFor("135M");
+        var tampered = new ModelManifest
+        {
+            Models =
+            {
+                ["135M"] = new ModelEntry
+                {
+                    DisplayName = "Test 135M",
+                    Url = "https://example.invalid/model.onnx",
+                    Sha256 = new string('a', 64), // wrong hash
+                    SizeBytes = 1,
+                    TokenizerUrl = "https://example.invalid/tokenizer.json",
+                    TokenizerSha256 = new string('b', 64),
+                },
+            },
+        };
+        // Rebuild the registry over the same dir with the tampered manifest (same ctor shape
+        // as ModelTestScope.BuildRegistry): the FILES stay, the EXPECTED hashes differ.
+        registry = new ModelRegistryService(_scope.Dir, tampered, new EyeCtrlSettings());
+
+        var factory = new PredictionStackFactory();
+        factory.Rebuild(settings, AppDomain.CurrentDomain.BaseDirectory, _scope.Dir, registry);
+
+        Check.That(registry.GetVerification("135M"))
+            .IsEqualTo(ModelVerificationOutcome.Failed);
+        Check.That(factory.Current!.LanguageModel).IsNull();
+    }
+
+    [Fact]
+    public void SyncBuild_ModelFileAbsent_ReportsNothing()
+    {
+        var (registry, _) = _scope.WithHashedDownloadedBundled();
         var onnx = Path.Combine(_scope.Dir, "smollm2-135m.onnx");
         var tok = Path.Combine(_scope.Dir, "smollm2-135m.tokenizer.json");
         if (File.Exists(onnx)) File.Delete(onnx);
@@ -356,102 +494,222 @@ public class PredictionStackFactoryVerificationTests : IDisposable
 
         Check.That(registry.GetVerification("135M"))
             .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
-        Check.That(factory.LastBuildVerification).IsNull();
     }
 }
 ```
 
-(If the fake file names differ from `smollm2-135m.onnx` on this manifest table, derive them
-exactly as `ModelTestFakes` does — `ModelConstants.ModelFileNames` lookup with the lowercase
-fallback — instead of hardcoding; delete-then-assert only the files the helper wrote.)
+  Note on `LoadedTokenizer`: check `LMTokenizer`'s constructor chain before relying on the
+  subclass — if it is `sealed` or its ctor does work an empty `{}` cannot satisfy, write a
+  real minimal tokenizer file into the scope dir and let the override return a genuine
+  `LMTokenizer` over it. The seam, not the stub, is the contract.
 
 - [ ] **Step 4: Run to verify failure** —
   `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~PredictionStackFactoryVerification"`
-  Expected: FAIL — `LastBuildVerification` missing (compile error).
+  Expected: FAIL — `ClassifyLmOutcome` / overrides / `LanguageModel` missing (compile error).
 
-- [ ] **Step 5: Implement.** In `PredictionStackFactory`:
+- [ ] **Step 5: Implement.**
 
-  a) Add the property near `Current`:
+  a) `PredictionOrchestrator` (Core): add the accessor beside the existing public
+  `WordPredictor`:
 
 ```csharp
-    /// <summary>The verdict the most recent build REPORTED (model id + outcome), or null when
-    /// that build verified nothing (prediction off, model off/absent, no manifest hash). Read
-    /// by the swap-time snapshot capture so `stored` carries the running stack's own verdict
-    /// rather than a ledger re-read (final-review R1).</summary>
-    public (string ModelId, ModelVerificationOutcome Outcome)? LastBuildVerification { get; private set; }
+    /// <summary>The language model this orchestrator was built with, or null. Diagnostic/
+    /// test surface, mirroring <see cref="WordPredictor"/>: it lets tests assert an LM was
+    /// actually constructed without poking at prediction behaviour.</summary>
+    public ILanguageModelPredictor? LanguageModel => _lmPredictor;
+```
 
-    private void ReportBuildVerification(
-        ModelRegistryService modelRegistry, string modelSize, ModelVerificationOutcome outcome)
+  b) `PredictionStackFactory`:
+
+  - Seams (default null = production behaviour):
+
+```csharp
+    /// <summary>Test override for the tokenizer load. Production: null — the real
+    /// LMTokenizer(path) runs inside Build.</summary>
+    internal Func<string, LMTokenizer?>? TokenizerLoaderOverride { get; init; }
+
+    /// <summary>Test override for predictor construction. Production: null — the real
+    /// SmallLMPredictor(modelsDir, modelSize, preferGPU, tokenizer, modelPath) runs inside
+    /// Build.</summary>
+    internal Func<string, bool, LMTokenizer?, string, ILanguageModelPredictor?>?
+        PredictorFactoryOverride { get; init; }
+```
+
+  - The pure classifier (static, on the class):
+
+```csharp
+    /// <summary>
+    /// The whole C2 decision in one pure function (plan review M1 — table-tested, so a
+    /// mutation of any cause fails). Returns whether the verdict should be REPORTED at all:
+    /// a model that is absent or not hash-gated is exempt (custom models never carry a hash).
+    /// </summary>
+    internal static (bool Reports, ModelVerificationOutcome Outcome) ClassifyLmOutcome(
+        bool modelFileExists, bool hashGated, bool hashOk,
+        bool predictorAvailable, bool tokenizerLoaded)
     {
-        modelRegistry.ReportVerification(modelSize, outcome);
-        LastBuildVerification = (modelSize, outcome);
+        if (!modelFileExists || !hashGated)
+            return (false, ModelVerificationOutcome.NotYetVerified);
+        if (!hashOk || !predictorAvailable || !tokenizerLoaded)
+            return (false, ModelVerificationOutcome.Failed);
+        return (true, ModelVerificationOutcome.Verified);
     }
 ```
 
-  b) In `Build`, REPLACE the final model-hash check + predictor construction (from
-  `var expectedModelHash = ...` through the `lmPredictor = new SmallLMPredictor(...)`) with
-  this — the original mismatch gate is preserved verbatim as arm 1, arm 2 keeps constructing
-  the predictor exactly as the original `else` did and adds the report, arm 3 is the
-  absent/no-hash fall-through that previously constructed WITHOUT a hash (unchanged
-  behaviour, no report):
+    (The Failed branch returns `Reports: true` with `Failed` — "reports" means "publishes a
+    verdict", and a Failed verdict publishes.)
+
+  - `Build` becomes:
 
 ```csharp
+    private static (PredictionOrchestrator? Orchestrator, (string ModelId, ModelVerificationOutcome Outcome)? Verification) Build(
+        EyeCtrlSettings settings, string baseDir, string appDataDir,
+        ModelRegistryService? modelRegistry, CancellationToken token)
+```
+
+    Inside the LM block, load the tokenizer through the seam, construct the predictor through
+    the seam, compute `lmLive`, and classify — keeping the ORIGINAL mismatch gate's
+    construction semantics EXACTLY (plan review C1: the mismatch arm constructs nothing; every
+    other arm constructs, including empty-hash custom models):
+
+```csharp
+                LMTokenizer? tokenizer = null;
+                var tokenizerPath = modelRegistry.GetTokenizerPath(modelSize);
+                try
+                {
+                    if (File.Exists(tokenizerPath))
+                    {
+                        var expectedTokenizerHash = modelRegistry.GetTokenizerSha256(modelSize);
+                        if (expectedTokenizerHash is null
+                            || VerifyFileSha256(tokenizerPath, expectedTokenizerHash))
+                        {
+                            tokenizer = TokenizerLoaderOverride is not null
+                                ? TokenizerLoaderOverride(tokenizerPath)
+                                : new LMTokenizer(tokenizerPath);
+                        }
+                        else
+                        {
+                            Log.Error(
+                                "Tokenizer at {Path} failed its SHA-256 integrity check; LM suggestions disabled for this build",
+                                tokenizerPath);
+                        }
+                    }
+                    else
+                    {
+                        Log.Warning("Tokenizer file not found at {Path}; LM suggestions disabled", tokenizerPath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "Failed to load tokenizer from {Path}; LM suggestions disabled", tokenizerPath);
+                }
+
                 var modelPath = modelRegistry.GetModelPath(modelSize);
                 var expectedModelHash = modelRegistry.GetModelSha256(modelSize);
 
-                if (expectedModelHash is not null && File.Exists(modelPath)
-                    && !VerifyFileSha256(modelPath, expectedModelHash))
+                (bool Reports, ModelVerificationOutcome Outcome) verdict =
+                    (false, ModelVerificationOutcome.NotYetVerified);
+
+                var hashMatches = expectedModelHash is not null
+                    && File.Exists(modelPath)
+                    && VerifyFileSha256(modelPath, expectedModelHash);
+
+                if (expectedModelHash is not null && File.Exists(modelPath) && !hashMatches)
                 {
+                    // Mismatch arm: unchanged behaviour — the predictor is NOT constructed.
                     Log.Error(
                         "Model at {Path} failed its SHA-256 integrity check; LM suggestions disabled for this build",
                         modelPath);
-                    // Verdict is availability-derived (spec C2): a hash mismatch cannot serve.
-                    ReportBuildVerification(modelRegistry, modelSize, ModelVerificationOutcome.Failed);
-                }
-                else if (File.Exists(modelPath) && expectedModelHash is not null)
-                {
-                    token.ThrowIfCancellationRequested();
-                    lmPredictor = new SmallLMPredictor(
-                        modelsDir,
-                        modelSize,
-                        settings.Keyboard.PreferGPU,
-                        tokenizer: tokenizer,
-                        modelPath: modelPath);
-                    // Availability, NOT cause enumeration (spec C2): SmallLMPredictor swallows
-                    // ONNX init failures into IsAvailable = false, and an unparseable tokenizer
-                    // left tokenizer == null — a hash-clean model can still be unusable, so
-                    // Verified requires BOTH. The log lines above keep which cause fired.
-                    var lmLive = lmPredictor is not null && lmPredictor.IsAvailable
-                                 && tokenizer is not null;
-                    ReportBuildVerification(modelRegistry, modelSize,
-                        lmLive ? ModelVerificationOutcome.Verified
-                               : ModelVerificationOutcome.Failed);
                 }
                 else
                 {
-                    // Model absent or manifest has no hash: report nothing — the Models tab
-                    // shows the plain Download button (absent) or the entry is exempt
-                    // (custom/no-hash). Clear any stale verdict from an older build so this
-                    // build's report is unambiguous.
-                    LastBuildVerification = null;
+                    // Unchanged arm: hash matches, OR no hash (custom), OR file absent —
+                    // construct exactly as today (plan review C1).
+                    token.ThrowIfCancellationRequested();
+                    lmPredictor = PredictorFactoryOverride is not null
+                        ? PredictorFactoryOverride(modelsDir, modelSize, settings.Keyboard.PreferGPU, tokenizer, modelPath)
+                        : new SmallLMPredictor(
+                            modelsDir, modelSize, settings.Keyboard.PreferGPU,
+                            tokenizer: tokenizer, modelPath: modelPath);
                 }
+
+                verdict = ClassifyLmOutcome(
+                    modelFileExists: File.Exists(modelPath),
+                    hashGated: expectedModelHash is not null,
+                    hashOk: hashMatches,
+                    predictorAvailable: lmPredictor is not null && lmPredictor.IsAvailable,
+                    tokenizerLoaded: tokenizer is not null);
 ```
 
-  c) In `Rebuild`, the prediction-disabled early-out (`!settings.Keyboard.PredictionEnabled`,
-  ~line 94–107) sets `LastBuildVerification = null;` before returning — a swap-to-null then
-  carries no verdict, and Task 5's merge keeps the captured (previous) term, exactly as the
-  spec's null-swap edge names.
+    and at the end, `Build` returns the verdict next to the orchestrator:
 
-- [ ] **Step 6: Run to verify pass** — same filter. Expected: 3/3 PASS. Then run the full
-  App.Tests service family:
-  `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~PredictionStackFactory|FullyQualifiedName~KeyboardCoordinator"`
-  Expected: no regressions.
+```csharp
+        var verification = verdict.Reports
+            ? (ModelId: modelSize, Outcome: verdict.Outcome)
+            : null;
+        return (new PredictionOrchestrator(
+            wordPredictor, trieIndex, lmPredictor, settings.Keyboard.MLSuggestionsEnabled),
+            verification);
+```
 
-- [ ] **Step 7: Commit**
+  - `Rebuild` — public signature unchanged. Disabled early-out: raise
+    `StackSwapped?.Invoke(null, null)` (swap-to-null carries no verdict, spec O2). Sync branch:
+    after `Build`, report the verdict to the ledger immediately (single-threaded — no discard
+    window), then return the orchestrator:
+
+```csharp
+            var (orchestrator, verification) = Build(settings, baseDir, appDataDir, modelRegistry, CancellationToken.None);
+            if (verification is not null && modelRegistry is not null)
+                modelRegistry.ReportVerification(
+                    verification.Value.ModelId, verification.Value.Outcome);
+            return orchestrator;
+```
+
+  - Background continuation: after the EXISTING generation re-check inside
+    `_postToUi(() => { ... })`, alongside `SwapInWithLearnedTail(built, before, generation)`:
+
+```csharp
+                        SwapInWithLearnedTail(built, before, generation);
+
+                        // Publication point (plan review C3): the build CLASSIFIED; only the
+                        // winning swap reports — to the ledger and to the swap event — so a
+                        // superseded build can never write Failed over a repair's Verified.
+                        var swapVerdict = built.Verification;
+                        if (swapVerdict is not null && modelRegistry is not null)
+                            modelRegistry.ReportVerification(
+                                swapVerdict.Value.ModelId, swapVerdict.Value.Outcome);
+                        StackSwapped?.Invoke(_current, swapVerdict);
+```
+
+    (`built.Verification` requires the continuation's `t.Result` to carry the tuple — the
+    `Task.Run` body returns `Build(...)`'s tuple, so thread `built.Orchestrator` through
+    `SwapInWithLearnedTail` and rename the local accordingly. Superseded/discarded builds
+    dispose `built.Orchestrator` exactly as today and publish nothing.)
+
+  - Event declaration:
+
+```csharp
+    /// <summary>
+    /// Raised on the UI THREAD (through the constructor's marshal) after a background build
+    /// swapped a new stack in — including a swap to <c>null</c>. The second argument is the
+    /// verdict THE SWAPPED BUILD reported, or null when it verified nothing (prediction off,
+    /// model off/absent, no manifest hash, swap-to-null). Subscribers re-bind their consumer
+    /// and patch the stored snapshot (KeyboardCoordinator). Not raised in synchronous mode:
+    /// the caller already holds the returned stack, and the sync branch reports to the ledger
+    /// directly.
+    /// </summary>
+    public event Action<PredictionOrchestrator?, (string ModelId, ModelVerificationOutcome Outcome)?>? StackSwapped;
+```
+
+- [ ] **Step 6: Run to verify pass** — same filter; then
+  `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~KeyboardCoordinator"` (the
+  snapshot family is untouched so far — arity change comes in Task 4).
+
+- [ ] **Step 7: detect_changes, then commit**
 
 ```bash
-git add src/EyeCtrl.App/Services/PredictionStackFactory.cs tests/EyeCtrl.App.Tests/Services/PredictionStackFactoryVerificationTests.cs tests/EyeCtrl.App.Tests/Settings/Pages/ModelTestFakes.cs
-git commit -m "feat(app): prediction stack reports per-model verification verdicts (availability-derived)"
+node .gitnexus/run.cjs detect-changes --scope unstaged
+git add src/EyeCtrl.App/Services/PredictionStackFactory.cs src/EyeCtrl.Core/Prediction/PredictionOrchestrator.cs tests/EyeCtrl.App.Tests/Services/PredictionStackFactoryVerificationTests.cs tests/EyeCtrl.App.Tests/Settings/Pages/ModelTestFakes.cs
+git commit -m "feat(app): stack build classifies LM verdict; swap publishes it (superseded builds stay silent)"
 ```
 
 ### Task 3: Download path reports `Verified` (both-hash gate)
@@ -459,19 +717,18 @@ git commit -m "feat(app): prediction stack reports per-model verification verdic
 **Files:**
 - Modify: `src/EyeCtrl.App/Services/ModelManagementService.cs` (~line 137, success path)
 - Modify: `src/EyeCtrl.Core/Prediction/ModelDownloadService.cs` (:199–206 stale docstring)
-- Test: extend `tests/EyeCtrl.App.Tests/Services/ModelManagementServiceTests.cs` (the file the
-  `ModelTestFakes` doc cites for `BuildServices`)
+- Test: extend `tests/EyeCtrl.App.Tests/Services/ModelManagementServiceTests.cs`
 
 **Interfaces:**
-- Consumes: Task 1's `ReportVerification`.
+- Consumes: Task 1's ledger.
 - Produces: on bundled download success with BOTH `sha256` and `tokenizerSha256` non-empty,
   `registry.ReportVerification(modelId, Verified)` fires before `Complete(success)`.
 
 - [ ] **Step 1: GitNexus impact pass on `ModelManagementService`** (upstream).
 
-- [ ] **Step 2: Write the failing tests** (this file's transport pattern: `BuildServices(tempDir,
-  settings, manifest, req => Task.FromResult(...))` with `Ok(bytes)`/`NotFound()` helpers and
-  `TestContext.Current.CancellationToken`):
+- [ ] **Step 2: Write the failing tests** (this file's transport pattern:
+  `BuildServices(tempDir, settings, manifest, req => Task.FromResult(...))` with
+  `Ok(bytes)`/`NotFound()` and `TestContext.Current.CancellationToken`):
 
 ```csharp
     [Fact]
@@ -554,10 +811,8 @@ git commit -m "feat(app): prediction stack reports per-model verification verdic
     }
 ```
 
-  (Uses `ModelTestScope.Sha256Hex` from Task 2 — same assembly, `InternalsVisibleTo` /
-  internal access already established between these test files; if the helper's accessibility
-  does not reach this file, move it to a shared spot under `tests/TestSupport/` and link it in
-  both csproj `<Compile Include>` lists, matching the existing linked-helper pattern.)
+  (`ModelTestScope.Sha256Hex` is `public static` on an `internal` class in the same test
+  project — usable directly. Add `using EyeCtrl.Core.Prediction;` if absent.)
 
 - [ ] **Step 3: Run to verify failure** —
   `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ModelManagementService"`
@@ -568,7 +823,7 @@ git commit -m "feat(app): prediction stack reports per-model verification verdic
 
 ```csharp
             // Spec M1+N4: Verified ONLY when both artifacts were hash-checked. An empty hash
-            // means ModelDownloadService skipped the check (transport-trust), which is weaker
+            // means ModelDownloadService skipped the check (transport trust), which is weaker
             // than the stack writer's Verified — report nothing there.
             if (!string.IsNullOrEmpty(sha256) && !string.IsNullOrEmpty(tokenizerSha256))
                 _registryService.ReportVerification(modelId, ModelVerificationOutcome.Verified);
@@ -582,9 +837,10 @@ git commit -m "feat(app): prediction stack reports per-model verification verdic
 
 - [ ] **Step 5: Run to verify pass** — same filter. Expected: all PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: detect_changes, then commit**
 
 ```bash
+node .gitnexus/run.cjs detect-changes --scope unstaged
 git add src/EyeCtrl.App/Services/ModelManagementService.cs src/EyeCtrl.Core/Prediction/ModelDownloadService.cs tests/EyeCtrl.App.Tests/Services/ModelManagementServiceTests.cs
 git commit -m "feat(app): bundled download reports Verified when both hashes were checked"
 ```
@@ -614,9 +870,7 @@ git commit -m "feat(app): bundled download reports Verified when both hashes wer
     public void Capture_ReadsActiveModelVerdict_Live()
     {
         using var scope = ModelTestFakes.Create();
-        var bytes = new byte[] { 0x01 };
-        var (registry, _) = scope.WithDownloadedBundled(
-            "135M", ModelTestScope.Sha256Hex(bytes), ModelTestScope.Sha256Hex(bytes));
+        var (registry, _) = scope.WithHashedDownloadedBundled();
         registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
         var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "135M" } };
 
@@ -684,184 +938,155 @@ git commit -m "feat(app): bundled download reports Verified when both hashes wer
     }
 ```
 
-  Fix every other construction site the impact pass found (expected: only tests).
+  Fix every other construction site the impact pass found (expected: only tests). Add
+  `using EyeCtrl.Core.Prediction;` if absent.
 
 - [ ] **Step 5: Run to verify pass** — same filter. Expected: PASS (the family's existing
   tests updated for the new positional argument where they construct the record directly).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: detect_changes, then commit**
 
 ```bash
+node .gitnexus/run.cjs detect-changes --scope unstaged
 git add src/EyeCtrl.App/Services/SettingsSnapshots.cs tests/EyeCtrl.App.Tests/Services/Coordinators/KeyboardCoordinatorTests.cs
 git commit -m "feat(app): keyboard stack snapshot carries the active model's verification verdict"
 ```
 
-### Task 5: Swap-time capture (seed stays, swap overwrites, build's own verdict)
+### Task 5: Swap-time snapshot PATCH (seed stays, swap overwrites with the build's own verdict)
 
 **Files:**
 - Modify: `src/EyeCtrl.App/Services/Coordinators/KeyboardCoordinator.cs`
-  (fields ~lines 38–46, `StackSwapped` wiring :118–125, `LoadKeyboard` :135/:205)
+  (`StackSwapped` wiring :118–125 — signature changed in Task 2)
 - Test: extend `tests/EyeCtrl.App.Tests/Services/Coordinators/KeyboardCoordinatorTests.cs`
 
 **Interfaces:**
-- Consumes: Task 2's `LastBuildVerification`; Task 4's term.
+- Consumes: Task 2's `StackSwapped(orchestrator, verification)` second argument.
 - Produces: `internal static KeyboardStackSnapshot WithSwappedVerdict(
-  KeyboardStackSnapshot captured, (string ModelId, ModelVerificationOutcome Outcome)?
-  lastBuild, string? activeModelSize)` — pure, headless-testable merge the swap handler uses.
+  KeyboardStackSnapshot stored, (string ModelId, ModelVerificationOutcome Outcome)?
+  verification)` — pure merge that PATCHES the stored snapshot's verdict term only. NO
+  re-capture happens here (plan review C4: a fresh `CaptureSnapshot` would re-read the ledger
+  AND `ActiveModelOnDisk` live — absorbing a download report that landed after the build
+  checked disk, and storing `OnDisk = true` for a stack built without the model, which
+  resurrects the ticket-11 bug). The R2 "which settings instance" concern dissolves: nothing
+  is re-read, so `_lastKeyboardSettings` is never added.
 
-- [ ] **Step 1: GitNexus impact pass on `KeyboardCoordinator`** (upstream). Expected HIGH-ish
-  (the reload gate lives here) — read the affected processes before editing; do not proceed on
-  UNKNOWN without a text-search confirmation.
+- [ ] **Step 1: GitNexus impact pass on `KeyboardCoordinator`** (upstream; HIGH-ish — the
+  reload gate lives here). Read the affected processes; do not proceed on UNKNOWN without a
+  text-search confirmation.
 
-- [ ] **Step 2: Write the failing tests** (pure-function tests + wiring is 2 lines covered by
-  review):
+- [ ] **Step 2: Write the failing tests** — the M2 sequence, over a REAL registry so the
+  ledger is live (these are not tautologies: each step changes real state):
 
 ```csharp
     [Fact]
-    public void WithSwappedVerdict_SubstitutesOnlyForTheNamedActiveModel()
+    public void SwapSequence_StartupRepairCycle_MovesStoredExactlyAsTheSpecRequires()
     {
+        using var scope = ModelTestFakes.Create();
+        var (registry, _) = scope.WithHashedDownloadedBundled();
         var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "135M" } };
-        var captured = KeyboardStackSnapshot.Capture(settings, null); // ledger-neutral base
-        var capturedFailed = captured with
-            { ActiveModelVerification = ModelVerificationOutcome.Failed };
 
-        var merged = KeyboardCoordinator.WithSwappedVerdict(
-            capturedFailed, ("135M", ModelVerificationOutcome.Verified), "135M");
+        // 1. Seed (LoadKeyboard's :205 capture): no verdict yet.
+        var stored = KeyboardStackSnapshot.Capture(settings, registry);
+        Check.That(stored.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
 
-        Check.That(merged.ActiveModelVerification)
-            .IsEqualTo(ModelVerificationOutcome.Verified);
-    }
+        // 2. Background build finishes corrupt -> swap publishes ("135M", Failed).
+        registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
+        stored = KeyboardCoordinator.WithSwappedVerdict(
+            stored, ("135M", ModelVerificationOutcome.Failed));
+        Check.That(stored.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.Failed);
 
-    [Fact]
-    public void WithSwappedVerdict_DifferentModel_KeepsCapturedTerm()
-    {
-        var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "135M" } };
-        var captured = KeyboardStackSnapshot.Capture(settings, null) with
-            { ActiveModelVerification = ModelVerificationOutcome.Failed };
+        // 3. First apply after startup: compare capture reads the same ledger state —
+        //    NO reload (the N3 spurious-reload regression).
+        Check.That(KeyboardCoordinator.ShouldReload(
+            stored, KeyboardStackSnapshot.Capture(settings, registry))).IsFalse();
 
-        var merged = KeyboardCoordinator.WithSwappedVerdict(
-            captured, ("360M", ModelVerificationOutcome.Verified), "135M");
+        // 4. Repair: the download reports Verified into the ledger; the next apply's compare
+        //    capture sees Failed != Verified -> RELOAD (the C1 repair path).
+        registry.ReportVerification("135M", ModelVerificationOutcome.Verified);
+        Check.That(KeyboardCoordinator.ShouldReload(
+            stored, KeyboardStackSnapshot.Capture(settings, registry))).IsTrue();
 
-        Check.That(merged.ActiveModelVerification)
+        // 5. A swap-to-null (prediction disabled) carries no verdict -> the stored Failed term
+        //    is KEPT, not refreshed from the ledger (plan review C4a).
+        var kept = KeyboardCoordinator.WithSwappedVerdict(stored, null);
+        Check.That(kept.ActiveModelVerification)
             .IsEqualTo(ModelVerificationOutcome.Failed);
     }
 
     [Fact]
-    public void WithSwappedVerdict_NoBuildVerdict_KeepsCapturedTerm()
+    public void WithSwappedVerdict_VerdictForADifferentModel_IsIgnored()
     {
+        using var scope = ModelTestFakes.Create();
         var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "135M" } };
-        var captured = KeyboardStackSnapshot.Capture(settings, null);
+        var stored = KeyboardStackSnapshot.Capture(settings, scope.EmptyRegistry());
 
-        var merged = KeyboardCoordinator.WithSwappedVerdict(captured, null, "135M");
+        var merged = KeyboardCoordinator.WithSwappedVerdict(
+            stored, ("360M", ModelVerificationOutcome.Verified));
 
-        Check.That(merged).IsEqualTo(captured);
-    }
-
-    // The two reload rows the review named (N3 regression + O2a edge). ShouldReload is
-    // record-equality, so these pin the BEHAVIOUR via the decision function:
-    [Fact]
-    public void Reload_DoesNotFire_ApplyAfterSwapWithSameVerdict()
-    {
-        // stored = swap-time (Verified, the build's own), current = ledger (Verified after the
-        // build reported it) -> equal -> no reload.
-        var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "135M" } };
-        var stored = KeyboardStackSnapshot.Capture(settings, null) with
-            { ActiveModelVerification = ModelVerificationOutcome.Verified };
-        var current = stored; // swap capture == compare capture in the settled state
-        Check.That(KeyboardCoordinator.ShouldReload(stored, current)).IsFalse();
-    }
-
-    [Fact]
-    public void Reload_Fires_RepairDownloadFlipsVerdictBeforeNextApply()
-    {
-        // stored = swap-time Failed; the download then reports Verified; the next apply's
-        // capture reads the ledger -> differs -> reload (the C1 repair path).
-        var stored = KeyboardStackSnapshot.Capture(new EyeCtrlSettings(), null) with
-            { ActiveModelVerification = ModelVerificationOutcome.Failed };
-        var current = KeyboardStackSnapshot.Capture(new EyeCtrlSettings(), null) with
-            { ActiveModelVerification = ModelVerificationOutcome.Verified };
-        Check.That(KeyboardCoordinator.ShouldReload(stored, current)).IsTrue();
+        Check.That(merged).IsEqualTo(stored);
     }
 ```
 
 - [ ] **Step 3: Run to verify failure** —
   `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~KeyboardCoordinatorTests"`
-  Expected: FAIL — `WithSwappedVerdict` missing (compile error).
+  Expected: FAIL — the two-argument `WithSwappedVerdict` (and the new event arity) missing.
 
 - [ ] **Step 4: Implement.** In `KeyboardCoordinator`:
 
-  a) New field near `_modelRegistry` (final-review R2: the swap capture must use the LIVE
-  settings instance `LoadKeyboard` was given — the same object the compare path reads — never
-  a fresh `SettingsService.Load()`):
-
-```csharp
-    // The live settings instance of the most recent LoadKeyboard. The StackSwapped handler
-    // re-captures the stored snapshot from THIS object (R2): a fresh SettingsService.Load()
-    // could disagree on unrelated terms and fabricate a phantom diff — the exact failure the
-    // CaptureSnapshot doc (:222-231) exists to prevent.
-    private EyeCtrlSettings? _lastKeyboardSettings;
-```
-
-  Set it as the first line of `LoadKeyboard` (after the null guards):
-  `_lastKeyboardSettings = settings;`
-
-  b) The pure merge (extracted so it is headless-testable — same rationale as
-  `ShouldReload`):
+  a) The pure merge (now two parameters — the verdict comes from the event, so no active-model
+  lookup is needed: the stored snapshot already carries `MLModelSize`):
 
 ```csharp
     /// <summary>
-    /// Overwrites the captured snapshot's verdict term with the verdict THE BUILD reported
-    /// (final-review R1), so `stored` equals the running stack's own state by construction. A
-    /// download report that lands in the dispatcher-hop window between the build's report and
-    /// this swap capture cannot be absorbed: it stays in the LEDGER, which only the
-    /// compare-time capture reads — so the next apply still sees it and the repair reload
-    /// fires. Substitutes only when the build's model is the settings-named one.
+    /// PATCHES the stored snapshot's verdict term with the verdict the swapped build reported
+    /// (plan review C4): never re-captures. A fresh CaptureSnapshot here would re-read the
+    /// ledger AND ActiveModelOnDisk live — absorbing a download report that landed after the
+    /// build checked disk (silently un-fixing the repair reload) and storing on-disk state the
+    /// running stack was never built against (the ticket-11 bug, back). A null verdict
+    /// (swap-to-null) keeps the stored term, i.e. the previous verdict. A verdict for a model
+    /// other than the stored active model is ignored.
     /// </summary>
     internal static KeyboardStackSnapshot WithSwappedVerdict(
-        KeyboardStackSnapshot captured,
-        (string ModelId, ModelVerificationOutcome Outcome)? lastBuild,
-        string? activeModelSize)
+        KeyboardStackSnapshot stored,
+        (string ModelId, ModelVerificationOutcome Outcome)? verification)
     {
-        if (lastBuild is not { } build
-            || string.IsNullOrEmpty(activeModelSize)
-            || !string.Equals(build.ModelId, activeModelSize, StringComparison.OrdinalIgnoreCase))
-            return captured;
-        return captured with { ActiveModelVerification = build.Outcome };
+        if (verification is not { } swap
+            || !string.Equals(swap.ModelId, stored.MLModelSize, StringComparison.OrdinalIgnoreCase))
+            return stored;
+        return stored with { ActiveModelVerification = swap.Outcome };
     }
 ```
 
-  c) Extend the `StackSwapped` subscription (:120–121):
+  b) The handler (:120–121):
 
 ```csharp
-        _predictionFactory.StackSwapped +=
-            orchestrator =>
-            {
-                context.OverlayManager.Keyboard.SetOrchestrator(orchestrator);
+        _predictionFactory.StackSwapped += (orchestrator, verification) =>
+        {
+            context.OverlayManager.Keyboard.SetOrchestrator(orchestrator);
 
-                // Swap-time capture (spec N3/O2/R1): the seed from LoadKeyboard stays until the
-                // first swap; each swap overwrites stored with the LIVE settings and the build's
-                // own verdict. A swap-to-null (prediction disabled) carries no verdict — the
-                // merge keeps the captured term, which is the previous verdict, as the spec
-                // names.
-                var settings = _lastKeyboardSettings;
-                if (settings is null) return;
-                var captured = CaptureSnapshot(settings);
-                _keyboardSnapshot = WithSwappedVerdict(
-                    captured, _predictionFactory.LastBuildVerification, settings.Keyboard.MLModelSize);
-            };
+            // Swap-time snapshot PATCH (spec N3/O2/R1 + plan review C4): the seed from
+            // LoadKeyboard stays until the first swap; each swap moves ONLY the verdict term,
+            // with the verdict the swapped build itself reported. No re-capture — a fresh one
+            // would re-read live disk/ledger state the running stack was never built against.
+            if (_keyboardSnapshot is not null)
+                _keyboardSnapshot = WithSwappedVerdict(_keyboardSnapshot, verification);
+        };
 ```
 
-  `LoadKeyboard`'s `:205` seed capture stays exactly as it is (sync mode never raises
-  `StackSwapped`, and there the seed already reads the settled verdict).
+  Do NOT add a `_lastKeyboardSettings` field (revision 1 had one; C4's patch shape removes the
+  need — `WithSwappedVerdict` reads `stored.MLModelSize`).
 
 - [ ] **Step 5: Run to verify pass** — same filter; then
-  `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SettingsSnapshots|FullyQualifiedName~KeyboardCoordinator"`.
+  `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SettingsSnapshots|FullyQualifiedName~PredictionStackFactory"`.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: detect_changes, then commit**
 
 ```bash
+node .gitnexus/run.cjs detect-changes --scope unstaged
 git add src/EyeCtrl.App/Services/Coordinators/KeyboardCoordinator.cs tests/EyeCtrl.App.Tests/Services/Coordinators/KeyboardCoordinatorTests.cs
-git commit -m "feat(app): swap-time snapshot capture carries the build's own verdict (repair reload path)"
+git commit -m "feat(app): swap patches the stored snapshot with the build's own verdict (no re-capture)"
 ```
 
 ### Task 6: `ButtonKind.Danger` + `FillFor` arm + render pin
@@ -869,16 +1094,21 @@ git commit -m "feat(app): swap-time snapshot capture carries the build's own ver
 **Files:**
 - Modify: `src/EyeCtrl.App/Views/Settings/SettingsRowSpec.cs` (:44 enum)
 - Modify: `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs` (`FillFor` :1020–1025)
-- Test: `tests/EyeCtrl.App.Tests/Settings/SettingsRenderMappingTests.cs`
+- Test: `tests/EyeCtrl.App.Tests/Settings/Pages/SettingsRenderMappingTests.cs` (NOTE the
+  `Pages/` segment — the file is NOT at the project root; plan review H1)
 
 **Interfaces:**
 - Produces: `ButtonKind.Danger`; `FillFor(ButtonKind.Danger)` returns
-  `(DeleteBase, Tokens.BrushSurfaceDark)` — the same `AccentWarning` family as Delete (the
+  `(Tokens.AccentWarning, Tokens.BrushSurfaceDark)` — the same family as Reset/Delete (the
   contrast-gated token; `AccentDanger` is deliberately excluded from
   `DwellButtonProgressBarContrastTests`).
 
-- [ ] **Step 1: Write the failing test** (in `SettingsRenderMappingTests`, matching its two
-  existing kind-pins):
+- [ ] **Step 1: GitNexus impact pass on `ButtonKind`** (upstream: every `FillFor` caller and
+  switch over the enum — including `SettingsAutoPagination` if it kinds anything).
+
+- [ ] **Step 2: Write the failing test** (in `SettingsRenderMappingTests`, matching its two
+  existing kind-pins; `DeleteBase` is `private static` on `SettingsWindow`
+  (SettingsWindow.xaml.cs:176) and NOT reachable — assert the token directly; plan review H4):
 
 ```csharp
     [Fact]
@@ -890,28 +1120,28 @@ git commit -m "feat(app): swap-time snapshot capture carries the build's own ver
         // nothing enumerates ButtonKind: the `_` arm would silently style Danger as a plain
         // button.
         var (fill, text) = SettingsWindow.FillFor(ButtonKind.Danger);
-        Check.That(fill).IsEqualTo(SettingsWindow.DeleteBase);
-        Check.That(text).IsNotNull();
+        Check.That(fill).IsEqualTo(Tokens.AccentWarning);
+        Check.That(text).IsEqualTo(Tokens.BrushSurfaceDark);
     }
 ```
 
-  (`DeleteBase` is the file-internal name the existing pins use; if it is private, reference
-  the expected color the way the existing tests do — copy their assertion form exactly.)
+  (Add the `Tokens` using the file's siblings use — `EyeCtrl.Controls.Theme`.)
 
-- [ ] **Step 2: Run to verify failure** —
+- [ ] **Step 3: Run to verify failure** —
   `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SettingsRenderMappingTests"`.
   Expected: FAIL — `ButtonKind.Danger` missing (compile error).
 
-- [ ] **Step 3: Implement.** `public enum ButtonKind { Default, Reset, Delete, Danger }` with a
+- [ ] **Step 4: Implement.** `public enum ButtonKind { Default, Reset, Delete, Danger }` with a
   doc line ("non-destructive danger — repair flows; same visual family as Delete"). `FillFor`
   gains the arm `ButtonKind.Danger => (DeleteBase, Tokens.BrushSurfaceDark),`.
 
-- [ ] **Step 4: Run to verify pass.** Expected: PASS.
+- [ ] **Step 5: Run to verify pass.** Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: detect_changes, then commit**
 
 ```bash
-git add src/EyeCtrl.App/Views/Settings/SettingsRowSpec.cs src/EyeCtrl.App/Views/SettingsWindow.xaml.cs tests/EyeCtrl.App.Tests/Settings/SettingsRenderMappingTests.cs
+node .gitnexus/run.cjs detect-changes --scope unstaged
+git add src/EyeCtrl.App/Views/Settings/SettingsRowSpec.cs src/EyeCtrl.App/Views/SettingsWindow.xaml.cs tests/EyeCtrl.App.Tests/Settings/Pages/SettingsRenderMappingTests.cs
 git commit -m "feat(app): ButtonKind.Danger — non-destructive danger styling for the repair row"
 ```
 
@@ -920,6 +1150,8 @@ git commit -m "feat(app): ButtonKind.Danger — non-destructive danger styling f
 **Files:**
 - Modify: `src/EyeCtrl.App/Views/Settings/Sources/ModelsPageSource.cs`
 - Test: extend `tests/EyeCtrl.App.Tests/Settings/Pages/ModelsPageSourceTests.cs`
+- Test: extend `tests/EyeCtrl.App.Tests/SettingsContentFitTests.cs` (NOTE: project ROOT, not
+  `Settings/` — plan review H1)
 
 **Interfaces:**
 - Consumes: Tasks 1–3 (ledger, event), Task 6 (`ButtonKind.Danger`).
@@ -927,22 +1159,23 @@ git commit -m "feat(app): ButtonKind.Danger — non-destructive danger styling f
   `GetVerification(id) == Failed`: a `ButtonSpec` with `Id = "md_fix_" + entry.Id`,
   `Kind = ButtonKind.Danger`, label
   `⚠ {DisplayName} — model unusable · predictions fall back to dictionary · dwell to re-download`,
-  activation opening the same confirm modal + `DownloadBundledAsync` as the download button.
-  `VerificationChanged` triggers `RebuildContent` while the Models tab is current.
+  activation carrying the same busy-guard + confirm modal + download flow as the download
+  button (plan review L3). `VerificationChanged` triggers `RebuildContent` while the Models
+  tab is current.
 
-- [ ] **Step 1: Write the failing tests** (harness: `ModelTestFakes` + `TestSettingsPageContext`
-  exactly like the existing tests; `TestSettingsPageContext.Build` exposes an
-  `Invoke`/`RebuildContent` recording surface — read its parameters before use; if it records
-  rebuilds, assert on that, otherwise assert the rows only):
+- [ ] **Step 1: GitNexus impact pass on `ModelsPageSource`** (upstream: the settings shell
+  rebuild paths).
+
+- [ ] **Step 2: Write the failing tests** (harness: `ModelTestFakes` + `TestSettingsPageContext`
+  exactly like the existing tests; `CurrentDownloadId` has an internal setter,
+  ModelManagementService.cs:38; predicates receive STRINGS after the Select — plan review H3):
 
 ```csharp
     [Fact]
     public void Build_FailedVerdict_RendersDangerRepairRow()
     {
         using var scope = ModelTestFakes.Create();
-        var bytes = new byte[] { 0x01 };
-        var (registry, mgmt) = scope.WithDownloadedBundled(
-            "135M", ModelTestScope.Sha256Hex(bytes), ModelTestScope.Sha256Hex(bytes));
+        var (registry, mgmt) = scope.WithHashedDownloadedBundled();
         registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
         var ctx = TestSettingsPageContext.Build(registry: registry, modelManagement: mgmt);
 
@@ -959,53 +1192,71 @@ git commit -m "feat(app): ButtonKind.Danger — non-destructive danger styling f
     public void Build_FailedRow_InFlightTakesPrecedence()
     {
         using var scope = ModelTestFakes.Create();
-        var bytes = new byte[] { 0x01 };
-        var (registry, mgmt) = scope.WithDownloadedBundled(
-            "135M", ModelTestScope.Sha256Hex(bytes), ModelTestScope.Sha256Hex(bytes));
+        var (registry, mgmt) = scope.WithHashedDownloadedBundled();
         registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
-        // Simulate in-flight: the page reads ModelManagement.CurrentDownloadId, which has an
-        // internal setter (ModelManagementService.cs:38) — settable from App.Tests.
         mgmt.CurrentDownloadId = "135M";
         var ctx = TestSettingsPageContext.Build(registry: registry, modelManagement: mgmt);
 
         var rows = new ModelsPageSource(ctx).Build().Single().Rows;
 
         Check.That(rows.OfType<ButtonSpec>().Where(b => b.Id == "md_fix_135M")).IsEmpty();
-        // and the progress label is present (the existing in-flight branch's shape):
         Check.That(rows.OfType<LabelSpec>().Select(l => l.Text()))
-            .HasElementThatMatches(t => t().Contains("downloading"));
+            .HasElementThatMatches(t => t.Contains("downloading"));
     }
 
     [Fact]
     public void Build_VerifiedOrUnverified_KeepsTodayRows()
     {
         using var scope = ModelTestFakes.Create();
-        var bytes = new byte[] { 0x01 };
-        var (registry, mgmt) = scope.WithDownloadedBundled(
-            "135M", ModelTestScope.Sha256Hex(bytes), ModelTestScope.Sha256Hex(bytes));
+        var (registry, mgmt) = scope.WithHashedDownloadedBundled();
         registry.ReportVerification("135M", ModelVerificationOutcome.Verified);
         var ctx = TestSettingsPageContext.Build(registry: registry, modelManagement: mgmt);
 
         var rows = new ModelsPageSource(ctx).Build().Single().Rows;
 
         Check.That(rows.OfType<ButtonSpec>().Where(b => b.Id.StartsWith("md_fix_"))).IsEmpty();
-        // "✓ Downloaded" label present for the downloaded entry:
         Check.That(rows.OfType<LabelSpec>().Select(l => l.Text()))
-            .HasElementThatMatches(t => t().Contains("✓ Downloaded"));
+            .HasElementThatMatches(t => t.Contains("✓ Downloaded"));
+    }
+
+    [Fact]
+    public void RepairRow_Activation_CarriesTheBusyGuard_AndConfirmModal()
+    {
+        // L3: the repair arm must refuse a second download exactly like the download arm,
+        // BEFORE showing the modal — not with an error after the user confirmed.
+        using var scope = ModelTestFakes.Create();
+        var (registry, mgmt) = scope.WithHashedDownloadedBundled();
+        registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
+        mgmt.CurrentDownloadId = "135M"; // not enough — IsDownloading is the guard; use the
+                                         // BusyManagement fake from ModelTestFakes instead:
+        var busy = scope.ManagementThatIsBusy();
+        // re-register the failed verdict on the busy fake's registry if it differs; then:
+        var ctx2 = TestSettingsPageContext.Build(registry: registry, modelManagement: busy);
+        var rows = new ModelsPageSource(ctx2).Build().Single().Rows;
+        var repair = rows.OfType<ButtonSpec>().Single(b => b.Id == "md_fix_135M");
+
+        repair.OnActivate(); // must return without opening a modal (assert via the context's
+                             // modal-recording surface — TestSettingsPageContext exposes it;
+                             // mirror the assertion style of the existing callback tests,
+                             // SettingsPageSourceCallbackTests.cs).
     }
 ```
 
-  If `CurrentDownloadId` has no public setter, add `internal set` — the project already uses
-  `InternalsVisibleTo` for `EyeCtrl.App.Tests`.
+  (Read `TestSettingsPageContext` and `SettingsPageSourceCallbackTests` before writing the
+  modal assertion — that file shows the established way to observe
+  `ShowModal`/`ShowError`/`RebuildContent` headlessly. If `ManagementThatIsBusy`'s registry is
+  a different instance than the failed-verdict one, report the verdict on THAT instance so the
+  row renders.)
 
-- [ ] **Step 2: Run to verify failure** —
+- [ ] **Step 3: Run to verify failure** —
   `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ModelsPageSourceTests"`.
   Expected: new tests FAIL (no `md_fix_` row; in-flight check unreachable for downloaded
   entries).
 
-- [ ] **Step 3: Implement.** In `ModelsPageSource.cs`:
+- [ ] **Step 4: Implement.** In `ModelsPageSource.cs`:
 
-  a) Subscribe like the progress handler (ctor + `Detach`):
+  a) Subscribe like the progress handler (ctor + `Detach`), guarding null exactly as the
+  progress subscription does:
 
 ```csharp
         if (_ctx.Registry is not null)
@@ -1018,14 +1269,11 @@ git commit -m "feat(app): ButtonKind.Danger — non-destructive danger styling f
     }
 ```
 
-  and unsubscribe in `Detach` (mirror `DownloadProgressChanged`; guard null `_ctx.Registry`).
-  Check how the existing ctor guards (`_ctx.ModelManagement is not null`) and match it —
-  `Registry` may be non-null in every real context; keep the guard symmetric with the
-  progress handler's.
+  and `_ctx.Registry?.VerificationChanged -= OnVerificationChanged;` in `Detach`.
 
   b) In `Build()`, restructure the per-entry loop so the IN-FLIGHT check moves ABOVE the
-  downloaded/failed split (review L3 — `IsModelDownloaded` stays true throughout a repair,
-  so the old placement made the progress line unreachable):
+  downloaded/failed split (review L3 of the spec — `IsModelDownloaded` stays true throughout a
+  repair, so the old placement made the progress line unreachable):
 
 ```csharp
         foreach (var entry in _ctx.Registry.Registry.Values.OrderBy(e => e.SizeBytes))
@@ -1033,7 +1281,7 @@ git commit -m "feat(app): ButtonKind.Danger — non-destructive danger styling f
             // In-flight takes precedence over BOTH branches: a repair re-download keeps the
             // files present throughout (File.Move(overwrite:true) at the end), so gating the
             // progress line on !IsModelDownloaded made it unreachable exactly when a repair
-            // runs (review L3).
+            // runs (spec review L3).
             if (_ctx.ModelManagement is not null && entry.Id == _ctx.ModelManagement.CurrentDownloadId)
             {
                 var eInFlight = entry;
@@ -1047,13 +1295,23 @@ git commit -m "feat(app): ButtonKind.Danger — non-destructive danger styling f
                 var e2 = entry;
                 page1.Add(new ButtonSpec($"md_dl_{entry.Id}",
                     $"{entry.DisplayName}  {FormatSize(entry.SizeBytes)}  [Download]",
-                    () => { /* unchanged download button body */ },
+                    () =>
+                    {
+                        // Not silent: a busy workflow that swallows the dwell is
+                        // indistinguishable from a broken button. (original body, unchanged)
+                        if (_ctx.ModelManagement.IsDownloading)
+                        {
+                            _ctx.ShowError("Another download is already in progress.");
+                            return;
+                        }
+                        _ctx.ShowModal($"Download {e2.DisplayName} ({FormatSize(e2.SizeBytes)})?",
+                            () => _ = DownloadBundledAsync(e2.Id, e2.Url, e2.Sha256, e2.TokenizerUrl, e2.TokenizerSha256));
+                    },
                     ButtonKind.Default, Width: 544, Height: 100));
                 continue;
             }
 
-            var failed = _ctx.Registry.GetVerification(entry.Id) == ModelVerificationOutcome.Failed;
-            if (!failed)
+            if (_ctx.Registry.GetVerification(entry.Id) != ModelVerificationOutcome.Failed)
             {
                 var e1 = entry;
                 page1.Add(new LabelSpec(() =>
@@ -1064,67 +1322,82 @@ git commit -m "feat(app): ButtonKind.Danger — non-destructive danger styling f
             // Spec O3: cause-neutral copy — the verdict is availability-derived and includes
             // non-integrity failures, so the row must not claim "integrity" nor promise that a
             // re-download fixes every cause; it is the right FIRST remedy for the common case.
+            // Known and accepted (spec review L7): a hash-clean-but-unusable model will come
+            // back Failed after a re-download; the log line distinguishes the cause and the
+            // spec declined a cause bit.
             var e3 = entry;
             page1.Add(new ButtonSpec($"md_fix_{entry.Id}",
                 $"⚠ {e3.DisplayName} — model unusable · predictions fall back to dictionary · dwell to re-download",
-                () => _ctx.ShowModal(
-                    $"Re-download {e3.DisplayName}? This replaces the files on disk.",
-                    () => _ = DownloadBundledAsync(e3.Id, e3.Url, e3.Sha256, e3.TokenizerUrl, e3.TokenizerSha256)),
+                () =>
+                {
+                    // L3: same busy guard as the download arm — refuse BEFORE the modal.
+                    if (_ctx.ModelManagement.IsDownloading)
+                    {
+                        _ctx.ShowError("Another download is already in progress.");
+                        return;
+                    }
+                    _ctx.ShowModal(
+                        $"Re-download {e3.DisplayName}? This replaces the files on disk.",
+                        () => _ = DownloadBundledAsync(e3.Id, e3.Url, e3.Sha256, e3.TokenizerUrl, e3.TokenizerSha256));
+                },
                 ButtonKind.Danger, Width: 544, Height: 100));
         }
 ```
 
-  (Carry over the original download-button body verbatim — the busy-guard + confirm modal —
-  into the `md_dl_` arm; it is unchanged from today's code.)
-
   c) Keep the section dividers as-is in this task (Task 10 replaces them with `SeparatorSpec`).
 
-- [ ] **Step 4: Run to verify pass** — same filter. Expected: new tests PASS, existing
+- [ ] **Step 5: Run to verify pass** — same filter. Expected: new tests PASS, existing
   download/e2e tests PASS.
 
-- [ ] **Step 5: Fit assertion for the new label (spec M5).** Add to
-  `tests/EyeCtrl.App.Tests/Settings/SettingsContentFitTests.cs` a `[StaFact]` in the file's
-  established style (reuse its `BuildContentTree`/`WindowWidthFor` helpers):
+- [ ] **Step 6: Fit assertion for the new label (spec M5 + plan review M3).** Add to
+  `tests/EyeCtrl.App.Tests/SettingsContentFitTests.cs` (project ROOT) a `[StaFact]` that
+  measures the REAL control, not a free-standing TextBlock:
 
 ```csharp
     [StaFact]
-    public void TheRepairRowLabel_WrapsInsideIts544Button_AndDoesNotClip()
+    public void TheRepairRow_WrapsItsLabel_InsideTheRealDangerButton()
     {
-        // The longest real label this change introduces (~95 chars for Qwen2.5 1.5B (q4f16)).
-        // The DwellButton text wraps (no clipping), so the requirement is: the rendered text
-        // height at width 544 stays within the button's Height, and the label's longest WORD
-        // run is narrower than 544. Build the real label and measure.
-        var label = "⚠ Qwen2.5 1.5B (q4f16) — model unusable · predictions fall back to dictionary · dwell to re-download";
-        var host = new StackPanel();
-        TextElement.SetFontFamily(host, Tokens.FontStandard);
-        var block = new TextBlock
-        {
-            Text = label,
-            FontSize = Tokens.FontSizeBody, // the size DwellButton renders labels at — copy it
-            TextWrapping = TextWrapping.Wrap,
-            MaxWidth = 544 - 16, // button's own padding, same as production
-        };
-        host.Children.Add(block);
-        host.Measure(new Size(544, double.PositiveInfinity));
+        // M3: measure through SettingsWindow.CreateControl so production changes to
+        // DwellButton's font, padding or wrap behaviour make THIS test fail, not a probe.
+        const string repairLabel = "⚠ Qwen2.5 1.5B (q4f16) — model unusable · predictions fall " +
+            "back to dictionary · dwell to re-download";
+        var control = (DwellControl)SettingsWindow.CreateControl(
+            new ButtonSpec("md_fix_fit", repairLabel, () => { },
+                ButtonKind.Danger, Width: 544, Height: 100),
+            new SettingsAutoPagination.NoopDwellRegistrar(),
+            RadiusPhysicalForFit, DwellMsForFit, WideColumnWidthForFit);
 
-        Check.That(block.DesiredSize.Height).IsStrictlyGreaterThan(0);
-        // Two lines at body size ≈ 2×line height; if this ever exceeds the 100 DIP button, the
-        // row height must grow in ModelsPageSource, not clip here.
-        Check.That(block.DesiredSize.Height).IsStrictlyLessThan(100);
+        var host = new System.Windows.Controls.Grid();
+        TextElement.SetFontFamily(host, Tokens.FontStandard);
+        control.Attach(host);
+        host.Measure(new System.Windows.Size(544, double.PositiveInfinity));
+
+        // The button is fixed-height; the requirement is that its wrapped text FITS: find the
+        // label TextBlock in the visual tree and require its desired height to clear the
+        // button's inner box. If it does not, raise the repair row's Height in
+        // ModelsPageSource (e.g. 120) and update this row's constant — do not clip.
+        var textBlocks = FindVisualChildren<System.Windows.Controls.TextBlock>(control.Root);
+        Check.That(textBlocks).Not.IsEmpty();
+        var tallest = textBlocks.Max(t => t.DesiredSize.Height);
+        Check.That(tallest).IsStrictlyLessThan(100);
     }
 ```
 
-  Match the actual font-size token `DwellButton` uses for its label (read it before writing);
-  if the measured height exceeds the button height, raise the repair row's `Height` to the
-  measured need (e.g. 120) in `ModelsPageSource` and note it in the commit.
+  Use the file's existing constants/helpers in place of `RadiusPhysicalForFit` etc. — copy the
+  arrange of a neighbouring StaFact. If `FindVisualChildren` has no helper in this file, write
+  the 6-line recursion inline (it is a standard `VisualTreeHelper.GetChildrenCount` walk) or
+  reuse `control.Root` and measure its own desired height against the fixed Height only if the
+  file prefers that; the requirement being pinned is "wrapped text fits the 100 DIP row at 544
+  width, measured through the real control".
 
-- [ ] **Step 6: Run the page + fit suites** —
+- [ ] **Step 7: Run the page + fit suites** —
   `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ModelsPageSourceTests|FullyQualifiedName~SettingsContentFitTests|FullyQualifiedName~SettingsRowDescriptionCompleteness"`.
 
-- [ ] **Step 7: Commit (completes commit group 1)**
+- [ ] **Step 8: detect_changes, then commit (completes commit group 1)**
 
 ```bash
-git add src/EyeCtrl.App/Views/Settings/Sources/ModelsPageSource.cs tests/EyeCtrl.App.Tests/Settings/Pages/ModelsPageSourceTests.cs tests/EyeCtrl.App.Tests/Settings/SettingsContentFitTests.cs
+node .gitnexus/run.cjs detect-changes --scope unstaged
+git add src/EyeCtrl.App/Views/Settings/Sources/ModelsPageSource.cs tests/EyeCtrl.App.Tests/Settings/Pages/ModelsPageSourceTests.cs tests/EyeCtrl.App.Tests/SettingsContentFitTests.cs
 git commit -m "feat(app): Models tab renders a repair row for failed-integrity models (live refresh, in-flight precedence)"
 ```
 
@@ -1138,7 +1411,19 @@ git commit -m "feat(app): Models tab renders a repair row for failed-integrity m
 - Modify: `src/EyeCtrl.App/Services/IOverlayWindows.cs` (`IPauseIndicatorOverlay`, :185)
 - Modify: `src/EyeCtrl.App/Services/IToolbarVisibility.cs`
 - Modify: `src/EyeCtrl.App/Services/ToolbarVisibilityAdapter.cs`
-- Test: `tests/EyeCtrl.App.Tests/Services/ToolbarVisibilityAdapterHeadlessTests.cs`
+- Modify: `tests/EyeCtrl.App.Tests/Services/ToolbarVisibilityAdapterHeadlessTests.cs`
+  (FakePauseIndicator + **four existing tests assert the OLD contract and are rewritten or
+  deleted — `HideToolbar_WhilePaused_RaisesTheIndicator`,
+  `HideToolbar_WhileRunning_LeavesTheIndicatorDown`,
+  `ShowToolbar_ShowsTheToolbarAndClearsTheIndicator`,
+  `ForceShow_ShowsTheToolbarAndClearsTheIndicator` (:158–215); plan review H2**)
+- Modify: `tests/EyeCtrl.App.Tests/Services/ToolbarAutoHideControllerTests.cs`
+  (`FakeVisibility` :~596 implements `IToolbarVisibility` — gains the new member)
+- Modify: `tests/EyeCtrl.App.Tests/Services/ToolbarAutoHideGeometryTests.cs`
+  (`RecordingVisibility` :~37 — same)
+- Modify: `tests/EyeCtrl.App.Tests/Tests/ToolbarTests.cs` (:~47 — the comment "The indicator
+  shows only after the toolbar's slide-out ANIMATION completes" is stale after this task;
+  reword to "The indicator is commanded on the pause flip; wait for it" — plan review L6)
 
 **Interfaces:**
 - Produces: `IPauseIndicatorOverlay.RaiseToTop()`; `IToolbarVisibility.SetPauseIndicator(bool
@@ -1146,14 +1431,15 @@ git commit -m "feat(app): Models tab renders a repair row for failed-integrity m
   `SetPauseIndicator`; `ShowToolbar`/`ForceShow` conditionally raise (iff commanded visible)
   after showing the band; `HideToolbar` touches nothing.
 
-- [ ] **Step 1: GitNexus impact pass** on `ToolbarVisibilityAdapter` + `IToolbarVisibility`
-  (upstream: `ToolbarAutoHideController` callers, fakes).
+- [ ] **Step 1: GitNexus impact pass on `ToolbarVisibilityAdapter` + `IToolbarVisibility`**
+  (upstream: `ToolbarAutoHideController` callers, every implementer of the interface — the two
+  test fakes above are in that set).
 
 - [ ] **Step 2: Write the failing tests.** The file's arrange is
-  `private static (ToolbarVisibilityAdapter Adapter, List<string> Log, ExposedDwellToolbarViewModel
-  Vm, FakePauseIndicator Indicator) Build()` (line ~108) with `Pump()` to run the queued
-  dispatcher work, and the log strings are exactly what `FakePauseIndicator`/`FakeToolbar`
-  append. First extend `FakePauseIndicator` (line ~95):
+  `private static (ToolbarVisibilityAdapter Adapter, List<string> Log,
+  ExposedDwellToolbarViewModel Vm, FakePauseIndicator Indicator) Build()` (line ~108) with
+  `Pump()` to run queued dispatcher work; `FakeToolbar` logs literals like
+  `"Toolbar.ShowThenSlideIn"`. First extend `FakePauseIndicator` (line ~95):
 
 ```csharp
         public bool Visible { get; private set; }
@@ -1163,7 +1449,8 @@ git commit -m "feat(app): Models tab renders a repair row for failed-integrity m
         public void RaiseToTop() => _log.Add("Indicator.RaiseToTop");
 ```
 
-  Then the tests (same style as `HideToolbar_DeactivatesDwellBeforeHiding`):
+  Rewrite/delete the four old-contract tests listed above (they assert HideToolbar/ShowToolbar
+  move the indicator — the new contract is that they do NOT), then add:
 
 ```csharp
     [Fact]
@@ -1205,10 +1492,8 @@ git commit -m "feat(app): Models tab renders a repair row for failed-integrity m
         log.Clear();
         adapter.ShowToolbar();
         Pump();
-        Check.That(log).Contains("Toolbar.ShowThenSlideIn"); // band shown (FakeToolbar's entry)
-        var bandIndex = log.IndexOf(log.First(t => t.StartsWith("Toolbar.")));
+        var bandIndex = log.IndexOf("Toolbar.ShowThenSlideIn");
         var raiseIndex = log.IndexOf("Indicator.RaiseToTop");
-        Check.That(raiseIndex).IsGreaterOrEqualThan(0);
         Check.That(raiseIndex).IsStrictlyGreaterThan(bandIndex);
     }
 
@@ -1233,12 +1518,10 @@ git commit -m "feat(app): Models tab renders a repair row for failed-integrity m
     }
 ```
 
-  (`IsGreaterOrEqualThan` / `IsStrictlyGreaterThan` are the NFluent names — see the
-  reference-nfluent-assertions note in the repo memory; do not guess `OrEqualTo` variants.)
-
 - [ ] **Step 3: Run to verify failure** —
   `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ToolbarVisibilityAdapterHeadlessTests"`.
-  Expected: FAIL — `SetPauseIndicator`/`RaiseToTop` missing.
+  Expected: FAIL — `SetPauseIndicator`/`RaiseToTop` missing; the four old tests fail compile
+  until rewritten.
 
 - [ ] **Step 4: Implement.**
 
@@ -1294,12 +1577,26 @@ git commit -m "feat(app): Models tab renders a repair row for failed-integrity m
   line uses it); update the `IToolbarVisibility` doc comments that say "hides the pause
   indicator" — those sentences are now false.
 
-- [ ] **Step 5: Run to verify pass** — same filter. Then the whole file's suite.
+  d) The two other fakes: `FakeVisibility` gains
+  `public void SetPauseIndicator(bool visible) { }` (plus whatever recording style the class
+  already uses); `RecordingVisibility` gains the recording member in its own style.
 
-- [ ] **Step 6: Commit**
+  e) The four old-contract tests: delete
+  `HideToolbar_WhilePaused_RaisesTheIndicator` and
+  `HideToolbar_WhileRunning_LeavesTheIndicatorDown` (their content is superseded by
+  `HideToolbar_NeitherShowsNorHidesNorRaisesTheStrip`); rewrite
+  `ShowToolbar_ShowsTheToolbarAndClearsTheIndicator` and
+  `ForceShow_ShowsTheToolbarAndClearsTheIndicator` to the new contract (band shows; strip
+  raised only when commanded).
+
+- [ ] **Step 5: Run to verify pass** — same filter. Then the whole file's suite plus
+  `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ToolbarAutoHide"`.
+
+- [ ] **Step 6: detect_changes, then commit**
 
 ```bash
-git add src/EyeCtrl.App/Services/IOverlayWindows.cs src/EyeCtrl.App/Services/IToolbarVisibility.cs src/EyeCtrl.App/Services/ToolbarVisibilityAdapter.cs tests/EyeCtrl.App.Tests/Services/ToolbarVisibilityAdapterHeadlessTests.cs
+node .gitnexus/run.cjs detect-changes --scope unstaged
+git add src/EyeCtrl.App/Services/IOverlayWindows.cs src/EyeCtrl.App/Services/IToolbarVisibility.cs src/EyeCtrl.App/Services/ToolbarVisibilityAdapter.cs tests/EyeCtrl.App.Tests/Services/ToolbarVisibilityAdapterHeadlessTests.cs tests/EyeCtrl.App.Tests/Services/ToolbarAutoHideControllerTests.cs tests/EyeCtrl.App.Tests/Services/ToolbarAutoHideGeometryTests.cs tests/EyeCtrl.App.Tests/Tests/ToolbarTests.cs
 git commit -m "feat(app): pause strip commanded via SetPauseIndicator; band shows raise it above"
 ```
 
@@ -1309,13 +1606,16 @@ git commit -m "feat(app): pause strip commanded via SetPauseIndicator; band show
 - Modify: `src/EyeCtrl.App/Services/Coordinators/ToolbarLifecycleCoordinator.cs`
   (mirror at :57–60)
 - Modify: `src/EyeCtrl.App/App.xaml.cs` (ordering comment at the `TogglePause` call ~:284)
+- Test: `tests/EyeCtrl.App.Tests/Services/` (source-read pin — host it beside the adapter
+  tests or in an existing wiring-tests file)
 
 **Interfaces:**
 - Consumes: Task 8's `SetPauseIndicator`. The existing `StateChangedMessage` mirror gains the
   strip command; the startup push arrives via `im.TogglePause()` at App.xaml.cs:284, which
   already runs AFTER `ShowOverlays` (:281) — the O4 ordering, pinned by comment + test.
 
-- [ ] **Step 1: Implement the mirror** (one line):
+- [ ] **Step 1: Implement the mirror** (the `_visibility` field is set later in
+  `SetupToolbarAutoHide` (:269) — the null-conditional is what makes pre-init messages safe):
 
 ```csharp
         context.Messenger.Register<ToolbarLifecycleCoordinator, StateChangedMessage>(this, (_, msg) =>
@@ -1342,15 +1642,15 @@ git commit -m "feat(app): pause strip commanded via SetPauseIndicator; band show
                 im.TogglePause();
 ```
 
-- [ ] **Step 3: Wiring visibility.** This is the codebase's accepted untestable-seam shape
-  (the `CaptureSnapshot` doc precedent: wiring is not unit-reachable). The behavioural rows
-  live in Task 8's tests; add ONE source-read test so the wiring cannot silently vanish AND
-  the startup ordering stays pinned (O4), following the
+- [ ] **Step 3: Wiring visibility + ordering pin (source-read).** This is the codebase's
+  accepted untestable-seam shape (the `CaptureSnapshot` doc precedent: wiring is not
+  unit-reachable). The behavioural rows live in Task 8's tests; add ONE source-read test so
+  the wiring cannot silently vanish AND the startup ordering stays pinned (O4), following the
   `TheAppTestsCaseCoveringLabelledSettingsRow_StillExists` content-assertion pattern:
 
 ```csharp
     [Fact]
-    public void PauseIndicatorWiring_StateChangedMirror_CommandsStrip_AfterStartupBandShow()
+    public void PauseIndicatorWiring_MirrorCommandsStrip_AndStartupPushStaysAfterShowOverlays()
     {
         var root = SourceScanner.RepoRoot().FullName;
 
@@ -1374,15 +1674,16 @@ git commit -m "feat(app): pause strip commanded via SetPauseIndicator; band show
     }
 ```
 
-  (Guard `IndexOf` results against -1 implicitly: `-1 > -1` is false, so either marker going
-  missing fails the check — the message tells the reader which invariant broke.)
+  (Guard `IndexOf` results implicitly: `-1 > -1` is false, so either marker going missing
+  fails the check — the message tells the reader which invariant broke.)
 
 - [ ] **Step 4: Run** `dotnet test tests/EyeCtrl.App.Tests --filter
   "FullyQualifiedName~ToolbarVisibility|FullyQualifiedName~PauseIndicatorWiring"`.
 
-- [ ] **Step 5: Commit (completes commit group 2)**
+- [ ] **Step 5: detect_changes, then commit (completes commit group 2)**
 
 ```bash
+node .gitnexus/run.cjs detect-changes --scope unstaged
 git add src/EyeCtrl.App/Services/Coordinators/ToolbarLifecycleCoordinator.cs src/EyeCtrl.App/App.xaml.cs tests/EyeCtrl.App.Tests/
 git commit -m "feat(app): paused-state mirror commands the edge strip; startup ordering pinned for --paused"
 ```
@@ -1404,20 +1705,25 @@ git commit -m "feat(app): paused-state mirror commands the edge strip; startup o
 - Test: `tests/EyeCtrl.App.Tests/Settings/SettingsRowLayoutTests.cs` (new pin)
 - Test: update `tests/EyeCtrl.App.Tests/Settings/Pages/AdvancedPageSourceTests.cs` (:12–19)
 - Test: `tests/EyeCtrl.Controls.Tests/DwellCompositeChildrenStabilityTests.cs` (census + still-exists)
-- Test: redirect the three dash probes in `tests/EyeCtrl.App.Tests/Settings/SettingsContentFitTests.cs` (:455–515 region)
+- Test: redirect the three dash probes in `tests/EyeCtrl.App.Tests/SettingsContentFitTests.cs`
+  (project ROOT — plan review H1; the region is `TheWidestSeparatorLabel_FitsTheContentColumn`,
+  :455–515)
 
 **Interfaces:**
 - Produces: `sealed record SeparatorSpec() : SettingsRowSpec("", "");` and a private nested
   `SeparatorRow : IDwellComposite` (cached empty `Children` — a readonly FIELD, never `=> []`).
 
-- [ ] **Step 1: Write the failing tests.**
+- [ ] **Step 1: GitNexus impact pass** on the settings row renderer
+  (`SettingsWindow.CreateControl`/`RenderSpec`) and `IDwellComposite` implementers.
+
+- [ ] **Step 2: Write the failing tests.**
 
   a) `SettingsRowLayoutTests` (follow the `ALabelledRow_ForwardsItsInnerCompositesCachedChildren`
   pattern exactly — `SettingsWindow.CreateControl(...)` + `SettingsAutoPagination.NoopDwellRegistrar()`):
 
 ```csharp
     [Fact]
-    public void ASeparatorRow_HasCachedEmptyChildren_AndSpansTheColumn()
+    public void ASeparatorRow_HasCachedEmptyChildren_AndAttaches()
     {
         var composite = (IDwellComposite)SettingsWindow.CreateControl(
             new SeparatorSpec(), new SettingsAutoPagination.NoopDwellRegistrar(),
@@ -1428,26 +1734,24 @@ git commit -m "feat(app): paused-state mirror commands the edge strip; startup o
         Check.That(first).IsEmpty();
         Check.That(ReferenceEquals(first, second)).IsTrue();
 
-        // The rule spans the content column: a Grid/Border given the finite width it needs
-        // (LabelledSettingsRow's doc explains why a StackPanel would measure infinite).
         var host = new System.Windows.Controls.Grid();
         composite.Attach(host);
-        host.Measure(new System.Windows.Size(WideColumnWidth, double.PositiveInfinity));
         Check.That(host.Children.Count).IsEqualTo(1);
     }
 ```
 
   b) `AdvancedPageSourceTests.Build_HasSeventeenRows_FourSeparators_ResetLast`: change
   `Check.That(rows.OfType<LabelSpec>()).HasSize(4);` to
-  `Check.That(rows.OfType<SeparatorSpec>()).HasSize(4);` (rename the test
-  `..._FourSeparators_...` stays accurate). `HasSize(17)` and the button asserts are unchanged.
+  `Check.That(rows.OfType<SeparatorSpec>()).HasSize(4);`. `HasSize(17)` and the button asserts
+  are unchanged.
 
   c) `DwellCompositeChildrenStabilityTests`: add `"SeparatorRow"` to the `covered` array of
-  `NoProjectOutsideControls_ImplementsIDwellComposite` (with a remark line pointing at the
-  App.Tests pin), and extend the still-exists guard to also require the new pin:
+  `NoProjectOutsideControls_ImplementsIDwellComposite` (after `"LabelledSettingsRow"` — the
+  census sorts ordinal, so appending satisfies `ContainsExactly`), with a remark line pointing
+  at the App.Tests pin, and extend the still-exists guard:
 
 ```csharp
-        const string SeparatorTestName = "ASeparatorRow_HasCachedEmptyChildren_AndSpansTheColumn";
+        const string SeparatorTestName = "ASeparatorRow_HasCachedEmptyChildren_AndAttaches";
         Check.WithCustomMessage(
                 "SeparatorRow's Children-stability pin is gone from SettingsRowLayoutTests. The"
                 + " census above vouches for it; restore the test or remove the name here.")
@@ -1457,19 +1761,19 @@ git commit -m "feat(app): paused-state mirror commands the edge strip; startup o
   (`EveryCompositeInTheAssembly_IsCoveredByACaseAbove` is untouched — an `EyeCtrl.App`-nested
   type is invisible to `typeof(IDwellComposite).Assembly` reflection.)
 
-  d) `SettingsContentFitTests`: in `TheWidestSeparatorLabel_FitsTheContentColumn`, DELETE the
+  d) `SettingsContentFitTests.TheWidestSeparatorLabel_FitsTheContentColumn`: DELETE the
   source-regex dash-run scan (:462) and both `DwellLabel('\u2500', …)` probes (:479, :502);
   replace with a span assertion on the real composite: build via
   `SettingsWindow.CreateControl(new SeparatorSpec(), ...)`, attach to the content-tree host,
   measure+arrange as the old test did, and assert the border's `ActualWidth` equals the
   content column width (the star-column bound), not the old clipped-label behaviour.
 
-- [ ] **Step 2: Run to verify failure** —
+- [ ] **Step 3: Run to verify failure** —
   `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~AdvancedPageSourceTests|FullyQualifiedName~SettingsRowLayoutTests"` and
   `dotnet test tests/EyeCtrl.Controls.Tests --filter "FullyQualifiedName~DwellCompositeChildrenStabilityTests"`.
   Expected: FAIL (no `SeparatorSpec`/`SeparatorRow`; census missing the name).
 
-- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Implement.**
 
   a) `SettingsRowSpec.cs`:
 
@@ -1533,14 +1837,15 @@ public sealed record SeparatorSpec() : SettingsRowSpec("", "");
   d) `DwellLabel.cs` `wrap` doc (:26–32): rewrite to the neutral wording (no U+2500 rule
   reference — see the SettingsRowSpec doc; keep the clip-vs-wrap rationale sentence).
 
-- [ ] **Step 4: Run to verify pass** — both filters from Step 2, plus
+- [ ] **Step 5: Run to verify pass** — both filters from Step 3, plus
   `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SettingsAutoPagination|FullyQualifiedName~SettingsTabDrift|FullyQualifiedName~SettingsRowDescriptionCompleteness"`
   (all three should be unaffected and green).
 
-- [ ] **Step 5: Commit (completes commit group 3)**
+- [ ] **Step 6: detect_changes, then commit (completes commit group 3)**
 
 ```bash
-git add src/EyeCtrl.App/Views/Settings/SettingsRowSpec.cs src/EyeCtrl.App/Views/SettingsWindow.xaml.cs src/EyeCtrl.App/Views/Settings/Sources/ModelsPageSource.cs src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs src/EyeCtrl.Controls/DwellLabel.cs tests/EyeCtrl.App.Tests/Settings/SettingsRowLayoutTests.cs tests/EyeCtrl.App.Tests/Settings/Pages/AdvancedPageSourceTests.cs tests/EyeCtrl.Controls.Tests/DwellCompositeChildrenStabilityTests.cs tests/EyeCtrl.App.Tests/Settings/SettingsContentFitTests.cs
+node .gitnexus/run.cjs detect-changes --scope unstaged
+git add src/EyeCtrl.App/Views/Settings/SettingsRowSpec.cs src/EyeCtrl.App/Views/SettingsWindow.xaml.cs src/EyeCtrl.App/Views/Settings/Sources/ModelsPageSource.cs src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs src/EyeCtrl.Controls/DwellLabel.cs tests/EyeCtrl.App.Tests/Settings/SettingsRowLayoutTests.cs tests/EyeCtrl.App.Tests/Settings/Pages/AdvancedPageSourceTests.cs tests/EyeCtrl.Controls.Tests/DwellCompositeChildrenStabilityTests.cs tests/EyeCtrl.App.Tests/SettingsContentFitTests.cs
 git commit -m "feat(app): full-width SeparatorSpec replaces the dash-label rules in Models and Advanced"
 ```
 
@@ -1548,19 +1853,23 @@ git commit -m "feat(app): full-width SeparatorSpec replaces the dash-label rules
 
 ## Final verification
 
-- [ ] **Full non-UI suite** (CI parity, one project per invocation is unnecessary here — the
-  solution form works on this box):
-  `dotnet test EyeCtrl.slnx --filter "Category!=UI"` — expect green (German output:
-  `Fehler!` = fail).
+- [ ] **Baseline first** (plan review L1): on `main` (or the merge-base), record
+  `dotnet test EyeCtrl.slnx --filter "Category!=UI"` — this box has ~13 known
+  environmentally-failing App.Tests headless; the number is the baseline, NOT zero.
+- [ ] **Full non-UI suite on the branch:**
+  `dotnet test EyeCtrl.slnx --filter "Category!=UI"` — require: no NEW failures vs the
+  baseline, all new/updated tests green.
 - [ ] **`dotnet build EyeCtrl.slnx`** clean.
-- [ ] **Live pass — OWNER GATED: ask before launching.** With explicit OK: launch
-  `src/EyeCtrl.App/bin/Debug/net10.0-windows/EyeCtrl.App.exe --test-mode` (never touches the
-  real tracker), capped run per the box's standard drill, and eyeball:
-  1. Models tab shows the repair row against the owner's REAL corrupt
-     `qwen2.5-1.5b.onnx` (log line `failed its SHA-256 integrity check` at startup), and —
-     after dwelling the repair row and confirming — a subsequent rebuild logs the LM loading
-     (C1 end-to-end: the re-download actually re-enables the LM).
-  2. With the app paused: summoning the band shows the strip ABOVE it; unpausing dismisses
-     it; on a `--paused` launch the strip is above the band from startup (O4).
-  3. Models + Advanced tabs: rules span the content column.
+- [ ] **Live pass — OWNER GATED, TWO SEPARATE CONSENTS (plan review L5):**
+  1. *Consent to launch*: `src/EyeCtrl.App/bin/Debug/net10.0-windows/EyeCtrl.App.exe
+     --test-mode` (never touches the real tracker), capped run per the box's standard drill.
+  2. *Consent to repair-download*: dwelling the repair row fetches 1.67 GB and makes the Qwen
+     LM live on the owner's only text surface — the owner decides this separately.
+  Then eyeball:
+  - Models tab shows the repair row against the owner's REAL corrupt `qwen2.5-1.5b.onnx`
+    (log line `failed its SHA-256 integrity check` at startup); after a consented repair, a
+    subsequent rebuild logs the LM loading (C1 end-to-end).
+  - With the app paused: summoning the band shows the strip ABOVE it; unpausing dismisses it;
+    on a `--paused` launch the strip is above the band from startup (O4).
+  - Models + Advanced tabs: rules span the content column.
 - [ ] **Report**: summarize per commit group; note anything the live pass contradicted.

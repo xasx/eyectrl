@@ -118,7 +118,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         _predictionFactory.Dispose();
         _predictionFactory = new PredictionStackFactory(work => context.Dispatcher.BeginInvoke(work));
         _predictionFactory.StackSwapped +=
-            orchestrator => context.OverlayManager.Keyboard.SetOrchestrator(orchestrator);
+            (orchestrator, _) => context.OverlayManager.Keyboard.SetOrchestrator(orchestrator);
         // Hand the fresh factory to the dictionary page's service (SetModelServices pattern):
         // its ForgetWords needs the LIVE stack so a settings-page delete takes effect at once
         // and survives the in-flight-rebuild window.

@@ -144,6 +144,11 @@ public class PredictionOrchestrator : IDisposable
     /// <summary>The underlying word prediction engine.</summary>
     public WordPredictor WordPredictor => _wordPredictor;
 
+    /// <summary>The language model this orchestrator was built with, or null. Diagnostic/
+    /// test surface, mirroring <see cref="WordPredictor"/>: it lets tests assert an LM was
+    /// actually constructed without poking at prediction behaviour.</summary>
+    public ILanguageModelPredictor? LanguageModel => _lmPredictor;
+
     /// <summary>Disposes the language model predictor if one was provided.</summary>
     public void Dispose()
     {

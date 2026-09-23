@@ -1,5 +1,9 @@
 namespace EyeCtrl.LM.Tests;
 
+// Explicit (not implicit) on purpose: this file is linked into multiple test projects, and the
+// WPF-flavoured ones (EyeCtrl.App.Tests) generate a smaller implicit-using set without
+// System.IO — same convention as TempTestDirectory.cs.
+using System.IO;
 using System.Text.Json;
 
 internal static class TestTokenizerJson

@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.LM.Tests;
 
 /// <summary>
 /// Builds real <see cref="ModelRegistryService"/>/<see cref="ModelManagementService"/> instances for
@@ -99,6 +100,56 @@ internal sealed class ModelTestScope : IDisposable
         var registry = BuildRegistry(manifest, settings);
         var mgmt = new ModelManagementService(registry, new ModelDownloadService(Dir), settings);
         return (registry, mgmt);
+    }
+
+    /// <summary>
+    /// One bundled model on disk whose manifest carries REAL SHA-256 hashes of the exact bytes
+    /// written — including a REAL, parseable tokenizer (TestTokenizerJson), so the stack's
+    /// tokenizer gate passes and only the ONNX bytes are fake. The 1-byte fake model cannot
+    /// initialize ONNX, so the predictor still ends up unavailable — the deterministic state
+    /// the Failed tests assert.
+    /// </summary>
+    public (ModelRegistryService registry, ModelManagementService mgmt)
+        WithHashedDownloadedBundled(string id = "135M")
+    {
+        var modelBytes = new byte[] { 0x01 };
+        var tokenizerPath = Path.Combine(Dir, "tokenizer-fixture.json");
+        TestTokenizerJson.Write(tokenizerPath);
+        var tokBytes = File.ReadAllBytes(tokenizerPath);
+
+        var manifest = new ModelManifest
+        {
+            Models =
+            {
+                [id] = new ModelEntry
+                {
+                    DisplayName = "Test " + id,
+                    Url = "https://example.invalid/model.onnx",
+                    Sha256 = Sha256Hex(modelBytes),
+                    SizeBytes = modelBytes.Length,
+                    TokenizerUrl = "https://example.invalid/tokenizer.json",
+                    TokenizerSha256 = Sha256Hex(tokBytes),
+                },
+            },
+        };
+        var settings = new EyeCtrlSettings();
+        var onnx = ModelConstants.ModelFileNames.TryGetValue(id, out var named)
+            ? named
+            : $"{id.ToLowerInvariant()}.onnx";
+        File.WriteAllBytes(Path.Combine(Dir, onnx), modelBytes);
+        File.WriteAllBytes(Path.Combine(Dir, onnx.Replace(".onnx", ".tokenizer.json")), tokBytes);
+
+        var registry = BuildRegistry(manifest, settings);
+        var mgmt = new ModelManagementService(registry, new ModelDownloadService(Dir), settings);
+        return (registry, mgmt);
+    }
+
+    /// <summary>Lowercase hex SHA-256 of the given bytes — what a manifest entry must carry
+    /// for the stack's hash gate to pass those bytes.</summary>
+    public static string Sha256Hex(byte[] bytes)
+    {
+        using var sha = System.Security.Cryptography.SHA256.Create();
+        return Convert.ToHexStringLower(sha.ComputeHash(bytes));
     }
 
     /// <summary>

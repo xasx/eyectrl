@@ -9,5 +9,11 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\EyeCtrl.LM\EyeCtrl.LM.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Moved to the shared TestSupport home (unchanged path semantics, new location) so other
+         test projects can link the same fixture instead of a copy inside this project. -->
+    <Compile Include="..\TestSupport\TestTokenizerJson.cs"
+             Link="TestSupport\TestTokenizerJson.cs" />
+  </ItemGroup>
 
 </Project>

@@ -1021,6 +1021,7 @@ public partial class SettingsWindow : OverlayWindow
     {
         ButtonKind.Reset  => (ResetBase, Tokens.BrushSurfaceDark),
         ButtonKind.Delete => (DeleteBase, Tokens.BrushSurfaceDark),
+        ButtonKind.Danger => (DeleteBase, Tokens.BrushSurfaceDark),
         _                 => (BtnBase,   null),
     };
 

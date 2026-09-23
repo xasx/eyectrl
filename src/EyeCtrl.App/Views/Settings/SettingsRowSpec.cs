@@ -41,7 +41,8 @@ public sealed record ColorPickerSpec(
     string Id, string Label, Func<string> Get, Action<string> Set, double RadiusLogical)
     : SettingsRowSpec(Id, Label);
 
-public enum ButtonKind { Default, Reset, Delete }
+/// <summary>Non-destructive danger — repair flows; same visual family as Delete.</summary>
+public enum ButtonKind { Default, Reset, Delete, Danger }
 
 /// <summary>An action button (reset / download / delete / nav). Width/Height are per-call (they vary).</summary>
 public sealed record ButtonSpec(

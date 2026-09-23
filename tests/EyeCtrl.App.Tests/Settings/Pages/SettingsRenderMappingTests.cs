@@ -37,4 +37,17 @@ public class SettingsRenderMappingTests
         Check.That(deleteFill).IsEqualTo(Tokens.AccentWarning);
         Check.That(defaultFill).IsEqualTo(Tokens.SurfaceMedium);
     }
+
+    [StaFact]
+    public void FillFor_Danger_UsesTheSharedWarningFamily_WithDarkLabel()
+    {
+        // Danger is the non-destructive danger kind (repair/download): same fill family as
+        // Reset/Delete (Tokens.AccentWarning) so the DwellButtonProgressBarContrastTests gate
+        // (which deliberately excludes AccentDanger) still covers it. Pinned by name because
+        // nothing enumerates ButtonKind: the `_` arm would silently style Danger as a plain
+        // button.
+        var (fill, text) = SettingsWindow.FillFor(ButtonKind.Danger);
+        Check.That(fill).IsEqualTo(Tokens.AccentWarning);
+        Check.That(text).IsEqualTo(Tokens.BrushSurfaceDark);
+    }
 }

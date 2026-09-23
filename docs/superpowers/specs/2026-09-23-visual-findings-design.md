@@ -1,9 +1,10 @@
 # Visual findings fixes — design
 
 Date: 2026-09-23 · Branch: `fix/visual-findings-2026-09` (`.worktrees/visual-findings`) ·
-Status: revision 4 — external review round 3 confirmed all round-2 folds sound and found four
-gaps + two LOWs (no wrong mechanisms); all verified against source and folded in. Awaiting
-owner re-review.
+Status: revision 5 — final external review (round 4): **SHIP**, with its three non-blocking
+folds (R1 plumbed build-verdict, R2 live-settings source, R3 duplicate line) applied.
+Four rounds absorbed 2 CRITICAL / 4 HIGH / 5 MEDIUM / 3 LOW + 2 HIGH / 1 MEDIUM / 2 LOW +
+4 MEDIUM / 2 LOW + 1 LOW / 1 LOW / 1 nit; nothing ever reopened. Approved for implementation.
 
 Fixes the actionable findings of the 2026-09-22 unattended visual assessment
 (`visual-assessment/report.md` in the main checkout: findings 1–3 plus two defaults).
@@ -84,7 +85,19 @@ corrupted-but-present model reads as healthy. Not hypothetical: the owner's
     `VerificationChanged` (review N3's first suggestion) — the **download** writer's report
     would be absorbed into `stored` before any apply compares it, silently un-fixing C1.
     Build-writer reports describe the live stack; download-writer reports describe a future
-    one; only swap-time capture keeps that distinction without tagging event origins.
+    one; only swap-time capture keeps that distinction without tagging event origins — and
+    even that window is closed by construction (final review R1): the swap-time capture takes
+    **the verdict the build itself reported**, plumbed through the swap (a
+    `LastBuildVerdict` slot on the factory written when the build reports), **not** a re-read
+    of the ledger, which both writers share — a download report landing in the
+    dispatcher-hop window between a concurrent build's report and its swap-capture could
+    otherwise be absorbed while the running stack still serves the old verdict. The
+    *compare-time* capture (`ReloadIfChanged`) keeps reading `GetVerification()` so the
+    download write is seen and the C1 reload fires. The swap handler captures from **the
+    live `EyeCtrlSettings` instance of the most recent `LoadKeyboard`** — the same object the
+    compare path reads — never a fresh `SettingsService.Load()` whose terms could disagree
+    and reintroduce the phantom-diff class the `CaptureSnapshot` doc (:222–231) exists to
+    prevent (final review R2).
 - **Download-path reporting (review M1 + N4).** `ModelManagementService` reports `Verified`
   on bundled download success **only when both hashes were non-empty and checked** — the
   model's `sha256` *and* the tokenizer's `tokenizerSha256` (ModelDownloadService.cs:168–175
@@ -325,4 +338,6 @@ evaporate.
   ledger + Models surface + snapshot term + swap-time capture, (2) pause strip seam +
   conditional raise + startup ordering, (3) separator — each with its tests green. No push.
 - Fresh-worktree LFS verified 2026-09-23 (completions are real binaries).
-- Fresh-worktree LFS verified 2026-09-23 (completions are real binaries).
+- Final review (round 4): **SHIP**, with three non-blocking folds applied in this revision —
+  R1 (plumbed build-verdict for the swap-time capture), R2 (live-settings source named),
+  R3 (duplicate line removed).

@@ -67,4 +67,7 @@ public partial class ManualSelectionOverlayViewModel : DwellOverlayViewModelBase
     // lives on the shared EdgeButtonBarViewModel, so this VM owns no dwell targets.
     protected override void OnTargetActivated(string targetId) { }
     protected override void OnTargetProgress(string targetId, double progress) { }
+
+    // OnTargetActivated above is an empty handler — no effect ran, so there is nothing to announce.
+    protected override bool AnnounceDwellActivation => false;
 }

@@ -3,6 +3,22 @@ namespace EyeCtrl.Core.Prediction;
 using Microsoft.Extensions.Logging;
 using EyeCtrl.Core.Settings;
 
+/// <summary>Outcome of the most recent verification of a model's files.</summary>
+public enum ModelVerificationOutcome
+{
+    /// <summary>No verification has reported for this model.</summary>
+    NotYetVerified,
+
+    /// <summary>The model loaded and is serving (stack build), or its bytes matched both
+    /// manifest hashes (download).</summary>
+    Verified,
+
+    /// <summary>The model is on disk and hash-gated but not serving — hash mismatch,
+    /// unusable graph, session-init failure, or tokenizer missing/unparseable. The log line
+    /// carries the cause.</summary>
+    Failed,
+}
+
 /// <summary>
 /// Manages the registry of available language models (bundled and custom),
 /// tracking download status and the currently active model.
@@ -16,6 +32,14 @@ public class ModelRegistryService
     private readonly Dictionary<string, ModelRegistryEntry> _registry = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _lock = new();
     private string? _activeModelId;
+
+    // Writers: the stack-build swap continuation (UI thread, via the factory's marshal) and
+    // the download completion path (worker thread). Reader: the settings UI thread during
+    // page build. VerificationChanged therefore fires on the UI thread for swaps and on a
+    // worker thread for downloads — subscribers must marshal any UI work themselves (the
+    // Models page routes through _ctx.Invoke). (Plan review N12.)
+    private readonly Dictionary<string, ModelVerificationOutcome> _verification =
+        new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Thread-safe snapshot of all registered model entries.</summary>
     public IReadOnlyDictionary<string, ModelRegistryEntry> Registry
@@ -249,6 +273,41 @@ public class ModelRegistryService
     public bool IsModelDownloaded(string modelId)
     {
         return File.Exists(GetModelPath(modelId)) && File.Exists(GetTokenizerPath(modelId));
+    }
+
+    /// <summary>Raised on the writer's thread whenever a model's verdict CHANGES — including
+    /// the first report (NotYetVerified -> something). The Models page subscribes to rebuild
+    /// while open.</summary>
+    public event Action? VerificationChanged;
+
+    /// <summary>Records the most recent verification outcome for a model. Same-value writes
+    /// are no-ops and do not raise <see cref="VerificationChanged"/>.</summary>
+    public void ReportVerification(string modelId, ModelVerificationOutcome outcome)
+    {
+        bool changed;
+        lock (_lock)
+        {
+            var previous = _verification.TryGetValue(modelId, out var value)
+                ? value
+                : ModelVerificationOutcome.NotYetVerified;
+            changed = previous != outcome;
+            _verification[modelId] = outcome;
+        }
+
+        // Raise OUTSIDE the lock: subscribers (the Models page rebuild) run UI work.
+        if (changed) VerificationChanged?.Invoke();
+    }
+
+    /// <summary>The latest verification outcome reported for a model; the default for a model
+    /// nobody reported on is <see cref="ModelVerificationOutcome.NotYetVerified"/>.</summary>
+    public ModelVerificationOutcome GetVerification(string modelId)
+    {
+        lock (_lock)
+        {
+            return _verification.TryGetValue(modelId, out var outcome)
+                ? outcome
+                : ModelVerificationOutcome.NotYetVerified;
+        }
     }
 
     /// <summary>Adds a custom model to the registry and persists it in keyboard settings.</summary>

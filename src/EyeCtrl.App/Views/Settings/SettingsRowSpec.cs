@@ -52,10 +52,17 @@ public sealed record ButtonSpec(
 /// <param name="Text">Deferred so dynamic labels (calibration status) re-evaluate on each rebuild.</param>
 /// <param name="Wrap">
 /// Wrap text wider than the content column to a second line (default) instead of clipping it —
-/// status text must stay fully readable for a gaze user. The Models separator rule opts out:
-/// its pinned rendering is a single line clipped at the column edge.
+/// status text must stay fully readable for a gaze user. Off by default: rule-like labels (a run
+/// of one glyph) must clip at the column edge, not stack into a block of strokes.
 /// </param>
 public sealed record LabelSpec(Func<string> Text, bool Wrap = true) : SettingsRowSpec("", "");
+
+/// <summary>
+/// A full-width hairline rule separating sections within one tab's content. Renders as a
+/// 1 px BrushBorderSubtle border stretching the content column (the '─'-character label it
+/// replaced rendered at its text width and stopped mid-column).
+/// </summary>
+public sealed record SeparatorSpec() : SettingsRowSpec("", "");
 
 /// <summary>One page of the paginated content area; rendered top-to-bottom into <c>ContentPanel</c>.</summary>
 public sealed record PageSpec(IReadOnlyList<SettingsRowSpec> Rows);

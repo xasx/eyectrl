@@ -13,7 +13,7 @@ public class AdvancedPageSourceTests
     {
         var rows = Rows();
         Check.That(rows).HasSize(17);
-        Check.That(rows.OfType<LabelSpec>()).HasSize(4);
+        Check.That(rows.OfType<SeparatorSpec>()).HasSize(4);
         Check.That(rows.OfType<ButtonSpec>().Single().Id).IsEqualTo("av_reset");
         Check.That(rows.Last()).IsInstanceOf<ButtonSpec>();
     }

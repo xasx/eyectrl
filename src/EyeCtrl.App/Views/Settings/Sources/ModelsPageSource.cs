@@ -121,7 +121,7 @@ internal sealed class ModelsPageSource : ISettingsPageSource
                 { Description = "Which model powers predictions; Off keeps dictionary words." });
         }
 
-        page1.Add(new LabelSpec(() => new string('\u2500', 50), Wrap: false));
+        page1.Add(new SeparatorSpec());
 
         foreach (var entry in _ctx.Registry.Registry.Values.OrderBy(e => e.SizeBytes))
         {
@@ -204,7 +204,7 @@ internal sealed class ModelsPageSource : ISettingsPageSource
                 ButtonKind.Danger, Width: 544, Height: 106));
         }
 
-        page1.Add(new LabelSpec(() => new string('\u2500', 50), Wrap: false));
+        page1.Add(new SeparatorSpec());
         page1.Add(new ButtonSpec("md_add", "\uff0b Add Custom Model (paste URL)",
             DownloadCustomFromClipboard, ButtonKind.Default, Width: 440, Height: 100));
 

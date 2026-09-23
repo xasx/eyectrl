@@ -7,7 +7,6 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Xml.Linq;
 using EyeCtrl.App.Views;
@@ -461,102 +460,47 @@ public class SettingsContentFitTests
     }
 
     [StaFact]
-    public void TheWidestSeparatorLabel_FitsTheContentColumn()
+    public void TheSeparatorRule_SpansTheContentColumn()
     {
-        // DwellLabel is attached by its own Add overload, which does NOT cap it: a label is a bare
-        // TextBlock with no Border root, and it registers no dwell target, so nothing about it can
-        // move hit geometry out from under a visual. That makes an overrun cosmetic — but cosmetic
-        // on a settings page the user reads with their eyes, and this branch raised the label from
-        // FontSize 22 to Tokens.FontSizeTitle (24), so it is a shape this work made worse and
-        // should therefore measure rather than assume.
-        //
-        // The widest label in the file is a run of box-drawing characters used as a rule. Its
-        // length is read out of the source, not restated, so lengthening the rule fails here
-        // instead of silently overflowing. The rules moved out of SettingsWindow.xaml.cs into
-        // ModelsPageSource as part of the settings-tab decomposition, so the source-read now
-        // targets that file (the measurement logic below is unchanged).
-        var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
-            "src", "EyeCtrl.App", "Views", "Settings", "Sources", "ModelsPageSource.cs"));
-        var runs = Regex.Matches(source, @"new string\('\\u2500',\s*(\d+)\)")
-            .Select(m => int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture))
-            .ToList();
-
-        Check.WithCustomMessage(
-                "ModelsPageSource.cs no longer builds a box-drawing separator label. If the "
-                + "rules were replaced by a Border or removed, delete this test; if they merely "
-                + "moved or changed character, repoint the pattern.")
-            .That(runs).Not.IsEmpty();
-
+        // The section rules on the Models and Advanced tabs used to be TEXT — a LabelSpec of
+        // fifty U+2500 characters — so a rule rendered at its own measured width (~850 DIP) and
+        // stopped wherever the text did, mid-column, on every column narrower than that.
+        // SeparatorSpec replaced them with a Border that STRETCHES, and what this test has to
+        // hold changed with it: not "the over-wide text must not drag the layout" but "the drawn
+        // rule spans the column it is given". Built through CreateControl — the single
+        // construction path — and measured in the rebuilt content tree, so a production change
+        // to SeparatorRow fails here rather than on screen.
         var root = Xml();
         var available = WindowWidthFor(NarrowDisplayWidthDip)
             - SidebarWidth(root)
             - Margin(root, "ContentArea").Left - Margin(root, "ContentArea").Right
             - Padding(root, "ContentCard").Left - Padding(root, "ContentCard").Right;
 
-        var longest = runs.Max();
-        var label = new DwellLabel(new string('\u2500', longest));
-
-        // SettingsWindow is an OverlayWindow, whose constructor sets FontFamily = Tokens.FontStandard
-        // and lets it inherit down. Without replicating that the measurement runs in the system
-        // font and reports a width the application never produces.
-        var host = new StackPanel();
-        TextElement.SetFontFamily(host, Tokens.FontStandard);
-        label.Attach(host);
-        host.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        var wanted = label.Root.DesiredSize.Width;
-
-        // Measured: 850.17 DIP wanted against a 416.00 DIP column \u2014 the rule is more than twice
-        // the room. It is also NOT a regression: at the FontSize 22 this branch replaced it wanted
-        // 779 DIP, so it has overrun a narrow column all along, and on the 1920 DIP display this
-        // application is actually used on the column is 1424 DIP and it fits outright.
-        //
-        // It is nonetheless benign, and this is the part worth pinning rather than the number.
-        // U+2500 draws a horizontal stroke across its whole advance width, so a run of them cut at
-        // the column edge renders as a rule that spans the column \u2014 which is what a rule is for.
-        // The one thing that would NOT be benign is the oversized child dragging the layout with
-        // it, so that is what is asserted: the Grid's star column bounds the StackPanel, the panel
-        // keeps the column's width, and a layout clip stops the ink at that edge.
         var panel = BuildContentTree(WindowWidthFor(NarrowDisplayWidthDip), out var outer);
-        var probe = new DwellLabel(new string('\u2500', longest));
-        probe.Attach(panel);
+        var composite = (IDwellComposite)SettingsWindow.CreateControl(
+            new SeparatorSpec(), new NullRegistrar(), RadiusPhysical, DwellMs, available);
+        composite.Attach(panel);
         outer.Measure(new Size(outer.Width, outer.Height));
         outer.Arrange(new Rect(0, 0, outer.Width, outer.Height));
         outer.UpdateLayout();
 
-        Check.WithCustomMessage(string.Format(
-                CultureInfo.InvariantCulture,
-                "The {0}-character separator label wants {1:F2} DIP and has widened the content "
-                + "panel to {2:F2} DIP, past the {3:F2} DIP column. An over-wide decorative label "
-                + "must not drag the layout: everything else on the page is positioned relative to "
-                + "this panel, so a panel that grows to fit its widest child pushes real controls "
-                + "off the window. If the panel stopped being bounded by a star column, cap the "
-                + "label in Add(DwellLabel) the way Add(DwellControl) caps its controls.",
-                longest, wanted, panel.ActualWidth, available))
-            .That(panel.ActualWidth).IsLessOrEqualThan(available);
-
-        // The clip is what turns "850 DIP of text in a 416 DIP column" into a drawn rule rather
-        // than ink over the sidebar. WPF installs it automatically once RenderSize exceeds the
-        // arrange slot \u2014 no ClipToBounds required, the same mechanism TrackStatusFitTests measures.
-        // Asserted on whichever element actually overflows its slot, because which one that is
-        // depends on how StackPanel arranges an over-wide child, and that is WPF's business.
-        var clipped = LayoutInformation.GetLayoutClip(probe.Root)
-            ?? LayoutInformation.GetLayoutClip(panel);
+        // The rule is the one Border inside the composite's attached root. Reached through the
+        // attached tree rather than the composite object because SeparatorRow is private in
+        // SettingsWindow — the same reaching-through-public-shape the switch probe below uses.
+        var rule = (Border)((Grid)panel.Children[0]).Children[0];
 
         Check.WithCustomMessage(string.Format(
                 CultureInfo.InvariantCulture,
-                "Nothing clips the {0:F2} DIP separator label down to the {1:F2} DIP content "
-                + "column, so its ink now runs past the panel \u2014 over the sidebar, or off the "
-                + "window. WPF installs this layout clip on its own when RenderSize exceeds the "
-                + "arrange slot; losing it means something above gained an unbounded width.",
-                wanted, available))
-            .That(clipped).IsNotNull();
-
-        Check.WithCustomMessage(string.Format(
-                CultureInfo.InvariantCulture,
-                "The layout clip is {0:F2} DIP wide, wider than the {1:F2} DIP content column, so "
-                + "it is not what is holding the label inside the column.",
-                clipped!.Bounds.Width, available))
-            .That(clipped.Bounds.Width).IsLessOrEqualThan(available);
+                "The separator rule is drawn {0:F2} DIP wide against a {1:F2} DIP content column "
+                + "on a {2:F0} DIP display — it stops {3:F2} DIP short of the column edge (or "
+                + "runs past it). A section rule must SPAN the column: the fifty-character "
+                + "U+2500 LabelSpec this replaced rendered at its text width and stopped "
+                + "mid-column, which is exactly the finding SeparatorSpec exists to fix. The "
+                + "Border stretches inside its one-child Grid, which stretches inside the panel "
+                + "the star column bounds — if it stopped stretching, check its "
+                + "HorizontalAlignment and the panel it is attached to.",
+                rule.ActualWidth, available, NarrowDisplayWidthDip, available - rule.ActualWidth))
+            .That(rule.ActualWidth).IsCloseTo(available, 0.01);
     }
 
     /// <summary>

@@ -125,9 +125,13 @@ public class DwellCompositeChildrenStabilityTests
         // not taken on trust: TheAppTestsCaseCoveringLabelledSettingsRow_StillExists reads the
         // file and checks for it, because otherwise deleting the App.Tests test would leave this
         // list green while the coverage it names silently evaporated.
+        //
+        // SeparatorRow likewise lives outside this assembly (SettingsWindow's SeparatorSpec
+        // visual) and is pinned, not by a case above, by
+        // EyeCtrl.App.Tests.Settings.SettingsRowLayoutTests.ASeparatorRow_HasCachedEmptyChildren_AndAttaches.
         string[] covered =
             ["DwellColorPicker", "DwellComboBox", "DwellSlider", "DwellToggle",
-             "LabelledSettingsRow"];
+             "LabelledSettingsRow", "SeparatorRow"];
 
         Check.WithCustomMessage(
                 "IDwellComposite implementers in src/ and the cases in this class have diverged."
@@ -177,6 +181,12 @@ public class DwellCompositeChildrenStabilityTests
                 + " was deleted, restore equivalent coverage in EyeCtrl.App.Tests first — there is"
                 + " nowhere else it can live.")
             .That(File.ReadAllText(path)).Contains(TestName);
+
+        const string SeparatorTestName = "ASeparatorRow_HasCachedEmptyChildren_AndAttaches";
+        Check.WithCustomMessage(
+                "SeparatorRow's Children-stability pin is gone from SettingsRowLayoutTests. The"
+                + " census above vouches for it; restore the test or remove the name here.")
+            .That(File.ReadAllText(path).Contains(SeparatorTestName)).IsTrue();
     }
 
     /// <summary>

@@ -25,10 +25,9 @@ public class DwellLabel
     /// <param name="text">The label text to display.</param>
     /// <param name="wrap">
     /// Whether text wider than its slot wraps to more lines (status text the user must read in
-    /// full) or keeps clipping at the slot edge. Off by default: the box-drawing separator rule
-    /// in Settings > Models is a run of U+2500 far wider than any column, and its pinned
-    /// rendering (SettingsContentFitTests) IS the clip — a line cut at the column edge draws as
-    /// a rule spanning the column, whereas wrapped it would stack into a block of strokes.
+    /// full) or keeps clipping at the slot edge. Off by default: rule-like labels (a run of one
+    /// glyph) must clip at the column edge, not stack into a block of strokes — a line cut at
+    /// the column edge still reads as one line, whereas wrapped it would cease to.
     /// </param>
     public DwellLabel(string text, bool wrap = false)
     {

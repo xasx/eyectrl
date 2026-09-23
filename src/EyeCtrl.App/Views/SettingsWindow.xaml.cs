@@ -1122,6 +1122,8 @@ public partial class SettingsWindow : OverlayWindow
                 button.Root.HorizontalAlignment = HorizontalAlignment.Left;
                 button.Root.Margin = new Thickness(4, buttonInset, 4, buttonInset);
                 return button;
+            case SeparatorSpec:
+                return new SeparatorRow();
             case LabelSpec l:
                 return new DwellLabel(l.Text(), wrap: l.Wrap);
             default:
@@ -1327,6 +1329,35 @@ public partial class SettingsWindow : OverlayWindow
         /// CS0738 that has broken this build before (repaired by dd1baf5c).
         /// </remarks>
         public IReadOnlyList<DwellControl> Children => _inner.Children;
+    }
+
+    /// <summary>
+    /// The SeparatorSpec's visual: a 1 px BrushBorderSubtle rule stretching the content
+    /// column, in a one-child Grid (a StackPanel would measure infinite width and the border
+    /// would not stretch — the same reason LabelledSettingsRow hosts its control in a Grid).
+    /// An IDwellComposite with an EMPTY cached Children list: it registers no dwell target —
+    /// a rule is not one (the LabelledSettingsRow precedent).
+    /// </summary>
+    private sealed class SeparatorRow : IDwellComposite
+    {
+        private static readonly IReadOnlyList<DwellControl> NoChildren = Array.Empty<DwellControl>();
+        private readonly Grid _root;
+
+        internal SeparatorRow()
+        {
+            _root = new Grid();
+            _root.Children.Add(new System.Windows.Controls.Border
+            {
+                Height = 1,
+                Background = Tokens.BrushBorderSubtle,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Margin = new Thickness(0, 10, 0, 10),
+            });
+        }
+
+        public void Attach(Panel parent) => parent.Children.Add(_root);
+        public void Detach(Panel parent) => parent.Children.Remove(_root);
+        public IReadOnlyList<DwellControl> Children => NoChildren;
     }
 
     /// <summary>

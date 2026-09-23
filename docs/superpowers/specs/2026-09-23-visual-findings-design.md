@@ -1,9 +1,9 @@
 # Visual findings fixes — design
 
 Date: 2026-09-23 · Branch: `fix/visual-findings-2026-09` (`.worktrees/visual-findings`) ·
-Status: revision 3 — external review round 2 (1 HIGH rendering-impossibility, 1 HIGH
-self-contradiction, 1 MEDIUM ordering bug, 2 LOW) verified against source and folded in;
-round 1's twelve confirmed fixed. Awaiting owner re-review.
+Status: revision 4 — external review round 3 confirmed all round-2 folds sound and found four
+gaps + two LOWs (no wrong mechanisms); all verified against source and folded in. Awaiting
+owner re-review.
 
 Fixes the actionable findings of the 2026-09-22 unattended visual assessment
 (`visual-assessment/report.md` in the main checkout: findings 1–3 plus two defaults).
@@ -55,19 +55,31 @@ corrupted-but-present model reads as healthy. Not hypothetical: the owner's
   equality) would never fire — the row would heal while the LM stayed disabled. Therefore
   `KeyboardStackSnapshot` gains one term: the active model's `ModelVerificationOutcome`
   (captured through the same required-`models` parameter as `ActiveModelOnDisk`).
-  - **And the capture ordering bug is fixed, not priced (review N3).** Today
+  - **And the capture ordering bug is fixed, not priced (review N3 + O2).** Today
     `LoadKeyboard` captures `_keyboardSnapshot` at KeyboardCoordinator.cs:205, immediately
     after `Rebuild` returns (:196) — but the build (and its `ReportVerification` write) runs
     on a background thread, so the stored snapshot systematically reads the *pre-build*
     verdict: a stale read, not the accepted-quirk shape (that one was a relevant term firing
     for an irrelevant reason; this is the term lying about the live stack, against the
-    collapse-both-captures invariant at :222–231). Fix: the stored snapshot is captured at
-    **stack-swap completion** (the factory reports its verdict and the coordinator captures
-    there, via a swap-completion callback), so `stored` always describes the stack actually
-    running, verdict included. The spurious once-per-session reload (dwell reset +
-    multi-hundred-MB ONNX load on the user's first apply) disappears; the repair path is
-    intact — download reports `Verified`, and the next apply's capture differs from the
-    stored swap-time `Failed` → reload → LM live.
+    collapse-both-captures invariant at :222–231). Fix: the stored snapshot is re-captured in
+    the **`StackSwapped`** handler — the seam already exists
+    (`PredictionStackFactory.StackSwapped`, `Action<PredictionOrchestrator?>`, factory :79,
+    raised on the UI thread after a background swap, and already subscribed at
+    KeyboardCoordinator.cs:120–121 where `SetOrchestrator` is called). Precisely stated:
+    KeyboardCoordinator.cs:205 **stays as the seed**, overwritten at each swap, so *`stored`
+    holds the verdict of the stack actually swapped in once one has swapped; until then it
+    holds the pre-build verdict.* Three edges, named:
+    - *Apply before the first swap* (user opens Settings during the seconds-long ONNX
+      build): seed and fresh capture both read the pre-build verdict → no reload. The N3
+      spurious reload is gone, not relocated.
+    - *Synchronous mode* (`postToUi == null`, factory :111–121) raises no `StackSwapped` by
+      design — and needs none: the sync `Build` completes before :205, so the seed already
+      reads the settled verdict. The seed is the sync-mode fallback.
+    - *Swap to `null`* (prediction disabled, factory :94–107): `Build` never runs, no
+      `ReportVerification` happens, the swap-time capture records the previous verdict —
+      harmless; the `null` arm must not surprise the implementer.
+    The repair path is intact — download reports `Verified`, and the next apply's capture
+    differs from the stored swap-time `Failed` → reload → LM live.
   - Declined alternative, named: refreshing the stored snapshot on every
     `VerificationChanged` (review N3's first suggestion) — the **download** writer's report
     would be absorbed into `stored` before any apply compares it, silently un-fixing C1.
@@ -91,9 +103,17 @@ corrupted-but-present model reads as healthy. Not hypothetical: the owner's
     corrupt non-active model is **not** detected. Acceptable: only the active model's failure
     costs predictions. The tab lists all entries; non-active rows render as today.
   - A downloaded entry whose verdict is `Failed` renders as one warning `ButtonSpec` row
-    (same 544-width family):
+    (same 544-width family). **Copy is cause-neutral (review O3)** — C2's availability-derived
+    verdict deliberately includes failures that are not integrity failures (hash-clean model
+    whose ONNX graph cannot be driven, session-init failure, unparseable tokenizer), so the
+    row must not assert a cause the verdict does not carry, nor offer a re-download that
+    cannot fix a non-integrity cause as if it would:
 
-      > ⚠ {DisplayName} — integrity check FAILED · predictions fall back to dictionary · dwell to re-download
+    > ⚠ {DisplayName} — model unusable · predictions fall back to dictionary · dwell to re-download
+
+    Re-download stays the offered remedy because it is the right first step for the common
+    case (corrupt/swapped bytes) without claiming "integrity" was the diagnosed cause; the
+    log line keeps the specific cause.
 
   - **Kind (review L1 + N5):** `ButtonKind` gains `Danger` (non-destructive danger — repair,
     not delete). `FillFor` (SettingsWindow.xaml.cs:1020–1025) gains an explicit `Danger` arm
@@ -128,7 +148,9 @@ warning row (via the restructured check); a `VerificationChanged` raise rebuilds
 `KeyboardCoordinatorTests` extends its existing snapshot family
 (`DownloadOfTheModelTheSettingNames_MovesTheSnapshot_WithoutASettingChanging`) with: the
 swap-time capture carries the build's verdict; **no reload on the first apply after a
-session start** (the N3 regression test); a download-time verdict flip still reloads on the
+session start** (the N3 regression test); **no reload for an apply that lands before the
+first swap** (the O2a edge the N3 row alone would not catch); **no reload from a
+swap-to-`null`** (prediction disabled); a download-time verdict flip still reloads on the
 next apply (the C1 path). The `KeyboardStackSnapshot` arity change updates its
 construction/capture sites and their tests. `SettingsRenderMappingTests` gains the named
 `Danger` fill pin (§1 rendering).
@@ -156,16 +178,28 @@ indicator) reads false.
   **and** raises (covers pause flipping while the band is already up). The primitive already
   exists: `OverlayWindow.RaiseToTop()` (OverlayWindow.cs:92, `SetWindowPos`
   `HWND_TOPMOST … SWP_NOACTIVATE`), documented for exactly this sibling-topmost case;
-  `PauseIndicatorWindow : OverlayWindow` inherits it. Because the band's `Show()` activation
-  happens synchronously inside `ShowThenSlideIn`, raising after the call holds through the
-  ~200 ms positional slide; the live visual check captures after the slide settles, not just
-  at the summon instant. **Interface ripple:** `RaiseToTop()` is added to
-  `IPauseIndicatorOverlay` (IOverlayManager.cs:41) and to `FakePauseIndicator`
-  (ToolbarVisibilityAdapterHeadlessTests.cs:95), which logs it like Show/Hide.
+  `PauseIndicatorWindow : OverlayWindow` inherits it. **The raise is uncontested for the
+  whole slide (review O6):** the slide animates a `TranslateTransform`
+  (`SlideTransform.X/Y`, ToolbarWindow.xaml.cs:613–614) — a render transform, not the
+  window's HWND — so band z-order is never touched during the animation and there is no
+  200 ms race to reason about; the live visual check after slide-settle verifies the claim.
+  **Interface ripple:** `RaiseToTop()` is added to `IPauseIndicatorOverlay` (declared at
+  IOverlayWindows.cs:185; the property on IOverlayManager.cs:41 is its first use) and to
+  `FakePauseIndicator` (ToolbarVisibilityAdapterHeadlessTests.cs:95), which logs it like
+  Show/Hide.
 - **Driver:** `ToolbarLifecycleCoordinator` already mirrors every `StateChangedMessage` into
   `ToolbarAutoHideController.SetPaused` (UI thread); the same mirror calls
   `SetPauseIndicator(paused)` on a paused-state change, and pushes the initial state at
-  startup (covering `startPaused` / `--paused`). No adapter constructor change and no
+  startup (covering `startPaused` / `--paused`).
+- **Startup z-order (review O4):** `App.ShowOverlays` shows the toolbar directly at startup
+  **without passing through the adapter** (the adapter header records this bypass,
+  ToolbarVisibilityAdapter.cs:22–29), so neither conditional raise runs on that path — and
+  the path is not exotic: the supervisor's fallback relaunches with `--paused`
+  (ProcessController.cs:56). The startup ordering is therefore pinned: the initial
+  `SetPauseIndicator` push runs **after** `App.ShowOverlays` has shown the band, so the
+  strip's show+raise lands on top. (Rejected: adding indicator calls to `App.ShowOverlays`
+  — that re-spreads band-method indicator logic into a non-adapter site, against the seam.)
+  A `--paused`-relaunch session therefore starts with the strip correctly above the band. No adapter constructor change and no
   gaze-thread read is needed (review M4 dissolved: there is no `isPaused` lookup to wire).
 - **Why the seam must exist (review H1):** today unpause-while-band-up routes through
   `SetPaused(false)`, which only calls `HideToolbar` when the band is `Hidden`
@@ -178,21 +212,28 @@ indicator) reads false.
 **Tests.** `ToolbarVisibilityAdapterHeadlessTests` with `FakePauseIndicator`: summon /
 force-show / hide in both paused states; **pause flip while the band is visible** (strip
 appears); **unpause while the band is visible** (strip disappears — the H1 row the original
-matrix lacked); startup-paused pushes visible; the edge guard suppresses re-asserts
-(`StateChangedMessage` fires on Fixation↔FreeLook flips several times a second); and the
-N2 rows — summon/force-show while paused ends with `Indicator.RaiseToTop` after the band
-call, summon while unpaused issues none.
+matrix lacked); **startup-paused ends with the strip above the band** — the command-order
+assertion is initial-push-after-`ShowOverlays`, not merely "pushed visible", which cannot
+see the O4 z-order bug; the edge guard suppresses re-asserts (`StateChangedMessage` fires on
+Fixation↔FreeLook flips several times a second); and the N2 rows — summon/force-show while
+paused ends with `Indicator.RaiseToTop` after the band call, summon while unpaused issues
+none.
 
 ## 3. Full-width separator in settings (assessment finding 3, LOW)
 
 **Problem.** The `'─'`-character divider (`LabelSpec(() => new string('\u2500', 50))`) renders
 at text width, left-aligned — the rule stops mid-column (Models ×2, Advanced ×4 sites).
 
-**Design (review M2/M3 + N1).** New `SeparatorSpec : SettingsRowSpec` (record, no payload).
-`CreateControl` maps it to a **dedicated `IDwellComposite`** — a one-child composite whose
-panel holds the 1 px `BrushBorderSubtle` border (`HorizontalAlignment.Stretch`, margins
-matching the neighbouring row rhythm) and whose dwell-children collection is empty, exactly
-like the established visual-only precedent `LabelledSettingsRow : IDwellComposite`
+**Design (review M2/M3 + N1 + O1).** New `SeparatorSpec : SettingsRowSpec` (record, no
+payload). `CreateControl` maps it to a **dedicated `IDwellComposite`** implemented as a
+**private nested class beside `LabelledSettingsRow` in SettingsWindow.xaml.cs** (App-only
+usage, App-only home): a one-child composite whose panel holds the 1 px
+`BrushBorderSubtle` border (`HorizontalAlignment.Stretch`, margins matching the
+neighbouring row rhythm) and whose dwell-children collection is **a cached readonly field**
+(`Array.Empty<DwellControl>()` / an empty `IReadOnlyList<DwellControl>` field — the
+`IDwellComposite.Children` contract, IDwellComposite.cs:48–51, requires a cached instance
+returned from a field, never built per get; a `=> []` expression-bodied property violates
+it), exactly like the established visual-only precedent `LabelledSettingsRow`
 (SettingsWindow.xaml.cs:1166, "a name is not one"). `IDwellComposite` is one of the three
 accepted arms in **both** consumer switches — `RenderSpec`
 (SettingsWindow.xaml.cs:1338–1350) and `SettingsAutoPagination.MeasureRows`
@@ -214,7 +255,17 @@ is unaffected. The three probes that pin the *current* dash rendering are named 
 redirected, not left asserting deleted behavior (review N1): the source-regex dash-run scan
 and the two `DwellLabel('\u2500', …)` clip probes in `SettingsContentFitTests`
 (:462, :479, :502) become span assertions on the `SeparatorSpec` composite — the rule
-stretches the content column.
+stretches the content column. **And the new implementer is policed by two set-equality
+censuses (review O1):** `DwellCompositeChildrenStabilityTests` (lives in
+`EyeCtrl.Controls.Tests`) — `EveryCompositeInTheAssembly_IsCoveredByACaseAbove` is
+unaffected (a SettingsWindow-nested type is invisible to that assembly's reflection), but
+`NoProjectOutsideControls_ImplementsIDwellComposite` (:108–134, regex over all of `src/**`
+including nested classes) must gain the new name in its `covered` list, following the
+suite's own `LabelledSettingsRow` precedent. Its `Children` stability is pinned in
+`EyeCtrl.App.Tests` on the `SettingsRowLayoutTests` pattern
+(`ALabelledRow_ForwardsItsInnerCompositesCachedChildren`), and the census's
+`TheAppTestsCaseCovering…_StillExists` guard is extended so that pin cannot silently
+evaporate.
 
 ## Decided with the owner (2026-09-23, unchanged by review)
 
@@ -260,14 +311,18 @@ stretches the content column.
 
 ## Delivery notes
 
+- Review round 2 processing (rev 3): all five findings folded; N3's decline-reason and N1's
+  shape correction recorded there survive into this revision's §1/§2/§3 text.
+- Review round 3 processing: all six findings verified against source and incorporated; none
+  rejected. O1 folded with a location decision (nested in SettingsWindow beside
+  `LabelledSettingsRow`, so only the src-wide census grows). O2 folded as "seed stays,
+  swap overwrites" with all three edges named (pre-first-swap, sync mode, null swap) — the
+  sync-mode answer falls out of the existing design rather than new work. O3 decided as
+  cause-neutral copy (option 1; the cause bit was declined as enum plumbing for marginal copy
+  gain). O4 decided as a startup ordering pin (the App.ShowOverlays alternative declined).
+  O5/O6 corrected in place.
 - Delivery shape unchanged: three commits on `fix/visual-findings-2026-09` — (1) integrity
   ledger + Models surface + snapshot term + swap-time capture, (2) pause strip seam +
-  conditional raise, (3) separator — each with its tests green. No push.
-- Review round 2 processing: all five findings (N1, N2, N3, N4, N5) verified against source
-  and incorporated; none rejected. N1's fix is the reviewer's option 3 (`IDwellComposite`,
-  not a `DwellLabel` host — that shape does not exist). N3's cause was named and the
-  reviewer's first suggested fix **declined with reasoning** (it un-fixes C1; see §1) — the
-  second (capture at stack-swap) is taken. N5's `Danger` fill lands on the contrast-gated
-  `AccentWarning` family with a named render-mapping pin. Round 1's twelve remain confirmed
-  fixed per the round-2 review's own verification table.
+  conditional raise + startup ordering, (3) separator — each with its tests green. No push.
+- Fresh-worktree LFS verified 2026-09-23 (completions are real binaries).
 - Fresh-worktree LFS verified 2026-09-23 (completions are real binaries).

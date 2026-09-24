@@ -202,3 +202,12 @@ public record TaskSwitcherToggledMessage;
 /// <summary>Sent by a Task Switcher tile when the user selects a window.</summary>
 /// <param name="Hwnd">Handle of the window to bring to front.</param>
 public record TaskSwitcherSelectionMessage(IntPtr Hwnd);
+
+/// <summary>
+/// Published after a dwell activation's effect has run on an EyeCtrl surface (the overlay VM base
+/// class, the settings window, the emoji category bar, the eye-care banner, notes, and manual
+/// selection — spec 2026-09-23 §Mechanism). Consumed by the App's DwellCueService for the
+/// dwell-completion sound. Post-effect and detector-event-boundary are load-bearing invariants;
+/// empty payload by design (ledger D5).
+/// </summary>
+public record DwellActivationMessage;

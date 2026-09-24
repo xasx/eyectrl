@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Tests.Services;
 
+using System.Reflection;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
@@ -270,6 +271,89 @@ public class ManualSelectionDwellServiceTests
         Check.That(completionMessage!.PrecisePoint.Y).IsCloseTo(dwellPoint.Y, 0.005);
 
         _messenger.Unregister<ManualSelectionDwellCompletedMessage>(this);
+    }
+
+    /// <summary>
+    /// The dwell-completion cue (spec D8): a completed ManualSelection dwell publishes
+    /// <see cref="DwellActivationMessage"/> exactly once, in the same continuation as the
+    /// completion message. The drive stops at the FIRST cue on purpose: the detector re-arms
+    /// after an activation and MSDS runs it with cooldown disabled, so a held gaze re-completes
+    /// roughly every dwell interval — the stream must not be allowed to reach a second one.
+    /// </summary>
+    [Fact]
+    public void OnDwellCompleted_PublishesDwellActivation()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+
+        var completed = 0;
+        var cueCount = 0;
+        var completedAtCue = -1;
+        _messenger.Register<ManualSelectionDwellCompletedMessage>(this, (r, m) => completed++);
+        _messenger.Register<DwellActivationMessage>(this, (r, m) =>
+        {
+            cueCount++;
+            completedAtCue = completed;
+        });
+
+        // Same stream shape as OnDwellCompleted_EmitsCompletionMessage: ~2.3 s covers the 300 ms
+        // grace + 5-sample stability onset + 800 ms dwell with margin to spare. Stop at the FIRST
+        // completion (not the first cue) so the setup leg below holds even before the publish
+        // exists.
+        for (var i = 0; i < 45 && completed == 0; i++)
+            SendGaze(new PhysicalPoint(510, 510), i);
+
+        Check.WithCustomMessage("Setup: the dwell must have completed for the cue to be meaningful.")
+            .That(completed).IsEqualTo(1);
+        Check.WithCustomMessage("A completed dwell must fire the cue exactly once.")
+            .That(cueCount).IsEqualTo(1);
+        Check.WithCustomMessage(
+            "The completion message must be sent BEFORE the cue (spec D8 — a reorder inside " +
+            "the continuation otherwise stays green).")
+            .That(completedAtCue).IsEqualTo(1);
+
+        _messenger.Unregister<ManualSelectionDwellCompletedMessage>(this);
+        _messenger.Unregister<DwellActivationMessage>(this);
+    }
+
+    /// <summary>
+    /// The torn-down half of the race the continuation's bail-out guards: the detector raised
+    /// TargetActivated, but the session ended before the DISPATCHED continuation ran
+    /// (<c>OnManualSelectionEnded</c> nulls <c>_dwellDetector</c>). On the production dispatcher
+    /// queue that ordering is the race itself; here it is forced deterministically — end the
+    /// session (mirroring OnManualSelectionEnded_CleansUpResources), then invoke the handler the
+    /// raise already called. On this thread DispatchSafe runs synchronously, so the continuation
+    /// executes straight into the bail-out and must publish NEITHER the completion NOR the cue:
+    /// the cue confirms an activation the user heard, and this activation never happened.
+    /// </summary>
+    [Fact]
+    public void TornDownSession_PublishesNeitherCompletionNorCue()
+    {
+        StartSession(new PhysicalPoint(500, 500), new PhysicalPoint(500, 500));
+
+        var completed = 0;
+        var cueCount = 0;
+        _messenger.Register<ManualSelectionDwellCompletedMessage>(this, (r, m) => completed++);
+        _messenger.Register<DwellActivationMessage>(this, (r, m) => cueCount++);
+
+        // Teardown first — the session the raise belongs to is over.
+        _messenger.Send(new EndManualSelectionMessage());
+
+        // The raise arriving late: invoke its (now-detached) handler directly. The id is the
+        // private ManualSelectionDwellTargetId const ("ManualSelection_dwell_target").
+        typeof(ManualSelectionDwellService)
+            .GetMethod("OnDwellActivated", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .Invoke(_service, new object[] { "ManualSelection_dwell_target" });
+
+        Check.WithCustomMessage(
+                "A continuation that runs after the session ended must not commit a click.")
+            .That(completed).IsEqualTo(0);
+        Check.WithCustomMessage(
+                "A continuation that bails out must not fire the cue either: there was no " +
+                "activation for the user to hear.")
+            .That(cueCount).IsEqualTo(0);
+
+        _messenger.Unregister<ManualSelectionDwellCompletedMessage>(this);
+        _messenger.Unregister<DwellActivationMessage>(this);
     }
 
     [Fact]

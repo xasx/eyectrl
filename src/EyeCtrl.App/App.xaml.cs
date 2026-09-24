@@ -188,15 +188,10 @@ public partial class App : Application
             // Resolve adapter (triggers Core event subscriptions)
             _ = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
 
-            // Resolve ManualSelectionDwellService (triggers message subscriptions)
-            _ = _serviceProvider.GetRequiredService<ManualSelectionDwellService>();
-
-            // Resolve the dwell-time router (Phase 1c dwell routing): it subscribes to the effective-
-            // settings provider and the dwell-detector registry in its ctor and applies the current
-            // values immediately, so it must exist before any surface registers.
-            _ = _serviceProvider.GetRequiredService<DwellTimeRouter>();
-
-            _ = _serviceProvider.GetRequiredService<GeometryRouter>();
+            // Resolve the ctor-subscribing singletons nothing else depends on
+            // (ManualSelectionDwellService, DwellTimeRouter, GeometryRouter, DwellCueService):
+            // DI singletons are lazy, so they must be eagerly resolved here to subscribe.
+            AppBootstrapper.ResolveEagerServices(_serviceProvider);
 
             // ── Initialize overlay windows via OverlayManager ──
             var overlayManager = _serviceProvider.GetRequiredService<IOverlayManager>();

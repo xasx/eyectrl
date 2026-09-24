@@ -377,6 +377,11 @@ public class ManualSelectionDwellService : IDisposable
             // recovers accuracy now that the target no longer tracks the gaze.
             _messenger.Send(new ManualSelectionDwellCompletedMessage(
                 _commitPoint ?? _manualSelectionCenter!.Value));
+
+            // Post-completion publish (spec D8): the cue fires only here — after the bail-out,
+            // so a session torn down between the raise and this continuation publishes neither
+            // the commit nor the cue (pinned by TornDownSession_PublishesNeitherCompletionNorCue).
+            _messenger.Send(new DwellActivationMessage());
         }, "dwell-activated");
     }
 

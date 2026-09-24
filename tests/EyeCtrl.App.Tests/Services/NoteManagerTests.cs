@@ -236,6 +236,70 @@ public class NoteManagerTests
         Check.That(manager.ActiveNotes).IsEmpty();
     }
 
+    /// <summary>
+    /// Counts <see cref="DwellActivationMessage"/> arrivals on an isolated messenger — the
+    /// dwell-completion cue's trigger. A record with a mutable counter so the facts can assert
+    /// "exactly once" rather than merely "subscribed" (same probe shape as the Task-7 cue tests).
+    /// <paramref name="effectRanAtSend"/> is captured at RECEIVE time to pin the D8 order: the
+    /// note action must already have run when the cue fires.
+    /// </summary>
+    internal sealed record CueProbe(Func<bool>? EffectRanAtSend = null)
+        : IRecipient<DwellActivationMessage>
+    {
+        public int Count { get; private set; }
+        public bool? EffectAtSend { get; private set; }
+
+        public void Receive(DwellActivationMessage message)
+        {
+            Count++;
+            EffectAtSend = EffectRanAtSend?.Invoke();
+        }
+    }
+
+    // The note overlay's straggler publish (spec D8): a real close-dwell fires the cue exactly
+    // once, after the note action itself has run — asserted by reading ActiveNotes AT SEND
+    // (external-review mutation teeth: a publish-before-effect reorder otherwise stays green).
+    //
+    // A malformed id ("note1:zzz") would still publish too: its parts.Length != 2 early return
+    // is a no-op and that no-op-cue trade-off is ACCEPTED (spec §Pause). Recorded here as a
+    // comment, deliberately NOT as an assertion (G4): a future handled-gate must not be blocked
+    // by a pinned trade-off — the assertion below covers only the real-action case.
+    [StaFact]
+    public void CloseButtonDwell_PublishesDwellActivation()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger);
+        var probe = new CueProbe(EffectRanAtSend: () => manager.ActiveNotes.Count == 0);
+        messenger.Register(probe);
+        var anchor = new PhysicalPoint(800, 500);
+        manager.CreateNoteAt(anchor);
+        var id = manager.ActiveNotes[0].Id;
+        manager.FinishEdit(id, "x"); // -> Display: registers close/edit/move dwell targets
+
+        // Close-button center, computed the same way CloseButtonDwell_AtVisiblePosition_RemovesNote
+        // does (DPI 1.0 here, so logical == physical).
+        double winLeft = anchor.X - EyeCtrl.Core.LayoutConstants.NoteWindowWidth / 2;
+        double winTop = anchor.Y - EyeCtrl.Core.LayoutConstants.NoteAnchorOffsetY;
+        double cx = EyeCtrl.Core.LayoutConstants.NoteWindowWidth
+            - EyeCtrl.Core.LayoutConstants.NoteButtonPadding
+            - EyeCtrl.Core.LayoutConstants.NoteButtonRadius;
+        double cy = EyeCtrl.Core.LayoutConstants.NoteTitleBarHeight
+            + EyeCtrl.Core.LayoutConstants.NoteButtonPadding
+            + EyeCtrl.Core.LayoutConstants.NoteButtonRadius;
+        var closeCenter = new PhysicalPoint(winLeft + cx, winTop + cy);
+
+        for (long t = 0; t <= 800_000; t += 33_000)
+            manager.OnGazeMoved(closeCenter, t);
+
+        // The real action ran (nothing vacuous about the count) and the cue fired exactly once,
+        // AFTER the note was already gone.
+        Check.That(manager.ActiveNotes).IsEmpty();
+        Check.That(probe.Count).IsEqualTo(1);
+        Check.WithCustomMessage(
+            "The note removal must land BEFORE the cue publishes (spec D8).")
+            .That(probe.EffectAtSend).IsEqualTo(true);
+    }
+
     // Same stream, delivered as the message the adapter actually sends, but gap-held: closing a note
     // is destructive and no-confirm, so a blink that freezes the gaze over the close button must not
     // delete it.

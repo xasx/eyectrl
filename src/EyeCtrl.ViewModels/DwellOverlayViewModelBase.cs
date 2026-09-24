@@ -26,7 +26,7 @@ public abstract partial class DwellOverlayViewModelBase : MessengerViewModelBase
         : base(messenger)
     {
         DwellDetector = new DwellDetector(dwellCooldownMs, context, sink);
-        DwellDetector.TargetActivated += OnTargetActivated;
+        DwellDetector.TargetActivated += OnDetectorTargetActivated;
         DwellDetector.TargetProgress += OnTargetProgress;
         _dwellRegistry = dwellRegistry;
         _dwellRegistry?.Register(this, DwellRoutingRegistration.ForDetector(
@@ -36,6 +36,23 @@ public abstract partial class DwellOverlayViewModelBase : MessengerViewModelBase
 
     protected abstract void OnTargetActivated(string targetId);
     protected abstract void OnTargetProgress(string targetId, double progress);
+
+    /// <summary>
+    /// Whether an activation on this surface publishes <see cref="Messages.DwellActivationMessage"/>
+    /// (the dwell-completion cue's trigger). Default true — a new effectful surface is covered with
+    /// no action. Override with false ONLY where OnTargetActivated is a no-op (no effect to
+    /// confirm); a reflection pin in EyeCtrl.ViewModels.Tests forces new opt-outs to be conscious.
+    /// </summary>
+    protected virtual bool AnnounceDwellActivation => true;
+
+    // D8 (spec): the effect runs FIRST — Messenger.Send is synchronous, so a throwing subscriber
+    // must never be able to cost the user their activation — then the cue publishes.
+    private void OnDetectorTargetActivated(string targetId)
+    {
+        OnTargetActivated(targetId);
+        if (AnnounceDwellActivation)
+            Messenger.Send(new DwellActivationMessage());
+    }
 
     /// <summary>
     /// Whether this surface keeps accumulating dwell while the interaction state is Paused. The
@@ -86,7 +103,7 @@ public abstract partial class DwellOverlayViewModelBase : MessengerViewModelBase
 
     protected override void OnDispose()
     {
-        DwellDetector.TargetActivated -= OnTargetActivated;
+        DwellDetector.TargetActivated -= OnDetectorTargetActivated;
         DwellDetector.TargetProgress -= OnTargetProgress;
         _dwellRegistry?.Unregister(this);
     }

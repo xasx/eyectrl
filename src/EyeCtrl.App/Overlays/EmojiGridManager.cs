@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Overlays;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Controls;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Adaptation;
@@ -10,6 +11,7 @@ using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
+using EyeCtrl.ViewModels.Messages;
 using Serilog;
 using EmojiTextBlock = Emoji.Wpf.TextBlock;
 
@@ -56,6 +58,11 @@ public class EmojiGridManager
 
     private readonly DwellDetector _categoryDwellDetector;
     private readonly List<SolidColorBrush> _categoryBrushes = new();
+    // Dwell-completion cue trigger. Optional-trailing so no caller changes; the fallback IS the
+    // app's registered singleton (AppBootstrapper registers WeakReferenceMessenger.Default as
+    // IMessenger — spec D9), so the default constructor path publishes on the same bus the
+    // DwellCueService subscribes to.
+    private readonly IMessenger _messenger;
     // Dwell feedback for the category tabs: an accent outline thickening inward. The wash it
     // replaced blended the tile toward Accent at full strength, collapsing its icon's contrast
     // as the user dwelt on it. _categoryBrushes now carries ACTIVE-category state only, which
@@ -79,7 +86,8 @@ public class EmojiGridManager
         Func<double> getKeySize,
         Action clearKeyState,
         IStruggleTelemetrySink? sink = null,
-        IDwellDetectorRegistry? dwellRegistry = null)
+        IDwellDetectorRegistry? dwellRegistry = null,
+        IMessenger? messenger = null)
     {
         // 0 is a construction placeholder, not a value this detector ever evaluates gaze with.
         // KeyboardWindow.LoadLayout calls SetCooldown(settings.Dwell.DwellCooldownMs) (validated
@@ -94,7 +102,8 @@ public class EmojiGridManager
         _registerKeyVisual = registerKeyVisual;
         _getKeySize = getKeySize;
         _clearKeyState = clearKeyState;
-        _categoryDwellDetector.TargetActivated += OnCategoryDwelled;
+        _messenger = messenger ?? WeakReferenceMessenger.Default;
+        _categoryDwellDetector.TargetActivated += OnCategoryDwellActivated;
         _categoryDwellDetector.TargetProgress += OnCategoryProgress;
         // Keyboard range: the category tabs' dwell times come from KeyboardKeyDwellMs, so the emoji
         // grid's validated dwell span is the keyboard guard family, not Standard.
@@ -444,6 +453,16 @@ public class EmojiGridManager
             }
             break;
         }
+    }
+
+    // Post-effect publish (spec D8): the handler runs first — including its _skinTone
+    // early-return — then the cue fires, so no branch of the handler is left silent. The
+    // wrapper exists only for that post-effect send — the method group it replaced
+    // (+= OnCategoryDwelled) was already unsubscribable by name.
+    private void OnCategoryDwellActivated(string targetId)
+    {
+        OnCategoryDwelled(targetId);
+        _messenger.Send(new DwellActivationMessage());
     }
 
     private void OnCategoryDwelled(string targetId)

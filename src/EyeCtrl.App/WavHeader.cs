@@ -8,8 +8,10 @@ using System.IO;
 /// SoundPlayer.Load() does NOT validate a file-path wav — measured 2026-09-24: garbage bytes
 /// load "successfully" and the header is first checked inside Play(), which throws on the
 /// calling thread. The cue service validates here instead (spec §Mechanism step 4).
-/// WAVE_FORMAT_EXTENSIBLE (0xFFFE) is deliberately rejected: SoundPlayer's own Play() path
-/// only accepts classic PCM on .NET — a file this parser rejects would throw there.
+/// PCM-16-only is this parser's OWN contract, not SoundPlayer's: measured, SoundPlayer also
+/// accepts IEEE float (tag 3) and 8-bit PCM, and rejects WAVE_FORMAT_EXTENSIBLE (0xFFFE) —
+/// being stricter than the player is deliberate (the generator emits exactly PCM-16), and the
+/// Play()-failure latch contains anything that slips past a future looser parser.
 /// </summary>
 internal sealed record Pcm16Header(int SampleRateHz, int ChannelCount, int BitsPerSample, long DataByteCount, long DataOffset);
 

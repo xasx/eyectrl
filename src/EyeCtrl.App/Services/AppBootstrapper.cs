@@ -298,6 +298,14 @@ public class AppBootstrapper
         services.AddSingleton<DwellTimeRouter>();
         services.AddSingleton<GeometryRouter>();
 
+        // Dwell-completion audio cue (spec 2026-09-23): ctor-subscribes DwellActivationMessage on
+        // the messenger, so — like DwellTimeRouter — it must be eagerly resolved at startup
+        // (ResolveEagerServices); DI singletons are lazy and nothing else depends on it.
+        services.AddSingleton(sp => new DwellCueService(
+            sp.GetRequiredService<IMessenger>(),
+            sp.GetRequiredService<EyeCtrlSettings>().Dwell,
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "dwell-cue.wav")));
+
         // Core engine
         services.AddSingleton(sp => new GazeEngine(
             sp.GetRequiredService<IGazeProvider>(),
@@ -588,6 +596,27 @@ public class AppBootstrapper
             sp.GetRequiredService<AdaptationLog>().LogCaregiverAlert));
 
         return services.BuildServiceProvider();
+    }
+
+    /// <summary>
+    /// Resolves the ctor-subscribing/lazy-trapped singletons that nothing else depends on.
+    /// Extracted from App.xaml.cs's discard-resolves so tests can run the SAME startup path
+    /// (plan B4) — and so the startup line is one call site to pin.
+    /// </summary>
+    public static void ResolveEagerServices(IServiceProvider sp)
+    {
+        // Resolve ManualSelectionDwellService (triggers message subscriptions)
+        _ = sp.GetRequiredService<ManualSelectionDwellService>();
+
+        // Resolve the dwell-time router (Phase 1c dwell routing): it subscribes to the effective-
+        // settings provider and the dwell-detector registry in its ctor and applies the current
+        // values immediately, so it must exist before any surface registers.
+        _ = sp.GetRequiredService<DwellTimeRouter>();
+
+        _ = sp.GetRequiredService<GeometryRouter>();
+
+        // DwellCueService subscribes DwellActivationMessage in its ctor (see its class doc).
+        _ = sp.GetRequiredService<DwellCueService>();
     }
 
     public static OverlayViewModels ResolveViewModels(ServiceProvider sp, EyeCtrlSettings settings)

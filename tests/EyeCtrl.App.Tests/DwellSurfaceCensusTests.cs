@@ -52,13 +52,7 @@ public class DwellSurfaceCensusTests
     [Fact]
     public void EveryDwellDetectorConstructionSite_IsClassified()
     {
-        var src = Path.Combine(SourceScanner.RepoRoot().FullName, "src");
-        var found = Directory.EnumerateFiles(src, "*.cs", SearchOption.AllDirectories)
-            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}"))
-            .Where(f => File.ReadAllText(f).Contains("new DwellDetector("))
-            .Select(f => f[(src.Length + 1)..].Replace('\\', '/'))
-            .ToList();
-
+        var found = SourceFilesContaining("new DwellDetector(");
         var classified = DetectorSites.Select(s => s.Path).ToList();
         var unclassified = found.Where(f => !classified.Contains(f, StringComparer.Ordinal)).ToList();
 
@@ -67,6 +61,35 @@ public class DwellSurfaceCensusTests
             + "allowlist — classify the surface (cue/typing/excluded) or wire its publish: "
             + string.Join(", ", unclassified))
             .That(unclassified).IsEmpty();
+    }
+
+    [Fact]
+    public void EveryTargetActivatedSubscription_IsClassified()
+    {
+        // External review G1: the spec's census promised BOTH keys. Scanning only
+        // `new DwellDetector(` misses code that subscribes to a detector it did not construct
+        // (an existing detector handed in from elsewhere) — that surface would ship silent and
+        // unnoticed. Today the subscription set equals the construction set; this fact holds
+        // it that way.
+        var found = SourceFilesContaining("TargetActivated +=");
+        var classified = DetectorSites.Select(s => s.Path).ToList();
+        var unclassified = found.Where(f => !classified.Contains(f, StringComparer.Ordinal)).ToList();
+
+        Check.WithCustomMessage(
+            "These files subscribe to a DwellDetector's TargetActivated but are not in "
+            + "DwellSurfaceCensusTests' allowlist — a subscription without a publish is a "
+            + "silently dead cue surface: " + string.Join(", ", unclassified))
+            .That(unclassified).IsEmpty();
+    }
+
+    private static List<string> SourceFilesContaining(string marker)
+    {
+        var src = Path.Combine(SourceScanner.RepoRoot().FullName, "src");
+        return Directory.EnumerateFiles(src, "*.cs", SearchOption.AllDirectories)
+            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}"))
+            .Where(f => File.ReadAllText(f).Contains(marker))
+            .Select(f => f[(src.Length + 1)..].Replace('\\', '/'))
+            .ToList();
     }
 
     [Fact]

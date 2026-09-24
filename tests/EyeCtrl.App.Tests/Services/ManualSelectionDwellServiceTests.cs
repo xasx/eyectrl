@@ -287,8 +287,13 @@ public class ManualSelectionDwellServiceTests
 
         var completed = 0;
         var cueCount = 0;
+        var completedAtCue = -1;
         _messenger.Register<ManualSelectionDwellCompletedMessage>(this, (r, m) => completed++);
-        _messenger.Register<DwellActivationMessage>(this, (r, m) => cueCount++);
+        _messenger.Register<DwellActivationMessage>(this, (r, m) =>
+        {
+            cueCount++;
+            completedAtCue = completed;
+        });
 
         // Same stream shape as OnDwellCompleted_EmitsCompletionMessage: ~2.3 s covers the 300 ms
         // grace + 5-sample stability onset + 800 ms dwell with margin to spare. Stop at the FIRST
@@ -301,6 +306,10 @@ public class ManualSelectionDwellServiceTests
             .That(completed).IsEqualTo(1);
         Check.WithCustomMessage("A completed dwell must fire the cue exactly once.")
             .That(cueCount).IsEqualTo(1);
+        Check.WithCustomMessage(
+            "The completion message must be sent BEFORE the cue (spec D8 — a reorder inside " +
+            "the continuation otherwise stays green).")
+            .That(completedAtCue).IsEqualTo(1);
 
         _messenger.Unregister<ManualSelectionDwellCompletedMessage>(this);
         _messenger.Unregister<DwellActivationMessage>(this);

@@ -145,15 +145,21 @@ public class EmojiGridManagerTests
     /// <summary>
     /// Counts <see cref="DwellActivationMessage"/> arrivals on an isolated messenger — the
     /// dwell-completion cue's trigger. A record with a mutable counter so the facts can assert
-    /// "exactly once" rather than merely "subscribed".
+    /// "exactly once" rather than merely "subscribed". <paramref name="effectRanAtSend"/> is
+    /// captured at RECEIVE time: it proves the handler's effect already ran when the cue fires
+    /// (spec D8, external-review mutation teeth — a publish-before-effect reorder otherwise
+    /// keeps Count == 1 green).
     /// </summary>
-    private sealed record CueProbe(Action OnReceive) : IRecipient<DwellActivationMessage>
+    private sealed record CueProbe(Action OnReceive, Func<bool>? EffectRanAtSend = null)
+        : IRecipient<DwellActivationMessage>
     {
         public int Count { get; private set; }
+        public bool? EffectAtSend { get; private set; }
 
         public void Receive(DwellActivationMessage message)
         {
             Count++;
+            EffectAtSend = EffectRanAtSend?.Invoke();
             OnReceive();
         }
     }
@@ -177,29 +183,60 @@ public class EmojiGridManagerTests
             detector.Update(new PhysicalPoint(50, 50), i * 2_000);
     }
 
+    private static T FieldOf<T>(EmojiGridManager manager, string name) =>
+        (T)typeof(EmojiGridManager)
+            .GetField(name, BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(manager)!;
+
     [StaFact]
-    public void CategorySwitch_PublishesDwellActivation()
+    public void CategorySwitch_PublishesDwellActivation_AfterTheEffect()
     {
         var messenger = new WeakReferenceMessenger();
         var (manager, _) = NewManager(messenger);
-        var probe = new CueProbe(() => { });
+        var before = FieldOf<string>(manager, "_activeEmojiCategory");
+        var probe = new CueProbe(() => { },
+            EffectRanAtSend: () => FieldOf<string>(manager, "_activeEmojiCategory") != before);
         messenger.Register(probe);
 
         DriveCategoryDwell(manager, "cat_smileys"); // category-switch branch
 
         Check.That(probe.Count).IsEqualTo(1);
+        Check.WithCustomMessage(
+            "The category switch must land BEFORE the cue publishes (spec D8 — a publish-first " +
+            "reorder leaves Count == 1 green and must not).")
+            .That(probe.EffectAtSend).IsEqualTo(true);
     }
 
     [StaFact]
-    public void SkinToneSelector_PublishesDwellActivation()
+    public void SkinToneSelector_PublishesDwellActivation_AfterTheEffect()
     {
         var messenger = new WeakReferenceMessenger();
         var (manager, _) = NewManager(messenger);
-        var probe = new CueProbe(() => { });
+        // ShowSkinToneSelector rebuilds the grid into _keyRows (its swatch cells land there,
+        // per CountLiveCells), so a changed child count is the branch's effect observable.
+        var before = FieldOf<System.Windows.Controls.StackPanel>(manager, "_keyRows").Children.Count;
+        var probe = new CueProbe(() => { },
+            EffectRanAtSend: () =>
+                FieldOf<System.Windows.Controls.StackPanel>(manager, "_keyRows").Children.Count != before);
         messenger.Register(probe);
 
         DriveCategoryDwell(manager, "cat__skinTone"); // early-return branch (spec review 2 #3)
 
         Check.That(probe.Count).IsEqualTo(1);
+        Check.WithCustomMessage(
+            "The skin-tone selector must open BEFORE the cue publishes (spec D8) — this early-" +
+            "return branch is exactly the one an end-of-handler publish would leave silent.")
+            .That(probe.EffectAtSend).IsEqualTo(true);
+    }
+
+    [StaFact]
+    public void NoMessengerGiven_LandsOnTheRegisteredDefaultBus()
+    {
+        // D9 (external-review S3): KeyboardWindow constructs the manager with no messenger, so
+        // the fallback IS the production path — pin that it is the app's registered instance
+        // (AppBootstrapper registers WeakReferenceMessenger.Default as IMessenger), not a
+        // private bus the cue service would never hear.
+        var (manager, _) = NewManager(null);
+        var bus = FieldOf<object>(manager, "_messenger");
+        Check.That(bus).IsSameReferenceAs(WeakReferenceMessenger.Default);
     }
 }

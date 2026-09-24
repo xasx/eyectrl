@@ -1,12 +1,18 @@
-# Accent Input — Design (spec revision 3)
+# Accent Input — Design (spec revision 4)
 
 **Date:** 2026-09-24 · **Branch:** `feat/accent-input` (from main `2e1d9078`)
 **Competitive gap:** #11 "Dead-key / diacritic composition" in
 `docs/COMPETITIVE_FEATURE_ANALYSIS.md` — closed by a different mechanism than its title
 suggests (D1).
 **Rev 3:** external round 2 folded (verdict FIX-THEN-SHIP: R8 re-opened, I1–I6, M1–M8;
-all verified against code — dispositions inline, marked ⟦Rn⟧/⟦In⟧/⟦Mn⟧). **D13–D16 are new
-owner decisions** (round 2's explicit asks).
+all verified against code — dispositions inline, marked ⟦Rn⟧/⟦In⟧/⟦Mn⟧).
+**Rev 4:** plan-review round folded (B1–B3, H1–H3, M1–M4, L1–L6). D13 is now a SPATIAL rule
+(plan review B1/M1: the post-swap centres are unarranged at the first samples, so no
+post-swap key resolution at all; the clear test is a distance from the anchor, immune to the
+boundary-flicker the review measured). D16 is SUPERSEDED by the row-0 zero-move placement
+(plan review M4, owner-defaulted): QWERTZ row 0 has the same 11.2 shape as AZERTY's, so the
+`Win`-widening trick fits both layouts and `Space` keeps its width. M7 is implemented as an
+unconditional `ActiveModifiers` raise AFTER the swap (plan review H1).
 
 ## Context
 
@@ -43,11 +49,12 @@ row 2:  œ Œ « » [Bksp] [DelWd]            (Bksp/DelWd widened to reach 12.8 
 footer: ABC 123 #+= 😀 Fn Space Enter Tab   (no Ctrl — D8/D15)
 ```
 
-**AZERTY — tail beyond its direct keys (20 keys ⟦M1⟧):**
+**AZERTY — tail beyond its direct keys (20 keys ⟦M1⟧, 3 content rows ⟦plan H2⟧):**
 
 ```
-row 0:  ê Ê â Â î Î ô Ô û Û
-row 1:  ë Ë ï Ï ù Ù œ Œ « » [Bksp] [DelWd]   (Bksp/DelWd widened to reach 12.8 ⟦M3⟧)
+row 0:  ê Ê â Â î Î ô Ô                  (8 × 1.6)
+row 1:  û Û ë Ë ï Ï ù Ù                  (8 × 1.6)
+row 2:  œ Œ « » [Bksp] [DelWd]           (4 × 1.6 + 2 × 3.2 = 12.8)
 footer: ABC 123 #+= 😀 Fn Space Enter Tab
 ```
 
@@ -57,12 +64,14 @@ declined — D12.)
 
 **Shape rules:** last content row carries `backspace` + `deleteWord` at its right end
 (`ShippedLayoutFilesTests.EverySubLayout_CarriesBackspaceAndDeleteWord` requires both);
-`Space`/`Enter` in the footer; the widest row equals the 12.8 standard so the window never
-resizes between sub-layouts; NO padding/dummy keys — width is made up by widening real keys
-(dummy keys would register as dwell targets that do nothing ⟦M3⟧); content-row count ≤ 3 plus
-one footer row, matching the letters height so the window height never changes either ⟦M4⟧;
-every NON-SPECIAL accents key has non-empty `output` ⟦M2⟧ and every lower-case key carries
-`shiftOutput` = its capital ⟦R6, D11⟧; explicit capital keys stay.
+`Space`/`Enter` in the footer (shipped Space keys carry `"output": " "`); the widest row
+equals the 12.8 standard so the window never resizes between sub-layouts; NO padding/dummy
+keys — width is made up by widening real keys (dummy keys would register as dwell targets
+that do nothing ⟦M3⟧); **the row count EQUALS the letters sub-layout's row count** (both
+layouts: 3 content rows + footer) so the bottom-docked `SizeToContent` window's height never
+changes and no row shifts under the gaze ⟦plan H2⟧; every NON-SPECIAL accents key has
+non-empty `output` ⟦M2⟧ and every lower-case key carries `shiftOutput` = its capital
+⟦R6, D11⟧; explicit capital keys stay.
 
 QWERTY gets no accents sub-layout (D4). Prediction bar, dwell chrome, window chrome unchanged.
 Prediction behavior flows through `ActivateKey`/`LearnWord` as for `ö` today; `de.json` and
@@ -73,17 +82,15 @@ Prediction behavior flows through `ActivateKey`/`LearnWord` as for `ö` today; `
 - **AZERTY (zero movement, no decision needed):** row 0 (`Win 1.2 + A..P` = 11.2 centred in
   the 12.8 container) becomes `Win 2.0 + A..P + Acc 0.8` = 12.8: the widened `Win` consumes
   the 0.8 left margin, `Acc` consumes the right margin, and every letter keeps its exact
-  position ⟦I1's verified trick⟧.
-- **QWERTZ (D16, owner decision):** the letters footer (11.7 of 12.8) has no split that fits
-  a 1.0 key without movement. **Recommended:** keep the footer total at 11.7 by narrowing
-  `Space` 2.0 → 1.0 and appending `Acc 1.0` at the far right (after `Tab`) — nothing moves;
-  `Space` becomes letter-key width. **Alternative:** insert `Acc 1.0` between `Fn` and
-  `Space` as mocked — every footer key shifts 0.5 units left, `Space` keeps its width.
-- **Landing keys ⟦R8⟧ (2-D nearest-centre after a swap, not x-range):** QWERTZ (recommended
-  placement) — the content row's `Bksp`/`DelWd` region; AZERTY — `Acc` sits at a row-0 end,
-  so the landing key is accents row 0's right end (`Û`); QWERTZ alternative placement —
-  accents-footer `Space`, with `Bksp` winning once the gaze drifts 0.29 rows up. All of these
-  are made harmless by D13; the spec names them so the plan can pin the exact geometry.
+  position.
+- **QWERTZ (D16 as superseded by D17, owner-defaulted — plan review M4):** row 0 is the same
+  11.2 shape (`Win 1.2 + Q..P`), so the identical trick applies: `Win 2.0 + Q..P + Acc 0.8`
+  = 12.8, nothing moves, `Space` keeps its full width in the footer. (D16's footer placement
+  — `Space` halved, `Acc` after `Tab` — was decided before this option was known; it is
+  rejected in favor of layout consistency with AZERTY and an untouched `Space`.)
+- **Landing spots ⟦R8, plan M2⟧:** made harmless by D13's spatial suppression while the gaze
+  rests; the exact post-swap key under each `Acc` is pinned by the plan's probe tests
+  (QWERTZ: accents row 0's right end; AZERTY likewise).
 
 ### 3. Auto-return + swap suppression (the engine changes)
 
@@ -96,33 +103,36 @@ an accent ⟦I5, D14⟧) **while `!IsEmojiMode`** ⟦R1⟧ on an `autoReturn` su
 re-verified by round 2: `IsEmojiMode` is set before the emoji surface is built and only
 cleared through the flag, so the guard closes every path.
 
-**Swap suppression — D13 (owner decision, replaces D10-as-rev-2 ⟦I2, I3, R8⟧):** after ANY
-sub-layout swap — auto-return AND manual `switchSub` — the key nearest the pre-swap gaze
-position cannot START dwelling until the gaze leaves it (position-based "leave the landing
-key" rule). Everything else dwells normally. Comparison the decision rests on
-(defaults: cooldown 400 ms, key dwell 450 ms):
+**Swap suppression — D13 (spatial; owner-defaulted from the options the plan review raised,
+vetoable):** after ANY sub-layout swap — auto-return AND manual `switchSub` — while the gaze
+stays within roughly half a key width of its PRE-SWAP position, no key dwells. The radius is
+computed once at swap time from the OLD grid's still-valid centres (the distance from the
+anchor to its second-nearest old centre, halved — post-swap centres are unarranged at the
+first samples and must never be consulted, plan review B1). The anchor is set only when the
+gaze was actually on the key area at swap time — a prediction pick happens with the gaze on
+the bar, so its auto-return swap suppresses nothing (plan review H3). Hiding the keyboard
+clears the suppression. Comparison the decision rests on (defaults: cooldown 400 ms, key
+dwell 450 ms):
 
-| | next intended key (anywhere else) | resting gaze on the landing key |
+| | next intended key (anywhere else) | resting gaze on the landing spot |
 |---|---|---|
 | today (no rule) | 850 ms | misfires at ~850 ms |
-| D10 as rev 2 (time-based: suppress all keys cooldown + 1 dwell) | **1300 ms** (+450 ms after EVERY accent, no progress shown) | protected only ~1300 ms, then misfires |
-| **D13 (position-based, recommended)** | **850 ms (unchanged)** | **never misfires while resting** |
+| time-based rule (rev 2's D10) | **1300 ms** (+450 ms after EVERY accent, no progress shown) | protected only ~1300 ms, then misfires |
+| **D13 spatial (chosen)** | **850 ms (unchanged)** | **never misfires while resting; clears when the gaze moves ~half a key width away** |
 
-D13 also covers the round-2 finding that manual `Acc` entry otherwise fires the landing key
-after 850 ms (QWERTZ: a space that saves the half-typed word; AZERTY: `Û`) ⟦I2⟧, and the same
-pre-existing exposure on every shipped `switchSub` key. Cost: after a deliberate switch, a
-user who wants to dwell the exact spot they're resting on must flick the gaze once. Manual
-switches keep today's 850 ms cadence everywhere else. Round 2 confirmed the cooldown is
-VM-side (`_keyCooldownEndTimestamp`, `KeyboardViewModel.cs:22/213/265`), so either rule is
-implementable there; D13 needs the window's nearest-key tracking, which exists.
+D13 also covers the manual `Acc` entry exposure (plan review I2) and the same pre-existing
+exposure on every shipped `switchSub` key. Known residual, declined: leaving emoji mode also
+swaps the grid under a resting gaze and is NOT covered (pre-existing behavior, unchanged).
 
 **Modifiers on entry — D15 ⟦I4⟧:** switching INTO an `autoReturn` sub-layout clears armed
 one-shot SYSTEM modifiers (Ctrl/Alt/Win). Rationale: the accents footer has no modifier keys,
 so an armed modifier is invisible there, and with the OS layout as a French keyboard a stray
 Win plus `é` becomes `Win+2` (launches a taskbar app) — dropping Ctrl from the footer (D8)
-does not close the Win/Alt paths. Shift/Caps Lock are NOT cleared (D11 needs them). The swap
-must apply modifier visuals after clearing so the Caps indicator and key labels don't go
-stale ⟦M7⟧.
+does not close the Win/Alt paths. Shift/Caps Lock are NOT cleared (D11 needs them). On EVERY
+swap, after the new grid is built, an `ActiveModifiers` change notification forces a
+modifier-visuals repaint of the fresh keys — `RebuildKeys` draws static labels, so without
+this an armed Shift/Caps would show lowercase labels that type capitals, and the letters Caps
+key would draw inactive while Caps is on ⟦plan H1⟧.
 
 Manual switching otherwise unchanged; hiding the keyboard already resets to `DefaultSubLayout`
 (`KeyboardViewModel.cs:183`).
@@ -152,10 +162,11 @@ until the gaze moves) → continue typing.
 | D10 | *(superseded by D13)* rev-2 time-based suppression | — | — |
 | D11 | Lowercase accents carry `shiftOutput`; explicit capitals stay ⟦R6⟧ | Caps/Shift behave as on letters | Capitals only via Shift |
 | D12 | German quotes `„ “` declined | Symbols-sub-layout concern, not accents | Including now |
-| **D13** | **Position-based swap suppression on EVERY sub-layout swap** (auto-return + manual): the key nearest the pre-swap gaze can't start dwelling until the gaze leaves it ⟦I2, I3, R8⟧ | See the table in §3: unchanged cadence for intended keys, unbounded protection for resting gaze; also closes the pre-existing manual-switch exposure | D10 time-based rule (slows every post-accent key by 450 ms, bounded protection); doing nothing (850 ms misfires on a mis-dwell-prone owner) |
+| **D13** | **Spatial swap suppression on EVERY sub-layout swap** (auto-return + manual): while the gaze stays within ~half a key width (radius from the OLD grid's second-nearest centre) of its pre-swap position, nothing dwells; the anchor is only set when the gaze was on the key area; hide clears it ⟦plan B1, H3, M1, L5⟧ | See the table in §3: unchanged cadence for intended keys, unbounded protection for a resting gaze, no post-swap key resolution (immune to unarranged centres and boundary flicker) | Key-identity clearing (flickers at key boundaries — plan M1's measurement); D10 time-based rule (slows every post-accent key by 450 ms); doing nothing |
 | **D14** | **Prediction selection auto-returns** from an `autoReturn` sub-layout ⟦I5⟧ | Otherwise the next "letter" after a picked word types an accent | Hiding the prediction bar on accents (loses function); leaving as-is |
 | **D15** | **Entering accents clears armed Ctrl/Alt/Win one-shots** (Shift/Caps preserved) ⟦I4⟧ | Accents has no modifier keys to show or clear them; stray Win+`é` = `Win+2` on a French OS layout | Keeping them armed invisibly; re-adding Ctrl to the footer |
-| **D16** | **QWERTZ `Acc` placement: zero-move — `Space` 2.0→1.0, `Acc` appended after `Tab`** ⟦I1⟧ | Nothing on the footer moves (muscle memory); landing key (Bksp/DelWd region) is inert under D13; `Space` stays letter-width | Inserting `Acc` between Fn and Space as mocked (all footer keys shift 0.5 units; `Space` keeps width) — say so to override |
+| **D16** | *(superseded by D17 — the plan review found row 0 was never considered; the footer-only premise was wrong)* | — | — |
+| **D17** | **QWERTZ `Acc` = row-0 zero-move** (`Win` 1.2→2.0, `Acc` 0.8 after `P`; footer and `Space` untouched) — owner-defaulted, vetoable ⟦plan M4⟧ | Same verified trick as AZERTY, nothing moves, `Space` (the most-dwelled key for a fixation-hard user) keeps its width, both layouts consistent | D16's footer placement (`Space` halved) |
 
 ## Testing ⟦R3, R9, I6⟧
 

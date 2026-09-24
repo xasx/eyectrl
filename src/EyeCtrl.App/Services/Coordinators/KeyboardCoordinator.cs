@@ -268,13 +268,18 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     /// build checked disk (silently un-fixing the repair reload) and storing on-disk state the
     /// running stack was never built against (the ticket-11 bug, back). A null verdict
     /// (swap-to-null) keeps the stored term, i.e. the previous verdict. A verdict for a model
-    /// other than the stored active model is ignored.
+    /// other than the stored active model is ignored. A stored snapshot whose active model is
+    /// NOT on disk (<c>ActiveModelOnDisk</c> false — e.g. the tokenizer alone is absent) is
+    /// returned unchanged: the compare path's read gate (<c>ActiveModelVerificationOf</c>) reads
+    /// the ledger only when <c>IsModelDownloaded</c>, so any term written here would be
+    /// unreadable there and the two snapshots could never converge (I1's reload loop).
     /// </summary>
     internal static KeyboardStackSnapshot WithSwappedVerdict(
         KeyboardStackSnapshot stored,
         (string ModelId, ModelVerificationOutcome Outcome)? verification)
     {
         if (verification is not { } swap
+            || !stored.ActiveModelOnDisk // I1: never write a verdict term the compare path cannot read back
             || !string.Equals(swap.ModelId, stored.MLModelSize, StringComparison.OrdinalIgnoreCase))
             return stored;
         return stored with { ActiveModelVerification = swap.Outcome };

@@ -320,6 +320,68 @@ public class KeyboardCoordinatorTests
             stored, KeyboardStackSnapshot.Capture(settings, registry))).IsFalse();
     }
 
+    // ---- I1: the tokenizer-absent perpetual reload loop ----------------------------------------
+    // Build's REPORT gate must equal the snapshot's READ gate: ActiveModelVerificationOf reads
+    // the ledger only when IsModelDownloaded(id) — BOTH files on disk. Pre-fix, a model file
+    // present + hash-gated + tokenizer ABSENT classified Failed; the swap patched Failed into
+    // the stored snapshot while every compare capture read NotYetVerified (IsModelDownloaded
+    // false), so ShouldReload fired on EVERY settings apply — each one reloading the keyboard
+    // under the user and re-hashing a multi-GB model in the background, forever. Reachable
+    // when a download's tokenizer phase is interrupted (the model file is moved into place
+    // first) or the tokenizer is deleted externally. Both halves are pinned: the report gate
+    // (first assertion) and the patch guard (last two — driven with the Failed a
+    // mis-reporting build would hand the coordinator on model-id match alone).
+
+    [Fact]
+    public void TokenizerAbsentModel_ReportsNothing_AndCannotReloadLoop()
+    {
+        using var scope = ModelTestFakes.Create();
+        var (registry, _) = scope.WithHashedDownloadedBundled();
+        // The interrupted-download state: model in place, tokenizer not.
+        File.Delete(registry.GetTokenizerPath("135M"));
+        var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "135M" } };
+
+        // A sync Rebuild classifies through the same Build the background mode runs.
+        new PredictionStackFactory().Rebuild(settings, AppDomain.CurrentDomain.BaseDirectory,
+            scope.Dir, registry);
+
+        // Half 1 — the report gate: nothing was reported (a tokenizer-absent model's Models
+        // row is a Download row, not a repair row). PRE-FIX: Failed is reported and the loop
+        // starts here.
+        Check.WithCustomMessage(
+                "A tokenizer-absent model must report NOTHING: the compare path reads the " +
+                "ledger only when IsModelDownloaded, so a Failed here can never be read back.")
+            .That(registry.GetVerification("135M"))
+            .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
+
+        // The loop-relevant sequence: the seed (LoadKeyboard's capture), the swap patch with
+        // the verdict the build reported (null — it reported nothing), the apply's compare.
+        var stored = KeyboardStackSnapshot.Capture(settings, registry);
+        Check.That(stored.ActiveModelOnDisk).IsFalse();
+        Check.That(stored.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
+        stored = KeyboardCoordinator.WithSwappedVerdict(stored, null);
+        Check.WithCustomMessage(
+                "An unchanged apply must not reload: pre-fix this was the loop — every apply " +
+                "rebuilt the keyboard and re-hashed the model, forever.")
+            .That(KeyboardCoordinator.ShouldReload(
+                stored, KeyboardStackSnapshot.Capture(settings, registry)))
+            .IsFalse();
+
+        // Half 2 — the patch guard: even the Failed a mis-reporting build WOULD hand the
+        // coordinator must not move the stored term while the model is not fully on disk.
+        // PRE-FIX (patch half alone reverted): the term moves to Failed, the compare still
+        // reads NotYetVerified, and ShouldReload turns true — the loop.
+        var patched = KeyboardCoordinator.WithSwappedVerdict(
+            stored, ("135M", ModelVerificationOutcome.Failed));
+        Check.WithCustomMessage(
+                "WithSwappedVerdict must never write a verdict term the compare path cannot " +
+                "read back (ActiveModelOnDisk false -> the compare reads NotYetVerified).")
+            .That(patched).IsEqualTo(stored);
+        Check.That(KeyboardCoordinator.ShouldReload(
+            patched, KeyboardStackSnapshot.Capture(settings, registry))).IsFalse();
+    }
+
     // ---- Non-swap verdict preservation (plan review C4, the missed writers) --------------------
     // The swap handler patches and never re-captures, but two OTHER writers assign a FULL fresh
     // Capture to _keyboardSnapshot: the edge flip and the skin-tone change. Their own settings

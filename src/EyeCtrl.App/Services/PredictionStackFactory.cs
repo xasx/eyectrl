@@ -489,8 +489,17 @@ public class PredictionStackFactory : IDisposable
                             tokenizer: tokenizer, modelPath: modelPath);
                 }
 
+                // I1: the report gate must EQUAL the snapshot's read gate —
+                // KeyboardStackSnapshot.ActiveModelVerificationOf reads the ledger only when
+                // IsModelDownloaded(id) (BOTH files on disk), so a model whose tokenizer alone
+                // is absent must report NOTHING. Reporting Failed there fed a perpetual reload
+                // loop: the swap patches Failed into the stored snapshot while every compare
+                // capture reads NotYetVerified (IsModelDownloaded false), so every settings
+                // apply reloaded the keyboard forever. Such a model's Models row is a Download
+                // row, not a repair row. No outcome change for the corrupt-model case (both
+                // files present): still Failed.
                 verdict = ClassifyLmOutcome(
-                    modelFileExists: File.Exists(modelPath),
+                    modelFileExists: modelRegistry.IsModelDownloaded(modelSize),
                     hashGated: expectedModelHash is not null,
                     hashOk: hashMatches,
                     predictorAvailable: lmPredictor is not null && lmPredictor.IsAvailable,

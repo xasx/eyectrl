@@ -46,4 +46,37 @@ public class DwellCueAssetTests
         }
         Check.That(peak).IsLessOrEqualThan((int)(0.1 * 32_767) + 1);
     }
+
+    [Fact]
+    public void TryRead_NegativeChunkSize_ReturnsNullWithoutHanging()
+    {
+        // Pre-fix this input HUNG, not threw: the chunk walk reads 8 header bytes, then seeks
+        // size + (size & 1). For -8 that seek is -8 (net advance 0); for -9 it is -8 too
+        // ((-9) & 1 == 1). The same chunk head is re-read forever, no exception ever fires.
+        var wav = new List<byte>();
+        wav.AddRange("RIFF"u8.ToArray());
+        wav.AddRange(BitConverter.GetBytes(36));   // riffSize = fileSize - 8 (never checked)
+        wav.AddRange("WAVE"u8.ToArray());
+        wav.AddRange("fmt "u8.ToArray());
+        wav.AddRange(BitConverter.GetBytes(16));   // fmt chunk size
+        wav.AddRange(BitConverter.GetBytes((short)1));    // PCM tag
+        wav.AddRange(BitConverter.GetBytes((short)1));    // mono
+        wav.AddRange(BitConverter.GetBytes(44_100));      // sample rate
+        wav.AddRange(BitConverter.GetBytes(44_100 * 2));  // byte rate
+        wav.AddRange(BitConverter.GetBytes((short)2));    // block align
+        wav.AddRange(BitConverter.GetBytes((short)16));   // bits per sample
+        wav.AddRange("LIST"u8.ToArray());
+        wav.AddRange(BitConverter.GetBytes(-8));    // negative chunk size after a valid fmt
+
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(path, wav.ToArray());
+            Check.That(WavHeader.TryRead(path)).IsNull();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

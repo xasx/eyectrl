@@ -25,6 +25,10 @@ public partial class DwellSettings : ObservableObject, IValidatable
     [ObservableProperty] private double _velocityThresholdPxPerSec = 100.0;
     /// <summary>Cooldown period in milliseconds after a dwell activation before another can trigger. Valid range: 100–5000.</summary>
     [ObservableProperty] private int _dwellCooldownMs = 400;
+    /// <summary>Whether a soft confirmation tone plays when a dwell completes on a non-typing
+    /// surface (toolbar, menus, settings, etc.). Keys keep their own click sound. Default off
+    /// (spec 2026-09-23, ledger D3).</summary>
+    [ObservableProperty] private bool _cueEnabled = false;
     /// <summary>Dwell time in milliseconds for the drag release button. Valid range: 200–2000.</summary>
     [ObservableProperty] private int _dragReleaseButtonDwellMs = 600;
     /// <summary>Dwell time in milliseconds for the drag right-edge button. Valid range: 200–2000.</summary>

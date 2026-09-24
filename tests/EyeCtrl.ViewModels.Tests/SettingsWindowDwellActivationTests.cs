@@ -165,4 +165,23 @@ public class SettingsWindowDwellActivationTests
         Check.That(actionRan).IsTrue();
         Check.That(probe.Count).IsEqualTo(0);
     }
+
+    [Fact]
+    public void PublishLands_AfterTheActivationActionsSet()
+    {
+        // Pins the ORDER property that makes the real d_cue_sound toggle self-demonstrating:
+        // the activation's Set runs before the publish, so dwelling the toggle ON cues (the
+        // gate reads true by then) and dwelling it OFF is silent. (Renamed from the rev-1
+        // "self-demonstrating toggle" title: this fact drives a Control action that flips
+        // CueEnabled — the real row's own path is the drift guard's territory, G3.)
+        var (vm, probe) = Create();
+        probe.FlagAtSendAccessor = () => _settings.Dwell.CueEnabled;
+        vm.Register("c1", DwellCategory.Control, 30, 25, () => _settings.Dwell.CueEnabled = true);
+        vm.UpdatePosition("c1", DwellCategory.Control, new PhysicalPoint(50, 50));
+
+        LookAt(vm);
+
+        Check.That(probe.Count).IsEqualTo(1);
+        Check.That(probe.FlagAtSend).IsTrue();
+    }
 }

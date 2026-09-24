@@ -353,10 +353,10 @@ public class PredictionStackFactory : IDisposable
     /// a model that is absent or not hash-gated is exempt (custom models never carry a hash).
     /// </summary>
     internal static (bool Reports, ModelVerificationOutcome Outcome) ClassifyLmOutcome(
-        bool modelFileExists, bool hashGated, bool hashOk,
+        bool modelOnDisk, bool hashGated, bool hashOk,
         bool predictorAvailable, bool tokenizerLoaded)
     {
-        if (!modelFileExists || !hashGated)
+        if (!modelOnDisk || !hashGated)
             return (false, ModelVerificationOutcome.NotYetVerified);
         if (!hashOk || !predictorAvailable || !tokenizerLoaded)
             return (true, ModelVerificationOutcome.Failed); // N3: Failed IS published
@@ -499,7 +499,7 @@ public class PredictionStackFactory : IDisposable
                 // row, not a repair row. No outcome change for the corrupt-model case (both
                 // files present): still Failed.
                 verdict = ClassifyLmOutcome(
-                    modelFileExists: modelRegistry.IsModelDownloaded(modelSize),
+                    modelOnDisk: modelRegistry.IsModelDownloaded(modelSize),
                     hashGated: expectedModelHash is not null,
                     hashOk: hashMatches,
                     predictorAvailable: lmPredictor is not null && lmPredictor.IsAvailable,
@@ -535,7 +535,14 @@ public class PredictionStackFactory : IDisposable
     {
         try
         {
-            using var stream = File.OpenRead(path);
+            // FileShare.Read | FileShare.Delete, NOT File.OpenRead's plain FileShare.Read
+            // (issue #166 M9): a repair re-download's final File.Move(overwrite: true) must be
+            // able to replace this file WHILE a background build is mid-hash of it — under a
+            // sharing mode without Delete the Move fails (IOException, sharing violation) and
+            // the repair dies. The hash may then reflect the pre-replace content; the repair's
+            // own reload rebuilds and re-verifies, so nothing has to coordinate the two.
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.Read | FileShare.Delete);
             using var sha = SHA256.Create();
             var hash = sha.ComputeHash(stream);
             var actual = Convert.ToHexString(hash);

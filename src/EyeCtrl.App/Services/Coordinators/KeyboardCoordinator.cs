@@ -119,14 +119,8 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         _predictionFactory = new PredictionStackFactory(work => context.Dispatcher.BeginInvoke(work));
         _predictionFactory.StackSwapped += (orchestrator, verification) =>
         {
-            context.OverlayManager.Keyboard.SetOrchestrator(orchestrator);
-
-            // Swap-time snapshot PATCH (spec N3/O2/R1 + plan review C4): the seed from
-            // LoadKeyboard stays until the first swap; each swap moves ONLY the verdict term,
-            // with the verdict the swapped build itself reported. No re-capture — a fresh one
-            // would re-read live disk/ledger state the running stack was never built against.
-            if (_keyboardSnapshot is not null)
-                _keyboardSnapshot = WithSwappedVerdict(_keyboardSnapshot, verification);
+            Context!.OverlayManager.Keyboard.SetOrchestrator(orchestrator);
+            PatchSnapshotWithSwappedVerdict(verification);
         };
         // Hand the fresh factory to the dictionary page's service (SetModelServices pattern):
         // its ForgetWords needs the LIVE stack so a settings-page delete takes effect at once
@@ -286,6 +280,40 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     }
 
     /// <summary>
+    /// Instance seam for the swap-time snapshot PATCH the <see cref="StackSwapped"/> handler runs
+    /// (spec N3/O2/R1 + plan review C4): the seed from LoadKeyboard stays until the first swap;
+    /// each swap moves ONLY the verdict term, with the verdict the swapped build itself reported.
+    /// No re-capture — a fresh one would re-read live disk/ledger state the running stack was
+    /// never built against. Internal (issue #166 M2): the event lambda adds the real
+    /// KeyboardWindow's SetOrchestrator on top, which is not headless-drivable — the patch
+    /// itself is, and this member is what its tests drive.
+    /// </summary>
+    internal void PatchSnapshotWithSwappedVerdict((string ModelId, ModelVerificationOutcome Outcome)? verification)
+    {
+        if (_keyboardSnapshot is not null)
+            _keyboardSnapshot = WithSwappedVerdict(_keyboardSnapshot, verification);
+    }
+
+    /// <summary>
+    /// Instance seam for the two NON-swap snapshot writers (<see cref="HandleKeyboardEdgeToggled"/>,
+    /// <see cref="OnEmojiSkinToneChanged"/>): stores <paramref name="fresh"/> with the verdict term
+    /// PRESERVED from the stored snapshot (mechanics and rationale in
+    /// <see cref="WithPreservedVerdict"/>'s doc). Internal for the same reason as
+    /// <see cref="PatchSnapshotWithSwappedVerdict"/> (issue #166 M2) — the handlers' remaining lines
+    /// touch real windows; this assignment is the testable wiring.
+    /// </summary>
+    internal void CapturePreservingVerdict(KeyboardStackSnapshot fresh) =>
+        _keyboardSnapshot = WithPreservedVerdict(_keyboardSnapshot, fresh);
+
+    /// <summary>Test access to the private snapshot field the two seams above write (issue #166
+    /// M2): tests seed a snapshot, drive the seam, and read back what was stored.</summary>
+    internal KeyboardStackSnapshot? KeyboardSnapshotForTesting
+    {
+        get => _keyboardSnapshot;
+        set => _keyboardSnapshot = value;
+    }
+
+    /// <summary>
     /// Guards the two NON-swap snapshot writers — the edge flip (<see cref="HandleKeyboardEdgeToggled"/>)
     /// and the skin-tone change (<see cref="OnEmojiSkinToneChanged"/>) — against the same verdict
     /// absorption <see cref="WithSwappedVerdict"/> exists to refuse (plan review C4's class, found
@@ -355,7 +383,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         // Verdict-preserving assignment (plan review C4, non-swap site): the fresh capture's
         // settings terms moved, but its ledger verdict term must not jump ahead of the running
         // stack — see WithPreservedVerdict.
-        _keyboardSnapshot = WithPreservedVerdict(_keyboardSnapshot, snapshot);
+        CapturePreservingVerdict(snapshot);
         ShowKeyboardEdgeBar();
     }
 
@@ -540,8 +568,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         if (Context is null) return;
         // Verdict-preserving assignment (plan review C4, non-swap site): same discipline as
         // HandleKeyboardEdgeToggled — the tone term moves, the ledger verdict term must not.
-        _keyboardSnapshot = WithPreservedVerdict(
-            _keyboardSnapshot,
+        CapturePreservingVerdict(
             ApplyEmojiSkinTone(Context.Settings, Context.SettingsService, tone, _modelRegistry));
     }
 

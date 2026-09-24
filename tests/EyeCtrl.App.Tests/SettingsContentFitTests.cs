@@ -1127,17 +1127,21 @@ public class SettingsContentFitTests
         // row, above the progress-bar row) — comparing to the button's outer height would
         // pass a label that clips inside its row.
         Check.That(wrappedHeight).IsStrictlyGreaterThan(0);
-        if (label.Parent is System.Windows.Controls.Grid layoutGrid
-            && System.Windows.Controls.Grid.GetRow(label) < layoutGrid.RowDefinitions.Count)
-        {
-            var row = System.Windows.Controls.Grid.GetRow(label);
-            var rowHeight = layoutGrid.RowDefinitions[row].ActualHeight;
-            Check.That(wrappedHeight).IsLessOrEqualThan(rowHeight + 0.5);
-        }
-        else
-        {
-            Check.That(wrappedHeight).IsStrictlyLessThan(repairButtonHeight); // fallback: outer height
-        }
+        // M4 (issue #166): the row comparison is only meaningful when the label actually sits
+        // in a layout Grid row — ASSERT the precondition instead of branching on it. The old
+        // if/else silently degraded to the weak outer-height fallback when the DwellButton
+        // restructured, and that fallback passes at 95.77 DIP: exactly the third-line clipping
+        // this test exists to reject.
+        Check.That(label.Parent).IsInstanceOf<System.Windows.Controls.Grid>();
+        var layoutGrid = (System.Windows.Controls.Grid)label.Parent;
+        var row = System.Windows.Controls.Grid.GetRow(label);
+        Check.WithCustomMessage(
+                $"The repair label reads Grid.Row={row}, but its layout Grid declares "
+                + $"{layoutGrid.RowDefinitions.Count} row definitions — the label is not "
+                + "sized by a row, so the fit assertion below cannot be honest.")
+            .That(row).IsStrictlyLessThan(layoutGrid.RowDefinitions.Count);
+        var rowHeight = layoutGrid.RowDefinitions[row].ActualHeight;
+        Check.That(wrappedHeight).IsLessOrEqualThan(rowHeight + 0.5);
     }
 
     private static IEnumerable<System.Windows.Controls.TextBlock> FindTextBlocks(

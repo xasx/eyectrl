@@ -27,13 +27,13 @@ public class PredictionStackFactoryVerificationTests : IDisposable
     [InlineData(true, true, true, true, false)]  // tokenizer missing   -> Failed
     [InlineData(true, true, true, true, true)]   // everything live     -> Verified
     public void ClassifyLmOutcome_CoversTheWholeDecisionTable(
-        bool modelFileExists, bool hashGated, bool hashOk,
+        bool modelOnDisk, bool hashGated, bool hashOk,
         bool predictorAvailable, bool tokenizerLoaded)
     {
         var (reports, outcome) = PredictionStackFactory.ClassifyLmOutcome(
-            modelFileExists, hashGated, hashOk, predictorAvailable, tokenizerLoaded);
+            modelOnDisk, hashGated, hashOk, predictorAvailable, tokenizerLoaded);
 
-        if (!modelFileExists || !hashGated)
+        if (!modelOnDisk || !hashGated)
         {
             Check.That(reports).IsFalse();
         }

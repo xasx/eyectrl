@@ -1346,6 +1346,10 @@ public partial class SettingsWindow : OverlayWindow
         internal SeparatorRow()
         {
             _root = new Grid();
+            // UseLayoutRounding (issue #166 nit): a 1 DIP rule is exactly the geometry where
+            // fractional-DPI scaling smears — at 200% an unrounded border straddles 3 physical
+            // rows instead of painting a crisp 2 px line. Inherited by the Border child.
+            _root.UseLayoutRounding = true;
             _root.Children.Add(new System.Windows.Controls.Border
             {
                 Height = 1,

@@ -34,9 +34,18 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                 new ButtonSpec("g_reset", "Reset General Settings",
                     () => _ctx.ShowModal("Reset General settings to defaults?", () =>
                     {
+                        // Resets every settings row the page renders, not one section (issue
+                        // #164): the rows bind three different sub-settings objects, and the
+                        // original handler restored only the GeneralSettings pair — leaving
+                        // the Theme and TrackStatus rows the button sits next to untouched,
+                        // the exact UX expectation that filed #157.
                         var g = new Core.Settings.GeneralSettings();
                         s.General.StartOnBoot = g.StartOnBoot;
                         s.General.StartPaused = g.StartPaused;
+                        var t = new Core.Settings.ThemeSettings();
+                        s.Theme.Name = t.Name;
+                        var tr = new Core.Settings.TrackStatusSettings();
+                        s.TrackStatus.Enabled = tr.Enabled;
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     }),

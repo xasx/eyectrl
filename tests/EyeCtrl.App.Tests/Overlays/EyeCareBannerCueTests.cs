@@ -26,13 +26,16 @@ using EyeCtrl.ViewModels.Messages;
 [Collection("DpiHelper Tests (App)")]
 public class EyeCareBannerCueTests
 {
-    private sealed record CueProbe(Action OnReceive) : IRecipient<DwellActivationMessage>
+    private sealed record CueProbe(Action OnReceive, Func<bool>? EffectRanAtSend = null)
+        : IRecipient<DwellActivationMessage>
     {
         public int Count { get; private set; }
+        public bool? EffectAtSend { get; private set; }
 
         public void Receive(DwellActivationMessage message)
         {
             Count++;
+            EffectAtSend = EffectRanAtSend?.Invoke();
             OnReceive();
         }
     }
@@ -43,22 +46,47 @@ public class EyeCareBannerCueTests
             .GetValue(banner)!;
 
     [StaFact]
-    public void BannerDwell_PublishesDwellActivation_WithoutShowing()
+    public void BannerDwell_PublishesDwellActivation_AfterTheEffect()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
 
         var messenger = new WeakReferenceMessenger();
-        var probe = new CueProbe(() => { });
-        messenger.Register(probe);
         var banner = new EyeCareBannerWindow(dwellMs: 25, messenger: messenger);
 
-        // "start" walks the real handler path: Resolve(true) runs first (Hide on a never-shown
-        // window and a null-TCS TrySetResult are both no-ops), THEN the cue publishes.
+        // Resolve's observable effect headless is the TCS: install one by reflection (ShowAsync
+        // normally creates it, but calling ShowAsync would Show — forbidden), then "start" runs
+        // Resolve(true) → TrySetResult BEFORE the cue publishes (spec D8).
+        var tcs = new TaskCompletionSource<bool>();
+        typeof(EyeCareBannerWindow)
+            .GetField("_tcs", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .SetValue(banner, tcs);
+        var probe = new CueProbe(() => { }, EffectRanAtSend: () => tcs.Task.IsCompleted);
+        messenger.Register(probe);
+
         var dwell = DwellOf(banner);
         dwell.AddTarget(new DwellTarget("start", new PhysicalPoint(50, 50), 30, 25));
         for (var i = 1; i <= 20; i++)
             banner.OnGaze(new PhysicalPoint(50, 50), i * 2_000);
 
         Check.That(probe.Count).IsEqualTo(1);
+        Check.WithCustomMessage(
+            "Resolve must complete the banner's result BEFORE the cue publishes (spec D8 — a " +
+            "publish-first reorder leaves Count == 1 green and must not).")
+            .That(probe.EffectAtSend).IsEqualTo(true);
+    }
+
+    [StaFact]
+    public void NoMessengerGiven_LandsOnTheRegisteredDefaultBus()
+    {
+        // D9: the production factory (AppBootstrapper) passes no messenger, so the fallback IS
+        // the production path — pin that it is the app's registered instance, not a private bus.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+
+        var banner = new EyeCareBannerWindow(dwellMs: 25);
+        var bus = typeof(EyeCareBannerWindow)
+            .GetField("_messenger", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(banner);
+
+        Check.That(bus).IsSameReferenceAs(WeakReferenceMessenger.Default);
     }
 }

@@ -184,4 +184,39 @@ public class SettingsWindowDwellActivationTests
         Check.That(probe.Count).IsEqualTo(1);
         Check.That(probe.FlagAtSend).IsTrue();
     }
+
+    [Fact]
+    public void TabActivation_Publishes()
+    {
+        // External-review mutation #6 teeth: the Tab arm's `return true` flipped to false left
+        // the suite green — yet tab switching is the most-used settings dwell. ShowTab tolerates
+        // any id (it just assigns CurrentTabName), so a synthetic tab id is safe here.
+        var (vm, probe) = Create();
+        var actionRan = false;
+        vm.Register("general", DwellCategory.Tab, 30, 25, () => actionRan = true);
+        vm.UpdatePosition("general", DwellCategory.Tab, new PhysicalPoint(50, 50));
+
+        LookAt(vm);
+
+        Check.That(actionRan).IsTrue();
+        Check.WithCustomMessage(
+            "A tab dwell switches the tab — that is an activation, and it must publish.")
+            .That(probe.Count).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void PaginationActivation_Publishes()
+    {
+        var (vm, probe) = Create();
+        var actionRan = false;
+        vm.Register("pag_prev", DwellCategory.Pagination, 30, 25, () => actionRan = true);
+        vm.UpdatePosition("pag_prev", DwellCategory.Pagination, new PhysicalPoint(50, 50));
+
+        LookAt(vm);
+
+        Check.That(actionRan).IsTrue();
+        Check.WithCustomMessage(
+            "A pager dwell turns the page — that is an activation, and it must publish.")
+            .That(probe.Count).IsEqualTo(1);
+    }
 }

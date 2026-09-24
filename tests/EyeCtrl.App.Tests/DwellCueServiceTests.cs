@@ -14,7 +14,7 @@ public class DwellCueServiceTests
         var path = Path.Combine(dir, $"ok_{Guid.NewGuid():N}.wav");
         using var fs = File.Create(path);
         fs.Write("RIFF"u8);
-        fs.Write(new byte[] { 0x24, 0, 0, 0 }); // 36 + payload
+        fs.Write(new byte[] { 0x2C, 0, 0, 0 }); // RIFF size = 36 + 8-byte payload
         fs.Write("WAVE"u8);
         fs.Write("fmt "u8); fs.Write(new byte[] { 16, 0, 0, 0 });
         fs.Write(new byte[] { 1, 0 });          // PCM

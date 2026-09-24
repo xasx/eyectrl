@@ -240,16 +240,25 @@ public class NoteManagerTests
     /// Counts <see cref="DwellActivationMessage"/> arrivals on an isolated messenger — the
     /// dwell-completion cue's trigger. A record with a mutable counter so the facts can assert
     /// "exactly once" rather than merely "subscribed" (same probe shape as the Task-7 cue tests).
+    /// <paramref name="effectRanAtSend"/> is captured at RECEIVE time to pin the D8 order: the
+    /// note action must already have run when the cue fires.
     /// </summary>
-    internal sealed record CueProbe : IRecipient<DwellActivationMessage>
+    internal sealed record CueProbe(Func<bool>? EffectRanAtSend = null)
+        : IRecipient<DwellActivationMessage>
     {
         public int Count { get; private set; }
+        public bool? EffectAtSend { get; private set; }
 
-        public void Receive(DwellActivationMessage message) => Count++;
+        public void Receive(DwellActivationMessage message)
+        {
+            Count++;
+            EffectAtSend = EffectRanAtSend?.Invoke();
+        }
     }
 
     // The note overlay's straggler publish (spec D8): a real close-dwell fires the cue exactly
-    // once, after the note action itself has run (the note is already gone when the probe counts).
+    // once, after the note action itself has run — asserted by reading ActiveNotes AT SEND
+    // (external-review mutation teeth: a publish-before-effect reorder otherwise stays green).
     //
     // A malformed id ("note1:zzz") would still publish too: its parts.Length != 2 early return
     // is a no-op and that no-op-cue trade-off is ACCEPTED (spec §Pause). Recorded here as a
@@ -259,9 +268,9 @@ public class NoteManagerTests
     public void CloseButtonDwell_PublishesDwellActivation()
     {
         var messenger = new WeakReferenceMessenger();
-        var probe = new CueProbe();
-        messenger.Register(probe);
         using var manager = new NoteManager(messenger);
+        var probe = new CueProbe(EffectRanAtSend: () => manager.ActiveNotes.Count == 0);
+        messenger.Register(probe);
         var anchor = new PhysicalPoint(800, 500);
         manager.CreateNoteAt(anchor);
         var id = manager.ActiveNotes[0].Id;
@@ -282,9 +291,13 @@ public class NoteManagerTests
         for (long t = 0; t <= 800_000; t += 33_000)
             manager.OnGazeMoved(closeCenter, t);
 
-        // The real action ran (nothing vacuous about the count) and the cue fired exactly once.
+        // The real action ran (nothing vacuous about the count) and the cue fired exactly once,
+        // AFTER the note was already gone.
         Check.That(manager.ActiveNotes).IsEmpty();
         Check.That(probe.Count).IsEqualTo(1);
+        Check.WithCustomMessage(
+            "The note removal must land BEFORE the cue publishes (spec D8).")
+            .That(probe.EffectAtSend).IsEqualTo(true);
     }
 
     // Same stream, delivered as the message the adapter actually sends, but gap-held: closing a note

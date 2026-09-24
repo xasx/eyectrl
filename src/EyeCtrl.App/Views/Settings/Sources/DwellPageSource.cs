@@ -46,6 +46,9 @@ internal sealed class DwellPageSource : ISettingsPageSource
                 new SliderSpec("d_cooldown", "Dwell Cooldown (ms)", 100, 1000, 50, 0,
                     () => d.DwellCooldownMs, v => { d.DwellCooldownMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = "How long a new dwell must wait after an activation." },
+                new ToggleSpec("d_cue_sound", "Dwell Completion Sound",
+                    () => d.CueEnabled, v => { d.CueEnabled = v; _ctx.ApplyAndSave(); })
+                    { Description = "Plays a soft tone when a dwell activates on any EyeCtrl surface — buttons, menus, settings. Keys keep their own click sound." },
                 new ButtonSpec("d_reset", "Reset Dwell Settings",
                     () => _ctx.ShowModal("Reset Dwell settings to defaults?", () =>
                     {
@@ -59,6 +62,7 @@ internal sealed class DwellPageSource : ISettingsPageSource
                         d.KeyboardPredictionDwellMs = def.KeyboardPredictionDwellMs;
                         d.FixationRadiusPixels = def.FixationRadiusPixels;
                         d.DwellCooldownMs = def.DwellCooldownMs;
+                        d.CueEnabled = def.CueEnabled;
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     }),

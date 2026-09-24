@@ -5,8 +5,11 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 
 /// <summary>
-/// The Cursor tab, page-for-page the former <c>SettingsWindow.BuildCursorPages</c>: filter mode,
-/// smoothing, colour on page 1; opacity, thickness, reset on page 2. Snap radius lives on the
+/// The Cursor tab, the former <c>SettingsWindow.BuildCursorPages</c>: the filter/smoothing/
+/// colour group, the ring-style combo, the appearance sliders (opacity, thickness, size), gap
+/// interpolation, the position indicator and the two One-Euro sliders, with the reset button
+/// last (copying all thirteen cursor settings). <see cref="PrefersAutoPagination"/> re-chunks
+/// the rows per window height, so the page split is not pinned here. Snap radius lives on the
 /// Selection tab with the rest of the AutoSelection knobs.
 /// </summary>
 internal sealed class CursorPageSource : ISettingsPageSource

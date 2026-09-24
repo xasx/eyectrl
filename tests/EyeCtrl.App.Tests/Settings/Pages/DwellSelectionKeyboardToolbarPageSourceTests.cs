@@ -40,11 +40,11 @@ public class DwellSelectionKeyboardToolbarPageSourceTests
         // every reset animation (OverlayMessageCoordinator), so its claim differs on purpose.
         Check.That(sliders.Where(s => s.Id != "s_gi_outer")
             .All(s => s.Description!.Contains("restart", StringComparison.Ordinal))).IsTrue();
-        // NFluent 3.1.0 has no ICheck<string>.Contains(string, StringComparison) — the two-arg
-        // call would silently bind to the params-object[] enumerable overload and fail; keep the
-        // ordinal predicate on the BCL string method (same pattern as the restart check above).
-        Check.That(sliders.Single(s => s.Id == "s_gi_outer").Description!
-            .Contains("next selection", StringComparison.Ordinal)).IsTrue();
+        // NFluent 3.1.0 has no ICheck<string>.Contains(string, StringComparison) — a two-arg
+        // call silently binds to the params-object[] enumerable overload (issue #124.4); the
+        // one-arg form keeps NFluent's own failure diagnostic.
+        Check.That(sliders.Single(s => s.Id == "s_gi_outer").Description!)
+            .Contains("next selection");
         Check.That(sliders.Single(s => s.Id == "s_gi_outer").Get()).IsEqualTo(60);
     }
 

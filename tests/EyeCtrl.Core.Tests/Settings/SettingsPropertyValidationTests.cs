@@ -1029,7 +1029,14 @@ public class GazeIndicatorValidationTests
         // InlineData carries doubles; the int property (ResetAnimationMs) needs Convert,
         // or SetValue throws ArgumentException instead of setting the value.
         prop.SetValue(s, Convert.ChangeType(bad, prop.PropertyType));
-        Check.That(s.Validate()).HasElementThatMatches(e => e.Contains(property, StringComparison.Ordinal));
+        var errors = s.Validate();
+        Check.That(errors).HasElementThatMatches(e => e.Contains(property, StringComparison.Ordinal));
+        // The min/max columns are load-bearing, not decorative: the emitted error must restate
+        // the bounds it rejected against (message format owned by ValidationHelper.ValidateRange).
+        // The bounds go through the same current-culture ToString the interpolated message uses,
+        // so the de-DE decimal comma cannot desync the assert from the message text.
+        var error = errors.First(e => e.Contains(property, StringComparison.Ordinal));
+        Check.That(error).Contains(min.ToString()).And.Contains(max.ToString());
     }
 }
 

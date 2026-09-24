@@ -288,12 +288,36 @@ public class KeyboardCoordinatorTests
     [Fact]
     public void WithSwappedVerdict_VerdictForADifferentModel_IsIgnored()
     {
+        // The MODEL-ID check is the discriminating guard here: the active model's files ARE on
+        // disk (so I1's !ActiveModelOnDisk guard passes) and only the id mismatch refuses the
+        // patch. Over EmptyRegistry both guards would refuse, and the id check could be deleted
+        // without this test noticing (re-review of the I1 wave).
         using var scope = ModelTestFakes.Create();
+        var (registry, _) = scope.WithHashedDownloadedBundled();
         var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "135M" } };
-        var stored = KeyboardStackSnapshot.Capture(settings, scope.EmptyRegistry());
+        var stored = KeyboardStackSnapshot.Capture(settings, registry);
+        Check.That(stored.ActiveModelOnDisk).IsTrue();   // the disk guard does NOT fire here
 
         var merged = KeyboardCoordinator.WithSwappedVerdict(
             stored, ("360M", ModelVerificationOutcome.Verified));
+
+        Check.That(merged).IsEqualTo(stored);
+    }
+
+    // The DISK guard's own pin (the other half of the same early-return): the verdict's model
+    // id MATCHES the stored active model, but the files are absent, so only !ActiveModelOnDisk
+    // refuses the patch — I1's rule that a verdict the compare path cannot read back must
+    // never be written.
+    [Fact]
+    public void WithSwappedVerdict_MatchingModelIdButNotOnDisk_IsIgnored()
+    {
+        using var scope = ModelTestFakes.Create();
+        var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "135M" } };
+        var stored = KeyboardStackSnapshot.Capture(settings, scope.EmptyRegistry());
+        Check.That(stored.ActiveModelOnDisk).IsFalse();
+
+        var merged = KeyboardCoordinator.WithSwappedVerdict(
+            stored, ("135M", ModelVerificationOutcome.Failed));
 
         Check.That(merged).IsEqualTo(stored);
     }

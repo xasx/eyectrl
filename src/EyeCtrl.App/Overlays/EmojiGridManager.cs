@@ -456,8 +456,9 @@ public class EmojiGridManager
     }
 
     // Post-effect publish (spec D8): the handler runs first — including its _skinTone
-    // early-return — then the cue fires, so no branch of the handler is left silent. Hoisted to
-    // a named method (not the lambda it replaces) so a future teardown can -= it.
+    // early-return — then the cue fires, so no branch of the handler is left silent. The
+    // wrapper exists only for that post-effect send — the method group it replaced
+    // (+= OnCategoryDwelled) was already unsubscribable by name.
     private void OnCategoryDwellActivated(string targetId)
     {
         OnCategoryDwelled(targetId);

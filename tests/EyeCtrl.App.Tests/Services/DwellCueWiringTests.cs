@@ -50,6 +50,10 @@ public class DwellCueWiringTests
         var cue = provider.GetRequiredService<DwellCueService>();
         var before = cue.HandledCount;
 
+        // The send rides the process-wide WeakReferenceMessenger.Default, so a parallel test
+        // driving a fallback-messenger activation could theoretically bump HandledCount
+        // independently (today's producers all inject messengers; a stray bump can only weaken,
+        // never falsify, the pass).
         provider.GetRequiredService<IMessenger>().Send(new DwellActivationMessage());
 
         Check.That(cue.HandledCount - before).IsStrictlyGreaterThan(0);

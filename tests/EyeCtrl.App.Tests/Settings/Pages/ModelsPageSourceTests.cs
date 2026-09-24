@@ -344,6 +344,77 @@ public class ModelsPageSourceTests
         Check.That(listRows).Not.Contains("md_back");
     }
 
+    // ── M1: the VerificationChanged → rebuild subscription ────────────────────────────────────
+    // The spec's "registry verdict change rebuilds the open Models tab" had no test at all:
+    // nothing in the suite referenced VerificationChanged, and deleting the ctor subscription
+    // stayed green. These three pin every arm of OnVerificationChanged — rebuild while this
+    // tab is current, no rebuild on another tab, no rebuild after Detach.
+
+    /// <summary>Builds the page over a real <see cref="SettingsWindowViewModel"/> whose tab is
+    /// <paramref name="tabName"/>, plus the recording context (inline Invoke, counted
+    /// RebuildContent). One Build() so the page is real and the count starts at 0.</summary>
+    private static (ModelsPageSource Src, RecordingSettingsPageContext Rec) BuildPageOnTab(
+        ModelRegistryService registry, ModelManagementService mgmt, string tabName)
+    {
+        var vm = QaTestSupport.MakeViewModel();
+        vm.Settings.ShowTab(tabName);
+        var rec = new RecordingSettingsPageContext(
+            viewModel: vm, registry: registry, modelManagement: mgmt);
+        var src = new ModelsPageSource(rec.Context);
+        src.Build();
+        return (src, rec);
+    }
+
+    [Fact]
+    public void VerificationChanged_WhileModelsTabIsCurrent_RebuildsTheContent()
+    {
+        using var scope = ModelTestFakes.Create();
+        var (registry, mgmt) = scope.WithDownloadedBundled();
+        var (_, rec) = BuildPageOnTab(registry, mgmt, "Models");
+        Check.That(rec.RebuildContentCount).IsEqualTo(0);
+
+        // First report for this model raises (NotYetVerified -> Failed) on the test thread;
+        // the recording context's Invoke is a direct call, so the count is synchronous.
+        registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
+
+        Check.WithCustomMessage(
+                "A verdict change must rebuild the open Models tab: the Failed verdict is " +
+                "what renders the repair row, and it lands after the page was last built.")
+            .That(rec.RebuildContentCount).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void VerificationChanged_WhileAnotherTabIsCurrent_DoesNotRebuild()
+    {
+        using var scope = ModelTestFakes.Create();
+        var (registry, mgmt) = scope.WithDownloadedBundled();
+        var (_, rec) = BuildPageOnTab(registry, mgmt, "General");
+
+        registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
+
+        Check.WithCustomMessage(
+                "A verdict change while the user is on ANOTHER tab must not rebuild Models: " +
+                "the rebuild would be invisible work, not feedback.")
+            .That(rec.RebuildContentCount).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void VerificationChanged_AfterDetach_DoesNotRebuild()
+    {
+        using var scope = ModelTestFakes.Create();
+        var (registry, mgmt) = scope.WithDownloadedBundled();
+        var (src, rec) = BuildPageOnTab(registry, mgmt, "Models");
+
+        src.Detach();
+        registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
+
+        Check.WithCustomMessage(
+                "Detach (the window's Closed handler) must unsubscribe: the registry outlives " +
+                "the page, and a surviving subscription rebuilds a dead window's content and " +
+                "leaks one handler per settings visit.")
+            .That(rec.RebuildContentCount).IsEqualTo(0);
+    }
+
     // ── md_add: the three branches that only report a failure to the user ──────────────────────
     // SettingsPageContext documents ReadClipboard/ShowError/Invoke as existing so exactly these are
     // headlessly testable, but nothing exercised them: the recording context hard-wired showError to
@@ -486,15 +557,22 @@ public class ModelsPageSourceTests
             new EyeCtrlSettings()); // IsDownloading => true (ModelTestFakes.cs:151)
 
         var modals = new List<string>();
+        var errors = new List<string>();
         var ctx = TestSettingsPageContext.Build(
             registry: registry, modelManagement: busy,
-            showModal: (title, _) => modals.Add(title)); // Build already takes this (cs :26)
+            showModal: (title, _) => modals.Add(title), // Build already takes this (cs :26)
+            showError: errors.Add);
 
         var repair = new ModelsPageSource(ctx).Build().Single().Rows
             .OfType<ButtonSpec>().Single(b => b.Id == "md_fix_135M");
         repair.OnActivate();
 
         Check.That(modals).IsEmpty(); // the guard fired before the modal
+        // M5: "refuses" must not be silent — exactly one error telling the user WHY the dwell
+        // no-opped (another download in progress). A swallowed dwell is indistinguishable from
+        // a broken button to a gaze-only user.
+        Check.That(errors).HasSize(1);
+        Check.That(errors[0]).Contains("already in progress");
     }
 
     // R2: positive control for the guard test above — with an IDLE management the activation
@@ -518,5 +596,73 @@ public class ModelsPageSourceTests
 
         Check.That(modals).HasSize(1);
         Check.That(modals[0]).Contains("Re-download");
+    }
+
+    // M5: the repair modal's confirm callback was never invoked by any test — the wiring from
+    // the row through the modal's Yes to DownloadBundledAsync (with BOTH hashes) was unproven.
+    // This drives the happy path end to end: the confirm must re-download both files through
+    // the manifest's REAL hashes and land Verified in the ledger — the download path reports
+    // Verified only when both artifacts were hash-checked, so reaching it proves the modal
+    // hands the repair a genuine re-download, not a stub.
+    [Fact]
+    public async Task RepairRow_Confirm_RedownloadsBothFiles_AndReportsVerified()
+    {
+        using var scope = ModelTestFakes.Create();
+        var (registry, _) = scope.WithHashedDownloadedBundled();
+        registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
+
+        // Serve the exact bytes already on disk: WithHashedDownloadedBundled's manifest hashes
+        // ARE the SHA-256 of these bytes (the fixture's invariant), so the fake transport
+        // exercises the real integrity gates — a wrong byte anywhere is a HashMismatch and the
+        // workflow fails instead of reporting Verified.
+        var onnxBytes = File.ReadAllBytes(registry.GetModelPath("135M"));
+        var tokBytes = File.ReadAllBytes(registry.GetTokenizerPath("135M"));
+        var mgmt = new ModelManagementService(
+            registry,
+            new ModelDownloadService(scope.Dir, new HttpClient(
+                new FakeServingHandler(onnxBytes, tokBytes))),
+            new EyeCtrlSettings());
+
+        var rec = new RecordingSettingsPageContext(registry: registry, modelManagement: mgmt);
+        var src = new ModelsPageSource(rec.Context);
+
+        var repair = src.Build().Single().Rows
+            .OfType<ButtonSpec>().Single(b => b.Id == "md_fix_135M");
+        repair.OnActivate();
+        Check.That(rec.LastModalOnYes).IsNotNull();
+        rec.LastModalOnYes!();   // the user confirms the re-download
+
+        // The download runs on the thread pool; the completion callback rebuilds — the same
+        // bounded poll the e2e download test above uses (no sleeps).
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (DateTime.UtcNow < deadline
+               && rec.RebuildContentCount == 0 && rec.Errors.Count == 0)
+            await Task.Delay(50, TestContext.Current.CancellationToken);
+
+        Check.WithCustomMessage(
+                "The repair download never completed: rebuild=" + rec.RebuildContentCount
+                + ", errors=" + (rec.Errors.Count == 0 ? "<none>" : string.Join(" | ", rec.Errors)))
+            .That(rec.RebuildContentCount).IsStrictlyGreaterThan(0);
+        Check.That(rec.Errors).IsEmpty();
+        // The payoff: Failed -> Verified through both-hash verification — what the repair
+        // reload path (KeyboardCoordinator's swap patch + live compare) consumes.
+        Check.That(registry.GetVerification("135M"))
+            .IsEqualTo(ModelVerificationOutcome.Verified);
+    }
+
+    /// <summary>Serves per-file bytes: the tokenizer URL gets the tokenizer bytes, every other
+    /// request (the model's) gets the ONNX bytes — so what the hash gate sees is byte-identical
+    /// to a real transport serving those files.</summary>
+    private sealed class FakeServingHandler(byte[] onnxBytes, byte[] tokBytes) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(
+                    request.RequestUri?.AbsolutePath.Contains("tokenizer") == true
+                        ? tokBytes
+                        : onnxBytes)
+            });
     }
 }

@@ -605,6 +605,7 @@ public class ToolbarAutoHideControllerTests
         public void HideToolbar(bool paused) { HideCalls++; LastHidePaused = paused; }
         public void ForceShow() => ForceShowCalls++;
         public void PositionIndicator(string edge) { }
+        public void SetPauseIndicator(bool visible) { }
         public void SetActive(bool active) => SetActiveCalls.Add(active);
     }
 }

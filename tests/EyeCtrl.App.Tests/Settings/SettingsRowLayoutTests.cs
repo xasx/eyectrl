@@ -469,6 +469,32 @@ public class SettingsRowLayoutTests
     }
 
     /// <summary>
+    /// <c>SeparatorRow</c> is the second <see cref="IDwellComposite"/> implementer outside
+    /// EyeCtrl.Controls, so the same two things the labelled-row pin above holds there hold here:
+    /// <see cref="IDwellComposite.Children"/> hands out ONE cached object (a readonly field, never
+    /// a collection expression — <c>=&gt; []</c> would allocate once per separator per gaze frame in
+    /// <c>SettingsWindow.UpdateAllTargetPositions</c>), and the list is EMPTY because a rule
+    /// registers no dwell target. <c>DwellCompositeChildrenStabilityTests</c> in
+    /// EyeCtrl.Controls.Tests names this test in its census.
+    /// </summary>
+    [StaFact]
+    public void ASeparatorRow_HasCachedEmptyChildren_AndAttaches()
+    {
+        var composite = (IDwellComposite)SettingsWindow.CreateControl(
+            new SeparatorSpec(), new SettingsAutoPagination.NoopDwellRegistrar(),
+            RadiusPhysical, DwellMs, WideColumnWidth);
+
+        var first = composite.Children;
+        var second = composite.Children;
+        Check.That(first).IsEmpty();
+        Check.That(ReferenceEquals(first, second)).IsTrue();
+
+        var host = new System.Windows.Controls.Grid();
+        composite.Attach(host);
+        Check.That(host.Children.Count).IsEqualTo(1);
+    }
+
+    /// <summary>
     /// No dwell child may be DRAWN outside the row that hosts it, at either column width.
     ///
     /// <para>

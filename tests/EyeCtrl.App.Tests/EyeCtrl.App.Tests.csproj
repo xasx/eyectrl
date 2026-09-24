@@ -27,6 +27,10 @@
     -->
     <Compile Include="..\TestSupport\TempTestDirectory.cs"
              Link="TestSupport\TempTestDirectory.cs" />
+    <!-- Shared valid-tokenizer fixture (same shared-home rule as above); compiled into this
+         assembly under its own namespace (EyeCtrl.LM.Tests). -->
+    <Compile Include="..\TestSupport\TestTokenizerJson.cs"
+             Link="TestSupport\TestTokenizerJson.cs" />
     <Compile Include="..\TestSupport\DpiHelperRestoreAttribute.cs"
              Link="TestSupport\DpiHelperRestoreAttribute.cs" />
     <Compile Include="..\TestSupport\DpiHelperScaleObserverAttribute.cs"

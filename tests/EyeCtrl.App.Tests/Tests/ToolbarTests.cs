@@ -44,7 +44,7 @@ public class ToolbarTests
         var pauseBtn = await _fixture.WaitForElementAsync(toolbar, "Toolbar_Button_Pause", TimeSpan.FromSeconds(5));
 
         await _fixture.SimulateDwellOn(pauseBtn);
-        // The indicator shows only after the toolbar's slide-out ANIMATION completes — poll.
+        // The indicator is commanded on the pause flip; wait for it.
         await _fixture.WaitForPauseIndicatorAsync(visible: true);
 
         // Cleanup — unpause through the product's path: summon the band, dwell Play.

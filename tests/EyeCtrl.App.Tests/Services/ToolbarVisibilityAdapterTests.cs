@@ -213,13 +213,15 @@ public class ToolbarVisibilityAdapterTests
     }
 
     /// <summary>
-    /// The indicator is a handover, not a swap: it must appear only once the band has cleared.
-    /// This is the only test covering HideToolbar's paused:true branch, and the show call now
-    /// lives inside the slide's completion callback.
+    /// HideToolbar is strip-neutral (spec H1): the strip's visibility is commanded only through
+    /// SetPauseIndicator, so a band sliding out while paused must leave an already-commanded
+    /// strip alone — visible before, during, and after the slide. This is the real-window half
+    /// of the contract; the headless file's HideToolbar_NeitherShowsNorHidesNorRaisesTheStrip
+    /// pins the no-indicator-calls half.
     /// </summary>
     [StaFact]
     [Trait("Category", "UI")]
-    public void HideToolbar_WhenPaused_ShowsTheIndicator_OnlyAfterTheSlideCompletes()
+    public void HideToolbar_WhilePaused_LeavesACommandedStripVisible()
     {
         EnsureApplicationWithTokens();
 
@@ -238,15 +240,20 @@ public class ToolbarVisibilityAdapterTests
             PumpDispatcher();
             toolbar.SetMode(isDocked: true, edge: "Top");
 
+            // The command — not the band hide — is what shows the strip.
+            adapter.SetPauseIndicator(true);
+            PumpDispatcher();
+            Check.That(indicator.IsVisible).IsTrue();
+
             adapter.HideToolbar(paused: true);
             PumpDispatcher();
 
-            Check.That(indicator.IsVisible).IsFalse();   // band still on its way out
+            Check.That(indicator.IsVisible).IsTrue();   // mid-slide: the leaving band does not touch it
 
             toolbar.CompleteSlideForTest();
             PumpDispatcher();
 
-            Check.That(indicator.IsVisible).IsTrue();
+            Check.That(indicator.IsVisible).IsTrue();   // and the completion callback does not either
         }
         finally
         {

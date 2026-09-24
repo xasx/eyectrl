@@ -42,6 +42,7 @@ public class ToolbarAutoHideGeometryTests
         public void ForceShow() { }
         public void SetActive(bool active) { }
         public void PositionIndicator(string edge) { }
+        public void SetPauseIndicator(bool visible) { }
     }
 
     [Fact]

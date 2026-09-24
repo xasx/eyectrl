@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Tests.Services.Coordinators;
 
+using System.IO;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.Core.Models;
@@ -99,6 +100,44 @@ public class ToolbarLifecycleCoordinatorTests
         c.ReassertVisibility();
         c.PositionIndicator("bottom");
         c.RefreshToolbarRect();
+    }
+
+    [Fact]
+    public void PauseIndicatorWiring_MirrorCommandsStrip_AndStartupPushStaysAfterShowOverlays()
+    {
+        var root = SourceScanner.RepoRoot().FullName;
+
+        var coordinator = File.ReadAllText(Path.Combine(root,
+            "src", "EyeCtrl.App", "Services", "Coordinators", "ToolbarLifecycleCoordinator.cs"));
+        Check.WithCustomMessage(
+                "The StateChangedMessage mirror no longer commands the pause strip. Without it, "
+                + "an unpause with the band visible never dismisses the strip (spec H1).")
+            .That(coordinator.Contains("SetPauseIndicator(paused);")).IsTrue();
+
+        var app = File.ReadAllText(Path.Combine(root, "src", "EyeCtrl.App", "App.xaml.cs"));
+        var showOverlays = app.IndexOf("ShowOverlays(splash, cursorCircle, toolbar, settings);",
+            StringComparison.Ordinal);
+        var togglePause = app.IndexOf("im.TogglePause();", StringComparison.Ordinal);
+        // Each marker is asserted present BEFORE the ordering comparison: with only one marker
+        // missing, IndexOf yields -1 and `N > -1` is TRUE — the ordering check would pass
+        // vacuously and silently disarm the O4 pin. (-1 > -1 is false, but that covers only
+        // the both-missing case.)
+        Check.WithCustomMessage(
+                "The ShowOverlays(splash, cursorCircle, toolbar, settings); marker is gone from "
+                + "App.xaml.cs. If the call's argument list changed, update the literal here — "
+                + "do not leave the ordering check comparing against -1.")
+            .That(showOverlays).IsGreaterOrEqualThan(0);
+        Check.WithCustomMessage(
+                "The im.TogglePause(); marker is gone from App.xaml.cs. If the startup pause push "
+                + "moved or was renamed, update the literal here — do not leave the ordering "
+                + "check comparing against -1.")
+            .That(togglePause).IsGreaterOrEqualThan(0);
+        Check.WithCustomMessage(
+                "The startup pause push must stay AFTER ShowOverlays (spec O4): the startup band "
+                + "show bypasses the adapter, so on --paused/startPaused launches the strip's "
+                + "show+raise lands in the TogglePause call — moving it before ShowOverlays "
+                + "hides the strip under the band.")
+            .That(togglePause).IsStrictlyGreaterThan(showOverlays);
     }
 
     private static ToolbarAutoHideController NewAutoHide() => new(

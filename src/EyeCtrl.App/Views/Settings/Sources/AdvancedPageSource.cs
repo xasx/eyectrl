@@ -30,7 +30,7 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
                 new SliderSpec("av_backdrop_opacity", "Backdrop Opacity", 0.1, 0.9, 0.05, 2,
                     () => backdrop.Opacity, v => { backdrop.Opacity = v; _ctx.ApplyAndSave(); })
                     { Description = "How dark the backdrop is — only Solid Darken uses this; applies from the next open." },
-                new LabelSpec(() => new string('\u2500', 50), Wrap: false),
+                new SeparatorSpec(),
                 // Drag
                 new SliderSpec("av_drag_settle", "Drag Settle Dwell (ms)", 200, 2000, 50, 0,
                     () => drag.SettleDwellMs, v => { drag.SettleDwellMs = (int)v; _ctx.ApplyAndSave(); })
@@ -45,17 +45,17 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
                 new SliderSpec("av_drag_opacity", "Drag Trail Opacity", 0.1, 1.0, 0.05, 2,
                     () => drag.TrailOpacity, v => { drag.TrailOpacity = v; _ctx.ApplyAndSave(); })
                     { Description = "How visible the drag trail is." },
-                new LabelSpec(() => new string('\u2500', 50), Wrap: false),
+                new SeparatorSpec(),
                 // Scroll
                 new SliderSpec("av_scroll_sens", "Scroll Sensitivity", 0.5, 2.0, 0.1, 1,
                     () => scroll.Sensitivity, v => { scroll.Sensitivity = v; _ctx.ApplyAndSave(); })
                     { Description = "How fast gaze scrolling moves through documents." },
-                new LabelSpec(() => new string('\u2500', 50), Wrap: false),
+                new SeparatorSpec(),
                 // Repeat
                 new SliderSpec("av_repeat_dwell", "Repeat Dwell (ms)", 200, 2000, 50, 0,
                     () => repeat.DwellMs, v => { repeat.DwellMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = "How long to hold your gaze on a target before the locked action fires there." },
-                new LabelSpec(() => new string('\u2500', 50), Wrap: false),
+                new SeparatorSpec(),
                 // External Dwell
                 new ToggleSpec("av_ext_enabled", "Enable External Dwell",
                     () => ext.Enabled, v => { ext.Enabled = v; _ctx.ApplyAndSave(); })

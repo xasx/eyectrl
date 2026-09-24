@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Views.Settings;
 
 using EyeCtrl.App.Services;
+using EyeCtrl.Core.Prediction;
 
 /// <summary>
 /// The Models tab. Dynamic: content depends on the live
@@ -31,20 +32,33 @@ internal sealed class ModelsPageSource : ISettingsPageSource
         // looking at this tab. Null-guarded: some headless contexts build without services.
         if (_ctx.ModelManagement is not null)
             _ctx.ModelManagement.DownloadProgressChanged += OnDownloadProgress;
+        // Live verification verdicts: the ledger's Failed is what renders the repair row below,
+        // and it is written after the download completes and the stack build classifies — i.e.
+        // AFTER this page was last built. Same thread caveat and same null guard as above.
+        if (_ctx.Registry is not null)
+            _ctx.Registry.VerificationChanged += OnVerificationChanged;
     }
 
     /// <summary>
-    /// Unsubscribes the progress handler. The window is constructed per open while the
-    /// management service is a singleton — without this, every settings visit would add
-    /// another subscription to the surviving service. Called from SettingsWindow.Closed.
+    /// Unsubscribes the progress and verification handlers. The window is constructed per open
+    /// while the management service and the registry are singletons — without this, every
+    /// settings visit would add another subscription to the surviving service. Called from
+    /// SettingsWindow.Closed.
     /// </summary>
     internal void Detach()
     {
         if (_ctx.ModelManagement is not null)
             _ctx.ModelManagement.DownloadProgressChanged -= OnDownloadProgress;
+        _ctx.Registry?.VerificationChanged -= OnVerificationChanged;
     }
 
     private void OnDownloadProgress()
+    {
+        if (_ctx.ViewModel?.Settings.CurrentTabName == "Models")
+            _ctx.Invoke(_ctx.RebuildContent);
+    }
+
+    private void OnVerificationChanged()
     {
         if (_ctx.ViewModel?.Settings.CurrentTabName == "Models")
             _ctx.Invoke(_ctx.RebuildContent);
@@ -107,28 +121,29 @@ internal sealed class ModelsPageSource : ISettingsPageSource
                 { Description = "Which model powers predictions; Off keeps dictionary words." });
         }
 
-        page1.Add(new LabelSpec(() => new string('\u2500', 50), Wrap: false));
+        page1.Add(new SeparatorSpec());
 
         foreach (var entry in _ctx.Registry.Registry.Values.OrderBy(e => e.SizeBytes))
         {
-            if (_ctx.Registry.IsModelDownloaded(entry.Id))
+            // In-flight takes precedence over BOTH branches: a repair re-download keeps the
+            // files present throughout (File.Move(overwrite:true) at the end), so gating the
+            // progress line on !IsModelDownloaded made it unreachable exactly when a repair
+            // runs (spec review L3).
+            if (_ctx.ModelManagement is not null && entry.Id == _ctx.ModelManagement.CurrentDownloadId)
             {
-                var e1 = entry;
-                page1.Add(new LabelSpec(() => $"  {e1.DisplayName}  {FormatSize(e1.SizeBytes)}  \u2713 Downloaded"));
-            }
-            else
-            {
-                var e2 = entry;
                 // In flight: a live progress line instead of the button — the download IS
                 // running, and a button that stays "[Download]" with nothing happening is what
                 // read as "models do not download". The label re-evaluates on every
                 // progress-driven rebuild (~2 Hz, see OnDownloadProgress).
-                if (e2.Id == _ctx.ModelManagement.CurrentDownloadId)
-                {
-                    page1.Add(new LabelSpec(() =>
-                        $"⇣ {e2.DisplayName}  downloading… {_ctx.ModelManagement.CurrentDownloadProgress:P0}"));
-                    continue;
-                }
+                var eInFlight = entry;
+                page1.Add(new LabelSpec(() =>
+                    $"⇣ {eInFlight.DisplayName}  downloading… {_ctx.ModelManagement.CurrentDownloadProgress:P0}"));
+                continue;
+            }
+
+            if (!_ctx.Registry.IsModelDownloaded(entry.Id))
+            {
+                var e2 = entry;
                 // 544 = the widest the 560 DIP content column holds (ConstrainToContentWidth
                 // clamps on narrower displays): one line for every bundled label except the
                 // GPU one, which wraps to two centered lines rather than clipping.
@@ -147,10 +162,49 @@ internal sealed class ModelsPageSource : ISettingsPageSource
                             () => _ = DownloadBundledAsync(e2.Id, e2.Url, e2.Sha256, e2.TokenizerUrl, e2.TokenizerSha256));
                     },
                     ButtonKind.Default, Width: 544, Height: 100));
+                continue;
             }
+
+            if (_ctx.Registry.GetVerification(entry.Id) != ModelVerificationOutcome.Failed)
+            {
+                var e1 = entry;
+                page1.Add(new LabelSpec(() =>
+                    $"  {e1.DisplayName}  {FormatSize(e1.SizeBytes)}  ✓ Downloaded"));
+                continue;
+            }
+
+            // Spec O3: cause-neutral copy — the verdict is availability-derived and includes
+            // non-integrity failures, so the row must not claim "integrity" nor promise that a
+            // re-download fixes every cause; it is the right FIRST remedy for the common case.
+            // Known and accepted (spec review L7): a hash-clean-but-unusable model will come
+            // back Failed after a re-download; the log line distinguishes the cause and the
+            // spec declined a cause bit.
+            var e3 = entry;
+            // Height 106, not the 100 DIP every other Models button uses: this label wraps to
+            // THREE centered lines (95.77 DIP at FontSizeTitle), and DwellButton's dwell
+            // progress bar takes the bottom 6 DIP, so a 100 DIP button leaves the label row 94
+            // and clips ~1.8 DIP of the third line — the line whose tail carries the "dwell to
+            // re-download" instruction. 106 gives the label its full 100. The 100 DIP WYSIWYG
+            // floor is a floor, not a cap, and CreateControl derives the row inset from the
+            // height, so the 150 DIP row pitch and the circle's 75 DIP centre are unchanged.
+            page1.Add(new ButtonSpec($"md_fix_{entry.Id}",
+                $"⚠ {e3.DisplayName} — model unusable · predictions fall back to dictionary · dwell to re-download",
+                () =>
+                {
+                    // L3: same busy guard as the download arm — refuse BEFORE the modal.
+                    if (_ctx.ModelManagement.IsDownloading)
+                    {
+                        _ctx.ShowError("Another download is already in progress.");
+                        return;
+                    }
+                    _ctx.ShowModal(
+                        $"Re-download {e3.DisplayName} ({FormatSize(e3.SizeBytes)})? This replaces the files on disk.",
+                        () => _ = DownloadBundledAsync(e3.Id, e3.Url, e3.Sha256, e3.TokenizerUrl, e3.TokenizerSha256));
+                },
+                ButtonKind.Danger, Width: 544, Height: 106));
         }
 
-        page1.Add(new LabelSpec(() => new string('\u2500', 50), Wrap: false));
+        page1.Add(new SeparatorSpec());
         page1.Add(new ButtonSpec("md_add", "\uff0b Add Custom Model (paste URL)",
             DownloadCustomFromClipboard, ButtonKind.Default, Width: 440, Height: 100));
 

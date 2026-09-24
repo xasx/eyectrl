@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests.Services;
 
 using System.IO;
 using EyeCtrl.App.Services;
+using EyeCtrl.App.Tests.Settings.Pages;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
 
@@ -71,7 +72,7 @@ public class PredictionStackBackgroundTests : IDisposable
     {
         using var factory = NewBackgroundFactory();
         var swappedSeen = new List<PredictionOrchestrator?>();
-        factory.StackSwapped += o => swappedSeen.Add(o);
+        factory.StackSwapped += (o, _) => swappedSeen.Add(o);
 
         var immediate = factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
 
@@ -146,7 +147,7 @@ public class PredictionStackBackgroundTests : IDisposable
         // is in place for every event (the previous version subscribed after the pump and
         // asserted 0 == 0 — it could not fail).
         var swappedSeen = 0;
-        factory.StackSwapped += _ => swappedSeen++;
+        factory.StackSwapped += (_, _) => swappedSeen++;
 
         // Two rebuilds before the UI runs anything: generation 2 supersedes generation 1 while
         // both continuations sit in the queue. Exactly ONE swap may land.
@@ -170,7 +171,7 @@ public class PredictionStackBackgroundTests : IDisposable
         Check.That(factory.Current).IsNotNull();
 
         var swapped = new List<PredictionOrchestrator?>();
-        factory.StackSwapped += o => swapped.Add(o);
+        factory.StackSwapped += (o, _) => swapped.Add(o);
 
         var settings = Settings();
         settings.Keyboard.PredictionEnabled = false;
@@ -187,7 +188,7 @@ public class PredictionStackBackgroundTests : IDisposable
     {
         using var factory = NewBackgroundFactory();
         var swaps = new List<PredictionOrchestrator?>();
-        factory.StackSwapped += o => swaps.Add(o);
+        factory.StackSwapped += (o, _) => swaps.Add(o);
 
         factory.Rebuild(Settings(), _baseDir, _appDataDir, modelRegistry: null);
         // No Pump(): the build finishes on the pool thread and its continuation may queue, but
@@ -248,7 +249,7 @@ public class PredictionStackBackgroundTests : IDisposable
         var serving = factory.Current;
 
         var swaps = new List<PredictionOrchestrator?>();
-        factory.StackSwapped += o => swaps.Add(o);
+        factory.StackSwapped += (o, _) => swaps.Add(o);
 
         // Generation 1: wait until its marshal is ENQUEUED — that means its pool-thread
         // generation check has already passed.
@@ -287,5 +288,123 @@ public class PredictionStackBackgroundTests : IDisposable
         Check.That(PredictionStackFactory.VerifyFileSha256(path, correct.ToLowerInvariant())).IsTrue();
         Check.That(PredictionStackFactory.VerifyFileSha256(
             Path.Combine(_appDataDir, "missing.txt"), correct)).IsFalse(); // fail closed
+    }
+
+    // ── Verdict publication (plan review C3/N7: only the WINNING swap publishes) ─────────
+
+    // Plan review N7 + R1: only the WINNING swap publishes (round-1 C3), and the test must be
+    // able to FAIL for exactly that regression. The two builds therefore DISAGREE: build #1's
+    // seam returns an AVAILABLE stub (classifies Verified — the dangerous verdict), build #2's
+    // an UNAVAILABLE one (classifies Failed) and wins. Deterministic shape: the draft's
+    // thread-pool interleaving (loser parked inside the seam, finishing last) raced WHICH
+    // build got seam call #1 — when the winner parked instead, Pump() deadlocked for 10s in
+    // 4 of 5 runs. Instead, build #1 first runs all the way to its ENQUEUED marshal, THEN
+    // Rebuild #2 supersedes it (so seam call #2 is provably the winner's), and only the
+    // WINNER parks in the seam — until the stale marshal #1 has been drained through its
+    // discard branch. A mutation that writes the ledger inside Build still fails this: the
+    // loser's Verified would be readable BEFORE any swap has published (the winner is parked,
+    // so nothing legitimate has written yet) — the mid-test NotYetVerified check pins that.
+    [Fact]
+    public void SupersededBuild_PublishesNothing_LoserFinishingLastWritesNothing()
+    {
+        using var scope = ModelTestFakes.Create();
+        var (registry, _) = scope.WithHashedDownloadedBundled();
+
+        var winnerMayFinish = new ManualResetEventSlim(false);
+        var seamCalls = 0;
+        var swaps = new List<(PredictionOrchestrator? Orchestrator,
+            (string ModelId, ModelVerificationOutcome Outcome)? Verification)>();
+
+        var factory = new PredictionStackFactory(work => _uiQueue.Enqueue(work))
+        {
+            PredictorFactoryOverride = (_, _, _, _) =>
+            {
+                if (Interlocked.Increment(ref seamCalls) == 1)
+                    return new AvailableLmPredictor();   // build #1: classifies Verified
+                winnerMayFinish.Wait();                  // build #2 parks in the seam
+                return new UnavailableLmPredictor();     // classifies Failed — the winner
+            },
+        };
+        var swapsGuard = new object();
+        factory.StackSwapped += (o, v) => { lock (swapsGuard) swaps.Add((o, v)); };
+
+        var settings = Settings();
+        settings.Keyboard.MLSuggestionsEnabled = true;
+        settings.Keyboard.MLModelSize = "135M";
+
+        // Build #1 runs to completion on the pool. Wait until its marshal is ENQUEUED — that
+        // means its pool-thread generation check has already passed (the same window as
+        // GenerationAdvanceBetweenPoolCheckAndMarshal_TheStaleMarshalIsDropped).
+        factory.Rebuild(settings, _baseDir, _appDataDir, registry);
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (_uiQueue.Count == 0 && DateTime.UtcNow < deadline)
+            Thread.Sleep(10);
+        Check.WithCustomMessage("build #1 marshal never enqueued").That(_uiQueue.Count).IsStrictlyGreaterThan(0);
+
+        // Build #2 supersedes it and parks in the seam — deterministic, because Rebuild #2 is
+        // issued only after build #1's seam call already returned (marshal #1 is downstream
+        // of it), so seam call #2 is always the winner's.
+        factory.Rebuild(settings, _baseDir, _appDataDir, registry);
+
+        // Run the stale marshal #1: its UI-side re-check sees generation 2 and must DISCARD
+        // the superseded orchestrator (disposing its LM, PredictionOrchestrator.cs:150) and
+        // publish NOTHING — no event, no ledger write.
+        _uiQueue.Dequeue()();
+        lock (swapsGuard) Check.That(swaps.Count).IsEqualTo(0);
+        // Nothing has legitimately published yet (the winner is parked in the seam), so any
+        // verdict in the ledger here was written by Build/classification itself — exactly the
+        // C3 regression this test exists to catch (the loser's Verified leaking out).
+        Check.That(registry.GetVerification("135M"))
+            .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
+
+        // Release the winner: it finishes, swaps, and publishes Failed — exactly one swap,
+        // and the ledger holds the winner's verdict, not the loser's.
+        winnerMayFinish.Set();
+        Pump();
+
+        lock (swapsGuard) Check.That(swaps.Count).IsEqualTo(1);
+        Check.That(registry.GetVerification("135M"))
+            .IsEqualTo(ModelVerificationOutcome.Failed);
+    }
+
+    private sealed class AvailableLmPredictor : ILanguageModelPredictor
+    {
+        public bool IsAvailable => true;
+        public void Predict(string context, string? prefix = null) { }
+        public IReadOnlyList<PredictionResult>? TryGetResults() => null;
+        public void Cancel() { }
+        public void Dispose() { }
+    }
+
+    private sealed class UnavailableLmPredictor : ILanguageModelPredictor
+    {
+        public bool IsAvailable => false;
+        public void Predict(string context, string? prefix = null) { }
+        public IReadOnlyList<PredictionResult>? TryGetResults() => null;
+        public void Cancel() { }
+        public void Dispose() { }
+    }
+
+    // The winning swap's event argument equals the value written to the ledger — the two
+    // publication channels cannot disagree.
+    [Fact]
+    public void WinningSwap_EventVerdict_MatchesLedger()
+    {
+        using var scope = ModelTestFakes.Create();
+        var (registry, _) = scope.WithHashedDownloadedBundled();
+        var factory = NewBackgroundFactory();
+        (string ModelId, ModelVerificationOutcome Outcome)? eventVerdict = null;
+        factory.StackSwapped += (_, v) => eventVerdict = v;
+
+        var settings = Settings();
+        settings.Keyboard.MLSuggestionsEnabled = true;
+        settings.Keyboard.MLModelSize = "135M";
+        factory.Rebuild(settings, _baseDir, _appDataDir, registry);
+        Pump();
+
+        // R3: NFluent-on-nullable-tuple is not a known overload — use HasValue.
+        Check.That(eventVerdict.HasValue).IsTrue();
+        Check.That(registry.GetVerification(eventVerdict!.Value.ModelId))
+            .IsEqualTo(eventVerdict.Value.Outcome);
     }
 }

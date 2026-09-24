@@ -21,6 +21,10 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
     // on the first re-assert.
     private bool _lastVisible = true;
 
+    // The strip's commanded state (spec H1): owned HERE, edge-guarded in SetPauseIndicator, and
+    // read by the band show paths only to decide whether to re-raise the strip above the band.
+    private bool _pauseIndicatorVisible;
+
     /// <summary>
     /// Fires once per real show/hide transition, ON the UI thread (inside each dispatcher
     /// lambda, after the window calls). Re-asserts — SetPaused/ReassertVisibility call the
@@ -44,10 +48,23 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
         VisibilityChanged?.Invoke(visible);
     }
 
+    public void SetPauseIndicator(bool visible) => _dispatcher.BeginInvoke(() =>
+    {
+        if (_pauseIndicatorVisible == visible) return; // StateChangedMessage fires per gaze flip
+        _pauseIndicatorVisible = visible;
+        if (visible)
+        {
+            _overlays.PauseIndicator.Show();
+            _overlays.PauseIndicator.RaiseToTop();
+        }
+        else
+        {
+            _overlays.PauseIndicator.Hide();
+        }
+    });
+
     public void ShowToolbar() => _dispatcher.BeginInvoke(() =>
     {
-        // Indicator first, so it is not underneath the incoming band.
-        _overlays.PauseIndicator.Hide();
         // Clock attached, then Show, then arm — arming is SYNCHRONOUS and deliberately not
         // deferred to the slide's completion: a summon already costs 400 ms of dwell, and the
         // targets are at their correct resting coordinates throughout, so up to 200 ms where a
@@ -63,6 +80,11 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
         // floating (zero slide vector) or already on screen.
         Log.Information("Toolbar summoned: slide-in {Mode}",
             _overlays.Toolbar.IsSliding ? "animating" : "instant");
+        // The strip stays above a band shown after it (spec N2/H3): RaiseToTop is uncontested
+        // for the whole slide — the slide animates a TranslateTransform (render transform), so
+        // the band's HWND z-order never changes during it (review O6).
+        if (_pauseIndicatorVisible)
+            _overlays.PauseIndicator.RaiseToTop();
         OnVisibilityChanged(true);
     });
 
@@ -74,15 +96,9 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
         _toolbarVm.SetActive(false);
         _overlays.Toolbar.SlideOutThenHide(() =>
         {
-            // After the band has cleared, so the indicator reads as a handover rather than a swap.
-            if (paused)
-            {
-                _overlays.PauseIndicator.Show();
-            }
-            else
-            {
-                _overlays.PauseIndicator.Hide();
-            }
+            // The strip is deliberately NOT touched here: its visibility is commanded only
+            // through SetPauseIndicator (spec H1) — a band leaving has nothing to say about it.
+            //
             // The hide completes inside this callback (the instant short-circuit included), so
             // the transition event fires with it — the keyboard un-yields only after the band
             // has cleared, mirroring the show path's after-the-window-call ordering.
@@ -113,7 +129,11 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
         // dock toggle — exists because the user needs the toolbar now. ShowAtRest also cancels any
         // in-flight slide and defuses its pending Hide().
         _overlays.Toolbar.ShowAtRest();
-        _overlays.PauseIndicator.Hide();
+        // Same raise as ShowToolbar (spec N2/H3): a commanded strip stays above the band. There is
+        // no slide to stay uncontested through — ShowAtRest is instant — so the raise simply
+        // follows the show.
+        if (_pauseIndicatorVisible)
+            _overlays.PauseIndicator.RaiseToTop();
         _toolbarVm.SetActive(true);
         OnVisibilityChanged(true);
     });

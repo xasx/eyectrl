@@ -12,15 +12,25 @@ namespace EyeCtrl.App.Services;
 /// </remarks>
 public interface IToolbarVisibility
 {
-    /// <summary>Shows the toolbar (and hides the pause indicator if it was up).</summary>
+    /// <summary>Shows the toolbar (animated slide-in). Raises the pause indicator back above the
+    /// band iff it is commanded visible (see <see cref="SetPauseIndicator"/>).</summary>
     void ShowToolbar();
 
-    /// <summary>Hides the toolbar. Shows the pause indicator iff <paramref name="paused"/> is true.</summary>
-    /// <param name="paused">Whether the app is currently paused (controls the edge bar).</param>
+    /// <summary>Hides the toolbar. The pause indicator is NOT touched — its visibility is
+    /// commanded only through <see cref="SetPauseIndicator"/>.</summary>
+    /// <param name="paused">Whether the app is currently paused (logged with the hide; controls the edge bar's state elsewhere).</param>
     void HideToolbar(bool paused);
 
-    /// <summary>Force-shows the toolbar and hides the pause indicator (tray fallback / suspend-recover).</summary>
+    /// <summary>Force-shows the toolbar instantly (tray fallback / suspend-recover). Raises the
+    /// pause indicator back above the band iff it is commanded visible.</summary>
     void ForceShow();
+
+    /// <summary>
+    /// Commands the pause edge strip's visibility. The strip's state lives HERE (edge-guarded),
+    /// not in band show/hide paths: every pause flip produces exactly one command (spec H1 —
+    /// unpause with the band up must dismiss it; nothing else will).
+    /// </summary>
+    void SetPauseIndicator(bool visible);
 
     /// <summary>Repositions the pause indicator along the given docked edge ("Top"/"Bottom"/"Left"/"Right").</summary>
     void PositionIndicator(string edge);

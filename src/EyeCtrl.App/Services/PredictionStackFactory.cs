@@ -72,11 +72,14 @@ public class PredictionStackFactory : IDisposable
 
     /// <summary>
     /// Raised on the UI THREAD (through the constructor's marshal) after a background build
-    /// swapped a new stack in — including a swap to <c>null</c>. Subscribers re-bind their
-    /// consumer (KeyboardCoordinator calls <c>SetOrchestrator</c>). Not raised in synchronous
-    /// mode: the caller already holds the returned stack.
+    /// swapped a new stack in — including a swap to <c>null</c>. The second argument is the
+    /// verdict THE SWAPPED BUILD reported, or null when it verified nothing (prediction off,
+    /// model off/absent, no manifest hash, swap-to-null). Subscribers re-bind their consumer
+    /// and patch the stored snapshot (KeyboardCoordinator). Not raised in synchronous mode:
+    /// the caller already holds the returned stack, and the sync branch reports to the ledger
+    /// directly.
     /// </summary>
-    public event Action<PredictionOrchestrator?>? StackSwapped;
+    public event Action<PredictionOrchestrator?, (string ModelId, ModelVerificationOutcome Outcome)?>? StackSwapped;
 
     public PredictionStackFactory(Action<Action>? postToUi = null)
     {
@@ -84,6 +87,12 @@ public class PredictionStackFactory : IDisposable
     }
 
     public PredictionOrchestrator? Current => _current;
+
+    /// <summary>Test override for predictor construction. Production: null — the real
+    /// SmallLMPredictor(modelsDir, modelSize, preferGPU, tokenizer, modelPath) runs inside
+    /// Build.</summary>
+    internal Func<string, bool, LMTokenizer?, string, ILanguageModelPredictor?>?
+        PredictorFactoryOverride { get; init; }
 
     public PredictionOrchestrator? Rebuild(
         EyeCtrlSettings settings,
@@ -102,7 +111,7 @@ public class PredictionStackFactory : IDisposable
             SaveAndDisposeCurrent();
             _current = null;
             if (_postToUi is not null)
-                _postToUi(() => StackSwapped?.Invoke(null));
+                _postToUi(() => StackSwapped?.Invoke(null, null));
             return null;
         }
 
@@ -116,8 +125,14 @@ public class PredictionStackFactory : IDisposable
             // there is no stale-disk window to correct (the asymmetry with the swap is real but
             // not an omission — stamps from this mode simply expire at any later background swap).
             SaveAndDisposeCurrent();
-            _current = Build(settings, baseDir, appDataDir, modelRegistry, CancellationToken.None);
-            return _current;
+            var (orchestrator, verification) = Build(settings, baseDir, appDataDir, modelRegistry, CancellationToken.None);
+            _current = orchestrator;
+            // Single-threaded here — no discard window: report to the ledger immediately, then
+            // hand the caller the stack it just built.
+            if (verification is not null && modelRegistry is not null)
+                modelRegistry.ReportVerification(
+                    verification.Value.ModelId, verification.Value.Outcome);
+            return orchestrator;
         }
 
         // Background mode. Snapshot the old stack's full learned state NOW, on the caller's (UI)
@@ -154,14 +169,19 @@ public class PredictionStackFactory : IDisposable
                         return;
                     }
 
-                    var built = t.IsCanceled ? null : t.Result;
-                    if (built is null || _disposed || Volatile.Read(ref _buildGeneration) != generation)
+                    // Explicit type: a ternary between null and the (value-tuple) result has no
+                    // natural type (same trap as Build's `verification` local).
+                    (PredictionOrchestrator? Orchestrator, (string ModelId, ModelVerificationOutcome Outcome)? Verification)? built =
+                        t.IsCanceled ? null : t.Result;
+                    var orchestrator = built?.Orchestrator;
+                    var swapVerdict = built?.Verification;
+                    if (orchestrator is null || _disposed || Volatile.Read(ref _buildGeneration) != generation)
                     {
                         // Superseded by a newer rebuild, cancelled by Dispose, or shutting down.
                         // DISCARD AND DISPOSE: a discarded stack still owns an LM predictor
                         // (an ONNX InferenceSession is native memory) — dropping the reference
                         // without Dispose leaks it.
-                        built?.Dispose();
+                        orchestrator?.Dispose();
                         return;
                     }
 
@@ -171,11 +191,18 @@ public class PredictionStackFactory : IDisposable
                         // continuation waited for the UI thread.
                         if (_disposed || Volatile.Read(ref _buildGeneration) != generation)
                         {
-                            built.Dispose();
+                            orchestrator.Dispose();
                             return;
                         }
-                        SwapInWithLearnedTail(built, before, generation);
-                        StackSwapped?.Invoke(_current);
+                        SwapInWithLearnedTail(orchestrator, before, generation);
+
+                        // Publication point (plan review C3): the build CLASSIFIED; only the
+                        // winning swap reports — to the ledger and to the swap event — so a
+                        // superseded build can never write Failed over a repair's Verified.
+                        if (swapVerdict is not null && modelRegistry is not null)
+                            modelRegistry.ReportVerification(
+                                swapVerdict.Value.ModelId, swapVerdict.Value.Outcome);
+                        StackSwapped?.Invoke(_current, swapVerdict);
                     });
                 },
                 TaskScheduler.Default);
@@ -320,7 +347,23 @@ public class PredictionStackFactory : IDisposable
         return result;
     }
 
-    private static PredictionOrchestrator? Build(
+    /// <summary>
+    /// The whole C2 decision in one pure function (plan review M1 — table-tested, so a
+    /// mutation of any cause fails). Returns whether the verdict should be REPORTED at all:
+    /// a model that is absent or not hash-gated is exempt (custom models never carry a hash).
+    /// </summary>
+    internal static (bool Reports, ModelVerificationOutcome Outcome) ClassifyLmOutcome(
+        bool modelFileExists, bool hashGated, bool hashOk,
+        bool predictorAvailable, bool tokenizerLoaded)
+    {
+        if (!modelFileExists || !hashGated)
+            return (false, ModelVerificationOutcome.NotYetVerified);
+        if (!hashOk || !predictorAvailable || !tokenizerLoaded)
+            return (true, ModelVerificationOutcome.Failed); // N3: Failed IS published
+        return (true, ModelVerificationOutcome.Verified);
+    }
+
+    private (PredictionOrchestrator? Orchestrator, (string ModelId, ModelVerificationOutcome Outcome)? Verification) Build(
         EyeCtrlSettings settings,
         string baseDir,
         string appDataDir,
@@ -328,6 +371,10 @@ public class PredictionStackFactory : IDisposable
         CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
+
+        // Declared BEFORE the prediction-disabled early-outs and the LM block; stays null for
+        // every path that verifies nothing.
+        (string ModelId, ModelVerificationOutcome Outcome)? verification = null;
 
         var langCode = settings.Keyboard.LanguagePack;
         if (!KeyboardSettings.IsValidLanguagePack(langCode))
@@ -408,29 +455,59 @@ public class PredictionStackFactory : IDisposable
                 }
 
                 var modelPath = modelRegistry.GetModelPath(modelSize);
+                var expectedModelHash = modelRegistry.GetModelSha256(modelSize);
+
+                (bool Reports, ModelVerificationOutcome Outcome) verdict =
+                    (false, ModelVerificationOutcome.NotYetVerified);
 
                 // Same load-time check for the model itself — most valuable here: the model is
                 // EXECUTED (ONNX runtime parses and runs it), so a swapped file is not just wrong
                 // predictions, it is unvalidated input to a large native parse surface.
-                var expectedModelHash = modelRegistry.GetModelSha256(modelSize);
-                if (expectedModelHash is not null && File.Exists(modelPath)
-                    && !VerifyFileSha256(modelPath, expectedModelHash))
+                var hashMatches = expectedModelHash is not null
+                    && File.Exists(modelPath)
+                    && VerifyFileSha256(modelPath, expectedModelHash);
+
+                if (expectedModelHash is not null && File.Exists(modelPath) && !hashMatches)
                 {
+                    // Mismatch arm: unchanged behaviour — the predictor is NOT constructed.
                     Log.Error(
                         "Model at {Path} failed its SHA-256 integrity check; LM suggestions disabled for this build",
                         modelPath);
                 }
                 else
                 {
+                    // Unchanged arm: hash matches, OR no hash (custom), OR file absent —
+                    // construct exactly as today (plan review C1).
                     token.ThrowIfCancellationRequested(); // no point building a session we are discarding
 
-                    lmPredictor = new SmallLMPredictor(
-                        modelsDir,
-                        modelSize,
-                        settings.Keyboard.PreferGPU,
-                        tokenizer: tokenizer,
-                        modelPath: modelPath);
+                    // (The seam takes modelSize, not modelsDir: a stub overrides per model
+                    // identity, and modelPath already carries the location.)
+                    lmPredictor = PredictorFactoryOverride is not null
+                        ? PredictorFactoryOverride(modelSize, settings.Keyboard.PreferGPU, tokenizer, modelPath)
+                        : new SmallLMPredictor(
+                            modelsDir, modelSize, settings.Keyboard.PreferGPU,
+                            tokenizer: tokenizer, modelPath: modelPath);
                 }
+
+                // I1: the report gate must EQUAL the snapshot's read gate —
+                // KeyboardStackSnapshot.ActiveModelVerificationOf reads the ledger only when
+                // IsModelDownloaded(id) (BOTH files on disk), so a model whose tokenizer alone
+                // is absent must report NOTHING. Reporting Failed there fed a perpetual reload
+                // loop: the swap patches Failed into the stored snapshot while every compare
+                // capture reads NotYetVerified (IsModelDownloaded false), so every settings
+                // apply reloaded the keyboard forever. Such a model's Models row is a Download
+                // row, not a repair row. No outcome change for the corrupt-model case (both
+                // files present): still Failed.
+                verdict = ClassifyLmOutcome(
+                    modelFileExists: modelRegistry.IsModelDownloaded(modelSize),
+                    hashGated: expectedModelHash is not null,
+                    hashOk: hashMatches,
+                    predictorAvailable: lmPredictor is not null && lmPredictor.IsAvailable,
+                    tokenizerLoaded: tokenizer is not null);
+
+                // N6: assigned HERE, inside the LM block, where `modelSize` is in scope.
+                if (verdict.Reports)
+                    verification = (ModelId: modelSize, Outcome: verdict.Outcome);
             }
         }
 
@@ -447,7 +524,9 @@ public class PredictionStackFactory : IDisposable
             throw;
         }
 
-        return new PredictionOrchestrator(wordPredictor, trieIndex, lmPredictor, settings.Keyboard.MLSuggestionsEnabled);
+        return (new PredictionOrchestrator(
+            wordPredictor, trieIndex, lmPredictor, settings.Keyboard.MLSuggestionsEnabled),
+            verification);
     }
 
     /// <summary>Streaming SHA-256 of a file compared case-insensitively against a hex digest.

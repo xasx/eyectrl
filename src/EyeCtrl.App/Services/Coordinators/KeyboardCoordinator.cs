@@ -117,8 +117,17 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         // null on first boot) immediately; the swap callback below installs the new one.
         _predictionFactory.Dispose();
         _predictionFactory = new PredictionStackFactory(work => context.Dispatcher.BeginInvoke(work));
-        _predictionFactory.StackSwapped +=
-            orchestrator => context.OverlayManager.Keyboard.SetOrchestrator(orchestrator);
+        _predictionFactory.StackSwapped += (orchestrator, verification) =>
+        {
+            context.OverlayManager.Keyboard.SetOrchestrator(orchestrator);
+
+            // Swap-time snapshot PATCH (spec N3/O2/R1 + plan review C4): the seed from
+            // LoadKeyboard stays until the first swap; each swap moves ONLY the verdict term,
+            // with the verdict the swapped build itself reported. No re-capture — a fresh one
+            // would re-read live disk/ledger state the running stack was never built against.
+            if (_keyboardSnapshot is not null)
+                _keyboardSnapshot = WithSwappedVerdict(_keyboardSnapshot, verification);
+        };
         // Hand the fresh factory to the dictionary page's service (SetModelServices pattern):
         // its ForgetWords needs the LIVE stack so a settings-page delete takes effect at once
         // and survives the in-flight-rebuild window.
@@ -252,6 +261,59 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     internal static bool ShouldReload(KeyboardStackSnapshot? stored, KeyboardStackSnapshot current) =>
         stored != current;
 
+    /// <summary>
+    /// PATCHES the stored snapshot's verdict term with the verdict the swapped build reported
+    /// (plan review C4): never re-captures. A fresh CaptureSnapshot here would re-read the
+    /// ledger AND ActiveModelOnDisk live — absorbing a download report that landed after the
+    /// build checked disk (silently un-fixing the repair reload) and storing on-disk state the
+    /// running stack was never built against (the ticket-11 bug, back). A null verdict
+    /// (swap-to-null) keeps the stored term, i.e. the previous verdict. A verdict for a model
+    /// other than the stored active model is ignored. A stored snapshot whose active model is
+    /// NOT on disk (<c>ActiveModelOnDisk</c> false — e.g. the tokenizer alone is absent) is
+    /// returned unchanged: the compare path's read gate (<c>ActiveModelVerificationOf</c>) reads
+    /// the ledger only when <c>IsModelDownloaded</c>, so any term written here would be
+    /// unreadable there and the two snapshots could never converge (I1's reload loop).
+    /// </summary>
+    internal static KeyboardStackSnapshot WithSwappedVerdict(
+        KeyboardStackSnapshot stored,
+        (string ModelId, ModelVerificationOutcome Outcome)? verification)
+    {
+        if (verification is not { } swap
+            || !stored.ActiveModelOnDisk // I1: never write a verdict term the compare path cannot read back
+            || !string.Equals(swap.ModelId, stored.MLModelSize, StringComparison.OrdinalIgnoreCase))
+            return stored;
+        return stored with { ActiveModelVerification = swap.Outcome };
+    }
+
+    /// <summary>
+    /// Guards the two NON-swap snapshot writers — the edge flip (<see cref="HandleKeyboardEdgeToggled"/>)
+    /// and the skin-tone change (<see cref="OnEmojiSkinToneChanged"/>) — against the same verdict
+    /// absorption <see cref="WithSwappedVerdict"/> exists to refuse (plan review C4's class, found
+    /// outside the swap handler). Both writers re-capture the FULL snapshot because their own
+    /// settings terms genuinely moved, but <see cref="KeyboardStackSnapshot.Capture"/> reads the
+    /// verdict term LIVE from the ledger: a repair download's Verified can land there in the window
+    /// between the download worker's <c>ReportVerification</c> and the <c>ApplyAndSave</c>
+    /// continuation's reload, and a user action in that window would otherwise store Verified while
+    /// the RUNNING stack is still the Failed one — the next apply then compares equal, skips the
+    /// reload, and the LM stays dictionary-only for the session while the Models row shows the
+    /// download verified. So when the active model is unchanged, the fresh capture keeps the STORED
+    /// verdict: the term may only move with a swap (the running stack's own report) or through a
+    /// reload. A model change takes the fresh term — different model, different ledger row. A null
+    /// <paramref name="stored"/> (nothing captured yet) also takes the fresh term. A fresh
+    /// capture whose active model is NOT on disk (<c>ActiveModelOnDisk</c> false) also takes the
+    /// fresh term: it carries the neutral <c>NotYetVerified</c> by construction, whereas the
+    /// stored term could never be read back by the compare path's gate
+    /// (<c>ActiveModelVerificationOf</c> reads the ledger only when <c>IsModelDownloaded</c>) —
+    /// the same unreadable-term rule <see cref="WithSwappedVerdict"/> enforces.
+    /// </summary>
+    internal static KeyboardStackSnapshot WithPreservedVerdict(
+        KeyboardStackSnapshot? stored, KeyboardStackSnapshot fresh) =>
+        stored is not null
+        && fresh.ActiveModelOnDisk
+        && string.Equals(stored.MLModelSize, fresh.MLModelSize, StringComparison.OrdinalIgnoreCase)
+            ? fresh with { ActiveModelVerification = stored.ActiveModelVerification }
+            : fresh;
+
     // manageSuppression: true for the toolbar toggle (deliberately pauses fixation while the
     // keyboard is up); false for the text-field auto-show/hide request path, which must NOT touch
     // SuppressFixation (it may be owned elsewhere, e.g. note editing, and typing shouldn't pause
@@ -290,7 +352,10 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         if (Context is null) return;
         var (flipped, snapshot) = ApplyKeyboardEdge(Context.Settings, Context.SettingsService, _modelRegistry);
         Context.OverlayManager.Keyboard.SetScreenEdge(flipped);
-        _keyboardSnapshot = snapshot;
+        // Verdict-preserving assignment (plan review C4, non-swap site): the fresh capture's
+        // settings terms moved, but its ledger verdict term must not jump ahead of the running
+        // stack — see WithPreservedVerdict.
+        _keyboardSnapshot = WithPreservedVerdict(_keyboardSnapshot, snapshot);
         ShowKeyboardEdgeBar();
     }
 
@@ -473,7 +538,11 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     private void OnEmojiSkinToneChanged(int tone)
     {
         if (Context is null) return;
-        _keyboardSnapshot = ApplyEmojiSkinTone(Context.Settings, Context.SettingsService, tone, _modelRegistry);
+        // Verdict-preserving assignment (plan review C4, non-swap site): same discipline as
+        // HandleKeyboardEdgeToggled — the tone term moves, the ledger verdict term must not.
+        _keyboardSnapshot = WithPreservedVerdict(
+            _keyboardSnapshot,
+            ApplyEmojiSkinTone(Context.Settings, Context.SettingsService, tone, _modelRegistry));
     }
 
     private void OnToolbarVisibilityChanged(bool toolbarVisible)

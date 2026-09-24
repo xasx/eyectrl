@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
+using EyeCtrl.App.Tests.Settings.Pages;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
@@ -201,6 +202,299 @@ public class KeyboardCoordinatorTests
         var (_, edgeSnapshot) = KeyboardCoordinator.ApplyKeyboardEdge(settings, temp.Service, registry);
         Check.That(edgeSnapshot.ActiveModelOnDisk).IsTrue();
         Check.That(edgeSnapshot).IsEqualTo(KeyboardStackSnapshot.Capture(settings, registry));
+    }
+
+    // ---- The snapshot's verification-verdict term ---------------------------------------------
+    // The 17th snapshot member: the active model's ledger verdict, read live in Capture under
+    // the same spelling rules as ActiveModelOnDisk (no active model / "Off" / files absent ->
+    // the neutral term). These three drive the live read and every neutral spelling.
+
+    [Fact]
+    public void Capture_ReadsActiveModelVerdict_Live()
+    {
+        using var scope = ModelTestFakes.Create();
+        var (registry, _) = scope.WithHashedDownloadedBundled();
+        registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
+        var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "135M" } };
+
+        var snap = KeyboardStackSnapshot.Capture(settings, registry);
+
+        Check.That(snap.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.Failed);
+    }
+
+    [Fact]
+    public void Capture_NoModel_NeutralVerdictTerm()
+    {
+        using var scope = ModelTestFakes.Create();
+        var snap = KeyboardStackSnapshot.Capture(new EyeCtrlSettings(), scope.EmptyRegistry());
+        Check.That(snap.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
+    }
+
+    [Fact]
+    public void Capture_OffOrEmptyModelSize_NeutralVerdictTerm()
+    {
+        using var scope = ModelTestFakes.Create();
+        var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "Off" } };
+        var snap = KeyboardStackSnapshot.Capture(settings, scope.EmptyRegistry());
+        Check.That(snap.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
+    }
+
+    // ---- Swap-time snapshot PATCH (the repair reload path) ------------------------------------
+    // When a background build swaps in, the handler PATCHES the stored snapshot's verdict term
+    // with the verdict THAT build reported — never re-captures. These drive the full M2
+    // startup-repair sequence over a real registry (each step changes real ledger state), and
+    // the model-mismatch guard.
+
+    [Fact]
+    public void SwapSequence_StartupRepairCycle_MovesStoredExactlyAsTheSpecRequires()
+    {
+        using var scope = ModelTestFakes.Create();
+        var (registry, _) = scope.WithHashedDownloadedBundled();
+        var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "135M" } };
+
+        // 1. Seed (LoadKeyboard's :205 capture): no verdict yet.
+        var stored = KeyboardStackSnapshot.Capture(settings, registry);
+        Check.That(stored.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
+
+        // 2. Background build finishes corrupt -> swap publishes ("135M", Failed).
+        registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
+        stored = KeyboardCoordinator.WithSwappedVerdict(
+            stored, ("135M", ModelVerificationOutcome.Failed));
+        Check.That(stored.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.Failed);
+
+        // 3. First apply after startup: compare capture reads the same ledger state —
+        //    NO reload (the N3 spurious-reload regression).
+        Check.That(KeyboardCoordinator.ShouldReload(
+            stored, KeyboardStackSnapshot.Capture(settings, registry))).IsFalse();
+
+        // 4. Repair: the download reports Verified into the ledger; the next apply's compare
+        //    capture sees Failed != Verified -> RELOAD (the C1 repair path).
+        registry.ReportVerification("135M", ModelVerificationOutcome.Verified);
+        Check.That(KeyboardCoordinator.ShouldReload(
+            stored, KeyboardStackSnapshot.Capture(settings, registry))).IsTrue();
+
+        // 5. A swap-to-null (prediction disabled) carries no verdict -> the stored Failed term
+        //    is KEPT, not refreshed from the ledger (plan review C4a).
+        var kept = KeyboardCoordinator.WithSwappedVerdict(stored, null);
+        Check.That(kept.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.Failed);
+    }
+
+    [Fact]
+    public void WithSwappedVerdict_VerdictForADifferentModel_IsIgnored()
+    {
+        // The MODEL-ID check is the discriminating guard here: the active model's files ARE on
+        // disk (so I1's !ActiveModelOnDisk guard passes) and only the id mismatch refuses the
+        // patch. Over EmptyRegistry both guards would refuse, and the id check could be deleted
+        // without this test noticing (re-review of the I1 wave).
+        using var scope = ModelTestFakes.Create();
+        var (registry, _) = scope.WithHashedDownloadedBundled();
+        var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "135M" } };
+        var stored = KeyboardStackSnapshot.Capture(settings, registry);
+        Check.That(stored.ActiveModelOnDisk).IsTrue();   // the disk guard does NOT fire here
+
+        var merged = KeyboardCoordinator.WithSwappedVerdict(
+            stored, ("360M", ModelVerificationOutcome.Verified));
+
+        Check.That(merged).IsEqualTo(stored);
+    }
+
+    // The DISK guard's own pin (the other half of the same early-return): the verdict's model
+    // id MATCHES the stored active model, but the files are absent, so only !ActiveModelOnDisk
+    // refuses the patch — I1's rule that a verdict the compare path cannot read back must
+    // never be written.
+    [Fact]
+    public void WithSwappedVerdict_MatchingModelIdButNotOnDisk_IsIgnored()
+    {
+        using var scope = ModelTestFakes.Create();
+        var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "135M" } };
+        var stored = KeyboardStackSnapshot.Capture(settings, scope.EmptyRegistry());
+        Check.That(stored.ActiveModelOnDisk).IsFalse();
+
+        var merged = KeyboardCoordinator.WithSwappedVerdict(
+            stored, ("135M", ModelVerificationOutcome.Failed));
+
+        Check.That(merged).IsEqualTo(stored);
+    }
+
+    [Fact]
+    public void BeforeFirstSwap_AnApplyAgainstTheSeedSnapshot_DoesNotReload()
+    {
+        // Spec O2a: "no reload for an apply that lands before the first swap". The seed from
+        // LoadKeyboard is a plain Capture — it reads the ledger live at seed time — and nothing
+        // patches the stored verdict term until the first swap lands. An apply in that window
+        // therefore compares the seed's verdict against the same live ledger state and must see
+        // NO diff (a spurious reload here would rebuild the layout and reload the model under
+        // the user mid-session). Same arrange as the M2 sequence above, minus the swap step.
+        using var scope = ModelTestFakes.Create();
+        var (registry, _) = scope.WithHashedDownloadedBundled();
+        registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
+        var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "135M" } };
+
+        var stored = KeyboardStackSnapshot.Capture(settings, registry);   // the LoadKeyboard seed
+        Check.That(stored.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.Failed);
+
+        Check.That(KeyboardCoordinator.ShouldReload(
+            stored, KeyboardStackSnapshot.Capture(settings, registry))).IsFalse();
+    }
+
+    // ---- I1: the tokenizer-absent perpetual reload loop ----------------------------------------
+    // Build's REPORT gate must equal the snapshot's READ gate: ActiveModelVerificationOf reads
+    // the ledger only when IsModelDownloaded(id) — BOTH files on disk. Pre-fix, a model file
+    // present + hash-gated + tokenizer ABSENT classified Failed; the swap patched Failed into
+    // the stored snapshot while every compare capture read NotYetVerified (IsModelDownloaded
+    // false), so ShouldReload fired on EVERY settings apply — each one reloading the keyboard
+    // under the user and re-hashing a multi-GB model in the background, forever. Reachable
+    // when a download's tokenizer phase is interrupted (the model file is moved into place
+    // first) or the tokenizer is deleted externally. Both halves are pinned: the report gate
+    // (first assertion) and the patch guard (last two — driven with the Failed a
+    // mis-reporting build would hand the coordinator on model-id match alone).
+
+    [Fact]
+    public void TokenizerAbsentModel_ReportsNothing_AndCannotReloadLoop()
+    {
+        using var scope = ModelTestFakes.Create();
+        var (registry, _) = scope.WithHashedDownloadedBundled();
+        // The interrupted-download state: model in place, tokenizer not.
+        File.Delete(registry.GetTokenizerPath("135M"));
+        var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "135M" } };
+
+        // A sync Rebuild classifies through the same Build the background mode runs.
+        new PredictionStackFactory().Rebuild(settings, AppDomain.CurrentDomain.BaseDirectory,
+            scope.Dir, registry);
+
+        // Half 1 — the report gate: nothing was reported (a tokenizer-absent model's Models
+        // row is a Download row, not a repair row). PRE-FIX: Failed is reported and the loop
+        // starts here.
+        Check.WithCustomMessage(
+                "A tokenizer-absent model must report NOTHING: the compare path reads the " +
+                "ledger only when IsModelDownloaded, so a Failed here can never be read back.")
+            .That(registry.GetVerification("135M"))
+            .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
+
+        // The loop-relevant sequence: the seed (LoadKeyboard's capture), the swap patch with
+        // the verdict the build reported (null — it reported nothing), the apply's compare.
+        var stored = KeyboardStackSnapshot.Capture(settings, registry);
+        Check.That(stored.ActiveModelOnDisk).IsFalse();
+        Check.That(stored.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
+        stored = KeyboardCoordinator.WithSwappedVerdict(stored, null);
+        Check.WithCustomMessage(
+                "An unchanged apply must not reload: pre-fix this was the loop — every apply " +
+                "rebuilt the keyboard and re-hashed the model, forever.")
+            .That(KeyboardCoordinator.ShouldReload(
+                stored, KeyboardStackSnapshot.Capture(settings, registry)))
+            .IsFalse();
+
+        // Half 2 — the patch guard: even the Failed a mis-reporting build WOULD hand the
+        // coordinator must not move the stored term while the model is not fully on disk.
+        // PRE-FIX (patch half alone reverted): the term moves to Failed, the compare still
+        // reads NotYetVerified, and ShouldReload turns true — the loop.
+        var patched = KeyboardCoordinator.WithSwappedVerdict(
+            stored, ("135M", ModelVerificationOutcome.Failed));
+        Check.WithCustomMessage(
+                "WithSwappedVerdict must never write a verdict term the compare path cannot " +
+                "read back (ActiveModelOnDisk false -> the compare reads NotYetVerified).")
+            .That(patched).IsEqualTo(stored);
+        Check.That(KeyboardCoordinator.ShouldReload(
+            patched, KeyboardStackSnapshot.Capture(settings, registry))).IsFalse();
+    }
+
+    // ---- Non-swap verdict preservation (plan review C4, the missed writers) --------------------
+    // The swap handler patches and never re-captures, but two OTHER writers assign a FULL fresh
+    // Capture to _keyboardSnapshot: the edge flip and the skin-tone change. Their own settings
+    // terms genuinely moved, yet Capture also re-reads the verdict term from the ledger LIVE —
+    // so a repair download's Verified landing between the worker's ReportVerification and the
+    // ApplyAndSave continuation would be absorbed while the running stack is still the Failed
+    // one: the next apply compares equal, skips the reload, and the LM stays dictionary-only
+    // while the Models row shows the download verified. Both handlers now compose
+    // WithPreservedVerdict(_keyboardSnapshot, <seam>); this drives each half exactly as its
+    // handler drives it (the handlers themselves are Context-bound and not headless-reachable,
+    // same accepted residual as the WithSwappedVerdict wiring).
+
+    [Fact]
+    public void NonSwapReCaptures_PreserveTheStoredVerdict_NotTheLedgersMidWindowState()
+    {
+        using var scope = ModelTestFakes.Create();
+        var (registry, _) = scope.WithHashedDownloadedBundled();
+        registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
+        var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "135M", ScreenEdge = "Bottom" } };
+
+        // Seed: what the swap patch would have stored — the running stack's own Failed verdict.
+        var stored = KeyboardStackSnapshot.Capture(settings, registry);
+        Check.That(stored.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.Failed);
+
+        // The download writer lands mid-window: the ledger flips BEFORE the repair reload.
+        registry.ReportVerification("135M", ModelVerificationOutcome.Verified);
+
+        // The user changes skin tone / flips the keyboard edge inside that window — the two
+        // handler seams, merged exactly as the handlers merge.
+        using var temp = new TempSettingsFile();
+        var toneSnapshot = KeyboardCoordinator.ApplyEmojiSkinTone(settings, temp.Service, 3, registry);
+        var mergedTone = KeyboardCoordinator.WithPreservedVerdict(stored, toneSnapshot);
+        Check.That(mergedTone.EmojiSkinTone).IsEqualTo(3);              // the moved term IS adopted
+        Check.That(mergedTone.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.Failed);               // the verdict is NOT
+
+        var (_, edgeSnapshot) = KeyboardCoordinator.ApplyKeyboardEdge(settings, temp.Service, registry);
+        var mergedEdge = KeyboardCoordinator.WithPreservedVerdict(stored, edgeSnapshot);
+        Check.That(mergedEdge.ScreenEdge).IsEqualTo("Top");             // the flip IS adopted
+        Check.That(mergedEdge.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.Failed);
+
+        // The payoff: with the verdict preserved, the next apply's live compare still sees
+        // Failed != Verified and fires the repair reload (the compare path MUST keep reading
+        // the ledger live — that liveness is what makes the repair reload fire).
+        Check.That(KeyboardCoordinator.ShouldReload(
+            mergedEdge, KeyboardStackSnapshot.Capture(settings, registry))).IsTrue();
+    }
+
+    // Round-2 N2: the on-disk half of WithPreservedVerdict — the same unreadable-term rule
+    // WithSwappedVerdict enforces (see its disk guard above). If the tokenizer alone is
+    // deleted after a Verified verdict, the non-swap writers' fresh capture is off-disk and
+    // carries the neutral term by construction; carrying the STORED Verified onto it would
+    // store a term ActiveModelVerificationOf can never read back (it reads the ledger only
+    // when IsModelDownloaded), so every later apply compares unequal — one spurious reload
+    // before the term settles. The merged snapshot must instead equal the fresh capture.
+    [Fact]
+    public void NonSwapReCaptures_OffDiskFreshCapture_TakesTheFreshNeutralTerm()
+    {
+        using var scope = ModelTestFakes.Create();
+        var (registry, _) = scope.WithHashedDownloadedBundled();
+        var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "135M" } };
+
+        // Seed while fully on disk: the ledger's Verified is readable, so the stored term is
+        // genuinely Verified (the state the swap handler would have left behind).
+        registry.ReportVerification("135M", ModelVerificationOutcome.Verified);
+        var stored = KeyboardStackSnapshot.Capture(settings, registry);
+        Check.That(stored.ActiveModelOnDisk).IsTrue();
+        Check.That(stored.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.Verified);
+
+        // The tokenizer file alone is deleted after the verdict; the edge flip / skin-tone
+        // writer then re-captures: OnDisk false, verdict term neutral.
+        File.Delete(registry.GetTokenizerPath("135M"));
+        var fresh = KeyboardStackSnapshot.Capture(settings, registry);
+        Check.That(fresh.ActiveModelOnDisk).IsFalse();
+        Check.That(fresh.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
+
+        var merged = KeyboardCoordinator.WithPreservedVerdict(stored, fresh);
+
+        Check.That(merged).IsEqualTo(fresh); // no unreadable Verified carried onto the term
+        Check.That(merged.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
+        // The payoff: the stored term is readable again — an unchanged apply compares equal
+        // instead of reloading once over a term the compare path can never see.
+        Check.That(KeyboardCoordinator.ShouldReload(
+            merged, KeyboardStackSnapshot.Capture(settings, registry))).IsFalse();
     }
 
     /// <summary>A registry on a unique temp dir whose manifest lists "360M", with NO files on

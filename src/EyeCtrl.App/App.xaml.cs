@@ -280,6 +280,11 @@ public partial class App : Application
             // ── Close splash and show persistent overlays (last, after all wiring) ──
             ShowOverlays(splash, cursorCircle, toolbar, settings);
 
+            // ORDER LOAD-BEARING (spec O4): this pause push must stay AFTER ShowOverlays — the
+            // startup band show bypasses ToolbarVisibilityAdapter, so on --paused/startPaused
+            // launches the strip's show+raise lands here, on top of the already-shown band.
+            // Moving this above ShowOverlays hides the strip under the band until the next
+            // band transition.
             if (settings.General.StartPaused || IsPausedLaunch)
                 im.TogglePause();
 

@@ -456,6 +456,47 @@ public class KeyboardCoordinatorTests
             mergedEdge, KeyboardStackSnapshot.Capture(settings, registry))).IsTrue();
     }
 
+    // Round-2 N2: the on-disk half of WithPreservedVerdict — the same unreadable-term rule
+    // WithSwappedVerdict enforces (see its disk guard above). If the tokenizer alone is
+    // deleted after a Verified verdict, the non-swap writers' fresh capture is off-disk and
+    // carries the neutral term by construction; carrying the STORED Verified onto it would
+    // store a term ActiveModelVerificationOf can never read back (it reads the ledger only
+    // when IsModelDownloaded), so every later apply compares unequal — one spurious reload
+    // before the term settles. The merged snapshot must instead equal the fresh capture.
+    [Fact]
+    public void NonSwapReCaptures_OffDiskFreshCapture_TakesTheFreshNeutralTerm()
+    {
+        using var scope = ModelTestFakes.Create();
+        var (registry, _) = scope.WithHashedDownloadedBundled();
+        var settings = new EyeCtrlSettings { Keyboard = { MLModelSize = "135M" } };
+
+        // Seed while fully on disk: the ledger's Verified is readable, so the stored term is
+        // genuinely Verified (the state the swap handler would have left behind).
+        registry.ReportVerification("135M", ModelVerificationOutcome.Verified);
+        var stored = KeyboardStackSnapshot.Capture(settings, registry);
+        Check.That(stored.ActiveModelOnDisk).IsTrue();
+        Check.That(stored.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.Verified);
+
+        // The tokenizer file alone is deleted after the verdict; the edge flip / skin-tone
+        // writer then re-captures: OnDisk false, verdict term neutral.
+        File.Delete(registry.GetTokenizerPath("135M"));
+        var fresh = KeyboardStackSnapshot.Capture(settings, registry);
+        Check.That(fresh.ActiveModelOnDisk).IsFalse();
+        Check.That(fresh.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
+
+        var merged = KeyboardCoordinator.WithPreservedVerdict(stored, fresh);
+
+        Check.That(merged).IsEqualTo(fresh); // no unreadable Verified carried onto the term
+        Check.That(merged.ActiveModelVerification)
+            .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
+        // The payoff: the stored term is readable again — an unchanged apply compares equal
+        // instead of reloading once over a term the compare path can never see.
+        Check.That(KeyboardCoordinator.ShouldReload(
+            merged, KeyboardStackSnapshot.Capture(settings, registry))).IsFalse();
+    }
+
     /// <summary>A registry on a unique temp dir whose manifest lists "360M", with NO files on
     /// disk until <see cref="PutActiveModelOnDisk"/> plants them.</summary>
     private static ModelRegistryService NewRegistry(EyeCtrlSettings settings) =>

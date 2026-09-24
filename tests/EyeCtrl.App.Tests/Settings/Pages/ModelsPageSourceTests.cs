@@ -578,11 +578,29 @@ public class ModelsPageSourceTests
     // R2: positive control for the guard test above — with an IDLE management the activation
     // records exactly one modal, titled as a re-download. This also pins the repair row's
     // modal wiring, which no other test covers.
+    // Round-2 N1: the repair modal must also state the download size, exactly like the
+    // download arm's modal — for this app's owner that re-download is 1.67 GB with no way to
+    // cancel once confirmed, so the size belongs in the confirmation. The expected substring
+    // is computed the way the row labels do (read out of a label the SAME Build pipeline
+    // rendered for the same entry's SizeBytes), never re-formatted or parsed out of the modal
+    // — this box is German-locale, so the assertion stays a substring comparison.
     [Fact]
     public void RepairRow_Activation_IdleManagement_OpensExactlyOneReDownloadModal()
     {
         using var scope = ModelTestFakes.Create();
         var (registry, mgmt) = scope.WithHashedDownloadedBundled();
+
+        // While the verdict is still clean, the "✓ Downloaded" row renders
+        // "  {DisplayName}  {FormatSize(SizeBytes)}  ✓ Downloaded" — harvest the size token
+        // from production's own formatter through the page's public output.
+        var sizeToken = new ModelsPageSource(TestSettingsPageContext.Build(
+                registry: registry, modelManagement: mgmt))
+            .Build().Single().Rows
+            .OfType<LabelSpec>().Select(l => l.Text())
+            .Single(t => t.Contains("✓ Downloaded"))
+            .Split("  ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Single(part => part != "Test 135M" && part != "✓ Downloaded");
+
         registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
 
         var modals = new List<string>();
@@ -596,6 +614,7 @@ public class ModelsPageSourceTests
 
         Check.That(modals).HasSize(1);
         Check.That(modals[0]).Contains("Re-download");
+        Check.That(modals[0]).Contains(sizeToken); // N1: the size is stated before the commit
     }
 
     // M5: the repair modal's confirm callback was never invoked by any test — the wiring from

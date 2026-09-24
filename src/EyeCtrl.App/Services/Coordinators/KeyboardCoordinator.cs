@@ -299,11 +299,17 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     /// download verified. So when the active model is unchanged, the fresh capture keeps the STORED
     /// verdict: the term may only move with a swap (the running stack's own report) or through a
     /// reload. A model change takes the fresh term — different model, different ledger row. A null
-    /// <paramref name="stored"/> (nothing captured yet) also takes the fresh term.
+    /// <paramref name="stored"/> (nothing captured yet) also takes the fresh term. A fresh
+    /// capture whose active model is NOT on disk (<c>ActiveModelOnDisk</c> false) also takes the
+    /// fresh term: it carries the neutral <c>NotYetVerified</c> by construction, whereas the
+    /// stored term could never be read back by the compare path's gate
+    /// (<c>ActiveModelVerificationOf</c> reads the ledger only when <c>IsModelDownloaded</c>) —
+    /// the same unreadable-term rule <see cref="WithSwappedVerdict"/> enforces.
     /// </summary>
     internal static KeyboardStackSnapshot WithPreservedVerdict(
         KeyboardStackSnapshot? stored, KeyboardStackSnapshot fresh) =>
         stored is not null
+        && fresh.ActiveModelOnDisk
         && string.Equals(stored.MLModelSize, fresh.MLModelSize, StringComparison.OrdinalIgnoreCase)
             ? fresh with { ActiveModelVerification = stored.ActiveModelVerification }
             : fresh;

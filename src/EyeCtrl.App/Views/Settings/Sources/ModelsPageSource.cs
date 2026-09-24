@@ -198,7 +198,7 @@ internal sealed class ModelsPageSource : ISettingsPageSource
                         return;
                     }
                     _ctx.ShowModal(
-                        $"Re-download {e3.DisplayName}? This replaces the files on disk.",
+                        $"Re-download {e3.DisplayName} ({FormatSize(e3.SizeBytes)})? This replaces the files on disk.",
                         () => _ = DownloadBundledAsync(e3.Id, e3.Url, e3.Sha256, e3.TokenizerUrl, e3.TokenizerSha256));
                 },
                 ButtonKind.Danger, Width: 544, Height: 106));

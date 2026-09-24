@@ -25,7 +25,7 @@ internal sealed class KeyboardPageSource : ISettingsPageSource
                 new ToggleSpec("k_pred", "Word Prediction",
                     () => k.PredictionEnabled, v => { k.PredictionEnabled = v; _ctx.ApplyAndSave(); })
                     { Description = "Shows suggested words above the keyboard while you type." },
-                new SliderSpec("k_pred_count", "Max Predictions", 1, 5, 1, 0,
+                new SliderSpec("k_pred_count", "Max Predictions", 1, Core.Settings.KeyboardSettings.MaxSuggestionsCeiling, 1, 0,
                     () => k.MaxSuggestions, v => { k.MaxSuggestions = (int)v; _ctx.ApplyAndSave(); })
                     { Description = "How many suggestions fill the bar. Fewer are easier to aim; takes effect as you type." },
                 new ComboBoxSpec("k_lang", "Dictionary Language",

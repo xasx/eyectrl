@@ -544,7 +544,7 @@ public class SettingsService
     private void ClampMaxSuggestions(KeyboardSettings keyboard)
     {
         var count = keyboard.MaxSuggestions;
-        keyboard.MaxSuggestions = Math.Clamp(count, 1, 5);
+        keyboard.MaxSuggestions = Math.Clamp(count, 1, KeyboardSettings.MaxSuggestionsCeiling);
         if (keyboard.MaxSuggestions != count)
             _logger?.LogInformation("Clamped out-of-range MaxSuggestions to the 1-5 range.");
     }

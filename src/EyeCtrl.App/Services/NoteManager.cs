@@ -42,7 +42,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
     {
         _messenger = messenger;
         _dwellDetector = new DwellDetector(cooldownMs: 300, context: DwellContext.Notes, sink: sink);
-        _dwellDetector.TargetActivated += OnTargetActivated;
+        _dwellDetector.TargetActivated += OnDetectorTargetActivated;
         _dwellDetector.TargetProgress += OnTargetProgress;
         _messenger.Register<GazeCursorMovedMessage>(this);
         _dwellRegistry = dwellRegistry;
@@ -257,6 +257,16 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         }
     }
 
+    // Post-effect publish (spec D8): the note action runs first — including the malformed-id
+    // early return, whose no-op-cue trade-off is ACCEPTED (spec §Pause) — then the cue fires.
+    // Hoisted to a named method (not a straight method-group to OnTargetActivated) so Dispose
+    // can -= the same handler it +='d.
+    private void OnDetectorTargetActivated(string targetId)
+    {
+        OnTargetActivated(targetId);
+        _messenger.Send(new DwellActivationMessage());
+    }
+
     private void OnTargetActivated(string targetId)
     {
         var parts = targetId.Split(':');
@@ -289,7 +299,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         // Unregister BEFORE detaching the detector events: the registry entry holds the detector
         // through its applier, and a disposing manager must not receive any further routed maps.
         _dwellRegistry?.Unregister(this);
-        _dwellDetector.TargetActivated -= OnTargetActivated;
+        _dwellDetector.TargetActivated -= OnDetectorTargetActivated;
         _dwellDetector.TargetProgress -= OnTargetProgress;
         _messenger.Unregister<GazeCursorMovedMessage>(this);
 

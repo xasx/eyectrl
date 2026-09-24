@@ -117,11 +117,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         // null on first boot) immediately; the swap callback below installs the new one.
         _predictionFactory.Dispose();
         _predictionFactory = new PredictionStackFactory(work => context.Dispatcher.BeginInvoke(work));
-        _predictionFactory.StackSwapped += (orchestrator, verification) =>
-        {
-            Context!.OverlayManager.Keyboard.SetOrchestrator(orchestrator);
-            PatchSnapshotWithSwappedVerdict(verification);
-        };
+        _predictionFactory.StackSwapped += OnStackSwapped;
         // Hand the fresh factory to the dictionary page's service (SetModelServices pattern):
         // its ForgetWords needs the LIVE stack so a settings-page delete takes effect at once
         // and survives the in-flight-rebuild window.
@@ -280,7 +276,25 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     }
 
     /// <summary>
-    /// Instance seam for the swap-time snapshot PATCH the <see cref="StackSwapped"/> handler runs
+    /// The <see cref="PredictionStackFactory.StackSwapped"/> handler: re-binds the keyboard to
+    /// the swapped orchestrator, then patches the stored snapshot's verdict term (patch
+    /// mechanics and rationale on <see cref="PatchSnapshotWithSwappedVerdict"/>; the event is
+    /// raised on the UI thread after the winning swap). Deliberately NO Context null-guard —
+    /// a swap must never be silently dropped, and the subscription only exists after
+    /// Initialize set it. Extracted from an inline lambda (issue #166 round-1 M2): the
+    /// method-group subscription is what the wiring pin matches, because an inline lambda's
+    /// body can be dead-wrapped while its call text still satisfies a substring pin.
+    /// </summary>
+    internal void OnStackSwapped(PredictionOrchestrator? orchestrator,
+        (string ModelId, ModelVerificationOutcome Outcome)? verification)
+    {
+        Context!.OverlayManager.Keyboard.SetOrchestrator(orchestrator);
+        PatchSnapshotWithSwappedVerdict(verification);
+    }
+
+    /// <summary>
+    /// Instance seam for the swap-time snapshot PATCH the <see cref="OnStackSwapped"/> handler
+    /// runs
     /// (spec N3/O2/R1 + plan review C4): the seed from LoadKeyboard stays until the first swap;
     /// each swap moves ONLY the verdict term, with the verdict the swapped build itself reported.
     /// No re-capture — a fresh one would re-read live disk/ledger state the running stack was

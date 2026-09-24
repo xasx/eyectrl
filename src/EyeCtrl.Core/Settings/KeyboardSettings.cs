@@ -12,7 +12,7 @@ public partial class KeyboardSettings : ObservableObject, IValidatable
     /// <summary>Whether word prediction suggestions are shown above the keyboard.</summary>
     [ObservableProperty] private bool _predictionEnabled = true;
     /// <summary>
-    /// Maximum number of suggestions in the prediction bar. Valid range: 1–5. Fewer suggestions
+    /// Maximum number of suggestions in the prediction bar. Valid range: 1–<see cref="MaxSuggestionsCeiling"/> (do not hand-copy the number here — round-1 review N2). Fewer suggestions
     /// means fewer dwell targets to mis-hit; the bar renders one cell per suggestion, so a lower
     /// count simply leaves the tail empty. The renderer is dynamic — 5 is today's hard-coded
     /// fill and stays the default.

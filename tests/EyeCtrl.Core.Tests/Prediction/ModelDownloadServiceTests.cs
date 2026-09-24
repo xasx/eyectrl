@@ -5,6 +5,70 @@ using EyeCtrl.Core.Prediction;
 public class ModelDownloadServiceTests
 {
     [Fact]
+    public void InstallDownloadedFile_ReplaceWinsAgainstAnOpenReader_MidHashShape()
+    {
+        // Issue #166 round-1 I1, deterministic (single thread — no timing): File.Move(
+        // overwrite: true) fails with UnauthorizedAccessException whenever the destination has
+        // an open handle, whatever the opener's share mode — measured. A repair re-download
+        // hits exactly that: a background build's VerifyFileSha256 stream is open on the model
+        // file mid-hash when the install runs. The stream here opens with the same
+        // FileShare.Read|FileShare.Delete VerifyFileSha256 uses.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"model_test_{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var dst = Path.Combine(tempDir, "model.onnx");
+            var temp = dst + ".download";
+            File.WriteAllText(dst, "old-model-bytes-old-model-bytes");
+            File.WriteAllText(temp, "new-model-bytes-new-model-bytes");
+
+            using var reader = new FileStream(dst, FileMode.Open, FileAccess.Read,
+                FileShare.Read | FileShare.Delete);
+            using var buffered = new System.IO.BufferedStream(reader);
+            var oldBytes = new byte[8];
+            buffered.ReadExactly(oldBytes); // position mid-file, like a hash mid-read
+
+            ModelDownloadService.InstallDownloadedFile(temp, dst);
+
+            Check.That(File.ReadAllText(dst)).IsEqualTo("new-model-bytes-new-model-bytes");
+            // The open reader keeps serving the pre-replace content until it reopens —
+            // File.Replace's POSIX-style semantics, and why nothing has to coordinate the
+            // hash with the install.
+            buffered.Position = 0;
+            var reread = new byte[8];
+            buffered.ReadExactly(reread);
+            Check.That(System.Text.Encoding.UTF8.GetString(reread)).IsEqualTo("old-mode");
+            Check.That(File.Exists(temp)).IsFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void InstallDownloadedFile_FirstInstall_MovesTempIntoPlace()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"model_test_{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var dst = Path.Combine(tempDir, "model.onnx");
+            var temp = dst + ".download";
+            File.WriteAllText(temp, "first-download");
+
+            ModelDownloadService.InstallDownloadedFile(temp, dst);
+
+            Check.That(File.ReadAllText(dst)).IsEqualTo("first-download");
+            Check.That(File.Exists(temp)).IsFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void IsModelDownloaded_ExistingFile_ReturnsTrue()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"model_test_{Guid.NewGuid()}");

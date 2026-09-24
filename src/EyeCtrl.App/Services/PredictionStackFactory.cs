@@ -536,11 +536,13 @@ public class PredictionStackFactory : IDisposable
         try
         {
             // FileShare.Read | FileShare.Delete, NOT File.OpenRead's plain FileShare.Read
-            // (issue #166 M9): a repair re-download's final File.Move(overwrite: true) must be
-            // able to replace this file WHILE a background build is mid-hash of it — under a
-            // sharing mode without Delete the Move fails (IOException, sharing violation) and
-            // the repair dies. The hash may then reflect the pre-replace content; the repair's
-            // own reload rebuilds and re-verifies, so nothing has to coordinate the two.
+            // (issue #166 round-1 I1): ModelDownloadService installs a repair re-download with
+            // File.Replace, which works against open readers only when they hold Delete share
+            // — under a sharing mode without Delete the replace fails and the repair dies.
+            // (The round-1 branch first tried keeping File.Move and widening only this share
+            // mode; that was measured insufficient — Move with overwrite refuses ANY
+            // destination with an open handle.) The hash may reflect pre-replace content; the
+            // repair's own reload rebuilds and re-verifies, so nothing has to coordinate.
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
                 FileShare.Read | FileShare.Delete);
             using var sha = SHA256.Create();

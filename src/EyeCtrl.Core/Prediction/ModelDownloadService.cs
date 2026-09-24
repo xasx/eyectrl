@@ -114,6 +114,27 @@ public class ModelDownloadService : IDisposable
     private enum DownloadOutcome { Success, Busy, HashMismatch, Failed }
 
     /// <summary>
+    /// Atomically installs a verified download from <paramref name="tempPath"/> (same
+    /// directory) onto <paramref name="outputPath"/>. Replace-when-exists, Move-otherwise —
+    /// the FileDictionaryProvider user-dictionary write's pattern (review round 1, I1):
+    /// <c>File.Move(overwrite: true)</c> REFUSES a destination with an open handle
+    /// (UnauthorizedAccessException, measured on .NET 10/Windows regardless of the opener's
+    /// share mode), and during a repair a background build's VerifyFileSha256 hash stream is
+    /// exactly such a handle — every repair re-download would die mid-install.
+    /// <c>File.Replace</c> swaps the destination in place and works against open readers
+    /// holding FileShare.Read|FileShare.Delete (the sharing mode VerifyFileSha256 opens with),
+    /// leaving those readers on the pre-replace bytes until they reopen.
+    /// Internal static so the open-handle probe is deterministically testable.
+    /// </summary>
+    internal static void InstallDownloadedFile(string tempPath, string outputPath)
+    {
+        if (File.Exists(outputPath))
+            File.Replace(tempPath, outputPath, destinationBackupFileName: null);
+        else
+            File.Move(tempPath, outputPath);
+    }
+
+    /// <summary>
     /// Shared download core used by all public download methods: single-flight
     /// semaphore, temp-file streaming with incremental SHA-256 via CryptoStream,
     /// optional hash verification, atomic move into place, temp-file cleanup.
@@ -174,7 +195,7 @@ public class ModelDownloadService : IDisposable
                 return (DownloadOutcome.HashMismatch, "Hash mismatch");
             }
 
-            File.Move(tempPath, outputPath, overwrite: true);
+            InstallDownloadedFile(tempPath, outputPath);
             _logger?.LogInformation("{File} downloaded successfully ({Bytes} bytes)", outputFileName, totalRead);
             return (DownloadOutcome.Success, null);
         }

@@ -31,6 +31,7 @@ internal static class WavHeader
             while (fs.Read(chunkHead) == 8)
             {
                 var size = BinaryPrimitives.ReadInt32LittleEndian(chunkHead[4..8]);
+                if (size < 0) return null; // negative size would seek BACKWARDS — the walk must only advance
                 if (chunkHead[0..4].SequenceEqual("fmt "u8))
                 {
                     if (size < 16) return null;
@@ -65,6 +66,11 @@ internal static class WavHeader
         while (fs.Read(chunkHead) == 8)
         {
             var size = BinaryPrimitives.ReadInt32LittleEndian(chunkHead[4..8]);
+            if (size < 0) // 8 read + (size + size&1) can net 0 — the walk would re-read forever
+            {
+                dataOffset = 0;
+                return null;
+            }
             if (chunkHead[0..4].SequenceEqual("data"u8))
             {
                 dataOffset = fs.Position;

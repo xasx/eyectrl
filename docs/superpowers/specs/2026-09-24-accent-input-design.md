@@ -1,4 +1,4 @@
-# Accent Input — Design (spec revision 4)
+# Accent Input — Design (spec revision 5)
 
 **Date:** 2026-09-24 · **Branch:** `feat/accent-input` (from main `2e1d9078`)
 **Competitive gap:** #11 "Dead-key / diacritic composition" in
@@ -13,6 +13,11 @@ boundary-flicker the review measured). D16 is SUPERSEDED by the row-0 zero-move 
 (plan review M4, owner-defaulted): QWERTZ row 0 has the same 11.2 shape as AZERTY's, so the
 `Win`-widening trick fits both layouts and `Space` keeps its width. M7 is implemented as an
 unconditional `ActiveModifiers` raise AFTER the swap (plan review H1).
+**Rev 5:** plan-review round 2 folded — the QWERTZ grid is now the plan's 10/10/8 (bigger
+dwell targets, ⟦I1⟧); D13's radius semantics and accepted costs made explicit (quarter-to-
+half width; blocked landing key; P/`Acc` boundary overshoot); Testing-section drift fixed
+(row-count equality, exact-capital pins, QWERTY included in the switchSub check); the resize
+claim softened to sub-DIP rounding.
 
 ## Context
 
@@ -40,13 +45,14 @@ Each supported layout gains a `subLayouts.accents` entry (same shape as `numbers
 plus one new boolean sub-layout property, `autoReturn` (D5). `switchSub:accents` uses the
 existing vocabulary.
 
-**QWERTZ — French-in-German set (28 keys):**
+**QWERTZ — French-in-German set (28 keys; 10/10/8 grid — the 1.28/1.2-unit keys are ~20 %
+larger targets than a 12-wide row would allow, which matters for a gaze typist ⟦plan-r2 I1⟧):**
 
 ```
-row 0:  é É è È ê Ê ë Ë à À â Â
-row 1:  ç Ç î Î ï Ï ô Ô ù Ù û Û
-row 2:  œ Œ « » [Bksp] [DelWd]            (Bksp/DelWd widened to reach 12.8 — no filler keys ⟦M3⟧)
-footer: ABC 123 #+= 😀 Fn Space Enter Tab   (no Ctrl — D8/D15)
+row 0:  é É è È ê Ê ë Ë à À             (10 × 1.28)
+row 1:  â Â ç Ç î Î ï Ï ô Ô             (10 × 1.28)
+row 2:  ù Ù û Û œ Œ « » [Bksp] [DelWd]  (8 × 1.2 + 2 × 1.6 = 12.8)
+footer: ABC 123 #+= 😀 Fn Space Enter Tab      (no Ctrl — see D8)
 ```
 
 **AZERTY — tail beyond its direct keys (20 keys ⟦M1⟧, 3 content rows ⟦plan H2⟧):**
@@ -65,7 +71,10 @@ declined — D12.)
 **Shape rules:** last content row carries `backspace` + `deleteWord` at its right end
 (`ShippedLayoutFilesTests.EverySubLayout_CarriesBackspaceAndDeleteWord` requires both);
 `Space`/`Enter` in the footer (shipped Space keys carry `"output": " "`); the widest row
-equals the 12.8 standard so the window never resizes between sub-layouts; NO padding/dummy
+equals the 12.8 standard so the window's width is stable across sub-layout swaps to within
+sub-DIP rounding (the widened letters row 0 can differ from other 12.8-unit rows by under a
+DIP after layout rounding — a ≤0.8-DIP resize per swap, harmless and unavoidable with
+non-integer key widths) ⟦plan-r2⟧; NO padding/dummy
 keys — width is made up by widening real keys (dummy keys would register as dwell targets
 that do nothing ⟦M3⟧); **the row count EQUALS the letters sub-layout's row count** (both
 layouts: 3 content rows + footer) so the bottom-docked `SizeToContent` window's height never
@@ -105,14 +114,20 @@ cleared through the flag, so the guard closes every path.
 
 **Swap suppression — D13 (spatial; owner-defaulted from the options the plan review raised,
 vetoable):** after ANY sub-layout swap — auto-return AND manual `switchSub` — while the gaze
-stays within roughly half a key width of its PRE-SWAP position, no key dwells. The radius is
-computed once at swap time from the OLD grid's still-valid centres (the distance from the
-anchor to its second-nearest old centre, halved — post-swap centres are unarranged at the
-first samples and must never be consulted, plan review B1). The anchor is set only when the
-gaze was actually on the key area at swap time — a prediction pick happens with the gaze on
-the bar, so its auto-return swap suppresses nothing (plan review H3). Hiding the keyboard
-clears the suppression. Comparison the decision rests on (defaults: cooldown 400 ms, key
-dwell 450 ms):
+has not moved beyond roughly half a key width (in practice a quarter to a half — the radius
+is half the anchor's distance to its second-nearest OLD centre) of its PRE-SWAP position, no
+key dwells. The radius is computed once at swap time from the OLD grid's still-valid centres
+(post-swap centres are unarranged at the first samples and must never be consulted, plan
+review B1); fewer than two positioned old centres means no suppression. The anchor is set
+only when the gaze was actually on the key area at swap time — a prediction pick happens
+with the gaze on the bar, so its auto-return swap suppresses nothing (plan review H3).
+Samples outside the key area and during the post-activation cooldown do not probe the
+radius (a glance at the typed text and back leaves the suppression armed). Hiding the
+keyboard clears the suppression. KNOWN, accepted costs, ledgered: the landing key itself is
+blocked too — typing the edge accent (`À` on QWERTZ, `Ô` on AZERTY) immediately after
+dwelling `Acc` requires one gaze flick away and back; and a rightward overshoot at the
+P/`Acc` boundary now opens accents instead of typing P (the boundary sits ~1.5 DIP inside
+P). Comparison the decision rests on (defaults: cooldown 400 ms, key dwell 450 ms):
 
 | | next intended key (anywhere else) | resting gaze on the landing spot |
 |---|---|---|
@@ -172,13 +187,15 @@ until the gaze moves) → continue typing.
 
 - **ShippedLayoutFilesTests (App.Tests, real JSON):** accents present on QWERTZ/AZERTY; every
   NON-SPECIAL accents key has non-empty `output` ⟦M2⟧; lowercase keys carry their capital
-  `shiftOutput` — **pinned against the JSON data itself** (`é`'s shiftOutput is `"É"` in the
-  file), not via view-model echo, so deleting the data fails the suite ⟦I6⟧; widest accents
-  row = 12.8; content-row count ≤ 3 + footer ⟦M4⟧; QWERTZ `ß` → `ẞ` and AZERTY's four
-  shiftOutputs pinned the same way ⟦I6⟧; existing every-sub-layout Bksp/DelWd and
-  special-action tests cover accents automatically.
-- **Loader tests (Core.Tests, inline JSON):** `autoReturn` round-trips, default false; every
-  `switchSub:` target names a sub-layout that exists in the same layout ⟦M5⟧.
+  `shiftOutput` — **pinned against the JSON data itself with the EXACT expected capital**
+  (`é`'s shiftOutput is `"É"` in the file — a wrong-but-non-empty capital fails), not via
+  view-model echo, so deleting or corrupting the data fails the suite ⟦I6, plan-r2⟧; widest
+  accents row = 12.8; **accents row count EQUALS the letters sub-layout's row count**
+  ⟦plan H2⟧; QWERTZ `ß` → `ẞ` and AZERTY's four shiftOutputs pinned the same way ⟦I6⟧; the
+  `switchSub:`-targets-exist check runs over ALL THREE shipped files including QWERTY
+  ⟦plan-r2⟧; existing every-sub-layout Bksp/DelWd and special-action tests cover accents
+  automatically.
+- **Loader tests (Core.Tests, inline JSON):** `autoReturn` round-trips, default false.
 - **ViewModels.Tests:** auto-return after a non-special key and after
   `HandlePredictionSelected` ⟦D14⟧; not after backspace/deleteWord/space/switch keys; not
   while `IsEmojiMode`; target is `DefaultSubLayout` not "previous"; D13's landing suppression

@@ -18,6 +18,15 @@ public partial class KeyboardSettings : ObservableObject, IValidatable
     /// fill and stays the default.
     /// </summary>
     [ObservableProperty] private int _maxSuggestions = 5;
+
+    /// <summary>
+    /// The upper bound of <see cref="MaxSuggestions"/> as a single constant: the settings
+    /// range-check, the load clamp, the Keyboard tab's slider and WordPredictor.GetSuggestions'
+    /// optional-parameter default must all agree, and a hand-copied literal in any of them
+    /// silently diverges the moment this widens (issue #159). Compile-time const so it can
+    /// also serve as the predictor's C# default value.
+    /// </summary>
+    public const int MaxSuggestionsCeiling = 5;
     /// <summary>Language pack identifier for dictionary loading.</summary>
     [ObservableProperty] private string _languagePack = "";
     /// <summary>Edge of the screen where the keyboard is docked (Top or Bottom).</summary>
@@ -78,7 +87,7 @@ public partial class KeyboardSettings : ObservableObject, IValidatable
             ValidationHelper.ValidateRange(KeySizeMultiplier, 0.5, 2.0, nameof(KeySizeMultiplier)),
             ValidationHelper.ValidateStringEnum(ScreenEdge, ValidScreenEdges, nameof(ScreenEdge)),
             ValidationHelper.ValidateRange(DecayHalfLifeDays, 1, 365, nameof(DecayHalfLifeDays)),
-            ValidationHelper.ValidateRange(MaxSuggestions, 1, 5, nameof(MaxSuggestions))
+            ValidationHelper.ValidateRange(MaxSuggestions, 1, MaxSuggestionsCeiling, nameof(MaxSuggestions))
         );
     }
 }

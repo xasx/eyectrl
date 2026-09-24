@@ -695,4 +695,32 @@ public class SettingsServiceLoadToleranceTests
         }
         finally { File.Delete(path); }
     }
+
+    // ── Dwell cue (2026-09-24): CueEnabled tolerance spot-check ──────────────────────────────────
+
+    [Fact]
+    public void Load_BadCueEnabled_DropsOnlyThatProperty_SectionSurvives()
+    {
+        // A hand-edited "bogus" where the new CueEnabled bool belongs is a per-property
+        // deserialize error — the drop-one class, not a section wipe. The cue flag reverts to
+        // its default (false, off) while every sibling dwell setting keeps its on-disk value.
+        // Kept (not deleted after the one-time spot-check) because it is the file's only
+        // string-into-bool pin and the only one naming the property this branch added.
+        var path = TempPath();
+        try
+        {
+            var json = """
+            {
+                "dwell": { "cueEnabled": "bogus", "activationButtonDwellMs": 800, "keyboardKeyDwellMs": 900 }
+            }
+            """;
+            File.WriteAllText(path, json);
+
+            var loaded = new SettingsService(path).Load();
+            Check.That(loaded.Dwell.CueEnabled).IsFalse();                       // dropped -> default (off)
+            Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(800);     // survived
+            Check.That(loaded.Dwell.KeyboardKeyDwellMs).IsEqualTo(900);          // survived
+        }
+        finally { File.Delete(path); }
+    }
 }

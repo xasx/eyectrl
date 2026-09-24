@@ -4,9 +4,14 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Windows.Controls;
+using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.Core.Keyboard;
+using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Processing;
+using EyeCtrl.ViewModels.Messages;
 
 public class EmojiGridManagerTests
 {
@@ -18,7 +23,8 @@ public class EmojiGridManagerTests
     /// </summary>
     private sealed record Registration(string Id, KeyDefinition Key, Border Container, TextBlock? Content);
 
-    private static (EmojiGridManager Manager, List<Registration> Registrations) NewManager()
+    private static (EmojiGridManager Manager, List<Registration> Registrations) NewManager(
+        IMessenger? messenger = null)
     {
         var registrations = new List<Registration>();
         var manager = new EmojiGridManager(
@@ -27,7 +33,8 @@ public class EmojiGridManagerTests
             registerKeyVisual: (id, key, container, content) =>
                 registrations.Add(new Registration(id, key, container, content)),
             getKeySize: () => 70,
-            clearKeyState: () => { });
+            clearKeyState: () => { },
+            messenger: messenger);
         return (manager, registrations);
     }
 
@@ -133,5 +140,66 @@ public class EmojiGridManagerTests
                 .That(swatch.Content).IsInstanceOf<Emoji.Wpf.TextBlock>();
             Check.That(swatch.Container.Child).IsNull();
         }
+    }
+
+    /// <summary>
+    /// Counts <see cref="DwellActivationMessage"/> arrivals on an isolated messenger — the
+    /// dwell-completion cue's trigger. A record with a mutable counter so the facts can assert
+    /// "exactly once" rather than merely "subscribed".
+    /// </summary>
+    private sealed record CueProbe(Action OnReceive) : IRecipient<DwellActivationMessage>
+    {
+        public int Count { get; private set; }
+
+        public void Receive(DwellActivationMessage message)
+        {
+            Count++;
+            OnReceive();
+        }
+    }
+
+    /// <summary>
+    /// The category detector has no public "add a target without showing UI" path:
+    /// <c>UpdateCategoryTargetPositions</c> early-returns until the real tab bar has laid out,
+    /// which never happens headless. S4/S5: reflect the field, add the target directly, and
+    /// feed the detector itself — no window, no layout, no launch.
+    /// </summary>
+    private static DwellDetector CategoryDetectorOf(EmojiGridManager manager) =>
+        (DwellDetector)typeof(EmojiGridManager)
+            .GetField("_categoryDwellDetector", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(manager)!;
+
+    private static void DriveCategoryDwell(EmojiGridManager manager, string targetId)
+    {
+        var detector = CategoryDetectorOf(manager);
+        detector.AddTarget(new DwellTarget(targetId, new PhysicalPoint(50, 50), 30, 25));
+        for (var i = 1; i <= 20; i++)
+            detector.Update(new PhysicalPoint(50, 50), i * 2_000);
+    }
+
+    [StaFact]
+    public void CategorySwitch_PublishesDwellActivation()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var (manager, _) = NewManager(messenger);
+        var probe = new CueProbe(() => { });
+        messenger.Register(probe);
+
+        DriveCategoryDwell(manager, "cat_smileys"); // category-switch branch
+
+        Check.That(probe.Count).IsEqualTo(1);
+    }
+
+    [StaFact]
+    public void SkinToneSelector_PublishesDwellActivation()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var (manager, _) = NewManager(messenger);
+        var probe = new CueProbe(() => { });
+        messenger.Register(probe);
+
+        DriveCategoryDwell(manager, "cat__skinTone"); // early-return branch (spec review 2 #3)
+
+        Check.That(probe.Count).IsEqualTo(1);
     }
 }

@@ -4,11 +4,13 @@ using EyeCtrl.App.Services;
 
 using System.Windows;
 using System.Windows.Threading;
+using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
+using EyeCtrl.ViewModels.Messages;
 
 public partial class EyeCareBannerWindow : OverlayWindow, IEyeCareBanner
 {
@@ -29,6 +31,11 @@ public partial class EyeCareBannerWindow : OverlayWindow, IEyeCareBanner
 
     private readonly DwellDetector _dwell;
     private readonly int _dwellMs;
+    // Dwell-completion cue trigger. Optional-trailing so no caller changes; the fallback IS the
+    // app's registered singleton (AppBootstrapper registers WeakReferenceMessenger.Default as
+    // IMessenger — spec D9), so the production factory's default path publishes on the same bus
+    // the DwellCueService subscribes to.
+    private readonly IMessenger _messenger;
     private PhysicalPoint _startCenter = new(0, 0);
     private PhysicalPoint _snoozeCenter = new(0, 0);
     private DispatcherTimer? _autoSnooze;
@@ -36,7 +43,7 @@ public partial class EyeCareBannerWindow : OverlayWindow, IEyeCareBanner
 
     // Reuse the app's activation dwell time so the buttons feel consistent.
     public EyeCareBannerWindow(int dwellMs = 700, IStruggleTelemetrySink? sink = null,
-        IDwellDetectorRegistry? dwellRegistry = null)
+        IDwellDetectorRegistry? dwellRegistry = null, IMessenger? messenger = null)
     {
         InitializeComponent();
 
@@ -48,7 +55,8 @@ public partial class EyeCareBannerWindow : OverlayWindow, IEyeCareBanner
         IsClickThrough = true; // set here (read in OverlayWindow.OnSourceInitialized), NOT in XAML
         _dwellMs = dwellMs;
         _dwell = new DwellDetector(cooldownMs: 0, context: DwellContext.EyeCare, sink: sink);
-        _dwell.TargetActivated += OnTargetActivated;
+        _messenger = messenger ?? WeakReferenceMessenger.Default;
+        _dwell.TargetActivated += OnDwellActivated;
         dwellRegistry?.Register(this, DwellRoutingRegistration.ForDetector(
             _dwell, DwellContext.EyeCare,
             AdaptationDwellRanges.StandardMinDwellMs, AdaptationDwellRanges.StandardMaxDwellMs));
@@ -98,6 +106,15 @@ public partial class EyeCareBannerWindow : OverlayWindow, IEyeCareBanner
     public void Cancel()
     {
         if (_tcs is not null) Resolve(false);
+    }
+
+    // Post-effect publish (spec D8): the handler runs first — Resolve dismisses the banner —
+    // then the cue fires, confirming what the user just heard as an activation. Hoisted to a
+    // named method (not the lambda it replaces) so a future teardown can -= it.
+    private void OnDwellActivated(string id)
+    {
+        OnTargetActivated(id);
+        _messenger.Send(new DwellActivationMessage());
     }
 
     private void OnTargetActivated(string id) => Resolve(id == "start");

@@ -726,8 +726,18 @@ public class KeyboardCoordinatorTests
             @"\s+", string.Empty);
 
         Check.WithCustomMessage(
-                "The StackSwapped handler no longer patches the snapshot verdict on swap — " +
-                "deleting this call regresses N3 (one spurious reload per session) silently.")
+                "The StackSwapped event is no longer subscribed with OnStackSwapped — deleting "
+                + "this subscription regresses N3 (one spurious reload per session) silently. "
+                + "The method-group form is pinned (not an inline lambda) because a lambda body "
+                + "can be dead-wrapped while its call text still satisfies a substring pin "
+                + "(round-1 mutation N5).")
+            .That(source.Contains("_predictionFactory.StackSwapped+=OnStackSwapped;")).IsTrue();
+
+        Check.WithCustomMessage(
+                "OnStackSwapped no longer patches the snapshot verdict. Known residual (round-1 "
+                + "M2, accepted): a dead-wrap INSIDE OnStackSwapped still evades this textual "
+                + "pin; behavioural coverage of the event→patch chain needs the real "
+                + "KeyboardWindow, so the seam tests + this pin compose rather than prove.")
             .That(source.Contains("PatchSnapshotWithSwappedVerdict(verification);")).IsTrue();
 
         Check.WithCustomMessage(

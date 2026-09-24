@@ -31,8 +31,9 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
     // commanded state — comparing against the EXECUTED mirror instead would wrongly skip a real
     // transition (true→false arriving while the true is still queued would skip the false and
     // strand the strip shown; that exact sequence is Unpause_WhileBandVisible_HidesStrip).
-    // Written from the coordinator's StateChangedMessage mirror — the method's single
-    // production call site — so it needs no synchronisation.
+    // No synchronisation needed because the only sender of StateChangedMessage marshals the
+    // send onto the UI dispatcher (GazeEngineAdapter.OnStateChanged), so commands arrive
+    // serialized on one thread (round-1 review N1 — the call-site count was the wrong reason).
     private bool _commandedPauseIndicator;
 
     /// <summary>

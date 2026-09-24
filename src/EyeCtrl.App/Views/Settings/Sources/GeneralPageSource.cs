@@ -32,7 +32,10 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                     { Description = "A corner box showing live eye-tracker status." },
                 new ButtonSpec("g_restart", "↻ Restart Now", OnRestart, ButtonKind.Reset, Width: 300, Height: 100),
                 new ButtonSpec("g_reset", "Reset General Settings",
-                    () => _ctx.ShowModal("Reset General settings to defaults?", () =>
+                    // N4 (round-1 review): the reset now includes the theme, which only
+                    // applies after a restart — the modal says so, like the theme row itself.
+                    () => _ctx.ShowModal("Reset General settings to defaults?\n"
+                        + "A changed theme applies after a restart.", () =>
                     {
                         // Resets every settings row the page renders, not one section (issue
                         // #164): the rows bind three different sub-settings objects, and the

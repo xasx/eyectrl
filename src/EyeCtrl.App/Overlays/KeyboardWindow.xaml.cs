@@ -742,7 +742,7 @@ public partial class KeyboardWindow : OverlayWindow
         _predictionOutlines[index].SetProgress(progress);
     }
 
-    private void OnPredictionDwelled(string targetId)
+    internal void OnPredictionDwelled(string targetId)
     {
         if (_viewModel == null || !targetId.StartsWith("pred_")) return;
 
@@ -753,6 +753,8 @@ public partial class KeyboardWindow : OverlayWindow
         {
             _viewModel.HandlePredictionSelected(_renderedPredictions[index].Word);
             UpdatePredictions();
+            _soundService?.PlayKeyClick(); // typing family (D1); AFTER UpdatePredictions so a
+                                           // sound failure can never leave the bar stale (S1)
         }
     }
 

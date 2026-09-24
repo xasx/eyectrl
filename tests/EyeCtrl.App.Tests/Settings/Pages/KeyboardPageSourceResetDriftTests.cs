@@ -158,6 +158,7 @@ public class KeyboardPageSourceResetDriftTests
     {
         [typeof(ButtonSpec).FullName!] = "action row — binds no setting to restore",
         [typeof(LabelSpec).FullName!] = "static text — binds no setting",
+        [typeof(SeparatorSpec).FullName!] = "section rule — binds no setting (full-width divider)",
     };
 
     private static bool IsSettingsRow(SettingsRowSpec r) =>

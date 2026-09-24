@@ -109,8 +109,9 @@ public partial class EyeCareBannerWindow : OverlayWindow, IEyeCareBanner
     }
 
     // Post-effect publish (spec D8): the handler runs first — Resolve dismisses the banner —
-    // then the cue fires, confirming what the user just heard as an activation. Hoisted to a
-    // named method (not the lambda it replaces) so a future teardown can -= it.
+    // then the cue fires, confirming what the user just heard as an activation. The wrapper
+    // exists only for that post-effect send — the method group it replaced
+    // (+= OnTargetActivated) was already unsubscribable by name.
     private void OnDwellActivated(string id)
     {
         OnTargetActivated(id);

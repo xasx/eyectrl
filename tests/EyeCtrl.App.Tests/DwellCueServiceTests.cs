@@ -43,58 +43,86 @@ public class DwellCueServiceTests
     [Fact]
     public void Enabled_CompletesActivation_Plays()
     {
-        var settings = new DwellSettings { CueEnabled = true };
-        var player = new RecordingPlayer();
-        using var svc = new DwellCueService(new WeakReferenceMessenger(), settings,
-            WriteValidWav(Path.GetTempPath()), _ => player);
+        var wav = WriteValidWav(Path.GetTempPath());
+        try
+        {
+            var settings = new DwellSettings { CueEnabled = true };
+            var player = new RecordingPlayer();
+            using var svc = new DwellCueService(new WeakReferenceMessenger(), settings, wav, _ => player);
 
-        svc.Receive(new DwellActivationMessage());
+            svc.Receive(new DwellActivationMessage());
 
-        Check.That(player.Plays).IsEqualTo(1);
+            Check.That(player.Plays).IsEqualTo(1);
+        }
+        finally
+        {
+            File.Delete(wav);
+        }
     }
 
     [Fact]
     public void Disabled_PlaysNothing_ButStillCountsHandled()
     {
-        var settings = new DwellSettings { CueEnabled = false };
-        var player = new RecordingPlayer();
-        using var svc = new DwellCueService(new WeakReferenceMessenger(), settings,
-            WriteValidWav(Path.GetTempPath()), _ => player);
+        var wav = WriteValidWav(Path.GetTempPath());
+        try
+        {
+            var settings = new DwellSettings { CueEnabled = false };
+            var player = new RecordingPlayer();
+            using var svc = new DwellCueService(new WeakReferenceMessenger(), settings, wav, _ => player);
 
-        svc.Receive(new DwellActivationMessage());
+            svc.Receive(new DwellActivationMessage());
 
-        Check.That(player.Plays).IsEqualTo(0);
-        Check.That(svc.HandledCount).IsEqualTo(1); // counted BEFORE the gate (B4c)
+            Check.That(player.Plays).IsEqualTo(0);
+            Check.That(svc.HandledCount).IsEqualTo(1); // counted BEFORE the gate (B4c)
+        }
+        finally
+        {
+            File.Delete(wav);
+        }
     }
 
     [Fact]
     public void GarbageWav_NeverConstructsAPlayer()
     {
         var bad = Path.Combine(Path.GetTempPath(), $"bad_{Guid.NewGuid():N}.wav");
-        File.WriteAllBytes(bad, new byte[200]); // measured: SoundPlayer.Load() accepts this
-        var factoryCalled = false;
+        try
+        {
+            File.WriteAllBytes(bad, new byte[200]); // measured: SoundPlayer.Load() accepts this
+            var factoryCalled = false;
 
-        using var svc = new DwellCueService(new WeakReferenceMessenger(),
-            new DwellSettings { CueEnabled = true }, bad,
-            _ => { factoryCalled = true; return new RecordingPlayer(); });
+            using var svc = new DwellCueService(new WeakReferenceMessenger(),
+                new DwellSettings { CueEnabled = true }, bad,
+                _ => { factoryCalled = true; return new RecordingPlayer(); });
 
-        svc.Receive(new DwellActivationMessage());
+            svc.Receive(new DwellActivationMessage());
 
-        Check.That(factoryCalled).IsFalse();
+            Check.That(factoryCalled).IsFalse();
+        }
+        finally
+        {
+            File.Delete(bad);
+        }
     }
 
     [Fact]
     public void PlayFailure_Latches_PlaysAtMostOnce()
     {
-        var settings = new DwellSettings { CueEnabled = true };
-        var player = new RecordingPlayer { ThrowOnPlay = true };
-        using var svc = new DwellCueService(new WeakReferenceMessenger(), settings,
-            WriteValidWav(Path.GetTempPath()), _ => player);
+        var wav = WriteValidWav(Path.GetTempPath());
+        try
+        {
+            var settings = new DwellSettings { CueEnabled = true };
+            var player = new RecordingPlayer { ThrowOnPlay = true };
+            using var svc = new DwellCueService(new WeakReferenceMessenger(), settings, wav, _ => player);
 
-        Check.ThatCode(() => svc.Receive(new DwellActivationMessage())).DoesNotThrow();
-        Check.ThatCode(() => svc.Receive(new DwellActivationMessage())).DoesNotThrow();
+            Check.ThatCode(() => svc.Receive(new DwellActivationMessage())).DoesNotThrow();
+            Check.ThatCode(() => svc.Receive(new DwellActivationMessage())).DoesNotThrow();
 
-        Check.That(player.Plays).IsEqualTo(1); // latched: second Receive never reached Play()
+            Check.That(player.Plays).IsEqualTo(1); // latched: second Receive never reached Play()
+        }
+        finally
+        {
+            File.Delete(wav);
+        }
     }
 
     [Fact]
@@ -104,15 +132,23 @@ public class DwellCueServiceTests
         var seen = 0;
         var probe = new ActionProbe(() => seen++);
         messenger.Register(probe);
-        var settings = new DwellSettings { CueEnabled = true };
-        var player = new RecordingPlayer();
-        var svc = new DwellCueService(messenger, settings, WriteValidWav(Path.GetTempPath()), _ => player);
+        var wav = WriteValidWav(Path.GetTempPath());
+        try
+        {
+            var settings = new DwellSettings { CueEnabled = true };
+            var player = new RecordingPlayer();
+            var svc = new DwellCueService(messenger, settings, wav, _ => player);
 
-        svc.Dispose();
-        messenger.Send(new DwellActivationMessage());
+            svc.Dispose();
+            messenger.Send(new DwellActivationMessage());
 
-        Check.That(player.Plays).IsEqualTo(0); // unregistered — nothing reaches Receive
-        Check.That(seen).IsEqualTo(1);         // the unrelated probe still gets it
+            Check.That(player.Plays).IsEqualTo(0); // unregistered — nothing reaches Receive
+            Check.That(seen).IsEqualTo(1);         // the unrelated probe still gets it
+        }
+        finally
+        {
+            File.Delete(wav);
+        }
 
         messenger.UnregisterAll(probe);
     }

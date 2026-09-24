@@ -5,9 +5,10 @@ using EyeCtrl.App.Services;
 using System.Windows;
 
 /// <summary>
-/// Thin edge-bar shown when the toolbar is auto-hidden AND the app is paused, so the user
-/// isn't left with no feedback (the toolbar — and its resume button — is off-screen).
-/// Sits along the docked edge; doubles as a "look here to summon" hint. Click-through.
+/// Thin edge-bar shown WHENEVER the app is paused (a pure function of the paused state — any
+/// toolbar mode, any provider), so the user always has pause feedback even when the toolbar —
+/// and its resume button — is off-screen. When the toolbar is docked and auto-hidden, the
+/// strip additionally marks the "look here to summon" edge. Click-through.
 /// </summary>
 public partial class PauseIndicatorWindow : OverlayWindow, IPauseIndicatorOverlay
 {

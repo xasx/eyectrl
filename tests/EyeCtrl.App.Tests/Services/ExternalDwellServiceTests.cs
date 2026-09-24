@@ -74,6 +74,36 @@ public class ExternalDwellServiceTests
         });
     }
 
+    [Fact]
+    public void SettingsCooldownChange_ReachesTheDetector_AndStopsAfterDispose()
+    {
+        RunOnStaThread(() =>
+        {
+            var settings = new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 0 };
+            using var engine = NewGazeEngine();
+            using var svc = new ExternalDwellService(settings, engine, Dispatcher.CurrentDispatcher,
+                NullLogger<ExternalDwellService>.Instance, new WeakReferenceMessenger(), _ => null,
+                pipeName: _pipeName);
+            var detector = svc.DetectorForTesting;
+            Check.That(detector.CooldownMs).IsEqualTo(0);
+
+            // The lifetime guard above proves the handler is SUBSCRIBED; this proves it still
+            // WORKS — the #154-review mutation rewiring the property check from CooldownMs to
+            // DefaultDwellMs survived the whole suite green. 1234 is distinct from every
+            // neighbour (default cooldown 0/400, DefaultDwellMs 800) so a handler listening on
+            // the wrong property or forwarding the wrong setting's value cannot pass by
+            // coincidence (issue #156).
+            settings.CooldownMs = 1234;
+            Check.That(detector.CooldownMs).IsEqualTo(1234);
+
+            // Behavioral half of the lifetime guard: the detached handler must not keep
+            // forwarding changes into the detector after Dispose.
+            svc.Dispose();
+            settings.CooldownMs = 2345;
+            Check.That(detector.CooldownMs).IsEqualTo(1234);
+        });
+    }
+
     // Same reflection guard as GazeEngineDisposeTests: the service subscribes the settings
     // singleton in its ctor, so a handler Dispose forgets to detach keeps the disposed
     // service reachable forever (that is exactly how the leak shipped — an anonymous

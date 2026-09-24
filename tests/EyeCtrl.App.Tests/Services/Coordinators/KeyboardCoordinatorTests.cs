@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
+using EyeCtrl.App.Tests;
 using EyeCtrl.App.Tests.Settings.Pages;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
@@ -627,5 +628,117 @@ public class KeyboardCoordinatorTests
             .IsEqualTo((true, "none", 132.0));
         Check.That(KeyboardCoordinator.ToolbarOccupancyFor(true, true, true, "bottom", 132))
             .IsEqualTo((true, "bottom", 132.0));
+    }
+
+    // ---- Issue #166 M2: the verdict-term wiring is now exercised ----------------------------
+    // The three snapshot writers (swap patch, edge flip, skin tone) previously assigned
+    // WithSwappedVerdict/WithPreservedVerdict inline; deleting the assignments stayed green.
+    // The writers now delegate to internal seams that tests drive; the event lambda's and the
+    // handlers' remaining lines touch the real KeyboardWindow and stay source-pinned below.
+
+    /// <summary>Builds the 17-term record directly — every test pins the terms it cares about
+    /// and takes defaults for the rest.</summary>
+    private static KeyboardStackSnapshot Snap(
+        string layout = "QWERTY", string modelId = "pred_test_model",
+        bool onDisk = true, ModelVerificationOutcome verification = ModelVerificationOutcome.NotYetVerified) =>
+        new(layout, 1.0, true, "en", "Bottom", 0, true, true, 30, true,
+            modelId, false, 800, 800, 400, onDisk, verification);
+
+    [Fact]
+    public void PatchSnapshotWithSwappedVerdict_MovesOnlyTheVerdictTerm_OfTheMatchingModel()
+    {
+        var c = NewCoordinator();
+        var stored = Snap(verification: ModelVerificationOutcome.NotYetVerified);
+        c.KeyboardSnapshotForTesting = stored;
+
+        // The id compare is case-insensitive (production matches MLModelSize spellings), so the
+        // test exercises that too by passing a differently-cased id.
+        c.PatchSnapshotWithSwappedVerdict(("PRED_TEST_MODEL", ModelVerificationOutcome.Verified));
+
+        var patched = c.KeyboardSnapshotForTesting!;
+        Check.That(patched.ActiveModelVerification).IsEqualTo(ModelVerificationOutcome.Verified);
+        // ONLY the verdict term may move: re-substituting the old verdict must reproduce the
+        // stored snapshot term-for-term (a re-capture here would drift disk/ledger state).
+        Check.That(patched with { ActiveModelVerification = stored.ActiveModelVerification })
+            .IsEqualTo(stored);
+    }
+
+    [Fact]
+    public void PatchSnapshotWithSwappedVerdict_IgnoresForeignModelIds_AndNullVerdicts()
+    {
+        var c = NewCoordinator();
+        var stored = Snap(verification: ModelVerificationOutcome.Failed);
+        c.KeyboardSnapshotForTesting = stored;
+
+        c.PatchSnapshotWithSwappedVerdict(("some_other_model", ModelVerificationOutcome.Verified));
+        Check.That(c.KeyboardSnapshotForTesting).IsSameReferenceAs(stored);
+
+        c.PatchSnapshotWithSwappedVerdict(null);
+        Check.That(c.KeyboardSnapshotForTesting).IsSameReferenceAs(stored);
+    }
+
+    [Fact]
+    public void PatchSnapshotWithSwappedVerdict_WithNoSnapshotYet_IsANoOp()
+    {
+        var c = NewCoordinator();
+        c.PatchSnapshotWithSwappedVerdict(("pred_test_model", ModelVerificationOutcome.Verified));
+        Check.That(c.KeyboardSnapshotForTesting).IsNull();
+    }
+
+    [Fact]
+    public void CapturePreservingVerdict_MovesFreshSettingsTerms_ButKeepsTheStoredVerdict()
+    {
+        var c = NewCoordinator();
+        c.KeyboardSnapshotForTesting = Snap(layout: "QWERTY", verification: ModelVerificationOutcome.Failed);
+        // A fresh capture whose live ledger read says Verified (the repair-landed-in-the-window
+        // shape WithPreservedVerdict exists to refuse) while the running stack is still Failed.
+        var fresh = Snap(layout: "AZERTY", verification: ModelVerificationOutcome.Verified);
+
+        c.CapturePreservingVerdict(fresh);
+
+        var merged = c.KeyboardSnapshotForTesting!;
+        Check.That(merged.ActiveLayout).IsEqualTo("AZERTY");
+        Check.That(merged.ActiveModelVerification).IsEqualTo(ModelVerificationOutcome.Failed);
+    }
+
+    [Fact]
+    public void CapturePreservingVerdict_TakesTheFreshVerdict_WhenNothingIsStoredYet()
+    {
+        var c = NewCoordinator();
+        var fresh = Snap(verification: ModelVerificationOutcome.Verified);
+
+        c.CapturePreservingVerdict(fresh);
+
+        Check.That(c.KeyboardSnapshotForTesting).IsSameReferenceAs(fresh);
+    }
+
+    [Fact]
+    public void VerdictTermWiring_TheThreeSnapshotWritersDelegateToTheSeams()
+    {
+        // Source pins over COMMENT-STRIPPED, whitespace-collapsed code (the M3 discipline: a
+        // pin over raw text passes on a commented-out call). The lambda's and handlers' window
+        // calls are not headless-drivable; these pins hold the wiring in place around the
+        // seams the behavioural tests above drive.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Services", "Coordinators", "KeyboardCoordinator.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage(
+                "The StackSwapped handler no longer patches the snapshot verdict on swap — " +
+                "deleting this call regresses N3 (one spurious reload per session) silently.")
+            .That(source.Contains("PatchSnapshotWithSwappedVerdict(verification);")).IsTrue();
+
+        Check.WithCustomMessage(
+                "The keyboard-edge handler no longer stores its fresh capture with the verdict " +
+                "preserved — a repair landing mid-flip would absorb Verified while the running " +
+                "stack is still Failed (plan review C4).")
+            .That(source.Contains("CapturePreservingVerdict(snapshot);")).IsTrue();
+
+        Check.WithCustomMessage(
+                "The emoji-skin-tone handler no longer stores its fresh capture with the " +
+                "verdict preserved (same C4 discipline as the edge flip).")
+            .That(source.Contains("CapturePreservingVerdict(ApplyEmojiSkinTone(")).IsTrue();
     }
 }

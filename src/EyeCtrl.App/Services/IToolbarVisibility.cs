@@ -18,7 +18,9 @@ public interface IToolbarVisibility
 
     /// <summary>Hides the toolbar. The pause indicator is NOT touched — its visibility is
     /// commanded only through <see cref="SetPauseIndicator"/>.</summary>
-    /// <param name="paused">Whether the app is currently paused (logged with the hide; controls the edge bar's state elsewhere).</param>
+    /// <param name="paused">Whether the app is currently paused. Log-only here: no hide
+    /// behaviour branches on it (the strip is commanded solely through
+    /// <see cref="SetPauseIndicator"/>; issue #166 nit — the old wording implied otherwise).</param>
     void HideToolbar(bool paused);
 
     /// <summary>Force-shows the toolbar instantly (tray fallback / suspend-recover). Raises the

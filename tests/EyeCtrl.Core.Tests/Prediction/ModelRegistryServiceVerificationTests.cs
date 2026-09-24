@@ -63,4 +63,27 @@ public class ModelRegistryServiceVerificationTests : IDisposable
         Check.That(_registry.GetVerification("360M"))
             .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
     }
+
+    [Fact]
+    public void ReportVerification_AThrowingSubscriber_IsContained()
+    {
+        // Issue #166 M6: the raise used to escape into the caller. From the factory's posted
+        // background-swap lambda that meant a throwing subscriber died in the supervision
+        // wrapper AND StackSwapped never ran — the keyboard stayed bound to the just-disposed
+        // stack. The verdict is committed before the raise; a subscriber's failure is its own.
+        var raised = false;
+        _registry.VerificationChanged += () => raised = true;
+        _registry.VerificationChanged += () => throw new InvalidOperationException("subscriber bug");
+
+        _registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
+
+        Check.That(raised).IsTrue(); // the earlier subscriber still ran
+        // The ledger state is committed despite the throw, and the no-op contract survives:
+        // a same-value re-report must still not raise.
+        Check.That(_registry.GetVerification("135M")).IsEqualTo(ModelVerificationOutcome.Failed);
+        var raisedAgain = false;
+        _registry.VerificationChanged += () => raisedAgain = true;
+        _registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
+        Check.That(raisedAgain).IsFalse();
+    }
 }

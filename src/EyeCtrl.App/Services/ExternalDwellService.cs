@@ -51,6 +51,10 @@ public sealed class ExternalDwellService : IDisposable
     private readonly IMessenger _messenger;
     private readonly Func<PhysicalPoint, long?> _rootWindowAtPoint;
     private readonly DwellDetector _detector;
+    /// <summary>Test seam (issue #156): the settings-changed handler routes CooldownMs into
+    /// this private detector, so ExternalDwellServiceTests observes the change land here
+    /// instead of reflecting over the invocation list alone.</summary>
+    internal DwellDetector DetectorForTesting => _detector;
     private readonly Dictionary<string, DwellTarget> _targetsById = new();
     private readonly Dictionary<string, long> _hwndById = new();
     private readonly DwellFeedbackOverlay _feedback;

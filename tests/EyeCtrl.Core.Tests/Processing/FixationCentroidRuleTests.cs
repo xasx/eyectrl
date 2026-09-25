@@ -363,6 +363,28 @@ public class FixationCentroidRuleTests
     }
 
     [Fact]
+    public void SuppressionRelease_ReArms_SoAHeldRunCanActivateAgain()
+    {
+        // Fixup-02 keeps the suppression-release re-arm: without clearing the activation latch, a run
+        // that already fired and then held through a suppressed stretch could never fire again while the
+        // gaze stayed inside R (no new run starts). Mutation: drop the suppression-edge re-arm flag.
+        var s = Settings();
+        var provider = new ScriptedGazeProvider();
+        using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s);
+        var probe = new Probe(engine);
+
+        long ts = FeedValid(provider, 1000, 1000, 0, samples: 40);   // onset + activation
+        Check.That(probe.Activations).HasSize(1);
+
+        engine.SuppressFixation = true;
+        ts = FeedValid(provider, 1000, 1000, ts, samples: 5);         // suppressed: not fed
+        engine.SuppressFixation = false;                              // re-arm, age restarts
+        FeedValid(provider, 1000, 1000, ts, samples: 40);             // re-earns the full clock
+
+        Check.That(probe.Activations).HasSize(2);
+    }
+
+    [Fact]
     public void ResetBeforeTheFeed_NoFireOnTheFirstPostReleaseSample()
     {
         // Fixup-01 F7 / MC: the age reset must land BEFORE the feed. With 960 ms of pent-up age — within
@@ -406,14 +428,14 @@ public class FixationCentroidRuleTests
         Check.That((double)probe.Activations[0].TimestampUs).IsCloseTo(1_020_000, 35_000);
     }
 
-    // ── F3: the button re-shows after a FreeLook entry with gaze held ────────
+    // ── F3 / R2-1: re-arm only where it helps, never into an exit-button loop ─
 
     [Fact]
-    public void MenuDismissedWithGazeHeld_ShowsTheButtonAgainAfterAbout300ms()
+    public void OverlayExitWithGazeHeld_DoesNotReShowUntilGazeMovesBeyondR()
     {
-        // Fixup-01 F3 (coordinator: fix it): ResetAge clears the onset/activation latches, so held gaze
-        // re-shows the activation button after a fresh 300 ms onset once the state is FreeLook again.
-        // Mutation: keep the latches → no second Show.
+        // Fixup-02 R2-1: an ordinary overlay exit zeroes the age but KEEPS the latches, so a gaze that
+        // stays on the exit spot does not re-onset and re-open the overlay. Round-1's rule (clear on
+        // every FreeLook entry) showed the button ~300 ms later; real exits move the gaze beyond R.
         var s = Settings();
         var provider = new ScriptedGazeProvider();
         using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s);
@@ -423,18 +445,69 @@ public class FixationCentroidRuleTests
         Check.That(probe.Activations).HasSize(1);
         int shows = probe.Onsets.Count;
 
-        engine.InteractionManager.OnActivationButtonDwelled();        // menu opens, button hides
-        engine.InteractionManager.OnActionMenuDismissed();            // FreeLook, gaze still held
+        engine.InteractionManager.OnActivationButtonDwelled();        // overlay opens, button hides
+        engine.InteractionManager.OnActionMenuDismissed();            // exit to FreeLook, gaze still held
 
-        long dismissTs = ts;
-        for (int i = 0; i < 11; i++) // 330 ms after the dismissal, through the Probe so onset time lands
+        for (int i = 0; i < 80; i++) // 2.4 s of unmoved gaze: no new Show
         {
             probe.Push(provider, 1000, 1000, ts);
             ts += StepUs;
         }
+        Check.That(probe.Onsets.Count).IsEqualTo(shows);
 
-        Check.That(probe.Onsets.Count).IsEqualTo(shows + 1);          // the button is back
-        Check.That((double)(probe.Onsets[^1].Us - dismissTs)).IsCloseTo(300_000, 65_000);
+        // Moving beyond R ends the run; the fresh one starts clean and its onset shows the button.
+        for (int i = 0; i < 12; i++)
+        {
+            probe.Push(provider, 1200, 1000, ts);
+            ts += StepUs;
+        }
+        Check.That(probe.Onsets.Count).IsEqualTo(shows + 1);
+    }
+
+    [Theory]
+    [InlineData(SelectionMode.None)]
+    [InlineData(SelectionMode.ManualSelection)]
+    public void StareAtAFixedExitAnchor_OpensExactlyOneOverlay_InEightSeconds(SelectionMode mode)
+    {
+        // Fixup-02 R2-1 regression (reviewer A's probe L1): the edge-bar Close sits at a FIXED anchor, so
+        // an unmoved gaze can dwell it, exit, re-onset and re-activate — five overlays in 8 s on
+        // f215b27d, one on the round-1 latches. Both modes are pinned because the user's is
+        // ManualSelection and None follows the same path through OnActivationButtonDwelled.
+        var s = Settings();
+        s.SelectionMode = mode;
+        var provider = new ScriptedGazeProvider();
+        using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s);
+
+        var anchor = new PhysicalPoint(1000, 1000);   // the activation point AND the fixed Close anchor
+        int overlays = 0;
+        long openedAt = -1;
+        long ts = 0;
+
+        engine.InteractionManager.ShowActionMenu += _ => { overlays++; openedAt = ts; };
+        engine.InteractionManager.StartManualSelection += _ => { overlays++; openedAt = ts; };
+        engine.FixationActivated += _ =>
+        {
+            // What the adapter does on completion: the overlay opens with its Close under the gaze.
+            if (engine.InteractionManager.CurrentState == InteractionState.Fixation)
+                engine.InteractionManager.OnActivationButtonDwelled();
+        };
+
+        for (int i = 0; i < 267; i++) // 8 s at 30 ms, gaze never moving
+        {
+            provider.Push(new GazePoint(anchor.X, anchor.Y, ts, true));
+            if (openedAt >= 0 && ts - openedAt >= 600_000)
+            {
+                // 600 ms of dwell on the fixed Close, then the exit it performs.
+                if (mode == SelectionMode.ManualSelection)
+                    engine.InteractionManager.OnManualSelectionBack();
+                else
+                    engine.InteractionManager.OnActionMenuDismissed();
+                openedAt = -1;
+            }
+            ts += StepUs;
+        }
+
+        Check.That(overlays).IsEqualTo(1);
     }
 
     [Fact]

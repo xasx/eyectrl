@@ -41,7 +41,17 @@ public class GazeEngine : IDisposable
     // — time the eyes spent inside another overlay or another state — from firing an activation the
     // moment the gate lifts (skeptic condition 2).
     private volatile bool _fixationAgeResetRequested;
+    // The narrower re-arm (age + latches), set only on Paused → FreeLook and on the SuppressFixation
+    // true→false edge. It is what lets held gaze re-show the button after a short pause or a suppressed
+    // stretch; every other FreeLook entry deliberately keeps the latches (fixup-02 R2-1 — a fixed exit
+    // button under an unmoved gaze would otherwise re-open the overlay in a loop).
+    private volatile bool _fixationRearmRequested;
     private readonly Action<InteractionState> _interactionStateChangedHandler;
+    // StateChanged carries only the new state; the re-arm needs to know whether FreeLook came from
+    // Paused. Transitions are raised by the state machine's own callers (dispatcher for pause/menu,
+    // gaze thread for fixation end), and a torn read at worst mis-classifies one edge, which the next
+    // FreeLook corrects.
+    private InteractionState _previousInteractionState = InteractionState.FreeLook;
     // Whether the CURRENT run's onset was accepted by the InteractionManager (ShowActivationButton
     // fired for it). Cleared on every onset before the InteractionManager sees it, set if it raises the
     // show. Struggle telemetry reports only accepted runs (fixup-01 F1b), so a stare held while a menu,
@@ -123,8 +133,13 @@ public class GazeEngine : IDisposable
         {
             // Releasing the gate zeroes the run's age, so time accumulated before the overlay opened
             // cannot complete an activation on the first sample after it closes (skeptic condition 2).
+            // It also RE-ARMS (age + latches): the gate was held by another surface, so the user gets a
+            // deliberate fresh onset rather than an activation inherited from before it.
             if (_suppressFixation && !value)
+            {
                 _fixationAgeResetRequested = true;
+                _fixationRearmRequested = true;
+            }
             _suppressFixation = value;
         }
     }
@@ -323,12 +338,20 @@ public class GazeEngine : IDisposable
         };
         _settings.Dwell.PropertyChanged += _dwellSettingsChangedHandler;
 
-        // FreeLook entry zeroes the run's age (skeptic condition 2). The handler only raises the flag;
+        // FreeLook entry zeroes the run's age (skeptic condition 2). The handler only raises the flags;
         // the apply runs on the gaze thread before the next feed, like every other detector mutation.
+        // The LATCHES are cleared only for a resume from Paused: a fixed exit button sits under an
+        // unmoved gaze, and re-arming there would re-onset at +300 ms and re-open the overlay in a loop
+        // (fixup-02 R2-1). Suppression release re-arms too (see the SuppressFixation setter).
         _interactionStateChangedHandler = state =>
         {
-            if (state == InteractionState.FreeLook)
-                _fixationAgeResetRequested = true;
+            var previous = _previousInteractionState;
+            _previousInteractionState = state;
+            if (state != InteractionState.FreeLook)
+                return;
+            _fixationAgeResetRequested = true;
+            if (previous == InteractionState.Paused)
+                _fixationRearmRequested = true;
         };
         InteractionManager.StateChanged += _interactionStateChangedHandler;
 
@@ -582,8 +605,11 @@ public class GazeEngine : IDisposable
         d.FixationReleased -= ForwardFixationReleased;
     }
 
-    // Runs on the gaze thread, first thing on every reported onset. See _runAccepted.
-    private void ClearRunAcceptance(PhysicalPoint _) => _runAccepted = false;
+    // Runs on the gaze thread, first thing on every reported onset. See _runAccepted. A state that is
+    // ALREADY Fixation means the button is up, which carries the acceptance across a suppression
+    // re-onset (the state machine raises no new Show there, fixup-02 low item).
+    private void ClearRunAcceptance(PhysicalPoint _) =>
+        _runAccepted = InteractionManager.CurrentState == InteractionState.Fixation;
 
     // Raised synchronously inside InteractionManager.OnFixationStarted when the onset was accepted.
     private void OnActivationButtonShownForTelemetry(PhysicalPoint _) => _runAccepted = true;
@@ -792,6 +818,13 @@ public class GazeEngine : IDisposable
 
     private void ApplyPendingFixationAgeReset()
     {
+        if (_fixationRearmRequested)
+        {
+            _fixationRearmRequested = false;
+            _fixationAgeResetRequested = false;
+            _fixationDetector.Rearm();
+            return;
+        }
         if (!_fixationAgeResetRequested)
             return;
         _fixationAgeResetRequested = false;

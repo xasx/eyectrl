@@ -315,24 +315,33 @@ public class FixationDetector
     }
 
     /// <summary>
-    /// Zeroes the run's credited age AND clears its onset and activation latches, so held gaze re-shows
-    /// the button after a fresh onset age. The startup wiring calls this on FreeLook entry and on
-    /// <c>GazeEngine.SuppressFixation</c> release:
-    /// <list type="bullet">
-    /// <item>time the eyes spent elsewhere or inside a suppressed overlay must not fire an activation the
-    /// moment the gate lifts (skeptic condition 2);</item>
-    /// <item>and a run whose onset fired while a menu, scroll, drag or short pause was up must be able to
-    /// re-show the button once the state is FreeLook again — otherwise "look away and back after every
-    /// menu close" reads as "fixation will not form" for this user.</item>
-    /// </list>
-    /// The run itself (the anchor and the geometry) is kept: the age restarts from zero and the latches
-    /// allow one new onset and one new activation within this FreeLook stretch. A gaze-left or a gap
-    /// abort still ends the run as before.
+    /// Zeroes the run's credited age without ending the run and WITHOUT touching its onset or activation
+    /// latches. This is the reset applied on every FreeLook entry: age the eyes accrued before the state
+    /// moved must not complete an activation the moment it comes back (skeptic condition 2), while the
+    /// run's geometry and latches survive, because the gaze is usually still where it was (an overlay
+    /// exit, a menu dismissal). A gaze-left or a gap abort still ends the run as before.
     /// </summary>
     public void ResetAge()
     {
         _creditedUs = 0;
         _lastCreditedUs = _lastFedUs;
+    }
+
+    /// <summary>
+    /// Zeroes the age AND clears the onset and activation latches, so held gaze can re-show the button
+    /// after a fresh onset age. The re-arm is deliberately narrow: only <c>Paused → FreeLook</c> and the
+    /// <c>GazeEngine.SuppressFixation</c> true→false edge use it.
+    /// <para>
+    /// Clearing the latches on EVERY FreeLook entry is wrong (fixup-02 R2-1): a fixed-position exit
+    /// button — the edge-bar Close at <c>RightEdgeAnchor</c> — sits under an unmoved gaze, so the
+    /// latched run re-onsets at +300 ms, reactivates at +1000 ms and re-opens the overlay about every
+    /// 1.6 s, five times in an 8 s stare. Real exits leave the gaze beyond R of what was under it, so a
+    /// new target starts a fresh run and the latch never mattered for it.
+    /// </para>
+    /// </summary>
+    public void Rearm()
+    {
+        ResetAge();
         _onsetFired = false;
         _activated = false;
     }

@@ -113,6 +113,32 @@ public class GazeEngineActivationTelemetryTests
     }
 
     [Fact]
+    public void SuppressionRelease_ReOnset_CarriesAcceptance_SoTheAbandonmentIsStillReported()
+    {
+        // Fixup-02 low item: after a suppression release the onset re-fires while the state is already
+        // Fixation, so no new Show is raised — the acceptance must be carried from the visible button or
+        // this run's gaze-left abandonment is silently lost (its activation was already reported through
+        // the state check).
+        var (engine, provider, sink) = Build();
+        using var _ = engine;
+
+        long ts = Feed(provider, 1000, 1000, 0, samples: 11);   // onset (accepted), no activation
+        Check.That(sink.Outcomes).IsEmpty();
+
+        engine.SuppressFixation = true;
+        ts = Feed(provider, 1000, 1000, ts, samples: 5);         // suppressed: not fed
+        engine.SuppressFixation = false;                          // re-arm: the onset re-fires in Fixation
+
+        ts = Feed(provider, 1000, 1000, ts, samples: 21);         // credited ~666 ms after the reset
+        provider.Push(new GazePoint(1400, 1000, ts, true));       // leaves at progress ~0.52
+
+        Check.That(sink.Outcomes).HasSize(1);
+        Check.That(sink.Outcomes[0].Kind).IsEqualTo(OutcomeKind.Abandoned);
+        Check.That(sink.Outcomes[0].Reason).IsEqualTo(AbandonReason.GazeLeft);
+        Check.That(sink.Outcomes[0].ProgressAtEnd).IsCloseTo((666.0 - 300.0) / 700.0, 0.05);
+    }
+
+    [Fact]
     public void GazeLeftPastTheThreshold_ReportsAbandonedAtTheValidTimeProgress()
     {
         var (engine, provider, sink) = Build();

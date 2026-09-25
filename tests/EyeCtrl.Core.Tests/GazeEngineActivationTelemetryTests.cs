@@ -74,6 +74,45 @@ public class GazeEngineActivationTelemetryTests
     }
 
     [Fact]
+    public void ActivateThenLeave_ReportsNoAbandonmentForTheSuccess()
+    {
+        // Fixup-01 F1a (both reviewers): a run that activated is a success. Without the Activated flag on
+        // the release, the leave reports a second outcome, Abandoned at progress 1.0.
+        var (engine, provider, sink) = Build();
+        using var _ = engine;
+
+        Feed(provider, 1000, 1000, 0, samples: 40);                       // activation at ~1020 ms
+        provider.Push(new GazePoint(1800, 1000, 40 * 30_000, true));      // leaves after the success
+
+        Check.That(sink.Outcomes).HasSize(1);
+        Check.That(sink.Outcomes[0].Kind).IsEqualTo(OutcomeKind.Activated);
+    }
+
+    [Fact]
+    public void ActivateThenHoldAMenuItem_ReportsExactlyOneActivated_AndNoAbandoned()
+    {
+        // Fixup-01 F1b (both reviewers, A's probe): outcomes belong to runs the user saw — the ones whose
+        // onset the InteractionManager accepted and for which ShowActivationButton fired. A stare held
+        // while a menu is open is not an activation-button run and must emit nothing at all, even though
+        // the rule keeps firing.
+        var (engine, provider, sink) = Build();
+        using var _ = engine;
+
+        Feed(provider, 1000, 1000, 0, samples: 40);
+        Check.That(sink.Outcomes).HasSize(1);
+
+        // What the adapter does on completion; the engine alone would leave the state in Fixation.
+        engine.InteractionManager.OnActivationButtonDwelled();
+        sink.Outcomes.Clear();
+
+        long ts = 40 * 30_000;
+        ts = Feed(provider, 1400, 1000, ts, samples: 45);                 // a menu-item stare past one clock
+        provider.Push(new GazePoint(1800, 1000, ts, true));               // and leave it
+
+        Check.That(sink.Outcomes).IsEmpty();
+    }
+
+    [Fact]
     public void GazeLeftPastTheThreshold_ReportsAbandonedAtTheValidTimeProgress()
     {
         var (engine, provider, sink) = Build();

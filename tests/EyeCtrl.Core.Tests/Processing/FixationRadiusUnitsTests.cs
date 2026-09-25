@@ -11,8 +11,9 @@ using EyeCtrl.Core.Tests.Flow;
 /// halve the effective radius at the user's ScaleX 2.0.
 /// <para>
 /// Part of the non-parallelized DpiHelper collection because it mutates global DpiHelper state.
-/// Mutation: apply <c>DpiHelper.LogicalToPhysicalX</c> to R in <c>GazeEngine.EffectiveFixationRadius</c>
-/// → 37.5 at ScaleX 2.0 instead of 75.
+/// Mutations: apply <c>DpiHelper.LogicalToPhysicalX</c> to R in <c>GazeEngine.EffectiveFixationRadius</c>
+/// → 150 at ScaleX 2.0 instead of 75; or <c>PhysicalToLogicalX</c> → 37.5. The test kills either
+/// direction.
 /// </para>
 /// </summary>
 [Collection("DpiHelper Tests")]

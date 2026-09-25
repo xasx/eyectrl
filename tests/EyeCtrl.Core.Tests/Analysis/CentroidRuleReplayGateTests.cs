@@ -1,6 +1,7 @@
 namespace EyeCtrl.Core.Tests.Analysis;
 
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Settings;
 
 /// <summary>
 /// Ticket 3 acceptance through ticket 2's committed instrument: the production rule
@@ -56,13 +57,20 @@ public class CentroidRuleReplayGateTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void ProductionAndHarness_AgreeOnThePinnedClockConstants()
+    public void ProductionAndHarness_AgreeOnEveryPinnedConstant()
     {
         // The frozen LegacyFixationRule is "today's rule under ticket 3's clock", so its ledger constants
         // must equal the production rule's — otherwise the baseline silently measures a different clock
-        // from the candidate and G4/G5 compare two rules' worth of difference. Drift guard, no behaviour.
+        // from the candidate. The DwellSettings defaults are part of the same contract (fixup-01 F5): the
+        // engine reads THEM while the harness pins its own copies, and a drift would leave the gates
+        // scoring a rule the app no longer runs. Drift guard, no behaviour.
         Check.That(FixationDetector.AgeCreditCapMs).IsEqualTo(FixationReplayGates.AgeCreditCapMs);
         Check.That(FixationDetector.GapAbortMs).IsEqualTo(FixationReplayGates.EpisodeGapBreakMs);
+        var dwell = new DwellSettings();
+        Check.That(dwell.FixationDetectionMs).IsEqualTo(FixationReplayGates.FixationDetectionMs);
+        Check.That(dwell.ActivationButtonDwellMs).IsEqualTo(FixationReplayGates.ActivationButtonDwellMs);
+        Check.That(dwell.DwellCooldownMs).IsEqualTo(FixationReplayGates.ActivationCooldownMs);
+        Check.That(dwell.FixationRadiusPixels).IsEqualTo(75.0);
     }
 
     // ── Real recording (env-gated) ────────────────────────────────────────────

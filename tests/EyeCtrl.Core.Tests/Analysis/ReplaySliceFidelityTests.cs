@@ -89,11 +89,13 @@ public class ReplaySliceFidelityTests
         var provider = new ScriptedGazeProvider();
         using var engine = new GazeEngine(provider, new RecordingInputSimulator(), settings);
         var engineOnsets = new List<(long TimestampUs, PhysicalPoint Point)>();
+        var engineActivations = new List<long>();
         var engineReleases = new List<FixationRelease>();
         int engineEnds = 0;
         long currentUs = 0;
         engine.InteractionManager.ShowActivationButton += point => engineOnsets.Add((currentUs, point));
         engine.InteractionManager.HideActivationButton += () => engineEnds++;
+        engine.FixationActivated += activation => engineActivations.Add(activation.TimestampUs);
         engine.FixationReleased += release => engineReleases.Add(
             new FixationRelease(release.LastCreditedUs, release.CreditedAgeUs, release.EndedByLeave));
         engine.Start();
@@ -126,5 +128,13 @@ public class ReplaySliceFidelityTests
             Check.That(engineReleases[release].CreditedAgeUs).IsEqualTo(runs[i].CreditedAgeUs);
             release++;
         }
+
+        // Fixup-01 F5 (reviewer A): activation times too. The engine reads dwell and cooldown from
+        // DwellSettings while the harness pins its own constants, so a default drift would otherwise
+        // leave parity green while the gates scored a rule the app no longer runs.
+        var activatableRuns = runs.Where(r => r.IsActivatable).ToList();
+        Check.That(engineActivations).HasSize(activatableRuns.Count);
+        for (int i = 0; i < activatableRuns.Count; i++)
+            Check.That(engineActivations[i]).IsEqualTo(activatableRuns[i].ActivationUs);
     }
 }

@@ -82,11 +82,12 @@ public class FixationCentroidRuleTests
     [Fact]
     public void Drift_ActivatesAtDetectPlusDwell_FollowingTheRunningCentroid()
     {
-        // The drift is 100 px over 1.2 s — a gentle 83 px/s, below the 150 px/s pursuit bound at r75 —
-        // but MORE than one radius from where it started, which is what gives the named mutation its
-        // teeth: pin any fixed anchor (the onset point, or the run's first sample, as the old rule did)
-        // and the sample that passes 75 px ends the run before activation. The running mean trails the
-        // gaze by about two samples, so the rule follows the drift and completes at fix + dwell.
+        // Fixup-01 F4: the post-onset drift must exceed R from the ONSET CENTROID before activation, or
+        // the ticket's named mutation ("freeze the target at the onset point") survives in CI. Here the
+        // drift is 120 px over 1.2 s (100 px/s, under the 150 px/s pursuit bound at r75): onset lands at
+        // sample 10 with centroid 1015, activation at sample 34 with gaze at 1102 — 87 px away, outside
+        // 75. A rule that stops following (freezes at the onset point or at the first sample) ends the
+        // run before activation; the running mean trails the gaze by about half the drift and holds.
         var s = Settings();
         var provider = new ScriptedGazeProvider();
         using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s);
@@ -94,9 +95,9 @@ public class FixationCentroidRuleTests
 
         long first = 1_000_000;
         long ts = first;
-        for (int i = 0; i < 41; i++) // 0..1200 ms, x = 1000 → 1100
+        for (int i = 0; i < 41; i++) // 0..1200 ms, x = 1000 → 1120 (3 px per sample)
         {
-            double x = 1000 + (100.0 * i / 40.0);
+            double x = 1000 + (120.0 * i / 40.0);
             probe.Push(provider, x, 1000, ts);
             ts += StepUs;
         }
@@ -359,5 +360,118 @@ public class FixationCentroidRuleTests
 
         FeedValid(provider, 1000, 1000, ts, samples: 40);
         Check.That(probe.Activations).HasSize(1);
+    }
+
+    [Fact]
+    public void ResetBeforeTheFeed_NoFireOnTheFirstPostReleaseSample()
+    {
+        // Fixup-01 F7 / MC: the age reset must land BEFORE the feed. With 960 ms of pent-up age — within
+        // one credit cap of the 1000 ms bar — a reset applied after the feed leaves the first post-release
+        // sample crediting 66 ms on top of 960 and firing an activation into the just-left state, which
+        // skeptic condition 2 forbids. Mutation: apply ApplyPendingFixationAgeReset after the feed.
+        var s = Settings();
+        var provider = new ScriptedGazeProvider();
+        using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s);
+        var probe = new Probe(engine);
+
+        long ts = FeedValid(provider, 1000, 1000, 0, samples: 33);   // credited 960 ms
+        Check.That(probe.Activations).IsEmpty();
+
+        engine.SuppressFixation = true;
+        ts = FeedValid(provider, 1000, 1000, ts, samples: 5);         // 150 ms suppressed: not fed
+        engine.SuppressFixation = false;
+
+        FeedValid(provider, 1000, 1000, ts, samples: 1);              // the first post-release sample
+
+        Check.That(probe.Activations).IsEmpty();
+    }
+
+    [Fact]
+    public void RedundantSuppressReleaseWrite_DoesNotZeroALiveRun()
+    {
+        // Fixup-01 F7 / ME: the SuppressFixation reset fires on the true → false EDGE only. A redundant
+        // `= false` write (a writer re-releasing a gate it does not hold) must leave a live run's age
+        // alone. Mutation: drop the `_suppressFixation &&` edge check → the redundant write zeroes the
+        // run and this activation never reaches its ~1020 ms clock.
+        var s = Settings();
+        var provider = new ScriptedGazeProvider();
+        using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s);
+        var probe = new Probe(engine);
+
+        long ts = FeedValid(provider, 1000, 1000, 0, samples: 31);   // credited 900 ms
+        engine.SuppressFixation = false;                              // already false: a no-op
+        FeedValid(provider, 1000, 1000, ts, samples: 4);              // credited reaches 1020 ms
+
+        Check.That(probe.Activations).HasSize(1);
+        Check.That((double)probe.Activations[0].TimestampUs).IsCloseTo(1_020_000, 35_000);
+    }
+
+    // ── F3: the button re-shows after a FreeLook entry with gaze held ────────
+
+    [Fact]
+    public void MenuDismissedWithGazeHeld_ShowsTheButtonAgainAfterAbout300ms()
+    {
+        // Fixup-01 F3 (coordinator: fix it): ResetAge clears the onset/activation latches, so held gaze
+        // re-shows the activation button after a fresh 300 ms onset once the state is FreeLook again.
+        // Mutation: keep the latches → no second Show.
+        var s = Settings();
+        var provider = new ScriptedGazeProvider();
+        using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s);
+        var probe = new Probe(engine);
+
+        long ts = FeedValid(provider, 1000, 1000, 0, samples: 40);   // onset + activation
+        Check.That(probe.Activations).HasSize(1);
+        int shows = probe.Onsets.Count;
+
+        engine.InteractionManager.OnActivationButtonDwelled();        // menu opens, button hides
+        engine.InteractionManager.OnActionMenuDismissed();            // FreeLook, gaze still held
+
+        long dismissTs = ts;
+        for (int i = 0; i < 11; i++) // 330 ms after the dismissal, through the Probe so onset time lands
+        {
+            probe.Push(provider, 1000, 1000, ts);
+            ts += StepUs;
+        }
+
+        Check.That(probe.Onsets.Count).IsEqualTo(shows + 1);          // the button is back
+        Check.That((double)(probe.Onsets[^1].Us - dismissTs)).IsCloseTo(300_000, 65_000);
+    }
+
+    [Fact]
+    public void ShortPauseUnpause_ShowsTheButtonAgain_AndNoActivationFiresIntoFreeLook()
+    {
+        // Fixup-01 F3: a pause/unpause within 150 ms used to leave the run latched, so nothing re-showed
+        // and the pent-up age fired an activation into FreeLook where no button exists. Mutation: keep
+        // the latches in ResetAge → no second Show and the early FreeLook activation.
+        var s = Settings();
+        var provider = new ScriptedGazeProvider();
+        using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s);
+        var probe = new Probe(engine);
+
+        long ts = FeedValid(provider, 1000, 1000, 0, samples: 31);   // 900 ms credited, no activation
+        int showsBeforePause = probe.Onsets.Count;
+        Check.That(showsBeforePause).IsEqualTo(1);
+
+        engine.InteractionManager.TogglePause();                      // Fixation → Paused
+        ts = FeedValid(provider, 1000, 1000, ts, samples: 5);          // 150 ms paused: never fed
+        engine.InteractionManager.TogglePause();                      // Paused → FreeLook (latches cleared)
+        long resumeTs = ts;
+
+        for (int i = 0; i < 17; i++) // ~510 ms after the resume, through the Probe for the onset time
+        {
+            probe.Push(provider, 1000, 1000, ts);
+            ts += StepUs;
+        }
+        Check.That(probe.Activations).IsEmpty();                       // nothing fires into FreeLook
+        Check.That(probe.Onsets.Count).IsEqualTo(showsBeforePause + 1); // the button is back (~300 ms)
+        Check.That((double)(probe.Onsets[^1].Us - resumeTs)).IsCloseTo(300_000, 65_000);
+
+        for (int i = 0; i < 22; i++)
+        {
+            probe.Push(provider, 1000, 1000, ts);
+            ts += StepUs;
+        }
+        Check.That(probe.Activations).HasSize(1);                      // one activation, now in Fixation
+        Check.That(probe.Activations[0].TimestampUs).IsStrictlyGreaterThan(probe.Onsets[^1].Us);
     }
 }

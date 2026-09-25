@@ -20,9 +20,11 @@ namespace EyeCtrl.Core.Models;
 /// </param>
 /// <param name="ActivationProgress">
 /// The fixation rule's dwell progress after onset, 0.0–1.0 (ticket 3). Published on the sample so the
-/// activation feedback consumes Core's valid-time ledger without recomputing age: 0 before onset and on
-/// gap-held samples, 1.0 on the activation sample. The trailing default keeps every existing
-/// construction site compiling and every sample without a fixation reading 0.
+/// activation feedback consumes Core's valid-time ledger without recomputing age: 0 before onset, 1.0 on
+/// the activation sample. A gap-held sample carries the run's last value (the detector is not fed during
+/// a gap, so progress holds rather than resets); consumers that skip gap frames — the activation VM does
+/// — never read it. The trailing default keeps every existing construction site compiling and every
+/// sample without a fixation reading 0.
 /// </param>
 public readonly record struct GazeFrame(
     PhysicalPoint Position,

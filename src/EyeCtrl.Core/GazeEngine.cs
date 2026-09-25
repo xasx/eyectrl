@@ -42,6 +42,11 @@ public class GazeEngine : IDisposable
     // moment the gate lifts (skeptic condition 2).
     private volatile bool _fixationAgeResetRequested;
     private readonly Action<InteractionState> _interactionStateChangedHandler;
+    // Whether the CURRENT run's onset was accepted by the InteractionManager (ShowActivationButton
+    // fired for it). Cleared on every onset before the InteractionManager sees it, set if it raises the
+    // show. Struggle telemetry reports only accepted runs (fixup-01 F1b), so a stare held while a menu,
+    // scroll, drag or the keyboard is up — where no activation button exists — never emits an outcome.
+    private bool _runAccepted;
     // Set by the effective-settings Changed handler / the DwellSettings handler (dispatcher thread) and
     // read+cleared on the gaze thread at the top of OnGazePoint. Deferring the apply onto the gaze thread
     // keeps every _fixationDetector mutation on the one thread that calls Update, eliminating the
@@ -327,6 +332,10 @@ public class GazeEngine : IDisposable
         };
         InteractionManager.StateChanged += _interactionStateChangedHandler;
 
+        // Acceptance tracking for telemetry (F1b): the InteractionManager raises this synchronously
+        // inside OnFixationStarted, and only when the run's onset was accepted (FreeLook).
+        InteractionManager.ShowActivationButton += OnActivationButtonShownForTelemetry;
+
         // Reconfigure when an adaptation delta changes the effective tolerance. The provider's Changed fires
         // on EVERY SetMomentaryFill (any knob), so a fill on a non-tolerance knob also lands here; the apply
         // is idempotent (writing the unchanged radius is a no-op), so it costs two compares and needs no
@@ -550,6 +559,10 @@ public class GazeEngine : IDisposable
 
     private void WireFixation(FixationDetector d)
     {
+        // Ordered: the acceptance flag is cleared BEFORE the state machine sees the onset, so an onset
+        // rejected by a non-FreeLook state (menu, scroll, drag, keyboard, repeat armed) stays unaccepted
+        // for telemetry; the Show handler that follows sets it when the onset IS accepted.
+        d.FixationStarted += ClearRunAcceptance;
         d.FixationStarted += InteractionManager.OnFixationStarted;
         d.FixationEnded += InteractionManager.OnFixationEnded;
         d.FixationStarted += _startTrackingHandler;
@@ -560,6 +573,7 @@ public class GazeEngine : IDisposable
 
     private void UnwireFixation(FixationDetector d)
     {
+        d.FixationStarted -= ClearRunAcceptance;
         d.FixationStarted -= InteractionManager.OnFixationStarted;
         d.FixationEnded -= InteractionManager.OnFixationEnded;
         d.FixationStarted -= _startTrackingHandler;
@@ -568,17 +582,27 @@ public class GazeEngine : IDisposable
         d.FixationReleased -= ForwardFixationReleased;
     }
 
+    // Runs on the gaze thread, first thing on every reported onset. See _runAccepted.
+    private void ClearRunAcceptance(PhysicalPoint _) => _runAccepted = false;
+
+    // Raised synchronously inside InteractionManager.OnFixationStarted when the onset was accepted.
+    private void OnActivationButtonShownForTelemetry(PhysicalPoint _) => _runAccepted = true;
+
     // Method groups, not lambdas: UnwireFixation must be able to remove exactly these subscriptions.
     private void ForwardFixationActivated(FixationActivation activation)
     {
         FixationActivated?.Invoke(activation);
-        ReportActivationOutcome(activation);
+        // Accepted runs only. The state check covers the suppression-release path, where an onset can
+        // re-fire while the state is already Fixation and no new Show is raised.
+        if (_runAccepted || InteractionManager.CurrentState == InteractionState.Fixation)
+            ReportActivationOutcome(activation);
     }
 
     private void ForwardFixationReleased(FixationRelease release)
     {
         FixationReleased?.Invoke(release);
-        ReportAbandonOutcome(release);
+        if (_runAccepted)
+            ReportAbandonOutcome(release);
     }
 
     // Ticket 3 item 6: the activation surface's clock moved out of the ViewModel's DwellDetector (whose
@@ -603,11 +627,15 @@ public class GazeEngine : IDisposable
     {
         // Only a gaze-left abandonment counts as an attempt the user gave up on. A run that ended because
         // the eyes were lost past the gap budget has no "gave up" evidence (the same distinction the
-        // DwellDetector draws for a lost stream), and a stream end is not the user's doing at all.
-        if (_telemetry is null || release.Reason != FixationEndReason.GazeLeft)
+        // DwellDetector draws for a lost stream), a stream end is not the user's doing at all, and a run
+        // that ACTIVATED is a success — the legacy DwellDetector nulled the target's entry on activation,
+        // so it reported no abandonment for a success either (fixup-01 F1a).
+        if (_telemetry is null || release.Activated || release.Reason != FixationEndReason.GazeLeft)
             return;
 
-        long onsetAgeUs = _settings.Dwell.FixationDetectionMs * 1000L;
+        // The detector's own onset age, not the raw setting: during the one-sample window after a
+        // FixationDetectionMs edit the setting is ahead of what the run actually ran with.
+        long onsetAgeUs = _fixationDetector.FixationTimeMs * 1000L;
         long dwellUs = _fixationDetector.ActivationDwellMs * 1000L;
         double progress = dwellUs <= 0
             ? (release.CreditedAgeUs >= onsetAgeUs ? 1.0 : 0.0)
@@ -778,6 +806,7 @@ public class GazeEngine : IDisposable
         if (_effectiveSettings is not null && _effectiveSettingsChangedHandler is not null)
             _effectiveSettings.Changed -= _effectiveSettingsChangedHandler;
         InteractionManager.StateChanged -= _interactionStateChangedHandler;
+        InteractionManager.ShowActivationButton -= OnActivationButtonShownForTelemetry;
         _gazeProvider.GazePointReceived -= OnGazePoint;
         UnwireFixation(_fixationDetector);
         _gazeProvider.Dispose();

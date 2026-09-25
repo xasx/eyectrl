@@ -24,7 +24,15 @@ public enum FixationEndReason
 /// <param name="CreditedAgeUs">Valid-time age accrued from the run's first sample to that sample.</param>
 /// <param name="Point">The running centroid at the last credited sample, in physical screen pixels.</param>
 /// <param name="Reason">Why the run was released.</param>
-public readonly record struct FixationRelease(long LastCreditedUs, long CreditedAgeUs, PhysicalPoint Point, FixationEndReason Reason)
+/// <param name="Activated">True when this run already completed its activation, so it is a success, not
+/// an abandonment — the same distinction the legacy <c>DwellDetector</c> drew by nulling the target's
+/// entry on activation.</param>
+public readonly record struct FixationRelease(
+    long LastCreditedUs,
+    long CreditedAgeUs,
+    PhysicalPoint Point,
+    FixationEndReason Reason,
+    bool Activated)
 {
     /// <summary>True when gaze left (or the eyes were lost past the gap budget); false when the stream
     /// ended while the run was still open.</summary>
@@ -307,16 +315,26 @@ public class FixationDetector
     }
 
     /// <summary>
-    /// Zeroes the run's credited age without ending the run or re-firing its onset. The startup wiring
-    /// calls this on FreeLook entry and on <c>GazeEngine.SuppressFixation</c> release, so time the eyes
-    /// spent elsewhere or inside a suppressed overlay can never fire an activation the moment the gate
-    /// lifts; the run must re-accrue the full onset + dwell age. The activation latch is deliberately NOT
-    /// cleared: a run that already fired must not fire a second time for the same fixation.
+    /// Zeroes the run's credited age AND clears its onset and activation latches, so held gaze re-shows
+    /// the button after a fresh onset age. The startup wiring calls this on FreeLook entry and on
+    /// <c>GazeEngine.SuppressFixation</c> release:
+    /// <list type="bullet">
+    /// <item>time the eyes spent elsewhere or inside a suppressed overlay must not fire an activation the
+    /// moment the gate lifts (skeptic condition 2);</item>
+    /// <item>and a run whose onset fired while a menu, scroll, drag or short pause was up must be able to
+    /// re-show the button once the state is FreeLook again — otherwise "look away and back after every
+    /// menu close" reads as "fixation will not form" for this user.</item>
+    /// </list>
+    /// The run itself (the anchor and the geometry) is kept: the age restarts from zero and the latches
+    /// allow one new onset and one new activation within this FreeLook stretch. A gaze-left or a gap
+    /// abort still ends the run as before.
     /// </summary>
     public void ResetAge()
     {
         _creditedUs = 0;
         _lastCreditedUs = _lastFedUs;
+        _onsetFired = false;
+        _activated = false;
     }
 
     /// <summary>
@@ -328,7 +346,7 @@ public class FixationDetector
     {
         if (_onsetFired)
             FixationReleased?.Invoke(new FixationRelease(
-                _lastCreditedUs, _creditedUs, _centroid!.Value, FixationEndReason.StreamEnded));
+                _lastCreditedUs, _creditedUs, _centroid!.Value, FixationEndReason.StreamEnded, _activated));
         ClearRun();
     }
 
@@ -367,7 +385,7 @@ public class FixationDetector
         {
             FixationEnded?.Invoke();
             FixationReleased?.Invoke(new FixationRelease(
-                _lastCreditedUs, _creditedUs, _centroid!.Value, reason));
+                _lastCreditedUs, _creditedUs, _centroid!.Value, reason, _activated));
         }
         ClearRun();
     }

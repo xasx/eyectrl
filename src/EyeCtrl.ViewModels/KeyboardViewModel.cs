@@ -335,6 +335,18 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         OnPropertyChanged(nameof(IsShifted));
     }
 
+    /// <summary>D15: entering an auto-return sub-layout clears armed one-shot SYSTEM modifiers.
+    /// Accents carries no modifier keys, so an armed modifier would be invisible there — and a
+    /// stray Win plus an accent is a system shortcut on the OS layout (Win+é = Win+2 on French
+    /// Windows). Shift and Caps Lock survive: accents carry their own capitals (D11).</summary>
+    private void ClearSystemOneShotModifiers()
+    {
+        _activeModifiers.Remove(ModifierKey.Ctrl);
+        _activeModifiers.Remove(ModifierKey.Alt);
+        _activeModifiers.Remove(ModifierKey.Win);
+        OnPropertyChanged(nameof(ActiveModifiers));
+    }
+
     private bool HasSystemModifiers =>
         _activeModifiers.Contains(ModifierKey.Ctrl)
         || _activeModifiers.Contains(ModifierKey.Alt)
@@ -357,6 +369,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         }
         Messenger.Send(new KeyActivatedMessage(actualOutput, ModifiersSnapshot));
         ClearOneShotModifiers();
+        AutoReturnIfNeeded();
     }
 
     public void HandleBackspace()
@@ -459,7 +472,33 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     {
         if (_layout == null || !_layout.SubLayouts.ContainsKey(subLayoutId)) return;
         if (ActiveSubLayoutId == subLayoutId) return;
+
         ActiveSubLayoutId = subLayoutId;
+
+        // D15 … and M7: RebuildKeys (synchronous, on the assignment above) draws static
+        // labels, so the modifier work runs AFTER the swap — the repaint then lands on the
+        // NEW grid: an armed Shift/Caps relabels the fresh keys and the Caps key shows its
+        // armed state (plan review H1).
+        if (_layout.SubLayouts[subLayoutId].AutoReturn)
+            ClearSystemOneShotModifiers();
+        OnPropertyChanged(nameof(ActiveModifiers));
+    }
+
+    /// <summary>
+    /// Returns to the layout's default sub-layout after TEXT was emitted from an
+    /// <c>autoReturn</c> sub-layout (spec D5/D14): a non-special key activation or a prediction
+    /// selection. Never fires in emoji mode — emoji keys carry Output and flow through the same
+    /// activation path while IsEmojiMode overlays the text sub-layout, and swapping the grid
+    /// under the open emoji surface is the RebuildKeys trap (KeyboardWindow.xaml.cs:362-369).
+    /// </summary>
+    private void AutoReturnIfNeeded()
+    {
+        if (IsEmojiMode) return;
+        if (_layout is null
+            || !_layout.SubLayouts.TryGetValue(ActiveSubLayoutId, out var sub)
+            || !sub.AutoReturn)
+            return;
+        SwitchSubLayout(_layout.DefaultSubLayout);
     }
 
     public List<string> GetSuggestions()
@@ -503,6 +542,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         _previousWord = words.Length > 0 ? words[^1] : word;
         AppendRecentText(word);
         Messenger.Send(new PredictionSelectedMessage(word, deleteCount));
+        AutoReturnIfNeeded();
     }
 
     public void HandleSpecialKey(string keyName)

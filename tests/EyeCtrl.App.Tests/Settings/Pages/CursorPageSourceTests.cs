@@ -35,15 +35,14 @@ public class CursorPageSourceTests
         //
         // CursorPageSource.PrefersAutoPagination is true, so the literal PageSpec
         // boundaries declared in Build() below are only advisory: SettingsWindow.
-        // MaybeRepaginateByHeight (SettingsWindow.xaml.cs:767-781) flattens every page
-        // with `pages.SelectMany(p => p.Rows)` and re-chunks that flat list by measured
-        // height via SettingsAutoPagination.ChunkByHeight (SettingsAutoPagination.cs:
-        // 27-51), a greedy sequential fill. Flat row order is the only placement
-        // property that survives that re-chunk to the screen. Asserting per-page
-        // membership would pass even if the rendered pagination split the combo from
-        // the sliders, and would fail if the literal pages were merely regrouped while
-        // the rows stayed adjacent — backwards on both counts. So this pins the three
-        // rows as a contiguous run in flat order instead.
+        // MaybeRepaginateByHeight flattens every page with `pages.SelectMany(p => p.Rows)`
+        // and re-chunks that flat list by measured height via
+        // SettingsAutoPagination.ChunkByHeight, a greedy sequential fill. Flat row order
+        // is the only placement property that survives that re-chunk to the screen.
+        // Asserting per-page membership would pass even if the rendered pagination split
+        // the combo from the sliders, and would fail if the literal pages were merely
+        // regrouped while the rows stayed adjacent — backwards on both counts. So this
+        // pins the three rows as a contiguous run in flat order instead.
         //
         // Adjacency makes a split unlikely but cannot rule one out: a height-chunk
         // boundary can still fall between two adjacent rows if the budget runs out

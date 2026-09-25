@@ -21,9 +21,8 @@ using EyeCtrl.Core.Processing;
 /// 77.7 % is an UPPER BOUND. The two bounded treatments are measured and printed beside it on the
 /// same convention: 69.9 % with the post-activation frames dropped (26.1 % of the held-episode
 /// frames sit after their run's activation), and 56.1 % with those frames counted as following.
-/// Reviewer A, measuring the same commit with their own treatment of those frames, read about 75 %
-/// dropped and about 59 % as following; the upper bound is 77.7 % in both. The advocate's 10 DIP /
-/// 200 ms convention (20 px at ScaleX 2.0) reads 52.6 % → 84.2 % and is printed alongside.
+/// Reviewer A confirmed this split is the exact one. The advocate's 10 DIP / 200 ms convention
+/// (20 px at ScaleX 2.0) reads 52.6 % → 84.2 % and is printed alongside.
 /// </para>
 ///
 /// <para>

@@ -64,6 +64,44 @@ public class ActivationButtonViewModelTests
     }
 
     [Fact]
+    public void SuppressionReleaseSequence_ReShowsAtTheFreshPin_WithExactlyOneCompletion()
+    {
+        // Fixup-02 N1 at the message level: external dwell hides the feedback; the release ends the old
+        // run (Hide) and returns to FreeLook; the fresh onset at B re-shows at B. A late activation for
+        // the hidden run is dropped, and the fresh run completes exactly once.
+        var vm = new ActivationButtonViewModel(_messenger);
+        int completions = 0;
+        _messenger.Register<ActivationCompletedMessage>(_messenger, (_, _) => completions++);
+
+        var a = new PhysicalPoint(100, 100);
+        var b = new PhysicalPoint(500, 300);
+        _messenger.Send(new ShowActivationButtonMessage(a, 75));
+        Check.That(vm.IsVisible).IsTrue();
+        Check.That(vm.Position.X).IsEqualTo(100);
+
+        // The cooperating app takes over; a late activation for the hidden run must not complete.
+        _messenger.Send(new ExternalDwellActiveMessage(true));
+        _messenger.Send(new FixationActivatedMessage(1_000_000, 1_000_000));
+        Check.That(vm.IsVisible).IsFalse();
+        Check.That(completions).IsEqualTo(0);
+
+        // Release: the engine ends the reported run (Hide) and returns to FreeLook; the external app's
+        // end is not an onset, so nothing re-shows until one arrives.
+        _messenger.Send(new HideActivationButtonMessage());
+        _messenger.Send(new ExternalDwellActiveMessage(false));
+        Check.That(vm.IsVisible).IsFalse();
+
+        // The fresh onset at B re-shows at B, and its activation completes exactly once.
+        _messenger.Send(new ShowActivationButtonMessage(b, 75));
+        Check.That(vm.IsVisible).IsTrue();
+        Check.That(vm.Position.X).IsEqualTo(500);
+        Check.That(vm.Position.Y).IsEqualTo(300);
+
+        _messenger.Send(new FixationActivatedMessage(4_000_000, 1_000_000));
+        Check.That(completions).IsEqualTo(1);
+    }
+
+    [Fact]
     public void HidesButton_OnHideMessage_AndZeroesProgress()
     {
         var vm = new ActivationButtonViewModel(_messenger);

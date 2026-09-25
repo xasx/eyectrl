@@ -46,6 +46,11 @@ public class GazeEngine : IDisposable
     // stretch; every other FreeLook entry deliberately keeps the latches (fixup-02 R2-1 — a fixed exit
     // button under an unmoved gaze would otherwise re-open the overlay in a loop).
     private volatile bool _fixationRearmRequested;
+    // Whether that pending re-arm must also END the run whose onset was reported. Set only by the
+    // SuppressFixation release edge: the interaction state is still Fixation there, and ending the run is
+    // the only thing that can unstrand it (fixup-02 N1). The Paused → FreeLook edge leaves it false —
+    // that state already left Fixation, so an end there would be a spurious transition.
+    private volatile bool _fixationRearmEndsReportedRun;
     private readonly Action<InteractionState> _interactionStateChangedHandler;
     // StateChanged carries only the new state; the re-arm needs to know whether FreeLook came from
     // Paused. Transitions are raised by the state machine's own callers (dispatcher for pause/menu,
@@ -131,14 +136,16 @@ public class GazeEngine : IDisposable
         get => _suppressFixation;
         set
         {
-            // Releasing the gate zeroes the run's age, so time accumulated before the overlay opened
-            // cannot complete an activation on the first sample after it closes (skeptic condition 2).
-            // It also RE-ARMS (age + latches): the gate was held by another surface, so the user gets a
-            // deliberate fresh onset rather than an activation inherited from before it.
+            // Releasing the gate ends the run whose onset was reported — the interaction state is still
+            // Fixation, and only an end can return it to FreeLook (fixup-02 N1) — and re-arms (age +
+            // latches) so the user gets a deliberate fresh onset rather than an activation inherited from
+            // before the gate. Time accumulated before the overlay opened cannot complete an activation
+            // on the first sample after it closes (skeptic condition 2).
             if (_suppressFixation && !value)
             {
                 _fixationAgeResetRequested = true;
                 _fixationRearmRequested = true;
+                _fixationRearmEndsReportedRun = true;
             }
             _suppressFixation = value;
         }
@@ -342,7 +349,9 @@ public class GazeEngine : IDisposable
         // the apply runs on the gaze thread before the next feed, like every other detector mutation.
         // The LATCHES are cleared only for a resume from Paused: a fixed exit button sits under an
         // unmoved gaze, and re-arming there would re-onset at +300 ms and re-open the overlay in a loop
-        // (fixup-02 R2-1). Suppression release re-arms too (see the SuppressFixation setter).
+        // (fixup-02 R2-1). This path re-arms SILENTLY — the state has already left Fixation, so no end is
+        // needed (and an end here would read as an abandonment). Suppression release re-arms too, and
+        // there the run must be ENDED first (see the SuppressFixation setter and _fixationRearmEndsReportedRun).
         _interactionStateChangedHandler = state =>
         {
             var previous = _previousInteractionState;
@@ -827,9 +836,11 @@ public class GazeEngine : IDisposable
     {
         if (_fixationRearmRequested)
         {
+            var endsReportedRun = _fixationRearmEndsReportedRun;
             _fixationRearmRequested = false;
+            _fixationRearmEndsReportedRun = false;
             _fixationAgeResetRequested = false;
-            _fixationDetector.Rearm();
+            _fixationDetector.Rearm(endsReportedRun);
             return;
         }
         if (!_fixationAgeResetRequested)

@@ -25,6 +25,16 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     private int _baselineKeyDwellMs;
     private int _cooldownMs;
 
+    // D13 spatial swap suppression: while the gaze stays within ~half a key width of its
+    // pre-swap position, no key dwells — a sub-layout swap (manual or auto-return) happened
+    // under a resting gaze and whatever materialized there must not fire. The radius is
+    // computed at swap time from the OLD grid's still-valid centres; post-swap centres are
+    // unarranged at the first samples and are never consulted (plan review B1).
+    private Dictionary<string, PhysicalPoint>? _lastKeyScreenPositions;
+    private PhysicalPoint? _lastGazeInsideWindowPoint;
+    private PhysicalPoint? _swapSuppressedAnchor;
+    private double _swapSuppressedClearRadiusSquared;
+
     /// <summary>
     /// Longest interval between two DELIVERED gaze samples that may still count as continuous
     /// dwell. The tracker measures elapsed time from timestamps, so a pause longer than this must
@@ -178,6 +188,8 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         NearestKeyProgress = 0;
         _nearestKeyEnteredTimestamp = 0;
         _lastSampleTimestampUs = 0;
+        _swapSuppressedAnchor = null;
+        _lastGazeInsideWindowPoint = null;
 
         IsEmojiMode = false;
         ActiveSubLayoutId = _layout?.DefaultSubLayout ?? "letters";
@@ -193,6 +205,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     {
         if (keyScreenPositions.Count == 0 || _keyDwellMs <= 0) return;
 
+        _lastKeyScreenPositions = keyScreenPositions;
+        if (isGazeInsideWindow)
+            _lastGazeInsideWindowPoint = gazePoint;
+
         // How long the stream was silent since the last DELIVERED sample, measured before this
         // sample replaces the mark. See MaxContinuousSampleGapUs.
         long sinceLastSampleUs = timestampUs - _lastSampleTimestampUs;
@@ -206,6 +222,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
                 NearestKeyProgress = 0;
                 NearestKeyId = null;
             }
+            _lastGazeInsideWindowPoint = null;
             return;
         }
 
@@ -218,6 +235,24 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
                 NearestKeyId = null;
             }
             return;
+        }
+
+        if (_swapSuppressedAnchor is { } suppressionAnchor)
+        {
+            if (gazePoint.DistanceSquaredTo(suppressionAnchor) > _swapSuppressedClearRadiusSquared)
+            {
+                _swapSuppressedAnchor = null;   // gaze moved meaningfully away — normal dwell resumes
+            }
+            else
+            {
+                // D13: still resting on the landing spot — nothing dwells.
+                if (NearestKeyId != null)
+                {
+                    NearestKeyProgress = 0;
+                    NearestKeyId = null;
+                }
+                return;
+            }
         }
 
         // Find nearest key
@@ -472,6 +507,41 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     {
         if (_layout == null || !_layout.SubLayouts.ContainsKey(subLayoutId)) return;
         if (ActiveSubLayoutId == subLayoutId) return;
+
+        // D13: arm the suppression BEFORE the swap — the old grid's centres are still valid
+        // here. Anchor only when the gaze was actually on the key area; a prediction pick
+        // happens with the gaze on the bar and its auto-return swap must suppress nothing
+        // (plan review H3). Radius = half the distance to the second-nearest old centre
+        // (≈ half a key width; a resting-on-centre gaze yields d1≈0, d2≈pitch). Fewer than
+        // two positioned old centres means no suppression — otherwise d2 stays
+        // double.MaxValue and the radius becomes effectively infinite (plan-r2).
+        if (_lastGazeInsideWindowPoint is { } anchor
+            && _lastKeyScreenPositions is { } positions
+            && positions.Count >= 2)
+        {
+            var d1 = double.MaxValue;
+            var d2 = double.MaxValue;
+            foreach (var center in positions.Values)
+            {
+                var d = anchor.DistanceSquaredTo(center);
+                if (d < d1)
+                {
+                    d2 = d1;
+                    d1 = d;
+                }
+                else if (d < d2)
+                {
+                    d2 = d;
+                }
+            }
+
+            _swapSuppressedAnchor = anchor;
+            _swapSuppressedClearRadiusSquared = 0.25 * d2;
+        }
+        else
+        {
+            _swapSuppressedAnchor = null;
+        }
 
         ActiveSubLayoutId = subLayoutId;
 

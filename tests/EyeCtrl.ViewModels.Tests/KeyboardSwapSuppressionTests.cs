@@ -12,7 +12,8 @@ using EyeCtrl.ViewModels.Messages;
 /// from the OLD grid's centres (post-swap centres are unarranged at the first samples and are
 /// never consulted — plan review B1). The anchor is only set when the gaze was on the key
 /// area (a prediction pick happens on the bar — its swap suppresses nothing — plan review
-/// H3). Hiding clears the suppression.
+/// H3). Hiding and a layout reload (<see cref="KeyboardViewModel.SetLayout"/>) both clear
+/// the suppression.
 /// </summary>
 public class KeyboardSwapSuppressionTests
 {
@@ -245,5 +246,29 @@ public class KeyboardSwapSuppressionTests
             vm.ProcessKeyGaze(Grid, new PhysicalPoint(100, 100), true, t);
 
         Check.That(fired).ContainsExactly("key_0_0");   // fresh session: nothing suppressed
+    }
+
+    [Fact]
+    public void SetLayoutClearsTheSuppression()
+    {
+        // Impl review r2 N2 (the M3 pin): SetLayout is an unsupervised swap — the D13 fields
+        // must clear, or an anchor measured against the OLD layout's grid keeps suppressing
+        // the new layout's key under a resting gaze. Delete the clear in SetLayout and the
+        // resting gaze below never dwells (mutation-measured) — the anchor sits at distance 0
+        // from itself, so nothing can ever move past the radius.
+        var vm = Vm();
+        var fired = RecordFires(vm);
+        vm.ProcessKeyGaze(Grid, new PhysicalPoint(100, 100), true, 0);   // gaze rests on key_0_0
+        vm.SwitchSubLayout("accents");                                   // arms the anchor at (100,100)
+
+        vm.SetLayout(Layout());   // a fresh layout object — the production reload path
+
+        // The gaze never moved: on the new layout it must dwell key_0_0 normally.
+        vm.ProcessKeyGaze(Grid, new PhysicalPoint(100, 100), true, 1_000);
+        long ts = 50_000;
+        for (long t = ts; t < ts + 2_000_000 && fired.Count == 0; t += 50_000)
+            vm.ProcessKeyGaze(Grid, new PhysicalPoint(100, 100), true, t);
+
+        Check.That(fired).ContainsExactly("key_0_0");   // nothing suppressed after a reload
     }
 }

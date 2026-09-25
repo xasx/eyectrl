@@ -11,6 +11,7 @@ using System.Windows.Media;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
@@ -710,6 +711,113 @@ public class KeyboardGateProbeTests
         finally { probe.Dispose(); }
     }
 
+    [StaFact]
+    public void ShippedQwertz_LayoutReload_RepaintsModifierVisuals_AtScale2()
+    {
+        // Impl review r2 N1: RebuildKeys draws STATIC labels, and LoadLayout rebuilds
+        // unconditionally AFTER the VM's SetLayout raise — the raise's repaint is discarded
+        // with the old grid. Without the end-of-rebuild repaint, any settings apply that
+        // reloads the keyboard (layout, key size, language or model change, all via
+        // LoadKeyboard → LoadLayout) with Caps armed draws the ß key as ß and the Caps key
+        // unlit while the keys type capitals — a gaze user trusting the unlit Caps key and
+        // dwelling it toggles Caps OFF.
+        var probe = Open(ShippedQwertz(), 2.0);
+        try
+        {
+            probe.Vm.ToggleModifier(ModifierKey.CapsLock);
+            Check.WithCustomMessage("Caps did not relabel the ß key before the reload — the "
+                    + "assertion after it would not measure a repaint.")
+                .That(KeyLabel(probe, "key_3_3")).IsEqualTo("ẞ");
+
+            // The production reload seam, with the same argument shape Open used.
+            probe.Window.LoadLayout(ShippedQwertz(), 1.0,
+                keyDwellMs: DwellMs, predictionDwellMs: 800, cooldownMs: 0);
+
+            // The SHIFT-BEARING label is the discriminator: ß→ẞ happens only in the modifier
+            // repaint, never in the static rebuild.
+            Check.WithCustomMessage(
+                    $"A layout reload with Caps armed redrew the ß key as '{KeyLabel(probe, "key_3_3")}' "
+                    + "— RebuildKeys erased the modifier repaint and nothing restored it "
+                    + "(impl review r2 N1).")
+                .That(KeyLabel(probe, "key_3_3")).IsEqualTo("ẞ");
+            Check.WithCustomMessage("The Caps key's brush is unlit after the reload.")
+                .That(KeyBrushColor(probe, "toggle:capslock")).IsEqualTo(Tokens.SurfaceKeyActive);
+        }
+        finally { probe.Dispose(); }
+    }
+
+    [StaFact]
+    public void ShippedQwertz_HideReopen_RepaintsModifierVisuals_AtScale2()
+    {
+        // Impl review r2 N2 (the M2 hide half, against the real window): hiding resets
+        // ActiveSubLayoutId to the default, which rebuilds the letters grid with STATIC
+        // labels — the repaint must relight it, or reopening with Caps armed shows ß reading
+        // ß and the Caps key unlit while the keys type capitals. Defense in depth: the VM's
+        // post-assignment raise and RebuildKeys' own repaint (r2 N1) each cover this path;
+        // the pin fails only when both are gone.
+        var probe = Open(ShippedQwertz(), 2.0, emojiJsonPath: ShippedEmojiJson());
+        try
+        {
+            long ts = 1_000;
+            probe.Vm.ToggleModifier(ModifierKey.CapsLock);
+
+            DwellOn(probe, "switchSub:accents", ref ts);
+            Check.WithCustomMessage("Pre-hide guard: accents key_0_0 does not read É with "
+                    + "Caps armed — the post-reopen assert would not measure a repaint.")
+                .That(KeyLabel(probe, "key_0_0")).IsEqualTo("É");
+
+            // The production hide/show seam (same as HideInEmojiMode): the VM must be OPEN
+            // first — it starts hidden, and a set to the value it already holds is a no-op.
+            probe.Vm.IsVisible = true;
+            probe.Vm.IsVisible = false;   // reset → letters rebuild under the armed Caps
+            probe.Vm.IsVisible = true;    // reopen: no rebuild on this half
+
+            Check.WithCustomMessage(
+                    $"Reopening after a hide with Caps armed shows the ß key as '{KeyLabel(probe, "key_3_3")}' "
+                    + "— the letters grid the reset rebuilt was never relit (impl review r2 N2, "
+                    + "M2 hide half).")
+                .That(KeyLabel(probe, "key_3_3")).IsEqualTo("ẞ");
+            Check.WithCustomMessage("The Caps key's brush is unlit after the reopen.")
+                .That(KeyBrushColor(probe, "toggle:capslock")).IsEqualTo(Tokens.SurfaceKeyActive);
+        }
+        finally { probe.Dispose(); }
+    }
+
+    [StaFact]
+    public void ShippedQwertz_EmojiExit_RepaintsModifierVisuals_AtScale2()
+    {
+        // Impl review r2 N3: the emoji ABC exit rebuilds the text grid with NO ActiveModifiers
+        // raise anywhere on its path (special_switchText → IsEmojiMode=false → ExitEmojiMode →
+        // RebuildKeys) — only the rebuild's own repaint (r2 N1) relights it. Newly visible
+        // from accents: exiting emoji lands back on accents (pinned by the round-trip probe
+        // above), whose lower-case labels lie under Caps.
+        var probe = Open(ShippedQwertz(), 2.0, emojiJsonPath: ShippedEmojiJson());
+        try
+        {
+            long ts = 1_000;
+            probe.Vm.ToggleModifier(ModifierKey.CapsLock);
+
+            DwellOn(probe, "switchSub:accents", ref ts);
+            DwellOn(probe, "switchEmoji", ref ts);
+            Check.WithCustomMessage("Dwelling 'switchEmoji' did not enter emoji mode — the "
+                    + "exit below would assert a transition that never happened.")
+                .That(probe.Vm.IsEmojiMode).IsTrue();
+
+            DwellOn(probe, "special_switchText", ref ts);   // ABC: exit → RebuildKeys
+            Check.WithCustomMessage("The ABC key did not leave emoji mode.")
+                .That(probe.Vm.IsEmojiMode).IsFalse();
+            Check.WithCustomMessage("Leaving emoji did not restore the accents sub-layout.")
+                .That(probe.Vm.ActiveSubLayoutId).IsEqualTo("accents");
+
+            Check.WithCustomMessage(
+                    $"Exiting emoji with Caps armed shows accents key_0_0 as '{KeyLabel(probe, "key_0_0")}' "
+                    + "— the ABC exit rebuilt the grid with static labels and no raise exists "
+                    + "on that path (impl review r2 N3).")
+                .That(KeyLabel(probe, "key_0_0")).IsEqualTo("É");
+        }
+        finally { probe.Dispose(); }
+    }
+
     private static Visibility PredictionBarVisibility(KeyboardWindow w) =>
         ((FrameworkElement)typeof(KeyboardWindow)
             .GetField("PredictionBar", BindingFlags.NonPublic | BindingFlags.Instance)!
@@ -734,6 +842,21 @@ public class KeyboardGateProbeTests
         var label = entry.GetType().GetField("Item2")?.GetValue(entry)
             as System.Windows.Controls.TextBlock;
         return label?.Text;
+    }
+
+    /// <summary>
+    /// Reads a key's surface colour through the window's PRIVATE <c>_keyBrushes</c> registry —
+    /// the per-key mutable brush <c>UpdateModifierVisuals</c> recolours on a modifier state
+    /// change, which is what the armed-Caps half of the repaint pins reads.
+    /// </summary>
+    private static Color KeyBrushColor(Probe probe, string keyId)
+    {
+        var field = typeof(KeyboardWindow).GetField("_keyBrushes",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        if (field?.GetValue(probe.Window) is not System.Collections.IDictionary brushes
+            || brushes[keyId] is not SolidColorBrush brush)
+            throw new InvalidOperationException($"Key '{keyId}' has no brush in _keyBrushes.");
+        return brush.Color;
     }
 
     /// <summary>Out to <paramref name="targetSubLayoutId"/>, then back to letters.</summary>

@@ -201,10 +201,22 @@ internal static class TestFakes
         IManualSelectionIndicatorOverlay? manualSelectionIndicator = null,
         ICursorCircleOverlay? cursorCircle = null,
         IActivationButtonOverlay? activationButton = null,
-        IGlassBackdropOverlay? glassBackdrop = null)
+        IGlassBackdropOverlay? glassBackdrop = null,
+        IActionMenuOverlay? actionMenu = null)
         => new PartialOverlayManager(
             edgeButtonBar, toolbar, pauseIndicator, manualSelection, manualSelectionIndicator,
-            cursorCircle, activationButton, glassBackdrop);
+            cursorCircle, activationButton, glassBackdrop, actionMenu);
+
+    /// <summary>No-op action menu: the activation-show path hides it, so it must be present.</summary>
+    internal sealed class FakeActionMenuOverlay : IActionMenuOverlay
+    {
+        public void Show(PhysicalPoint center, List<InteractionAction> actions, bool showBackButton,
+            int dwellTimeMs, double ringRadius, double previewCircleSize, string borderColor,
+            PositionIndicatorStyle positionIndicatorStyle, PhysicalPoint? zoomCenter = null,
+            int? zoomRadius = null, PhysicalPoint? gazePoint = null, bool showLabels = false) { }
+
+        public void Hide() { }
+    }
 
     /// <summary>No-op cursor circle: records nothing, just satisfies the interface.</summary>
     internal sealed class FakeCursorCircleOverlay : ICursorCircleOverlay
@@ -214,13 +226,14 @@ internal static class TestFakes
         public void UpdatePosition(PhysicalPoint point) { }
         public void UpdateAppearance(CursorSettings settings) { }
         public void SetPausedDim(bool dimmed) { }
+        public void SetPinned(bool pinned) { }
     }
 
     /// <summary>No-op activation button: records nothing, just satisfies the interface.</summary>
     internal sealed class FakeActivationButtonOverlay : IActivationButtonOverlay
     {
         public void Show() { }
-        public void ShowAt(PhysicalPoint position, double offset) { }
+        public void ShowAt(PhysicalPoint position, double fixationRadiusPixels) { }
         public void Hide() { }
         public void HideImmediate() { }
         public void UpdateDwellProgress(double progress) { }
@@ -285,6 +298,7 @@ internal static class TestFakes
         private readonly ICursorCircleOverlay? _cursorCircle;
         private readonly IActivationButtonOverlay? _activationButton;
         private readonly IGlassBackdropOverlay? _glassBackdrop;
+        private readonly IActionMenuOverlay? _actionMenu;
 
         public IModesMenuOverlay ModesMenu => throw new NotImplementedException();
         public IRepeatCursorOverlay RepeatCursor => throw new NotImplementedException();
@@ -293,11 +307,12 @@ internal static class TestFakes
             IPauseIndicatorOverlay? pauseIndicator, IManualSelectionOverlay? manualSelection,
             IManualSelectionIndicatorOverlay? manualSelectionIndicator,
             ICursorCircleOverlay? cursorCircle = null, IActivationButtonOverlay? activationButton = null,
-            IGlassBackdropOverlay? glassBackdrop = null)
+            IGlassBackdropOverlay? glassBackdrop = null, IActionMenuOverlay? actionMenu = null)
         {
             _bar = bar; _toolbar = toolbar; _pauseIndicator = pauseIndicator;
             _manualSelection = manualSelection; _manualSelectionIndicator = manualSelectionIndicator;
             _cursorCircle = cursorCircle; _activationButton = activationButton; _glassBackdrop = glassBackdrop;
+            _actionMenu = actionMenu;
         }
 
         public IEdgeButtonBar EdgeButtonBar =>
@@ -315,7 +330,8 @@ internal static class TestFakes
             _activationButton ?? throw new NotImplementedException("test supplied no activation button");
         public IManualSelectionOverlay ManualSelectionOverlay =>
             _manualSelection ?? throw new NotImplementedException("test supplied no manual-selection overlay");
-        public IActionMenuOverlay ActionMenu => throw new NotImplementedException();
+        public IActionMenuOverlay ActionMenu =>
+            _actionMenu ?? throw new NotImplementedException("test supplied no action menu");
         public KeyboardWindow Keyboard => throw new NotImplementedException();
         public IManualSelectionIndicatorOverlay ManualSelectionIndicator =>
             _manualSelectionIndicator ?? throw new NotImplementedException("test supplied no manual-selection indicator");

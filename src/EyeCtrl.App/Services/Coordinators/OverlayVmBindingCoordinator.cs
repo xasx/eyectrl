@@ -16,7 +16,6 @@ using EyeCtrl.ViewModels.Messages;
 /// </summary>
 internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
 {
-    private const int ActivationButtonOffsetPixels = 55;
     // Inset (logical px) from the right screen edge for drag/manual-selection edge buttons.
     private const double RightEdgeInsetLogical = 30;
 
@@ -136,6 +135,10 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 // alive while they look for the resume target.
                 cursorCircle.SetPausedDim(Context.CursorVM.IsPaused);
                 break;
+            case nameof(CursorCircleViewModel.IsPinned):
+                // The pin is the "you're holding" signal: the ring goes bold and stops moving.
+                cursorCircle.SetPinned(Context.CursorVM.IsPinned);
+                break;
         }
     }
 
@@ -152,10 +155,10 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 if (Context.ActivationVM.IsVisible)
                 {
                     actionMenu.Hide();
-                    var circleRadius = Context.Settings.Cursor.CircleSize / 2;
-                    var buttonOffset = circleRadius + ActivationButtonOffsetPixels;
                     activationButton.Show();
-                    activationButton.ShowAt(Context.ActivationVM.Position, buttonOffset);
+                    // Centred on the pin, sized for the rule's radius: the dwell target and the drawn
+                    // feedback are the same point, so looking at the progress no longer cancels the hold.
+                    activationButton.ShowAt(Context.ActivationVM.Position, Context.Settings.Dwell.FixationRadiusPixels);
                 }
                 else
                 {

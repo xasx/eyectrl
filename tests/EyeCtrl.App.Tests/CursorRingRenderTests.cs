@@ -141,21 +141,37 @@ public class CursorRingRenderTests
     }
 
     [StaFact]
-    public void SetPausedDim_DimsTheWholeRing_AndRestoresFullOpacity()
+    public void ThreeLooks_FreeLookQuiet_PinnedBold_PausedDimmed_WithPausedWinning()
     {
-        // Paused-trap guard: the ring stays visible while paused, but dimmed — it must read as
-        // "tracking alive", not as the normal cursor competing with the resume target.
+        // The three explicit looks (ticket 4): FreeLook quiet, Fixation pinned + bold, Paused dimmed.
+        // Ticket 1's dim is preserved; the resume target must not compete with a bold ring, so the
+        // pause dim outranks the pin. Ordering matters: PausedDimOpacity < FreeLookQuietOpacity < 1.0,
+        // so no two looks can be confused from the opacity alone.
         var window = CreateWindow();
         try
         {
+            // FreeLook: the quiet look is the state the window starts in — no pin/pause notification
+            // fires for the default state, so the constructor must already establish it.
+            Check.That(window.Opacity).IsEqualTo(CursorCircleWindow.FreeLookQuietOpacity);
+            Check.That(CursorCircleWindow.FreeLookQuietOpacity).IsStrictlyLessThan(1.0);
+
+            // Fixation: bold.
+            window.SetPinned(true);
             Check.That(window.Opacity).IsEqualTo(1.0);
 
+            // Paused while pinned: the dim wins.
             window.SetPausedDim(true);
             Check.That(window.Opacity).IsEqualTo(CursorCircleWindow.PausedDimOpacity);
-            Check.That(window.Opacity).IsStrictlyLessThan(1.0);
 
+            // Resume, still pinned: bold again.
             window.SetPausedDim(false);
             Check.That(window.Opacity).IsEqualTo(1.0);
+
+            // Fixation ends: quiet again.
+            window.SetPinned(false);
+            Check.That(window.Opacity).IsEqualTo(CursorCircleWindow.FreeLookQuietOpacity);
+            Check.That(CursorCircleWindow.PausedDimOpacity)
+                .IsStrictlyLessThan(CursorCircleWindow.FreeLookQuietOpacity);
         }
         finally
         {

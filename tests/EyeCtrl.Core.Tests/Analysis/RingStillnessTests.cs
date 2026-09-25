@@ -1,0 +1,120 @@
+namespace EyeCtrl.Core.Tests.Analysis;
+
+using EyeCtrl.Core.Processing;
+
+/// <summary>
+/// Ticket 4's replay acceptance, on ticket 2's committed instrument: the "ring still" share on
+/// held-episode frames must rise when the ring pins.
+///
+/// <para>
+/// The primary convention is the ticket's 15 % → 80 % one: a frame counts as STILL when the ring's
+/// drawn position is within <see cref="StillTolerancePx"/> of where it was on the PREVIOUS sample —
+/// the eye is holding, and the ring is not drawing the hold's own jitter. On the frozen recording
+/// that reads 13.9 % for the following widget and 77.7 % for the pinned one, which is the comparison
+/// the ticket asks for. A secondary row uses the advocate's 10 DIP / 200 ms convention (20 px at
+/// ScaleX 2.0) so the number can be read against the debate's own table.
+/// </para>
+///
+/// <para>
+/// The fixture row runs in CI. The real-recording row is env-gated like every other replay gate
+/// (<c>EYECTRL_GAZE_RECORDING</c> points at the frozen snapshot copy; the file is not in the repo),
+/// and prints the before/after numbers the ticket reports.
+/// </para>
+/// </summary>
+public class RingStillnessTests(ITestOutputHelper output)
+{
+    /// <summary>The recording is not in the repo. Point this at the frozen snapshot COPY.</summary>
+    private const string RecordingEnvironmentVariable = "EYECTRL_GAZE_RECORDING";
+
+    /// <summary>The ticket's stillness tolerance: one physical pixel of movement between samples.</summary>
+    private const double StillTolerancePx = 1.0;
+
+    /// <summary>The advocate's context row: 10 DIP at the user's ScaleX 2.0, 200 ms back.</summary>
+    private const double AdvocateTolerancePx = 20.0;
+
+    private const int AdvocateLagMs = 200;
+
+    private static string FixturePath =>
+        Path.Combine(AppContext.BaseDirectory, "Analysis", "Fixtures", "fixation-gates-synthetic.csv");
+
+    private static ReplayPipeline.Frame[] Replay(GazeRecordingFile.Recording recording)
+    {
+        FixationReplayGates.EnsureReplayable(recording);
+        return ReplayPipeline.RunSynthetic(
+            recording.Samples,
+            new ReplayPipeline.Candidate("retuned", () => new OneEuroFilter(), FixationReplayGates.MaxGapInterpolationMs),
+            recording.Header.CalibrationTransform);
+    }
+
+    [Fact]
+    public void SyntheticFixture_PinningRaisesTheStillShare_OverFollowing()
+    {
+        var recording = GazeRecordingFile.Read(FixturePath);
+        var (following, pinned) = Measure(recording, output);
+
+        output.WriteLine("fixture @150:");
+        Report(output, "following (today)", following);
+        Report(output, "pinned", pinned);
+
+        // The pinned model must hold the ring on the covered episodes, and it must beat the following
+        // model by a wide margin — the display fix, not the rule, is what the stillness rides on.
+        Check.That(pinned.ConsideredFrames).IsEqualTo(following.ConsideredFrames);
+        Check.That(pinned.PinnedShare).IsStrictlyGreaterThan(0.75);
+        Check.That(pinned.StillShare).IsGreaterOrEqualThan(0.80);
+        Check.That(pinned.StillShare).IsStrictlyGreaterThan(following.StillShare);
+    }
+
+    [Fact]
+    public void RealRecording_PinningRaisesTheStillShare_ToAboutEightyPercent()
+    {
+        var path = Environment.GetEnvironmentVariable(RecordingEnvironmentVariable);
+        Assert.SkipWhen(string.IsNullOrEmpty(path) || !File.Exists(path),
+            "No gaze recording. Set " + RecordingEnvironmentVariable + " to the frozen snapshot copy "
+            + "(the live file is appended to and rotated).");
+
+        var recording = GazeRecordingFile.Read(path!);
+        var (following, pinned) = Measure(recording, output);
+
+        output.WriteLine($"{Path.GetFileName(path!)} @150:");
+        Report(output, "following (today)", following);
+        Report(output, "pinned", pinned);
+
+        // Acceptance: about 80 % still on held-episode frames (from about 15 %), on the shipped r75
+        // rule. The bars carry slack because this is a display measurement on one 443 s recording,
+        // not a product gate.
+        Check.That(pinned.StillShare).IsGreaterOrEqualThan(0.70);
+        Check.That(following.StillShare).IsLessOrEqualThan(0.20);
+        Check.That(pinned.PinnedShare).IsGreaterOrEqualThan(0.75);
+    }
+
+    /// <summary>
+    /// Measures the following and pinned models on one recording: the primary (1 px / previous sample)
+    /// row that the acceptance uses, plus the advocate's context row.
+    /// </summary>
+    private static (RingStillness.Measurement Following, RingStillness.Measurement Pinned) Measure(
+        GazeRecordingFile.Recording recording, ITestOutputHelper output)
+    {
+        var frames = Replay(recording);
+        var runs = FixationReplayGates.DetectRuns(frames, FixationReplayGates.CentroidR75);
+        var episodes = FixationReplayGates.ExtractHeldEpisodes(frames, FixationReplayGates.Dispersion150Px);
+
+        var following = RingStillness.Measure(
+            frames, episodes, RingStillness.Model.Following, StillTolerancePx, lagMs: 0);
+        var pinned = RingStillness.Measure(
+            frames, episodes, RingStillness.Model.Pinned(runs), StillTolerancePx, lagMs: 0);
+
+        // Context rows, printed but not asserted: the advocate's 10 DIP / 200 ms convention.
+        var followingAdvocate = RingStillness.Measure(
+            frames, episodes, RingStillness.Model.Following, AdvocateTolerancePx, AdvocateLagMs);
+        var pinnedAdvocate = RingStillness.Measure(
+            frames, episodes, RingStillness.Model.Pinned(runs), AdvocateTolerancePx, AdvocateLagMs);
+        Report(output, "advocate following", followingAdvocate);
+        Report(output, "advocate pinned", pinnedAdvocate);
+
+        return (following, pinned);
+    }
+
+    private static void Report(ITestOutputHelper output, string name, RingStillness.Measurement m) =>
+        output.WriteLine(
+            $"  {name,-18} still {m.StillShare:P1}, pinned {m.PinnedShare:P1}, frames {m.ConsideredFrames}");
+}

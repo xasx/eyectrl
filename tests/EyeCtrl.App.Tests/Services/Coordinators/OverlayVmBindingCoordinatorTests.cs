@@ -152,6 +152,66 @@ public class OverlayVmBindingCoordinatorTests
         Check.That(cursorCircle.PausedDimCalls).ContainsExactly(true, false);
     }
 
+    [Fact]
+    public void CursorPinnedState_IsForwardedToTheRing_AndReleasedOnHide()
+    {
+        var cursorCircle = new RecordingCursorCircle();
+        var messenger = new WeakReferenceMessenger();
+        var cursorVm = new CursorCircleViewModel(new EyeCtrlSettings(), messenger);
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            CursorVM = cursorVm,
+            Messenger = messenger,
+            OverlayManager = TestFakes.MakeOverlayManager(cursorCircle: cursorCircle),
+        };
+        var coordinator = NewCoordinator();
+        SetContext(coordinator, ctx);
+
+        // The pin and the halo share one lifecycle: the activation widget's show/hide messages.
+        messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(600, 400)));
+        InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsPinned));
+        Check.That(cursorCircle.PinnedCalls).ContainsExactly(true);
+
+        messenger.Send(new HideActivationButtonMessage());
+        InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsPinned));
+        Check.That(cursorCircle.PinnedCalls).ContainsExactly(true, false);
+    }
+
+    [Fact]
+    public void ActivationVisible_PlacesTheHaloOnThePin_SizedForTheRuleRadius()
+    {
+        // S3 at the wiring level. The halo's radius argument must be the RULE's fixation radius — the
+        // radius the dwell is counted within — not the old placement offset (CircleSize/2 + 55, about
+        // 180 DIP / 360 px at ScaleX 2.0). Restore that expression and this goes red on the radius.
+        var activationButton = new RecordingActivationButton();
+        var settings = new EyeCtrlSettings();
+        settings.Dwell.FixationRadiusPixels = 75;
+        settings.Cursor.CircleSize = 250;
+        var messenger = new WeakReferenceMessenger();
+        var activationVm = new ActivationButtonViewModel(messenger);
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            ActivationVM = activationVm,
+            Settings = settings,
+            Messenger = messenger,
+            OverlayManager = TestFakes.MakeOverlayManager(
+                activationButton: activationButton,
+                actionMenu: new TestFakes.FakeActionMenuOverlay()),
+        };
+        var coordinator = NewCoordinator();
+        SetContext(coordinator, ctx);
+
+        var pin = new PhysicalPoint(1200, 800);
+        messenger.Send(new ShowActivationButtonMessage(pin));
+        InvokeActivationHandler(coordinator, nameof(ActivationButtonViewModel.IsVisible));
+
+        Check.That(activationButton.ShownAt).HasSize(1);
+        var (position, radiusPixels) = activationButton.ShownAt[0];
+        Check.That(position.X).IsEqualTo(pin.X);
+        Check.That(position.Y).IsEqualTo(pin.Y);
+        Check.That(radiusPixels).IsEqualTo(75);
+    }
+
     private static void InvokeCursorHandler(OverlayVmBindingCoordinator coordinator, string propertyName)
     {
         var method = typeof(OverlayVmBindingCoordinator)
@@ -159,16 +219,38 @@ public class OverlayVmBindingCoordinatorTests
         method.Invoke(coordinator, new object?[] { null, new PropertyChangedEventArgs(propertyName) });
     }
 
-    /// <summary>Private nested fake (repo convention: no mocking library): records the pause dims.</summary>
+    private static void InvokeActivationHandler(OverlayVmBindingCoordinator coordinator, string propertyName)
+    {
+        var method = typeof(OverlayVmBindingCoordinator)
+            .GetMethod("OnActivationVMPropertyChanged", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        method.Invoke(coordinator, new object?[] { null, new PropertyChangedEventArgs(propertyName) });
+    }
+
+    /// <summary>Private nested fake (repo convention: no mocking library): records the pause dims and pins.</summary>
     private sealed class RecordingCursorCircle : ICursorCircleOverlay
     {
         public List<bool> PausedDimCalls { get; } = new();
+        public List<bool> PinnedCalls { get; } = new();
 
         public void Show() { }
         public void Hide() { }
         public void UpdatePosition(PhysicalPoint point) { }
         public void UpdateAppearance(CursorSettings settings) { }
         public void SetPausedDim(bool dimmed) => PausedDimCalls.Add(dimmed);
+        public void SetPinned(bool pinned) => PinnedCalls.Add(pinned);
+    }
+
+    /// <summary>Records where the halo was placed and the radius it was sized for.</summary>
+    private sealed class RecordingActivationButton : IActivationButtonOverlay
+    {
+        public List<(PhysicalPoint Position, double RadiusPixels)> ShownAt { get; } = new();
+
+        public void Show() { }
+        public void ShowAt(PhysicalPoint position, double fixationRadiusPixels) =>
+            ShownAt.Add((position, fixationRadiusPixels));
+        public void Hide() { }
+        public void HideImmediate() { }
+        public void UpdateDwellProgress(double progress) { }
     }
 
     private static void InvokeManualSelectionHandler(OverlayVmBindingCoordinator coordinator, string propertyName)

@@ -77,13 +77,26 @@ public interface ICursorCircleOverlay
     /// look for the resume target.
     /// </summary>
     void SetPausedDim(bool dimmed);
+
+    /// <summary>
+    /// Raises the ring to its bold look while a fixation is held. Until then the ring is quiet
+    /// (reduced emphasis) in FreeLook; the pin is what makes stillness the "you're holding" signal.
+    /// </summary>
+    void SetPinned(bool pinned);
 }
 
-/// <summary>The fixation activation button.</summary>
+/// <summary>The fixation feedback, drawn where the dwell is counted.</summary>
 public interface IActivationButtonOverlay
 {
     void Show();
-    void ShowAt(PhysicalPoint position, double offset);
+
+    /// <summary>
+    /// Places the symmetric halo centred on <paramref name="position"/> — the pin, ticket 3's onset
+    /// centroid — and sizes it for <paramref name="fixationRadiusPixels"/> (physical px; the window
+    /// divides the live DPI scale out itself). There is no offset parameter on purpose: the drawn
+    /// centre must be the dwell point.
+    /// </summary>
+    void ShowAt(PhysicalPoint position, double fixationRadiusPixels);
 
     /// <summary>Hides with the fade-out animation.</summary>
     void Hide();

@@ -529,22 +529,30 @@ public class PredictionStackFactory : IDisposable
             verification);
     }
 
+    /// <summary>
+    /// Opens a file for concurrent hash verification with
+    /// <see cref="ModelDownloadService.ConcurrentHashReaderShare"/> — the sharing mode the
+    /// install's File.Replace requires of open readers (issue #166 round-2 M-1: one constant
+    /// binds both sides of the contract). Internal so tests can probe the actual share-mode
+    /// behaviourally. VerifyFileSha256 must open through THIS helper, never File.OpenRead.
+    /// </summary>
+    internal static FileStream OpenForHash(string path) =>
+        new FileStream(path, FileMode.Open, FileAccess.Read,
+            ModelDownloadService.ConcurrentHashReaderShare);
+
     /// <summary>Streaming SHA-256 of a file compared case-insensitively against a hex digest.
     /// Internal for tests.</summary>
     internal static bool VerifyFileSha256(string path, string expectedHex)
     {
         try
         {
-            // FileShare.Read | FileShare.Delete, NOT File.OpenRead's plain FileShare.Read
-            // (issue #166 round-1 I1): ModelDownloadService installs a repair re-download with
-            // File.Replace, which works against open readers only when they hold Delete share
-            // — under a sharing mode without Delete the replace fails and the repair dies.
-            // (The round-1 branch first tried keeping File.Move and widening only this share
-            // mode; that was measured insufficient — Move with overwrite refuses ANY
-            // destination with an open handle.) The hash may reflect pre-replace content; the
-            // repair's own reload rebuilds and re-verifies, so nothing has to coordinate.
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
-                FileShare.Read | FileShare.Delete);
+            // Opened through OpenForHash — FileShare.Read|Delete via the shared constant
+            // (issue #166 round-1 I1 / round-2 M-1): a repair re-download installs with
+            // File.Replace, which works against open readers only when they hold Delete
+            // share. The hash may reflect pre-replace bytes; the download flow's own
+            // ApplyAndSave runs after the install returns and triggers a rebuild that
+            // re-verifies the final files.
+            using var stream = OpenForHash(path);
             using var sha = SHA256.Create();
             var hash = sha.ComputeHash(stream);
             var actual = Convert.ToHexString(hash);

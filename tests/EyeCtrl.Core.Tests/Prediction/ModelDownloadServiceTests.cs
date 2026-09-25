@@ -11,33 +11,38 @@ public class ModelDownloadServiceTests
         // overwrite: true) fails with UnauthorizedAccessException whenever the destination has
         // an open handle, whatever the opener's share mode — measured. A repair re-download
         // hits exactly that: a background build's VerifyFileSha256 stream is open on the model
-        // file mid-hash when the install runs. The stream here opens with the same
-        // FileShare.Read|FileShare.Delete VerifyFileSha256 uses.
+        // file mid-hash when the install runs. The reader opens with PRODUCTION's
+        // ConcurrentHashReaderShare (round-2 M-1: no hand-copied literal), buffer-free and
+        // larger than any internal read buffer, and re-reads at an offset the first read never
+        // touched (round-2 N-2: a buffered re-read proves nothing — it is served from the
+        // stream's own buffer, not from the OS handle).
         var tempDir = Path.Combine(Path.GetTempPath(), $"model_test_{Guid.NewGuid()}");
         Directory.CreateDirectory(tempDir);
         try
         {
             var dst = Path.Combine(tempDir, "model.onnx");
             var temp = dst + ".download";
-            File.WriteAllText(dst, "old-model-bytes-old-model-bytes");
-            File.WriteAllText(temp, "new-model-bytes-new-model-bytes");
+            var oldContent = new string('a', 64 * 1024);
+            var newContent = new string('b', 64 * 1024);
+            File.WriteAllText(dst, oldContent);
+            File.WriteAllText(temp, newContent);
 
+            const int probeOffset = 60_000;
             using var reader = new FileStream(dst, FileMode.Open, FileAccess.Read,
-                FileShare.Read | FileShare.Delete);
-            using var buffered = new System.IO.BufferedStream(reader);
-            var oldBytes = new byte[8];
-            buffered.ReadExactly(oldBytes); // position mid-file, like a hash mid-read
+                ModelDownloadService.ConcurrentHashReaderShare, bufferSize: 1);
+            Span<byte> block = stackalloc byte[8];
+            reader.ReadExactly(block); // read at 0, like a hash mid-stream
 
             ModelDownloadService.InstallDownloadedFile(temp, dst);
 
-            Check.That(File.ReadAllText(dst)).IsEqualTo("new-model-bytes-new-model-bytes");
-            // The open reader keeps serving the pre-replace content until it reopens —
+            Check.That(File.ReadAllText(dst)).IsEqualTo(newContent);
+            // The open reader keeps serving the PRE-replace content from the OS handle —
             // File.Replace's POSIX-style semantics, and why nothing has to coordinate the
             // hash with the install.
-            buffered.Position = 0;
-            var reread = new byte[8];
-            buffered.ReadExactly(reread);
-            Check.That(System.Text.Encoding.UTF8.GetString(reread)).IsEqualTo("old-mode");
+            Span<byte> later = stackalloc byte[8];
+            reader.Seek(probeOffset, SeekOrigin.Begin);
+            reader.ReadExactly(later);
+            Check.That(System.Text.Encoding.UTF8.GetString(later)).IsEqualTo("aaaaaaaa");
             Check.That(File.Exists(temp)).IsFalse();
         }
         finally

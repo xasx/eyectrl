@@ -114,6 +114,19 @@ public class ModelDownloadService : IDisposable
     private enum DownloadOutcome { Success, Busy, HashMismatch, Failed }
 
     /// <summary>
+    /// The sharing mode any concurrent READER of an install target must hold (issue #166
+    /// round-2 M-1): <see cref="InstallDownloadedFile"/>'s File.Replace works against open
+    /// readers only when they hold <see cref="FileShare.Delete"/> — a reader opened with
+    /// plain FileShare.Read makes every repair re-download die mid-install with IOException.
+    /// Both sides of that contract (the app's hash-verification stream and the install probe
+    /// test) bind THIS constant, so a hand-copied literal cannot diverge — the #159 failure
+    /// class. Public: consumed cross-project by EyeCtrl.App's VerifyFileSha256 (Core declares
+    /// no InternalsVisibleTo for the app assembly), and the contract genuinely is part of the
+    /// install surface's documentation.
+    /// </summary>
+    public const FileShare ConcurrentHashReaderShare = FileShare.Read | FileShare.Delete;
+
+    /// <summary>
     /// Atomically installs a verified download from <paramref name="tempPath"/> (same
     /// directory) onto <paramref name="outputPath"/>. Replace-when-exists, Move-otherwise —
     /// the FileDictionaryProvider user-dictionary write's pattern (review round 1, I1):

@@ -127,7 +127,14 @@ keyboard clears the suppression. KNOWN, accepted costs, ledgered: the landing ke
 blocked too — typing the edge accent (`À` on QWERTZ, `Ô` on AZERTY) immediately after
 dwelling `Acc` requires one gaze flick away and back; and a rightward overshoot at the
 P/`Acc` boundary now opens accents instead of typing P (the boundary sits ~1.5 DIP inside
-P). Comparison the decision rests on (defaults: cooldown 400 ms, key dwell 450 ms):
+P). The same applies to EVERY sub-layout's same-slot switch pair (letters `123` ↔ numbers
+`ABC` lead their footers at the same position): an immediate dwell of the back key at the
+spot the swap happened under is suppressed until the gaze moves away — on ALL layouts,
+including QWERTY, which receives this behavior with the branch but without accents. A
+deliberate switch always involves looking at what was switched to first, and the resting
+bounce-back D13 removes was precisely the ~850 ms unintended misfire; the residual cost is
+the rare mistaken-switch-then-immediate-return costing one gaze flick. Comparison the
+decision rests on (defaults: cooldown 400 ms, key dwell 450 ms):
 
 | | next intended key (anywhere else) | resting gaze on the landing spot |
 |---|---|---|

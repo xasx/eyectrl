@@ -136,7 +136,16 @@ layouts, including QWERTY, which receives this behavior with the branch but with
 accents. A deliberate switch always involves looking at what was switched to first, and the
 resting bounce-back D13 removes was precisely the ~850 ms unintended misfire; the residual
 cost is the rare mistaken-switch-then-immediate-return costing a look at another key and
-back. Comparison the decision rests on (defaults: cooldown 400 ms, key dwell 450 ms):
+back. Round 3 measured one more residual of the same class: after an accent's auto-return,
+a resting gaze that drifts beyond the suppression radius (~37 DIP) can land in a MODIFIER
+key's catchment (QWERTZ `é`→Win, `â`→Caps, `ù`→Alt, `Ù`→Shift; AZERTY `ê`→Win), where a
+full deliberate dwell arms that modifier — Win+next-letter is an OS shortcut (Win+L locks
+the PC). That needs a visible 450 ms dwell on a lit key, so it stays within the accident
+class D13 already guards; and the branch's `Win` widening SHRANK its catchment (Q grew), so
+the branch did not worsen it. (Reordering `é`/`É` so the rarer capital lands on Win was
+declined — it moves the exposure to a different key rather than removing it, against
+twice-pinned grids; round 3, owner-defaulted, vetoable.) Comparison the decision rests on
+(defaults: cooldown 400 ms, key dwell 450 ms):
 
 | | next intended key (anywhere else) | resting gaze on the landing spot |
 |---|---|---|

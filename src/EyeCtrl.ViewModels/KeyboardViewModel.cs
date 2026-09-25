@@ -536,14 +536,14 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
         // D13: arm the suppression BEFORE the swap — and the "before" is load-bearing:
         // _lastKeyScreenPositions IS the window's live _keyScreenPositions dictionary
-        // (KeyboardWindow.xaml.cs:55, handed to ProcessKeyGaze at :339 — an alias, not a
-        // snapshot), and the `ActiveSubLayoutId = subLayoutId;` assignment below runs
-        // RebuildKeys → ClearKeyState SYNCHRONOUSLY (:359 → :213 → :893), which EMPTIES
-        // that dictionary. Computing the anchor/radius after the assignment would read a
-        // cleared dict (positions.Count < 2), null the anchor and silently disarm D13 in
-        // the real app while every VM test stays green (VM tests pass a static dict nothing
-        // clears) — the ordering pinned by the real-window resting-gaze probe in
-        // KeyboardGateProbeTests (impl-review I1).
+        // (declared in KeyboardWindow, handed to ProcessKeyGaze by UpdateGaze — an alias,
+        // not a snapshot), and the `ActiveSubLayoutId = subLayoutId;` assignment below runs
+        // RebuildKeys → ClearKeyState SYNCHRONOUSLY (the ActiveSubLayoutId property-changed
+        // case in OnViewModelPropertyChanged), which EMPTIES that dictionary. Computing the
+        // anchor/radius after the assignment would read a cleared dict (positions.Count < 2),
+        // null the anchor and silently disarm D13 in the real app while every VM test stays
+        // green (VM tests pass a static dict nothing clears) — the ordering pinned by the
+        // real-window resting-gaze probe in KeyboardGateProbeTests (impl-review I1).
         // Anchor only when the gaze was actually on the key area; a prediction pick
         // happens with the gaze on the bar and its auto-return swap must suppress nothing
         // (plan review H3). Radius = half the distance to the second-nearest old centre
@@ -581,9 +581,11 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         ActiveSubLayoutId = subLayoutId;
 
         // D15 … and M7: RebuildKeys (synchronous, on the assignment above) draws static
-        // labels, so the modifier work runs AFTER the swap — the repaint then lands on the
-        // NEW grid: an armed Shift/Caps relabels the fresh keys and the Caps key shows its
-        // armed state (plan review H1).
+        // labels and — since impl-review r2 N1 — repaints modifier state itself at its end,
+        // so this raise is REDUNDANT on every rebuild path and kept as backup for any future
+        // rebuild path that forgets to (defense in depth, mirroring the notes on the
+        // ResetInteractionState/SetLayout raises). It must still run AFTER the swap so any
+        // repaint it causes lands on the NEW grid (plan review H1).
         if (_layout.SubLayouts[subLayoutId].AutoReturn)
             ClearSystemOneShotModifiers();
         OnPropertyChanged(nameof(ActiveModifiers));
@@ -594,7 +596,8 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// <c>autoReturn</c> sub-layout (spec D5/D14): a non-special key activation or a prediction
     /// selection. Never fires in emoji mode — emoji keys carry Output and flow through the same
     /// activation path while IsEmojiMode overlays the text sub-layout, and swapping the grid
-    /// under the open emoji surface is the RebuildKeys trap (KeyboardWindow.xaml.cs:362-369).
+    /// under the open emoji surface is the RebuildKeys trap (the IsEmojiMode property-changed
+    /// case in KeyboardWindow's OnViewModelPropertyChanged).
     /// </summary>
     private void AutoReturnIfNeeded()
     {

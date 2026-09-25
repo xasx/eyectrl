@@ -8,8 +8,8 @@
 
 **Tech Stack:** .NET 10, WPF, xUnit v3 + NFluent 3.1.0, CommunityToolkit.Mvvm.
 
-**Spec:** `docs/superpowers/specs/2026-09-24-accent-input-design.md` (revision 4). Work in `.worktrees/accent-input` on `feat/accent-input`.
-**Plan revision 2:** external plan review folded (B1–B3, H1–H3, M1–M4 owner-defaulted, L1–L6 — every claim verified against code first). Dispositions inline, marked ⟦Bn⟧/⟦Hn⟧/⟦Mn⟧/⟦Ln⟧.
+**Spec:** `docs/superpowers/specs/2026-09-24-accent-input-design.md` (revision 5). Work in `.worktrees/accent-input` on `feat/accent-input`.
+**Plan revision 3:** external plan-review round 1 folded (B1–B3, H1–H3, M1–M4 owner-defaulted, L1–L6 — every claim verified against code first). Dispositions inline, marked ⟦Bn⟧/⟦Hn⟧/⟦Mn⟧/⟦Ln⟧. **Revision 4 (round 2):** I1 grid alignment (spec now carries this plan's 10/10/8 QWERTZ grid), I2 landing-pin fix (post-swap layout pass + gaze update before reading centres) + the AZERTY pin, I3 radius-discriminating jitter pair, I4 collapse-test anchor on `key_0_1`, the re-opened M2/L5 (L5's hide seam = `IsVisible = true` then `HideKeyboardMessage`), the sub-2-centre radius guard, exact-capital pins (`ToUpperInvariant`), QWERTY in the switchSub check, `KeyLabel` via the window's `_keyVisuals` field, and step-accuracy corrections.
 
 ## Global Constraints
 
@@ -276,22 +276,32 @@ public class KeyboardAutoReturnTests
     }
 
     [Fact]
-    public void EverySwap_RaisesActiveModifiers_AfterTheGridSwap()
+    public void EverySwap_RaisesActiveModifiers_AFTERTheGridSwap()
     {
         // M7/H1: RebuildKeys draws static labels, so every swap must notify ActiveModifiers
-        // (the window repaints modifier visuals on that notification) — even when nothing
-        // was cleared, so an armed Shift/Caps relabels the fresh keys. Observable here from
-        // the VM side: the raise happens (property-changed fires) on EVERY swap.
+        // AFTER the ActiveSubLayoutId change — the window's repaint must land on the NEW
+        // grid. The ORDER is the requirement (a raise count cannot discriminate a
+        // before-order bug — plan-r2), so the recorded sequence must alternate. The visible
+        // outcome is pinned by the STA probe in Task 6.
         var vm = Vm();
         vm.SetLayout(LayoutWithAccents());
 
-        var raised = new List<string?>();
-        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        var order = new List<string>();
+        vm.PropertyChanged += (_, e) => order.Add(e.PropertyName ?? "");
         vm.SwitchSubLayout("numbers");   // NOT an autoReturn target — must still raise
         vm.SwitchSubLayout("letters");
 
-        Check.WithCustomMessage("every swap must raise ActiveModifiers after the grid change (M7)")
-            .That(raised.Count(p => p == nameof(KeyboardViewModel.ActiveModifiers)) >= 2).IsTrue();
+        var filtered = order.Where(p => p
+            is nameof(KeyboardViewModel.ActiveSubLayoutId)
+            or nameof(KeyboardViewModel.ActiveModifiers)).ToList();
+        Check.WithCustomMessage(
+                "expected [ActiveSubLayoutId, ActiveModifiers, ActiveSubLayoutId, " +
+                $"ActiveModifiers]; got [{string.Join(", ", filtered)}]")
+            .That(filtered).ContainsExactly(
+                nameof(KeyboardViewModel.ActiveSubLayoutId),
+                nameof(KeyboardViewModel.ActiveModifiers),
+                nameof(KeyboardViewModel.ActiveSubLayoutId),
+                nameof(KeyboardViewModel.ActiveModifiers));
     }
 }
 ```
@@ -406,6 +416,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
 /// Spec D13 (spatial): after ANY sub-layout swap (manual or auto-return), while the gaze
@@ -422,28 +433,30 @@ public class KeyboardSwapSuppressionTests
     private static readonly Dictionary<string, PhysicalPoint> Grid =
         new() { ["key_0_0"] = new(100, 100), ["key_0_1"] = new(300, 100) };
 
-    private static KeyboardViewModel Vm()
+    private static KeyboardLayout Layout() => new()
     {
-        var vm = new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
-        vm.SetLayout(new KeyboardLayout
+        Name = "T",
+        DefaultSubLayout = "letters",
+        SubLayouts =
         {
-            Name = "T",
-            DefaultSubLayout = "letters",
-            SubLayouts =
+            ["letters"] = new SubLayout
             {
-                ["letters"] = new SubLayout
-                {
-                    Label = "ABC",
-                    Rows = new() { new() { new KeyDefinition { Label = "a", Output = "a" } } },
-                },
-                ["accents"] = new SubLayout
-                {
-                    Label = "Acc",
-                    AutoReturn = true,
-                    Rows = new() { new() { new KeyDefinition { Label = "é", Output = "é", ShiftOutput = "É" } } },
-                },
+                Label = "ABC",
+                Rows = new() { new() { new KeyDefinition { Label = "a", Output = "a" } } },
             },
-        });
+            ["accents"] = new SubLayout
+            {
+                Label = "Acc",
+                AutoReturn = true,
+                Rows = new() { new() { new KeyDefinition { Label = "é", Output = "é", ShiftOutput = "É" } } },
+            },
+        },
+    };
+
+    private static KeyboardViewModel Vm(WeakReferenceMessenger? messenger = null)
+    {
+        var vm = new KeyboardViewModel(new EyeCtrlSettings(), messenger ?? new WeakReferenceMessenger());
+        vm.SetLayout(Layout());
         vm.Configure(DwellMs, 0);
         return vm;
     }
@@ -526,13 +539,48 @@ public class KeyboardSwapSuppressionTests
     }
 
     [Fact]
+    public void RadiusDiscriminates_JitterStaysIn_OvershootClears()
+    {
+        // Plan-r2 I3: with the pitch at 200 units, the radius is 100 (half of d2=200²).
+        // Jitter of 0.4 pitch (80 units) must stay suppressed; 0.6 pitch (120 units) must
+        // clear. This is the pair that catches the 0.25*d2 → 0.25*d1 slip (d1 = 0 for a
+        // gaze resting dead-centre — under that mutation the radius collapses to 0 and even
+        // the 80-unit jitter clears, firing a key).
+        var vm = Vm();
+        var fired = RecordFires(vm);
+        vm.ProcessKeyGaze(Grid, new PhysicalPoint(100, 100), true, 0);   // dead-centre anchor
+        vm.SwitchSubLayout("accents");
+
+        // 0.4 pitch of wobble, never leaving the radius: nothing fires.
+        long ts = 1_000;
+        for (long t = ts; t < ts + 2_000_000; t += 50_000)
+        {
+            var wobble = (t / 50_000) % 2 == 0 ? 80 : -80;
+            vm.ProcessKeyGaze(Grid, new PhysicalPoint(100 + wobble, 100), true, t);
+            Check.WithCustomMessage("jitter inside the radius fired a key")
+                .That(fired).IsEmpty();
+        }
+
+        // 0.6 pitch away: past the radius — the nearest key (key_0_1) dwells normally.
+        vm.ProcessKeyGaze(Grid, new PhysicalPoint(220, 100), true, ts + 2_050_000);
+        for (long t = ts + 2_100_000; t < ts + 4_000_000 && fired.Count == 0; t += 50_000)
+            vm.ProcessKeyGaze(Grid, new PhysicalPoint(220, 100), true, t);
+
+        Check.That(fired).ContainsExactly("key_0_1");
+    }
+
+    [Fact]
     public void UnarrangedPostSwapCentres_DoNotDefeatTheSuppression()
     {
         // Plan review B1: before WPF arranges the new rows, every centre reports the same
-        // point. The spatial rule must not care — it never reads post-swap positions.
+        // point. The spatial rule must not care — it never reads post-swap positions. The
+        // gaze rests on key_0_1's spot: under the REV-1 key-latch design the collapsed dict
+        // latched key_0_0 (first entry) and the suppression then cleared on the first
+        // arranged sample, firing key_0_1 — resting here makes this test FAIL against that
+        // bug (plan-r2 I4); the spatial rule keeps it suppressed either way.
         var vm = Vm();
         var fired = RecordFires(vm);
-        vm.ProcessKeyGaze(Grid, new PhysicalPoint(100, 100), true, 0);
+        vm.ProcessKeyGaze(Grid, new PhysicalPoint(300, 100), true, 0);   // rest on key_0_1
         vm.SwitchSubLayout("accents");
 
         var collapsed = new Dictionary<string, PhysicalPoint>
@@ -542,12 +590,12 @@ public class KeyboardSwapSuppressionTests
         long ts = 1_000;
         for (long t = ts; t < ts + 1_000_000; t += 50_000)
         {
-            vm.ProcessKeyGaze(collapsed, new PhysicalPoint(100, 100), true, t);
+            vm.ProcessKeyGaze(collapsed, new PhysicalPoint(300, 100), true, t);
             Check.That(fired).IsEmpty();
         }
 
         // Real (arranged) centres arrive; the gaze is still resting — still nothing.
-        RestGaze(vm, Grid, new PhysicalPoint(100, 100), ref ts, fired, "the landing key after arrangement");
+        RestGaze(vm, Grid, new PhysicalPoint(300, 100), ref ts, fired, "the landing key after arrangement");
     }
 
     [Fact]
@@ -589,14 +637,20 @@ public class KeyboardSwapSuppressionTests
     public void HidingClearsTheSuppression()
     {
         // L5: a hide right after a swap must not carry the suppression into the next open.
-        // Drive the hide through the same seam KeyboardHideResetTests uses.
-        var vm = Vm();
+        // Seam per KeyboardHideResetTests (:67-79, :105-109): the keyboard must be OPEN for
+        // a hide to be a transition, and the production path is HideKeyboardMessage (a
+        // direct IsVisible=false write from hidden does nothing) — plan-r2 re-opened L5.
+        var messenger = new WeakReferenceMessenger();
+        var vm = Vm(messenger);
         var fired = RecordFires(vm);
+        vm.IsVisible = true;   // the keyboard must be OPEN for the hide to be a transition
         vm.ProcessKeyGaze(Grid, new PhysicalPoint(100, 100), true, 0);
         vm.SwitchSubLayout("accents");
 
-        vm.HandleHideKeyboard();   // same path KeyboardHideResetTests drives
+        messenger.Send(new HideKeyboardMessage());   // the production hide path
+        Check.That(vm.IsVisible).IsFalse();
 
+        vm.IsVisible = true;   // reopen
         vm.ProcessKeyGaze(Grid, new PhysicalPoint(100, 100), true, 1_000);
         long ts = 50_000;
         for (long t = ts; t < ts + 2_000_000 && fired.Count == 0; t += 50_000)
@@ -613,8 +667,10 @@ suppression".)
 
 - [ ] **Step 3: Run to verify failure** —
   `dotnet test tests/EyeCtrl.ViewModels.Tests --filter "FullyQualifiedName~KeyboardSwapSuppressionTests"`
-  Expected: the suppression tests FAIL (landing keys fire); `NoPriorGaze_NoSuppression` and
-  `GazeLeaving…` PASS already (they assert unsuppressed behavior).
+  Expected: the suppression tests FAIL (landing keys fire — including
+  `RadiusDiscriminates_JitterStaysIn_OvershootClears`, whose wobble fires without the rule);
+  `NoPriorGaze_NoSuppression`, `GazeLeaving…`, and the overshoot HALF of the jitter test
+  PASS already (they assert unsuppressed behavior).
 
 - [ ] **Step 4: Implement.** In `KeyboardViewModel`:
 
@@ -656,8 +712,12 @@ c) In `SwitchSubLayout`, immediately BEFORE `ActiveSubLayoutId = subLayoutId;` (
         // here. Anchor only when the gaze was actually on the key area; a prediction pick
         // happens with the gaze on the bar and its auto-return swap must suppress nothing
         // (plan review H3). Radius = half the distance to the second-nearest old centre
-        // (≈ half a key width; a resting-on-centre gaze yields d1≈0, d2≈pitch).
-        if (_lastGazeInsideWindowPoint is { } anchor && _lastKeyScreenPositions is { } positions)
+        // (≈ half a key width; a resting-on-centre gaze yields d1≈0, d2≈pitch). Fewer than
+        // two positioned old centres means no suppression — otherwise d2 stays
+        // double.MaxValue and the radius becomes effectively infinite (plan-r2).
+        if (_lastGazeInsideWindowPoint is { } anchor
+            && _lastKeyScreenPositions is { } positions
+            && positions.Count >= 2)
         {
             var d1 = double.MaxValue;
             var d2 = double.MaxValue;
@@ -713,9 +773,10 @@ e) In `ResetInteractionState`, add beside the other resets (L5):
         _lastGazeInsideWindowPoint = null;
 ```
 
-- [ ] **Step 5: Run to verify pass** — same filter. Expected: 7/7 PASS. Mutation-check: delete
-  the suppression block in `ProcessKeyGaze` → the three resting tests fail; delete the H3
-  nulling → `GazeLeaving…` fails; delete the `ResetInteractionState` lines →
+- [ ] **Step 5: Run to verify pass** — same filter. Expected: 8/8 PASS. Mutation-check: delete
+  the suppression block in `ProcessKeyGaze` → the resting tests and the jitter test fail;
+  swap `0.25 * d2` for `0.25 * d1` → `RadiusDiscriminates…` fails (the plan-r2 I3 slip);
+  delete the H3 nulling → `GazeLeaving…` fails; delete the `ResetInteractionState` lines →
   `HidingClears…` fails.
 
 - [ ] **Step 6: Run the full ViewModel suite once** —
@@ -759,12 +820,14 @@ git commit -m "feat(viewmodels): spatial swap-landing dwell suppression, radius 
         Check.WithCustomMessage("every non-special accents key must emit text (spec M2)")
             .That(keys.Where(k => k.SpecialAction is null).All(k => !string.IsNullOrEmpty(k.Output)))
             .IsTrue();
-        Check.WithCustomMessage("every lower-case accents key must carry its capital (spec D11)")
+        Check.WithCustomMessage(
+                "every lower-case accents key must carry EXACTLY its invariant upper-case as " +
+                "shiftOutput (spec D11; a wrong-but-non-empty capital fails — plan-r2)")
             .That(keys.Where(k => k.SpecialAction is null
                                    && k.Output.Length == 1
                                    && char.IsLetter(k.Output[0])
                                    && char.IsLower(k.Output[0]))
-                      .All(k => !string.IsNullOrEmpty(k.ShiftOutput)))
+                      .All(k => k.ShiftOutput == char.ToUpperInvariant(k.Output[0]).ToString()))
             .IsTrue();
 
         // Widest row must equal the 12.8 standard so the SizeToContent window's WIDTH never
@@ -782,14 +845,23 @@ git commit -m "feat(viewmodels): spatial swap-landing dwell suppression, radius 
             .That(accents.Rows.Count)
             .IsEqualTo(layout.SubLayouts[layout.DefaultSubLayout].Rows.Count);
 
-        // The existing EverySubLayout_CarriesBackspaceAndDeleteWord theory covers Bksp/DelWd;
-        // switchSub targets must all resolve over the REAL shipped data (spec M5).
+    }
+
+    [Theory]
+    [InlineData("qwerty.json")]
+    [InlineData("azerty.json")]
+    [InlineData("qwertz.json")]
+    public void EverySwitchSubTarget_NamesAnExistingSubLayout(string file)
+    {
+        // Spec M5 over the REAL shipped data, ALL THREE files including QWERTY (plan-r2:
+        // the accents theory only covers the two layouts that carry accents).
+        var layout = Load(file);
         var ids = layout.SubLayouts.Keys.ToHashSet();
         var targets = layout.SubLayouts.Values.SelectMany(s => s.Rows.SelectMany(r => r))
             .Select(k => k.SpecialAction)
             .Where(a => a is not null && a.StartsWith("switchSub:", StringComparison.Ordinal))
             .Select(a => a!["switchSub:".Length..]);
-        Check.WithCustomMessage("a shipped layout dangles a switchSub: target")
+        Check.WithCustomMessage($"{file} dangles a switchSub: target")
             .That(targets.All(t => ids.Contains(t))).IsTrue();
     }
 
@@ -829,13 +901,19 @@ git commit -m "feat(viewmodels): spatial swap-landing dwell suppression, radius 
 
 - [ ] **Step 3: Run to verify failure** —
   `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ShippedLayoutFilesTests"`
-  Expected: the accents/row-0/sharp-s tests FAIL (no accents sub-layout, no Acc key, no ẞ);
-  the file's pre-existing theories PASS.
+  Expected: `AccentsSubLayout…[qwertz.json]` and `Qwertz_LettersRow0…` FAIL (no accents
+  sub-layout, no Acc key); `Qwertz_SharpS…` FAILS only on the `IsEqualTo("ẞ")` assertion
+  (the generic non-empty capital check in the theory is vacuous until accents exist — the
+  ß pin is what makes it red) ⟦plan-r2 step-accuracy⟧; `AccentsSubLayout…[azerty.json]`
+  still fails (Task 5's data); the file's other pre-existing theories PASS.
 
 - [ ] **Step 4: Implement.** In `qwertz.json`:
 
-a) Letters row 0: change `{"label": "Win", … "width": 1.2, "specialAction": "modifier:win"}`
-to `"width": 2.0`, and after the `P` key append:
+a) Letters row 0 — and ONLY the letters row 0: each shipped layout file carries THREE
+   identical `Win` lines (letters row 0, numbers row 0, symbols row 0); widening any but the
+   letters one would shift that sub-layout's row for nothing ⟦plan-r2⟧. Change the LETTERS
+   row-0 `{"label": "Win", … "width": 1.2, "specialAction": "modifier:win"}` to
+   `"width": 2.0`, and after the `P` key append:
 
 ```json
 { "label": "Acc", "output": "", "width": 0.8, "specialAction": "switchSub:accents" }
@@ -965,13 +1043,18 @@ git commit -m "feat(app): QWERTZ accents sub-layout (28 keys) + row-0 zero-move 
 
 - [ ] **Step 3: Run to verify failure** —
   `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ShippedLayoutFilesTests"`.
-  Expected: the two new tests FAIL (also `AccentsSubLayout…[azerty.json]` still fails until
-  Step 4; `[qwertz.json]` passes from Task 4).
+  Expected: the two new tests FAIL; `AccentsSubLayout…[azerty.json]` still fails until
+  Step 4; `[qwertz.json]` and the new `EverySwitchSubTarget…` theory PASS from Task 4
+  (the switchSub theory runs over the CURRENT shipped files and is green before any accents
+  data exists — it goes red only if a later edit dangles a target) ⟦plan-r2 step-accuracy⟧.
 
 - [ ] **Step 4: Implement.** In `azerty.json`:
 
-a) Letters row 0: change `{"label": "Win", … "width": 1.2, "specialAction": "modifier:win"}`
-to `"width": 2.0`, and after the `P` key append:
+a) Letters row 0 — and ONLY the letters row 0 (azerty.json also carries three identical
+   `Win` lines across its sub-layouts; widening any but the letters one shifts that row for
+   nothing ⟦plan-r2⟧): change the LETTERS row-0
+   `{"label": "Win", … "width": 1.2, "specialAction": "modifier:win"}` to `"width": 2.0`,
+   and after the `P` key append:
 
 ```json
 { "label": "Acc", "output": "", "width": 0.8, "specialAction": "switchSub:accents" }
@@ -1110,9 +1193,12 @@ spot without a move ⟦spec I6⟧; regular-key ids are positional ⟦B3⟧ — `
     [StaFact]
     public void ShippedQwertz_AccEntry_LandsOnTheAccentsRow0EndKey()
     {
-        // Plan review M2: pin the landing geometry. Acc sits at the letters row-0 right end;
-        // the accents key whose centre is nearest Acc's centre must be row 0's last key
-        // (À — key_0_9). A later layout edit that moves the landing shows up here.
+        // Plan review M2 / plan-r2 I2: pin the landing geometry. Acc sits at the letters
+        // row-0 right end; the accents key whose centre is nearest Acc's centre must be
+        // row 0's last key (À — key_0_9). A later layout edit that moves the landing shows
+        // up here. The swap dwell empties the window's key positions (_keyScreenPositions
+        // is rebuilt inside the next gaze pass), so ONE GAZE PASS + one layout pass must
+        // run before Centres() — otherwise the collection is empty and this throws.
         var probe = Open(ShippedQwertz(), 2.0, emojiJsonPath: ShippedEmojiJson());
         try
         {
@@ -1122,6 +1208,10 @@ spot without a move ⟦spec I6⟧; regular-key ids are positional ⟦B3⟧ — `
             long ts = 1_000;
             DwellOn(probe, "switchSub:accents", ref ts);
 
+            // Refresh positions before reading them (plan-r2 I2).
+            LookAt(probe, accCentre, ref ts);
+            probe.Content.UpdateLayout();
+
             var accentsCentres = Centres(probe.Window);
             var landing = accentsCentres
                 .OrderBy(kvp => kvp.Value.DistanceSquaredTo(accCentre))
@@ -1129,6 +1219,34 @@ spot without a move ⟦spec I6⟧; regular-key ids are positional ⟦B3⟧ — `
             Check.WithCustomMessage(
                     $"the key under Acc's resting gaze is {landing}, expected key_0_9 (À)")
                 .That(landing).IsEqualTo("key_0_9");
+        }
+        finally { probe.Dispose(); }
+    }
+
+    [StaFact]
+    public void ShippedAzerty_AccEntry_LandsOnTheAccentsRow0EndKey()
+    {
+        // The AZERTY half of the landing pin (spec Testing; expected Ô — key_0_7, the last
+        // key of the 8-wide accents row 0). Same refresh dance as the QWERTZ pin.
+        var probe = Open(ShippedAzerty(), 2.0, emojiJsonPath: ShippedEmojiJson());
+        try
+        {
+            var lettersCentres = Centres(probe.Window);
+            var accCentre = lettersCentres["switchSub:accents"];
+
+            long ts = 1_000;
+            DwellOn(probe, "switchSub:accents", ref ts);
+
+            LookAt(probe, accCentre, ref ts);
+            probe.Content.UpdateLayout();
+
+            var accentsCentres = Centres(probe.Window);
+            var landing = accentsCentres
+                .OrderBy(kvp => kvp.Value.DistanceSquaredTo(accCentre))
+                .First().Key;
+            Check.WithCustomMessage(
+                    $"the key under Acc's resting gaze is {landing}, expected key_0_7 (Ô)")
+                .That(landing).IsEqualTo("key_0_7");
         }
         finally { probe.Dispose(); }
     }
@@ -1155,6 +1273,11 @@ spot without a move ⟦spec I6⟧; regular-key ids are positional ⟦B3⟧ — `
             DwellOn(probe, "key_0_0", ref ts);   // É types; auto-return to letters
             Check.That(probe.Vm.ActiveSubLayoutId).IsEqualTo("letters");
 
+            // Guards the D15-preserved half: a future refactor that clears ALL modifiers
+            // (not just the system ones) on swap fails here. The label half above is the
+            // stronger discriminator for the M7 repaint itself (plan-r2: this assert cannot
+            // fail against the planned ClearSystemOneShotModifiers, which never touches
+            // CapsLock — it is kept as a regression net, not as the H1 proof).
             Check.WithCustomMessage("Caps Lock was silently disarmed by the swap")
                 .That(probe.Vm.ActiveModifiers.Contains(ModifierKey.CapsLock)).IsTrue();
         }
@@ -1162,31 +1285,28 @@ spot without a move ⟦spec I6⟧; regular-key ids are positional ⟦B3⟧ — `
     }
 ```
 
-`KeyLabel` is a small visual-tree helper in this test class (the repo precedent is
-`SettingsContentFitTests.FindTextBlocks`):
+`KeyLabel` reads the label through the window's PRIVATE `_keyVisuals` registry (id →
+`(Border, TextBlock?)`) — keys carry no XAML names, so a `FindName` route cannot work
+⟦plan-r2⟧; `ShippedAzerty` mirrors `ShippedQwertz`:
 
 ```csharp
+    private static KeyboardLayout ShippedAzerty() =>
+        KeyboardLayoutLoader.Load(Path.Combine(
+            SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Resources", "Layouts", "azerty.json"));
+
     private static string? KeyLabel(Probe probe, string keyId)
     {
-        var key = probe.Window.FindName(keyId) as System.Windows.FrameworkElement;
-        return key is null
-            ? null
-            : FindTextBlocks(key).FirstOrDefault()?.Text;
-    }
+        var field = typeof(KeyboardWindow).GetField("_keyVisuals",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        if (field?.GetValue(probe.Window) is not System.Collections.IDictionary visuals
+            || visuals[keyId] is not { } entry)
+            return null;
 
-    private static IEnumerable<System.Windows.Controls.TextBlock> FindTextBlocks(
-        System.Windows.Media.Visual root)
-    {
-        for (var i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(root); i++)
-        {
-            if (System.Windows.Media.VisualTreeHelper.GetChild(root, i)
-                    is not System.Windows.Media.Visual child)
-                continue;
-            if (child is System.Windows.Controls.TextBlock tb)
-                yield return tb;
-            foreach (var nested in FindTextBlocks(child))
-                yield return nested;
-        }
+        // The registry's value is (Border Container, TextBlock? Label) — a ValueTuple; Item2
+        // is the label the modifier repaint rewrites, which is exactly what H1 pins.
+        var label = entry.GetType().GetField("Item2")?.GetValue(entry)
+            as System.Windows.Controls.TextBlock;
+        return label?.Text;
     }
 ```
 
@@ -1195,7 +1315,7 @@ through whatever registry `DwellOn` itself uses and walk from there — same hel
 say in the report which route compiled.)
 
 - [ ] **Step 3: Run to verify failure** —
-  `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ShippedQwertz_Accents|FullyQualifiedName~ShippedQwertz_AccEntry|FullyQualifiedName~ShippedQwertz_SwapRepaints"`.
+  `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~ShippedQwertz_Accents|FullyQualifiedName~ShippedQwertz_AccEntry|FullyQualifiedName~ShippedAzerty_AccEntry|FullyQualifiedName~ShippedQwertz_SwapRepaints"`.
   Expected: FAIL (compile of the new helpers/tests; with Tasks 4–5 landed the behavioral
   tests may pass on first run — acceptable, note it).
 

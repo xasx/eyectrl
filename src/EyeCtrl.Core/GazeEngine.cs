@@ -33,8 +33,15 @@ public class GazeEngine : IDisposable
     private readonly FixationDetector _fixationDetector;
     private readonly FixationCentroidTracker _centroidTracker;
     private readonly EffectiveSettingsProvider? _effectiveSettings;
+    private readonly IStruggleTelemetrySink? _telemetry;
     private readonly PropertyChangedEventHandler _dwellSettingsChangedHandler;
     private readonly Action? _effectiveSettingsChangedHandler;
+    // Set from the dispatcher thread (FreeLook entry, SuppressFixation release) and read+cleared on the
+    // gaze thread before the detector is fed. Zeroing the age on those edges is what stops pent-up age
+    // — time the eyes spent inside another overlay or another state — from firing an activation the
+    // moment the gate lifts (skeptic condition 2).
+    private volatile bool _fixationAgeResetRequested;
+    private readonly Action<InteractionState> _interactionStateChangedHandler;
     // Set by the effective-settings Changed handler / the DwellSettings handler (dispatcher thread) and
     // read+cleared on the gaze thread at the top of OnGazePoint. Deferring the apply onto the gaze thread
     // keeps every _fixationDetector mutation on the one thread that calls Update, eliminating the
@@ -95,6 +102,10 @@ public class GazeEngine : IDisposable
     private bool _sustainedSampleFaultEpisodeLogged;
     private const int SustainedSampleFaultThreshold = 150;
 
+    // The activation surface's telemetry target id. Kept identical to the one the ViewModel's DwellDetector
+    // used, so recorded outcomes stay comparable across the ticket-3 handover.
+    private const string ActivationTargetId = "activate";
+
     /// <summary>Interaction state machine controlling fixation → activation → action flow.</summary>
     public InteractionManager InteractionManager { get; }
     private volatile bool _suppressFixation;
@@ -103,7 +114,14 @@ public class GazeEngine : IDisposable
     public bool SuppressFixation
     {
         get => _suppressFixation;
-        set => _suppressFixation = value;
+        set
+        {
+            // Releasing the gate zeroes the run's age, so time accumulated before the overlay opened
+            // cannot complete an activation on the first sample after it closes (skeptic condition 2).
+            if (_suppressFixation && !value)
+                _fixationAgeResetRequested = true;
+            _suppressFixation = value;
+        }
     }
     /// <summary>Stable centroid position in physical screen pixels.</summary>
     public PhysicalPoint? StableCentroid => _centroidTracker.StableCentroid;
@@ -167,6 +185,18 @@ public class GazeEngine : IDisposable
         }
     }
 
+    /// <summary>Fired once per fixation when the valid-time age reaches the onset age plus the effective
+    /// activation dwell, carrying the activation time, the credited age and the running centroid (ticket
+    /// 3). This is the Core-published activation signal the app consumes; nothing downstream recomputes
+    /// the age. Handlers run on the gaze thread.</summary>
+    public event Action<FixationActivation>? FixationActivated;
+
+    /// <summary>Fired when a fixation run whose onset was reported is released, with the valid-time ledger
+    /// (last credited sample, its age, the centroid) and the release reason. The replay harness uses it to
+    /// compare engine end times against its own runs; struggle telemetry uses it for abandonments.
+    /// Handlers run on the gaze thread.</summary>
+    public event Action<FixationRelease>? FixationReleased;
+
     // Only drop the fault bookkeeping once the LAST equal subscription is gone — a caller that
     // subscribed the same handler twice still has one live, and resetting its window would let it
     // log again inside the window it is being rate-limited by.
@@ -208,13 +238,18 @@ public class GazeEngine : IDisposable
     /// reads the baseline directly and no adaptation-driven reconfiguration occurs.</param>
     /// <param name="logger">Optional logger for handler faults. When null, faults are swallowed
     /// silently — acceptable in tests, but production should always supply one.</param>
+    /// <param name="telemetry">Optional struggle-telemetry sink. When supplied, the activation surface's
+    /// outcomes are reported from here (ticket 3 moved its clock out of the ViewModel's DwellDetector),
+    /// with the same valid-time progress the rule publishes. Null disables emission and leaves the hot
+    /// path unchanged.</param>
     public GazeEngine(
         IGazeProvider gazeProvider,
         IInputSimulator inputSimulator,
         EyeCtrlSettings settings,
         CalibrationService? calibrationService = null,
         EffectiveSettingsProvider? effectiveSettings = null,
-        ILogger<GazeEngine>? logger = null)
+        ILogger<GazeEngine>? logger = null,
+        IStruggleTelemetrySink? telemetry = null)
     {
         _faults = new HandlerFaultReporter(
             (message, ex) => logger?.LogError(ex, "{FaultMessage}", message),
@@ -225,6 +260,7 @@ public class GazeEngine : IDisposable
         _inputSimulator = inputSimulator;
         _settings = settings;
         _calibrationService = calibrationService;
+        _telemetry = telemetry;
 
         _effectiveSettings = effectiveSettings;
 
@@ -259,20 +295,37 @@ public class GazeEngine : IDisposable
         _startTrackingHandler = _ => _centroidTracker.StartTracking();
 
         // Built once with the effective radius and reconfigured IN PLACE thereafter (design §5): its
-        // RadiusPixels/FixationTimeMs are settable, so the instance and its four subscriptions live for the
-        // engine's lifetime and an in-progress fixation survives every tolerance change.
-        _fixationDetector = new FixationDetector(EffectiveFixationRadius(), settings.Dwell.FixationDetectionMs);
+        // RadiusPixels/FixationTimeMs/ActivationDwellMs/CooldownMs are settable, so the instance and its
+        // subscriptions live for the engine's lifetime and an in-progress fixation survives every change.
+        _fixationDetector = new FixationDetector(EffectiveFixationRadius(), settings.Dwell.FixationDetectionMs)
+        {
+            ActivationDwellMs = EffectiveActivationDwellMs(),
+            CooldownMs = settings.Dwell.DwellCooldownMs,
+        };
         WireFixation(_fixationDetector);
 
         // Reconfigure on a baseline tolerance edit. GazeEngine previously subscribed to CursorSettings only,
         // so DwellSettings tolerance edits never reached the live detector (latent bug — now fixed).
+        // ActivationButtonDwellMs and DwellCooldownMs join them because the activation clock lives in the
+        // detector since ticket 3.
         _dwellSettingsChangedHandler = (_, e) =>
         {
             if (e.PropertyName is nameof(DwellSettings.FixationRadiusPixels)
-                               or nameof(DwellSettings.FixationDetectionMs))
+                               or nameof(DwellSettings.FixationDetectionMs)
+                               or nameof(DwellSettings.ActivationButtonDwellMs)
+                               or nameof(DwellSettings.DwellCooldownMs))
                 RequestFixationReconfiguration();
         };
         _settings.Dwell.PropertyChanged += _dwellSettingsChangedHandler;
+
+        // FreeLook entry zeroes the run's age (skeptic condition 2). The handler only raises the flag;
+        // the apply runs on the gaze thread before the next feed, like every other detector mutation.
+        _interactionStateChangedHandler = state =>
+        {
+            if (state == InteractionState.FreeLook)
+                _fixationAgeResetRequested = true;
+        };
+        InteractionManager.StateChanged += _interactionStateChangedHandler;
 
         // Reconfigure when an adaptation delta changes the effective tolerance. The provider's Changed fires
         // on EVERY SetMomentaryFill (any knob), so a fill on a non-tolerance knob also lands here; the apply
@@ -304,6 +357,27 @@ public class GazeEngine : IDisposable
         _effectiveSettings?.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, _settings.Dwell.FixationRadiusPixels)
         ?? _settings.Dwell.FixationRadiusPixels;
 
+    // Ticket 3's effective-dwell wiring, and a deliberate, documented IDwellDetectorRegistry bypass
+    // (designer cross-review, skeptic condition 5: "re-home the threshold through the effective-dwell
+    // map, or document the opt-out"). The registry's appliers push maps onto DwellDetector TARGETS; the
+    // activation clock now lives in FixationDetector, which has no target to push onto. Reading the
+    // provider here keeps the fill reaching activation all the same: DwellTimeRouter's map resolves
+    // Effective(DwellTime, Other, baseline) — the SAME knob, context and baseline as this read — and the
+    // provider's Changed handler above already re-requests the apply, so a controller fill lands on the
+    // live detector on the next gaze sample. Context is Other because AdaptationController stores fills
+    // under Other; passing ActivationButton would miss every stored fill. When adaptation is off,
+    // Effective returns the baseline exactly (the disabled ⇒ effective == baseline invariant).
+    private int EffectiveActivationDwellMs()
+    {
+        double baseline = _settings.Dwell.ActivationButtonDwellMs;
+        double effective = _effectiveSettings?.Effective(AdaptationKnob.DwellTime, DwellContext.Other, baseline)
+            ?? baseline;
+        return (int)Math.Clamp(
+            Math.Round(effective),
+            AdaptationDwellRanges.StandardMinDwellMs,
+            AdaptationDwellRanges.StandardMaxDwellMs);
+    }
+
     /// <summary>Test seam (<c>InternalsVisibleTo</c> → EyeCtrl.Core.Tests, the ClassifyMode pattern): the
     /// smoothing parameter the live filter was last BUILT with, or <c>null</c> whenever the live filter has
     /// no smoothing parameter (no provider, or Direct mode — Task 3's apply clears the bits to the sentinel
@@ -325,6 +399,16 @@ public class GazeEngine : IDisposable
     /// thread; tests read it after a synchronous SimulateGaze, i.e. on the same thread. Production reads
     /// nothing.</summary>
     internal int InterpolatorRebuildCount;
+
+    /// <summary>Test seam (<c>InternalsVisibleTo</c> → EyeCtrl.Core.Tests): the live fixation detector's
+    /// configured radius in physical pixels. The units check pins it equal to the setting at ScaleX 2.0 —
+    /// the radius is already physical and must never be DPI-converted. Production reads nothing.</summary>
+    internal double FixationRadiusPixelsForTest => _fixationDetector.RadiusPixels;
+
+    /// <summary>Test seam (<c>InternalsVisibleTo</c> → EyeCtrl.Core.Tests): the live fixation detector's
+    /// effective activation dwell, so the effective-dwell routing can be pinned end-to-end (a provider fill
+    /// must reach it). Production reads nothing.</summary>
+    internal int ActivationDwellMsForTest => _fixationDetector.ActivationDwellMs;
 
     /// <summary>Test seam: invoked on the gaze thread AFTER the fresh interpolator is swapped in but BEFORE
     /// the applied-bits publication — the exact window where a racing provider write (e.g. the §8.6 toolbar
@@ -401,8 +485,12 @@ public class GazeEngine : IDisposable
         _fixationReconfigureRequested = false;
         // FixationDetectionMs is not an adaptation knob, so it comes straight from the baseline. Applying it
         // here (rather than only on a radius change) is what makes a manual detection-time edit take effect.
+        // The activation dwell DOES flow through the effective-dwell map (EffectiveActivationDwellMs), so
+        // adaptation's dwell knob keeps reaching activation; the cooldown is a plain baseline.
         _fixationDetector.RadiusPixels = EffectiveFixationRadius();
         _fixationDetector.FixationTimeMs = _settings.Dwell.FixationDetectionMs;
+        _fixationDetector.ActivationDwellMs = EffectiveActivationDwellMs();
+        _fixationDetector.CooldownMs = _settings.Dwell.DwellCooldownMs;
     }
 
     // Runs on the gaze thread, before Process below, so CopyStateFrom reads the outgoing interpolator on the
@@ -466,6 +554,8 @@ public class GazeEngine : IDisposable
         d.FixationEnded += InteractionManager.OnFixationEnded;
         d.FixationStarted += _startTrackingHandler;
         d.FixationEnded += _centroidTracker.StopTracking;
+        d.FixationActivated += ForwardFixationActivated;
+        d.FixationReleased += ForwardFixationReleased;
     }
 
     private void UnwireFixation(FixationDetector d)
@@ -474,6 +564,67 @@ public class GazeEngine : IDisposable
         d.FixationEnded -= InteractionManager.OnFixationEnded;
         d.FixationStarted -= _startTrackingHandler;
         d.FixationEnded -= _centroidTracker.StopTracking;
+        d.FixationActivated -= ForwardFixationActivated;
+        d.FixationReleased -= ForwardFixationReleased;
+    }
+
+    // Method groups, not lambdas: UnwireFixation must be able to remove exactly these subscriptions.
+    private void ForwardFixationActivated(FixationActivation activation)
+    {
+        FixationActivated?.Invoke(activation);
+        ReportActivationOutcome(activation);
+    }
+
+    private void ForwardFixationReleased(FixationRelease release)
+    {
+        FixationReleased?.Invoke(release);
+        ReportAbandonOutcome(release);
+    }
+
+    // Ticket 3 item 6: the activation surface's clock moved out of the ViewModel's DwellDetector (whose
+    // progress at DwellDetector.cs:370-371 credited blink gaps), so its telemetry is emitted HERE, from the
+    // valid-time ledger. Same context/target id as the surface used, same abandon threshold.
+    private void ReportActivationOutcome(FixationActivation activation)
+    {
+        _telemetry?.Report(new DwellOutcome(
+            activation.TimestampUs,
+            DwellContext.ActivationButton,
+            ActivationTargetId,
+            OutcomeKind.Activated,
+            AbandonReason.None,
+            1.0,
+            activation.Point,
+            activation.Point,
+            _fixationDetector.RadiusPixels,
+            TargetBounds: null));
+    }
+
+    private void ReportAbandonOutcome(FixationRelease release)
+    {
+        // Only a gaze-left abandonment counts as an attempt the user gave up on. A run that ended because
+        // the eyes were lost past the gap budget has no "gave up" evidence (the same distinction the
+        // DwellDetector draws for a lost stream), and a stream end is not the user's doing at all.
+        if (_telemetry is null || release.Reason != FixationEndReason.GazeLeft)
+            return;
+
+        long onsetAgeUs = _settings.Dwell.FixationDetectionMs * 1000L;
+        long dwellUs = _fixationDetector.ActivationDwellMs * 1000L;
+        double progress = dwellUs <= 0
+            ? (release.CreditedAgeUs >= onsetAgeUs ? 1.0 : 0.0)
+            : Math.Clamp((release.CreditedAgeUs - onsetAgeUs) / (double)dwellUs, 0.0, 1.0);
+        if (progress < TelemetryThresholds.AbandonProgress)
+            return;
+        _telemetry.Report(new DwellOutcome(
+            release.LastCreditedUs,
+            DwellContext.ActivationButton,
+            ActivationTargetId,
+            OutcomeKind.Abandoned,
+            AbandonReason.GazeLeft,
+            progress,
+            release.Point,
+            release.Point,
+            _fixationDetector.RadiusPixels,
+            TargetBounds: null));
     }
 
     /// <summary>Stops the gaze data stream.</summary>
@@ -577,17 +728,26 @@ public class GazeEngine : IDisposable
         }
         var (filtered, isInGap) = _gapInterpolator.Process(corrected);
 
-        // Always fire CursorMoved so the cursor circle + toolbar receive gaze
-        // (this allows unpause via toolbar dwell even when paused). Gap-held samples are published
-        // too — display surfaces may keep showing the held point — but the frame says so, and every
-        // dwell surface downstream skips its DwellDetector.Update for them.
-        PublishCursorMoved(new GazeFrame(filtered, gaze.TimestampMicroseconds, isInGap));
-
         // Gap-held samples are excluded: the interpolator hands back the frozen last valid position with a
         // real dt, so they enter the tracker as zero-displacement (speed-0) points — deflating
         // LastFixationJitter exactly when tracking is worst, and biasing StableCentroid toward the freeze.
         if (!isInGap)
             _centroidTracker.Update(filtered, gaze.TimestampMicroseconds);
+
+        // Fixation runs FIRST so the frame published below carries THIS sample's activation progress
+        // (ticket 3: Core owns the valid-time ledger and publishes the scalar). The gates are unchanged
+        // from the pre-ticket-3 order: paused samples never feed the detector, and neither do suppressed
+        // ones; an age reset requested by FreeLook entry / SuppressFixation release lands before the feed.
+        ApplyPendingFixationAgeReset();
+        if (interactionState != InteractionState.Paused && !SuppressFixation && !isInGap)
+            _fixationDetector.Update(filtered, gaze.TimestampMicroseconds);
+
+        // Always fire CursorMoved so the cursor circle + toolbar receive gaze
+        // (this allows unpause via toolbar dwell even when paused). Gap-held samples are published
+        // too — display surfaces may keep showing the held point — but the frame says so, and every
+        // dwell surface downstream skips its DwellDetector.Update for them.
+        PublishCursorMoved(new GazeFrame(
+            filtered, gaze.TimestampMicroseconds, isInGap, _fixationDetector.DwellProgress));
 
         if (interactionState == InteractionState.Paused)
             return;
@@ -600,9 +760,14 @@ public class GazeEngine : IDisposable
         {
             _inputSimulator.MoveCursor(filtered);
         }
+    }
 
-        if (!SuppressFixation && !isInGap)
-            _fixationDetector.Update(filtered, gaze.TimestampMicroseconds);
+    private void ApplyPendingFixationAgeReset()
+    {
+        if (!_fixationAgeResetRequested)
+            return;
+        _fixationAgeResetRequested = false;
+        _fixationDetector.ResetAge();
     }
 
     /// <summary>Unsubscribes from the gaze provider and settings, and disposes the provider.</summary>
@@ -612,6 +777,7 @@ public class GazeEngine : IDisposable
         _settings.Dwell.PropertyChanged -= _dwellSettingsChangedHandler;
         if (_effectiveSettings is not null && _effectiveSettingsChangedHandler is not null)
             _effectiveSettings.Changed -= _effectiveSettingsChangedHandler;
+        InteractionManager.StateChanged -= _interactionStateChangedHandler;
         _gazeProvider.GazePointReceived -= OnGazePoint;
         UnwireFixation(_fixationDetector);
         _gazeProvider.Dispose();

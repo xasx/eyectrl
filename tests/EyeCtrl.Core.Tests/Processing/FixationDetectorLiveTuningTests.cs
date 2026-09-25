@@ -63,21 +63,21 @@ public class FixationDetectorLiveTuningTests
         bool ended = false;
         detector.FixationEnded += () => ended = true;
 
-        // Center is the first sample (500, 500); subsequent samples sit 40 px away, inside radius 80.
-        long ts = 33_000;
-        detector.Update(new PhysicalPoint(500, 500), ts);
-        ts = Hold(detector, 540, 500, samples: 6, ts: ts);
+        // Ticket 3's centre is the running centroid, so "outside" is measured against the hold's mean,
+        // not its first sample. Hold still at (500,500) so the mean IS (500,500), then step to a 45 px
+        // offset: inside 60, outside 20.
+        long ts = Hold(detector, 500, 500, samples: 6, ts: 0);
         Check.That(detector.IsFixating).IsTrue();
 
-        detector.RadiusPixels = 60; // still wider than the 40 px offset → nothing happens
+        detector.RadiusPixels = 60; // 45 px offset still inside → nothing happens
         ts += 33_000;
-        detector.Update(new PhysicalPoint(540, 500), ts);
+        detector.Update(new PhysicalPoint(545, 500), ts);
         Check.That(detector.IsFixating).IsTrue();
         Check.That(ended).IsFalse();
 
         detector.RadiusPixels = 20; // now narrower than the offset → ordinary gaze-left
         ts += 33_000;
-        detector.Update(new PhysicalPoint(540, 500), ts);
+        detector.Update(new PhysicalPoint(545, 500), ts);
         Check.That(detector.IsFixating).IsFalse();
         Check.That(ended).IsTrue();
     }

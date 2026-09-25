@@ -2,53 +2,89 @@ namespace EyeCtrl.ViewModels;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
-using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Models;
-using EyeCtrl.Core.Processing;
-using EyeCtrl.Core.Services;
-using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
-public partial class ActivationButtonViewModel : DwellOverlayViewModelBase,
+/// <summary>
+/// The activation feedback, a pure consumer since ticket 3. Core's fixation rule owns the clock and
+/// publishes both facts this VM needs: the per-sample dwell progress on the <see cref="GazeFrame"/> (the
+/// shared <see cref="GazeCursorMovedMessage"/> feed) and <see cref="FixationActivatedMessage"/> when the
+/// valid-time age completes. The VM keeps no DwellTarget, accumulates nothing, and computes no age — the
+/// rule seam is the only ledger, which is what lets the replay harness measure the production behaviour.
+/// <para>
+/// The behaviour the old base class supplied is preserved or deliberately relocated:
+/// </para>
+/// <list type="bullet">
+/// <item>progress resets to 0 on show and on hide (fresh state per fixation);</item>
+/// <item>an activation is acted on once per shown fixation (<c>_completionSent</c>), so a duplicate or
+/// late message cannot publish a second <see cref="ActivationCompletedMessage"/> — and a late one after
+/// the button hid is ignored outright;</item>
+/// <item>no activation while Paused / inside external dwell / while <c>GazeEngine.SuppressFixation</c> is
+/// set is structural rather than local: the engine does not feed the detector in those states, and the
+/// interaction state machine only accepts the completion in <c>Fixation</c>. The button is hidden on
+/// pause anyway.</item>
+/// </list>
+/// The dwell-completion cue still publishes after the effect's message, matching the old
+/// DwellOverlayViewModelBase ordering.
+/// </summary>
+public partial class ActivationButtonViewModel : MessengerViewModelBase,
     IRecipient<ShowActivationButtonMessage>,
-    IRecipient<HideActivationButtonMessage>
+    IRecipient<HideActivationButtonMessage>,
+    IRecipient<GazeCursorMovedMessage>,
+    IRecipient<FixationActivatedMessage>
 {
-    private const string TargetId = "activate";
-
-    private readonly EyeCtrlSettings _settings;
-
     [ObservableProperty] private PhysicalPoint _position = new(0, 0);
     [ObservableProperty] private double _dwellProgress;
+    [ObservableProperty] private bool _isVisible;
 
-    public ActivationButtonViewModel(EyeCtrlSettings settings, IMessenger messenger,
-        IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
-        : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.ActivationButton, sink, dwellRegistry)
+    // One completion per shown fixation. Reset on show; a message that arrives after hide is ignored,
+    // which is what keeps "activation then immediate end" and "end then a late activation" from ever
+    // producing two completions or a completion for a button that is down.
+    private bool _completionSent;
+
+    /// <summary>Initializes a new instance of the <see cref="ActivationButtonViewModel"/> class.</summary>
+    /// <param name="messenger">The messenger the overlay message stream rides.</param>
+    public ActivationButtonViewModel(IMessenger messenger)
+        : base(messenger)
     {
-        _settings = settings;
     }
 
+    /// <inheritdoc />
     public void Receive(ShowActivationButtonMessage message)
     {
         Position = message.Position;
-        IsVisible = true;
         DwellProgress = 0;
-        DwellDetector.ClearTargets();
-        DwellDetector.AddTarget(new DwellTarget(TargetId,
-            message.Position,
-            DpiHelper.LogicalToPhysicalX(UIConstants.ButtonRadius),
-            _settings.Dwell.ActivationButtonDwellMs));
+        _completionSent = false;
+        IsVisible = true;
     }
 
+    /// <inheritdoc />
     public void Receive(HideActivationButtonMessage message)
     {
         IsVisible = false;
         DwellProgress = 0;
-        DwellDetector.ClearTargets();
+        _completionSent = false;
     }
 
-    protected override void OnTargetActivated(string targetId) =>
-        Messenger.Send(new ActivationCompletedMessage());
+    /// <inheritdoc />
+    public void Receive(GazeCursorMovedMessage message)
+    {
+        // Progress comes from Core's valid-time ledger and is already 0 outside a fixation, so the VM
+        // only forwards it while the button is up. Gap-held samples carry the last value; skip them.
+        if (IsVisible && !message.IsInGap)
+            DwellProgress = message.Frame.ActivationProgress;
+    }
 
-    protected override void OnTargetProgress(string targetId, double progress) =>
-        DwellProgress = progress;
+    /// <inheritdoc />
+    public void Receive(FixationActivatedMessage message)
+    {
+        if (!IsVisible || _completionSent)
+            return;
+        _completionSent = true;
+        DwellProgress = 1;
+        // Effect first, then the cue — the same order the old detector-event path used (D8): the
+        // activation must not be lost to a throwing cue subscriber.
+        Messenger.Send(new ActivationCompletedMessage());
+        Messenger.Send(new DwellActivationMessage());
+    }
 }

@@ -58,17 +58,21 @@ public readonly record struct FixationRelease(long LastCreditedUs, long Credited
 /// </para>
 /// <para>
 /// Why the replay re-creates the engine's feed (<c>if (!SuppressFixation &amp;&amp; !isInGap)</c>) rather
-/// than driving the real <c>GazeEngine</c> for the metrics: the engine's fixation rule is private and
-/// its per-sample anchor state is unobservable, so runs cannot be reconstructed from its public
-/// surface. The FEED is still pinned, and it is: <c>ReplaySliceFidelityTests</c> asserts, on the
-/// fixture and on the recording, that the engine's onsets and ends — observed through
-/// <c>InteractionManager.ShowActivationButton</c>/<c>HideActivationButton</c>, which fire synchronously
-/// inside <c>Push</c> — equal the harness's runs, and that the filtered point and gap flag match on
-/// every sample. A change to <c>GazeEngine.cs:604-605</c> (feeding raw points, or gap frames) breaks
-/// that parity instead of silently changing what the gates measure. The rule seam
-/// (<see cref="IFixationRule"/>) is what ticket 3 plugs its new rule into. What replay cannot see:
-/// suppression, state, the dispatcher. The live engine feeds the detector in every non-paused state
-/// with <c>SuppressFixation</c> false, so the replay is that steady state.
+/// than driving the real <c>GazeEngine</c> for the metrics: the engine owns suppression, interaction
+/// state and the dispatcher, none of which belong in a deterministic metric, and the replay's job is the
+/// pipeline slice (filter + gap handling) feeding a rule. The FEED and the RULE are both pinned, and they
+/// are: <c>ReplaySliceFidelityTests</c> asserts, on the fixture and on the recording, that the engine's
+/// onsets and ends — observed through <c>InteractionManager.ShowActivationButton</c>/
+/// <c>HideActivationButton</c>, which fire synchronously inside <c>Push</c>, plus the engine's
+/// <c>FixationActivated</c>/<c>FixationReleased</c> — equal the harness's runs (onset time and point,
+/// activation time, end time and credited age), and that the filtered point and gap flag match on every
+/// sample. A change to the engine's detector feed (feeding raw points, or gap frames) breaks that parity
+/// instead of silently changing what the gates measure. Since ticket 3 the harness candidate
+/// (<see cref="CentroidAtRadius"/>) is the PRODUCTION detector behind the pure forwarding
+/// <see cref="ProductionFixationRule"/>, so the gates score the shipped rule; the frozen
+/// <see cref="LegacyFixationRule"/> remains "today". What replay cannot see: suppression, state, the
+/// dispatcher. The live engine feeds the detector in every non-paused state with <c>SuppressFixation</c>
+/// false, so the replay is that steady state.
 /// </para>
 /// </summary>
 public static class FixationReplayGates
@@ -174,6 +178,33 @@ public static class FixationReplayGates
 
     /// <summary>Today's rule at r90 — the value in <c>settings.json</c> at the last checkpoint.</summary>
     public static Candidate TodayR90 { get; } = TodayAtRadius(90);
+
+    /// <summary>
+    /// Post-onset activation cooldown for ticket 3's candidate, pinned to the shipped
+    /// <c>DwellSettings.DwellCooldownMs</c> default. The replay scores the rule the app runs, cooldown
+    /// included; the frozen legacy baseline predates the cooldown, which is one more reason G1 — not M1 —
+    /// is the primary comparison.
+    /// </summary>
+    public const int ActivationCooldownMs = 400;
+
+    /// <summary>
+    /// Ticket 3's shipped rule at <paramref name="radiusPixels"/>: the PRODUCTION running-centroid
+    /// detector (through <see cref="ProductionFixationRule"/>, a pure forwarding adapter) over the
+    /// retuned One-Euro filter and the shipped gap budget. This is the candidate the gates accept.
+    /// </summary>
+    public static Candidate CentroidAtRadius(double radiusPixels) =>
+        new($"centroid rule, r{radiusPixels:0}",
+            () => new ProductionFixationRule(radiusPixels),
+            () => new OneEuroFilter());
+
+    /// <summary>Ticket 3's rule at r60 — the conserved alternative the second recording may choose.</summary>
+    public static Candidate CentroidR60 { get; } = CentroidAtRadius(60);
+
+    /// <summary>Ticket 3's rule at r75 — the shipped default, and the acceptance radius.</summary>
+    public static Candidate CentroidR75 { get; } = CentroidAtRadius(75);
+
+    /// <summary>Ticket 3's rule at r90 — the value in the user's file before the migration.</summary>
+    public static Candidate CentroidR90 { get; } = CentroidAtRadius(90);
 
     /// <summary>One fixation run, exactly as the rule reported it.</summary>
     /// <param name="Anchor">The activation point: the point the rule reported at onset.</param>

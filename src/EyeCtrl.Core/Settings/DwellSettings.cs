@@ -19,8 +19,21 @@ public partial class DwellSettings : ObservableObject, IValidatable
     [ObservableProperty] private int _keyboardKeyDwellMs = 450;
     /// <summary>Dwell time in milliseconds for prediction suggestion buttons. Valid range: 300–1500.</summary>
     [ObservableProperty] private int _keyboardPredictionDwellMs = 500;
-    /// <summary>Radius in pixels within which gaze samples are considered a fixation. Valid range: 10–200.</summary>
-    [ObservableProperty] private double _fixationRadiusPixels = 50;
+    /// <summary>
+    /// Radius in pixels within which gaze samples are considered a fixation (physical px — never
+    /// DPI-converted). Valid range: 10–200. The default is 75 since ticket 3: the running-centroid rule
+    /// passes G1 at both dispersion bars at 75 and misses D200 at 60, and the recording's settings.json
+    /// held 90 — an unvalidated value carried over from a paused session.
+    /// </summary>
+    [ObservableProperty] private double _fixationRadiusPixels = 75;
+
+    /// <summary>
+    /// Whether <see cref="MigrateFixationRadiusOnce"/> has already run for this settings file. Absent from
+    /// every pre-ticket-3 file (so it loads false) and set on the first migration; from then on the radius
+    /// is user-owned (the Settings slider edits it) and the startup migration must not overwrite a value
+    /// the user chose. Same pattern and reason as <c>ToolbarSettings.SizeMigrated</c>.
+    /// </summary>
+    [ObservableProperty] private bool _fixationRadiusMigrated;
     /// <summary>Velocity threshold in pixels per second below which gaze is considered fixating.</summary>
     [ObservableProperty] private double _velocityThresholdPxPerSec = 100.0;
     /// <summary>Cooldown period in milliseconds after a dwell activation before another can trigger. Valid range: 100–5000.</summary>
@@ -105,11 +118,28 @@ public partial class DwellSettings : ObservableObject, IValidatable
 
     partial void OnFixationRadiusPixelsChanging(double value)
     {
+        // Deliberately stays 10–200. Narrowing it to the new default's neighbourhood would make
+        // SettingsService.Load reject (and wipe) a file holding a legal legacy value like the user's 90.
         if (value < 10.0 || value > 200.0)
             throw new ArgumentOutOfRangeException(
                 nameof(value),
                 value,
                 $"{nameof(FixationRadiusPixels)} must be between 10 and 200");
+    }
+
+    /// <summary>
+    /// Sets <see cref="FixationRadiusPixels"/> to the ticket-3 default (75) exactly once per settings file,
+    /// then never touches it again. Unlike <c>ToolbarSettings.MigrateSizeOnce</c>, ANY prior value is
+    /// replaced on this first run: the 90 in the user's file was not a considered choice but an
+    /// unvalidated value from a paused session (final synthesis, "Radius for step 1"), and the rule change
+    /// makes 75 the value the gates were measured at. The persisted flag is what lets a LATER user edit
+    /// stick across restarts. The startup caller must use this, not a raw assignment.
+    /// </summary>
+    public void MigrateFixationRadiusOnce()
+    {
+        if (FixationRadiusMigrated) return;
+        FixationRadiusPixels = 75;
+        FixationRadiusMigrated = true;
     }
 
     partial void OnVelocityThresholdPxPerSecChanging(double value)

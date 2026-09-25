@@ -57,9 +57,8 @@ public class ViewModelDisposableTests
     [Fact]
     public void ActivationButtonViewModel_ImplementsIDisposable()
     {
-        var settings = new EyeCtrlSettings();
         var messenger = new WeakReferenceMessenger();
-        var vm = new ActivationButtonViewModel(settings, messenger);
+        var vm = new ActivationButtonViewModel(messenger);
 
         Check.That(vm is IDisposable).IsTrue();
     }
@@ -67,9 +66,8 @@ public class ViewModelDisposableTests
     [Fact]
     public void ActivationButtonViewModel_UnregistersMessagesOnDispose()
     {
-        var settings = new EyeCtrlSettings();
         var messenger = new WeakReferenceMessenger();
-        var vm = new ActivationButtonViewModel(settings, messenger);
+        var vm = new ActivationButtonViewModel(messenger);
 
         // Verify VM receives messages before disposal
         messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(100, 200)));
@@ -86,9 +84,8 @@ public class ViewModelDisposableTests
     [Fact]
     public void ActivationButtonViewModel_DisposeIsIdempotent()
     {
-        var settings = new EyeCtrlSettings();
         var messenger = new WeakReferenceMessenger();
-        var vm = new ActivationButtonViewModel(settings, messenger);
+        var vm = new ActivationButtonViewModel(messenger);
 
         ((IDisposable)vm).Dispose();
         ((IDisposable)vm).Dispose();

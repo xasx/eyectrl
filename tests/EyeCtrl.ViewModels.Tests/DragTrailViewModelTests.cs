@@ -84,9 +84,11 @@ public class DragTrailViewModelTests
         DragDropMessage? dropMsg = null;
         _messenger.Register<DragDropMessage>(_messenger, (_, msg) => dropMsg = msg);
 
+        // Ticket 3's FixationDetector clocks VALID-TIME age: each inter-sample dt is capped at ~2 frames,
+        // so one 300 ms jump no longer completes a 200 ms settle. Feed a realistic 30 Hz hold.
         var pos = new PhysicalPoint(300, 300);
-        _messenger.Send(new GazeCursorMovedMessage(pos, 0));
-        _messenger.Send(new GazeCursorMovedMessage(pos, 300_000));
+        for (long t = 0; t <= 240_000; t += 30_000)
+            _messenger.Send(new GazeCursorMovedMessage(pos, t));
 
         Check.That(dropMsg).IsNotNull();
         Check.That(vm.IsDragActive).IsFalse();

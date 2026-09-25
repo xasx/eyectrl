@@ -74,6 +74,119 @@ public class SettingsAutoPaginationTests
         Check.That(pages).HasSize(1);
         Check.That(pages[0].Rows).IsEmpty();
     }
+
+    // Issue #166: a SeparatorSpec divides two ADJACENT rows, so a chunk break on either side
+    // of one strands the rule at a page edge with a missing neighbour. The break cannot be
+    // moved (it is forced by height), so the stranded rule is dropped — the break itself is
+    // the visual division. 21 is SeparatorRow's real measured height (1 DIP rule + 10+10
+    // margins); the synthetic heights below are built so the break lands exactly on the rule.
+    [Fact]
+    public void ChunkByHeight_BreakRightAfterASeparator_DoesNotEndThePageOnTheRule()
+    {
+        var rows = new List<SettingsRowSpec> { Row("a"), new SeparatorSpec(), Row("b") };
+        var heights = new Dictionary<SettingsRowSpec, double>
+        {
+            [rows[0]] = 40, [rows[1]] = 21, [rows[2]] = 40
+        };
+
+        // a + sep fits; b overflows by 1 — the break falls right after the separator.
+        var pages = SettingsAutoPagination.ChunkByHeight(rows, r => heights[r], budget: 100);
+
+        Check.That(pages).HasSize(2);
+        Check.That(pages[0].Rows).HasSize(1);
+        Check.That(pages[0].Rows[0]).IsEqualTo(rows[0]);
+        Check.That(pages[1].Rows[0]).IsEqualTo(rows[2]);
+    }
+
+    [Fact]
+    public void ChunkByHeight_BreakRightBeforeASeparator_DoesNotStartThePageOnTheRule()
+    {
+        var rows = new List<SettingsRowSpec> { Row("a"), new SeparatorSpec(), Row("b") };
+        var heights = new Dictionary<SettingsRowSpec, double>
+        {
+            [rows[0]] = 45, [rows[1]] = 21, [rows[2]] = 35
+        };
+
+        // a alone fits; sep overflows by 6 — the break falls right before the separator,
+        // which then shares page 2 with b.
+        var pages = SettingsAutoPagination.ChunkByHeight(rows, r => heights[r], budget: 60);
+
+        Check.That(pages).HasSize(2);
+        Check.That(pages[0].Rows).HasSize(1);
+        Check.That(pages[0].Rows[0]).IsEqualTo(rows[0]);
+        Check.That(pages[1].Rows).HasSize(1);
+        Check.That(pages[1].Rows[0]).IsEqualTo(rows[2]);
+    }
+
+    [Fact]
+    public void ChunkByHeight_AdjacentSeparatorsAtABreak_BothVanish()
+    {
+        var rows = new List<SettingsRowSpec>
+        {
+            Row("a"), new SeparatorSpec(), new SeparatorSpec(), Row("b")
+        };
+        var heights = new Dictionary<SettingsRowSpec, double>
+        {
+            [rows[0]] = 40, [rows[1]] = 21, [rows[2]] = 21, [rows[3]] = 40
+        };
+
+        // a + sep1 fit; sep2 overflows — the break strands sep1 at the bottom of page 1
+        // AND sep2 at the top of page 2.
+        var pages = SettingsAutoPagination.ChunkByHeight(rows, r => heights[r], budget: 65);
+
+        Check.That(pages).HasSize(2);
+        Check.That(pages[0].Rows).HasSize(1);
+        Check.That(pages[0].Rows[0]).IsEqualTo(rows[0]);
+        Check.That(pages[1].Rows).HasSize(1);
+        Check.That(pages[1].Rows[0]).IsEqualTo(rows[3]);
+    }
+
+    // The trim must be surgical: a separator away from every break is content, not debris.
+    [Fact]
+    public void ChunkByHeight_SeparatorAwayFromEveryBreak_IsKept()
+    {
+        var rows = new List<SettingsRowSpec> { Row("a"), new SeparatorSpec(), Row("b"), Row("c") };
+        var heights = new Dictionary<SettingsRowSpec, double>
+        {
+            [rows[0]] = 40, [rows[1]] = 21, [rows[2]] = 40, [rows[3]] = 40
+        };
+
+        // a + sep + b exactly fill page 1; c overflows — the break lands between b and c,
+        // nowhere near the separator.
+        var pages = SettingsAutoPagination.ChunkByHeight(rows, r => heights[r], budget: 101);
+
+        Check.That(pages).HasSize(2);
+        Check.That(pages[0].Rows).HasSize(3);
+        Check.That(pages[0].Rows[1]).IsInstanceOf<SeparatorSpec>();
+        Check.That(pages[1].Rows[0]).IsEqualTo(rows[3]);
+    }
+
+    // Source-order edges are not break artefacts: what a single page always rendered must
+    // survive the trim unchanged.
+    [Fact]
+    public void ChunkByHeight_SinglePageOutput_KeepsSourceOrderEdgeSeparators()
+    {
+        var rows = new List<SettingsRowSpec> { new SeparatorSpec(), Row("a"), new SeparatorSpec() };
+
+        var pages = SettingsAutoPagination.ChunkByHeight(rows, _ => 50, budget: 1000);
+
+        Check.That(pages).HasSize(1);
+        Check.That(pages[0].Rows).HasSize(3);
+    }
+
+    // Adversarial: an all-separator list split between two breaks — every page the trim
+    // empties vanishes, and the chunker still returns one page rather than none, mirroring
+    // the empty-input contract above.
+    [Fact]
+    public void ChunkByHeight_AllSeparatorPagesEmptiedByTheTrim_YieldsOneEmptyPage()
+    {
+        var rows = new List<SettingsRowSpec> { new SeparatorSpec(), new SeparatorSpec() };
+
+        var pages = SettingsAutoPagination.ChunkByHeight(rows, _ => 21, budget: 30);
+
+        Check.That(pages).HasSize(1);
+        Check.That(pages[0].Rows).IsEmpty();
+    }
 }
 
 public class SettingsAutoPaginationFitTests
@@ -152,6 +265,39 @@ public class SettingsAutoPaginationFitTests
             if (page.Rows.Count > 1)
                 Check.That(h).IsLessOrEqualThan(budget);
         }
+    }
+
+    // Issue #166, property form: with separators in the mix and real measured heights, no
+    // break may strand a rule at a page edge. Only the first page's first row and the last
+    // page's last row may be separators (source-order edges no current source produces);
+    // every other page edge must land on content.
+    [StaFact]
+    public void EveryChunkedPage_EdgeIsContent_WithSeparatorsInTheMix()
+    {
+        var rows = new List<SettingsRowSpec>();
+        for (var i = 0; i < 8; i++)
+        {
+            rows.Add(Slider($"s{i}"));
+            if (i % 2 == 1)
+                rows.Add(new SeparatorSpec());
+        }
+        const double budget = 400.0;
+        const double width = 416.0;
+
+        var pages = SettingsAutoPagination.ChunkByHeight(
+            rows, r => SettingsAutoPagination.MeasureRowHeight(r, width, RadiusPhysical, DwellMs), budget);
+
+        Check.That(pages.Count).IsStrictlyGreaterThan(1);   // the budget really forces breaks
+        for (var i = 0; i < pages.Count; i++)
+        {
+            if (i > 0)
+                Check.That(pages[i].Rows[0]).IsNotInstanceOf<SeparatorSpec>();
+            if (i < pages.Count - 1)
+                Check.That(pages[i].Rows[^1]).IsNotInstanceOf<SeparatorSpec>();
+        }
+        // Only separators may vanish: every content row survives the chunk + trim.
+        Check.That(pages.SelectMany(p => p.Rows).Count(r => r is not SeparatorSpec))
+            .IsEqualTo(rows.Count(r => r is not SeparatorSpec));
     }
 
     // Negative control in the spirit of SettingsContentFitTests: an unchunked tall list must

@@ -23,6 +23,11 @@ internal static class SettingsAutoPagination
     /// <paramref name="budget"/>. A single row taller than the budget gets its own page
     /// (never an empty page, never an unterminated loop). A non-positive budget declines:
     /// one page, rows unchanged — mirrors ContentAvailableWidth's decline-to-constrain.
+    /// <para>
+    /// A break that lands on either side of a <see cref="SeparatorSpec"/> strands the rule at
+    /// a page edge with a missing neighbour; those are dropped — see
+    /// <see cref="RemoveSeparatorsStrandedAtBreaks"/>.
+    /// </para>
     /// </summary>
     public static List<PageSpec> ChunkByHeight(
         IReadOnlyList<SettingsRowSpec> rows, Func<SettingsRowSpec, double> heightOf, double budget)
@@ -47,7 +52,37 @@ internal static class SettingsAutoPagination
         }
         if (current.Count > 0 || pages.Count == 0)
             pages.Add(current);
+        RemoveSeparatorsStrandedAtBreaks(pages);
         return pages.Select(p => new PageSpec(p)).ToList();
+    }
+
+    /// <summary>
+    /// A <see cref="SeparatorSpec"/> divides two ADJACENT rows, so a chunk break on either
+    /// side of one leaves the rule at a page edge with a missing neighbour — a stray line at
+    /// a page's top or bottom (issue #166). The break is forced by height and cannot be moved
+    /// to keep the rule interior, and the break already separates the two sections visually,
+    /// so a stranded separator is DROPPED: a leading separator on every page but the first
+    /// and a trailing one on every page but the last. Source-order edges (the first row of
+    /// the first page, the last row of the last page) are not break artefacts and render as
+    /// they always have. Pages the trim empties vanish; if that leaves nothing (an
+    /// all-separator list split between two breaks), one empty page is emitted, mirroring the
+    /// empty-input contract. Only ever removes rows, so it cannot break the fit invariant the
+    /// chunker exists for.
+    /// </summary>
+    private static void RemoveSeparatorsStrandedAtBreaks(List<List<SettingsRowSpec>> pages)
+    {
+        for (var i = 0; i < pages.Count; i++)
+        {
+            if (i > 0)
+                while (pages[i].Count > 0 && pages[i][0] is SeparatorSpec)
+                    pages[i].RemoveAt(0);
+            if (i < pages.Count - 1)
+                while (pages[i].Count > 0 && pages[i][^1] is SeparatorSpec)
+                    pages[i].RemoveAt(pages[i].Count - 1);
+        }
+        pages.RemoveAll(p => p.Count == 0);
+        if (pages.Count == 0)
+            pages.Add([]);
     }
 
     /// <summary>

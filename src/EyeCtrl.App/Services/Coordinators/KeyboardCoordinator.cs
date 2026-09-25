@@ -298,9 +298,11 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     /// (spec N3/O2/R1 + plan review C4): the seed from LoadKeyboard stays until the first swap;
     /// each swap moves ONLY the verdict term, with the verdict the swapped build itself reported.
     /// No re-capture — a fresh one would re-read live disk/ledger state the running stack was
-    /// never built against. Internal (issue #166 M2): the event lambda adds the real
-    /// KeyboardWindow's SetOrchestrator on top, which is not headless-drivable — the patch
-    /// itself is, and this member is what its tests drive.
+    /// never built against. Internal (issue #166 M2) for focused patch-arm tests; the FULL chain
+    /// (live event → re-bind → patch) is covered behaviourally by
+    /// KeyboardCoordinatorTests.StackSwapped_OnTheLiveFactory_RebindsTheKeyboard_AndPatchesTheSnapshot
+    /// (round-2 I-1 — the chain IS headless-drivable through a real KeyboardWindow; an earlier
+    /// revision of this doc wrongly claimed otherwise).
     /// </summary>
     internal void PatchSnapshotWithSwappedVerdict((string ModelId, ModelVerificationOutcome Outcome)? verification)
     {

@@ -3,14 +3,20 @@ namespace EyeCtrl.App.Tests.Services.Coordinators;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
+using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests;
+using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.App.Tests.Settings.Pages;
+using EyeCtrl.Core;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Tests.TestSupport;
+using EyeCtrl.ViewModels;
 using Xunit;
 
 public class KeyboardCoordinatorTests
@@ -734,10 +740,11 @@ public class KeyboardCoordinatorTests
             .That(source.Contains("_predictionFactory.StackSwapped+=OnStackSwapped;")).IsTrue();
 
         Check.WithCustomMessage(
-                "OnStackSwapped no longer patches the snapshot verdict. Known residual (round-1 "
-                + "M2, accepted): a dead-wrap INSIDE OnStackSwapped still evades this textual "
-                + "pin; behavioural coverage of the event→patch chain needs the real "
-                + "KeyboardWindow, so the seam tests + this pin compose rather than prove.")
+                "OnStackSwapped no longer patches the snapshot verdict. Belt-and-braces only: " +
+                "the behavioural chain test " +
+                "StackSwapped_OnTheLiveFactory_RebindsTheKeyboard_AndPatchesTheSnapshot is the " +
+                "primary catcher since round-2 I-1 (a dead-wrap inside OnStackSwapped fails " +
+                "that test, not just this pin).")
             .That(source.Contains("PatchSnapshotWithSwappedVerdict(verification);")).IsTrue();
 
         Check.WithCustomMessage(
@@ -750,5 +757,107 @@ public class KeyboardCoordinatorTests
                 "The emoji-skin-tone handler no longer stores its fresh capture with the " +
                 "verdict preserved (same C4 discipline as the edge flip).")
             .That(source.Contains("CapturePreservingVerdict(ApplyEmojiSkinTone(")).IsTrue();
+    }
+
+    // ---- Issue #166 round-2 I-1: the event→re-bind→patch chain, behaviourally --------------
+    // The seams test the patch in isolation and the pins hold the source text, but the CHAIN
+    // (live factory's StackSwapped → OnStackSwapped → real KeyboardWindow re-bind + snapshot
+    // patch) had no behavioural coverage: mutations X5 (subscribe the dead factory) and X9
+    // (re-bind with null) survived the whole App suite green. This runs the REAL Initialize
+    // against a REAL KeyboardWindow and fires the LIVE factory's event by reflecting the
+    // field-like event's backing delegate — the only way to raise another assembly's event
+    // from outside.
+
+    private sealed class KeyboardOnlyOverlayManager : IOverlayManager
+    {
+        private readonly KeyboardWindow _keyboard;
+        public KeyboardOnlyOverlayManager(KeyboardWindow keyboard) => _keyboard = keyboard;
+        public KeyboardWindow Keyboard => _keyboard;
+        public ICursorCircleOverlay CursorCircle => throw new NotImplementedException();
+        public IActivationButtonOverlay ActivationButton => throw new NotImplementedException();
+        public IManualSelectionOverlay ManualSelectionOverlay => throw new NotImplementedException();
+        public IActionMenuOverlay ActionMenu => throw new NotImplementedException();
+        public IToolbarOverlay Toolbar => throw new NotImplementedException();
+        public IPauseIndicatorOverlay PauseIndicator => throw new NotImplementedException();
+        public IManualSelectionIndicatorOverlay ManualSelectionIndicator => throw new NotImplementedException();
+        public IGlassBackdropOverlay GlassBackdrop => throw new NotImplementedException();
+        public ICalibrationOverlay Calibration => throw new NotImplementedException();
+        public ITargetHighlightOverlay TargetHighlight => throw new NotImplementedException();
+        public ITrackStatusOverlay TrackStatus => throw new NotImplementedException();
+        public ITaskSwitcherOverlay TaskSwitcher => throw new NotImplementedException();
+        public IModesMenuOverlay ModesMenu => throw new NotImplementedException();
+        public IRepeatCursorOverlay RepeatCursor => throw new NotImplementedException();
+        public IQuickActionsGridOverlay QuickActionsGrid => throw new NotImplementedException();
+        public IEdgeButtonBar EdgeButtonBar => throw new NotImplementedException();
+        public void Initialize(OverlayViewModels viewModels, EyeCtrlSettings settings,
+            GazeProviderType providerType) => throw new NotImplementedException();
+    }
+
+    [StaFact]
+    public void StackSwapped_OnTheLiveFactory_RebindsTheKeyboard_AndPatchesTheSnapshot()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var vm = new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        var keyboard = new KeyboardWindow();
+        keyboard.SetViewModel(vm);
+        var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            OverlayManager = new KeyboardOnlyOverlayManager(keyboard),
+            Dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher,
+            Messenger = new WeakReferenceMessenger(),
+        };
+        var c = NewCoordinator();
+        c.Initialize(context);
+        c.KeyboardSnapshotForTesting = Snap(verification: ModelVerificationOutcome.NotYetVerified);
+
+        // The LIVE factory (round-2 X5: a subscription attached to the replaced factory would
+        // leave this field-like event's backing delegate null).
+        var factory = typeof(KeyboardCoordinator).GetField("_predictionFactory",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .GetValue(c)!;
+        var handler = (Delegate?)typeof(PredictionStackFactory).GetField("StackSwapped",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .GetValue(factory);
+        Check.WithCustomMessage(
+                "Nothing is subscribed to the LIVE factory's StackSwapped — the keyboard would "
+                + "never re-bind on a swap (round-2 mutation X5).")
+            .That(handler).IsNotNull();
+
+        var swapped = new PredictionOrchestrator(
+            new WordPredictor(new InMemoryDictProvider(), "QWERTY"));
+        try
+        {
+            handler!.DynamicInvoke(swapped,
+                (object?)(("pred_test_model", ModelVerificationOutcome.Verified)));
+
+            // The re-bind must land in the REAL window's VM — OnStackSwapped's first half,
+            // which no pin covers (round-2 X9: SetOrchestrator(null) survived 1197 green).
+            var vmOrchestrator = typeof(KeyboardViewModel).GetField("_orchestrator",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+                .GetValue(vm);
+            Check.WithCustomMessage(
+                    "The swap did not re-bind the keyboard to the swapped orchestrator — word "
+                    + "prediction would be dead for the whole session while the suite stays "
+                    + "green (round-2 mutations X5/X9).")
+                .That(vmOrchestrator).IsSameReferenceAs(swapped);
+
+            // And the snapshot patch is part of the same chain (round-1 N5/M7 dead-wrap).
+            Check.WithCustomMessage(
+                    "The swap did not patch the stored snapshot's verdict term (round-1 "
+                    + "mutations N5/M7).")
+                .That(c.KeyboardSnapshotForTesting!.ActiveModelVerification)
+                .IsEqualTo(ModelVerificationOutcome.Verified);
+        }
+        finally
+        {
+            c.Dispose();
+            swapped.Dispose();
+        }
+    }
+
+    private sealed class InMemoryDictProvider : IDictionaryProvider
+    {
+        public Dictionary<string, int> Load() => new();
+        public void Save(Dictionary<string, int> words) { }
     }
 }

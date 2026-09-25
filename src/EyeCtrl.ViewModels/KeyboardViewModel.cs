@@ -194,11 +194,13 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         IsEmojiMode = false;
         ActiveSubLayoutId = _layout?.DefaultSubLayout ?? "letters";
 
-        // M7 (impl review M2): raised AFTER the assignment above — the window rebuilds the
-        // keys synchronously on it, and raising earlier (e.g. an OnActiveSubLayoutIdChanged
-        // hook, which fires before PropertyChanged) would repaint the OLD grid. Without this
-        // raise, a hide from a non-letters layout with Caps armed reopens with lowercase
-        // labels and an unlit Caps key while the keys type capitals.
+        // M7 (impl review M2; symptom corrected r2 N4): raised AFTER the assignment above —
+        // the window rebuilds the keys synchronously on it, and raising earlier (e.g. an
+        // OnActiveSubLayoutIdChanged hook, which fires before PropertyChanged) would repaint
+        // the OLD grid. Without this raise, a hide from a non-letters layout with Caps armed
+        // reopens with the Caps key unlit and the SHIFT-BEARING labels stale (QWERTZ ß,
+        // AZERTY é è ç à) while the keys type capitals — plain letter labels are already
+        // capitals and never go stale.
         OnPropertyChanged(nameof(ActiveModifiers));
     }
 
@@ -355,10 +357,15 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         _swapSuppressedAnchor = null;
         _lastGazeInsideWindowPoint = null;
 
-        // M7 (impl review M2): raised AFTER the assignment above — the window rebuilds the
-        // keys synchronously on it, and a raise landing before the rebuild would repaint the
-        // old grid. Without it, a layout reload with Caps armed relabels nothing: static
-        // lowercase labels and an unlit Caps key while the keys type capitals.
+        // M7 (impl review M2), corrected r2 N1/N4: raised AFTER the assignment above, so a
+        // raise landing before it would repaint the OLD grid. On the production reload path
+        // this raise alone does NOT hold — KeyboardWindow.LoadLayout follows SetLayout with
+        // RebuildKeys(), whose own end-of-rebuild repaint (r2 N1) is what makes a reload
+        // with Caps armed land lit; the raise repaints a grid the rebuild then discards. It
+        // remains for paths that set a layout WITHOUT a window rebuild. Without either, the
+        // stale grid shows the Caps key unlit and the SHIFT-BEARING labels unshifted (QWERTZ
+        // ß, AZERTY é è ç à) while the keys type capitals — plain letter labels are already
+        // capitals and never go stale.
         OnPropertyChanged(nameof(ActiveModifiers));
     }
 

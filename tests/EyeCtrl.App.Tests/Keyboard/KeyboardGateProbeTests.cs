@@ -702,12 +702,49 @@ public class KeyboardGateProbeTests
     /// <summary>Out to <paramref name="targetSubLayoutId"/>, then back to letters.</summary>
     private static void RoundTrip(Probe probe, string outKeyId, string targetSubLayoutId, ref long ts)
     {
+        // Spec D13: the out dwell completes while the gaze rests on the out key, so the swap it
+        // triggers arms the spatial swap suppression AT that centre — and the shipped footers
+        // lead with same-slot switch keys (letters `Ctrl 123 #+=…`, numbers `Ctrl ABC #+=…`),
+        // so the back key 'switchSub:letters' materializes exactly on the anchor. Dwelling
+        // straight back is the one pattern D13 suppresses by design: the key under the swap
+        // anchor is ledgered-inert until the gaze leaves it. DwellOn's own far-away sample
+        // cannot clear that — it lands OUTSIDE the key area, and only an in-window sample
+        // beyond the radius clears the suppression. Model the realistic path instead: a user
+        // who switches sub-layouts looks at what they switched for, away from the footer,
+        // before travelling back. One gaze sample on the target grid's centre farthest from
+        // the out key's old centre (always many key widths from the anchor, whatever row it
+        // lands in) clears the suppression, and the return leg below dwells normally.
+        //
+        // The out key's centre is captured from a refreshed registry: a previous round trip's
+        // back-swap emptied it (RebuildKeys clears the positions), and it is only repopulated
+        // by a gaze pass over an ARRANGED tree — the same refresh idiom DwellOn opens with.
+        probe.Content.UpdateLayout();
+        probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
+        var outCentre = Centres(probe.Window)[outKeyId];
+
         DwellOn(probe, outKeyId, ref ts);
         Check.WithCustomMessage(
                 $"Dwelling '{outKeyId}' at scale 2.0 did not switch to sub-layout "
                 + $"'{targetSubLayoutId}' (still '{probe.Vm.ActiveSubLayoutId}'). The key is in the "
                 + "bottom row — the row the mixed-unit gate killed entirely.")
             .That(probe.Vm.ActiveSubLayoutId).IsEqualTo(targetSubLayoutId);
+
+        // The gaze-away leg: arrange the new grid, refresh its centres with one gaze pass
+        // (the swap emptied the registry — same idiom as DwellOn's opening), look away, and
+        // guard that the sample really latched: if the suppression were still armed, the back
+        // dwell below would fail with a message blaming the back key for what is really a
+        // fixture-pattern problem.
+        probe.Content.UpdateLayout();
+        probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), ts); ts += 1_000;
+        var away = Centres(probe.Window)
+            .OrderByDescending(kvp => kvp.Value.DistanceSquaredTo(outCentre))
+            .First().Value;
+        var latchedAway = LookAt(probe, away, ref ts);
+        Check.WithCustomMessage(
+                "The gaze-away sample between the out and back dwells did not latch a key — "
+                + "the D13 suppression would still be armed and the back dwell below would "
+                + "fail for the wrong reason.")
+            .That(latchedAway).IsNotNull();
 
         DwellOn(probe, "switchSub:letters", ref ts);
         Check.WithCustomMessage(

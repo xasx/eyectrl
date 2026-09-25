@@ -119,6 +119,14 @@ public class KeyboardGateProbeTests
         KeyboardLayoutLoader.Load(Path.Combine(SourceScanner.RepoRoot().FullName,
             "src", "EyeCtrl.App", "Resources", "Layouts", "qwerty.json"));
 
+    private static KeyboardLayout ShippedQwertz() =>
+        KeyboardLayoutLoader.Load(Path.Combine(
+            SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Resources", "Layouts", "qwertz.json"));
+
+    private static KeyboardLayout ShippedAzerty() =>
+        KeyboardLayoutLoader.Load(Path.Combine(
+            SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Resources", "Layouts", "azerty.json"));
+
     /// <summary>One row exercising every id shape the escaping classifier keys off, plus a regular key.</summary>
     private static KeyboardLayout SpecialActionLayout()
     {
@@ -528,10 +536,168 @@ public class KeyboardGateProbeTests
         finally { probe.Dispose(); }
     }
 
+    // ---- the shipped accents sub-layouts, at the owner's effective scale 2.0 ----
+
+    [StaFact]
+    public void ShippedQwertz_Accents_AutoReturnRoundTrip_AtScale2()
+    {
+        var probe = Open(ShippedQwertz(), 2.0, emojiJsonPath: ShippedEmojiJson());
+        try
+        {
+            long ts = 1_000;
+
+            // Manual round trip: Acc opens accents; the ABC key returns (existing helper dwells
+            // out and back, proving both directions of the switch).
+            RoundTrip(probe, "switchSub:accents", "accents", ref ts);
+
+            // Auto-return: dwell Acc, then dwell é (accents key_0_0) — é types and the
+            // keyboard is back on letters.
+            DwellOn(probe, "switchSub:accents", ref ts);
+            DwellOn(probe, "key_0_0", ref ts);
+            Check.WithCustomMessage("dwelling an accent did not auto-return to letters")
+                .That(probe.Vm.ActiveSubLayoutId).IsEqualTo("letters");
+            Check.That(probe.Vm.CurrentInput).Contains("é");
+
+            // Emoji entered FROM accents must not auto-return under the open emoji grid (R1):
+            // exiting emoji lands back on accents, and dwelling an accent from there returns.
+            DwellOn(probe, "switchSub:accents", ref ts);
+            DwellOn(probe, "switchEmoji", ref ts);
+            Check.That(probe.Vm.IsEmojiMode).IsTrue();
+            Check.WithCustomMessage("emoji entry fired auto-return under the emoji grid")
+                .That(probe.Vm.ActiveSubLayoutId).IsEqualTo("accents");
+            DwellOn(probe, "special_switchText", ref ts);
+            Check.That(probe.Vm.IsEmojiMode).IsFalse();
+            Check.That(probe.Vm.ActiveSubLayoutId).IsEqualTo("accents");
+
+            DwellOn(probe, "key_0_0", ref ts);
+            Check.That(probe.Vm.ActiveSubLayoutId).IsEqualTo("letters");
+        }
+        finally { probe.Dispose(); }
+    }
+
+    [StaFact]
+    public void ShippedQwertz_AccEntry_LandsOnTheAccentsRow0EndKey()
+    {
+        // Plan review M2 / plan-r2 I2: pin the landing geometry. Acc sits at the letters
+        // row-0 right end; the accents key whose centre is nearest Acc's centre must be
+        // row 0's last key (À — key_0_9). A later layout edit that moves the landing shows
+        // up here. The swap dwell empties the window's key positions (_keyScreenPositions
+        // is rebuilt inside the next gaze pass), so one LAYOUT pass + one GAZE PASS must
+        // run before Centres() — in that order (DwellOn's own idiom): the gaze pass that
+        // repopulates the registry reads each container's arranged rect, and a gaze pass
+        // before the layout pass collects the UNARRANGED rebuilt tree, where every key
+        // reports the same collapsed point and the ranking below degenerates to dictionary
+        // insertion order (key_0_0 by tie-break, measuring nothing).
+        var probe = Open(ShippedQwertz(), 2.0, emojiJsonPath: ShippedEmojiJson());
+        try
+        {
+            var lettersCentres = Centres(probe.Window);
+            var accCentre = lettersCentres["switchSub:accents"];
+
+            long ts = 1_000;
+            DwellOn(probe, "switchSub:accents", ref ts);
+
+            // Refresh positions before reading them (plan-r2 I2): arrange first, collect second.
+            probe.Content.UpdateLayout();
+            LookAt(probe, accCentre, ref ts);
+
+            var accentsCentres = Centres(probe.Window);
+            var landing = accentsCentres
+                .OrderBy(kvp => kvp.Value.DistanceSquaredTo(accCentre))
+                .First().Key;
+            Check.WithCustomMessage(
+                    $"the key under Acc's resting gaze is {landing}, expected key_0_9 (À)")
+                .That(landing).IsEqualTo("key_0_9");
+        }
+        finally { probe.Dispose(); }
+    }
+
+    [StaFact]
+    public void ShippedAzerty_AccEntry_LandsOnTheAccentsRow0EndKey()
+    {
+        // The AZERTY half of the landing pin (spec Testing; expected Ô — key_0_7, the last
+        // key of the 8-wide accents row 0). Same refresh dance as the QWERTZ pin.
+        var probe = Open(ShippedAzerty(), 2.0, emojiJsonPath: ShippedEmojiJson());
+        try
+        {
+            var lettersCentres = Centres(probe.Window);
+            var accCentre = lettersCentres["switchSub:accents"];
+
+            long ts = 1_000;
+            DwellOn(probe, "switchSub:accents", ref ts);
+
+            probe.Content.UpdateLayout();
+            LookAt(probe, accCentre, ref ts);
+
+            var accentsCentres = Centres(probe.Window);
+            var landing = accentsCentres
+                .OrderBy(kvp => kvp.Value.DistanceSquaredTo(accCentre))
+                .First().Key;
+            Check.WithCustomMessage(
+                    $"the key under Acc's resting gaze is {landing}, expected key_0_7 (Ô)")
+                .That(landing).IsEqualTo("key_0_7");
+        }
+        finally { probe.Dispose(); }
+    }
+
+    [StaFact]
+    public void ShippedQwertz_SwapRepaintsModifierVisuals_CapsStaysArmed()
+    {
+        // Plan review H1: RebuildKeys draws static labels; the VM's unconditional
+        // ActiveModifiers raise must relabel the fresh grid. With Caps on, accents key_0_0
+        // must show É (its shiftOutput), and after auto-return the letters Caps key must
+        // still paint as armed.
+        var probe = Open(ShippedQwertz(), 2.0, emojiJsonPath: ShippedEmojiJson());
+        try
+        {
+            long ts = 1_000;
+            probe.Vm.ToggleModifier(ModifierKey.CapsLock);
+
+            DwellOn(probe, "switchSub:accents", ref ts);
+
+            var accentLabel = KeyLabel(probe, "key_0_0");
+            Check.WithCustomMessage($"accents key_0_0 reads '{accentLabel}', expected the capital É")
+                .That(accentLabel).IsEqualTo("É");
+
+            DwellOn(probe, "key_0_0", ref ts);   // É types; auto-return to letters
+            Check.That(probe.Vm.ActiveSubLayoutId).IsEqualTo("letters");
+
+            // Guards the D15-preserved half: a future refactor that clears ALL modifiers
+            // (not just the system ones) on swap fails here. The label half above is the
+            // stronger discriminator for the M7 repaint itself (plan-r2: this assert cannot
+            // fail against the planned ClearSystemOneShotModifiers, which never touches
+            // CapsLock — it is kept as a regression net, not as the H1 proof).
+            Check.WithCustomMessage("Caps Lock was silently disarmed by the swap")
+                .That(probe.Vm.ActiveModifiers.Contains(ModifierKey.CapsLock)).IsTrue();
+        }
+        finally { probe.Dispose(); }
+    }
+
     private static Visibility PredictionBarVisibility(KeyboardWindow w) =>
         ((FrameworkElement)typeof(KeyboardWindow)
             .GetField("PredictionBar", BindingFlags.NonPublic | BindingFlags.Instance)!
             .GetValue(w)!).Visibility;
+
+    /// <summary>
+    /// Reads a key's label through the window's PRIVATE <c>_keyVisuals</c> registry — keys carry
+    /// no XAML names, so a <c>FindName</c> route cannot work. The registry's value is
+    /// <c>(Border Container, TextBlock? Label)</c>; Item2 is the label the modifier repaint
+    /// rewrites, which is exactly what the H1 repaint pin reads.
+    /// </summary>
+    private static string? KeyLabel(Probe probe, string keyId)
+    {
+        var field = typeof(KeyboardWindow).GetField("_keyVisuals",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        if (field?.GetValue(probe.Window) is not System.Collections.IDictionary visuals
+            || visuals[keyId] is not { } entry)
+            return null;
+
+        // The registry's value is (Border Container, TextBlock? Label) — a ValueTuple; Item2
+        // is the label the modifier repaint rewrites, which is exactly what H1 pins.
+        var label = entry.GetType().GetField("Item2")?.GetValue(entry)
+            as System.Windows.Controls.TextBlock;
+        return label?.Text;
+    }
 
     /// <summary>Out to <paramref name="targetSubLayoutId"/>, then back to letters.</summary>
     private static void RoundTrip(Probe probe, string outKeyId, string targetSubLayoutId, ref long ts)

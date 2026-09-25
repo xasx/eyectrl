@@ -1036,11 +1036,13 @@ public class GazeIndicatorValidationTests
         // The bounds go through the same current-culture ToString the interpolated message uses,
         // so the de-DE decimal comma cannot desync the assert from the message text.
         var error = errors.First(e => e.Contains(property, StringComparison.Ordinal));
-        // The bounds assert anchors on the full "between {min} and {max}" phrase, not the bare
-        // numbers: "20" also matches inside "200"/"250" and "0" inside "1000" (round-1 M1 — a
-        // bare-number substring assert let a shifted bound survive the whole suite). Same
-        // current-culture ToString as the interpolated message, so the de-DE comma stays safe.
-        Check.That(error).Contains($"between {min} and {max}");
+        // The bounds assert anchors on the full "between {min} and {max}, but was" phrase, not
+        // the bare numbers: "20" also matches inside "200"/"250" and "0" inside "1000"
+        // (round-1 M1), and a left-anchored phrase still matches when the MAX merely gains
+        // digits — "between 0,1 and 1" is a prefix of "between 0,1 and 1,5" (round-2 M-2,
+        // mutation X3). The ", but was" tail pins the right end. Same current-culture ToString
+        // as the interpolated message, so the de-DE comma stays safe.
+        Check.That(error).Contains($"between {min} and {max}, but was");
     }
 }
 

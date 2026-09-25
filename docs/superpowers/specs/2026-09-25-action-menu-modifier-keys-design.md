@@ -1,0 +1,73 @@
+# Action-Menu Modifier Keys — Design
+
+- **Date:** 2026-09-25 (rev 1)
+- **Status:** Draft — owner review pending. The clarifying-questions pass was dismissed mid-brainstorm (2026-09-25), so every open call was taken by best judgment and is recorded in the owner-vetoable ledger at the bottom; veto any entry by number and the spec is revised around it.
+- **Branch:** `feat/action-menu-modifier-keys` (worktree `.worktrees/action-menu-modifier-keys`, base `3fbe1bb5` = origin/main)
+- **Origin:** owner request 2026-09-25: "the Action menu needs modifier keys, e.g. shift+click or Ctrl+scroll and alt+click; combinations should work. The mod buttons shall show up on the left screen edge." Closes the TD Control gap (side Shift/Ctrl/Alt flanking its action menu, `docs/COMPETITIVE_FEATURE_ANALYSIS.md` mined reference).
+
+## Problem
+
+Every mouse action EyeCtrl simulates is bare. `IInputSimulator`'s click and wheel methods carry no modifier state, the ring's `InteractionAction` has no modifier dimension, and a gaze-only user therefore cannot perform any of the ordinary held-modifier gestures a physical-mouse user does without thinking: Shift+click (range select), Ctrl+click (multi-select, open-in-new-tab), Alt+click (per-app semantics), Ctrl+wheel (browser zoom, Explorer icon scale). The keyboard half of this already exists — `ModifierKey` (`src/EyeCtrl.Core/Keyboard/ModifierKey.cs`), the keyboard's latched `ActiveModifiers` (`KeyboardViewModel.cs:68`), atomic modified key sequences (`Win32InputSimulator.BuildModifiedKeySequence`) — but nothing connects it to the mouse path, and no UI offers a mouse modifier while the action menu is open.
+
+## Behavior
+
+While the action menu is open (normal and manual-selection path alike), the LEFT screen edge shows three dwell buttons — Shift, Ctrl, Alt — mirroring the right-edge Close/Help pair:
+
+- Dwell a button → that modifier **latches** for the current menu session (visual latched state). Dwell it again → unlatches. Multiple modifiers can latch at once (Ctrl+Shift+click).
+- Picking a ring action sends the latched set with the selection. The simulated input is **one atomic SendInput batch**: modifier key-down(s) → the mouse down/up or wheel event(s) → modifier key-up(s) in reverse. No target app ever sees a bare modifier-down or a lone modifier-up, so there is no stray Alt-menu activation between the parts.
+- Applies to the click family (Left/Right/Middle/Double) and the one-shot scroll family (Up/Down/Left/Right). Drag, ScrollMode, PinNote and Keyboard ignore modifiers.
+- **One-shot lifecycle:** the latch exists only for the current menu opening. Every menu-close path (action fired, Close, pause, zoom Back) clears it; a fresh open starts unlatched. Ctrl+scroll therefore costs one re-latch per zoom tick — accepted, ledger L2, with Ctrl+ScrollMode recorded as the v2 escape hatch.
+
+## Mechanism
+
+1. **Core — pass-through only** (`src/EyeCtrl.Core/Processing/InteractionManager.cs`): `OnActionSelected(InteractionAction action, IReadOnlySet<ModifierKey>? modifiers = null)`; the `ActionRequested` event gains the same trailing parameter. Core stores nothing and branches on nothing — modifiers are opaque payload from the ring to the input layer, so the state machine, repeat suppression and the Drag/ScrollMode transitions are untouched. The optional parameter keeps every production caller source-compatible: `OnActionSelected` has exactly one (`GazeEngineAdapter.cs:107`), `ActionRequested` exactly one subscriber (`GazeEngineAdapter.cs:63`); the `(_, _)` subscriber lambdas in `GazeEngineAdapterActionRecoveryTests` become `(_, _, _)` — the only compile break, test-side.
+
+2. **Messages** (`src/EyeCtrl.ViewModels/Messages/InteractionMessages.cs`): `ActionSelectedMessage` gains `IReadOnlySet<ModifierKey>? Modifiers = null`; new `ToggleActionMenuModifierMessage(ModifierKey Modifier)`; `ActionRequestedMessage` gains `IReadOnlySet<ModifierKey>? Modifiers = null`. All optional — existing construction sites compile unchanged.
+
+3. **The latch lives in `ActionMenuViewModel`** (`src/EyeCtrl.ViewModels/ActionMenuViewModel.cs`), mirroring the keyboard's `_activeModifiers` precedent: a backing `HashSet<ModifierKey>` + an observable `LatchedModifiers`. `Receive(ToggleActionMenuModifierMessage)` toggles and raises; `Receive(HideActionMenuMessage)` clears (next to the existing state reset, `:154–166`). **Capture, not reference:** `OnTargetActivated` snapshots the set into the `ActionSelectedMessage` at dwell-activation time. This defeats a real ordering trap: `InteractionManager.OnActionSelected` fires `HideActionMenu` (`InteractionManager.cs:213`) BEFORE `ActionRequested` (`:224`), so by the time `KeyboardInteractionDispatcher.HandleActionRequested` runs, a "read the live latch" design would always read empty. The message payload is the immune point.
+
+4. **Input layer** (`src/EyeCtrl.Core/Interfaces/IInputSimulator.cs`, `src/EyeCtrl.Platform/Input/Win32InputSimulator.cs`): new default-interface-method overloads `LeftClick/RightClick/MiddleClick/DoubleClick(PhysicalPoint, IReadOnlySet<ModifierKey>?)` and `Scroll(PhysicalPoint, int, int, IReadOnlySet<ModifierKey>?)`. Default bodies throw `NotSupportedException` — the `MiddleClick` precedent (`IInputSimulator.cs:30`): existing fakes and stubs keep compiling, and a fake that actually receives a modified call fails loudly instead of silently no-opping. `Win32InputSimulator` implements them by composing ONE `INPUT[]` batch: modifier key-downs in `BuildModifiedKeySequence`'s order (Ctrl, Alt, Win, Shift — only Shift/Ctrl/Alt ever arrive), then the mouse inputs (`CreateMouseInput` unchanged), then modifier key-ups in reverse. The modifier down/up emission is extracted from `BuildModifiedKeySequence` (`:223–260`) into a shared internal helper so the keyboard and mouse sequences cannot drift. `DoubleClick(pt, mods)` = two full batches (Windows double-click detection is inter-click timing; each click carries the modifier). `Scroll` keeps its X/Y delta handling and clamping, wrapping the wheel inputs in the modifier pair. Null/empty modifiers ⇒ exactly the current byte stream (zero keyboard inputs).
+
+5. **Dispatch** (`src/EyeCtrl.App/Services/Coordinators/KeyboardInteractionDispatcher.cs:143`): the click and scroll arms pass `msg.Modifiers` straight into the new overloads; Keyboard/PinNote arms unchanged (modifiers die with the menu — ledger L8). The `Log.Information` line gains `Modifiers={Modifiers}` so a "why did that click select three things" session log answers itself.
+
+6. **Left-edge bar — second instance, not a subclass** (`EdgeButtonBarWindow`/`EdgeButtonBarViewModel` reused): the dwell registry is owner-keyed (`DwellDetectorRegistry.Register(object owner, …)`), so a second `EdgeButtonBarViewModel` instance coexists with the shared right bar — same `DwellContext.EdgeButtonBar` telemetry attribution, no enum change, and the overlay-inventory (`OverlayInventoryDriftTests`) and telemetry-wiring drift tests see no new subclass. `AppBootstrapper` registers the pair (keyed singletons), the `OverlayViewModels` record gains `ActionMenuModBar`, and `OverlayManager` builds/binds/wires a second `EdgeButtonBarWindow` exactly like the first (`OverlayManager.cs:112`, `:138–147`).
+
+7. **Definitions** (`src/EyeCtrl.App/Services/ActionMenuModifierButtons.cs`, new): three `EdgeButtonDefinition`s — ids `ActionMenu_mod_Shift` / `ActionMenu_mod_Ctrl` / `ActionMenu_mod_Alt`; `Activate` sends `ToggleActionMenuModifierMessage`; `RadiusLogical = UIConstants.ButtonRadius` (the Close/Help size); labels always shown ("Shift" / "Ctrl" / "Alt" — the `ActionMenuEdgeButtons` convention: targets a user cannot yet rely on recognising keep their names); dwell = the menu's ring dwell (`ShowBack ? ManualSelectionActionMenuDwellMs : ActionMenuDwellMs`); VerticalOffsets `0, ±(2·ButtonRadius + ManualSelectionSideButtonGap)`.
+
+8. **Show/hide** (`src/EyeCtrl.App/Services/Coordinators/OverlayMessageCoordinator.cs`): the `ShowActionMenuMessage` handler (`:116–161`) additionally shows the left bar via `ScreenGeometry.LeftEdgeAnchor(...)` — a new mirror of `RightEdgeAnchor` with a pure-arithmetic test overload (`ScreenGeometry.cs:40–51` pattern), inset 30 logical mirroring `RightEdgeInsetLogical` (`OverlayMessageCoordinator.cs:28`). The `HideActionMenuMessage` handler (`:163–192`) hides it **unconditionally** — the right bar needs its `DefinitionFor(CloseId)` ownership guard because drag/scroll/repeat contexts steal it mid-flight; nothing else ever owns the left bar, so a guard there would be dead weight hiding that fact.
+
+9. **Latched visual = bar rebuild with icon variants, zero control changes**: `OverlayVmBindingCoordinator` (already listening on `ActionMenuVM` property changes, `:283–310`) gains a `LatchedModifiers` branch that re-`ShowButtons` the LEFT bar ONLY, with latched-variant definitions — never `ShowActionMenu()`, which would re-run the screen capture. `ShowButtons` resets the bar's dwell cooldown, which is correct here: latching is an explicit act with visible feedback. Icons: three new `ActionIcon` values (Shift, Ctrl, Alt) plus latched variants — same glyph plus a filled dot in the icon-grid margin band, the margins-only convention `ActionIcons.cs:22` documents. Deliberately NOT an accent ring or fill on `DwellArcButton`: the dwell-progress arc is already `BrushAccent` (`DwellArcButton.cs:167`), so an accent "latched" state is confusable with mid-dwell progress, and a new fill state invites the dwell-blend contrast collapse (dark-fill/light-label pairs at full blend — the recorded visual-assessment trap).
+
+## Pause interplay
+
+The mod bar inherits `EdgeButtonBarViewModel.DwellActiveWhilePaused => true` (release-affordance semantics). A paused session cannot have an open menu (`TogglePause` hides it), so the only reachable case is a pause landing between latch and action — the toggle is OS-input-free, so no pause gating is needed beyond what the base class already does.
+
+## Testing
+
+- **Core.Tests**: `OnActionSelected` relays modifiers on `ActionRequested` from both menu states; the Drag/ScrollMode/Keyboard arms fire unchanged with modifiers present; the default-parameter path keeps the existing state-machine suite untouched.
+- **Platform.Tests**: batch composition — modifier downs precede mouse inputs, ups reversed, single `SendInput` call; Ctrl+wheel ordering; null/empty modifiers emit zero keyboard inputs; the extracted helper's output is byte-identical to the old inline sequence for the keyboard path.
+- **ViewModels.Tests**: toggle message latches/unlatches; multi-modifier set; the snapshot lands in `ActionSelectedMessage`; `HideActionMenuMessage` clears; a latch toggle does NOT bump `RingVersion` or rebuild the ring.
+- **App.Tests**: dispatcher routes modifiers per action family (`FakeInputSimulator` records the modified calls; its inherited `NotSupportedException` defaults make a missed route loud); ShowActionMenu shows the left bar and HideActionMenu hides it unconditionally; `LeftEdgeAnchor` pure-geometry tests mirroring the right-edge ones; `ActionMenuModifierButtons` definition shape (ids, offsets, dwell, label-always).
+- **Gates**: per mutation-testing discipline — the touched project's build gates each commit; full non-UI suite before hand-off. No pipe-using code is touched.
+
+## Out of scope (v1, recorded escape hatches)
+
+- **Ctrl + gaze ScrollMode / modifier-wrapped Drag** — held-modifier sessions need down-on-entry/up-on-every-exit-path machinery (stop button, lost gaze, pause). Ctrl+ScrollMode is the first v2 candidate: it is the continuous-zoom answer.
+- **Settings toggle** for the mod bar — always shown while the menu is open, like Close/Help.
+- **Win modifier** on the bar — no common Win+mouse gesture; the keyboard's Win covers chords.
+- **Ring relabeling** ("Shift + Left click") while latched — the mod button itself is the feedback surface.
+
+## Owner-vetoable ledger (decisions taken without owner input, 2026-09-25)
+
+Each entry: **decision / rationale / rejected alternative**. Flip any by number — each is an isolated edit to this spec.
+
+| # | Decision | Rationale | Rejected |
+|---|----------|-----------|----------|
+| L1 | Modifiers apply to clicks + one-shot scrolls only | Covers all three requested combos (shift+click, ctrl+scroll, alt+click); no held-modifier session machinery in v1 | Full coverage incl. Drag/ScrollMode — veto ⇒ spec Ctrl+ScrollMode first, it is the more valuable of the two |
+| L2 | One-shot latch: lives for one menu opening, cleared by every close path | A latch surviving dismissal would be INVISIBLE between menu opens (mod buttons only render while the menu is open) and would silently modify later clicks — a sole-input-channel hazard | Sticky toggle across sessions (better for repeated Ctrl+scroll, worse surprise risk) |
+| L3 | Left edge = three buttons, symmetric spread around vertical center; visible exactly while the menu is open (both menu paths) | Mirrors the sanctioned right-edge action-view pattern; the request named the left edge | Always-visible mod bar; mod buttons on the ring itself (ring slots are contested, L3 keeps the ring untouched) |
+| L4 | No settings toggle in v1 | Close/Help precedent: contextual bars carry no toggles; YAGNI | `ActionMenuSettings.ModifierButtonsEnabled` (default true) |
+| L5 | Second `EdgeButtonBarWindow`/`EdgeButtonBarViewModel` instance, no new subclass | Owner-keyed dwell registry supports it; zero drift-test and telemetry-enum churn | A dedicated `ModButtonBarWindow` subclass — inventory + wiring-test churn for identical behavior |
+| L6 | Latched visual = icon margin-dot variant, applied by rebuilding the bar | The progress arc is already accent-coloured; a fill-based latched state invites the dwell-blend contrast collapse | Accent ring/fill on `DwellArcButton`; label-only swap (too subtle for a state that must be readable at a glance) |
+| L7 | Modifiers ride the messages/event as opaque payload; `InteractionManager` stores nothing | The state machine stays pure; the Hide-before-ActionRequested ordering trap is defeated at the capture point (the message), not patched after it | An `InteractionManager` property or the dispatcher reading VM state live (ordering trap) |
+| L8 | Non-input actions do not special-case the latch — it dies with the menu | One predictable rule; the latch is never carried across a state transition | Keeping the latch alive when the chosen action ignored it |

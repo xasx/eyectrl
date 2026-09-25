@@ -355,6 +355,52 @@ public class ToolbarAutoHideControllerTests
     }
 
     [Fact]
+    public void RedundantResume_WhileHidden_DoesNotReAssertHide()
+    {
+        // A-M1: the no-change guard must cover the RESUME direction too. The sibling test above
+        // only exercises the visible path, so deleting the guard while the controller is hidden
+        // and already unpaused survived the whole suite.
+        var sut = NewController();
+        var vis = new FakeVisibility();
+        sut.Attach(vis);
+        sut.HideForTest(vis);
+        Check.That(vis.HideCalls).IsEqualTo(1);
+
+        sut.SetPaused(false);
+        sut.SetPaused(false);
+        sut.SetPaused(false);
+
+        Check.That(vis.HideCalls).IsEqualTo(1); // every call is a no-change: nothing may re-assert
+    }
+
+    [Fact]
+    public void ResumeAfterOffToolbarGaze_DoesNotHideInstantly()
+    {
+        // A-M3: SetPaused(true) resets the hide anchor. Without it the pre-pause off-toolbar run
+        // keeps counting, so the first sample after a tray resume hides the band instantly — the
+        // user looks away from the toolbar and it vanishes under them.
+        var sut = NewController();
+        var vis = new FakeVisibility();
+        sut.Attach(vis);
+
+        // 4 s of off-toolbar gaze — the countdown is running but has not reached the 5 s delay.
+        sut.Feed(CreateSample(960, 500, valid: true), 0);
+        sut.Feed(CreateSample(960, 500, valid: true), 4_000_000);
+        Check.That(vis.HideCalls).IsEqualTo(0);
+
+        sut.SetPaused(true);             // pause resets the anchor
+        sut.SetPaused(false);            // resume
+
+        // 1 s later: 5 s since the ORIGINAL anchor. Must be a fresh countdown, not an instant hide.
+        sut.Feed(CreateSample(960, 500, valid: true), 5_000_000);
+        Check.That(vis.HideCalls).IsEqualTo(0);
+
+        // ...and the countdown still works: a full 5 s from the fresh anchor hides.
+        sut.Feed(CreateSample(960, 500, valid: true), 10_001_000);
+        Check.That(vis.HideCalls).IsEqualTo(1);
+    }
+
+    [Fact]
     public void Pause_WhileVisible_DoesNotTouchVisibility()
     {
         var sut = NewController();

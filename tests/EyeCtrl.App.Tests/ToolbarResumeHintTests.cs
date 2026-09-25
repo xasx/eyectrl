@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Tests;
 
 using System.Windows;
+using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
 
 /// <summary>
@@ -30,5 +31,21 @@ public class ToolbarResumeHintTests
         window.SetPausedState(false);
         Check.That(hint.Visibility).IsEqualTo(Visibility.Hidden);
         Check.That(hint.Visibility).IsNotEqualTo(Visibility.Collapsed);
+    }
+
+    [StaFact]
+    public void ResumeHint_Margin_FollowsTheBandOrientation()
+    {
+        // The XAML margin is horizontal (leading gap before the first button). On a vertical band
+        // that gap belongs above the label — a sideways margin there leaves it visibly off-centre.
+        var (window, _) = ToolbarTestHelpers.NewBoundToolbar();
+
+        window.SetMode(isDocked: true, edge: "Top");
+        Check.That(window.ResumeHintForTest.Margin)
+            .IsEqualTo(new Thickness(ToolbarBand.ButtonMargin, 0, 0, 0));
+
+        window.SetMode(isDocked: true, edge: "Left");
+        Check.That(window.ResumeHintForTest.Margin)
+            .IsEqualTo(new Thickness(0, ToolbarBand.ButtonMargin, 0, 0));
     }
 }

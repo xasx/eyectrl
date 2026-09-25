@@ -6,14 +6,16 @@ flags when either:
 
   * it spent more than 60 seconds Paused *and* showed toolbar summons — a user who was looking
     for a way out and never found it (this is what 2026-09-24 looked like: 1 h 43 min, 10
-    summons, never resumed); or
-  * it was still Paused when it was cleanly shut down, 5 minutes or more after the pause started,
-    whether or not any summon was logged. After the paused-trap guard the band no longer hides
-    while paused, so a stranded session may never summon anything at all — time alone has to
-    catch it.
+    summons, never resumed);
+  * it was still Paused 5 minutes or more after the pause started and ended in a clean Shutdown,
+    whether or not any summon was logged; or
+  * it was still Paused 5 minutes or more after the pause started and ended UNcleanly (kill,
+    crash, reboot, or still running when scanned), for `provider=\"StreamEngine\"` sessions only.
 
-A run that resumed before it ended is not a stranding, and a run ended by a restart (no Shutdown
-line) is left to the next run's log rather than judged here.
+After the paused-trap guard the band no longer hides while paused, so a stranded session may never
+summon anything at all — time alone has to catch it. The unclean-end case excludes Mouse-provider
+sessions because those are dev/mouse-as-gaze runs (the 2026-09-16 restarts), not a stranded eye
+user. A run that resumed before it ended is not a stranding.
 
 Usage:
     python tools/paused_session_scan.py                       # scan %APPDATA%/EyeCtrl/logs
@@ -41,6 +43,7 @@ STRANDED_FLAG_SECONDS = 300
 _TIMESTAMP = r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})"
 _LOG_LINE = re.compile(r"^" + _TIMESTAMP + r" \[\w+\] \[[^\]]*\] (.*)$")
 _STATE = re.compile(r'^State \u2192 "([A-Za-z]+)"$')
+_PROVIDER = re.compile(r'provider="([^"]*)"')
 _STARTUP_PREFIX = "Startup: EyeCtrl"
 _SHUTDOWN = "Shutdown"
 _SUMMON_PREFIX = "Toolbar summoned:"
@@ -51,13 +54,16 @@ class Session:
     """One app run: from a Startup line to Shutdown / the next Startup / EOF."""
 
     started: _dt.datetime
+    provider: str | None = None
     ended: _dt.datetime | None = None
     paused_seconds: float = 0.0
     # The tail of a run that ended in a CLEAN Shutdown while still Paused. This is the "no resume"
-    # signal: the user never came back before the session was closed. A restart while paused does
-    # not count — the next run's log picks the story up, and the 2026-09-16 dev restarts while
-    # paused (mouse provider, no Shutdown line) are exactly the case this excludes.
+    # signal: the user never came back before the session was closed.
     paused_at_clean_end_seconds: float = 0.0
+    # The tail of a run that ended UNcleanly (kill, crash, reboot, or still running at EOF) while
+    # still Paused. Only judged for eye-tracker sessions — the 2026-09-16 mouse-provider dev
+    # restarts are exactly the noise this stays out of.
+    paused_at_unclean_end_seconds: float = 0.0
     summons: int = 0
     saw_startup: bool = True
 
@@ -67,18 +73,25 @@ class Session:
         # toolbar) but did not. Still useful, and it is what 2026-09-24 looked like.
         if self.paused_seconds > PAUSE_FLAG_SECONDS and self.summons >= 1:
             return True
-        # New, time-based rule: after the auto-hide suppression fix the band no longer hides while
-        # paused, so a stranded session may never log a summon. Any cleanly ended run that sat
-        # Paused for more than 5 minutes with no resume is a stranding.
-        return self.paused_at_clean_end_seconds > STRANDED_FLAG_SECONDS
+        # Time-based rule: after the auto-hide suppression fix the band no longer hides while
+        # paused, so a stranded session may never log a summon. Any run that sat Paused for more
+        # than 5 minutes with no resume is a stranding — whether it ended in a clean Shutdown, or
+        # (eye-tracker sessions only) went down uncleanly.
+        if self.paused_at_clean_end_seconds > STRANDED_FLAG_SECONDS:
+            return True
+        return (self.provider == "StreamEngine"
+                and self.paused_at_unclean_end_seconds > STRANDED_FLAG_SECONDS)
 
     def describe(self) -> str:
         end = self.ended.strftime("%Y-%m-%d %H:%M:%S") if self.ended else "(no shutdown line)"
         detail = f"paused {self.paused_seconds:.0f}s"
         if self.paused_at_clean_end_seconds > 0:
             detail += f" (of which {self.paused_at_clean_end_seconds:.0f}s unresolved at shutdown)"
+        if self.paused_at_unclean_end_seconds > 0:
+            detail += (f" (of which {self.paused_at_unclean_end_seconds:.0f}s unresolved at an "
+                       "unclean end)")
         return (
-            f"{self.started:%Y-%m-%d %H:%M:%S} -> {end}: "
+            f"{self.started:%Y-%m-%d %H:%M:%S} -> {end} [{self.provider or 'unknown'}]: "
             f"{detail}, {self.summons} toolbar summon(s)"
         )
 
@@ -103,6 +116,8 @@ def parse_lines(lines) -> list[Session]:
             current.paused_seconds += tail
             if cleaned:
                 current.paused_at_clean_end_seconds = tail
+            else:
+                current.paused_at_unclean_end_seconds = tail
             paused_since = None
         current.ended = at
         sessions.append(current)
@@ -119,7 +134,8 @@ def parse_lines(lines) -> list[Session]:
         if message.startswith(_STARTUP_PREFIX):
             # A startup closes the previous run (restart inside one rolling file).
             close(timestamp, cleaned=False)
-            current = Session(started=timestamp)
+            provider = _PROVIDER.search(message)
+            current = Session(started=timestamp, provider=provider.group(1) if provider else None)
             continue
 
         if current is None:
@@ -176,8 +192,9 @@ def run(paths: list[str]) -> int:
             if session.flagged:
                 flagged += 1
             print(f"{label} {os.path.basename(path)}: {session.describe()}")
-    print(f"\n{flagged} session(s) flagged (paused > {PAUSE_FLAG_SECONDS}s with toolbar summons, "
-          f"or cleanly shut down > {STRANDED_FLAG_SECONDS}s after a pause with no resume).")
+    print(f"\n{flagged} session(s) flagged (paused > {PAUSE_FLAG_SECONDS}s with toolbar summons, or "
+          f"still paused > {STRANDED_FLAG_SECONDS}s at a shutdown — or, for eye-tracker sessions, "
+          "at an unclean end).")
     return 1 if flagged else 0
 
 
@@ -192,7 +209,7 @@ def selftest() -> None:
 
     # 1. 09-24 shape: starts paused, 10 summons, never resumes, 1h43m, clean shutdown.
     stranded = log(
-        line("2026-09-24 01:46:24.022", "Startup: EyeCtrl v1.0.0.0, provider=StreamEngine"),
+        line("2026-09-24 01:46:24.022", "Startup: EyeCtrl v1.0.0.0, provider=\"StreamEngine\""),
         line("2026-09-24 01:46:24.491", 'State \u2192 "Paused"'),
         line("2026-09-24 01:47:38.139", "Toolbar summoned: slide-in animating"),
         line("2026-09-24 02:53:38.820", "Toolbar summoned: slide-in animating"),
@@ -201,13 +218,13 @@ def selftest() -> None:
     )
     # 2. Healthy eye session: toolbar summons while unpaused, never paused.
     healthy = log(
-        line("2026-09-22 10:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=StreamEngine"),
+        line("2026-09-22 10:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=\"StreamEngine\""),
         line("2026-09-22 10:01:00.000", "Toolbar summoned: slide-in animating"),
         line("2026-09-22 11:30:00.000", "Shutdown"),
     )
     # 3. A pause that resolved itself inside the same minute.
     brief = log(
-        line("2026-09-20 09:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=StreamEngine"),
+        line("2026-09-20 09:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=\"StreamEngine\""),
         line("2026-09-20 09:00:10.000", 'State \u2192 "Paused"'),
         line("2026-09-20 09:00:30.000", "Toolbar summoned: slide-in animating"),
         line("2026-09-20 09:00:45.000", 'State \u2192 "FreeLook"'),
@@ -216,16 +233,16 @@ def selftest() -> None:
     # 4. Long pause, no summons, never resumed, clean shutdown: the new time-based rule flags it
     # even though the band no longer hides while paused and no summon is ever logged.
     quiet_pause = log(
-        line("2026-09-21 09:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=StreamEngine"),
+        line("2026-09-21 09:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=\"StreamEngine\""),
         line("2026-09-21 09:00:01.000", 'State \u2192 "Paused"'),
         line("2026-09-21 11:00:00.000", "Shutdown"),
     )
     # 5. A restart inside one rolling file: two sessions, only the second is stranded.
     restart = log(
-        line("2026-09-19 08:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=StreamEngine"),
+        line("2026-09-19 08:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=\"StreamEngine\""),
         line("2026-09-19 08:05:00.000", "Toolbar summoned: slide-in animating"),
         line("2026-09-19 09:00:00.000", "Shutdown"),
-        line("2026-09-19 09:00:05.000", "Startup: EyeCtrl v1.0.0.0, provider=StreamEngine"),
+        line("2026-09-19 09:00:05.000", "Startup: EyeCtrl v1.0.0.0, provider=\"StreamEngine\""),
         line("2026-09-19 09:00:06.000", 'State \u2192 "Paused"'),
         line("2026-09-19 09:00:07.000", "Toolbar summoned: slide-in animating"),
         line("2026-09-19 10:00:00.000", "Shutdown"),
@@ -233,20 +250,34 @@ def selftest() -> None:
     # 6. A long pause that the user DID resolve: 10 min paused, then a resume, then shutdown.
     # Not a stranding — this is what "no resume" excludes, and it is the 2026-09-16 69-min pause.
     resolved_pause = log(
-        line("2026-09-18 09:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=StreamEngine"),
+        line("2026-09-18 09:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=\"StreamEngine\""),
         line("2026-09-18 09:00:01.000", 'State \u2192 "Paused"'),
         line("2026-09-18 09:10:00.000", 'State \u2192 "FreeLook"'),
         line("2026-09-18 10:00:00.000", "Shutdown"),
     )
-    # 7. A long pause ended by a restart (no Shutdown line) rather than a clean exit. The next
-    # run's log continues the story, so the scan does not call this a stranded clean session
-    # (this is the 2026-09-16 dev restart shape).
+    # 7. A long pause ended by a restart (no Shutdown line) rather than a clean exit, on a
+    # MOUSE-provider dev run (the 2026-09-16 shape). Not flagged: mouse sessions are dev noise.
     restart_while_paused = log(
-        line("2026-09-17 09:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=Mouse"),
+        line("2026-09-17 09:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=\"Mouse\""),
         line("2026-09-17 09:00:01.000", 'State \u2192 "Paused"'),
-        line("2026-09-17 11:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=Mouse"),
+        line("2026-09-17 11:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=\"Mouse\""),
         line("2026-09-17 11:00:01.000", 'State \u2192 "FreeLook"'),
         line("2026-09-17 12:00:00.000", "Shutdown"),
+    )
+    # 8. An EYE session killed or crashing while paused (no Shutdown line). This is a real
+    # stranding — the user's session never resumed and there is no clean exit to explain it.
+    eye_killed_while_paused = log(
+        line("2026-09-16 09:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=\"StreamEngine\""),
+        line("2026-09-16 09:00:01.000", 'State \u2192 "Paused"'),
+        line("2026-09-16 11:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=\"StreamEngine\""),
+        line("2026-09-16 11:00:01.000", 'State \u2192 "FreeLook"'),
+        line("2026-09-16 12:00:00.000", "Shutdown"),
+    )
+    # 9. An eye session still paused at EOF (log ends without Shutdown or restart).
+    eye_paused_at_eof = log(
+        line("2026-09-15 09:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=\"StreamEngine\""),
+        line("2026-09-15 09:00:01.000", 'State \u2192 "Paused"'),
+        line("2026-09-15 09:30:00.000", "Toolbar summoned: slide-in animating"),
     )
 
     cases = [
@@ -256,7 +287,9 @@ def selftest() -> None:
         ("quiet long pause, clean shutdown", quiet_pause, [True]),
         ("restart: only the stranded run flags", restart, [False, True]),
         ("long pause that resolved", resolved_pause, [False]),
-        ("restart while paused (not a clean end)", restart_while_paused, [False, False]),
+        ("mouse restart while paused (not a clean end)", restart_while_paused, [False, False]),
+        ("eye session killed while paused", eye_killed_while_paused, [True, False]),
+        ("eye session still paused at EOF", eye_paused_at_eof, [True]),
     ]
 
     failed = False

@@ -119,10 +119,11 @@ public class ToolbarViewModelTests
             DwellDrive.Hold(1_000_000, 2_000_000, t => vm.Receive(new GazeCursorMovedMessage(inside, t)));
             Check.That(toggles).IsEqualTo(1);
 
-            // Drift to 130 px — outside. The look ended, so a fresh dwell fires a second toggle.
+            // Drift to 130 px — outside — and STAY there long enough to be a real leave (the
+            // latch requires ~120 ms of continuous off-target). A fresh dwell then toggles again.
             var outside = new PhysicalPoint(1000, 1130);
-            vm.Receive(new GazeCursorMovedMessage(outside, 2_100_000));
-            DwellDrive.Hold(2_200_000, 3_100_000, t => vm.Receive(new GazeCursorMovedMessage(toggleCenter, t)));
+            DwellDrive.Hold(2_100_000, 2_300_000, t => vm.Receive(new GazeCursorMovedMessage(outside, t)));
+            DwellDrive.Hold(2_400_000, 3_300_000, t => vm.Receive(new GazeCursorMovedMessage(toggleCenter, t)));
             Check.That(toggles).IsEqualTo(2);
         }
         finally
@@ -180,6 +181,86 @@ public class ToolbarViewModelTests
         DwellDrive.Hold(1_300_000, 2_200_000, t => vm.Receive(new GazeCursorMovedMessage(toggleCenter, t)));
 
         Check.That(toggles).IsEqualTo(1);
+    }
+
+    // Adaptation's GeometryRouter can GROW the toolbar's hit area by up to 100 px. The latch must
+    // hit-test the detector's effective geometry, not the as-registered radius: a gaze held 80 px
+    // off-centre (outside the base 60 px, inside the effective 100 px) is still the same look, and
+    // a latch that clears there is the 09-24 re-fire storm again — the day adaptation is enabled.
+    [Fact]
+    public void ReArmHitTest_UsesTheDetectorsEffectiveRadius_NotTheBaseRadius()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ProbeToolbarViewModel(_settings, messenger);
+        vm.UpdateButtonScreenPosition("Pause", new PhysicalPoint(500, 500));
+        vm.GrowTarget("Pause", 40); // base 60 px + 40 = 100 px effective
+
+        int toggles = 0;
+        messenger.Register<PauseToggledMessage>(this, (_, _) => toggles++);
+
+        var offCentre = new PhysicalPoint(580, 500); // 80 px from the centre
+        DwellDrive.Hold(0, 3_500_000, t => vm.Receive(new GazeCursorMovedMessage(offCentre, t)));
+
+        Check.That(toggles).IsEqualTo(1);
+    }
+
+    // A re-dock moves the target; the latch must follow it, not hold a stale centre. The second
+    // hold is on the NEW centre and must fire; the old centre must no longer be the toggle.
+    [Fact]
+    public void ReDockedPauseTarget_ReArmsOnTheNewCentre()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ToolbarViewModel(_settings, messenger);
+        var first = new PhysicalPoint(500, 500);
+        vm.UpdateButtonScreenPosition("Pause", first);
+
+        int toggles = 0;
+        messenger.Register<PauseToggledMessage>(this, (_, _) => toggles++);
+
+        DwellDrive.Hold(0, 900_000, t => vm.Receive(new GazeCursorMovedMessage(first, t)));
+        Check.That(toggles).IsEqualTo(1);
+
+        // Re-dock: the View reports a new centre for the same button.
+        var moved = new PhysicalPoint(1500, 700);
+        vm.UpdateButtonScreenPosition("Pause", moved);
+
+        // Leave the old spot for good, then dwell the new centre: the toggle must fire there.
+        DwellDrive.Hold(1_000_000, 1_300_000, t => vm.Receive(new GazeCursorMovedMessage(first, t)));
+        DwellDrive.Hold(1_400_000, 2_300_000, t => vm.Receive(new GazeCursorMovedMessage(moved, t)));
+        Check.That(toggles).IsEqualTo(2);
+
+        // The old centre is no longer a target: a hold there must not toggle.
+        DwellDrive.Hold(2_400_000, 2_600_000, t => vm.Receive(new GazeCursorMovedMessage(first, t)));
+        DwellDrive.Hold(2_700_000, 3_600_000, t => vm.Receive(new GazeCursorMovedMessage(first, t)));
+        Check.That(toggles).IsEqualTo(2);
+    }
+
+    // A single stray sample outside the circle is a tracker outlier, not a leave: the user is
+    // still looking at the toggle, so it must not re-arm. Only a sustained off-target run does.
+    [Fact]
+    public void SingleOffTargetOutlier_DoesNotReArm_ButASustainedLeaveDoes()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ToolbarViewModel(_settings, messenger);
+        var toggleCenter = new PhysicalPoint(500, 500);
+        vm.UpdateButtonScreenPosition("Pause", toggleCenter);
+
+        int toggles = 0;
+        messenger.Register<PauseToggledMessage>(this, (_, _) => toggles++);
+
+        DwellDrive.Hold(0, 900_000, t => vm.Receive(new GazeCursorMovedMessage(toggleCenter, t)));
+        Check.That(toggles).IsEqualTo(1);
+
+        // One outlier sample off-target, then straight back: still the same look.
+        vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(0, 0), 1_000_000));
+        DwellDrive.Hold(1_030_000, 2_000_000, t => vm.Receive(new GazeCursorMovedMessage(toggleCenter, t)));
+        Check.That(toggles).IsEqualTo(1);
+
+        // A sustained leave (>= 120 ms off-target) re-arms: a new look toggles again.
+        DwellDrive.Hold(2_100_000, 2_300_000,
+            t => vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(0, 0), t)));
+        DwellDrive.Hold(2_400_000, 3_300_000, t => vm.Receive(new GazeCursorMovedMessage(toggleCenter, t)));
+        Check.That(toggles).IsEqualTo(2);
     }
 
     [Fact]
@@ -469,4 +550,19 @@ public class ToolbarViewModelTests
         _messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
         Check.That(modes.IconKey).IsEqualTo("Modes");
     }
+}
+
+/// <summary>
+/// Exposes the detector so a test can apply the adaptation geometry margin, which production
+/// applies through <c>IDwellDetectorRegistry</c>/<c>GeometryRouter</c>. Top-level (not nested in
+/// the test class): the MVVM Toolkit's RegisterAll source generator emits code for any class
+/// implementing <see cref="CommunityToolkit.Mvvm.Messaging.IRecipient{T}"/>, and a private nested
+/// subclass is not visible to that generated code.
+/// </summary>
+internal sealed class ProbeToolbarViewModel : ToolbarViewModel
+{
+    public ProbeToolbarViewModel(EyeCtrlSettings settings, IMessenger messenger)
+        : base(settings, messenger) { }
+
+    public void GrowTarget(string id, double marginPx) => DwellDetector.UpdateTargetGeometry(id, marginPx);
 }

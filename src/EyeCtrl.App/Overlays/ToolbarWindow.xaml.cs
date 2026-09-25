@@ -306,6 +306,7 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
             RebuildBand();
         }
 
+        ApplyResumeHintMargin();
         UpdateLayout();   // SizeToContent does not re-measure until the next pass
 
         if (!isDocked) { _targetsInitialized = false; return; }
@@ -404,6 +405,18 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
 
     /// <summary>For tests: the "look here to resume" label shown while paused.</summary>
     internal TextBlock ResumeHintForTest => ResumeHint;
+
+    /// <summary>
+    /// Spaces the resume hint along the band's axis: a leading gap before the first button in a
+    /// horizontal band, a gap above it in a vertical one. Cosmetic, but the fixed XAML margin put
+    /// the sideways gap on the wrong axis for a left/right dock, leaving the label off-centre.
+    /// Constant for a given orientation, so it does not disturb the pause/unpause geometry
+    /// invariant the reserved Hidden slot exists to keep.
+    /// </summary>
+    private void ApplyResumeHintMargin() =>
+        ResumeHint.Margin = _vertical
+            ? new Thickness(0, ToolbarBand.ButtonMargin, 0, 0)
+            : new Thickness(ToolbarBand.ButtonMargin, 0, 0, 0);
 
     /// <inheritdoc />
     /// <remarks>

@@ -47,6 +47,12 @@ public class ToolbarPausedTargetAlignmentTests
 
     private const double EffectiveScale = 2.0;
 
+    /// <summary>
+    /// How far a drawn face may move across the pause toggle. The correct shift is zero; this is
+    /// slack for floating-point/layout noise, far below the sub-pixel claim.
+    /// </summary>
+    private const double FaceShiftTolerancePx = 0.5;
+
     /// <summary>Every button that renders in the band and therefore gets a dwell target.</summary>
     private static readonly string[] BandButtonIds =
     {
@@ -102,6 +108,7 @@ public class ToolbarPausedTargetAlignmentTests
             window.SetPausedState(true); // --paused: the hint is up before the first placement
 
         Layout(content);
+        var sizeBefore = content.DesiredSize;
 
         // Publish every target exactly as the first gaze sample does in production.
         window.UpdateGaze(new PhysicalPoint(0, 0), 0);
@@ -111,20 +118,30 @@ public class ToolbarPausedTargetAlignmentTests
         // The pause state flips — what OverlayVmBindingCoordinator does on the VM's IsPaused change.
         window.SetPausedState(!startPaused);
         Layout(content);
+        var sizeAfter = content.DesiredSize;
 
-        // The radius production publishes for this button: Size/2 DIP in physical px.
-        var radius = DpiHelper.LogicalToPhysicalX(settings.Toolbar.Size / 2);
+        // Structural invariant: the reserved Hidden slot means the band's desired size is IDENTICAL
+        // in both states. This is what kills both Collapsed variants on all four edges — the face
+        // check alone is absorbed by the hit radius on vertical docks, and the old PlaceAtEdge
+        // check re-placed at the post-toggle size and could not fail.
+        Check.WithCustomMessage(
+                $"[startPaused={startPaused}, edge={edge}] the pause toggle changed the band's "
+                + $"desired size {sizeBefore} -> {sizeAfter}; the hint must reserve its slot "
+                + "(Visibility.Hidden, never Collapsed).")
+            .That(sizeAfter).IsEqualTo(sizeBefore);
 
+        // The correct shift is zero; 0.5 px is slack for floating-point/layout noise, far below
+        // the sub-pixel claim and ~240× tighter than the hit radius.
         var failures = new List<string>();
         foreach (var id in BandButtonIds)
         {
             var now = FaceCenter(window, id);
             var target = published[id];
             var distance = Math.Sqrt(Math.Pow(now.X - target.X, 2) + Math.Pow(now.Y - target.Y, 2));
-            if (distance > radius)
+            if (distance > FaceShiftTolerancePx)
                 failures.Add(
-                    $"{id}: drawn ({now.X:F0},{now.Y:F0}) is {distance:F0} px from its published "
-                    + $"target ({target.X:F0},{target.Y:F0}); hit radius {radius:F0} px");
+                    $"{id}: drawn ({now.X:F2},{now.Y:F2}) moved {distance:F2} px from its published "
+                    + $"target ({target.X:F0},{target.Y:F0})");
         }
 
         Check.WithCustomMessage(
@@ -133,9 +150,10 @@ public class ToolbarPausedTargetAlignmentTests
                 + string.Join("\n", failures))
             .That(failures).IsEmpty();
 
-        // And the docked window must stay on screen — in the widest state, which is the one with
-        // the hint shown (both states are the same size now; the check remains the invariant).
-        var natural = new Size(content.DesiredSize.Width / factor, content.DesiredSize.Height / factor);
+        // And the docked window must stay on screen. Placed from the PRE-toggle size — the size
+        // the state was actually laid out at — so this cannot be satisfied by re-measuring after
+        // the change.
+        var natural = new Size(sizeBefore.Width / factor, sizeBefore.Height / factor);
         var (left, top) = OverlayPositioning.PlaceAtEdge(WorkAreaDip, edge, natural.Width, natural.Height);
         Check.WithCustomMessage(
                 $"[edge={edge}] docked toolbar {natural.Width:F0}x{natural.Height:F0} DIP lands at "

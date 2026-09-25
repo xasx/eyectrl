@@ -547,11 +547,16 @@ public class PredictionStackFactory : IDisposable
         try
         {
             // Opened through OpenForHash — FileShare.Read|Delete via the shared constant
-            // (issue #166 round-1 I1 / round-2 M-1): a repair re-download installs with
-            // File.Replace, which works against open readers only when they hold Delete
-            // share. The hash may reflect pre-replace bytes; the download flow's own
-            // ApplyAndSave runs after the install returns and triggers a rebuild that
-            // re-verifies the final files.
+            // (issue #166 round-1 I1 / round-2 M-1): a repair re-download that races an open
+            // hash stream installs with File.Replace, which works against open readers only
+            // when they hold Delete share. The hash may reflect pre-replace bytes. The
+            // download flow's own ApplyAndSave runs after the install returns and triggers a
+            // rebuild when the post-install capture differs from the stored snapshot — every
+            // build hashes unconditionally, so a rebuild re-verifies the final files.
+            // UNMEASURED residual (round-2 N-6, recorded on issue #166): a stale build's
+            // Failed verdict landing between the repair's Verified ledger write and that
+            // ApplyAndSave can suppress the rebuild (snapshot and fresh capture both read
+            // Failed) — ordering not measured either way.
             using var stream = OpenForHash(path);
             using var sha = SHA256.Create();
             var hash = sha.ComputeHash(stream);

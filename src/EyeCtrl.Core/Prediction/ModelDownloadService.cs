@@ -117,7 +117,7 @@ public class ModelDownloadService : IDisposable
     /// The sharing mode any concurrent READER of an install target must hold (issue #166
     /// round-2 M-1): <see cref="InstallDownloadedFile"/>'s File.Replace works against open
     /// readers only when they hold <see cref="FileShare.Delete"/> — a reader opened with
-    /// plain FileShare.Read makes every repair re-download die mid-install with IOException.
+    /// plain FileShare.Read makes a repair re-download that races an open hash stream die mid-install with IOException.
     /// Both sides of that contract (the app's hash-verification stream and the install probe
     /// test) bind THIS constant, so a hand-copied literal cannot diverge — the #159 failure
     /// class. Public: consumed cross-project by EyeCtrl.App's VerifyFileSha256 (Core declares
@@ -133,7 +133,7 @@ public class ModelDownloadService : IDisposable
     /// <c>File.Move(overwrite: true)</c> REFUSES a destination with an open handle
     /// (UnauthorizedAccessException, measured on .NET 10/Windows regardless of the opener's
     /// share mode), and during a repair a background build's VerifyFileSha256 hash stream is
-    /// exactly such a handle — every repair re-download would die mid-install.
+    /// exactly such a handle — a repair that races such a build would die mid-install.
     /// <c>File.Replace</c> swaps the destination in place and works against open readers
     /// holding FileShare.Read|FileShare.Delete (the sharing mode VerifyFileSha256 opens with),
     /// leaving those readers on the pre-replace bytes until they reopen.

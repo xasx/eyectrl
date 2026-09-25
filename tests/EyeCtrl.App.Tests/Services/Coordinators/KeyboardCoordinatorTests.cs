@@ -22,9 +22,10 @@ using Xunit;
 public class KeyboardCoordinatorTests
 {
     // The ctor needs a ModalInteractionState, a QuickActionsCoordinator, and a
-    // ToolbarLifecycleCoordinator. None of these are touched by the lifecycle contract tests below
-    // (they never call Initialize), so plain constructed instances suffice — the same shape the
-    // sibling coordinator tests use.
+    // ToolbarLifecycleCoordinator. The lifecycle contract tests below never call Initialize;
+    // the ONE exception is the round-2 swap-chain test further down, which runs the real
+    // Initialize (and therefore does touch the ToolbarLifecycleCoordinator). Plain constructed
+    // instances suffice for both — the same shape the sibling coordinator tests use.
     private static KeyboardCoordinator NewCoordinator() =>
         new(new ModalInteractionState(),
             new QuickActionsCoordinator(),
@@ -722,9 +723,9 @@ public class KeyboardCoordinatorTests
     public void VerdictTermWiring_TheThreeSnapshotWritersDelegateToTheSeams()
     {
         // Source pins over COMMENT-STRIPPED, whitespace-collapsed code (the M3 discipline: a
-        // pin over raw text passes on a commented-out call). The lambda's and handlers' window
-        // calls are not headless-drivable; these pins hold the wiring in place around the
-        // seams the behavioural tests above drive.
+        // pin over raw text passes on a commented-out call). Belt-and-braces around the
+        // behavioural chain test below (round-2 I-1): the pins hold the wiring text in place
+        // and are the only guard against an inline revert the behavioural test cannot see.
         var source = System.Text.RegularExpressions.Regex.Replace(
             SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
                 SourceScanner.RepoRoot().FullName,
@@ -733,10 +734,11 @@ public class KeyboardCoordinatorTests
 
         Check.WithCustomMessage(
                 "The StackSwapped event is no longer subscribed with OnStackSwapped — deleting "
-                + "this subscription regresses N3 (one spurious reload per session) silently. "
-                + "The method-group form is pinned (not an inline lambda) because a lambda body "
-                + "can be dead-wrapped while its call text still satisfies a substring pin "
-                + "(round-1 mutation N5).")
+                + "this subscription leaves the keyboard bound to the replaced stack, so word "
+                + "prediction is dead for the whole session (round-2 X5/M7 measurement), on "
+                + "top of the N3 spurious reload this pin originally guarded. The method-group "
+                + "form is pinned (not an inline lambda) because a lambda body can be "
+                + "dead-wrapped while its call text still satisfies a substring pin.")
             .That(source.Contains("_predictionFactory.StackSwapped+=OnStackSwapped;")).IsTrue();
 
         Check.WithCustomMessage(
@@ -765,8 +767,8 @@ public class KeyboardCoordinatorTests
     // patch) had no behavioural coverage: mutations X5 (subscribe the dead factory) and X9
     // (re-bind with null) survived the whole App suite green. This runs the REAL Initialize
     // against a REAL KeyboardWindow and fires the LIVE factory's event by reflecting the
-    // field-like event's backing delegate — the only way to raise another assembly's event
-    // from outside.
+    // field-like event's backing delegate — the cheap way to raise another assembly's event
+    // from a test (driving the factory's own swap path is the alternative).
 
     private sealed class KeyboardOnlyOverlayManager : IOverlayManager
     {
@@ -812,12 +814,20 @@ public class KeyboardCoordinatorTests
 
         // The LIVE factory (round-2 X5: a subscription attached to the replaced factory would
         // leave this field-like event's backing delegate null).
-        var factory = typeof(KeyboardCoordinator).GetField("_predictionFactory",
-            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
-            .GetValue(c)!;
-        var handler = (Delegate?)typeof(PredictionStackFactory).GetField("StackSwapped",
-            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
-            .GetValue(factory);
+        var factoryField = typeof(KeyboardCoordinator).GetField("_predictionFactory",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Check.WithCustomMessage(
+                "Reflection target '_predictionFactory' not found — the coordinator's field "
+                + "was renamed; update this test, it is not a behaviour failure (round-3 R7).")
+            .That(factoryField).IsNotNull();
+        var factory = factoryField!.GetValue(c)!;
+        var eventField = typeof(PredictionStackFactory).GetField("StackSwapped",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Check.WithCustomMessage(
+                "Reflection target 'StackSwapped' not found — the factory's event was renamed "
+                + "or gained custom accessors; update this test, it is not a behaviour failure.")
+            .That(eventField).IsNotNull();
+        var handler = (Delegate?)eventField!.GetValue(factory);
         Check.WithCustomMessage(
                 "Nothing is subscribed to the LIVE factory's StackSwapped — the keyboard would "
                 + "never re-bind on a swap (round-2 mutation X5).")
@@ -832,9 +842,13 @@ public class KeyboardCoordinatorTests
 
             // The re-bind must land in the REAL window's VM — OnStackSwapped's first half,
             // which no pin covers (round-2 X9: SetOrchestrator(null) survived 1197 green).
-            var vmOrchestrator = typeof(KeyboardViewModel).GetField("_orchestrator",
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
-                .GetValue(vm);
+            var vmField = typeof(KeyboardViewModel).GetField("_orchestrator",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Check.WithCustomMessage(
+                    "Reflection target '_orchestrator' not found — the VM's field was renamed; "
+                    + "update this test, it is not a behaviour failure (round-3 R6).")
+                .That(vmField).IsNotNull();
+            var vmOrchestrator = vmField!.GetValue(vm);
             Check.WithCustomMessage(
                     "The swap did not re-bind the keyboard to the swapped orchestrator — word "
                     + "prediction would be dead for the whole session while the suite stays "

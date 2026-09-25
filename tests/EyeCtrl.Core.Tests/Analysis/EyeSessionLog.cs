@@ -40,11 +40,14 @@ public static class EyeSessionLog
     public const int QuickAbandonmentSeconds = 3;
 
     /// <summary>
-    /// Lines within this window before a <c>Startup:</c> line belong to the STARTING process, not the
-    /// previous session. The observed provider-init lead is 29-61 ms; one second is a wide margin and
-    /// far below any real gap between a session's own last line and the next launch.
+    /// A process-start line: the provider is constructed tens of milliseconds before the
+    /// <c>Startup:</c> line, and that line belongs to the STARTING process, not the previous session.
+    /// Trimmed by CONTENT, not by a time window: on a settings restart the parent is still running while
+    /// the child starts, so the parent's real trailing State/Action lines can fall inside any window and
+    /// must survive.
     /// </summary>
-    public const int ProcessStartLeadMs = 1000;
+    private static readonly Regex ProviderInitPattern = new(
+        @"\[EyeCtrl\.Platform\.Gaze\.GazeProviderFactory\] Using ", RegexOptions.Compiled);
 
     /// <summary>State transitions that START an activation. The manual sub-menu does not start a new one.</summary>
     private static readonly string[] ActivationStates = ["ActionMenuVisible", "ManualSelectionActive"];
@@ -147,8 +150,8 @@ public static class EyeSessionLog
 
     /// <summary>
     /// Parses already-read lines. Exposed for tests with synthetic lines. A session ends at its own
-    /// last line: lines within <see cref="ProcessStartLeadMs"/> before a <c>Startup:</c> belong to the
-    /// starting process and are trimmed from the previous session.
+    /// last line: the next process's trailing provider-init lines (content-matched) are trimmed from
+    /// the previous session, while the parent's own trailing State/Action lines survive a restart.
     /// </summary>
     public static List<Session> Parse(IEnumerable<string> lines, string file = "(inline)")
     {
@@ -166,8 +169,9 @@ public static class EyeSessionLog
             var startup = StartupPattern.Match(raw);
             if (startup.Success)
             {
-                // The starting process's own pre-Startup lines are not the previous session's activity.
-                current?.TrimProcessStart(timestamp);
+                // The starting process's own pre-Startup provider-init lines are not the previous
+                // session's activity.
+                current?.TrimProcessStart();
                 if (current is not null) sessions.Add(current.Build(file));
                 bool? explicitPaused = null;
                 var pausedMatch = PausedStartupPattern.Match(raw);
@@ -235,34 +239,35 @@ public static class EyeSessionLog
 
     private sealed class SessionBuilder(DateTime start, string provider, bool? explicitPaused)
     {
-        private readonly List<DateTime> _timestamps = [];
+        private readonly List<(DateTime Timestamp, string Line)> _lines = [];
         private readonly List<(DateTime Timestamp, string State)> _states = [];
         private readonly List<DateTime> _actions = [];
 
         public void Add(DateTime timestamp, string line)
         {
-            _timestamps.Add(timestamp);
+            _lines.Add((timestamp, line));
             var state = StatePattern.Match(line);
             if (state.Success) _states.Add((timestamp, state.Groups["state"].Value));
             else if (ActionPattern.IsMatch(line)) _actions.Add(timestamp);
         }
 
         /// <summary>
-        /// Drops trailing lines that belong to the process starting at <paramref name="nextStartup"/>:
-        /// its provider-init lines land milliseconds before its Startup line and must not extend this
-        /// session's end.
+        /// Drops the trailing run of provider-init lines that belong to the process starting next. A
+        /// parent's own trailing State/Action lines are not provider-init lines and survive.
         /// </summary>
-        public void TrimProcessStart(DateTime nextStartup)
+        public void TrimProcessStart()
         {
-            var cutoff = nextStartup.AddMilliseconds(-ProcessStartLeadMs);
-            _timestamps.RemoveAll(ts => ts > cutoff);
-            _states.RemoveAll(s => s.Timestamp > cutoff);
-            _actions.RemoveAll(a => a > cutoff);
+            int i = _lines.Count - 1;
+            while (i >= 0 && ProviderInitPattern.IsMatch(_lines[i].Line))
+            {
+                _lines.RemoveAt(i);
+                i--;
+            }
         }
 
         public Session Build(string file)
         {
-            var end = _timestamps.Count > 0 ? _timestamps[^1] : start;
+            var end = _lines.Count > 0 ? _lines[^1].Timestamp : start;
             if (end < start) end = start;
 
             // Paused intervals: from each entry into Paused to the next non-Paused transition, or to

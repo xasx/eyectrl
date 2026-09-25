@@ -45,16 +45,40 @@ public class EyeSessionLogTests(ITestOutputHelper output)
     [Fact]
     public void Parse_ARelaunchHoursLater_DoesNotExtendThePreviousSession()
     {
+        // Includes the child's provider-init line, so this test also fails if the trim is removed.
         var lines = new[]
         {
             "2026-09-16 23:50:00.000 [INF] [] Startup: EyeCtrl v1.0.0.0, provider=\"StreamEngine\", settings=C:\\x",
             "2026-09-16 23:50:05.000 [INF] [A] State \u2192 \"FreeLook\"",
+            "2026-09-17 02:59:59.960 [INF] [EyeCtrl.Platform.Gaze.GazeProviderFactory] Using Tobii Stream Engine",
             "2026-09-17 03:00:00.000 [INF] [] Startup: EyeCtrl v1.0.0.0, provider=\"Mouse\", settings=C:\\x",
         };
         var sessions = EyeSessionLog.Parse(lines, "synthetic.log");
         Check.That(sessions).HasSize(2);
         Check.That(sessions[0].End).IsEqualTo(new DateTime(2026, 9, 16, 23, 50, 5));
         Check.That(sessions[0].SpanMinutes).IsCloseTo(0.083, 0.01);
+    }
+
+    [Fact]
+    public void Parse_KeepsTheParentsTrailingLines_WhenTheChildStartsImmediately()
+    {
+        // Settings→Restart: the child is up while the parent is still exiting, so a parent State line
+        // and an Action line can fall inside a one-second window before the child's provider-init line.
+        // Content-based trim removes only the provider-init line; the parent's own lines survive.
+        var lines = new[]
+        {
+            "2026-09-16 23:50:00.000 [INF] [] Startup: EyeCtrl v1.0.0.0, provider=\"StreamEngine\", settings=C:\\x",
+            "2026-09-16 23:55:00.000 [INF] [A] State \u2192 \"ManualSelectionActive\"",
+            "2026-09-16 23:55:00.100 [INF] [A] State \u2192 \"FreeLook\"",
+            "2026-09-16 23:55:00.200 [INF] [] Action: \"LeftClick\" at (10, 10) [PreciseTarget=true]",
+            "2026-09-16 23:55:00.400 [INF] [EyeCtrl.Platform.Gaze.GazeProviderFactory] Using Tobii Stream Engine",
+            "2026-09-16 23:55:00.450 [INF] [] Startup: EyeCtrl v1.0.0.0, provider=\"StreamEngine\", settings=C:\\x",
+        };
+        var sessions = EyeSessionLog.Parse(lines, "synthetic.log");
+        Check.That(sessions).HasSize(2);
+        Check.That(sessions[0].End).IsEqualTo(new DateTime(2026, 9, 16, 23, 55, 0, 200));
+        Check.That(sessions[0].ActivationEntries).IsEqualTo(1);
+        Check.That(sessions[0].ActionEntries).IsEqualTo(1);
     }
 
     [Fact]

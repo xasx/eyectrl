@@ -57,13 +57,15 @@ public readonly record struct FixationRelease(long LastCreditedUs, long Credited
 /// means.
 /// </para>
 /// <para>
-/// Why the replay re-creates the engine's feed (<c>if (!SuppressFixation &amp;&amp; !isInGap)</c>) instead
-/// of driving the real <c>GazeEngine</c>: the engine keeps its fixation rule private, publishes
-/// <c>CursorMoved</c> BEFORE it updates the detector, and exposes no anchor/re-anchor timestamps, so a
-/// harness on its public surface cannot attribute a sample to a run without re-deriving the rule — the
-/// re-implementation this seam exists to avoid, only in a harder place. Instead
-/// <c>ReplaySliceFidelityTests</c> pins the slice to the engine: the same stream through both must
-/// produce the same filtered point and gap flag on every sample, and the rule seam
+/// Why the replay re-creates the engine's feed (<c>if (!SuppressFixation &amp;&amp; !isInGap)</c>) rather
+/// than driving the real <c>GazeEngine</c> for the metrics: the engine's fixation rule is private and
+/// its per-sample anchor state is unobservable, so runs cannot be reconstructed from its public
+/// surface. The FEED is still pinned, and it is: <c>ReplaySliceFidelityTests</c> asserts, on the
+/// fixture and on the recording, that the engine's onsets and ends — observed through
+/// <c>InteractionManager.ShowActivationButton</c>/<c>HideActivationButton</c>, which fire synchronously
+/// inside <c>Push</c> — equal the harness's runs, and that the filtered point and gap flag match on
+/// every sample. A change to <c>GazeEngine.cs:604-605</c> (feeding raw points, or gap frames) breaks
+/// that parity instead of silently changing what the gates measure. The rule seam
 /// (<see cref="IFixationRule"/>) is what ticket 3 plugs its new rule into. What replay cannot see:
 /// suppression, state, the dispatcher. The live engine feeds the detector in every non-paused state
 /// with <c>SuppressFixation</c> false, so the replay is that steady state.
@@ -383,15 +385,27 @@ public static class FixationReplayGates
         var runs = new List<FixationRun>();
         RunBuilder? open = null;
 
-        rule.FixationStarted += (point, timestampUs) => open = new RunBuilder(point, timestampUs);
-        rule.FixationActivated += timestampUs => open?.Activate(timestampUs);
+        rule.FixationStarted += (point, timestampUs) =>
+        {
+            // A second onset before a release means the adapter dropped a run. Silently replacing the
+            // open one would UNDER-count flicker, which makes G4 pass spuriously — fail loudly instead.
+            if (open is not null)
+                throw new InvalidOperationException(
+                    "The rule reported a second fixation onset before releasing the first; runs would be dropped and flicker under-counted.");
+            open = new RunBuilder(point, timestampUs);
+        };
+        rule.FixationActivated += timestampUs =>
+        {
+            if (open is null)
+                throw new InvalidOperationException("The rule reported an activation without a reported onset.");
+            open.Activate(timestampUs);
+        };
         rule.FixationReleased += release =>
         {
-            if (open is not null)
-            {
-                runs.Add(open.Build(release));
-                open = null;
-            }
+            if (open is null)
+                throw new InvalidOperationException("The rule released a run it never reported an onset for.");
+            runs.Add(open.Build(release));
+            open = null;
         };
 
         foreach (var frame in frames)
@@ -403,6 +417,8 @@ public static class FixationReplayGates
         // A run still open at the end of the stream has no leaving sample: the rule releases it with
         // whichever samples it did credit, so a long final hold is not silently dropped.
         rule.CompleteStream();
+        if (open is not null)
+            throw new InvalidOperationException("The rule left a run unreleased at the end of the stream.");
         return runs;
     }
 

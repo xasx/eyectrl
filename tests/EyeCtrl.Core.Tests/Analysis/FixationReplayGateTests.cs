@@ -14,7 +14,12 @@ namespace EyeCtrl.Core.Tests.Analysis;
 /// so the episode is "elsewhere".</item>
 /// <item>S6 — two 0.78 s holds 600 ms apart: no episode unless the gap-break rule is removed, and a
 /// run that starts in no episode span (a real Midas case).</item>
-/// <item>S7 — a final hold still open when the stream ends: dropping open runs must change a count.</item>
+/// <item>S7 — credited age 990 ms: must NOT activate (kills activation one frame early).</item>
+/// <item>S8 — credited age exactly 1000 ms: must activate (pins the boundary itself).</item>
+/// <item>S9 — 0.39 s hold + 420 ms gap + 0.39 s hold = 846 ms capped vs 1200 ms uncapped: must NOT
+/// activate (kills uncapped per-sample credit).</item>
+/// <item>S10 — a same-place gap spanning the 300 ms onset: the engine parity test's P2 killer.</item>
+/// <item>S11 — a final hold still open when the stream ends: dropping open runs must change a count.</item>
 /// </list>
 /// </summary>
 public class FixationReplayGateTests(ITestOutputHelper output)
@@ -32,31 +37,31 @@ public class FixationReplayGateTests(ITestOutputHelper output)
     {
         var recording = GazeRecordingFile.Read(FixturePath);
         Check.That(recording.UnusableReason).IsNull();   // committed with its trailer: a clean file
-        Check.That(recording.Samples).HasSize(650);
+        Check.That(recording.Samples).HasSize(842);
 
         var analysis = FixationReplayGates.Analyze(recording, FixationReplayGates.TodayR50);
 
-        // Six episodes at both dispersions: S1, S2, S3 (alternation), S4, S5, S7. S6's pieces are
-        // 0.78 s each and S6 only becomes an episode if the >500 ms gap-break rule is removed.
-        Check.That(analysis.At150.EpisodeCount).IsEqualTo(6);
-        Check.That(analysis.At150.ServedEpisodes).IsEqualTo(3);
-        Check.That(analysis.At150.ServedShare).IsCloseTo(0.5, 1e-9);
+        // Nine episodes at both dispersions: S1, S2, S3 (alternation), S4, S5, S8, S9, S10 and S11.
+        // S6's pieces are 0.78 s each (an episode only if the >500 ms gap-break rule is removed), S7's
+        // hold is 0.99 s (just under the one-second minimum).
+        Check.That(analysis.At150.EpisodeCount).IsEqualTo(9);
+        Check.That(analysis.At150.ServedEpisodes).IsEqualTo(5);
+        Check.That(analysis.At150.ServedShare).IsCloseTo(5.0 / 9.0, 1e-9);
         Check.That(analysis.At150.ElsewhereEpisodes).IsEqualTo(1);
         Check.That(analysis.At150.MidasRuns).IsEqualTo(1);
 
-        Check.That(analysis.At200.EpisodeCount).IsEqualTo(6);
-        Check.That(analysis.At200.ServedEpisodes).IsEqualTo(3);
-        Check.That(analysis.At200.ServedShare).IsCloseTo(0.5, 1e-9);
+        Check.That(analysis.At200.EpisodeCount).IsEqualTo(9);
+        Check.That(analysis.At200.ServedEpisodes).IsEqualTo(5);
+        Check.That(analysis.At200.ServedShare).IsCloseTo(5.0 / 9.0, 1e-9);
         Check.That(analysis.At200.ElsewhereEpisodes).IsEqualTo(1);
         Check.That(analysis.At200.MidasRuns).IsEqualTo(1);
 
-        // Seven activatable runs (S4's first hold is 0.87 s: M2 only; S6's spliced run is activatable
-        // and starts in no episode span). Eight runs reach M2's keyboard threshold; seven end by a
-        // leave, S7's final run is still open at the end of the stream.
-        Check.That(analysis.Runs).HasSize(8);
-        Check.That(analysis.ActivatableRuns).IsEqualTo(7);
-        Check.That(analysis.KeyboardRuns).IsEqualTo(8);
-        Check.That(analysis.EndedRuns).IsEqualTo(7);
+        // Twelve runs, nine activatable. S4's first hold (870 ms), S7 (990 ms) and S9 (846 ms capped)
+        // are M2-only; S11 is still open at the end of the stream.
+        Check.That(analysis.Runs).HasSize(12);
+        Check.That(analysis.ActivatableRuns).IsEqualTo(9);
+        Check.That(analysis.KeyboardRuns).IsEqualTo(12);
+        Check.That(analysis.EndedRuns).IsEqualTo(11);
 
         Check.That(analysis.TimeToFirstFixationSeconds!.Value).IsCloseTo(0.30, 0.05);
     }
@@ -65,14 +70,14 @@ public class FixationReplayGateTests(ITestOutputHelper output)
     public void SyntheticFixture_ServedBound_IsWhatMakesTheEccentricAnchorsServe()
     {
         // The served@place bound, moved in-process: at 1 px the two 40 px-eccentric anchors (S1/S2)
-        // can no longer serve, and only S7's near-centred final hold (and possibly the alternation)
-        // remains. If the metric stopped reading the bound, both halves would fail together.
+        // can no longer serve, and only the near-centred holds (S8, S10, S11) remain. If the metric
+        // stopped reading the bound, both halves would fail together.
         var recording = GazeRecordingFile.Read(FixturePath);
         var pinned = FixationReplayGates.Analyze(recording, FixationReplayGates.TodayR50);
         var shifted = FixationReplayGates.Analyze(
             recording, FixationReplayGates.TodayR50, servedDistancePx: 1.0);
 
-        Check.That(pinned.At150.ServedEpisodes).IsEqualTo(3);
+        Check.That(pinned.At150.ServedEpisodes).IsEqualTo(5);
         Check.That(shifted.At150.ServedEpisodes).IsStrictlyLessThan(pinned.At150.ServedEpisodes);
         Check.That(shifted.At200.ServedEpisodes).IsStrictlyLessThan(pinned.At200.ServedEpisodes);
 
@@ -94,6 +99,64 @@ public class FixationReplayGateTests(ITestOutputHelper output)
 
         Check.That(first).IsEqualTo(second);
         Check.That(first).Contains("today's rule, r50");
+    }
+
+    // ── Rule-seam hardening ───────────────────────────────────────────────────
+
+    [Fact]
+    public void DetectRuns_FailsLoudly_WhenAnAdapterDropsOrDuplicatesRuns()
+    {
+        // A buggy adapter that double-starts or never releases would silently drop runs, and dropped
+        // runs UNDER-count flicker — which makes G4 pass spuriously. Both must throw.
+        var frames = new[]
+        {
+            Frame(100, 100, 1_000_000),
+            Frame(100, 100, 1_030_000),
+            Frame(100, 100, 1_060_000),
+        };
+
+        var doubleStarter = new BuggyRule();
+        doubleStarter.OnUpdate = (rule, point, ts) =>
+        {
+            rule.RaiseStarted(point, ts);
+            rule.RaiseStarted(point, ts);
+        };
+        InvalidOperationException? doubleStartEx = null;
+        try { FixationReplayGates.DetectRuns(frames, CandidateFor(doubleStarter)); }
+        catch (InvalidOperationException ex) { doubleStartEx = ex; }
+        Check.That(doubleStartEx).IsNotNull();
+
+        var neverReleases = new BuggyRule();
+        neverReleases.OnUpdate = (rule, point, ts) => rule.RaiseStarted(point, ts);
+        InvalidOperationException? noReleaseEx = null;
+        try { FixationReplayGates.DetectRuns(frames, CandidateFor(neverReleases)); }
+        catch (InvalidOperationException ex) { noReleaseEx = ex; }
+        Check.That(noReleaseEx).IsNotNull();
+    }
+
+    private static ReplayPipeline.Frame Frame(double x, double y, long timestampUs) =>
+        new(new EyeCtrl.Core.Models.GazePoint(x, y, timestampUs, true),
+            new EyeCtrl.Core.Models.PhysicalPoint(x, y),
+            new EyeCtrl.Core.Models.PhysicalPoint(x, y),
+            IsInGap: false);
+
+    private static FixationReplayGates.Candidate CandidateFor(IFixationRule rule) =>
+        new("buggy adapter", () => rule, () => new EyeCtrl.Core.Processing.OneEuroFilter());
+
+    private sealed class BuggyRule : IFixationRule
+    {
+        public Action<BuggyRule, EyeCtrl.Core.Models.PhysicalPoint, long>? OnUpdate { get; set; }
+        public event Action<EyeCtrl.Core.Models.PhysicalPoint, long>? FixationStarted;
+        public event Action<long>? FixationActivated;
+        public event Action<FixationRelease>? FixationReleased;
+
+        public void RaiseStarted(EyeCtrl.Core.Models.PhysicalPoint point, long timestampUs) =>
+            FixationStarted?.Invoke(point, timestampUs);
+
+        public void Update(EyeCtrl.Core.Models.PhysicalPoint point, long timestampUs, bool isValid) =>
+            OnUpdate?.Invoke(this, point, timestampUs);
+
+        public void CompleteStream() { }
     }
 
     // ── Verdicts ──────────────────────────────────────────────────────────────

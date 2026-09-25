@@ -230,4 +230,34 @@ public class ShippedLayoutFilesTests
             .Single(k => k.Output == "ß");
         Check.That(sharpS.ShiftOutput).IsEqualTo("ẞ");
     }
+
+    [Fact]
+    public void Azerty_LettersRow0_GainsAcc_WithZeroMovement()
+    {
+        var layout = Load("azerty.json");
+        var row0 = layout.SubLayouts["letters"].Rows[0];
+
+        // D3 zero-move: Win widens 1.2 -> 2.0 (consuming the 0.8 left margin), Acc (0.8)
+        // consumes the right margin; every letter keeps its exact position and the row hits
+        // the 12.8 standard. Pinned so a future edit cannot silently shift the letters.
+        Check.That(row0.Single(k => k.Label == "Win").Width).IsCloseTo(2.0, 0.01);
+        var acc = row0.Single(k => k.SpecialAction == "switchSub:accents");
+        Check.That(acc.Width).IsCloseTo(0.8, 0.01);
+        Check.That(row0.IndexOf(acc)).IsEqualTo(row0.Count - 1);
+        Check.That(row0.Sum(k => k.Width)).IsCloseTo(12.8, 0.01);
+    }
+
+    [Fact]
+    public void Azerty_LettersAccentKeys_GainCapitals()
+    {
+        var layout = Load("azerty.json");
+        var letters = layout.SubLayouts["letters"].Rows.SelectMany(r => r).ToList();
+
+        // D6 data pins (spec I6): the four letters accent keys carry their capitals IN THE
+        // FILE — deleting an attribute fails here, not just in a view-model echo.
+        Check.That(letters.Single(k => k.Output == "é").ShiftOutput).IsEqualTo("É");
+        Check.That(letters.Single(k => k.Output == "è").ShiftOutput).IsEqualTo("È");
+        Check.That(letters.Single(k => k.Output == "à").ShiftOutput).IsEqualTo("À");
+        Check.That(letters.Single(k => k.Output == "ç").ShiftOutput).IsEqualTo("Ç");
+    }
 }

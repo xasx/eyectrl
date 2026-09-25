@@ -8,37 +8,88 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 
 /// <summary>
-/// The fixation debate's acceptance gates, executable on any stream: fixation runs from the real
-/// <see cref="FixationDetector"/>, held episodes from the pinned I-DT definition, and the G1-G6
-/// metrics computed from the two.
+/// A fixation rule under measurement: the detector under test, driven sample by sample with the
+/// already-filtered, gap-resolved stream, reporting its onset, its activation and its release.
 /// <para>
-/// This is the ONE committed instrument the later tickets measure against. The debate's numbers came
-/// from throwaway harnesses in agent scratchpads that disagreed by 10-15 points on the centroid rule;
-/// a decision about the rule (ticket 3, R75 vs R60) needs a reproducible instrument, not two of them.
-/// Everything here is therefore pinned: the detector is the shipped class, the filter is the shipped
-/// default, and every threshold below is a debate constant with its source cited.
+/// This seam exists so the gate can score a NEW rule (ticket 3's running centroid) without being
+/// edited, while "today" stays today's code (<see cref="LegacyFixationRule"/> over the frozen
+/// <see cref="LegacyFixationDetector"/>). The harness never re-implements the rule: it reads these
+/// events only.
 /// </para>
 /// <para>
-/// What the replay cannot see: suppression, state, the dispatcher. The live engine feeds the detector
-/// only from FreeLook with <c>SuppressFixation</c> false, so the replay is the steady state the gates
-/// are about. Numbers derived here are labelled as replay numbers throughout.
+/// <see cref="Update"/> is called for every NON-GAP frame, mirroring
+/// <c>GazeEngine.ProcessGazePoint</c>'s <c>!isInGap</c> feed. <c>isValid</c> is the raw sample's
+/// validity, which that guard does not consult — the phantom-(0,0) behaviour of the frozen rule
+/// depends on seeing the same frames the engine feeds it.
+/// </para>
+/// </summary>
+public interface IFixationRule
+{
+    /// <summary>Fired when the rule reports a fixation onset: the activation point and the sample time.</summary>
+    event Action<PhysicalPoint, long>? FixationStarted;
+
+    /// <summary>Fired when the rule's activation clock completes: the sample time at completion.</summary>
+    event Action<long>? FixationActivated;
+
+    /// <summary>Fired when the rule releases a run it had reported: the last sample it credited, the
+    /// valid-time age it accrued, and whether the release was the gaze leaving (false = stream end).</summary>
+    event Action<FixationRelease>? FixationReleased;
+
+    /// <summary>Feeds one non-gap sample. <paramref name="timestampUs"/> is the raw sample's time.</summary>
+    void Update(PhysicalPoint point, long timestampUs, bool isValid);
+
+    /// <summary>Ends the stream, releasing a run still open at the last fed sample.</summary>
+    void CompleteStream();
+}
+
+/// <summary>What a rule says when it releases a run.</summary>
+/// <param name="LastCreditedUs">Timestamp of the last sample the rule credited as part of the run.</param>
+/// <param name="CreditedAgeUs">Valid-time age accrued from the run's anchor to that sample.</param>
+/// <param name="EndedByLeave">True when gaze left; false when the stream ended while the run was open.</param>
+public readonly record struct FixationRelease(long LastCreditedUs, long CreditedAgeUs, bool EndedByLeave);
+
+/// <summary>
+/// The fixation debate's acceptance gates, executable on any stream: fixation runs from a rule under
+/// test, held episodes from the pinned I-DT definition, and the G1-G6 metrics computed from the two.
+/// <para>
+/// This is the ONE committed instrument the later tickets measure against. Everything is pinned: the
+/// I-DT definition, the gate bars, and the legacy rule (<see cref="TodayAtRadius"/>) that "today"
+/// means.
+/// </para>
+/// <para>
+/// Why the replay re-creates the engine's feed (<c>if (!SuppressFixation &amp;&amp; !isInGap)</c>) instead
+/// of driving the real <c>GazeEngine</c>: the engine keeps its fixation rule private, publishes
+/// <c>CursorMoved</c> BEFORE it updates the detector, and exposes no anchor/re-anchor timestamps, so a
+/// harness on its public surface cannot attribute a sample to a run without re-deriving the rule — the
+/// re-implementation this seam exists to avoid, only in a harder place. Instead
+/// <c>ReplaySliceFidelityTests</c> pins the slice to the engine: the same stream through both must
+/// produce the same filtered point and gap flag on every sample, and the rule seam
+/// (<see cref="IFixationRule"/>) is what ticket 3 plugs its new rule into. What replay cannot see:
+/// suppression, state, the dispatcher. The live engine feeds the detector in every non-paused state
+/// with <c>SuppressFixation</c> false, so the replay is that steady state.
 /// </para>
 /// </summary>
 public static class FixationReplayGates
 {
     // ── The pinned definition ─────────────────────────────────────────────────
-    // Every constant below comes from the final synthesis or the designer's cross-review; none is a
-    // tuning knob. A change to one is a change to the agreed measurement, so it belongs in the ticket
-    // that argues for it, not in this file.
+    // Every constant below comes from the final synthesis, the designer's cross-review, or the
+    // fixup's refinement of them; none is a tuning knob.
 
-    /// <summary>Fixation-detection time (<c>DwellSettings</c> default). The activation clock starts only when a fixation is reported.</summary>
+    /// <summary>Fixation-detection time (<c>DwellSettings</c> default). The activation clock starts only when a run is reported.</summary>
     public const int FixationDetectionMs = 300;
 
-    /// <summary>Activation-button dwell (<c>DwellSettings</c> default). A run is "activatable" when it survives this long after its onset event.</summary>
+    /// <summary>Activation-button dwell (<c>DwellSettings</c> default). A run is "activatable" when its age reaches fix + this.</summary>
     public const int ActivationButtonDwellMs = 700;
 
     /// <summary>Keyboard-key dwell (<c>DwellSettings</c> default) — the M2 "keyboard-length hold" threshold.</summary>
     public const int KeyboardKeyDwellMs = 450;
+
+    /// <summary>
+    /// Per-sample credit cap for the valid-time age: about 2 frames at the recording's 33 Hz, so a
+    /// dropout can never credit more than a sample or two. Ticket 3 pins the production constant; the
+    /// harness matches "about 2 frames" and records the baseline it produced.
+    /// </summary>
+    public const int AgeCreditCapMs = 66;
 
     /// <summary>
     /// The served@place bound in physical pixels: how far the activation point may sit from the held
@@ -48,7 +99,8 @@ public static class FixationReplayGates
 
     /// <summary>
     /// How late after a held episode's start its serving fixation may still have started. One second of
-    /// episode plus 300 ms of detection slack; the debate's "within 1.3 s".
+    /// episode plus 300 ms of detection slack; the debate's "within 1.3 s". This bounds SERVICE only —
+    /// G3's idle-trigger test uses the episode span instead (see <see cref="MeasureAt"/>).
     /// </summary>
     public const int ServedOnsetWindowMs = 1300;
 
@@ -63,9 +115,7 @@ public static class FixationReplayGates
 
     /// <summary>
     /// A gap longer than this breaks an I-DT episode. Shorter dropouts are skipped, not evidence of
-    /// leaving, matching the 500 ms pause rule the debate adopted for fixation age. On the 2026-09-12
-    /// recording no gap reaches this, so it changes nothing there; it exists so a lost-eyes stretch can
-    /// never be stitched into one "hold".
+    /// leaving, matching the 500 ms pause rule the debate adopted for fixation age.
     /// </summary>
     public const int EpisodeGapBreakMs = 500;
 
@@ -94,48 +144,55 @@ public static class FixationReplayGates
 
     // ── Inputs and measured rows ──────────────────────────────────────────────
 
-    /// <summary>
-    /// One candidate rule: a fixation radius, a filter factory and a gap budget. The detector is always
-    /// the real <see cref="FixationDetector"/> — only its radius varies between candidates.
-    /// </summary>
+    /// <summary>One candidate rule under measurement: a rule factory and a filter factory.</summary>
     /// <param name="Name">Label used in the report.</param>
-    /// <param name="RadiusPixels">Fixed radius of the shipped first-sample-anchor detector, in physical pixels.</param>
+    /// <param name="CreateRule">Factory for a FRESH rule; replay must never reuse rule state across runs.</param>
     /// <param name="CreateFilter">Factory for a FRESH filter; replay must never reuse filter state across runs.</param>
     /// <param name="MaxGapMs">The <c>MaxGapInterpolationMs</c> this candidate runs with.</param>
     public sealed record Candidate(
         string Name,
-        double RadiusPixels,
+        Func<IFixationRule> CreateRule,
         Func<IGazeFilter> CreateFilter,
         int MaxGapMs = MaxGapInterpolationMs);
 
     /// <summary>
-    /// Today's shipped detector at <paramref name="radiusPixels"/>: the first-sample anchor with the
-    /// retuned One-Euro filter (<c>OneEuroFilter</c>'s defaults) and the shipped gap budget.
+    /// Today's shipped rule at <paramref name="radiusPixels"/>: the frozen first-sample-anchor detector
+    /// with today's wall-clock onset, plus the retuned One-Euro filter and the shipped gap budget.
     /// </summary>
     public static Candidate TodayAtRadius(double radiusPixels) =>
-        new($"today's rule, r{radiusPixels:0}", radiusPixels, () => new OneEuroFilter());
+        new($"today's rule, r{radiusPixels:0}",
+            () => new LegacyFixationRule(radiusPixels),
+            () => new OneEuroFilter());
 
     /// <summary>Today's rule at r50 — the radius the user's eye sessions actually ran (skeptic's log reconstruction).</summary>
     public static Candidate TodayR50 { get; } = TodayAtRadius(50);
 
+    /// <summary>Today's rule at r75 — ticket 3's candidate radius, and the middle point of the sweep.</summary>
+    public static Candidate TodayR75 { get; } = TodayAtRadius(75);
+
     /// <summary>Today's rule at r90 — the value in <c>settings.json</c> at the last checkpoint.</summary>
     public static Candidate TodayR90 { get; } = TodayAtRadius(90);
 
-    /// <summary>One fixation run, exactly as the real detector reported it.</summary>
-    /// <param name="Anchor">The activation point today: the filtered point of the anchor sample, reported by <c>FixationStarted</c>.</param>
-    /// <param name="OnsetUs">Timestamp of the sample on which <c>FixationStarted</c> fired — when the button would appear.</param>
-    /// <param name="EndUs">Timestamp of the sample on which <c>FixationEnded</c> fired, or the last fed sample when the stream ended first.</param>
-    /// <param name="EndedByLeave">False when the stream ended while the run was still open; such a run never produced a Fixation→FreeLook transition.</param>
-    public sealed record FixationRun(PhysicalPoint Anchor, long OnsetUs, long EndUs, bool EndedByLeave)
+    /// <summary>One fixation run, exactly as the rule reported it.</summary>
+    /// <param name="Anchor">The activation point: the point the rule reported at onset.</param>
+    /// <param name="OnsetUs">Timestamp of the sample on which the rule reported onset — when the button would appear.</param>
+    /// <param name="EndUs">Timestamp of the last sample the rule credited to the run.</param>
+    /// <param name="CreditedAgeUs">Valid-time age accrued from the run's anchor to <see cref="EndUs"/>.</param>
+    /// <param name="ActivationUs">Timestamp at which the rule's activation clock completed, or null.</param>
+    /// <param name="EndedByLeave">False when the stream ended while the run was still open.</param>
+    public sealed record FixationRun(
+        PhysicalPoint Anchor,
+        long OnsetUs,
+        long EndUs,
+        long CreditedAgeUs,
+        long? ActivationUs,
+        bool EndedByLeave)
     {
-        /// <summary>How long the dwell window stayed open after the onset — the button's usable hold, in milliseconds.</summary>
-        public double HoldAfterOnsetMs => (EndUs - OnsetUs) / 1000.0;
+        /// <summary>True when the rule reported activation — the M1 "activatable fixation".</summary>
+        public bool IsActivatable => ActivationUs is not null;
 
-        /// <summary>True when the run survives <see cref="ActivationButtonDwellMs"/> past its onset — the M1 "activatable fixation".</summary>
-        public bool IsActivatable => HoldAfterOnsetMs >= ActivationButtonDwellMs;
-
-        /// <summary>True when the run survives <see cref="KeyboardKeyDwellMs"/> past its onset — the M2 "keyboard-length hold".</summary>
-        public bool IsKeyboardLength => HoldAfterOnsetMs >= KeyboardKeyDwellMs;
+        /// <summary>True when the credited age reaches the keyboard-length threshold — M2 (G5).</summary>
+        public bool IsKeyboardLength => CreditedAgeUs >= (FixationDetectionMs + KeyboardKeyDwellMs) * 1000L;
     }
 
     /// <summary>A held episode under the pinned I-DT definition: one low-dispersion run lasting at least one second.</summary>
@@ -146,8 +203,8 @@ public static class FixationReplayGates
     /// <param name="BoxDiagonalPx">The episode's bounding-box diagonal — the dispersion it was held within.</param>
     public sealed record HeldEpisode(long StartUs, long EndUs, PhysicalPoint Median, int SampleCount, double BoxDiagonalPx)
     {
-        /// <summary>Episode duration in seconds; the I-DT definition requires at least one.</summary>
-        public double DurationSeconds => (EndUs - StartUs) / 1_000_000.0;
+        /// <summary>Whether a timestamp falls inside the episode's own span — G3's containment test.</summary>
+        public bool Contains(long timestampUs) => timestampUs >= StartUs && timestampUs <= EndUs;
     }
 
     /// <summary>The gate numbers at one dispersion threshold for one candidate.</summary>
@@ -155,7 +212,7 @@ public static class FixationReplayGates
     /// <param name="EpisodeCount">Held episodes at this dispersion.</param>
     /// <param name="ServedEpisodes">Episodes with an activatable fixation in the onset window at ≤ <see cref="ServedDistancePx"/> from the median.</param>
     /// <param name="ElsewhereEpisodes">Episodes whose only in-window activatable fixations are misplaced.</param>
-    /// <param name="MidasRuns">Activatable fixations that start in no held episode — the idle-trigger proxy.</param>
+    /// <param name="MidasRuns">Activatable fixations that start in no held episode span — the idle-trigger proxy.</param>
     public sealed record GateRow(
         double DispersionPx,
         int EpisodeCount,
@@ -184,17 +241,6 @@ public static class FixationReplayGates
     }
 
     /// <summary>Everything one candidate produced on one stream.</summary>
-    /// <param name="Candidate">The candidate label and rule.</param>
-    /// <param name="SampleCount">Samples in the stream.</param>
-    /// <param name="DurationSeconds">Stream duration from first to last timestamp.</param>
-    /// <param name="InvalidFraction">Share of samples the tracker marked invalid, for context.</param>
-    /// <param name="Runs">Every fixation run the real detector reported.</param>
-    /// <param name="ActivatableRuns">Runs surviving <see cref="ActivationButtonDwellMs"/> past onset (M1).</param>
-    /// <param name="KeyboardRuns">Runs surviving <see cref="KeyboardKeyDwellMs"/> past onset (M2).</param>
-    /// <param name="EndedRuns">Runs that produced a Fixation→FreeLook transition (M4).</param>
-    /// <param name="TimeToFirstFixationSeconds">Onset of the first run minus the stream's first timestamp (M3), or null when no run formed.</param>
-    /// <param name="At150">Gate numbers at D150.</param>
-    /// <param name="At200">Gate numbers at D200.</param>
     public sealed record FixationAnalysis(
         Candidate Candidate,
         int SampleCount,
@@ -223,17 +269,53 @@ public static class FixationReplayGates
         /// <summary>G6: whether the first fixation was reported within the bar.</summary>
         public bool TimeToFirstFixationPasses =>
             TimeToFirstFixationSeconds is { } ttf && ttf <= G6BarSeconds;
-
-        /// <summary>Today's rule at r90 must fail G1 on the debate's recording — the "new gates fail on old code" guard.</summary>
-        public bool FailsPrimaryGate => !At150.ServedPasses || !At200.ServedPasses;
     }
+
+    /// <summary>One gate's verdict. <see cref="Passed"/> is null when the gate cannot be evaluated.</summary>
+    public sealed record GateVerdict(string Gate, bool? Passed, string Detail);
+
+    /// <summary>One report row: what was measured, and the today's-rule analysis G4/G5 compare against.</summary>
+    public sealed record ReportRow(FixationAnalysis Analysis, FixationAnalysis? Baseline);
 
     // ── Replay ────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Replays a raw stream through the real gap interpolator + filter, then through the real
-    /// <see cref="FixationDetector"/> at the candidate's radius, and computes the gate numbers.
-    /// Deterministic: no clock, no device, no UI.
+    /// Replays a parsed recording through the real gap interpolator + filter, then through the
+    /// candidate's rule, and computes the gate numbers. Validates the recording for replay, waiving
+    /// ONLY the missing-trailer refusal (see <see cref="EnsureReplayable"/>).
+    /// </summary>
+    public static FixationAnalysis Analyze(
+        GazeRecordingFile.Recording recording,
+        Candidate candidate,
+        double servedDistancePx = ServedDistancePx)
+    {
+        EnsureReplayable(recording);
+        return Analyze(recording.Samples, candidate, recording.Header.CalibrationTransform, servedDistancePx);
+    }
+
+    /// <summary>
+    /// Validates a parsed recording for replay, waiving ONLY the missing-trailer refusal: the user's
+    /// recording was rotated while the app ran, so it has no closing trailer, and its samples are
+    /// still exactly what the pipeline saw. Every other refusal stays: malformed lines, dropped
+    /// samples and an un-serializable calibration all mean the file no longer describes that stream.
+    /// </summary>
+    public static void EnsureReplayable(GazeRecordingFile.Recording recording)
+    {
+        ArgumentNullException.ThrowIfNull(recording);
+        if (recording.MalformedLines > 0)
+            throw new InvalidOperationException(
+                $"This gaze recording cannot be analyzed: {recording.MalformedLines} line(s) could not be parsed, so the file is truncated or corrupt.");
+        if (recording.Trailer is { DroppedSamples: > 0 } trailer)
+            throw new InvalidOperationException(
+                $"This gaze recording cannot be analyzed: the recorder dropped {trailer.DroppedSamples} of {trailer.RecordedSamples} samples, so the holes are indistinguishable from tracker dropouts.");
+        if (recording.Header.CalibrationActive && recording.Header.CalibrationTransform is null)
+            throw new InvalidOperationException(
+                "This gaze recording cannot be analyzed: the session ran with a calibration whose transform the recorder could not serialize, so replay cannot reproduce the corrected stream.");
+    }
+
+    /// <summary>
+    /// Replays a raw stream through the real gap interpolator + filter, then through the candidate's
+    /// rule, and computes the gate numbers. Deterministic: no clock, no device, no UI.
     /// </summary>
     /// <param name="samples">Raw samples, exactly as recorded.</param>
     /// <param name="candidate">The candidate rule under test.</param>
@@ -261,7 +343,7 @@ public static class FixationReplayGates
         double minutes = durationSeconds / 60.0;
         int invalid = samples.Count(s => !s.IsValid);
 
-        var runs = DetectRuns(frames, candidate.RadiusPixels);
+        var runs = DetectRuns(frames, candidate);
         var activatable = runs.Where(r => r.IsActivatable).ToList();
 
         var episodes150 = ExtractHeldEpisodes(frames, Dispersion150Px);
@@ -286,55 +368,41 @@ public static class FixationReplayGates
     }
 
     /// <summary>
-    /// Feeds the non-gap filtered samples through a fresh real <see cref="FixationDetector"/> and
-    /// captures its events as runs. Mirrors <c>GazeEngine.ProcessGazePoint</c>: gap-held samples are
-    /// skipped (the live engine's <c>!isInGap</c> guard), and nothing suppresses detection.
+    /// Drives a fresh candidate rule with every non-gap filtered sample (the engine's feed) and
+    /// captures its events as runs. Mirrors <c>GazeEngine.ProcessGazePoint</c>:
+    /// <c>if (!SuppressFixation &amp;&amp; !isInGap)</c>, with no suppression in a replay.
     /// </summary>
     public static List<FixationRun> DetectRuns(
         IReadOnlyList<ReplayPipeline.Frame> frames,
-        double radiusPixels,
-        int fixationMs = FixationDetectionMs)
+        Candidate candidate)
     {
-        var detector = new FixationDetector(radiusPixels, fixationMs);
+        ArgumentNullException.ThrowIfNull(frames);
+        ArgumentNullException.ThrowIfNull(candidate);
+
+        var rule = candidate.CreateRule();
         var runs = new List<FixationRun>();
+        RunBuilder? open = null;
 
-        long currentUs = 0;
-        PhysicalPoint anchor = default;
-        long onsetUs = 0;
-        bool open = false;
-
-        detector.FixationStarted += point =>
+        rule.FixationStarted += (point, timestampUs) => open = new RunBuilder(point, timestampUs);
+        rule.FixationActivated += timestampUs => open?.Activate(timestampUs);
+        rule.FixationReleased += release =>
         {
-            anchor = point;
-            onsetUs = currentUs;
-            open = true;
-        };
-        detector.FixationEnded += () =>
-        {
-            if (open)
+            if (open is not null)
             {
-                runs.Add(new FixationRun(anchor, onsetUs, currentUs, EndedByLeave: true));
-                open = false;
+                runs.Add(open.Build(release));
+                open = null;
             }
         };
 
-        long lastFedUs = 0;
-        bool fed = false;
         foreach (var frame in frames)
         {
             if (frame.IsInGap) continue;
-            currentUs = frame.Raw.TimestampMicroseconds;
-            detector.Update(frame.Filtered, currentUs);
-            lastFedUs = currentUs;
-            fed = true;
+            rule.Update(frame.Filtered, frame.Raw.TimestampMicroseconds, frame.Raw.IsValid);
         }
 
-        // A run still open at the end of the stream has no FixationEnded: its hold is knowable up to
-        // the last sample it was fed, and it must not be silently dropped — a long final hold is a
-        // real hold. It carries EndedByLeave: false so it cannot be counted as a transition.
-        if (open && fed)
-            runs.Add(new FixationRun(anchor, onsetUs, lastFedUs, EndedByLeave: false));
-
+        // A run still open at the end of the stream has no leaving sample: the rule releases it with
+        // whichever samples it did credit, so a long final hold is not silently dropped.
+        rule.CompleteStream();
         return runs;
     }
 
@@ -429,8 +497,10 @@ public static class FixationReplayGates
     }
 
     /// <summary>
-    /// The served/elsewhere/Midas numbers at one dispersion: an activatable fixation is associated with
-    /// an episode when its onset falls in [episode start, episode start + <see cref="ServedOnsetWindowMs"/>].
+    /// The served/elsewhere/Midas numbers at one dispersion. Service associates an activatable fixation
+    /// with an episode by the ONSET WINDOW [episode start, start + <see cref="ServedOnsetWindowMs"/>];
+    /// G3's idle test asks whether the onset falls in the episode's OWN SPAN, which is the debate's
+    /// definition and does not penalise a rule that holds longer inside an episode.
     /// </summary>
     private static GateRow MeasureAt(
         IReadOnlyList<HeldEpisode> episodes,
@@ -454,30 +524,75 @@ public static class FixationReplayGates
             else if (inWindow) elsewhere++;
         }
 
-        int midas = activatable.Count(run => !episodes.Any(ep => InOnsetWindow(run.OnsetUs, ep)));
+        int midas = activatable.Count(run => !episodes.Any(episode => episode.Contains(run.OnsetUs)));
         return new GateRow(dispersionPx, episodes.Count, served, elsewhere, midas, minutes);
     }
 
     private static bool InOnsetWindow(long onsetUs, HeldEpisode episode) =>
         onsetUs >= episode.StartUs && onsetUs <= episode.StartUs + (ServedOnsetWindowMs * 1000L);
 
+    // ── Verdicts ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Evaluates every declared gate for a candidate. G1/G2/G6 need only the candidate; G4 (flicker
+    /// ≤ +25 %) and G5 (keyboard holds not lower) compare against <paramref name="baseline"/> — the
+    /// frozen legacy rule at the SAME radius — and are reported as not-evaluated when it is null.
+    /// </summary>
+    public static List<GateVerdict> EvaluateGates(FixationAnalysis candidate, FixationAnalysis? baseline)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        var ci = CultureInfo.InvariantCulture;
+        var verdicts = new List<GateVerdict>
+        {
+            new("G1 D150", candidate.At150.ServedPasses,
+                $"{candidate.At150.ServedShare.ToString("P0", ci)} vs bar {candidate.At150.ServedBar.ToString("P0", ci)}"),
+            new("G1 D200", candidate.At200.ServedPasses,
+                $"{candidate.At200.ServedShare.ToString("P0", ci)} vs bar {candidate.At200.ServedBar.ToString("P0", ci)}"),
+            new("G2 D150", candidate.At150.ElsewherePasses,
+                $"{candidate.At150.ElsewhereShare.ToString("P0", ci)} vs cap {G2Bar.ToString("P0", ci)}"),
+            new("G2 D200", candidate.At200.ElsewherePasses,
+                $"{candidate.At200.ElsewhereShare.ToString("P0", ci)} vs cap {G2Bar.ToString("P0", ci)}"),
+        };
+
+        if (baseline is null)
+        {
+            verdicts.Add(new("G4", null, "no baseline supplied — G4 compares against today's rule at the same R"));
+            verdicts.Add(new("G5", null, "no baseline supplied — G5 compares against today's rule at the same R"));
+        }
+        else
+        {
+            double cap = G4FlickerCap * baseline.FlickerPerMinute;
+            verdicts.Add(new("G4", candidate.FlickerPerMinute <= cap,
+                $"{candidate.FlickerPerMinute.ToString("0.0", ci)}/min vs cap {cap.ToString("0.0", ci)}/min (=+{((G4FlickerCap - 1) * 100):0}% of today)"));
+            verdicts.Add(new("G5", candidate.KeyboardPerMinute >= baseline.KeyboardPerMinute,
+                $"{candidate.KeyboardPerMinute.ToString("0.0", ci)}/min vs today {baseline.KeyboardPerMinute.ToString("0.0", ci)}/min"));
+        }
+
+        verdicts.Add(new("G6", candidate.TimeToFirstFixationPasses,
+            candidate.TimeToFirstFixationSeconds is { } ttf
+                ? $"{ttf.ToString("0.00", ci)}s vs bar {G6BarSeconds.ToString("0.0", ci)}s"
+                : "no fixation formed"));
+        return verdicts;
+    }
+
     // ── Report ────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Renders the baseline table: every candidate at both dispersions, with the gate verdicts inline.
-    /// One table, both metric families — the format the debate agreed on.
+    /// Renders the table: every row at both dispersions, plus its gate verdicts. Each row carries its
+    /// own baseline (the frozen legacy rule at the same radius) for G4/G5; a baseline-table row points
+    /// at itself, which is the honest self-comparison.
     /// </summary>
     /// <param name="inputLabel">What was replayed (path, or the fixture's name).</param>
-    /// <param name="analyses">One analysis per candidate, in report order.</param>
-    public static string BuildReport(string inputLabel, IReadOnlyList<FixationAnalysis> analyses)
+    /// <param name="rows">One row per candidate, in report order.</param>
+    public static string BuildReport(string inputLabel, IReadOnlyList<ReportRow> rows)
     {
-        ArgumentNullException.ThrowIfNull(analyses);
+        ArgumentNullException.ThrowIfNull(rows);
         var ci = CultureInfo.InvariantCulture;
         var sb = new StringBuilder();
         sb.Append("Fixation replay gates — ").AppendLine(inputLabel);
-        if (analyses.Count > 0)
+        if (rows.Count > 0)
         {
-            var first = analyses[0];
+            var first = rows[0].Analysis;
             sb.Append("  stream: ")
               .Append(first.SampleCount.ToString(ci)).Append(" samples, ")
               .Append(first.DurationSeconds.ToString("0.0", ci)).Append(" s (")
@@ -488,25 +603,32 @@ public static class FixationReplayGates
         sb.AppendLine();
         sb.AppendLine("  candidate              D    episodes  served  G1      bar   G2      midas/m  M1/m   M2/m   M4/m   TTF(s)");
         sb.AppendLine("  ---------------------  ---  --------  ------  ------  ----  ------  -------  -----  -----  -----  ------");
-        foreach (var a in analyses)
+        foreach (var row in rows)
         {
-            AppendRow(sb, a, a.At150);
-            AppendRow(sb, a, a.At200);
+            AppendRow(sb, row.Analysis, row.Analysis.At150);
+            AppendRow(sb, row.Analysis, row.Analysis.At200);
         }
 
-        // The "new gates fail on old code" guard, stated in the report rather than left to the reader.
         sb.AppendLine();
-        foreach (var a in analyses)
+        sb.Append("  G3 target: <= ").Append(G3TargetPerMinute.ToString("0.0", ci)).AppendLine("/min (reported, not gating)");
+        foreach (var row in rows)
         {
-            sb.Append("  ").Append(a.Candidate.Name).Append(": G1 ")
-              .Append(a.At150.ServedPasses ? "passes" : "FAILS").Append(" at D150 (")
-              .Append(a.At150.ServedShare.ToString("P0", ci)).Append(" vs ")
-              .Append(a.At150.ServedBar.ToString("P0", ci)).Append("), ")
-              .Append(a.At200.ServedPasses ? "passes" : "FAILS").Append(" at D200 (")
-              .Append(a.At200.ServedShare.ToString("P0", ci)).Append(" vs ")
-              .Append(a.At200.ServedBar.ToString("P0", ci)).AppendLine(")");
+            sb.Append("  ").Append(row.Analysis.Candidate.Name).AppendLine(":");
+            foreach (var verdict in EvaluateGates(row.Analysis, row.Baseline))
+            {
+                sb.Append("    ").Append(verdict.Gate.PadRight(8))
+                  .Append(verdict.Passed switch { true => "pass", false => "FAIL", null => "n/a " })
+                  .Append("  ").AppendLine(verdict.Detail);
+            }
         }
         return sb.ToString();
+    }
+
+    /// <summary>Renders the table with one shared baseline for G4/G5, or none.</summary>
+    public static string BuildReport(string inputLabel, IReadOnlyList<FixationAnalysis> analyses, FixationAnalysis? baseline = null)
+    {
+        ArgumentNullException.ThrowIfNull(analyses);
+        return BuildReport(inputLabel, analyses.Select(a => new ReportRow(a, baseline)).ToList());
     }
 
     private static void AppendRow(StringBuilder sb, FixationAnalysis a, GateRow row)
@@ -525,5 +647,112 @@ public static class FixationReplayGates
           .Append("  ").Append(a.FlickerPerMinute.ToString("0.0", ci).PadLeft(5))
           .Append("  ").Append((a.TimeToFirstFixationSeconds?.ToString("0.00", ci) ?? "n/a").PadLeft(6))
           .AppendLine();
+    }
+
+    private sealed class RunBuilder(PhysicalPoint anchor, long onsetUs)
+    {
+        private long? _activationUs;
+
+        public void Activate(long timestampUs) => _activationUs ??= timestampUs;
+
+        public FixationRun Build(FixationRelease release) =>
+            new(anchor, onsetUs, release.LastCreditedUs, release.CreditedAgeUs, _activationUs, release.EndedByLeave);
+    }
+}
+
+/// <summary>
+/// Today's rule under ticket 3's clock: the frozen <see cref="LegacyFixationDetector"/>'s geometry
+/// (first-sample anchor, one sample out ends it) plus the valid-time age ledger ticket 3 defines —
+/// per-sample dt capped at <see cref="FixationReplayGates.AgeCreditCapMs"/>, accrued only on valid
+/// in-radius samples, to the LAST in-radius sample rather than the sample that left. This is the
+/// refined measurement the fixup pinned: the debate's harnesses stopped the hold one frame late.
+/// </summary>
+public sealed class LegacyFixationRule : IFixationRule
+{
+    private readonly LegacyFixationDetector _detector;
+    private readonly long _activationAgeUs;
+    private readonly long _maxDtCreditUs;
+
+    private long _anchorUs;
+    private long _previousFedUs;
+    private long _creditedUs;
+    private long _lastCreditedUs;
+    private long _currentTs;
+    private bool _onsetFired;
+    private bool _activated;
+
+    /// <summary>Creates the rule at a radius, with the pinned detection time and credit cap.</summary>
+    public LegacyFixationRule(
+        double radiusPixels,
+        int fixationMs = FixationReplayGates.FixationDetectionMs,
+        int ageCreditCapMs = FixationReplayGates.AgeCreditCapMs)
+    {
+        _detector = new LegacyFixationDetector(radiusPixels, fixationMs);
+        _activationAgeUs = (fixationMs + FixationReplayGates.ActivationButtonDwellMs) * 1000L;
+        _maxDtCreditUs = ageCreditCapMs * 1000L;
+
+        _detector.FixationStarted += point =>
+        {
+            _onsetFired = true;
+            FixationStarted?.Invoke(point, _currentTs);
+        };
+        _detector.FixationEnded += () =>
+        {
+            if (_onsetFired)
+                FixationReleased?.Invoke(new FixationRelease(_lastCreditedUs, _creditedUs, EndedByLeave: true));
+            _onsetFired = false;
+        };
+    }
+
+    /// <inheritdoc />
+    public event Action<PhysicalPoint, long>? FixationStarted;
+
+    /// <inheritdoc />
+    public event Action<long>? FixationActivated;
+
+    /// <inheritdoc />
+    public event Action<FixationRelease>? FixationReleased;
+
+    /// <inheritdoc />
+    public void Update(PhysicalPoint point, long timestampUs, bool isValid)
+    {
+        _currentTs = timestampUs;
+        long previousAnchorUs = _detector.AnchorTimestamp;
+
+        _detector.Update(point, timestampUs);
+
+        if (_detector.AnchorTimestamp != previousAnchorUs)
+        {
+            // A new run: first sample of the stream, or the sample that ended the previous run. The
+            // anchor sample itself credits zero age; a new run starts clean.
+            _anchorUs = _detector.AnchorTimestamp;
+            _creditedUs = 0;
+            _lastCreditedUs = _anchorUs;
+            _onsetFired = false;
+            _activated = false;
+        }
+        else if (isValid && timestampUs > _anchorUs)
+        {
+            long dt = timestampUs - _previousFedUs;
+            if (dt > 0)
+            {
+                _creditedUs += Math.Min(dt, _maxDtCreditUs);
+                _lastCreditedUs = timestampUs;
+                if (!_activated && _creditedUs >= _activationAgeUs)
+                {
+                    _activated = true;
+                    FixationActivated?.Invoke(timestampUs);
+                }
+            }
+        }
+
+        _previousFedUs = timestampUs;
+    }
+
+    /// <inheritdoc />
+    public void CompleteStream()
+    {
+        if (_onsetFired)
+            FixationReleased?.Invoke(new FixationRelease(_lastCreditedUs, _creditedUs, EndedByLeave: false));
     }
 }

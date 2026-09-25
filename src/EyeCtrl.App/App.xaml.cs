@@ -279,9 +279,10 @@ public partial class App : Application
             // startup band show bypasses ToolbarVisibilityAdapter, so on --paused/startPaused
             // launches the strip's show+raise lands here, on top of the already-shown band.
             // Moving this above ShowOverlays hides the strip under the band until the next
-            // band transition.
-            if (settings.General.StartPaused || IsPausedLaunch)
-                im.TogglePause();
+            // band transition. The same call also emits the startup provenance line (which
+            // source — --paused, general.startPaused, neither — caused the state).
+            PauseLaunchProvenance.Apply(IsPausedLaunch, settings.General.StartPaused, im,
+                line => Log.Information("{PauseState}", line));
 
             gazeEngine.Start();
 

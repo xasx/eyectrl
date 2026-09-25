@@ -78,13 +78,26 @@ public partial class ActivationButtonWindow : OverlayWindow, IActivationButtonOv
     public new void Hide()
     {
         var fadeOut = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(FadeOutDurationMs));
-        fadeOut.Completed += (_, _) => base.Hide();
+        fadeOut.Completed += (_, _) =>
+        {
+            base.Hide();
+            // Torn down for the whole show half of the cycle: drop the radius too, so nothing stale
+            // can be presented if the next show is late or its first frame is not pumped.
+            UpdateDwellProgress(0);
+        };
         BeginAnimation(OpacityProperty, fadeOut);
     }
 
     public void HideImmediate()
     {
+        // The fade-in is a HoldEnd animation, and a held animation outranks the base Opacity written
+        // here — without clearing it first, the window would stay fully opaque while "hidden" and a
+        // re-show could present the previous halo (its last radius included) for a frame at the new
+        // gaze point. Clearing it makes Opacity = 0 take effect, and the base value is what a
+        // pump-less read observes.
+        BeginAnimation(OpacityProperty, null);
         Opacity = 0;
+        UpdateDwellProgress(0);
         base.Hide();
     }
 

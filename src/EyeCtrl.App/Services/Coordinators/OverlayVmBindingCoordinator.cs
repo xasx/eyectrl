@@ -155,10 +155,13 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 if (Context.ActivationVM.IsVisible)
                 {
                     actionMenu.Hide();
+                    // Centred on the pin, sized for the radius the RULE is running with: the adapter
+                    // reads the detector's effective radius at onset and carries it on the show message.
+                    // Positioned BEFORE showing — the other order presents the previous halo at the new
+                    // gaze point for a frame.
+                    activationButton.ShowAt(
+                        Context.ActivationVM.Position, Context.ActivationVM.FixationRadiusPixels);
                     activationButton.Show();
-                    // Centred on the pin, sized for the rule's radius: the dwell target and the drawn
-                    // feedback are the same point, so looking at the progress no longer cancels the hold.
-                    activationButton.ShowAt(Context.ActivationVM.Position, Context.Settings.Dwell.FixationRadiusPixels);
                 }
                 else
                 {

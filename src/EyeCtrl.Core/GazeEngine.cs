@@ -432,10 +432,17 @@ public class GazeEngine : IDisposable
     /// nothing.</summary>
     internal int InterpolatorRebuildCount;
 
+    /// <summary>
+    /// The live fixation rule's radius in physical pixels: the adaptation-effective value the detector is
+    /// actually running with, not the raw setting. The app reads it at fixation onset to size the drawn
+    /// halo, so the hold radius it marks is the radius the dwell is counted within.
+    /// </summary>
+    public double EffectiveFixationRadiusPixels => _fixationDetector.RadiusPixels;
+
     /// <summary>Test seam (<c>InternalsVisibleTo</c> → EyeCtrl.Core.Tests): the live fixation detector's
     /// configured radius in physical pixels. The units check pins it equal to the setting at ScaleX 2.0 —
-    /// the radius is already physical and must never be DPI-converted. Production reads nothing.</summary>
-    internal double FixationRadiusPixelsForTest => _fixationDetector.RadiusPixels;
+    /// the radius is already physical and must never be DPI-converted.</summary>
+    internal double FixationRadiusPixelsForTest => EffectiveFixationRadiusPixels;
 
     /// <summary>Test seam (<c>InternalsVisibleTo</c> → EyeCtrl.Core.Tests): the live fixation detector's
     /// effective activation dwell, so the effective-dwell routing can be pinned end-to-end (a provider fill

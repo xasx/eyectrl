@@ -70,7 +70,7 @@ public class ViewModelDisposableTests
         var vm = new ActivationButtonViewModel(messenger);
 
         // Verify VM receives messages before disposal
-        messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(100, 200)));
+        messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(100, 200), 75));
         Check.That(vm.IsVisible).IsTrue();
 
         // Dispose the ViewModel

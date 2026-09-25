@@ -10,15 +10,25 @@ using EyeCtrl.Core.Processing;
 /// The primary convention is the ticket's 15 % → 80 % one: a frame counts as STILL when the ring's
 /// drawn position is within <see cref="StillTolerancePx"/> of where it was on the PREVIOUS sample —
 /// the eye is holding, and the ring is not drawing the hold's own jitter. On the frozen recording
-/// that reads 13.9 % for the following widget and 77.7 % for the pinned one, which is the comparison
-/// the ticket asks for. A secondary row uses the advocate's 10 DIP / 200 ms convention (20 px at
-/// ScaleX 2.0) so the number can be read against the debate's own table.
+/// that reads 13.9 % for the following widget and 77.7 % for the pinned one.
 /// </para>
 ///
 /// <para>
-/// The fixture row runs in CI. The real-recording row is env-gated like every other replay gate
-/// (<c>EYECTRL_GAZE_RECORDING</c> points at the frozen snapshot copy; the file is not in the repo),
-/// and prints the before/after numbers the ticket reports.
+/// WHAT THE NUMBER IS. <see cref="RingStillness"/> measures a DISPLAY model with no interaction
+/// state: every rule run is pinned from onset to its last credited sample, as if the widget were
+/// always on screen for the whole hold. The real app hides the ring when an activation opens the
+/// action menu or the magnifier, and after that overlay closes the latched run never re-pins. So
+/// 77.7 % is an UPPER BOUND. The two bounded treatments are measured and printed beside it on the
+/// same convention: 69.9 % with the post-activation frames dropped (26.1 % of the held-episode
+/// frames sit after their run's activation), and 56.1 % with those frames counted as following.
+/// Reviewer A, measuring the same commit with their own treatment of those frames, read about 75 %
+/// dropped and about 59 % as following; the upper bound is 77.7 % in both. The advocate's 10 DIP /
+/// 200 ms convention (20 px at ScaleX 2.0) reads 52.6 % → 84.2 % and is printed alongside.
+/// </para>
+///
+/// <para>
+/// The fixture rows run in CI. The real-recording row is env-gated like every other replay gate
+/// (<c>EYECTRL_GAZE_RECORDING</c> points at the frozen snapshot copy; the file is not in the repo).
 /// </para>
 /// </summary>
 public class RingStillnessTests(ITestOutputHelper output)
@@ -50,18 +60,17 @@ public class RingStillnessTests(ITestOutputHelper output)
     public void SyntheticFixture_PinningRaisesTheStillShare_OverFollowing()
     {
         var recording = GazeRecordingFile.Read(FixturePath);
-        var (following, pinned) = Measure(recording, output);
+        var rows = Measure(recording, output);
 
         output.WriteLine("fixture @150:");
-        Report(output, "following (today)", following);
-        Report(output, "pinned", pinned);
+        Report(output, "following (today)", rows.Following);
 
         // The pinned model must hold the ring on the covered episodes, and it must beat the following
         // model by a wide margin — the display fix, not the rule, is what the stillness rides on.
-        Check.That(pinned.ConsideredFrames).IsEqualTo(following.ConsideredFrames);
-        Check.That(pinned.PinnedShare).IsStrictlyGreaterThan(0.75);
-        Check.That(pinned.StillShare).IsGreaterOrEqualThan(0.80);
-        Check.That(pinned.StillShare).IsStrictlyGreaterThan(following.StillShare);
+        Check.That(rows.PinnedUpper.ConsideredFrames).IsEqualTo(rows.Following.ConsideredFrames);
+        Check.That(rows.PinnedUpper.PinnedShare).IsStrictlyGreaterThan(0.75);
+        Check.That(rows.PinnedUpper.StillShare).IsGreaterOrEqualThan(0.80);
+        Check.That(rows.PinnedUpper.StillShare).IsStrictlyGreaterThan(rows.Following.StillShare);
     }
 
     [Fact]
@@ -73,48 +82,60 @@ public class RingStillnessTests(ITestOutputHelper output)
             + "(the live file is appended to and rotated).");
 
         var recording = GazeRecordingFile.Read(path!);
-        var (following, pinned) = Measure(recording, output);
+        var rows = Measure(recording, output);
 
         output.WriteLine($"{Path.GetFileName(path!)} @150:");
-        Report(output, "following (today)", following);
-        Report(output, "pinned", pinned);
+        Report(output, "following (today)", rows.Following);
 
-        // Acceptance: about 80 % still on held-episode frames (from about 15 %), on the shipped r75
-        // rule. The bars carry slack because this is a display measurement on one 443 s recording,
-        // not a product gate.
-        Check.That(pinned.StillShare).IsGreaterOrEqualThan(0.70);
-        Check.That(following.StillShare).IsLessOrEqualThan(0.20);
-        Check.That(pinned.PinnedShare).IsGreaterOrEqualThan(0.75);
+        // Acceptance: the upper bound is about 80 % still on held-episode frames (from about 15 %), on
+        // the shipped r75 rule. The bars carry slack because this is a display measurement on one 443 s
+        // recording, not a product gate.
+        Check.That(rows.PinnedUpper.StillShare).IsGreaterOrEqualThan(0.70);
+        Check.That(rows.Following.StillShare).IsLessOrEqualThan(0.20);
+        Check.That(rows.PinnedUpper.PinnedShare).IsGreaterOrEqualThan(0.75);
     }
 
+    private sealed record Rows(
+        RingStillness.Measurement Following,
+        RingStillness.Measurement PinnedUpper,
+        RingStillness.Measurement PinnedDropped,
+        RingStillness.Measurement PinnedFollowing);
+
     /// <summary>
-    /// Measures the following and pinned models on one recording: the primary (1 px / previous sample)
-    /// row that the acceptance uses, plus the advocate's context row.
+    /// Measures the following model and the pinned model under each <see cref="RingStillness.PostActivation"/>
+    /// treatment, on one recording: the primary 1 px / previous-sample row the acceptance uses, the
+    /// upper-bound/bounded pinned rows, and the advocate's 10 DIP / 200 ms context row.
     /// </summary>
-    private static (RingStillness.Measurement Following, RingStillness.Measurement Pinned) Measure(
-        GazeRecordingFile.Recording recording, ITestOutputHelper output)
+    private static Rows Measure(GazeRecordingFile.Recording recording, ITestOutputHelper output)
     {
         var frames = Replay(recording);
         var runs = FixationReplayGates.DetectRuns(frames, FixationReplayGates.CentroidR75);
         var episodes = FixationReplayGates.ExtractHeldEpisodes(frames, FixationReplayGates.Dispersion150Px);
+        var pinned = RingStillness.Model.Pinned(runs);
 
         var following = RingStillness.Measure(
             frames, episodes, RingStillness.Model.Following, StillTolerancePx, lagMs: 0);
-        var pinned = RingStillness.Measure(
-            frames, episodes, RingStillness.Model.Pinned(runs), StillTolerancePx, lagMs: 0);
+        var upper = RingStillness.Measure(frames, episodes, pinned, StillTolerancePx, lagMs: 0);
+        var dropped = RingStillness.Measure(
+            frames, episodes, pinned, StillTolerancePx, lagMs: 0, RingStillness.PostActivation.Dropped);
+        var follows = RingStillness.Measure(
+            frames, episodes, pinned, StillTolerancePx, lagMs: 0, RingStillness.PostActivation.Following);
 
-        // Context rows, printed but not asserted: the advocate's 10 DIP / 200 ms convention.
+        Report(output, "pinned (upper bound)", upper);
+        Report(output, "pinned, post-activation dropped", dropped);
+        Report(output, "pinned, post-activation follows", follows);
+
         var followingAdvocate = RingStillness.Measure(
             frames, episodes, RingStillness.Model.Following, AdvocateTolerancePx, AdvocateLagMs);
-        var pinnedAdvocate = RingStillness.Measure(
-            frames, episodes, RingStillness.Model.Pinned(runs), AdvocateTolerancePx, AdvocateLagMs);
+        var upperAdvocate = RingStillness.Measure(
+            frames, episodes, pinned, AdvocateTolerancePx, AdvocateLagMs);
         Report(output, "advocate following", followingAdvocate);
-        Report(output, "advocate pinned", pinnedAdvocate);
+        Report(output, "advocate pinned", upperAdvocate);
 
-        return (following, pinned);
+        return new Rows(following, upper, dropped, follows);
     }
 
     private static void Report(ITestOutputHelper output, string name, RingStillness.Measurement m) =>
         output.WriteLine(
-            $"  {name,-18} still {m.StillShare:P1}, pinned {m.PinnedShare:P1}, frames {m.ConsideredFrames}");
+            $"  {name,-34} still {m.StillShare:P1}, pinned {m.PinnedShare:P1}, frames {m.ConsideredFrames}");
 }

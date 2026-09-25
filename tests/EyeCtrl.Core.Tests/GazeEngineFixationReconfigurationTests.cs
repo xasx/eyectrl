@@ -223,6 +223,30 @@ public class GazeEngineFixationReconfigurationTests
     }
 
     [Fact]
+    public void EffectiveRadiusAccessor_FollowsTheLiveRule_TheHaloIsSizedFromIt()
+    {
+        // Ticket 4 fixup: the halo is sized from the LIVE detector's radius, exposed for the app adapter
+        // to read at onset. It must equal the configured radius and follow an in-place effective fill.
+        // Mutation: return the raw setting — the fill lands on the detector but not on the accessor, so
+        // the drawn halo would mark a radius the rule is not running (this assertion goes red).
+        var s = Settings(radius: 30, detectMs: 150);
+        s.Adaptation.Enabled = true;
+        var provider = new ScriptedGazeProvider();
+        var effective = new EffectiveSettingsProvider(s.Adaptation);
+        using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s, effectiveSettings: effective);
+        long ts = 0;
+
+        Check.That(engine.EffectiveFixationRadiusPixels).IsEqualTo(30.0);
+
+        // Controller-style full forgiving fill → +50% band edge (=15) → effective radius 45, applied in
+        // place on the next sample.
+        effective.SetMomentaryFill(AdaptationKnob.FixationRadius, DwellContext.Other, forgivingFill: 1.0, tighteningFill: 0.0);
+        ts += 33_000;
+        provider.Push(new GazePoint(500, 500, ts, true));
+        Check.That(engine.EffectiveFixationRadiusPixels).IsEqualTo(45.0);
+    }
+
+    [Fact]
     public void DetectionTimeEdit_PropagatesToLiveDetector()
     {
         // Latent bug in the rebuild implementation: a FixationDetectionMs edit requested a rebuild, but the

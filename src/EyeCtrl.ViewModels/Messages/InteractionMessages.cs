@@ -7,10 +7,15 @@ using EyeCtrl.Core.Models;
 // Core -> ViewModel
 
 /// <summary>
-/// Sent to show activation button.
-/// Position is in physical screen pixels.
+/// Sent to show the fixation feedback. Position is in physical screen pixels: the pin, i.e. the
+/// running centroid the rule published at onset.
 /// </summary>
-public record ShowActivationButtonMessage(PhysicalPoint Position);
+/// <param name="FixationRadiusPixels">
+/// The LIVE rule's fixation radius in physical pixels, read from the detector at onset — the
+/// adaptation-effective value, not the raw setting. The halo is sized from it, so the drawn hold
+/// radius always marks the radius the dwell is actually counted within.
+/// </param>
+public record ShowActivationButtonMessage(PhysicalPoint Position, double FixationRadiusPixels);
 
 public record HideActivationButtonMessage;
 

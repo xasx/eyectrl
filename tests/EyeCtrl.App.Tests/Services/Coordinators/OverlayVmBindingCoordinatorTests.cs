@@ -168,7 +168,7 @@ public class OverlayVmBindingCoordinatorTests
         SetContext(coordinator, ctx);
 
         // The pin and the halo share one lifecycle: the activation widget's show/hide messages.
-        messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(600, 400)));
+        messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(600, 400), 75));
         InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsPinned));
         Check.That(cursorCircle.PinnedCalls).ContainsExactly(true);
 
@@ -180,9 +180,10 @@ public class OverlayVmBindingCoordinatorTests
     [Fact]
     public void ActivationVisible_PlacesTheHaloOnThePin_SizedForTheRuleRadius()
     {
-        // S3 at the wiring level. The halo's radius argument must be the RULE's fixation radius — the
-        // radius the dwell is counted within — not the old placement offset (CircleSize/2 + 55, about
-        // 180 DIP / 360 px at ScaleX 2.0). Restore that expression and this goes red on the radius.
+        // S3 at the wiring level. The halo is centred on the pin and sized from the radius THE RULE IS
+        // RUNNING WITH — the value the adapter read from the live detector at onset, carried on the
+        // message. The setting here is 75 while the message carries 60 precisely so that reading the
+        // raw setting (or the old CircleSize/2 + 55 offset) goes red.
         var activationButton = new RecordingActivationButton();
         var settings = new EyeCtrlSettings();
         settings.Dwell.FixationRadiusPixels = 75;
@@ -202,14 +203,40 @@ public class OverlayVmBindingCoordinatorTests
         SetContext(coordinator, ctx);
 
         var pin = new PhysicalPoint(1200, 800);
-        messenger.Send(new ShowActivationButtonMessage(pin));
+        messenger.Send(new ShowActivationButtonMessage(pin, 60));
         InvokeActivationHandler(coordinator, nameof(ActivationButtonViewModel.IsVisible));
 
         Check.That(activationButton.ShownAt).HasSize(1);
         var (position, radiusPixels) = activationButton.ShownAt[0];
         Check.That(position.X).IsEqualTo(pin.X);
         Check.That(position.Y).IsEqualTo(pin.Y);
-        Check.That(radiusPixels).IsEqualTo(75);
+        Check.That(radiusPixels).IsEqualTo(60);
+    }
+
+    [Fact]
+    public void ActivationVisible_PositionsTheHaloBeforeShowingIt()
+    {
+        // The stale-flash order (A-F4): Show() first presents the window where the PREVIOUS show left
+        // it, at the previous radius, for a frame. Positioning must come first.
+        var activationButton = new RecordingActivationButton();
+        var messenger = new WeakReferenceMessenger();
+        var activationVm = new ActivationButtonViewModel(messenger);
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            ActivationVM = activationVm,
+            Settings = new EyeCtrlSettings(),
+            Messenger = messenger,
+            OverlayManager = TestFakes.MakeOverlayManager(
+                activationButton: activationButton,
+                actionMenu: new TestFakes.FakeActionMenuOverlay()),
+        };
+        var coordinator = NewCoordinator();
+        SetContext(coordinator, ctx);
+
+        messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(1200, 800), 75));
+        InvokeActivationHandler(coordinator, nameof(ActivationButtonViewModel.IsVisible));
+
+        Check.That(activationButton.Calls).ContainsExactly("ShowAt", "Show");
     }
 
     private static void InvokeCursorHandler(OverlayVmBindingCoordinator coordinator, string propertyName)
@@ -240,14 +267,20 @@ public class OverlayVmBindingCoordinatorTests
         public void SetPinned(bool pinned) => PinnedCalls.Add(pinned);
     }
 
-    /// <summary>Records where the halo was placed and the radius it was sized for.</summary>
+    /// <summary>Records where the halo was placed, the radius it was sized for, and the call order.</summary>
     private sealed class RecordingActivationButton : IActivationButtonOverlay
     {
         public List<(PhysicalPoint Position, double RadiusPixels)> ShownAt { get; } = new();
+        public List<string> Calls { get; } = new();
 
-        public void Show() { }
-        public void ShowAt(PhysicalPoint position, double fixationRadiusPixels) =>
+        public void Show() => Calls.Add("Show");
+
+        public void ShowAt(PhysicalPoint position, double fixationRadiusPixels)
+        {
+            Calls.Add("ShowAt");
             ShownAt.Add((position, fixationRadiusPixels));
+        }
+
         public void Hide() { }
         public void HideImmediate() { }
         public void UpdateDwellProgress(double progress) { }

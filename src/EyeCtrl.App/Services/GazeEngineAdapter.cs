@@ -232,8 +232,15 @@ public class GazeEngineAdapter : IDisposable
         _dispatcher.BeginInvoke(() => _messenger.Send(
             new FixationActivatedMessage(activation.TimestampUs, activation.CreditedAgeUs)));
 
-    private void OnShowActivationButton(PhysicalPoint point) =>
-        _dispatcher.BeginInvoke(() => _messenger.Send(new ShowActivationButtonMessage(point)));
+    private void OnShowActivationButton(PhysicalPoint point)
+    {
+        // Read the rule's live radius HERE, on the gaze thread at onset: the halo is sized from the
+        // radius the dwell is actually counted within, and reading it on the dispatcher could straddle
+        // an adaptation fill that landed with a later sample.
+        var fixationRadiusPixels = _gazeEngine.EffectiveFixationRadiusPixels;
+        _dispatcher.BeginInvoke(() => _messenger.Send(
+            new ShowActivationButtonMessage(point, fixationRadiusPixels)));
+    }
 
     private void OnHideActivationButton() =>
         _dispatcher.BeginInvoke(() => _messenger.Send(new HideActivationButtonMessage()));

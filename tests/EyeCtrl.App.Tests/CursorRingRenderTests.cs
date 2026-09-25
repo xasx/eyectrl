@@ -178,4 +178,27 @@ public class CursorRingRenderTests
             window.Close();
         }
     }
+
+    [StaFact]
+    public void FreeLookResume_AfterPause_ReturnsToTheQuietLook()
+    {
+        // A-F1: reverting SetPausedDim to ticket 1's one-liner ("dimmed ? 0.45 : 1.0") leaves every
+        // ordinary, unpinned resume bold. Resume must restore the QUIET look; only a pin may bold the
+        // ring. This is a separate test from the three-looks one so that mutation has a named killer.
+        var window = CreateWindow();
+        try
+        {
+            Check.That(window.Opacity).IsEqualTo(CursorCircleWindow.FreeLookQuietOpacity);
+
+            window.SetPausedDim(true);
+            Check.That(window.Opacity).IsEqualTo(CursorCircleWindow.PausedDimOpacity);
+
+            window.SetPausedDim(false);
+            Check.That(window.Opacity).IsEqualTo(CursorCircleWindow.FreeLookQuietOpacity);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
 }

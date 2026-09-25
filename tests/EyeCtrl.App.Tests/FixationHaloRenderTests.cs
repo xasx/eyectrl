@@ -151,6 +151,67 @@ public class FixationHaloRenderTests
         halo.Close();
     }
 
+    [StaFact]
+    public void Halo_IsClickThrough_AndExcludedFromCapture()
+    {
+        // A-F2: the halo sits exactly where the user is looking, so it must never become a mouse target
+        // over whatever is underneath it — the same contract the cursor ring has.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new ActivationButtonWindow();
+        try
+        {
+            Check.That(window.IsClickThrough).IsTrue();
+            Check.That(window.ExcludeFromScreenCapture).IsTrue();
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [StaFact]
+    public void ReShow_StartsAtProgressZero_OnTheNewPin_WithoutAHeldOpacity()
+    {
+        // A-F4. HideImmediate's Opacity write must land, and the next show must be positioned and at
+        // progress 0 before it can present anything — otherwise the previous halo flashes at the new
+        // gaze point at its last radius. Pumpless reads return base values, so this asserts base state
+        // and the presence/absence of a held animation rather than an animated frame.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        DpiHelper.Initialize(EffectiveScale, EffectiveScale);
+        var window = new ActivationButtonWindow();
+        try
+        {
+            window.ShowAt(new PhysicalPoint(1000, 800), FixationRadiusPx);
+            window.UpdateDwellProgress(1.0);
+            Check.That(window.ProgressHalo.Width / 2).IsCloseTo(75.0, 1e-10);
+            Check.That(window.HasAnimatedProperties).IsTrue(); // the fade-in holds Opacity
+
+            window.HideImmediate();
+
+            // The held fade-in is cleared (so Opacity = 0 actually takes effect) and the radius drops
+            // back to the inner radius.
+            Check.That(window.HasAnimatedProperties).IsFalse();
+            Check.That(window.Opacity).IsEqualTo(0.0);
+            Check.That(window.ProgressHalo.Width / 2).IsCloseTo(37.5, 1e-10);
+
+            var secondPin = new PhysicalPoint(300, 200);
+            window.ShowAt(secondPin, FixationRadiusPx);
+
+            Check.That(window.ProgressHalo.Width / 2).IsCloseTo(37.5, 1e-10);
+            Check.That(window.Left + (window.Width / 2))
+                .IsCloseTo(DpiHelper.PhysicalToLogicalX(secondPin.X), 1e-10);
+            Check.That(window.Top + (window.Height / 2))
+                .IsCloseTo(DpiHelper.PhysicalToLogicalY(secondPin.Y), 1e-10);
+            // The new fade-in starts from the base value, which is still 0: nothing full-opacity can
+            // present before the animation's first pumped frame.
+            Check.That(window.Opacity).IsEqualTo(0.0);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
     private static FrameworkElement Detach(Window window, Canvas root, double left, double top)
     {
         var content = (FrameworkElement)window.Content;

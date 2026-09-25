@@ -66,7 +66,7 @@ public class CursorCircleViewModelTests
         // deliberately different from both that sample and the samples that follow.
         _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), 0));
         var onsetCentroid = new PhysicalPoint(140, 120);
-        _messenger.Send(new ShowActivationButtonMessage(onsetCentroid));
+        _messenger.Send(new ShowActivationButtonMessage(onsetCentroid, 75));
 
         Check.That(vm.IsPinned).IsTrue();
         Check.That(vm.Position.X).IsEqualTo(140);
@@ -79,7 +79,7 @@ public class CursorCircleViewModelTests
         var settings = new EyeCtrlSettings();
         var vm = new CursorCircleViewModel(settings, _messenger);
 
-        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(140, 120)));
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(140, 120), 75));
         _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(300, 400), 0));
         _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(95, 105), 0));
 
@@ -104,7 +104,7 @@ public class CursorCircleViewModelTests
         var settings = new EyeCtrlSettings();
         var vm = new CursorCircleViewModel(settings, _messenger);
 
-        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(140, 120)));
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(140, 120), 75));
         Check.That(vm.IsPinned).IsTrue();
 
         _messenger.Send(new StateChangedMessage(InteractionState.Paused));

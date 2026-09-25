@@ -22,6 +22,12 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     [ObservableProperty] private PhysicalPoint _position = new(0, 0);
     [ObservableProperty] private bool _isVisible = true;
 
+    /// <summary>
+    /// True while the interaction state is Paused. Paused does not hide the ring: it stays visible
+    /// (dimmed by the View) so the user can see that tracking is alive and where their gaze is.
+    /// </summary>
+    [ObservableProperty] private bool _isPaused;
+
     public double Size => _settings.Cursor.CircleSize;
     public string CircleColor => _settings.Cursor.CircleColor;
     public double Opacity => _settings.Cursor.CircleOpacity;
@@ -41,8 +47,12 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
 
     public void Receive(StateChangedMessage message)
     {
-        // RepeatMode hides the normal circle: the contracting repeat cursor replaces it there.
-        _stateAllowsCursor = message.NewState is InteractionState.FreeLook or InteractionState.Fixation;
+        // Paused keeps the ring (dimmed) — it is the user's only evidence that tracking is alive
+        // while they are looking for the resume target. RepeatMode hides the normal circle: the
+        // contracting repeat cursor replaces it there.
+        IsPaused = message.NewState == InteractionState.Paused;
+        _stateAllowsCursor = message.NewState
+            is InteractionState.FreeLook or InteractionState.Fixation or InteractionState.Paused;
         UpdateVisibility();
     }
 

@@ -139,4 +139,27 @@ public class CursorRingRenderTests
             window.Close();
         }
     }
+
+    [StaFact]
+    public void SetPausedDim_DimsTheWholeRing_AndRestoresFullOpacity()
+    {
+        // Paused-trap guard: the ring stays visible while paused, but dimmed — it must read as
+        // "tracking alive", not as the normal cursor competing with the resume target.
+        var window = CreateWindow();
+        try
+        {
+            Check.That(window.Opacity).IsEqualTo(1.0);
+
+            window.SetPausedDim(true);
+            Check.That(window.Opacity).IsEqualTo(CursorCircleWindow.PausedDimOpacity);
+            Check.That(window.Opacity).IsStrictlyLessThan(1.0);
+
+            window.SetPausedDim(false);
+            Check.That(window.Opacity).IsEqualTo(1.0);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
 }

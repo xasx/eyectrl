@@ -3,9 +3,12 @@ namespace EyeCtrl.App.Tests.Services.Coordinators;
 using System.ComponentModel;
 using System.Reflection;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
+using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
+using EyeCtrl.ViewModels.Messages;
 using Xunit;
 
 public class OverlayVmBindingCoordinatorTests
@@ -15,6 +18,11 @@ public class OverlayVmBindingCoordinatorTests
     // constructed instance suffices — the same shape the sibling coordinator tests use.
     private static OverlayVmBindingCoordinator NewCoordinator() =>
         new(new ModalInteractionState());
+
+    private static void SetContext(OverlayVmBindingCoordinator coordinator, EventCoordinationContext context) =>
+        typeof(CoordinatorBase)
+            .GetProperty("Context", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(coordinator, context);
 
     [Fact]
     public void Initialize_ThrowsArgumentNullException_WhenContextIsNull()
@@ -106,14 +114,61 @@ public class OverlayVmBindingCoordinatorTests
         };
 
         var coordinator = NewCoordinator();
-        typeof(CoordinatorBase)
-            .GetProperty("Context", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(coordinator, ctx);
+        SetContext(coordinator, ctx);
         typeof(OverlayVmBindingCoordinator)
             .GetField("_glassBackdrop", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(coordinator, glassBackdrop);
 
         return coordinator;
+    }
+
+    // ── Paused ring dim (A-M2) ──
+    // The dim call was wired but had no end-to-end test: deleting the IsPaused case in
+    // OnCursorVMPropertyChanged left the suite green while the ring stopped dimming on pause.
+
+    [Fact]
+    public void CursorPausedState_DimsTheRing_AndUndimsOnResume()
+    {
+        var cursorCircle = new RecordingCursorCircle();
+        var messenger = new WeakReferenceMessenger();
+        var cursorVm = new CursorCircleViewModel(new EyeCtrlSettings(), messenger);
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            CursorVM = cursorVm,
+            Messenger = messenger,
+            OverlayManager = TestFakes.MakeOverlayManager(cursorCircle: cursorCircle),
+        };
+        var coordinator = NewCoordinator();
+        SetContext(coordinator, ctx);
+
+        // Drive the real state message: the VM flips IsPaused, and the coordinator's handler — the
+        // wiring under test — forwards it to the ring.
+        messenger.Send(new StateChangedMessage(InteractionState.Paused));
+        InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsPaused));
+        Check.That(cursorCircle.PausedDimCalls).ContainsExactly(true);
+
+        messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsPaused));
+        Check.That(cursorCircle.PausedDimCalls).ContainsExactly(true, false);
+    }
+
+    private static void InvokeCursorHandler(OverlayVmBindingCoordinator coordinator, string propertyName)
+    {
+        var method = typeof(OverlayVmBindingCoordinator)
+            .GetMethod("OnCursorVMPropertyChanged", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        method.Invoke(coordinator, new object?[] { null, new PropertyChangedEventArgs(propertyName) });
+    }
+
+    /// <summary>Private nested fake (repo convention: no mocking library): records the pause dims.</summary>
+    private sealed class RecordingCursorCircle : ICursorCircleOverlay
+    {
+        public List<bool> PausedDimCalls { get; } = new();
+
+        public void Show() { }
+        public void Hide() { }
+        public void UpdatePosition(PhysicalPoint point) { }
+        public void UpdateAppearance(CursorSettings settings) { }
+        public void SetPausedDim(bool dimmed) => PausedDimCalls.Add(dimmed);
     }
 
     private static void InvokeManualSelectionHandler(OverlayVmBindingCoordinator coordinator, string propertyName)

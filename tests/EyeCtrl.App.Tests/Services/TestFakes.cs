@@ -213,6 +213,7 @@ internal static class TestFakes
         public void Hide() { }
         public void UpdatePosition(PhysicalPoint point) { }
         public void UpdateAppearance(CursorSettings settings) { }
+        public void SetPausedDim(bool dimmed) { }
     }
 
     /// <summary>No-op activation button: records nothing, just satisfies the interface.</summary>

@@ -32,6 +32,16 @@ public class ShippedLayoutFilesTests
     private static KeyboardLayout Load(string file) =>
         KeyboardLayoutLoader.Load(Path.Combine(LayoutDir(), file));
 
+    // Impl review M4: the EXACT ordered contents of the accents content rows (spec D2/D3) —
+    // the concatenated Output values of the non-special keys per row, in file order. The
+    // shape theory above cannot see a content edit: deleting the `ç Ç` pair or swapping
+    // `« »` for the declined German quotes `„ “` (D12) passes shape but fails here.
+    private static readonly Dictionary<string, string[]> AccentsRowSequences = new()
+    {
+        ["qwertz.json"] = ["éÉèÈêÊëËàÀ", "âÂçÇîÎïÏôÔ", "ùÙûÛœŒ«»"],
+        ["azerty.json"] = ["êÊâÂîÎôÔ", "ûÛëËïÏùÙ", "œŒ«»"],
+    };
+
     [Theory]
     [MemberData(nameof(LayoutNames))]
     public void TheLayout_ParsesAndUsesOnlyKnownSpecialActions(string file)
@@ -178,6 +188,23 @@ public class ShippedLayoutFilesTests
             .That(accents.Rows.Count)
             .IsEqualTo(layout.SubLayouts[layout.DefaultSubLayout].Rows.Count);
 
+        // Impl review M4: pin the exact ordered Output sequence of every content row (the
+        // footer follows and carries only special keys, so it concatenates to "").
+        var expectedSequences = AccentsRowSequences[file];
+        Check.WithCustomMessage(
+                $"{file}: accents ships {accents.Rows.Count - 1} content rows, " +
+                $"{expectedSequences.Length} pinned")
+            .That(accents.Rows.Count - 1).IsEqualTo(expectedSequences.Length);
+        for (var i = 0; i < expectedSequences.Length; i++)
+        {
+            var actual = string.Concat(accents.Rows[i]
+                .Where(k => k.SpecialAction is null)
+                .Select(k => k.Output));
+            Check.WithCustomMessage(
+                    $"{file} accents row {i}: expected the exact ordered set " +
+                    $"'{expectedSequences[i]}', got '{actual}'")
+                .That(actual).IsEqualTo(expectedSequences[i]);
+        }
     }
 
     [Theory]

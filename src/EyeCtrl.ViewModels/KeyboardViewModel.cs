@@ -193,6 +193,13 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
         IsEmojiMode = false;
         ActiveSubLayoutId = _layout?.DefaultSubLayout ?? "letters";
+
+        // M7 (impl review M2): raised AFTER the assignment above — the window rebuilds the
+        // keys synchronously on it, and raising earlier (e.g. an OnActiveSubLayoutIdChanged
+        // hook, which fires before PropertyChanged) would repaint the OLD grid. Without this
+        // raise, a hide from a non-letters layout with Caps armed reopens with lowercase
+        // labels and an unlit Caps key while the keys type capitals.
+        OnPropertyChanged(nameof(ActiveModifiers));
     }
 
     /// <summary>
@@ -341,6 +348,18 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     {
         _layout = layout;
         ActiveSubLayoutId = layout.DefaultSubLayout;
+
+        // M3: a layout switch is an unsupervised swap — clear the D13 fields like
+        // ResetInteractionState does. The anchor only ever blocks, but a stale one measured
+        // against the OLD layout's grid is meaningless on the new one.
+        _swapSuppressedAnchor = null;
+        _lastGazeInsideWindowPoint = null;
+
+        // M7 (impl review M2): raised AFTER the assignment above — the window rebuilds the
+        // keys synchronously on it, and a raise landing before the rebuild would repaint the
+        // old grid. Without it, a layout reload with Caps armed relabels nothing: static
+        // lowercase labels and an unlit Caps key while the keys type capitals.
+        OnPropertyChanged(nameof(ActiveModifiers));
     }
 
     public void SetOrchestrator(PredictionOrchestrator? orchestrator)
@@ -508,8 +527,17 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         if (_layout == null || !_layout.SubLayouts.ContainsKey(subLayoutId)) return;
         if (ActiveSubLayoutId == subLayoutId) return;
 
-        // D13: arm the suppression BEFORE the swap — the old grid's centres are still valid
-        // here. Anchor only when the gaze was actually on the key area; a prediction pick
+        // D13: arm the suppression BEFORE the swap — and the "before" is load-bearing:
+        // _lastKeyScreenPositions IS the window's live _keyScreenPositions dictionary
+        // (KeyboardWindow.xaml.cs:55, handed to ProcessKeyGaze at :339 — an alias, not a
+        // snapshot), and the `ActiveSubLayoutId = subLayoutId;` assignment below runs
+        // RebuildKeys → ClearKeyState SYNCHRONOUSLY (:359 → :213 → :893), which EMPTIES
+        // that dictionary. Computing the anchor/radius after the assignment would read a
+        // cleared dict (positions.Count < 2), null the anchor and silently disarm D13 in
+        // the real app while every VM test stays green (VM tests pass a static dict nothing
+        // clears) — the ordering pinned by the real-window resting-gaze probe in
+        // KeyboardGateProbeTests (impl-review I1).
+        // Anchor only when the gaze was actually on the key area; a prediction pick
         // happens with the gaze on the bar and its auto-return swap must suppress nothing
         // (plan review H3). Radius = half the distance to the second-nearest old centre
         // (≈ half a key width; a resting-on-centre gaze yields d1≈0, d2≈pitch). Fewer than

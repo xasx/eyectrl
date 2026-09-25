@@ -613,6 +613,43 @@ public class KeyboardGateProbeTests
     }
 
     [StaFact]
+    public void ShippedQwertz_AccEntry_RestingGaze_NeverFiresTheLanding_AtScale2()
+    {
+        // Impl review I1: the only test that pins D13 against the REAL window's aliasing.
+        // The VM's _lastKeyScreenPositions IS the window's live _keyScreenPositions
+        // dictionary (an alias, not a snapshot), and assigning ActiveSubLayoutId runs
+        // RebuildKeys → ClearKeyState SYNCHRONOUSLY, which EMPTIES it. D13 therefore works
+        // only because SwitchSubLayout measures the anchor/radius from the old dict BEFORE
+        // the assignment. Every VM test passes a static dictionary nothing clears, so a
+        // one-line reorder of those two statements disarms D13 in production with the whole
+        // VM suite green (mutation-measured: 17 VM tests + the 14 shipped probes stayed
+        // green on the mutant; only THIS probe catches it — resting on the landing spot,
+        // the accents `À` must never dwell; with the anchor disarmed it fires at ~500 ms).
+        var probe = Open(ShippedQwertz(), 2.0, emojiJsonPath: ShippedEmojiJson());
+        try
+        {
+            var accCentre = Centres(probe.Window)["switchSub:accents"];
+            long ts = 1_000;
+            DwellOn(probe, "switchSub:accents", ref ts);
+            Check.That(probe.Vm.ActiveSubLayoutId).IsEqualTo("accents");
+
+            // The swap dwell emptied the window's key positions; arrange the accents grid so
+            // UpdateGaze's gate and centre collection see the real new geometry (the same
+            // layout-pass-then-gaze-pass idiom as the landing pins above).
+            probe.Content.UpdateLayout();
+            for (var t = ts; t < ts + 3_000_000; t += 50_000)
+            {
+                probe.Window.UpdateGaze(accCentre, t);
+                Check.WithCustomMessage($"resting gaze typed '{probe.Vm.CurrentInput}' / swapped to "
+                        + $"'{probe.Vm.ActiveSubLayoutId}' — D13 did not arm in the real window")
+                    .That(probe.Vm.CurrentInput).IsEmpty();
+                Check.That(probe.Vm.ActiveSubLayoutId).IsEqualTo("accents");
+            }
+        }
+        finally { probe.Dispose(); }
+    }
+
+    [StaFact]
     public void ShippedAzerty_AccEntry_LandsOnTheAccentsRow0EndKey()
     {
         // The AZERTY half of the landing pin (spec Testing; expected Ô — key_0_7, the last

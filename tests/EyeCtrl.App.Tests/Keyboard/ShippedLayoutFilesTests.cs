@@ -233,8 +233,10 @@ public class ShippedLayoutFilesTests
 
         // D17 (supersedes D16; owner-defaulted): row 0 is Win 1.2 + Q..P = 11.2 — the same
         // zero-move trick as AZERTY. Win widens 1.2 -> 2.0 (consuming the 0.8 left margin),
-        // Acc (0.8) consumes the right margin; every letter keeps its exact position and the
-        // row hits the 12.8 standard. Pinned so a future edit cannot silently shift letters.
+        // Acc (0.8) consumes the right margin; every letter keeps its position to within
+        // sub-DIP layout rounding (~0.4 DIP on the widened row — unit widths are preserved;
+        // impl-review r3 m3) and the row hits the 12.8 standard. Pinned so a future edit
+        // cannot silently shift letters.
         Check.That(row0.Single(k => k.Label == "Win").Width).IsCloseTo(2.0, 0.01);
         var acc = row0.Single(k => k.SpecialAction == "switchSub:accents");
         Check.That(acc.Width).IsCloseTo(0.8, 0.01);
@@ -265,8 +267,10 @@ public class ShippedLayoutFilesTests
         var row0 = layout.SubLayouts["letters"].Rows[0];
 
         // D3 zero-move: Win widens 1.2 -> 2.0 (consuming the 0.8 left margin), Acc (0.8)
-        // consumes the right margin; every letter keeps its exact position and the row hits
-        // the 12.8 standard. Pinned so a future edit cannot silently shift the letters.
+        // consumes the right margin; every letter keeps its position to within sub-DIP
+        // layout rounding (~0.4 DIP on the widened row — unit widths are preserved;
+        // impl-review r3 m3) and the row hits the 12.8 standard. Pinned so a future edit
+        // cannot silently shift the letters.
         Check.That(row0.Single(k => k.Label == "Win").Width).IsCloseTo(2.0, 0.01);
         var acc = row0.Single(k => k.SpecialAction == "switchSub:accents");
         Check.That(acc.Width).IsCloseTo(0.8, 0.01);

@@ -74,10 +74,15 @@ public class ModelRegistryServiceVerificationTests : IDisposable
         var raised = false;
         _registry.VerificationChanged += () => raised = true;
         _registry.VerificationChanged += () => throw new InvalidOperationException("subscriber bug");
+        // Round-2 N-3: a bare multicast Invoke starves every subscriber AFTER the thrower —
+        // the raise iterates the invocation list, so this one must still run.
+        var raisedAfterThrower = false;
+        _registry.VerificationChanged += () => raisedAfterThrower = true;
 
         _registry.ReportVerification("135M", ModelVerificationOutcome.Failed);
 
         Check.That(raised).IsTrue(); // the earlier subscriber still ran
+        Check.That(raisedAfterThrower).IsTrue(); // and so does the later one
         // The ledger state is committed despite the throw, and the no-op contract survives:
         // a same-value re-report must still not raise.
         Check.That(_registry.GetVerification("135M")).IsEqualTo(ModelVerificationOutcome.Failed);

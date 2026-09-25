@@ -301,20 +301,26 @@ public class ModelRegistryService
         }
 
         // Raise OUTSIDE the lock: subscribers (the Models page rebuild) run UI work.
-        // Contained (issue #166 M6): a throwing subscriber used to escape into the caller —
-        // from the factory's posted background-swap lambda that meant the exception died in
-        // the supervision wrapper and StackSwapped never ran, leaving the keyboard bound to
-        // the just-disposed stack. A subscriber's failure is its own; the verdict above is
-        // already committed to the ledger when it fires.
-        if (changed)
+        // Contained per-subscriber (issue #166 round-1 M6 + round-2 N-3): a throwing
+        // subscriber used to escape into the caller — from the factory's posted
+        // background-swap lambda that meant the exception died in the supervision wrapper
+        // and StackSwapped never ran, leaving the keyboard bound to the just-disposed stack.
+        // Iterating the invocation list (not a bare multicast Invoke) keeps one broken
+        // subscriber from starving the later ones on the same raise. The verdict is committed
+        // before the raise; a subscriber's failure is its own and does not touch the ledger.
+        var raise = VerificationChanged; // single read: a subscribe racing in waits for the next report
+        if (changed && raise is not null)
         {
-            try
+            foreach (var subscriber in raise.GetInvocationList().Cast<Action>())
             {
-                VerificationChanged?.Invoke();
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "VerificationChanged subscriber threw (model {ModelId})", modelId);
+                try
+                {
+                    subscriber();
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "VerificationChanged subscriber threw (model {ModelId})", modelId);
+                }
             }
         }
     }

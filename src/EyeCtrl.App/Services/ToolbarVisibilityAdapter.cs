@@ -65,8 +65,11 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
         // flip, and the edge guard used to run only inside the posted lambda — every flip queued
         // a dispatcher item just to return there, the exact cost class the no-change guard at
         // ToolbarAutoHideController.SetPaused documents as load-bearing. The authoritative write
-        // stays inside the lambda, whose own guard still absorbs a redundant post arriving
-        // between the pre-check and the queued lambda's execution.
+        // stays inside the lambda, whose guard is DEFENSIVE ONLY: with commands arriving
+        // serialized on one thread (the invariant the field comment states), the pre-check
+        // refuses every redundant post and each queued lambda carries the opposite of the one
+        // before it, so the guard is unreachable today (round-2 review N-1) — it costs nothing
+        // and backstops the invariant if a second caller ever appears.
         if (_commandedPauseIndicator == visible) return;
         _commandedPauseIndicator = visible;
         _dispatcher.BeginInvoke(() =>

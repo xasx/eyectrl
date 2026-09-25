@@ -256,40 +256,56 @@ public class ToolbarAutoHideControllerTests
         Check.That(vis.HideCalls).IsEqualTo(1);
     }
 
-    // ── Pause indicator ──
+    // ── Paused-trap guard ──
+    // 2026-09-24: the app ran 1 h 43 min in Paused while the toolbar auto-hid, leaving the user
+    // with no visible way back. While paused the toolbar IS the resume target, so it must stay up.
 
     [Fact]
-    public void HideWhilePaused_ShowsIndicator_HideWhileNotPaused_DoesNot()
-    {
-        var sut = NewController();
-        var visPaused = new FakeVisibility();
-        sut.Attach(visPaused);
-        sut.SetPaused(true);
-        sut.Feed(CreateSample(960, 500, valid: true), 0);
-        sut.Feed(CreateSample(960, 500, valid: true), 5_001_000);
-        Check.That(visPaused.LastHidePaused).IsTrue();  // indicator shown
-
-        var sut2 = NewController();
-        var visNotPaused = new FakeVisibility();
-        sut2.Attach(visNotPaused);
-        sut2.SetPaused(false);
-        sut2.Feed(CreateSample(960, 500, valid: true), 0);
-        sut2.Feed(CreateSample(960, 500, valid: true), 5_001_000);
-        Check.That(visNotPaused.LastHidePaused).IsFalse(); // no indicator
-    }
-
-    [Fact]
-    public void Pause_WhileHidden_ShowsIndicator()
+    public void WhilePaused_AutoHideIsSuppressed_ResumeTargetStaysVisible()
     {
         var sut = NewController();
         var vis = new FakeVisibility();
         sut.Attach(vis);
-        sut.HideForTest(vis);            // hidden while NOT paused → no indicator
-        Check.That(vis.LastHidePaused).IsFalse();
+        sut.SetPaused(true);
 
-        sut.SetPaused(true);             // pause AFTER hiding — must show the edge bar
-        Check.That(vis.HideCalls).IsEqualTo(2);   // HideForTest + the re-assert
-        Check.That(vis.LastHidePaused).IsTrue();
+        // 10 s of off-toolbar gaze, well past the 5 s hide delay.
+        sut.Feed(CreateSample(960, 500, valid: true), 0);
+        sut.Feed(CreateSample(960, 500, valid: true), 10_000_000);
+
+        Check.That(vis.HideCalls).IsEqualTo(0);
+        Check.That(sut.StateName).IsEqualTo("Visible");
+    }
+
+    [Fact]
+    public void WhileNotPaused_HidesWithPausedFalse()
+    {
+        var sut = NewController();
+        var vis = new FakeVisibility();
+        sut.Attach(vis);
+
+        sut.Feed(CreateSample(960, 500, valid: true), 0);
+        sut.Feed(CreateSample(960, 500, valid: true), 5_001_000);
+
+        Check.That(vis.HideCalls).IsEqualTo(1);
+        Check.That(vis.LastHidePaused).IsFalse();
+    }
+
+    [Fact]
+    public void SetPaused_WhileHidden_ForceShowsTheResumeTarget()
+    {
+        // A pause that lands while the band is away must bring the resume target back, not leave it
+        // hidden behind the edge strip. This is the one pause transition that still touches
+        // visibility.
+        var sut = NewController();
+        var vis = new FakeVisibility();
+        sut.Attach(vis);
+        sut.HideForTest(vis);            // hidden while NOT paused
+        Check.That(vis.HideCalls).IsEqualTo(1);
+
+        sut.SetPaused(true);             // pause AFTER hiding → recover the band
+        Check.That(vis.ForceShowCalls).IsEqualTo(1);
+        Check.That(vis.HideCalls).IsEqualTo(1);   // no hide re-asserted
+        Check.That(sut.StateName).IsEqualTo("Visible");
     }
 
     [Fact]
@@ -299,7 +315,7 @@ public class ToolbarAutoHideControllerTests
         var vis = new FakeVisibility();
         sut.Attach(vis);
         sut.SetPaused(true);
-        sut.HideForTest(vis);            // hidden while paused → indicator up
+        sut.HideForTest(vis);            // a hide that raced the pause → indicator up
         Check.That(vis.LastHidePaused).IsTrue();
 
         sut.SetPaused(false);            // resume while still hidden — must hide the edge bar
@@ -307,10 +323,10 @@ public class ToolbarAutoHideControllerTests
     }
 
     /// <summary>
-    /// A no-change <c>SetPaused</c> must not re-assert the hide, while a genuine change still must.
+    /// A no-change <c>SetPaused</c> must not re-assert anything, while a genuine change still acts.
     ///
     /// <para>
-    /// Both halves are load-bearing. <c>ToolbarLifecycleCoordinator.cs:54-55</c> mirrors every
+    /// Load-bearing, not tidiness. <c>ToolbarLifecycleCoordinator.cs:59-68</c> mirrors every
     /// <c>StateChangedMessage</c> into <c>SetPaused</c>, and that message fires on each
     /// Fixation↔FreeLook flip — several times a second during ordinary gaze. Before the guard, a
     /// hidden toolbar therefore re-asserted <c>HideToolbar</c> at roughly 1.4 Hz indefinitely, each
@@ -319,32 +335,23 @@ public class ToolbarAutoHideControllerTests
     /// the gaze cursor. A 2026-09-07 live run measured 129 redundant re-asserts against 3 real
     /// hides — which is how the defect was found at all, since it is invisible on screen.
     /// </para>
-    ///
-    /// <para>
-    /// The first assertion is what stops the guard being over-applied: pause-while-hidden must
-    /// still raise the edge bar, or a paused user is left hidden with no feedback (the original
-    /// auto-hide design's Goal #4). <see cref="Pause_WhileHidden_ShowsIndicator"/> covers that
-    /// path on its own; this test pins it again so a future edit cannot satisfy one and break the
-    /// other.
-    /// </para>
     /// </summary>
     [Fact]
-    public void RedundantSetPaused_WhileHidden_DoesNotReAssertHide()
+    public void RedundantSetPaused_DoesNotReAssertAnything()
     {
         var sut = NewController();
         var vis = new FakeVisibility();
         sut.Attach(vis);
-        sut.HideForTest(vis);            // 1st hide
-        Check.That(vis.HideCalls).IsEqualTo(1);
 
-        sut.SetPaused(true);             // genuine change → re-asserts, raising the edge bar
-        Check.That(vis.HideCalls).IsEqualTo(2);
-        Check.That(vis.LastHidePaused).IsTrue();
+        sut.SetPaused(true);             // genuine change → reset anchors, stay visible
+        Check.That(vis.HideCalls).IsEqualTo(0);
+        Check.That(vis.ForceShowCalls).IsEqualTo(0); // already visible: nothing to recover
 
         sut.SetPaused(true);             // the storm: no change, must be ignored
         sut.SetPaused(true);
         sut.SetPaused(true);
-        Check.That(vis.HideCalls).IsEqualTo(2);
+        Check.That(vis.HideCalls).IsEqualTo(0);
+        Check.That(vis.ForceShowCalls).IsEqualTo(0);
     }
 
     [Fact]

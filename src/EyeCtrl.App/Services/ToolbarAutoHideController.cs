@@ -122,15 +122,27 @@ public sealed class ToolbarAutoHideController
         // measured 129 such re-asserts against 3 real hides.
         if (paused == _paused) return;
         _paused = paused;
-        // If the toolbar is already HIDDEN, no hide/show transition will fire to carry the pause
-        // change into the visibility seam — so re-assert the hide here, keeping the seam and
-        // toolbar dwell consistent with the Hidden state (dwell re-deactivated, window re-hidden).
-        // HideToolbar does NOT touch the pause indicator under the strip-neutral contract (spec
-        // H1): the paused argument only reaches the adapter's log. The pause FEEDBACK while
-        // hidden is not this call's job — the paused-state mirror in ToolbarLifecycleCoordinator
-        // commands the strip through SetPauseIndicator on the same StateChangedMessage, so a
-        // paused + hidden user still gets their edge strip (spec Goal #4). The guard above does
-        // not weaken that: a genuine pause change still reaches both mirrors.
+
+        if (paused)
+        {
+            // Paused-trap guard (2026-09-24: 1 h 43 min stranded in Paused): the toolbar IS the
+            // resume target, so it must be reachable. Recover from hidden so a pause that lands
+            // while the band is away still leaves the toggle on screen; Feed's paused guard then
+            // keeps it up. Both anchors reset so the hide countdown starts fresh on resume rather
+            // than firing the instant the user unpauses.
+            if (_state == State.Hidden && _enabled && !_suspended)
+                _visibility?.ForceShow();
+            _state = State.Visible;
+            Volatile.Write(ref _hideAnchorUs, Unseeded);
+            Volatile.Write(ref _summonRunUs, Unseeded);
+            return;
+        }
+
+        // Resuming while hidden is only reachable through a hide that raced the pause (or the test
+        // seam). Re-assert the hide so the seam and toolbar dwell stay consistent with the Hidden
+        // state. HideToolbar does NOT touch the pause indicator under the strip-neutral contract
+        // (spec H1): the paused argument only reaches the adapter's log, and the strip's own
+        // mirror in ToolbarLifecycleCoordinator commands it on the same StateChangedMessage.
         if (_state == State.Hidden && _enabled && !_suspended)
             _visibility?.HideToolbar(paused);
     }
@@ -246,6 +258,13 @@ public sealed class ToolbarAutoHideController
         {
             case State.Visible:
             {
+                // Paused-trap guard: while paused the toolbar is the resume target, so it never
+                // hides and never runs the hide countdown. SetPaused(true) reset the anchor, and on
+                // resume the first off-toolbar sample seeds a fresh 5 s window — unpausing does not
+                // hide the band the instant the user looks away.
+                if (_paused)
+                    break;
+
                 // The rect is screen geometry captured from the live window, but the sample arrives
                 // pre-calibration (GazeSampled fires before the calibration transform in
                 // GazeEngine.OnGazePoint). Map into screen space for THIS test only — and only for

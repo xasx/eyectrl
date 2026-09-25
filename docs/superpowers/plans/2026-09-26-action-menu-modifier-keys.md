@@ -387,42 +387,7 @@ New file `tests/EyeCtrl.Platform.Tests/Input/Win32InputSimulatorModifiedSequence
 ```csharp
 namespace EyeCtrl.Platform.Tests.Input;
 
-using EyeCtrl.Core.Keyboard;
-using EyeCtrl.Platform.Input;
-using Xunit;
-using NFluent;
-
-/// <summary>
-/// Batch composition for modified mouse/wheel input. These tests read the INTERNAL builder
-/// directly (no SendInput) — the seam the spec's pure-function rule calls for.
-/// </summary>
-public class Win32InputSimulatorModifiedSequenceTests
-{
-    private static HashSet<ModifierKey> Mods(params ModifierKey[] keys) => new(keys);
-
-    [Fact]
-    public void ModifiedLeftClick_DownsPrecedeBody_UpsReversed_MaskBeforeAltUp()
-    {
-        var body = new[]
-        {
-            Win32InputSimulatorTestHelper.MouseInput(NativeMethods.MOUSEEVENTF_LEFTDOWN),
-            Win32InputSimulatorTestHelper.MouseInput(NativeMethods.MOUSEEVENTF_LEFTUP),
-        };
-        var batch = Win32InputSimulator.WrapWithModifiers(
-            Mods(ModifierKey.Alt, ModifierKey.Shift), body, includeAltMenuMask: true);
-
-        // Shift+Alt downs (Ctrl absent), body, mask pair, then Alt-up before Shift-up.
-        Check.That(batch).HasSize(2 + 2 + 2 + 2);
-        Check.That(batch[0].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_CONTROL); // placeholder-free check: absent
-    }
-}
-```
-
-STOP — the above sketch shows the SHAPE but the checks must be exact; write the file with these concrete tests instead (helper class included):
-
-```csharp
-namespace EyeCtrl.Platform.Tests.Input;
-
+using System.Linq;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Platform.Input;
 using NFluent;
@@ -676,15 +641,16 @@ public class InteractionManagerModifierTests
     public void RepeatModeTick_CarriesNoModifiers()
     {
         var im = new InteractionManager();
-        var mods = new HashSet<ModifierKey>();
         IReadOnlySet<ModifierKey>? raised = null;
-        im.ActionRequested += (_, _, modifiers) => raised = modifiers;
+        var fired = false;
+        im.ActionRequested += (action, _, modifiers) => { fired = true; raised = modifiers; };
         im.EnterRepeatMode(InteractionAction.LeftClick);
         im.RepeatDwellMs = 0;
-        im.NoteGazeSample(isValid: true, timestampUs: 1_000);
-        im.NoteGazeSample(isValid: true, timestampUs: 2_000);
+        im.OnFixationStarted(Point);          // arms the locked-action dwell at the point
+        im.NoteGazeSample(isValid: true, timestampUs: 1_000); // dwell 0 ms ⇒ fires on this sample
 
-        Check.That(raised).IsNull(); // repeat ticks carry null — never a modifier set
+        Check.That(fired).IsTrue();           // the tick really fired — no vacuous pass
+        Check.That(raised).IsNull();          // repeat ticks carry null — never a modifier set
     }
 }
 ```
@@ -1388,7 +1354,11 @@ public class EdgeButtonBarViewModelRearmTests
         var vm = new EdgeButtonBarViewModel(new EyeCtrlSettings(), messenger, sink: null, registry);
         vm.ShowButtons(new[] { Def("shift", toggles), Def("ctrl", toggles) }, new PhysicalPoint(500, 500));
         foreach (var registration in registry.Registrations)
-            registration.ApplyGeometry(baseExtent => baseExtent + 60);
+            registration.ApplyGeometry(baseExtent => baseExtent * 3);
+        // ×3 rather than a fixed +60 px: the physical spacing between mod centers scales with
+        // DPI (DpiHelper), so the enlargement must scale too — at any DPI, 3× the base radius
+        // (2 × 3r > 4.8r spacing) guarantees the overlap lens the test needs. This realizes the
+        // spec's "margin 60 on the owner's 100 px base" in a DPI-independent form.
 
         Look(vm, 500, 1_000_000);                                   // shift toggles ⇒ pending(shift)
         for (var t = 0; t < 10; t++)

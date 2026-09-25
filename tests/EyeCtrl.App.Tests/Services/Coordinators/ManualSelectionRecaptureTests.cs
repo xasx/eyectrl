@@ -244,6 +244,7 @@ public class ManualSelectionRecaptureTests
             public void Hide() { }
             public void UpdatePosition(PhysicalPoint point) { }
             public void UpdateAppearance(CursorSettings settings) { }
+            public void SetPausedDim(bool dimmed) { }
         }
 
         private sealed class NoOpActivationButton : IActivationButtonOverlay

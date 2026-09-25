@@ -25,6 +25,15 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
         InitializeComponent();
     }
 
+    /// <summary>
+    /// Window opacity while paused. Large enough that the ring still reads as present (tracking is
+    /// alive), small enough that it does not compete with the resume target it is pointing at.
+    /// </summary>
+    internal const double PausedDimOpacity = 0.45;
+
+    /// <summary>Dims the ring while interaction is paused; restores full opacity on resume.</summary>
+    public void SetPausedDim(bool dimmed) => Opacity = dimmed ? PausedDimOpacity : 1.0;
+
     public void UpdatePosition(PhysicalPoint point)
     {
         double left = DpiHelper.PhysicalToLogicalX(point.X) - Width / 2;

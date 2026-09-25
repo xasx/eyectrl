@@ -36,6 +36,16 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     // state is true — the toolbar starts visible and dwellable.
     private bool _dwellingActive = true;
 
+    // The Pause toggle's screen center, captured when the View reports it (the dwell target itself
+    // lives in DwellDetector). Used for the leave-before-re-arm test, which must ask "is gaze still
+    // on the toggle?" even while the detector is deliberately not being fed.
+    private PhysicalPoint? _pauseTargetCenter;
+
+    // True from a Pause activation until gaze leaves the Pause target. While set, the toggle cannot
+    // re-fire and the detector is not fed on the target, so one held look produces exactly one
+    // toggle instead of one per cooldown cycle (2026-09-24: a 3.5 s hold toggled 3 times).
+    private bool _pauseReArmPending;
+
     [ObservableProperty] private bool _isPaused;
 
     private SelectionMode _currentSelectionMode = SelectionMode.None;
@@ -48,6 +58,9 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     /// </summary>
     public void UpdateButtonScreenPosition(string buttonId, PhysicalPoint screenCenter)
     {
+        if (buttonId == "Pause")
+            _pauseTargetCenter = screenCenter;
+
         if (_positionedButtons.Add(buttonId))
         {
             // First real position for this button: create its dwell target now, at the true
@@ -105,13 +118,48 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
 
     public override void Receive(GazeCursorMovedMessage message)
     {
+        // Gap-held samples carry the frozen last valid position, so a held point must not clear the
+        // re-arm latch either — that is the same reason they are skipped, not fed, below.
+        if (!message.IsInGap)
+            UpdatePauseReArm(message.Position);
+
         // Gap-held samples carry the frozen last valid position, so they are skipped rather than fed
         // (see DwellOverlayViewModelBase.Receive) — a blink over a toolbar button must not complete it.
         // The pause term routes through the shared gate (round-2 finding 2): this override used to
         // reimplement the checks, silently bypassing DwellActiveWhilePaused below and leaving the
         // toolbar's unpause opt-in as dead code.
         if (!_dwellingActive || !SampleMayDwell(message)) return;
+
+        // Leave-before-re-arm for the pause toggle: while gaze still rests on the toggle that just
+        // fired, do not feed the detector at all. Without this, the shared cooldown alone re-arms at
+        // ~1.1 s and a single 3.5 s look toggles the app three times.
+        if (_pauseReArmPending && IsOverPauseTarget(message.Position)) return;
+
         DwellDetector.Update(message.Position, message.TimestampMicroseconds);
+    }
+
+    /// <summary>
+    /// Clears the pause toggle's re-arm latch once gaze has left its target. Position-based and
+    /// frame-gated by the caller, deliberately independent of <c>_dwellingActive</c>: leaving is
+    /// leaving whether or not the detector is currently being fed.
+    /// </summary>
+    private void UpdatePauseReArm(PhysicalPoint position)
+    {
+        if (_pauseReArmPending && !IsOverPauseTarget(position))
+            _pauseReArmPending = false;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="position"/> is inside the Pause toggle's circular hit area. False
+    /// before the View has reported the toggle's position — with no target there is nothing to
+    /// leave, so a never-positioned toggle cannot latch forever.
+    /// </summary>
+    private bool IsOverPauseTarget(PhysicalPoint position)
+    {
+        if (_pauseTargetCenter is not { } center) return false;
+        var dx = position.X - center.X;
+        var dy = position.Y - center.Y;
+        return dx * dx + dy * dy <= _buttonDwellRadiusPhysical * _buttonDwellRadiusPhysical;
     }
 
     /// <summary>
@@ -215,7 +263,12 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
 
         switch (targetId)
         {
-            case "Pause": Messenger.Send(new PauseToggledMessage()); break;
+            case "Pause":
+                // Latched BEFORE the toggle is sent: from this instant the user's gaze is on the
+                // toggle, and a re-fire (after the cooldown) must wait until it leaves.
+                _pauseReArmPending = true;
+                Messenger.Send(new PauseToggledMessage());
+                break;
             case "SelectionMode":
                 var next = (SelectionMode)(((int)_currentSelectionMode + 1) % Enum.GetValues<SelectionMode>().Length);
                 Messenger.Send(new SelectionModeChangedMessage(next));

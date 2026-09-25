@@ -389,7 +389,16 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
         _targetsInitialized = true;
     }
 
-    public void SetPausedState(bool isPaused) => _band.SwapIcon("Pause", isPaused ? "Play" : "Pause");
+    public void SetPausedState(bool isPaused)
+    {
+        _band.SwapIcon("Pause", isPaused ? "Play" : "Pause");
+        // The icon swap alone reads as "the Pause button is broken" to a user who cannot tell
+        // paused from unpaused. The label names the state and the way out.
+        ResumeHint.Visibility = isPaused ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>For tests: the "look here to resume" label shown while paused.</summary>
+    internal TextBlock ResumeHintForTest => ResumeHint;
 
     /// <inheritdoc />
     /// <remarks>

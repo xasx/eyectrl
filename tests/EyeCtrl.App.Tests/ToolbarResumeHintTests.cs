@@ -17,13 +17,18 @@ public class ToolbarResumeHintTests
         var (window, _) = ToolbarTestHelpers.NewBoundToolbar();
         var hint = window.ResumeHintForTest;
 
-        Check.That(hint.Visibility).IsEqualTo(Visibility.Collapsed);
+        // HIDDEN, never Collapsed: the slot is reserved so the band's geometry — and therefore the
+        // published dwell targets — is identical in both states (B1 regression; the drawn-face
+        // distance itself is pinned by ToolbarPausedTargetAlignmentTests).
+        Check.That(hint.Visibility).IsEqualTo(Visibility.Hidden);
+        Check.That(hint.Visibility).IsNotEqualTo(Visibility.Collapsed);
 
         window.SetPausedState(true);
         Check.That(hint.Visibility).IsEqualTo(Visibility.Visible);
         Check.That(hint.Text).Contains("look here to resume");
 
         window.SetPausedState(false);
-        Check.That(hint.Visibility).IsEqualTo(Visibility.Collapsed);
+        Check.That(hint.Visibility).IsEqualTo(Visibility.Hidden);
+        Check.That(hint.Visibility).IsNotEqualTo(Visibility.Collapsed);
     }
 }

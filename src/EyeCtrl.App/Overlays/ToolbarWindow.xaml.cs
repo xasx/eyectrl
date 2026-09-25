@@ -392,9 +392,14 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
     public void SetPausedState(bool isPaused)
     {
         _band.SwapIcon("Pause", isPaused ? "Play" : "Pause");
-        // The icon swap alone reads as "the Pause button is broken" to a user who cannot tell
-        // paused from unpaused. The label names the state and the way out.
-        ResumeHint.Visibility = isPaused ? Visibility.Visible : Visibility.Collapsed;
+        // Visible/Hidden, NEVER Collapsed — the slot is reserved at all times so the band's
+        // geometry does not change with the pause state. The dwell targets are published once and
+        // latched (see ToolbarBand.FacesAreArranged and ToolbarLifecycleCoordinator's
+        // _toolbarInitialized); a Collapsed→Visible flip re-flows the strip and strands every
+        // button's target at its old centre. Reviewer B measured the resulting gap at 162 px,
+        // against a 60 px hit radius: the visible Play button became dead. Pinned by
+        // ToolbarPausedTargetAlignmentTests at scale 2.0 on all four dock edges.
+        ResumeHint.Visibility = isPaused ? Visibility.Visible : Visibility.Hidden;
     }
 
     /// <summary>For tests: the "look here to resume" label shown while paused.</summary>

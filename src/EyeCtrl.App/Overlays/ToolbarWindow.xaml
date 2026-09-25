@@ -32,15 +32,24 @@
                 <StackPanel x:Name="IndicatorPanel" Orientation="Horizontal"
                             VerticalAlignment="Center"/>
                 <!-- Paused-trap guard: the resume target must say what it is, not just swap the
-                     Pause icon to a Play glyph. Collapsed unless SetPausedState(true); it sits
-                     directly before the Pause button so "look here" points at the target. -->
+                     Pause icon to a Play glyph. It sits directly before the Pause button so "look
+                     here" points at the target.
+
+                     HIDDEN, never Collapsed: this is a reserved slot. The band is a SizeToContent
+                     strip whose button faces are published ONCE as dwell targets and then latched,
+                     so anything that changes the band's geometry moves every face off its target
+                     (reviewer B: 162 px at the user's settings). Reserving the slot with Hidden
+                     keeps the geometry identical paused and unpaused by construction; only the
+                     paint changes. A regression test (ToolbarPausedTargetAlignmentTests) pins the
+                     drawn-face-to-target distance at scale 2.0 on all four dock edges. -->
                 <TextBlock x:Name="ResumeHint"
                            Text="Paused: look here to resume"
                            Foreground="{StaticResource BrushTextPrimary}"
                            FontSize="{StaticResource FontSizeBody}"
                            VerticalAlignment="Center"
                            Margin="12,0,0,0"
-                           Visibility="Collapsed"/>
+                           IsHitTestVisible="False"
+                           Visibility="Hidden"/>
                 <!-- DwellArcButton positions itself with Canvas.SetLeft/SetTop, so the button band is
                      a Canvas with an explicitly computed size — a Canvas measures to zero otherwise,
                      and this window is SizeToContent. -->

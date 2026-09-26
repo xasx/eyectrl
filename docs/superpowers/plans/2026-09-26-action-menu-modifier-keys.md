@@ -2315,13 +2315,16 @@ public void HideActionMenu_HidesTheModBar_Unconditionally_EvenWhenTheRightBarIsO
 [StaFact]
 public void ThrowingModBar_DoesNotPreventTheRightBarHide()
 {
-    var h = BuildContext(withModBar: false); // mod-bar slot absent ⇒ the left-bar hide throws
+    var h = BuildContext(withModBar: false); // mod-bar slot absent ⇒ the left-bar hide throws;
+    // TargetHighlightVM.IsVisible = true (the TargetHighlight hide is the casualty under test)
+    h.TargetHighlightVM.IsVisible = true;
     h.Messenger.Send(new ShowActionMenuMessage(new PhysicalPoint(500, 500), new List<InteractionAction> { InteractionAction.LeftClick }, CircleSize: 250, DwellTimeMs: 600, GazePoint: new PhysicalPoint(500, 500), ShowBack: false));
     h.PumpDispatcher();
     h.Messenger.Send(new HideActionMenuMessage());
     h.PumpDispatcher();
 
     Check.That(h.RightBarCalls).Contains("Hide"); // the right-bar hide ran before the throw
+    Check.That(h.TargetHighlightVM.IsVisible).IsFalse(); // the TargetHighlight hide also ran
 }
 
 [StaFact]
@@ -2345,9 +2348,8 @@ public void HeldGaze_TogglesExactlyOnce_ThroughTheRealCoordinator()
     h.ShowActionMenu();                                // ShowActionMenuMessage + dispatcher pump
     for (var t = 0; t <= 6; t++)
         h.LookAt(ShiftCenter, t * 100_000);            // 100 ms cadence, dwell 600 ms: Shift fires
-        // at 1.2M (elapsed 600 ms at the 1.2M sample — the detector needs elapsed, not a
-        // sample count); T = 1.2M
-    for (var t = 13; t <= 30; t++)
+        // at 600k (elapsed 600 ms at the 600k sample)
+    for (var t = 7; t <= 30; t++)
         h.LookAt(ShiftCenter, t * 100_000);            // held: the gate feeds hits-nothing
 
     Check.That(h.ShiftToggleCount).IsEqualTo(1);
@@ -2359,7 +2361,7 @@ public void HeldGaze_TogglesExactlyOnce_ThroughTheRealCoordinator()
 [StaFact]
 public void ShowButtonsMutant_IsCaught_AtT700ZeroFires_ThenCompletes()
 {
-    // TWO inside samples toggle Shift (detector model), then gaze moves to Ctrl:
+    // Seven inside samples toggle Shift (100 ms cadence, fires at 600k):
     // correct impl - the cooldown gate blocks Ctrl accumulation START until T+400 ms, so
     //          Ctrl completes at about T+1000;
     // ShowButtons mutant - ResetCooldown means Ctrl accumulates from first contact and fires

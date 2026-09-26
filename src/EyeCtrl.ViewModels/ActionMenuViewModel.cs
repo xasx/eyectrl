@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Adaptation;
+using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
@@ -14,10 +15,12 @@ using EyeCtrl.ViewModels.Messages;
 public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
     IRecipient<ShowActionMenuMessage>,
     IRecipient<HideActionMenuMessage>,
-    IRecipient<ToggleActionMenuLabelsMessage>
+    IRecipient<ToggleActionMenuLabelsMessage>,
+    IRecipient<ToggleActionMenuModifierMessage>
 {
 
     private readonly Dictionary<string, ActionMenuItemViewModel> _itemLookup = new();
+    private readonly HashSet<ModifierKey> _latchedModifiers = new();
     private readonly EyeCtrlSettings _settings;
     private bool _onSecondaryLayer;
     private ShowActionMenuMessage? _shownWith;
@@ -42,6 +45,12 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
     public int? ManualSelectionRadius { get; private set; }
     public PhysicalPoint GazePoint { get; private set; } = new(0, 0);
 
+    /// <summary>Modifiers latched for the CURRENT menu session. Cleared on hide, reset on show.</summary>
+    public IReadOnlySet<ModifierKey> LatchedModifiers => _latchedModifiers;
+
+    /// <summary>The modifier whose toggle raised the last <see cref="LatchedModifiers"/> change (the App branch swaps exactly this button's icon).</summary>
+    public ModifierKey LastToggledModifier { get; private set; }
+
     public ObservableCollection<ActionMenuItemViewModel> Items { get; } = new();
 
     public ActionMenuViewModel(EyeCtrlSettings settings, IMessenger messenger,
@@ -64,6 +73,11 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
         _onSecondaryLayer = false;
         _shownWith = message;
         ShowLabels = false;
+
+        // The latch dies with the previous session. This must run BEFORE BuildLayer: the dim
+        // read inside it decides dwell-target membership, and a stale latch would dim Drag and
+        // ScrollMode on an open whose modifiers the user already lost.
+        _latchedModifiers.Clear();
 
         BuildLayer();
         IsVisible = true;
@@ -129,11 +143,18 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
             var by = message.Center.Y + physicalRingRadius * Math.Sin(angleRad);
             var position = new PhysicalPoint(bx, by);
 
-            var itemVm = new ActionMenuItemViewModel(id, action, icon, label, position, kind);
+            // A latched modifier dims Drag and ScrollMode: neither action has a meaning the
+            // dispatcher can perform once a modifier rides along. Dimmed items keep their slot
+            // (angleStep already divided by allItems.Count above) but gain no dwell target, so
+            // dwelling their position does nothing at all.
+            var disabled = _latchedModifiers.Count > 0
+                && action is InteractionAction.Drag or InteractionAction.ScrollMode;
+            var itemVm = new ActionMenuItemViewModel(id, action, icon, label, position, kind, disabled);
             Items.Add(itemVm);
             _itemLookup[id] = itemVm;
 
-            DwellDetector.AddTarget(new DwellTarget(id, position, physicalButtonRadius, message.DwellTimeMs));
+            if (!disabled)
+                DwellDetector.AddTarget(new DwellTarget(id, position, physicalButtonRadius, message.DwellTimeMs));
         }
 
         // The window redraws only when something it subscribes to changes. It listens to
@@ -160,12 +181,33 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
         _onSecondaryLayer = false;
         _shownWith = null;
         ShowLabels = false;
+        _latchedModifiers.Clear();
         DwellDetector.ClearTargets();
         Items.Clear();
         _itemLookup.Clear();
     }
 
     public void Receive(ToggleActionMenuLabelsMessage message) => ShowLabels = !ShowLabels;
+
+    /// <summary>
+    /// Toggles one modifier's latch for the current menu session (the left-edge bar). Toggling
+    /// across the empty/non-empty boundary rebuilds the ring, because that crossing is what
+    /// changes Drag/ScrollMode between dwell-target and dimmed non-target — a toggle inside a
+    /// non-empty latch changes only which modifiers ride along at capture.
+    /// </summary>
+    public void Receive(ToggleActionMenuModifierMessage message)
+    {
+        if (!IsVisible) return;
+
+        var wasEmpty = _latchedModifiers.Count == 0;
+        LastToggledModifier = message.Modifier;
+        if (!_latchedModifiers.Remove(message.Modifier))
+            _latchedModifiers.Add(message.Modifier);
+        OnPropertyChanged(nameof(LatchedModifiers));
+
+        if (wasEmpty != (_latchedModifiers.Count == 0))
+            BuildLayer(); // empty↔non-empty crossing: dim state changed; BuildLayer bumps RingVersion LAST
+    }
 
     protected override void OnTargetActivated(string targetId)
     {
@@ -188,7 +230,13 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
                 break;
 
             case ActionMenuItemKind.Action when item.Action.HasValue:
-                Messenger.Send(new ActionSelectedMessage(item.Action.Value));
+                if (_latchedModifiers.Count > 0 && item.Action is InteractionAction.Drag or InteractionAction.ScrollMode)
+                    return; // backstop: dimmed items have no dwell target; unreachable in practice
+                // Copy-on-capture: the message must carry its own set, or the hide that follows
+                // the activation would empty an aliased latch before the dispatcher reads it.
+                Messenger.Send(new ActionSelectedMessage(
+                    item.Action.Value,
+                    _latchedModifiers.Count > 0 ? new HashSet<ModifierKey>(_latchedModifiers) : null));
                 break;
         }
     }

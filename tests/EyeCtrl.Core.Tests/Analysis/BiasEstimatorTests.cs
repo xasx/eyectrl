@@ -126,6 +126,66 @@ public class BiasEstimatorTests
     }
 
     [Fact]
+    public void AContaminatedRun_IsSplitIntoTheTwoPlacesItVisited()
+    {
+        // A hold at +300 followed immediately by a glance at +250: the dispersion box swallows both
+        // (50 px < D75) into one run, and its centroid would land at ~275 — tens of pixels off the
+        // truth. The bimodal split is what keeps that run from becoming a fabricated third place.
+        var target = new PhysicalPoint(500, 500);
+        var samples = new List<GroundTruthSample>();
+        long t = 300_000;
+        for (int i = 0; i < 8; i++, t += 30_000)
+            samples.Add(new GroundTruthSample(target.X + 300, target.Y, t, Valid: true));
+        for (int i = 0; i < 8; i++, t += 30_000)
+            samples.Add(new GroundTruthSample(target.X + 250, target.Y, t, Valid: true));
+
+        var window = new GroundTruthWindow(0, target.X, target.Y, 0, 0, t - 30_000, samples.Count)
+        {
+            Samples = samples,
+        };
+
+        var clusters = BiasEstimator.ExtractClusters(window);
+
+        Check.That(clusters).HasSize(2);
+        Check.That(clusters[0].Centroid.X).IsCloseTo(target.X + 300, 1e-9);
+        Check.That(clusters[0].SampleCount).IsEqualTo(8);
+        Check.That(clusters[1].Centroid.X).IsCloseTo(target.X + 250, 1e-9);
+        Check.That(clusters[1].SampleCount).IsEqualTo(8);
+    }
+
+    [Fact]
+    public void RepeatedVisitsToTheSamePlace_AreOneClusterWithAllTheEvidence()
+    {
+        // A stream that returns to its hold five times produces five runs there. Ranking them as five
+        // candidates would bury a smaller but distinct look-away under the cap and split one place's
+        // evidence into five weak votes; they are merged by place first.
+        var target = new PhysicalPoint(500, 500);
+        var samples = new List<GroundTruthSample>();
+        long t = 300_000;
+        for (int visit = 0; visit < 5; visit++)
+        {
+            // A pixel of visit-to-visit jitter so "the same place" is a real distance test, not exact
+            // duplicate centroids that any merge threshold would accept.
+            double jitter = (visit % 2 == 0) ? 1.0 : -1.0;
+            for (int i = 0; i < 6; i++, t += 30_000)
+                samples.Add(new GroundTruthSample(target.X + 100 + jitter, target.Y + jitter, t, Valid: true));
+            for (int i = 0; i < 3; i++, t += 30_000)   // away, below MinClusterSamples and far outside the box
+                samples.Add(new GroundTruthSample(target.X + 900, target.Y + 700, t, Valid: true));
+        }
+
+        var window = new GroundTruthWindow(0, target.X, target.Y, 0, 0, t - 30_000, samples.Count)
+        {
+            Samples = samples,
+        };
+
+        var clusters = BiasEstimator.ExtractClusters(window);
+
+        Check.That(clusters).HasSize(1);
+        Check.That(clusters[0].SampleCount).IsEqualTo(30);
+        Check.That(clusters[0].Centroid.X).IsCloseTo(target.X + 100, 2);
+    }
+
+    [Fact]
     public void GlanceLandingNearTheHold_DoesNotMergeIntoAWrongConfidentVerdict()
     {
         // Reviewer A's P6: at every target the user's glance lands 50 px short of the hold and 60 px

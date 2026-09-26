@@ -405,6 +405,10 @@ public class ScriptedGroundTruthRecorderTests : IDisposable
         Check.That(File.Exists(Sidecar)).IsTrue();
         var session = Analysis.GroundTruthFile.Read(Sidecar);
         Check.That(session.Mode).IsEqualTo(GroundTruthMode.Calibration);
+        // The mode must be WRITTEN, not merely defaulted on read: the file is inspected by an operator.
+        var raw = File.ReadAllText(Sidecar);
+        Check.That(raw).Contains("\"mode\"");
+        Check.That(raw).Contains("calibration");
         Check.That(Directory.GetFiles(_dir, "bias-probe-*.groundtruth.json")).IsEmpty();
     }
 }

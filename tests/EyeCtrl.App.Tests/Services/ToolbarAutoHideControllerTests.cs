@@ -256,12 +256,16 @@ public class ToolbarAutoHideControllerTests
         Check.That(vis.HideCalls).IsEqualTo(1);
     }
 
-    // ── Paused-trap guard ──
-    // 2026-09-24: the app ran 1 h 43 min in Paused while the toolbar auto-hid, leaving the user
-    // with no visible way back. While paused the toolbar IS the resume target, so it must stay up.
+    // ── Paused hides like any other state ──
+    // Owner decision 2026-09-26, reversing the 2026-09-24 trap guard (which pinned the band visible
+    // while paused after a 1 h 43 min stranding). The stranding was the summon being dead, not the
+    // hide being wrong — the instrumented run of 2026-09-26 shows clean paused-edge summons — so
+    // pause no longer touches visibility at all, and the Hidden case below summons with no pause
+    // gate. The way back while paused: past-edge gaze (the pause-indicator strip marks that edge),
+    // then dwell the Play toggle.
 
     [Fact]
-    public void WhilePaused_AutoHideIsSuppressed_ResumeTargetStaysVisible()
+    public void WhilePaused_OffToolbarGaze_StillHides()
     {
         var sut = NewController();
         var vis = new FakeVisibility();
@@ -272,8 +276,8 @@ public class ToolbarAutoHideControllerTests
         sut.Feed(CreateSample(960, 500, valid: true), 0);
         sut.Feed(CreateSample(960, 500, valid: true), 10_000_000);
 
-        Check.That(vis.HideCalls).IsEqualTo(0);
-        Check.That(sut.StateName).IsEqualTo("Visible");
+        Check.That(vis.HideCalls).IsEqualTo(1);
+        Check.That(sut.StateName).IsEqualTo("Hidden");
     }
 
     [Fact]
@@ -291,21 +295,23 @@ public class ToolbarAutoHideControllerTests
     }
 
     [Fact]
-    public void SetPaused_WhileHidden_ForceShowsTheResumeTarget()
+    public void SetPaused_WhileHidden_ReAssertsTheHide()
     {
-        // A pause that lands while the band is away must bring the resume target back, not leave it
-        // hidden behind the edge strip. This is the one pause transition that still touches
-        // visibility.
+        // A pause that lands while the band is away touches no visibility: the toolbar stays
+        // hidden and its dwell stays deactivated. The re-assert exists because no hide/show
+        // transition will fire to carry the pause change into the seam — see SetPaused.
         var sut = NewController();
         var vis = new FakeVisibility();
         sut.Attach(vis);
         sut.HideForTest(vis);            // hidden while NOT paused
-        Check.That(vis.HideCalls).IsEqualTo(1);
+        var hideCalls = vis.HideCalls;
+        Check.That(hideCalls).IsEqualTo(1);
 
-        sut.SetPaused(true);             // pause AFTER hiding → recover the band
-        Check.That(vis.ForceShowCalls).IsEqualTo(1);
-        Check.That(vis.HideCalls).IsEqualTo(1);   // no hide re-asserted
-        Check.That(sut.StateName).IsEqualTo("Visible");
+        sut.SetPaused(true);             // pause AFTER hiding → re-assert, no recovery
+        Check.That(vis.ForceShowCalls).IsEqualTo(0);
+        Check.That(vis.HideCalls).IsEqualTo(hideCalls + 1);
+        Check.That(vis.LastHidePaused).IsTrue();
+        Check.That(sut.StateName).IsEqualTo("Hidden");
     }
 
     [Fact]
@@ -343,9 +349,9 @@ public class ToolbarAutoHideControllerTests
         var vis = new FakeVisibility();
         sut.Attach(vis);
 
-        sut.SetPaused(true);             // genuine change → reset anchors, stay visible
+        sut.SetPaused(true);             // genuine change → recorded, stay visible
         Check.That(vis.HideCalls).IsEqualTo(0);
-        Check.That(vis.ForceShowCalls).IsEqualTo(0); // already visible: nothing to recover
+        Check.That(vis.ForceShowCalls).IsEqualTo(0); // pause touches no visibility while visible
 
         sut.SetPaused(true);             // the storm: no change, must be ignored
         sut.SetPaused(true);
@@ -374,11 +380,12 @@ public class ToolbarAutoHideControllerTests
     }
 
     [Fact]
-    public void ResumeAfterOffToolbarGaze_DoesNotHideInstantly()
+    public void Pause_DoesNotDisturbTheHideCountdown()
     {
-        // A-M3: SetPaused(true) resets the hide anchor. Without it the pre-pause off-toolbar run
-        // keeps counting, so the first sample after a tray resume hides the band instantly — the
-        // user looks away from the toolbar and it vanishes under them.
+        // With paused gaze hiding like any other (2026-09-26), a pause mid-countdown must neither
+        // reset the anchor nor pause it: the run keeps counting through the pause and the hide
+        // fires on schedule. (The old A-M3 anchor reset belonged to the trap guard, where a pause
+        // had to guarantee the band a fresh window on resume.)
         var sut = NewController();
         var vis = new FakeVisibility();
         sut.Attach(vis);
@@ -388,16 +395,13 @@ public class ToolbarAutoHideControllerTests
         sut.Feed(CreateSample(960, 500, valid: true), 4_000_000);
         Check.That(vis.HideCalls).IsEqualTo(0);
 
-        sut.SetPaused(true);             // pause resets the anchor
+        sut.SetPaused(true);             // pause must not disturb the countdown
         sut.SetPaused(false);            // resume
 
-        // 1 s later: 5 s since the ORIGINAL anchor. Must be a fresh countdown, not an instant hide.
+        // 5 s since the ORIGINAL anchor: the run counted straight through the pause.
         sut.Feed(CreateSample(960, 500, valid: true), 5_000_000);
-        Check.That(vis.HideCalls).IsEqualTo(0);
-
-        // ...and the countdown still works: a full 5 s from the fresh anchor hides.
-        sut.Feed(CreateSample(960, 500, valid: true), 10_001_000);
         Check.That(vis.HideCalls).IsEqualTo(1);
+        Check.That(vis.LastHidePaused).IsFalse();
     }
 
     [Fact]

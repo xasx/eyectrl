@@ -882,7 +882,7 @@ public class BiasEstimatorTests
         }
 
         Check.That(recalibrate).IsEqualTo(0);
-        // 35, not 25: at slack 10 the near-rest shapes are 33 % Inconclusive, and that is the price
+        // 35, not 25: at slack 10 the near-rest shapes are 31-32 % Inconclusive, and that is the price
         // of the shape B's R4-1 forbids (a confident false "No trigger" on 10–69 of 100 seeds).
         Check.That(inconclusive).IsLessOrEqualThan(35);
         Check.That(noTrigger).IsGreaterOrEqualThan(65);

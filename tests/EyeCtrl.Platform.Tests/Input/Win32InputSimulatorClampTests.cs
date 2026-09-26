@@ -63,4 +63,45 @@ public class Win32InputSimulatorClampTests
         Check.That(inputs[4].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_SHIFT);
         Check.That(inputs[5].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_CONTROL);
     }
+
+    [Fact]
+    public void BuildModifiedKeySequence_Alt_WrapsKeyInMenuModifier()
+    {
+        var inputs = Win32InputSimulator.BuildModifiedKeySequence(
+            new HashSet<ModifierKey> { ModifierKey.Alt }, 0x41, isExtendedKey: false);
+
+        Check.That(inputs).HasSize(4);
+        Check.That(inputs[0].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_MENU);
+        Check.That(inputs[0].Union.Keyboard.Flags).IsEqualTo(0u);
+        Check.That(inputs[1].Union.Keyboard.VirtualKey).IsEqualTo(0x41);
+        Check.That(inputs[2].Union.Keyboard.VirtualKey).IsEqualTo(0x41);
+        Check.That(inputs[2].Union.Keyboard.Flags).IsEqualTo(NativeMethods.KEYEVENTF_KEYUP);
+        Check.That(inputs[3].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_MENU);
+        Check.That(inputs[3].Union.Keyboard.Flags).IsEqualTo(NativeMethods.KEYEVENTF_KEYUP);
+    }
+
+    [Fact]
+    public void BuildModifiedKeySequence_Win_UsesExtendedKeyFlag()
+    {
+        var inputs = Win32InputSimulator.BuildModifiedKeySequence(
+            new HashSet<ModifierKey> { ModifierKey.Win }, 0x41, isExtendedKey: false);
+
+        Check.That(inputs).HasSize(4);
+        Check.That(inputs[0].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_LWIN);
+        Check.That(inputs[0].Union.Keyboard.Flags).IsEqualTo(NativeMethods.KEYEVENTF_EXTENDEDKEY);
+        Check.That(inputs[3].Union.Keyboard.Flags)
+            .IsEqualTo(NativeMethods.KEYEVENTF_KEYUP | NativeMethods.KEYEVENTF_EXTENDEDKEY);
+    }
+
+    [Fact]
+    public void BuildModifiedKeySequence_ExtendedMainKey_PropagatesExtendedFlag()
+    {
+        var inputs = Win32InputSimulator.BuildModifiedKeySequence(
+            new HashSet<ModifierKey> { ModifierKey.Ctrl }, 0x21, isExtendedKey: true);
+
+        Check.That(inputs).HasSize(4);
+        Check.That(inputs[1].Union.Keyboard.Flags).IsEqualTo(NativeMethods.KEYEVENTF_EXTENDEDKEY);
+        Check.That(inputs[2].Union.Keyboard.Flags)
+            .IsEqualTo(NativeMethods.KEYEVENTF_EXTENDEDKEY | NativeMethods.KEYEVENTF_KEYUP);
+    }
 }

@@ -44,11 +44,25 @@ public class Win32InputSimulator : IInputSimulator
         SendInputs(down, up);
     }
 
+    public void LeftClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)
+    {
+        if (modifiers is not { Count: > 0 }) { LeftClick(point); return; }
+        var batch = WrapWithModifiers(modifiers, BuildModifiedClickBody(point, right: false, middle: false, doubleClick: false), includeAltMenuMask: true);
+        SendCompensatingReleases(SendRaw((uint)batch.Length, batch), batch);
+    }
+
     public void RightClick(PhysicalPoint point)
     {
         var down = CreateMouseInput(point, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE | NativeMethods.MOUSEEVENTF_RIGHTDOWN);
         var up = CreateMouseInput(point, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE | NativeMethods.MOUSEEVENTF_RIGHTUP);
         SendInputs(down, up);
+    }
+
+    public void RightClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)
+    {
+        if (modifiers is not { Count: > 0 }) { RightClick(point); return; }
+        var batch = WrapWithModifiers(modifiers, BuildModifiedClickBody(point, right: true, middle: false, doubleClick: false), includeAltMenuMask: true);
+        SendCompensatingReleases(SendRaw((uint)batch.Length, batch), batch);
     }
 
     public void MiddleClick(PhysicalPoint point)
@@ -58,10 +72,24 @@ public class Win32InputSimulator : IInputSimulator
         SendInputs(down, up);
     }
 
+    public void MiddleClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)
+    {
+        if (modifiers is not { Count: > 0 }) { MiddleClick(point); return; }
+        var batch = WrapWithModifiers(modifiers, BuildModifiedClickBody(point, right: false, middle: true, doubleClick: false), includeAltMenuMask: true);
+        SendCompensatingReleases(SendRaw((uint)batch.Length, batch), batch);
+    }
+
     public void DoubleClick(PhysicalPoint point)
     {
         LeftClick(point);
         LeftClick(point);
+    }
+
+    public void DoubleClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)
+    {
+        if (modifiers is not { Count: > 0 }) { DoubleClick(point); return; }
+        var batch = WrapWithModifiers(modifiers, BuildModifiedClickBody(point, right: false, middle: false, doubleClick: true), includeAltMenuMask: true);
+        SendCompensatingReleases(SendRaw((uint)batch.Length, batch), batch);
     }
 
     public void MouseDown(PhysicalPoint point)
@@ -93,6 +121,13 @@ public class Win32InputSimulator : IInputSimulator
             input.Union.Mouse.MouseData = deltaX * PlatformConstants.MouseWheelDelta;
             SendSingleInput(input);
         }
+    }
+
+    public void Scroll(PhysicalPoint point, int deltaX, int deltaY, IReadOnlySet<ModifierKey>? modifiers)
+    {
+        if (modifiers is not { Count: > 0 }) { Scroll(point, deltaX, deltaY); return; }
+        var batch = WrapWithModifiers(modifiers, BuildModifiedWheelBody(point, deltaX, deltaY), includeAltMenuMask: true);
+        SendCompensatingReleases(SendRaw((uint)batch.Length, batch), batch);
     }
 
     public void SendKeyPress(ushort virtualKeyCode)
@@ -151,8 +186,8 @@ public class Win32InputSimulator : IInputSimulator
 
     public void SendModifiedKeyPress(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode, bool isExtendedKey)
     {
-        var inputs = BuildModifiedKeySequence(modifiers, virtualKeyCode, isExtendedKey);
-        NativeMethods.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<NativeMethods.INPUT>());
+        var batch = BuildModifiedKeySequence(modifiers, virtualKeyCode, isExtendedKey);
+        SendCompensatingReleases(SendRaw((uint)batch.Length, batch), batch);
     }
 
     /// <summary>
@@ -220,43 +255,176 @@ public class Win32InputSimulator : IInputSimulator
         return Math.Clamp(value, -maxSafeDelta, maxSafeDelta);
     }
 
+    /// <summary>
+    /// Unassigned virtual key injected as a down/up pair immediately before an Alt key-up in
+    /// mouse batches, so Alt-up alone can never drop the foreground app into menu-bar mode
+    /// (the AutoHotkey #MenuMaskKey technique).
+    /// </summary>
+    internal const ushort MenuMaskVirtualKey = 0xE8;
+
     internal static NativeMethods.INPUT[] BuildModifiedKeySequence(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode, bool isExtendedKey)
+        => WrapWithModifiers(
+            modifiers,
+            new[]
+            {
+                CreateKeyboardInput(virtualKeyCode, isExtendedKey ? NativeMethods.KEYEVENTF_EXTENDEDKEY : 0),
+                CreateKeyboardInput(virtualKeyCode, (isExtendedKey ? NativeMethods.KEYEVENTF_EXTENDEDKEY : 0) | NativeMethods.KEYEVENTF_KEYUP),
+            },
+            includeAltMenuMask: false);
+
+    /// <summary>
+    /// Wraps <paramref name="body"/> in one atomic INPUT batch: modifier key-downs in
+    /// <see cref="BuildModifiedKeySequence"/>'s order (Ctrl, Alt, Win, Shift), the body, then
+    /// modifier key-ups in reverse. When <paramref name="includeAltMenuMask"/> is set and Alt is
+    /// in the set, an unassigned menu-mask key down/up pair is injected immediately before the
+    /// Alt key-up (mouse batches only — a keyboard batch contains its own keystroke, so Alt-up
+    /// cannot activate a menu there).
+    /// </summary>
+    internal static NativeMethods.INPUT[] WrapWithModifiers(
+        IReadOnlySet<ModifierKey>? modifiers, NativeMethods.INPUT[] body, bool includeAltMenuMask)
     {
         var modifierVks = new List<ushort>();
-        if (modifiers.Contains(ModifierKey.Ctrl))
-            modifierVks.Add(NativeMethods.VK_CONTROL);
-        if (modifiers.Contains(ModifierKey.Alt))
-            modifierVks.Add(NativeMethods.VK_MENU);
-        if (modifiers.Contains(ModifierKey.Win))
-            modifierVks.Add(NativeMethods.VK_LWIN);
-        if (modifiers.Contains(ModifierKey.Shift))
-            modifierVks.Add(NativeMethods.VK_SHIFT);
+        if (modifiers is not null)
+        {
+            if (modifiers.Contains(ModifierKey.Ctrl)) modifierVks.Add(NativeMethods.VK_CONTROL);
+            if (modifiers.Contains(ModifierKey.Alt)) modifierVks.Add(NativeMethods.VK_MENU);
+            if (modifiers.Contains(ModifierKey.Win)) modifierVks.Add(NativeMethods.VK_LWIN);
+            if (modifiers.Contains(ModifierKey.Shift)) modifierVks.Add(NativeMethods.VK_SHIFT);
+        }
 
-        var inputs = new NativeMethods.INPUT[modifierVks.Count * 2 + 2];
-        int idx = 0;
+        var batch = new List<NativeMethods.INPUT>(
+            modifierVks.Count * 2 + body.Length + (modifierVks.Contains(NativeMethods.VK_MENU) && includeAltMenuMask ? 2 : 0));
 
-        // Modifier key-downs (extended key flag for Win key)
         foreach (var vk in modifierVks)
         {
-            uint flags = vk == NativeMethods.VK_LWIN ? NativeMethods.KEYEVENTF_EXTENDEDKEY : 0;
-            inputs[idx++] = CreateKeyboardInput(vk, flags);
+            uint downFlags = vk == NativeMethods.VK_LWIN ? NativeMethods.KEYEVENTF_EXTENDEDKEY : 0;
+            batch.Add(CreateKeyboardInput(vk, downFlags));
         }
 
-        // Main key (with extended key flag if specified)
-        uint mainKeyFlags = isExtendedKey ? NativeMethods.KEYEVENTF_EXTENDEDKEY : 0;
-        inputs[idx++] = CreateKeyboardInput(virtualKeyCode, mainKeyFlags);
-        inputs[idx++] = CreateKeyboardInput(virtualKeyCode, mainKeyFlags | NativeMethods.KEYEVENTF_KEYUP);
+        batch.AddRange(body);
 
-        // Modifier key-ups (reverse order, with extended key flag)
-        for (int i = modifierVks.Count - 1; i >= 0; i--)
+        for (var i = modifierVks.Count - 1; i >= 0; i--)
         {
-            uint flags = modifierVks[i] == NativeMethods.VK_LWIN
+            var vk = modifierVks[i];
+            // The mask pair rides IMMEDIATELY BEFORE the Alt key-up (spec: mask before the Alt-up,
+            // wherever in the reversed order that lands).
+            if (includeAltMenuMask && vk == NativeMethods.VK_MENU)
+            {
+                batch.Add(CreateKeyboardInput(MenuMaskVirtualKey, 0));
+                batch.Add(CreateKeyboardInput(MenuMaskVirtualKey, NativeMethods.KEYEVENTF_KEYUP));
+            }
+            uint upFlags = vk == NativeMethods.VK_LWIN
                 ? NativeMethods.KEYEVENTF_KEYUP | NativeMethods.KEYEVENTF_EXTENDEDKEY
                 : NativeMethods.KEYEVENTF_KEYUP;
-            inputs[idx++] = CreateKeyboardInput(modifierVks[i], flags);
+            batch.Add(CreateKeyboardInput(vk, upFlags));
         }
 
-        return inputs;
+        return batch.ToArray();
+    }
+
+    /// <summary>The mouse-event body of a modified click: one down/up pair, or two pairs for a double click (ONE batch — the exact shape a physical user produces). INSTANCE method: it goes through <see cref="CreateMouseInput"/>, which needs the coordinate mapper.</summary>
+    internal NativeMethods.INPUT[] BuildModifiedClickBody(PhysicalPoint point, bool right, bool middle, bool doubleClick)
+    {
+        uint down = NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE
+            | (right ? NativeMethods.MOUSEEVENTF_RIGHTDOWN : middle ? NativeMethods.MOUSEEVENTF_MIDDLEDOWN : NativeMethods.MOUSEEVENTF_LEFTDOWN);
+        uint up = NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE
+            | (right ? NativeMethods.MOUSEEVENTF_RIGHTUP : middle ? NativeMethods.MOUSEEVENTF_MIDDLEUP : NativeMethods.MOUSEEVENTF_LEFTUP);
+
+        if (!doubleClick) return new[] { CreateMouseInput(point, down), CreateMouseInput(point, up) };
+        return new[] { CreateMouseInput(point, down), CreateMouseInput(point, up), CreateMouseInput(point, down), CreateMouseInput(point, up) };
+    }
+
+    /// <summary>The wheel-event body of a modified scroll: a leading absolute MOVE (wheel events alone land at the current cursor, and ResetToFreeLook re-enables per-frame MoveCursor across a doubly-deferred dispatch), then the Y and/or X wheel legs with clamped deltas. INSTANCE method — same mapper reason.</summary>
+    internal NativeMethods.INPUT[] BuildModifiedWheelBody(PhysicalPoint point, int deltaX, int deltaY)
+    {
+        var body = new List<NativeMethods.INPUT>
+        {
+            CreateMouseInput(point, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE),
+        };
+        deltaX = ClampScrollDelta(deltaX);
+        deltaY = ClampScrollDelta(deltaY);
+        if (deltaY != 0)
+        {
+            var input = CreateMouseInput(point, NativeMethods.MOUSEEVENTF_WHEEL);
+            input.Union.Mouse.MouseData = deltaY * PlatformConstants.MouseWheelDelta;
+            body.Add(input);
+        }
+        if (deltaX != 0)
+        {
+            var input = CreateMouseInput(point, NativeMethods.MOUSEEVENTF_HWHEEL);
+            input.Union.Mouse.MouseData = deltaX * PlatformConstants.MouseWheelDelta;
+            body.Add(input);
+        }
+        return body.ToArray();
+    }
+
+    /// <summary>
+    /// After a PARTIAL insert (0 &lt; sent &lt; count), builds releases for every down whose up did
+    /// not land inside the injected prefix: mouse-ups first, the menu-mask pair before a
+    /// compensating Alt-up, then keyboard key-ups in reverse. A fully blocked batch (sent = 0)
+    /// injected nothing and needs none.
+    /// </summary>
+    internal static NativeMethods.INPUT[] BuildCompensatingReleases(int sent, NativeMethods.INPUT[] batch)
+    {
+        if (sent <= 0 || sent >= batch.Length) return Array.Empty<NativeMethods.INPUT>();
+
+        var heldKeys = new List<ushort>();
+        var heldMouseUps = new List<uint>();
+        for (var i = 0; i < sent; i++)
+        {
+            var input = batch[i];
+            if (input.Type == NativeMethods.INPUT_KEYBOARD)
+            {
+                var vk = input.Union.Keyboard.VirtualKey;
+                if ((input.Union.Keyboard.Flags & NativeMethods.KEYEVENTF_KEYUP) != 0) heldKeys.Remove(vk);
+                else heldKeys.Add(vk);
+            }
+            else if (input.Type == NativeMethods.INPUT_MOUSE)
+            {
+                uint downMask = NativeMethods.MOUSEEVENTF_LEFTDOWN | NativeMethods.MOUSEEVENTF_RIGHTDOWN | NativeMethods.MOUSEEVENTF_MIDDLEDOWN;
+                uint upMask = NativeMethods.MOUSEEVENTF_LEFTUP | NativeMethods.MOUSEEVENTF_RIGHTUP | NativeMethods.MOUSEEVENTF_MIDDLEUP;
+                if ((input.Union.Mouse.Flags & downMask) != 0) heldMouseUps.Add(input.Union.Mouse.Flags & downMask);
+                else if ((input.Union.Mouse.Flags & upMask) != 0 && heldMouseUps.Count > 0) heldMouseUps.RemoveAt(heldMouseUps.Count - 1);
+            }
+        }
+
+        if (heldKeys.Count == 0 && heldMouseUps.Count == 0) return Array.Empty<NativeMethods.INPUT>();
+
+        var releases = new List<NativeMethods.INPUT>();
+        foreach (var downFlags in heldMouseUps)
+        {
+            uint upFlags = downFlags == NativeMethods.MOUSEEVENTF_LEFTDOWN ? NativeMethods.MOUSEEVENTF_LEFTUP
+                : downFlags == NativeMethods.MOUSEEVENTF_RIGHTDOWN ? NativeMethods.MOUSEEVENTF_RIGHTUP
+                : NativeMethods.MOUSEEVENTF_MIDDLEUP;
+            releases.Add(new NativeMethods.INPUT
+            {
+                Type = NativeMethods.INPUT_MOUSE,
+                Union = new NativeMethods.INPUTUNION { Mouse = new NativeMethods.MOUSEINPUT { Flags = upFlags } },
+            });
+        }
+
+        if (heldKeys.Contains(NativeMethods.VK_MENU))
+        {
+            releases.Add(CreateKeyboardInput(MenuMaskVirtualKey, 0));
+            releases.Add(CreateKeyboardInput(MenuMaskVirtualKey, NativeMethods.KEYEVENTF_KEYUP));
+        }
+
+        for (var i = heldKeys.Count - 1; i >= 0; i--)
+            releases.Add(CreateKeyboardInput(heldKeys[i], NativeMethods.KEYEVENTF_KEYUP));
+
+        return releases.ToArray();
+    }
+
+    /// <summary>Instance path: build the releases, send them, and log a failure on its OWN line — the partial-send warning above is rate-limited and would swallow it.</summary>
+    private void SendCompensatingReleases(int sent, NativeMethods.INPUT[] batch)
+    {
+        var releases = BuildCompensatingReleases(sent, batch);
+        if (releases.Length == 0) return;
+        var sentReleases = SendRaw((uint)releases.Length, releases);
+        if (sentReleases < releases.Length)
+            _logger?.LogWarning(
+                "Modifier-recovery send injected {Sent}/{Count} events — a modifier may remain held down after a partial SendInput",
+                sentReleases, releases.Length);
     }
 
     private static readonly int s_inputSize = Marshal.SizeOf<NativeMethods.INPUT>();
@@ -282,10 +450,10 @@ public class Win32InputSimulator : IInputSimulator
     private void SendInputs(params NativeMethods.INPUT[] inputs) =>
         SendRaw((uint)inputs.Length, inputs);
 
-    private void SendRaw(uint count, NativeMethods.INPUT[] inputs)
+    private int SendRaw(uint count, NativeMethods.INPUT[] inputs)
     {
         var sent = NativeMethods.SendInput(count, inputs, s_inputSize);
-        if (sent == count) return;
+        if (sent == count) return (int)sent;
 
         // SendInput does not throw on a block: it returns 0 when the foreground process has
         // higher integrity (elevated windows, the secure desktop). Every event is then silently
@@ -299,5 +467,6 @@ public class Win32InputSimulator : IInputSimulator
                 "SendInput injected {Sent}/{Count} events (Win32 error {ErrorCode}) — input into elevated or secure-desktop windows is blocked by Windows",
                 sent, count, Marshal.GetLastWin32Error());
         }
+        return (int)sent;
     }
 }

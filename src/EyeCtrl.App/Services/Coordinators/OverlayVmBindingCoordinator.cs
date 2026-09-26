@@ -8,6 +8,7 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
+using Serilog;
 
 /// <summary>
 /// Property-change-driven half of <see cref="EventCoordinator"/>'s overlay surface: the overlay VM
@@ -55,6 +56,10 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
 
         // ActionMenu: VM -> show/hide
         Context.ActionMenuVM.PropertyChanged += OnActionMenuVMPropertyChanged;
+
+        // The mod-bar icon swap: subscribed AFTER OnActionMenuVMPropertyChanged so the ring
+        // rebuild (main handler) precedes the bar-icon swap on a crossing.
+        Context.ActionMenuVM.PropertyChanged += OnActionMenuLatchedModifiersChanged;
 
         // Toolbar: VM state changes -> toolbar state
         Context.ToolbarVM.PropertyChanged += OnToolbarVMPropertyChanged;
@@ -327,6 +332,35 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
     }
 
     /// <summary>
+    /// Swaps the toggled mod button's icon variant. A separate handler rather than a branch of
+    /// <see cref="OnActionMenuVMPropertyChanged"/>: that handler's prologue dereferences three
+    /// overlays before any branch, and this swap runs INSIDE the mod bar's synchronous toggle
+    /// chain — a throw must be caught here, never escape into the gaze-sample dispatch.
+    /// </summary>
+    private void OnActionMenuLatchedModifiersChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (Context is null
+            || e.PropertyName != nameof(ActionMenuViewModel.LatchedModifiers)
+            || !Context.ActionMenuVM.IsVisible) return;
+
+        try
+        {
+            var bar = Context.OverlayManager.ActionMenuModBar;
+            var id = ActionMenuModifierButtons.IdFor(Context.ActionMenuVM.LastToggledModifier);
+            var current = bar.EdgeBarVm?.DefinitionFor(id);
+            if (current is not null)
+                bar.EdgeBarVm!.ReplaceButton(
+                    id,
+                    ActionMenuModifierButtons.WithLatched(
+                        current, Context.ActionMenuVM.LatchedModifiers.Contains(Context.ActionMenuVM.LastToggledModifier)));
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error updating the action-menu modifier button state");
+        }
+    }
+
+    /// <summary>
     /// Redraws the action menu from the ViewModel's current items. One method rather than two
     /// call sites, because the open path and the layer-change path must build the ring from
     /// identical arguments — a divergence there is a canvas that disagrees with the DwellDetector,
@@ -459,6 +493,7 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
         Context.ManualSelectionVM.PropertyChanged -= OnManualSelectionVisibilityChanged;
         Context.ManualSelectionIndicatorVM.PropertyChanged -= OnManualSelectionIndicatorVMPropertyChanged;
         Context.ActionMenuVM.PropertyChanged -= OnActionMenuVMPropertyChanged;
+        Context.ActionMenuVM.PropertyChanged -= OnActionMenuLatchedModifiersChanged;
         Context.ToolbarVM.PropertyChanged -= OnToolbarVMPropertyChanged;
         Context.BackdropVM.PropertyChanged -= OnBackdropVMPropertyChanged;
         Context.TaskSwitcherVM.PropertyChanged -= OnTaskSwitcherVMPropertyChanged;

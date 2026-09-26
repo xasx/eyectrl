@@ -385,6 +385,11 @@ public class AppBootstrapper
         services.AddSingleton<TargetHighlightOverlayViewModel>();
         services.AddSingleton<DragTrailViewModel>();
         services.AddSingleton<EdgeButtonBarViewModel>();
+        // The LEFT-edge action-menu modifier bar's view model — a SECOND instance of the same
+        // type, so it is keyed: the unkeyed registration above stays the right-edge bar, and
+        // unkeyed GetRequiredService<EdgeButtonBarViewModel>() ignores this one. Resolution must
+        // go through GetRequiredKeyedService (GetRequiredService<T> has no key overload).
+        services.AddKeyedSingleton<EdgeButtonBarViewModel>("actionMenuModBar");
         services.AddSingleton<TrackStatusViewModel>();
         services.AddSingleton<TaskSwitcherViewModel>();
         services.AddSingleton<ModesMenuViewModel>();
@@ -641,6 +646,7 @@ public class AppBootstrapper
             Calibration: sp.GetRequiredService<CalibrationViewModel>(),
             TargetHighlight: sp.GetRequiredService<TargetHighlightOverlayViewModel>(),
             EdgeButtonBar: sp.GetRequiredService<EdgeButtonBarViewModel>(),
+            ActionMenuModBar: sp.GetRequiredKeyedService<EdgeButtonBarViewModel>("actionMenuModBar"),
             TrackStatus: sp.GetRequiredService<TrackStatusViewModel>(),
             TaskSwitcher: sp.GetRequiredService<TaskSwitcherViewModel>(),
             QuickActionsGrid: sp.GetRequiredService<QuickActionsGridViewModel>(),

@@ -202,10 +202,11 @@ internal static class TestFakes
         ICursorCircleOverlay? cursorCircle = null,
         IActivationButtonOverlay? activationButton = null,
         IGlassBackdropOverlay? glassBackdrop = null,
+        IEdgeButtonBar? actionMenuModBar = null,
         IActionMenuOverlay? actionMenu = null)
         => new PartialOverlayManager(
             edgeButtonBar, toolbar, pauseIndicator, manualSelection, manualSelectionIndicator,
-            cursorCircle, activationButton, glassBackdrop, actionMenu);
+            cursorCircle, activationButton, glassBackdrop, actionMenuModBar, actionMenu);
 
     /// <summary>No-op action menu: the activation-show path hides it, so it must be present.</summary>
     internal sealed class FakeActionMenuOverlay : IActionMenuOverlay
@@ -298,6 +299,7 @@ internal static class TestFakes
         private readonly ICursorCircleOverlay? _cursorCircle;
         private readonly IActivationButtonOverlay? _activationButton;
         private readonly IGlassBackdropOverlay? _glassBackdrop;
+        private readonly IEdgeButtonBar? _actionMenuModBar;
         private readonly IActionMenuOverlay? _actionMenu;
 
         public IModesMenuOverlay ModesMenu => throw new NotImplementedException();
@@ -307,16 +309,20 @@ internal static class TestFakes
             IPauseIndicatorOverlay? pauseIndicator, IManualSelectionOverlay? manualSelection,
             IManualSelectionIndicatorOverlay? manualSelectionIndicator,
             ICursorCircleOverlay? cursorCircle = null, IActivationButtonOverlay? activationButton = null,
-            IGlassBackdropOverlay? glassBackdrop = null, IActionMenuOverlay? actionMenu = null)
+            IGlassBackdropOverlay? glassBackdrop = null,
+            IEdgeButtonBar? actionMenuModBar = null, IActionMenuOverlay? actionMenu = null)
         {
             _bar = bar; _toolbar = toolbar; _pauseIndicator = pauseIndicator;
             _manualSelection = manualSelection; _manualSelectionIndicator = manualSelectionIndicator;
             _cursorCircle = cursorCircle; _activationButton = activationButton; _glassBackdrop = glassBackdrop;
-            _actionMenu = actionMenu;
+            _actionMenuModBar = actionMenuModBar; _actionMenu = actionMenu;
         }
 
         public IEdgeButtonBar EdgeButtonBar =>
             _bar ?? throw new NotImplementedException("test supplied no edge-button bar");
+
+        public IEdgeButtonBar ActionMenuModBar =>
+            _actionMenuModBar ?? throw new NotImplementedException("test supplied no action-menu modifier bar");
 
         public IToolbarOverlay Toolbar =>
             _toolbar ?? throw new NotImplementedException("test supplied no toolbar");

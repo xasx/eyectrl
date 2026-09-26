@@ -311,10 +311,10 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     /// restart bumps it and this fires into nothing.</param>
     /// <param name="targetIndex">
     /// The target this stage was armed for. A cap OUTLIVES the target it was armed for whenever the
-    /// gaze path advances first, and without this a late cap for target N would advance whichever
-    /// target is current when it fires — usually target N+2, after a second or two on screen. The
-    /// probe made that visible: its targets genuinely run to the cap, so the stale caps cascade and
-    /// cut short every target after the first timeout.
+    /// gaze path advances first, so it carries the index it was armed for and
+    /// <see cref="AdvanceFromCurrentTarget"/> no-ops when that target is no longer current. (An
+    /// earlier extra early-return here claimed to stop a stale cap extending a later target's budget;
+    /// it cannot — only a target's own caps govern it — and was removed.)
     /// </param>
     /// <param name="delayMs">How long this stage waits.</param>
     /// <param name="isFinal">
@@ -329,7 +329,6 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
             PostToSyncContext(() =>
             {
                 if (generation != _sessionGeneration || State != CalibrationState.Collecting) return;
-                if (CurrentTargetIndex != targetIndex) return;   // this target already advanced
 
                 // Arrived and still collecting: extend once to the full budget rather than cutting off
                 // a user who is banking samples a few at a time.
@@ -452,10 +451,16 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
             ? 0
             : Math.Min(1.0, _calibrationService.CurrentTargetInBandSamples / (double)_settings.SamplesPerPoint);
 
-        // The user's pace: advance the moment the target has its samples, past the visible
-        // floor. Before this, a fixed timer advanced targets whether or not the user had
-        // arrived, and samples were averaged from wherever gaze happened to be.
-        if (_calibrationService.IsTargetComplete
+        // The user's pace: advance the moment the target has its samples, past the visible floor.
+        // Before this, a fixed timer advanced targets whether or not the user had arrived, and samples
+        // were averaged from wherever gaze happened to be.
+        //
+        // Measure-only does NOT use the user's pace: its window is a fixed budget, so an in-band gaze
+        // cannot shorten it. That matters at low calibration settings, where completion arrives after
+        // ~5 samples and the window would be under 200 ms — too short for the estimator to find any
+        // cluster, so every small-bias probe would come back "no steady holds".
+        if (!_measureOnly
+            && _calibrationService.IsTargetComplete
             && Environment.TickCount64 - _targetShownAtTicks >= _settings.TargetHoldMs)
         {
             var index = CurrentTargetIndex;

@@ -12,11 +12,12 @@ using EyeCtrl.Tests.TestSupport;
 using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
-/// The measure-only bias probe, end to end at the view-model layer: five targets, whatever the
-/// settings say; a fixed short budget per target so a gaze-only user never waits out the normal caps;
-/// continue past a target that collected nothing; keep a per-session sidecar on every ending; apply
-/// nothing. The named mutation for the persistence checks is restoring <c>AbandonSession</c> on any of
-/// these paths — it discards the only data the probe exists to collect, and these tests turn red.
+/// The measure-only bias probe, end to end at the view-model layer: five targets whatever the
+/// settings say; a fixed 3 s window per target — in-band gaze does NOT shorten it, because a short
+/// window at low calibration settings leaves the estimator no cluster to find; continue past a target
+/// that collected nothing; a per-session sidecar on every ending; apply nothing. The named mutation
+/// for the persistence checks is restoring <c>AbandonSession</c> on any of these paths — it discards
+/// the only data the probe exists to collect, and these tests turn red.
 /// </summary>
 public class CalibrationMeasureOnlyTests
 {
@@ -45,7 +46,7 @@ public class CalibrationMeasureOnlyTests
     private readonly WeakReferenceMessenger _messenger = new();
     private readonly CalibrationService _service = new();
     private readonly FakeGazeProvider _provider = new();
-    private readonly CalibrationSettings _settings = new()
+    private CalibrationSettings _settings = new()
     {
         // Deliberately 3: the probe must force its own five points, because the decision rule is
         // defined over five targets and a user-adjusted setting must not redefine the instrument.
@@ -71,7 +72,7 @@ public class CalibrationMeasureOnlyTests
         // RecordRawGaze OFF by default: the probe's sidecar must not hinge on the global recorder flag.
         diagnostics: new DiagnosticsSettings { RecordRawGaze = recordRawGaze });
 
-    /// <summary>Completes the current target at the user's pace and lets the view model advance.</summary>
+    /// <summary>Completes the current NORMAL-calibration target at the user's pace and advances.</summary>
     private void FinishTarget(CalibrationViewModel vm, long timestampBase = 0)
     {
         var target = vm.CurrentTargetPosition;
@@ -83,6 +84,46 @@ public class CalibrationMeasureOnlyTests
         _provider.FireGaze(new GazePoint(target.X, target.Y, timestampBase + 10_000_000, IsValid: true));
     }
 
+    /// <summary>
+    /// Drives a whole probe with real-time gaze: <paramref name="aimAtTarget"/> decides, per current
+    /// target index, whether gaze sits on the target (so the collector completes it) or far away (so
+    /// the target ends empty at its cap). Returns the VM and its sidecar when the session ends.
+    /// </summary>
+    private async Task<(CalibrationViewModel Vm, GroundTruthSession Sidecar)> RunProbe(
+        Func<int, bool> aimAtTarget, int timeoutSeconds = 30)
+    {
+        // A fresh recipient object per call, so a test may subscribe to the completion message itself
+        // without the messenger reporting a duplicate registration.
+        var signal = new TaskCompletionSource();
+        var probe = new object();
+        _messenger.Register<CalibrationCompletedMessage>(probe, (_, _) => signal.TrySetResult());
+
+        var vm = await Task.Run(() => CreateVm());
+        _messenger.Send(new MeasureOnlyCalibrationRequestedMessage());
+
+        long t0 = Environment.TickCount64;
+        using var stop = new CancellationTokenSource();
+        var firing = Task.Run(async () =>
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                var target = vm.CurrentTargetPosition;
+                long us = (Environment.TickCount64 - t0) * 1000;
+                var point = aimAtTarget(vm.CurrentTargetIndex)
+                    ? new GazePoint(target.X + 5, target.Y - 5, us, IsValid: true)
+                    : new GazePoint(1920, 100, us, IsValid: true);
+                _provider.FireGaze(point);
+                await Task.Delay(25, TestContext.Current.CancellationToken);
+            }
+        }, TestContext.Current.CancellationToken);
+
+        await signal.Task.WaitAsync(TimeSpan.FromSeconds(timeoutSeconds), TestContext.Current.CancellationToken);
+        stop.Cancel();
+        try { await firing; } catch (OperationCanceledException) { }
+
+        return (vm, ReadSidecar(ProbeSidecarPath()));
+    }
+
     private static GroundTruthSession ReadSidecar(string path) =>
         JsonSerializer.Deserialize<GroundTruthSession>(
             File.ReadAllText(path),
@@ -91,6 +132,9 @@ public class CalibrationMeasureOnlyTests
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
                 Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
             })!;
+
+    private static double WindowMs(GroundTruthWindow window) =>
+        (window.EndedAtUs - window.DisplayedFromUs) / 1000.0;
 
     // ── Starting ──────────────────────────────────────────────────────────────
 
@@ -152,10 +196,10 @@ public class CalibrationMeasureOnlyTests
         var transformBefore = _service.CurrentTransform;
         var fileBefore = File.ReadAllBytes(CalibrationPath);
 
-        var vm = await Task.Run(() => CreateVm());
-        _messenger.Send(new MeasureOnlyCalibrationRequestedMessage());
-        for (int i = 0; i < 5; i++)
-            FinishTarget(vm, timestampBase: i * 30_000_000);
+        var states = new List<CalibrationState>();
+        _messenger.Register<CalibrationStateChangedMessage>(this, (_, m) => states.Add(m.State));
+
+        var (vm, sidecar) = await RunProbe(_ => true);
 
         Check.That(vm.State).IsEqualTo(CalibrationState.Active);
         Check.That(vm.IsMeasureOnly).IsTrue();
@@ -163,7 +207,11 @@ public class CalibrationMeasureOnlyTests
         Check.That(_service.CurrentTransform).IsSameReferenceAs(transformBefore);
         Check.That(File.ReadAllBytes(CalibrationPath).SequenceEqual(fileBefore)).IsTrue();
 
-        var sidecar = ReadSidecar(ProbeSidecarPath());
+        // One Active per session: the coordinator's suppression-release edge runs exactly once.
+        Check.That(states.Count(s => s == CalibrationState.Active)).IsEqualTo(1);
+        Check.That(states[^1]).IsEqualTo(CalibrationState.Active);
+        Check.That(states.Any(s => s == CalibrationState.Failed)).IsFalse();
+
         Check.That(sidecar.Mode).IsEqualTo(GroundTruthMode.MeasureOnly);
         Check.That(sidecar.Outcome).IsEqualTo(GroundTruthOutcome.Completed);
         Check.That(sidecar.Windows).HasSize(5);
@@ -173,39 +221,23 @@ public class CalibrationMeasureOnlyTests
     [Fact]
     public async Task APartialProbe_ContinuesPastAnEmptyTarget_AndRecordsPartial()
     {
+        // Target 1 gets no gaze at all: the probe must move on — ending here would throw away the
+        // windows the five-target decision rule needs, which is exactly what a large bias would cause.
         var completions = new List<CalibrationCompletedMessage>();
         _messenger.Register<CalibrationCompletedMessage>(this, (_, m) => completions.Add(m));
 
-        var vm = await Task.Run(() => CreateVm());
-        _messenger.Send(new MeasureOnlyCalibrationRequestedMessage());
+        var (vm, sidecar) = await RunProbe(index => index != 1);
 
-        FinishTarget(vm, timestampBase: 0);
-
-        // Target 1: gaze parked far away, so the collector never arrives and the short fixed budget
-        // ends the target. The probe must move on — ending here would throw away the windows the
-        // five-target decision rule needs, which is exactly what a large bias would cause.
-        for (int i = 0; i < 5; i++)
-            _provider.FireGaze(new GazePoint(1920, 100, 1_000_000 + (i * 33_333), IsValid: true));
-        Thread.Sleep(3_400);
-
-        Check.That(vm.CurrentTargetIndex).IsEqualTo(2);
-        Check.That(vm.State).IsEqualTo(CalibrationState.Collecting);
-
-        FinishTarget(vm, timestampBase: 20_000_000);
-        FinishTarget(vm, timestampBase: 30_000_000);
-        FinishTarget(vm, timestampBase: 40_000_000);
-
-        // Neutral ending: Active, no failure text, and no unsuccessful completion message.
         Check.That(vm.State).IsEqualTo(CalibrationState.Active);
         Check.That(vm.ErrorText).IsNull();
         Check.That(_service.IsSessionActive).IsFalse();
         Check.That(completions).Not.IsEmpty();
         Check.That(completions.Any(c => !c.Success)).IsFalse();
 
-        var sidecar = ReadSidecar(ProbeSidecarPath());
         Check.That(sidecar.Outcome).IsEqualTo(GroundTruthOutcome.Partial);
         Check.That(sidecar.Windows).HasSize(5);
         Check.That(sidecar.Windows[1].ArrivedAtUs).IsNull();    // the empty target is recorded, not dropped
+        Check.That(sidecar.Windows[1].Samples).Not.IsEmpty();   // and keeps the samples it did see
         Check.That(File.Exists(CalibrationPath)).IsFalse();     // and nothing was applied
     }
 
@@ -231,61 +263,58 @@ public class CalibrationMeasureOnlyTests
     [Fact]
     public async Task TheFixedBudget_EndsAnEmptyProbeInAboutFifteenSeconds()
     {
-        // The coordinator's decision: a gaze-only user cannot press Esc, so measure-only does not wait
-        // out the normal 8 s / 25 s caps. Each target gets 3 s after display, whatever the gaze does;
-        // the whole probe is about 15 s. Gaze is on screen the whole time (so every window carries
-        // samples) but far from every target's band, so no target can complete early.
-        var completion = new TaskCompletionSource();
-        _messenger.Register<CalibrationCompletedMessage>(this, (_, _) => completion.TrySetResult());
-
-        var vm = await Task.Run(() => CreateVm());
-        _messenger.Send(new MeasureOnlyCalibrationRequestedMessage());
-
-        using var stop = new CancellationTokenSource();
-        var firing = Task.Run(async () =>
-        {
-            while (!stop.IsCancellationRequested)
-            {
-                _provider.FireGaze(new GazePoint(1920, 100, 0, IsValid: true));
-                await Task.Delay(25, TestContext.Current.CancellationToken);
-            }
-        }, TestContext.Current.CancellationToken);
-
+        // A gaze-only user cannot press Esc, so measure-only does not wait out the normal 8 s / 25 s
+        // caps: each target gets 3 s after display. Gaze is on screen the whole time (so every window
+        // carries samples) but far from every target's band, so no target can complete early.
         var started = Environment.TickCount64;
-        await completion.Task.WaitAsync(TimeSpan.FromSeconds(25), TestContext.Current.CancellationToken);
+        var (vm, sidecar) = await RunProbe(_ => false, timeoutSeconds: 25);
         var elapsed = TimeSpan.FromMilliseconds(Environment.TickCount64 - started);
-        stop.Cancel();
-        try { await firing; } catch (OperationCanceledException) { }
 
         Check.That(elapsed.TotalSeconds).IsGreaterOrEqualThan(13.0);   // five 3 s budgets
         Check.That(elapsed.TotalSeconds).IsStrictlyLessThan(22.0);     // and not a normal cap
         Check.That(vm.State).IsEqualTo(CalibrationState.Active);
         Check.That(vm.ErrorText).IsNull();
 
-        var sidecar = ReadSidecar(ProbeSidecarPath());
         Check.That(sidecar.Outcome).IsEqualTo(GroundTruthOutcome.Partial);
         Check.That(sidecar.Windows).HasSize(5);
         Check.That(sidecar.Windows).ContainsOnlyElementsThatMatch(w => w.Samples.Count > 0);
     }
 
-    [Fact]
-    public async Task TheEndingPublishesActiveExactlyOnce_WhichIsTheCoordinatorsReleaseEdge()
+    /// <summary>
+    /// V4: the 3 s window is FIXED, not a maximum. Real-time gaze sits 5 px from each target, so at
+    /// the slider minimums the collector completes after ~5 samples — under the early-advance rule
+    /// that window would be ~160 ms with no post-guard sample at all, and every small-bias probe would
+    /// come back "no steady holds". The window must still be ~3 s, and a target that arrived but is
+    /// not complete must still advance at its cap, not extend to 25 s.
+    /// </summary>
+    [Theory]
+    [InlineData(1000, 300, 15)]   // shipped defaults
+    [InlineData(200, 0, 5)]       // slider minimums
+    public async Task V4_MeasureOnlyWindow_IsAFixedThreeSeconds_WhenGazeIsOnTarget(
+        int holdMs, int settleMs, int samplesPerPoint)
     {
-        // OverlayMessageCoordinator suppresses fixation on Collecting/Training and releases it on
-        // Active; measure-only reuses Active precisely so that release still runs. One Active per
-        // session is the contract, and ticket 4's release-edge fix (it ends the reported fixation)
-        // then runs exactly once.
-        var states = new List<CalibrationState>();
-        _messenger.Register<CalibrationStateChangedMessage>(this, (_, m) => states.Add(m.State));
+        _settings = new CalibrationSettings
+        {
+            PointCount = 5, TargetHoldMs = holdMs, SettleWindowMs = settleMs, SamplesPerPoint = samplesPerPoint,
+        };
 
-        var vm = await Task.Run(() => CreateVm());
-        _messenger.Send(new MeasureOnlyCalibrationRequestedMessage());
-        for (int i = 0; i < 5; i++)
-            FinishTarget(vm, timestampBase: i * 30_000_000);
+        var started = Environment.TickCount64;
+        var (vm, sidecar) = await RunProbe(_ => true, timeoutSeconds: 25);
+        var elapsed = TimeSpan.FromMilliseconds(Environment.TickCount64 - started);
 
-        Check.That(states.Count(s => s == CalibrationState.Active)).IsEqualTo(1);
-        Check.That(states[^1]).IsEqualTo(CalibrationState.Active);
-        Check.That(states.Any(s => s == CalibrationState.Failed)).IsFalse();
+        Check.That(vm.State).IsEqualTo(CalibrationState.Active);
+        Check.That(elapsed.TotalSeconds).IsGreaterOrEqualThan(13.0);
+        Check.That(elapsed.TotalSeconds).IsStrictlyLessThan(22.0);   // an extension would exceed this
+        Check.That(sidecar.Windows).HasSize(5);
+        foreach (var window in sidecar.Windows)
+        {
+            Check.That(WindowMs(window)).IsGreaterOrEqualThan(2_700.0);
+            Check.That(WindowMs(window)).IsStrictlyLessThan(3_400.0);
+            // Enough samples after the onset guard for a 5-sample cluster at any calibration setting.
+            long guardEnd = window.DisplayedFromUs + 300_000;
+            int eligible = window.Samples.Count(s => s.Valid && s.TimestampUs >= guardEnd && s.TimestampUs <= window.EndedAtUs);
+            Check.That(eligible).IsGreaterOrEqualThan(30);
+        }
     }
 
     // ── Session-state teeth ───────────────────────────────────────────────────
@@ -295,10 +324,7 @@ public class CalibrationMeasureOnlyTests
     {
         // The mode is per session, never sticky: a probe followed by "Calibrate Now" on the same
         // app-lifetime view model must fit, save and apply, not silently skip all three.
-        var vm = await Task.Run(() => CreateVm());
-        _messenger.Send(new MeasureOnlyCalibrationRequestedMessage());
-        for (int i = 0; i < 5; i++)
-            FinishTarget(vm, timestampBase: i * 30_000_000);
+        var (vm, _) = await RunProbe(_ => true);
         Check.That(vm.State).IsEqualTo(CalibrationState.Active);
         Check.That(File.Exists(CalibrationPath)).IsFalse();
 
@@ -341,21 +367,25 @@ public class CalibrationMeasureOnlyTests
         // ending: sidecar written with outcome failed, Active published, no error text, no
         // unsuccessful completion. A subscriber that throws from the target-position message is the
         // deterministic way to fault that path (reviewer A's M10 mutation removes the branch and
-        // let the normal failure path discard the data).
+        // lets the normal failure path discard the data).
         _messenger.Register<CalibrationTargetPositionMessage>(this, (_, m) =>
         {
             if (m.TargetIndex == 1) throw new InvalidOperationException("position subscriber fault");
         });
+        var completion = new TaskCompletionSource();
         var completions = new List<CalibrationCompletedMessage>();
-        _messenger.Register<CalibrationCompletedMessage>(this, (_, m) => completions.Add(m));
+        _messenger.Register<CalibrationCompletedMessage>(this, (_, m) =>
+        {
+            completions.Add(m);
+            completion.TrySetResult();
+        });
 
         var vm = await Task.Run(() => CreateVm());
         _messenger.Send(new MeasureOnlyCalibrationRequestedMessage());
 
-        Exception? thrown = null;
-        try { FinishTarget(vm, timestampBase: 0); } catch (Exception ex) { thrown = ex; }
+        // The target's own 3 s cap is what advances it into the faulting send.
+        await completion.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
 
-        Check.That(thrown).IsNull();
         Check.That(vm.State).IsEqualTo(CalibrationState.Active);
         Check.That(vm.ErrorText).IsNull();
         Check.That(_service.IsSessionActive).IsFalse();

@@ -50,6 +50,8 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
 
     private readonly string _filePath;
     private readonly Action<Exception>? _onFault;
+    // Injectable so the same-millisecond collision path can be tested deterministically.
+    private readonly Func<DateTime> _utcNow;
 
     private readonly List<GroundTruthWindow> _windows = new();
     private readonly object _windowsGate = new();
@@ -79,13 +81,16 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
     /// <summary>Initializes the recorder.</summary>
     /// <param name="filePath">Full path of the sidecar to write. Its directory is created if absent.</param>
     /// <param name="onFault">Optional one-shot report if the sidecar cannot be written.</param>
-    public ScriptedGroundTruthRecorder(string filePath, Action<Exception>? onFault = null)
+    /// <param name="utcNow">Clock used to name a probe's own sidecar; defaults to the system UTC clock.</param>
+    public ScriptedGroundTruthRecorder(
+        string filePath, Action<Exception>? onFault = null, Func<DateTime>? utcNow = null)
     {
         if (string.IsNullOrWhiteSpace(filePath))
             throw new ArgumentException("A sidecar path is required.", nameof(filePath));
         _filePath = filePath;
         _writePath = filePath;
         _onFault = onFault;
+        _utcNow = utcNow ?? (static () => DateTime.UtcNow);
     }
 
     /// <summary>
@@ -126,11 +131,11 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
     /// normal calibration's sidecar — the plan is probe → Tobii recalibration → probe again, and both
     /// probes must survive to be compared.
     /// </summary>
-    private static string ProbePath(string configuredPath)
+    private string ProbePath(string configuredPath)
     {
         var directory = Path.GetDirectoryName(configuredPath);
         if (string.IsNullOrEmpty(directory)) directory = ".";
-        var stamp = DateTime.UtcNow.ToString("yyyyMMdd'T'HHmmss'.'fff", System.Globalization.CultureInfo.InvariantCulture);
+        var stamp = _utcNow().ToString("yyyyMMdd'T'HHmmss'.'fff", System.Globalization.CultureInfo.InvariantCulture);
         var path = Path.Combine(directory, $"bias-probe-{stamp}.groundtruth.json");
         for (int n = 2; File.Exists(path); n++)
             path = Path.Combine(directory, $"bias-probe-{stamp}-{n}.groundtruth.json");
@@ -167,20 +172,28 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
         if (!IsRecording) return;
         _outcome = outcome;
         // Stop accepting samples BEFORE closing the open window. An in-flight gaze callback has
-        // already passed its IsRecording check, so this narrows the race to that one callback; the
-        // close and the write then run together inside the try, so whatever that callback does to the
-        // open-window list cannot escape CompleteSession into the calibration flow that called it.
+        // already passed its IsRecording check, so this narrows the race to that one callback.
         IsRecording = false;
 
+        // A faulted close costs the OPEN window, not the probe: an in-flight sample can still throw
+        // out of ToArray, and if that took the outer try with it every window already closed would be
+        // lost too. Report it and write what we have.
         try
         {
             CloseOpenWindow();
+        }
+        catch (Exception ex)
+        {
+            ReportFault(ex);
+        }
 
-            // Snapshot inside the try, with the rest of the write. Outside it, anything the snapshot
-            // threw — and a list read while the gaze thread appends is exactly what throws here — would
-            // escape CompleteSession into the calibration flow that called it, turning a missing
-            // diagnostic sidecar into a failed calibration. Everything in this method is best-effort by
-            // the same argument; there was no reason for one step of it to be an exception.
+        try
+        {
+            // Snapshot inside the try, with the rest of the write: a list read while the gaze thread
+            // appends is what can throw here, and letting it escape CompleteSession would turn a
+            // missing diagnostic sidecar into a failed calibration. Everything in this method is
+            // best-effort by the same argument; there was no reason for one step of it to be an
+            // exception.
             GroundTruthWindow[] windows;
             lock (_windowsGate) { windows = _windows.ToArray(); }
 
@@ -208,8 +221,14 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
         catch (Exception ex)
         {
             // A failed sidecar costs the run's ground truth, never the calibration it rode along with.
-            try { _onFault?.Invoke(ex); } catch { /* nothing left to report to */ }
+            ReportFault(ex);
         }
+    }
+
+    /// <summary>Best-effort fault report: the sink's owner is told, and nothing else is disturbed.</summary>
+    private void ReportFault(Exception ex)
+    {
+        try { _onFault?.Invoke(ex); } catch { /* nothing left to report to */ }
     }
 
     /// <inheritdoc />

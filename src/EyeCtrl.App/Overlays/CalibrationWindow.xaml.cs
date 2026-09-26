@@ -432,53 +432,27 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
         Activate();
         Focus();
 
-        // The measure-only probe has no result to judge and no fit to report, and its whole contract
-        // is that it never says "failed" or offers a retry. Branch BEFORE the quality arithmetic:
-        // QualityPercent is null for a probe by construction, and the ordinary path would render
-        // "poor quality" over a session that did exactly what was asked of it.
-        if (_viewModel?.IsMeasureOnly == true)
-        {
-            CompletionSymbol.Text = "\u25CF";
-            CompletionSymbol.Foreground = Tokens.BrushAccentSuccess;
-            CompletionTitle.Text = "Gaze offset recorded";
-            CompletionError.Text = "";
-            CompletionHint.Visibility = Visibility.Collapsed;
-            RetryPanel.Visibility = Visibility.Collapsed;
-            // Auto-dismiss is the only way out for a user who cannot actuate Accept: the probe is
-            // neutral, so trapping them on the panel would be the worst version of "neutral".
-            StartAutoDismiss(3000, DismissAndReset);
-            return;
-        }
+        // The copy and the visibility rules are a pure function (CalibrationCompletion), so the
+        // measure-only branch — no "failed", no Retry — has a headless test without this window's
+        // Show()/Activate()/Focus().
+        var presentation = CalibrationCompletion.Describe(
+            _viewModel?.IsMeasureOnly == true,
+            goodResult,
+            _viewModel?.MeanErrorPixels ?? 0,
+            // Quality % is computed in the VM against the physical-pixel screen diagonal
+            // (CalibrationData.ComputeQualityPercent) — DPI-correct, single source of truth.
+            _viewModel?.QualityPercent ?? 0,
+            _viewModel?.ErrorText);
 
-        var errorPx = _viewModel?.MeanErrorPixels ?? 0;
-        // Quality % is computed in the VM against the physical-pixel screen diagonal
-        // (CalibrationData.ComputeQualityPercent) \u2014 DPI-correct, single source of truth.
-        var qualityPercent = _viewModel?.QualityPercent ?? 0;
-        var isGood = qualityPercent < 2.0;
-
-        if (goodResult && isGood)
-        {
-            CompletionSymbol.Text = "\u2713";
-            CompletionSymbol.Foreground = Tokens.BrushAccentSuccess;
-            CompletionTitle.Text = "Calibration complete";
-            CompletionError.Text = $"Mean error: {errorPx:F1} px ({qualityPercent:F1}%)";
-            CompletionHint.Visibility = Visibility.Visible;
-            RetryPanel.Visibility = Visibility.Collapsed;
-            StartAutoDismiss(3000, DismissAndReset);
-        }
-        else
-        {
-            CompletionSymbol.Text = "\u26A0";
-            CompletionSymbol.Foreground = Tokens.BrushAccentWarning;
-            CompletionTitle.Text = goodResult ? "Calibration complete" : "Calibration failed";
-            CompletionError.Text = goodResult
-                ? $"Mean error: {errorPx:F1} px ({qualityPercent:F1}%) \u2014 poor quality"
-                : _viewModel?.ErrorText ?? "";
-            CompletionHint.Visibility = Visibility.Collapsed;
-            RetryPanel.Visibility = goodResult ? Visibility.Visible : Visibility.Collapsed;
-            // Safety net: never trap the user on the overlay even if they can't actuate a button.
-            StartAutoDismiss(12000, DismissAndReset);
-        }
+        CompletionSymbol.Text = presentation.Symbol;
+        CompletionSymbol.Foreground = presentation.Tone == CompletionTone.Success
+            ? Tokens.BrushAccentSuccess
+            : Tokens.BrushAccentWarning;
+        CompletionTitle.Text = presentation.Title;
+        CompletionError.Text = presentation.Detail;
+        CompletionHint.Visibility = presentation.HintVisible ? Visibility.Visible : Visibility.Collapsed;
+        RetryPanel.Visibility = presentation.RetryVisible ? Visibility.Visible : Visibility.Collapsed;
+        StartAutoDismiss(presentation.AutoDismissMs, DismissAndReset);
     }
 
     /// <summary>Dismisses the overlay and returns the VM to Idle so re-calibration is possible.</summary>

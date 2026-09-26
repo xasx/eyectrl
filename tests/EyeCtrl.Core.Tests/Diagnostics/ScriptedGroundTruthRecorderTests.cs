@@ -395,6 +395,29 @@ public class ScriptedGroundTruthRecorderTests : IDisposable
     }
 
     [Fact]
+    public void TwoProbesInTheSameMillisecond_GetDistinctNames()
+    {
+        // The collision path, which the UI cannot reach (a probe takes seconds) but a clock can:
+        // without the -n suffix the second probe would silently replace the first.
+        var clock = new DateTime(2026, 9, 26, 12, 0, 0, DateTimeKind.Utc);
+        var recorder = new ScriptedGroundTruthRecorder(Sidecar, utcNow: () => clock);
+
+        recorder.BeginSession("StreamEngine", Screen, 300, GroundTruthMode.MeasureOnly);
+        RunTarget(recorder, 0, new PhysicalPoint(100, 100), 0, 1, 5);
+        recorder.CompleteSession();
+
+        recorder.BeginSession("StreamEngine", Screen, 300, GroundTruthMode.MeasureOnly);
+        RunTarget(recorder, 0, new PhysicalPoint(200, 200), 0, 1, 5);
+        recorder.CompleteSession();
+
+        var files = Directory.GetFiles(_dir, "bias-probe-*.groundtruth.json");
+        Check.That(files).HasSize(2);
+        Check.That(files.Any(f => f.EndsWith("-2.groundtruth.json", StringComparison.OrdinalIgnoreCase))).IsTrue();
+        Check.That(files.Select(Analysis.GroundTruthFile.Read).Select(s => s.Windows.Single().X))
+            .Contains(new[] { 100.0, 200.0 });
+    }
+
+    [Fact]
     public void ANormalSession_KeepsTheConfiguredPath_AndRecordsCalibrationMode()
     {
         var recorder = new ScriptedGroundTruthRecorder(Sidecar);

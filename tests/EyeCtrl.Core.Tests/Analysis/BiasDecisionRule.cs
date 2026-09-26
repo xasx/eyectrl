@@ -183,7 +183,10 @@ public static class BiasDecisionRule
                 ? $" The size is uncertain: a comparably supported reading puts the mean offset at "
                   + $"b≈({other.Bias.X.ToString("0.0", ci)}, {other.Bias.Y.ToString("0.0", ci)}) px instead of "
                   + $"b≈({estimate.Bias!.Value.X.ToString("0.0", ci)}, {estimate.Bias!.Value.Y.ToString("0.0", ci)}) px; "
-                  + "both readings trigger."
+                  // Per target, not per mean: a reading's mean can sit well under a bar while its
+                  // targets prove an arm (real probe 2's rival: mean ≈ 32 px, two targets ≥ 60 px).
+                  + $"both readings still meet a Recalibrate arm (≥ {MinTargetsForTrigger} targets at or above "
+                  + $"{PerTargetTriggerPx:0} px, or the centre at or above {CentreTriggerPx:0} px)."
                 : "";
             return new Decision(
                 BiasVerdict.Recalibrate,

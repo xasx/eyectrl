@@ -293,6 +293,12 @@ public class BiasEstimatorTests
         Check.That(estimate.Rival).IsNotNull();
         Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Recalibrate);
         Check.That(decision.Reason).Contains("The size is uncertain");
+        // The trigger is per target, never per mean — say so, and name both arms (follow-up 8, FU7-1).
+        Check.That(decision.Reason).Contains("both readings still meet a Recalibrate arm");
+        Check.That(decision.Reason).Contains("≥ 2 targets at or above 60 px, or the centre at or above 75 px");
+        // The operator report carries the same warning, not only the one-line reason (follow-up 8, M-d).
+        Check.That(estimate.Describe()).Contains("MAGNITUDE UNCERTAIN");
+        Check.That(estimate.Describe()).Not.Contains("AMBIGUOUS");
     }
 
     [Fact]

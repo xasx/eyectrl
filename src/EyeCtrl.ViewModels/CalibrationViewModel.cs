@@ -67,10 +67,15 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     /// How long a measure-only target stays up, whatever the gaze does. The probe needs about one to
     /// three seconds of samples per target, and this user cannot press Esc: their only other way out
     /// of a full-screen backdrop is to wait out the normal caps (8 s, or 25 s once arrived), which
-    /// would be up to two minutes of effortful fixation that the data does not need. Fixed at 3 s, so
-    /// the whole probe is about 15 s. Normal calibration keeps its two-stage 8 s / 25 s caps.
+    /// would be up to two minutes of effortful fixation that the data does not need. Fixed at 5 s, so
+    /// the whole probe is about 25 s. Normal calibration keeps its two-stage 8 s / 25 s caps.
+    /// <para>
+    /// 5 s, not the original 3 s: the first real probe (2026-09-26) showed this user reaching each
+    /// target 0.8–2.6 s after it appeared, so a 3 s window left 0.4–2 s of hold and clusters of only
+    /// 8–23 samples. The extra 2 s is all hold time.
+    /// </para>
     /// </summary>
-    private const int MeasureOnlyTargetBudgetMs = 3_000;
+    private const int MeasureOnlyTargetBudgetMs = 5_000;
 
     /// <summary>Whether the ground-truth sidecar collects for the current session. See the field remarks.</summary>
     private bool SidecarEnabled => _measureOnly || _diagnostics is null || _diagnostics.RecordRawGaze;

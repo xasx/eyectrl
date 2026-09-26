@@ -13,7 +13,7 @@ using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
 /// The measure-only bias probe, end to end at the view-model layer: five targets whatever the
-/// settings say; a fixed 3 s window per target — in-band gaze does NOT shorten it, because a short
+/// settings say; a fixed 5 s window per target — in-band gaze does NOT shorten it, because a short
 /// window at low calibration settings leaves the estimator no cluster to find; continue past a target
 /// that collected nothing; a per-session sidecar on every ending; apply nothing. The named mutation
 /// for the persistence checks is restoring <c>AbandonSession</c> on any of these paths — it discards
@@ -261,17 +261,17 @@ public class CalibrationMeasureOnlyTests
     }
 
     [Fact]
-    public async Task TheFixedBudget_EndsAnEmptyProbeInAboutFifteenSeconds()
+    public async Task TheFixedBudget_EndsAnEmptyProbeInAboutTwentyFiveSeconds()
     {
         // A gaze-only user cannot press Esc, so measure-only does not wait out the normal 8 s / 25 s
-        // caps: each target gets 3 s after display. Gaze is on screen the whole time (so every window
+        // caps: each target gets 5 s after display. Gaze is on screen the whole time (so every window
         // carries samples) but far from every target's band, so no target can complete early.
         var started = Environment.TickCount64;
-        var (vm, sidecar) = await RunProbe(_ => false, timeoutSeconds: 25);
+        var (vm, sidecar) = await RunProbe(_ => false, timeoutSeconds: 40);
         var elapsed = TimeSpan.FromMilliseconds(Environment.TickCount64 - started);
 
-        Check.That(elapsed.TotalSeconds).IsGreaterOrEqualThan(13.0);   // five 3 s budgets
-        Check.That(elapsed.TotalSeconds).IsStrictlyLessThan(22.0);     // and not a normal cap
+        Check.That(elapsed.TotalSeconds).IsGreaterOrEqualThan(23.0);   // five 5 s budgets
+        Check.That(elapsed.TotalSeconds).IsStrictlyLessThan(32.0);     // and not a normal cap (5 x 8 s)
         Check.That(vm.State).IsEqualTo(CalibrationState.Active);
         Check.That(vm.ErrorText).IsNull();
 
@@ -281,16 +281,16 @@ public class CalibrationMeasureOnlyTests
     }
 
     /// <summary>
-    /// V4: the 3 s window is FIXED, not a maximum. Real-time gaze sits 5 px from each target, so at
+    /// V4: the 5 s window is FIXED, not a maximum. Real-time gaze sits 5 px from each target, so at
     /// the slider minimums the collector completes after ~5 samples — under the early-advance rule
     /// that window would be ~160 ms with no post-guard sample at all, and every small-bias probe would
-    /// come back "no steady holds". The window must still be ~3 s, and a target that arrived but is
+    /// come back "no steady holds". The window must still be ~5 s, and a target that arrived but is
     /// not complete must still advance at its cap, not extend to 25 s.
     /// </summary>
     [Theory]
     [InlineData(1000, 300, 15)]   // shipped defaults
     [InlineData(200, 0, 5)]       // slider minimums
-    public async Task V4_MeasureOnlyWindow_IsAFixedThreeSeconds_WhenGazeIsOnTarget(
+    public async Task V4_MeasureOnlyWindow_IsAFixedFiveSeconds_WhenGazeIsOnTarget(
         int holdMs, int settleMs, int samplesPerPoint)
     {
         _settings = new CalibrationSettings
@@ -299,17 +299,17 @@ public class CalibrationMeasureOnlyTests
         };
 
         var started = Environment.TickCount64;
-        var (vm, sidecar) = await RunProbe(_ => true, timeoutSeconds: 25);
+        var (vm, sidecar) = await RunProbe(_ => true, timeoutSeconds: 40);
         var elapsed = TimeSpan.FromMilliseconds(Environment.TickCount64 - started);
 
         Check.That(vm.State).IsEqualTo(CalibrationState.Active);
-        Check.That(elapsed.TotalSeconds).IsGreaterOrEqualThan(13.0);
-        Check.That(elapsed.TotalSeconds).IsStrictlyLessThan(22.0);   // an extension would exceed this
+        Check.That(elapsed.TotalSeconds).IsGreaterOrEqualThan(23.0);
+        Check.That(elapsed.TotalSeconds).IsStrictlyLessThan(32.0);   // an extension (25 s) would exceed this
         Check.That(sidecar.Windows).HasSize(5);
         foreach (var window in sidecar.Windows)
         {
-            Check.That(WindowMs(window)).IsGreaterOrEqualThan(2_700.0);
-            Check.That(WindowMs(window)).IsStrictlyLessThan(3_400.0);
+            Check.That(WindowMs(window)).IsGreaterOrEqualThan(4_700.0);
+            Check.That(WindowMs(window)).IsStrictlyLessThan(5_400.0);
             // Enough samples after the onset guard for a 5-sample cluster at any calibration setting.
             long guardEnd = window.DisplayedFromUs + 300_000;
             int eligible = window.Samples.Count(s => s.Valid && s.TimestampUs >= guardEnd && s.TimestampUs <= window.EndedAtUs);
@@ -383,8 +383,8 @@ public class CalibrationMeasureOnlyTests
         var vm = await Task.Run(() => CreateVm());
         _messenger.Send(new MeasureOnlyCalibrationRequestedMessage());
 
-        // The target's own 3 s cap is what advances it into the faulting send.
-        await completion.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        // The target's own 5 s cap is what advances it into the faulting send.
+        await completion.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
 
         Check.That(vm.State).IsEqualTo(CalibrationState.Active);
         Check.That(vm.ErrorText).IsNull();

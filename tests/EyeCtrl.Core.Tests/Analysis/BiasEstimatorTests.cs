@@ -335,7 +335,9 @@ public class BiasEstimatorTests
         var noise = new BiasStreams.Noise(41);
         long t = 0;
         var windows = new List<GroundTruthWindow>();
-        int[] ids = [0, centre, 3];
+        // Centre + two corners that are not collinear with it (the TL–centre–BR diagonal IS collinear,
+        // and a three-point field fit on a line is singular by construction).
+        int[] ids = [centre, 3, 4];
         for (int n = 0; n < ids.Length; n++)
             windows.Add(BiasStreams.Window(ids[n], targets[ids[n]], new PhysicalPoint(10, 0), ref t, noise));
 
@@ -450,6 +452,36 @@ public class BiasEstimatorTests
 
         Check.That(ambiguous).IsLessOrEqualThan(5);   // measured 3/100; the cost is Inconclusive, not a wrong verdict
         Check.That(noTrigger).IsGreaterOrEqualThan(95);
+    }
+
+    [Fact]
+    public void RevisitsMoreThanTheMergeRadiusFromTheAnchor_StaySeparate()
+    {
+        // Three runs 25 px apart. With an ANCHORED place, the 25 px run merges into the first and the
+        // 50 px run does not; with a running centroid the middle run drags the place to 12.5 px and the
+        // third lands within 40 px of THAT, so all three chain into one blended place — reviewer A's
+        // chaining mechanism, pinned directly.
+        var target = new PhysicalPoint(500, 500);
+        var samples = new List<GroundTruthSample>();
+        long t = 300_000;
+        foreach (double offset in new[] { 0.0, 25.0, 50.0 })
+        {
+            for (int i = 0; i < 6; i++, t += 30_000)
+                samples.Add(new GroundTruthSample(target.X + 100 + offset, target.Y, t, Valid: true));
+            for (int i = 0; i < 3; i++, t += 30_000)   // away, below MinClusterSamples
+                samples.Add(new GroundTruthSample(target.X + 900, target.Y + 700, t, Valid: true));
+        }
+
+        var window = new GroundTruthWindow(0, target.X, target.Y, 0, 0, t - 30_000, samples.Count)
+        {
+            Samples = samples,
+        };
+
+        var clusters = BiasEstimator.ExtractClusters(window);
+
+        Check.That(clusters).HasSize(2);
+        Check.That(clusters[0].SampleCount).IsEqualTo(12);   // the 0 and 25 px runs
+        Check.That(clusters[1].SampleCount).IsEqualTo(6);    // the 50 px run, beyond the anchor's radius
     }
 
     /// <summary>A five-window session with the given per-target x biases and per-target cycle counts.</summary>

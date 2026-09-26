@@ -57,6 +57,25 @@ public static class BiasDecisionRule
     /// </summary>
     public const int MinTargetsForNoTrigger = 4;
 
+    /// <summary>
+    /// How far below a bar "No trigger" requires every measured magnitude to sit. A second place
+    /// 30–55 px from the hold pulls a true 62 px down to 47–60 px; without a band the verdict flips to
+    /// "No trigger" with nothing flagged. The Recalibrate thresholds do not move — the band only turns
+    /// "not proven" into Inconclusive instead of a confident small answer. Ten is the fixup's value:
+    /// it keeps the (45, 0) sweep at No trigger 200/200 (45 is 5 px clear of the 50 px bound) while
+    /// catching the 45–60 px blended readings.
+    /// </summary>
+    public const double NoTriggerGuardBandPx = 10;
+
+    /// <summary>
+    /// A chosen cluster smaller than one third of that target's largest cluster did not win its target
+    /// on evidence — it completed a field assignment because the real hold could not form one (a
+    /// centre-only bias, degraded diagonal corners, a field steeper than the gradient cap). "No
+    /// trigger" is never allowed from a pick like that; the target is named and the answer is
+    /// Inconclusive.
+    /// </summary>
+    public const int MinorityPickDivisor = 3;
+
     /// <summary>The verdict. Only <see cref="NoTrigger"/> claims the offset is small.</summary>
     public enum BiasVerdict
     {
@@ -166,22 +185,36 @@ public static class BiasDecisionRule
         int unmeasured = estimate.Probes.Count - measured.Count;
         bool centreMeasured = centreMagnitude is not null;
         bool perTargetArmDecidable = overThreshold + unmeasured < MinTargetsForTrigger;
+
+        // A pick that is a small minority of its target's evidence lost on samples and only completed
+        // the assignment because the real hold could not form one; and "No trigger" must mean CLEARLY
+        // small, not merely a hair under a bar a second place can pull it across.
+        var minorityPicks = estimate.Probes
+            .Where(p => p.Chosen is { } chosen && p.Clusters.Count > 0
+                && chosen.SampleCount * MinorityPickDivisor < p.Clusters.Max(c => c.SampleCount))
+            .Select(p => p.TargetId)
+            .ToList();
+        bool clearlySmall = centreMeasured
+            && measured.All(m => m.MagnitudePx < PerTargetTriggerPx - NoTriggerGuardBandPx)
+            && centreMagnitude!.Value < CentreTriggerPx - NoTriggerGuardBandPx;
+
         if (everyClusteredTargetUsed && measured.Count >= MinTargetsForNoTrigger
-            && centreMeasured && perTargetArmDecidable)
+            && centreMeasured && perTargetArmDecidable && minorityPicks.Count == 0 && clearlySmall)
         {
             return new Decision(
                 BiasVerdict.NoTrigger,
                 $"No trigger: the largest measured |b| is {measured.Max(t => t.MagnitudePx).ToString("0.0", ci)} px "
                 + $"across {measured.Count} of {estimate.Probes.Count} targets; centre "
                 + $"{centreMagnitude!.Value.ToString("0.0", ci)} px (bars {PerTargetTriggerPx:0} px at "
-                + $"{MinTargetsForTrigger}, {CentreTriggerPx:0} px at centre).",
+                + $"{MinTargetsForTrigger}, {CentreTriggerPx:0} px at centre; No trigger needs "
+                + $"{NoTriggerGuardBandPx:0} px clear of them).",
                 measured,
                 centreMagnitude);
         }
 
         // 4. Everything else is Inconclusive, and the reason must say WHICH evidence is missing: no
         //    clusters at all; clusters that disagree with the field; too few targets measured; the
-        //    centre unmeasured; or an unmeasured target that could complete the per-target arm.
+        //    centre unmeasured; a minority pick; an undecidable arm; or a magnitude too close to a bar.
         string why;
         if (estimate.TargetsWithData == 0)
         {
@@ -205,11 +238,29 @@ public static class BiasDecisionRule
         {
             why = "the centre target was not measured, so the centre arm was never tested";
         }
-        else
+        else if (minorityPicks.Count > 0)
+        {
+            why = $"target(s) {string.Join(", ", minorityPicks)} were decided by less than a "
+                + $"{1.0 / MinorityPickDivisor:P0} minority of their samples — a brief wander completed "
+                + "the field where the real hold did not fit; treat the readings as unproven";
+        }
+        else if (!perTargetArmDecidable)
         {
             why = $"{overThreshold} measured target(s) are at or above {PerTargetTriggerPx:0} px and "
                 + $"{unmeasured} target(s) were not measured, so the "
-                + $"{MinTargetsForTrigger}-of-5 arm is not decidable";
+                + $"{MinTargetsForTrigger}-of-{MinTargetsForTrigger} arm is not decidable";
+        }
+        else if (!clearlySmall)
+        {
+            why = $"the largest measured |b| is {measured.Max(t => t.MagnitudePx).ToString("0.0", ci)} px "
+                + $"and the centre {centreMagnitude!.Value.ToString("0.0", ci)} px — within "
+                + $"{NoTriggerGuardBandPx:0} px of the bars ({PerTargetTriggerPx:0} px at "
+                + $"{MinTargetsForTrigger}, {CentreTriggerPx:0} px at centre), so 'small' is not clear";
+        }
+        else
+        {
+            why = $"the {MinTargetsForTrigger}-of-{MinTargetsForTrigger} arm is not decidable from "
+                + $"{measured.Count} of {estimate.Probes.Count} targets";
         }
 
         return new Decision(

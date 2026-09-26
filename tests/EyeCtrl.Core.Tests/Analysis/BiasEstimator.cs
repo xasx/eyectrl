@@ -81,6 +81,15 @@ public static class BiasEstimator
     /// first's samples — "comparable support". A factor of two (0.5) is the widest that still calls the
     /// reviewers' 8-vs-9 sample distractor comparable; it is meant to catch a user who rests on two
     /// places rather than to rank two ways of measuring one place.
+    /// <para>
+    /// <b>Accepted limit at exactly this boundary.</b> A consistent rest about 90 px beside the dot
+    /// that holds more than twice the true hold's samples (reviewer B's stream K, truth-to-rest ratio
+    /// below 0.5) wins outright; the gate is the ratio test, which runs before any verdict comparison,
+    /// and the answer is a confident "No trigger". No instrument can tell that apart from a user
+    /// aiming beside the dot to compensate, and lowering the ratio to catch it would raise the
+    /// false-Inconclusive rate on the realistic near-hold rest shapes. Accepted, documented, and left
+    /// alone; the raw sidecar lets a later estimator re-read the same probe.
+    /// </para>
     /// </summary>
     public const double AmbiguitySampleRatio = 0.5;
 
@@ -92,6 +101,18 @@ public static class BiasEstimator
     /// would be wrong), and a rival that flips the verdict matters even when the means are close.
     /// </summary>
     public const double AmbiguitySeparationPx = 40;
+
+    /// <summary>
+    /// How much worse than the winner a rival's field may fit and still count as a rival. A near-hold
+    /// second rest (40–120 px away, the realistic shape for a user who finds steady fixation hard)
+    /// yields rivals that fit at 15–25 px residual against the winner's 1–3 — a noise substitution at
+    /// a weakly constrained corner, not a second consistent solution. A rival that fits comparably
+    /// (streams D and K) or better (G6's true field) still counts. Measured: the near-rest shapes drop
+    /// from 48–62 % to 10–20 % Inconclusive with no wrong verdict anywhere. Five rather than reviewer
+    /// B's ten because the δ guard band and the 28 px place linkage already raise the rate, and five is
+    /// what brings the shorter-rest shapes under the fixup's 25 % aim without changing any verdict.
+    /// </summary>
+    public const double RivalResidualSlackPx = 5;
 
     /// <summary>
     /// The largest slope the affine offset field may have, per axis. A real device/position residual is
@@ -108,8 +129,15 @@ public static class BiasEstimator
     /// candidates would both bury a smaller but distinct look-away under the cap and split one
     /// place's evidence into ten weak votes. They are merged into one place with the summed samples
     /// before <see cref="MaxClustersPerTarget"/> applies.
+    /// <para>
+    /// 28 rather than the original 40: a second rest 30 px from the hold is a genuinely different
+    /// place (reviewer A's G12), and at 40 its clusters linked into the hold's place and blended a true
+    /// 62 px reading down to 47 — under every bar. At 28 the two places stay distinct, the ambiguity
+    /// arm sees both, and the reading is Inconclusive instead of a false "No trigger". The repeated
+    /// hold's own visits differ by a couple of pixels, far inside 28.
+    /// </para>
     /// </summary>
-    public const double PlaceMergePx = 40;
+    public const double PlaceMergePx = 28;
 
     /// <summary>
     /// Only this many places per target enter the search, by sample count. The truth is one of the
@@ -377,6 +405,9 @@ public static class BiasEstimator
             if (candidate.Targets != best.Targets) continue;
             if (!DiffersFrom(candidate, best, probes)) continue;
             if (candidate.Samples < best.Samples * AmbiguitySampleRatio) continue;
+            // A rival that fits much worse than the winner is a noise substitution, not a second
+            // consistent solution (reviewer B's near-rest shapes).
+            if (candidate.MaxResidualPx > best.MaxResidualPx + RivalResidualSlackPx) continue;
 
             bool verdictDiffers = BiasDecisionRule
                 .Evaluate(BuildEstimate(probes, candidate), screenSize).Verdict != bestVerdict;

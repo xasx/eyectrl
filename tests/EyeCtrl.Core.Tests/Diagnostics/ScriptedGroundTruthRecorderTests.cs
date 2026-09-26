@@ -418,6 +418,30 @@ public class ScriptedGroundTruthRecorderTests : IDisposable
     }
 
     [Fact]
+    public void ACloseFault_KeepsTheWindowsAlreadyClosed_AndReportsOnce()
+    {
+        // The real trigger is an in-flight gaze callback racing the open-window snapshot; the seam
+        // makes it deterministic. A faulted close must cost only the open window — the windows already
+        // closed are still written, and the fault is reported once. Merging the close's catch back
+        // into the write's try loses every closed window and turns this red.
+        var faults = new List<Exception>();
+        var recorder = new ScriptedGroundTruthRecorder(Sidecar, faults.Add);
+        recorder.BeginSession("StreamEngine", Screen, 300);
+
+        RunTarget(recorder, 0, new PhysicalPoint(100, 100), 0, 1, 5);            // window 0 open
+        RunTarget(recorder, 1, new PhysicalPoint(200, 200), 1_000_000, 1, 5);    // closes window 0
+
+        recorder.SnapshotOpenSamples = _ => throw new InvalidOperationException("torn snapshot");
+        Check.ThatCode(() => recorder.CompleteSession()).DoesNotThrow();
+
+        Check.That(faults).HasSize(1);
+        Check.That(File.Exists(Sidecar)).IsTrue();
+        var session = Analysis.GroundTruthFile.Read(Sidecar);
+        Check.That(session.Windows).HasSize(1);
+        Check.That(session.Windows[0].X).IsEqualTo(100.0);
+    }
+
+    [Fact]
     public void ANormalSession_KeepsTheConfiguredPath_AndRecordsCalibrationMode()
     {
         var recorder = new ScriptedGroundTruthRecorder(Sidecar);

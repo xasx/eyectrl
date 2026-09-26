@@ -274,4 +274,131 @@ internal static class BiasStreams
         }
         return new SweepResult(recalibrate, noTrigger, inconclusive, ambiguous, within20);
     }
+
+    /// <summary>
+    /// Reviewer A's with-wander window: a main hold at <paramref name="bias"/>, plus ONE brief wander
+    /// segment (in the middle cycle) at <paramref name="wanderOffset"/> from the target.
+    /// </summary>
+    public static GroundTruthWindow WithWander(
+        int id, PhysicalPoint target, PhysicalPoint bias, PhysicalPoint? wanderOffset, int wanderN,
+        ref long t, Noise noise, int cycles = 10, int holdN = 8)
+    {
+        long from = t;
+        var samples = new List<GroundTruthSample>();
+        for (int i = 0; i < 10; i++, t += StepUs)
+            samples.Add(new GroundTruthSample(target.X - 400 + (i * 40), target.Y - 300 + (i * 30), t, true));
+        for (int c = 0; c < cycles; c++)
+        {
+            for (int i = 0; i < holdN; i++, t += StepUs)
+                samples.Add(new GroundTruthSample(
+                    target.X + bias.X + (noise.NextGaussian() * 9), target.Y + bias.Y + (noise.NextGaussian() * 9), t, true));
+            if (wanderOffset is { } wander && c == cycles / 2)
+                for (int i = 0; i < wanderN; i++, t += StepUs)
+                    samples.Add(new GroundTruthSample(
+                        target.X + wander.X + (noise.NextGaussian() * 9), target.Y + wander.Y + (noise.NextGaussian() * 9), t, true));
+        }
+        return new GroundTruthWindow(id, target.X, target.Y, from, null, t - StepUs, samples.Count) { Samples = samples };
+    }
+
+    /// <summary>
+    /// Reviewer A's G13 sweep shape: a non-affine truth (centre-only 90 px, or two diagonal corners at
+    /// 110 px) with ONE random 180 ms wander 50–120 px from the deviant target's hold.
+    /// </summary>
+    public static GroundTruthSession G13(uint seed, string kind, int wanderN)
+    {
+        var targets = Layout;
+        int centre = CentreIndex();
+        var noise = new Noise(seed * 7919);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int i = 0; i < 5; i++)
+        {
+            bool deviant = kind == "centre90" ? i == centre : (i == 0 || i == 3);
+            var main = deviant
+                ? new PhysicalPoint(kind == "centre90" ? 90 : 110, 0)
+                : new PhysicalPoint(10, 0);
+            PhysicalPoint? wander = null;
+            if (deviant)
+            {
+                double angle = noise.NextUnit() * 2 * Math.PI;
+                double radius = 50 + (70 * noise.NextUnit());
+                wander = new PhysicalPoint(
+                    main.X + (radius * Math.Cos(angle)), main.Y + (radius * Math.Sin(angle)));
+            }
+            windows.Add(WithWander(i, targets[i], main, wander, wanderN, ref t, noise));
+        }
+        return Session(windows);
+    }
+
+    /// <summary>
+    /// Reviewer A's G12: TL and TR truly at <paramref name="trueX"/> with a second place
+    /// <paramref name="gap"/> px closer to the target at equal samples (0 = no second place).
+    /// </summary>
+    public static GroundTruthSession TwoPlaceField(double trueX, double gap)
+    {
+        var targets = Layout;
+        var noise = new Noise(121);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int i = 0; i < 5; i++)
+        {
+            double yn = (targets[i].Y - (Screen.Y / 2)) / 1080.0;
+            var bias = new PhysicalPoint(((trueX + 10) / 2) - (((trueX - 10) / 2) * yn), 0);
+            bool top = i == 0 || i == 4;
+            windows.Add(top && gap > 0
+                ? Window(i, targets[i], bias, ref t, noise, holdN: 8,
+                    distractorAbs: new PhysicalPoint(targets[i].X + bias.X - gap, targets[i].Y), dN: 8)
+                : Window(i, targets[i], bias, ref t, noise));
+        }
+        return Session(windows);
+    }
+
+    /// <summary>
+    /// Reviewer B's stream K: truth at <paramref name="bias"/> with a consistent rest
+    /// <paramref name="restOffset"/> px from the target at every target, the rest holding
+    /// <paramref name="restSamples"/> vs the truth's <paramref name="holdSamples"/> per cycle.
+    /// </summary>
+    public static GroundTruthSession TwoPlace(
+        PhysicalPoint bias, PhysicalPoint restOffset, int holdSamples, int restSamples,
+        int cycles = 6, uint seed = 500)
+    {
+        var targets = Layout;
+        var noise = new Noise(seed);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int i = 0; i < 5; i++)
+        {
+            var target = targets[i];
+            windows.Add(Window(i, target, bias, ref t, noise, cycles, holdN: holdSamples,
+                distractorAbs: new PhysicalPoint(target.X + restOffset.X, target.Y + restOffset.Y), dN: restSamples));
+        }
+        return Session(windows);
+    }
+
+    /// <summary>
+    /// Reviewer B's near-rest shape: truth (20, 0) at every target with a random-direction second rest
+    /// <paramref name="radiusMin"/>–<paramref name="radiusMax"/> px from the HOLD.
+    /// </summary>
+    public static GroundTruthSession NearRest(
+        uint seed, int cycles, int holdSamples, int restSamples, double radiusMin, double radiusMax,
+        PhysicalPoint? bias = null)
+    {
+        var targets = Layout;
+        var truth = bias ?? new PhysicalPoint(20, 0);
+        var noise = new Noise(seed + 2000);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int id = 0; id < 5; id++)
+        {
+            var target = targets[id];
+            double radians = noise.NextUnit() * 2 * Math.PI;
+            double radius = radiusMin + (noise.NextUnit() * (radiusMax - radiusMin));
+            var rest = new PhysicalPoint(
+                target.X + truth.X + (radius * Math.Cos(radians)),
+                target.Y + truth.Y + (radius * Math.Sin(radians)));
+            windows.Add(Window(id, target, truth, ref t, noise, cycles, holdN: holdSamples,
+                distractorAbs: rest, dN: restSamples));
+        }
+        return Session(windows);
+    }
 }

@@ -527,17 +527,227 @@ public class BiasEstimatorTests
     [Fact]
     public void Decision_NoTrigger_OnlyWithFullCoverageAndFourMeasured()
     {
-        // Index 2 is the centre for the five-point layout. 70 px is inside R75 and only one target is
-        // at/above 60, so neither arm fires; with every target measured the answer is No trigger.
+        // Index 2 is the centre for the five-point layout. Every measured |b| must sit 10 px clear of
+        // the 60 px per-target bar (so below 50 — the centre included, which makes the separate
+        // centre clause the looser of the two and inert at this δ), and the centre must also be clear
+        // of 75 by 10. Corners 5, centre 49: full coverage, clearly small → No trigger.
         var estimate = BuildEstimate(
             new PhysicalPoint(5, 0), new PhysicalPoint(5, 0),
-            new PhysicalPoint(70, 0), new PhysicalPoint(5, 0), new PhysicalPoint(5, 0));
+            new PhysicalPoint(49, 0), new PhysicalPoint(5, 0), new PhysicalPoint(5, 0));
 
         var decision = BiasDecisionRule.Evaluate(estimate, Screen);
 
         Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.NoTrigger);
         Check.That(decision.Reason).Contains("No trigger");
     }
+
+    [Fact]
+    public void Decision_GuardBand_TurnsNearBarReadingsIntoInconclusive()
+    {
+        // δ = 10: No trigger needs every |b| < 50 (the per-target bar less δ), and the centre clear of
+        // 65 (the centre bar less δ — subsumed by the per-target clause here).
+        Check.That(BiasDecisionRule.Evaluate(
+            BuildEstimate(new PhysicalPoint(49, 0), new PhysicalPoint(49, 0), new PhysicalPoint(49, 0),
+                new PhysicalPoint(49, 0), new PhysicalPoint(49, 0)), Screen).Verdict)
+            .IsEqualTo(BiasDecisionRule.BiasVerdict.NoTrigger);
+
+        Check.That(BiasDecisionRule.Evaluate(
+            BuildEstimate(new PhysicalPoint(51, 0), new PhysicalPoint(51, 0), new PhysicalPoint(51, 0),
+                new PhysicalPoint(51, 0), new PhysicalPoint(51, 0)), Screen).Verdict)
+            .IsEqualTo(BiasDecisionRule.BiasVerdict.Inconclusive);
+
+        // 55 px at the centre is below its own 75 px bar, but the per-target band is what binds:
+        // "No trigger" means clearly small, and 55 is within 10 px of the 60 px per-target bar.
+        Check.That(BiasDecisionRule.Evaluate(
+            BuildEstimate(new PhysicalPoint(10, 0), new PhysicalPoint(10, 0), new PhysicalPoint(55, 0),
+                new PhysicalPoint(10, 0), new PhysicalPoint(10, 0)), Screen).Verdict)
+            .IsEqualTo(BiasDecisionRule.BiasVerdict.Inconclusive);
+    }
+
+    [Fact]
+    public void StreamK_TwoPlaceTruthWinsTheTieBreak_AndRecalibrates()
+    {
+        // Truth (100, 0) at every target with a consistent near-target rest at (10, 0) holding 5 of
+        // 11 cycles (truth-to-rest 2.2). The rest is NOT comparable support (below the 0.5 ratio), so
+        // no ambiguity arm can mask the choice: the sample-count tie-break must pick the truth, and
+        // flipping it (prefer fewer samples) makes the rest win and this red.
+        var decision = BiasDecisionRule.Evaluate(
+            BiasEstimator.Measure(BiasStreams.TwoPlace(
+                new PhysicalPoint(100, 0), new PhysicalPoint(10, 0), holdSamples: 11, restSamples: 5)),
+            Screen);
+
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Recalibrate);
+    }
+
+    // ── Round 3: a minority wander must not complete a "No trigger" ───────────
+
+    [Theory]
+    [InlineData(false, 15.0, 6)]
+    [InlineData(true, 15.0, 6)]
+    [InlineData(true, 30.0, 6)]
+    [InlineData(true, 15.0, 5)]
+    public void StreamG13a_CentreOnlyBias_WithABriefWander_IsNeverNoTrigger(
+        bool wander, double wanderX, int wanderSamples)
+    {
+        // A centre-only 90 px bias cannot form a bounded field, so every 5-target assignment from the
+        // real holds fails. ONE 5–6 sample wander at the centre that happens to fit used to complete a
+        // 5-target assignment and answer "No trigger, centre 13–29 px".
+        var targets = BiasStreams.Layout;
+        int centre = BiasStreams.CentreIndex();
+        var noise = new BiasStreams.Noise(131);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int i = 0; i < 5; i++)
+            windows.Add(i == centre
+                ? BiasStreams.WithWander(i, targets[i], new PhysicalPoint(90, 0),
+                    wander ? new PhysicalPoint(wanderX, 0) : null, wanderSamples, ref t, noise)
+                : BiasStreams.WithWander(i, targets[i], new PhysicalPoint(10, 0), null, 0, ref t, noise));
+
+        var decision = BiasDecisionRule.Evaluate(BiasEstimator.Measure(BiasStreams.Session(windows)), Screen);
+
+        Check.That(decision.Verdict).IsNotEqualTo(BiasDecisionRule.BiasVerdict.NoTrigger);
+    }
+
+    [Theory]
+    [InlineData("centre90", 6)]
+    [InlineData("centre90", 10)]
+    [InlineData("diag110", 6)]
+    public void Sweep_G13RandomWander_AddsNoFalseNoTrigger(string kind, int wanderSamples)
+    {
+        // 200 seeds, one random 180 ms wander 50–120 px from the deviant target's hold. Before the
+        // minority-pick guard: 22 / 21 / 7 false "No trigger". Now zero, with the rest Inconclusive.
+        int noTrigger = 0;
+        for (uint seed = 1; seed <= 200; seed++)
+        {
+            var decision = BiasDecisionRule
+                .Evaluate(BiasEstimator.Measure(BiasStreams.G13(seed, kind, wanderSamples)), Screen);
+            if (decision.Verdict == BiasDecisionRule.BiasVerdict.NoTrigger) noTrigger++;
+        }
+
+        Check.That(noTrigger).IsEqualTo(0);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void StreamG13b_DegradedDiagonalCorners_WithWanders_IsNeverNoTrigger(bool wander)
+    {
+        var targets = BiasStreams.Layout;
+        var noise = new BiasStreams.Noise(132);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int i = 0; i < 5; i++)
+        {
+            bool degraded = i == 0 || i == 3;
+            windows.Add(BiasStreams.WithWander(i, targets[i], degraded ? new PhysicalPoint(110, 0) : new PhysicalPoint(10, 0),
+                degraded && wander ? new PhysicalPoint(15, 0) : null, 6, ref t, noise));
+        }
+
+        var decision = BiasDecisionRule.Evaluate(BiasEstimator.Measure(BiasStreams.Session(windows)), Screen);
+
+        Check.That(decision.Verdict).IsNotEqualTo(BiasDecisionRule.BiasVerdict.NoTrigger);
+    }
+
+    [Theory]
+    [InlineData("radial", 0.10)]
+    [InlineData("radial", 0.12)]
+    [InlineData("ygrad", 0.10)]
+    public void StreamG11_SteepRealField_FailsSafe(string kind, double gradient)
+    {
+        var targets = BiasStreams.Layout;
+        var noise = new BiasStreams.Noise(111);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int i = 0; i < 5; i++)
+        {
+            var bias = kind == "radial"
+                ? new PhysicalPoint(gradient * (targets[i].X - (Screen.X / 2)), gradient * (targets[i].Y - (Screen.Y / 2)))
+                : new PhysicalPoint(40 + (gradient * (targets[i].Y - (Screen.Y / 2))), 0);
+            windows.Add(BiasStreams.Window(i, targets[i], bias, ref t, noise));
+        }
+
+        var decision = BiasDecisionRule.Evaluate(BiasEstimator.Measure(BiasStreams.Session(windows)), Screen);
+
+        Check.That(decision.Verdict).IsNotEqualTo(BiasDecisionRule.BiasVerdict.NoTrigger);
+    }
+
+    [Fact]
+    public void StreamG11b_SteepFieldWithWanders_IsNeverNoTrigger()
+    {
+        var targets = BiasStreams.Layout;
+        int centre = BiasStreams.CentreIndex();
+        var noise = new BiasStreams.Noise(112);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int i = 0; i < 5; i++)
+        {
+            var bias = new PhysicalPoint(0.10 * (targets[i].X - (Screen.X / 2)), 0.10 * (targets[i].Y - (Screen.Y / 2)));
+            windows.Add(BiasStreams.WithWander(i, targets[i], bias,
+                i == centre ? null : new PhysicalPoint(10, 5), 6, ref t, noise));
+        }
+
+        var decision = BiasDecisionRule.Evaluate(BiasEstimator.Measure(BiasStreams.Session(windows)), Screen);
+
+        Check.That(decision.Verdict).IsNotEqualTo(BiasDecisionRule.BiasVerdict.NoTrigger);
+    }
+
+    // ── Round 3: near-threshold resolution ────────────────────────────────────
+
+    [Fact]
+    public void StreamG12_TrueSixtyTwoWithNoSecondPlace_Recalibrates()
+    {
+        var decision = BiasDecisionRule
+            .Evaluate(BiasEstimator.Measure(BiasStreams.TwoPlaceField(trueX: 62, gap: 0)), Screen);
+
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Recalibrate);
+    }
+
+    [Theory]
+    [InlineData(30.0)]
+    [InlineData(45.0)]
+    [InlineData(55.0)]
+    public void StreamG12_ASecondPlaceNearTheHold_NeverGivesNoTrigger(double gap)
+    {
+        // A true 62 px bias with an equal-sample second place gap px closer. The blend used to read
+        // 47–60 px and every one of these said "No trigger" with nothing flagged. They are Inconclusive
+        // now: the place linkage (28 px) keeps a 30 px gap's places distinct, where the ambiguity arm
+        // sees both, and the δ = 10 guard band catches the 45–60 px readings.
+        var decision = BiasDecisionRule
+            .Evaluate(BiasEstimator.Measure(BiasStreams.TwoPlaceField(trueX: 62, gap)), Screen);
+
+        Check.That(decision.Verdict).IsNotEqualTo(BiasDecisionRule.BiasVerdict.NoTrigger);
+    }
+
+    [Theory]
+    [InlineData(7, 8, 5, 40.0, 120.0)]
+    [InlineData(7, 8, 7, 60.0, 100.0)]
+    public void Sweep_NearRest_StaysDecisiveWithoutWrongVerdicts(
+        int cycles, int holdSamples, int restSamples, double radiusMin, double radiusMax)
+    {
+        // A user who finds steady fixation hard rests near the hold. On these shapes the filter that
+        // counts a rival only when it fits within RivalResidualSlackPx of the winner keeps the
+        // Inconclusive rate at or below the fixup's aim, with the correct No trigger still dominant and
+        // never a Recalibrate.
+        int noTrigger = 0, inconclusive = 0, recalibrate = 0;
+        for (uint seed = 1; seed <= 100; seed++)
+        {
+            var decision = BiasDecisionRule.Evaluate(
+                BiasEstimator.Measure(BiasStreams.NearRest(seed, cycles, holdSamples, restSamples, radiusMin, radiusMax)),
+                Screen);
+            switch (decision.Verdict)
+            {
+                case BiasDecisionRule.BiasVerdict.NoTrigger: noTrigger++; break;
+                case BiasDecisionRule.BiasVerdict.Inconclusive: inconclusive++; break;
+                default: recalibrate++; break;
+            }
+        }
+
+        Check.That(recalibrate).IsEqualTo(0);
+        Check.That(inconclusive).IsLessOrEqualThan(25);
+        Check.That(noTrigger).IsGreaterOrEqualThan(75);
+    }
+
+    // ── Decision rule unit tests (hand-built estimates) ───────────────────────
 
     [Fact]
     public void Decision_RefusesNoTrigger_WhenAClusteredTargetWasDropped()

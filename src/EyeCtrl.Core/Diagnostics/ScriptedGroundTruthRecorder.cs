@@ -78,6 +78,14 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
     // the window closes.
     private readonly List<GroundTruthSample> _openSampleList = new();
 
+    /// <summary>
+    /// Test seam: how the open window's samples are snapshotted when the window closes. Production is
+    /// <c>ToArray</c>; a test replaces it to fault the close deterministically (an in-flight gaze
+    /// callback racing the snapshot is the real, un-testable trigger).
+    /// </summary>
+    internal Func<List<GroundTruthSample>, GroundTruthSample[]> SnapshotOpenSamples { get; set; } =
+        static list => list.ToArray();
+
     /// <summary>Initializes the recorder.</summary>
     /// <param name="filePath">Full path of the sidecar to write. Its directory is created if absent.</param>
     /// <param name="onFault">Optional one-shot report if the sidecar cannot be written.</param>
@@ -251,7 +259,7 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
                 _openTargetId, _openTarget.X, _openTarget.Y,
                 _openFromUs, _openArrivedUs, _openLastUs, _openSamples)
             {
-                Samples = _openSampleList.ToArray(),
+                Samples = SnapshotOpenSamples(_openSampleList),
             };
             lock (_windowsGate) { _windows.Add(window); }
         }

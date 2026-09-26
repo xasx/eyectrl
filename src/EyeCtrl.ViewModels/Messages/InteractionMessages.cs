@@ -165,6 +165,18 @@ public record HideBackdropMessage;
 public record BackdropDismissMessage;
 
 public record CalibrationRequestedMessage;
+
+/// <summary>
+/// Starts the measure-only bias probe: a calibration-shaped, five-target run that records raw gaze
+/// offset into the self-contained sidecar and applies nothing.
+/// </summary>
+/// <remarks>
+/// Deliberately separate from <see cref="CalibrationRequestedMessage"/> rather than a flag on it, so
+/// the probe can only be started by its own deliberate entry point and never by "Calibrate Now" — the
+/// two do opposite things to the user's gaze mapping, and a mis-click that silently skipped the
+/// transform would be indistinguishable from a calibration that did not work.
+/// </remarks>
+public record MeasureOnlyCalibrationRequestedMessage;
 public record CalibrationCompletedMessage(bool Success, double? MeanErrorPixels);
 public record CalibrationCancelledMessage;
 public record CalibrationStateChangedMessage(CalibrationState State, double ProgressPercent);

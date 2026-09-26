@@ -19,6 +19,13 @@ using EyeCtrl.Core.Models;
 /// recording it describes, which is the thing it has to stay aligned to.
 /// </para>
 /// <para>
+/// <b>Self-contained since the bias probe.</b> Each window carries its own raw samples, so the
+/// measure-only probe's offline estimator runs from the sidecar alone instead of the separate
+/// <c>gaze-recording.csv</c>, whose single path is appended to and rotated across sessions. The cost
+/// is sidecar size; the payoff is that a measurement session cannot be invalidated by a later launch,
+/// and the probe does not depend on a global diagnostics flag a gaze-only user cannot see.
+/// </para>
+/// <para>
 /// Threading: <see cref="OnSample"/> is called on the gaze thread; the writes happen on whichever
 /// thread ends the session. Sample accumulation touches only the open-window fields, which no other
 /// thread reads. The window LIST is different — the gaze thread appends to it at each target
@@ -35,6 +42,10 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        // Names, not numbers: the sidecar is read by a human operator and by the offline estimator,
+        // and an outcome of 1 tells neither which ending it was. Reading is case-insensitive, so a
+        // hand-edited file still parses.
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
     };
 
     private readonly string _filePath;
@@ -45,6 +56,7 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
     private string _providerType = string.Empty;
     private PhysicalPoint _screenSize;
     private int _settleWindowMs;
+    private GroundTruthOutcome _outcome = GroundTruthOutcome.Completed;
 
     // The window currently open. Held as fields rather than a mutable struct in the list so the
     // gaze-thread update is a handful of field writes with no copying.
@@ -54,6 +66,10 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
     private long? _openArrivedUs;
     private long _openLastUs;
     private int _openSamples;
+    // The raw stream behind the open window, so the finished sidecar needs no other file to be
+    // analyzed. Touched only by the gaze thread; handed to the windows list (under the gate) when
+    // the window closes.
+    private readonly List<GroundTruthSample> _openSampleList = new();
 
     /// <summary>Initializes the recorder.</summary>
     /// <param name="filePath">Full path of the sidecar to write. Its directory is created if absent.</param>
@@ -89,11 +105,12 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
         _providerType = providerType;
         _screenSize = screenSize;
         _settleWindowMs = settleWindowMs;
+        _outcome = GroundTruthOutcome.Completed;
         IsRecording = true;
     }
 
     /// <inheritdoc />
-    public void OnSample(int targetId, PhysicalPoint target, long deviceTimestampUs, bool hasArrived)
+    public void OnSample(int targetId, PhysicalPoint target, GazePoint sample, bool hasArrived)
     {
         if (!IsRecording) return;
 
@@ -102,23 +119,25 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
             CloseOpenWindow();
             _openTargetId = targetId;
             _openTarget = target;
-            _openFromUs = deviceTimestampUs;
+            _openFromUs = sample.TimestampMicroseconds;
             _openArrivedUs = null;
             _openSamples = 0;
         }
 
         // First sample at which the collector reports arrival. Latched, not overwritten: arrival is
         // the moment the fixation being measured starts, and a later sample cannot un-start it.
-        if (hasArrived && _openArrivedUs is null) _openArrivedUs = deviceTimestampUs;
+        if (hasArrived && _openArrivedUs is null) _openArrivedUs = sample.TimestampMicroseconds;
 
-        _openLastUs = deviceTimestampUs;
+        _openLastUs = sample.TimestampMicroseconds;
         _openSamples++;
+        _openSampleList.Add(new GroundTruthSample(sample.X, sample.Y, sample.TimestampMicroseconds, sample.IsValid));
     }
 
     /// <inheritdoc />
-    public void CompleteSession()
+    public void CompleteSession(GroundTruthOutcome outcome = GroundTruthOutcome.Completed)
     {
         if (!IsRecording) return;
+        _outcome = outcome;
         CloseOpenWindow();
         IsRecording = false;
 
@@ -138,7 +157,10 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
                 _screenSize.X,
                 _screenSize.Y,
                 _settleWindowMs,
-                windows);
+                windows)
+            {
+                Outcome = _outcome,
+            };
 
             var directory = Path.GetDirectoryName(_filePath);
             if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
@@ -174,7 +196,10 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
         {
             var window = new GroundTruthWindow(
                 _openTargetId, _openTarget.X, _openTarget.Y,
-                _openFromUs, _openArrivedUs, _openLastUs, _openSamples);
+                _openFromUs, _openArrivedUs, _openLastUs, _openSamples)
+            {
+                Samples = _openSampleList.ToArray(),
+            };
             lock (_windowsGate) { _windows.Add(window); }
         }
         DiscardOpenWindow();
@@ -185,5 +210,6 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
         _openTargetId = -1;
         _openSamples = 0;
         _openArrivedUs = null;
+        _openSampleList.Clear();
     }
 }

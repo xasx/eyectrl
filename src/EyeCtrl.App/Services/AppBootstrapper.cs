@@ -389,18 +389,18 @@ public class AppBootstrapper
         services.AddSingleton<RepeatCursorViewModel>();
         services.AddSingleton<QuickActionsGridViewModel>();
 
-        // Scripted ground truth (Stage 2 ticket 3), written beside the raw recording it describes and
-        // gated on the same opt-in: a sidecar is only meaningful for a session that is being recorded,
-        // so it rides RecordRawGaze rather than inventing a third flag for the operator to remember.
+        // Scripted ground truth (Stage 2 ticket 3; self-contained again for ticket 6's bias probe).
         //
-        // Registered under the NON-nullable service type returning null!, not under `T?`. The container's
-        // type parameter is constrained to a reference type, so `T?` is just `T` with an annotation it
-        // cannot act on: the nullable spelling produced three CS8634 warnings and bought nothing, since
-        // resolution still goes through GetService<T>() and still yields null. The `null!` is the honest
-        // version of what was already happening.
+        // Constructed UNCONDITIONALLY since ticket 6. It used to resolve to null unless RecordRawGaze
+        // was on, on the reasoning that a sidecar only describes a recording that exists. The
+        // measure-only probe breaks that premise on purpose: its windows carry their own raw samples,
+        // so it must not hinge on a global diagnostics flag — a measurement session whose data
+        // silently vanished because a hidden toggle was off is exactly the trap this user cannot
+        // escape. The recorder is inert until BeginSession, and the view model still gates the
+        // NORMAL calibration path on the live RecordRawGaze setting, so nothing is written for a
+        // session the user did not ask to measure.
         services.AddSingleton<ScriptedGroundTruthRecorder>(sp =>
         {
-            if (!settings.Diagnostics.RecordRawGaze) return null!;
             var log = sp.GetRequiredService<ILoggerFactory>().CreateLogger<ScriptedGroundTruthRecorder>();
             return new ScriptedGroundTruthRecorder(
                 Path.Combine(appDataDir, "gaze-recording.groundtruth.json"),

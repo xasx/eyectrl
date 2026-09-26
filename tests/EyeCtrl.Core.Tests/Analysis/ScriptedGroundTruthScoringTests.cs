@@ -51,8 +51,9 @@ public class ScriptedGroundTruthScoringTests : IDisposable
             // Searching: gaze elsewhere, not yet arrived.
             for (int i = 0; i < searchSamples; i++, t += StepUs)
             {
-                samples.Add(new GazePoint(target.X - 300, target.Y - 300, t, IsValid: true));
-                recorder.OnSample(id, target, t, hasArrived: false);
+                var sample = new GazePoint(target.X - 300, target.Y - 300, t, IsValid: true);
+                samples.Add(sample);
+                recorder.OnSample(id, target, sample, hasArrived: false);
             }
 
             // Holding: gaze parked at a fixed offset from the target, with a tiny alternation so the
@@ -60,8 +61,9 @@ public class ScriptedGroundTruthScoringTests : IDisposable
             for (int i = 0; i < holdSamples; i++, t += StepUs)
             {
                 double wobble = (i % 2 == 0) ? 1.0 : -1.0;
-                samples.Add(new GazePoint(target.X + offsetX + wobble, target.Y + offsetY, t, IsValid: true));
-                recorder.OnSample(id, target, t, hasArrived: true);
+                var sample = new GazePoint(target.X + offsetX + wobble, target.Y + offsetY, t, IsValid: true);
+                samples.Add(sample);
+                recorder.OnSample(id, target, sample, hasArrived: true);
             }
         }
 

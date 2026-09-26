@@ -391,7 +391,7 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
                 TargetCanvas.Visibility = Visibility.Collapsed;
                 CancelHint.Visibility = Visibility.Collapsed;
                 StopPulse();
-                ProgressText.Text = "Computing...";
+                ProgressText.Text = _viewModel?.IsMeasureOnly == true ? "Recording..." : "Computing...";
                 break;
 
             case CalibrationState.Active:
@@ -431,6 +431,24 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
         SetOverlayInteraction(clickThrough: false, focusable: true);
         Activate();
         Focus();
+
+        // The measure-only probe has no result to judge and no fit to report, and its whole contract
+        // is that it never says "failed" or offers a retry. Branch BEFORE the quality arithmetic:
+        // QualityPercent is null for a probe by construction, and the ordinary path would render
+        // "poor quality" over a session that did exactly what was asked of it.
+        if (_viewModel?.IsMeasureOnly == true)
+        {
+            CompletionSymbol.Text = "\u25CF";
+            CompletionSymbol.Foreground = Tokens.BrushAccentSuccess;
+            CompletionTitle.Text = "Gaze offset recorded";
+            CompletionError.Text = "";
+            CompletionHint.Visibility = Visibility.Collapsed;
+            RetryPanel.Visibility = Visibility.Collapsed;
+            // Auto-dismiss is the only way out for a user who cannot actuate Accept: the probe is
+            // neutral, so trapping them on the panel would be the worst version of "neutral".
+            StartAutoDismiss(3000, DismissAndReset);
+            return;
+        }
 
         var errorPx = _viewModel?.MeanErrorPixels ?? 0;
         // Quality % is computed in the VM against the physical-pixel screen diagonal

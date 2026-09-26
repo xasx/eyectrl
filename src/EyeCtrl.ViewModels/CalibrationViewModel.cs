@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 
 public partial class CalibrationViewModel : MessengerViewModelBase,
     IRecipient<CalibrationRequestedMessage>,
+    IRecipient<MeasureOnlyCalibrationRequestedMessage>,
     IRecipient<CalibrationClearRequestedMessage>
 {
     private readonly CalibrationSettings _settings;
@@ -34,9 +35,12 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     // turned the diagnostics setting on for a measurement session.
     private readonly IGroundTruthSink? _groundTruth;
     private readonly string _providerType;
-    // Carries the live RecordRawGaze gate. The sidecar describes samples the CSV recorder captured, so
-    // the two must start and stop together: a sidecar covering samples that were never recorded is a
-    // ground truth for a recording that does not exist.
+    // Live sidecar gate. Normally the sidecar describes samples the CSV recorder captured, so the two
+    // must start and stop together: a sidecar covering samples that were never recorded is a ground
+    // truth for a recording that does not exist. The measure-only probe is the deliberate exception —
+    // its sidecar is self-contained (each window carries its own raw samples) and the user started it
+    // from its own button, so it must not hinge on a global diagnostics flag that a gaze-only user
+    // cannot see, let alone toggle.
     private readonly DiagnosticsSettings? _diagnostics;
 
     private int _sessionGeneration;
@@ -44,6 +48,23 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     // at least TargetHoldMs (a visible floor), but advances as soon as the collector has enough
     // post-arrival samples after that — the user's pace, not a timer's.
     private long _targetShownAtTicks;
+
+    // Whether this session is the measure-only bias probe. Per session, never persisted: a settings
+    // flag that stays on would make the next deliberate "Calibrate Now" silently skip the transform.
+    private bool _measureOnly;
+    // Whether any target of a measure-only session ended with nothing collected. Turns the session's
+    // recorded outcome into Partial — the decision rule needs the honest count of usable windows.
+    private bool _measureOnlyAnyEmptyTarget;
+
+    /// <summary>
+    /// The probe always visits five targets. Fixed rather than read from <c>CalibrationSettings.PointCount</c>
+    /// because the pre-registered decision rule is "|b| ≥ 60 px at ≥ 2 of 5 targets, or ≥ 75 px at the
+    /// centre": a session with a different count could not be judged against it.
+    /// </summary>
+    private const int MeasureOnlyPointCount = 5;
+
+    /// <summary>Whether the ground-truth sidecar collects for the current session. See the field remarks.</summary>
+    private bool SidecarEnabled => _measureOnly || _diagnostics is null || _diagnostics.RecordRawGaze;
 
     // Absolute per-target ceiling so a user who never finds the point cannot stall a session
     // forever: the target then advances with whatever was collected (possibly nothing → the
@@ -105,6 +126,13 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     /// leave" legible without text, for a user who cannot read a number and hold a fixation at once.
     /// </summary>
     [ObservableProperty] private bool _isOnTarget;
+
+    /// <summary>
+    /// Whether the running session is the measure-only bias probe. The overlay reads it to end with a
+    /// neutral "recorded" panel — no failure text, no Retry — and the view model uses it to skip the
+    /// fit, the save and the transform entirely.
+    /// </summary>
+    [ObservableProperty] private bool _isMeasureOnly;
 
     /// <summary>
     /// Every target position for this session, in the order they will be presented. Empty when idle.
@@ -184,7 +212,13 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     public void Receive(CalibrationRequestedMessage message)
     {
         if (State != CalibrationState.Idle) return;
-        StartSession();
+        StartSession(measureOnly: false);
+    }
+
+    public void Receive(MeasureOnlyCalibrationRequestedMessage message)
+    {
+        if (State != CalibrationState.Idle) return;
+        StartSession(measureOnly: true);
     }
 
     public void Receive(CalibrationClearRequestedMessage message)
@@ -192,15 +226,20 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         ClearCalibration();
     }
 
-    private void StartSession()
+    private void StartSession(bool measureOnly)
     {
         _sessionGeneration++;
-        TotalTargets = _calibrationService.StartSession(_settings.PointCount, _screenSize);
+        _measureOnly = measureOnly;
+        IsMeasureOnly = measureOnly;
+        _measureOnlyAnyEmptyTarget = false;
+        TotalTargets = _calibrationService.StartSession(
+            measureOnly ? MeasureOnlyPointCount : _settings.PointCount, _screenSize);
         // Taken from the service, not recomputed here: the overlay draws these and the collector gates
         // on them, and two independent calls to the position helper is exactly how a drawn target and
         // an enforced target come to differ.
         TargetPositions = _calibrationService.TargetPositions;
-        _groundTruth?.BeginSession(_providerType, _screenSize, _settings.SettleWindowMs);
+        if (SidecarEnabled)
+            _groundTruth?.BeginSession(_providerType, _screenSize, _settings.SettleWindowMs);
         CurrentTargetIndex = 0;
         ProgressPercent = 0;
         // Published once per session from the same helper the collector uses, so the ring the overlay
@@ -246,7 +285,7 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         // Two stages, because "never got there" and "got there and is still working at it" deserve
         // different patience. The first expires early and gives up unless gaze has arrived; the second
         // spends the full budget on a user who is making progress.
-        ScheduleSafetyCap(generation, Math.Max(_settings.TargetHoldMs, NoArrivalCapMs), isFinal: false);
+        ScheduleSafetyCap(generation, CurrentTargetIndex, Math.Max(_settings.TargetHoldMs, NoArrivalCapMs), isFinal: false);
     }
 
     /// <summary>
@@ -254,12 +293,19 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     /// </summary>
     /// <param name="generation">Session generation captured when the target opened; a cancel or
     /// restart bumps it and this fires into nothing.</param>
+    /// <param name="targetIndex">
+    /// The target this stage was armed for. A cap OUTLIVES the target it was armed for whenever the
+    /// gaze path advances first, and without this a late cap for target N would advance whichever
+    /// target is current when it fires — usually target N+2, after a second or two on screen. The
+    /// probe made that visible: its targets genuinely run to the cap, so the stale caps cascade and
+    /// cut short every target after the first timeout.
+    /// </param>
     /// <param name="delayMs">How long this stage waits.</param>
     /// <param name="isFinal">
     /// False for the first stage, which only gives up if gaze never arrived; true for the second,
     /// which advances regardless.
     /// </param>
-    private void ScheduleSafetyCap(int generation, int delayMs, bool isFinal)
+    private void ScheduleSafetyCap(int generation, int targetIndex, int delayMs, bool isFinal)
     {
         Task.Delay(delayMs).ContinueWith(_ =>
         {
@@ -267,16 +313,17 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
             PostToSyncContext(() =>
             {
                 if (generation != _sessionGeneration || State != CalibrationState.Collecting) return;
+                if (CurrentTargetIndex != targetIndex) return;   // this target already advanced
 
                 // Arrived and still collecting: extend once to the full budget rather than cutting off
                 // a user who is banking samples a few at a time.
                 if (!isFinal && _calibrationService.HasArrivedAtTarget)
                 {
-                    ScheduleSafetyCap(generation, Math.Max(1, TargetSafetyCapMs - delayMs), isFinal: true);
+                    ScheduleSafetyCap(generation, targetIndex, Math.Max(1, TargetSafetyCapMs - delayMs), isFinal: true);
                     return;
                 }
 
-                AdvanceFromCurrentTarget(CurrentTargetIndex);
+                AdvanceFromCurrentTarget(targetIndex);
             });
         });
     }
@@ -295,13 +342,40 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         _gazeProvider.GazePointReceived -= OnRawGaze;
         try
         {
-            _calibrationService.EndTarget();
+            // Measure-only: a target the user never got within the band of is one window of evidence,
+            // not a failed session. The collector refuses to produce a point from zero in-band samples,
+            // so it is discarded here and the probe moves on — ending at the first empty target would
+            // throw away exactly the windows the five-target decision rule needs.
+            if (_measureOnly && _calibrationService.CurrentTargetInBandSamples <= 0)
+            {
+                _calibrationService.DiscardTarget();
+                _measureOnlyAnyEmptyTarget = true;
+                _logger?.LogInformation(
+                    "Measure-only target {TargetIndex} collected nothing; its window is kept and the probe moves on",
+                    expectedIndex);
+            }
+            else
+            {
+                _calibrationService.EndTarget();
+            }
+
             CurrentTargetIndex++;
             ProgressPercent = (CurrentTargetIndex / (double)TotalTargets) * 100;
             MoveToNextTarget();
         }
         catch (Exception ex)
         {
+            if (_measureOnly)
+            {
+                // The probe cannot fail: whatever fault occurred, the sidecar is written with the
+                // failure outcome and the user sees the same neutral ending as any other run.
+                _logger?.LogWarning(ex,
+                    "Measure-only probe ended early at target {TargetIndex}; the data gathered is kept",
+                    expectedIndex);
+                CompleteMeasureOnlySession(GroundTruthOutcome.Failed);
+                return;
+            }
+
             // Announced exactly as a failure at fit time is (see CompleteSession's catch). The two
             // paths used to differ — this one sent only the state change — which was survivable while
             // a target could only fail by collecting nothing after arriving. Since collection became
@@ -333,16 +407,18 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         //
         // Gated on the live setting, like the CSV recorder's own per-sample gate: the sidecar and the
         // recording it describes must stop together, or a mid-session toggle-off leaves a ground truth
-        // covering samples nothing recorded.
+        // covering samples nothing recorded. The measure-only probe bypasses this through
+        // SidecarEnabled — its samples live in the sidecar itself.
+        //
         // Spelled out rather than `_diagnostics?.RecordRawGaze != false`: the two read identically but
         // the short form's null case is easy to read backwards, and getting it wrong means a sidecar
         // written for a session that was never recorded. No settings object means no gate to consult —
         // the recorder is injected only for a measurement session in the first place.
-        if (_diagnostics is null || _diagnostics.RecordRawGaze)
+        if (SidecarEnabled)
         {
             _groundTruth?.OnSample(
                 CurrentTargetIndex, CurrentTargetPosition,
-                gaze.TimestampMicroseconds, _calibrationService.HasArrivedAtTarget);
+                gaze, _calibrationService.HasArrivedAtTarget);
         }
 
         if (!gaze.IsValid) return;
@@ -388,6 +464,14 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
 
     private void CompleteSession()
     {
+        if (_measureOnly)
+        {
+            CompleteMeasureOnlySession(_measureOnlyAnyEmptyTarget
+                ? GroundTruthOutcome.Partial
+                : GroundTruthOutcome.Completed);
+            return;
+        }
+
         State = CalibrationState.Training;
         Messenger.Send(new CalibrationStateChangedMessage(State, 100));
 
@@ -423,6 +507,46 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     }
 
     /// <summary>
+    /// Ends a measure-only probe: no fit, no save, no transform, and the self-contained sidecar
+    /// written whatever happened.
+    /// </summary>
+    /// <remarks>
+    /// The whole point of the mode. A normal calibration's terminal state means something was computed
+    /// and either applied or refused; the probe has no such state, so it always ends Active with no
+    /// <c>CurrentData</c> change, and the sidecar's <c>outcome</c> field — not the UI — says how it
+    /// went. That is what lets the same neutral screen serve a complete run, a partial one, an
+    /// abandonment and a fault: the user who finds fixation hard never reads the word "failed".
+    /// </remarks>
+    private void CompleteMeasureOnlySession(GroundTruthOutcome outcome)
+    {
+        State = CalibrationState.Training;
+        Messenger.Send(new CalibrationStateChangedMessage(State, 100));
+
+        try
+        {
+            // Clears the collector/target state only; unlike CompleteSession it fits nothing and never
+            // touches CurrentTransform, so a previous calibration stays exactly as it was.
+            _calibrationService.CancelSession();
+            _groundTruth?.CompleteSession(outcome);
+        }
+        catch (Exception ex)
+        {
+            // Best-effort by construction: the recorder already swallows write faults, and a custom
+            // sink that throws must not turn a neutral ending into a failure screen.
+            _logger?.LogWarning(ex,
+                "Measure-only probe could not persist its sidecar; the probe still ends neutrally");
+        }
+
+        // Active, not a new state: OverlayMessageCoordinator's Active branch is what releases fixation
+        // suppression and restores the toolbar, and the overlay's IsMeasureOnly branch draws the
+        // neutral panel. Ending in Active is also what keeps that release running exactly once per
+        // session, the same as a normal calibration.
+        State = CalibrationState.Active;
+        Messenger.Send(new CalibrationStateChangedMessage(State, 100));
+        Messenger.Send(new CalibrationCompletedMessage(true, null));
+    }
+
+    /// <summary>
     /// Logs the per-target σ this session just measured, plus the centre-versus-corner split.
     /// <para>
     /// The numbers were always there — <c>CalibrationPoint.StdDevX/Y</c> is the raw per-axis noise of
@@ -454,7 +578,17 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         _sessionGeneration++;
         _gazeProvider.GazePointReceived -= OnRawGaze;
         _calibrationService.CancelSession();
-        _groundTruth?.AbandonSession();
+        if (_measureOnly)
+        {
+            // Abandonment is not failure: the windows gathered so far are kept, and the outcome says
+            // why they stop where they do. Restoring AbandonSession here is the named mutation — it
+            // would throw away the only data the probe exists to collect.
+            _groundTruth?.CompleteSession(GroundTruthOutcome.Abandoned);
+        }
+        else
+        {
+            _groundTruth?.AbandonSession();
+        }
         State = CalibrationState.Idle;
         Messenger.Send(new CalibrationStateChangedMessage(State, 0));
         Messenger.Send(new CalibrationCancelledMessage());
@@ -477,7 +611,7 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     {
         if (State != CalibrationState.Active && State != CalibrationState.Failed) return;
         State = CalibrationState.Idle;
-        StartSession();
+        StartSession(_measureOnly);
     }
 
     public void ClearCalibration()

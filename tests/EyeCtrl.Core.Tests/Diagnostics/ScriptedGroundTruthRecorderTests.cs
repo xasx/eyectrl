@@ -30,9 +30,9 @@ public class ScriptedGroundTruthRecorderTests : IDisposable
     {
         long t = fromUs;
         for (int i = 0; i < beforeArrival; i++, t += stepUs)
-            sink.OnSample(targetId, target, t, hasArrived: false);
+            sink.OnSample(targetId, target, new GazePoint(target.X, target.Y, t, IsValid: true), hasArrived: false);
         for (int i = 0; i < afterArrival; i++, t += stepUs)
-            sink.OnSample(targetId, target, t, hasArrived: true);
+            sink.OnSample(targetId, target, new GazePoint(target.X, target.Y, t, IsValid: true), hasArrived: true);
     }
 
     [Fact]
@@ -82,9 +82,9 @@ public class ScriptedGroundTruthRecorderTests : IDisposable
         recorder.BeginSession("Mouse", Screen, 300);
 
         var target = new PhysicalPoint(100, 100);
-        recorder.OnSample(0, target, 1000, hasArrived: false);
-        recorder.OnSample(0, target, 2000, hasArrived: true);    // arrival
-        recorder.OnSample(0, target, 3000, hasArrived: true);
+        recorder.OnSample(0, target, new GazePoint(100, 100, 1000, IsValid: true), hasArrived: false);
+        recorder.OnSample(0, target, new GazePoint(100, 100, 2000, IsValid: true), hasArrived: true);    // arrival
+        recorder.OnSample(0, target, new GazePoint(100, 100, 3000, IsValid: true), hasArrived: true);
         recorder.CompleteSession();
 
         Check.That(Analysis.GroundTruthFile.Read(Sidecar).Windows[0].ArrivedAtUs).IsEqualTo(2000L);
@@ -137,7 +137,7 @@ public class ScriptedGroundTruthRecorderTests : IDisposable
     {
         var recorder = new ScriptedGroundTruthRecorder(Sidecar);
 
-        recorder.OnSample(0, new PhysicalPoint(1, 1), 1000, hasArrived: true);
+        recorder.OnSample(0, new PhysicalPoint(1, 1), new GazePoint(1, 1, 1000, IsValid: true), hasArrived: true);
         recorder.CompleteSession();
 
         Check.That(File.Exists(Sidecar)).IsFalse();   // CompleteSession without Begin is a no-op
@@ -270,5 +270,82 @@ public class ScriptedGroundTruthRecorderTests : IDisposable
 
         Check.ThatCode(() => Analysis.GroundTruthFile.Parse(json))
              .Throws<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void WindowsCarryTheirOwnRawSamples_SoTheSidecarIsSelfContained()
+    {
+        // The measure-only probe must not depend on the separate recorder file: that one path is
+        // appended to and rotated across sessions, so a later launch could invalidate a measurement —
+        // and requiring it would hide the whole probe behind a global diagnostics flag. The samples
+        // are stored raw, the invalid one included: it carries no position, but it does carry the
+        // window's timeline and true sample count.
+        var recorder = new ScriptedGroundTruthRecorder(Sidecar);
+        recorder.BeginSession("StreamEngine", Screen, 300);
+
+        var target = new PhysicalPoint(100, 100);
+        recorder.OnSample(0, target, new GazePoint(101.5, 99.25, 1_000, IsValid: true), hasArrived: false);
+        recorder.OnSample(0, target, new GazePoint(0, 0, 2_000, IsValid: false), hasArrived: false);
+        recorder.OnSample(0, target, new GazePoint(102.5, 98.75, 3_000, IsValid: true), hasArrived: true);
+        recorder.CompleteSession();
+
+        var window = Analysis.GroundTruthFile.Read(Sidecar).Windows.Single();
+        Check.That(window.Samples).HasSize(3);
+        Check.That(window.Samples[0].X).IsEqualTo(101.5);
+        Check.That(window.Samples[0].TimestampUs).IsEqualTo(1_000L);
+        Check.That(window.Samples[1].Valid).IsFalse();
+        Check.That(window.Samples[2].Valid).IsTrue();
+        Check.That(window.SampleCount).IsEqualTo(window.Samples.Count);
+    }
+
+    [Theory]
+    [InlineData(GroundTruthOutcome.Completed)]
+    [InlineData(GroundTruthOutcome.Partial)]
+    [InlineData(GroundTruthOutcome.Abandoned)]
+    [InlineData(GroundTruthOutcome.Failed)]
+    public void Outcome_IsWrittenByItsName(GroundTruthOutcome outcome)
+    {
+        // The measure-only probe keeps the sidecar on every ending, so the outcome is the only thing
+        // that later tells a full five-target run from one the user abandoned or the tracker cut
+        // short. Written by name because the file is also read by an operator.
+        var recorder = new ScriptedGroundTruthRecorder(Sidecar);
+        recorder.BeginSession("StreamEngine", Screen, 300);
+        RunTarget(recorder, 0, new PhysicalPoint(100, 100), 0, 1, 3);
+        recorder.CompleteSession(outcome);
+
+        Check.That(Analysis.GroundTruthFile.Read(Sidecar).Outcome).IsEqualTo(outcome);
+    }
+
+    [Fact]
+    public void ASchema1SidecarWithoutOutcomeOrSamples_ParsesWithTheOldMeaning()
+    {
+        // Schema stays 1: both additions are optional JSON members, so a sidecar written before them
+        // is still a well-formed session. A missing outcome means Completed — before the probe, a
+        // sidecar only ever existed for a run that finished.
+        string json = """
+        {"schemaVersion":1,"providerType":"Mouse","screenWidthPhysical":1920,
+         "screenHeightPhysical":1080,"settleWindowMs":300,"windows":[
+           {"targetId":0,"x":10,"y":20,"displayedFromUs":0,"arrivedAtUs":100,
+            "endedAtUs":200,"sampleCount":5}]}
+        """;
+
+        var session = Analysis.GroundTruthFile.Parse(json);
+
+        Check.That(session.Outcome).IsEqualTo(GroundTruthOutcome.Completed);
+        Check.That(session.Windows.Single().Samples).IsEmpty();
+    }
+
+    [Fact]
+    public void Outcome_IsReadCaseInsensitively_SoAHandEditedSidecarStillParses()
+    {
+        // The file is a text artifact an operator may inspect or repair; a reader that demanded the
+        // exact casing the serializer happened to choose would be a trap for exactly the reader it
+        // is for. Asserts the converter's case-insensitive read rather than trusting it.
+        string json = """
+        {"schemaVersion":1,"providerType":"Mouse","screenWidthPhysical":1920,
+         "screenHeightPhysical":1080,"settleWindowMs":300,"outcome":"PARTIAL","windows":[]}
+        """;
+
+        Check.That(Analysis.GroundTruthFile.Parse(json).Outcome).IsEqualTo(GroundTruthOutcome.Partial);
     }
 }

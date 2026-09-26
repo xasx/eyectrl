@@ -8,10 +8,12 @@ using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.App.Tests.Services;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Interfaces;
+using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
+using EyeCtrl.ViewModels.Messages;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -120,6 +122,29 @@ public class HideActionMenuBarOwnershipTests
         Check.That(h.Bar.EdgeBarVm!.DefinitionFor(ActionMenuEdgeButtons.CloseId)).IsNull();
     }
 
+    // The modifiers must survive the full ActionSelectedMessage → InteractionManager →
+    // ActionRequestedMessage hop (GazeEngineAdapter :108/:335): dropping them at either forward
+    // severs the only path the menu's modifier latch has to the input simulator. The ownership
+    // Harness wires a REAL GazeEngineAdapter over the real state machine, so this exercises
+    // production's forwarding, not a hand-posted message.
+    [StaFact]
+    public void ActionSelectedMessage_Modifiers_SurviveToActionRequestedMessage()
+    {
+        using var h = new Harness();
+        var received = new List<ActionRequestedMessage>();
+        h.Messenger.Register<ActionRequestedMessage>(h, (_, m) => received.Add(m));
+
+        // Reach the menu state: FreeLook OnActionSelected returns without raising.
+        h.InteractionManager.OnFixationStarted(new PhysicalPoint(500, 500));
+        h.InteractionManager.OnActivationButtonDwelled();
+        h.Pump();
+
+        h.Messenger.Send(new ActionSelectedMessage(InteractionAction.LeftClick, new HashSet<ModifierKey> { ModifierKey.Shift }));
+        h.Pump();
+
+        Check.That(received.Single().Modifiers!.Contains(ModifierKey.Shift)).IsTrue(); // kills :107/:334
+    }
+
     /// <summary>
     /// The real state machine, the real adapter (so the marshalling that creates the ordering is
     /// production's), the real <see cref="DragCoordinator"/> and the real
@@ -140,6 +165,7 @@ public class HideActionMenuBarOwnershipTests
         {
             _dispatcher = Dispatcher.CurrentDispatcher;
             var messenger = new WeakReferenceMessenger();
+            Messenger = messenger;
             var settings = new EyeCtrlSettings();
 
             _engine = new GazeEngine(
@@ -183,6 +209,13 @@ public class HideActionMenuBarOwnershipTests
         internal InteractionManager InteractionManager { get; }
 
         internal TestFakes.FakeEdgeButtonBar Bar { get; }
+
+        /// <summary>
+        /// The messenger the adapter and coordinators share — exposed so a test can observe the
+        /// messages the real pipeline sends (the adapter marshals via BeginInvoke, so pump after
+        /// every step).
+        /// </summary>
+        public IMessenger Messenger { get; }
 
         /// <summary>
         /// Drains the dispatcher queue. A Background-priority Invoke waits out every Normal-priority

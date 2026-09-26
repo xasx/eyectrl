@@ -393,13 +393,16 @@ internal static class TestFakes
         /// </summary>
         public bool ButtonsBalanced => MouseDownCount == MouseUpCount;
 
+        public List<(InteractionAction Action, PhysicalPoint Point, IReadOnlySet<ModifierKey> Modifiers)> ModifiedClicks { get; } = new();
+        public int BareClickCount { get; private set; }
+        public List<(int Dx, int Dy)> ModifiedScrolls { get; } = new();
+        public List<(int Dx, int Dy)> BareScrolls { get; } = new();
+
         public void MoveCursor(PhysicalPoint point)
         {
         }
 
-        public void LeftClick(PhysicalPoint point)
-        {
-        }
+        public void LeftClick(PhysicalPoint point) => BareClickCount++;
 
         public void RightClick(PhysicalPoint point)
         {
@@ -418,8 +421,43 @@ internal static class TestFakes
 
         public void MouseUp(PhysicalPoint point) => ButtonEvents.Add(("MouseUp", point));
 
-        public void Scroll(PhysicalPoint point, int deltaX, int deltaY)
+        public void Scroll(PhysicalPoint point, int deltaX, int deltaY) => BareScrolls.Add((deltaX, deltaY));
+
+        // The MODIFIED overloads throw on null/empty (the dispatcher must never pass them a
+        // nullable) and record otherwise:
+        public void LeftClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)
         {
+            if (modifiers is not { Count: > 0 })
+                throw new InvalidOperationException("dispatcher routed a bare click through the modified overload");
+            ModifiedClicks.Add((InteractionAction.LeftClick, point, modifiers));
+        }
+
+        public void RightClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)
+        {
+            if (modifiers is not { Count: > 0 })
+                throw new InvalidOperationException("dispatcher routed a bare click through the modified overload");
+            ModifiedClicks.Add((InteractionAction.RightClick, point, modifiers));
+        }
+
+        public void MiddleClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)
+        {
+            if (modifiers is not { Count: > 0 })
+                throw new InvalidOperationException("dispatcher routed a bare click through the modified overload");
+            ModifiedClicks.Add((InteractionAction.MiddleClick, point, modifiers));
+        }
+
+        public void DoubleClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)
+        {
+            if (modifiers is not { Count: > 0 })
+                throw new InvalidOperationException("dispatcher routed a bare click through the modified overload");
+            ModifiedClicks.Add((InteractionAction.DoubleClick, point, modifiers));
+        }
+
+        public void Scroll(PhysicalPoint point, int deltaX, int deltaY, IReadOnlySet<ModifierKey>? modifiers)
+        {
+            if (modifiers is not { Count: > 0 })
+                throw new InvalidOperationException("dispatcher routed a bare scroll through the modified overload");
+            ModifiedScrolls.Add((deltaX, deltaY));
         }
 
         public void SendKeyPress(ushort virtualKeyCode)

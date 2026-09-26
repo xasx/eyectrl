@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Tests.Services;
 
+using System.Linq;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Models;
@@ -259,10 +260,11 @@ public class ToolbarAutoHideControllerTests
     // ── Paused hides like any other state ──
     // Owner decision 2026-09-26, reversing the 2026-09-24 trap guard (which pinned the band visible
     // while paused after a 1 h 43 min stranding). The stranding was the summon being dead, not the
-    // hide being wrong — the instrumented run of 2026-09-26 shows clean paused-edge summons — so
+    // hide being wrong — one paused hide→summon was observed on this code (2026-09-26 23:19), so
     // pause no longer touches visibility at all, and the Hidden case below summons with no pause
     // gate. The way back while paused: past-edge gaze (the pause-indicator strip marks that edge),
-    // then dwell the Play toggle.
+    // then dwell the Play toggle. A completed Play-dwell resume from a summoned band has not been
+    // observed yet; the tray ForceShow remains the non-gaze escape hatch.
 
     [Fact]
     public void WhilePaused_OffToolbarGaze_StillHides()
@@ -315,16 +317,16 @@ public class ToolbarAutoHideControllerTests
     }
 
     [Fact]
-    public void Resume_WhileHidden_HidesIndicator()
+    public void Resume_WhileHidden_ReAssertsHideUnpaused()
     {
         var sut = NewController();
         var vis = new FakeVisibility();
         sut.Attach(vis);
         sut.SetPaused(true);
-        sut.HideForTest(vis);            // a hide that raced the pause → indicator up
+        sut.HideForTest(vis);            // hidden while paused — the normal paused auto-hide
         Check.That(vis.LastHidePaused).IsTrue();
 
-        sut.SetPaused(false);            // resume while still hidden — must hide the edge bar
+        sut.SetPaused(false);            // resume while still hidden — re-assert the hide, unpaused
         Check.That(vis.LastHidePaused).IsFalse();
     }
 
@@ -417,7 +419,7 @@ public class ToolbarAutoHideControllerTests
     }
 
     [Fact]
-    public void SummonWhilePaused_HidesIndicator()
+    public void SummonWhilePaused_ShowsToolbar()
     {
         var sut = NewController(); // Top
         var vis = new FakeVisibility();
@@ -428,7 +430,74 @@ public class ToolbarAutoHideControllerTests
 
         sut.Feed(CreateSample(960, -100, valid: true), 0);
         sut.Feed(CreateSample(960, -100, valid: true), 401_000);
-        Check.That(vis.ShowCalls).IsEqualTo(1);         // toolbar shown, indicator hidden
+        Check.That(vis.ShowCalls).IsEqualTo(1);         // the way back while paused: past-edge summon
+        // The pause-indicator strip is NOT this seam's business (spec H1): ShowToolbar only raises
+        // a commanded strip (ToolbarVisibilityAdapter), it never shows or hides one. The paused
+        // strip itself is pinned from the coordinator side (SetPauseIndicator on StateChangedMessage).
+    }
+
+    [Fact]
+    public void Diagnostics_AreGatedToFleetingNothing_AndTwoLinesPerRealAttempt()
+    {
+        // The diagnostic sink must stay transition-shaped: 2cc6745c's first version logged a
+        // "summon run started" per threshold flicker (runs gated on the RESET line only), which at
+        // this user's margin clearance (raw y=−50/−52/−56 against −50) could approach half the
+        // sample rate — a synchronous file write per line on the gaze thread. These lines exist to
+        // make one real run decisive; a flood makes the log useless, so the gate itself is pinned.
+        var sut = NewController();
+        var vis = new FakeVisibility();
+        sut.Attach(vis);
+        var log = new List<string>();
+        sut.AttachDiagnostics(log.Add);
+        sut.HideForTest(vis);
+
+        // Phase 1 — threshold flicker: 33 ms steps alternating 1 px past and 1 px short of the
+        // summon threshold for 2 s (~30 started-and-reset runs). Every run is shorter than the
+        // 100 ms log gate, so nothing at all may be logged. The trailing band sample resets the
+        // pending run so phase 2 starts from Unseeded.
+        for (var t = 0L; t <= 2_000_000; t += 33_000)
+            sut.Feed(CreateSample(960, t / 33_000 % 2 == 0 ? -51 : -49, valid: true), t);
+        sut.Feed(CreateSample(960, -49, valid: true), 2_033_000);
+        Check.That(log).IsEmpty();
+
+        // Phase 2 — one sustained attempt: past the threshold for 150 ms, then a sample short of
+        // it. Exactly two lines: the gated start and the gated reset.
+        log.Clear();
+        sut.Feed(CreateSample(960, -51, valid: true), 3_000_000);
+        sut.Feed(CreateSample(960, -51, valid: true), 3_150_000);   // 150 ms: the start line fires
+        sut.Feed(CreateSample(960, -49, valid: true), 3_183_000);   // broken: the reset line fires
+        Check.That(log.Count(l => l.Contains("summon run started"))).IsEqualTo(1);
+        Check.That(log.Count(l => l.Contains("summon run reset"))).IsEqualTo(1);
+
+        // The reset sample above sat inside the band, so a band hold is pending; clear it (no
+        // line — its entry was never logged) so phase 3 measures its own hold from zero.
+        sut.Feed(CreateSample(960, 500, valid: true), 3_500_000);
+
+        // Phase 3 — margin band and blinks, edge-triggered: hover short of the threshold, blink
+        // twice, leave. The band line fires once (after a 100 ms hold), the blink contributes one
+        // INVALID/valid pair, the leave one exit line — four lines total, however many samples
+        // each state lasted.
+        log.Clear();
+        sut.Feed(CreateSample(960, -20, valid: true), 4_000_000);   // enter band (hold starts)
+        sut.Feed(CreateSample(960, -20, valid: true), 4_033_000);   // 33 ms — below the hold gate
+        sut.Feed(CreateSample(960, -20, valid: true), 4_100_000);   // 100 ms held: the band line fires
+        sut.Feed(CreateSample(960, -20, valid: false), 4_133_000);  // blink — band state frozen
+        sut.Feed(CreateSample(960, -20, valid: false), 4_166_000);
+        sut.Feed(CreateSample(960, -20, valid: true), 4_200_000);   // still the same band hold
+        sut.Feed(CreateSample(960, 500, valid: true), 4_233_000);   // leave the band
+        Check.That(log.Count).IsEqualTo(4);
+        Check.That(log.Count(l => l.Contains("inside the summon margin band"))).IsEqualTo(1);
+        Check.That(log.Count(l => l.Contains("went INVALID"))).IsEqualTo(1);
+        Check.That(log.Count(l => l.Contains("valid again"))).IsEqualTo(1);
+        Check.That(log.Count(l => l.Contains("left the summon margin band"))).IsEqualTo(1);
+
+        // Phase 4 — a completed summon still announces itself: threshold reached despite the start
+        // line's gate (this run crossed in two samples, so only the threshold line exists).
+        log.Clear();
+        sut.Feed(CreateSample(960, -100, valid: true), 5_000_000);
+        sut.Feed(CreateSample(960, -100, valid: true), 5_401_000);
+        Check.That(log.Count(l => l.Contains("summon threshold reached"))).IsEqualTo(1);
+        Check.That(vis.ShowCalls).IsEqualTo(1);
     }
 
     // ── Suspension (keyboard / settings / calibration) ──

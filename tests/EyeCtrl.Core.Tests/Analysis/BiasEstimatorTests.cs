@@ -212,7 +212,9 @@ public class BiasEstimatorTests
         Check.That(decision.Verdict).IsNotEqualTo(BiasDecisionRule.BiasVerdict.NoTrigger);
         bool honestlyRecovered = estimate.Bias is { } b
             && Math.Abs(b.X - 300) <= 20 && Math.Abs(b.Y) <= 20;
-        Check.That(estimate.Ambiguous || honestlyRecovered).IsTrue();
+        // Never a silent wrong magnitude: either the magnitude is right, or it is flagged — Ambiguous
+        // (no decision) or, when every reading still recalibrates, MagnitudeUncertain (follow-up 7).
+        Check.That(estimate.Ambiguous || estimate.MagnitudeUncertain || honestlyRecovered).IsTrue();
     }
 
     // ── The reviewers' named adversarial streams, end to end ──────────────────
@@ -264,6 +266,95 @@ public class BiasEstimatorTests
         Check.That(estimate.Rival).IsNotNull();
         Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Inconclusive);
         Check.That(decision.Reason).Contains("two consistent solutions");
+    }
+
+    [Fact]
+    public void UnanimousRecalibrate_WithAMagnitudeOnlyRival_Recalibrates_AndSaysTheSizeIsUncertain()
+    {
+        // Follow-up 7, the shape of the user's real probe 2 (2026-09-26): two comparably supported
+        // readings that BOTH prove the per-target arm — a hold at (100, 0) and a consistent rest at
+        // (100, −90) at every target, every magnitude ≥ 100 px — but whose means sit 90 px apart.
+        // The mean arm used to make this Inconclusive although no reading could avoid Recalibrate.
+        var targets = BiasStreams.Layout;
+        var noise = new BiasStreams.Noise(71);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int i = 0; i < 5; i++)
+        {
+            windows.Add(BiasStreams.Window(i, targets[i], new PhysicalPoint(100, 0), ref t, noise, holdN: 8,
+                distractorAbs: new PhysicalPoint(targets[i].X + 100, targets[i].Y - 90), dN: 7));
+        }
+
+        var estimate = BiasEstimator.Measure(BiasStreams.Session(windows));
+        var decision = BiasDecisionRule.Evaluate(estimate, Screen);
+
+        Check.That(estimate.Ambiguous).IsFalse();
+        Check.That(estimate.MagnitudeUncertain).IsTrue();
+        Check.That(estimate.Rival).IsNotNull();
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Recalibrate);
+        Check.That(decision.Reason).Contains("The size is uncertain");
+    }
+
+    [Fact]
+    public void AVerdictRival_OutranksAMagnitudeOnlyRival()
+    {
+        // Stream D plus a second consistent rest: truth (20, 0) ×8, rest (20, −160) ×9 — the winner,
+        // Recalibrate — and rest (20, −260) ×6, which also recalibrates but sits 100 px from the
+        // winner's mean. The truth rival flips the verdict, so the answer must stay Inconclusive; if the
+        // magnitude-only rival were allowed to speak for the rival set, a No-trigger truth would be
+        // silenced into a confident Recalibrate (follow-up 7's M3).
+        var targets = BiasStreams.Layout;
+        var noise = new BiasStreams.Noise(73);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int id = 0; id < 5; id++)
+        {
+            var target = targets[id];
+            long from = t;
+            var samples = new List<GroundTruthSample>();
+            for (int i = 0; i < 10; i++, t += BiasStreams.StepUs)   // onset scatter inside the guard
+                samples.Add(new GroundTruthSample(target.X - 400 + (i * 40), target.Y - 300 + (i * 30), t, true));
+            for (int c = 0; c < 10; c++)
+            {
+                foreach (var (dx, dy, n) in new[] { (20.0, 0.0, 8), (20.0, -160.0, 9), (20.0, -260.0, 6) })
+                {
+                    for (int i = 0; i < n; i++, t += BiasStreams.StepUs)
+                        samples.Add(new GroundTruthSample(target.X + dx + (noise.NextGaussian() * 9), target.Y + dy + (noise.NextGaussian() * 9), t, true));
+                }
+            }
+            windows.Add(new GroundTruthWindow(id, target.X, target.Y, from, null, t - BiasStreams.StepUs, samples.Count) { Samples = samples });
+        }
+
+        var estimate = BiasEstimator.Measure(BiasStreams.Session(windows));
+        var decision = BiasDecisionRule.Evaluate(estimate, Screen);
+
+        Check.That(estimate.MagnitudeUncertain).IsFalse();
+        Check.That(estimate.Ambiguous).IsTrue();
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Inconclusive);
+    }
+
+    [Fact]
+    public void UnanimousNoTrigger_WithAMagnitudeOnlyRival_StaysInconclusive()
+    {
+        // The other half of follow-up 7, deliberately NOT relaxed: only a Recalibrate may pass a
+        // magnitude-only rival, so the change can never mint a "No trigger". A hold at (10, 0) and a
+        // consistent rest at (10, −45): both readings are clearly small, the means 45 px apart.
+        var targets = BiasStreams.Layout;
+        var noise = new BiasStreams.Noise(72);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int i = 0; i < 5; i++)
+        {
+            windows.Add(BiasStreams.Window(i, targets[i], new PhysicalPoint(10, 0), ref t, noise, holdN: 8,
+                distractorAbs: new PhysicalPoint(targets[i].X + 10, targets[i].Y - 45), dN: 7));
+        }
+
+        var estimate = BiasEstimator.Measure(BiasStreams.Session(windows));
+        var decision = BiasDecisionRule.Evaluate(estimate, Screen);
+
+        Check.That(estimate.Ambiguous).IsTrue();
+        Check.That(estimate.MagnitudeUncertain).IsFalse();
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Inconclusive);
     }
 
     [Fact]

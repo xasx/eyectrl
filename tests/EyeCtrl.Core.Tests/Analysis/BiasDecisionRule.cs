@@ -177,10 +177,18 @@ public static class BiasDecisionRule
                 arms.Add($"|b| >= {PerTargetTriggerPx:0} px at {overThreshold} of {estimate.Probes.Count} targets");
             if (atCentre)
                 arms.Add($"centre |b| = {centreMagnitude!.Value.ToString("0.0", ci)} px >= {CentreTriggerPx:0} px");
+            // A magnitude-only rival (the estimator already checked it reaches this same verdict) makes
+            // the size uncertain, not the decision — say so rather than quote one reading's numbers as fact.
+            string sizeNote = estimate.MagnitudeUncertain && estimate.Rival is { } other
+                ? $" The size is uncertain: a comparably supported reading puts the mean offset at "
+                  + $"b≈({other.Bias.X.ToString("0.0", ci)}, {other.Bias.Y.ToString("0.0", ci)}) px instead of "
+                  + $"b≈({estimate.Bias!.Value.X.ToString("0.0", ci)}, {estimate.Bias!.Value.Y.ToString("0.0", ci)}) px; "
+                  + "both readings trigger."
+                : "";
             return new Decision(
                 BiasVerdict.Recalibrate,
                 string.Join("; ", arms)
-                + ". Recalibrate in Tobii Dynavox Eye Tracking Settings, then run the probe again.",
+                + ". Recalibrate in Tobii Dynavox Eye Tracking Settings, then run the probe again." + sizeNote,
                 measured,
                 centreMagnitude);
         }

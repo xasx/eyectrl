@@ -108,6 +108,9 @@ public static class BiasEstimator
     /// the second of the two ambiguity tests, not the only one: a rival whose mean is materially
     /// different matters even when both verdicts happen to be Recalibrate (the reported magnitude
     /// would be wrong), and a rival that flips the verdict matters even when the means are close.
+    /// What it blocks differs: a verdict rival always makes the answer Inconclusive; a magnitude-only
+    /// rival does too, EXCEPT under a Recalibrate winner, where the decision stands and the estimate is
+    /// marked <see cref="Estimate.MagnitudeUncertain"/> instead (follow-up 7, real probe 2).
     /// </summary>
     public const double AmbiguitySeparationPx = 40;
 
@@ -216,7 +219,10 @@ public static class BiasEstimator
     /// True when a rival field uses the same number of targets with comparable sample support at a
     /// materially different offset. The rule answers Inconclusive — picking one would be a guess.
     /// </param>
-    /// <param name="Rival">The best such rival, or null.</param>
+    /// <param name="Rival">
+    /// The best such rival, or null. When <see cref="MagnitudeUncertain"/> is set, it is the reading
+    /// that agrees on the verdict but puts the mean elsewhere.
+    /// </param>
     /// <param name="MaxFieldResidualPx">The chosen field's worst residual at a chosen cluster, or null.</param>
     public sealed record Estimate(
         PhysicalPoint? Bias,
@@ -227,6 +233,14 @@ public static class BiasEstimator
         Alternative? Rival,
         double? MaxFieldResidualPx)
     {
+        /// <summary>
+        /// True when the verdict is Recalibrate and every comparably supported reading agrees on it, but
+        /// a rival puts the mean offset more than <see cref="AmbiguitySeparationPx"/> away. The decision
+        /// stands; <see cref="Bias"/> is then NOT a magnitude claim — <see cref="Rival"/> is the other
+        /// reading. Never set together with <see cref="Ambiguous"/>.
+        /// </summary>
+        public bool MagnitudeUncertain { get; init; }
+
         /// <summary>The magnitude of the estimated bias, in physical pixels, or null.</summary>
         public double? BiasMagnitudePx => Bias is { } b ? Math.Sqrt((b.X * b.X) + (b.Y * b.Y)) : null;
 
@@ -262,6 +276,13 @@ public static class BiasEstimator
                   .Append(", ").Append(rival.Bias.Y.ToString("0.0", ci)).Append(") px from ")
                   .Append(rival.Targets).Append(" targets (").Append(rival.Samples)
                   .AppendLine(" samples) is comparably supported");
+            }
+            else if (MagnitudeUncertain && Rival is { } other)
+            {
+                sb.Append("  MAGNITUDE UNCERTAIN — a comparably supported reading at (")
+                  .Append(other.Bias.X.ToString("0.0", ci)).Append(", ").Append(other.Bias.Y.ToString("0.0", ci))
+                  .Append(") px from ").Append(other.Targets).Append(" targets (").Append(other.Samples)
+                  .AppendLine(" samples) reaches the same verdict");
             }
 
             foreach (var probe in Probes)
@@ -329,8 +350,24 @@ public static class BiasEstimator
         }
 
         var bias = new PhysicalPoint(sumX / best.Targets, sumY / best.Targets);
-        var rival = FindBestRival(
+        var search = FindBestRival(
             probes, best, new PhysicalPoint(session.ScreenWidthPhysical, session.ScreenHeightPhysical));
+
+        // A rival that only disagrees about HOW MUCH (verdicts agree, means > AmbiguitySeparationPx
+        // apart) does not block a Recalibrate: every comparably supported reading proves an arm, so the
+        // decision is made and only the reported magnitude is uncertain (real probe 2, 2026-09-26: both
+        // readings put ≥ 2 targets over 60 px, yet the means sat 46 px apart and the verdict was
+        // Inconclusive). It still blocks No trigger and Inconclusive winners — this can only ever turn
+        // an Inconclusive into a Recalibrate, never mint a "No trigger".
+        if (search.VerdictRival is null && search.MagnitudeRival is { } magnitudeRival
+            && search.BestVerdict == BiasDecisionRule.BiasVerdict.Recalibrate)
+        {
+            return new Estimate(bias, chosen.Count(p => p.Clusters.Count > 0), best.Targets, chosen,
+                Ambiguous: false, magnitudeRival, best.MaxResidualPx)
+            { MagnitudeUncertain = true };
+        }
+
+        var rival = search.VerdictRival ?? search.MagnitudeRival;
         return new Estimate(bias, chosen.Count(p => p.Clusters.Count > 0), best.Targets, chosen,
             Ambiguous: rival is not null, rival, best.MaxResidualPx);
     }
@@ -395,24 +432,36 @@ public static class BiasEstimator
         return best;
     }
 
+    /// <summary>What the rival search found, kept apart by KIND so the caller can decide what each one blocks.</summary>
+    /// <param name="BestVerdict">The winner's own verdict, judged as if no rival existed.</param>
+    /// <param name="VerdictRival">The strongest rival whose verdict differs from the winner's, or null.</param>
+    /// <param name="MagnitudeRival">
+    /// The strongest rival whose verdict AGREES but whose mean is more than
+    /// <see cref="AmbiguitySeparationPx"/> away, or null.
+    /// </param>
+    private sealed record RivalSearch(
+        BiasDecisionRule.BiasVerdict BestVerdict, Alternative? VerdictRival, Alternative? MagnitudeRival);
+
     /// <summary>
-    /// The strongest rival: a different valid assignment using the same number of targets with at
-    /// least <see cref="AmbiguitySampleRatio"/> of the winner's samples that either reads a DIFFERENT
-    /// verdict from the rule or lands at a materially different mean offset. The verdict is the
+    /// The strongest rivals: different valid assignments using the same number of targets with at
+    /// least <see cref="AmbiguitySampleRatio"/> of the winner's samples that either read a DIFFERENT
+    /// verdict from the rule or land at a materially different mean offset. The verdict is the
     /// decision-relevant test — a difference at one target moves the mean by only a fifth of it, yet
     /// can flip an arm (reviewer A's G6 absorbed a whole second fixation at a corner and still
     /// answered "No trigger") — and the mean carries the case where both arms fire but the reported
-    /// magnitude would be a different place's (the reviewers' P6 glance).
+    /// magnitude would be a different place's (the reviewers' P6 glance). The two kinds are returned
+    /// separately: a verdict rival always blocks a decision, a magnitude rival blocks everything but a
+    /// Recalibrate (see <see cref="Measure"/>).
     /// </summary>
-    private static Alternative? FindBestRival(
+    private static RivalSearch FindBestRival(
         IReadOnlyList<Probe> probes, FieldSolution best, PhysicalPoint screenSize)
     {
-        if (best.Targets < 2) return null;
-
         var bestEstimate = BuildEstimate(probes, best);
         var bestVerdict = BiasDecisionRule.Evaluate(bestEstimate, screenSize).Verdict;
+        if (best.Targets < 2) return new RivalSearch(bestVerdict, null, null);
+
         var bestMean = best.Mean(probes);
-        FieldSolution? rival = null;
+        FieldSolution? verdictRival = null, magnitudeRival = null;
         foreach (var candidate in Enumerate(probes))
         {
             if (candidate.Targets != best.Targets) continue;
@@ -427,11 +476,19 @@ public static class BiasEstimator
                 .Verdict != bestVerdict;
             bool materialDifference =
                 Distance(candidate.Mean(probes), bestMean) > AmbiguitySeparationPx;
-            if (!verdictDiffers && !materialDifference) continue;
-
-            if (rival is null || candidate.Samples > rival.Samples) rival = candidate;
+            if (verdictDiffers)
+            {
+                if (verdictRival is null || candidate.Samples > verdictRival.Samples) verdictRival = candidate;
+            }
+            else if (materialDifference)
+            {
+                if (magnitudeRival is null || candidate.Samples > magnitudeRival.Samples) magnitudeRival = candidate;
+            }
         }
-        return rival is null ? null : new Alternative(rival.Mean(probes), rival.Targets, rival.Samples);
+
+        Alternative? ToAlternative(FieldSolution? s) =>
+            s is null ? null : new Alternative(s.Mean(probes), s.Targets, s.Samples);
+        return new RivalSearch(bestVerdict, ToAlternative(verdictRival), ToAlternative(magnitudeRival));
     }
 
     private static bool DiffersFrom(FieldSolution a, FieldSolution b, IReadOnlyList<Probe> probes)

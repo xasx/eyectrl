@@ -100,14 +100,17 @@ public class CalibrationMeasureOnlyTests
     [Fact]
     public async Task NormalCalibration_KeepsTheRecorderGate_ProbeBypassesIt()
     {
-        // The privacy gate is preserved for the normal path: with RecordRawGaze off, a normal
-        // calibration writes no sidecar. The probe is the deliberate exception, and this pins both
-        // halves so a later change cannot quietly make every calibration a measurement session.
+        // The privacy gate is preserved for the normal path: with RecordRawGaze off, a COMPLETED
+        // normal calibration writes no sidecar. It has to complete, not cancel — a cancel discards
+        // the sidecar by either route, so a cancelled session proves nothing about the gate. The
+        // probe is the deliberate exception, and the completed-probe test pins the other half.
         var vm = await Task.Run(() => CreateVm());
         _messenger.Send(new CalibrationRequestedMessage());
-        FinishTarget(vm);
-        vm.Cancel();
+        for (int i = 0; i < _settings.PointCount; i++)
+            FinishTarget(vm, timestampBase: i * 30_000_000);
 
+        Check.That(vm.State).IsEqualTo(CalibrationState.Active);   // the fit really ran and passed
+        Check.That(File.Exists(_calibrationPath)).IsTrue();
         Check.That(File.Exists(_sidecarPath)).IsFalse();
         Check.That(vm.IsMeasureOnly).IsFalse();
     }

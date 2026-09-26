@@ -306,7 +306,6 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
             RebuildBand();
         }
 
-        ApplyResumeHintMargin();
         UpdateLayout();   // SizeToContent does not re-measure until the next pass
 
         if (!isDocked) { _targetsInitialized = false; return; }
@@ -390,33 +389,15 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
         _targetsInitialized = true;
     }
 
-    public void SetPausedState(bool isPaused)
-    {
+    // The pause state changes the ICON only (Pause ↔ Play). No pause-state-dependent element may
+    // live in the band's flow: the dwell targets are published once and latched (see
+    // ToolbarBand.FacesAreArranged and ToolbarLifecycleCoordinator's _toolbarInitialized), so a
+    // re-flow would strand every button's target at its old centre. Reviewer B measured the gap a
+    // Collapsed↔Visible resume label produced at 162 px, against a 60 px hit radius: the visible
+    // Play button went dead. Pinned by ToolbarPausedTargetAlignmentTests at scale 2.0 on all four
+    // dock edges.
+    public void SetPausedState(bool isPaused) =>
         _band.SwapIcon("Pause", isPaused ? "Play" : "Pause");
-        // Visible/Hidden, NEVER Collapsed — the slot is reserved at all times so the band's
-        // geometry does not change with the pause state. The dwell targets are published once and
-        // latched (see ToolbarBand.FacesAreArranged and ToolbarLifecycleCoordinator's
-        // _toolbarInitialized); a Collapsed→Visible flip re-flows the strip and strands every
-        // button's target at its old centre. Reviewer B measured the resulting gap at 162 px,
-        // against a 60 px hit radius: the visible Play button became dead. Pinned by
-        // ToolbarPausedTargetAlignmentTests at scale 2.0 on all four dock edges.
-        ResumeHint.Visibility = isPaused ? Visibility.Visible : Visibility.Hidden;
-    }
-
-    /// <summary>For tests: the "look here to resume" label shown while paused.</summary>
-    internal TextBlock ResumeHintForTest => ResumeHint;
-
-    /// <summary>
-    /// Spaces the resume hint along the band's axis: a leading gap before the first button in a
-    /// horizontal band, a gap above it in a vertical one. Cosmetic, but the fixed XAML margin put
-    /// the sideways gap on the wrong axis for a left/right dock, leaving the label off-centre.
-    /// Constant for a given orientation, so it does not disturb the pause/unpause geometry
-    /// invariant the reserved Hidden slot exists to keep.
-    /// </summary>
-    private void ApplyResumeHintMargin() =>
-        ResumeHint.Margin = _vertical
-            ? new Thickness(0, ToolbarBand.ButtonMargin, 0, 0)
-            : new Thickness(ToolbarBand.ButtonMargin, 0, 0, 0);
 
     /// <inheritdoc />
     /// <remarks>

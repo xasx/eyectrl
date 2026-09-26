@@ -666,9 +666,9 @@ public class InteractionManagerModifierTests
         Check.That(im.CurrentState).IsEqualTo(InteractionState.Dragging);
     }
 }
+```
 
-
-`tests/EyeCtrl.Core.Tests/Processing/DwellDetectorNearestTests.cs`:`tests/EyeCtrl.Core.Tests/Processing/DwellDetectorNearestTests.cs`:
+`tests/EyeCtrl.Core.Tests/Processing/DwellDetectorNearestTests.cs`:
 
 ```csharp
 namespace EyeCtrl.Core.Tests.Processing;
@@ -1345,9 +1345,9 @@ public class ActionMenuViewModelLatchTests
         Check.That(sent.Single().Modifiers!.Contains(ModifierKey.Shift)).IsTrue(); // aliased set would be empty now
     }
 }
+```
 
-
-- [ ] **Step 2: Run — FAIL (members missing)**- [ ] **Step 2: Run — FAIL (members missing)**
+- [ ] **Step 2: Run — FAIL (members missing)**
 
 Run: `dotnet test tests/EyeCtrl.ViewModels.Tests --filter "FullyQualifiedName~ActionMenuViewModelLatchTests" -v minimal`
 
@@ -1712,9 +1712,10 @@ public class EdgeButtonBarViewModelRearmTests
         Hold(vm, bCenter, 1_400_000, 4);                       // correct impl: b about T+1600
         Check.That(toggles).ContainsExactly("a", "b");
     }
+}
+```
 
-
-- [ ] **Step 2: Run — FAIL**- [ ] **Step 2: Run — FAIL**
+- [ ] **Step 2: Run — FAIL**
 
 Run: `dotnet test tests/EyeCtrl.ViewModels.Tests --filter "FullyQualifiedName~EdgeButtonBarViewModelRearmTests" -v minimal`
 Expected: BUILD ERROR (`RearmOnGazeExit`, `ReplaceButton` missing) then behavioural failures.
@@ -2382,6 +2383,7 @@ public void ShowButtonsMutant_IsCaught_AtT700ZeroFires_ThenCompletes()
 
     Check.That(h.CtrlToggleCount).IsEqualTo(1);        // correct impl fires at T+1000 (1.6M)
 }
+```
 
 (The harness helper `BuildFullHarness` is written ONCE in this test file, copying the two
 precedent files' construction; `ShiftCenter`/`CtrlCenter` are DERIVED from

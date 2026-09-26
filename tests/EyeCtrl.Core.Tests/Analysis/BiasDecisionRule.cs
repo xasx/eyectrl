@@ -10,18 +10,34 @@ using EyeCtrl.Core.Models;
 /// <list type="number">
 /// <item><b>Recalibrate in Tobii Dynavox Eye Tracking Settings</b> if |b| ≥ 60 px at ≥ 2 of the 5
 /// targets, or ≥ 75 px (R75) at the centre target. Then run the probe again. 60 px is half the
-/// toolbar's 120 px hit radius, the point where a systematic offset starts eating completions; 75 px
-/// is R, the fixation radius itself. The remedy is the device's own calibration, never EyeCtrl's
-/// affine: the device is already Tobii-calibrated, and EyeCtrl's affine is a residual layer that
-/// produced the 341 px failure and stays off.</item>
+/// toolbar's 120 px hit radius; 75 px is R, the fixation radius itself. The remedy is the device's
+/// own calibration, never EyeCtrl's affine: the device is already Tobii-calibrated, and EyeCtrl's
+/// affine is a residual layer that produced the 341 px failure and stays off.</item>
 /// <item><b>Enable an EyeCtrl affine only</b> if the residual AFTER the Tobii recalibration is a
 /// coherent linear pattern of magnitude ≥ R, and its leave-one-out residual beats identity. Not
 /// implemented by this ticket — re-enabling the affine is explicitly out of scope — but pinned here
 /// so the two halves of the rule live together and the second cannot be half-remembered later.</item>
 /// </list>
+/// </para>
+/// <para>
+/// <b>Only "No trigger" may ever claim the offset is small.</b> A rule that answers "No trigger"
+/// whenever the surviving numbers are small is exactly the censoring this probe exists to remove: a
+/// target whose bias differs from the majority is dropped by any consistency filter, and a
+/// position-dependent residual (corner degradation, a scale error) is the commonest real shape. So
+/// the verdict is three-way, and the two cautious answers are default:
+/// <list type="bullet">
+/// <item><b>Recalibrate</b> — when the measured targets alone already prove an arm. Coverage does
+/// not matter here: more data could not un-prove it, and recalibrating is the safe direction.</item>
+/// <item><b>No trigger</b> — only when every target that produced clusters was used AND at least 4 of
+/// the 5 targets were measured. Anything less cannot rule out "≥ 60 px at 2 of 5".</item>
+/// <item><b>Inconclusive</b> — everything else: too few targets measured, clusters that disagree with
+/// the field, no clusters at all, or two comparably supported consistent solutions
+/// (<see cref="BiasEstimator.Estimate.Ambiguous"/>). The reason names the numbers so a re-run is
+/// informed.</item>
+/// </list>
 /// A quiet probe is not a clean bill either, which is why the outcome and the per-target cluster
-/// sizes travel with the estimate: "no estimate" means the evidence did not support one, not that the
-/// bias is zero.
+/// sizes travel with the estimate: "Inconclusive" means the evidence did not support a verdict, not
+/// that the bias is zero.
 /// </para>
 /// </summary>
 public static class BiasDecisionRule
@@ -35,6 +51,25 @@ public static class BiasDecisionRule
     /// <summary>Targets at or above <see cref="PerTargetTriggerPx"/> required for the per-target arm to fire.</summary>
     public const int MinTargetsForTrigger = 2;
 
+    /// <summary>
+    /// Measured targets required before a "No trigger" verdict is allowed. The probe visits five
+    /// targets; with fewer than four, "≥ 60 px at ≥ 2 of 5" cannot be ruled out by the data.
+    /// </summary>
+    public const int MinTargetsForNoTrigger = 4;
+
+    /// <summary>The verdict. Only <see cref="NoTrigger"/> claims the offset is small.</summary>
+    public enum BiasVerdict
+    {
+        /// <summary>The measured bias proves an arm; recalibrate in Tobii Dynavox, then probe again.</summary>
+        Recalibrate,
+
+        /// <summary>Measured, complete enough, and below both arms.</summary>
+        NoTrigger,
+
+        /// <summary>Not enough evidence for either verdict; the reason says what was missing.</summary>
+        Inconclusive,
+    }
+
     /// <summary>One measured target: its position and how far its chosen cluster sat from it.</summary>
     /// <param name="TargetId">The window's target id.</param>
     /// <param name="Target">Where the user was asked to look, in physical pixels.</param>
@@ -42,15 +77,19 @@ public static class BiasDecisionRule
     public sealed record TargetMagnitude(int TargetId, PhysicalPoint Target, double MagnitudePx);
 
     /// <summary>The verdict and the numbers behind it.</summary>
-    /// <param name="ShouldRecalibrate">True when the Tobii-side recalibration is triggered.</param>
-    /// <param name="Reason">A sentence fit to log or show the operator, naming the numbers that fired.</param>
-    /// <param name="MeasuredTargets">Every target with a usable cluster, in presentation order.</param>
+    /// <param name="Verdict">Recalibrate / No trigger / Inconclusive.</param>
+    /// <param name="Reason">A sentence fit to log or show the operator, naming the numbers that decided.</param>
+    /// <param name="MeasuredTargets">Every target with a chosen cluster, in presentation order.</param>
     /// <param name="CentreMagnitudePx">The centre target's magnitude, when it has one.</param>
     public sealed record Decision(
-        bool ShouldRecalibrate,
+        BiasVerdict Verdict,
         string Reason,
         IReadOnlyList<TargetMagnitude> MeasuredTargets,
-        double? CentreMagnitudePx);
+        double? CentreMagnitudePx)
+    {
+        /// <summary>True only for <see cref="BiasVerdict.Recalibrate"/>.</summary>
+        public bool ShouldRecalibrate => Verdict == BiasVerdict.Recalibrate;
+    }
 
     /// <summary>
     /// Applies the rule to an estimate. Targets the estimator could not measure are absent from
@@ -62,6 +101,7 @@ public static class BiasDecisionRule
     public static Decision Evaluate(BiasEstimator.Estimate estimate, PhysicalPoint screenSize)
     {
         ArgumentNullException.ThrowIfNull(estimate);
+        var ci = System.Globalization.CultureInfo.InvariantCulture;
 
         var measured = new List<TargetMagnitude>();
         foreach (var probe in estimate.Probes)
@@ -83,29 +123,83 @@ public static class BiasDecisionRule
         bool perTarget = overThreshold >= MinTargetsForTrigger;
         bool atCentre = centreMagnitude is { } cm && cm >= CentreTriggerPx;
 
-        string reason;
+        // 1. Ambiguity first: two comparably supported consistent solutions are not a decision, and
+        //    picking one can point the wrong way — the reviewers' stream D's rival is a look-away.
+        if (estimate.Ambiguous)
+        {
+            var rival = estimate.Rival;
+            string rivalText = rival is { } r
+                ? $"b≈({r.Bias.X.ToString("0.0", ci)}, {r.Bias.Y.ToString("0.0", ci)}) px from {r.Targets} targets ({r.Samples} samples)"
+                : "another solution";
+            return new Decision(
+                BiasVerdict.Inconclusive,
+                $"Inconclusive — two consistent solutions are comparably supported: "
+                + $"b≈({estimate.Bias!.Value.X.ToString("0.0", ci)}, {estimate.Bias!.Value.Y.ToString("0.0", ci)}) px "
+                + $"from {estimate.TargetsUsed} targets versus {rivalText}. Re-run the probe when rested; "
+                + "if in doubt, recalibrate in Tobii Dynavox Eye Tracking Settings.",
+                measured,
+                centreMagnitude);
+        }
+
+        // 2. A proven arm wins regardless of coverage: more targets could not un-prove it.
         if (perTarget || atCentre)
         {
             var arms = new List<string>();
             if (perTarget)
-                arms.Add($"|b| >= {PerTargetTriggerPx:0} px at {overThreshold} of {MinTargetsForTrigger}+ required targets");
+                arms.Add($"|b| >= {PerTargetTriggerPx:0} px at {overThreshold} of {estimate.Probes.Count} targets");
             if (atCentre)
-                arms.Add($"centre |b| = {centreMagnitude!.Value:0.0} px >= {CentreTriggerPx:0} px");
-            reason = string.Join("; ", arms)
-                + ". Recalibrate in Tobii Dynavox Eye Tracking Settings, then run the probe again.";
+                arms.Add($"centre |b| = {centreMagnitude!.Value.ToString("0.0", ci)} px >= {CentreTriggerPx:0} px");
+            return new Decision(
+                BiasVerdict.Recalibrate,
+                string.Join("; ", arms)
+                + ". Recalibrate in Tobii Dynavox Eye Tracking Settings, then run the probe again.",
+                measured,
+                centreMagnitude);
         }
-        else if (measured.Count == 0)
+
+        // 3. "No trigger" is only allowed on complete evidence: every clustered target used, and at
+        //    least four of the five measured. Anything less cannot rule out the 2-of-5 arm.
+        bool everyClusteredTargetUsed = estimate.TargetsUsed == estimate.TargetsWithData;
+        if (everyClusteredTargetUsed && measured.Count >= MinTargetsForNoTrigger)
         {
-            reason = "No target produced a usable cluster; the probe has no evidence either way. Run it again when rested.";
+            return new Decision(
+                BiasVerdict.NoTrigger,
+                $"No trigger: the largest measured |b| is {measured.Max(t => t.MagnitudePx).ToString("0.0", ci)} px "
+                + $"across {measured.Count} of {estimate.Probes.Count} targets; centre "
+                + (centreMagnitude is { } c ? $"{c.ToString("0.0", ci)} px" : "not measured")
+                + $" (bars {PerTargetTriggerPx:0} px at {MinTargetsForTrigger}, {CentreTriggerPx:0} px at centre).",
+                measured,
+                centreMagnitude);
+        }
+
+        // 4. Everything else is Inconclusive, and the reason must say which of the two worlds it is:
+        //    no clusters at all, or clusters that disagree with the field / too few targets measured.
+        string why;
+        if (estimate.TargetsWithData == 0)
+        {
+            why = "no target produced a usable cluster (no steady holds were found)";
+        }
+        else if (!everyClusteredTargetUsed)
+        {
+            var dropped = estimate.Probes
+                .Where(p => p.Chosen is null && p.Clusters.Count > 0)
+                .Select(p => $"target {p.TargetId} (~{p.LargestClusterDistancePx!.Value.ToString("0.0", ci)} px)")
+                .ToList();
+            why = $"{estimate.TargetsUsed} of {estimate.Probes.Count} targets fit a smooth offset field; "
+                + string.Join(", ", dropped) + " had clusters that disagree with it";
         }
         else
         {
-            reason = $"No trigger: {overThreshold} target(s) >= {PerTargetTriggerPx:0} px, centre "
-                + (centreMagnitude is { } c ? $"{c:0.0} px" : "not measured")
-                + $"; the largest is {measured.Max(t => t.MagnitudePx):0.0} px.";
+            why = $"only {measured.Count} of {estimate.Probes.Count} targets were measured "
+                + $"(fewer than the {MinTargetsForNoTrigger} a No-trigger verdict needs)";
         }
 
-        return new Decision(perTarget || atCentre, reason, measured, centreMagnitude);
+        return new Decision(
+            BiasVerdict.Inconclusive,
+            $"Inconclusive — {why}. Re-run the probe when rested; if in doubt, "
+            + "recalibrate in Tobii Dynavox Eye Tracking Settings.",
+            measured,
+            centreMagnitude);
     }
 
     private static double DistanceSquared(PhysicalPoint a, PhysicalPoint b)

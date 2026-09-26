@@ -5,99 +5,36 @@ using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Models;
 
 /// <summary>
-/// The bias probe's estimator, validated against a stream whose answer is known by construction —
-/// the same discipline ticket 2's gates follow. The acceptance stream carries exactly the trap the
-/// skeptic named: a distractor cluster LARGER than the target's, which a largest-cluster pick alone
-/// would follow, and nearer to the target than the true hold, which a nearest-to-target tie-break
-/// would follow. Only "largest cluster whose bias vector agrees with the other targets" survives both.
-/// <para>
-/// All constants here are the debate's, not tuned to make the tests pass: bias 300 px, σ 9 px, a
-/// 250 px glance, and the real five-point target layout for the user's 3840×2400 display.
-/// </para>
+/// The bias probe's estimator and rule, validated against streams whose answer is known by
+/// construction — the same discipline ticket 2's gates follow. Two classes of stream matter:
+/// <list type="bullet">
+/// <item>the ACCEPTANCE stream (b = 300 px, σ 9, a larger 250 px glance every 400 ms), which pins
+/// recovery and the two forbidden shortcuts (nearest-to-target, band gate);</item>
+/// <item>the reviewers' adversarial streams A–F, which pin that a position-dependent or partial
+/// reading never comes back as a confident "No trigger".</item>
+/// </list>
+/// All constants are the debate's or the reviewers': no knob was tuned to make a test pass.
 /// </summary>
 public class BiasEstimatorTests
 {
-    private static readonly PhysicalPoint Screen = new(3840, 2400);
+    private static readonly PhysicalPoint Screen = BiasStreams.Screen;
 
-    /// <summary>The true bias every target is held at — the number the estimator must recover.</summary>
+    /// <summary>The true bias the acceptance stream holds at every target.</summary>
     private static readonly PhysicalPoint TrueBias = new(300, 0);
-
-    private const double GlanceRadiusPx = 250;
-    private const double NoiseSigmaPx = 9;
-    private const long StepUs = 30_000;     // the tracker's ~33 Hz
-    private const int HoldSamples = 6;
-    private const int GlanceSamples = 7;    // larger than the hold, deliberately
-    private const int Cycles = 10;
-
-    /// <summary>
-    /// The five-point probe layout, one window per target, each alternating a hold at the true bias
-    /// with a glance 250 px away in a per-target direction.
-    /// </summary>
-    private static GroundTruthSession BuildAcceptanceSession()
-    {
-        var targets = CalibrationTargetPositionHelper.GetPositions(5, Screen);
-        var noise = new Noise(seed: 20260926);
-        var windows = new List<GroundTruthWindow>(targets.Count);
-
-        // Directions must keep each glance at least ~200 px from the hold (a dispersion of 150 would
-        // otherwise MERGE the two into one cluster straddling both), stay 250 px from the target so a
-        // nearest-to-target rule still prefers them, and differ enough that no two glance vectors —
-        // or a glance and the true bias — agree within the tolerance.
-        double[] glanceDegrees = [45, 90, 135, 225, 270];
-
-        long t = 0;
-        for (int id = 0; id < targets.Count; id++)
-        {
-            var target = targets[id];
-            double radians = glanceDegrees[id] * Math.PI / 180.0;
-            var glance = new PhysicalPoint(
-                target.X + (GlanceRadiusPx * Math.Cos(radians)),
-                target.Y + (GlanceRadiusPx * Math.Sin(radians)));
-
-            long displayedFrom = t;
-            var samples = new List<GroundTruthSample>();
-            for (int cycle = 0; cycle < Cycles; cycle++)
-            {
-                for (int i = 0; i < HoldSamples; i++, t += StepUs)
-                {
-                    samples.Add(new GroundTruthSample(
-                        target.X + TrueBias.X + (noise.NextGaussian() * NoiseSigmaPx),
-                        target.Y + TrueBias.Y + (noise.NextGaussian() * NoiseSigmaPx),
-                        t, Valid: true));
-                }
-
-                for (int i = 0; i < GlanceSamples; i++, t += StepUs)
-                {
-                    samples.Add(new GroundTruthSample(
-                        glance.X + (noise.NextGaussian() * NoiseSigmaPx),
-                        glance.Y + (noise.NextGaussian() * NoiseSigmaPx),
-                        t, Valid: true));
-                }
-            }
-
-            windows.Add(new GroundTruthWindow(
-                id, target.X, target.Y, displayedFrom, displayedFrom, t - StepUs, samples.Count)
-            {
-                Samples = samples,
-            });
-        }
-
-        return new GroundTruthSession(
-            GroundTruthSession.CurrentSchemaVersion, "StreamEngine",
-            Screen.X, Screen.Y, SettleWindowMs: 300, windows);
-    }
 
     // ── Acceptance ────────────────────────────────────────────────────────────
 
     [Fact]
     public void Acceptance_RecoversB300_DespiteALargerAndNearerDistractor()
     {
-        var estimate = BiasEstimator.Measure(BuildAcceptanceSession());
+        var estimate = BiasEstimator.Measure(BiasStreams.Acceptance(
+            seed: 20260926, perTargetDegrees: [45, 90, 135, 225, 270]));
 
         Check.That(estimate.Bias).IsNotNull();
         Check.That(estimate.Bias!.Value.X).IsCloseTo(TrueBias.X, 20);
         Check.That(estimate.Bias!.Value.Y).IsCloseTo(TrueBias.Y, 20);
         Check.That(estimate.TargetsUsed).IsEqualTo(5);
+        Check.That(estimate.Ambiguous).IsFalse();
 
         // Every chosen probe logs the cluster size and the distance — the debate requires both,
         // because they are what says whether the estimate rests on real holds or on scraps.
@@ -109,8 +46,12 @@ public class BiasEstimatorTests
         }
 
         var report = estimate.Describe();
-        Check.That(report).Contains("cluster 6 samples");     // the holds, not the 7-sample glances
+        Check.That(report).Contains("cluster 54 samples");    // the holds, not the 7-sample glances
         Check.That(report).Contains("distance 300.");         // logged per probe
+        Check.That(report).Contains("dispersion");            // and the cluster's tightness
+
+        Check.That(BiasDecisionRule.Evaluate(estimate, Screen).Verdict)
+            .IsEqualTo(BiasDecisionRule.BiasVerdict.Recalibrate);
     }
 
     [Fact]
@@ -118,7 +59,8 @@ public class BiasEstimatorTests
     {
         // The guard on the test above: if a future edit shrank the glances, "largest cluster" would
         // pass for the wrong reason and the acceptance test would stop testing anything.
-        var estimate = BiasEstimator.Measure(BuildAcceptanceSession());
+        var estimate = BiasEstimator.Measure(BiasStreams.Acceptance(
+            seed: 20260926, perTargetDegrees: [45, 90, 135, 225, 270]));
 
         bool someWindowHasABiggerClusterThanItsChoice = estimate.Probes.Any(p =>
             p.Chosen is not null && p.Clusters.Any(c => c.SampleCount > p.Chosen.SampleCount));
@@ -127,40 +69,51 @@ public class BiasEstimatorTests
     }
 
     [Fact]
-    public void NoVectorConsistentAcrossTargets_MeansNoEstimate()
+    public void Acceptance_RandomGlanceDirections_RecoverWithin20For95Percent_AndNeverNoTrigger()
     {
-        // Two targets, biases 90° apart: no candidate vector is supported by both, and one target
-        // alone cannot be "consistent with the other targets". Reported as no estimate rather than as
-        // a confident average of two contradictory holds.
-        var targets = CalibrationTargetPositionHelper.GetPositions(5, Screen);
-        var session = new GroundTruthSession(
-            GroundTruthSession.CurrentSchemaVersion, "StreamEngine", Screen.X, Screen.Y, 300,
-            [
-                BuildWindow(0, targets[0], new PhysicalPoint(60, 0)),
-                BuildWindow(1, targets[1], new PhysicalPoint(0, 60)),
-            ]);
+        // The reviewers' P5: the ticket's stream with the glance direction drawn at random per target,
+        // 200 seeds. At the old D150 dispersion 5 seeds exceeded 20 px and 13 lost a target, because a
+        // glance that landed near the hold merged into it. The tighter dispersion, the bimodal split
+        // and the place merge are what this pins; and the verdict rule is what makes a bad seed safe:
+        // an imprecise seed may come back Recalibrate (the correct action for a 300 px bias) or
+        // Inconclusive, but never "No trigger" — and at least 95 % must recover within 20 px.
+        int recovered = 0, noTrigger = 0, impreciseButInconclusive = 0, imprecise = 0;
+        for (uint seed = 1; seed <= 200; seed++)
+        {
+            var estimate = BiasEstimator.Measure(BiasStreams.Acceptance(seed));
+            var decision = BiasDecisionRule.Evaluate(estimate, Screen);
 
-        var estimate = BiasEstimator.Measure(session);
+            if (decision.Verdict == BiasDecisionRule.BiasVerdict.NoTrigger) noTrigger++;
+            double? error = estimate.Bias is { } bias
+                ? Math.Sqrt(Math.Pow(bias.X - TrueBias.X, 2) + Math.Pow(bias.Y - TrueBias.Y, 2))
+                : null;
+            if (error is { } e && e <= 20) recovered++;
+            else
+            {
+                imprecise++;
+                if (decision.Verdict == BiasDecisionRule.BiasVerdict.Inconclusive) impreciseButInconclusive++;
+            }
+        }
 
-        Check.That(estimate.Bias).IsNull();
-        Check.That(estimate.TargetsUsed).IsEqualTo(0);
-        Check.That(estimate.Describe()).Contains("no estimate");
+        Check.That(recovered).IsGreaterOrEqualThan(190);                       // ≥ 95 % of seeds
+        Check.That(noTrigger).IsEqualTo(0);                                    // a large bias is never "No trigger"
+        Check.That(imprecise).IsLessOrEqualThan(10);                           // the bar, named
+        Check.That(impreciseButInconclusive).IsGreaterOrEqualThan(2);          // and bad seeds degrade
     }
 
     [Fact]
     public void ClustersStartingInsideTheOnsetGuard_AreIgnored()
     {
         // The first 300 ms after a target appears are the saccade and the search, not a hold. Samples
-        // there must not become clusters even when they are perfectly steady — a dense synthetic
-        // stream can put a whole pre-guard fixation inside the window and would otherwise measure it.
+        // there must not become clusters even when they are perfectly steady.
         var target = new PhysicalPoint(500, 500);
         var samples = new List<GroundTruthSample>();
         for (int i = 0; i < 10; i++)      // 0–270 ms, all before the guard
-            samples.Add(new GroundTruthSample(target.X - 100, target.Y, i * StepUs, Valid: true));
+            samples.Add(new GroundTruthSample(target.X - 100, target.Y, i * 30_000, Valid: true));
         for (int i = 10; i < 30; i++)     // 300 ms onward: eligible, held 100 px to the right
-            samples.Add(new GroundTruthSample(target.X + 100, target.Y, i * StepUs, Valid: true));
+            samples.Add(new GroundTruthSample(target.X + 100, target.Y, i * 30_000, Valid: true));
 
-        var window = new GroundTruthWindow(0, target.X, target.Y, 0, 0, 29 * StepUs, samples.Count)
+        var window = new GroundTruthWindow(0, target.X, target.Y, 0, 0, 29 * 30_000, samples.Count)
         {
             Samples = samples,
         };
@@ -172,19 +125,124 @@ public class BiasEstimatorTests
         Check.That(clusters[0].StartUs).IsGreaterOrEqualThan(300_000L);
     }
 
-    private static GroundTruthWindow BuildWindow(int id, PhysicalPoint target, PhysicalPoint bias)
+    [Fact]
+    public void GlanceLandingNearTheHold_DoesNotMergeIntoAWrongConfidentVerdict()
     {
-        var samples = new List<GroundTruthSample>();
+        // Reviewer A's P6: at every target the user's glance lands 50 px short of the hold and 60 px
+        // off-axis. At the old D150 those two segments merged and the estimate came out 42 px off with
+        // a confident verdict. At D75 they separate; the glance is then a perfectly consistent field
+        // of its own, so the honest answer is Ambiguous (Inconclusive), not a silent pick.
+        var targets = BiasStreams.Layout;
+        var noise = new BiasStreams.Noise(9);
         long t = 0;
-        for (int i = 0; i < 40; i++, t += StepUs)
-            samples.Add(new GroundTruthSample(target.X + bias.X, target.Y + bias.Y, t, Valid: true));
-        return new GroundTruthWindow(id, target.X, target.Y, 0, 0, t - StepUs, samples.Count)
+        var windows = new List<GroundTruthWindow>();
+        for (int id = 0; id < 5; id++)
         {
-            Samples = samples,
-        };
+            var target = targets[id];
+            long from = t;
+            var samples = new List<GroundTruthSample>();
+            for (int c = 0; c < 10; c++)
+            {
+                for (int i = 0; i < 6; i++, t += BiasStreams.StepUs)
+                    samples.Add(new GroundTruthSample(target.X + 300 + (noise.NextGaussian() * 9), target.Y + (noise.NextGaussian() * 9), t, true));
+                for (int i = 0; i < 7; i++, t += BiasStreams.StepUs)
+                    samples.Add(new GroundTruthSample(target.X + 250 + (noise.NextGaussian() * 9), target.Y + 60 + (noise.NextGaussian() * 9), t, true));
+            }
+            windows.Add(new GroundTruthWindow(id, target.X, target.Y, from, from, t - BiasStreams.StepUs, samples.Count) { Samples = samples });
+        }
+
+        var estimate = BiasEstimator.Measure(BiasStreams.Session(windows));
+        var decision = BiasDecisionRule.Evaluate(estimate, Screen);
+
+        Check.That(decision.Verdict).IsNotEqualTo(BiasDecisionRule.BiasVerdict.NoTrigger);
+        bool honestlyRecovered = estimate.Bias is { } b
+            && Math.Abs(b.X - 300) <= 20 && Math.Abs(b.Y) <= 20;
+        Check.That(estimate.Ambiguous || honestlyRecovered).IsTrue();
     }
 
-    // ── Decision rule ─────────────────────────────────────────────────────────
+    // ── The reviewers' named adversarial streams, end to end ──────────────────
+
+    [Fact]
+    public void StreamA_PositionDependentBias_Recalibrates()
+    {
+        // (65, 62, 10, 10, 10): these are the decision-rule unit test's own numbers, which the old
+        // single-consensus estimator turned into a confident "No trigger" by dropping targets 0 and 1.
+        var decision = BiasDecisionRule.Evaluate(BiasEstimator.Measure(BiasStreams.A()), Screen);
+
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Recalibrate);
+        Check.That(decision.MeasuredTargets).HasSize(5);
+    }
+
+    [Fact]
+    public void StreamB_LeftMinus40RightPlus100_Recalibrates()
+    {
+        // A translation plus an x-scale: the right column is 100 px, which the old rule never saw.
+        var decision = BiasDecisionRule.Evaluate(BiasEstimator.Measure(BiasStreams.B()), Screen);
+
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Recalibrate);
+        Check.That(decision.MeasuredTargets.Count(t => t.MagnitudePx >= 60)).IsGreaterOrEqualThan(2);
+    }
+
+    [Fact]
+    public void StreamC_RadialScaleError_Recalibrates()
+    {
+        // The textbook corner-degradation shape. The old code said "No target produced a usable
+        // cluster" while its own report said 5 of 5 targets had clusters.
+        var estimate = BiasEstimator.Measure(BiasStreams.C());
+        var decision = BiasDecisionRule.Evaluate(estimate, Screen);
+
+        Check.That(estimate.TargetsWithData).IsEqualTo(5);
+        Check.That(estimate.TargetsUsed).IsEqualTo(5);
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Recalibrate);
+    }
+
+    [Fact]
+    public void StreamD_ConsistentDistractor_IsAmbiguousAndInconclusive()
+    {
+        // Truth (20, 0) with a slightly longer consistent rest at (20, −160) at every target. Both
+        // solutions fit a field; the old code silently reported 159 px. The honest answer is
+        // Ambiguous → Inconclusive.
+        var estimate = BiasEstimator.Measure(BiasStreams.D());
+        var decision = BiasDecisionRule.Evaluate(estimate, Screen);
+
+        Check.That(estimate.Ambiguous).IsTrue();
+        Check.That(estimate.Rival).IsNotNull();
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Inconclusive);
+        Check.That(decision.Reason).Contains("two consistent solutions");
+    }
+
+    [Fact]
+    public void StreamF_TwoOfFiveMeasured_IsInconclusive_NotNoTrigger()
+    {
+        var estimate = BiasEstimator.Measure(BiasStreams.F());
+        var decision = BiasDecisionRule.Evaluate(estimate, Screen);
+
+        Check.That(estimate.TargetsWithData).IsEqualTo(2);
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Inconclusive);
+        Check.That(decision.Reason).Contains("only 2 of 5");
+    }
+
+    [Fact]
+    public void SparseHolds_FailSafe()
+    {
+        // Reviewer B's stream E: holds of 4 samples are below MinClusterSamples. No estimate, and the
+        // verdict may not claim the offset is small.
+        var targets = BiasStreams.Layout;
+        var noise = new BiasStreams.Noise(5);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int i = 0; i < 5; i++)
+        {
+            windows.Add(BiasStreams.Window(i, targets[i], new PhysicalPoint(300, 0), ref t, noise,
+                holdN: 4, distractorAbs: new PhysicalPoint(targets[i].X - 500, targets[i].Y + 400), dN: 3));
+        }
+
+        var decision = BiasDecisionRule.Evaluate(BiasEstimator.Measure(BiasStreams.Session(windows)), Screen);
+
+        Check.That(decision.Verdict).IsNotEqualTo(BiasDecisionRule.BiasVerdict.NoTrigger);
+    }
+
+    // ── Decision rule unit tests (hand-built estimates) ───────────────────────
 
     [Fact]
     public void Decision_TriggersWhenTwoTargetsAreAtSixtyPixels()
@@ -195,71 +253,120 @@ public class BiasEstimatorTests
 
         var decision = BiasDecisionRule.Evaluate(estimate, Screen);
 
-        Check.That(decision.ShouldRecalibrate).IsTrue();
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Recalibrate);
         Check.That(decision.Reason).Contains("Tobii Dynavox Eye Tracking Settings");
     }
 
     [Fact]
     public void Decision_TriggersOnTheCentreAloneAtSeventyFivePixels()
     {
-        // The centre target is the one nearest the screen centre; 75 px is R75, the fixation radius.
         var estimate = BuildEstimate(
             new PhysicalPoint(5, 0), new PhysicalPoint(5, 0),
             new PhysicalPoint(80, 0), new PhysicalPoint(5, 0), new PhysicalPoint(5, 0));
 
         var decision = BiasDecisionRule.Evaluate(estimate, Screen);
 
-        Check.That(decision.ShouldRecalibrate).IsTrue();
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Recalibrate);
         Check.That(decision.CentreMagnitudePx!.Value).IsEqualTo(80.0);
     }
 
     [Fact]
-    public void Decision_DoesNotTrigger_BelowBothArms()
+    public void Decision_NoTrigger_OnlyWithFullCoverageAndFourMeasured()
     {
-        // Index 2 is the centre target for the five-point layout. 70 px is inside R75 and only one
-        // target is at/above 60, so neither arm fires: 70 >= 60 is true, but the per-target arm needs
-        // two, and the centre arm needs 75.
+        // Index 2 is the centre for the five-point layout. 70 px is inside R75 and only one target is
+        // at/above 60, so neither arm fires; with every target measured the answer is No trigger.
         var estimate = BuildEstimate(
             new PhysicalPoint(5, 0), new PhysicalPoint(5, 0),
             new PhysicalPoint(70, 0), new PhysicalPoint(5, 0), new PhysicalPoint(5, 0));
 
         var decision = BiasDecisionRule.Evaluate(estimate, Screen);
 
-        Check.That(decision.ShouldRecalibrate).IsFalse();
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.NoTrigger);
         Check.That(decision.Reason).Contains("No trigger");
     }
 
+    [Fact]
+    public void Decision_RefusesNoTrigger_WhenAClusteredTargetWasDropped()
+    {
+        // Four targets at 10 px, one with clusters that disagree and were dropped: the surviving
+        // numbers are small, but "small" cannot be claimed while a clustered target is unexplained.
+        var estimate = BuildEstimateWithCoverage(
+            [new PhysicalPoint(10, 0), new PhysicalPoint(10, 0), new PhysicalPoint(10, 0),
+             new PhysicalPoint(10, 0), null],
+            dropped: [4]);
+
+        var decision = BiasDecisionRule.Evaluate(estimate, Screen);
+
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Inconclusive);
+        Check.That(decision.Reason).Contains("disagree");
+    }
+
+    [Fact]
+    public void Decision_RefusesNoTrigger_WithOnlyTwoTargetsMeasured()
+    {
+        var estimate = BuildEstimateWithCoverage(
+            [new PhysicalPoint(30, 0), new PhysicalPoint(30, 0), null, null, null], dropped: []);
+
+        var decision = BiasDecisionRule.Evaluate(estimate, Screen);
+
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Inconclusive);
+    }
+
+    [Fact]
+    public void Decision_Ambiguous_IsInconclusive()
+    {
+        var estimate = BuildEstimate(new PhysicalPoint(20, 0), new PhysicalPoint(20, 0),
+            new PhysicalPoint(20, 0), new PhysicalPoint(20, 0), new PhysicalPoint(20, 0)) with
+        {
+            Ambiguous = true,
+            Rival = new BiasEstimator.Alternative(new PhysicalPoint(20, -160), 5, 90),
+        };
+
+        var decision = BiasDecisionRule.Evaluate(estimate, Screen);
+
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Inconclusive);
+        Check.That(decision.Reason).Contains("two consistent solutions");
+    }
+
     /// <summary>Builds an estimate whose five probes were all measured at the given magnitudes.</summary>
-    private static BiasEstimator.Estimate BuildEstimate(params PhysicalPoint[] perTargetBias)
+    private static BiasEstimator.Estimate BuildEstimate(params PhysicalPoint[] perTargetBias) =>
+        BuildEstimateWithCoverage(perTargetBias.Select(b => (PhysicalPoint?)b).ToArray(), dropped: []);
+
+    private static BiasEstimator.Estimate BuildEstimateWithCoverage(PhysicalPoint?[] perTargetBias, int[] dropped)
     {
         var targets = CalibrationTargetPositionHelper.GetPositions(5, Screen);
         var probes = new List<BiasEstimator.Probe>(perTargetBias.Length);
+        double sumX = 0, sumY = 0;
+        int used = 0;
         for (int i = 0; i < perTargetBias.Length; i++)
         {
             var target = targets[i];
-            var centroid = new PhysicalPoint(target.X + perTargetBias[i].X, target.Y + perTargetBias[i].Y);
-            var cluster = new BiasEstimator.Cluster(centroid, 50, 0, 1_000_000);
+            if (perTargetBias[i] is not { } bias)
+            {
+                // No chosen cluster; the target either has no clusters or had them dropped.
+                if (dropped.Contains(i))
+                {
+                    var off = new BiasEstimator.Cluster(new PhysicalPoint(target.X + 300, target.Y), 40, 0, 1_000_000, 40);
+                    probes.Add(new BiasEstimator.Probe(i, target, [off], Chosen: null));
+                }
+                else
+                {
+                    probes.Add(new BiasEstimator.Probe(i, target, [], Chosen: null));
+                }
+                continue;
+            }
+
+            var centroid = new PhysicalPoint(target.X + bias.X, target.Y + bias.Y);
+            var cluster = new BiasEstimator.Cluster(centroid, 50, 0, 1_000_000, 30);
             probes.Add(new BiasEstimator.Probe(i, target, [cluster], cluster));
-        }
-        return new BiasEstimator.Estimate(new PhysicalPoint(0, 0), probes.Count, probes.Count, probes);
-    }
-
-    /// <summary>Deterministic Gaussian noise (LCG + Box–Muller), so the stream is identical every run.</summary>
-    private sealed class Noise(uint seed)
-    {
-        private uint _state = seed;
-
-        private double NextUnit()
-        {
-            _state = (1664525u * _state) + 1013904223u;
-            return (_state >> 8) / (double)(1 << 24);
+            sumX += bias.X;
+            sumY += bias.Y;
+            used++;
         }
 
-        public double NextGaussian()
-        {
-            double u1 = Math.Max(NextUnit(), double.Epsilon);
-            double u2 = NextUnit();
-            return Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
-        }
+        var mean = used == 0 ? (PhysicalPoint?)null : new PhysicalPoint(sumX / used, sumY / used);
+        int withData = probes.Count(p => p.Clusters.Count > 0);
+        return new BiasEstimator.Estimate(mean, withData, used, probes,
+            Ambiguous: false, Rival: null, MaxFieldResidualPx: 0);
     }
 }

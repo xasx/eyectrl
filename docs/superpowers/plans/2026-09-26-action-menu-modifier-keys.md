@@ -192,8 +192,9 @@ public class Win32InputSimulatorModifiedSequenceTests
     // The body builders are instance methods (they route through CreateMouseInput's coordinate
     // mapper), so the tests construct a real simulator over a pass-through mapper — and NEVER
     // call its send methods (no SendInput ever fires in tests).
+    // The mapper is NESTED in Win32InputSimulatorTestHelper — qualify it (no `using static`).
     private readonly Win32InputSimulator _sim =
-        new(new PassThroughCoordinateMapper());
+        new(new Win32InputSimulatorTestHelper.PassThroughCoordinateMapper());
 
     private static HashSet<ModifierKey> Mods(params ModifierKey[] keys) => new(keys);
 
@@ -271,6 +272,11 @@ public class Win32InputSimulatorModifiedSequenceTests
     [Fact]
     public void Wrap_NullModifiers_ZeroKeyboardInputs_AndKeyboardSequence_NeverCarriesTheMask()
     {
+        // The null-mods arm: WrapWithModifiers(null, body, true) must emit the body UNCHANGED.
+        var body = new[] { Win32InputSimulatorTestHelper.MouseInput(NativeMethods.MOUSEEVENTF_LEFTDOWN) };
+        var wrapped = Win32InputSimulator.WrapWithModifiers(null, body, includeAltMenuMask: true);
+        Check.That(wrapped).HasSize(1);
+        Check.That(wrapped[0].Type).IsEqualTo(NativeMethods.INPUT_MOUSE);
         var batch = Win32InputSimulator.BuildModifiedKeySequence(
             Mods(ModifierKey.Alt, ModifierKey.Shift), 0x41, isExtendedKey: false);
 
@@ -343,7 +349,7 @@ internal static class Win32InputSimulatorTestHelper
     {
         public (int normalizedX, int normalizedY) NormalizeScreenCoordinate(
             EyeCtrl.Core.Models.PhysicalPoint point, int screenWidth, int screenHeight)
-            => (point.X, point.Y);
+            => ((int)point.X, (int)point.Y); // PhysicalPoint is (double X, double Y) — no implicit narrowing
     }
 
     public static NativeMethods.INPUT MouseInput(uint flags) => new()
@@ -903,13 +909,13 @@ git -C /c/Users/andre/source/repos/eyectrl/.worktrees/action-menu-modifier-keys 
 // source) — the file's only construction pattern is TestFakes.MakeContext(input) with
 // TargetHighlightVM supplied (KeyboardInteractionDispatcherTests.cs:95-100):
 //
-//   private (KeyboardInteractionDispatcher D, FakeInputSimulator Sim) BuildWithFakeInput()
+//   private static (KeyboardInteractionDispatcher D, TestFakes.FakeInputSimulator Sim) BuildWithFakeInput()
 //   {
-//       var input = new FakeInputSimulator();
+//       var input = new TestFakes.FakeInputSimulator();   // nested in TestFakes — qualify it
 //       var ctx = TestFakes.MakeContext(input) with
 //           { TargetHighlightVM = new TargetHighlightOverlayViewModel() };
-//       var dispatcher = new KeyboardInteractionDispatcher(ctx, NullLogger.Instance);
-//       dispatcher.Initialize();
+//       var dispatcher = new KeyboardInteractionDispatcher(); // parameterless ctor (file precedent :96)
+//       dispatcher.Initialize(ctx);                           // CoordinatorBase.Initialize(EventCoordinationContext), CoordinatorBase.cs:19
 //       return (dispatcher, input);
 //   }
 //
@@ -928,6 +934,21 @@ public void ModifiedLeftClick_RoutesToTheModifiedOverload()
     Check.That(simulator.ModifiedClicks).ContainsExactly(
         (InteractionAction.LeftClick, new PhysicalPoint(10, 10), mods));
     Check.That(simulator.BareClickCount).IsEqualTo(0);
+}
+
+[Fact]
+public void EmptySetMessage_NeverTouchesTheModifiedOverload()
+{
+    var (dispatcher, simulator) = BuildWithFakeInput();
+
+    // The VM sends null when the latch is empty — a mods != null gating mutant would route
+    // through the modified overload. Same observable behaviour, but the null path is the
+    // contract: the modified overload must not be reachable with an empty set.
+    dispatcher.HandleActionRequested(new ActionRequestedMessage(
+        InteractionAction.LeftClick, new PhysicalPoint(10, 10), IsPreciseTarget: true, Modifiers: new HashSet<ModifierKey>()));
+
+    Check.That(simulator.ModifiedClicks).IsEmpty();
+    Check.That(simulator.BareClickCount).IsEqualTo(1);
 }
 
 [Fact]
@@ -1281,9 +1302,11 @@ public class ActionMenuViewModelLatchTests
         // unconditional-AddTarget mutant fails both — the OnTargetActivated backstop alone
         // would still swallow a Drag activation, which is why the neighbour progress is
         // asserted too: the detector is alive and awarding dwell to LeftClick.
-        for (var t = 0; t < 10; t++)
+        for (var t = 0; t < 6; t++)
             vm.Receive(new GazeCursorMovedMessage(drag.Position, t * 100_000));
-        Check.That(drag.DwellProgress).IsEqualTo(0);   // no arc without a target
+        // Mid-dwell progress pin: the unconditional-AddTarget mutant shows 5/6 here (the
+        // detector awards dwell); the correct impl shows 0 (no target registered).
+        Check.That(drag.DwellProgress).IsEqualTo(0);
         Check.That(sent.Where(m => m.Action == InteractionAction.Drag)).IsEmpty();
 
         var click = vm.Items.First(i => i.Action == InteractionAction.LeftClick);
@@ -1519,9 +1542,10 @@ public class EdgeButtonBarViewModelRearmTests
         Look(vm, new PhysicalPoint(Anchor.X + 500, Anchor.Y), 700_000);  // OUTSIDE: clock starts
         for (var t = 0; t < 4; t++)
             Look(vm, new PhysicalPoint(Anchor.X + 500, Anchor.Y), 800_000 + t * 100_000, inGap: true); // blink
-        Look(vm, new PhysicalPoint(Anchor.X + 500, Anchor.Y), 1_400_000); // reopen OUTSIDE: with the
-                                                  // in-gap restarts the clock restarted at 800k, so this
-                                                  // span is 600k; without them 700k→1.4M ≥ D clears
+        Look(vm, new PhysicalPoint(Anchor.X + 500, Anchor.Y), 1_400_000); // reopen OUTSIDE: the in-gap
+                                                  // samples nulled the clock, so this restarts at 1.4M
+                                                  // with span 0 — without the restarts, 700k→1.4M ≥ D
+                                                  // would clear the pending here
         Hold(vm, Anchor, 1_500_000, 8);           // back inside and held
 
         Check.That(toggles).ContainsExactly("mod"); // the gap restart kept the pending alive: no re-toggle
@@ -1574,9 +1598,9 @@ public class EdgeButtonBarViewModelRearmTests
         vm.AddButton(Def("probe", toggles, verticalOffset: 0, dwellMs: 600, rearm: false));
         // In the lens the exit clock (region membership) does NOT run — gaze is inside shift's
         // region. A nearest-hitting mutant runs it and clears the pending after D.
-        Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y - (long)(spacing * 0.7)), 2_000_000);
-        Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y - (long)(spacing * 0.7)), 2_100_000);
-        Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y - (long)(spacing * 0.7)), 2_200_000); // excursion ≥ D:
+        Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y - (long)(spacing * 0.3)), 2_000_000);
+        Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y - (long)(spacing * 0.3)), 2_100_000);
+        Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y - (long)(spacing * 0.3)), 2_200_000); // excursion ≥ D:
         // the nearest-hitting mutant runs the clock through the lens and clears the pending here
 
         Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y - spacing), 3_000_000, 8); // return + full dwell
@@ -1622,7 +1646,7 @@ public class EdgeButtonBarViewModelRearmTests
     private sealed class RecordingSink : IStruggleTelemetrySink
     {
         public List<DwellOutcome> Outcomes { get; } = new();
-        public void Report(DwellOutcome outcome) => Outcomes.Add(outcome);
+        public void Report(in DwellOutcome outcome) => Outcomes.Add(outcome);
     }
 
     [Fact]
@@ -1644,6 +1668,21 @@ public class EdgeButtonBarViewModelRearmTests
         Hold(vm, Anchor, 3_000_000, 8);                    // gated run: hits-nothing, no outcomes, no cue
         Check.That(sink.Outcomes.Count).IsEqualTo(before);
         Check.That(cues).HasSize(1);
+        // Partial-dwell abandon suppression: build a REAL partial dwell on a second button,
+        // then gate the first — the filtered crossing clears the neighbour without publishing
+        // an Abandoned outcome (DwellDetector.cs:393–394).
+        var toggles2 = new List<string>();
+        var vm2 = new EdgeButtonBarViewModel(new EyeCtrlSettings(), messenger, sink, null);
+        vm2.ShowButtons(new[]
+        {
+            Def("shift2", toggles2, verticalOffset: -DpiHelper.LogicalToPhysicalY(120), dwellMs: 600),
+            Def("ctrl2", toggles2, verticalOffset: 0, dwellMs: 600, rearm: false),
+        }, new PhysicalPoint(Anchor.X, Anchor.Y + 500));
+        Hold(vm2, new PhysicalPoint(Anchor.X, Anchor.Y + 500), 10_000_000, 4); // ctrl2 partial (400 ms)
+        Hold(vm2, new PhysicalPoint(Anchor.X, Anchor.Y + 500 - DpiHelper.LogicalToPhysicalY(120)), 11_000_000, 2); // shift2 toggle; pending
+        Hold(vm2, new PhysicalPoint(Anchor.X, Anchor.Y + 500), 12_000_000, 2); // gated crossing
+        var abandoned = sink.Outcomes.Count(o => o.Kind == OutcomeKind.Abandoned);
+        Check.That(abandoned).IsEqualTo(0);               // filtered targets publish no abandon
     }
 
     [Fact]
@@ -2248,8 +2287,8 @@ private void OnActionMenuLatchedModifiersChanged(object? sender, PropertyChanged
 [StaFact]
 public void ShowActionMenu_ShowsTheModBar_EvenWithoutAResolvedControl()
 {
-    var h = BuildContext(); // ownership-test harness + the new slots
-    h.Messenger.Send(new ShowActionMenuMessage(new PhysicalPoint(500, 500), new List<InteractionAction> { InteractionAction.LeftClick }, CircleSize: 250, DwellTimeMs: 600));
+    var h = BuildContext(); // ownership-test harness + the new slots; the harness MUST    // supply a real ActionMenuVM (MakeContext nulls it, TestFakes.cs:34 - the show handler    // reads ActionMenuVM.LatchedModifiers inside its try, so a null NREs and the mod bar    // never shows)
+    h.Messenger.Send(new ShowActionMenuMessage(new PhysicalPoint(500, 500), new List<InteractionAction> { InteractionAction.LeftClick }, CircleSize: 250, DwellTimeMs: 600, GazePoint: new PhysicalPoint(500, 500), ShowBack: false));
     h.PumpDispatcher();     // the harness's dispatcher pump — see HideActionMenuBarOwnershipTests
 
     Check.That(h.ModBarCalls).Contains("ShowButtons");
@@ -2274,10 +2313,22 @@ public void HideActionMenu_HidesTheModBar_Unconditionally_EvenWhenTheRightBarIsO
 }
 
 [StaFact]
+public void ThrowingModBar_DoesNotPreventTheRightBarHide()
+{
+    var h = BuildContext(withModBar: false); // mod-bar slot absent ⇒ the left-bar hide throws
+    h.Messenger.Send(new ShowActionMenuMessage(new PhysicalPoint(500, 500), new List<InteractionAction> { InteractionAction.LeftClick }, CircleSize: 250, DwellTimeMs: 600, GazePoint: new PhysicalPoint(500, 500), ShowBack: false));
+    h.PumpDispatcher();
+    h.Messenger.Send(new HideActionMenuMessage());
+    h.PumpDispatcher();
+
+    Check.That(h.RightBarCalls).Contains("Hide"); // the right-bar hide ran before the throw
+}
+
+[StaFact]
 public void ThrowingModBar_DoesNotPreventTheRightBarShow()
 {
     var h = BuildContext(withModBar: false); // PartialOverlayManager WITHOUT the slot ⇒ default throws
-    h.Messenger.Send(new ShowActionMenuMessage(new PhysicalPoint(500, 500), new List<InteractionAction> { InteractionAction.LeftClick }, CircleSize: 250, DwellTimeMs: 600));
+    h.Messenger.Send(new ShowActionMenuMessage(new PhysicalPoint(500, 500), new List<InteractionAction> { InteractionAction.LeftClick }, CircleSize: 250, DwellTimeMs: 600, GazePoint: new PhysicalPoint(500, 500), ShowBack: false));
     h.PumpDispatcher();
 
     Check.That(h.RightBarCalls).Contains("ShowButtons"); // own try block isolated the fault
@@ -2292,9 +2343,11 @@ public void HeldGaze_TogglesExactlyOnce_ThroughTheRealCoordinator()
 {
     var h = BuildFullHarness(); // real coordinator + real VMs; mod-bar VM on the shared messenger
     h.ShowActionMenu();                                // ShowActionMenuMessage + dispatcher pump
-    h.LookAt(ShiftCenter, 0);                          // sample 1: enter
-    h.LookAt(ShiftCenter, 600_000);                    // sample 2: toggle; pending
-    for (var t = 7; t <= 30; t++)
+    for (var t = 0; t <= 6; t++)
+        h.LookAt(ShiftCenter, t * 100_000);            // 100 ms cadence, dwell 600 ms: Shift fires
+        // at 1.2M (elapsed 600 ms at the 1.2M sample — the detector needs elapsed, not a
+        // sample count); T = 1.2M
+    for (var t = 13; t <= 30; t++)
         h.LookAt(ShiftCenter, t * 100_000);            // held: the gate feeds hits-nothing
 
     Check.That(h.ShiftToggleCount).IsEqualTo(1);
@@ -2313,18 +2366,19 @@ public void ShowButtonsMutant_IsCaught_AtT700ZeroFires_ThenCompletes()
     //          at about T+616.
     var h = BuildFullHarness();
     h.ShowActionMenu();
-    h.LookAt(ShiftCenter, 0);
-    h.LookAt(ShiftCenter, 600_000);                    // Shift toggles at about T+600; pending(Shift)
-    for (var t = 616; t <= 700; t += 21)               // dense Ctrl samples across the discriminator
+    for (var t = 0; t <= 6; t++)
+        h.LookAt(ShiftCenter, t * 100_000);            // 100 ms cadence: Shift toggles at 600k = T
+    // T+700 and T+1100 are TOGGLE-RELATIVE (T = 600k): correct fires at T+1000 = 1.6M;
+    // the mutant fires at T+616 = 1.216M. Ctrl sampled densely from T+16k.
+    for (var t = 616; t <= 1_300; t += 21)             // T+16k .. T+700k
         h.LookAt(CtrlCenter, t * 1_000);
 
-    Check.That(h.CtrlToggleCount).IsEqualTo(0);        // T+700: correct impl has NOT fired
+    Check.That(h.CtrlToggleCount).IsEqualTo(0);        // the mutant fires by T+616 (1.216M)
 
-    for (var t = 701; t <= 1_100; t += 50)
+    for (var t = 1_301; t <= 1_700; t += 25)           // T+701k .. T+1100k
         h.LookAt(CtrlCenter, t * 1_000);
 
-    Check.That(h.CtrlToggleCount).IsEqualTo(1);        // correct impl completes about T+1000;
-                                                       // the mutant already fired before T+700
+    Check.That(h.CtrlToggleCount).IsEqualTo(1);        // correct impl fires at T+1000 (1.6M)
 }
 
 (The harness helper `BuildFullHarness` is written ONCE in this test file, copying the two
@@ -2352,7 +2406,7 @@ git -C /c/Users/andre/source/repos/eyectrl/.worktrees/action-menu-modifier-keys 
 **Files:**
 - Modify: `src/EyeCtrl.App/Overlays/ActionMenuWindow.xaml.cs:229` (child-canvas dim)
 - Modify: `src/EyeCtrl.App/Overlays/EdgeButtonBarWindow.xaml.cs:26-33` (`ExcludeFromScreenCapture`)
-- Test: `tests/EyeCtrl.Controls.Tests/Icons/ActionIconDimContrastTests.cs` (new)
+- Test: `tests/EyeCtrl.App.Tests/ActionIconDimContrastTests.cs` (new)
 
 **Interfaces:**
 - Consumes: Task 4's `ActionMenuItemViewModel.IsDisabled`, Task 6's icon registry.
@@ -2407,11 +2461,12 @@ public static TheoryData<string, ITheme> BackdropThemePairs()
 {
     var data = new TheoryData<string, ITheme>();
     foreach (var backdrop in HaloContrastTests.Backdrops)   // the repo's nine backdrops
-        foreach (var theme in HaloContrastTests.AllThemes())
+        foreach (var theme in ThemeRegistry.All)             // ThemeRegistry.cs:15 — xUnit v3
+                                                             // TheoryData<T> enumerates rows, not T
             data.Add(backdrop, theme);
     // Own-fill silhouette case (round-5 F7): one row per theme whose backdrop equals the
     // theme's own fill hex — the hardest silhouette case.
-    foreach (var theme in HaloContrastTests.AllThemes())
+    foreach (var theme in ThemeRegistry.All)
         data.Add(theme.SurfaceMedium.ToString(), theme);
     return data;
 }

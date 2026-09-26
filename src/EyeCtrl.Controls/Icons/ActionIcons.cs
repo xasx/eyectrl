@@ -64,6 +64,28 @@ public static class ActionIcons
     private const string LeftButtonFill = "M12,2.5 A5,5 0 0 0 7,7.5 L7,10.5 L12,10.5 Z";
     private const string RightButtonFill = "M12,2.5 A5,5 0 0 1 17,7.5 L17,10.5 L12,10.5 Z";
 
+    // Modifier keycaps for the left-edge mod bar. Keycap = rounded rect x8..16 over y4..7 with
+    // the modifier's mark below it. The latched variants add a rim circling the glyph (primary
+    // cue) and a filled dot in the right margin (secondary cue).
+    private const string Keycap = "M8.2,7.2 L8.2,5.2 A1.2,1.2 0 0 1 9.4,4 L14.6,4 A1.2,1.2 0 0 1 15.8,5.2 L15.8,7.2";
+    private const string ShiftMark = " M6.5,9.5 L12,4.6 L17.5,9.5 M12,4.6 L12,19";
+    private const string CtrlMark = " M9,10.5 L12,7.8 L15,10.5 M12,13 L12,19 M8,16.5 L16,16.5";
+    private const string AltMark = " M8.5,10.5 L10.5,12.4 M15.5,10.5 L13.5,12.4 M10.5,12.4 A3,3 0 1 0 13.5,12.4 M12,15.4 L12,19";
+
+    /// <summary>
+    /// The rim the latched keycap variants draw around the whole glyph. Internal because the
+    /// registry test pins that the latched STROKE geometry contains it — the rim is the primary
+    /// latched cue (outline-level, the peripheral-vision rule), the filled dot is secondary.
+    /// Written in the path mini-language's canonical serialization (comma separators, one figure
+    /// per arc) because the test asserts it against <see cref="Geometry.ToString"/>, which
+    /// re-serializes rather than echoing the authored text. Integer-only values keep it
+    /// parseable under every culture: the parser treats "." decimals and "," separators the same
+    /// way regardless of the thread's culture, but a decimal mark would serialize as "," on a
+    /// comma-decimal culture and break the substring match there.
+    /// </summary>
+    internal const string LatchedRim = " M4,8A2,2,0,0,1,6,6 M20,6A2,2,0,0,1,22,8 M22,16A2,2,0,0,1,20,18 M6,18A2,2,0,0,1,4,16";
+    private const string LatchedDot = "M19.9,2.1 A1.9,1.9 0 1 1 20,5.9 A1.9,1.9 0 1 1 19.9,2.1 Z";
+
     private static readonly Dictionary<ActionIcon, IconGeometry> Map = Build();
 
     /// <summary>The geometry for <paramref name="icon"/>. Throws if the registry has no entry.</summary>
@@ -152,5 +174,15 @@ public static class ActionIcons
         [ActionIcon.Help] = IconGeometry.FromPathData(
             "M8.6,8.6 A3.5,3.5 0 1 1 13.3,11.9 C12.2,12.3 11.6,13.1 11.6,14.2 L11.6,15.2",
             "M10.3,18.6 A1.3,1.3 0 1 1 12.9,18.6 A1.3,1.3 0 1 1 10.3,18.6 Z"),
+
+        // Modifier keycaps for the left-edge mod bar (24-grid; the latched variants' PRIMARY cue
+        // is the rim drawn into the stroke geometry, the filled dot at (20, 4) in the right margin
+        // is secondary — the peripheral-vision rule is why the dot alone is not enough).
+        [ActionIcon.Shift] = IconGeometry.FromPathData(Keycap + ShiftMark),
+        [ActionIcon.Ctrl] = IconGeometry.FromPathData(Keycap + CtrlMark),
+        [ActionIcon.Alt] = IconGeometry.FromPathData(Keycap + AltMark),
+        [ActionIcon.ShiftLatched] = IconGeometry.FromPathData(Keycap + ShiftMark + LatchedRim, LatchedDot),
+        [ActionIcon.CtrlLatched] = IconGeometry.FromPathData(Keycap + CtrlMark + LatchedRim, LatchedDot),
+        [ActionIcon.AltLatched] = IconGeometry.FromPathData(Keycap + AltMark + LatchedRim, LatchedDot),
     };
 }

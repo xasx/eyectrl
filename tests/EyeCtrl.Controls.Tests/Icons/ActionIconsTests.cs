@@ -1,11 +1,13 @@
 namespace EyeCtrl.Controls.Tests.Icons;
 
 using System;
+using System.Globalization;
 using System.Linq;
 using EyeCtrl.Controls.Icons;
 using EyeCtrl.Core.Models;
 using NFluent;
 using Xunit;
+using static EyeCtrl.Controls.Icons.ActionIcons;
 
 /// <summary>
 /// Pins the icon registry's completeness and its grid discipline.
@@ -17,6 +19,15 @@ using Xunit;
 /// </summary>
 public class ActionIconsTests
 {
+    public ActionIconsTests()
+    {
+        // Geometry.ToString() formats path data with the CURRENT culture (de-DE emits
+        // "M4;8A2;2;…", en-US "M4,8A2,2,…"), so the LatchedRim substring assertion below is only
+        // deterministic when the culture is pinned to the one LatchedRim is authored in. The
+        // other checks in this class are culture-neutral.
+        CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
+    }
+
     [Fact]
     public void EveryActionIcon_HasGeometry()
     {
@@ -67,6 +78,33 @@ public class ActionIconsTests
             if (geometry.Fill is not null)
                 Check.WithCustomMessage($"{icon} fill is not frozen").That(geometry.Fill.IsFrozen).IsTrue();
         }
+    }
+
+    [Theory]
+    [InlineData(ActionIcon.Shift)]
+    [InlineData(ActionIcon.Ctrl)]
+    [InlineData(ActionIcon.Alt)]
+    [InlineData(ActionIcon.ShiftLatched)]
+    [InlineData(ActionIcon.CtrlLatched)]
+    [InlineData(ActionIcon.AltLatched)]
+    public void ModifierIcons_ResolveAndAreFrozen(ActionIcon icon)
+    {
+        var geometry = ActionIcons.For(icon);
+
+        Check.That(geometry.Stroke).IsNotNull();
+        Check.That(geometry.Stroke!.IsFrozen).IsTrue();
+        if (geometry.Fill is not null)
+            Check.That(geometry.Fill.IsFrozen).IsTrue();
+    }
+
+    [Fact]
+    public void LatchedVariants_AddTheFilledMarginDot()
+    {
+        Check.That(ActionIcons.For(ActionIcon.Shift).Fill).IsNull();
+        Check.That(ActionIcons.For(ActionIcon.ShiftLatched).Fill).IsNotNull();
+        // The PRIMARY latched cue is the rim in the STROKE geometry (outline-level, peripheral-
+        // vision rule) — pin that the latched stroke differs from the unlatched glyph:
+        Check.That(ActionIcons.For(ActionIcon.ShiftLatched).Stroke!.ToString().Contains(LatchedRim)).IsTrue();
     }
 
     [Fact]

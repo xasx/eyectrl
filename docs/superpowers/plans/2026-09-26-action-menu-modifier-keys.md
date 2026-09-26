@@ -187,12 +187,18 @@ public class Win32InputSimulatorModifiedSequenceTests
 {
     private const ushort MenuMask = Win32InputSimulator.MenuMaskVirtualKey;
 
+    // The body builders are instance methods (they route through CreateMouseInput's coordinate
+    // mapper), so the tests construct a real simulator over a pass-through mapper — and NEVER
+    // call its send methods (no SendInput ever fires in tests).
+    private readonly Win32InputSimulator _sim =
+        new(new PassThroughCoordinateMapper());
+
     private static HashSet<ModifierKey> Mods(params ModifierKey[] keys) => new(keys);
 
     [Fact]
     public void ModifiedClickBody_BalancedDownUp_ForSingleClick()
     {
-        var body = Win32InputSimulator.BuildModifiedClickBody(
+        var body = _sim.BuildModifiedClickBody(
             new EyeCtrl.Core.Models.PhysicalPoint(10, 10), right: false, middle: false, doubleClick: false);
 
         Check.That(body).HasSize(2);
@@ -203,7 +209,7 @@ public class Win32InputSimulatorModifiedSequenceTests
     [Fact]
     public void ModifiedClickBody_DoubleClick_IsOneBatchOfFourMouseEvents()
     {
-        var body = Win32InputSimulator.BuildModifiedClickBody(
+        var body = _sim.BuildModifiedClickBody(
             new EyeCtrl.Core.Models.PhysicalPoint(10, 10), right: false, middle: false, doubleClick: true);
 
         Check.That(body).HasSize(4);
@@ -213,7 +219,7 @@ public class Win32InputSimulatorModifiedSequenceTests
     [Fact]
     public void ModifiedWheelBody_LeadsWithAbsoluteMove_ThenClampedWheel()
     {
-        var body = Win32InputSimulator.BuildModifiedWheelBody(
+        var body = _sim.BuildModifiedWheelBody(
             new EyeCtrl.Core.Models.PhysicalPoint(10, 10), deltaX: 0, deltaY: 3);
 
         Check.That(body).HasSize(2);
@@ -327,6 +333,14 @@ public class Win32InputSimulatorModifiedSequenceTests
 /// <summary>Test access to the internal composition helpers (InternalsVisibleTo covers this project).</summary>
 internal static class Win32InputSimulatorTestHelper
 {
+    /// <summary>Identity-ish mapper: the composition tests assert flags and types, never coordinates.</summary>
+    public sealed class PassThroughCoordinateMapper : EyeCtrl.Core.Interfaces.IMouseCoordinateMapper
+    {
+        public (double X, double Y) NormalizeScreenCoordinate(
+            EyeCtrl.Core.Models.PhysicalPoint point, int screenWidth, int screenHeight)
+            => (point.X / (double)screenWidth, point.Y / (double)screenHeight);
+    }
+
     public static NativeMethods.INPUT MouseInput(uint flags) => new()
     {
         Type = NativeMethods.INPUT_MOUSE,
@@ -424,8 +438,8 @@ internal static NativeMethods.INPUT[] BuildModifiedKeySequence(IReadOnlySet<Modi
 (d) Pure body builders (they make the PRODUCTION batch shapes testable — the leading MOVE, the four-event double-click, the wheel deltas):
 
 ```csharp
-/// <summary>The mouse-event body of a modified click: one down/up pair, or two pairs for a double click (ONE batch — the exact shape a physical user produces).</summary>
-internal static NativeMethods.INPUT[] BuildModifiedClickBody(PhysicalPoint point, bool right, bool middle, bool doubleClick)
+/// <summary>The mouse-event body of a modified click: one down/up pair, or two pairs for a double click (ONE batch — the exact shape a physical user produces). INSTANCE method: it goes through <see cref="CreateMouseInput"/>, which needs the coordinate mapper.</summary>
+internal NativeMethods.INPUT[] BuildModifiedClickBody(PhysicalPoint point, bool right, bool middle, bool doubleClick)
 {
     uint down = NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE
         | (right ? NativeMethods.MOUSEEVENTF_RIGHTDOWN : middle ? NativeMethods.MOUSEEVENTF_MIDDLEDOWN : NativeMethods.MOUSEEVENTF_LEFTDOWN);
@@ -436,8 +450,8 @@ internal static NativeMethods.INPUT[] BuildModifiedClickBody(PhysicalPoint point
     return new[] { CreateMouseInput(point, down), CreateMouseInput(point, up), CreateMouseInput(point, down), CreateMouseInput(point, up) };
 }
 
-/// <summary>The wheel-event body of a modified scroll: a leading absolute MOVE (wheel events alone land at the current cursor, and ResetToFreeLook re-enables per-frame MoveCursor across a doubly-deferred dispatch), then the Y and/or X wheel legs with clamped deltas.</summary>
-internal static NativeMethods.INPUT[] BuildModifiedWheelBody(PhysicalPoint point, int deltaX, int deltaY)
+/// <summary>The wheel-event body of a modified scroll: a leading absolute MOVE (wheel events alone land at the current cursor, and ResetToFreeLook re-enables per-frame MoveCursor across a doubly-deferred dispatch), then the Y and/or X wheel legs with clamped deltas. INSTANCE method — same mapper reason.</summary>
+internal NativeMethods.INPUT[] BuildModifiedWheelBody(PhysicalPoint point, int deltaX, int deltaY)
 {
     var body = new List<NativeMethods.INPUT>
     {
@@ -679,6 +693,7 @@ public class InteractionManagerModifierTests
         im.NoteGazeSample(isValid: true, timestampUs: 10_000); // liveness BEFORE entry (the file's precedent)
         im.EnterRepeatMode(InteractionAction.LeftClick);
         im.RepeatDwellMs = 0;
+        im.OnFixationStarted(Point);           // arms the locked-action dwell at the point
         im.NoteGazeSample(isValid: true, timestampUs: 11_000); // elapsed 1 ms ≥ 0 ⇒ fires
 
         Check.That(fired).IsTrue();           // the tick really fired — no vacuous pass
@@ -1207,7 +1222,8 @@ public class ActionMenuViewModelLatchTests
     private static ShowActionMenuMessage ShowMessage() => new(
         Center: new PhysicalPoint(500, 500),
         Actions: new List<InteractionAction>
-        { InteractionAction.LeftClick, InteractionAction.Drag, InteractionAction.ScrollMode },
+        { InteractionAction.LeftClick, InteractionAction.Drag, InteractionAction.ScrollMode,
+          InteractionAction.MiddleClick }, // secondary: the More target exists for the survival test
         CircleSize: 250, DwellTimeMs: 600, GazePoint: new PhysicalPoint(500, 500), ShowBack: false);
     // (Match the record's ACTUAL parameter list per InteractionMessages.cs — the construction
     // in ActionMenuViewModelLayerTests is the authoritative pattern.)
@@ -1514,9 +1530,11 @@ public class EdgeButtonBarViewModelRearmTests
         Look(vm, Anchor, 700_000);                // outside: clock starts
         for (var t = 0; t < 4; t++)
             Look(vm, Anchor, 800_000 + t * 100_000, inGap: true); // blink: held-position gap samples
-        Look(vm, Anchor, 1_400_000);              // reopen, back inside — only ~100 ms of VALID exit
+        Look(vm, Anchor, 1_400_000);              // reopen lands OUTSIDE: without the in-gap restarts,
+                                                  // the clock would span 700k to 1.4M (over D) and clear here
+        Hold(vm, Anchor, 1_500_000, 8);           // back inside and held
 
-        Check.That(toggles).ContainsExactly("mod"); // the gap never completed a D-span of valid exit
+        Check.That(toggles).ContainsExactly("mod"); // the gap restart kept the pending alive: no re-toggle
     }
 
     [Fact]
@@ -1567,7 +1585,9 @@ public class EdgeButtonBarViewModelRearmTests
         // In the lens the exit clock (region membership) does NOT run — gaze is inside shift's
         // region. A nearest-hitting mutant runs it and clears the pending after D.
         Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y - (long)(spacing * 0.7)), 2_000_000);
-        Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y - (long)(spacing * 0.7)), 2_100_000); // ≥ D in the lens
+        Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y - (long)(spacing * 0.7)), 2_100_000);
+        Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y - (long)(spacing * 0.7)), 2_200_000); // excursion ≥ D:
+        // the nearest-hitting mutant runs the clock through the lens and clears the pending here
 
         Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y - spacing), 3_000_000, 8); // return + full dwell
 
@@ -1589,17 +1609,20 @@ public class EdgeButtonBarViewModelRearmTests
         foreach (var registration in registry.Registrations)
             registration.ApplyGeometry(baseExtent => baseExtent * 3);
 
-        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y - spacing), 0, 8);       // shift toggles; pending
-        // Ctrl accumulates ≥ dwell − crossing before the gated crossing:
-        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y), 1_000_000, 4);         // 400 ms of ctrl dwell
-        // The gated crossing: shift-nearest for < 150 ms — the hits-nothing feed must CLEAR
-        // ctrl's partial dwell (the skip mutant keeps EnteredTimestamp and fires on return).
-        Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y - spacing), 1_500_000);
-        Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y - spacing), 1_550_000);
+        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y - spacing), 0, 8);       // shift toggles about T+600; pending
+        // Ctrl accumulates a PARTIAL dwell, then the gated crossing happens INSIDE the
+        // detector's 150 ms re-anchor window — so the skip mutant's kept EnteredTimestamp
+        // fires on the first sample back (elapsed over dwell), while the hits-nothing feed
+        // cleared it and the correct impl re-dwells from zero.
+        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y), 1_000_000, 4);         // ctrl enters 1.0M, partial to 1.3M
+        Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y - spacing), 1_550_000);  // gated crossing (shift-nearest)
+        Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y - spacing), 1_600_000);
+        Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y), 1_680_000);            // back on ctrl: last ungated
+                                                                               // sample was 1.3M, silence 130 ms
+                                                                               // < 150 ms, so NO re-anchor
+        Check.That(toggles).ContainsExactly("shift");                          // the mutant fires ctrl HERE
 
-        Check.That(toggles).ContainsExactly("shift");                          // no fire on the first sample back
-
-        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y), 2_000_000, 8);         // fresh full ctrl dwell
+        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y), 2_000_000, 8);         // correct impl: fresh dwell
         Check.That(toggles.Count(s => s == "ctrl")).IsEqualTo(1);              // the button is not dead
     }
 
@@ -1612,12 +1635,12 @@ public class EdgeButtonBarViewModelRearmTests
 
         Check.ThatCode(() => vm.ReplaceButton("missing", Def("missing", toggles))).DoesNotThrow();
 
-        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y), 0, 8);                 // 'a' toggles at ≈T+600; pending
-        // Cooldown survival: 'b' cannot START accumulating until the cooldown elapses (400 ms),
-        // so it completes ≈T+1000 — a ShowButtons mutant (ResetCooldown) completes ≈T+600.
-        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y - 100), 700_000, 4);     // T+700: still nothing on b
-        Check.That(toggles).ContainsExactly("a");
-        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y - 100), 1_100_000, 4);   // b completes ≈T+1100
+        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y), 0, 8);                 // 'a' toggles about T+600; pending
+        // Cooldown survival: 'b' cannot accumulate until the cooldown elapses (T+400 ms), so it
+        // completes about T+1600 — a ShowButtons mutant (ResetCooldown) completes about T+1300.
+        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y - 100), 700_000, 7);     // T+700..T+1300
+        Check.That(toggles).ContainsExactly("a");                              // the mutant would have b here
+        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y - 100), 1_400_000, 4);   // correct impl: b about T+1600
         Check.That(toggles).ContainsExactly("a", "b");
     }
 }
@@ -2031,6 +2054,8 @@ git -C /c/Users/andre/source/repos/eyectrl/.worktrees/action-menu-modifier-keys 
 - Modify: `src/EyeCtrl.App/Services/OverlayManager.cs:63-68, :112, :138–154`
 - Modify: `src/EyeCtrl.App/Services/AppBootstrapper.cs:381, :627, :637`
 - Modify: `src/EyeCtrl.App/App.xaml.cs:198, :572–595`
+- Modify: `src/EyeCtrl.App/Services/Coordinators/OverlayMessageCoordinator.cs:113-190`
+- Modify: `src/EyeCtrl.App/Services/Coordinators/OverlayVmBindingCoordinator.cs:282-316`
 - Modify: `tests/EyeCtrl.App.Tests/Services/TestFakes.cs:196+` (PartialOverlayManager slots + MakeOverlayManager params)
 - Test: `tests/EyeCtrl.App.Tests/Overlays/ActionMenuModBarWiringTests.cs` (new — the Task 6 wiring tests live here)
 - Test: `tests/EyeCtrl.App.Tests/Services/Coordinators/ActionMenuModBarMaskedMutationTests.cs` (new)
@@ -2355,8 +2380,10 @@ public static TheoryData<string, ITheme> BackdropThemePairs()
     foreach (var backdrop in HaloContrastTests.Backdrops)   // the repo's nine backdrops
         foreach (var theme in HaloContrastTests.AllThemes())
             data.Add(backdrop, theme);
-    // Own-fill silhouette case (round-5 F7): append one row per theme whose backdrop string
-    // equals the theme's own fill hex.
+    // Own-fill silhouette case (round-5 F7): one row per theme whose backdrop equals the
+    // theme's own fill hex — the hardest silhouette case.
+    foreach (var theme in HaloContrastTests.AllThemes())
+        data.Add(theme.SurfaceMedium.ToString(), theme);
     return data;
 }
 

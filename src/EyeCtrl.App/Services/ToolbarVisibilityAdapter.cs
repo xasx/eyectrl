@@ -128,6 +128,12 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
         // Instant, and it must stay instant: every caller — tray fallback, modal suspend-recover,
         // dock toggle — exists because the user needs the toolbar now. ShowAtRest also cancels any
         // in-flight slide and defuses its pending Hide().
+        //
+        // Logged, unlike the other two seams' silent paths: a ForceShow that arrives while the
+        // controller believes Hidden (the paused-trap guard, the settings suspend-recover) is the
+        // one transition whose absence looked identical to a dead summon in the 2026-09-26 field
+        // log. One line closes that hole.
+        Log.Information("Toolbar force-shown (ShowAtRest)");
         _overlays.Toolbar.ShowAtRest();
         // Same raise as ShowToolbar (spec N2/H3): a commanded strip stays above the band. There is
         // no slide to stay uncontested through — ShowAtRest is instant — so the raise simply

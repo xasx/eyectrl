@@ -78,8 +78,19 @@ public sealed class ToolbarAutoHideController
     private volatile bool _suspended;
     private volatile bool _paused;
 
+    // Diagnostic-transition trackers (gaze thread only, Feed is their only writer). See _diagnostics.
+    private bool _lastSampleOnToolbar;
+    private bool _lastSampleValid = true;
+
     // ── Output seam ──
     private IToolbarVisibility? _visibility;
+
+    // Optional diagnostic sink (production wiring: Serilog; tests: null). The 2026-09-26 field
+    // failure — a hide with no summon for 25 s of edge gaze — was undiagnosable from the log
+    // because the summon run's start/reset and every state write were silent. These lines exist
+    // to make one real run decisive. All call sites are transition-shaped (per state write or per
+    // run start/reset), never per sample.
+    private Action<string>? _diagnostics;
 
     public ToolbarAutoHideController(bool enabled, string edge, double screenW, double screenH,
         PhysicalRect toolbarRect, int hideDelayMs, int summonDelayMs, double offScreenMarginPx,
@@ -96,6 +107,11 @@ public sealed class ToolbarAutoHideController
         _calibrationActive = calibrationActive;
         _toScreen = toScreen;
     }
+
+    /// <summary>Binds the diagnostic sink. Call once during wiring, before the first sample.</summary>
+    internal void AttachDiagnostics(Action<string> sink) => _diagnostics = sink;
+
+    private void Diag(string message) => _diagnostics?.Invoke(message);
 
     /// <summary>Binds the output seam. Real wiring passes an OverlayManager adapter; tests pass a fake.</summary>
     public void Attach(IToolbarVisibility visibility)
@@ -122,6 +138,7 @@ public sealed class ToolbarAutoHideController
         // measured 129 such re-asserts against 3 real hides.
         if (paused == _paused) return;
         _paused = paused;
+        Diag($"paused={paused} (state={_state})");
 
         if (paused)
         {
@@ -151,6 +168,7 @@ public sealed class ToolbarAutoHideController
     {
         if (suspended == _suspended) return;
         _suspended = suspended;
+        Diag($"suspended={suspended} (state={_state})");
         if (suspended)
         {
             // Recover from hidden so the user isn't stranded while the Settings window is up (the
@@ -273,20 +291,35 @@ public sealed class ToolbarAutoHideController
                 if (!sample.IsValid)
                 {
                     // Blink: ignored, does NOT reset the hide countdown (per spec).
+                    if (_lastSampleValid)
+                        Diag("gaze samples went INVALID (hide/summon tests skip these)");
+                    _lastSampleValid = false;
                 }
                 else
                 {
+                    if (!_lastSampleValid)
+                        Diag("gaze samples valid again");
+                    _lastSampleValid = true;
+
                     var probe = _toScreen is null
                         ? new PhysicalPoint(sample.X, sample.Y)
                         : _toScreen(new PhysicalPoint(sample.X, sample.Y));
                     if (_geometry.ToolbarRect.Contains(probe.X, probe.Y))
                     {
+                        if (!_lastSampleOnToolbar)
+                            Diag("gaze entered the toolbar rect");
+                        _lastSampleOnToolbar = true;
+
                         // Gaze on toolbar — anchor to "now" so the hide countdown measures time since
                         // the LAST on-toolbar sample (a later off-toolbar run resumes the count from here).
                         Volatile.Write(ref _hideAnchorUs, timestampUs);
                     }
                     else
                     {
+                        if (_lastSampleOnToolbar)
+                            Diag("gaze left the toolbar rect");
+                        _lastSampleOnToolbar = false;
+
                         // Off-toolbar run. Seed the anchor on the first such sample, then measure elapsed.
                         var anchor = Volatile.Read(ref _hideAnchorUs);
                         if (anchor == Unseeded)
@@ -296,6 +329,7 @@ public sealed class ToolbarAutoHideController
                         }
                         if (timestampUs - anchor >= _hideDelayUs)
                         {
+                            Diag($"hide fired after {(timestampUs - anchor) / 1000} ms off-toolbar");
                             _state = State.Hidden;
                             Volatile.Write(ref _summonRunUs, Unseeded);
                             _visibility.HideToolbar(_paused);
@@ -313,18 +347,28 @@ public sealed class ToolbarAutoHideController
                     {
                         runStart = timestampUs;
                         Volatile.Write(ref _summonRunUs, runStart);
+                        Diag($"summon run started (raw y={sample.Y:F0}, x={sample.X:F0}, margin={_offScreenMarginPx:F0})");
                     }
                     if (timestampUs - runStart >= _summonDelayUs)
                     {
                         _state = State.Visible;
                         Volatile.Write(ref _summonRunUs, Unseeded);
                         Volatile.Write(ref _hideAnchorUs, timestampUs); // start the post-summon hide countdown fresh
+                        Diag("summon threshold reached");
                         _visibility.ShowToolbar();
                     }
                 }
                 else
                 {
-                    Volatile.Write(ref _summonRunUs, Unseeded); // condition broken — reset summon countdown
+                    // Condition broken — reset the summon countdown. Only a run that lasted is worth
+                    // a line: the log must say WHY no summon fired (run never started vs reset early).
+                    var runStart = Volatile.Read(ref _summonRunUs);
+                    if (runStart != Unseeded)
+                    {
+                        Volatile.Write(ref _summonRunUs, Unseeded);
+                        if (timestampUs - runStart >= 100_000)
+                            Diag($"summon run reset after {(timestampUs - runStart) / 1000} ms (raw y={sample.Y:F0}, x={sample.X:F0})");
+                    }
                 }
                 break;
         }

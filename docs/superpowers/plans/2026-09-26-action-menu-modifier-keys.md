@@ -129,18 +129,20 @@ internal static NativeMethods.INPUT[] WrapWithModifiers(
 
     batch.AddRange(body);
 
-    if (includeAltMenuMask && modifierVks.Contains(NativeMethods.VK_MENU))
-    {
-        batch.Add(CreateKeyboardInput(MenuMaskVirtualKey, 0));
-        batch.Add(CreateKeyboardInput(MenuMaskVirtualKey, NativeMethods.KEYEVENTF_KEYUP));
-    }
-
     for (var i = modifierVks.Count - 1; i >= 0; i--)
     {
-        uint upFlags = modifierVks[i] == NativeMethods.VK_LWIN
+        var vk = modifierVks[i];
+        // The mask pair rides IMMEDIATELY BEFORE the Alt key-up (spec: mask before the Alt-up,
+        // wherever in the reversed order that lands).
+        if (includeAltMenuMask && vk == NativeMethods.VK_MENU)
+        {
+            batch.Add(CreateKeyboardInput(MenuMaskVirtualKey, 0));
+            batch.Add(CreateKeyboardInput(MenuMaskVirtualKey, NativeMethods.KEYEVENTF_KEYUP));
+        }
+        uint upFlags = vk == NativeMethods.VK_LWIN
             ? NativeMethods.KEYEVENTF_KEYUP | NativeMethods.KEYEVENTF_EXTENDEDKEY
             : NativeMethods.KEYEVENTF_KEYUP;
-        batch.Add(CreateKeyboardInput(modifierVks[i], upFlags));
+        batch.Add(CreateKeyboardInput(vk, upFlags));
     }
 
     return batch.ToArray();
@@ -241,18 +243,19 @@ public class Win32InputSimulatorModifiedSequenceTests
         var batch = Win32InputSimulator.WrapWithModifiers(
             Mods(ModifierKey.Shift, ModifierKey.Alt), body, includeAltMenuMask: true);
 
-        // Down order is Ctrl, Alt, Win, Shift filtered to the set, so Alt-down precedes Shift-down.
+        // Down order: Alt-down, Shift-down. Body. Ups REVERSED: Shift-up at [4], mask pair
+        // immediately before the Alt-up at [5..6], Alt-up at [7].
         Check.That(batch).HasSize(2 + 2 + 2 + 2);
         Check.That(batch[0].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_MENU);
         Check.That(batch[1].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_SHIFT);
         Check.That(batch[2].Type).IsEqualTo(NativeMethods.INPUT_MOUSE);
         Check.That(batch[3].Type).IsEqualTo(NativeMethods.INPUT_MOUSE);
-        Check.That(batch[4].Union.Keyboard.VirtualKey).IsEqualTo(MenuMask);
-        Check.That(batch[4].Union.Keyboard.Flags).IsEqualTo(0u);
-        Check.That(batch[5].Union.Keyboard.Flags).IsEqualTo(NativeMethods.KEYEVENTF_KEYUP);
-        Check.That(batch[6].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_MENU);
+        Check.That(batch[4].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_SHIFT);
+        Check.That(batch[4].Union.Keyboard.Flags).IsEqualTo(NativeMethods.KEYEVENTF_KEYUP);
+        Check.That(batch[5].Union.Keyboard.VirtualKey).IsEqualTo(MenuMask);
         Check.That(batch[6].Union.Keyboard.Flags).IsEqualTo(NativeMethods.KEYEVENTF_KEYUP);
-        Check.That(batch[7].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_SHIFT);
+        Check.That(batch[7].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_MENU);
+        Check.That(batch[7].Union.Keyboard.Flags).IsEqualTo(NativeMethods.KEYEVENTF_KEYUP);
     }
 
     [Fact]
@@ -266,7 +269,7 @@ public class Win32InputSimulatorModifiedSequenceTests
     }
 
     [Fact]
-    public void KeyboardSequence_NeverCarriesTheMask()
+    public void Wrap_NullModifiers_ZeroKeyboardInputs_AndKeyboardSequence_NeverCarriesTheMask()
     {
         var batch = Win32InputSimulator.BuildModifiedKeySequence(
             Mods(ModifierKey.Alt, ModifierKey.Shift), 0x41, isExtendedKey: false);
@@ -300,7 +303,7 @@ public class Win32InputSimulatorModifiedSequenceTests
     }
 
     [Fact]
-    public void Compensation_BalancedPrefix_EmitsNothing()
+    public void Compensation_FullySentBatch_EmitsNothing_EarlyReturn()
     {
         var batch = new[]
         {
@@ -323,9 +326,11 @@ public class Win32InputSimulatorModifiedSequenceTests
             Win32InputSimulatorTestHelper.KeyboardInput(NativeMethods.VK_SHIFT, NativeMethods.KEYEVENTF_KEYUP),
         };
 
-        var releases = Win32InputSimulator.BuildCompensatingReleases(2, batch); // LEFTDOWN unmatched
+        var releases = Win32InputSimulator.BuildCompensatingReleases(2, batch); // LEFTDOWN + Shift-down unmatched
 
-        Check.That(releases).HasSize(1);
+        Check.That(releases).HasSize(2); // LEFTUP first, then Shift-up; no Alt means no mask
+        Check.That((releases[0].Union.Mouse.Flags & NativeMethods.MOUSEEVENTF_LEFTUP)).IsNotEqualTo(0u);
+        Check.That(releases[1].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_SHIFT);
         Check.That(releases.Any(i => i.Union.Keyboard.VirtualKey == MenuMask)).IsFalse();
     }
 }
@@ -333,12 +338,12 @@ public class Win32InputSimulatorModifiedSequenceTests
 /// <summary>Test access to the internal composition helpers (InternalsVisibleTo covers this project).</summary>
 internal static class Win32InputSimulatorTestHelper
 {
-    /// <summary>Identity-ish mapper: the composition tests assert flags and types, never coordinates.</summary>
-    public sealed class PassThroughCoordinateMapper : EyeCtrl.Core.Interfaces.IMouseCoordinateMapper
+    /// <summary>Identity-ish mapper: the composition tests assert flags and types, never coordinates. IMouseCoordinateMapper lives in EyeCtrl.Platform.Input and returns (int, int).</summary>
+    public sealed class PassThroughCoordinateMapper : global::EyeCtrl.Platform.Input.IMouseCoordinateMapper
     {
-        public (double X, double Y) NormalizeScreenCoordinate(
+        public (int normalizedX, int normalizedY) NormalizeScreenCoordinate(
             EyeCtrl.Core.Models.PhysicalPoint point, int screenWidth, int screenHeight)
-            => (point.X / (double)screenWidth, point.Y / (double)screenHeight);
+            => (point.X, point.Y);
     }
 
     public static NativeMethods.INPUT MouseInput(uint flags) => new()
@@ -375,65 +380,7 @@ private int SendRaw(uint count, NativeMethods.INPUT[] inputs)
 }
 ```
 
-(b) `WrapWithModifiers` + the menu-mask key (modifier downs in Ctrl, Alt, Win, Shift order; body; when `includeAltMenuMask` and Alt present, the VK 0xE8 down/up pair immediately before the Alt key-up; ups reversed):
-
-```csharp
-internal const ushort MenuMaskVirtualKey = 0xE8;
-
-internal static NativeMethods.INPUT[] WrapWithModifiers(
-    IReadOnlySet<ModifierKey>? modifiers, NativeMethods.INPUT[] body, bool includeAltMenuMask)
-{
-    var modifierVks = new List<ushort>();
-    if (modifiers is not null)
-    {
-        if (modifiers.Contains(ModifierKey.Ctrl)) modifierVks.Add(NativeMethods.VK_CONTROL);
-        if (modifiers.Contains(ModifierKey.Alt)) modifierVks.Add(NativeMethods.VK_MENU);
-        if (modifiers.Contains(ModifierKey.Win)) modifierVks.Add(NativeMethods.VK_LWIN);
-        if (modifiers.Contains(ModifierKey.Shift)) modifierVks.Add(NativeMethods.VK_SHIFT);
-    }
-
-    var batch = new List<NativeMethods.INPUT>(
-        modifierVks.Count * 2 + body.Length + (modifierVks.Contains(NativeMethods.VK_MENU) && includeAltMenuMask ? 2 : 0));
-
-    foreach (var vk in modifierVks)
-    {
-        uint downFlags = vk == NativeMethods.VK_LWIN ? NativeMethods.KEYEVENTF_EXTENDEDKEY : 0;
-        batch.Add(CreateKeyboardInput(vk, downFlags));
-    }
-
-    batch.AddRange(body);
-
-    if (includeAltMenuMask && modifierVks.Contains(NativeMethods.VK_MENU))
-    {
-        batch.Add(CreateKeyboardInput(MenuMaskVirtualKey, 0));
-        batch.Add(CreateKeyboardInput(MenuMaskVirtualKey, NativeMethods.KEYEVENTF_KEYUP));
-    }
-
-    for (var i = modifierVks.Count - 1; i >= 0; i--)
-    {
-        uint upFlags = modifierVks[i] == NativeMethods.VK_LWIN
-            ? NativeMethods.KEYEVENTF_KEYUP | NativeMethods.KEYEVENTF_EXTENDEDKEY
-            : NativeMethods.KEYEVENTF_KEYUP;
-        batch.Add(CreateKeyboardInput(modifierVks[i], upFlags));
-    }
-
-    return batch.ToArray();
-}
-```
-
-(c) `BuildModifiedKeySequence` delegates (keyboard batches carry NO mask — byte-identical to today, because a keyboard batch contains its own keystroke and Alt-up cannot activate a menu there):
-
-```csharp
-internal static NativeMethods.INPUT[] BuildModifiedKeySequence(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode, bool isExtendedKey)
-    => WrapWithModifiers(
-        modifiers,
-        new[]
-        {
-            CreateKeyboardInput(virtualKeyCode, isExtendedKey ? NativeMethods.KEYEVENTF_EXTENDEDKEY : 0),
-            CreateKeyboardInput(virtualKeyCode, (isExtendedKey ? NativeMethods.KEYEVENTF_EXTENDEDKEY : 0) | NativeMethods.KEYEVENTF_KEYUP),
-        },
-        includeAltMenuMask: false);
-```
+(b)/(c) `WrapWithModifiers` and the `BuildModifiedKeySequence` delegation were presented in Step 3 above — do NOT redeclare them here; Task 1 implements them exactly once (Step 3), and Steps 8-9 only USE them.
 
 (d) Pure body builders (they make the PRODUCTION batch shapes testable — the leading MOVE, the four-event double-click, the wheel deltas):
 
@@ -1199,9 +1146,9 @@ using Xunit;
 
 public class ActionMenuViewModelLatchTests
 {
-    // Drag and ScrollMode sit on the DEFAULT secondary layer (PrimaryActions is LeftClick,
-    // RightClick, DoubleClick, ScrollMode) — this suite pins their dimming on layer one, so
-    // the settings put them on layer one explicitly.
+    // Drag is on the DEFAULT secondary layer (PrimaryActions is LeftClick, RightClick,
+    // DoubleClick, ScrollMode); ScrollMode is already primary. The settings pin all three
+    // onto layer one so the dimming is tested where the owner meets it.
     private static EyeCtrlSettings SettingsWithDragOnLayerOne()
     {
         var settings = new EyeCtrlSettings();
@@ -1460,7 +1407,7 @@ public class EdgeButtonBarViewModelRearmTests
     private static void Look(EdgeButtonBarViewModel vm, PhysicalPoint p, long t, bool inGap = false, bool paused = false)
         => vm.Receive(new GazeCursorMovedMessage(new GazeFrame(p, t, IsInGap: inGap)) { IsPaused = paused });
     // GazeFrame is (Position, TimestampMicroseconds, IsInGap) — IsPaused is an init property
-    // ON THE MESSAGE (GazeMessages.cs:47), not a GazeFrame member.
+    // ON THE MESSAGE (GazeMessages.cs:48), not a GazeFrame member.
 
     private static void Hold(EdgeButtonBarViewModel vm, PhysicalPoint p, long startUs, int samples)
     {
@@ -1614,16 +1561,46 @@ public class EdgeButtonBarViewModelRearmTests
         // detector's 150 ms re-anchor window — so the skip mutant's kept EnteredTimestamp
         // fires on the first sample back (elapsed over dwell), while the hits-nothing feed
         // cleared it and the correct impl re-dwells from zero.
-        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y), 1_000_000, 4);         // ctrl enters 1.0M, partial to 1.3M
+        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y), 1_000_000, 6);         // ctrl 1.0M..1.5M: elapsed 500 ms
+                                                                               // at the last ungated sample
         Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y - spacing), 1_550_000);  // gated crossing (shift-nearest)
         Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y - spacing), 1_600_000);
-        Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y), 1_680_000);            // back on ctrl: last ungated
-                                                                               // sample was 1.3M, silence 130 ms
-                                                                               // < 150 ms, so NO re-anchor
-        Check.That(toggles).ContainsExactly("shift");                          // the mutant fires ctrl HERE
+        Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y), 1_620_000);            // back on ctrl: last ungated
+                                                                               // sample was 1.5M, silence 120 ms
+                                                                               // < 150 ms, so NO re-anchor; the
+                                                                               // skip mutant's kept timestamp gives
+                                                                               // elapsed 620k ≥ dwell ⇒ fires HERE
+        Check.That(toggles).ContainsExactly("shift");                          // correct impl: cleared, no fire
 
         Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y), 2_000_000, 8);         // correct impl: fresh dwell
         Check.That(toggles.Count(s => s == "ctrl")).IsEqualTo(1);              // the button is not dead
+    }
+
+    private sealed class RecordingSink : IStruggleTelemetrySink
+    {
+        public List<DwellOutcome> Outcomes { get; } = new();
+        public void Report(DwellOutcome outcome) => Outcomes.Add(outcome);
+    }
+
+    [Fact]
+    public void GatedSamples_PublishNoDwellOutcome_RealActivations_PublishTheCue()
+    {
+        var sink = new RecordingSink();
+        var messenger = new WeakReferenceMessenger();
+        var cues = new List<DwellActivationMessage>();
+        messenger.Register<DwellActivationMessage>(messenger, (_, m) => cues.Add(m));
+        var toggles = new List<string>();
+        var vm = new EdgeButtonBarViewModel(new EyeCtrlSettings(), messenger, sink, null);
+        vm.ShowButtons(new[] { Def("mod", toggles) }, Anchor);
+
+        Hold(vm, Anchor, 0, 8);                            // real activation: outcome + cue
+        Check.That(sink.Outcomes.Count(o => o.Kind == OutcomeKind.Activated)).IsEqualTo(1);
+        Check.That(cues).HasSize(1);
+
+        var before = sink.Outcomes.Count;
+        Hold(vm, Anchor, 3_000_000, 8);                    // gated run: hits-nothing, no outcomes, no cue
+        Check.That(sink.Outcomes.Count).IsEqualTo(before);
+        Check.That(cues).HasSize(1);
     }
 
     [Fact]
@@ -1831,7 +1808,7 @@ public void LatchedVariants_AddTheFilledMarginDot()
     Check.That(ActionIcons.For(ActionIcon.ShiftLatched).Fill).IsNotNull();
     // The PRIMARY latched cue is the rim in the STROKE geometry (outline-level, peripheral-
     // vision rule) — pin that the latched stroke differs from the unlatched glyph:
-    Check.That(ActionIcons.For(ActionIcon.ShiftLatched).Stroke).IsNotEqualTo(ActionIcons.For(ActionIcon.Shift).Stroke);
+    Check.That(ActionIcons.For(ActionIcon.ShiftLatched).Stroke!.ToString().Contains(LatchedRim)).IsTrue();
 }
 ```
 
@@ -1998,7 +1975,7 @@ public void Definitions_TopToBottom_ShiftCtrlAlt_AtMirroredOffsets()
 
     Check.That(defs).HasSize(3);
     Check.That(defs[0].Id).IsEqualTo(ActionMenuModifierButtons.ShiftId);
-    Check.That(defs[0].VerticalOffset).IsLessThan(0);
+    Check.That(defs[0].VerticalOffset).IsStrictlyLessThan(0);
     Check.That(defs[1].Id).IsEqualTo(ActionMenuModifierButtons.CtrlId);
     Check.That(defs[1].VerticalOffset).IsEqualTo(0);
     Check.That(defs[2].Id).IsEqualTo(ActionMenuModifierButtons.AltId);
@@ -2245,13 +2222,6 @@ public void HideActionMenu_HidesTheModBar_Unconditionally_EvenWhenTheRightBarIsO
 }
 
 [StaFact]
-public void EdgeButtonBar_IsExcludedFromScreenCapture()
-{
-    // Follow-up 3's verification: the preview must never bake the edge bars in.
-    Check.That(new EdgeButtonBarWindow().ExcludeFromScreenCapture).IsTrue();
-}
-
-[StaFact]
 public void ThrowingModBar_DoesNotPreventTheRightBarShow()
 {
     var h = BuildContext(withModBar: false); // PartialOverlayManager WITHOUT the slot ⇒ default throws
@@ -2362,6 +2332,13 @@ else
 
 Constructor: add `ExcludeFromScreenCapture = true;` next to `IsClickThrough = true;` (compare `ActionMenuWindow.xaml.cs:53`; the property is init-only but settable from a derived constructor).
 
+[StaFact]
+public void EdgeButtonBar_IsExcludedFromScreenCapture()
+{
+    // Follow-up 3's verification: the preview must never bake the edge bars in.
+    Check.That(new EdgeButtonBarWindow().ExcludeFromScreenCapture).IsTrue();
+}
+
 - [ ] **Step 3: Contrast test** — `tests/EyeCtrl.App.Tests/ActionIconDimContrastTests.cs` (the `HaloContrastTests` matrix lives in THIS project — Controls.Tests does not reference it):
 
 ```csharp
@@ -2450,7 +2427,7 @@ Expected: PASS. `AppLaunchTests` are gated behind `EYECTRL_UI_TESTS=1` and SKIP 
 
 - [ ] **Step 2: Graph change analysis (repo rule)**
 
-Run: `node .gitnexus/run.cjs detect-changes --scope compare --base-ref "main" --worktree "C:\Users\andre\source\repos\eyectrl\.worktrees\action-menu-modifier-keys"`
+Run: `node "C:\Users\andre\source\repos\eyectrl\.gitnexus\run.cjs" detect-changes --scope compare --base-ref "main" --worktree "C:\Users\andre\source\repos\eyectrl\.worktrees\action-menu-modifier-keys"` (run.cjs is untracked and lives only in the MAIN checkout — absolute path)
 (Compare mode against main — working-tree scope is vacuous after per-task commits.)
 ALSO run the repo-mandated impact checks BEFORE the tasks that edit these symbols: `impact({target: "DwellDetector.Update"})`, `impact({target: "SendRaw"})`, `impact({target: "OnActionSelected"})` — record the risk levels in the task notes.
 Expected: risk assessed; HIGH/CRITICAL findings reviewed against the spec's blast-radius section before proceeding.

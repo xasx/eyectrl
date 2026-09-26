@@ -117,7 +117,16 @@ public static class BiasDecisionRule
     /// </summary>
     /// <param name="estimate">The estimator's output.</param>
     /// <param name="screenSize">Display size in physical pixels, to locate the centre target.</param>
-    public static Decision Evaluate(BiasEstimator.Estimate estimate, PhysicalPoint screenSize)
+    /// <param name="applyMinorityGuard">
+    /// Whether the minority-pick guard may veto "No trigger". True for the winner — the session's real
+    /// answer — and FALSE when the estimator is judging an alternative field's verdict inside the
+    /// rival search: a rival is a minority pick somewhere by construction, so applying the guard there
+    /// makes every fragment rival read Inconclusive and flags a clean small bias as Ambiguous
+    /// (reviewer A's R4-1: No trigger fell from 100/100/100 to 99/76/26 at σ 9/12/15). The guard
+    /// exists to keep a wander from *answering* for the winner, not to judge hypotheticals.
+    /// </param>
+    public static Decision Evaluate(
+        BiasEstimator.Estimate estimate, PhysicalPoint screenSize, bool applyMinorityGuard = true)
     {
         ArgumentNullException.ThrowIfNull(estimate);
         var ci = System.Globalization.CultureInfo.InvariantCulture;
@@ -189,14 +198,17 @@ public static class BiasDecisionRule
         // A pick that is a small minority of its target's evidence lost on samples and only completed
         // the assignment because the real hold could not form one; and "No trigger" must mean CLEARLY
         // small, not merely a hair under a bar a second place can pull it across.
-        var minorityPicks = estimate.Probes
-            .Where(p => p.Chosen is { } chosen && p.Clusters.Count > 0
-                && chosen.SampleCount * MinorityPickDivisor < p.Clusters.Max(c => c.SampleCount))
-            .Select(p => p.TargetId)
-            .ToList();
-        bool clearlySmall = centreMeasured
-            && measured.All(m => m.MagnitudePx < PerTargetTriggerPx - NoTriggerGuardBandPx)
-            && centreMagnitude!.Value < CentreTriggerPx - NoTriggerGuardBandPx;
+        var minorityPicks = applyMinorityGuard
+            ? estimate.Probes
+                .Where(p => p.Chosen is { } chosen && p.Clusters.Count > 0
+                    && chosen.SampleCount * MinorityPickDivisor < p.Clusters.Max(c => c.SampleCount))
+                .Select(p => p.TargetId)
+                .ToList()
+            : new List<int>();
+        // The centre clause "centre < 75 − δ" would never bind: every measured magnitude — the centre
+        // included — is already required to be below the per-target bar less δ (50), which is stricter
+        // than 65, so it is deliberately not restated here.
+        bool clearlySmall = measured.All(m => m.MagnitudePx < PerTargetTriggerPx - NoTriggerGuardBandPx);
 
         if (everyClusteredTargetUsed && measured.Count >= MinTargetsForNoTrigger
             && centreMeasured && perTargetArmDecidable && minorityPicks.Count == 0 && clearlySmall)
@@ -249,6 +261,19 @@ public static class BiasDecisionRule
             why = $"{overThreshold} measured target(s) are at or above {PerTargetTriggerPx:0} px and "
                 + $"{unmeasured} target(s) were not measured, so the "
                 + $"{MinTargetsForTrigger}-of-{MinTargetsForTrigger} arm is not decidable";
+        }
+        else if (measured.Count(m => m.MagnitudePx >= PerTargetTriggerPx - NoTriggerGuardBandPx) == 1
+            && overThreshold < MinTargetsForTrigger)
+        {
+            // ONE target at or above the band while the arm needs two: the honest reading, not
+            // "within 10 px of the bars" (which said 90 px was near 60). Name the target and say what
+            // to do if it persists.
+            var worst = measured.OrderByDescending(m => m.MagnitudePx).First();
+            why = $"target {worst.TargetId} reads {worst.MagnitudePx.ToString("0.0", ci)} px; one target "
+                + $"alone cannot fire the {MinTargetsForTrigger}-of-{estimate.Probes.Count} arm ("
+                + $"{PerTargetTriggerPx:0} px at {MinTargetsForTrigger} targets), but a second target "
+                + $"near the {PerTargetTriggerPx:0} px bar cannot be ruled out. If a re-run repeats this "
+                + "reading, recalibrating in Tobii Dynavox Eye Tracking Settings is reasonable";
         }
         else if (!clearlySmall)
         {

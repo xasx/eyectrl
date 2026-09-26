@@ -458,13 +458,14 @@ public class BiasEstimatorTests
     public void RevisitsMoreThanTheMergeRadiusFromTheAnchor_StaySeparate()
     {
         // Three runs 25 px apart. With an ANCHORED place, the 25 px run merges into the first and the
-        // 50 px run does not; with a running centroid the middle run drags the place to 12.5 px and the
-        // third lands within 40 px of THAT, so all three chain into one blended place — reviewer A's
-        // chaining mechanism, pinned directly.
+        // 35 px run does not; with a running centroid the middle run drags the place to 12.5 px and the
+        // third lands within 28 px of THAT, so all three chain into one blended place — reviewer A's
+        // chaining mechanism. Spaced for the 28 px linkage: at 0/25/50 the two implementations agreed
+        // and the pin lost its teeth.
         var target = new PhysicalPoint(500, 500);
         var samples = new List<GroundTruthSample>();
         long t = 300_000;
-        foreach (double offset in new[] { 0.0, 25.0, 50.0 })
+        foreach (double offset in new[] { 0.0, 25.0, 35.0 })
         {
             for (int i = 0; i < 6; i++, t += 30_000)
                 samples.Add(new GroundTruthSample(target.X + 100 + offset, target.Y, t, Valid: true));
@@ -481,7 +482,7 @@ public class BiasEstimatorTests
 
         Check.That(clusters).HasSize(2);
         Check.That(clusters[0].SampleCount).IsEqualTo(12);   // the 0 and 25 px runs
-        Check.That(clusters[1].SampleCount).IsEqualTo(6);    // the 50 px run, beyond the anchor's radius
+        Check.That(clusters[1].SampleCount).IsEqualTo(6);    // the 35 px run, beyond the anchor's radius
     }
 
     /// <summary>A five-window session with the given per-target x biases and per-target cycle counts.</summary>
@@ -494,6 +495,144 @@ public class BiasEstimatorTests
         for (int i = 0; i < 5; i++)
             windows.Add(BiasStreams.Window(i, targets[i], new PhysicalPoint(biasesX[i], 0), ref t, noise, cycles: cycles[i]));
         return BiasStreams.Session(windows);
+    }
+
+    // ── Round 4: the safe slack, jitter, and honest degraded-target reasons ───
+
+    [Theory]
+    [InlineData(20.0, 6, 7)]
+    [InlineData(20.0, 5, 8)]
+    [InlineData(25.0, 6, 7)]
+    [InlineData(25.0, 5, 8)]
+    public void Sweep_TwoCornerSlack_NeverGivesAWrongNoTrigger(double centreX, int holdSamples, int restSamples)
+    {
+        // Reviewer B's R4-1: a modestly non-affine truth (top row 70/62, bottom 10, centre C) whose
+        // true verdict is Recalibrate, with rests 30 px off at both top corners, slightly longer than
+        // the hold. The rests fit better, so the truth is the rival; at a 5 px slack the truth was
+        // dropped and the verdict a confident false "No trigger" on 10–69 of 100 seeds. At 10 it is at
+        // most 1 in 100.
+        int wrongNoTrigger = 0;
+        for (uint seed = 1; seed <= 100; seed++)
+        {
+            var decision = BiasDecisionRule.Evaluate(
+                BiasEstimator.Measure(BiasStreams.TwoCornerSlack(seed, centreX, holdSamples, restSamples)),
+                Screen);
+            if (decision.Verdict == BiasDecisionRule.BiasVerdict.NoTrigger) wrongNoTrigger++;
+        }
+
+        Check.That(wrongNoTrigger).IsLessOrEqualThan(1);
+    }
+
+    [Fact]
+    public void Sweep_Jitter_NoWrongVerdicts_AndNoTriggerAtTheMeasuredAndTiredSigmas()
+    {
+        // A clean 20 px bias, no distractor, varying fixation jitter. At σ ≥ 12 the 28 px linkage
+        // fragments fixations, and judging the fragment rivals WITH the minority guard marked every
+        // clean small bias Ambiguous (No trigger fell to 76/26/21 of 100 at σ 12/15/20). Rivals are
+        // judged without the guard now; 0 Recalibrate anywhere, No trigger ≥ 95 % at σ 9 and 12.
+        var noTriggerBySigma = new Dictionary<double, int>();
+        foreach (double sigma in new[] { 9.0, 12.0, 15.0, 20.0 })
+        {
+            int noTrigger = 0, recalibrate = 0;
+            for (uint seed = 1; seed <= 100; seed++)
+            {
+                var decision = BiasDecisionRule.Evaluate(BiasEstimator.Measure(BiasStreams.Jitter(seed, sigma)), Screen);
+                if (decision.Verdict == BiasDecisionRule.BiasVerdict.NoTrigger) noTrigger++;
+                if (decision.Verdict == BiasDecisionRule.BiasVerdict.Recalibrate) recalibrate++;
+            }
+            Check.That(recalibrate).IsEqualTo(0);
+            noTriggerBySigma[sigma] = noTrigger;
+        }
+
+        Check.That(noTriggerBySigma[9.0]).IsGreaterOrEqualThan(95);
+        Check.That(noTriggerBySigma[12.0]).IsGreaterOrEqualThan(95);
+        // σ 15 and 20 are reported, not gated: the linkage fragments real fixations there and the
+        // honest answer is Inconclusive.
+        Check.That(noTriggerBySigma[15.0] + noTriggerBySigma[20.0]).IsGreaterOrEqualThan(0);
+    }
+
+    [Theory]
+    [InlineData(20.0, 8)]
+    [InlineData(25.0, 8)]
+    [InlineData(25.0, 12)]
+    [InlineData(20.0, 16)]
+    public void StreamG16_OneOfTwoOverBarTargetsBlended_StaysInconclusive(double gap, int secondSamples)
+    {
+        // TL and TR are truly 62 px (the arm fires), but a second place blends TR down to 48–52. The
+        // per-target rule tolerates the underestimate and answers Inconclusive; a tighter rule that
+        // counts only the remaining over-bar target would say "No trigger" (reviewer A's G16).
+        var targets = BiasStreams.Layout;
+        var noise = new BiasStreams.Noise(161);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int i = 0; i < 5; i++)
+        {
+            double yn = (targets[i].Y - (Screen.Y / 2)) / 1080.0;
+            var bias = new PhysicalPoint(36 - (26 * yn), 0);
+            windows.Add(i == 4
+                ? BiasStreams.Window(i, targets[i], bias, ref t, noise, holdN: 8,
+                    distractorAbs: new PhysicalPoint(targets[i].X + bias.X - gap, targets[i].Y), dN: secondSamples)
+                : BiasStreams.Window(i, targets[i], bias, ref t, noise));
+        }
+
+        var decision = BiasDecisionRule.Evaluate(BiasEstimator.Measure(BiasStreams.Session(windows)), Screen);
+
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Inconclusive);
+    }
+
+    [Theory]
+    [InlineData(55.0)]
+    [InlineData(70.0)]
+    [InlineData(90.0)]
+    public void StreamG15_OneDegradedCorner_OwnsItsReason(double corner)
+    {
+        // One target far above the per-target bar cannot fire the 2-of-5 arm alone, but a second
+        // near-bar target cannot be ruled out. The reason must say that, name the target, and point at
+        // the Tobii recalibration — not claim a 90 px reading is "within 10 px of the bars".
+        var targets = BiasStreams.Layout;
+        var noise = new BiasStreams.Noise(151);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int i = 0; i < 5; i++)
+            windows.Add(BiasStreams.Window(i, targets[i], i == 0 ? new PhysicalPoint(corner, 0) : new PhysicalPoint(10, 0), ref t, noise));
+
+        var decision = BiasDecisionRule.Evaluate(BiasEstimator.Measure(BiasStreams.Session(windows)), Screen);
+
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Inconclusive);
+        Check.That(decision.Reason).Contains("target 0");
+        Check.That(decision.Reason).Contains("cannot fire the 2-of-5 arm");
+        Check.That(decision.Reason).Contains("Tobii Dynavox Eye Tracking Settings");
+        Check.That(decision.Reason).Not.Contains("within 10 px of the bars");
+    }
+
+    [Fact]
+    public void StreamG15_OneCornerInsideTheBand_StillSaysNoTrigger()
+    {
+        // 45 px at one corner is clearly small, so the honest answer is still No trigger.
+        var targets = BiasStreams.Layout;
+        var noise = new BiasStreams.Noise(151);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int i = 0; i < 5; i++)
+            windows.Add(BiasStreams.Window(i, targets[i], i == 0 ? new PhysicalPoint(45, 0) : new PhysicalPoint(10, 0), ref t, noise));
+
+        var decision = BiasDecisionRule.Evaluate(BiasEstimator.Measure(BiasStreams.Session(windows)), Screen);
+
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.NoTrigger);
+    }
+
+    [Fact]
+    public void StreamK_RestFirstOrder_StillRecalibrates()
+    {
+        // The same two places as stream K, but the rest runs FIRST in every cycle: an implementation
+        // that dropped the sample-count tie-break would pick the rest (it is enumerated first and has
+        // fewer samples) and answer No trigger. The tie-break must choose the 66-sample truth.
+        var decision = BiasDecisionRule.Evaluate(
+            BiasEstimator.Measure(BiasStreams.TwoPlaceRestFirst(
+                new PhysicalPoint(100, 0), new PhysicalPoint(10, 0), holdSamples: 11, restSamples: 5)),
+            Screen);
+
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Recalibrate);
     }
 
     // ── Decision rule unit tests (hand-built estimates) ───────────────────────
@@ -743,8 +882,10 @@ public class BiasEstimatorTests
         }
 
         Check.That(recalibrate).IsEqualTo(0);
-        Check.That(inconclusive).IsLessOrEqualThan(25);
-        Check.That(noTrigger).IsGreaterOrEqualThan(75);
+        // 35, not 25: at slack 10 the near-rest shapes are 33 % Inconclusive, and that is the price
+        // of the shape B's R4-1 forbids (a confident false "No trigger" on 10–69 of 100 seeds).
+        Check.That(inconclusive).IsLessOrEqualThan(35);
+        Check.That(noTrigger).IsGreaterOrEqualThan(65);
     }
 
     // ── Decision rule unit tests (hand-built estimates) ───────────────────────

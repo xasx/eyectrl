@@ -83,12 +83,21 @@ public static class BiasEstimator
     /// places rather than to rank two ways of measuring one place.
     /// <para>
     /// <b>Accepted limit at exactly this boundary.</b> A consistent rest about 90 px beside the dot
-    /// that holds more than twice the true hold's samples (reviewer B's stream K, truth-to-rest ratio
+    /// that holds more than the true hold's samples (reviewer B's stream K, truth-to-rest ratio at or
     /// below 0.5) wins outright; the gate is the ratio test, which runs before any verdict comparison,
     /// and the answer is a confident "No trigger". No instrument can tell that apart from a user
     /// aiming beside the dot to compensate, and lowering the ratio to catch it would raise the
     /// false-Inconclusive rate on the realistic near-hold rest shapes. Accepted, documented, and left
     /// alone; the raw sidecar lets a later estimator re-read the same probe.
+    /// </para>
+    /// <para>
+    /// <b>Accepted limit of the rival slack (reviewer A's G14).</b> A non-affine truth (top corners
+    /// 70 px, others 10) plus a perfectly uniform second rest at both top corners: the rest field wins
+    /// on fit, and the true rival fits more than <see cref="RivalResidualSlackPx"/> worse, so it is
+    /// dropped and the verdict is a confident "No trigger". Exempting opposite-verdict rivals from the
+    /// slack was prototyped and breaks the near-rest sweeps, where the opposite-verdict rival IS the
+    /// look-away; the slack is a symmetric bet on the better-fitting field. The realistic G17 sweep
+    /// shows 0 wrong verdicts, so this two-corner coincidence is documented rather than coded around.
     /// </para>
     /// </summary>
     public const double AmbiguitySampleRatio = 0.5;
@@ -107,12 +116,16 @@ public static class BiasEstimator
     /// second rest (40–120 px away, the realistic shape for a user who finds steady fixation hard)
     /// yields rivals that fit at 15–25 px residual against the winner's 1–3 — a noise substitution at
     /// a weakly constrained corner, not a second consistent solution. A rival that fits comparably
-    /// (streams D and K) or better (G6's true field) still counts. Measured: the near-rest shapes drop
-    /// from 48–62 % to 10–20 % Inconclusive with no wrong verdict anywhere. Five rather than reviewer
-    /// B's ten because the δ guard band and the 28 px place linkage already raise the rate, and five is
-    /// what brings the shorter-rest shapes under the fixup's 25 % aim without changing any verdict.
+    /// (streams D and K) or better (G6's true field) still counts.
+    /// <para>
+    /// <b>Ten, not five (reviewer B's R4-1).</b> At five, a modestly non-affine true field (top row
+    /// 70/62, centre 20–25, bottom 10) with rests 30 px off at both top corners fits 8–14 px worse than
+    /// the rests, so the truth was silenced and the verdict a confident false "No trigger" on 10–69 of
+    /// 100 seeds. At ten that falls to at most 1 in 100. The price is decisiveness on the near-rest
+    /// shapes — 33 % Inconclusive rather than 10–20 % — which is why the near-rest test bar is 35 %.
+    /// </para>
     /// </summary>
-    public const double RivalResidualSlackPx = 5;
+    public const double RivalResidualSlackPx = 10;
 
     /// <summary>
     /// The largest slope the affine offset field may have, per axis. A real device/position residual is
@@ -410,7 +423,8 @@ public static class BiasEstimator
             if (candidate.MaxResidualPx > best.MaxResidualPx + RivalResidualSlackPx) continue;
 
             bool verdictDiffers = BiasDecisionRule
-                .Evaluate(BuildEstimate(probes, candidate), screenSize).Verdict != bestVerdict;
+                .Evaluate(BuildEstimate(probes, candidate), screenSize, applyMinorityGuard: false)
+                .Verdict != bestVerdict;
             bool materialDifference =
                 Distance(candidate.Mean(probes), bestMean) > AmbiguitySeparationPx;
             if (!verdictDiffers && !materialDifference) continue;

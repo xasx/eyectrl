@@ -401,4 +401,84 @@ internal static class BiasStreams
         }
         return Session(windows);
     }
+
+    /// <summary>
+    /// Reviewer A's jitter stream: a clean bias at every target, no distractor, with the given
+    /// per-sample noise σ. The 28 px linkage fragments a fixation at σ above the measured 8.9 px.
+    /// </summary>
+    public static GroundTruthSession Jitter(uint seed, double sigma, PhysicalPoint? bias = null)
+    {
+        var targets = Layout;
+        var truth = bias ?? new PhysicalPoint(20, 0);
+        var noise = new Noise(seed * 7);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int i = 0; i < 5; i++)
+            windows.Add(Window(i, targets[i], truth, ref t, noise, sigma: sigma));
+        return Session(windows);
+    }
+
+    /// <summary>
+    /// Reviewer B's R4-1 shape: a modestly non-affine true field (top row 70/62 px, bottom row 10,
+    /// centre <paramref name="centreX"/>) with a second rest 30 px from the target at both top corners,
+    /// slightly longer than the hold.
+    /// </summary>
+    public static GroundTruthSession TwoCornerSlack(
+        uint seed, double centreX, int holdSamples, int restSamples, int cycles = 7)
+    {
+        var targets = Layout;
+        var noise = new Noise(seed + 7300);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int id = 0; id < 5; id++)
+        {
+            var target = targets[id];
+            var bias = target.Y < (Screen.Y / 2)
+                ? new PhysicalPoint(target.X < (Screen.X / 2) ? 70 : 62, 0)
+                : target.Y > (Screen.Y / 2)
+                    ? new PhysicalPoint(10, 0)
+                    : new PhysicalPoint(centreX, 0);
+            bool top = target.Y < (Screen.Y / 2);
+            windows.Add(Window(id, target, bias, ref t, noise, cycles, holdN: top ? holdSamples : 7,
+                distractorAbs: top ? new PhysicalPoint(target.X + 30, target.Y) : null,
+                dN: top ? restSamples : 0));
+        }
+        return Session(windows);
+    }
+
+    /// <summary>
+    /// Stream K's two places with the REST enumerated first in time (the tie-break's other order):
+    /// the rest runs before the hold in every cycle, so an implementation that dropped the
+    /// sample-count tie-break would pick the rest first.
+    /// </summary>
+    public static GroundTruthSession TwoPlaceRestFirst(
+        PhysicalPoint bias, PhysicalPoint restOffset, int holdSamples, int restSamples,
+        int cycles = 6, uint seed = 500)
+    {
+        var targets = Layout;
+        var noise = new Noise(seed);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int id = 0; id < 5; id++)
+        {
+            var target = targets[id];
+            long from = t;
+            var samples = new List<GroundTruthSample>();
+            for (int i = 0; i < 10; i++, t += StepUs)
+                samples.Add(new GroundTruthSample(target.X - 400 + (i * 40), target.Y - 300 + (i * 30), t, true));
+            for (int c = 0; c < cycles; c++)
+            {
+                for (int i = 0; i < restSamples; i++, t += StepUs)
+                    samples.Add(new GroundTruthSample(
+                        target.X + restOffset.X + (noise.NextGaussian() * 9),
+                        target.Y + restOffset.Y + (noise.NextGaussian() * 9), t, true));
+                for (int i = 0; i < holdSamples; i++, t += StepUs)
+                    samples.Add(new GroundTruthSample(
+                        target.X + bias.X + (noise.NextGaussian() * 9),
+                        target.Y + bias.Y + (noise.NextGaussian() * 9), t, true));
+            }
+            windows.Add(new GroundTruthWindow(id, target.X, target.Y, from, null, t - StepUs, samples.Count) { Samples = samples });
+        }
+        return Session(windows);
+    }
 }

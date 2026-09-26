@@ -899,10 +899,27 @@ git -C /c/Users/andre/source/repos/eyectrl/.worktrees/action-menu-modifier-keys 
 - [ ] **Step 1: Write the failing tests** (INSIDE the existing `KeyboardInteractionDispatcherTests.cs`, using ITS `MakeContext`-based construction — there is no `BuildDispatcher` helper. Supply `TargetHighlightVM` per the file's precedent at `:95–98`, and send every message with `IsPreciseTarget: true` so the handler never reads `Context.GazeEngine.StableCentroid`, which `MakeContext` leaves null):
 
 ```csharp
+// BuildWithFakeInput is defined ONCE at the top of this test file (it does not exist in the
+// source) — the file's only construction pattern is TestFakes.MakeContext(input) with
+// TargetHighlightVM supplied (KeyboardInteractionDispatcherTests.cs:95-100):
+//
+//   private (KeyboardInteractionDispatcher D, FakeInputSimulator Sim) BuildWithFakeInput()
+//   {
+//       var input = new FakeInputSimulator();
+//       var ctx = TestFakes.MakeContext(input) with
+//           { TargetHighlightVM = new TargetHighlightOverlayViewModel() };
+//       var dispatcher = new KeyboardInteractionDispatcher(ctx, NullLogger.Instance);
+//       dispatcher.Initialize();
+//       return (dispatcher, input);
+//   }
+//
+// Every message carries IsPreciseTarget: true so HandleActionRequested never reads
+// Context.GazeEngine.StableCentroid (MakeContext leaves GazeEngine null!).
+
 [Fact]
 public void ModifiedLeftClick_RoutesToTheModifiedOverload()
 {
-    var (dispatcher, simulator) = BuildWithFakeInput(); // file harness; simulator = the FakeInputSimulator instance
+    var (dispatcher, simulator) = BuildWithFakeInput();
     var mods = new HashSet<ModifierKey> { ModifierKey.Shift };
 
     dispatcher.HandleActionRequested(new ActionRequestedMessage(
@@ -1056,16 +1073,25 @@ switch (msg.Action)
 - [ ] **Step 3b: The adapter end-to-end test (kills the `:107`/`:334` forwarding mutants)** — the ownership `Harness` (HideActionMenuBarOwnershipTests.cs:149–151) already wires a REAL `GazeEngineAdapter`; add to its file:
 
 ```csharp
-[Fact]
+// The ownership Harness wires a REAL GazeEngineAdapter, but its Messenger is a constructor
+// local — EXPOSE it (add `public IMessenger Messenger { get; }` to the private Harness, set
+// from the ctor local). The adapter marshals via BeginInvoke, so every step pumps.
+[StaFact]
 public void ActionSelectedMessage_Modifiers_SurviveToActionRequestedMessage()
 {
-    var h = BuildContext(); // real adapter wired per the ownership harness
+    using var h = new Harness();
     var received = new List<ActionRequestedMessage>();
-    h.Messenger.Register<ActionRequestedMessage>(this, (_, m) => received.Add(m));
+    h.Messenger.Register<ActionRequestedMessage>(h, (_, m) => received.Add(m));
+
+    // Reach the menu state: FreeLook OnActionSelected returns without raising.
+    h.InteractionManager.OnFixationStarted(new PhysicalPoint(500, 500));
+    h.InteractionManager.OnActivationButtonDwelled();
+    h.Pump();
 
     h.Messenger.Send(new ActionSelectedMessage(InteractionAction.LeftClick, new HashSet<ModifierKey> { ModifierKey.Shift }));
+    h.Pump();
 
-    Check.That(received.Single().Modifiers!.Contains(ModifierKey.Shift)).IsTrue();
+    Check.That(received.Single().Modifiers!.Contains(ModifierKey.Shift)).IsTrue(); // kills :107/:334
 }
 ```
 
@@ -1137,8 +1163,10 @@ git -C /c/Users/andre/source/repos/eyectrl/.worktrees/action-menu-modifier-keys 
 ```csharp
 namespace EyeCtrl.ViewModels.Tests;
 
+using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 using NFluent;
@@ -1248,13 +1276,21 @@ public class ActionMenuViewModelLatchTests
         Check.That(drag.Position).IsEqualTo(dragBefore);       // slot geometry unchanged
         Check.That(scrollMode.Position).IsEqualTo(scrollBefore);
 
-        // NOT a dwell target: feeding a full dwell at Drag's slot fires nothing (an
-        // unconditional-AddTarget mutant would fire here).
+        // NOT a dwell target: a 100 ms-cadence full dwell at Drag's slot fires nothing AND
+        // raises no progress (progress events only exist for registered targets). An
+        // unconditional-AddTarget mutant fails both — the OnTargetActivated backstop alone
+        // would still swallow a Drag activation, which is why the neighbour progress is
+        // asserted too: the detector is alive and awarding dwell to LeftClick.
         for (var t = 0; t < 10; t++)
-            vm.Receive(new GazeCursorMovedMessage(drag.Position, t * 1_000_000));
+            vm.Receive(new GazeCursorMovedMessage(drag.Position, t * 100_000));
+        Check.That(drag.DwellProgress).IsEqualTo(0);   // no arc without a target
         Check.That(sent.Where(m => m.Action == InteractionAction.Drag)).IsEmpty();
 
-        // The dim alone carries the feedback; no progress arc can exist without a target.
+        var click = vm.Items.First(i => i.Action == InteractionAction.LeftClick);
+        for (var t = 10; t < 20; t++)
+            vm.Receive(new GazeCursorMovedMessage(click.Position, t * 100_000));
+        // A full dwell on the neighbour fires it: the detector is alive and awarding dwell.
+        Check.That(sent.Where(m => m.Action == InteractionAction.LeftClick)).IsNotEmpty();
     }
 
     [Fact]
@@ -1385,7 +1421,11 @@ git -C /c/Users/andre/source/repos/eyectrl/.worktrees/action-menu-modifier-keys 
 ```csharp
 namespace EyeCtrl.ViewModels.Tests;
 
+using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 using NFluent;
@@ -1400,9 +1440,11 @@ public class EdgeButtonBarViewModelRearmTests
     private const long D = 150_000;
     private static readonly PhysicalPoint Anchor = new(500, 500);
 
-    private static EdgeButtonDefinition Def(string id, List<string> toggles, double verticalOffset = 0, int dwellMs = 1, bool rearm = true) => new(
+    private static EdgeButtonDefinition Def(string id, List<string> toggles, double verticalOffset = 0,
+        int dwellMs = 1, bool rearm = true, Action? afterToggle = null) => new(
         id, Symbol: string.Empty, DwellMs: dwellMs,
-        Activate: _ => toggles.Add(id), VerticalOffset: verticalOffset, RadiusLogical: 50, Label: id, RearmOnGazeExit: rearm);
+        Activate: _ => { toggles.Add(id); afterToggle?.Invoke(); },
+        VerticalOffset: verticalOffset, RadiusLogical: 50, Label: id, RearmOnGazeExit: rearm);
 
     private static void Look(EdgeButtonBarViewModel vm, PhysicalPoint p, long t, bool inGap = false, bool paused = false)
         => vm.Receive(new GazeCursorMovedMessage(new GazeFrame(p, t, IsInGap: inGap)) { IsPaused = paused });
@@ -1437,16 +1479,16 @@ public class EdgeButtonBarViewModelRearmTests
         vm.ShowButtons(new[] { Def("mod", toggles) }, Anchor);
 
         Look(vm, Anchor, 0);                      // enter
-        Look(vm, Anchor, 600_000);                // toggle #1; pending
-        Look(vm, Anchor, 700_000);                // flicker #1: one outside sample
-        Hold(vm, Anchor, 800_000, 6);             // back inside (600 ms, a full dwell — a never-reset
-                                                  // clock that only counts outside samples would NOT
-                                                  // clear here, and the gate still holds, OK so far)
-        Look(vm, Anchor, 1_500_000);              // flicker #2: one outside sample
-        Hold(vm, Anchor, 1_600_000, 8);           // held again, ≥ dwell + margin
+        Look(vm, Anchor, 100_000);                // toggle #1 (100 ms ≥ 1 ms dwell); pending
+        Look(vm, new PhysicalPoint(Anchor.X + 500, Anchor.Y), 200_000);  // flicker #1: one outside sample
+        Hold(vm, Anchor, 300_000, 6);             // back inside (600 ms held — a never-reset clock that
+                                                  // only counts outside samples would NOT clear here)
+        Look(vm, new PhysicalPoint(Anchor.X + 500, Anchor.Y), 900_000);  // flicker #2: one outside sample
+        Hold(vm, Anchor, 1_000_000, 8);           // held again, ≥ dwell + margin
 
-        Check.That(toggles).ContainsExactly("mod"); // a never-reset clock mutant clears the pending
-                                                    // at flicker #2's exit-span and re-toggles here
+        Check.That(toggles).ContainsExactly("mod"); // a never-reset clock mutant's exit span
+                                                    // 200k→900k (700 ms ≥ D) clears the pending
+                                                    // and the hold re-toggles here
     }
 
     [Fact]
@@ -1456,11 +1498,11 @@ public class EdgeButtonBarViewModelRearmTests
         var vm = new EdgeButtonBarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
         vm.ShowButtons(new[] { Def("mod", toggles) }, Anchor);
 
-        Look(vm, Anchor, 0);
-        Look(vm, Anchor, 600_000);                // toggle #1
-        Look(vm, Anchor, 700_000);                // outside: clock starts
-        Look(vm, Anchor, 1_000_000);              // outside: ≥ D ⇒ pending cleared
-        Hold(vm, Anchor, 2_000_000, 8);           // deliberate re-entry
+        Look(vm, Anchor, 0);                      // enter
+        Look(vm, Anchor, 100_000);                // toggle #1 (100 ms ≥ 1 ms dwell); pending
+        Look(vm, new PhysicalPoint(Anchor.X + 500, Anchor.Y), 200_000);  // OUTSIDE: clock starts
+        Look(vm, new PhysicalPoint(Anchor.X + 500, Anchor.Y), 500_000);  // outside: 400 ms ≥ D ⇒ cleared
+        Hold(vm, Anchor, 1_000_000, 8);           // deliberate re-entry
 
         Check.That(toggles).ContainsExactly("mod", "mod");
     }
@@ -1473,12 +1515,13 @@ public class EdgeButtonBarViewModelRearmTests
         vm.ShowButtons(new[] { Def("mod", toggles) }, Anchor);
 
         Look(vm, Anchor, 0);
-        Look(vm, Anchor, 600_000);                // toggle; pending
-        Look(vm, Anchor, 700_000);                // outside: clock starts
+        Look(vm, Anchor, 100_000);                // toggle (100 ms ≥ 1 ms dwell); pending
+        Look(vm, new PhysicalPoint(Anchor.X + 500, Anchor.Y), 700_000);  // OUTSIDE: clock starts
         for (var t = 0; t < 4; t++)
-            Look(vm, Anchor, 800_000 + t * 100_000, inGap: true); // blink: held-position gap samples
-        Look(vm, Anchor, 1_400_000);              // reopen lands OUTSIDE: without the in-gap restarts,
-                                                  // the clock would span 700k to 1.4M (over D) and clear here
+            Look(vm, new PhysicalPoint(Anchor.X + 500, Anchor.Y), 800_000 + t * 100_000, inGap: true); // blink
+        Look(vm, new PhysicalPoint(Anchor.X + 500, Anchor.Y), 1_400_000); // reopen OUTSIDE: with the
+                                                  // in-gap restarts the clock restarted at 800k, so this
+                                                  // span is 600k; without them 700k→1.4M ≥ D clears
         Hold(vm, Anchor, 1_500_000, 8);           // back inside and held
 
         Check.That(toggles).ContainsExactly("mod"); // the gap restart kept the pending alive: no re-toggle
@@ -1607,20 +1650,29 @@ public class EdgeButtonBarViewModelRearmTests
     public void ReplaceButton_MissingId_NoOp_AndCooldownSurvives()
     {
         var toggles = new List<string>();
+        var vmRef = new List<EdgeButtonBarViewModel>();
+        // 'a's Activate mirrors production's synchronous chain: toggle, then ReplaceButton runs
+        // INSIDE the detector event (this is where a ResetCooldown mutant would do its damage).
+        var aDef = Def("a", toggles, dwellMs: 600, afterToggle: () =>
+            vmRef.Single().ReplaceButton("a", Def("a", toggles, dwellMs: 600, rearm: false)));
+        // 'b' sits on its OWN slot: same-center buttons made the round-1 version flake on the
+        // ConcurrentDictionary tie-break.
+        var spacing = DpiHelper.LogicalToPhysicalY(2 * UIConstants.ButtonRadius + UIConstants.ManualSelectionSideButtonGap);
+        var bCenter = new PhysicalPoint(Anchor.X, Anchor.Y - spacing);
         var vm = new EdgeButtonBarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
-        vm.ShowButtons(new[] { Def("a", toggles, dwellMs: 600), Def("b", toggles, dwellMs: 600) }, Anchor);
+        vmRef.Add(vm);
+        vm.ShowButtons(new[] { aDef, Def("b", toggles, dwellMs: 600, verticalOffset: -spacing) }, Anchor);
 
         Check.ThatCode(() => vm.ReplaceButton("missing", Def("missing", toggles))).DoesNotThrow();
 
-        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y), 0, 8);                 // 'a' toggles about T+600; pending
+        Hold(vm, Anchor, 0, 8);                                // 'a' toggles about T+600; pending; ReplaceButton ran
         // Cooldown survival: 'b' cannot accumulate until the cooldown elapses (T+400 ms), so it
         // completes about T+1600 — a ShowButtons mutant (ResetCooldown) completes about T+1300.
-        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y - 100), 700_000, 7);     // T+700..T+1300
-        Check.That(toggles).ContainsExactly("a");                              // the mutant would have b here
-        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y - 100), 1_400_000, 4);   // correct impl: b about T+1600
+        Hold(vm, bCenter, 700_000, 7);                         // T+700..T+1300
+        Check.That(toggles).ContainsExactly("a");              // the mutant would have b here
+        Hold(vm, bCenter, 1_400_000, 4);                       // correct impl: b about T+1600
         Check.That(toggles).ContainsExactly("a", "b");
     }
-}
 
 
 - [ ] **Step 2: Run — FAIL**- [ ] **Step 2: Run — FAIL**

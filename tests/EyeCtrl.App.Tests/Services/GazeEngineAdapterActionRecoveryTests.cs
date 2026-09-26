@@ -126,7 +126,7 @@ public class GazeEngineAdapterActionRecoveryTests
         // End to end on the real failure shape: a subscriber throws out of OnActionSelected, the
         // state is left mid-action, and the adapter's reset must still return the user to FreeLook.
         var im = InActionMenu();
-        im.ActionRequested += (_, _) => throw new InvalidOperationException("handler blew up");
+        im.ActionRequested += (_, _, _) => throw new InvalidOperationException("handler blew up");
 
         Check.ThatCode(() => im.OnActionSelected(InteractionAction.LeftClick))
             .Throws<InvalidOperationException>();

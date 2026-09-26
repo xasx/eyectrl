@@ -74,7 +74,7 @@ public record ManualSelectionRecaptureMessage;
 /// Sent when an action is requested.
 /// Point is in physical screen pixels.
 /// </summary>
-public record ActionRequestedMessage(InteractionAction Action, PhysicalPoint Point, bool IsPreciseTarget = false);
+public record ActionRequestedMessage(InteractionAction Action, PhysicalPoint Point, bool IsPreciseTarget = false, IReadOnlySet<ModifierKey>? Modifiers = null);
 
 // ManualSelection Dwell Service Messages
 /// <summary>
@@ -112,7 +112,7 @@ public record ManualSelectionAnchorChangedMessage(PhysicalPoint? Anchor);
 
 // ViewModel -> Core
 public record ActivationCompletedMessage;
-public record ActionSelectedMessage(InteractionAction Action);
+public record ActionSelectedMessage(InteractionAction Action, IReadOnlySet<ModifierKey>? Modifiers = null);
 public record BackSelectedMessage;
 
 /// <summary>
@@ -123,6 +123,12 @@ public record BackSelectedMessage;
 /// to the menu session — <see cref="HideActionMenuMessage"/> clears it.
 /// </summary>
 public record ToggleActionMenuLabelsMessage;
+
+/// <summary>
+/// Toggles one action-menu modifier's latch (left-edge bar). The latch lives in
+/// <see cref="ActionMenuViewModel"/> and dies with the menu session.
+/// </summary>
+public record ToggleActionMenuModifierMessage(ModifierKey Modifier);
 
 /// <summary>
 /// The user dismissed the action menu without choosing anything — the right-edge Close target.

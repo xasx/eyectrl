@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Interfaces;
+using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
@@ -105,7 +106,7 @@ public class GazeEngineAdapter : IDisposable
         {
             try
             {
-                _interactionManager.OnActionSelected(msg.Action);
+                _interactionManager.OnActionSelected(msg.Action, msg.Modifiers);
             }
             catch (Exception ex)
             {
@@ -336,7 +337,7 @@ public class GazeEngineAdapter : IDisposable
     private void OnRepeatDwellProgress(double progress) =>
         _dispatcher.BeginInvoke(() => _messenger.Send(new RepeatDwellProgressChangedMessage(progress)));
 
-    private void OnActionRequested(InteractionAction action, PhysicalPoint point)
+    private void OnActionRequested(InteractionAction action, PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)
     {
         var isPrecise = _interactionManager.CurrentState == InteractionState.ManualSelectionActionMenuVisible
                      || (_interactionManager.CurrentState == InteractionState.ActionMenuVisible
@@ -346,7 +347,7 @@ public class GazeEngineAdapter : IDisposable
                      // StableCentroid substitution would otherwise move the click off the point
                      // the suppression zones were checked against (review round 3 finding 4).
                      || _interactionManager.CurrentState == InteractionState.RepeatMode;
-        _dispatcher.BeginInvoke(() => _messenger.Send(new ActionRequestedMessage(action, point, isPrecise)));
+        _dispatcher.BeginInvoke(() => _messenger.Send(new ActionRequestedMessage(action, point, isPrecise, modifiers)));
     }
 
     private async Task<ControlInfo?> ResolveTargetAsync(PhysicalPoint point)

@@ -10,6 +10,7 @@ using EyeCtrl.ViewModels.Messages;
 using NFluent;
 using Xunit;
 
+[Collection("DpiHelper Tests (ViewModels)")]
 public class EdgeButtonBarViewModelRearmTests
 {
     // The DETECTOR MODEL (round-1 review, F9): the first inside sample only SETS
@@ -224,19 +225,24 @@ public class EdgeButtonBarViewModelRearmTests
         Hold(vm, Anchor, 3_000_000, 8);                    // gated run: hits-nothing, no outcomes, no cue
         Check.That(sink.Outcomes.Count).IsEqualTo(before);
         Check.That(cues).HasSize(1);
-        // Partial-dwell abandon suppression: build a REAL partial dwell on a second button,
-        // then gate the first — the filtered crossing clears the neighbour without publishing
-        // an Abandoned outcome (DwellDetector.cs:393–394).
+        // Partial-dwell abandon suppression: ARM the gate on shift2, build a REAL partial dwell
+        // on ctrl2 inside the 150 ms re-arm window, then route the gated crossing under 150 ms
+        // after ctrl2's last credited sample — the re-anchor cannot zero the progress, so only
+        // the detector's filter guard (DwellDetector.cs:374–375) suppresses the Abandoned
+        // outcome. Both dwells are 100 ms so the partial reaches abandonable progress before
+        // the re-arm debounce clears the pending.
         var toggles2 = new List<string>();
         var vm2 = new EdgeButtonBarViewModel(new EyeCtrlSettings(), messenger, sink, null);
         vm2.ShowButtons(new[]
         {
-            Def("shift2", toggles2, verticalOffset: -DpiHelper.LogicalToPhysicalY(120), dwellMs: 600),
-            Def("ctrl2", toggles2, verticalOffset: 0, dwellMs: 600, rearm: false),
+            Def("shift2", toggles2, verticalOffset: -DpiHelper.LogicalToPhysicalY(120), dwellMs: 100),
+            Def("ctrl2", toggles2, verticalOffset: 0, dwellMs: 100, rearm: false),
         }, new PhysicalPoint(Anchor.X, Anchor.Y + 500));
-        Hold(vm2, new PhysicalPoint(Anchor.X, Anchor.Y + 500), 10_000_000, 4); // ctrl2 partial (400 ms)
-        Hold(vm2, new PhysicalPoint(Anchor.X, Anchor.Y + 500 - DpiHelper.LogicalToPhysicalY(120)), 11_000_000, 2); // shift2 toggle; pending
-        Hold(vm2, new PhysicalPoint(Anchor.X, Anchor.Y + 500), 12_000_000, 2); // gated crossing
+        Hold(vm2, new PhysicalPoint(Anchor.X, Anchor.Y + 500 - DpiHelper.LogicalToPhysicalY(120)), 10_000_000, 2); // shift2 toggles (100 ms dwell); pending armed; cooldown until T+400
+        Look(vm2, new PhysicalPoint(Anchor.X, Anchor.Y + 500), 10_600_000); // ctrl2 enters — 500 ms past shift2's activation, cooldown over
+        Look(vm2, new PhysicalPoint(Anchor.X, Anchor.Y + 500), 10_650_000); // ctrl2 partial: 50 ms of a 100 ms dwell (progress 0.5, still inside the re-arm window)
+        Look(vm2, new PhysicalPoint(Anchor.X, Anchor.Y + 500 - DpiHelper.LogicalToPhysicalY(120)), 10_700_000); // gated crossing 50 ms after ctrl2's last credited sample: no re-anchor, only the filter suppresses the abandon
+        Check.That(toggles2).ContainsExactly("shift2"); // the gate is armed — pins the leg's precondition
         var abandoned = sink.Outcomes.Count(o => o.Kind == OutcomeKind.Abandoned);
         Check.That(abandoned).IsEqualTo(0);               // filtered targets publish no abandon
     }

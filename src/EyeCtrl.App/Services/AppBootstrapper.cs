@@ -374,8 +374,10 @@ public class AppBootstrapper
             // Only so the deletion of calibration.json on an explicit Clear leaves a trace — that
             // delete is otherwise indistinguishable from a calibration that never existed.
             sp.GetRequiredService<ILoggerFactory>().CreateLogger<CalibrationViewModel>(),
-            // Scripted ground truth: null unless the operator turned recording on for a measurement
-            // session, so a normal calibration runs exactly as before and writes no sidecar.
+            // Scripted ground truth: a real recorder since ticket 6 (constructed unconditionally —
+            // see its own registration below). The view model still gates normal calibration runs on
+            // the live RecordRawGaze setting, so this only means the probe can always write its
+            // self-contained sidecar.
             sp.GetService<ScriptedGroundTruthRecorder>(),
             GazeProviderFactory.GetProviderType(sp.GetRequiredService<IGazeProvider>()).ToString(),
             // The live RecordRawGaze gate, so the sidecar stops when the recording it describes does.

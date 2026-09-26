@@ -57,6 +57,11 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
     private PhysicalPoint _screenSize;
     private int _settleWindowMs;
     private GroundTruthOutcome _outcome = GroundTruthOutcome.Completed;
+    private GroundTruthMode _mode = GroundTruthMode.Calibration;
+    // Where THIS session's sidecar goes. The configured path for a normal calibration; a per-session
+    // timestamped sibling for a measure-only probe, because probe → Tobii recalibration → probe again
+    // must not let the second probe erase the first.
+    private string _writePath;
 
     // The window currently open. Held as fields rather than a mutable struct in the list so the
     // gaze-thread update is a handful of field writes with no copying.
@@ -79,6 +84,7 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
         if (string.IsNullOrWhiteSpace(filePath))
             throw new ArgumentException("A sidecar path is required.", nameof(filePath));
         _filePath = filePath;
+        _writePath = filePath;
         _onFault = onFault;
     }
 
@@ -96,7 +102,9 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
     public bool IsRecording { get; private set; }
 
     /// <inheritdoc />
-    public void BeginSession(string providerType, PhysicalPoint screenSize, int settleWindowMs)
+    public void BeginSession(
+        string providerType, PhysicalPoint screenSize, int settleWindowMs,
+        GroundTruthMode mode = GroundTruthMode.Calibration)
     {
         // Discard BEFORE clearing, not after: closing an open window appends it, so the other order
         // would resurrect a previous session's last target into the freshly cleared list.
@@ -106,7 +114,27 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
         _screenSize = screenSize;
         _settleWindowMs = settleWindowMs;
         _outcome = GroundTruthOutcome.Completed;
+        _mode = mode;
+        _writePath = mode == GroundTruthMode.MeasureOnly ? ProbePath(_filePath) : _filePath;
         IsRecording = true;
+    }
+
+    /// <summary>
+    /// A per-session filename for a measure-only probe, a sibling of the configured sidecar path:
+    /// <c>bias-probe-&lt;UTC&gt;.groundtruth.json</c>, with a numeric suffix if two sessions land in
+    /// the same millisecond. Unique by construction, so a probe can never overwrite another probe or a
+    /// normal calibration's sidecar — the plan is probe → Tobii recalibration → probe again, and both
+    /// probes must survive to be compared.
+    /// </summary>
+    private static string ProbePath(string configuredPath)
+    {
+        var directory = Path.GetDirectoryName(configuredPath);
+        if (string.IsNullOrEmpty(directory)) directory = ".";
+        var stamp = DateTime.UtcNow.ToString("yyyyMMdd'T'HHmmss'.'fff", System.Globalization.CultureInfo.InvariantCulture);
+        var path = Path.Combine(directory, $"bias-probe-{stamp}.groundtruth.json");
+        for (int n = 2; File.Exists(path); n++)
+            path = Path.Combine(directory, $"bias-probe-{stamp}-{n}.groundtruth.json");
+        return path;
     }
 
     /// <inheritdoc />
@@ -138,11 +166,16 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
     {
         if (!IsRecording) return;
         _outcome = outcome;
-        CloseOpenWindow();
+        // Stop accepting samples BEFORE closing the open window. An in-flight gaze callback has
+        // already passed its IsRecording check, so this narrows the race to that one callback; the
+        // close and the write then run together inside the try, so whatever that callback does to the
+        // open-window list cannot escape CompleteSession into the calibration flow that called it.
         IsRecording = false;
 
         try
         {
+            CloseOpenWindow();
+
             // Snapshot inside the try, with the rest of the write. Outside it, anything the snapshot
             // threw — and a list read while the gaze thread appends is exactly what throws here — would
             // escape CompleteSession into the calibration flow that called it, turning a missing
@@ -160,16 +193,17 @@ public sealed class ScriptedGroundTruthRecorder : IGroundTruthSink
                 windows)
             {
                 Outcome = _outcome,
+                Mode = _mode,
             };
 
-            var directory = Path.GetDirectoryName(_filePath);
+            var directory = Path.GetDirectoryName(_writePath);
             if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
 
             // Atomic, like every other file this app writes: a torn sidecar would be read as a
             // ground truth it is not, which is worse than having none at all.
-            var tmp = _filePath + ".tmp";
+            var tmp = _writePath + ".tmp";
             File.WriteAllText(tmp, JsonSerializer.Serialize(session, JsonOptions));
-            File.Move(tmp, _filePath, overwrite: true);
+            File.Move(tmp, _writePath, overwrite: true);
         }
         catch (Exception ex)
         {

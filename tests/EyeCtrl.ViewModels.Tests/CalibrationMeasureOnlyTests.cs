@@ -13,10 +13,10 @@ using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
 /// The measure-only bias probe, end to end at the view-model layer: five targets, whatever the
-/// settings say; continue past a target that collected nothing; keep the self-contained sidecar on
-/// every ending; apply nothing. The named mutation for the persistence checks is restoring
-/// <c>AbandonSession</c> on any of these paths — it discards the only data the probe exists to
-/// collect, and these tests turn red.
+/// settings say; a fixed short budget per target so a gaze-only user never waits out the normal caps;
+/// continue past a target that collected nothing; keep a per-session sidecar on every ending; apply
+/// nothing. The named mutation for the persistence checks is restoring <c>AbandonSession</c> on any of
+/// these paths — it discards the only data the probe exists to collect, and these tests turn red.
 /// </summary>
 public class CalibrationMeasureOnlyTests
 {
@@ -30,8 +30,16 @@ public class CalibrationMeasureOnlyTests
         public void FireGaze(GazePoint p) => GazePointReceived?.Invoke(p);
     }
 
-    private static readonly PhysicalPoint Screen = new(3840, 2400);
+    private sealed class ThrowingSink : IGroundTruthSink
+    {
+        public void BeginSession(string providerType, PhysicalPoint screenSize, int settleWindowMs, GroundTruthMode mode = GroundTruthMode.Calibration) { }
+        public void OnSample(int targetId, PhysicalPoint target, GazePoint sample, bool hasArrived) { }
+        public void CompleteSession(GroundTruthOutcome outcome = GroundTruthOutcome.Completed) =>
+            throw new IOException("sink fault");
+        public void AbandonSession() { }
+    }
 
+    private static readonly PhysicalPoint Screen = new(3840, 2400);
     private static readonly string Dir = TempTestDirectory.Create("viewmodels-measure-only");
 
     private readonly WeakReferenceMessenger _messenger = new();
@@ -47,13 +55,20 @@ public class CalibrationMeasureOnlyTests
         SamplesPerPoint = 5,
     };
 
-    private readonly string _calibrationPath = Path.Combine(Dir, "cal-" + Guid.NewGuid().ToString("N") + ".json");
-    private readonly string _sidecarPath = Path.Combine(Dir, "side-" + Guid.NewGuid().ToString("N") + ".json");
+    // One directory per test: the recorder puts probe sidecars next to the configured path, and a
+    // shared directory would let one test's files answer another test's glob.
+    private readonly string _testDir = Path.Combine(Dir, Guid.NewGuid().ToString("N"));
+    private string CalibrationPath => Path.Combine(_testDir, "calibration.json");
+    private string SidecarPath => Path.Combine(_testDir, "gaze-recording.groundtruth.json");
 
-    private CalibrationViewModel CreateVm(bool recordRawGaze = false) => new(
-        _settings, _service, _messenger, _provider, Screen, "test-monitor", _calibrationPath,
-        groundTruth: new ScriptedGroundTruthRecorder(_sidecarPath),
-        // RecordRawGaze OFF: the probe's sidecar must not hinge on the global recorder flag.
+    /// <summary>The probe's own timestamped sidecar — the only one a measure-only session writes.</summary>
+    private string ProbeSidecarPath() =>
+        Directory.GetFiles(_testDir, "bias-probe-*.groundtruth.json").Single();
+
+    private CalibrationViewModel CreateVm(bool recordRawGaze = false, IGroundTruthSink? sink = null) => new(
+        _settings, _service, _messenger, _provider, Screen, "test-monitor", CalibrationPath,
+        groundTruth: sink ?? new ScriptedGroundTruthRecorder(SidecarPath),
+        // RecordRawGaze OFF by default: the probe's sidecar must not hinge on the global recorder flag.
         diagnostics: new DiagnosticsSettings { RecordRawGaze = recordRawGaze });
 
     /// <summary>Completes the current target at the user's pace and lets the view model advance.</summary>
@@ -95,6 +110,7 @@ public class CalibrationMeasureOnlyTests
         Check.That(vm.TargetPositions).HasSize(5);
 
         vm.Cancel();
+        Check.That(_service.IsSessionActive).IsFalse();
     }
 
     [Fact]
@@ -102,16 +118,16 @@ public class CalibrationMeasureOnlyTests
     {
         // The privacy gate is preserved for the normal path: with RecordRawGaze off, a COMPLETED
         // normal calibration writes no sidecar. It has to complete, not cancel — a cancel discards
-        // the sidecar by either route, so a cancelled session proves nothing about the gate. The
-        // probe is the deliberate exception, and the completed-probe test pins the other half.
+        // the sidecar by either route, so a cancelled session proves nothing about the gate.
         var vm = await Task.Run(() => CreateVm());
         _messenger.Send(new CalibrationRequestedMessage());
         for (int i = 0; i < _settings.PointCount; i++)
             FinishTarget(vm, timestampBase: i * 30_000_000);
 
         Check.That(vm.State).IsEqualTo(CalibrationState.Active);   // the fit really ran and passed
-        Check.That(File.Exists(_calibrationPath)).IsTrue();
-        Check.That(File.Exists(_sidecarPath)).IsFalse();
+        Check.That(File.Exists(CalibrationPath)).IsTrue();
+        Check.That(File.Exists(SidecarPath)).IsFalse();
+        Check.That(Directory.GetFiles(_testDir, "bias-probe-*.groundtruth.json")).IsEmpty();
         Check.That(vm.IsMeasureOnly).IsFalse();
     }
 
@@ -131,10 +147,10 @@ public class CalibrationMeasureOnlyTests
             ScreenHeight = (int)Screen.Y,
             MonitorDeviceName = "test-monitor",
         };
-        _service.Save(_calibrationPath, existing);
-        _service.Load(_calibrationPath, Screen, "test-monitor");
+        _service.Save(CalibrationPath, existing);
+        _service.Load(CalibrationPath, Screen, "test-monitor");
         var transformBefore = _service.CurrentTransform;
-        var fileBefore = File.ReadAllBytes(_calibrationPath);
+        var fileBefore = File.ReadAllBytes(CalibrationPath);
 
         var vm = await Task.Run(() => CreateVm());
         _messenger.Send(new MeasureOnlyCalibrationRequestedMessage());
@@ -143,10 +159,12 @@ public class CalibrationMeasureOnlyTests
 
         Check.That(vm.State).IsEqualTo(CalibrationState.Active);
         Check.That(vm.IsMeasureOnly).IsTrue();
+        Check.That(_service.IsSessionActive).IsFalse();
         Check.That(_service.CurrentTransform).IsSameReferenceAs(transformBefore);
-        Check.That(File.ReadAllBytes(_calibrationPath).SequenceEqual(fileBefore)).IsTrue();
+        Check.That(File.ReadAllBytes(CalibrationPath).SequenceEqual(fileBefore)).IsTrue();
 
-        var sidecar = ReadSidecar(_sidecarPath);
+        var sidecar = ReadSidecar(ProbeSidecarPath());
+        Check.That(sidecar.Mode).IsEqualTo(GroundTruthMode.MeasureOnly);
         Check.That(sidecar.Outcome).IsEqualTo(GroundTruthOutcome.Completed);
         Check.That(sidecar.Windows).HasSize(5);
         Check.That(sidecar.Windows[0].Samples).Not.IsEmpty();   // self-contained, no recorder involved
@@ -163,12 +181,12 @@ public class CalibrationMeasureOnlyTests
 
         FinishTarget(vm, timestampBase: 0);
 
-        // Target 1: gaze parked far away, so the collector never arrives and the no-arrival cap ends
-        // the target. The probe must move on — ending here would throw away the windows the
+        // Target 1: gaze parked far away, so the collector never arrives and the short fixed budget
+        // ends the target. The probe must move on — ending here would throw away the windows the
         // five-target decision rule needs, which is exactly what a large bias would cause.
         for (int i = 0; i < 5; i++)
-            _provider.FireGaze(new GazePoint(10, 10, 1_000_000 + (i * 33_333), IsValid: true));
-        Thread.Sleep(8_500);
+            _provider.FireGaze(new GazePoint(1920, 100, 1_000_000 + (i * 33_333), IsValid: true));
+        Thread.Sleep(3_400);
 
         Check.That(vm.CurrentTargetIndex).IsEqualTo(2);
         Check.That(vm.State).IsEqualTo(CalibrationState.Collecting);
@@ -180,14 +198,15 @@ public class CalibrationMeasureOnlyTests
         // Neutral ending: Active, no failure text, and no unsuccessful completion message.
         Check.That(vm.State).IsEqualTo(CalibrationState.Active);
         Check.That(vm.ErrorText).IsNull();
+        Check.That(_service.IsSessionActive).IsFalse();
         Check.That(completions).Not.IsEmpty();
         Check.That(completions.Any(c => !c.Success)).IsFalse();
 
-        var sidecar = ReadSidecar(_sidecarPath);
+        var sidecar = ReadSidecar(ProbeSidecarPath());
         Check.That(sidecar.Outcome).IsEqualTo(GroundTruthOutcome.Partial);
         Check.That(sidecar.Windows).HasSize(5);
         Check.That(sidecar.Windows[1].ArrivedAtUs).IsNull();    // the empty target is recorded, not dropped
-        Check.That(File.Exists(_calibrationPath)).IsFalse();    // and nothing was applied
+        Check.That(File.Exists(CalibrationPath)).IsFalse();     // and nothing was applied
     }
 
     [Fact]
@@ -203,9 +222,50 @@ public class CalibrationMeasureOnlyTests
         vm.Cancel();
 
         Check.That(vm.State).IsEqualTo(CalibrationState.Idle);
-        Check.That(File.Exists(_sidecarPath)).IsTrue();
-        Check.That(ReadSidecar(_sidecarPath).Outcome).IsEqualTo(GroundTruthOutcome.Abandoned);
-        Check.That(File.Exists(_calibrationPath)).IsFalse();
+        Check.That(_service.IsSessionActive).IsFalse();
+        Check.That(File.Exists(ProbeSidecarPath())).IsTrue();
+        Check.That(ReadSidecar(ProbeSidecarPath()).Outcome).IsEqualTo(GroundTruthOutcome.Abandoned);
+        Check.That(File.Exists(CalibrationPath)).IsFalse();
+    }
+
+    [Fact]
+    public async Task TheFixedBudget_EndsAnEmptyProbeInAboutFifteenSeconds()
+    {
+        // The coordinator's decision: a gaze-only user cannot press Esc, so measure-only does not wait
+        // out the normal 8 s / 25 s caps. Each target gets 3 s after display, whatever the gaze does;
+        // the whole probe is about 15 s. Gaze is on screen the whole time (so every window carries
+        // samples) but far from every target's band, so no target can complete early.
+        var completion = new TaskCompletionSource();
+        _messenger.Register<CalibrationCompletedMessage>(this, (_, _) => completion.TrySetResult());
+
+        var vm = await Task.Run(() => CreateVm());
+        _messenger.Send(new MeasureOnlyCalibrationRequestedMessage());
+
+        using var stop = new CancellationTokenSource();
+        var firing = Task.Run(async () =>
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                _provider.FireGaze(new GazePoint(1920, 100, 0, IsValid: true));
+                await Task.Delay(25, TestContext.Current.CancellationToken);
+            }
+        }, TestContext.Current.CancellationToken);
+
+        var started = Environment.TickCount64;
+        await completion.Task.WaitAsync(TimeSpan.FromSeconds(25), TestContext.Current.CancellationToken);
+        var elapsed = TimeSpan.FromMilliseconds(Environment.TickCount64 - started);
+        stop.Cancel();
+        try { await firing; } catch (OperationCanceledException) { }
+
+        Check.That(elapsed.TotalSeconds).IsGreaterOrEqualThan(13.0);   // five 3 s budgets
+        Check.That(elapsed.TotalSeconds).IsStrictlyLessThan(22.0);     // and not a normal cap
+        Check.That(vm.State).IsEqualTo(CalibrationState.Active);
+        Check.That(vm.ErrorText).IsNull();
+
+        var sidecar = ReadSidecar(ProbeSidecarPath());
+        Check.That(sidecar.Outcome).IsEqualTo(GroundTruthOutcome.Partial);
+        Check.That(sidecar.Windows).HasSize(5);
+        Check.That(sidecar.Windows).ContainsOnlyElementsThatMatch(w => w.Samples.Count > 0);
     }
 
     [Fact]
@@ -226,5 +286,106 @@ public class CalibrationMeasureOnlyTests
         Check.That(states.Count(s => s == CalibrationState.Active)).IsEqualTo(1);
         Check.That(states[^1]).IsEqualTo(CalibrationState.Active);
         Check.That(states.Any(s => s == CalibrationState.Failed)).IsFalse();
+    }
+
+    // ── Session-state teeth ───────────────────────────────────────────────────
+
+    [Fact]
+    public async Task ProbeThenCalibrateNow_DoesARealFitAndSave_AndClearsTheMode()
+    {
+        // The mode is per session, never sticky: a probe followed by "Calibrate Now" on the same
+        // app-lifetime view model must fit, save and apply, not silently skip all three.
+        var vm = await Task.Run(() => CreateVm());
+        _messenger.Send(new MeasureOnlyCalibrationRequestedMessage());
+        for (int i = 0; i < 5; i++)
+            FinishTarget(vm, timestampBase: i * 30_000_000);
+        Check.That(vm.State).IsEqualTo(CalibrationState.Active);
+        Check.That(File.Exists(CalibrationPath)).IsFalse();
+
+        vm.Acknowledge();
+        _messenger.Send(new CalibrationRequestedMessage());
+        Check.That(vm.IsMeasureOnly).IsFalse();
+
+        for (int i = 0; i < _settings.PointCount; i++)
+            FinishTarget(vm, timestampBase: 200_000_000 + (i * 30_000_000));
+
+        Check.That(vm.State).IsEqualTo(CalibrationState.Active);
+        Check.That(_service.IsSessionActive).IsFalse();
+        Check.That(File.Exists(CalibrationPath)).IsTrue();
+        Check.That(_service.CurrentTransform).IsNotNull();
+    }
+
+    [Fact]
+    public async Task Cancel_WithAThrowingSink_StillPublishesIdle()
+    {
+        // A sink throw must not strand a Collecting view model behind a full-screen backdrop: Idle is
+        // the coordinator's only suppression release on an abandon.
+        var states = new List<CalibrationState>();
+        _messenger.Register<CalibrationStateChangedMessage>(this, (_, m) => states.Add(m.State));
+        var vm = await Task.Run(() => CreateVm(sink: new ThrowingSink()));
+        _messenger.Send(new MeasureOnlyCalibrationRequestedMessage());
+
+        Exception? thrown = null;
+        try { vm.Cancel(); } catch (Exception ex) { thrown = ex; }
+
+        Check.That(thrown).IsNull();
+        Check.That(vm.State).IsEqualTo(CalibrationState.Idle);
+        Check.That(states[^1]).IsEqualTo(CalibrationState.Idle);
+        Check.That(_service.IsSessionActive).IsFalse();
+    }
+
+    [Fact]
+    public async Task MeasureOnlyFault_EndsNeutral_WithAFailedSidecar_AndNoFailureMessage()
+    {
+        // The catch inside AdvanceFromCurrentTarget routes a measure-only fault to the SAME neutral
+        // ending: sidecar written with outcome failed, Active published, no error text, no
+        // unsuccessful completion. A subscriber that throws from the target-position message is the
+        // deterministic way to fault that path (reviewer A's M10 mutation removes the branch and
+        // let the normal failure path discard the data).
+        _messenger.Register<CalibrationTargetPositionMessage>(this, (_, m) =>
+        {
+            if (m.TargetIndex == 1) throw new InvalidOperationException("position subscriber fault");
+        });
+        var completions = new List<CalibrationCompletedMessage>();
+        _messenger.Register<CalibrationCompletedMessage>(this, (_, m) => completions.Add(m));
+
+        var vm = await Task.Run(() => CreateVm());
+        _messenger.Send(new MeasureOnlyCalibrationRequestedMessage());
+
+        Exception? thrown = null;
+        try { FinishTarget(vm, timestampBase: 0); } catch (Exception ex) { thrown = ex; }
+
+        Check.That(thrown).IsNull();
+        Check.That(vm.State).IsEqualTo(CalibrationState.Active);
+        Check.That(vm.ErrorText).IsNull();
+        Check.That(_service.IsSessionActive).IsFalse();
+        Check.That(completions.Any(c => !c.Success)).IsFalse();
+        Check.That(ReadSidecar(ProbeSidecarPath()).Outcome).IsEqualTo(GroundTruthOutcome.Failed);
+        Check.That(File.Exists(CalibrationPath)).IsFalse();
+    }
+
+    // ── Normal calibration: the stale-cap fix ─────────────────────────────────
+
+    [Fact]
+    public async Task NormalCalibration_StaleCapFromAnEarlierTarget_DoesNotFailTheSession()
+    {
+        // Before the fix, the cap armed for target 0 advanced whichever target was current when it
+        // fired — target 2 here — and EndTarget threw "Gaze never reached the target", failing a
+        // session that was still legitimately collecting. This pins the normal-mode behaviour change
+        // the probe's ticket shipped: each target gets its own cap.
+        var vm = await Task.Run(() => CreateVm());
+        _messenger.Send(new CalibrationRequestedMessage());
+        FinishTarget(vm, timestampBase: 0);
+        FinishTarget(vm, timestampBase: 20_000_000);
+        Check.That(vm.CurrentTargetIndex).IsEqualTo(2);
+
+        // Just past target 0's first-stage cap (~8 s), well short of target 2's own.
+        Thread.Sleep(8_000 - (2 * (_settings.TargetHoldMs + 60)) + 200);
+
+        Check.That(vm.State).IsEqualTo(CalibrationState.Collecting);
+        Check.That(vm.CurrentTargetIndex).IsEqualTo(2);
+        Check.That(vm.ErrorText).IsNull();
+
+        vm.Cancel();
     }
 }

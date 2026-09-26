@@ -21,6 +21,24 @@ using EyeCtrl.Core.Models;
 public readonly record struct GroundTruthSample(double X, double Y, long TimestampUs, bool Valid);
 
 /// <summary>
+/// What kind of session produced a sidecar. Recorded so a probe's file can never be mistaken for a
+/// calibration's, and vice versa, when the operator comes back to them days later.
+/// </summary>
+public enum GroundTruthMode
+{
+    /// <summary>A normal calibration session's sidecar, written to the configured path.</summary>
+    [System.Text.Json.Serialization.JsonStringEnumMemberName("calibration")]
+    Calibration,
+
+    /// <summary>
+    /// A measure-only bias probe's sidecar, written to its own timestamped file: the plan is
+    /// probe → Tobii recalibration → probe again, and the second probe must not erase the first.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonStringEnumMemberName("measure-only")]
+    MeasureOnly,
+}
+
+/// <summary>
 /// How a scripted session ended. The measure-only probe persists the sidecar on EVERY outcome, so the
 /// outcome is what lets later analysis tell a complete five-target run from one the user abandoned or
 /// the tracker cut short — without that field, a partial window set and a full one look identical.
@@ -78,8 +96,8 @@ public readonly record struct GroundTruthWindow(
     /// <remarks>
     /// Backed by a nullable field rather than a plain auto-property because the member is optional on
     /// read: <see cref="System.Text.Json"/> leaves an absent property at its default, and for a struct
-    /// that default is null regardless of an initializer — <see cref="GroundTruthFile"/>'s "a schema-1
-    /// sidecar still parses" guarantee would otherwise hand consumers a null list to enumerate.
+    /// that default is null regardless of an initializer — the reader's "a schema-1 sidecar still
+    /// parses" guarantee would otherwise hand consumers a null list to enumerate.
     /// </remarks>
     public IReadOnlyList<GroundTruthSample> Samples
     {
@@ -141,6 +159,12 @@ public sealed record GroundTruthSession(
     /// written on success alone.
     /// </summary>
     public GroundTruthOutcome Outcome { get; init; } = GroundTruthOutcome.Completed;
+
+    /// <summary>
+    /// What kind of session this is. Defaults to <see cref="GroundTruthMode.Calibration"/> — what a
+    /// schema-1 sidecar was.
+    /// </summary>
+    public GroundTruthMode Mode { get; init; } = GroundTruthMode.Calibration;
 }
 
 /// <summary>
@@ -154,7 +178,13 @@ public interface IGroundTruthSink
     /// <param name="providerType">Gaze provider identity.</param>
     /// <param name="screenSize">Screen dimensions in physical pixels.</param>
     /// <param name="settleWindowMs">The collector's settle window for this run.</param>
-    void BeginSession(string providerType, PhysicalPoint screenSize, int settleWindowMs);
+    /// <param name="mode">
+    /// What kind of session this is. A measure-only probe gets its own timestamped file; a normal
+    /// calibration keeps the configured path.
+    /// </param>
+    void BeginSession(
+        string providerType, PhysicalPoint screenSize, int settleWindowMs,
+        GroundTruthMode mode = GroundTruthMode.Calibration);
 
     /// <summary>
     /// Called for each raw gaze sample while a target is displayed. Must be cheap: this runs on the

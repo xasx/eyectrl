@@ -348,4 +348,63 @@ public class ScriptedGroundTruthRecorderTests : IDisposable
 
         Check.That(Analysis.GroundTruthFile.Parse(json).Outcome).IsEqualTo(GroundTruthOutcome.Partial);
     }
+
+    // ── One file per probe; a mode on every sidecar ──────────────────────────
+
+    [Fact]
+    public void AProbeSession_WritesItsOwnTimestampedFile_NeverTheConfiguredOne()
+    {
+        // The plan is probe → Tobii recalibration → probe again; both probes must survive to be
+        // compared, and a normal calibration's sidecar must not be overwritten either. The probe gets
+        // its own timestamped sibling and never touches the configured path.
+        var recorder = new ScriptedGroundTruthRecorder(Sidecar);
+        recorder.BeginSession("StreamEngine", Screen, 300, GroundTruthMode.MeasureOnly);
+        RunTarget(recorder, 0, new PhysicalPoint(100, 100), 0, 1, 5);
+        recorder.CompleteSession(GroundTruthOutcome.Partial);
+
+        Check.That(File.Exists(Sidecar)).IsFalse();
+        var files = Directory.GetFiles(_dir, "bias-probe-*.groundtruth.json");
+        Check.That(files).HasSize(1);
+
+        var session = Analysis.GroundTruthFile.Read(files[0]);
+        Check.That(session.Mode).IsEqualTo(GroundTruthMode.MeasureOnly);
+        Check.That(session.Outcome).IsEqualTo(GroundTruthOutcome.Partial);
+        Check.That(session.Windows.Single().Samples).Not.IsEmpty();
+    }
+
+    [Fact]
+    public void TwoProbeSessions_ProduceTwoReadableFiles_AndTheFirstIsNotOverwritten()
+    {
+        // The second probe must not erase the first — that is the whole reason for a per-session name.
+        var recorder = new ScriptedGroundTruthRecorder(Sidecar);
+        recorder.BeginSession("StreamEngine", Screen, 300, GroundTruthMode.MeasureOnly);
+        RunTarget(recorder, 0, new PhysicalPoint(100, 100), 0, 1, 5);
+        recorder.CompleteSession(GroundTruthOutcome.Completed);
+
+        recorder.BeginSession("StreamEngine", Screen, 300, GroundTruthMode.MeasureOnly);
+        RunTarget(recorder, 0, new PhysicalPoint(200, 200), 5_000_000, 1, 5);
+        recorder.CompleteSession(GroundTruthOutcome.Abandoned);
+
+        var files = Directory.GetFiles(_dir, "bias-probe-*.groundtruth.json");
+        Check.That(files).HasSize(2);
+
+        var sessions = files.Select(Analysis.GroundTruthFile.Read).ToList();
+        Check.That(sessions.Select(s => s.Outcome)).Contains(new[] { GroundTruthOutcome.Completed, GroundTruthOutcome.Abandoned });
+        Check.That(sessions.Select(s => s.Mode)).ContainsOnlyElementsThatMatch(m => m == GroundTruthMode.MeasureOnly);
+        Check.That(sessions.Select(s => s.Windows.Single().X)).Contains(new[] { 100.0, 200.0 });
+    }
+
+    [Fact]
+    public void ANormalSession_KeepsTheConfiguredPath_AndRecordsCalibrationMode()
+    {
+        var recorder = new ScriptedGroundTruthRecorder(Sidecar);
+        recorder.BeginSession("StreamEngine", Screen, 300);
+        RunTarget(recorder, 0, new PhysicalPoint(100, 100), 0, 1, 5);
+        recorder.CompleteSession();
+
+        Check.That(File.Exists(Sidecar)).IsTrue();
+        var session = Analysis.GroundTruthFile.Read(Sidecar);
+        Check.That(session.Mode).IsEqualTo(GroundTruthMode.Calibration);
+        Check.That(Directory.GetFiles(_dir, "bias-probe-*.groundtruth.json")).IsEmpty();
+    }
 }

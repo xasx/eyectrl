@@ -31,8 +31,8 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     private readonly string _calibrationFilePath;
     private readonly SynchronizationContext? _syncContext;
     private readonly ILogger<CalibrationViewModel>? _logger;
-    // Scripted-collection ground truth. Null in every normal run — attached only when the operator
-    // turned the diagnostics setting on for a measurement session.
+    // Scripted-collection ground truth. A real recorder since ticket 6 — whether it actually records
+    // is still gated per session by SidecarEnabled below.
     private readonly IGroundTruthSink? _groundTruth;
     private readonly string _providerType;
     // Live sidecar gate. Normally the sidecar describes samples the CSV recorder captured, so the two
@@ -62,6 +62,15 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     /// centre": a session with a different count could not be judged against it.
     /// </summary>
     private const int MeasureOnlyPointCount = 5;
+
+    /// <summary>
+    /// How long a measure-only target stays up, whatever the gaze does. The probe needs about one to
+    /// three seconds of samples per target, and this user cannot press Esc: their only other way out
+    /// of a full-screen backdrop is to wait out the normal caps (8 s, or 25 s once arrived), which
+    /// would be up to two minutes of effortful fixation that the data does not need. Fixed at 3 s, so
+    /// the whole probe is about 15 s. Normal calibration keeps its two-stage 8 s / 25 s caps.
+    /// </summary>
+    private const int MeasureOnlyTargetBudgetMs = 3_000;
 
     /// <summary>Whether the ground-truth sidecar collects for the current session. See the field remarks.</summary>
     private bool SidecarEnabled => _measureOnly || _diagnostics is null || _diagnostics.RecordRawGaze;
@@ -239,7 +248,9 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         // an enforced target come to differ.
         TargetPositions = _calibrationService.TargetPositions;
         if (SidecarEnabled)
-            _groundTruth?.BeginSession(_providerType, _screenSize, _settings.SettleWindowMs);
+            _groundTruth?.BeginSession(
+                _providerType, _screenSize, _settings.SettleWindowMs,
+                _measureOnly ? GroundTruthMode.MeasureOnly : GroundTruthMode.Calibration);
         CurrentTargetIndex = 0;
         ProgressPercent = 0;
         // Published once per session from the same helper the collector uses, so the ring the overlay
@@ -284,8 +295,13 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         //
         // Two stages, because "never got there" and "got there and is still working at it" deserve
         // different patience. The first expires early and gives up unless gaze has arrived; the second
-        // spends the full budget on a user who is making progress.
-        ScheduleSafetyCap(generation, CurrentTargetIndex, Math.Max(_settings.TargetHoldMs, NoArrivalCapMs), isFinal: false);
+        // spends the full budget on a user who is making progress. The probe replaces both with one
+        // short fixed budget — see MeasureOnlyTargetBudgetMs.
+        ScheduleSafetyCap(
+            generation,
+            CurrentTargetIndex,
+            _measureOnly ? MeasureOnlyTargetBudgetMs : Math.Max(_settings.TargetHoldMs, NoArrivalCapMs),
+            isFinal: _measureOnly);
     }
 
     /// <summary>
@@ -393,10 +409,10 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
 
     private void OnRawGaze(GazePoint gaze)
     {
-        // Scripted ground truth, when a recorder is attached (opt-in diagnostics only; null in every
-        // normal run, so calibration behaves exactly as it always has). Recorded here rather than from
-        // a timer because the window has to be expressed in the SAME device clock as the raw recording
-        // it will be aligned against — this callback has that timestamp in hand.
+        // Scripted ground truth, when the sidecar is enabled for this session (SidecarEnabled below).
+        // Recorded here rather than from a timer because the window has to be expressed in the SAME
+        // device clock as the raw recording it will be aligned against — this callback has that
+        // timestamp in hand.
         //
         // ABOVE the IsValid return on purpose: the window is "when this target was displayed", which
         // includes the moments the tracker lost the eyes. Counting only valid samples would make a
@@ -413,7 +429,7 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         // Spelled out rather than `_diagnostics?.RecordRawGaze != false`: the two read identically but
         // the short form's null case is easy to read backwards, and getting it wrong means a sidecar
         // written for a session that was never recorded. No settings object means no gate to consult —
-        // the recorder is injected only for a measurement session in the first place.
+        // which is how the probe's tests drive it.
         if (SidecarEnabled)
         {
             _groundTruth?.OnSample(
@@ -578,16 +594,26 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         _sessionGeneration++;
         _gazeProvider.GazePointReceived -= OnRawGaze;
         _calibrationService.CancelSession();
-        if (_measureOnly)
+        try
         {
-            // Abandonment is not failure: the windows gathered so far are kept, and the outcome says
-            // why they stop where they do. Restoring AbandonSession here is the named mutation — it
-            // would throw away the only data the probe exists to collect.
-            _groundTruth?.CompleteSession(GroundTruthOutcome.Abandoned);
+            if (_measureOnly)
+            {
+                // Abandonment is not failure: the windows gathered so far are kept, and the outcome says
+                // why they stop where they do. Restoring AbandonSession here is the named mutation — it
+                // would throw away the only data the probe exists to collect.
+                _groundTruth?.CompleteSession(GroundTruthOutcome.Abandoned);
+            }
+            else
+            {
+                _groundTruth?.AbandonSession();
+            }
         }
-        else
+        catch (Exception ex)
         {
-            _groundTruth?.AbandonSession();
+            // Idle is the coordinator's ONLY suppression release for an abandon, so a sink that throws
+            // must not be allowed to skip it: the view model would stay in Collecting behind a
+            // full-screen backdrop with no gaze subscription and no live caps.
+            _logger?.LogWarning(ex, "The sidecar sink threw while abandoning; the session still ends");
         }
         State = CalibrationState.Idle;
         Messenger.Send(new CalibrationStateChangedMessage(State, 0));

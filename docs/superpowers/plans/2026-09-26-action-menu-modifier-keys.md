@@ -168,47 +168,311 @@ Delete the old inline body of `BuildModifiedKeySequence` (the `modifierVks` list
 Run: `dotnet test tests/EyeCtrl.Platform.Tests -v minimal`
 Expected: PASS (the delegated sequence is byte-identical — the characterization from Step 1 plus the two ClampTests guards prove it).
 
-- [ ] **Step 5: `SendRaw` returns the injected count; add `SendCompensatingReleases`**
+- [ ] **Step 5: Write the batch-composition + compensation tests FIRST (they call internal builders that do not exist yet)**
 
-Change `SendRaw`'s signature and tail:
+HARD RULE: tests must NEVER call the send methods (`LeftClick`/`Scroll`/`SendModifiedKeyPress`, ...) on a real `Win32InputSimulator` — that injects real OS input on the owner's gaze-driven machine. Everything is tested through the pure static builders.
+
+New file `tests/EyeCtrl.Platform.Tests/Input/Win32InputSimulatorModifiedSequenceTests.cs`:
+
+```csharp
+namespace EyeCtrl.Platform.Tests.Input;
+
+using System.Linq;
+using EyeCtrl.Core.Keyboard;
+using EyeCtrl.Platform.Input;
+using NFluent;
+using Xunit;
+
+public class Win32InputSimulatorModifiedSequenceTests
+{
+    private const ushort MenuMask = Win32InputSimulator.MenuMaskVirtualKey;
+
+    private static HashSet<ModifierKey> Mods(params ModifierKey[] keys) => new(keys);
+
+    [Fact]
+    public void ModifiedClickBody_BalancedDownUp_ForSingleClick()
+    {
+        var body = Win32InputSimulator.BuildModifiedClickBody(
+            new EyeCtrl.Core.Models.PhysicalPoint(10, 10), right: false, middle: false, doubleClick: false);
+
+        Check.That(body).HasSize(2);
+        Check.That((body[0].Union.Mouse.Flags & NativeMethods.MOUSEEVENTF_LEFTDOWN)).IsNotEqualTo(0u);
+        Check.That((body[1].Union.Mouse.Flags & NativeMethods.MOUSEEVENTF_LEFTUP)).IsNotEqualTo(0u);
+    }
+
+    [Fact]
+    public void ModifiedClickBody_DoubleClick_IsOneBatchOfFourMouseEvents()
+    {
+        var body = Win32InputSimulator.BuildModifiedClickBody(
+            new EyeCtrl.Core.Models.PhysicalPoint(10, 10), right: false, middle: false, doubleClick: true);
+
+        Check.That(body).HasSize(4);
+        Check.That(body.All(i => (i.Union.Mouse.Flags & (NativeMethods.MOUSEEVENTF_LEFTDOWN | NativeMethods.MOUSEEVENTF_LEFTUP)) != 0)).IsTrue();
+    }
+
+    [Fact]
+    public void ModifiedWheelBody_LeadsWithAbsoluteMove_ThenClampedWheel()
+    {
+        var body = Win32InputSimulator.BuildModifiedWheelBody(
+            new EyeCtrl.Core.Models.PhysicalPoint(10, 10), deltaX: 0, deltaY: 3);
+
+        Check.That(body).HasSize(2);
+        Check.That((body[0].Union.Mouse.Flags & NativeMethods.MOUSEEVENTF_MOVE)).IsNotEqualTo(0u);
+        Check.That((body[0].Union.Mouse.Flags & NativeMethods.MOUSEEVENTF_ABSOLUTE)).IsNotEqualTo(0u);
+        Check.That((body[1].Union.Mouse.Flags & NativeMethods.MOUSEEVENTF_WHEEL)).IsNotEqualTo(0u);
+        Check.That(body[1].Union.Mouse.MouseData).IsEqualTo(3 * PlatformConstants.MouseWheelDelta);
+    }
+
+    [Fact]
+    public void Wrap_DownsPrecedeBody_MaskBeforeAltUp_UpsReversed()
+    {
+        var body = new[]
+        {
+            Win32InputSimulatorTestHelper.MouseInput(NativeMethods.MOUSEEVENTF_LEFTDOWN),
+            Win32InputSimulatorTestHelper.MouseInput(NativeMethods.MOUSEEVENTF_LEFTUP),
+        };
+
+        var batch = Win32InputSimulator.WrapWithModifiers(
+            Mods(ModifierKey.Shift, ModifierKey.Alt), body, includeAltMenuMask: true);
+
+        // Down order is Ctrl, Alt, Win, Shift filtered to the set, so Alt-down precedes Shift-down.
+        Check.That(batch).HasSize(2 + 2 + 2 + 2);
+        Check.That(batch[0].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_MENU);
+        Check.That(batch[1].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_SHIFT);
+        Check.That(batch[2].Type).IsEqualTo(NativeMethods.INPUT_MOUSE);
+        Check.That(batch[3].Type).IsEqualTo(NativeMethods.INPUT_MOUSE);
+        Check.That(batch[4].Union.Keyboard.VirtualKey).IsEqualTo(MenuMask);
+        Check.That(batch[4].Union.Keyboard.Flags).IsEqualTo(0u);
+        Check.That(batch[5].Union.Keyboard.Flags).IsEqualTo(NativeMethods.KEYEVENTF_KEYUP);
+        Check.That(batch[6].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_MENU);
+        Check.That(batch[6].Union.Keyboard.Flags).IsEqualTo(NativeMethods.KEYEVENTF_KEYUP);
+        Check.That(batch[7].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_SHIFT);
+    }
+
+    [Fact]
+    public void Wrap_NoAlt_NoMaskPair()
+    {
+        var body = new[] { Win32InputSimulatorTestHelper.MouseInput(NativeMethods.MOUSEEVENTF_LEFTDOWN) };
+        var batch = Win32InputSimulator.WrapWithModifiers(Mods(ModifierKey.Shift), body, includeAltMenuMask: true);
+
+        Check.That(batch).HasSize(1 + 1 + 1);
+        Check.That(batch.Any(i => i.Type == NativeMethods.INPUT_KEYBOARD && i.Union.Keyboard.VirtualKey == MenuMask)).IsFalse();
+    }
+
+    [Fact]
+    public void KeyboardSequence_NeverCarriesTheMask()
+    {
+        var batch = Win32InputSimulator.BuildModifiedKeySequence(
+            Mods(ModifierKey.Alt, ModifierKey.Shift), 0x41, isExtendedKey: false);
+
+        Check.That(batch).HasSize(4 + 2);
+        Check.That(batch.Any(i => i.Type == NativeMethods.INPUT_KEYBOARD && i.Union.Keyboard.VirtualKey == MenuMask)).IsFalse();
+    }
+
+    [Fact]
+    public void Compensation_EmitsMouseUpBeforeModifierUps_MaskBeforeAltUp()
+    {
+        // Batch: Alt-down, LEFTDOWN, LEFTUP, LEFTDOWN, Alt-up — sent = 4, so the second
+        // LEFTDOWN landed without its up and the Alt-up never landed.
+        var batch = new[]
+        {
+            Win32InputSimulatorTestHelper.KeyboardInput(NativeMethods.VK_MENU, 0),
+            Win32InputSimulatorTestHelper.MouseInput(NativeMethods.MOUSEEVENTF_LEFTDOWN),
+            Win32InputSimulatorTestHelper.MouseInput(NativeMethods.MOUSEEVENTF_LEFTUP),
+            Win32InputSimulatorTestHelper.MouseInput(NativeMethods.MOUSEEVENTF_LEFTDOWN),
+            Win32InputSimulatorTestHelper.KeyboardInput(NativeMethods.VK_MENU, NativeMethods.KEYEVENTF_KEYUP),
+        };
+
+        var releases = Win32InputSimulator.BuildCompensatingReleases(4, batch);
+
+        Check.That(releases).HasSize(4); // LEFTUP, mask-down, mask-up, Alt-up
+        Check.That((releases[0].Union.Mouse.Flags & NativeMethods.MOUSEEVENTF_LEFTUP)).IsNotEqualTo(0u);
+        Check.That(releases[1].Union.Keyboard.VirtualKey).IsEqualTo(MenuMask);
+        Check.That(releases[2].Union.Keyboard.Flags).IsEqualTo(NativeMethods.KEYEVENTF_KEYUP);
+        Check.That(releases[3].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_MENU);
+        Check.That((releases[3].Union.Keyboard.Flags & NativeMethods.KEYEVENTF_KEYUP)).IsNotEqualTo(0u);
+    }
+
+    [Fact]
+    public void Compensation_BalancedPrefix_EmitsNothing()
+    {
+        var batch = new[]
+        {
+            Win32InputSimulatorTestHelper.KeyboardInput(NativeMethods.VK_SHIFT, 0),
+            Win32InputSimulatorTestHelper.MouseInput(NativeMethods.MOUSEEVENTF_LEFTDOWN),
+            Win32InputSimulatorTestHelper.MouseInput(NativeMethods.MOUSEEVENTF_LEFTUP),
+            Win32InputSimulatorTestHelper.KeyboardInput(NativeMethods.VK_SHIFT, NativeMethods.KEYEVENTF_KEYUP),
+        };
+
+        Check.That(Win32InputSimulator.BuildCompensatingReleases(4, batch)).IsEmpty();
+    }
+
+    [Fact]
+    public void Compensation_NoAlt_NoMaskInReleases()
+    {
+        var batch = new[]
+        {
+            Win32InputSimulatorTestHelper.KeyboardInput(NativeMethods.VK_SHIFT, 0),
+            Win32InputSimulatorTestHelper.MouseInput(NativeMethods.MOUSEEVENTF_LEFTDOWN),
+            Win32InputSimulatorTestHelper.KeyboardInput(NativeMethods.VK_SHIFT, NativeMethods.KEYEVENTF_KEYUP),
+        };
+
+        var releases = Win32InputSimulator.BuildCompensatingReleases(2, batch); // LEFTDOWN unmatched
+
+        Check.That(releases).HasSize(1);
+        Check.That(releases.Any(i => i.Union.Keyboard.VirtualKey == MenuMask)).IsFalse();
+    }
+}
+
+/// <summary>Test access to the internal composition helpers (InternalsVisibleTo covers this project).</summary>
+internal static class Win32InputSimulatorTestHelper
+{
+    public static NativeMethods.INPUT MouseInput(uint flags) => new()
+    {
+        Type = NativeMethods.INPUT_MOUSE,
+        Union = new NativeMethods.INPUTUNION { Mouse = new NativeMethods.MOUSEINPUT { Flags = flags } },
+    };
+
+    public static NativeMethods.INPUT KeyboardInput(ushort vk, uint flags) => new()
+    {
+        Type = NativeMethods.INPUT_KEYBOARD,
+        Union = new NativeMethods.INPUTUNION { Keyboard = new NativeMethods.KEYBDINPUT { VirtualKey = vk, Flags = flags } },
+    };
+}
+```
+
+- [ ] **Step 6: Run — compile FAIL (builders missing)**
+
+Run: `dotnet test tests/EyeCtrl.Platform.Tests --filter "FullyQualifiedName~ModifiedSequenceTests" -v minimal`
+Expected: BUILD ERROR (`WrapWithModifiers`, `BuildModifiedClickBody`, `BuildModifiedWheelBody`, `BuildCompensatingReleases`, `MenuMaskVirtualKey` undefined).
+
+- [ ] **Step 7: Implement the composition layer in `Win32InputSimulator.cs`**
+
+(a) `SendRaw` returns the injected count — `SendInput` returns `uint`, so cast:
 
 ```csharp
 private int SendRaw(uint count, NativeMethods.INPUT[] inputs)
 {
     var sent = NativeMethods.SendInput(count, inputs, s_inputSize);
-    if (sent == count) return sent;
+    if (sent == count) return (int)sent;
 
-    // SendInput does not throw on a block: it returns 0 when the foreground process has
-    // higher integrity (elevated windows, the secure desktop). Every event is then silently
-    // dropped, and for a gaze-only user "nothing happens" is indistinguishable from
-    // "paused" without this log. Rate-limited above.
-    var now = Environment.TickCount64;
-    if (now - _lastBlockedLogTicks > 30_000)
-    {
-        _lastBlockedLogTicks = now;
-        _logger?.LogWarning(
-            "SendInput injected {Sent}/{Count} events (Win32 error {ErrorCode}) — input into elevated or secure-desktop windows is blocked by Windows",
-            sent, count, Marshal.GetLastWin32Error());
-    }
-    return sent;
+    // ... existing rate-limited block warning unchanged ...
+    return (int)sent;
 }
 ```
 
-(`SendSingleInput`/`SendInputs` callers ignore the return — they stay `void`-callers; `MoveCursor`'s hot path is unchanged apart from the returned int.)
+(b) `WrapWithModifiers` + the menu-mask key (modifier downs in Ctrl, Alt, Win, Shift order; body; when `includeAltMenuMask` and Alt present, the VK 0xE8 down/up pair immediately before the Alt key-up; ups reversed):
 
-Add the compensating-releases walker (below `SendRaw`):
+```csharp
+internal const ushort MenuMaskVirtualKey = 0xE8;
+
+internal static NativeMethods.INPUT[] WrapWithModifiers(
+    IReadOnlySet<ModifierKey>? modifiers, NativeMethods.INPUT[] body, bool includeAltMenuMask)
+{
+    var modifierVks = new List<ushort>();
+    if (modifiers is not null)
+    {
+        if (modifiers.Contains(ModifierKey.Ctrl)) modifierVks.Add(NativeMethods.VK_CONTROL);
+        if (modifiers.Contains(ModifierKey.Alt)) modifierVks.Add(NativeMethods.VK_MENU);
+        if (modifiers.Contains(ModifierKey.Win)) modifierVks.Add(NativeMethods.VK_LWIN);
+        if (modifiers.Contains(ModifierKey.Shift)) modifierVks.Add(NativeMethods.VK_SHIFT);
+    }
+
+    var batch = new List<NativeMethods.INPUT>(
+        modifierVks.Count * 2 + body.Length + (modifierVks.Contains(NativeMethods.VK_MENU) && includeAltMenuMask ? 2 : 0));
+
+    foreach (var vk in modifierVks)
+    {
+        uint downFlags = vk == NativeMethods.VK_LWIN ? NativeMethods.KEYEVENTF_EXTENDEDKEY : 0;
+        batch.Add(CreateKeyboardInput(vk, downFlags));
+    }
+
+    batch.AddRange(body);
+
+    if (includeAltMenuMask && modifierVks.Contains(NativeMethods.VK_MENU))
+    {
+        batch.Add(CreateKeyboardInput(MenuMaskVirtualKey, 0));
+        batch.Add(CreateKeyboardInput(MenuMaskVirtualKey, NativeMethods.KEYEVENTF_KEYUP));
+    }
+
+    for (var i = modifierVks.Count - 1; i >= 0; i--)
+    {
+        uint upFlags = modifierVks[i] == NativeMethods.VK_LWIN
+            ? NativeMethods.KEYEVENTF_KEYUP | NativeMethods.KEYEVENTF_EXTENDEDKEY
+            : NativeMethods.KEYEVENTF_KEYUP;
+        batch.Add(CreateKeyboardInput(modifierVks[i], upFlags));
+    }
+
+    return batch.ToArray();
+}
+```
+
+(c) `BuildModifiedKeySequence` delegates (keyboard batches carry NO mask — byte-identical to today, because a keyboard batch contains its own keystroke and Alt-up cannot activate a menu there):
+
+```csharp
+internal static NativeMethods.INPUT[] BuildModifiedKeySequence(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode, bool isExtendedKey)
+    => WrapWithModifiers(
+        modifiers,
+        new[]
+        {
+            CreateKeyboardInput(virtualKeyCode, isExtendedKey ? NativeMethods.KEYEVENTF_EXTENDEDKEY : 0),
+            CreateKeyboardInput(virtualKeyCode, (isExtendedKey ? NativeMethods.KEYEVENTF_EXTENDEDKEY : 0) | NativeMethods.KEYEVENTF_KEYUP),
+        },
+        includeAltMenuMask: false);
+```
+
+(d) Pure body builders (they make the PRODUCTION batch shapes testable — the leading MOVE, the four-event double-click, the wheel deltas):
+
+```csharp
+/// <summary>The mouse-event body of a modified click: one down/up pair, or two pairs for a double click (ONE batch — the exact shape a physical user produces).</summary>
+internal static NativeMethods.INPUT[] BuildModifiedClickBody(PhysicalPoint point, bool right, bool middle, bool doubleClick)
+{
+    uint down = NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE
+        | (right ? NativeMethods.MOUSEEVENTF_RIGHTDOWN : middle ? NativeMethods.MOUSEEVENTF_MIDDLEDOWN : NativeMethods.MOUSEEVENTF_LEFTDOWN);
+    uint up = NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE
+        | (right ? NativeMethods.MOUSEEVENTF_RIGHTUP : middle ? NativeMethods.MOUSEEVENTF_MIDDLEUP : NativeMethods.MOUSEEVENTF_LEFTUP);
+
+    if (!doubleClick) return new[] { CreateMouseInput(point, down), CreateMouseInput(point, up) };
+    return new[] { CreateMouseInput(point, down), CreateMouseInput(point, up), CreateMouseInput(point, down), CreateMouseInput(point, up) };
+}
+
+/// <summary>The wheel-event body of a modified scroll: a leading absolute MOVE (wheel events alone land at the current cursor, and ResetToFreeLook re-enables per-frame MoveCursor across a doubly-deferred dispatch), then the Y and/or X wheel legs with clamped deltas.</summary>
+internal static NativeMethods.INPUT[] BuildModifiedWheelBody(PhysicalPoint point, int deltaX, int deltaY)
+{
+    var body = new List<NativeMethods.INPUT>
+    {
+        CreateMouseInput(point, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE),
+    };
+    deltaX = ClampScrollDelta(deltaX);
+    deltaY = ClampScrollDelta(deltaY);
+    if (deltaY != 0)
+    {
+        var input = CreateMouseInput(point, NativeMethods.MOUSEEVENTF_WHEEL);
+        input.Union.Mouse.MouseData = deltaY * PlatformConstants.MouseWheelDelta;
+        body.Add(input);
+    }
+    if (deltaX != 0)
+    {
+        var input = CreateMouseInput(point, NativeMethods.MOUSEEVENTF_HWHEEL);
+        input.Union.Mouse.MouseData = deltaX * PlatformConstants.MouseWheelDelta;
+        body.Add(input);
+    }
+    return body.ToArray();
+}
+```
+
+(e) Compensation — static pure builder + thin instance sender:
 
 ```csharp
 /// <summary>
-/// After a PARTIAL insert (0 &lt; sent &lt; count), emits releases for every down whose up did
+/// After a PARTIAL insert (0 &lt; sent &lt; count), builds releases for every down whose up did
 /// not land inside the injected prefix: mouse-ups first, the menu-mask pair before a
 /// compensating Alt-up, then keyboard key-ups in reverse. A fully blocked batch (sent = 0)
-/// injected nothing and needs none. Best-effort: a compensation failure is logged on its OWN
-/// line — the partial-send warning above is rate-limited and would swallow it.
+/// injected nothing and needs none.
 /// </summary>
-private void SendCompensatingReleases(int sent, NativeMethods.INPUT[] batch)
+internal static NativeMethods.INPUT[] BuildCompensatingReleases(int sent, NativeMethods.INPUT[] batch)
 {
-    if (sent <= 0 || sent >= batch.Length) return;
+    if (sent <= 0 || sent >= batch.Length) return Array.Empty<NativeMethods.INPUT>();
 
     var heldKeys = new List<ushort>();
     var heldMouseUps = new List<uint>();
@@ -218,23 +482,19 @@ private void SendCompensatingReleases(int sent, NativeMethods.INPUT[] batch)
         if (input.Type == NativeMethods.INPUT_KEYBOARD)
         {
             var vk = input.Union.Keyboard.VirtualKey;
-            if ((input.Union.Keyboard.Flags & NativeMethods.KEYEVENTF_KEYUP) != 0)
-                heldKeys.Remove(vk);
-            else
-                heldKeys.Add(vk);
+            if ((input.Union.Keyboard.Flags & NativeMethods.KEYEVENTF_KEYUP) != 0) heldKeys.Remove(vk);
+            else heldKeys.Add(vk);
         }
         else if (input.Type == NativeMethods.INPUT_MOUSE)
         {
-            var downMask = NativeMethods.MOUSEEVENTF_LEFTDOWN | NativeMethods.MOUSEEVENTF_RIGHTDOWN | NativeMethods.MOUSEEVENTF_MIDDLEDOWN;
-            var upMask = NativeMethods.MOUSEEVENTF_LEFTUP | NativeMethods.MOUSEEVENTF_RIGHTUP | NativeMethods.MOUSEEVENTF_MIDDLEUP;
-            if ((input.Union.Mouse.Flags & downMask) != 0)
-                heldMouseUps.Add(input.Union.Mouse.Flags & downMask);
-            else if ((input.Union.Mouse.Flags & upMask) != 0 && heldMouseUps.Count > 0)
-                heldMouseUps.RemoveAt(heldMouseUps.Count - 1);
+            uint downMask = NativeMethods.MOUSEEVENTF_LEFTDOWN | NativeMethods.MOUSEEVENTF_RIGHTDOWN | NativeMethods.MOUSEEVENTF_MIDDLEDOWN;
+            uint upMask = NativeMethods.MOUSEEVENTF_LEFTUP | NativeMethods.MOUSEEVENTF_RIGHTUP | NativeMethods.MOUSEEVENTF_MIDDLEUP;
+            if ((input.Union.Mouse.Flags & downMask) != 0) heldMouseUps.Add(input.Union.Mouse.Flags & downMask);
+            else if ((input.Union.Mouse.Flags & upMask) != 0 && heldMouseUps.Count > 0) heldMouseUps.RemoveAt(heldMouseUps.Count - 1);
         }
     }
 
-    if (heldKeys.Count == 0 && heldMouseUps.Count == 0) return;
+    if (heldKeys.Count == 0 && heldMouseUps.Count == 0) return Array.Empty<NativeMethods.INPUT>();
 
     var releases = new List<NativeMethods.INPUT>();
     foreach (var downFlags in heldMouseUps)
@@ -258,98 +518,41 @@ private void SendCompensatingReleases(int sent, NativeMethods.INPUT[] batch)
     for (var i = heldKeys.Count - 1; i >= 0; i--)
         releases.Add(CreateKeyboardInput(heldKeys[i], NativeMethods.KEYEVENTF_KEYUP));
 
-    var sentReleases = SendRaw((uint)releases.Count, releases.ToArray());
-    if (sentReleases < releases.Count)
+    return releases.ToArray();
+}
+
+/// <summary>Instance path: build the releases, send them, and log a failure on its OWN line — the partial-send warning above is rate-limited and would swallow it.</summary>
+private void SendCompensatingReleases(int sent, NativeMethods.INPUT[] batch)
+{
+    var releases = BuildCompensatingReleases(sent, batch);
+    if (releases.Length == 0) return;
+    var sentReleases = SendRaw((uint)releases.Length, releases);
+    if (sentReleases < releases.Length)
         _logger?.LogWarning(
             "Modifier-recovery send injected {Sent}/{Count} events — a modifier may remain held down after a partial SendInput",
-            sentReleases, releases.Count);
+            sentReleases, releases.Length);
 }
 ```
 
-- [ ] **Step 6: Add the modified mouse/wheel overloads to `Win32InputSimulator`**
+(f) The modified overloads (builders + `SendRaw` + compensation) and the `SendModifiedKeyPress` reroute:
 
 ```csharp
 public void LeftClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)
 {
     if (modifiers is not { Count: > 0 }) { LeftClick(point); return; }
-    var batch = WrapWithModifiers(modifiers, new[]
-    {
-        CreateMouseInput(point, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE | NativeMethods.MOUSEEVENTF_LEFTDOWN),
-        CreateMouseInput(point, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE | NativeMethods.MOUSEEVENTF_LEFTUP),
-    }, includeAltMenuMask: true);
+    var batch = WrapWithModifiers(modifiers, BuildModifiedClickBody(point, right: false, middle: false, doubleClick: false), includeAltMenuMask: true);
     SendCompensatingReleases(SendRaw((uint)batch.Length, batch), batch);
 }
-
-public void RightClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)
-{
-    if (modifiers is not { Count: > 0 }) { RightClick(point); return; }
-    var batch = WrapWithModifiers(modifiers, new[]
-    {
-        CreateMouseInput(point, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE | NativeMethods.MOUSEEVENTF_RIGHTDOWN),
-        CreateMouseInput(point, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE | NativeMethods.MOUSEEVENTF_RIGHTUP),
-    }, includeAltMenuMask: true);
-    SendCompensatingReleases(SendRaw((uint)batch.Length, batch), batch);
-}
-
-public void MiddleClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)
-{
-    if (modifiers is not { Count: > 0 }) { MiddleClick(point); return; }
-    var batch = WrapWithModifiers(modifiers, new[]
-    {
-        CreateMouseInput(point, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE | NativeMethods.MOUSEEVENTF_MIDDLEDOWN),
-        CreateMouseInput(point, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE | NativeMethods.MOUSEEVENTF_MIDDLEUP),
-    }, includeAltMenuMask: true);
-    SendCompensatingReleases(SendRaw((uint)batch.Length, batch), batch);
-}
-
-public void DoubleClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)
-{
-    if (modifiers is not { Count: > 0 }) { DoubleClick(point); return; }
-    uint down = NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE | NativeMethods.MOUSEEVENTF_LEFTDOWN;
-    uint up = NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE | NativeMethods.MOUSEEVENTF_LEFTUP;
-    // ONE batch: the exact event shape a physical user produces with the modifier already held.
-    var batch = WrapWithModifiers(modifiers, new[]
-    {
-        CreateMouseInput(point, down), CreateMouseInput(point, up),
-        CreateMouseInput(point, down), CreateMouseInput(point, up),
-    }, includeAltMenuMask: true);
-    SendCompensatingReleases(SendRaw((uint)batch.Length, batch), batch);
-}
+// RightClick / MiddleClick: identical shape with right: true / middle: true.
+// DoubleClick: BuildModifiedClickBody(point, right: false, middle: false, doubleClick: true).
 
 public void Scroll(PhysicalPoint point, int deltaX, int deltaY, IReadOnlySet<ModifierKey>? modifiers)
 {
     if (modifiers is not { Count: > 0 }) { Scroll(point, deltaX, deltaY); return; }
-
-    var body = new List<NativeMethods.INPUT>
-    {
-        // Wheel events alone land at the CURRENT cursor position; the leading absolute MOVE
-        // pins the wheel to the requested point (ResetToFreeLook re-enables per-frame
-        // MoveCursor across a doubly-deferred dispatch, so the cursor can drift).
-        CreateMouseInput(point, NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE),
-    };
-    deltaX = ClampScrollDelta(deltaX);
-    deltaY = ClampScrollDelta(deltaY);
-    if (deltaY != 0)
-    {
-        var input = CreateMouseInput(point, NativeMethods.MOUSEEVENTF_WHEEL);
-        input.Union.Mouse.MouseData = deltaY * PlatformConstants.MouseWheelDelta;
-        body.Add(input);
-    }
-    if (deltaX != 0)
-    {
-        var input = CreateMouseInput(point, NativeMethods.MOUSEEVENTF_HWHEEL);
-        input.Union.Mouse.MouseData = deltaX * PlatformConstants.MouseWheelDelta;
-        body.Add(input);
-    }
-
-    var batch = WrapWithModifiers(modifiers, body.ToArray(), includeAltMenuMask: true);
+    var batch = WrapWithModifiers(modifiers, BuildModifiedWheelBody(point, deltaX, deltaY), includeAltMenuMask: true);
     SendCompensatingReleases(SendRaw((uint)batch.Length, batch), batch);
 }
-```
 
-Route `SendModifiedKeyPress` through `SendRaw` + compensation (replacing its direct `NativeMethods.SendInput` call):
-
-```csharp
 public void SendModifiedKeyPress(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode, bool isExtendedKey)
 {
     var batch = BuildModifiedKeySequence(modifiers, virtualKeyCode, isExtendedKey);
@@ -357,12 +560,12 @@ public void SendModifiedKeyPress(IReadOnlySet<ModifierKey> modifiers, ushort vir
 }
 ```
 
-- [ ] **Step 7: Declare the overloads on `IInputSimulator` as throwing default interface methods**
+- [ ] **Step 8: Declare the overloads on `IInputSimulator` as throwing default interface methods**
 
 Add to `src/EyeCtrl.Core/Interfaces/IInputSimulator.cs` (after the existing members, XML docs included — Core escalates CS1591):
 
 ```csharp
-/// <summary>Performs a left click with the given modifiers held for the duration of the click (one atomic batch). Null/empty modifiers is the caller's bug — the dispatcher routes bare clicks to <see cref="LeftClick(PhysicalPoint)"/>.</summary>
+/// <summary>Performs a left click with the given modifiers held for the duration of the click (one atomic batch). The dispatcher routes bare clicks to <see cref="LeftClick(PhysicalPoint)"/>.</summary>
 /// <param name="point">Target position in physical screen pixels.</param>
 /// <param name="modifiers">Modifier keys held down for the click. Must be non-empty when called directly.</param>
 void LeftClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers) => throw new NotSupportedException("This input simulator does not implement modified clicks.");
@@ -379,195 +582,6 @@ void DoubleClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers) => t
 /// <summary>Sends a wheel scroll with the given modifiers held; the batch leads with an absolute move so the wheel lands on <paramref name="point"/>.</summary>
 void Scroll(PhysicalPoint point, int deltaX, int deltaY, IReadOnlySet<ModifierKey>? modifiers) => throw new NotSupportedException("This input simulator does not implement modified scrolls.");
 ```
-
-- [ ] **Step 8: Write the batch-composition tests**
-
-New file `tests/EyeCtrl.Platform.Tests/Input/Win32InputSimulatorModifiedSequenceTests.cs`:
-
-```csharp
-namespace EyeCtrl.Platform.Tests.Input;
-
-using System.Linq;
-using EyeCtrl.Core.Keyboard;
-using EyeCtrl.Platform.Input;
-using NFluent;
-using Xunit;
-
-public class Win32InputSimulatorModifiedSequenceTests
-{
-    private const ushort MenuMask = Win32InputSimulator.MenuMaskVirtualKey;
-
-    private static HashSet<ModifierKey> Mods(params ModifierKey[] keys) => new(keys);
-
-    [Fact]
-    public void ModifiedLeftClick_DownsPrecedeBody_MaskBeforeAltUp_UpsReversed()
-    {
-        var body = new[]
-        {
-            Win32InputSimulatorTestHelper.MouseInput(NativeMethods.MOUSEEVENTF_LEFTDOWN),
-            Win32InputSimulatorTestHelper.MouseInput(NativeMethods.MOUSEEVENTF_LEFTUP),
-        };
-
-        var batch = Win32InputSimulator.WrapWithModifiers(
-            Mods(ModifierKey.Shift, ModifierKey.Alt), body, includeAltMenuMask: true);
-
-        // Ctrl-down? No — Ctrl not requested. Order: Shift-down, Alt-down, body, mask down,
-        // mask up, Alt-up, Shift-up. (Down order is Ctrl, Alt, Win, Shift filtered to the set.)
-        Check.That(batch).HasSize(2 + 2 + 2 + 2);
-        Check.That(batch[0].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_MENU);
-        Check.That(batch[1].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_SHIFT);
-        Check.That(batch[2].Type).IsEqualTo(NativeMethods.INPUT_MOUSE);
-        Check.That(batch[3].Type).IsEqualTo(NativeMethods.INPUT_MOUSE);
-        Check.That(batch[4].Union.Keyboard.VirtualKey).IsEqualTo(MenuMask);
-        Check.That(batch[4].Union.Keyboard.Flags).IsEqualTo(0u);
-        Check.That(batch[5].Union.Keyboard.VirtualKey).IsEqualTo(MenuMask);
-        Check.That(batch[5].Union.Keyboard.Flags).IsEqualTo(NativeMethods.KEYEVENTF_KEYUP);
-        Check.That(batch[6].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_MENU);
-        Check.That(batch[6].Union.Keyboard.Flags).IsEqualTo(NativeMethods.KEYEVENTF_KEYUP);
-        Check.That(batch[7].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_SHIFT);
-        Check.That(batch[7].Union.Keyboard.Flags).IsEqualTo(NativeMethods.KEYEVENTF_KEYUP);
-    }
-
-    [Fact]
-    public void ModifiedWheel_LeadsWithAbsoluteMove()
-    {
-        var body = new[]
-        {
-            Win32InputSimulatorTestHelper.MouseInput(NativeMethods.MOUSEEVENTF_MOVE | NativeMethods.MOUSEEVENTF_ABSOLUTE),
-            Win32InputSimulatorTestHelper.WheelInput(120),
-        };
-
-        var batch = Win32InputSimulator.WrapWithModifiers(
-            Mods(ModifierKey.Ctrl), body, includeAltMenuMask: true);
-
-        Check.That(batch).HasSize(2 + 2 + 2);
-        Check.That(batch[0].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_CONTROL);
-        Check.That(batch[1].Type).IsEqualTo(NativeMethods.INPUT_MOUSE);
-        Check.That((batch[1].Union.Mouse.Flags & NativeMethods.MOUSEEVENTF_MOVE)).IsNotEqualTo(0u);
-        Check.That((batch[1].Union.Mouse.Flags & NativeMethods.MOUSEEVENTF_ABSOLUTE)).IsNotEqualTo(0u);
-        Check.That(batch[2].Type).IsEqualTo(NativeMethods.INPUT_MOUSE);
-        Check.That((batch[2].Union.Mouse.Flags & NativeMethods.MOUSEEVENTF_WHEEL)).IsNotEqualTo(0u);
-        Check.That(batch[3].Union.Keyboard.VirtualKey).IsEqualTo(MenuMask); // No Alt ⇒ no mask
-    }
-
-    [Fact]
-    public void NoAlt_NoMaskPair()
-    {
-        var body = new[] { Win32InputSimulatorTestHelper.MouseInput(NativeMethods.MOUSEEVENTF_LEFTDOWN) };
-        var batch = Win32InputSimulator.WrapWithModifiers(Mods(ModifierKey.Shift), body, includeAltMenuMask: true);
-
-        Check.That(batch).HasSize(1 + 1 + 1);
-        Check.That(batch.Any(i => i.Type == NativeMethods.INPUT_KEYBOARD && i.Union.Keyboard.VirtualKey == MenuMask)).IsFalse();
-    }
-
-    [Fact]
-    public void KeyboardSequence_NeverCarriesTheMask()
-    {
-        var batch = Win32InputSimulator.BuildModifiedKeySequence(
-            Mods(ModifierKey.Alt, ModifierKey.Shift), 0x41, isExtendedKey: false);
-
-        Check.That(batch).HasSize(4 + 2);
-        Check.That(batch.Any(i => i.Type == NativeMethods.INPUT_KEYBOARD && i.Union.Keyboard.VirtualKey == MenuMask)).IsFalse();
-    }
-
-    [Fact]
-    public void Compensation_EmitsMouseUpsBeforeModifierUps_MaskBeforeAltUp()
-    {
-        // Batch: Alt-down, LEFTDOWN, LEFTUP, LEFTDOWN  — sent prefix = 3 (the second
-        // LEFTDOWN landed without its up; Alt-up never landed).
-        var batch = new[]
-        {
-            Win32InputSimulatorTestHelper.KeyboardInput(NativeMethods.VK_MENU, 0),
-            Win32InputSimulatorTestHelper.MouseInput(NativeMethods.MOUSEEVENTF_LEFTDOWN),
-            Win32InputSimulatorTestHelper.MouseInput(NativeMethods.MOUSEEVENTF_LEFTUP),
-            Win32InputSimulatorTestHelper.MouseInput(NativeMethods.MOUSEEVENTF_LEFTDOWN),
-            Win32InputSimulatorTestHelper.KeyboardInput(NativeMethods.VK_MENU, NativeMethods.KEYEVENTF_KEYUP),
-        };
-
-        var releases = Win32InputSimulatorTestHelper.CompensatingReleases(3, batch);
-
-        // LEFTUP first, then the mask pair, then the Alt-up.
-        Check.That(releases).HasSize(1 + 2 + 1);
-        Check.That(releases[0].Type).IsEqualTo(NativeMethods.INPUT_MOUSE);
-        Check.That((releases[0].Union.Mouse.Flags & NativeMethods.MOUSEEVENTF_LEFTUP)).IsNotEqualTo(0u);
-        Check.That(releases[1].Union.Keyboard.VirtualKey).IsEqualTo(MenuMask);
-        Check.That(releases[2].Union.Keyboard.Flags).IsEqualTo(NativeMethods.KEYEVENTF_KEYUP);
-        Check.That(releases[3].Union.Keyboard.VirtualKey).IsEqualTo(NativeMethods.VK_MENU);
-    }
-
-    [Fact]
-    public void Compensation_FullyLandedPrefix_EmitsNothing()
-    {
-        var batch = new[]
-        {
-            Win32InputSimulatorTestHelper.KeyboardInput(NativeMethods.VK_SHIFT, 0),
-            Win32InputSimulatorTestHelper.MouseInput(NativeMethods.MOUSEEVENTF_LEFTDOWN),
-            Win32InputSimulatorTestHelper.MouseInput(NativeMethods.MOUSEEVENTF_LEFTUP),
-            Win32InputSimulatorTestHelper.KeyboardInput(NativeMethods.VK_SHIFT, NativeMethods.KEYEVENTF_KEYUP),
-        };
-
-        var releases = Win32InputSimulatorTestHelper.CompensatingReleases(4, batch);
-        Check.That(releases).IsEmpty();
-    }
-
-    [Fact]
-    public void SendRaw_ReturnsInjectedCount()
-    {
-        // Indirect: SendRaw is private; the guarantee is exercised via the public
-        // characterization tests above and the compensation tests, which depend on the count.
-        // Direct assertion lives on the compensation helper's contract.
-        Check.That(true).IsTrue();
-    }
-}
-
-/// <summary>
-/// Static access to Win32InputSimulator's internal composition helpers. Lives in the test
-/// assembly; InternalsVisibleTo covers EyeCtrl.Platform.Tests.
-/// </summary>
-public static class Win32InputSimulatorTestHelper
-{
-    public static NativeMethods.INPUT MouseInput(uint flags) => new()
-    {
-        Type = NativeMethods.INPUT_MOUSE,
-        Union = new NativeMethods.INPUTUNION { Mouse = new NativeMethods.MOUSEINPUT { Flags = flags } },
-    };
-
-    public static NativeMethods.INPUT WheelInput(int delta) => new()
-    {
-        Type = NativeMethods.INPUT_MOUSE,
-        Union = new NativeMethods.INPUTUNION { Mouse = new NativeMethods.MOUSEINPUT { Flags = NativeMethods.MOUSEEVENTF_WHEEL, MouseData = delta } },
-    };
-
-    public static NativeMethods.INPUT KeyboardInput(ushort vk, uint flags) => new()
-    {
-        Type = NativeMethods.INPUT_KEYBOARD,
-        Union = new NativeMethods.INPUTUNION { Keyboard = new NativeMethods.KEYBDINPUT { VirtualKey = vk, Flags = flags } },
-    };
-
-    public static NativeMethods.INPUT[] CompensatingReleases(int sent, NativeMethods.INPUT[] batch)
-        => Win32InputSimulator.CompensatingReleasesForTest(sent, batch);
-}
-```
-
-Because `SendCompensatingReleases` is instance-private and needs no instance state, expose it as an `internal static` core helper and keep a thin instance wrapper:
-
-```csharp
-internal static NativeMethods.INPUT[] CompensatingReleasesForTest(int sent, NativeMethods.INPUT[] batch)
-{
-    // The production walker, factored so tests can call it without an instance or SendInput.
-    return BuildCompensatingReleases(sent, batch);
-}
-
-private List<NativeMethods.INPUT> BuildCompensatingReleasesInstance(int sent, NativeMethods.INPUT[] batch)
-    => BuildCompensatingReleases(sent, batch);
-
-private static List<NativeMethods.INPUT> BuildCompensatingReleases(int sent, NativeMethods.INPUT[] batch)
-{
-    // ... the walker from Step 5, returning the release list instead of sending it ...
-}
-```
-
-Restructure per this split: `BuildCompensatingReleases` (static, pure — returns the release list) and `SendCompensatingReleases` (instance — builds, sends via `SendRaw`, logs the failure). `SendCompensatingReleases` needs no `heldKeys` walking of its own. Adjust `InternalsVisibleTo` if `EyeCtrl.Platform.Tests` is not already covered — check `src/EyeCtrl.Platform/EyeCtrl.Platform.csproj` for an existing `InternalsVisibleTo` (the ClampTests already access `internal` members, so it exists).
 
 - [ ] **Step 9: Run the full Platform suite**
 
@@ -614,27 +628,45 @@ public class InteractionManagerModifierTests
 {
     private static readonly PhysicalPoint Point = new(100, 100);
 
-    private static InteractionManager ArmedFreeLook()
+    // OnActionSelected only raises in the two menu-visible states — Fixation resolves no
+    // target point and returns. The menu is reached via the activation-button dwell.
+    private static InteractionManager MenuVisible()
     {
         var im = new InteractionManager();
         im.OnFixationStarted(Point);
+        im.OnActivationButtonDwelled(); // SelectionMode.None ⇒ ShowActionMenu, state ActionMenuVisible
         return im;
     }
 
     [Fact]
-    public void OnActionSelected_RelaysModifiers_OnActionRequested()
+    public void OnActionSelected_RelaysModifiers_FromTheMenuState()
     {
-        var im = ArmedFreeLook();
+        var im = MenuVisible();
         var mods = new HashSet<ModifierKey> { ModifierKey.Shift };
-        (InteractionAction, PhysicalPoint, IReadOnlySet<ModifierKey>?)? raised = null;
-        im.ActionRequested += (action, point, modifiers) => raised = (action, point, modifiers);
+        (InteractionAction Action, IReadOnlySet<ModifierKey>? Modifiers)? raised = null;
+        im.ActionRequested += (action, _, modifiers) => raised = (action, modifiers);
 
         im.OnActionSelected(InteractionAction.LeftClick, mods);
 
         Check.That(raised).IsNotNull();
-        Check.That(raised!.Value.Item1).IsEqualTo(InteractionAction.LeftClick);
-        Check.That(raised.Value.Item3).IsNotNull();
-        Check.That(raised.Value.Item3!.Contains(ModifierKey.Shift)).IsTrue();
+        Check.That(raised!.Value.Action).IsEqualTo(InteractionAction.LeftClick);
+        Check.That(raised.Value.Modifiers!.Contains(ModifierKey.Shift)).IsTrue();
+    }
+
+    [Fact]
+    public void OnActionSelected_RelaysModifiers_FromTheManualSelectionMenuState()
+    {
+        var im = new InteractionManager { SelectionMode = SelectionMode.ManualSelection };
+        (InteractionAction Action, IReadOnlySet<ModifierKey>? Modifiers)? raised = null;
+        im.ActionRequested += (action, _, modifiers) => raised = (action, modifiers);
+        im.OnFixationStarted(Point);
+        im.OnActivationButtonDwelled();      // ⇒ StartManualSelection, state ManualSelectionActive
+        im.OnManualSelectionDwell(Point);    // ⇒ ManualSelectionActionMenuVisible
+
+        im.OnActionSelected(InteractionAction.LeftClick, new HashSet<ModifierKey> { ModifierKey.Alt });
+
+        Check.That(raised).IsNotNull();
+        Check.That(raised!.Value.Modifiers!.Contains(ModifierKey.Alt)).IsTrue();
     }
 
     [Fact]
@@ -643,19 +675,32 @@ public class InteractionManagerModifierTests
         var im = new InteractionManager();
         IReadOnlySet<ModifierKey>? raised = null;
         var fired = false;
-        im.ActionRequested += (action, _, modifiers) => { fired = true; raised = modifiers; };
+        im.ActionRequested += (_, _, modifiers) => { fired = true; raised = modifiers; };
+        im.NoteGazeSample(isValid: true, timestampUs: 10_000); // liveness BEFORE entry (the file's precedent)
         im.EnterRepeatMode(InteractionAction.LeftClick);
         im.RepeatDwellMs = 0;
-        im.OnFixationStarted(Point);          // arms the locked-action dwell at the point
-        im.NoteGazeSample(isValid: true, timestampUs: 1_000); // dwell 0 ms ⇒ fires on this sample
+        im.NoteGazeSample(isValid: true, timestampUs: 11_000); // elapsed 1 ms ≥ 0 ⇒ fires
 
         Check.That(fired).IsTrue();           // the tick really fired — no vacuous pass
         Check.That(raised).IsNull();          // repeat ticks carry null — never a modifier set
     }
-}
-```
 
-`tests/EyeCtrl.Core.Tests/Processing/DwellDetectorNearestTests.cs`:
+    [Fact]
+    public void Drag_WithNullModifiers_TransitionsUnchanged()
+    {
+        var im = MenuVisible();
+        PhysicalPoint? dragStart = null;
+        im.DragStarted += p => dragStart = p;
+
+        im.OnActionSelected(InteractionAction.Drag);
+
+        Check.That(dragStart).IsNotNull();    // the drag path is untouched by the new parameter
+        Check.That(im.CurrentState).IsEqualTo(InteractionState.Dragging);
+    }
+}
+
+
+`tests/EyeCtrl.Core.Tests/Processing/DwellDetectorNearestTests.cs`:`tests/EyeCtrl.Core.Tests/Processing/DwellDetectorNearestTests.cs`:
 
 ```csharp
 namespace EyeCtrl.Core.Tests.Processing;
@@ -722,6 +767,25 @@ public class DwellDetectorNearestTests
         Check.That(fired).ContainsExactly(leftId);
         Check.That(detector.NearestHittingTargetId(new EyeCtrl.Core.Models.PhysicalPoint(30, 0))).IsEqualTo(leftId);
     }
+
+    [Fact]
+    public void NearestHittingTargetId_AgreesWithUpdate_OnAnExactEquidistantTie()
+    {
+        // Two targets, gaze at the exact midpoint (integer coords ⇒ a real tie). The winner is
+        // whatever the detector's own order produces — the API must agree with Update, not pick
+        // its own winner.
+        var detector = new DwellDetector(400, EyeCtrl.Core.Adaptation.DwellContext.Other, sink: null);
+        detector.AddTarget(new DwellTarget("a", new EyeCtrl.Core.Models.PhysicalPoint(0, 0), 100, 600));
+        detector.AddTarget(new DwellTarget("b", new EyeCtrl.Core.Models.PhysicalPoint(200, 0), 100, 600));
+        var fired = new List<string>();
+        detector.TargetActivated += id => fired.Add(id);
+
+        for (var t = 0; t < 10; t++)
+            detector.Update(new EyeCtrl.Core.Models.PhysicalPoint(100, 0), t * 100_000);
+
+        var updateWinner = fired.Single();
+        Check.That(detector.NearestHittingTargetId(new EyeCtrl.Core.Models.PhysicalPoint(100, 0))).IsEqualTo(updateWinner);
+    }
 }
 ```
 
@@ -748,7 +812,7 @@ public record ToggleActionMenuModifierMessage(ModifierKey Modifier);
 
 (Add `using EyeCtrl.Core.Keyboard;` if absent.)
 
-- [ ] **Step 4: Pass-through in `InteractionManager`**
+- [ ] **Step 4: Pass-through in `InteractionManager`** (add `using EyeCtrl.Core.Keyboard;` to the file for `ModifierKey` — and the same using to `GazeEngineAdapter.cs`)
 
 Change the event declaration and both raise sites:
 
@@ -781,7 +845,7 @@ Replace the inline nearest scan in `Update` with a call, and add the two public 
 ```csharp
 /// <summary>
 /// The id of the nearest hitting target for <paramref name="gazePoint"/>, or null when no
-/// eligible target's region contains the point. This is the SAME selection <see cref="Update"/>
+/// eligible target's region contains the point. This is the SAME selection <see cref="Update(PhysicalPoint, long)"/>
 /// uses to award dwell — callers that need to predict it (the mod-bar re-arm gate) must come
 /// here rather than reimplementing the scan.
 /// </summary>
@@ -837,7 +901,7 @@ var nearestId = FindNearestHittingTargetId(targets, gazePoint, targetFilter);
 
 Files/sites (round-1 census, re-verified): `GazeEngineAdapterActionRecoveryTests.cs:129`; `GazeEngineTests.cs:39`; `GazeFlowHarness.cs:90`; `InteractionManagerScrollModeTests.cs:33`; `InteractionManagerTests.cs:55,89,232,247,307`; `InteractionManagerRepeatModeTests.cs:61,80,93,109,123,136`. Each gains a third parameter, e.g. `(_, _)` → `(_, _, _)`, `(action, point) => ...` → `(action, point, _) => ...`.
 
-- [ ] **Step 7: Adapter pass-through in `GazeEngineAdapter`**
+- [ ] **Step 7: Adapter pass-through in `GazeEngineAdapter`** (add `using EyeCtrl.Core.Keyboard;`; the subscription at `:63` is a method group — its signature gains the third parameter in place)
 
 `:107`: `_interactionManager.OnActionSelected(msg.Action, msg.Modifiers);`
 `:324` handler signature: `private void OnActionRequested(InteractionAction action, PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)`; subscription lambda forwards the third parameter; `:334`:
@@ -870,49 +934,61 @@ git -C /c/Users/andre/source/repos/eyectrl/.worktrees/action-menu-modifier-keys 
 - Consumes: `ActionRequestedMessage(..., Modifiers)` (Task 2), the Task-1 simulator overloads.
 - Produces: the routing rule `mods is { Count: > 0 } ? simulator.X(pt, mods) : simulator.X(pt)`; modified scrolls send delta 1 (four arms: (0,+1), (0,−1), (−1,0), (+1,0)).
 
-- [ ] **Step 1: Write the failing tests**
-
-Extend `KeyboardInteractionDispatcherTests` (FakeInputSimulator gains recording fields — see step 3):
+- [ ] **Step 1: Write the failing tests** (INSIDE the existing `KeyboardInteractionDispatcherTests.cs`, using ITS `MakeContext`-based construction — there is no `BuildDispatcher` helper. Supply `TargetHighlightVM` per the file's precedent at `:95–98`, and send every message with `IsPreciseTarget: true` so the handler never reads `Context.GazeEngine.StableCentroid`, which `MakeContext` leaves null):
 
 ```csharp
 [Fact]
 public void ModifiedLeftClick_RoutesToTheModifiedOverload()
 {
-    var d = BuildDispatcher(out var simulator); // existing harness; see file for the pattern
-    simulator.LastModifiedClick = null;
+    var (dispatcher, simulator) = BuildWithFakeInput(); // file harness; simulator = the FakeInputSimulator instance
+    var mods = new HashSet<ModifierKey> { ModifierKey.Shift };
 
-    d.HandleActionRequested(new ActionRequestedMessage(
-        InteractionAction.LeftClick, new PhysicalPoint(10, 10),
-        Modifiers: new HashSet<ModifierKey> { ModifierKey.Shift }));
+    dispatcher.HandleActionRequested(new ActionRequestedMessage(
+        InteractionAction.LeftClick, new PhysicalPoint(10, 10), IsPreciseTarget: true, Modifiers: mods));
 
-    Check.That(simulator.LastModifiedClick).IsNotNull();
-    Check.That(simulator.LastModifiedClick!.Value.Action).IsEqualTo(InteractionAction.LeftClick);
-    Check.That(simulator.LastModifiedClick.Value.Point).IsEqualTo(new PhysicalPoint(10, 10));
-    Check.That(simulator.LastModifiedClick.Value.Modifiers.Contains(ModifierKey.Shift)).IsTrue();
+    Check.That(simulator.ModifiedClicks).ContainsExactly(
+        (InteractionAction.LeftClick, new PhysicalPoint(10, 10), mods));
     Check.That(simulator.BareClickCount).IsEqualTo(0);
 }
 
 [Fact]
 public void BareLeftClick_NeverTouchesTheModifiedOverload()
 {
-    var d = BuildDispatcher(out var simulator);
+    var (dispatcher, simulator) = BuildWithFakeInput();
 
-    d.HandleActionRequested(new ActionRequestedMessage(InteractionAction.LeftClick, new PhysicalPoint(10, 10)));
+    dispatcher.HandleActionRequested(new ActionRequestedMessage(
+        InteractionAction.LeftClick, new PhysicalPoint(10, 10), IsPreciseTarget: true));
 
-    Check.That(simulator.LastModifiedClick).IsNull();
+    Check.That(simulator.ModifiedClicks).IsEmpty();
     Check.That(simulator.BareClickCount).IsEqualTo(1);
+}
+
+[Fact]
+public void AllFourModifiedClickArms_RouteTheirAction()
+{
+    var (dispatcher, simulator) = BuildWithFakeInput();
+    var mods = new HashSet<ModifierKey> { ModifierKey.Ctrl };
+
+    dispatcher.HandleActionRequested(new ActionRequestedMessage(InteractionAction.LeftClick, new PhysicalPoint(0, 0), IsPreciseTarget: true, Modifiers: mods));
+    dispatcher.HandleActionRequested(new ActionRequestedMessage(InteractionAction.RightClick, new PhysicalPoint(0, 0), IsPreciseTarget: true, Modifiers: mods));
+    dispatcher.HandleActionRequested(new ActionRequestedMessage(InteractionAction.MiddleClick, new PhysicalPoint(0, 0), IsPreciseTarget: true, Modifiers: mods));
+    dispatcher.HandleActionRequested(new ActionRequestedMessage(InteractionAction.DoubleClick, new PhysicalPoint(0, 0), IsPreciseTarget: true, Modifiers: mods));
+
+    Check.That(simulator.ModifiedClicks.Select(c => c.Action)).ContainsExactly(
+        InteractionAction.LeftClick, InteractionAction.RightClick,
+        InteractionAction.MiddleClick, InteractionAction.DoubleClick);
 }
 
 [Fact]
 public void ModifiedScroll_SendsOneNotch_SignCorrectPerArm()
 {
-    var d = BuildDispatcher(out var simulator);
+    var (dispatcher, simulator) = BuildWithFakeInput();
     var mods = new HashSet<ModifierKey> { ModifierKey.Ctrl };
 
-    d.HandleActionRequested(new ActionRequestedMessage(InteractionAction.ScrollUp, new PhysicalPoint(0, 0), Modifiers: mods));
-    d.HandleActionRequested(new ActionRequestedMessage(InteractionAction.ScrollDown, new PhysicalPoint(0, 0), Modifiers: mods));
-    d.HandleActionRequested(new ActionRequestedMessage(InteractionAction.ScrollLeft, new PhysicalPoint(0, 0), Modifiers: mods));
-    d.HandleActionRequested(new ActionRequestedMessage(InteractionAction.ScrollRight, new PhysicalPoint(0, 0), Modifiers: mods));
+    dispatcher.HandleActionRequested(new ActionRequestedMessage(InteractionAction.ScrollUp, new PhysicalPoint(0, 0), IsPreciseTarget: true, Modifiers: mods));
+    dispatcher.HandleActionRequested(new ActionRequestedMessage(InteractionAction.ScrollDown, new PhysicalPoint(0, 0), IsPreciseTarget: true, Modifiers: mods));
+    dispatcher.HandleActionRequested(new ActionRequestedMessage(InteractionAction.ScrollLeft, new PhysicalPoint(0, 0), IsPreciseTarget: true, Modifiers: mods));
+    dispatcher.HandleActionRequested(new ActionRequestedMessage(InteractionAction.ScrollRight, new PhysicalPoint(0, 0), IsPreciseTarget: true, Modifiers: mods));
 
     Check.That(simulator.ModifiedScrolls).ContainsExactly(
         ((int Dx, int Dy))(0, 1), (0, -1), (-1, 0), (1, 0));
@@ -921,64 +997,118 @@ public void ModifiedScroll_SendsOneNotch_SignCorrectPerArm()
 [Fact]
 public void UnmodifiedScroll_KeepsThreeNotches()
 {
-    var d = BuildDispatcher(out var simulator);
+    var (dispatcher, simulator) = BuildWithFakeInput();
 
-    d.HandleActionRequested(new ActionRequestedMessage(InteractionAction.ScrollUp, new PhysicalPoint(0, 0)));
+    dispatcher.HandleActionRequested(new ActionRequestedMessage(InteractionAction.ScrollUp, new PhysicalPoint(0, 0), IsPreciseTarget: true));
 
     Check.That(simulator.BareScrolls).ContainsExactly(((int Dx, int Dy))(0, 3));
 }
 ```
 
-- [ ] **Step 2: Run — FAIL**
-
-Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~KeyboardInteractionDispatcherTests" -v minimal`
-Expected: FAIL (routing not implemented; FakeInputSimulator lacks recording fields).
-
-- [ ] **Step 3: Extend `FakeInputSimulator` (TestFakes.cs:342 area) — ALL five arms, complete**
+- [ ] **Step 2: Extend `FakeInputSimulator` (TestFakes.cs:342 area) — record in the EXISTING bare methods too, and make the modified overloads reject empty sets (a blind nullable pass must fail loudly, spec mechanism 5)**
 
 ```csharp
-public (InteractionAction Action, PhysicalPoint Point, IReadOnlySet<ModifierKey> Modifiers)? LastModifiedClick { get; private set; }
-public (InteractionAction Action, PhysicalPoint Point, IReadOnlySet<ModifierKey> Modifiers)? LastModifiedRightClick { get; private set; }
-public (InteractionAction Action, PhysicalPoint Point, IReadOnlySet<ModifierKey> Modifiers)? LastModifiedMiddleClick { get; private set; }
-public (InteractionAction Action, PhysicalPoint Point, IReadOnlySet<ModifierKey> Modifiers)? LastModifiedDoubleClick { get; private set; }
+public List<(InteractionAction Action, PhysicalPoint Point, IReadOnlySet<ModifierKey> Modifiers)> ModifiedClicks { get; } = new();
 public int BareClickCount { get; private set; }
 public List<(int Dx, int Dy)> ModifiedScrolls { get; } = new();
 public List<(int Dx, int Dy)> BareScrolls { get; } = new();
 
+// The BARE methods are where the dispatcher's unmodified route lands — record there:
+public void LeftClick(PhysicalPoint point) => BareClickCount++;
+public void Scroll(PhysicalPoint point, int deltaX, int deltaY) => BareScrolls.Add((deltaX, deltaY));
+
+// The MODIFIED overloads throw on null/empty (the dispatcher must never pass them a nullable)
+// and record otherwise:
 public void LeftClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)
 {
-    if (modifiers is { Count: > 0 }) { LastModifiedClick = (InteractionAction.LeftClick, point, modifiers); return; }
-    BareClickCount++;
+    if (modifiers is not { Count: > 0 })
+        throw new InvalidOperationException("dispatcher routed a bare click through the modified overload");
+    ModifiedClicks.Add((InteractionAction.LeftClick, point, modifiers));
 }
 
 public void RightClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)
 {
-    if (modifiers is { Count: > 0 }) { LastModifiedRightClick = (InteractionAction.RightClick, point, modifiers); return; }
-    BareClickCount++;
+    if (modifiers is not { Count: > 0 })
+        throw new InvalidOperationException("dispatcher routed a bare click through the modified overload");
+    ModifiedClicks.Add((InteractionAction.RightClick, point, modifiers));
 }
 
 public void MiddleClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)
 {
-    if (modifiers is { Count: > 0 }) { LastModifiedMiddleClick = (InteractionAction.MiddleClick, point, modifiers); return; }
-    BareClickCount++;
+    if (modifiers is not { Count: > 0 })
+        throw new InvalidOperationException("dispatcher routed a bare click through the modified overload");
+    ModifiedClicks.Add((InteractionAction.MiddleClick, point, modifiers));
 }
 
 public void DoubleClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)
 {
-    if (modifiers is { Count: > 0 }) { LastModifiedDoubleClick = (InteractionAction.DoubleClick, point, modifiers); return; }
-    BareClickCount += 2; // a bare double-click is two clicks
+    if (modifiers is not { Count: > 0 })
+        throw new InvalidOperationException("dispatcher routed a bare click through the modified overload");
+    ModifiedClicks.Add((InteractionAction.DoubleClick, point, modifiers));
 }
 
 public void Scroll(PhysicalPoint point, int deltaX, int deltaY, IReadOnlySet<ModifierKey>? modifiers)
 {
-    if (modifiers is { Count: > 0 }) { ModifiedScrolls.Add((deltaX, deltaY)); return; }
-    BareScrolls.Add((deltaX, deltaY));
+    if (modifiers is not { Count: > 0 })
+        throw new InvalidOperationException("dispatcher routed a bare scroll through the modified overload");
+    ModifiedScrolls.Add((deltaX, deltaY));
 }
 ```
 
-(Match the existing fake's recording style where it already records bare clicks — extend, don't duplicate.)
+- [ ] **Step 3: Implement the routing in `HandleActionRequested`** — replace the click/scroll arms of the switch (`:170–181`) — the log line gains `Modifiers={Modifiers}`:
 
-- [ ] **Step 4: Implement the routing in `HandleActionRequested`**
+```csharp
+var mods = msg.Modifiers;
+var modified = mods is { Count: > 0 };
+
+switch (msg.Action)
+{
+    case InteractionAction.LeftClick:
+        if (modified) Context.InputSimulator.LeftClick(pt, mods); else Context.InputSimulator.LeftClick(pt);
+        break;
+    case InteractionAction.RightClick:
+        if (modified) Context.InputSimulator.RightClick(pt, mods); else Context.InputSimulator.RightClick(pt);
+        break;
+    case InteractionAction.DoubleClick:
+        if (modified) Context.InputSimulator.DoubleClick(pt, mods); else Context.InputSimulator.DoubleClick(pt);
+        break;
+    case InteractionAction.MiddleClick:
+        if (modified) Context.InputSimulator.MiddleClick(pt, mods); else Context.InputSimulator.MiddleClick(pt);
+        break;
+
+    case InteractionAction.ScrollUp:
+        if (modified) Context.InputSimulator.Scroll(pt, 0, 1, mods); else Context.InputSimulator.Scroll(pt, 0, DefaultScrollAmount);
+        break;
+    case InteractionAction.ScrollDown:
+        if (modified) Context.InputSimulator.Scroll(pt, 0, -1, mods); else Context.InputSimulator.Scroll(pt, 0, -DefaultScrollAmount);
+        break;
+    case InteractionAction.ScrollLeft:
+        if (modified) Context.InputSimulator.Scroll(pt, -1, 0, mods); else Context.InputSimulator.Scroll(pt, -DefaultScrollAmount, 0);
+        break;
+    case InteractionAction.ScrollRight:
+        if (modified) Context.InputSimulator.Scroll(pt, 1, 0, mods); else Context.InputSimulator.Scroll(pt, DefaultScrollAmount, 0);
+        break;
+}
+```
+
+- [ ] **Step 3b: The adapter end-to-end test (kills the `:107`/`:334` forwarding mutants)** — the ownership `Harness` (HideActionMenuBarOwnershipTests.cs:149–151) already wires a REAL `GazeEngineAdapter`; add to its file:
+
+```csharp
+[Fact]
+public void ActionSelectedMessage_Modifiers_SurviveToActionRequestedMessage()
+{
+    var h = BuildContext(); // real adapter wired per the ownership harness
+    var received = new List<ActionRequestedMessage>();
+    h.Messenger.Register<ActionRequestedMessage>(this, (_, m) => received.Add(m));
+
+    h.Messenger.Send(new ActionSelectedMessage(InteractionAction.LeftClick, new HashSet<ModifierKey> { ModifierKey.Shift }));
+
+    Check.That(received.Single().Modifiers!.Contains(ModifierKey.Shift)).IsTrue();
+}
+```
+
+
+- [ ] **Step 4: Implement the routing in `HandleActionRequested`**- [ ] **Step 4: Implement the routing in `HandleActionRequested`**
 
 Replace the click/scroll arms of the switch:
 
@@ -1054,24 +1184,38 @@ using Xunit;
 
 public class ActionMenuViewModelLatchTests
 {
-    private static (ActionMenuViewModel Vm, TestMessenger Messenger) Build()
+    // Drag and ScrollMode sit on the DEFAULT secondary layer (PrimaryActions is LeftClick,
+    // RightClick, DoubleClick, ScrollMode) — this suite pins their dimming on layer one, so
+    // the settings put them on layer one explicitly.
+    private static EyeCtrlSettings SettingsWithDragOnLayerOne()
     {
-        var messenger = new TestMessenger(); // the file's existing messenger fake; see EdgeButtonBarViewModelTests for the pattern
-        var vm = new ActionMenuViewModel(new EyeCtrlSettings(), messenger);
-        return (vm, messenger);
+        var settings = new EyeCtrlSettings();
+        settings.ActionMenu.PrimaryActions = new List<InteractionAction>
+        { InteractionAction.LeftClick, InteractionAction.Drag, InteractionAction.ScrollMode };
+        return settings;
+    }
+
+    private static (ActionMenuViewModel Vm, WeakReferenceMessenger Messenger, List<ActionSelectedMessage> Sent) Build()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ActionMenuViewModel(SettingsWithDragOnLayerOne(), messenger);
+        var sent = new List<ActionSelectedMessage>();
+        messenger.Register<ActionSelectedMessage>(vm, (_, m) => sent.Add(m)); // vm keeps the recipient alive
+        return (vm, messenger, sent);
     }
 
     private static ShowActionMenuMessage ShowMessage() => new(
         Center: new PhysicalPoint(500, 500),
         Actions: new List<InteractionAction>
-        { InteractionAction.LeftClick, InteractionAction.RightClick, InteractionAction.DoubleClick,
-          InteractionAction.ScrollMode, InteractionAction.Drag, InteractionAction.Keyboard },
+        { InteractionAction.LeftClick, InteractionAction.Drag, InteractionAction.ScrollMode },
         CircleSize: 250, DwellTimeMs: 600, GazePoint: new PhysicalPoint(500, 500), ShowBack: false);
+    // (Match the record's ACTUAL parameter list per InteractionMessages.cs — the construction
+    // in ActionMenuViewModelLayerTests is the authoritative pattern.)
 
     [Fact]
     public void Toggle_LatchesAndUnlatches_RaisingLatchedModifiers()
     {
-        var (vm, _) = Build();
+        var (vm, _, _) = Build();
         vm.Receive(ShowMessage());
         vm.Receive(new ToggleActionMenuModifierMessage(ModifierKey.Ctrl));
 
@@ -1085,7 +1229,7 @@ public class ActionMenuViewModelLatchTests
     [Fact]
     public void ToggleWhileHidden_IsANoOp()
     {
-        var (vm, _) = Build();
+        var (vm, _, _) = Build();
 
         vm.Receive(new ToggleActionMenuModifierMessage(ModifierKey.Ctrl));
 
@@ -1093,21 +1237,23 @@ public class ActionMenuViewModelLatchTests
     }
 
     [Fact]
-    public void ShowResetsTheLatch_HideClearsIt()
+    public void ShowResetsTheLatch_BeforeTheDimRead_EvenWithoutAnInterveningHide()
     {
-        var (vm, _) = Build();
+        var (vm, _, _) = Build();
         vm.Receive(ShowMessage());
-        vm.Receive(new ToggleActionMenuModifierMessage(ModifierKey.Ctrl));
-        vm.Receive(new HideActionMenuMessage());
-        vm.Receive(ShowMessage());
+        vm.Receive(new ToggleActionMenuModifierMessage(ModifierKey.Ctrl)); // Drag+ScrollMode dimmed
 
-        Check.That(vm.LatchedModifiers).IsEmpty(); // show-reset, evaluated before BuildLayer's dim read
+        vm.Receive(ShowMessage()); // NO hide in between: the reset must happen before BuildLayer
+
+        Check.That(vm.LatchedModifiers).IsEmpty();
+        Check.That(vm.Items.First(i => i.Action == InteractionAction.Drag).IsDisabled).IsFalse();
+        Check.That(vm.Items.First(i => i.Action == InteractionAction.ScrollMode).IsDisabled).IsFalse();
     }
 
     [Fact]
     public void Crossing_BumpsRingVersion_NonCrossingToggle_DoesNot()
     {
-        var (vm, _) = Build();
+        var (vm, _, _) = Build();
         vm.Receive(ShowMessage());
         var before = vm.RingVersion;
 
@@ -1123,46 +1269,63 @@ public class ActionMenuViewModelLatchTests
     }
 
     [Fact]
-    public void DimmedItems_AreNotDwellTargets_ButKeepTheirSlots()
+    public void DimmedItems_AreNotDwellTargets_KeepSlots_AndNeverFire()
     {
-        var (vm, _) = Build();
+        var (vm, messenger, sent) = Build();
         vm.Receive(ShowMessage());
-        var ringVersionBefore = vm.RingVersion;
+        var dragBefore = vm.Items.First(i => i.Action == InteractionAction.Drag).Position;
+        var scrollBefore = vm.Items.First(i => i.Action == InteractionAction.ScrollMode).Position;
 
-        vm.Receive(new ToggleActionMenuModifierMessage(ModifierKey.Ctrl)); // crossing: Drag+ScrollMode dim
+        vm.Receive(new ToggleActionMenuModifierMessage(ModifierKey.Ctrl)); // crossing: dim + rebuild
 
-        Check.That(vm.RingVersion).IsEqualTo(ringVersionBefore + 1);
         var drag = vm.Items.First(i => i.Action == InteractionAction.Drag);
         var scrollMode = vm.Items.First(i => i.Action == InteractionAction.ScrollMode);
-        var click = vm.Items.First(i => i.Action == InteractionAction.LeftClick);
         Check.That(drag.IsDisabled).IsTrue();
         Check.That(scrollMode.IsDisabled).IsTrue();
-        Check.That(click.IsDisabled).IsFalse();
-        // Slot geometry unchanged: positions match the pre-latch rebuild.
+        Check.That(drag.Position).IsEqualTo(dragBefore);       // slot geometry unchanged
+        Check.That(scrollMode.Position).IsEqualTo(scrollBefore);
+
+        // NOT a dwell target: feeding a full dwell at Drag's slot fires nothing (an
+        // unconditional-AddTarget mutant would fire here).
+        for (var t = 0; t < 10; t++)
+            vm.Receive(new GazeCursorMovedMessage(drag.Position, t * 1_000_000));
+        Check.That(sent.Where(m => m.Action == InteractionAction.Drag)).IsEmpty();
+
+        // The dim alone carries the feedback; no progress arc can exist without a target.
+    }
+
+    [Fact]
+    public void Latch_SurvivesMoreAndBackToPrimary()
+    {
+        var (vm, _, _) = Build();
+        vm.Receive(ShowMessage());
+        vm.Receive(new ToggleActionMenuModifierMessage(ModifierKey.Ctrl));
+
+        vm.ActivateForTest("More");
+        Check.That(vm.LatchedModifiers.Contains(ModifierKey.Ctrl)).IsTrue();
+
+        vm.ActivateForTest("BackToPrimary");
+        Check.That(vm.LatchedModifiers.Contains(ModifierKey.Ctrl)).IsTrue();
     }
 
     [Fact]
     public void Capture_CopiesTheLatch_ToggleThenHideCannotEmptyTheMessage()
     {
-        var (vm, messenger) = Build();
+        var (vm, messenger, sent) = Build();
         vm.Receive(ShowMessage());
         vm.Receive(new ToggleActionMenuModifierMessage(ModifierKey.Shift));
 
         vm.ActivateForTest("LeftClick");
 
-        var sent = messenger.Sent.OfType<ActionSelectedMessage>().Single();
-        Check.That(sent.Modifiers).IsNotNull();
-        Check.That(sent.Modifiers!.Contains(ModifierKey.Shift)).IsTrue();
+        Check.That(sent.Single().Modifiers!.Contains(ModifierKey.Shift)).IsTrue();
 
         vm.Receive(new HideActionMenuMessage());
-        Check.That(sent.Modifiers!.Contains(ModifierKey.Shift)).IsTrue(); // aliased set would be empty now
+        Check.That(sent.Single().Modifiers!.Contains(ModifierKey.Shift)).IsTrue(); // aliased set would be empty now
     }
 }
-```
 
-(Adapt `Build`/`ShowMessage` to the existing `ActionMenuViewModelLayerTests` construction pattern in the same test project — the constructor and `ShowActionMenuMessage` shape there are authoritative; `TestMessenger` is that file's in-project messenger fake, recording `Sent` messages.)
 
-- [ ] **Step 2: Run — FAIL (members missing)**
+- [ ] **Step 2: Run — FAIL (members missing)**- [ ] **Step 2: Run — FAIL (members missing)**
 
 Run: `dotnet test tests/EyeCtrl.ViewModels.Tests --filter "FullyQualifiedName~ActionMenuViewModelLatchTests" -v minimal`
 
@@ -1177,6 +1340,8 @@ public IReadOnlySet<ModifierKey> LatchedModifiers => _latchedModifiers;
 /// <summary>The modifier whose toggle raised the last <see cref="LatchedModifiers"/> change (the App branch swaps exactly this button's icon).</summary>
 public ModifierKey LastToggledModifier { get; private set; }
 ```
+
+Declare the interface — the class's `IRecipient<...>` list gains `IRecipient<ToggleActionMenuModifierMessage>` (registration is `RegisterAll` via `MessengerViewModelBase`/`ObservableRecipient`; without the interface the method below is never called in production):
 
 `Receive(ToggleActionMenuModifierMessage)`:
 
@@ -1265,63 +1430,74 @@ using Xunit;
 
 public class EdgeButtonBarViewModelRearmTests
 {
-    private const long D = 150_000; // 150 ms in µs — the debounce, the MaxCreditedSampleGapUs precedent
+    // The DETECTOR MODEL (round-1 review, F9): the first inside sample only SETS
+    // EnteredTimestamp (DwellDetector.cs:363–367); a LATER sample with elapsed ≥ dwell fires
+    // (:368–385). Every timeline below uses two inside samples to toggle. D = the debounce,
+    // 150 ms = 150_000 µs — the MaxCreditedSampleGapUs precedent.
+    private const long D = 150_000;
+    private static readonly PhysicalPoint Anchor = new(500, 500);
 
-    private static (EdgeButtonBarViewModel Vm, RecordingMessenger M) Build()
+    private static EdgeButtonDefinition Def(string id, List<string> toggles, double verticalOffset = 0, int dwellMs = 1, bool rearm = true) => new(
+        id, Symbol: string.Empty, DwellMs: dwellMs,
+        Activate: _ => toggles.Add(id), VerticalOffset: verticalOffset, RadiusLogical: 50, Label: id, RearmOnGazeExit: rearm);
+
+    private static void Look(EdgeButtonBarViewModel vm, PhysicalPoint p, long t, bool inGap = false, bool paused = false)
+        => vm.Receive(new GazeCursorMovedMessage(new GazeFrame(p, t, IsInGap: inGap)) { IsPaused = paused });
+    // GazeFrame is (Position, TimestampMicroseconds, IsInGap) — IsPaused is an init property
+    // ON THE MESSAGE (GazeMessages.cs:47), not a GazeFrame member.
+
+    private static void Hold(EdgeButtonBarViewModel vm, PhysicalPoint p, long startUs, int samples)
     {
-        var messenger = new RecordingMessenger();
-        var vm = new EdgeButtonBarViewModel(new EyeCtrlSettings(), messenger);
-        return (vm, messenger);
+        for (var t = 0; t < samples; t++)
+            Look(vm, p, startUs + t * 100_000);
     }
-
-    private static EdgeButtonDefinition Def(string id, bool rearm = true) => new(
-        id, Symbol: string.Empty, DwellMs: 1, // dwell 1 µs-ms scale: activation on first sample
-        Activate: _ => { }, VerticalOffset: 0, RadiusLogical: 50, Label: id, RearmOnGazeExit: rearm);
-
-    // Gaze helper: the tests feed messages directly through Receive (the override under test),
-    // mirroring the base order. PhysicalPoint coords in physical px; timestamps in µs.
-    private static void Look(EdgeButtonBarViewModel vm, double x, long t, bool inGap = false, bool paused = false)
-        => vm.Receive(new GazeCursorMovedMessage(new GazeFrame(
-            new PhysicalPoint(x, 500), t, IsInGap: inGap, IsPaused: paused)));
 
     [Fact]
     public void HeldGaze_TogglesExactlyOnce()
     {
-        var (vm, m) = Build();
         var toggles = new List<string>();
-        vm.ShowButtons(new[] { Def("mod", toggles) }, new PhysicalPoint(500, 500));
-        // Activate via the detector: dwell 1 ms ⇒ first sample inside fires; then the gate
-        // feeds hits-nothing for every further sample inside the region.
-        for (var t = 0; t < 20; t++)
-            Look(vm, 500, 1_000_000 + t * 100_000);
+        var vm = new EdgeButtonBarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        vm.ShowButtons(new[] { Def("mod", toggles) }, Anchor);
+
+        Look(vm, Anchor, 1_000_000);              // sample 1: enter
+        Look(vm, Anchor, 1_100_000);              // sample 2: elapsed ≥ dwell ⇒ toggle; pending set
+        Hold(vm, Anchor, 1_200_000, 20);          // held: the gate feeds hits-nothing
 
         Check.That(toggles).ContainsExactly("mod");
     }
 
     [Fact]
-    public void OneSampleFlicker_DoesNotRetoggle()
+    public void TwoFlickers_KillTheNeverResetClock()
     {
-        var (vm, m) = Build();
         var toggles = new List<string>();
-        vm.ShowButtons(new[] { Def("mod", toggles) }, new PhysicalPoint(500, 500));
-        Look(vm, 500, 1_000_000);        // toggle
-        Look(vm, 800, 1_100_000);        // one outside sample
-        for (var t = 0; t < 10; t++)
-            Look(vm, 500, 1_200_000 + t * 100_000); // back inside and held
+        var vm = new EdgeButtonBarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        vm.ShowButtons(new[] { Def("mod", toggles) }, Anchor);
 
-        Check.That(toggles).ContainsExactly("mod"); // debounce: the flicker never cleared the pending
+        Look(vm, Anchor, 0);                      // enter
+        Look(vm, Anchor, 600_000);                // toggle #1; pending
+        Look(vm, Anchor, 700_000);                // flicker #1: one outside sample
+        Hold(vm, Anchor, 800_000, 6);             // back inside (600 ms, a full dwell — a never-reset
+                                                  // clock that only counts outside samples would NOT
+                                                  // clear here, and the gate still holds, OK so far)
+        Look(vm, Anchor, 1_500_000);              // flicker #2: one outside sample
+        Hold(vm, Anchor, 1_600_000, 8);           // held again, ≥ dwell + margin
+
+        Check.That(toggles).ContainsExactly("mod"); // a never-reset clock mutant clears the pending
+                                                    // at flicker #2's exit-span and re-toggles here
     }
 
     [Fact]
     public void SustainedExit_ReArms_ASecondEntryTogglesAgain()
     {
-        var (vm, m) = Build();
         var toggles = new List<string>();
-        vm.ShowButtons(new[] { Def("mod", toggles) }, new PhysicalPoint(500, 500));
-        Look(vm, 500, 1_000_000);                                  // toggle #1
-        Look(vm, 800, 1_100_000);                                  // outside
-        Look(vm, 800, 1_400_000);                                  // outside, ≥ D ⇒ pending cleared
-        for (var t = 0; t < 10; t++) Look(vm, 500, 2_000_000 + t * 100_000); // deliberate re-entry
+        var vm = new EdgeButtonBarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        vm.ShowButtons(new[] { Def("mod", toggles) }, Anchor);
+
+        Look(vm, Anchor, 0);
+        Look(vm, Anchor, 600_000);                // toggle #1
+        Look(vm, Anchor, 700_000);                // outside: clock starts
+        Look(vm, Anchor, 1_000_000);              // outside: ≥ D ⇒ pending cleared
+        Hold(vm, Anchor, 2_000_000, 8);           // deliberate re-entry
 
         Check.That(toggles).ContainsExactly("mod", "mod");
     }
@@ -1329,70 +1505,125 @@ public class EdgeButtonBarViewModelRearmTests
     [Fact]
     public void GapSamples_RestartTheExitClock()
     {
-        var (vm, m) = Build();
         var toggles = new List<string>();
-        vm.ShowButtons(new[] { Def("mod", toggles) }, new PhysicalPoint(500, 500));
-        Look(vm, 500, 1_000_000);                                  // toggle
-        Look(vm, 800, 1_100_000);                                  // outside sample starts the clock
-        for (var t = 0; t < 4; t++) Look(vm, 800, 1_200_000 + t * 100_000, inGap: true); // blink
-        Look(vm, 500, 1_700_000);                                  // reopen, back inside
+        var vm = new EdgeButtonBarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        vm.ShowButtons(new[] { Def("mod", toggles) }, Anchor);
+
+        Look(vm, Anchor, 0);
+        Look(vm, Anchor, 600_000);                // toggle; pending
+        Look(vm, Anchor, 700_000);                // outside: clock starts
+        for (var t = 0; t < 4; t++)
+            Look(vm, Anchor, 800_000 + t * 100_000, inGap: true); // blink: held-position gap samples
+        Look(vm, Anchor, 1_400_000);              // reopen, back inside — only ~100 ms of VALID exit
 
         Check.That(toggles).ContainsExactly("mod"); // the gap never completed a D-span of valid exit
     }
 
     [Fact]
-    public void NearestHittingPredicate_NeighbourCompletesInTheLens_AndSupersedeHeals()
+    public void Lens_NeighbourCompletes_SupersedeHeals_TheFirstButtonNotDead()
     {
-        // Enlarged radii through the registry seam: the VM's base constructor registered its
-        // detector on the registry passed in; apply a +60 px map so the two 100 px base regions
-        // (centers 240 px apart) overlap and the lens exists (Ctrl-nearest but inside Shift's
-        // region). DwellRoutingRegistration.ApplyGeometry(Func<double,double>) — the exact
-        // call GeometryRouter.MakeMap feeds.
-        var registry = new EyeCtrl.Core.Adaptation.DwellDetectorRegistry();
+        var registry = new DwellDetectorRegistry();
         var toggles = new List<string>();
-        var messenger = new RecordingMessenger();
-        var vm = new EdgeButtonBarViewModel(new EyeCtrlSettings(), messenger, sink: null, registry);
-        vm.ShowButtons(new[] { Def("shift", toggles), Def("ctrl", toggles) }, new PhysicalPoint(500, 500));
+        var vm = new EdgeButtonBarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger(), sink: null, registry);
+        // Vertical stack: shift at −spacing, ctrl at 0 — the offsets are PHYSICAL px, so the
+        // spacing comes from DpiHelper (scale-independent test).
+        var spacing = DpiHelper.LogicalToPhysicalY(2 * UIConstants.ButtonRadius + UIConstants.ManualSelectionSideButtonGap);
+        vm.ShowButtons(new[]
+        {
+            Def("shift", toggles, verticalOffset: -spacing, dwellMs: 600),
+            Def("ctrl", toggles, verticalOffset: 0, dwellMs: 600),
+        }, Anchor);
         foreach (var registration in registry.Registrations)
-            registration.ApplyGeometry(baseExtent => baseExtent * 3);
-        // ×3 rather than a fixed +60 px: the physical spacing between mod centers scales with
-        // DPI (DpiHelper), so the enlargement must scale too — at any DPI, 3× the base radius
-        // (2 × 3r > 4.8r spacing) guarantees the overlap lens the test needs. This realizes the
-        // spec's "margin 60 on the owner's 100 px base" in a DPI-independent form.
+            registration.ApplyGeometry(baseExtent => baseExtent * 3); // scale-independent lens: 3× regions overlap at any DPI
 
-        Look(vm, 500, 1_000_000);                                   // shift toggles ⇒ pending(shift)
-        for (var t = 0; t < 10; t++)
-            Look(vm, 660, 2_000_000 + t * 100_000);                 // the lens: ctrl dwells and fires
+        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y - spacing), 0, 8);   // shift toggles; pending(shift)
 
-        Check.That(toggles).Contains("ctrl");                       // gate did not dead-zone ctrl
-        Check.That(toggles.Count(s => s == "shift")).IsEqualTo(1);  // shift did not re-toggle
+        // The lens: ctrl-nearest but inside shift's 3× region — gaze 0.7 of the way to ctrl.
+        var lensPoint = new PhysicalPoint(Anchor.X, Anchor.Y - spacing + (long)(spacing * 0.7));
+        Hold(vm, lensPoint, 2_000_000, 8);          // ctrl accumulates a full dwell ⇒ ctrl toggles
 
-        for (var t = 0; t < 10; t++)
-            Look(vm, 500, 4_000_000 + t * 100_000);                 // return to shift
+        Check.That(toggles).ContainsExactly("shift", "ctrl"); // gate did not dead-zone ctrl
 
-        Check.That(toggles.Count(s => s == "shift")).IsEqualTo(2);  // supersede healed it: no dead button
+        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y - spacing), 4_000_000, 8); // return to shift
+
+        Check.That(toggles.Count(s => s == "shift")).IsEqualTo(2); // supersede healed it: no dead button
     }
 
     [Fact]
-    public void RemoveButton_ClearsOnlyThatId_Pending()
+    public void LensReturn_KillsTheClockViaNearestHittingMutant()
     {
-        var (vm, m) = Build();
+        var registry = new DwellDetectorRegistry();
         var toggles = new List<string>();
-        vm.ShowButtons(new[] { Def("a", toggles, rearm: true), Def("b", toggles, rearm: false) }, new PhysicalPoint(500, 500));
-        Look(vm, 500, 1_000_000); // 'a' activates ⇒ pending('a')
-        vm.RemoveButton("b");     // different id: pending('a') must survive
+        var vm = new EdgeButtonBarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger(), sink: null, registry);
+        var spacing = DpiHelper.LogicalToPhysicalY(2 * UIConstants.ButtonRadius + UIConstants.ManualSelectionSideButtonGap);
+        vm.ShowButtons(new[] { Def("shift", toggles, verticalOffset: -spacing, dwellMs: 600) }, Anchor);
+        foreach (var registration in registry.Registrations)
+            registration.ApplyGeometry(baseExtent => baseExtent * 3);
 
-        // 'a' still gated: holding its center for a full dwell does not re-toggle.
-        for (var t = 0; t < 10; t++) Look(vm, 500, 2_000_000 + t * 100_000);
-        Check.That(toggles).ContainsExactly("a");
+        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y - spacing), 0, 8);       // toggle; pending
+        // A second NON-rearm definition gives the lens a ctrl-nearest target whose toggle
+        // would be visible if the excursion dwelled it:
+        vm.AddButton(Def("probe", toggles, verticalOffset: 0, dwellMs: 600, rearm: false));
+        // In the lens the exit clock (region membership) does NOT run — gaze is inside shift's
+        // region. A nearest-hitting mutant runs it and clears the pending after D.
+        Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y - (long)(spacing * 0.7)), 2_000_000);
+        Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y - (long)(spacing * 0.7)), 2_100_000); // ≥ D in the lens
+
+        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y - spacing), 3_000_000, 8); // return + full dwell
+
+        Check.That(toggles).ContainsExactly("shift"); // no re-toggle without a genuine exit
     }
 
+    [Fact]
+    public void PartialCredit_GatedCrossing_ClearsNeighbourDwell_NotDead()
+    {
+        var registry = new DwellDetectorRegistry();
+        var toggles = new List<string>();
+        var vm = new EdgeButtonBarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger(), sink: null, registry);
+        var spacing = DpiHelper.LogicalToPhysicalY(2 * UIConstants.ButtonRadius + UIConstants.ManualSelectionSideButtonGap);
+        vm.ShowButtons(new[]
+        {
+            Def("shift", toggles, verticalOffset: -spacing, dwellMs: 600),
+            Def("ctrl", toggles, verticalOffset: 0, dwellMs: 600, rearm: false),
+        }, Anchor);
+        foreach (var registration in registry.Registrations)
+            registration.ApplyGeometry(baseExtent => baseExtent * 3);
+
+        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y - spacing), 0, 8);       // shift toggles; pending
+        // Ctrl accumulates ≥ dwell − crossing before the gated crossing:
+        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y), 1_000_000, 4);         // 400 ms of ctrl dwell
+        // The gated crossing: shift-nearest for < 150 ms — the hits-nothing feed must CLEAR
+        // ctrl's partial dwell (the skip mutant keeps EnteredTimestamp and fires on return).
+        Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y - spacing), 1_500_000);
+        Look(vm, new PhysicalPoint(Anchor.X, Anchor.Y - spacing), 1_550_000);
+
+        Check.That(toggles).ContainsExactly("shift");                          // no fire on the first sample back
+
+        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y), 2_000_000, 8);         // fresh full ctrl dwell
+        Check.That(toggles.Count(s => s == "ctrl")).IsEqualTo(1);              // the button is not dead
+    }
+
+    [Fact]
+    public void ReplaceButton_MissingId_NoOp_AndCooldownSurvives()
+    {
+        var toggles = new List<string>();
+        var vm = new EdgeButtonBarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        vm.ShowButtons(new[] { Def("a", toggles, dwellMs: 600), Def("b", toggles, dwellMs: 600) }, Anchor);
+
+        Check.ThatCode(() => vm.ReplaceButton("missing", Def("missing", toggles))).DoesNotThrow();
+
+        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y), 0, 8);                 // 'a' toggles at ≈T+600; pending
+        // Cooldown survival: 'b' cannot START accumulating until the cooldown elapses (400 ms),
+        // so it completes ≈T+1000 — a ShowButtons mutant (ResetCooldown) completes ≈T+600.
+        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y - 100), 700_000, 4);     // T+700: still nothing on b
+        Check.That(toggles).ContainsExactly("a");
+        Hold(vm, new PhysicalPoint(Anchor.X, Anchor.Y - 100), 1_100_000, 4);   // b completes ≈T+1100
+        Check.That(toggles).ContainsExactly("a", "b");
+    }
 }
-```
 
-ADAPT to the real seams before writing: the messenger fake and construction pattern in the existing `EdgeButtonBarViewModelTests.cs` (it already drives `ShowButtons` + detector; the tests here use a counting `Activate: _ => toggles.Add(id)` closure per definition, so activations are observed without the messenger); the `GazeFrame` record shape is `(PhysicalPoint Position, long TimestampMicroseconds, bool IsInGap, bool IsPaused)` per `src/EyeCtrl.Core/Models/GazeFrame.cs:22-24`; dwell values are milliseconds in `DwellTarget` — `DwellMs: 1` with 100 ms sample gaps makes the first inside sample fire (dwell is satisfied when elapsed ≥ DwellMs). The lens test's enlarged radii go through the registry seam shown in its code.
 
-- [ ] **Step 2: Run — FAIL**
+- [ ] **Step 2: Run — FAIL**- [ ] **Step 2: Run — FAIL**
 
 Run: `dotnet test tests/EyeCtrl.ViewModels.Tests --filter "FullyQualifiedName~EdgeButtonBarViewModelRearmTests" -v minimal`
 Expected: BUILD ERROR (`RearmOnGazeExit`, `ReplaceButton` missing) then behavioural failures.
@@ -1575,6 +1806,9 @@ public void LatchedVariants_AddTheFilledMarginDot()
 {
     Check.That(ActionIcons.For(ActionIcon.Shift).Fill).IsNull();
     Check.That(ActionIcons.For(ActionIcon.ShiftLatched).Fill).IsNotNull();
+    // The PRIMARY latched cue is the rim in the STROKE geometry (outline-level, peripheral-
+    // vision rule) — pin that the latched stroke differs from the unlatched glyph:
+    Check.That(ActionIcons.For(ActionIcon.ShiftLatched).Stroke).IsNotEqualTo(ActionIcons.For(ActionIcon.Shift).Stroke);
 }
 ```
 
@@ -1664,7 +1898,10 @@ namespace EyeCtrl.App.Services;
 using System.Collections.Generic;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
+using EyeCtrl.ViewModels.Messages;
+using CommunityToolkit.Mvvm.Messaging;
 
 /// <summary>
 /// The left-edge modifier buttons shown while the action menu is open: Shift, Ctrl, Alt — top
@@ -1774,10 +2011,10 @@ public void WithLatched_SwapsOnlyTheIcon()
 
 - [ ] **Step 5: Run the geometry/definition tests and commit**
 
-Run: `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI&FullyQualifiedName~ScreenGeometry|FullyQualifiedName~ActionMenuModifierButtons" -v minimal`
+Run: `dotnet test tests/EyeCtrl.App.Tests --filter "(Category!=UI&FullyQualifiedName~ScreenGeometry)|FullyQualifiedName~ActionMenuModifierButtons" -v minimal`
 Expected: PASS. (The coordinator wiring that consumes `ActionMenuModBar` lands in Task 7, after the interface member and second window exist.)
 
-Run: `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI&FullyQualifiedName~ScreenGeometry|FullyQualifiedName~ActionMenuModifierButtons" -v minimal`
+Run: `dotnet test tests/EyeCtrl.App.Tests --filter "(Category!=UI&FullyQualifiedName~ScreenGeometry)|FullyQualifiedName~ActionMenuModifierButtons" -v minimal`
 Expected: PASS.
 
 ```bash
@@ -1811,7 +2048,7 @@ After `IEdgeButtonBar EdgeButtonBar { get; }` (`:85`):
 /// The LEFT-edge modifier bar while the action menu is open. Owned exclusively by the action
 /// menu (nothing else ever shows or hides it), so its hide path is unconditional. Default
 /// throws — the six test fakes that implement this interface keep compiling, and
-/// <see cref="TestFakes.PartialOverlayManager"/> gains an explicit optional slot (round-2 F9).
+/// The test fakes gain an explicit optional slot for it (round-2 F9).
 /// </summary>
 IEdgeButtonBar ActionMenuModBar => throw new NotSupportedException("This overlay manager does not implement the action-menu modifier bar.");
 ```
@@ -1822,7 +2059,7 @@ And in the `OverlayViewModels` record (IOverlayManager.cs:114), after `EdgeButto
 EdgeButtonBarViewModel ActionMenuModBar,
 ```
 
-Then fix the two positional construction sites (`App.xaml.cs:198`, `AppBootstrapper.cs:627`) and the `ResolveViewModels` tuple (`App.xaml.cs:572–595`) by adding the member in position.
+Fix the construction sites (`App.xaml.cs:198`, `AppBootstrapper.cs:627`) and the `ResolveViewModels` tuple (`App.xaml.cs:572–595`), PLUS the deconstruction at `App.xaml.cs:185`, by adding the member in position.
 
 - [ ] **Step 2: `OverlayManager` — second window, same wiring shape as the first**
 
@@ -1859,7 +2096,7 @@ viewModels.ActionMenuModBar.PropertyChanged += (_, e) =>
 services.AddKeyedSingleton<EdgeButtonBarViewModel>("actionMenuModBar");
 ```
 
-`ResolveViewModels` (`:627+`): `ActionMenuModBar: sp.GetRequiredService<EdgeButtonBarViewModel>("actionMenuModBar"),` (unkeyed `GetRequiredService<EdgeButtonBarViewModel>()` at `:637` still resolves the right bar).
+`ResolveViewModels` (`:627+`): `ActionMenuModBar: sp.GetRequiredKeyedService<EdgeButtonBarViewModel>("actionMenuModBar"),` — `GetRequiredService<T>` has NO key overload; keyed resolution is `GetRequiredKeyedService`. The unkeyed `GetRequiredService<EdgeButtonBarViewModel>()` at `:637` still resolves the right bar (unkeyed resolution ignores keyed registrations).
 
 - [ ] **Step 4: Fakes** — `PartialOverlayManager` (TestFakes.cs:277) gains:
 
@@ -1898,7 +2135,7 @@ catch (Exception ex)
 }
 ```
 
-Hide handler, after the existing right-bar guarded `bar.Hide()` block — its own try, unconditional (nothing else ever owns the left bar):
+Hide handler — PLACEMENT (round-1 F19): the right-bar guarded `Hide()` currently shares the outer try with the TargetHighlight hide; give EACH bar its own try and leave the TargetHighlight hide in the outer one, ordering right bar then left bar (unconditional — nothing else ever owns the left bar). Minimal correct form: right-bar hide in its own try first, left-bar hide in its own try second, TargetHighlight last:
 
 ```csharp
 try
@@ -1911,12 +2148,28 @@ catch (Exception ex)
 }
 ```
 
-`OverlayVmBindingCoordinator` — inside `OnActionMenuVMPropertyChanged`, as a SEPARATE `else if` AFTER the `RingVersion`/`ShowLabels` branch, with its own try/catch (a throw here must not escape into the gaze dispatch):
+`OverlayVmBindingCoordinator` — the `LatchedModifiers` listener is HOISTED into its own handler (spec mechanism 9: the try/catch must enclose the handler prologue, and an `else if` inside `OnActionMenuVMPropertyChanged` cannot — the prologue at `:286-288` dereferences `ActionMenu`, `CursorCircle` and `ActivationButton` before any branch, so a throw there escapes into the mod bar's `DwellDetector.Update`). The hoisted handler has NO prologue (it touches only `OverlayManager.ActionMenuModBar` and `ActionMenuVM`) and is fully try-wrapped:
 
 ```csharp
-else if (e.PropertyName == nameof(Context.ActionMenuVM.LatchedModifiers)
-         && Context.ActionMenuVM.IsVisible)
+// OnInitialize — subscribed AFTER OnActionMenuVMPropertyChanged so the ring rebuild (main
+// handler) precedes the bar-icon swap on a crossing:
+Context.ActionMenuVM.PropertyChanged += OnActionMenuLatchedModifiersChanged;
+
+// OnDispose (next to the existing unsubscribe at :450):
+Context.ActionMenuVM.PropertyChanged -= OnActionMenuLatchedModifiersChanged;
+
+/// <summary>
+/// Swaps the toggled mod button's icon variant. A separate handler rather than a branch of
+/// <see cref="OnActionMenuVMPropertyChanged"/>: that handler's prologue dereferences three
+/// overlays before any branch, and this swap runs INSIDE the mod bar's synchronous toggle
+/// chain — a throw must be caught here, never escape into the gaze-sample dispatch.
+/// </summary>
+private void OnActionMenuLatchedModifiersChanged(object? sender, PropertyChangedEventArgs e)
 {
+    if (Context is null
+        || e.PropertyName != nameof(ActionMenuViewModel.LatchedModifiers)
+        || !Context.ActionMenuVM.IsVisible) return;
+
     try
     {
         var bar = Context.OverlayManager.ActionMenuModBar;
@@ -1938,7 +2191,7 @@ else if (e.PropertyName == nameof(Context.ActionMenuVM.LatchedModifiers)
 - [ ] **Step 6: Wiring tests** (`ActionMenuModBarWiringTests.cs`, built on the `HideActionMenuBarOwnershipTests` context pattern — `MakeOverlayManager` at `:164–168`):
 
 ```csharp
-[Fact]
+[StaFact]
 public void ShowActionMenu_ShowsTheModBar_EvenWithoutAResolvedControl()
 {
     var h = BuildContext(); // ownership-test harness + the new slots
@@ -1948,11 +2201,17 @@ public void ShowActionMenu_ShowsTheModBar_EvenWithoutAResolvedControl()
     Check.That(h.ModBarCalls).Contains("ShowButtons");
 }
 
-[Fact]
+[StaFact]
 public void HideActionMenu_HidesTheModBar_Unconditionally_EvenWhenTheRightBarIsOwnedByADrag()
 {
     var h = BuildContext();
-    h.InteractionManager.OnActionSelected(InteractionAction.Drag); // right bar now drag-owned
+    // Reach Dragging the way the ownership tests do: fixation, then activation dwell (menu
+    // shown), then select Drag. OnActionSelected(Drag) from FreeLook would be a no-op.
+    h.InteractionManager.OnFixationStarted(new PhysicalPoint(500, 500));
+    h.InteractionManager.OnActivationButtonDwelled();
+    h.PumpDispatcher();
+    h.InteractionManager.OnActionSelected(InteractionAction.Drag); // DragStarted: drag owns the right bar
+    h.PumpDispatcher();
     h.Messenger.Send(new HideActionMenuMessage());
     h.PumpDispatcher();
 
@@ -1960,7 +2219,14 @@ public void HideActionMenu_HidesTheModBar_Unconditionally_EvenWhenTheRightBarIsO
     Check.That(h.RightBarCalls).DoesNotContain("Hide"); // ownership guard held
 }
 
-[Fact]
+[StaFact]
+public void EdgeButtonBar_IsExcludedFromScreenCapture()
+{
+    // Follow-up 3's verification: the preview must never bake the edge bars in.
+    Check.That(new EdgeButtonBarWindow().ExcludeFromScreenCapture).IsTrue();
+}
+
+[StaFact]
 public void ThrowingModBar_DoesNotPreventTheRightBarShow()
 {
     var h = BuildContext(withModBar: false); // PartialOverlayManager WITHOUT the slot ⇒ default throws
@@ -1974,37 +2240,51 @@ public void ThrowingModBar_DoesNotPreventTheRightBarShow()
 - [ ] **Step 7: The masked-mutation + held-gaze App test** (`ActionMenuModBarMaskedMutationTests.cs`) — built on the precedent harness (`EdgeButtonBarZOrderTests.cs:146–164` / `ManualSelectionAnchorWiringTests.cs:50–65`: every VM on ONE messenger + a real `Dispatcher`). Requirements checklist from the spec (round-4 F4 + round-5 F6): real VMs for ActionMenu + BOTH bars; `Settings` real; `MakeContext`'s `null!` VMs supplied (coordinator subscribes eleven VMs — `:43–80`); the mod-bar fake's `EdgeButtonBarViewModel` on the SHARED messenger; `PartialOverlayManager` slots for mod bar + `ActionMenu` + `GlassBackdrop`; a real or pumped `Dispatcher`.
 
 ```csharp
-[Fact]
+[StaFact]
 public void HeldGaze_TogglesExactlyOnce_ThroughTheRealCoordinator()
 {
     var h = BuildFullHarness(); // real coordinator + real VMs; mod-bar VM on the shared messenger
-    h.ShowActionMenu();         // via ShowActionMenuMessage + dispatcher pump
-    h.LookAt(ShiftCenter, t0);                       // dwell completes ⇒ Shift latches
-    // Gaze stays ON Shift: the nearest-hitting gate feeds hits-nothing.
-    for (var t = 1; t <= 30; t++)
-        h.LookAt(ShiftCenter, t0 + t * 100_000);     // 3 s of held gaze ≫ 2·dwell + cooldown
+    h.ShowActionMenu();                                // ShowActionMenuMessage + dispatcher pump
+    h.LookAt(ShiftCenter, 0);                          // sample 1: enter
+    h.LookAt(ShiftCenter, 600_000);                    // sample 2: toggle; pending
+    for (var t = 7; t <= 30; t++)
+        h.LookAt(ShiftCenter, t * 100_000);            // held: the gate feeds hits-nothing
 
     Check.That(h.ShiftToggleCount).IsEqualTo(1);
 }
 
-[Fact]
-public void ShowButtonsMutant_IsCaughtAtT700()
+// Centers are DERIVED, never hardcoded physical px (CI runs 96 DPI, the box 200 %):
+// ShiftCenter/CtrlCenter come from the anchor + DpiHelper-scaled offsets exactly as
+// ActionMenuModifierButtons computes them (Shift at minus-spacing, Ctrl at 0).
+[StaFact]
+public void ShowButtonsMutant_IsCaught_AtT700ZeroFires_ThenCompletes()
 {
-    // The mutant: coordinator calls ShowButtons instead of ReplaceButton on toggle.
-    // Correct: Ctrl's accumulation cannot START until T+400 (cooldown), completes ≈T+1000.
-    // Mutant:  ResetCooldown ⇒ Ctrl completes ≈T+616.  Assert at T+700.
+    // TWO inside samples toggle Shift (detector model), then gaze moves to Ctrl:
+    // correct impl - the cooldown gate blocks Ctrl accumulation START until T+400 ms, so
+    //          Ctrl completes at about T+1000;
+    // ShowButtons mutant - ResetCooldown means Ctrl accumulates from first contact and fires
+    //          at about T+616.
     var h = BuildFullHarness();
     h.ShowActionMenu();
     h.LookAt(ShiftCenter, 0);
-    h.LookAt(CtrlCenter, 700_000); // T+700 µs after the toggle — sample only
-    h.LookAt(CtrlCenter, 1_100_000);
+    h.LookAt(ShiftCenter, 600_000);                    // Shift toggles at about T+600; pending(Shift)
+    for (var t = 616; t <= 700; t += 21)               // dense Ctrl samples across the discriminator
+        h.LookAt(CtrlCenter, t * 1_000);
 
-    Check.That(h.CtrlToggleCount).IsEqualTo(1);      // correct impl
-    // Under the mutant this is 0 at T+700 because it already fired (assert via a timeline probe).
+    Check.That(h.CtrlToggleCount).IsEqualTo(0);        // T+700: correct impl has NOT fired
+
+    for (var t = 701; t <= 1_100; t += 50)
+        h.LookAt(CtrlCenter, t * 1_000);
+
+    Check.That(h.CtrlToggleCount).IsEqualTo(1);        // correct impl completes about T+1000;
+                                                       // the mutant already fired before T+700
 }
-```
 
-(The harness helper `BuildFullHarness` is written ONCE in this test file — every VM real, one messenger, real Dispatcher from `Dispatcher.CreateDispatcher()`-style pump as in the precedent tests; the plan does not restate the ~80-line harness here because the two cited precedent files contain the exact construction to copy. The assertion math is pinned: at T+700 the correct implementation has Ctrl mid-dwell (started T+400), the mutant has already fired at ≈T+616 — count-based assertions on both sides of the boundary.)
+(The harness helper `BuildFullHarness` is written ONCE in this test file, copying the two
+precedent files' construction; `ShiftCenter`/`CtrlCenter` are DERIVED from
+`ScreenGeometry.LeftEdgeAnchor(...)` plus the DpiHelper-scaled definition offsets - Shift at
+minus-spacing, Ctrl at 0 - never hardcoded physical px, because CI runs 96 DPI while the dev
+box runs 200 %.)
 
 - [ ] **Step 8: Run the full App non-UI suite**
 
@@ -2033,7 +2313,7 @@ git -C /c/Users/andre/source/repos/eyectrl/.worktrees/action-menu-modifier-keys 
 
 - [ ] **Step 1: Child-canvas dim render in `ActionMenuWindow.Show`**
 
-Const: `private const double DisabledOpacity = 0.45;` Replace the `btn.AddTo(MenuCanvas);` call (`:229`) with:
+Const: `private const double DisabledOpacity = 0.6;` (the value the contrast test validates) — replace the `btn.AddTo(MenuCanvas);` call (`:229`) with:
 
 ```csharp
 if (itemVm.IsDisabled)
@@ -2057,32 +2337,41 @@ else
 
 Constructor: add `ExcludeFromScreenCapture = true;` next to `IsClickThrough = true;` (compare `ActionMenuWindow.xaml.cs:53`; the property is init-only but settable from a derived constructor).
 
-- [ ] **Step 3: Contrast test** — `tests/EyeCtrl.Controls.Tests/Icons/ActionIconDimContrastTests.cs`, reusing the `HaloContrastTests` backdrop/theme matrix:
+- [ ] **Step 3: Contrast test** — `tests/EyeCtrl.App.Tests/ActionIconDimContrastTests.cs` (the `HaloContrastTests` matrix lives in THIS project — Controls.Tests does not reference it):
 
 ```csharp
-private const double DisabledOpacity = 0.45;
-private const double IdentifiabilityFloor = 3.0;
+private const double DisabledOpacity = 0.6;   // 0.45 measured 2.30:1 dimmed-icon vs dimmed-fill on
+                                              // Midnight/#FFFFFF - below any usable floor; 0.6 chosen
+                                              // and the floors validated against the computed matrix
+                                              // (adjust ONLY with a measured note).
+private const double IdentifiabilityFloor = 2.0;
 private const double SeparabilityFloor = 1.5;
 
-public static TheoryData<string> Backdrops() => new()
+// ONE MemberData holding the CARTESIAN PRODUCT - two [MemberData] attributes on a
+// two-parameter theory are two separate one-column row sources, not a product.
+public static TheoryData<string, ITheme> BackdropThemePairs()
 {
-    "#000000", "#404040", "#808080", "#C0C0C0", "#FFFFFF",
-    "#66D9E8", "#A0E060", "#FF5C7A", "#1A1A2E",
-};
-
-public static TheoryData<ITheme> Themes() => HaloContrastTests.AllThemes();
+    var data = new TheoryData<string, ITheme>();
+    foreach (var backdrop in HaloContrastTests.Backdrops)   // the repo's nine backdrops
+        foreach (var theme in HaloContrastTests.AllThemes())
+            data.Add(backdrop, theme);
+    // Own-fill silhouette case (round-5 F7): append one row per theme whose backdrop string
+    // equals the theme's own fill hex.
+    return data;
+}
 
 [Theory]
-[MemberData(nameof(Backdrops))]
-[MemberData(nameof(Themes))]
+[MemberData(nameof(BackdropThemePairs))]
 public void DimmedIcon_StaysIdentifiable_AndSeparableFromLive(string backdrop, ITheme theme)
 {
-    var dimmed = Blend(theme.IconColor, DisabledOpacity, backdrop); // icon over dimmed fill
-    var fill = Blend(theme.ButtonFillColor, DisabledOpacity, backdrop);
-    var live = theme.IconColor;
+    var icon = theme.TextPrimary;      // DwellArcButton's icon brush (NOT theme.IconColor - no such member)
+    var fill = theme.SurfaceMedium;    // the button fill (DwellArcButton.cs:165)
 
-    Check.That(Contrast(dimmed, fill)).IsGreaterOrEqualThan(IdentifiabilityFloor);
-    Check.That(Contrast(live, dimmed)).IsGreaterThan(SeparabilityFloor);
+    var dimmed = Blend(icon, DisabledOpacity, backdrop);
+    var dimmedFill = Blend(fill, DisabledOpacity, backdrop);
+
+    Check.That(Contrast(dimmed, dimmedFill)).IsGreaterOrEqualThan(IdentifiabilityFloor);
+    Check.That(Contrast(Contrast(icon, backdrop) > Contrast(fill, backdrop) ? dimmed : dimmedFill, icon)).IsStrictlyGreaterThan(SeparabilityFloor);
 }
 
 private static Color Blend(Color source, double opacity, string backdropHex)
@@ -2107,9 +2396,7 @@ private static double Contrast(Color a, Color b)
 }
 ```
 
-(The theme member names — `IconColor`, `ButtonFillColor` — must be matched to `ITheme`'s actual accessors as used by `HaloContrastTests`; if that file composites differently, copy ITS composite helper verbatim and keep the assertions. The dwell-blend rule is moot by construction — a dimmed item has no target, so `ProgressPath` stays empty; pinned by the ViewModels suite.)
-
-- [ ] **Step 4: Run Controls + ViewModels + App suites**
+(The dwell-blend rule is moot by construction - a dimmed item has no target, so `ProgressPath` stays empty; pinned by the ViewModels no-target test. `IsStrictlyGreaterThan`/`IsStrictlyLessThan` are the NFluent 3.1 double comparators - plain `IsGreaterThan`/`IsLessThan` exist only for `TimeSpan`.)- [ ] **Step 4: Run Controls + ViewModels + App suites**
 
 Run: `dotnet test tests/EyeCtrl.Controls.Tests -v minimal` then `dotnet test tests/EyeCtrl.ViewModels.Tests -v minimal` then `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI" -v minimal`
 Expected: PASS.
@@ -2123,14 +2410,22 @@ git -C /c/Users/andre/source/repos/eyectrl/.worktrees/action-menu-modifier-keys 
 
 ### Task 9: Final gate
 
-- [ ] **Step 1: Full non-UI suite**
+- [ ] **Step 1: Full non-UI suite, SEQUENTIALLY per project (Global Constraint: never two suites concurrently)**
 
-Run: `dotnet test --filter "Category!=UI" -v minimal`
-Expected: PASS across all projects.
+Run each in turn:
+`dotnet test tests/EyeCtrl.Core.Tests -v minimal`
+`dotnet test tests/EyeCtrl.Platform.Tests -v minimal`
+`dotnet test tests/EyeCtrl.ViewModels.Tests -v minimal`
+`dotnet test tests/EyeCtrl.Controls.Tests -v minimal`
+`dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI" -v minimal`
+`dotnet test tests/EyeCtrl.Supervisor.Tests -v minimal` (if present)
+Expected: PASS. `AppLaunchTests` are gated behind `EYECTRL_UI_TESTS=1` and SKIP cleanly without it — compare any unexpected failures against `main`'s baseline on this box before investigating.
 
 - [ ] **Step 2: Graph change analysis (repo rule)**
 
-Run: `node .gitnexus/run.cjs detect-changes --scope all --worktree "C:\Users\andre\source\repos\eyectrl\.worktrees\action-menu-modifier-keys"`
+Run: `node .gitnexus/run.cjs detect-changes --scope compare --base-ref "main" --worktree "C:\Users\andre\source\repos\eyectrl\.worktrees\action-menu-modifier-keys"`
+(Compare mode against main — working-tree scope is vacuous after per-task commits.)
+ALSO run the repo-mandated impact checks BEFORE the tasks that edit these symbols: `impact({target: "DwellDetector.Update"})`, `impact({target: "SendRaw"})`, `impact({target: "OnActionSelected"})` — record the risk levels in the task notes.
 Expected: risk assessed; HIGH/CRITICAL findings reviewed against the spec's blast-radius section before proceeding.
 
 - [ ] **Step 3: Spec-conformance sweep**

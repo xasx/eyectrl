@@ -54,6 +54,31 @@ public class PassiveAttemptLogTests
         Check.That(report.Describe()).Contains("toolbar");
     }
 
+    [Theory]
+    [InlineData(2)]   // 20 % — twice the screen, the nearest healthy rate a loose threshold would catch
+    [InlineData(4)]   // 40 % — a clearly healthy region
+    public void ACompletionRateAboveTenPercent_IsNotFlagged(int completions)
+    {
+        // The other side of the 10 % screen (holistic review F2): nothing pinned it, so the threshold
+        // could drift up to 50 % with every test green and healthy regions would start telling the
+        // user to "run the probe" — a stamina-costing false tripwire.
+        var visits = new List<(PhysicalPoint, int)>();
+        for (int i = 0; i < 10; i++)
+        {
+            visits.Add((RegionCenter, i < completions ? CompleteVisitsSamples : MissSamples));
+            visits.Add((Away, 10));
+        }
+
+        var report = PassiveAttemptLog.Analyze(
+            Stream(visits.ToArray()), [new PassiveAttemptLog.Region("edge", RegionCenter, HitRadius, DwellMs)]);
+
+        var region = report.Regions.Single();
+        Check.That(region.Entries).IsEqualTo(10);
+        Check.That(region.Completions).IsEqualTo(completions);
+        Check.That(region.FlagsBiasTowardHitRadius).IsFalse();
+        Check.That(report.FlaggedRegions).IsEqualTo(0);
+    }
+
     [Fact]
     public void ACompletionRateAtTenPercent_IsFlagged()
     {

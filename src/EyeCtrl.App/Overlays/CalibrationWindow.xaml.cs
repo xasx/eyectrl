@@ -418,7 +418,6 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
     {
         TargetCanvas.Visibility = Visibility.Collapsed;
         ProgressText.Visibility = Visibility.Collapsed;
-        CancelHint.Visibility = Visibility.Visible;
         Backdrop.Visibility = Visibility.Visible;
         CompletionPanel.Visibility = Visibility.Visible;
         StopPulse();
@@ -452,6 +451,7 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
         CompletionError.Text = presentation.Detail;
         CompletionHint.Visibility = presentation.HintVisible ? Visibility.Visible : Visibility.Collapsed;
         RetryPanel.Visibility = presentation.RetryVisible ? Visibility.Visible : Visibility.Collapsed;
+        CancelHint.Visibility = presentation.CancelHintVisible ? Visibility.Visible : Visibility.Collapsed;
         StartAutoDismiss(presentation.AutoDismissMs, DismissAndReset);
     }
 

@@ -451,10 +451,17 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         //
         // Computed against the same gaze sample the collector just consumed, so the ring cannot show
         // "on target" for a sample the collector rejected.
+        //
+        // Measure-only is paced by its fixed window, not by samples, so its ring shows the elapsed share
+        // of that window instead: it fills exactly when the dot moves on. Counting in-band samples there
+        // saturated the ring in about 0.5 s at defaults and then sat full for the rest of the 5 s —
+        // "done, stuck" to anyone watching (holistic review N2). IsOnTarget still says "you are on it".
         IsOnTarget = Distance(gaze, CurrentTargetPosition) <= BandRadiusPixels;
-        TargetProgress = _settings.SamplesPerPoint <= 0
-            ? 0
-            : Math.Min(1.0, _calibrationService.CurrentTargetInBandSamples / (double)_settings.SamplesPerPoint);
+        TargetProgress = _measureOnly
+            ? Math.Clamp((Environment.TickCount64 - _targetShownAtTicks) / (double)MeasureOnlyTargetBudgetMs, 0, 1)
+            : _settings.SamplesPerPoint <= 0
+                ? 0
+                : Math.Min(1.0, _calibrationService.CurrentTargetInBandSamples / (double)_settings.SamplesPerPoint);
 
         // The user's pace: advance the moment the target has its samples, past the visible floor.
         // Before this, a fixed timer advanced targets whether or not the user had arrived, and samples

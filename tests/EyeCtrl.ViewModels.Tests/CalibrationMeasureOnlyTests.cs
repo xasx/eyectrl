@@ -317,6 +317,35 @@ public class CalibrationMeasureOnlyTests
         }
     }
 
+    [Fact]
+    public async Task MeasureOnlyRing_ShowsTheElapsedShareOfTheWindow_NotSaturatedSamples()
+    {
+        // Holistic review N2: the ring counted in-band samples against SamplesPerPoint, so at shipped
+        // defaults it was full after ~0.5 s and then sat full for the rest of the fixed 5 s window.
+        // It now tracks the window itself: about 1.5 s into a 5 s target it reads about 0.3.
+        _settings = new CalibrationSettings
+        {
+            PointCount = 5, TargetHoldMs = 1000, SettleWindowMs = 300, SamplesPerPoint = 15,
+        };
+        var vm = await Task.Run(() => CreateVm());
+        _messenger.Send(new MeasureOnlyCalibrationRequestedMessage());
+
+        long t0 = Environment.TickCount64;
+        while (Environment.TickCount64 - t0 < 1_500)
+        {
+            var target = vm.CurrentTargetPosition;
+            _provider.FireGaze(new GazePoint(target.X + 5, target.Y - 5, (Environment.TickCount64 - t0) * 1000, IsValid: true));
+            await Task.Delay(25, TestContext.Current.CancellationToken);
+        }
+
+        Check.That(vm.CurrentTargetIndex).IsEqualTo(0);   // still the first target: the window is 5 s
+        Check.That(vm.IsOnTarget).IsTrue();
+        Check.That(vm.TargetProgress).IsGreaterOrEqualThan(0.15);
+        Check.That(vm.TargetProgress).IsStrictlyLessThan(0.6);   // in-band counting read 1.0 here
+
+        vm.Cancel();
+    }
+
     // ── Session-state teeth ───────────────────────────────────────────────────
 
     [Fact]

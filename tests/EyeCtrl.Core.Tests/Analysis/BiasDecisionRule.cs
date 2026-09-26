@@ -157,23 +157,31 @@ public static class BiasDecisionRule
                 centreMagnitude);
         }
 
-        // 3. "No trigger" is only allowed on complete evidence: every clustered target used, and at
-        //    least four of the five measured. Anything less cannot rule out the 2-of-5 arm.
+        // 3. "No trigger" is only allowed when the evidence makes it DECIDABLE, not merely plentiful:
+        //    every clustered target used, at least four of the five measured, the centre actually
+        //    measured, and no unmeasured target that could complete the 2-of-5 arm. A count alone says
+        //    nothing — G1's centre (truly 90 px) was unmeasured, and G2 had one measured target at
+        //    70 px with another unmeasured that could have been the second.
         bool everyClusteredTargetUsed = estimate.TargetsUsed == estimate.TargetsWithData;
-        if (everyClusteredTargetUsed && measured.Count >= MinTargetsForNoTrigger)
+        int unmeasured = estimate.Probes.Count - measured.Count;
+        bool centreMeasured = centreMagnitude is not null;
+        bool perTargetArmDecidable = overThreshold + unmeasured < MinTargetsForTrigger;
+        if (everyClusteredTargetUsed && measured.Count >= MinTargetsForNoTrigger
+            && centreMeasured && perTargetArmDecidable)
         {
             return new Decision(
                 BiasVerdict.NoTrigger,
                 $"No trigger: the largest measured |b| is {measured.Max(t => t.MagnitudePx).ToString("0.0", ci)} px "
                 + $"across {measured.Count} of {estimate.Probes.Count} targets; centre "
-                + (centreMagnitude is { } c ? $"{c.ToString("0.0", ci)} px" : "not measured")
-                + $" (bars {PerTargetTriggerPx:0} px at {MinTargetsForTrigger}, {CentreTriggerPx:0} px at centre).",
+                + $"{centreMagnitude!.Value.ToString("0.0", ci)} px (bars {PerTargetTriggerPx:0} px at "
+                + $"{MinTargetsForTrigger}, {CentreTriggerPx:0} px at centre).",
                 measured,
                 centreMagnitude);
         }
 
-        // 4. Everything else is Inconclusive, and the reason must say which of the two worlds it is:
-        //    no clusters at all, or clusters that disagree with the field / too few targets measured.
+        // 4. Everything else is Inconclusive, and the reason must say WHICH evidence is missing: no
+        //    clusters at all; clusters that disagree with the field; too few targets measured; the
+        //    centre unmeasured; or an unmeasured target that could complete the per-target arm.
         string why;
         if (estimate.TargetsWithData == 0)
         {
@@ -188,10 +196,20 @@ public static class BiasDecisionRule
             why = $"{estimate.TargetsUsed} of {estimate.Probes.Count} targets fit a smooth offset field; "
                 + string.Join(", ", dropped) + " had clusters that disagree with it";
         }
-        else
+        else if (measured.Count < MinTargetsForNoTrigger)
         {
             why = $"only {measured.Count} of {estimate.Probes.Count} targets were measured "
                 + $"(fewer than the {MinTargetsForNoTrigger} a No-trigger verdict needs)";
+        }
+        else if (!centreMeasured)
+        {
+            why = "the centre target was not measured, so the centre arm was never tested";
+        }
+        else
+        {
+            why = $"{overThreshold} measured target(s) are at or above {PerTargetTriggerPx:0} px and "
+                + $"{unmeasured} target(s) were not measured, so the "
+                + $"{MinTargetsForTrigger}-of-5 arm is not decidable";
         }
 
         return new Decision(

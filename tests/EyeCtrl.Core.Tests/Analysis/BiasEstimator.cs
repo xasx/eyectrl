@@ -20,16 +20,19 @@ using EyeCtrl.Core.Models;
 /// starting in the first <see cref="OnsetGuardMs"/> ms after the target appeared, and then searches
 /// for the best set of one-cluster-per-target that is consistent with a SMOOTH FIELD across targets:
 /// an affine map from screen position to offset, fitted to the chosen clusters, whose residual at
-/// every chosen cluster is within <see cref="FieldResidualPx"/>. Consistency therefore VETOES
-/// look-aways (a screen position, not a displacement — it does not fit the field) without forcing the
-/// offset to be one constant translation, so a position-dependent residual (corner degradation, a
-/// scale error) is measured rather than silently dropped.
+/// every chosen cluster is within <see cref="FieldResidualPx"/> and whose SLOPE stays within
+/// <see cref="MaxFieldGradient"/>. A look-away is a place, not a displacement: at a fixed screen spot
+/// it is even an exact affine field (v = S − P, slope −1), so it is the boundedness of the slope, not
+/// the fit, that vetoes it — while a real position-dependent residual (corner degradation ≤ 4 %, a
+/// 3 % scale error) passes and is measured rather than silently dropped.
 /// </para>
 /// <para>
-/// <b>Two identical solutions are not a decision.</b> A look-away can itself be a consistent field —
-/// e.g. the user rests on the ring's top edge at every target. When a rival field of the same size is
-/// comparably supported, the result is flagged <see cref="Estimate.Ambiguous"/> and the decision rule
-/// answers Inconclusive instead of picking one.
+/// <b>Two identical solutions are not a decision.</b> A look-away can itself be a bounded, consistent
+/// field — e.g. the user rests on the ring's top edge at every target. When a rival field of the same
+/// size is comparably supported AND the decision rule reads a different verdict from it, the result is
+/// flagged <see cref="Estimate.Ambiguous"/> and the rule answers Inconclusive instead of picking one.
+/// The comparison is on the verdict, not on how far the two mean offsets differ: a difference at one
+/// target moves the mean by a fifth of it and can still flip an arm.
 /// </para>
 /// <para>
 /// The samples come from the sidecar itself (<see cref="GroundTruthSample"/>), raw and uncalibrated
@@ -75,19 +78,29 @@ public static class BiasEstimator
 
     /// <summary>
     /// Two valid fields are rivals when the second is supported by at least this fraction of the
-    /// first's samples — "comparable support" — and their mean offsets differ by more than
-    /// <see cref="AmbiguitySeparationPx"/>. A factor of two (0.5) is the widest that still calls the
+    /// first's samples — "comparable support". A factor of two (0.5) is the widest that still calls the
     /// reviewers' 8-vs-9 sample distractor comparable; it is meant to catch a user who rests on two
     /// places rather than to rank two ways of measuring one place.
     /// </summary>
     public const double AmbiguitySampleRatio = 0.5;
 
     /// <summary>
-    /// Rivals closer than this are the same place measured twice (a split cluster's sub-fragments)
-    /// and must not be reported as ambiguous. Real alternatives differ by the distance between two
-    /// screen positions, not by cluster noise.
+    /// Rivals whose mean offsets are closer than this and whose verdicts agree are the same
+    /// measurement twice (a split cluster's sub-fragments) and are not reported as ambiguous. This is
+    /// the second of the two ambiguity tests, not the only one: a rival whose mean is materially
+    /// different matters even when both verdicts happen to be Recalibrate (the reported magnitude
+    /// would be wrong), and a rival that flips the verdict matters even when the means are close.
     /// </summary>
     public const double AmbiguitySeparationPx = 40;
+
+    /// <summary>
+    /// The largest slope the affine offset field may have, per axis. A real device/position residual is
+    /// a few percent of the screen (stream C's 4 % radial error has 0.04; G4's translation+3 % scale is
+    /// 0.03). A look-away at a FIXED screen spot is v(P) = S − P — an exact affine field with slope −1 —
+    /// so boundedness, not field-fit, is what rejects it: at 0.08 a 250 px glance leaning with the
+    /// field cannot pass while every real residual still does.
+    /// </summary>
+    public const double MaxFieldGradient = 0.08;
 
     /// <summary>
     /// Clusters whose centroids sit within this many pixels are the SAME PLACE revisited — a stream
@@ -275,9 +288,30 @@ public static class BiasEstimator
         }
 
         var bias = new PhysicalPoint(sumX / best.Targets, sumY / best.Targets);
-        var rival = FindBestRival(probes, best);
+        var rival = FindBestRival(
+            probes, best, new PhysicalPoint(session.ScreenWidthPhysical, session.ScreenHeightPhysical));
         return new Estimate(bias, chosen.Count(p => p.Clusters.Count > 0), best.Targets, chosen,
             Ambiguous: rival is not null, rival, best.MaxResidualPx);
+    }
+
+    /// <summary>Builds the estimate one assignment would produce — the rule's input for a rival verdict.</summary>
+    private static Estimate BuildEstimate(IReadOnlyList<Probe> probes, FieldSolution solution)
+    {
+        var chosen = new List<Probe>(probes.Count);
+        double sumX = 0, sumY = 0;
+        for (int i = 0; i < probes.Count; i++)
+        {
+            var cluster = solution.Choices[i];
+            chosen.Add(probes[i] with { Chosen = cluster });
+            if (cluster is not null)
+            {
+                sumX += cluster.Centroid.X - probes[i].Target.X;
+                sumY += cluster.Centroid.Y - probes[i].Target.Y;
+            }
+        }
+        var bias = new PhysicalPoint(sumX / solution.Targets, sumY / solution.Targets);
+        return new Estimate(bias, chosen.Count(p => p.Clusters.Count > 0), solution.Targets, chosen,
+            Ambiguous: false, Rival: null, solution.MaxResidualPx);
     }
 
     /// <summary>One candidate solution: which cluster each probe contributes (null = target unused).</summary>
@@ -322,13 +356,20 @@ public static class BiasEstimator
 
     /// <summary>
     /// The strongest rival: a different valid assignment using the same number of targets with at
-    /// least <see cref="AmbiguitySampleRatio"/> of the winner's samples, whose mean offset differs by
-    /// more than <see cref="AmbiguitySeparationPx"/>. Null when there is no such alternative.
+    /// least <see cref="AmbiguitySampleRatio"/> of the winner's samples that either reads a DIFFERENT
+    /// verdict from the rule or lands at a materially different mean offset. The verdict is the
+    /// decision-relevant test — a difference at one target moves the mean by only a fifth of it, yet
+    /// can flip an arm (reviewer A's G6 absorbed a whole second fixation at a corner and still
+    /// answered "No trigger") — and the mean carries the case where both arms fire but the reported
+    /// magnitude would be a different place's (the reviewers' P6 glance).
     /// </summary>
-    private static Alternative? FindBestRival(IReadOnlyList<Probe> probes, FieldSolution best)
+    private static Alternative? FindBestRival(
+        IReadOnlyList<Probe> probes, FieldSolution best, PhysicalPoint screenSize)
     {
         if (best.Targets < 2) return null;
 
+        var bestEstimate = BuildEstimate(probes, best);
+        var bestVerdict = BiasDecisionRule.Evaluate(bestEstimate, screenSize).Verdict;
         var bestMean = best.Mean(probes);
         FieldSolution? rival = null;
         foreach (var candidate in Enumerate(probes))
@@ -336,7 +377,13 @@ public static class BiasEstimator
             if (candidate.Targets != best.Targets) continue;
             if (!DiffersFrom(candidate, best, probes)) continue;
             if (candidate.Samples < best.Samples * AmbiguitySampleRatio) continue;
-            if (Distance(candidate.Mean(probes), bestMean) <= AmbiguitySeparationPx) continue;
+
+            bool verdictDiffers = BiasDecisionRule
+                .Evaluate(BuildEstimate(probes, candidate), screenSize).Verdict != bestVerdict;
+            bool materialDifference =
+                Distance(candidate.Mean(probes), bestMean) > AmbiguitySeparationPx;
+            if (!verdictDiffers && !materialDifference) continue;
+
             if (rival is null || candidate.Samples > rival.Samples) rival = candidate;
         }
         return rival is null ? null : new Alternative(rival.Mean(probes), rival.Targets, rival.Samples);
@@ -390,8 +437,9 @@ public static class BiasEstimator
 
     /// <summary>
     /// Field test for one assignment. Three or more clusters must fit an affine offset field within
-    /// <see cref="FieldResidualPx"/>; fewer carry no field evidence and always pass (they are
-    /// provisional, and <see cref="BiasDecisionRule"/> refuses to conclude "No trigger" from them).
+    /// <see cref="FieldResidualPx"/> AND with slopes no larger than <see cref="MaxFieldGradient"/> on
+    /// either axis; fewer carry no field evidence and always pass (they are provisional, and
+    /// <see cref="BiasDecisionRule"/> refuses to conclude "No trigger" from them).
     /// </summary>
     private static bool TryFit(Cluster?[] choices, IReadOnlyList<Probe> probes, out double maxResidual)
     {
@@ -426,6 +474,14 @@ public static class BiasEstimator
         };
         if (!TrySolve3(m, [sxVx, syVx, sVx], out var fx)) return false;
         if (!TrySolve3(m, [sxVy, syVy, sVy], out var fy)) return false;
+
+        // A smooth offset field has a small gradient: real device/position bias is a few percent of
+        // the screen. A look-away at a FIXED screen spot is v = S − P, an exact affine field with
+        // slope −1, and two roughly opposite glances at diagonal corners need 0.1–0.2 — so the slope
+        // is what tells them apart, not the residual (reviewer A's G9, reviewer B's sweeps).
+        if (Math.Abs(fx[0]) > MaxFieldGradient || Math.Abs(fx[1]) > MaxFieldGradient
+            || Math.Abs(fy[0]) > MaxFieldGradient || Math.Abs(fy[1]) > MaxFieldGradient)
+            return false;
 
         for (int i = 0; i < choices.Length; i++)
         {
@@ -473,73 +529,75 @@ public static class BiasEstimator
     }
 
     /// <summary>
-    /// When a closed cluster's samples span more than this (max pairwise distance), it is split at the
-    /// two centroids a 2-means pass finds — provided each side has <see cref="MinClusterSamples"/>.
-    /// A pure 50-sample fixation's range is about 4σ ≈ 36 px at this user's σ ≈ 9; a hold with a glance
-    /// pulled into it spans the 50 px between the two places or more. The test is on the DIAMETER, not
-    /// on the 2-means centroids: a bridge of saccade samples between the modes pulls the centroids
-    /// toward each other, but it cannot shrink the span. A false split of one place is harmless — the
-    /// place merge puts its parts back together — while a missed split contaminates the estimate.
+    /// When a closed run's samples span more than this (max pairwise distance), it is clustered into
+    /// spatial groups; a tighter run is one cluster outright. A pure 50-sample fixation's range is
+    /// about 4σ ≈ 36 px at this user's σ ≈ 9, and a hold with a glance pulled into it spans the
+    /// distance between the two places (50 px or more).
     /// </summary>
     public const double SplitDiameterPx = 45;
 
     /// <summary>
-    /// When a closed cluster's samples are bimodal — two places in one run, e.g. the hold and a glance
-    /// that landed close enough for the dispersion box to swallow it — it is split at the two centroids
-    /// a 2-means pass finds, and only when each side has <see cref="MinClusterSamples"/> and the
-    /// cluster's diameter exceeds <see cref="SplitDiameterPx"/>. Without this, a contaminated cluster's
-    /// centroid lands between the two places and the estimate is tens of pixels off — reviewer A's F6,
-    /// measured at 42 px.
+    /// Splits one closed run into spatial groups. A run wider than <see cref="SplitDiameterPx"/> is
+    /// clustered by greedy leaders: each sample joins the NEAREST group whose running centroid is
+    /// within <see cref="PlaceMergePx"/>, or starts one. A hold with a glance swallowed by the
+    /// dispersion box therefore emerges as its own group plus the glance's group (dropped when too
+    /// small to stand alone), instead of one blended centroid — reviewer A's F6, and the G6 cases where
+    /// a 2-means split left a bridged minority attached to the wrong mode. The run is kept whole when
+    /// it is tight, so ordinary fixations never pay for this.
     /// </summary>
     private static List<Cluster> SplitIfBimodal(List<double> xs, List<double> ys, List<long> timestamps)
     {
-        // Seeds are the farthest-apart pair, not the temporal ends: a merged run can begin and end in
-        // the same mode (hold, glances, hold), and end-seeded 2-means then splits that mode in half and
-        // never separates the glance. The farthest pair is one sample from each mode whenever the run
-        // is bimodal, and stays inside one mode's noise when it is not.
-        int seedA = 0, seedB = 0;
-        double farthest = -1;
-        for (int i = 0; i < xs.Count; i++)
-        for (int j = i + 1; j < xs.Count; j++)
-        {
-            double d = ((xs[i] - xs[j]) * (xs[i] - xs[j])) + ((ys[i] - ys[j]) * (ys[i] - ys[j]));
-            if (d > farthest) { farthest = d; seedA = i; seedB = j; }
-        }
-
-        double c1x = xs[seedA], c1y = ys[seedA];
-        double c2x = xs[seedB], c2y = ys[seedB];
-        var owner = new int[xs.Count];
-
-        for (int iteration = 0; iteration < 12; iteration++)
-        {
-            double next1x = 0, next1y = 0, next2x = 0, next2y = 0;
-            int n1 = 0, n2 = 0;
-            for (int i = 0; i < xs.Count; i++)
-            {
-                double d1 = ((xs[i] - c1x) * (xs[i] - c1x)) + ((ys[i] - c1y) * (ys[i] - c1y));
-                double d2 = ((xs[i] - c2x) * (xs[i] - c2x)) + ((ys[i] - c2y) * (ys[i] - c2y));
-                // Ties go to the first centroid; the pass is deterministic either way.
-                owner[i] = d1 <= d2 ? 0 : 1;
-                if (owner[i] == 0) { next1x += xs[i]; next1y += ys[i]; n1++; }
-                else { next2x += xs[i]; next2y += ys[i]; n2++; }
-            }
-            if (n1 == 0 || n2 == 0) break;
-            c1x = next1x / n1; c1y = next1y / n1;
-            c2x = next2x / n2; c2y = next2y / n2;
-        }
-
-        int count1 = owner.Count(o => o == 0), count2 = owner.Length - count1;
-        double diameter = Math.Sqrt(farthest);
-        // A side too small to stand alone stays where it is: dropping it moved five seeds out of the
-        // 20 px band on the random-direction sweep, while keeping the run whole contaminated only one.
-        if (count1 < MinClusterSamples || count2 < MinClusterSamples || diameter <= SplitDiameterPx)
+        double minX = double.MaxValue, maxX = double.MinValue, minY = double.MaxValue, maxY = double.MinValue;
+        foreach (var x in xs) { minX = Math.Min(minX, x); maxX = Math.Max(maxX, x); }
+        foreach (var y in ys) { minY = Math.Min(minY, y); maxY = Math.Max(maxY, y); }
+        int[] owner = new int[xs.Count];
+        if (BoxDiagonal(minX, maxX, minY, maxY) <= SplitDiameterPx)
             return [Build(xs, ys, timestamps, owner, 0, both: true)];
 
-        return
-        [
-            Build(xs, ys, timestamps, owner, 0, both: false),
-            Build(xs, ys, timestamps, owner, 1, both: false),
-        ];
+        var groupX = new List<double>();
+        var groupY = new List<double>();
+        var groupN = new List<int>();
+
+        for (int i = 0; i < xs.Count; i++)
+        {
+            int best = -1;
+            double bestDistance = PlaceMergePx + 1;
+            for (int g = 0; g < groupN.Count; g++)
+            {
+                double d = Distance(new PhysicalPoint(groupX[g] / groupN[g], groupY[g] / groupN[g]),
+                    new PhysicalPoint(xs[i], ys[i]));
+                if (d <= PlaceMergePx && d < bestDistance)
+                {
+                    bestDistance = d;
+                    best = g;
+                }
+            }
+
+            if (best < 0)
+            {
+                groupX.Add(xs[i]);
+                groupY.Add(ys[i]);
+                groupN.Add(1);
+                owner[i] = groupN.Count - 1;
+            }
+            else
+            {
+                groupX[best] += xs[i];
+                groupY[best] += ys[i];
+                groupN[best]++;
+                owner[i] = best;
+            }
+        }
+
+        var clusters = new List<Cluster>();
+        for (int g = 0; g < groupN.Count; g++)
+            if (groupN[g] >= MinClusterSamples)
+                clusters.Add(Build(xs, ys, timestamps, owner, g, both: false));
+
+        // Every group too small to stand alone: keep the run whole rather than lose it.
+        if (clusters.Count == 0)
+            clusters.Add(Build(xs, ys, timestamps, owner, 0, both: true));
+        return clusters;
     }
 
     /// <summary>Builds a cluster from the samples owned by one side of a 2-means split.</summary>
@@ -637,16 +695,18 @@ public static class BiasEstimator
         Close();
 
         // Merge revisited places: ten returns to the same hold are one place with ten holds' worth of
-        // evidence, not ten competing candidates. The running centroid is compared, so a slowly
-        // drifting fixation stays one place while a genuine look-away (tens to hundreds of px away)
-        // stays its own.
+        // evidence, not ten competing candidates. Each cluster is compared against the place's ANCHOR
+        // — the centroid of the first cluster that formed it — not against a running centroid: a run
+        // straddling two places pulls a running centroid toward the second, which then swallows it,
+        // chaining two fixations 60 px apart into one blended place (reviewer A's G6).
         var places = new List<Cluster>();
+        var anchors = new List<PhysicalPoint>();
         foreach (var cluster in clusters.OrderBy(c => c.StartUs))
         {
             int found = -1;
             for (int i = 0; i < places.Count; i++)
             {
-                if (Distance(places[i].Centroid, cluster.Centroid) <= PlaceMergePx)
+                if (Distance(anchors[i], cluster.Centroid) <= PlaceMergePx)
                 {
                     found = i;
                     break;
@@ -656,6 +716,7 @@ public static class BiasEstimator
             if (found < 0)
             {
                 places.Add(cluster);
+                anchors.Add(cluster.Centroid);
                 continue;
             }
 

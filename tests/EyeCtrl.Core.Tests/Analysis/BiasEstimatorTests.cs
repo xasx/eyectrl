@@ -73,11 +73,11 @@ public class BiasEstimatorTests
     {
         // The reviewers' P5: the ticket's stream with the glance direction drawn at random per target,
         // 200 seeds. At the old D150 dispersion 5 seeds exceeded 20 px and 13 lost a target, because a
-        // glance that landed near the hold merged into it. The tighter dispersion, the bimodal split
-        // and the place merge are what this pins; and the verdict rule is what makes a bad seed safe:
-        // an imprecise seed may come back Recalibrate (the correct action for a 300 px bias) or
+        // glance that landed near the hold merged into it. The tighter dispersion, the split and the
+        // place merge are what this pins; and the verdict rule is what makes a bad seed safe: an
+        // imprecise seed may come back Recalibrate (the correct action for a 300 px bias) or
         // Inconclusive, but never "No trigger" — and at least 95 % must recover within 20 px.
-        int recovered = 0, noTrigger = 0, impreciseButInconclusive = 0, imprecise = 0;
+        int recovered = 0, noTrigger = 0, imprecise = 0;
         for (uint seed = 1; seed <= 200; seed++)
         {
             var estimate = BiasEstimator.Measure(BiasStreams.Acceptance(seed));
@@ -88,17 +88,12 @@ public class BiasEstimatorTests
                 ? Math.Sqrt(Math.Pow(bias.X - TrueBias.X, 2) + Math.Pow(bias.Y - TrueBias.Y, 2))
                 : null;
             if (error is { } e && e <= 20) recovered++;
-            else
-            {
-                imprecise++;
-                if (decision.Verdict == BiasDecisionRule.BiasVerdict.Inconclusive) impreciseButInconclusive++;
-            }
+            else imprecise++;
         }
 
-        Check.That(recovered).IsGreaterOrEqualThan(190);                       // ≥ 95 % of seeds
-        Check.That(noTrigger).IsEqualTo(0);                                    // a large bias is never "No trigger"
-        Check.That(imprecise).IsLessOrEqualThan(10);                           // the bar, named
-        Check.That(impreciseButInconclusive).IsGreaterOrEqualThan(2);          // and bad seeds degrade
+        Check.That(recovered).IsGreaterOrEqualThan(190);   // ≥ 95 % of seeds
+        Check.That(noTrigger).IsEqualTo(0);                // a large bias is never "No trigger"
+        Check.That(imprecise).IsLessOrEqualThan(10);       // the bar, named
     }
 
     [Fact]
@@ -300,6 +295,173 @@ public class BiasEstimatorTests
         var decision = BiasDecisionRule.Evaluate(BiasEstimator.Measure(BiasStreams.Session(windows)), Screen);
 
         Check.That(decision.Verdict).IsNotEqualTo(BiasDecisionRule.BiasVerdict.NoTrigger);
+    }
+
+    // ── Round 2: the verdict must be decidable, bounded and honest ────────────
+
+    [Fact]
+    public void StreamG1_CentreUnmeasured_IsInconclusive_NotNoTrigger()
+    {
+        // G1: the centre window has no steady hold; the true centre is 90 px (the centre arm fires)
+        // and the corners are 30 px. A "No trigger" here would never have tested the centre arm.
+        var decision = BiasDecisionRule.Evaluate(
+            BiasEstimator.Measure(UniformBias([30, 30, 90, 30, 30], [10, 10, 0, 10, 10])), Screen);
+
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Inconclusive);
+        Check.That(decision.Reason).Contains("centre");
+    }
+
+    [Fact]
+    public void StreamG2_OneUnmeasuredWithOneMeasuredAtSixty_IsInconclusive_NotNoTrigger()
+    {
+        // G2: TL and BR are truly 70 px and the others 10. TL has no hold, and BR is measured at
+        // ~69 px — one measured target is already over the bar and the unmeasured one could be the
+        // second, so the 2-of-5 arm is not decidable.
+        var decision = BiasDecisionRule.Evaluate(
+            BiasEstimator.Measure(UniformBias([70, 10, 10, 70, 10], [0, 10, 10, 10, 10])), Screen);
+
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Inconclusive);
+        Check.That(decision.Reason).Contains("not decidable");
+    }
+
+    [Fact]
+    public void Boundary_ThreeOfFiveMeasured_CannotSayNoTrigger()
+    {
+        // Three windows only (an aborted probe), all clustered, the centre measured, every measured
+        // bias small. Decidability alone would allow "No trigger" — but two unmeasured targets could
+        // complete the 2-of-5 arm, and the count bar (4) is what refuses it.
+        var targets = BiasStreams.Layout;
+        int centre = BiasStreams.CentreIndex();
+        var noise = new BiasStreams.Noise(41);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        int[] ids = [0, centre, 3];
+        for (int n = 0; n < ids.Length; n++)
+            windows.Add(BiasStreams.Window(ids[n], targets[ids[n]], new PhysicalPoint(10, 0), ref t, noise));
+
+        var estimate = BiasEstimator.Measure(BiasStreams.Session(windows));
+        var decision = BiasDecisionRule.Evaluate(estimate, Screen);
+
+        Check.That(estimate.TargetsWithData).IsEqualTo(3);
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Inconclusive);
+    }
+
+    [Theory]
+    [InlineData(10.0, 10)]   // the secondary 60 px from the hold, longer than it
+    [InlineData(0.0, 10)]    // 70 px away
+    [InlineData(-10.0, 10)]  // 80 px away
+    [InlineData(10.0, 6)]    // 60 px away but SHORTER than the hold
+    public void StreamG6_ASecondFixationAtACorner_IsNeverNoTrigger(double secondaryOffset, int secondarySamples)
+    {
+        // A real affine field — top row 70 px, bottom row 10, centre 40, so two targets are over the
+        // bar and the truth recalibrates — plus a second fixation at the weakly constrained TL corner.
+        // The old code let the field absorb it (TL read 3–9 px) and answered "No trigger".
+        var targets = BiasStreams.Layout;
+        var noise = new BiasStreams.Noise(26);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int i = 0; i < 5; i++)
+        {
+            var target = targets[i];
+            double yn = (target.Y - (Screen.Y / 2)) / 1080.0;
+            var bias = new PhysicalPoint(40 - (30 * yn), 0);
+            windows.Add(i == 0
+                ? BiasStreams.Window(i, target, bias, ref t, noise, holdN: 8,
+                    distractorAbs: new PhysicalPoint(target.X + secondaryOffset, target.Y), dN: secondarySamples)
+                : BiasStreams.Window(i, target, bias, ref t, noise));
+        }
+
+        var decision = BiasDecisionRule.Evaluate(BiasEstimator.Measure(BiasStreams.Session(windows)), Screen);
+
+        Check.That(decision.Verdict).IsNotEqualTo(BiasDecisionRule.BiasVerdict.NoTrigger);
+    }
+
+    [Theory]
+    [InlineData(12)]   // 1.5x the hold
+    [InlineData(20)]   // 2.5x the hold
+    public void StreamG9_AFixedScreenRest_IsNeverRecalibrate(int readSamples)
+    {
+        // The truth is 10 px everywhere, but at every target the user also reads the instruction text
+        // at a FIXED screen spot for longer than they hold the dot. That rest is v = S − P: an exact
+        // affine field with slope −1, so only the gradient bound rejects it (the old estimator
+        // reported Recalibrate with 1110 px distances at 2.5x).
+        var decision = BiasDecisionRule.Evaluate(
+            BiasEstimator.Measure(BiasStreams.FixedSpotRest(
+                29, new PhysicalPoint(10, 0), new PhysicalPoint(1920, 90), holdN: 8, readN: readSamples)),
+            Screen);
+
+        Check.That(decision.Verdict).IsNotEqualTo(BiasDecisionRule.BiasVerdict.Recalibrate);
+    }
+
+    [Fact]
+    public void StreamG4_TranslationPlusScale_StillRecalibrates()
+    {
+        // The gradient bound must not reject real residuals: a 30 px translation plus a 3 % scale
+        // (gradient 0.03) is still a field, and the corners are over the bar.
+        var targets = BiasStreams.Layout;
+        var noise = new BiasStreams.Noise(24);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int i = 0; i < 5; i++)
+        {
+            var target = targets[i];
+            var bias = new PhysicalPoint(
+                30 + (0.03 * (target.X - (Screen.X / 2))), 0.03 * (target.Y - (Screen.Y / 2)));
+            windows.Add(BiasStreams.Window(i, target, bias, ref t, noise));
+        }
+
+        var decision = BiasDecisionRule.Evaluate(BiasEstimator.Measure(BiasStreams.Session(windows)), Screen);
+
+        Check.That(decision.Verdict).IsEqualTo(BiasDecisionRule.BiasVerdict.Recalibrate);
+    }
+
+    [Theory]
+    [InlineData(20)]   // the 2-of-5 arm's own threshold: a false Recalibrate here costs a Tobii trip
+    [InlineData(45)]   // the boundary between the bars
+    public void Sweep_SmallBias_NeverRecalibrates_AndSaysNoTriggerAtNinetyFivePercent(int biasX)
+    {
+        // Reviewer B's small-bias sweep: the ticket's own glance shape (250 px glance, one sample
+        // longer than the hold) at a bias the rule should call clean. Before the gradient bound about
+        // one seed in five gave a confident Recalibrate.
+        var result = BiasStreams.Sweep(
+            seed => BiasStreams.GlanceStream(seed, new PhysicalPoint(biasX, 0), cycles: 7),
+            new PhysicalPoint(biasX, 0));
+
+        Check.That(result.Recalibrate).IsEqualTo(0);
+        Check.That(result.NoTrigger).IsGreaterOrEqualThan(190);
+        Check.That(result.Within20).IsGreaterOrEqualThan(190);
+    }
+
+    [Fact]
+    public void Sweep_IncidentalSecondPlaces_AreNotCalledAmbiguous()
+    {
+        // The false-positive side of ambiguity: a real single bias (20, 0) with an incidental second
+        // place at a random spot 150–400 px away at every target, about 60 % of the hold's size. The
+        // answer is No trigger, and calling these Ambiguous would make the probe useless.
+        int ambiguous = 0, noTrigger = 0;
+        for (uint seed = 1; seed <= 100; seed++)
+        {
+            var estimate = BiasEstimator.Measure(BiasStreams.GlanceStream(
+                seed, new PhysicalPoint(20, 0), cycles: 7, holdN: 8, glanceN: 5, glanceRMin: 150, glanceRMax: 400));
+            var decision = BiasDecisionRule.Evaluate(estimate, Screen);
+            if (estimate.Ambiguous) ambiguous++;
+            if (decision.Verdict == BiasDecisionRule.BiasVerdict.NoTrigger) noTrigger++;
+        }
+
+        Check.That(ambiguous).IsLessOrEqualThan(5);   // measured 3/100; the cost is Inconclusive, not a wrong verdict
+        Check.That(noTrigger).IsGreaterOrEqualThan(95);
+    }
+
+    /// <summary>A five-window session with the given per-target x biases and per-target cycle counts.</summary>
+    private static GroundTruthSession UniformBias(double[] biasesX, int[] cycles)
+    {
+        var targets = BiasStreams.Layout;
+        var noise = new BiasStreams.Noise(21);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int i = 0; i < 5; i++)
+            windows.Add(BiasStreams.Window(i, targets[i], new PhysicalPoint(biasesX[i], 0), ref t, noise, cycles: cycles[i]));
+        return BiasStreams.Session(windows);
     }
 
     // ── Decision rule unit tests (hand-built estimates) ───────────────────────

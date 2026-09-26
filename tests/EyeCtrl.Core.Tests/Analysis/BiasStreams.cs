@@ -195,4 +195,83 @@ internal static class BiasStreams
         }
         return Session(windows);
     }
+
+    /// <summary>
+    /// Reviewer B's sweep stream: a hold at target + <paramref name="bias"/>, then a random-direction
+    /// glance at <paramref name="glanceR"/> px whose run is one sample longer than the hold's — the
+    /// ticket's acceptance shape at any bias, so the small-bias side can be swept too. A radius range
+    /// draws each target's distance from it (the incidental-second-place shape); the default range
+    /// consumes no random draw, so the fixed-radius sweeps are unchanged.
+    /// </summary>
+    public static GroundTruthSession GlanceStream(
+        uint seed, PhysicalPoint bias, int cycles, int holdN = 6, int glanceN = 7, double glanceR = 250,
+        double? glanceRMin = null, double? glanceRMax = null)
+    {
+        var targets = Layout;
+        var noise = new Noise(seed);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int id = 0; id < 5; id++)
+        {
+            var target = targets[id];
+            double radians = noise.NextUnit() * 2 * Math.PI;
+            double radius = glanceR;
+            if (glanceRMin is { } min && glanceRMax is { } max && max > min)
+                radius = min + (noise.NextUnit() * (max - min));
+            var glance = new PhysicalPoint(
+                target.X + (radius * Math.Cos(radians)), target.Y + (radius * Math.Sin(radians)));
+            windows.Add(Window(id, target, bias, ref t, noise, cycles, holdN, glance, glanceN));
+        }
+        return Session(windows);
+    }
+
+    /// <summary>
+    /// A rest at a FIXED screen spot (reviewer A's G9: the instruction text at the top centre) that is
+    /// longer than the hold — a screen position, which is an exact affine field with gradient −1.
+    /// </summary>
+    public static GroundTruthSession FixedSpotRest(
+        uint seed, PhysicalPoint bias, PhysicalPoint spot, int holdN, int readN, int cycles = 10)
+    {
+        var targets = Layout;
+        var noise = new Noise(seed);
+        long t = 0;
+        var windows = new List<GroundTruthWindow>();
+        for (int id = 0; id < 5; id++)
+            windows.Add(Window(id, targets[id], bias, ref t, noise, cycles, holdN, spot, readN));
+        return Session(windows);
+    }
+
+    /// <summary>Verdict and recovery counts over a 200-seed sweep.</summary>
+    /// <param name="Recalibrate">Seeds whose verdict was Recalibrate.</param>
+    /// <param name="NoTrigger">Seeds whose verdict was No trigger.</param>
+    /// <param name="Inconclusive">Seeds whose verdict was Inconclusive.</param>
+    /// <param name="Ambiguous">Seeds whose estimate was flagged Ambiguous.</param>
+    /// <param name="Within20">Seeds whose mean bias landed within 20 px of the truth on both axes.</param>
+    public readonly record struct SweepResult(
+        int Recalibrate, int NoTrigger, int Inconclusive, int Ambiguous, int Within20)
+    {
+        /// <summary>Seeds counted.</summary>
+        public int Total => Recalibrate + NoTrigger + Inconclusive;
+    }
+
+    public static SweepResult Sweep(Func<uint, GroundTruthSession> make, PhysicalPoint truth, int seeds = 200)
+    {
+        int recalibrate = 0, noTrigger = 0, inconclusive = 0, ambiguous = 0, within20 = 0;
+        for (uint seed = 1; seed <= seeds; seed++)
+        {
+            var estimate = BiasEstimator.Measure(make(seed));
+            var decision = BiasDecisionRule.Evaluate(estimate, Screen);
+            switch (decision.Verdict)
+            {
+                case BiasDecisionRule.BiasVerdict.Recalibrate: recalibrate++; break;
+                case BiasDecisionRule.BiasVerdict.NoTrigger: noTrigger++; break;
+                default: inconclusive++; break;
+            }
+            if (estimate.Ambiguous) ambiguous++;
+            if (estimate.Bias is { } bias
+                && Math.Abs(bias.X - truth.X) <= 20 && Math.Abs(bias.Y - truth.Y) <= 20)
+                within20++;
+        }
+        return new SweepResult(recalibrate, noTrigger, inconclusive, ambiguous, within20);
+    }
 }

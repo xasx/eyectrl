@@ -124,10 +124,11 @@ public class ToolbarPausedTargetAlignmentTests
         var sizeAfter = content.DesiredSize;
 
         // Structural invariant: no pause-state-dependent element lives in the band's flow, so the
-        // band's desired size is IDENTICAL in both states. This is what killed the Collapsed and
-        // reserved-Hidden variants alike on all four edges — the face check alone is absorbed by
-        // the hit radius on vertical docks, and the old PlaceAtEdge check re-placed at the
-        // post-toggle size and could not fail.
+        // band's desired size is IDENTICAL in both states. This is what kills any Collapsed↔Visible
+        // element on all four edges; the reserved-Hidden resume label passed it by construction and
+        // was removed for width instead (5b0a383b), not by this test. The face check alone is
+        // absorbed by the hit radius on vertical docks, and the old PlaceAtEdge check re-placed at
+        // the post-toggle size and could not fail.
         Check.WithCustomMessage(
                 $"[startPaused={startPaused}, edge={edge}] the pause toggle changed the band's "
                 + $"desired size {sizeBefore} -> {sizeAfter}; nothing pause-state-dependent may "

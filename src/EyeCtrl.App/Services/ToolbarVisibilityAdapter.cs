@@ -130,9 +130,9 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
         // in-flight slide and defuses its pending Hide().
         //
         // Logged, unlike the other two seams' silent paths: a ForceShow that arrives while the
-        // controller believes Hidden (the paused-trap guard, the settings suspend-recover) is the
-        // one transition whose absence looked identical to a dead summon in the 2026-09-26 field
-        // log. One line closes that hole.
+        // controller believes Hidden (the settings suspend-recover — and, until de68be31 reversed
+        // it, the paused-trap guard) is the one transition whose absence looked identical to a
+        // dead summon in the 2026-09-26 field log. One line closes that hole.
         Log.Information("Toolbar force-shown (ShowAtRest)");
         _overlays.Toolbar.ShowAtRest();
         // Same raise as ShowToolbar (spec N2/H3): a commanded strip stays above the band. There is

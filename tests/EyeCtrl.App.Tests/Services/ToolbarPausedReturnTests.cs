@@ -163,25 +163,21 @@ public class ToolbarPausedReturnTests
         Check.That(sut.StateName).IsEqualTo("Visible");
     }
 
-    // Spec 2026-07-09 §State machine: "Invalid samples reset neither timer" (edge case #5). A single
-    // blink inside a 400 ms summon run must not restart it — the run is ~13 samples, and with the
-    // band auto-hiding while paused it is the only gaze path back, so forgiving beats precise.
+    // Spec 2026-07-09 §State machine: "Invalid samples reset neither timer" (edge case #5). A blink
+    // inside a 400 ms summon run must not restart it — with the band auto-hiding while paused the
+    // run is the only gaze path back, so forgiving beats precise. This is a realistic long blink:
+    // ~264 ms between valid samples, seven invalid frames in a row.
     [Fact]
     public void BlinkInsideSummonRun_DoesNotResetIt()
     {
-        var sut = new ToolbarAutoHideController(true, "Top", W, H, new PhysicalRect(920, 0, 2000, 272), 5000, 400, 50);
-        var calls = new CountingVisibility();
-        sut.Attach(calls);
-        sut.HideForTest(calls);
-        var diag = new List<string>();
-        sut.AttachDiagnostics(diag.Add);
+        var sut = HiddenController(out var calls, out var diag);
 
         long t = 0;
-        for (var i = 0; i < 6; i++) { sut.Feed(new GazePoint(1920, -100, t, true), t); t += 33_000; }  // 0..165 ms
-        sut.Feed(new GazePoint(0, 0, t, false), t); t += 33_000;                                          // one blink sample
-        for (var i = 0; i < 8; i++) { sut.Feed(new GazePoint(1920, -100, t, true), t); t += 33_000; }  // ..to ~462 ms
+        for (var i = 0; i < 4; i++) { sut.Feed(new GazePoint(1920, -100, t, true), t); t += 33_000; }  // 0..99 ms
+        for (var i = 0; i < 7; i++) { sut.Feed(new GazePoint(0, 0, t, false), t); t += 33_000; }       // 132..330 ms
+        for (var i = 0; i < 4; i++) { sut.Feed(new GazePoint(1920, -100, t, true), t); t += 33_000; }  // 363..462 ms
 
-        Check.WithCustomMessage("summon run was reset by one invalid sample; diag: " + string.Join(" | ", diag))
+        Check.WithCustomMessage("summon run was reset by a ~264 ms blink; diag: " + string.Join(" | ", diag))
             .That(calls.Shows).IsEqualTo(1);
         // The reset line used to print the invalid sample as a position (raw y=0, x=0) — the
         // provider's sentinel reading like a real jump to the top-left corner.
@@ -189,31 +185,77 @@ public class ToolbarPausedReturnTests
             .That(diag.Any(line => line.Contains("raw y=0, x=0"))).IsFalse();
     }
 
-    // The other half of the same rule: a gap longer than the 300 ms cap is a walk-away, not a
-    // blink. The first valid sample after it must seed a fresh run — the summons must not fire
-    // for a user who was not there for the first 400 ms.
+    // The lower side of the cap: a gap longer than a blink but still inside 400 ms must NOT end
+    // the run. This is what raises the cap above the old 300 ms — the longest invalid stretch in
+    // the user's 443 s recording is 302 ms, and it must keep its summon.
+    [Fact]
+    public void LongBlinkWithinTheCap_StillSummons()
+    {
+        var sut = HiddenController(out var calls, out var diag);
+
+        long t = 0;
+        for (var i = 0; i < 4; i++) { sut.Feed(new GazePoint(1920, -100, t, true), t); t += 33_000; }  // 0..99 ms
+        for (var i = 0; i < 10; i++) { sut.Feed(new GazePoint(0, 0, t, false), t); t += 33_000; }      // 132..429 ms
+        for (var i = 0; i < 2; i++) { sut.Feed(new GazePoint(1920, -100, t, true), t); t += 33_000; }  // 462, 495 ms
+
+        // 363 ms between valid samples: inside the cap, so the original run still fires.
+        Check.WithCustomMessage("a 363 ms blink wrongly ended the run; diag: " + string.Join(" | ", diag))
+            .That(calls.Shows).IsEqualTo(1);
+    }
+
+    // The other half: a gap longer than the cap is a walk-away, not a blink. The first valid sample
+    // after it must seed a fresh run — the summon must not fire for a user who was not there for
+    // the first 400 ms.
     [Fact]
     public void InvalidGapLongerThanCap_EndsTheSummonRun()
     {
-        var sut = new ToolbarAutoHideController(true, "Top", W, H, new PhysicalRect(920, 0, 2000, 272), 5000, 400, 50);
-        var calls = new CountingVisibility();
-        sut.Attach(calls);
-        sut.HideForTest(calls);
-        var diag = new List<string>();
-        sut.AttachDiagnostics(diag.Add);
+        var sut = HiddenController(out var calls, out var diag);
 
         long t = 0;
         for (var i = 0; i < 6; i++) { sut.Feed(new GazePoint(1920, -100, t, true), t); t += 33_000; }  // 0..165 ms
-        for (var i = 0; i < 10; i++) { sut.Feed(new GazePoint(0, 0, t, false), t); t += 33_000; }       // 330 ms of blink
-        for (var i = 0; i < 8; i++) { sut.Feed(new GazePoint(1920, -100, t, true), t); t += 33_000; }   // 231 ms after it
+        for (var i = 0; i < 13; i++) { sut.Feed(new GazePoint(0, 0, t, false), t); t += 33_000; }       // 198..594 ms
+        for (var i = 0; i < 8; i++) { sut.Feed(new GazePoint(1920, -100, t, true), t); t += 33_000; }   // 627..858 ms
 
-        Check.WithCustomMessage("a 330 ms invalid gap did not end the run; diag: " + string.Join(" | ", diag))
+        // 462 ms between valid samples: the run that straddled it is dead.
+        Check.WithCustomMessage("a 462 ms invalid gap did not end the run; diag: " + string.Join(" | ", diag))
             .That(calls.Shows).IsEqualTo(0);
 
         // ...and the fresh run summons only after its own full 400 ms.
-        for (var i = 0; i < 6; i++) { sut.Feed(new GazePoint(1920, -100, t, true), t); t += 33_000; }
+        for (var i = 0; i < 6; i++) { sut.Feed(new GazePoint(1920, -100, t, true), t); t += 33_000; }   // 891..1056 ms
         Check.WithCustomMessage("the fresh run never summoned; diag: " + string.Join(" | ", diag))
             .That(calls.Shows).IsEqualTo(1);
+    }
+
+    // Silence is the gap the old first-invalid anchor could not see: a walk-away ends in a
+    // TIMED_OUT storm, where no callbacks arrive at all. The gap is now measured from the last
+    // valid sample, so 450 ms of nothing ends the run exactly like 450 ms of invalid frames.
+    [Fact]
+    public void SilenceLongerThanCap_EndsTheSummonRun()
+    {
+        var sut = HiddenController(out var calls, out var diag);
+
+        long t = 0;
+        for (var i = 0; i < 6; i++) { sut.Feed(new GazePoint(1920, -100, t, true), t); t += 33_000; }  // 0..165 ms
+        t += 450_000;                                                                                    // 450 ms of no samples
+        for (var i = 0; i < 8; i++) { sut.Feed(new GazePoint(1920, -100, t, true), t); t += 33_000; }   // 648..879 ms
+
+        Check.WithCustomMessage("450 ms of silence did not end the run; diag: " + string.Join(" | ", diag))
+            .That(calls.Shows).IsEqualTo(0);
+
+        for (var i = 0; i < 6; i++) { sut.Feed(new GazePoint(1920, -100, t, true), t); t += 33_000; }   // 912..1077 ms
+        Check.WithCustomMessage("the fresh run never summoned; diag: " + string.Join(" | ", diag))
+            .That(calls.Shows).IsEqualTo(1);
+    }
+
+    private static ToolbarAutoHideController HiddenController(out CountingVisibility calls, out List<string> diag)
+    {
+        var sut = new ToolbarAutoHideController(true, "Top", W, H, new PhysicalRect(920, 0, 2000, 272), 5000, 400, 50);
+        calls = new CountingVisibility();
+        sut.Attach(calls);
+        sut.HideForTest(calls);
+        diag = new List<string>();
+        sut.AttachDiagnostics(diag.Add);
+        return sut;
     }
 
     private sealed class CountingVisibility : IToolbarVisibility

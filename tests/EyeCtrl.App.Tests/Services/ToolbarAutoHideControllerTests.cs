@@ -107,6 +107,7 @@ public class ToolbarAutoHideControllerTests
 
         // Valid sample past the top edge (Y < -50 margin)
         sut.Feed(CreateSample(960, -100, valid: true), 0);
+        sut.Feed(CreateSample(960, -100, valid: true), 200_000); // half-way: inside the gap cap
         sut.Feed(CreateSample(960, -100, valid: true), 401_000); // past 400ms summon delay
 
         Check.That(vis.ShowCalls).IsEqualTo(1);
@@ -122,6 +123,7 @@ public class ToolbarAutoHideControllerTests
 
         // Looking past the TOP edge (Y < -50) — wrong direction for a bottom-docked toolbar.
         sut.Feed(CreateSample(960, -100, valid: true), 0);
+        sut.Feed(CreateSample(960, -100, valid: true), 200_000);
         sut.Feed(CreateSample(960, -100, valid: true), 401_000);
 
         Check.That(vis.ShowCalls).IsEqualTo(0);
@@ -136,6 +138,7 @@ public class ToolbarAutoHideControllerTests
         sut.HideForTest(vis);
 
         sut.Feed(CreateSample(960, ScreenH + 100, valid: true), 0);
+        sut.Feed(CreateSample(960, ScreenH + 100, valid: true), 200_000);
         sut.Feed(CreateSample(960, ScreenH + 100, valid: true), 401_000);
 
         Check.That(vis.ShowCalls).IsEqualTo(1);
@@ -150,6 +153,7 @@ public class ToolbarAutoHideControllerTests
         sut.HideForTest(vis);
 
         sut.Feed(CreateSample(-100, 540, valid: true), 0);
+        sut.Feed(CreateSample(-100, 540, valid: true), 200_000);
         sut.Feed(CreateSample(-100, 540, valid: true), 401_000);
 
         Check.That(vis.ShowCalls).IsEqualTo(1);
@@ -164,6 +168,7 @@ public class ToolbarAutoHideControllerTests
         sut.HideForTest(vis);
 
         sut.Feed(CreateSample(ScreenW + 100, 540, valid: true), 0);
+        sut.Feed(CreateSample(ScreenW + 100, 540, valid: true), 200_000);
         sut.Feed(CreateSample(ScreenW + 100, 540, valid: true), 401_000);
 
         Check.That(vis.ShowCalls).IsEqualTo(1);
@@ -236,6 +241,7 @@ public class ToolbarAutoHideControllerTests
         sut.HideForTest(vis);
 
         sut.Feed(CreateSample(960, -100, valid: true), Epoch);
+        sut.Feed(CreateSample(960, -100, valid: true), Epoch + 200_000);
         sut.Feed(CreateSample(960, -100, valid: true), Epoch + 401_000);
 
         Check.That(vis.ShowCalls).IsEqualTo(1);
@@ -429,6 +435,7 @@ public class ToolbarAutoHideControllerTests
         Check.That(vis.LastHidePaused).IsTrue();
 
         sut.Feed(CreateSample(960, -100, valid: true), 0);
+        sut.Feed(CreateSample(960, -100, valid: true), 200_000);
         sut.Feed(CreateSample(960, -100, valid: true), 401_000);
         Check.That(vis.ShowCalls).IsEqualTo(1);         // the way back while paused: past-edge summon
         // The pause-indicator strip is NOT this seam's business (spec H1): ShowToolbar only raises
@@ -492,9 +499,11 @@ public class ToolbarAutoHideControllerTests
         Check.That(log.Count(l => l.Contains("left the summon margin band"))).IsEqualTo(1);
 
         // Phase 4 — a completed summon still announces itself: threshold reached despite the start
-        // line's gate (this run crossed in two samples, so only the threshold line exists).
+        // line's gate (three samples here, so the gated start line fires too; only the threshold
+        // line is asserted).
         log.Clear();
         sut.Feed(CreateSample(960, -100, valid: true), 5_000_000);
+        sut.Feed(CreateSample(960, -100, valid: true), 5_200_000);
         sut.Feed(CreateSample(960, -100, valid: true), 5_401_000);
         Check.That(log.Count(l => l.Contains("summon threshold reached"))).IsEqualTo(1);
         Check.That(vis.ShowCalls).IsEqualTo(1);
@@ -591,6 +600,7 @@ public class ToolbarAutoHideControllerTests
         sut.HideForTest(vis);
 
         sut.Feed(CreateSample(960, -100, valid: true), 0);
+        sut.Feed(CreateSample(960, -100, valid: true), 250_000);
         sut.Feed(CreateSample(960, -100, valid: true), 500_000); // past the 400ms summon delay
 
         Check.That(vis.ShowCalls).IsEqualTo(1);

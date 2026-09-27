@@ -72,10 +72,12 @@ public sealed class ToolbarAutoHideController
     // "no active run" semantics (that bug caused both test failures and instant-hide-at-launch).
     public enum State { Visible, Hidden }
     private const long Unseeded = long.MinValue;
-    // Longest stretch of invalid samples (blinks) the Hidden-case summon run survives. Longer is a
-    // walk-away, not a blink: the next valid sample starts a fresh run instead of resuming one the
-    // user was not present for.
-    private const long InvalidGapCapUs = 300_000;
+    // Longest away-from-the-edge stretch (invalid frames or no frames at all) the Hidden-case summon
+    // run survives; measured between the valid samples on either side of it. 400 ms keeps the
+    // longest invalid stretch in the user's 443 s recording (302 ms) without being anything like a
+    // walk-away: longer means the user was not there for the run, so the next valid sample starts a
+    // fresh one.
+    private const long SummonGapCapUs = 400_000;
     private volatile State _state = State.Visible;
     private long _hideAnchorUs = Unseeded;   // Visible: timestamp of the start of the current off-toolbar run (or last on-toolbar sample)
     private long _summonRunUs = Unseeded;     // Hidden:  start of the current sustained past-edge run
@@ -99,12 +101,13 @@ public sealed class ToolbarAutoHideController
     private long? _marginBandSinceUs;
     private bool _marginBandLogged;
 
-    // First sample of the invalid stretch currently open in the Hidden case; null once a valid
-    // sample has closed it. The Hidden case returns early on invalid samples (spec §State machine:
-    // "Invalid samples reset neither timer"), so this is what tells the first valid sample after a
-    // gap whether it was a blink (the run keeps counting) or a walk-away (the gap exceeded
-    // InvalidGapCapUs, so the run is dead and this sample seeds a fresh one). Gaze-thread only.
-    private long? _invalidSinceUs;
+    // Timestamp of the last VALID sample seen while Hidden; null on entry to Hidden. The Hidden
+    // case returns early on invalid samples (spec §State machine: "Invalid samples reset neither
+    // timer"), so this is what measures the gap that ends a summon run: on the next valid sample, a
+    // stretch longer than SummonGapCapUs means the user was away — invalid frames, or no frames at
+    // all, because a walk-away's TIMED_OUT storm sends neither — and the run is killed rather than
+    // resumed. Gaze-thread only.
+    private long? _lastValidHiddenUs;
 
     // ── Output seam ──
     private IToolbarVisibility? _visibility;
@@ -361,6 +364,7 @@ public sealed class ToolbarAutoHideController
                             Diag($"hide fired after {(timestampUs - anchor) / 1000} ms off-toolbar");
                             _state = State.Hidden;
                             Volatile.Write(ref _summonRunUs, Unseeded);
+                            _lastValidHiddenUs = null; // the first Hidden sample measures its own gap
                             _visibility.HideToolbar(_paused);
                         }
                     }
@@ -373,24 +377,21 @@ public sealed class ToolbarAutoHideController
                 // A blink is not a broken summon run (spec §State machine: "Invalid samples reset
                 // neither timer", and this is now the only gaze way out of Paused, so forgiving
                 // beats precise): skip the run test and let the run keep counting through the gap.
-                // The cap below stops that from surviving a walk-away — 300 ms is a blink, minutes
-                // are not.
                 if (!sample.IsValid)
-                {
-                    _invalidSinceUs ??= timestampUs;
                     return _state;
-                }
-                if (_invalidSinceUs is long invalidSince)
+
+                // The gap that DOES end a run is measured between the valid samples on either side
+                // of it, so it covers invalid frames and frame silence alike (a walk-away ends in a
+                // TIMED_OUT storm, where no callbacks arrive at all). A run that straddles a gap
+                // longer than SummonGapCapUs is dead; this sample seeds a fresh one below.
+                if (_lastValidHiddenUs is long lastValid
+                    && timestampUs - lastValid > SummonGapCapUs
+                    && Volatile.Read(ref _summonRunUs) != Unseeded)
                 {
-                    _invalidSinceUs = null;
-                    if (timestampUs - invalidSince > InvalidGapCapUs)
-                    {
-                        // Walk-away, not a blink: the run that straddles the gap is dead, so this
-                        // valid sample seeds a fresh one below.
-                        Volatile.Write(ref _summonRunUs, Unseeded);
-                        _summonStartLogged = false;
-                    }
+                    Volatile.Write(ref _summonRunUs, Unseeded);
+                    _summonStartLogged = false;
                 }
+                _lastValidHiddenUs = timestampUs;
 
                 // The summon margin band: past the screen edge but short of the summon threshold
                 // (top: -50 ≤ raw y < 0). This is where a user summaring too shallowly sits — the

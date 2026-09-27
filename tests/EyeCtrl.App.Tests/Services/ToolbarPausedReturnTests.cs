@@ -247,6 +247,37 @@ public class ToolbarPausedReturnTests
             .That(calls.Shows).IsEqualTo(1);
     }
 
+    // The cap boundary itself, deliberately fed with no mid-run sample: the gap check is `>` (a gap
+    // EQUAL to the cap survives), and the other gap tests all keep their gaps well away from 400 ms.
+    [Fact]
+    public void GapExactlyAtTheCap_StillSummons()
+    {
+        var sut = HiddenController(out var calls, out var diag);
+
+        long t = 0;
+        sut.Feed(new GazePoint(1920, -100, t, true), t);                      // run starts here
+        for (var i = 0; i < 3; i++) { t += 100_000; sut.Feed(new GazePoint(0, 0, t, false), t); }
+        t += 100_000;                                                          // 400 ms after the seed
+        sut.Feed(new GazePoint(1920, -100, t, true), t);
+
+        Check.WithCustomMessage("a gap exactly at the 400 ms cap ended the run; diag: " + string.Join(" | ", diag))
+            .That(calls.Shows).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void GapJustOverTheCap_DoesNotSummon()
+    {
+        var sut = HiddenController(out var calls, out var diag);
+
+        long t = 0;
+        sut.Feed(new GazePoint(1920, -100, t, true), t);                      // run starts here
+        t += 401_000;                                                          // nothing in between
+        sut.Feed(new GazePoint(1920, -100, t, true), t);
+
+        Check.WithCustomMessage("a 401 ms gap did not end the run; diag: " + string.Join(" | ", diag))
+            .That(calls.Shows).IsEqualTo(0);
+    }
+
     private static ToolbarAutoHideController HiddenController(out CountingVisibility calls, out List<string> diag)
     {
         var sut = new ToolbarAutoHideController(true, "Top", W, H, new PhysicalRect(920, 0, 2000, 272), 5000, 400, 50);

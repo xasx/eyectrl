@@ -153,7 +153,7 @@ public class ActionMenuModBarMaskedMutationTests
                 InteractionManager = new InteractionManager(),
                 ActionMenuVM = ActionMenuVM,
                 CursorVM = new CursorCircleViewModel(Settings, messenger),
-                ActivationVM = new ActivationButtonViewModel(Settings, messenger),
+                ActivationVM = new ActivationButtonViewModel(messenger),
                 ManualSelectionVM = new ManualSelectionOverlayViewModel(Settings, messenger),
                 ManualSelectionIndicatorVM = new ManualSelectionGazeIndicatorViewModel(messenger),
                 ToolbarVM = new ToolbarViewModel(Settings, messenger),

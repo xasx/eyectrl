@@ -148,9 +148,15 @@ public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
     /// In-gap samples restart the exit clock BEFORE the gate: the interpolator emits held-position
     /// samples for a whole blink, and blink-edge displacement must never complete a D-span of
     /// "valid" exit.
+    /// <see cref="DwellOverlayViewModelBase.LastSampleWasPaused"/> is stamped FIRST, for every
+    /// message including the skipped ones — the base did that before this override existed, and
+    /// restoring it keeps the pause-suppression pattern available to a future edge-bar definition
+    /// that sends OS input (external-review r1 suggestion; no current reader).
     /// </summary>
     public override void Receive(GazeCursorMovedMessage message)
     {
+        NoteSamplePaused(message.IsPaused);
+
         if (message.IsInGap)
         {
             _pendingExitStartUs = null;

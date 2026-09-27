@@ -169,12 +169,13 @@ public sealed class ToolbarAutoHideController
         _paused = paused;
         Diag($"paused={paused} (state={_state})");
 
-        // Paused hides like any other state (owner decision 2026-09-26, reversing the 2026-09-24
-        // trap guard): the toolbar auto-hides while paused, and the way back is the edge summon the
-        // pause-indicator strip marks, then dwell Play. The 2026-09-24 log behind the decision says
-        // the summon itself worked: 10 paused summons, 11 paused auto-hides, and 0 resumes — the
-        // step that failed was reaching Play after the summon. The tray ForceShow remains the
-        // non-gaze escape hatch.
+        // Paused hides like any other state (owner decision 2026-09-26, after that day's
+        // instrumented run; it reverses the 2026-09-24 trap guard): the toolbar auto-hides while
+        // paused, and the way back is the edge summon the pause-indicator strip marks, then dwell
+        // Play. The 2026-09-24 log (the stranding the trap guard answered) shows 10 paused summons
+        // and 11 paused auto-hides, and no resume followed any of them — the summon worked. No
+        // summon → Play → resume has been observed on this code yet. The tray ForceShow remains
+        // the non-gaze escape hatch.
         //
         // If the band is already HIDDEN, no hide/show transition will fire to carry the pause
         // change into the visibility seam — re-assert the hide, keeping the seam and toolbar dwell

@@ -401,7 +401,7 @@ internal static class TestFakes
 
         public List<(InteractionAction Action, PhysicalPoint Point, IReadOnlySet<ModifierKey> Modifiers)> ModifiedClicks { get; } = new();
         public int BareClickCount { get; private set; }
-        public List<(int Dx, int Dy)> ModifiedScrolls { get; } = new();
+        public List<(PhysicalPoint Point, int Dx, int Dy)> ModifiedScrolls { get; } = new();
         public List<(int Dx, int Dy)> BareScrolls { get; } = new();
 
         public void MoveCursor(PhysicalPoint point)
@@ -463,7 +463,8 @@ internal static class TestFakes
         {
             if (modifiers is not { Count: > 0 })
                 throw new InvalidOperationException("dispatcher routed a bare scroll through the modified overload");
-            ModifiedScrolls.Add((deltaX, deltaY));
+            ModifiedScrolls.Add((point, deltaX, deltaY)); // point recorded too (external review M3):
+            // a dispatcher mutant passing the wrong point to the modified scroll survives without it
         }
 
         public void SendKeyPress(ushort virtualKeyCode)

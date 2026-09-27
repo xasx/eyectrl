@@ -66,6 +66,27 @@ public class ActionMenuModBarMaskedMutationTests
             h.LookAt(h.ShiftCenter, t * 100_000);          // held: the gate feeds hits-nothing
 
         Check.That(h.ShiftToggleCount).IsEqualTo(1);
+
+        // External review I1/M4: the toggle's USER-VISIBLE consequences — the latched icon on the
+        // bar (via the real coordinator's ReplaceButton) and the latch itself. Without these, a
+        // deleted swap handler or a net-zero double toggle left the suite green.
+        Check.That(h.DefinitionOnBar(ActionMenuModifierButtons.ShiftId)!.Icon).IsEqualTo(ActionIcon.ShiftLatched);
+        Check.That(h.DefinitionOnBar(ActionMenuModifierButtons.CtrlId)!.Icon).IsEqualTo(ActionIcon.Ctrl); // untouched: kills a wrong-id swap
+        Check.That(h.ActionMenuVM.LatchedModifiers.Contains(ModifierKey.Shift)).IsTrue();
+
+        // Leave for a REAL exit (span ≥ the 150 ms debounce on valid samples — 3.1M→3.26M is
+        // 160 ms, and the point is 600 px right of Ctrl, outside every region), then re-enter and
+        // dwell Shift out: the icon must return to the plain variant and the latch must empty.
+        // Also kills an inverted latched-Contains in the swap handler.
+        var exitPoint = new PhysicalPoint(h.CtrlCenter.X + 600, h.CtrlCenter.Y);
+        h.LookAt(exitPoint, 3_100_000);
+        h.LookAt(exitPoint, 3_260_000);                    // pending cleared: exit span 160 ms ≥ D
+        for (var t = 34; t <= 40; t++)
+            h.LookAt(h.ShiftCenter, t * 100_000);          // fresh dwell 3.4M..4.0M: toggles OFF at 4.0M
+
+        Check.That(h.ShiftToggleCount).IsEqualTo(2);
+        Check.That(h.DefinitionOnBar(ActionMenuModifierButtons.ShiftId)!.Icon).IsEqualTo(ActionIcon.Shift);
+        Check.That(h.ActionMenuVM.LatchedModifiers).IsEmpty();
     }
 
     // Seven inside samples toggle Shift (100 ms cadence, fires at 600k):
@@ -193,6 +214,10 @@ public class ActionMenuModBarMaskedMutationTests
 
         /// <summary>Physical centre of the Ctrl button (offset 0 in the definitions).</summary>
         internal PhysicalPoint CtrlCenter => ModAnchor;
+
+        /// <summary>The bar's CURRENT definition for a button id — the icon-swap observable (I1).</summary>
+        internal EdgeButtonDefinition? DefinitionOnBar(string id) =>
+            _modBar.EdgeBarVm?.DefinitionFor(id);
 
         private PhysicalPoint ModAnchor =>
             _modBar.LastAnchor

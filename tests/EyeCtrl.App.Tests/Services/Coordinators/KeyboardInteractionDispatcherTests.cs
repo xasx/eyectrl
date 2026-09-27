@@ -242,7 +242,10 @@ public class KeyboardInteractionDispatcherTests
         dispatcher.HandleActionRequested(new ActionRequestedMessage(InteractionAction.ScrollRight, new PhysicalPoint(0, 0), IsPreciseTarget: true, Modifiers: mods));
 
         Check.That(simulator.ModifiedScrolls).ContainsExactly(
-            ((int Dx, int Dy))(0, 1), (0, -1), (-1, 0), (1, 0));
+            ((PhysicalPoint Point, int Dx, int Dy))(new PhysicalPoint(0, 0), 0, 1),
+            (new PhysicalPoint(0, 0), 0, -1),
+            (new PhysicalPoint(0, 0), -1, 0),
+            (new PhysicalPoint(0, 0), 1, 0)); // point included per external review M3
     }
 
     [Fact]

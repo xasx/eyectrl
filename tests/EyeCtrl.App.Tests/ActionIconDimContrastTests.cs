@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests;
 
 using System;
 using System.Windows.Media;
+using EyeCtrl.App.Overlays;
 using EyeCtrl.Controls.Theme;
 using NFluent;
 using Xunit;
@@ -32,10 +33,10 @@ using Xunit;
 /// </summary>
 public class ActionIconDimContrastTests
 {
-    private const double DisabledOpacity = 0.6;   // 0.45 measured 2.30:1 dimmed-icon vs dimmed-fill on
-                                                  // Midnight/#FFFFFF - below any usable floor; 0.6 chosen
-                                                  // and the floors validated against the computed matrix
-                                                  // (adjust ONLY with a measured note).
+    // External review I2: the matrix validates the PRODUCT opacity, not a copy of it — if the
+    // window's dim value changes, this matrix must re-run against the new number.
+    private static double DisabledOpacity => ActionMenuWindow.DisabledOpacity;
+
     private const double IdentifiabilityFloor = 2.0;
     private const double SeparabilityFloor = 1.5;
 

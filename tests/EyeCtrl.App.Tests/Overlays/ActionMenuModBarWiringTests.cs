@@ -89,13 +89,24 @@ public class ActionMenuModBarWiringTests
     }
 
     [StaFact]
-    public void ThrowingModBar_DoesNotPreventTheRightBarShow()
+    public void ThrowingModBar_DoesNotPreventTheRightBarShow_OrTheTargetHighlightShow()
     {
         using var h = BuildContext(withModBar: false); // PartialOverlayManager WITHOUT the slot ⇒ default throws
-        h.Messenger.Send(new ShowActionMenuMessage(new PhysicalPoint(500, 500), new List<InteractionAction> { InteractionAction.LeftClick }, CircleSize: 250, DwellTimeMs: 600, GazePoint: new PhysicalPoint(500, 500), ShowBack: false));
+        // A resolved control turns ON the TargetHighlight show that FOLLOWS the mod-bar block in
+        // the same outer try — the code the inner try actually protects (external review M1: the
+        // right bar is shown BEFORE the mod-bar block, so a removed inner catch could never cost
+        // it; what it would skip is this). IsVisible is set BEFORE the throwing overlay stub, so
+        // the VM flag is the observable.
+        h.Messenger.Send(new ShowActionMenuMessage(
+            new PhysicalPoint(500, 500), new List<InteractionAction> { InteractionAction.LeftClick },
+            CircleSize: 250, DwellTimeMs: 600, GazePoint: new PhysicalPoint(500, 500), ShowBack: false)
+        {
+            ResolvedControl = new ControlInfo(new PhysicalRect(100, 100, 50, 50)),
+        });
         h.PumpDispatcher();
 
-        Check.That(h.RightBarCalls).Contains("ShowButtons"); // own try block isolated the fault
+        Check.That(h.RightBarCalls).Contains("ShowButtons"); // shown before the mod-bar block runs
+        Check.That(h.TargetHighlightVM.IsVisible).IsTrue();  // the inner try kept the fault off this path
     }
 
     private static Harness BuildContext(bool withModBar = true) => new(withModBar);

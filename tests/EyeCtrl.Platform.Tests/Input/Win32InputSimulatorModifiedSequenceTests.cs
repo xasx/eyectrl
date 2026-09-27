@@ -38,6 +38,17 @@ public class Win32InputSimulatorModifiedSequenceTests
 
         Check.That(body).HasSize(4);
         Check.That(body.All(i => (i.Union.Mouse.Flags & (NativeMethods.MOUSEEVENTF_LEFTDOWN | NativeMethods.MOUSEEVENTF_LEFTUP)) != 0)).IsTrue();
+        // External review M3: the "or" mask above lets a down,down,up,up mutant through — pin the
+        // down/up/down/up ALTERNATION by index (LEFTDOWN and LEFTUP are distinct bits; the other
+        // bit must be absent for the pair to be what Windows needs for a double click).
+        Check.That((body[0].Union.Mouse.Flags & NativeMethods.MOUSEEVENTF_LEFTDOWN)).IsNotEqualTo(0u);
+        Check.That((body[0].Union.Mouse.Flags & NativeMethods.MOUSEEVENTF_LEFTUP)).IsEqualTo(0u);
+        Check.That((body[1].Union.Mouse.Flags & NativeMethods.MOUSEEVENTF_LEFTUP)).IsNotEqualTo(0u);
+        Check.That((body[1].Union.Mouse.Flags & NativeMethods.MOUSEEVENTF_LEFTDOWN)).IsEqualTo(0u);
+        Check.That((body[2].Union.Mouse.Flags & NativeMethods.MOUSEEVENTF_LEFTDOWN)).IsNotEqualTo(0u);
+        Check.That((body[2].Union.Mouse.Flags & NativeMethods.MOUSEEVENTF_LEFTUP)).IsEqualTo(0u);
+        Check.That((body[3].Union.Mouse.Flags & NativeMethods.MOUSEEVENTF_LEFTUP)).IsNotEqualTo(0u);
+        Check.That((body[3].Union.Mouse.Flags & NativeMethods.MOUSEEVENTF_LEFTDOWN)).IsEqualTo(0u);
     }
 
     [Fact]

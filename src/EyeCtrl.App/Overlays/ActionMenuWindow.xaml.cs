@@ -30,11 +30,12 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
 
     /// <summary>
     /// Group opacity for disabled (<see cref="ActionMenuItemViewModel.IsDisabled"/>) ring items.
-    /// The value the dim contrast test validates (<c>ActionIconDimContrastTests</c>): 0.45 measured
-    /// 2.30:1 dimmed-icon vs dimmed-fill on Midnight/#FFFFFF — below any usable floor. Adjust ONLY
-    /// with a measured note.
+    /// The value the dim contrast test validates (<c>ActionIconDimContrastTests</c>) and the dim
+    /// render test reads (<c>ActionMenuWindowDimRenderTests</c>): 0.45 measured 2.30:1
+    /// dimmed-icon vs dimmed-fill on Midnight/#FFFFFF — below any usable floor. Adjust ONLY with
+    /// a measured note.
     /// </summary>
-    private const double DisabledOpacity = 0.6;
+    internal const double DisabledOpacity = 0.6;
 
     private readonly Dictionary<string, DwellArcButton> _buttonVisuals = new();
 

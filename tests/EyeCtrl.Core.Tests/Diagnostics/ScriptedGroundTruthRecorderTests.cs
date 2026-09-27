@@ -30,9 +30,9 @@ public class ScriptedGroundTruthRecorderTests : IDisposable
     {
         long t = fromUs;
         for (int i = 0; i < beforeArrival; i++, t += stepUs)
-            sink.OnSample(targetId, target, t, hasArrived: false);
+            sink.OnSample(targetId, target, new GazePoint(target.X, target.Y, t, IsValid: true), hasArrived: false);
         for (int i = 0; i < afterArrival; i++, t += stepUs)
-            sink.OnSample(targetId, target, t, hasArrived: true);
+            sink.OnSample(targetId, target, new GazePoint(target.X, target.Y, t, IsValid: true), hasArrived: true);
     }
 
     [Fact]
@@ -82,9 +82,9 @@ public class ScriptedGroundTruthRecorderTests : IDisposable
         recorder.BeginSession("Mouse", Screen, 300);
 
         var target = new PhysicalPoint(100, 100);
-        recorder.OnSample(0, target, 1000, hasArrived: false);
-        recorder.OnSample(0, target, 2000, hasArrived: true);    // arrival
-        recorder.OnSample(0, target, 3000, hasArrived: true);
+        recorder.OnSample(0, target, new GazePoint(100, 100, 1000, IsValid: true), hasArrived: false);
+        recorder.OnSample(0, target, new GazePoint(100, 100, 2000, IsValid: true), hasArrived: true);    // arrival
+        recorder.OnSample(0, target, new GazePoint(100, 100, 3000, IsValid: true), hasArrived: true);
         recorder.CompleteSession();
 
         Check.That(Analysis.GroundTruthFile.Read(Sidecar).Windows[0].ArrivedAtUs).IsEqualTo(2000L);
@@ -137,7 +137,7 @@ public class ScriptedGroundTruthRecorderTests : IDisposable
     {
         var recorder = new ScriptedGroundTruthRecorder(Sidecar);
 
-        recorder.OnSample(0, new PhysicalPoint(1, 1), 1000, hasArrived: true);
+        recorder.OnSample(0, new PhysicalPoint(1, 1), new GazePoint(1, 1, 1000, IsValid: true), hasArrived: true);
         recorder.CompleteSession();
 
         Check.That(File.Exists(Sidecar)).IsFalse();   // CompleteSession without Begin is a no-op
@@ -270,5 +270,192 @@ public class ScriptedGroundTruthRecorderTests : IDisposable
 
         Check.ThatCode(() => Analysis.GroundTruthFile.Parse(json))
              .Throws<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void WindowsCarryTheirOwnRawSamples_SoTheSidecarIsSelfContained()
+    {
+        // The measure-only probe must not depend on the separate recorder file: that one path is
+        // appended to and rotated across sessions, so a later launch could invalidate a measurement —
+        // and requiring it would hide the whole probe behind a global diagnostics flag. The samples
+        // are stored raw, the invalid one included: it carries no position, but it does carry the
+        // window's timeline and true sample count.
+        var recorder = new ScriptedGroundTruthRecorder(Sidecar);
+        recorder.BeginSession("StreamEngine", Screen, 300);
+
+        var target = new PhysicalPoint(100, 100);
+        recorder.OnSample(0, target, new GazePoint(101.5, 99.25, 1_000, IsValid: true), hasArrived: false);
+        recorder.OnSample(0, target, new GazePoint(0, 0, 2_000, IsValid: false), hasArrived: false);
+        recorder.OnSample(0, target, new GazePoint(102.5, 98.75, 3_000, IsValid: true), hasArrived: true);
+        recorder.CompleteSession();
+
+        var window = Analysis.GroundTruthFile.Read(Sidecar).Windows.Single();
+        Check.That(window.Samples).HasSize(3);
+        Check.That(window.Samples[0].X).IsEqualTo(101.5);
+        Check.That(window.Samples[0].TimestampUs).IsEqualTo(1_000L);
+        Check.That(window.Samples[1].Valid).IsFalse();
+        Check.That(window.Samples[2].Valid).IsTrue();
+        Check.That(window.SampleCount).IsEqualTo(window.Samples.Count);
+    }
+
+    [Theory]
+    [InlineData(GroundTruthOutcome.Completed)]
+    [InlineData(GroundTruthOutcome.Partial)]
+    [InlineData(GroundTruthOutcome.Abandoned)]
+    [InlineData(GroundTruthOutcome.Failed)]
+    public void Outcome_IsWrittenByItsName(GroundTruthOutcome outcome)
+    {
+        // The measure-only probe keeps the sidecar on every ending, so the outcome is the only thing
+        // that later tells a full five-target run from one the user abandoned or the tracker cut
+        // short. Written by name because the file is also read by an operator.
+        var recorder = new ScriptedGroundTruthRecorder(Sidecar);
+        recorder.BeginSession("StreamEngine", Screen, 300);
+        RunTarget(recorder, 0, new PhysicalPoint(100, 100), 0, 1, 3);
+        recorder.CompleteSession(outcome);
+
+        Check.That(Analysis.GroundTruthFile.Read(Sidecar).Outcome).IsEqualTo(outcome);
+    }
+
+    [Fact]
+    public void ASchema1SidecarWithoutOutcomeOrSamples_ParsesWithTheOldMeaning()
+    {
+        // Schema stays 1: both additions are optional JSON members, so a sidecar written before them
+        // is still a well-formed session. A missing outcome means Completed — before the probe, a
+        // sidecar only ever existed for a run that finished.
+        string json = """
+        {"schemaVersion":1,"providerType":"Mouse","screenWidthPhysical":1920,
+         "screenHeightPhysical":1080,"settleWindowMs":300,"windows":[
+           {"targetId":0,"x":10,"y":20,"displayedFromUs":0,"arrivedAtUs":100,
+            "endedAtUs":200,"sampleCount":5}]}
+        """;
+
+        var session = Analysis.GroundTruthFile.Parse(json);
+
+        Check.That(session.Outcome).IsEqualTo(GroundTruthOutcome.Completed);
+        Check.That(session.Windows.Single().Samples).IsEmpty();
+    }
+
+    [Fact]
+    public void Outcome_IsReadCaseInsensitively_SoAHandEditedSidecarStillParses()
+    {
+        // The file is a text artifact an operator may inspect or repair; a reader that demanded the
+        // exact casing the serializer happened to choose would be a trap for exactly the reader it
+        // is for. Asserts the converter's case-insensitive read rather than trusting it.
+        string json = """
+        {"schemaVersion":1,"providerType":"Mouse","screenWidthPhysical":1920,
+         "screenHeightPhysical":1080,"settleWindowMs":300,"outcome":"PARTIAL","windows":[]}
+        """;
+
+        Check.That(Analysis.GroundTruthFile.Parse(json).Outcome).IsEqualTo(GroundTruthOutcome.Partial);
+    }
+
+    // ── One file per probe; a mode on every sidecar ──────────────────────────
+
+    [Fact]
+    public void AProbeSession_WritesItsOwnTimestampedFile_NeverTheConfiguredOne()
+    {
+        // The plan is probe → Tobii recalibration → probe again; both probes must survive to be
+        // compared, and a normal calibration's sidecar must not be overwritten either. The probe gets
+        // its own timestamped sibling and never touches the configured path.
+        var recorder = new ScriptedGroundTruthRecorder(Sidecar);
+        recorder.BeginSession("StreamEngine", Screen, 300, GroundTruthMode.MeasureOnly);
+        RunTarget(recorder, 0, new PhysicalPoint(100, 100), 0, 1, 5);
+        recorder.CompleteSession(GroundTruthOutcome.Partial);
+
+        Check.That(File.Exists(Sidecar)).IsFalse();
+        var files = Directory.GetFiles(_dir, "bias-probe-*.groundtruth.json");
+        Check.That(files).HasSize(1);
+
+        var session = Analysis.GroundTruthFile.Read(files[0]);
+        Check.That(session.Mode).IsEqualTo(GroundTruthMode.MeasureOnly);
+        Check.That(session.Outcome).IsEqualTo(GroundTruthOutcome.Partial);
+        Check.That(session.Windows.Single().Samples).Not.IsEmpty();
+    }
+
+    [Fact]
+    public void TwoProbeSessions_ProduceTwoReadableFiles_AndTheFirstIsNotOverwritten()
+    {
+        // The second probe must not erase the first — that is the whole reason for a per-session name.
+        var recorder = new ScriptedGroundTruthRecorder(Sidecar);
+        recorder.BeginSession("StreamEngine", Screen, 300, GroundTruthMode.MeasureOnly);
+        RunTarget(recorder, 0, new PhysicalPoint(100, 100), 0, 1, 5);
+        recorder.CompleteSession(GroundTruthOutcome.Completed);
+
+        recorder.BeginSession("StreamEngine", Screen, 300, GroundTruthMode.MeasureOnly);
+        RunTarget(recorder, 0, new PhysicalPoint(200, 200), 5_000_000, 1, 5);
+        recorder.CompleteSession(GroundTruthOutcome.Abandoned);
+
+        var files = Directory.GetFiles(_dir, "bias-probe-*.groundtruth.json");
+        Check.That(files).HasSize(2);
+
+        var sessions = files.Select(Analysis.GroundTruthFile.Read).ToList();
+        Check.That(sessions.Select(s => s.Outcome)).Contains(new[] { GroundTruthOutcome.Completed, GroundTruthOutcome.Abandoned });
+        Check.That(sessions.Select(s => s.Mode)).ContainsOnlyElementsThatMatch(m => m == GroundTruthMode.MeasureOnly);
+        Check.That(sessions.Select(s => s.Windows.Single().X)).Contains(new[] { 100.0, 200.0 });
+    }
+
+    [Fact]
+    public void TwoProbesInTheSameMillisecond_GetDistinctNames()
+    {
+        // The collision path, which the UI cannot reach (a probe takes seconds) but a clock can:
+        // without the -n suffix the second probe would silently replace the first.
+        var clock = new DateTime(2026, 9, 26, 12, 0, 0, DateTimeKind.Utc);
+        var recorder = new ScriptedGroundTruthRecorder(Sidecar, utcNow: () => clock);
+
+        recorder.BeginSession("StreamEngine", Screen, 300, GroundTruthMode.MeasureOnly);
+        RunTarget(recorder, 0, new PhysicalPoint(100, 100), 0, 1, 5);
+        recorder.CompleteSession();
+
+        recorder.BeginSession("StreamEngine", Screen, 300, GroundTruthMode.MeasureOnly);
+        RunTarget(recorder, 0, new PhysicalPoint(200, 200), 0, 1, 5);
+        recorder.CompleteSession();
+
+        var files = Directory.GetFiles(_dir, "bias-probe-*.groundtruth.json");
+        Check.That(files).HasSize(2);
+        Check.That(files.Any(f => f.EndsWith("-2.groundtruth.json", StringComparison.OrdinalIgnoreCase))).IsTrue();
+        Check.That(files.Select(Analysis.GroundTruthFile.Read).Select(s => s.Windows.Single().X))
+            .Contains(new[] { 100.0, 200.0 });
+    }
+
+    [Fact]
+    public void ACloseFault_KeepsTheWindowsAlreadyClosed_AndReportsOnce()
+    {
+        // The real trigger is an in-flight gaze callback racing the open-window snapshot; the seam
+        // makes it deterministic. A faulted close must cost only the open window — the windows already
+        // closed are still written, and the fault is reported once. Merging the close's catch back
+        // into the write's try loses every closed window and turns this red.
+        var faults = new List<Exception>();
+        var recorder = new ScriptedGroundTruthRecorder(Sidecar, faults.Add);
+        recorder.BeginSession("StreamEngine", Screen, 300);
+
+        RunTarget(recorder, 0, new PhysicalPoint(100, 100), 0, 1, 5);            // window 0 open
+        RunTarget(recorder, 1, new PhysicalPoint(200, 200), 1_000_000, 1, 5);    // closes window 0
+
+        recorder.SnapshotOpenSamples = _ => throw new InvalidOperationException("torn snapshot");
+        Check.ThatCode(() => recorder.CompleteSession()).DoesNotThrow();
+
+        Check.That(faults).HasSize(1);
+        Check.That(File.Exists(Sidecar)).IsTrue();
+        var session = Analysis.GroundTruthFile.Read(Sidecar);
+        Check.That(session.Windows).HasSize(1);
+        Check.That(session.Windows[0].X).IsEqualTo(100.0);
+    }
+
+    [Fact]
+    public void ANormalSession_KeepsTheConfiguredPath_AndRecordsCalibrationMode()
+    {
+        var recorder = new ScriptedGroundTruthRecorder(Sidecar);
+        recorder.BeginSession("StreamEngine", Screen, 300);
+        RunTarget(recorder, 0, new PhysicalPoint(100, 100), 0, 1, 5);
+        recorder.CompleteSession();
+
+        Check.That(File.Exists(Sidecar)).IsTrue();
+        var session = Analysis.GroundTruthFile.Read(Sidecar);
+        Check.That(session.Mode).IsEqualTo(GroundTruthMode.Calibration);
+        // The mode must be WRITTEN, not merely defaulted on read: the file is inspected by an operator.
+        var raw = File.ReadAllText(Sidecar);
+        Check.That(raw).Contains("\"mode\"");
+        Check.That(raw).Contains("calibration");
+        Check.That(Directory.GetFiles(_dir, "bias-probe-*.groundtruth.json")).IsEmpty();
     }
 }

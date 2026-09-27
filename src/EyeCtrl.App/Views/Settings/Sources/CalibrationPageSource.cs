@@ -38,6 +38,11 @@ internal sealed class CalibrationPageSource : ISettingsPageSource
                 new ButtonSpec("cal_run", "Calibrate Now",
                     () => { _ctx.Close(); _ctx.Messenger.Send(new CalibrationRequestedMessage()); },
                     ButtonKind.Default, Width: 300, Height: 100),
+                new ButtonSpec("cal_probe", "Measure Gaze Offset",
+                    () => { _ctx.Close(); _ctx.Messenger.Send(new MeasureOnlyCalibrationRequestedMessage()); },
+                    ButtonKind.Default, Width: 300, Height: 100),
+                new LabelSpec(() => "Measure gaze offset records where your gaze lands at five points. "
+                    + "It changes nothing and always ends with \u201Crecorded\u201D; run it when you are rested."),
                 new ButtonSpec("cal_clear", "Clear Calibration",
                     () => _ctx.ShowModal("Clear saved calibration?", () =>
                     {

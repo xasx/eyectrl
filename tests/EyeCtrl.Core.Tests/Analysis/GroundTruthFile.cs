@@ -15,8 +15,13 @@ using EyeCtrl.Core.Models;
 /// </summary>
 public static class GroundTruthFile
 {
-    private static readonly JsonSerializerOptions JsonOptions =
-        new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        // The recorder writes outcomes by name; the default converter would refuse the strings and
+        // an all-numeric reader would silently disagree with the file.
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+    };
 
     /// <summary>Reads a sidecar from disk.</summary>
     public static GroundTruthSession Read(string path) => Parse(File.ReadAllText(path));

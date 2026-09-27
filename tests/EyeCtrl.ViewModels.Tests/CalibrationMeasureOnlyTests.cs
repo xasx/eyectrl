@@ -333,6 +333,7 @@ public class CalibrationMeasureOnlyTests
         long t0 = Environment.TickCount64;
         await FireForAbout(1_500, vm, t0, onTarget: true, valid: true);
         double elapsedMs = FireOnceAndMeasure(vm, t0, onTarget: true, valid: true);
+        SkipIfTheThreadStalledToTheCap(elapsedMs);
 
         Check.That(vm.CurrentTargetIndex).IsEqualTo(0);   // still the first target: the window is 5 s
         Check.That(vm.IsOnTarget).IsTrue();
@@ -352,6 +353,7 @@ public class CalibrationMeasureOnlyTests
         long t0 = Environment.TickCount64;
         await FireForAbout(1_000, vm, t0, onTarget: false, valid: false);
         double elapsedMs = FireOnceAndMeasure(vm, t0, onTarget: false, valid: false);
+        SkipIfTheThreadStalledToTheCap(elapsedMs);
 
         Check.That(vm.CurrentTargetIndex).IsEqualTo(0);
         AssertRingMatchesTheWindowClock(vm, elapsedMs);
@@ -367,6 +369,10 @@ public class CalibrationMeasureOnlyTests
         // clock, so a tracker-thread sample landing in that gap was timed against the previous start —
         // for the first target the field's default 0, for later ones ~5 s ago — and the ring flashed
         // full on a brand-new dot. This provider delivers a sample the instant the handler attaches.
+        //
+        // Target 1 is the realistic case (review A's FU11-3): its predecessor's clock is ~5 s old
+        // there, and a clock set once per session instead of per target reads full on every dot after
+        // the first — which target 0 alone cannot see, since both clocks start together.
         var provider = new FiresOnSubscribeProvider();
         var vm = await Task.Run(() => new CalibrationViewModel(
             _settings, _service, _messenger, provider, Screen, "test-monitor", CalibrationPath,
@@ -374,8 +380,17 @@ public class CalibrationMeasureOnlyTests
             diagnostics: new DiagnosticsSettings { RecordRawGaze = false }));
         _messenger.Send(new MeasureOnlyCalibrationRequestedMessage());
 
-        Check.That(provider.FiredOnSubscribe).IsStrictlyGreaterThan(0);
+        Check.That(provider.DeliveredOnSubscribe).IsEqualTo(1);
         Check.That(vm.TargetProgress).IsStrictlyLessThan(0.05);   // the old order read 1.0
+
+        // Nothing else fires, so target 0's own 5 s cap advances it, and the re-subscribe delivers again.
+        var deadline = Environment.TickCount64 + 10_000;
+        while (provider.DeliveredOnSubscribe < 2 && Environment.TickCount64 < deadline)
+            await Task.Delay(20, TestContext.Current.CancellationToken);
+
+        Check.That(provider.DeliveredOnSubscribe).IsEqualTo(2);
+        Check.That(vm.CurrentTargetIndex).IsEqualTo(1);
+        Check.That(vm.TargetProgress).IsStrictlyLessThan(0.05);   // a per-session clock reads 1.0 here
 
         vm.Cancel();
     }
@@ -384,15 +399,18 @@ public class CalibrationMeasureOnlyTests
     private sealed class FiresOnSubscribeProvider : IGazeProvider
     {
         private Action<GazePoint>? _handlers;
-        public int FiredOnSubscribe { get; private set; }
+        private int _delivered;
+
+        /// <summary>Counted AFTER the handler returns, so a reader never sees a delivery still in flight.</summary>
+        public int DeliveredOnSubscribe => Volatile.Read(ref _delivered);
 
         public event Action<GazePoint>? GazePointReceived
         {
             add
             {
                 _handlers += value;
-                FiredOnSubscribe++;
                 value?.Invoke(new GazePoint(1920, 100, 1_000, IsValid: true));
+                Interlocked.Increment(ref _delivered);
             }
             remove => _handlers -= value;
         }
@@ -431,16 +449,25 @@ public class CalibrationMeasureOnlyTests
     }
 
     /// <summary>
-    /// The ring must be the elapsed share of the fixed window: exact up to tick resolution and the few
-    /// milliseconds between the target's own clock start and <c>t0</c>, so ±0.05 (250 ms). Immune to a
-    /// thread-pool stall (review A's FU10-3), and a stale divisor fails it — 1.5 s over 3 s reads 0.5,
-    /// not 0.3. A stall long enough to reach the cap would advance the target, so that run is skipped
-    /// rather than misjudged.
+    /// A stall long enough to reach the 5 s cap advances the target, so that run is skipped rather than
+    /// misjudged. Called BEFORE the test's own "still on target 0" check (review A's FU11-1): after it,
+    /// a stall past the cap failed the index check and the skip was unreachable.
     /// </summary>
-    private static void AssertRingMatchesTheWindowClock(CalibrationViewModel vm, double elapsedMs)
+    private static void SkipIfTheThreadStalledToTheCap(double elapsedMs)
     {
         if (elapsedMs >= 4_500)
             Assert.Skip($"The test thread stalled to {elapsedMs:0} ms — too close to the 5 s cap to judge the ring.");
+    }
+
+    /// <summary>
+    /// The ring must be the elapsed share of the fixed window: exact up to tick resolution and the few
+    /// milliseconds between the target's own clock start and <c>t0</c>, so ±0.05 (250 ms). Immune to a
+    /// thread-pool stall (review A's FU10-3), and a stale divisor fails it — 1.5 s over 3 s reads 0.5,
+    /// not 0.3.
+    /// </summary>
+    private static void AssertRingMatchesTheWindowClock(CalibrationViewModel vm, double elapsedMs)
+    {
+        SkipIfTheThreadStalledToTheCap(elapsedMs);
         Check.That(Math.Abs(vm.TargetProgress - (elapsedMs / 5_000.0))).IsStrictlyLessThan(0.05);
     }
 

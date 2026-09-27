@@ -4,18 +4,21 @@
 Reads EyeCtrl Serilog files and reports sessions where the user was stranded in Paused. A session
 flags when either:
 
-  * it spent more than 60 seconds Paused *and* showed toolbar summons — a user who was looking
-    for a way out and never found it (this is what 2026-09-24 looked like: 1 h 43 min, 10
-    summons, never resumed);
+  * it spent more than 60 seconds Paused *and* summoned the toolbar inside a pause that never
+    ended — a user who was looking for a way out and never found it (this is what 2026-09-24
+    looked like: 1 h 43 min, 10 paused summons, never resumed). Since the 2026-09-26 reversal the
+    way back is summon → dwell Play, so a paused summon followed by a resume is the success path
+    and must NOT flag;
   * it was still Paused 5 minutes or more after the pause started and ended in a clean Shutdown,
     whether or not any summon was logged; or
   * it was still Paused 5 minutes or more after the pause started and ended UNcleanly (kill,
     crash, reboot, or still running when scanned), for `provider=\"StreamEngine\"` sessions only.
 
-After the paused-trap guard the band no longer hides while paused, so a stranded session may never
-summon anything at all — time alone has to catch it. The unclean-end case excludes Mouse-provider
-sessions because those are dev/mouse-as-gaze runs (the 2026-09-16 restarts), not a stranded eye
-user. A run that resumed before it ended is not a stranding.
+The band hides again while paused, so a stranded session can summon and still never get out
+(dwell Play is the step 2026-09-24 failed at), and a session where no summon ever happens is still
+caught by time alone. The unclean-end case excludes Mouse-provider sessions because those are
+dev/mouse-as-gaze runs (the 2026-09-16 restarts), not a stranded eye user. A run that resumed
+before it ended is not a stranding.
 
 Usage:
     python tools/paused_session_scan.py                       # scan %APPDATA%/EyeCtrl/logs
@@ -65,18 +68,26 @@ class Session:
     # restarts are exactly the noise this stays out of.
     paused_at_unclean_end_seconds: float = 0.0
     summons: int = 0
+    # Summons logged while Paused, and whether the last of them was followed by a resume. Rule 1
+    # asks what the 2026-09-26 reversal changed: a paused summon is only evidence of a stranding
+    # if its pause never ended — pause → hide → summon → resume is now the normal way back.
+    paused_summons: int = 0
+    last_paused_summon_resolved: bool = True
     saw_startup: bool = True
 
     @property
     def flagged(self) -> bool:
-        # Old, toolbar-based rule: a long pause the user tried to escape from (summoned the
-        # toolbar) but did not. Still useful, and it is what 2026-09-24 looked like.
-        if self.paused_seconds > PAUSE_FLAG_SECONDS and self.summons >= 1:
+        # Toolbar-based rule: a long pause the user tried to escape from (summoned the toolbar
+        # while paused) and never left. Only an UNRESOLVED paused summon counts — a summon a
+        # resume followed is the success path. Still what 2026-09-24 looked like, and it catches
+        # strandings shorter than the 300 s the time-based rule needs.
+        if (self.paused_seconds > PAUSE_FLAG_SECONDS
+                and self.paused_summons >= 1
+                and not self.last_paused_summon_resolved):
             return True
-        # Time-based rule: after the auto-hide suppression fix the band no longer hides while
-        # paused, so a stranded session may never log a summon. Any run that sat Paused for more
-        # than 5 minutes with no resume is a stranding — whether it ended in a clean Shutdown, or
-        # (eye-tracker sessions only) went down uncleanly.
+        # Time-based rule: a stranded session may never log a summon (or the auto-hide may never
+        # fire). Any run that sat Paused for more than 5 minutes with no resume is a stranding —
+        # whether it ended in a clean Shutdown, or (eye-tracker sessions only) went down uncleanly.
         if self.paused_at_clean_end_seconds > STRANDED_FLAG_SECONDS:
             return True
         return (self.provider == "StreamEngine"
@@ -149,6 +160,9 @@ def parse_lines(lines) -> list[Session]:
 
         if message.startswith(_SUMMON_PREFIX):
             current.summons += 1
+            if paused_since is not None:
+                current.paused_summons += 1
+                current.last_paused_summon_resolved = False
             continue
 
         state = _STATE.match(message)
@@ -159,6 +173,8 @@ def parse_lines(lines) -> list[Session]:
             elif paused_since is not None:
                 current.paused_seconds += (timestamp - paused_since).total_seconds()
                 paused_since = None
+                # The pause a paused summon was waiting in ended: the user got out.
+                current.last_paused_summon_resolved = True
 
     close(last_timestamp, cleaned=False)
     return sessions
@@ -192,9 +208,9 @@ def run(paths: list[str]) -> int:
             if session.flagged:
                 flagged += 1
             print(f"{label} {os.path.basename(path)}: {session.describe()}")
-    print(f"\n{flagged} session(s) flagged (paused > {PAUSE_FLAG_SECONDS}s with toolbar summons, or "
-          f"still paused > {STRANDED_FLAG_SECONDS}s at a shutdown — or, for eye-tracker sessions, "
-          "at an unclean end).")
+    print(f"\n{flagged} session(s) flagged (paused > {PAUSE_FLAG_SECONDS}s with an unresolved "
+          f"paused summon, or still paused > {STRANDED_FLAG_SECONDS}s at a shutdown — or, for "
+          "eye-tracker sessions, at an unclean end).")
     return 1 if flagged else 0
 
 
@@ -207,7 +223,9 @@ def selftest() -> None:
     def line(stamp: str, message: str) -> str:
         return f"{stamp} [INF] [Test] {message}"
 
-    # 1. 09-24 shape: starts paused, 10 summons, never resumes, 1h43m, clean shutdown.
+    # 1. 09-24 shape: starts paused, 10 summons never followed by a resume, 1h43m, clean
+    # shutdown. The summon worked and the user never got out — rule 1's shape (also caught by the
+    # time-based rule).
     stranded = log(
         line("2026-09-24 01:46:24.022", "Startup: EyeCtrl v1.0.0.0, provider=\"StreamEngine\""),
         line("2026-09-24 01:46:24.491", 'State \u2192 "Paused"'),
@@ -279,6 +297,25 @@ def selftest() -> None:
         line("2026-09-15 09:00:01.000", 'State \u2192 "Paused"'),
         line("2026-09-15 09:30:00.000", "Toolbar summoned: slide-in animating"),
     )
+    # 10. A SUCCESSFUL paused return (the independent review's synthetic session, F5): pause, hide,
+    # summon, resume, clean shutdown. Since the 2026-09-26 reversal this summon → dwell Play →
+    # resume path is the normal way back — the pause resolved, so it is not a stranding even though
+    # the old session-total rule flagged it.
+    paused_return_success = log(
+        line("2026-09-25 10:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=\"StreamEngine\""),
+        line("2026-09-25 10:00:05.000", 'State \u2192 "Paused"'),
+        line("2026-09-25 10:01:30.000", "Toolbar summoned: slide-in animating"),
+        line("2026-09-25 10:01:32.000", 'State \u2192 "FreeLook"'),
+        line("2026-09-25 10:02:00.000", "Shutdown"),
+    )
+    # 11. The stranding rule still catches a paused summon whose pause never ends, even when the
+    # tail is shorter than the 300 s the time-based rule needs — only rule 1 can flag this one.
+    short_stranding = log(
+        line("2026-09-26 10:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=\"StreamEngine\""),
+        line("2026-09-26 10:00:01.000", 'State \u2192 "Paused"'),
+        line("2026-09-26 10:01:25.000", "Toolbar summoned: slide-in animating"),
+        line("2026-09-26 10:01:30.000", "Shutdown"),
+    )
 
     cases = [
         ("09-24 shape", stranded, [True]),
@@ -290,6 +327,8 @@ def selftest() -> None:
         ("mouse restart while paused (not a clean end)", restart_while_paused, [False, False]),
         ("eye session killed while paused", eye_killed_while_paused, [True, False]),
         ("eye session still paused at EOF", eye_paused_at_eof, [True]),
+        ("paused return that resolved (summon + resume)", paused_return_success, [False]),
+        ("short stranding that only rule 1 catches", short_stranding, [True]),
     ]
 
     failed = False

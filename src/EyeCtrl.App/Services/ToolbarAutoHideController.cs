@@ -72,6 +72,10 @@ public sealed class ToolbarAutoHideController
     // "no active run" semantics (that bug caused both test failures and instant-hide-at-launch).
     public enum State { Visible, Hidden }
     private const long Unseeded = long.MinValue;
+    // Longest stretch of invalid samples (blinks) the Hidden-case summon run survives. Longer is a
+    // walk-away, not a blink: the next valid sample starts a fresh run instead of resuming one the
+    // user was not present for.
+    private const long InvalidGapCapUs = 300_000;
     private volatile State _state = State.Visible;
     private long _hideAnchorUs = Unseeded;   // Visible: timestamp of the start of the current off-toolbar run (or last on-toolbar sample)
     private long _summonRunUs = Unseeded;     // Hidden:  start of the current sustained past-edge run
@@ -94,6 +98,13 @@ public sealed class ToolbarAutoHideController
     // state (a blink while hovering must not read as "left the band"). Both gaze-thread-only.
     private long? _marginBandSinceUs;
     private bool _marginBandLogged;
+
+    // First sample of the invalid stretch currently open in the Hidden case; null once a valid
+    // sample has closed it. The Hidden case returns early on invalid samples (spec §State machine:
+    // "Invalid samples reset neither timer"), so this is what tells the first valid sample after a
+    // gap whether it was a blink (the run keeps counting) or a walk-away (the gap exceeded
+    // InvalidGapCapUs, so the run is dead and this sample seeds a fresh one). Gaze-thread only.
+    private long? _invalidSinceUs;
 
     // ── Output seam ──
     private IToolbarVisibility? _visibility;
@@ -360,6 +371,28 @@ public sealed class ToolbarAutoHideController
 
             case State.Hidden:
             {
+                // A blink is not a broken summon run (spec §State machine: "Invalid samples reset
+                // neither timer", and this is now the only gaze way out of Paused, so forgiving
+                // beats precise): skip the run test and let the run keep counting through the gap.
+                // The cap below stops that from surviving a walk-away — 300 ms is a blink, minutes
+                // are not.
+                if (!sample.IsValid)
+                {
+                    _invalidSinceUs ??= timestampUs;
+                    return _state;
+                }
+                if (_invalidSinceUs is long invalidSince)
+                {
+                    _invalidSinceUs = null;
+                    if (timestampUs - invalidSince > InvalidGapCapUs)
+                    {
+                        // Walk-away, not a blink: the run that straddles the gap is dead, so this
+                        // valid sample seeds a fresh one below.
+                        Volatile.Write(ref _summonRunUs, Unseeded);
+                        _summonStartLogged = false;
+                    }
+                }
+
                 // The summon margin band: past the screen edge but short of the summon threshold
                 // (top: -50 ≤ raw y < 0). This is where a user summaring too shallowly sits — the
                 // state the log previously could not distinguish from not trying at all. Entry is
@@ -420,7 +453,10 @@ public sealed class ToolbarAutoHideController
                 {
                     // Condition broken — reset the summon countdown. Only a run that lasted ≥100 ms
                     // is worth a line; together with the gated start line, threshold flicker is
-                    // silent and a real attempt leaves exactly two lines (started + reset).
+                    // silent and a real attempt leaves exactly two lines (started + reset). The
+                    // sample is guaranteed valid here (invalid samples returned above), so this
+                    // line can never print the provider's invalid sentinel (raw y=0, x=0) as a
+                    // position — the misleading "jump to the top-left corner" the r1 review named.
                     var runStart = Volatile.Read(ref _summonRunUs);
                     if (runStart != Unseeded)
                     {

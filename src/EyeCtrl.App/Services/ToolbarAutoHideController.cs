@@ -72,11 +72,11 @@ public sealed class ToolbarAutoHideController
     // "no active run" semantics (that bug caused both test failures and instant-hide-at-launch).
     public enum State { Visible, Hidden }
     private const long Unseeded = long.MinValue;
-    // Longest away-from-the-edge stretch (invalid frames or no frames at all) the Hidden-case summon
-    // run survives; measured between the valid samples on either side of it. 400 ms keeps the
-    // longest invalid stretch in the user's 443 s recording (302 ms) without being anything like a
-    // walk-away: longer means the user was not there for the run, so the next valid sample starts a
-    // fresh one.
+    // Longest stretch without a valid sample (invalid frames, or no frames at all) the Hidden-case
+    // summon run survives; measured between the valid samples on either side of it. 400 ms keeps
+    // the longest invalid stretch in the user's 443 s recording (302 ms) without being anything
+    // like a walk-away: longer means the user was not there for the run, so the next valid sample
+    // starts a fresh one.
     private const long SummonGapCapUs = 400_000;
     private volatile State _state = State.Visible;
     private long _hideAnchorUs = Unseeded;   // Visible: timestamp of the start of the current off-toolbar run (or last on-toolbar sample)

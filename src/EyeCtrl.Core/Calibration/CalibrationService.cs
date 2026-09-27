@@ -277,6 +277,23 @@ public class CalibrationService
         return data;
     }
 
+    /// <summary>
+    /// Ends the current target without producing a <see cref="CalibrationPoint"/>, discarding whatever
+    /// the collector held.
+    /// </summary>
+    /// <remarks>
+    /// Exists for the measure-only probe, where a target the user never got within the band of is not a
+    /// session failure — it is one window of evidence, and the five-target decision rule needs the
+    /// other windows. The collector itself refuses to produce a point from zero in-band samples (see
+    /// <see cref="CalibrationPointCollector.End"/>), so without this the probe would end at the first
+    /// empty target exactly when bias is large enough to matter. Nothing is added to the session's
+    /// points: this target contributes no fit input, only its sidecar window.
+    /// </remarks>
+    public void DiscardTarget()
+    {
+        _currentCollector = null;
+    }
+
     /// <summary>Cancels the current calibration session, discarding all collected data.</summary>
     public void CancelSession()
     {

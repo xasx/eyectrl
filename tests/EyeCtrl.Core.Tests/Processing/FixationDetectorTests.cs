@@ -59,16 +59,18 @@ public class FixationDetectorTests
     }
 
     [Fact]
-    public void GetProgress_DuringFixationTracking_ReturnsElapsedRatio()
+    public void GetProgress_DuringFixationTracking_ReturnsCreditedRatio()
     {
         var detector = new FixationDetector(fixationRadiusPixels: 50, fixationTimeMs: 200);
 
+        // Ticket 3's clock is the CREDITED age: each dt is capped at AgeCreditCapMs (66 ms), so the
+        // 100 ms inter-sample step below credits 66 ms of the 200 ms requirement, not 100 ms.
         detector.Update(new PhysicalPoint(100, 100), 0);
-        detector.Update(new PhysicalPoint(100, 100), 100_000); // 100ms of 200ms = 0.5
+        detector.Update(new PhysicalPoint(100, 100), 100_000);
 
-        // Not yet fixated (100ms < 200ms), but progress should be ~0.5
         Check.That(detector.IsFixating).IsFalse();
-        Check.That(detector.GetProgress()).IsCloseTo(0.5, 0.1);
+        Check.That(detector.CreditedAgeUs).IsEqualTo(FixationDetector.AgeCreditCapMs * 1000L);
+        Check.That(detector.GetProgress()).IsCloseTo(66.0 / 200.0, 1e-9);
     }
 
     [Fact]
@@ -88,8 +90,13 @@ public class FixationDetectorTests
     {
         var detector = new FixationDetector(fixationRadiusPixels: 50, fixationTimeMs: 200);
 
-        detector.Update(new PhysicalPoint(100, 100), 0);
-        detector.Update(new PhysicalPoint(100, 100), 300_000); // 300ms > 200ms
+        // Credited age is per-sample capped, so the requirement is reached by real samples, not one jump.
+        long ts = 0;
+        for (int i = 0; i < 8; i++)
+        {
+            detector.Update(new PhysicalPoint(100, 100), ts);
+            ts += 30_000;
+        }
 
         Check.That(detector.IsFixating).IsTrue();
         Check.That(detector.GetProgress()).IsEqualTo(1.0);

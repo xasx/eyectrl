@@ -439,4 +439,15 @@ public class DwellDetector
         long elapsed = _lastTimestamp - target.EnteredTimestamp.Value;
         return Math.Min(1.0, (double)elapsed / target.DwellTimeMicroseconds);
     }
+
+    /// <summary>
+    /// Whether a registered target's LIVE hit area contains the point — the same geometry
+    /// <see cref="Update(PhysicalPoint, long)"/> tests, so a margin applied by adaptation's
+    /// geometry routing is included. State-free: it neither accumulates nor resets dwell, which
+    /// makes it safe for an owner's own per-sample gate (e.g. a leave-before-re-arm latch) to ask
+    /// "is gaze still on this target?" without perturbing the detector.
+    /// </summary>
+    /// <returns><c>false</c> for an unknown id (nothing is registered there to be inside).</returns>
+    public bool HitTest(string targetId, PhysicalPoint point) =>
+        _targets.TryGetValue(targetId, out var target) && target.HitTest(point);
 }

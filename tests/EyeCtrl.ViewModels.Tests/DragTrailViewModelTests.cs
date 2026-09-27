@@ -74,6 +74,68 @@ public class DragTrailViewModelTests
     }
 
     [Fact]
+    public void Settle_DropsAtTheRunningCentroid_NotTheFirstSample()
+    {
+        // Fixup-01 F6: the settle detector is the production FixationDetector, so the drop point is the
+        // running centroid at onset, not the sample the saccade landed on. Mutation: freeze the anchor
+        // at the run's first sample → the drop lands at 300 instead of 320.
+        _settings.Drag.SettleDwellMs = 200;
+        _settings.Drag.SettleRadiusPixels = 40;
+        var vm = CreateVm();
+        _messenger.Send(StartMsg(new PhysicalPoint(100, 100)));
+
+        DragDropMessage? dropMsg = null;
+        _messenger.Register<DragDropMessage>(_messenger, (_, msg) => dropMsg = msg);
+
+        // Alternating 300/340: each sample is 20 px from the running mean (320) and 40 px from the other,
+        // inside the 40 px radius. Onset (credited ≥ 200 ms) lands on the 8th sample, mean 320.
+        long ts = 0;
+        for (int i = 0; i < 10; i++)
+        {
+            _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(i % 2 == 0 ? 300 : 340, 300), ts));
+            ts += 30_000;
+        }
+
+        Check.That(dropMsg).IsNotNull();
+        Check.That(dropMsg!.DropPoint.X).IsCloseTo(320.0, 2.0);
+    }
+
+    [Fact]
+    public void Settle_BlinkOver150ms_DoesNotCompleteTheSettle()
+    {
+        // Fixup-01 F6: the settle runs the valid-time clock, so a > 150 ms blink credits only the
+        // per-sample cap. A 120 ms hold + 210 ms blink must not drop on the first post-blink sample;
+        // uncapping the per-sample dt (the old wall-clock ledger) would complete it there.
+        _settings.Drag.SettleDwellMs = 200;
+        _settings.Drag.SettleRadiusPixels = 40;
+        var vm = CreateVm();
+        _messenger.Send(StartMsg(new PhysicalPoint(100, 100)));
+
+        DragDropMessage? dropMsg = null;
+        _messenger.Register<DragDropMessage>(_messenger, (_, msg) => dropMsg = msg);
+
+        var pos = new PhysicalPoint(300, 300);
+        long ts = 0;
+        for (int i = 0; i < 5; i++) // 0..120 ms → credited 120
+        {
+            _messenger.Send(new GazeCursorMovedMessage(pos, ts));
+            ts += 30_000;
+        }
+        for (int i = 0; i < 7; i++) // 210 ms of blink: the VM skips gap-held samples entirely
+        {
+            _messenger.Send(new GazeCursorMovedMessage(new GazeFrame(pos, ts, IsInGap: true)));
+            ts += 30_000;
+        }
+
+        _messenger.Send(new GazeCursorMovedMessage(pos, ts));           // 120 + capped 66 = 186 < 200
+        Check.That(dropMsg).IsNull();
+        Check.That(vm.SettleProgress).IsStrictlyLessThan(1.0);
+
+        _messenger.Send(new GazeCursorMovedMessage(pos, ts + 30_000));  // +30 → 216 ≥ 200
+        Check.That(dropMsg).IsNotNull();
+    }
+
+    [Fact]
     public void Settle_CompletesAndSendsDragDrop()
     {
         _settings.Drag.SettleDwellMs = 200;
@@ -84,9 +146,11 @@ public class DragTrailViewModelTests
         DragDropMessage? dropMsg = null;
         _messenger.Register<DragDropMessage>(_messenger, (_, msg) => dropMsg = msg);
 
+        // Ticket 3's FixationDetector clocks VALID-TIME age: each inter-sample dt is capped at ~2 frames,
+        // so one 300 ms jump no longer completes a 200 ms settle. Feed a realistic 30 Hz hold.
         var pos = new PhysicalPoint(300, 300);
-        _messenger.Send(new GazeCursorMovedMessage(pos, 0));
-        _messenger.Send(new GazeCursorMovedMessage(pos, 300_000));
+        for (long t = 0; t <= 240_000; t += 30_000)
+            _messenger.Send(new GazeCursorMovedMessage(pos, t));
 
         Check.That(dropMsg).IsNotNull();
         Check.That(vm.IsDragActive).IsFalse();

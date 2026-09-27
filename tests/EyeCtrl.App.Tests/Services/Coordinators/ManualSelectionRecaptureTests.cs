@@ -66,7 +66,7 @@ public class ManualSelectionRecaptureTests
             ManualSelectionVM = manualSelectionVm,
             ManualSelectionIndicatorVM = new ManualSelectionGazeIndicatorViewModel(messenger),
             CursorVM = new CursorCircleViewModel(settings, messenger),
-            ActivationVM = new ActivationButtonViewModel(settings, messenger),
+            ActivationVM = new ActivationButtonViewModel(messenger),
             ActionMenuVM = new ActionMenuViewModel(settings, messenger),
             ToolbarVM = new ToolbarViewModel(settings, messenger),
             BackdropVM = new GlassBackdropViewModel(settings, messenger),
@@ -244,12 +244,14 @@ public class ManualSelectionRecaptureTests
             public void Hide() { }
             public void UpdatePosition(PhysicalPoint point) { }
             public void UpdateAppearance(CursorSettings settings) { }
+            public void SetPausedDim(bool dimmed) { }
+            public void SetPinned(bool pinned) { }
         }
 
         private sealed class NoOpActivationButton : IActivationButtonOverlay
         {
             public void Show() { }
-            public void ShowAt(PhysicalPoint position, double offset) { }
+            public void ShowAt(PhysicalPoint position, double fixationRadiusPixels) { }
             public void Hide() { }
             public void HideImmediate() { }
             public void UpdateDwellProgress(double progress) { }

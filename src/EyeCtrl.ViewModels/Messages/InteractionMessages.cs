@@ -7,12 +7,25 @@ using EyeCtrl.Core.Models;
 // Core -> ViewModel
 
 /// <summary>
-/// Sent to show activation button.
-/// Position is in physical screen pixels.
+/// Sent to show the fixation feedback. Position is in physical screen pixels: the pin, i.e. the
+/// running centroid the rule published at onset.
 /// </summary>
-public record ShowActivationButtonMessage(PhysicalPoint Position);
+/// <param name="FixationRadiusPixels">
+/// The LIVE rule's fixation radius in physical pixels, read from the detector at onset — the
+/// adaptation-effective value, not the raw setting. The halo is sized from it, so the drawn hold
+/// radius always marks the radius the dwell is actually counted within.
+/// </param>
+public record ShowActivationButtonMessage(PhysicalPoint Position, double FixationRadiusPixels);
 
 public record HideActivationButtonMessage;
+
+/// <summary>
+/// Sent when Core's fixation rule completes an activation: the valid-time age reached the onset age plus
+/// the effective activation dwell. The activation VM consumes it (it never computes age itself), then
+/// publishes the dwell-completion cue and <see cref="ActivationCompletedMessage"/>. TimestampMicroseconds
+/// and CreditedAgeUs are Core's ledger values, passed through for consumers that record them.
+/// </summary>
+public record FixationActivatedMessage(long TimestampMicroseconds, long CreditedAgeUs);
 
 /// <summary>
 /// Sent to show action menu.
@@ -152,6 +165,18 @@ public record HideBackdropMessage;
 public record BackdropDismissMessage;
 
 public record CalibrationRequestedMessage;
+
+/// <summary>
+/// Starts the measure-only bias probe: a calibration-shaped, five-target run that records raw gaze
+/// offset into the self-contained sidecar and applies nothing.
+/// </summary>
+/// <remarks>
+/// Deliberately separate from <see cref="CalibrationRequestedMessage"/> rather than a flag on it, so
+/// the probe can only be started by its own deliberate entry point and never by "Calibrate Now" — the
+/// two do opposite things to the user's gaze mapping, and a mis-click that silently skipped the
+/// transform would be indistinguishable from a calibration that did not work.
+/// </remarks>
+public record MeasureOnlyCalibrationRequestedMessage;
 public record CalibrationCompletedMessage(bool Success, double? MeanErrorPixels);
 public record CalibrationCancelledMessage;
 public record CalibrationStateChangedMessage(CalibrationState State, double ProgressPercent);

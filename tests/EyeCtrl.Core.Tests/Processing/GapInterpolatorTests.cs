@@ -89,22 +89,24 @@ public class GapInterpolatorTests
     }
 
     [Fact]
-    public void Process_NoValidSampleYet_InvalidSample_IsInGapFalse()
+    public void Process_NoValidSampleYet_InvalidSample_IsInGapTrue()
     {
-        // No prior valid sample — can't be "in gap"
+        // Ticket 3 item 4 (phantom (0,0) fix): a cold-start invalid sample is NOT a measurement. The
+        // position handed back is the (0,0) placeholder, so reporting it in-gap is what keeps it out of
+        // the fixation detector. Mutation: revert to the old `_sequenceBrokenByGap` early return.
         var gi = new GapInterpolator(new PassThroughFilter(), maxGapMs: 150);
         var (_, isInGap) = gi.Process(Invalid(0, 0, 0));
-        Check.That(isInGap).IsFalse();
+        Check.That(isInGap).IsTrue();
     }
 
     [Fact]
-    public void Process_NoValidSampleYet_ManyInvalidSamples_AllIsInGapFalse()
+    public void Process_NoValidSampleYet_ManyInvalidSamples_AllIsInGapTrue()
     {
-        // "Never seen data" must stay distinct from "sequence broken by a long gap": the tail fix
-        // must not make a cold start look like a gap.
+        // Every invalid sample of a cold start carries no evidence about where the user looks, for as
+        // long as the stream stays invalid — the engine's feed guard (`!isInGap`) must hold throughout.
         var gi = new GapInterpolator(new PassThroughFilter(), maxGapMs: 150);
         for (int i = 0; i < 10; i++)
-            Check.That(gi.Process(Invalid(0, 0, i * 20_000)).IsInGap).IsFalse();
+            Check.That(gi.Process(Invalid(0, 0, i * 20_000)).IsInGap).IsTrue();
     }
 
     [Fact]
@@ -159,15 +161,17 @@ public class GapInterpolatorTests
     }
 
     [Fact]
-    public void Reset_ClearsLongGapTailFlag()
+    public void Reset_ThenColdStart_InvalidSample_StaysInGap()
     {
+        // Reset drops the carried valid position; the next invalid sample has no prior valid sample and
+        // is therefore in-gap (ticket 3 item 4), not fed to the detector as a frozen (0,0).
         var gi = new GapInterpolator(new PassThroughFilter(), maxGapMs: 150);
         gi.Process(Valid(100, 200, 0));
-        gi.Process(Invalid(0, 0, 200_000));  // long gap — tail would now report true
+        gi.Process(Invalid(0, 0, 200_000));  // long gap
 
         gi.Reset();
 
-        Check.That(gi.Process(Invalid(0, 0, 220_000)).IsInGap).IsFalse();
+        Check.That(gi.Process(Invalid(0, 0, 220_000)).IsInGap).IsTrue();
     }
 
     [Fact]

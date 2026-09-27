@@ -2,34 +2,112 @@ namespace EyeCtrl.ViewModels.Tests;
 
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
-using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
+/// <summary>
+/// The activation feedback is a pure consumer since ticket 3: Core's fixation rule owns the valid-time
+/// clock and publishes both facts — per-sample progress on the frame, completion as
+/// <see cref="FixationActivatedMessage"/>. These pin the consumer contract, including the one-completion
+/// latch that has to survive the activation/end dispatcher races.
+/// </summary>
 [Collection("DpiHelper Tests (ViewModels)")]
 public class ActivationButtonViewModelTests
 {
     private readonly WeakReferenceMessenger _messenger = new();
-    private readonly EyeCtrlSettings _settings = new();
+
+    private static GazeCursorMovedMessage Progress(double progress) =>
+        new(new GazeFrame(new PhysicalPoint(500, 300), 0, IsInGap: false, ActivationProgress: progress));
 
     [Fact]
     public void ShowsButton_OnShowMessage()
     {
-        var vm = new ActivationButtonViewModel(_settings, _messenger);
+        var vm = new ActivationButtonViewModel(_messenger);
         Check.That(vm.IsVisible).IsFalse();
 
-        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300)));
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300), 75));
 
         Check.That(vm.IsVisible).IsTrue();
         Check.That(vm.Position.X).IsEqualTo(500);
         Check.That(vm.Position.Y).IsEqualTo(300);
+        Check.That(vm.DwellProgress).IsEqualTo(0);
     }
 
     [Fact]
-    public void HidesButton_OnHideMessage()
+    public void Show_CarriesTheRuleRadius_TheHaloIsSizedFrom()
     {
-        var vm = new ActivationButtonViewModel(_settings, _messenger);
-        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300)));
+        // The adapter reads the LIVE detector radius at onset (the adaptation-effective value), and the
+        // halo is sized from what the message carries — never from the raw setting.
+        var vm = new ActivationButtonViewModel(_messenger);
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300), 60));
+        Check.That(vm.FixationRadiusPixels).IsEqualTo(60);
+
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(700, 300), 75));
+        Check.That(vm.FixationRadiusPixels).IsEqualTo(75);
+    }
+
+    [Fact]
+    public void ExternalDwellActive_HidesTheHalo_AndEndingItDoesNotReShow()
+    {
+        // A cooperating app draws its own feedback at the point it takes over; the centred halo must
+        // not sit frozen on top of it (B-F1). Only the normal show path may bring it back.
+        var vm = new ActivationButtonViewModel(_messenger);
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300), 75));
+        _messenger.Send(Progress(0.4));
         Check.That(vm.IsVisible).IsTrue();
+
+        _messenger.Send(new ExternalDwellActiveMessage(true));
+        Check.That(vm.IsVisible).IsFalse();
+        Check.That(vm.DwellProgress).IsEqualTo(0);
+
+        _messenger.Send(new ExternalDwellActiveMessage(false));
+        Check.That(vm.IsVisible).IsFalse();
+    }
+
+    [Fact]
+    public void SuppressionReleaseSequence_ReShowsAtTheFreshPin_WithExactlyOneCompletion()
+    {
+        // Fixup-02 N1 at the message level: external dwell hides the feedback; the release ends the old
+        // run (Hide) and returns to FreeLook; the fresh onset at B re-shows at B. A late activation for
+        // the hidden run is dropped, and the fresh run completes exactly once.
+        var vm = new ActivationButtonViewModel(_messenger);
+        int completions = 0;
+        _messenger.Register<ActivationCompletedMessage>(_messenger, (_, _) => completions++);
+
+        var a = new PhysicalPoint(100, 100);
+        var b = new PhysicalPoint(500, 300);
+        _messenger.Send(new ShowActivationButtonMessage(a, 75));
+        Check.That(vm.IsVisible).IsTrue();
+        Check.That(vm.Position.X).IsEqualTo(100);
+
+        // The cooperating app takes over; a late activation for the hidden run must not complete.
+        _messenger.Send(new ExternalDwellActiveMessage(true));
+        _messenger.Send(new FixationActivatedMessage(1_000_000, 1_000_000));
+        Check.That(vm.IsVisible).IsFalse();
+        Check.That(completions).IsEqualTo(0);
+
+        // Release: the engine ends the reported run (Hide) and returns to FreeLook; the external app's
+        // end is not an onset, so nothing re-shows until one arrives.
+        _messenger.Send(new HideActivationButtonMessage());
+        _messenger.Send(new ExternalDwellActiveMessage(false));
+        Check.That(vm.IsVisible).IsFalse();
+
+        // The fresh onset at B re-shows at B, and its activation completes exactly once.
+        _messenger.Send(new ShowActivationButtonMessage(b, 75));
+        Check.That(vm.IsVisible).IsTrue();
+        Check.That(vm.Position.X).IsEqualTo(500);
+        Check.That(vm.Position.Y).IsEqualTo(300);
+
+        _messenger.Send(new FixationActivatedMessage(4_000_000, 1_000_000));
+        Check.That(completions).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void HidesButton_OnHideMessage_AndZeroesProgress()
+    {
+        var vm = new ActivationButtonViewModel(_messenger);
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300), 75));
+        _messenger.Send(Progress(0.6));
+        Check.That(vm.DwellProgress).IsEqualTo(0.6);
 
         _messenger.Send(new HideActivationButtonMessage());
 
@@ -38,36 +116,95 @@ public class ActivationButtonViewModelTests
     }
 
     [Fact]
-    public void AccumulatesDwell_OnGazeWithinRadius()
+    public void Progress_ComesFromCoreFrame_WhileVisible()
     {
-        var settings = new EyeCtrlSettings();
-        settings.Dwell.ActivationButtonDwellMs = 1000;
-        var vm = new ActivationButtonViewModel(settings, _messenger);
+        var vm = new ActivationButtonViewModel(_messenger);
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300), 75));
 
-        // Show button at (500, 300)
-        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300)));
+        _messenger.Send(Progress(0.35));
 
-        // Send gaze within radius for half the dwell time, at a realistic cadence (the detector
-        // restarts a dwell on any single step of 150 ms or more).
-        DwellDrive.Hold(_messenger, new PhysicalPoint(500, 300), 0, 500_000); // 500ms
-
-        Check.That(vm.DwellProgress > 0.4).IsTrue();
-        Check.That(vm.DwellProgress < 0.6).IsTrue();
+        Check.That(vm.DwellProgress).IsEqualTo(0.35);
     }
 
     [Fact]
-    public void SendsActivationCompleted_OnDwellComplete()
+    public void Progress_IsIgnored_Hidden_And_OnGapFrames()
     {
-        var settings = new EyeCtrlSettings();
-        settings.Dwell.ActivationButtonDwellMs = 200; // Minimum valid value
-        var vm = new ActivationButtonViewModel(settings, _messenger);
+        var vm = new ActivationButtonViewModel(_messenger);
 
-        bool activated = false;
-        _messenger.Register<ActivationCompletedMessage>(_messenger, (_, _) => activated = true);
+        // Hidden: nothing to show.
+        _messenger.Send(Progress(0.8));
+        Check.That(vm.DwellProgress).IsEqualTo(0);
 
-        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300)));
-        DwellDrive.Hold(_messenger, new PhysicalPoint(500, 300), 0, 200_000); // reaches the 200ms dwell
+        // Visible but gap-held: the frame carries a stale value and must not move the arc.
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300), 75));
+        _messenger.Send(Progress(0.5));
+        _messenger.Send(new GazeCursorMovedMessage(
+            new GazeFrame(new PhysicalPoint(500, 300), 0, IsInGap: true, ActivationProgress: 0.95)));
+        Check.That(vm.DwellProgress).IsEqualTo(0.5);
+    }
 
-        Check.That(activated).IsTrue();
+    [Fact]
+    public void Activation_CompletesOnce_AndPublishesTheCueAfterTheCompletion()
+    {
+        var vm = new ActivationButtonViewModel(_messenger);
+        int completions = 0;
+        int cues = 0;
+        bool cueSawCompletion = false;
+        _messenger.Register<ActivationCompletedMessage>(_messenger, (_, _) => completions++);
+        _messenger.Register<DwellActivationMessage>(_messenger, (_, _) =>
+        {
+            cues++;
+            cueSawCompletion = completions > 0;
+        });
+
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300), 75));
+        _messenger.Send(new FixationActivatedMessage(1_000_000, 1_000_000));
+        _messenger.Send(new FixationActivatedMessage(1_000_000, 1_000_000)); // a duplicate must not re-complete
+
+        Check.That(completions).IsEqualTo(1);
+        Check.That(cues).IsEqualTo(1);
+        Check.That(cueSawCompletion).IsTrue();  // effect first, then the cue (D8 ordering preserved)
+        Check.That(vm.DwellProgress).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void Activation_AfterHide_IsIgnored()
+    {
+        var vm = new ActivationButtonViewModel(_messenger);
+        int completions = 0;
+        int cues = 0;
+        _messenger.Register<ActivationCompletedMessage>(_messenger, (_, _) => completions++);
+        _messenger.Register<DwellActivationMessage>(_messenger, (_, _) => cues++);
+
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300), 75));
+        _messenger.Send(new HideActivationButtonMessage());
+
+        // The end won the dispatcher race: a late activation for the dead run must do nothing — no
+        // completion, no cue, and no progress on a button that is down.
+        _messenger.Send(new FixationActivatedMessage(1_000_000, 1_000_000));
+
+        Check.That(completions).IsEqualTo(0);
+        Check.That(cues).IsEqualTo(0);
+        Check.That(vm.DwellProgress).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void ActivationThenImmediateEnd_AndANewFixation_EachCompleteExactlyOnce()
+    {
+        var vm = new ActivationButtonViewModel(_messenger);
+        int completions = 0;
+        _messenger.Register<ActivationCompletedMessage>(_messenger, (_, _) => completions++);
+
+        // Fixation 1: activation then immediate end.
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300), 75));
+        _messenger.Send(new FixationActivatedMessage(1_000_000, 1_000_000));
+        _messenger.Send(new HideActivationButtonMessage());
+        Check.That(completions).IsEqualTo(1);
+
+        // Fixation 2 at a new place: the latch was reset by the show, so it completes again — and a late
+        // message from the first run's tail cannot ride it (it would have to arrive while hidden).
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(700, 500), 75));
+        _messenger.Send(new FixationActivatedMessage(4_000_000, 1_000_000));
+        Check.That(completions).IsEqualTo(2);
     }
 }

@@ -279,9 +279,10 @@ public partial class App : Application
             // startup band show bypasses ToolbarVisibilityAdapter, so on --paused/startPaused
             // launches the strip's show+raise lands here, on top of the already-shown band.
             // Moving this above ShowOverlays hides the strip under the band until the next
-            // band transition.
-            if (settings.General.StartPaused || IsPausedLaunch)
-                im.TogglePause();
+            // band transition. The same call also emits the startup provenance line (which
+            // source — --paused, general.startPaused, neither — caused the state).
+            PauseLaunchProvenance.Apply(IsPausedLaunch, settings.General.StartPaused, im,
+                line => Log.Information("{PauseState}", line));
 
             gazeEngine.Start();
 
@@ -686,6 +687,10 @@ public partial class App : Application
         // Same once-only pattern: a persisted old-default toolbar size (80) would override the
         // new 120 (mis-dwell fix) forever without this bump.
         settings.Toolbar.MigrateSizeOnce();
+        // Same once-only pattern: any persisted radius (the user's file holds 90, from a paused session)
+        // would override the ticket-3 default of 75 forever without this bump. Runs after the settings
+        // file has been validated, so the 10–200 guard is untouched and legal legacy values load first.
+        settings.Dwell.MigrateFixationRadiusOnce();
 
         var logsDir = Path.Combine(_appDataDir, "logs");
         LoggingInitializer.Initialize(logsDir);

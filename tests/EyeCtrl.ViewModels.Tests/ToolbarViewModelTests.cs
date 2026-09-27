@@ -2,6 +2,8 @@ namespace EyeCtrl.ViewModels.Tests;
 
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
@@ -43,6 +45,222 @@ public class ToolbarViewModelTests
         vm.SimulateButtonActivated("Pause");
 
         Check.That(received).IsTrue();
+    }
+
+    // Paused-trap guard, check 2. On 2026-09-24 a held gaze re-armed the toggle every cooldown
+    // cycle (700 ms dwell + 400 ms cooldown ≈ 1.1 s), so 3.5 s of continuous gaze toggled the app
+    // three times. One look must mean one toggle: after firing, the toggle cannot fire again until
+    // gaze has left the target.
+    [Fact]
+    public void HeldGazeOnPauseToggle_TogglesExactlyOnce()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ToolbarViewModel(_settings, messenger);
+        var toggleCenter = new PhysicalPoint(500, 500);
+        vm.UpdateButtonScreenPosition("Pause", toggleCenter);
+
+        int toggles = 0;
+        messenger.Register<PauseToggledMessage>(this, (_, _) => toggles++);
+
+        // 3.5 s of continuous gaze on the toggle's centre.
+        DwellDrive.Hold(0, 3_500_000, t => vm.Receive(new GazeCursorMovedMessage(toggleCenter, t)));
+
+        Check.That(toggles).IsEqualTo(1);
+    }
+
+    // Paused-trap guard, check 3 (escape works). A user who starts Paused (the 09-24 launch) must
+    // leave Paused by dwelling the resume target once. The message route is the production one:
+    // GazeEngineAdapter registers PauseToggledMessage → InteractionManager.TogglePause.
+    [Fact]
+    public void ResumeDwell_LeavesPaused_ThroughTheRealStateMachine()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var interaction = new InteractionManager();
+        interaction.TogglePause();          // the --paused / startPaused launch state
+        Check.That(interaction.CurrentState).IsEqualTo(InteractionState.Paused);
+
+        messenger.Register<PauseToggledMessage>(this, (_, _) => interaction.TogglePause());
+
+        var vm = new ToolbarViewModel(_settings, messenger);
+        var toggleCenter = new PhysicalPoint(500, 500);
+        vm.UpdateButtonScreenPosition("Pause", toggleCenter);
+
+        // A paused sample dwells on the toolbar (DwellActiveWhilePaused) — that opt-in IS the
+        // gaze-unpause affordance.
+        long dwellUs = (_settings.Dwell.ToolbarButtonDwellMs + 100) * 1000L;
+        DwellDrive.Hold(0, dwellUs,
+            t => vm.Receive(new GazeCursorMovedMessage(toggleCenter, t) { IsPaused = true }));
+
+        Check.That(interaction.CurrentState).IsNotEqualTo(InteractionState.Paused);
+    }
+
+    // Geometry is verified at ScaleX 2.0 (the user's 3840x2400 at 200 %), not only at the
+    // fixtures' default 1.0: the re-arm hit test must use the SCALED physical radius (60 DIP →
+    // 120 physical px), not the raw DIP number. A 100 px drift is still on the toggle.
+    [Fact]
+    public void ReArmHitTest_UsesTheScaledPhysicalRadius_AtScale2()
+    {
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var messenger = new WeakReferenceMessenger();
+            var vm = new ToolbarViewModel(_settings, messenger);
+            var toggleCenter = new PhysicalPoint(1000, 1000);
+            vm.UpdateButtonScreenPosition("Pause", toggleCenter);
+
+            int toggles = 0;
+            messenger.Register<PauseToggledMessage>(this, (_, _) => toggles++);
+
+            DwellDrive.Hold(0, 900_000, t => vm.Receive(new GazeCursorMovedMessage(toggleCenter, t)));
+            Check.That(toggles).IsEqualTo(1);
+
+            // Drift 100 physical px — inside the 120 px physical radius, so still the same look.
+            var inside = new PhysicalPoint(1100, 1000);
+            DwellDrive.Hold(1_000_000, 2_000_000, t => vm.Receive(new GazeCursorMovedMessage(inside, t)));
+            Check.That(toggles).IsEqualTo(1);
+
+            // Drift to 130 px — outside — and STAY there long enough to be a real leave (the
+            // latch requires ~120 ms of continuous off-target). A fresh dwell then toggles again.
+            var outside = new PhysicalPoint(1000, 1130);
+            DwellDrive.Hold(2_100_000, 2_300_000, t => vm.Receive(new GazeCursorMovedMessage(outside, t)));
+            DwellDrive.Hold(2_400_000, 3_300_000, t => vm.Receive(new GazeCursorMovedMessage(toggleCenter, t)));
+            Check.That(toggles).IsEqualTo(2);
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);
+        }
+    }
+
+    // The other half of leave-before-re-arm: a look that leaves and returns is a second look, and
+    // must be able to toggle again. A latch that never clears would strand the user in the state
+    // they just entered.
+    [Fact]
+    public void LeavingPauseToggle_ReArmsIt_ForASecondLook()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ToolbarViewModel(_settings, messenger);
+        var toggleCenter = new PhysicalPoint(500, 500);
+        vm.UpdateButtonScreenPosition("Pause", toggleCenter);
+
+        int toggles = 0;
+        messenger.Register<PauseToggledMessage>(this, (_, _) => toggles++);
+
+        // First look: completes a dwell (one toggle).
+        DwellDrive.Hold(0, 900_000, t => vm.Receive(new GazeCursorMovedMessage(toggleCenter, t)));
+        Check.That(toggles).IsEqualTo(1);
+
+        // Gaze leaves the target entirely — past the hit radius (60 physical px at scale 1.0).
+        DwellDrive.Hold(1_000_000, 1_200_000,
+            t => vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(0, 0), t)));
+
+        // Second look: dwells again and toggles again.
+        DwellDrive.Hold(1_300_000, 2_200_000, t => vm.Receive(new GazeCursorMovedMessage(toggleCenter, t)));
+        Check.That(toggles).IsEqualTo(2);
+    }
+
+    // A gap-held sample carries the frozen last position, so a blink ON the toggle must not clear
+    // the re-arm latch — the user's gaze never actually moved.
+    [Fact]
+    public void GapHeldSample_DoesNotClearTheReArmLatch()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ToolbarViewModel(_settings, messenger);
+        var toggleCenter = new PhysicalPoint(500, 500);
+        vm.UpdateButtonScreenPosition("Pause", toggleCenter);
+
+        int toggles = 0;
+        messenger.Register<PauseToggledMessage>(this, (_, _) => toggles++);
+
+        DwellDrive.Hold(0, 900_000, t => vm.Receive(new GazeCursorMovedMessage(toggleCenter, t)));
+        Check.That(toggles).IsEqualTo(1);
+
+        // A held point that says "eyes closed over the toggle" must not re-arm it.
+        vm.Receive(new GazeCursorMovedMessage(
+            new GazeFrame(new PhysicalPoint(0, 0), 1_000_000, IsInGap: true)));
+        DwellDrive.Hold(1_300_000, 2_200_000, t => vm.Receive(new GazeCursorMovedMessage(toggleCenter, t)));
+
+        Check.That(toggles).IsEqualTo(1);
+    }
+
+    // Adaptation's GeometryRouter can GROW the toolbar's hit area by up to 100 px. The latch must
+    // hit-test the detector's effective geometry, not the as-registered radius: a gaze held 80 px
+    // off-centre (outside the base 60 px, inside the effective 100 px) is still the same look, and
+    // a latch that clears there is the 09-24 re-fire storm again — the day adaptation is enabled.
+    [Fact]
+    public void ReArmHitTest_UsesTheDetectorsEffectiveRadius_NotTheBaseRadius()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ProbeToolbarViewModel(_settings, messenger);
+        vm.UpdateButtonScreenPosition("Pause", new PhysicalPoint(500, 500));
+        vm.GrowTarget("Pause", 40); // base 60 px + 40 = 100 px effective
+
+        int toggles = 0;
+        messenger.Register<PauseToggledMessage>(this, (_, _) => toggles++);
+
+        var offCentre = new PhysicalPoint(580, 500); // 80 px from the centre
+        DwellDrive.Hold(0, 3_500_000, t => vm.Receive(new GazeCursorMovedMessage(offCentre, t)));
+
+        Check.That(toggles).IsEqualTo(1);
+    }
+
+    // A re-dock moves the target; the latch must follow it, not hold a stale centre. The second
+    // hold is on the NEW centre and must fire; the old centre must no longer be the toggle.
+    [Fact]
+    public void ReDockedPauseTarget_ReArmsOnTheNewCentre()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ToolbarViewModel(_settings, messenger);
+        var first = new PhysicalPoint(500, 500);
+        vm.UpdateButtonScreenPosition("Pause", first);
+
+        int toggles = 0;
+        messenger.Register<PauseToggledMessage>(this, (_, _) => toggles++);
+
+        DwellDrive.Hold(0, 900_000, t => vm.Receive(new GazeCursorMovedMessage(first, t)));
+        Check.That(toggles).IsEqualTo(1);
+
+        // Re-dock: the View reports a new centre for the same button.
+        var moved = new PhysicalPoint(1500, 700);
+        vm.UpdateButtonScreenPosition("Pause", moved);
+
+        // Leave the old spot for good, then dwell the new centre: the toggle must fire there.
+        DwellDrive.Hold(1_000_000, 1_300_000, t => vm.Receive(new GazeCursorMovedMessage(first, t)));
+        DwellDrive.Hold(1_400_000, 2_300_000, t => vm.Receive(new GazeCursorMovedMessage(moved, t)));
+        Check.That(toggles).IsEqualTo(2);
+
+        // The old centre is no longer a target: a hold there must not toggle.
+        DwellDrive.Hold(2_400_000, 2_600_000, t => vm.Receive(new GazeCursorMovedMessage(first, t)));
+        DwellDrive.Hold(2_700_000, 3_600_000, t => vm.Receive(new GazeCursorMovedMessage(first, t)));
+        Check.That(toggles).IsEqualTo(2);
+    }
+
+    // A single stray sample outside the circle is a tracker outlier, not a leave: the user is
+    // still looking at the toggle, so it must not re-arm. Only a sustained off-target run does.
+    [Fact]
+    public void SingleOffTargetOutlier_DoesNotReArm_ButASustainedLeaveDoes()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var vm = new ToolbarViewModel(_settings, messenger);
+        var toggleCenter = new PhysicalPoint(500, 500);
+        vm.UpdateButtonScreenPosition("Pause", toggleCenter);
+
+        int toggles = 0;
+        messenger.Register<PauseToggledMessage>(this, (_, _) => toggles++);
+
+        DwellDrive.Hold(0, 900_000, t => vm.Receive(new GazeCursorMovedMessage(toggleCenter, t)));
+        Check.That(toggles).IsEqualTo(1);
+
+        // One outlier sample off-target, then straight back: still the same look.
+        vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(0, 0), 1_000_000));
+        DwellDrive.Hold(1_030_000, 2_000_000, t => vm.Receive(new GazeCursorMovedMessage(toggleCenter, t)));
+        Check.That(toggles).IsEqualTo(1);
+
+        // A sustained leave (>= 120 ms off-target) re-arms: a new look toggles again.
+        DwellDrive.Hold(2_100_000, 2_300_000,
+            t => vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(0, 0), t)));
+        DwellDrive.Hold(2_400_000, 3_300_000, t => vm.Receive(new GazeCursorMovedMessage(toggleCenter, t)));
+        Check.That(toggles).IsEqualTo(2);
     }
 
     [Fact]
@@ -332,4 +550,19 @@ public class ToolbarViewModelTests
         _messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
         Check.That(modes.IconKey).IsEqualTo("Modes");
     }
+}
+
+/// <summary>
+/// Exposes the detector so a test can apply the adaptation geometry margin, which production
+/// applies through <c>IDwellDetectorRegistry</c>/<c>GeometryRouter</c>. Top-level (not nested in
+/// the test class): the MVVM Toolkit's RegisterAll source generator emits code for any class
+/// implementing <see cref="CommunityToolkit.Mvvm.Messaging.IRecipient{T}"/>, and a private nested
+/// subclass is not visible to that generated code.
+/// </summary>
+internal sealed class ProbeToolbarViewModel : ToolbarViewModel
+{
+    public ProbeToolbarViewModel(EyeCtrlSettings settings, IMessenger messenger)
+        : base(settings, messenger) { }
+
+    public void GrowTarget(string id, double marginPx) => DwellDetector.UpdateTargetGeometry(id, marginPx);
 }

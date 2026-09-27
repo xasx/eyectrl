@@ -127,6 +127,34 @@ public class CalibrationPacingAndToleranceTests
     }
 
     [Fact]
+    public async Task Progress_IgnoresLostGaze_TheTimeRingIsTheProbesAlone()
+    {
+        // The measure-only probe's ring shows elapsed time and so moves on INVALID samples too; normal
+        // calibration's must not (review A's FU11-2). A blink is not achievement, and a ring that
+        // jumped to the elapsed share on one would throw away the banked in-band count. Only invalid
+        // samples reveal this: a valid one recomputes the in-band count right after.
+        var vm = CreateVm();
+        _messenger.Send(new Messages.CalibrationRequestedMessage());
+        var target = vm.CurrentTargetPosition;
+
+        for (var i = 0; i < 5; i++)
+            _provider.FireGaze(new GazePoint(target.X, target.Y, 0, true));
+        var banked = vm.TargetProgress;
+        Check.That(banked).IsStrictlyGreaterThan(0.0);
+
+        // About 1 s of tracking loss, so the elapsed share (~0.2) differs from the banked count.
+        var t0 = Environment.TickCount64;
+        while (Environment.TickCount64 - t0 < 1_000)
+        {
+            _provider.FireGaze(new GazePoint(0, 0, 0, false));
+            await Task.Delay(25, TestContext.Current.CancellationToken);
+        }
+
+        Check.That(vm.TargetProgress).IsEqualTo(banked);
+        vm.Cancel();
+    }
+
+    [Fact]
     public void Progress_ResumesWhereItLeftOff_SoShortHoldsAccumulate()
     {
         // The pacing claim in one test: a user who can only hold for a moment at a time still

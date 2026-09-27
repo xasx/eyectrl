@@ -16,7 +16,6 @@ using EyeCtrl.ViewModels.Messages;
 /// </summary>
 internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
 {
-    private const int ActivationButtonOffsetPixels = 55;
     // Inset (logical px) from the right screen edge for drag/manual-selection edge buttons.
     private const double RightEdgeInsetLogical = 30;
 
@@ -131,6 +130,15 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 if (Context.CursorVM.IsVisible && !_modal.SettingsOpen) cursorCircle.Show();
                 else cursorCircle.Hide();
                 break;
+            case nameof(CursorCircleViewModel.IsPaused):
+                // Paused keeps the ring visible, dimmed: it is the user's evidence that tracking is
+                // alive while they look for the resume target.
+                cursorCircle.SetPausedDim(Context.CursorVM.IsPaused);
+                break;
+            case nameof(CursorCircleViewModel.IsPinned):
+                // The pin is the "you're holding" signal: the ring goes bold and stops moving.
+                cursorCircle.SetPinned(Context.CursorVM.IsPinned);
+                break;
         }
     }
 
@@ -147,10 +155,13 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 if (Context.ActivationVM.IsVisible)
                 {
                     actionMenu.Hide();
-                    var circleRadius = Context.Settings.Cursor.CircleSize / 2;
-                    var buttonOffset = circleRadius + ActivationButtonOffsetPixels;
+                    // Centred on the pin, sized for the radius the RULE is running with: the adapter
+                    // reads the detector's effective radius at onset and carries it on the show message.
+                    // Positioned BEFORE showing — the other order presents the previous halo at the new
+                    // gaze point for a frame.
+                    activationButton.ShowAt(
+                        Context.ActivationVM.Position, Context.ActivationVM.FixationRadiusPixels);
                     activationButton.Show();
-                    activationButton.ShowAt(Context.ActivationVM.Position, buttonOffset);
                 }
                 else
                 {

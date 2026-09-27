@@ -26,7 +26,8 @@
                                 code-behind from the view model, never from a constant here: this ring
                                 and the collector's gate must be the same number, and a literal in XAML
                                 is exactly how they came to differ by a factor of twelve.
-               ProgressRing   - the same circle, drawn thicker/brighter as in-band samples accumulate.
+               ProgressRing   - the same circle, drawn thicker/brighter as TargetProgress rises (in-band
+                                samples; the elapsed window in the measure-only probe).
                TargetDot      - the small thing to aim AT, sized from CalibrationSettings.TargetRadiusPixels. -->
         <Canvas x:Name="TargetCanvas" Visibility="Collapsed">
             <Canvas x:Name="TargetSetCanvas" IsHitTestVisible="False"/>

@@ -1,7 +1,9 @@
 namespace EyeCtrl.App.Tests.Settings.Pages;
 
+using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.ViewModels.Messages;
 using NFluent;
 using Xunit;
 
@@ -15,6 +17,27 @@ public class CalibrationPageSourceTests
         Check.That(pages[1].Rows[0]).IsInstanceOf<LabelSpec>();
         var buttons = pages[1].Rows.OfType<ButtonSpec>().Select(b => b.Id);
         Check.That(buttons).Contains(new[] { "cal_run", "cal_clear" });
+    }
+
+    [Fact]
+    public void ProbeButton_SendsTheMeasureOnlyRequest_AndIsAlwaysVisible()
+    {
+        // Deliberately visible without a diagnostics precondition: hiding it behind RecordRawGaze
+        // would make a measurement session depend on a global toggle the gaze-only user cannot see.
+        // And the request must be the measure-only one — starting the probe through "Calibrate Now"
+        // would silently skip the transform.
+        var messenger = new WeakReferenceMessenger();
+        bool measureOnly = false, normal = false;
+        messenger.Register<MeasureOnlyCalibrationRequestedMessage>(this, (_, _) => measureOnly = true);
+        messenger.Register<CalibrationRequestedMessage>(this, (_, _) => normal = true);
+
+        var pages = new CalibrationPageSource(TestSettingsPageContext.Build(messenger: messenger)).Build();
+        var probe = pages.SelectMany(p => p.Rows).OfType<ButtonSpec>().Single(b => b.Id == "cal_probe");
+
+        probe.OnActivate();
+
+        Check.That(measureOnly).IsTrue();
+        Check.That(normal).IsFalse();
     }
 
     [Fact]

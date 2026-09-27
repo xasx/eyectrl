@@ -340,9 +340,11 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
 
     /// <summary>
     /// Makes "inside the ring" and "about to leave" legible without text. The progress ring brightens
-    /// and thickens as in-band samples accumulate, and the whole ring dims the moment gaze leaves the
-    /// band — so the user learns what advances the target by watching it, which is the only channel
-    /// available to someone who cannot read a number and hold a fixation at the same time.
+    /// and thickens as the view model's <c>TargetProgress</c> rises — in-band samples accumulating in a
+    /// normal calibration, the elapsed share of the fixed window in the measure-only probe — and the
+    /// whole ring dims the moment gaze leaves the band. So the user learns what advances the target by
+    /// watching it, which is the only channel available to someone who cannot read a number and hold a
+    /// fixation at the same time.
     /// </summary>
     private void UpdateOnTargetFeedback()
     {
@@ -391,7 +393,7 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
                 TargetCanvas.Visibility = Visibility.Collapsed;
                 CancelHint.Visibility = Visibility.Collapsed;
                 StopPulse();
-                ProgressText.Text = "Computing...";
+                ProgressText.Text = _viewModel?.IsMeasureOnly == true ? "Recording..." : "Computing...";
                 break;
 
             case CalibrationState.Active:
@@ -418,7 +420,6 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
     {
         TargetCanvas.Visibility = Visibility.Collapsed;
         ProgressText.Visibility = Visibility.Collapsed;
-        CancelHint.Visibility = Visibility.Visible;
         Backdrop.Visibility = Visibility.Visible;
         CompletionPanel.Visibility = Visibility.Visible;
         StopPulse();
@@ -432,35 +433,28 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
         Activate();
         Focus();
 
-        var errorPx = _viewModel?.MeanErrorPixels ?? 0;
-        // Quality % is computed in the VM against the physical-pixel screen diagonal
-        // (CalibrationData.ComputeQualityPercent) \u2014 DPI-correct, single source of truth.
-        var qualityPercent = _viewModel?.QualityPercent ?? 0;
-        var isGood = qualityPercent < 2.0;
+        // The copy and the visibility rules are a pure function (CalibrationCompletion), so the
+        // measure-only branch — no "failed", no Retry — has a headless test without this window's
+        // Show()/Activate()/Focus().
+        var presentation = CalibrationCompletion.Describe(
+            _viewModel?.IsMeasureOnly == true,
+            goodResult,
+            _viewModel?.MeanErrorPixels ?? 0,
+            // Quality % is computed in the VM against the physical-pixel screen diagonal
+            // (CalibrationData.ComputeQualityPercent) — DPI-correct, single source of truth.
+            _viewModel?.QualityPercent ?? 0,
+            _viewModel?.ErrorText);
 
-        if (goodResult && isGood)
-        {
-            CompletionSymbol.Text = "\u2713";
-            CompletionSymbol.Foreground = Tokens.BrushAccentSuccess;
-            CompletionTitle.Text = "Calibration complete";
-            CompletionError.Text = $"Mean error: {errorPx:F1} px ({qualityPercent:F1}%)";
-            CompletionHint.Visibility = Visibility.Visible;
-            RetryPanel.Visibility = Visibility.Collapsed;
-            StartAutoDismiss(3000, DismissAndReset);
-        }
-        else
-        {
-            CompletionSymbol.Text = "\u26A0";
-            CompletionSymbol.Foreground = Tokens.BrushAccentWarning;
-            CompletionTitle.Text = goodResult ? "Calibration complete" : "Calibration failed";
-            CompletionError.Text = goodResult
-                ? $"Mean error: {errorPx:F1} px ({qualityPercent:F1}%) \u2014 poor quality"
-                : _viewModel?.ErrorText ?? "";
-            CompletionHint.Visibility = Visibility.Collapsed;
-            RetryPanel.Visibility = goodResult ? Visibility.Visible : Visibility.Collapsed;
-            // Safety net: never trap the user on the overlay even if they can't actuate a button.
-            StartAutoDismiss(12000, DismissAndReset);
-        }
+        CompletionSymbol.Text = presentation.Symbol;
+        CompletionSymbol.Foreground = presentation.Tone == CompletionTone.Success
+            ? Tokens.BrushAccentSuccess
+            : Tokens.BrushAccentWarning;
+        CompletionTitle.Text = presentation.Title;
+        CompletionError.Text = presentation.Detail;
+        CompletionHint.Visibility = presentation.HintVisible ? Visibility.Visible : Visibility.Collapsed;
+        RetryPanel.Visibility = presentation.RetryVisible ? Visibility.Visible : Visibility.Collapsed;
+        CancelHint.Visibility = presentation.CancelHintVisible ? Visibility.Visible : Visibility.Collapsed;
+        StartAutoDismiss(presentation.AutoDismissMs, DismissAndReset);
     }
 
     /// <summary>Dismisses the overlay and returns the VM to Idle so re-calibration is possible.</summary>

@@ -51,6 +51,7 @@ public class GazeEngineAdapter : IDisposable
 
         // Core -> ViewModel (via messages, marshaled to UI thread)
         _gazeEngine.CursorMoved += OnCursorMoved;
+        _gazeEngine.FixationActivated += OnFixationActivated;
         _interactionManager.ShowActivationButton += OnShowActivationButton;
         _interactionManager.HideActivationButton += OnHideActivationButton;
         _interactionManager.ShowActionMenu += OnShowActionMenu;
@@ -224,6 +225,13 @@ public class GazeEngineAdapter : IDisposable
         _logger.LogInformation("UI instrument 1 — {Summary}", _dispatchProbe.Describe());
     }
 
+    // Core's fixation rule completed the valid-time activation clock (ticket 3). The VM consumes this —
+    // it never recomputes age — and publishes the completion/cue messages that drive the existing
+    // ActivationCompletedMessage path (auto-selection resolve, then OnActivationButtonDwelled).
+    private void OnFixationActivated(FixationActivation activation) =>
+        _dispatcher.BeginInvoke(() => _messenger.Send(
+            new FixationActivatedMessage(activation.TimestampUs, activation.CreditedAgeUs)));
+
     private void OnShowActivationButton(PhysicalPoint point) =>
         _dispatcher.BeginInvoke(() => _messenger.Send(new ShowActivationButtonMessage(point)));
 
@@ -361,6 +369,7 @@ public class GazeEngineAdapter : IDisposable
             _logger.LogInformation("UI instrument 1 (final) — {Summary}", _dispatchProbe.Describe());
 
         _gazeEngine.CursorMoved -= OnCursorMoved;
+        _gazeEngine.FixationActivated -= OnFixationActivated;
         _interactionManager.ShowActivationButton -= OnShowActivationButton;
         _interactionManager.HideActivationButton -= OnHideActivationButton;
         _interactionManager.ShowActionMenu -= OnShowActionMenu;

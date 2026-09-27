@@ -54,7 +54,7 @@ public class ManualSelectionAnchorWiringTests
                 // unsubscribes from all of them in OnDispose, so each must be real (the shared
                 // builder leaves them null! for tests that never touch them).
                 CursorVM = new CursorCircleViewModel(settings, messenger),
-                ActivationVM = new ActivationButtonViewModel(settings, messenger),
+                ActivationVM = new ActivationButtonViewModel(messenger),
                 ManualSelectionVM = new ManualSelectionOverlayViewModel(settings, messenger),
                 ManualSelectionIndicatorVM = indicatorVm,
                 ActionMenuVM = new ActionMenuViewModel(settings, messenger),

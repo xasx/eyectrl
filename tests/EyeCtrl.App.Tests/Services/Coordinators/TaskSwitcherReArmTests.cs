@@ -111,7 +111,7 @@ public class TaskSwitcherReArmTests
             _coordinator.Initialize(TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
             {
                 CursorVM = new CursorCircleViewModel(settings, messenger),
-                ActivationVM = new ActivationButtonViewModel(settings, messenger),
+                ActivationVM = new ActivationButtonViewModel(messenger),
                 ManualSelectionVM = new ManualSelectionOverlayViewModel(settings, messenger),
                 ManualSelectionIndicatorVM = new ManualSelectionGazeIndicatorViewModel(messenger),
                 ActionMenuVM = new ActionMenuViewModel(settings, messenger),

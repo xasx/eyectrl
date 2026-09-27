@@ -157,7 +157,7 @@ public class EdgeButtonBarZOrderTests
             ManualSelectionVM = new ManualSelectionOverlayViewModel(settings, messenger),
             ManualSelectionIndicatorVM = new ManualSelectionGazeIndicatorViewModel(messenger),
             CursorVM = new CursorCircleViewModel(settings, messenger),
-            ActivationVM = new ActivationButtonViewModel(settings, messenger),
+            ActivationVM = new ActivationButtonViewModel(messenger),
             ActionMenuVM = new ActionMenuViewModel(settings, messenger),
             ToolbarVM = new ToolbarViewModel(settings, messenger),
             BackdropVM = new GlassBackdropViewModel(settings, messenger),

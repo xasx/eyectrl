@@ -173,13 +173,53 @@ public class GazeEngineFixationReconfigurationTests
         DriveJitter(provider, 500, 500, spanPx: 40, durationMs: 300, ref ts); // radius 60 >= 40 → fixation
         Check.That(engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.Fixation);
 
-        s.Dwell.FixationRadiusPixels = 20; // narrower than the 40 px spread
+        s.Dwell.FixationRadiusPixels = 20; // narrower than the spread
         ts += 33_000;
-        provider.Push(new GazePoint(540, 500, ts, true)); // 40 px from the fixation center → now outside
+        // The running centroid sits at ~520 after the symmetric 500/540 jitter, so a 560 sample is the
+        // one that is now 40 px outside r20 (the old first-sample rule compared against 500 instead).
+        provider.Push(new GazePoint(560, 500, ts, true));
         Check.That(engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.FreeLook);
 
         DriveJitter(provider, 700, 700, spanPx: 0, durationMs: 300, ref ts); // and a fresh fixation still works
         Check.That(engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.Fixation);
+    }
+
+    [Fact]
+    public void EffectiveDwellFill_ReachesTheLiveDetector_InPlace_AndShortensTheActivationClock()
+    {
+        // Ticket 3 item 6: the activation threshold flows through the effective-dwell map, read from
+        // EffectiveSettingsProvider (the documented IDwellDetectorRegistry bypass — the registry's
+        // appliers push onto DwellDetector targets, and this clock has none). Mutation: read the raw
+        // DwellSettings.ActivationButtonDwellMs instead of Effective(...) → the fill never lands and the
+        // detector stays at 700.
+        var s = Settings(radius: 75, detectMs: 300);
+        s.Adaptation.Enabled = true;
+        var provider = new ScriptedGazeProvider();
+        var effective = new EffectiveSettingsProvider(s.Adaptation);
+        using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s, effectiveSettings: effective);
+        var activations = new List<long>();
+        engine.FixationActivated += activation => activations.Add(activation.TimestampUs);
+
+        long ts = 0;
+        for (int i = 0; i < 12; i++) // onset at 300 ms
+        {
+            provider.Push(new GazePoint(500, 500, ts, true));
+            ts += 30_000;
+        }
+        Check.That(engine.ActivationDwellMsForTest).IsEqualTo(700); // baseline while no fill is stored
+
+        // Full forgiving fill: −0.40 × 700 → 420 ms effective, applied in place on the next sample.
+        effective.SetMomentaryFill(AdaptationKnob.DwellTime, DwellContext.Other,
+            forgivingFill: 1.0, tighteningFill: 0.0);
+        for (int i = 0; i < 30; i++)
+        {
+            provider.Push(new GazePoint(500, 500, ts, true));
+            ts += 30_000;
+        }
+
+        Check.That(engine.ActivationDwellMsForTest).IsEqualTo(420);
+        Check.That(activations).HasSize(1);
+        Check.That((double)activations[0]).IsCloseTo(750_000, 35_000); // 300 onset + 420 dwell, not 1000
     }
 
     [Fact]

@@ -306,14 +306,18 @@ public class AppBootstrapper
             sp.GetRequiredService<EyeCtrlSettings>().Dwell,
             Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "dwell-cue.wav")));
 
-        // Core engine
+        // Core engine. The telemetry sink rides the engine since ticket 3: the activation surface's clock
+        // lives in the fixation rule now, so its Activated/Abandoned outcomes are emitted from the same
+        // valid-time ledger. The sink is registered below this factory, which is fine — factories are
+        // evaluated lazily at first resolution.
         services.AddSingleton(sp => new GazeEngine(
             sp.GetRequiredService<IGazeProvider>(),
             sp.GetRequiredService<IInputSimulator>(),
             sp.GetRequiredService<EyeCtrlSettings>(),
             sp.GetRequiredService<CalibrationService>(),
             sp.GetRequiredService<EffectiveSettingsProvider>(),
-            sp.GetRequiredService<ILogger<GazeEngine>>()));
+            sp.GetRequiredService<ILogger<GazeEngine>>(),
+            sp.GetRequiredService<IStruggleTelemetrySink>()));
 
         // Struggle-detection telemetry sink (Phase 1a): surfaces report DwellOutcomes here.
         // BufferingTelemetrySink only buffers (zero behaviour change); DispatcherTelemetrySink

@@ -15,6 +15,14 @@ public record ShowActivationButtonMessage(PhysicalPoint Position);
 public record HideActivationButtonMessage;
 
 /// <summary>
+/// Sent when Core's fixation rule completes an activation: the valid-time age reached the onset age plus
+/// the effective activation dwell. The activation VM consumes it (it never computes age itself), then
+/// publishes the dwell-completion cue and <see cref="ActivationCompletedMessage"/>. TimestampMicroseconds
+/// and CreditedAgeUs are Core's ledger values, passed through for consumers that record them.
+/// </summary>
+public record FixationActivatedMessage(long TimestampMicroseconds, long CreditedAgeUs);
+
+/// <summary>
 /// Sent to show action menu.
 /// All position coordinates are in physical screen pixels.
 /// </summary>

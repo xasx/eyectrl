@@ -66,7 +66,7 @@ public class ManualSelectionRecaptureTests
             ManualSelectionVM = manualSelectionVm,
             ManualSelectionIndicatorVM = new ManualSelectionGazeIndicatorViewModel(messenger),
             CursorVM = new CursorCircleViewModel(settings, messenger),
-            ActivationVM = new ActivationButtonViewModel(settings, messenger),
+            ActivationVM = new ActivationButtonViewModel(messenger),
             ActionMenuVM = new ActionMenuViewModel(settings, messenger),
             ToolbarVM = new ToolbarViewModel(settings, messenger),
             BackdropVM = new GlassBackdropViewModel(settings, messenger),

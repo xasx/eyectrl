@@ -60,10 +60,11 @@ public class OverlayTelemetryWiringTests
     {
         // Intended context for every concrete DwellOverlayViewModelBase subclass. ScrollOverlay's
         // ctor wiring lands in plan 1a-③; its entry here documents intent and keeps this guard green.
+        // ActivationButtonViewModel is deliberately absent: ticket 3 moved the activation surface's clock
+        // (and its telemetry) into GazeEngine's fixation rule, so it is no longer a DwellOverlayViewModelBase.
         var expected = new Dictionary<string, DwellContext>
         {
             [nameof(ActionMenuViewModel)] = DwellContext.ActionMenu,
-            [nameof(ActivationButtonViewModel)] = DwellContext.ActivationButton,
             [nameof(DragTrailViewModel)] = DwellContext.DragTrail,
             [nameof(EdgeButtonBarViewModel)] = DwellContext.EdgeButtonBar,
             [nameof(GlassBackdropViewModel)] = DwellContext.Backdrop,
@@ -123,24 +124,7 @@ public class OverlayTelemetryWiringTests
         }
     }
 
-    [Fact]
-    public void ActivationButtonViewModel_EmitsOutcome_TaggedActivationButtonContext()
-    {
-        // A real subclass, end-to-end: proves the wired context literal is correct. The drift guard
-        // above only checks that every subclass has *an* entry, not that its `: base(...)` literal
-        // matches — this closes that gap for one representative surface (L3).
-        var sink = new RecordingSink();
-        var settings = new EyeCtrlSettings();
-        settings.Dwell.ActivationButtonDwellMs = 200;
-        var messenger = new WeakReferenceMessenger();
-        var vm = new ActivationButtonViewModel(settings, messenger, sink);
-
-        messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300)));
-        Check.That(vm.IsVisible).IsTrue();
-        DwellDrive.Hold(messenger, new PhysicalPoint(500, 300), 0, 200_000);
-
-        Check.That(sink.Outcomes).Not.IsEmpty();
-        Check.That(sink.Outcomes[0].Kind).IsEqualTo(OutcomeKind.Activated);
-        Check.That(sink.Outcomes[0].Context).IsEqualTo(DwellContext.ActivationButton);
-    }
+    // The activation surface's end-to-end telemetry pin (context literal ActivationButton, activated at
+    // progress 1.0, abandon threshold) moved to GazeEngineActivationTelemetryTests in EyeCtrl.Core.Tests
+    // with the clock itself (ticket 3): the rule now emits it, not a ViewModel DwellDetector.
 }

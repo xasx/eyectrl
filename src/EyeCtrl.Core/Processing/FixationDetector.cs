@@ -17,6 +17,10 @@ public enum FixationEndReason
     EyesLostPastGapBudget,
     /// <summary>The stream ended while the run was still open.</summary>
     StreamEnded,
+    /// <summary>The app took the interaction over — the suppression release ended a run whose onset had
+    /// been reported. The run is over like any other, but the user did not give up on it: it is not a
+    /// <see cref="GazeLeft"/>, and telemetry must not report it as an abandonment.</summary>
+    Suppressed,
 }
 
 /// <summary>What the detector reports when it releases a run whose onset it had reported.</summary>
@@ -328,9 +332,9 @@ public class FixationDetector
     }
 
     /// <summary>
-    /// Zeroes the age AND clears the onset and activation latches, so held gaze can re-show the button
-    /// after a fresh onset age. The re-arm is deliberately narrow: only <c>Paused → FreeLook</c> and the
-    /// <c>GazeEngine.SuppressFixation</c> true→false edge use it.
+    /// Re-arms the detector so held gaze can report a fresh onset after a re-arm edge. The re-arm is
+    /// deliberately narrow: only <c>Paused → FreeLook</c> and the <c>GazeEngine.SuppressFixation</c>
+    /// true→false edge use it.
     /// <para>
     /// Clearing the latches on EVERY FreeLook entry is wrong (fixup-02 R2-1): a fixed-position exit
     /// button — the edge-bar Close at <c>RightEdgeAnchor</c> — sits under an unmoved gaze, so the
@@ -339,8 +343,23 @@ public class FixationDetector
     /// new target starts a fresh run and the latch never mattered for it.
     /// </para>
     /// </summary>
-    public void Rearm()
+    /// <param name="endReportedRun">
+    /// True on the <c>SuppressFixation</c> release edge. The run's onset was reported, so the
+    /// interaction state is still <c>Fixation</c>; ending the run here — raising
+    /// <see cref="FixationEnded"/> and the release ledger, exactly as a gaze-left does — is what returns
+    /// the state to FreeLook. Without it the cleared latch means the run's later end raises nothing, the
+    /// state strands in Fixation, and the re-onset is rejected because
+    /// <c>InteractionManager.OnFixationStarted</c> only accepts from FreeLook (fixup-02 N1). False on
+    /// the <c>Paused → FreeLook</c> edge: the state already left Fixation, so an end there would be a
+    /// spurious transition (and would read as an abandonment in telemetry).
+    /// </param>
+    public void Rearm(bool endReportedRun)
     {
+        if (endReportedRun && _onsetFired)
+        {
+            EndRun(FixationEndReason.Suppressed);
+            return;
+        }
         ResetAge();
         _onsetFired = false;
         _activated = false;

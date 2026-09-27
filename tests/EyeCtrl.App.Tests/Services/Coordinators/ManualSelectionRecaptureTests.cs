@@ -245,12 +245,13 @@ public class ManualSelectionRecaptureTests
             public void UpdatePosition(PhysicalPoint point) { }
             public void UpdateAppearance(CursorSettings settings) { }
             public void SetPausedDim(bool dimmed) { }
+            public void SetPinned(bool pinned) { }
         }
 
         private sealed class NoOpActivationButton : IActivationButtonOverlay
         {
             public void Show() { }
-            public void ShowAt(PhysicalPoint position, double offset) { }
+            public void ShowAt(PhysicalPoint position, double fixationRadiusPixels) { }
             public void Hide() { }
             public void HideImmediate() { }
             public void UpdateDwellProgress(double progress) { }

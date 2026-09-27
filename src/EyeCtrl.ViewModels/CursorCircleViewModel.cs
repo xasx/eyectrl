@@ -9,7 +9,9 @@ using EyeCtrl.ViewModels.Messages;
 public partial class CursorCircleViewModel : MessengerViewModelBase,
     IRecipient<GazeCursorMovedMessage>,
     IRecipient<StateChangedMessage>,
-    IRecipient<ExternalDwellActiveMessage>
+    IRecipient<ExternalDwellActiveMessage>,
+    IRecipient<ShowActivationButtonMessage>,
+    IRecipient<HideActivationButtonMessage>
 {
     private readonly EyeCtrlSettings _settings;
 
@@ -28,6 +30,14 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     /// </summary>
     [ObservableProperty] private bool _isPaused;
 
+    /// <summary>
+    /// True from the activation widget's show until its hide — i.e. exactly while Core's rule reports a
+    /// fixation the interaction state accepted. While pinned the ring does not follow gaze: it sits
+    /// literally still on the onset centroid. That stillness is the "you're holding" signal the user
+    /// asked for ("the circle almost never stands still").
+    /// </summary>
+    [ObservableProperty] private bool _isPinned;
+
     public double Size => _settings.Cursor.CircleSize;
     public string CircleColor => _settings.Cursor.CircleColor;
     public double Opacity => _settings.Cursor.CircleOpacity;
@@ -41,9 +51,26 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
 
     public void Receive(GazeCursorMovedMessage message)
     {
-        if (IsVisible)
+        // Pinned means the ring stays where the fixation started; a gaze move inside the hold radius
+        // must not nudge it. FreeLook (and Paused) follow as before, so the user can still see where
+        // the tracker thinks they are looking.
+        if (IsVisible && !IsPinned)
             Position = message.Position;
     }
+
+    /// <summary>
+    /// Pins the ring on the fixation's onset centroid. The message carries exactly what ticket 3's rule
+    /// published at onset — <c>InteractionManager.FixationPoint</c> set from the detector's running
+    /// centroid — NOT the latest filtered sample, which sits behind the saccade. Pinning on the latest
+    /// sample would re-introduce the anchor offset the centroid rule removed.
+    /// </summary>
+    public void Receive(ShowActivationButtonMessage message)
+    {
+        Position = message.Position;
+        IsPinned = true;
+    }
+
+    public void Receive(HideActivationButtonMessage message) => IsPinned = false;
 
     public void Receive(StateChangedMessage message)
     {
@@ -51,6 +78,10 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
         // while they are looking for the resume target. RepeatMode hides the normal circle: the
         // contracting repeat cursor replaces it there.
         IsPaused = message.NewState == InteractionState.Paused;
+        // Paused is not a measured state — no sample feeds the rule — so it also releases the pin,
+        // structurally rather than relying on the pause path's hide message arriving first.
+        if (IsPaused)
+            IsPinned = false;
         _stateAllowsCursor = message.NewState
             is InteractionState.FreeLook or InteractionState.Fixation or InteractionState.Paused;
         UpdateVisibility();

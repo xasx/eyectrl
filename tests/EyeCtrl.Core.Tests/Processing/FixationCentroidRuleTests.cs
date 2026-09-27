@@ -365,9 +365,9 @@ public class FixationCentroidRuleTests
     [Fact]
     public void SuppressionRelease_ReArms_SoAHeldRunCanActivateAgain()
     {
-        // Fixup-02 keeps the suppression-release re-arm: without clearing the activation latch, a run
-        // that already fired and then held through a suppressed stretch could never fire again while the
-        // gaze stayed inside R (no new run starts). Mutation: drop the suppression-edge re-arm flag.
+        // Fixup-02 keeps the suppression-release re-arm: the release ends the old run (Suppressed — see
+        // the N1 tests) and the held gaze re-earns the full clock on a fresh run, so a second activation
+        // can fire while the gaze never left R. Mutation: drop the suppression-edge re-arm flag.
         var s = Settings();
         var provider = new ScriptedGazeProvider();
         using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s);
@@ -382,6 +382,116 @@ public class FixationCentroidRuleTests
         FeedValid(provider, 1000, 1000, ts, samples: 40);             // re-earns the full clock
 
         Check.That(probe.Activations).HasSize(2);
+    }
+
+    // ── Fixup-02 N1: a suppression release must end the reported run ──────────
+
+    [Theory]
+    [InlineData(200)]
+    [InlineData(700)]
+    public void SuppressionRelease_EndsTheReportedRun_SoAFreshHoldAtBShowsAndActivatesAtB(int suppressMs)
+    {
+        // Fixup-02 N1 (reviewer A's probe, confirmed on the production engine): the release edge used to
+        // clear the onset latch without ending the run while the InteractionManager was still in
+        // Fixation. Nothing could end it later, B's onset was rejected (OnFixationStarted only accepts
+        // from FreeLook), and the state stranded with the pinned ring at A. The release now ends the
+        // reported run first: Hide, FreeLook, then a fresh Show at B, and B's activation lands at B.
+        var s = Settings();
+        var provider = new ScriptedGazeProvider();
+        using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s);
+
+        var events = new List<string>();
+        PhysicalPoint? fixationPointAtActivation = null;
+        engine.InteractionManager.ShowActivationButton += p => events.Add($"Show({p.X:0})");
+        engine.InteractionManager.HideActivationButton += () => events.Add("Hide");
+        engine.InteractionManager.StateChanged += state => events.Add($"State({state})");
+        engine.FixationActivated += _ => fixationPointAtActivation = engine.InteractionManager.FixationPoint;
+
+        long ts = FeedValid(provider, 1000, 1000, 0, samples: 40);   // onset at A + activation
+        Check.That(engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.Fixation);
+
+        engine.SuppressFixation = true;
+        ts = FeedValid(provider, 1000, 1000, ts, samples: suppressMs / 30);   // suppressed: not fed
+        engine.SuppressFixation = false;
+
+        events.Clear();
+        fixationPointAtActivation = null;
+        var b = new PhysicalPoint(1400, 1000);
+        FeedValid(provider, b.X, b.Y, ts, samples: 45);              // fresh onset at B + activation
+
+        var hideAt = events.IndexOf("Hide");
+        var freeLookAt = events.IndexOf($"State({InteractionState.FreeLook})");
+        var showAtB = events.IndexOf("Show(1400)");
+        Check.WithCustomMessage($"events: {string.Join(", ", events)}")
+            .That(hideAt).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage($"events: {string.Join(", ", events)}")
+            .That(freeLookAt).IsStrictlyGreaterThan(hideAt);
+        Check.WithCustomMessage($"events: {string.Join(", ", events)}")
+            .That(showAtB).IsStrictlyGreaterThan(freeLookAt);
+
+        Check.That(engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.Fixation);
+        Check.That(engine.InteractionManager.FixationPoint!.Value.DistanceTo(b)).IsStrictlyLessThan(0.5);
+        Check.That(fixationPointAtActivation).IsNotNull();
+        Check.WithCustomMessage("B's activation must land at B, not at the stale A")
+            .That(fixationPointAtActivation!.Value.DistanceTo(b)).IsStrictlyLessThan(0.5);
+    }
+
+    [Fact]
+    public void PauseResume_RaisesNoFixationRelease_NoSpuriousEnd()
+    {
+        // Fixup-02 item 3: Paused → FreeLook has already left Fixation, so its re-arm must stay silent.
+        // An end there would be a spurious transition and would read as an abandonment in telemetry.
+        var s = Settings();
+        var provider = new ScriptedGazeProvider();
+        using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s);
+
+        int releases = 0;
+        engine.FixationReleased += _ => releases++;
+
+        long ts = FeedValid(provider, 1000, 1000, 0, samples: 31);   // onset, no activation yet
+        Check.That(releases).IsEqualTo(0);
+
+        engine.InteractionManager.TogglePause();                     // Fixation → Paused (hides the button)
+        ts = FeedValid(provider, 1000, 1000, ts, samples: 5);         // paused: never fed
+        engine.InteractionManager.TogglePause();                     // Paused → FreeLook (silent re-arm)
+        FeedValid(provider, 1000, 1000, ts, samples: 3);
+
+        Check.That(releases).IsEqualTo(0);
+        Check.That(engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.FreeLook);
+    }
+
+    [Fact]
+    public void SuppressionRelease_InRepeatMode_ReArmsTheDwell_SoNothingLegitimateIsLost()
+    {
+        // Fixup-02 item 2 finding: the release's end reaches OnFixationEnded, which in RepeatMode cancels
+        // an armed repeat dwell. The only suppression sources that can be live WITHOUT having already
+        // ended the fixation are external dwell and calibration (the keyboard toggle and the Modes menu
+        // call OnFixationEnded themselves when they take suppression); both take the interaction over,
+        // and the fresh onset re-arms the dwell at the user's current point, so no legitimate dwell is
+        // dropped. This pins that the action still fires, once, at the fresh hold.
+        var s = Settings();
+        var provider = new ScriptedGazeProvider();
+        using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s);
+        var im = engine.InteractionManager;
+        var fired = new List<PhysicalPoint>();
+        im.ActionRequested += (_, point) => fired.Add(point);
+
+        im.EnterRepeatMode(InteractionAction.LeftClick);
+        im.RepeatDwellMs = 300;
+
+        long ts = FeedValid(provider, 1000, 1000, 0, samples: 11);   // onset arms the dwell at A
+        Check.That(fired).IsEmpty();
+
+        engine.SuppressFixation = true;
+        ts = FeedValid(provider, 1000, 1000, ts, samples: 5);         // suppressed: not fed to the detector
+        engine.SuppressFixation = false;
+
+        var b = new PhysicalPoint(1400, 1000);
+        FeedValid(provider, b.X, b.Y, ts, samples: 21);               // release ends the old arm; the fresh arm at B fires
+
+        Check.That(fired).HasSize(1);
+        Check.WithCustomMessage("the dwell must be re-armed at the fresh hold, not lost")
+            .That(fired[0].DistanceTo(b)).IsStrictlyLessThan(0.5);
     }
 
     [Fact]

@@ -24,7 +24,7 @@ public class ActivationButtonViewModelTests
         var vm = new ActivationButtonViewModel(_messenger);
         Check.That(vm.IsVisible).IsFalse();
 
-        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300)));
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300), 75));
 
         Check.That(vm.IsVisible).IsTrue();
         Check.That(vm.Position.X).IsEqualTo(500);
@@ -33,10 +33,79 @@ public class ActivationButtonViewModelTests
     }
 
     [Fact]
+    public void Show_CarriesTheRuleRadius_TheHaloIsSizedFrom()
+    {
+        // The adapter reads the LIVE detector radius at onset (the adaptation-effective value), and the
+        // halo is sized from what the message carries — never from the raw setting.
+        var vm = new ActivationButtonViewModel(_messenger);
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300), 60));
+        Check.That(vm.FixationRadiusPixels).IsEqualTo(60);
+
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(700, 300), 75));
+        Check.That(vm.FixationRadiusPixels).IsEqualTo(75);
+    }
+
+    [Fact]
+    public void ExternalDwellActive_HidesTheHalo_AndEndingItDoesNotReShow()
+    {
+        // A cooperating app draws its own feedback at the point it takes over; the centred halo must
+        // not sit frozen on top of it (B-F1). Only the normal show path may bring it back.
+        var vm = new ActivationButtonViewModel(_messenger);
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300), 75));
+        _messenger.Send(Progress(0.4));
+        Check.That(vm.IsVisible).IsTrue();
+
+        _messenger.Send(new ExternalDwellActiveMessage(true));
+        Check.That(vm.IsVisible).IsFalse();
+        Check.That(vm.DwellProgress).IsEqualTo(0);
+
+        _messenger.Send(new ExternalDwellActiveMessage(false));
+        Check.That(vm.IsVisible).IsFalse();
+    }
+
+    [Fact]
+    public void SuppressionReleaseSequence_ReShowsAtTheFreshPin_WithExactlyOneCompletion()
+    {
+        // Fixup-02 N1 at the message level: external dwell hides the feedback; the release ends the old
+        // run (Hide) and returns to FreeLook; the fresh onset at B re-shows at B. A late activation for
+        // the hidden run is dropped, and the fresh run completes exactly once.
+        var vm = new ActivationButtonViewModel(_messenger);
+        int completions = 0;
+        _messenger.Register<ActivationCompletedMessage>(_messenger, (_, _) => completions++);
+
+        var a = new PhysicalPoint(100, 100);
+        var b = new PhysicalPoint(500, 300);
+        _messenger.Send(new ShowActivationButtonMessage(a, 75));
+        Check.That(vm.IsVisible).IsTrue();
+        Check.That(vm.Position.X).IsEqualTo(100);
+
+        // The cooperating app takes over; a late activation for the hidden run must not complete.
+        _messenger.Send(new ExternalDwellActiveMessage(true));
+        _messenger.Send(new FixationActivatedMessage(1_000_000, 1_000_000));
+        Check.That(vm.IsVisible).IsFalse();
+        Check.That(completions).IsEqualTo(0);
+
+        // Release: the engine ends the reported run (Hide) and returns to FreeLook; the external app's
+        // end is not an onset, so nothing re-shows until one arrives.
+        _messenger.Send(new HideActivationButtonMessage());
+        _messenger.Send(new ExternalDwellActiveMessage(false));
+        Check.That(vm.IsVisible).IsFalse();
+
+        // The fresh onset at B re-shows at B, and its activation completes exactly once.
+        _messenger.Send(new ShowActivationButtonMessage(b, 75));
+        Check.That(vm.IsVisible).IsTrue();
+        Check.That(vm.Position.X).IsEqualTo(500);
+        Check.That(vm.Position.Y).IsEqualTo(300);
+
+        _messenger.Send(new FixationActivatedMessage(4_000_000, 1_000_000));
+        Check.That(completions).IsEqualTo(1);
+    }
+
+    [Fact]
     public void HidesButton_OnHideMessage_AndZeroesProgress()
     {
         var vm = new ActivationButtonViewModel(_messenger);
-        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300)));
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300), 75));
         _messenger.Send(Progress(0.6));
         Check.That(vm.DwellProgress).IsEqualTo(0.6);
 
@@ -50,7 +119,7 @@ public class ActivationButtonViewModelTests
     public void Progress_ComesFromCoreFrame_WhileVisible()
     {
         var vm = new ActivationButtonViewModel(_messenger);
-        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300)));
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300), 75));
 
         _messenger.Send(Progress(0.35));
 
@@ -67,7 +136,7 @@ public class ActivationButtonViewModelTests
         Check.That(vm.DwellProgress).IsEqualTo(0);
 
         // Visible but gap-held: the frame carries a stale value and must not move the arc.
-        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300)));
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300), 75));
         _messenger.Send(Progress(0.5));
         _messenger.Send(new GazeCursorMovedMessage(
             new GazeFrame(new PhysicalPoint(500, 300), 0, IsInGap: true, ActivationProgress: 0.95)));
@@ -88,7 +157,7 @@ public class ActivationButtonViewModelTests
             cueSawCompletion = completions > 0;
         });
 
-        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300)));
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300), 75));
         _messenger.Send(new FixationActivatedMessage(1_000_000, 1_000_000));
         _messenger.Send(new FixationActivatedMessage(1_000_000, 1_000_000)); // a duplicate must not re-complete
 
@@ -107,7 +176,7 @@ public class ActivationButtonViewModelTests
         _messenger.Register<ActivationCompletedMessage>(_messenger, (_, _) => completions++);
         _messenger.Register<DwellActivationMessage>(_messenger, (_, _) => cues++);
 
-        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300)));
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300), 75));
         _messenger.Send(new HideActivationButtonMessage());
 
         // The end won the dispatcher race: a late activation for the dead run must do nothing — no
@@ -127,14 +196,14 @@ public class ActivationButtonViewModelTests
         _messenger.Register<ActivationCompletedMessage>(_messenger, (_, _) => completions++);
 
         // Fixation 1: activation then immediate end.
-        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300)));
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(500, 300), 75));
         _messenger.Send(new FixationActivatedMessage(1_000_000, 1_000_000));
         _messenger.Send(new HideActivationButtonMessage());
         Check.That(completions).IsEqualTo(1);
 
         // Fixation 2 at a new place: the latch was reset by the show, so it completes again — and a late
         // message from the first run's tail cannot ride it (it would have to arrive while hidden).
-        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(700, 500)));
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(700, 500), 75));
         _messenger.Send(new FixationActivatedMessage(4_000_000, 1_000_000));
         Check.That(completions).IsEqualTo(2);
     }

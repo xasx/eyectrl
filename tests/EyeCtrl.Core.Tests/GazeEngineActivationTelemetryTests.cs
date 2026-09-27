@@ -113,12 +113,12 @@ public class GazeEngineActivationTelemetryTests
     }
 
     [Fact]
-    public void SuppressionRelease_ReOnset_CarriesAcceptance_SoTheAbandonmentIsStillReported()
+    public void SuppressionRelease_EndsTheRun_AndTheFreshHoldStillReportsItsAbandonment()
     {
-        // Fixup-02 low item: after a suppression release the onset re-fires while the state is already
-        // Fixation, so no new Show is raised — the acceptance must be carried from the visible button or
-        // this run's gaze-left abandonment is silently lost (its activation was already reported through
-        // the state check).
+        // Fixup-02 N1: the release now ENDS the reported run (reason Suppressed — no outcome, the user
+        // did not give up), returns the state to FreeLook, and the held gaze re-onsets from its OWN fresh
+        // Show after 300 ms. That fresh run's gaze-left abandonment must still be reported (fixup-01
+        // F1b's acceptance), from its own ledger: 20 credited samples after the fresh start = 600 ms.
         var (engine, provider, sink) = Build();
         using var _ = engine;
 
@@ -127,15 +127,35 @@ public class GazeEngineActivationTelemetryTests
 
         engine.SuppressFixation = true;
         ts = Feed(provider, 1000, 1000, ts, samples: 5);         // suppressed: not fed
-        engine.SuppressFixation = false;                          // re-arm: the onset re-fires in Fixation
+        engine.SuppressFixation = false;
 
-        ts = Feed(provider, 1000, 1000, ts, samples: 21);         // credited ~666 ms after the reset
-        provider.Push(new GazePoint(1400, 1000, ts, true));       // leaves at progress ~0.52
+        ts = Feed(provider, 1000, 1000, ts, samples: 21);         // fresh run: 600 ms credited, re-onsets at +300
+        provider.Push(new GazePoint(1400, 1000, ts, true));       // leaves at progress (600-300)/700 ≈ 0.43
 
         Check.That(sink.Outcomes).HasSize(1);
         Check.That(sink.Outcomes[0].Kind).IsEqualTo(OutcomeKind.Abandoned);
         Check.That(sink.Outcomes[0].Reason).IsEqualTo(AbandonReason.GazeLeft);
-        Check.That(sink.Outcomes[0].ProgressAtEnd).IsCloseTo((666.0 - 300.0) / 700.0, 0.05);
+        Check.That(sink.Outcomes[0].ProgressAtEnd).IsCloseTo((600.0 - 300.0) / 700.0, 5e-3);
+    }
+
+    [Fact]
+    public void SuppressionRelease_IsNotReportedAsAnAbandonment()
+    {
+        // Fixup-02 N1: the release ends the reported run so the state can leave Fixation, but the user
+        // did not give up — the reason is Suppressed, and an accepted run past the abandonment threshold
+        // must NOT produce an Abandoned outcome on that edge. Mutation: end it as GazeLeft.
+        var (engine, provider, sink) = Build();
+        using var _ = engine;
+
+        long ts = Feed(provider, 1000, 1000, 0, samples: 28);   // credited 810 ms, progress 0.73, no activation
+        Check.That(sink.Outcomes).IsEmpty();
+
+        engine.SuppressFixation = true;
+        ts = Feed(provider, 1000, 1000, ts, samples: 5);         // suppressed: not fed
+        engine.SuppressFixation = false;
+        Feed(provider, 1000, 1000, ts, samples: 1);              // the release applies here
+
+        Check.That(sink.Outcomes).IsEmpty();
     }
 
     [Fact]

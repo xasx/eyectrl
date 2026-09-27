@@ -23,6 +23,10 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
         IsClickThrough = true;
         ExcludeFromScreenCapture = true; // keep the cursor circle out of the magnifier/preview capture
         InitializeComponent();
+        // The ring starts in its FreeLook (quiet) look. No IsPinned/IsPaused notification fires for the
+        // default state, so without this the window would keep WPF's full-opacity default until the
+        // first transition — i.e. the ring would read as "pinned" on launch.
+        Opacity = FreeLookQuietOpacity;
     }
 
     /// <summary>
@@ -31,8 +35,36 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
     /// </summary>
     internal const double PausedDimOpacity = 0.45;
 
-    /// <summary>Dims the ring while interaction is paused; restores full opacity on resume.</summary>
-    public void SetPausedDim(bool dimmed) => Opacity = dimmed ? PausedDimOpacity : 1.0;
+    /// <summary>
+    /// Window opacity in FreeLook: the quiet look. The ring follows gaze but reads as a faint hint
+    /// rather than a mark to chase, so the user's attention stays on the target; the pin raises it to
+    /// full opacity when a hold starts, which is the only time the ring is meant to be watched.
+    /// Deliberately above <see cref="PausedDimOpacity"/> so the three looks stay distinguishable.
+    /// </summary>
+    internal const double FreeLookQuietOpacity = 0.6;
+
+    // The three looks live here, one owner of Opacity. Precedence is explicit: Paused beats pinned
+    // beats quiet. Paused is the dimmest because the resume target must win the user's attention;
+    // pinned is bold because stillness is the "you're holding" signal; FreeLook is quiet.
+    private bool _isPaused;
+    private bool _isPinned;
+
+    /// <summary>Dims the ring while interaction is paused; the quiet FreeLook look returns on resume.</summary>
+    public void SetPausedDim(bool dimmed)
+    {
+        _isPaused = dimmed;
+        ApplyEmphasis();
+    }
+
+    /// <summary>Raises the ring to its bold pinned look while a fixation is held at the onset centroid.</summary>
+    public void SetPinned(bool pinned)
+    {
+        _isPinned = pinned;
+        ApplyEmphasis();
+    }
+
+    private void ApplyEmphasis() =>
+        Opacity = _isPaused ? PausedDimOpacity : _isPinned ? 1.0 : FreeLookQuietOpacity;
 
     public void UpdatePosition(PhysicalPoint point)
     {

@@ -21,8 +21,9 @@ using EyeCtrl.ViewModels.Messages;
 /// the button hid is ignored outright;</item>
 /// <item>no activation while Paused / inside external dwell / while <c>GazeEngine.SuppressFixation</c> is
 /// set is structural rather than local: the engine does not feed the detector in those states, and the
-/// interaction state machine only accepts the completion in <c>Fixation</c>. The button is hidden on
-/// pause anyway.</item>
+/// interaction state machine only accepts the completion in <c>Fixation</c>. The feedback is hidden on
+/// pause anyway, and since ticket 4 also when a cooperating app takes over with its own dwell display —
+/// see <see cref="Receive(ExternalDwellActiveMessage)"/>.</item>
 /// </list>
 /// The dwell-completion cue still publishes after the effect's message, matching the old
 /// DwellOverlayViewModelBase ordering.
@@ -31,11 +32,19 @@ public partial class ActivationButtonViewModel : MessengerViewModelBase,
     IRecipient<ShowActivationButtonMessage>,
     IRecipient<HideActivationButtonMessage>,
     IRecipient<GazeCursorMovedMessage>,
-    IRecipient<FixationActivatedMessage>
+    IRecipient<FixationActivatedMessage>,
+    IRecipient<ExternalDwellActiveMessage>
 {
     [ObservableProperty] private PhysicalPoint _position = new(0, 0);
     [ObservableProperty] private double _dwellProgress;
     [ObservableProperty] private bool _isVisible;
+
+    /// <summary>
+    /// The rule's live fixation radius for the run that raised the show, in physical pixels. Carried
+    /// on the show message (the adapter reads the detector at onset), so the halo marks the effective
+    /// radius rather than the raw setting when adaptation has moved it.
+    /// </summary>
+    public double FixationRadiusPixels { get; private set; }
 
     // One completion per shown fixation. Reset on show; a message that arrives after hide is ignored,
     // which is what keeps "activation then immediate end" and "end then a late activation" from ever
@@ -53,6 +62,7 @@ public partial class ActivationButtonViewModel : MessengerViewModelBase,
     public void Receive(ShowActivationButtonMessage message)
     {
         Position = message.Position;
+        FixationRadiusPixels = message.FixationRadiusPixels;
         DwellProgress = 0;
         _completionSent = false;
         IsVisible = true;
@@ -61,6 +71,21 @@ public partial class ActivationButtonViewModel : MessengerViewModelBase,
     /// <inheritdoc />
     public void Receive(HideActivationButtonMessage message)
     {
+        IsVisible = false;
+        DwellProgress = 0;
+        _completionSent = false;
+    }
+
+    /// <inheritdoc />
+    public void Receive(ExternalDwellActiveMessage message)
+    {
+        // A cooperating app draws its own dwell feedback at the point it just took over, and the
+        // centred halo would sit frozen on top of it — the one overlap ticket 4 newly introduced
+        // (the old button was drawn beside it). Hide, exactly as the ring does. Only the normal show
+        // path may bring the feedback back: the external app's own ending is not a fixation onset, so
+        // nothing here may re-show it.
+        if (!message.Active)
+            return;
         IsVisible = false;
         DwellProgress = 0;
         _completionSent = false;

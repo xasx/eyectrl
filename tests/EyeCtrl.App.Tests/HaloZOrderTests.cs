@@ -28,7 +28,7 @@ public class HaloZOrderTests
     public static readonly (string File, string Halo, string Accent)[] HaloedPairs =
     [
         ("src/EyeCtrl.App/Overlays/CursorCircleWindow.xaml", "CircleHalo", "Circle"),
-        ("src/EyeCtrl.App/Overlays/ActivationButtonWindow.xaml", "ProgressArcHalo", "ProgressArc"),
+        ("src/EyeCtrl.App/Overlays/ActivationButtonWindow.xaml", "ProgressHalo", "ProgressRing"),
         ("src/EyeCtrl.App/Overlays/ManualSelectionGazeIndicatorWindow.xaml", "OuterCircleHalo", "OuterCircle"),
         ("src/EyeCtrl.App/Overlays/ManualSelectionGazeIndicatorWindow.xaml", "CenterDotHalo", "CenterDot"),
         ("src/EyeCtrl.App/Overlays/ManualSelectionGazeIndicatorWindow.xaml", "AnchorMarkHalo", "AnchorMark"),

@@ -143,6 +143,29 @@ public class ToolbarLifecycleCoordinatorTests
             .That(togglePause).IsStrictlyGreaterThan(showOverlays);
     }
 
+    [Fact]
+    public void AutoHideWiring_PinsTheTunablesTheUserClearsBy0To6Pixels()
+    {
+        // The independent review's M17: every existing test builds its own controller with its own
+        // 50 px margin, so the PRODUCTION wiring is unpinned — offScreenMarginPx 50 → 60 here would
+        // leave the whole suite green. The user's only observed paused summon cleared the threshold
+        // by 0–6 px (raw y=−50/−52/−56 against −50), so drift at this literal silently removes the
+        // only gaze way out of Paused. Pin all three tunables at the wiring site.
+        var root = SourceScanner.RepoRoot().FullName;
+        var text = SourceScanner.StripComments(File.ReadAllText(Path.Combine(root,
+            "src", "EyeCtrl.App", "Services", "Coordinators", "ToolbarLifecycleCoordinator.cs")));
+
+        Check.WithCustomMessage("ToolbarAutoHideController is no longer wired with hideDelayMs: 5000.")
+            .That(text.Contains("hideDelayMs: 5000")).IsTrue();
+        Check.WithCustomMessage("ToolbarAutoHideController is no longer wired with summonDelayMs: 400.")
+            .That(text.Contains("summonDelayMs: 400")).IsTrue();
+        Check.WithCustomMessage(
+                "ToolbarAutoHideController is no longer wired with offScreenMarginPx: 50. The user's "
+                + "only observed paused summon cleared the threshold by 0–6 px — drift at this "
+                + "literal removes the only gaze way out of Paused.")
+            .That(text.Contains("offScreenMarginPx: 50")).IsTrue();
+    }
+
     private static ToolbarAutoHideController NewAutoHide() => new(
         enabled: true, edge: "bottom", screenW: 1920, screenH: 1080,
         toolbarRect: new PhysicalRect(0, 1040, 1920, 40),

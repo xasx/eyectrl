@@ -4,11 +4,13 @@
 Reads EyeCtrl Serilog files and reports sessions where the user was stranded in Paused. A session
 flags when either:
 
-  * it spent more than 60 seconds Paused *and* summoned the toolbar inside a pause that never
-    ended — a user who was looking for a way out and never found it (this is what 2026-09-24
-    looked like: 1 h 43 min, 10 paused summons, never resumed). Since the 2026-09-26 reversal the
-    way back is summon → dwell Play, so a paused summon followed by a resume is the success path
-    and must NOT flag;
+  * it summoned the toolbar inside a pause that never ended, and that final unresolved pause ran
+    for more than 60 seconds — a user who was looking for a way out and never found it (this is
+    what 2026-09-24 looked like: 1 h 43 min, 10 paused summons, never resumed). Since the
+    2026-09-26 reversal the way back is summon → dwell Play, so a paused summon followed by a
+    resume is the success path and must NOT flag. The 60 s floor is on the pause the summon never
+    left, not on the session's total paused time — a long resolved pause must not cover for a
+    short unresolved one;
   * it was still Paused 5 minutes or more after the pause started and ended in a clean Shutdown,
     whether or not any summon was logged; or
   * it was still Paused 5 minutes or more after the pause started and ended UNcleanly (kill,
@@ -77,13 +79,16 @@ class Session:
 
     @property
     def flagged(self) -> bool:
-        # Toolbar-based rule: a long pause the user tried to escape from (summoned the toolbar
-        # while paused) and never left. Only an UNRESOLVED paused summon counts — a summon a
-        # resume followed is the success path. Still what 2026-09-24 looked like, and it catches
-        # strandings shorter than the 300 s the time-based rule needs.
-        if (self.paused_seconds > PAUSE_FLAG_SECONDS
-                and self.paused_summons >= 1
-                and not self.last_paused_summon_resolved):
+        # Toolbar-based rule: a pause the user tried to escape from (summoned the toolbar while
+        # paused) and never left. Only an UNRESOLVED paused summon counts — a summon a resume
+        # followed is the success path — and the 60 s floor is on that final unresolved pause, not
+        # on the session total (review R-e): a long resolved pause must not cover for a short
+        # unresolved one. Still what 2026-09-24 looked like, and it catches strandings shorter
+        # than the 300 s the time-based rule needs.
+        unresolved = self.paused_at_clean_end_seconds + self.paused_at_unclean_end_seconds
+        if (self.paused_summons >= 1
+                and not self.last_paused_summon_resolved
+                and unresolved > PAUSE_FLAG_SECONDS):
             return True
         # Time-based rule: a stranded session may never log a summon (or the auto-hide may never
         # fire). Any run that sat Paused for more than 5 minutes with no resume is a stranding —
@@ -208,9 +213,9 @@ def run(paths: list[str]) -> int:
             if session.flagged:
                 flagged += 1
             print(f"{label} {os.path.basename(path)}: {session.describe()}")
-    print(f"\n{flagged} session(s) flagged (paused > {PAUSE_FLAG_SECONDS}s with an unresolved "
-          f"paused summon, or still paused > {STRANDED_FLAG_SECONDS}s at a shutdown — or, for "
-          "eye-tracker sessions, at an unclean end).")
+    print(f"\n{flagged} session(s) flagged (an unresolved paused summon in a pause longer than "
+          f"{PAUSE_FLAG_SECONDS}s, or still paused > {STRANDED_FLAG_SECONDS}s at a shutdown — or, "
+          "for eye-tracker sessions, at an unclean end).")
     return 1 if flagged else 0
 
 
@@ -316,6 +321,39 @@ def selftest() -> None:
         line("2026-09-26 10:01:25.000", "Toolbar summoned: slide-in animating"),
         line("2026-09-26 10:01:30.000", "Shutdown"),
     )
+    # 12. R-e: a LONG resolved pause followed by a SHORT unresolved paused summon at shutdown. The
+    # 60 s floor must apply to the unresolved pause (6 s), not the session total (306 s) — the
+    # total-based rule flags this, the fixed rule must not.
+    resolved_then_short_unresolved = log(
+        line("2026-09-27 10:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=\"StreamEngine\""),
+        line("2026-09-27 10:00:01.000", 'State \u2192 "Paused"'),
+        line("2026-09-27 10:01:00.000", "Toolbar summoned: slide-in animating"),
+        line("2026-09-27 10:05:01.000", 'State \u2192 "FreeLook"'),
+        line("2026-09-27 10:10:00.000", 'State \u2192 "Paused"'),
+        line("2026-09-27 10:10:02.000", "Toolbar summoned: slide-in animating"),
+        line("2026-09-27 10:10:06.000", "Shutdown"),
+    )
+    # 13. P4: an unresolved paused summon whose FINAL pause is under 60 s. Nothing else flags it
+    # (clean shutdown, ~10 s tail), so dropping rule 1's 60 s floor shows up here.
+    short_unresolved_summon = log(
+        line("2026-09-18 09:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=\"StreamEngine\""),
+        line("2026-09-18 09:00:00.100", 'State \u2192 "Paused"'),
+        line("2026-09-18 09:00:05.000", "Toolbar summoned: slide-in animating"),
+        line("2026-09-18 09:00:10.000", "Shutdown"),
+    )
+    # 14. P3: a 2 min pause resolved WITHOUT a summon, then an ordinary unpaused summon, then a
+    # 90 s pause with no summon at all (clean shutdown). Counting unpaused summons as paused would
+    # leave a phantom summon inside the 90 s unresolved tail and flag; the real rule counts no
+    # paused summon at all. (The final quiet pause is what carries the phantom under the R-e fix —
+    # without it, neither rule flags, and the mutant would survive.)
+    unpaused_summon_then_quiet_pause = log(
+        line("2026-09-26 09:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=\"StreamEngine\""),
+        line("2026-09-26 09:00:10.000", 'State \u2192 "Paused"'),
+        line("2026-09-26 09:02:10.000", 'State \u2192 "FreeLook"'),
+        line("2026-09-26 09:30:00.000", "Toolbar summoned: slide-in animating"),
+        line("2026-09-26 09:31:00.000", 'State \u2192 "Paused"'),
+        line("2026-09-26 09:32:30.000", "Shutdown"),
+    )
 
     cases = [
         ("09-24 shape", stranded, [True]),
@@ -329,6 +367,9 @@ def selftest() -> None:
         ("eye session still paused at EOF", eye_paused_at_eof, [True]),
         ("paused return that resolved (summon + resume)", paused_return_success, [False]),
         ("short stranding that only rule 1 catches", short_stranding, [True]),
+        ("long resolved pause + short unresolved summon (R-e)", resolved_then_short_unresolved, [False]),
+        ("unresolved summon under 60 s (P4)", short_unresolved_summon, [False]),
+        ("unpaused summon does not count as paused (P3)", unpaused_summon_then_quiet_pause, [False]),
     ]
 
     failed = False

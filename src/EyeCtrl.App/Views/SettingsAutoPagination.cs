@@ -23,6 +23,15 @@ internal static class SettingsAutoPagination
     /// <paramref name="budget"/>. A single row taller than the budget gets its own page
     /// (never an empty page, never an unterminated loop). A non-positive budget declines:
     /// one page, rows unchanged — mirrors ContentAvailableWidth's decline-to-constrain.
+    /// <para>
+    /// A break next to a <see cref="SeparatorSpec"/> would strand the rule at a page edge
+    /// with a missing neighbour (issue #166). Two mechanisms prevent that: the split loop
+    /// skips a rule a break would push to a page TOP — before it can consume budget — and
+    /// <see cref="RemoveSeparatorsStrandedAtBreaks"/> drops a rule a break leaves at a page
+    /// BOTTOM. Rules the source itself puts first or last render as before, unless the page
+    /// holding them holds nothing else, in which case that page is emptied and removed: a
+    /// page holding only a rule is not a page.
+    /// </para>
     /// </summary>
     public static List<PageSpec> ChunkByHeight(
         IReadOnlyList<SettingsRowSpec> rows, Func<SettingsRowSpec, double> heightOf, double budget)
@@ -42,12 +51,40 @@ internal static class SettingsAutoPagination
                 current = [];
                 used = 0;
             }
+            // A break-created page never opens on a rule (issue #166 m1): the separator is
+            // skipped BEFORE it can consume budget, so the page below fills as if the rule
+            // had never been charged. The first page is exempt — a rule the source itself
+            // puts first is content, not a break artefact.
+            if (current.Count == 0 && pages.Count > 0 && row is SeparatorSpec)
+                continue;
             current.Add(row);
             used += h;
         }
         if (current.Count > 0 || pages.Count == 0)
             pages.Add(current);
+        RemoveSeparatorsStrandedAtBreaks(pages);
         return pages.Select(p => new PageSpec(p)).ToList();
+    }
+
+    /// <summary>
+    /// Drops the rules a chunk break strands at a page BOTTOM: a <see cref="SeparatorSpec"/>
+    /// divides two ADJACENT rows, so when the row after the rule overflows, the rule is left
+    /// above the break with a missing neighbour — a stray line (issue #166). Page TOPS need
+    /// no trim here: the split loop already skips any rule that would open a break-created
+    /// page. Source-order edges — the first row of the first page, the last row of the last
+    /// page — are not break artefacts and render as before, unless the page holding them
+    /// consists of nothing but separators: such a page is emptied and removed, because a
+    /// page holding only a rule is not a page. Only ever removes rows, so it cannot break
+    /// the fit invariant the chunker exists for.
+    /// </summary>
+    private static void RemoveSeparatorsStrandedAtBreaks(List<List<SettingsRowSpec>> pages)
+    {
+        for (var i = 0; i < pages.Count - 1; i++)
+            while (pages[i].Count > 0 && pages[i][^1] is SeparatorSpec)
+                pages[i].RemoveAt(pages[i].Count - 1);
+        pages.RemoveAll(p => p.Count == 0);
+        if (pages.Count == 0)
+            pages.Add([]);
     }
 
     /// <summary>

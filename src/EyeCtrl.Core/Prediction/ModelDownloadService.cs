@@ -114,6 +114,40 @@ public class ModelDownloadService : IDisposable
     private enum DownloadOutcome { Success, Busy, HashMismatch, Failed }
 
     /// <summary>
+    /// The sharing mode any concurrent READER of an install target must hold (issue #166
+    /// round-2 M-1): <see cref="InstallDownloadedFile"/>'s File.Replace works against open
+    /// readers only when they hold <see cref="FileShare.Delete"/> — a reader opened with
+    /// plain FileShare.Read makes a repair re-download that races an open hash stream die mid-install with IOException.
+    /// Both sides of that contract (the app's hash-verification stream and the install probe
+    /// test) bind THIS constant, so a hand-copied literal cannot diverge — the #159 failure
+    /// class. Public: consumed cross-project by EyeCtrl.App's VerifyFileSha256 (Core declares
+    /// no InternalsVisibleTo for the app assembly), and the contract genuinely is part of the
+    /// install surface's documentation.
+    /// </summary>
+    public const FileShare ConcurrentHashReaderShare = FileShare.Read | FileShare.Delete;
+
+    /// <summary>
+    /// Atomically installs a verified download from <paramref name="tempPath"/> (same
+    /// directory) onto <paramref name="outputPath"/>. Replace-when-exists, Move-otherwise —
+    /// the FileDictionaryProvider user-dictionary write's pattern (review round 1, I1):
+    /// <c>File.Move(overwrite: true)</c> REFUSES a destination with an open handle
+    /// (UnauthorizedAccessException, measured on .NET 10/Windows regardless of the opener's
+    /// share mode), and during a repair a background build's VerifyFileSha256 hash stream is
+    /// exactly such a handle — a repair that races such a build would die mid-install.
+    /// <c>File.Replace</c> swaps the destination in place and works against open readers
+    /// holding FileShare.Read|FileShare.Delete (the sharing mode VerifyFileSha256 opens with),
+    /// leaving those readers on the pre-replace bytes until they reopen.
+    /// Internal static so the open-handle probe is deterministically testable.
+    /// </summary>
+    internal static void InstallDownloadedFile(string tempPath, string outputPath)
+    {
+        if (File.Exists(outputPath))
+            File.Replace(tempPath, outputPath, destinationBackupFileName: null);
+        else
+            File.Move(tempPath, outputPath);
+    }
+
+    /// <summary>
     /// Shared download core used by all public download methods: single-flight
     /// semaphore, temp-file streaming with incremental SHA-256 via CryptoStream,
     /// optional hash verification, atomic move into place, temp-file cleanup.
@@ -174,7 +208,7 @@ public class ModelDownloadService : IDisposable
                 return (DownloadOutcome.HashMismatch, "Hash mismatch");
             }
 
-            File.Move(tempPath, outputPath, overwrite: true);
+            InstallDownloadedFile(tempPath, outputPath);
             _logger?.LogInformation("{File} downloaded successfully ({Bytes} bytes)", outputFileName, totalRead);
             return (DownloadOutcome.Success, null);
         }

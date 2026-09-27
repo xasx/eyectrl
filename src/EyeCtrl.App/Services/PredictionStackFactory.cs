@@ -353,10 +353,10 @@ public class PredictionStackFactory : IDisposable
     /// a model that is absent or not hash-gated is exempt (custom models never carry a hash).
     /// </summary>
     internal static (bool Reports, ModelVerificationOutcome Outcome) ClassifyLmOutcome(
-        bool modelFileExists, bool hashGated, bool hashOk,
+        bool modelOnDisk, bool hashGated, bool hashOk,
         bool predictorAvailable, bool tokenizerLoaded)
     {
-        if (!modelFileExists || !hashGated)
+        if (!modelOnDisk || !hashGated)
             return (false, ModelVerificationOutcome.NotYetVerified);
         if (!hashOk || !predictorAvailable || !tokenizerLoaded)
             return (true, ModelVerificationOutcome.Failed); // N3: Failed IS published
@@ -499,7 +499,7 @@ public class PredictionStackFactory : IDisposable
                 // row, not a repair row. No outcome change for the corrupt-model case (both
                 // files present): still Failed.
                 verdict = ClassifyLmOutcome(
-                    modelFileExists: modelRegistry.IsModelDownloaded(modelSize),
+                    modelOnDisk: modelRegistry.IsModelDownloaded(modelSize),
                     hashGated: expectedModelHash is not null,
                     hashOk: hashMatches,
                     predictorAvailable: lmPredictor is not null && lmPredictor.IsAvailable,
@@ -529,13 +529,35 @@ public class PredictionStackFactory : IDisposable
             verification);
     }
 
+    /// <summary>
+    /// Opens a file for concurrent hash verification with
+    /// <see cref="ModelDownloadService.ConcurrentHashReaderShare"/> — the sharing mode the
+    /// install's File.Replace requires of open readers (issue #166 round-2 M-1: one constant
+    /// binds both sides of the contract). Internal so tests can probe the actual share-mode
+    /// behaviourally. VerifyFileSha256 must open through THIS helper, never File.OpenRead.
+    /// </summary>
+    internal static FileStream OpenForHash(string path) =>
+        new FileStream(path, FileMode.Open, FileAccess.Read,
+            ModelDownloadService.ConcurrentHashReaderShare);
+
     /// <summary>Streaming SHA-256 of a file compared case-insensitively against a hex digest.
     /// Internal for tests.</summary>
     internal static bool VerifyFileSha256(string path, string expectedHex)
     {
         try
         {
-            using var stream = File.OpenRead(path);
+            // Opened through OpenForHash — FileShare.Read|Delete via the shared constant
+            // (issue #166 round-1 I1 / round-2 M-1): a repair re-download that races an open
+            // hash stream installs with File.Replace, which works against open readers only
+            // when they hold Delete share. The hash may reflect pre-replace bytes. The
+            // download flow's own ApplyAndSave runs after the install returns and triggers a
+            // rebuild when the post-install capture differs from the stored snapshot — every
+            // build hashes unconditionally, so a rebuild re-verifies the final files.
+            // UNMEASURED residual (round-2 N-6, recorded on issue #166): a stale build's
+            // Failed verdict landing between the repair's Verified ledger write and that
+            // ApplyAndSave can suppress the rebuild (snapshot and fresh capture both read
+            // Failed) — ordering not measured either way.
+            using var stream = OpenForHash(path);
             using var sha = SHA256.Create();
             var hash = sha.ComputeHash(stream);
             var actual = Convert.ToHexString(hash);

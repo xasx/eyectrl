@@ -35,15 +35,14 @@ public class CursorPageSourceTests
         //
         // CursorPageSource.PrefersAutoPagination is true, so the literal PageSpec
         // boundaries declared in Build() below are only advisory: SettingsWindow.
-        // MaybeRepaginateByHeight (SettingsWindow.xaml.cs:767-781) flattens every page
-        // with `pages.SelectMany(p => p.Rows)` and re-chunks that flat list by measured
-        // height via SettingsAutoPagination.ChunkByHeight (SettingsAutoPagination.cs:
-        // 27-51), a greedy sequential fill. Flat row order is the only placement
-        // property that survives that re-chunk to the screen. Asserting per-page
-        // membership would pass even if the rendered pagination split the combo from
-        // the sliders, and would fail if the literal pages were merely regrouped while
-        // the rows stayed adjacent — backwards on both counts. So this pins the three
-        // rows as a contiguous run in flat order instead.
+        // MaybeRepaginateByHeight flattens every page with `pages.SelectMany(p => p.Rows)`
+        // and re-chunks that flat list by measured height via
+        // SettingsAutoPagination.ChunkByHeight, a greedy sequential fill. Flat row order
+        // is the only placement property that survives that re-chunk to the screen.
+        // Asserting per-page membership would pass even if the rendered pagination split
+        // the combo from the sliders, and would fail if the literal pages were merely
+        // regrouped while the rows stayed adjacent — backwards on both counts. So this
+        // pins the three rows as a contiguous run in flat order instead.
         //
         // Adjacency makes a split unlikely but cannot rule one out: a height-chunk
         // boundary can still fall between two adjacent rows if the budget runs out
@@ -125,6 +124,12 @@ public class CursorPageSourceTests
     public void Reset_RestoresCursorSettingsToTheirDefaults()
     {
         var settings = new EyeCtrlSettings();
+        settings.Cursor.FilterMode = GazeFilterMode.Smoothed;
+        settings.Cursor.SmoothingFactor = 0.75;
+        settings.Cursor.RingStyle = CursorRingStyle.BiTonalSegments;
+        settings.Cursor.CircleColor = "#123456";
+        settings.Cursor.CircleOpacity = 0.2;
+        settings.Cursor.CircleThickness = 6;
         settings.Cursor.MaxGapInterpolationMs = 400;
         settings.Cursor.PositionIndicatorStyle = PositionIndicatorStyle.Pin;
         settings.Cursor.CircleSize = 400;
@@ -136,6 +141,14 @@ public class CursorPageSourceTests
             TestSettingsPageContext.Build(settings, showModal: (_, act) => act()));
         source.Build().SelectMany(p => p.Rows).OfType<ButtonSpec>().Single(b => b.Id == "c_reset").OnActivate();
         var d = new CursorSettings();
+        // Full census of the copy list the c_reset handler writes (issue #124.2): a dropped
+        // copy line must fail here, not ship green.
+        Check.That(settings.Cursor.FilterMode).IsEqualTo(d.FilterMode);
+        Check.That(settings.Cursor.SmoothingFactor).IsEqualTo(d.SmoothingFactor);
+        Check.That(settings.Cursor.RingStyle).IsEqualTo(d.RingStyle);
+        Check.That(settings.Cursor.CircleColor).IsEqualTo(d.CircleColor);
+        Check.That(settings.Cursor.CircleOpacity).IsEqualTo(d.CircleOpacity);
+        Check.That(settings.Cursor.CircleThickness).IsEqualTo(d.CircleThickness);
         Check.That(settings.Cursor.MaxGapInterpolationMs).IsEqualTo(d.MaxGapInterpolationMs);
         Check.That(settings.Cursor.PositionIndicatorStyle).IsEqualTo(d.PositionIndicatorStyle);
         Check.That(settings.Cursor.CircleSize).IsEqualTo(d.CircleSize);
@@ -232,7 +245,7 @@ public class CursorPageSourceTests
         settings.Cursor.RingStyle = CursorRingStyle.BiTonalSegments;
         // The default context DISCARDS the modal callback — TestSettingsPageContext.Build
         // defaults showModal to ((_, _) => { }) — so the confirmation must be run explicitly
-        // or the reset copies nothing. Same pattern as Reset_CopiesAllTenProperties above.
+        // or the reset copies nothing. Same pattern as Reset_RestoresCursorSettingsToTheirDefaults above.
         var source = new CursorPageSource(
             TestSettingsPageContext.Build(settings, showModal: (_, act) => act()));
         var reset = source.Build().SelectMany(p => p.Rows).OfType<ButtonSpec>()

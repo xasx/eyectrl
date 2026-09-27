@@ -178,6 +178,42 @@ public class ToolbarVisibilityAdapterHeadlessTests
     }
 
     [Fact]
+    public void SetPauseIndicator_UnchangedCommand_QueuesNoDispatcherItem()
+    {
+        var (adapter, log, _, _) = Build();
+        adapter.SetPauseIndicator(true);
+        Pump();
+        Check.That(log.Count(t => t == "Indicator.Show")).IsEqualTo(1);
+
+        // Issue #166 M8: the edge guard used to live only INSIDE the posted lambda, so every
+        // gaze flip queued a dispatcher item just to return there — the cost class the
+        // no-change guard at ToolbarAutoHideController.SetPaused documents as load-bearing.
+        // The pre-check must refuse to POST at all when the command equals the last commanded
+        // state, observed via the dispatcher's OperationPosted hook (subscribed after the
+        // warm-up pump, unsubscribed before the closing pump so its own frame item is not
+        // counted).
+        var dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+        var posted = 0;
+        void Count(object? sender, System.Windows.Threading.DispatcherHookEventArgs e) => posted++;
+        dispatcher.Hooks.OperationPosted += Count;
+        try
+        {
+            adapter.SetPauseIndicator(true);
+        }
+        finally
+        {
+            dispatcher.Hooks.OperationPosted -= Count;
+        }
+        Pump();
+
+        Check.WithCustomMessage(
+                "An unchanged SetPauseIndicator command still queued a dispatcher item — the "
+                + "per-gaze-flip no-op hop the M8 pre-check exists to remove.")
+            .That(posted).IsEqualTo(0);
+        Check.That(log.Count(t => t == "Indicator.Show")).IsEqualTo(1);
+    }
+
+    [Fact]
     public void Unpause_WhileBandVisible_HidesStrip()
     {
         var (adapter, log, _, _) = Build();

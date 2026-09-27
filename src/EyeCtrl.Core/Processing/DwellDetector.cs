@@ -106,6 +106,10 @@ public class DwellDetector
         _cooldownMicroseconds = cooldownMs * MathConstants.MicrosecondsPerMillisecond;
     }
 
+    /// <summary>Currently configured cooldown in milliseconds — the exact inverse of
+    /// <see cref="SetCooldown"/>, so callers can observe what was last applied.</summary>
+    public int CooldownMs => (int)(_cooldownMicroseconds / MathConstants.MicrosecondsPerMillisecond);
+
     /// <summary>Adds a target for dwell detection. Replaces any existing target with the same ID.</summary>
     public void AddTarget(DwellTarget target)
     {

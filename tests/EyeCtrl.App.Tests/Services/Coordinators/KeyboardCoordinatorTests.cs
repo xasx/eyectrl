@@ -3,21 +3,29 @@ namespace EyeCtrl.App.Tests.Services.Coordinators;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
+using EyeCtrl.App.Overlays;
+using EyeCtrl.App.Tests;
+using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.App.Tests.Settings.Pages;
+using EyeCtrl.Core;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Tests.TestSupport;
+using EyeCtrl.ViewModels;
 using Xunit;
 
 public class KeyboardCoordinatorTests
 {
     // The ctor needs a ModalInteractionState, a QuickActionsCoordinator, and a
-    // ToolbarLifecycleCoordinator. None of these are touched by the lifecycle contract tests below
-    // (they never call Initialize), so plain constructed instances suffice — the same shape the
-    // sibling coordinator tests use.
+    // ToolbarLifecycleCoordinator. The lifecycle contract tests below never call Initialize;
+    // the ONE exception is the round-2 swap-chain test further down, which runs the real
+    // Initialize (and therefore does touch the ToolbarLifecycleCoordinator). Plain constructed
+    // instances suffice for both — the same shape the sibling coordinator tests use.
     private static KeyboardCoordinator NewCoordinator() =>
         new(new ModalInteractionState(),
             new QuickActionsCoordinator(),
@@ -627,5 +635,243 @@ public class KeyboardCoordinatorTests
             .IsEqualTo((true, "none", 132.0));
         Check.That(KeyboardCoordinator.ToolbarOccupancyFor(true, true, true, "bottom", 132))
             .IsEqualTo((true, "bottom", 132.0));
+    }
+
+    // ---- Issue #166 M2: the verdict-term wiring is now exercised ----------------------------
+    // The three snapshot writers (swap patch, edge flip, skin tone) previously assigned
+    // WithSwappedVerdict/WithPreservedVerdict inline; deleting the assignments stayed green.
+    // The writers now delegate to internal seams that tests drive; the event lambda's and the
+    // handlers' remaining lines touch the real KeyboardWindow and stay source-pinned below.
+
+    /// <summary>Builds the 17-term record directly — every test pins the terms it cares about
+    /// and takes defaults for the rest.</summary>
+    private static KeyboardStackSnapshot Snap(
+        string layout = "QWERTY", string modelId = "pred_test_model",
+        bool onDisk = true, ModelVerificationOutcome verification = ModelVerificationOutcome.NotYetVerified) =>
+        new(layout, 1.0, true, "en", "Bottom", 0, true, true, 30, true,
+            modelId, false, 800, 800, 400, onDisk, verification);
+
+    [Fact]
+    public void PatchSnapshotWithSwappedVerdict_MovesOnlyTheVerdictTerm_OfTheMatchingModel()
+    {
+        var c = NewCoordinator();
+        var stored = Snap(verification: ModelVerificationOutcome.NotYetVerified);
+        c.KeyboardSnapshotForTesting = stored;
+
+        // The id compare is case-insensitive (production matches MLModelSize spellings), so the
+        // test exercises that too by passing a differently-cased id.
+        c.PatchSnapshotWithSwappedVerdict(("PRED_TEST_MODEL", ModelVerificationOutcome.Verified));
+
+        var patched = c.KeyboardSnapshotForTesting!;
+        Check.That(patched.ActiveModelVerification).IsEqualTo(ModelVerificationOutcome.Verified);
+        // ONLY the verdict term may move: re-substituting the old verdict must reproduce the
+        // stored snapshot term-for-term (a re-capture here would drift disk/ledger state).
+        Check.That(patched with { ActiveModelVerification = stored.ActiveModelVerification })
+            .IsEqualTo(stored);
+    }
+
+    [Fact]
+    public void PatchSnapshotWithSwappedVerdict_IgnoresForeignModelIds_AndNullVerdicts()
+    {
+        var c = NewCoordinator();
+        var stored = Snap(verification: ModelVerificationOutcome.Failed);
+        c.KeyboardSnapshotForTesting = stored;
+
+        c.PatchSnapshotWithSwappedVerdict(("some_other_model", ModelVerificationOutcome.Verified));
+        Check.That(c.KeyboardSnapshotForTesting).IsSameReferenceAs(stored);
+
+        c.PatchSnapshotWithSwappedVerdict(null);
+        Check.That(c.KeyboardSnapshotForTesting).IsSameReferenceAs(stored);
+    }
+
+    [Fact]
+    public void PatchSnapshotWithSwappedVerdict_WithNoSnapshotYet_IsANoOp()
+    {
+        var c = NewCoordinator();
+        c.PatchSnapshotWithSwappedVerdict(("pred_test_model", ModelVerificationOutcome.Verified));
+        Check.That(c.KeyboardSnapshotForTesting).IsNull();
+    }
+
+    [Fact]
+    public void CapturePreservingVerdict_MovesFreshSettingsTerms_ButKeepsTheStoredVerdict()
+    {
+        var c = NewCoordinator();
+        c.KeyboardSnapshotForTesting = Snap(layout: "QWERTY", verification: ModelVerificationOutcome.Failed);
+        // A fresh capture whose live ledger read says Verified (the repair-landed-in-the-window
+        // shape WithPreservedVerdict exists to refuse) while the running stack is still Failed.
+        var fresh = Snap(layout: "AZERTY", verification: ModelVerificationOutcome.Verified);
+
+        c.CapturePreservingVerdict(fresh);
+
+        var merged = c.KeyboardSnapshotForTesting!;
+        Check.That(merged.ActiveLayout).IsEqualTo("AZERTY");
+        Check.That(merged.ActiveModelVerification).IsEqualTo(ModelVerificationOutcome.Failed);
+    }
+
+    [Fact]
+    public void CapturePreservingVerdict_TakesTheFreshVerdict_WhenNothingIsStoredYet()
+    {
+        var c = NewCoordinator();
+        var fresh = Snap(verification: ModelVerificationOutcome.Verified);
+
+        c.CapturePreservingVerdict(fresh);
+
+        Check.That(c.KeyboardSnapshotForTesting).IsSameReferenceAs(fresh);
+    }
+
+    [Fact]
+    public void VerdictTermWiring_TheThreeSnapshotWritersDelegateToTheSeams()
+    {
+        // Source pins over COMMENT-STRIPPED, whitespace-collapsed code (the M3 discipline: a
+        // pin over raw text passes on a commented-out call). Belt-and-braces around the
+        // behavioural chain test below (round-2 I-1): the pins hold the wiring text in place
+        // and are the only guard against an inline revert the behavioural test cannot see.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Services", "Coordinators", "KeyboardCoordinator.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage(
+                "The StackSwapped event is no longer subscribed with OnStackSwapped — deleting "
+                + "this subscription leaves the keyboard bound to the replaced stack, so word "
+                + "prediction is dead for the whole session (round-2 X5/M7 measurement), on "
+                + "top of the N3 spurious reload this pin originally guarded. The method-group "
+                + "form is pinned (not an inline lambda) because a lambda body can be "
+                + "dead-wrapped while its call text still satisfies a substring pin.")
+            .That(source.Contains("_predictionFactory.StackSwapped+=OnStackSwapped;")).IsTrue();
+
+        Check.WithCustomMessage(
+                "OnStackSwapped no longer patches the snapshot verdict. Belt-and-braces only: " +
+                "the behavioural chain test " +
+                "StackSwapped_OnTheLiveFactory_RebindsTheKeyboard_AndPatchesTheSnapshot is the " +
+                "primary catcher since round-2 I-1 (a dead-wrap inside OnStackSwapped fails " +
+                "that test, not just this pin).")
+            .That(source.Contains("PatchSnapshotWithSwappedVerdict(verification);")).IsTrue();
+
+        Check.WithCustomMessage(
+                "The keyboard-edge handler no longer stores its fresh capture with the verdict " +
+                "preserved — a repair landing mid-flip would absorb Verified while the running " +
+                "stack is still Failed (plan review C4).")
+            .That(source.Contains("CapturePreservingVerdict(snapshot);")).IsTrue();
+
+        Check.WithCustomMessage(
+                "The emoji-skin-tone handler no longer stores its fresh capture with the " +
+                "verdict preserved (same C4 discipline as the edge flip).")
+            .That(source.Contains("CapturePreservingVerdict(ApplyEmojiSkinTone(")).IsTrue();
+    }
+
+    // ---- Issue #166 round-2 I-1: the event→re-bind→patch chain, behaviourally --------------
+    // The seams test the patch in isolation and the pins hold the source text, but the CHAIN
+    // (live factory's StackSwapped → OnStackSwapped → real KeyboardWindow re-bind + snapshot
+    // patch) had no behavioural coverage: mutations X5 (subscribe the dead factory) and X9
+    // (re-bind with null) survived the whole App suite green. This runs the REAL Initialize
+    // against a REAL KeyboardWindow and fires the LIVE factory's event by reflecting the
+    // field-like event's backing delegate — the cheap way to raise another assembly's event
+    // from a test (driving the factory's own swap path is the alternative).
+
+    private sealed class KeyboardOnlyOverlayManager : IOverlayManager
+    {
+        private readonly KeyboardWindow _keyboard;
+        public KeyboardOnlyOverlayManager(KeyboardWindow keyboard) => _keyboard = keyboard;
+        public KeyboardWindow Keyboard => _keyboard;
+        public ICursorCircleOverlay CursorCircle => throw new NotImplementedException();
+        public IActivationButtonOverlay ActivationButton => throw new NotImplementedException();
+        public IManualSelectionOverlay ManualSelectionOverlay => throw new NotImplementedException();
+        public IActionMenuOverlay ActionMenu => throw new NotImplementedException();
+        public IToolbarOverlay Toolbar => throw new NotImplementedException();
+        public IPauseIndicatorOverlay PauseIndicator => throw new NotImplementedException();
+        public IManualSelectionIndicatorOverlay ManualSelectionIndicator => throw new NotImplementedException();
+        public IGlassBackdropOverlay GlassBackdrop => throw new NotImplementedException();
+        public ICalibrationOverlay Calibration => throw new NotImplementedException();
+        public ITargetHighlightOverlay TargetHighlight => throw new NotImplementedException();
+        public ITrackStatusOverlay TrackStatus => throw new NotImplementedException();
+        public ITaskSwitcherOverlay TaskSwitcher => throw new NotImplementedException();
+        public IModesMenuOverlay ModesMenu => throw new NotImplementedException();
+        public IRepeatCursorOverlay RepeatCursor => throw new NotImplementedException();
+        public IQuickActionsGridOverlay QuickActionsGrid => throw new NotImplementedException();
+        public IEdgeButtonBar EdgeButtonBar => throw new NotImplementedException();
+        public void Initialize(OverlayViewModels viewModels, EyeCtrlSettings settings,
+            GazeProviderType providerType) => throw new NotImplementedException();
+    }
+
+    [StaFact]
+    public void StackSwapped_OnTheLiveFactory_RebindsTheKeyboard_AndPatchesTheSnapshot()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var vm = new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+        var keyboard = new KeyboardWindow();
+        keyboard.SetViewModel(vm);
+        var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            OverlayManager = new KeyboardOnlyOverlayManager(keyboard),
+            Dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher,
+            Messenger = new WeakReferenceMessenger(),
+        };
+        var c = NewCoordinator();
+        c.Initialize(context);
+        c.KeyboardSnapshotForTesting = Snap(verification: ModelVerificationOutcome.NotYetVerified);
+
+        // The LIVE factory (round-2 X5: a subscription attached to the replaced factory would
+        // leave this field-like event's backing delegate null).
+        var factoryField = typeof(KeyboardCoordinator).GetField("_predictionFactory",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Check.WithCustomMessage(
+                "Reflection target '_predictionFactory' not found — the coordinator's field "
+                + "was renamed; update this test, it is not a behaviour failure (round-3 R7).")
+            .That(factoryField).IsNotNull();
+        var factory = factoryField!.GetValue(c)!;
+        var eventField = typeof(PredictionStackFactory).GetField("StackSwapped",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        Check.WithCustomMessage(
+                "Reflection target 'StackSwapped' not found — the factory's event was renamed "
+                + "or gained custom accessors; update this test, it is not a behaviour failure.")
+            .That(eventField).IsNotNull();
+        var handler = (Delegate?)eventField!.GetValue(factory);
+        Check.WithCustomMessage(
+                "Nothing is subscribed to the LIVE factory's StackSwapped — the keyboard would "
+                + "never re-bind on a swap (round-2 mutation X5).")
+            .That(handler).IsNotNull();
+
+        var swapped = new PredictionOrchestrator(
+            new WordPredictor(new InMemoryDictProvider(), "QWERTY"));
+        try
+        {
+            handler!.DynamicInvoke(swapped,
+                (object?)(("pred_test_model", ModelVerificationOutcome.Verified)));
+
+            // The re-bind must land in the REAL window's VM — OnStackSwapped's first half,
+            // which no pin covers (round-2 X9: SetOrchestrator(null) survived 1197 green).
+            var vmField = typeof(KeyboardViewModel).GetField("_orchestrator",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Check.WithCustomMessage(
+                    "Reflection target '_orchestrator' not found — the VM's field was renamed; "
+                    + "update this test, it is not a behaviour failure (round-3 R6).")
+                .That(vmField).IsNotNull();
+            var vmOrchestrator = vmField!.GetValue(vm);
+            Check.WithCustomMessage(
+                    "The swap did not re-bind the keyboard to the swapped orchestrator — word "
+                    + "prediction would be dead for the whole session while the suite stays "
+                    + "green (round-2 mutations X5/X9).")
+                .That(vmOrchestrator).IsSameReferenceAs(swapped);
+
+            // And the snapshot patch is part of the same chain (round-1 N5/M7 dead-wrap).
+            Check.WithCustomMessage(
+                    "The swap did not patch the stored snapshot's verdict term (round-1 "
+                    + "mutations N5/M7).")
+                .That(c.KeyboardSnapshotForTesting!.ActiveModelVerification)
+                .IsEqualTo(ModelVerificationOutcome.Verified);
+        }
+        finally
+        {
+            c.Dispose();
+            swapped.Dispose();
+        }
+    }
+
+    private sealed class InMemoryDictProvider : IDictionaryProvider
+    {
+        public Dictionary<string, int> Load() => new();
+        public void Save(Dictionary<string, int> words) { }
     }
 }

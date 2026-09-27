@@ -25,6 +25,17 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
     // read by the band show paths only to decide whether to re-raise the strip above the band.
     private bool _pauseIndicatorVisible;
 
+    // The last command POSTED for the strip (issue #166 M8). Checked by the pre-check before
+    // queuing another: skipping when this already equals the command is correct even with an
+    // earlier command still in flight, because the queued pipeline then already ends in the
+    // commanded state — comparing against the EXECUTED mirror instead would wrongly skip a real
+    // transition (true→false arriving while the true is still queued would skip the false and
+    // strand the strip shown; that exact sequence is Unpause_WhileBandVisible_HidesStrip).
+    // No synchronisation needed because the only sender of StateChangedMessage marshals the
+    // send onto the UI dispatcher (GazeEngineAdapter.OnStateChanged), so commands arrive
+    // serialized on one thread (round-1 review N1 — the call-site count was the wrong reason).
+    private bool _commandedPauseIndicator;
+
     /// <summary>
     /// Fires once per real show/hide transition, ON the UI thread (inside each dispatcher
     /// lambda, after the window calls). Re-asserts — SetPaused/ReassertVisibility call the
@@ -48,20 +59,34 @@ public sealed class ToolbarVisibilityAdapter : IToolbarVisibility
         VisibilityChanged?.Invoke(visible);
     }
 
-    public void SetPauseIndicator(bool visible) => _dispatcher.BeginInvoke(() =>
+    public void SetPauseIndicator(bool visible)
     {
-        if (_pauseIndicatorVisible == visible) return; // StateChangedMessage fires per gaze flip
-        _pauseIndicatorVisible = visible;
-        if (visible)
+        // Pre-check on the CALLER's thread (issue #166 M8): StateChangedMessage fires per gaze
+        // flip, and the edge guard used to run only inside the posted lambda — every flip queued
+        // a dispatcher item just to return there, the exact cost class the no-change guard at
+        // ToolbarAutoHideController.SetPaused documents as load-bearing. The authoritative write
+        // stays inside the lambda, whose guard is DEFENSIVE ONLY: with commands arriving
+        // serialized on one thread (the invariant the field comment states), the pre-check
+        // refuses every redundant post and each queued lambda carries the opposite of the one
+        // before it, so the guard is unreachable today (round-2 review N-1) — it costs nothing
+        // and backstops the invariant if a second caller ever appears.
+        if (_commandedPauseIndicator == visible) return;
+        _commandedPauseIndicator = visible;
+        _dispatcher.BeginInvoke(() =>
         {
-            _overlays.PauseIndicator.Show();
-            _overlays.PauseIndicator.RaiseToTop();
-        }
-        else
-        {
-            _overlays.PauseIndicator.Hide();
-        }
-    });
+            if (_pauseIndicatorVisible == visible) return; // StateChangedMessage fires per gaze flip
+            _pauseIndicatorVisible = visible;
+            if (visible)
+            {
+                _overlays.PauseIndicator.Show();
+                _overlays.PauseIndicator.RaiseToTop();
+            }
+            else
+            {
+                _overlays.PauseIndicator.Hide();
+            }
+        });
+    }
 
     public void ShowToolbar() => _dispatcher.BeginInvoke(() =>
     {

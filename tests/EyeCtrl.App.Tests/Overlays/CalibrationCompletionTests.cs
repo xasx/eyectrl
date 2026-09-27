@@ -26,6 +26,8 @@ public class CalibrationCompletionTests
             Check.That(presentation.HintVisible).IsFalse();
             Check.That(presentation.Tone).IsEqualTo(CompletionTone.Success);
             Check.That(presentation.AutoDismissMs).IsEqualTo(CalibrationCompletion.GoodAutoDismissMs);
+            // Nothing is left to cancel once the probe has recorded (holistic review N1).
+            Check.That(presentation.CancelHintVisible).IsFalse();
         }
     }
 
@@ -45,6 +47,8 @@ public class CalibrationCompletionTests
             .IsEqualTo(expectedSuccessTone ? CompletionTone.Success : CompletionTone.Warning);
         Check.That(presentation.RetryVisible).IsEqualTo(retryVisible);
         Check.That(presentation.AutoDismissMs).IsEqualTo(autoDismissMs);
+        // Normal endings keep the cancel line: the probe's panel is the only one that drops it.
+        Check.That(presentation.CancelHintVisible).IsTrue();
         if (goodResult && qualityPercent < CalibrationCompletion.GoodQualityPercent)
             Check.That(presentation.Detail).Contains("Mean error:").And.Contains("px");
         else if (!goodResult)

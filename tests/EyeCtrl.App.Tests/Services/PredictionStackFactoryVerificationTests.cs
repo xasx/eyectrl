@@ -4,6 +4,7 @@ using System.IO;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.App.Tests;
 using EyeCtrl.App.Tests.Settings.Pages;
 
 public class PredictionStackFactoryVerificationTests : IDisposable
@@ -27,13 +28,13 @@ public class PredictionStackFactoryVerificationTests : IDisposable
     [InlineData(true, true, true, true, false)]  // tokenizer missing   -> Failed
     [InlineData(true, true, true, true, true)]   // everything live     -> Verified
     public void ClassifyLmOutcome_CoversTheWholeDecisionTable(
-        bool modelFileExists, bool hashGated, bool hashOk,
+        bool modelOnDisk, bool hashGated, bool hashOk,
         bool predictorAvailable, bool tokenizerLoaded)
     {
         var (reports, outcome) = PredictionStackFactory.ClassifyLmOutcome(
-            modelFileExists, hashGated, hashOk, predictorAvailable, tokenizerLoaded);
+            modelOnDisk, hashGated, hashOk, predictorAvailable, tokenizerLoaded);
 
-        if (!modelFileExists || !hashGated)
+        if (!modelOnDisk || !hashGated)
         {
             Check.That(reports).IsFalse();
         }
@@ -160,5 +161,54 @@ public class PredictionStackFactoryVerificationTests : IDisposable
 
         Check.That(registry.GetVerification("135M"))
             .IsEqualTo(ModelVerificationOutcome.NotYetVerified);
+    }
+
+    [Fact]
+    public void OpenForHash_AllowsTheInstallReplace_AgainstAnOpenReader()
+    {
+        // Issue #166 round-2 M-1, behavioural: the hash-verification stream must hold
+        // FileShare.Delete or every repair re-download dies mid-install with IOException
+        // (mutation X4 — reverting VerifyFileSha256 to File.OpenRead — survived 1197 green).
+        // The reader is opened through PRODUCTION's own OpenForHash, so this probes the real
+        // share mode, not a test-side copy of it.
+        var dir = Path.Combine(Path.GetTempPath(), "pfv_test_" + Guid.NewGuid());
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var dst = Path.Combine(dir, "model.onnx");
+            var incoming = dst + ".incoming";
+            File.WriteAllText(dst, new string('a', 8192));
+            File.WriteAllText(incoming, new string('b', 8192));
+
+            using var hashStream = PredictionStackFactory.OpenForHash(dst);
+
+            File.Replace(incoming, dst, destinationBackupFileName: null);
+
+            Check.That(File.ReadAllText(dst)[0]).IsEqualTo('b');
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void VerifyFileSha256_OpensThroughOpenForHash_NotFileDotOpenRead()
+    {
+        // Belt-and-braces source pin over COMMENT-STRIPPED, whitespace-collapsed code (the M3
+        // discipline): X4's inline revert to File.OpenRead cannot pass this, and the
+        // behavioural test above cannot catch it because the revert lives inside
+        // VerifyFileSha256's own body.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(File.ReadAllText(System.IO.Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Services", "PredictionStackFactory.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage(
+                "VerifyFileSha256 no longer opens through OpenForHash — a plain File.OpenRead " +
+                "(FileShare.Read, no Delete) makes the repair install's File.Replace die " +
+                "mid-install while every suite stays green (round-2 mutation X4).")
+            .That(source.Contains("usingvarstream=OpenForHash(path);")).IsTrue();
     }
 }

@@ -277,6 +277,13 @@ public partial class KeyboardWindow : OverlayWindow
 
             KeyRows.Children.Add(rowPanel);
         }
+
+        // RebuildKeys draws STATIC labels and default key colours (impl review r2 N1/N3):
+        // every rebuild path must repaint modifier state afterwards, or a Caps/Shift-on user
+        // sees stale visuals — an unlit Caps key they will dwell to "turn on" (toggling it
+        // off), a ß that reads lowercase while typing ẞ. Covers LoadLayout (the VM's SetLayout
+        // raise repaints, then this rebuild erases it), emoji exit, and sub-layout swaps.
+        UpdateModifierVisuals();
     }
 
     public void UpdateGaze(PhysicalPoint screenPoint, long timestampMicroseconds)

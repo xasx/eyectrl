@@ -1029,7 +1029,20 @@ public class GazeIndicatorValidationTests
         // InlineData carries doubles; the int property (ResetAnimationMs) needs Convert,
         // or SetValue throws ArgumentException instead of setting the value.
         prop.SetValue(s, Convert.ChangeType(bad, prop.PropertyType));
-        Check.That(s.Validate()).HasElementThatMatches(e => e.Contains(property, StringComparison.Ordinal));
+        var errors = s.Validate();
+        Check.That(errors).HasElementThatMatches(e => e.Contains(property, StringComparison.Ordinal));
+        // The min/max columns are load-bearing, not decorative: the emitted error must restate
+        // the bounds it rejected against (message format owned by ValidationHelper.ValidateRange).
+        // The bounds go through the same current-culture ToString the interpolated message uses,
+        // so the de-DE decimal comma cannot desync the assert from the message text.
+        var error = errors.First(e => e.Contains(property, StringComparison.Ordinal));
+        // The bounds assert anchors on the full "between {min} and {max}, but was" phrase, not
+        // the bare numbers: "20" also matches inside "200"/"250" and "0" inside "1000"
+        // (round-1 M1), and a left-anchored phrase still matches when the MAX merely gains
+        // digits — "between 0,1 and 1" is a prefix of "between 0,1 and 1,5" (round-2 M-2,
+        // mutation X3). The ", but was" tail pins the right end. Same current-culture ToString
+        // as the interpolated message, so the de-DE comma stays safe.
+        Check.That(error).Contains($"between {min} and {max}, but was");
     }
 }
 

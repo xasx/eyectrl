@@ -32,6 +32,16 @@ public class ShippedLayoutFilesTests
     private static KeyboardLayout Load(string file) =>
         KeyboardLayoutLoader.Load(Path.Combine(LayoutDir(), file));
 
+    // Impl review M4: the EXACT ordered contents of the accents content rows (spec D2/D3) —
+    // the concatenated Output values of the non-special keys per row, in file order. The
+    // shape theory above cannot see a content edit: deleting the `ç Ç` pair or swapping
+    // `« »` for the declined German quotes `„ “` (D12) passes shape but fails here.
+    private static readonly Dictionary<string, string[]> AccentsRowSequences = new()
+    {
+        ["qwertz.json"] = ["éÉèÈêÊëËàÀ", "âÂçÇîÎïÏôÔ", "ùÙûÛœŒ«»"],
+        ["azerty.json"] = ["êÊâÂîÎôÔ", "ûÛëËïÏùÙ", "œŒ«»"],
+    };
+
     [Theory]
     [MemberData(nameof(LayoutNames))]
     public void TheLayout_ParsesAndUsesOnlyKnownSpecialActions(string file)
@@ -135,5 +145,150 @@ public class ShippedLayoutFilesTests
             Check.WithCustomMessage($"{layout.Name}/{sub.Label} repeats an id")
                  .That(ids.Distinct().Count()).IsEqualTo(ids.Count);
         }
+    }
+
+    [Theory]
+    [InlineData("qwertz.json")]
+    [InlineData("azerty.json")]
+    public void AccentsSubLayout_IsAutoReturn_WithWellFormedKeys(string file)
+    {
+        var layout = Load(file);
+        Check.That(layout.SubLayouts.ContainsKey("accents")).IsTrue();
+        var accents = layout.SubLayouts["accents"];
+
+        Check.WithCustomMessage("accents must auto-return (spec D5)")
+            .That(accents.AutoReturn).IsTrue();
+
+        var keys = accents.Rows.SelectMany(r => r).ToList();
+        Check.WithCustomMessage("every non-special accents key must emit text (spec M2)")
+            .That(keys.Where(k => k.SpecialAction is null).All(k => !string.IsNullOrEmpty(k.Output)))
+            .IsTrue();
+        Check.WithCustomMessage(
+                "every lower-case accents key must carry EXACTLY its invariant upper-case as " +
+                "shiftOutput (spec D11; a wrong-but-non-empty capital fails — plan-r2)")
+            .That(keys.Where(k => k.SpecialAction is null
+                                   && k.Output.Length == 1
+                                   && char.IsLetter(k.Output[0])
+                                   && char.IsLower(k.Output[0]))
+                      .All(k => k.ShiftOutput == char.ToUpperInvariant(k.Output[0]).ToString()))
+            .IsTrue();
+
+        // Widest row must equal the 12.8 standard so the SizeToContent window's WIDTH never
+        // changes between sub-layouts (spec shape rules).
+        var widest = accents.Rows.Max(r => r.Sum(k => k.Width));
+        Check.WithCustomMessage($"widest accents row is {widest:0.##}, expected 12.8")
+            .That(Math.Abs(widest - 12.8) < 0.01).IsTrue();
+
+        // Row count must EQUAL the letters sub-layout's (both layouts ship 3 content rows +
+        // footer = 4) so the bottom-docked window's HEIGHT never changes and no row shifts
+        // under the gaze (spec shape rules, plan review H2).
+        Check.WithCustomMessage(
+                $"accents has {accents.Rows.Count} rows, letters has " +
+                $"{layout.SubLayouts[layout.DefaultSubLayout].Rows.Count} — must match (plan H2)")
+            .That(accents.Rows.Count)
+            .IsEqualTo(layout.SubLayouts[layout.DefaultSubLayout].Rows.Count);
+
+        // Impl review M4: pin the exact ordered Output sequence of every content row (the
+        // footer follows and carries only special keys, so it concatenates to "").
+        var expectedSequences = AccentsRowSequences[file];
+        Check.WithCustomMessage(
+                $"{file}: accents ships {accents.Rows.Count - 1} content rows, " +
+                $"{expectedSequences.Length} pinned")
+            .That(accents.Rows.Count - 1).IsEqualTo(expectedSequences.Length);
+        for (var i = 0; i < expectedSequences.Length; i++)
+        {
+            var actual = string.Concat(accents.Rows[i]
+                .Where(k => k.SpecialAction is null)
+                .Select(k => k.Output));
+            Check.WithCustomMessage(
+                    $"{file} accents row {i}: expected the exact ordered set " +
+                    $"'{expectedSequences[i]}', got '{actual}'")
+                .That(actual).IsEqualTo(expectedSequences[i]);
+        }
+    }
+
+    [Theory]
+    [InlineData("qwerty.json")]
+    [InlineData("azerty.json")]
+    [InlineData("qwertz.json")]
+    public void EverySwitchSubTarget_NamesAnExistingSubLayout(string file)
+    {
+        // Spec M5 over the REAL shipped data, ALL THREE files including QWERTY (plan-r2:
+        // the accents theory only covers the two layouts that carry accents).
+        var layout = Load(file);
+        var ids = layout.SubLayouts.Keys.ToHashSet();
+        var targets = layout.SubLayouts.Values.SelectMany(s => s.Rows.SelectMany(r => r))
+            .Select(k => k.SpecialAction)
+            .Where(a => a is not null && a.StartsWith("switchSub:", StringComparison.Ordinal))
+            .Select(a => a!["switchSub:".Length..]);
+        Check.WithCustomMessage($"{file} dangles a switchSub: target")
+            .That(targets.All(t => ids.Contains(t))).IsTrue();
+    }
+
+    [Fact]
+    public void Qwertz_LettersRow0_GainsAcc_WithZeroMovement()
+    {
+        var layout = Load("qwertz.json");
+        var row0 = layout.SubLayouts["letters"].Rows[0];
+
+        // D17 (supersedes D16; owner-defaulted): row 0 is Win 1.2 + Q..P = 11.2 — the same
+        // zero-move trick as AZERTY. Win widens 1.2 -> 2.0 (consuming the 0.8 left margin),
+        // Acc (0.8) consumes the right margin; every letter keeps its position to within
+        // sub-DIP layout rounding (~0.4 DIP on the widened row — unit widths are preserved;
+        // impl-review r3 m3) and the row hits the 12.8 standard. Pinned so a future edit
+        // cannot silently shift letters.
+        Check.That(row0.Single(k => k.Label == "Win").Width).IsCloseTo(2.0, 0.01);
+        var acc = row0.Single(k => k.SpecialAction == "switchSub:accents");
+        Check.That(acc.Width).IsCloseTo(0.8, 0.01);
+        Check.That(row0.IndexOf(acc)).IsEqualTo(row0.Count - 1);
+        Check.That(row0.Sum(k => k.Width)).IsCloseTo(12.8, 0.01);
+
+        // D16 explicitly NOT applied: the footer is untouched.
+        var footer = layout.SubLayouts["letters"].Rows[^1];
+        Check.That(footer.Sum(k => k.Width)).IsCloseTo(11.7, 0.01);
+        Check.That(footer.Single(k => k.Label == "Space").Width).IsCloseTo(2.0, 0.01);
+    }
+
+    [Fact]
+    public void Qwertz_SharpS_GainsCapitalShiftOutput()
+    {
+        var layout = Load("qwertz.json");
+        // D7: ẞ (U+1E9E). Data-pinned, not view-model echo (spec I6): deleting the JSON
+        // attribute must fail right here.
+        var sharpS = layout.SubLayouts["letters"].Rows.SelectMany(r => r)
+            .Single(k => k.Output == "ß");
+        Check.That(sharpS.ShiftOutput).IsEqualTo("ẞ");
+    }
+
+    [Fact]
+    public void Azerty_LettersRow0_GainsAcc_WithZeroMovement()
+    {
+        var layout = Load("azerty.json");
+        var row0 = layout.SubLayouts["letters"].Rows[0];
+
+        // D3 zero-move: Win widens 1.2 -> 2.0 (consuming the 0.8 left margin), Acc (0.8)
+        // consumes the right margin; every letter keeps its position to within sub-DIP
+        // layout rounding (~0.4 DIP on the widened row — unit widths are preserved;
+        // impl-review r3 m3) and the row hits the 12.8 standard. Pinned so a future edit
+        // cannot silently shift the letters.
+        Check.That(row0.Single(k => k.Label == "Win").Width).IsCloseTo(2.0, 0.01);
+        var acc = row0.Single(k => k.SpecialAction == "switchSub:accents");
+        Check.That(acc.Width).IsCloseTo(0.8, 0.01);
+        Check.That(row0.IndexOf(acc)).IsEqualTo(row0.Count - 1);
+        Check.That(row0.Sum(k => k.Width)).IsCloseTo(12.8, 0.01);
+    }
+
+    [Fact]
+    public void Azerty_LettersAccentKeys_GainCapitals()
+    {
+        var layout = Load("azerty.json");
+        var letters = layout.SubLayouts["letters"].Rows.SelectMany(r => r).ToList();
+
+        // D6 data pins (spec I6): the four letters accent keys carry their capitals IN THE
+        // FILE — deleting an attribute fails here, not just in a view-model echo.
+        Check.That(letters.Single(k => k.Output == "é").ShiftOutput).IsEqualTo("É");
+        Check.That(letters.Single(k => k.Output == "è").ShiftOutput).IsEqualTo("È");
+        Check.That(letters.Single(k => k.Output == "à").ShiftOutput).IsEqualTo("À");
+        Check.That(letters.Single(k => k.Output == "ç").ShiftOutput).IsEqualTo("Ç");
     }
 }

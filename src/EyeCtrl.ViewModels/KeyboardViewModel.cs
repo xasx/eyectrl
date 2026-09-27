@@ -25,6 +25,16 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     private int _baselineKeyDwellMs;
     private int _cooldownMs;
 
+    // D13 spatial swap suppression: while the gaze stays within ~half a key width of its
+    // pre-swap position, no key dwells — a sub-layout swap (manual or auto-return) happened
+    // under a resting gaze and whatever materialized there must not fire. The radius is
+    // computed at swap time from the OLD grid's still-valid centres; post-swap centres are
+    // unarranged at the first samples and are never consulted (plan review B1).
+    private Dictionary<string, PhysicalPoint>? _lastKeyScreenPositions;
+    private PhysicalPoint? _lastGazeInsideWindowPoint;
+    private PhysicalPoint? _swapSuppressedAnchor;
+    private double _swapSuppressedClearRadiusSquared;
+
     /// <summary>
     /// Longest interval between two DELIVERED gaze samples that may still count as continuous
     /// dwell. The tracker measures elapsed time from timestamps, so a pause longer than this must
@@ -178,9 +188,20 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         NearestKeyProgress = 0;
         _nearestKeyEnteredTimestamp = 0;
         _lastSampleTimestampUs = 0;
+        _swapSuppressedAnchor = null;
+        _lastGazeInsideWindowPoint = null;
 
         IsEmojiMode = false;
         ActiveSubLayoutId = _layout?.DefaultSubLayout ?? "letters";
+
+        // M7 (impl review M2; symptom corrected r2 N4): raised AFTER the assignment above —
+        // the window rebuilds the keys synchronously on it, and raising earlier (e.g. an
+        // OnActiveSubLayoutIdChanged hook, which fires before PropertyChanged) would repaint
+        // the OLD grid. Without this raise, a hide from a non-letters layout with Caps armed
+        // reopens with the Caps key unlit and the SHIFT-BEARING labels stale (QWERTZ ß,
+        // AZERTY é è ç à) while the keys type capitals — plain letter labels are already
+        // capitals and never go stale.
+        OnPropertyChanged(nameof(ActiveModifiers));
     }
 
     /// <summary>
@@ -192,6 +213,10 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         PhysicalPoint gazePoint, bool isGazeInsideWindow, long timestampUs)
     {
         if (keyScreenPositions.Count == 0 || _keyDwellMs <= 0) return;
+
+        _lastKeyScreenPositions = keyScreenPositions;
+        if (isGazeInsideWindow)
+            _lastGazeInsideWindowPoint = gazePoint;
 
         // How long the stream was silent since the last DELIVERED sample, measured before this
         // sample replaces the mark. See MaxContinuousSampleGapUs.
@@ -206,6 +231,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
                 NearestKeyProgress = 0;
                 NearestKeyId = null;
             }
+            _lastGazeInsideWindowPoint = null;
             return;
         }
 
@@ -218,6 +244,24 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
                 NearestKeyId = null;
             }
             return;
+        }
+
+        if (_swapSuppressedAnchor is { } suppressionAnchor)
+        {
+            if (gazePoint.DistanceSquaredTo(suppressionAnchor) > _swapSuppressedClearRadiusSquared)
+            {
+                _swapSuppressedAnchor = null;   // gaze moved meaningfully away — normal dwell resumes
+            }
+            else
+            {
+                // D13: still resting on the landing spot — nothing dwells.
+                if (NearestKeyId != null)
+                {
+                    NearestKeyProgress = 0;
+                    NearestKeyId = null;
+                }
+                return;
+            }
         }
 
         // Find nearest key
@@ -306,6 +350,23 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     {
         _layout = layout;
         ActiveSubLayoutId = layout.DefaultSubLayout;
+
+        // M3: a layout switch is an unsupervised swap — clear the D13 fields like
+        // ResetInteractionState does. The anchor only ever blocks, but a stale one measured
+        // against the OLD layout's grid is meaningless on the new one.
+        _swapSuppressedAnchor = null;
+        _lastGazeInsideWindowPoint = null;
+
+        // M7 (impl review M2), corrected r2 N1/N4: raised AFTER the assignment above, so a
+        // raise landing before it would repaint the OLD grid. On the production reload path
+        // this raise alone does NOT hold — KeyboardWindow.LoadLayout follows SetLayout with
+        // RebuildKeys(), whose own end-of-rebuild repaint (r2 N1) is what makes a reload
+        // with Caps armed land lit; the raise repaints a grid the rebuild then discards. It
+        // remains for paths that set a layout WITHOUT a window rebuild. Without either, the
+        // stale grid shows the Caps key unlit and the SHIFT-BEARING labels unshifted (QWERTZ
+        // ß, AZERTY é è ç à) while the keys type capitals — plain letter labels are already
+        // capitals and never go stale.
+        OnPropertyChanged(nameof(ActiveModifiers));
     }
 
     public void SetOrchestrator(PredictionOrchestrator? orchestrator)
@@ -335,6 +396,18 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         OnPropertyChanged(nameof(IsShifted));
     }
 
+    /// <summary>D15: entering an auto-return sub-layout clears armed one-shot SYSTEM modifiers.
+    /// Accents carries no modifier keys, so an armed modifier would be invisible there — and a
+    /// stray Win plus an accent is a system shortcut on the OS layout (Win+é = Win+2 on French
+    /// Windows). Shift and Caps Lock survive: accents carry their own capitals (D11).</summary>
+    private void ClearSystemOneShotModifiers()
+    {
+        _activeModifiers.Remove(ModifierKey.Ctrl);
+        _activeModifiers.Remove(ModifierKey.Alt);
+        _activeModifiers.Remove(ModifierKey.Win);
+        OnPropertyChanged(nameof(ActiveModifiers));
+    }
+
     private bool HasSystemModifiers =>
         _activeModifiers.Contains(ModifierKey.Ctrl)
         || _activeModifiers.Contains(ModifierKey.Alt)
@@ -357,6 +430,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         }
         Messenger.Send(new KeyActivatedMessage(actualOutput, ModifiersSnapshot));
         ClearOneShotModifiers();
+        AutoReturnIfNeeded();
     }
 
     public void HandleBackspace()
@@ -459,7 +533,80 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     {
         if (_layout == null || !_layout.SubLayouts.ContainsKey(subLayoutId)) return;
         if (ActiveSubLayoutId == subLayoutId) return;
+
+        // D13: arm the suppression BEFORE the swap — and the "before" is load-bearing:
+        // _lastKeyScreenPositions IS the window's live _keyScreenPositions dictionary
+        // (declared in KeyboardWindow, handed to ProcessKeyGaze by UpdateGaze — an alias,
+        // not a snapshot), and the `ActiveSubLayoutId = subLayoutId;` assignment below runs
+        // RebuildKeys → ClearKeyState SYNCHRONOUSLY (the ActiveSubLayoutId property-changed
+        // case in OnViewModelPropertyChanged), which EMPTIES that dictionary. Computing the
+        // anchor/radius after the assignment would read a cleared dict (positions.Count < 2),
+        // null the anchor and silently disarm D13 in the real app while every VM test stays
+        // green (VM tests pass a static dict nothing clears) — the ordering pinned by the
+        // real-window resting-gaze probe in KeyboardGateProbeTests (impl-review I1).
+        // Anchor only when the gaze was actually on the key area; a prediction pick
+        // happens with the gaze on the bar and its auto-return swap must suppress nothing
+        // (plan review H3). Radius = half the distance to the second-nearest old centre
+        // (≈ half a key width; a resting-on-centre gaze yields d1≈0, d2≈pitch). Fewer than
+        // two positioned old centres means no suppression — otherwise d2 stays
+        // double.MaxValue and the radius becomes effectively infinite (plan-r2).
+        if (_lastGazeInsideWindowPoint is { } anchor
+            && _lastKeyScreenPositions is { } positions
+            && positions.Count >= 2)
+        {
+            var d1 = double.MaxValue;
+            var d2 = double.MaxValue;
+            foreach (var center in positions.Values)
+            {
+                var d = anchor.DistanceSquaredTo(center);
+                if (d < d1)
+                {
+                    d2 = d1;
+                    d1 = d;
+                }
+                else if (d < d2)
+                {
+                    d2 = d;
+                }
+            }
+
+            _swapSuppressedAnchor = anchor;
+            _swapSuppressedClearRadiusSquared = 0.25 * d2;
+        }
+        else
+        {
+            _swapSuppressedAnchor = null;
+        }
+
         ActiveSubLayoutId = subLayoutId;
+
+        // D15 … and M7: RebuildKeys (synchronous, on the assignment above) draws static
+        // labels and — since impl-review r2 N1 — repaints modifier state itself at its end,
+        // so this raise is REDUNDANT on every rebuild path and kept as backup for any future
+        // rebuild path that forgets to (defense in depth, mirroring the notes on the
+        // ResetInteractionState/SetLayout raises). It must still run AFTER the swap so any
+        // repaint it causes lands on the NEW grid (plan review H1).
+        if (_layout.SubLayouts[subLayoutId].AutoReturn)
+            ClearSystemOneShotModifiers();
+        OnPropertyChanged(nameof(ActiveModifiers));
+    }
+
+    /// <summary>
+    /// Returns to the layout's default sub-layout after TEXT was emitted from an
+    /// <c>autoReturn</c> sub-layout (spec D5/D14): a non-special key activation or a prediction
+    /// selection. Never fires in emoji mode — emoji keys carry Output and flow through the same
+    /// activation path while IsEmojiMode overlays the text sub-layout, and swapping the grid
+    /// under the open emoji surface is the RebuildKeys trap (the IsEmojiMode property-changed
+    /// case in KeyboardWindow's OnViewModelPropertyChanged).
+    /// </summary>
+    private void AutoReturnIfNeeded()
+    {
+        if (IsEmojiMode) return;
+        if (_layout is null
+            || !_layout.SubLayouts.TryGetValue(ActiveSubLayoutId, out var sub)
+            || !sub.AutoReturn)
+            return;
+        SwitchSubLayout(_layout.DefaultSubLayout);
     }
 
     public List<string> GetSuggestions()
@@ -503,6 +650,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         _previousWord = words.Length > 0 ? words[^1] : word;
         AppendRecentText(word);
         Messenger.Send(new PredictionSelectedMessage(word, deleteCount));
+        AutoReturnIfNeeded();
     }
 
     public void HandleSpecialKey(string keyName)

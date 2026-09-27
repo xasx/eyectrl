@@ -33,11 +33,17 @@ public class ModelRegistryService
     private readonly object _lock = new();
     private string? _activeModelId;
 
-    // Writers: the stack-build swap continuation (UI thread, via the factory's marshal) and
-    // the download completion path (worker thread). Reader: the settings UI thread during
-    // page build. VerificationChanged therefore fires on the UI thread for swaps and on a
-    // worker thread for downloads — subscribers must marshal any UI work themselves (the
-    // Models page routes through _ctx.Invoke). (Plan review N12.)
+    // Writers: the stack-build swap continuation and the download/reload path — in practice
+    // ALL of them run on the settings UI thread today, NOT on a worker thread: the download
+    // continuations resume on the UI dispatcher (no ConfigureAwait(false) anywhere in the
+    // chain — ModelsPageSource marshals its post-download work through _ctx.Invoke), and the
+    // factory's swap lambda is posted through the same dispatcher. The _lock above guards the
+    // dictionary itself anyway, so correctness never depended on that scheduling — it is an
+    // OPTIMIZATION fact, not a safety one (issue #166 M9: the old "worker thread" claim was
+    // wrong; do not build on either reading — if a future caller moves off the UI thread,
+    // the _lock makes the dictionary safe, and the swap path's stale-write protection is the
+    // factory's build-generation re-check, which is thread-safe by construction). Reader: the
+    // settings UI thread during page build, under the same _lock.
     private readonly Dictionary<string, ModelVerificationOutcome> _verification =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -295,7 +301,28 @@ public class ModelRegistryService
         }
 
         // Raise OUTSIDE the lock: subscribers (the Models page rebuild) run UI work.
-        if (changed) VerificationChanged?.Invoke();
+        // Contained per-subscriber (issue #166 round-1 M6 + round-2 N-3): a throwing
+        // subscriber used to escape into the caller — from the factory's posted
+        // background-swap lambda that meant the exception died in the supervision wrapper
+        // and StackSwapped never ran, leaving the keyboard bound to the just-disposed stack.
+        // Iterating the invocation list (not a bare multicast Invoke) keeps one broken
+        // subscriber from starving the later ones on the same raise. The verdict is committed
+        // before the raise; a subscriber's failure is its own and does not touch the ledger.
+        var raise = VerificationChanged; // single read: a subscribe racing in waits for the next report
+        if (changed && raise is not null)
+        {
+            foreach (var subscriber in raise.GetInvocationList().Cast<Action>())
+            {
+                try
+                {
+                    subscriber();
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "VerificationChanged subscriber threw (model {ModelId})", modelId);
+                }
+            }
+        }
     }
 
     /// <summary>The latest verification outcome reported for a model; the default for a model

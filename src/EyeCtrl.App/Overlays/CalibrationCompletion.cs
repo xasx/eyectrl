@@ -9,8 +9,8 @@ internal enum CompletionTone
 
 /// <summary>
 /// What the calibration overlay's completion panel shows: symbol, tone, title, detail line, whether
-/// Retry is offered, whether the hint is shown, and how long the panel lingers before dismissing
-/// itself.
+/// Retry is offered, whether the hint is shown, whether the "Press Esc to cancel" line is shown, and
+/// how long the panel lingers before dismissing itself.
 /// </summary>
 internal readonly record struct CalibrationCompletionPresentation(
     string Symbol,
@@ -19,7 +19,8 @@ internal readonly record struct CalibrationCompletionPresentation(
     string Detail,
     bool RetryVisible,
     bool HintVisible,
-    int AutoDismissMs);
+    int AutoDismissMs,
+    bool CancelHintVisible);
 
 /// <summary>
 /// The completion panel's copy and visibility rules, as a pure function of the session's state.
@@ -52,8 +53,11 @@ internal static class CalibrationCompletion
         {
             // Neutral by contract: no quality arithmetic (a probe fits nothing, so quality is 0) and
             // no retry. Auto-dismiss is the only way out for a user who cannot actuate Accept.
+            // No "Press Esc to cancel" either: the probe is over and there is nothing left to cancel \u2014
+            // the line only told an observer something false for the panel's 3 s (holistic review N1).
             return new("\u25CF", CompletionTone.Success, MeasureOnlyTitle, "",
-                RetryVisible: false, HintVisible: false, AutoDismissMs: GoodAutoDismissMs);
+                RetryVisible: false, HintVisible: false, AutoDismissMs: GoodAutoDismissMs,
+                CancelHintVisible: false);
         }
 
         bool isGood = qualityPercent < GoodQualityPercent;
@@ -61,7 +65,8 @@ internal static class CalibrationCompletion
         {
             return new("\u2713", CompletionTone.Success, "Calibration complete",
                 $"Mean error: {errorPx:F1} px ({qualityPercent:F1}%)",
-                RetryVisible: false, HintVisible: true, AutoDismissMs: GoodAutoDismissMs);
+                RetryVisible: false, HintVisible: true, AutoDismissMs: GoodAutoDismissMs,
+                CancelHintVisible: true);
         }
 
         return new("\u26A0", CompletionTone.Warning,
@@ -71,6 +76,7 @@ internal static class CalibrationCompletion
                 : errorText ?? "",
             // A failed session cannot be retried from here (the user must look at the dot again), so
             // only the poor-quality case offers Retry; both linger long enough to be read.
-            RetryVisible: goodResult, HintVisible: false, AutoDismissMs: PoorAutoDismissMs);
+            RetryVisible: goodResult, HintVisible: false, AutoDismissMs: PoorAutoDismissMs,
+            CancelHintVisible: true);
     }
 }

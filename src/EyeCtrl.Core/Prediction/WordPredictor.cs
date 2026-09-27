@@ -1,5 +1,7 @@
 namespace EyeCtrl.Core.Prediction;
 
+using EyeCtrl.Core.Settings;
+
 /// <summary>
 /// Primary word prediction engine combining dictionary lookups, bigram context, phrase matching,
 /// fuzzy edit distance, casing preferences, and smart capitalization.
@@ -84,7 +86,9 @@ public class WordPredictor
     /// <param name="maxCount">Maximum number of suggestions to return.</param>
     /// <param name="fullText">Full text typed so far for smart capitalization decisions.</param>
     /// <returns>A list of <see cref="PredictionResult"/> ranked by score descending.</returns>
-    public List<PredictionResult> GetSuggestions(string prefix, string? context = null, int maxCount = 5, string? fullText = null)
+    public List<PredictionResult> GetSuggestions(
+        string prefix, string? context = null,
+        int maxCount = KeyboardSettings.MaxSuggestionsCeiling, string? fullText = null)
     {
         // Use case-insensitive dictionary to prevent duplicate suggestions with different casing
         var scored = new Dictionary<string, (double score, PredictionType type, string displayWord, double? fuzzyDistance)>(StringComparer.OrdinalIgnoreCase);

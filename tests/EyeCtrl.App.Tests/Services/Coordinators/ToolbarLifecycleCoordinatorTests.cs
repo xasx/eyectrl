@@ -112,7 +112,7 @@ public class ToolbarLifecycleCoordinatorTests
         Check.WithCustomMessage(
                 "The StateChangedMessage mirror no longer commands the pause strip. Without it, "
                 + "an unpause with the band visible never dismisses the strip (spec H1).")
-            .That(coordinator.Contains("SetPauseIndicator(paused);")).IsTrue();
+            .That(SourceScanner.StripComments(coordinator).Contains("SetPauseIndicator(paused);")).IsTrue();
 
         var app = File.ReadAllText(Path.Combine(root, "src", "EyeCtrl.App", "App.xaml.cs"));
         var showOverlays = app.IndexOf("ShowOverlays(splash, cursorCircle, toolbar, settings);",

@@ -340,9 +340,11 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
 
     /// <summary>
     /// Makes "inside the ring" and "about to leave" legible without text. The progress ring brightens
-    /// and thickens as in-band samples accumulate, and the whole ring dims the moment gaze leaves the
-    /// band — so the user learns what advances the target by watching it, which is the only channel
-    /// available to someone who cannot read a number and hold a fixation at the same time.
+    /// and thickens as the view model's <c>TargetProgress</c> rises — in-band samples accumulating in a
+    /// normal calibration, the elapsed share of the fixed window in the measure-only probe — and the
+    /// whole ring dims the moment gaze leaves the band. So the user learns what advances the target by
+    /// watching it, which is the only channel available to someone who cannot read a number and hold a
+    /// fixation at the same time.
     /// </summary>
     private void UpdateOnTargetFeedback()
     {
@@ -418,7 +420,6 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
     {
         TargetCanvas.Visibility = Visibility.Collapsed;
         ProgressText.Visibility = Visibility.Collapsed;
-        CancelHint.Visibility = Visibility.Visible;
         Backdrop.Visibility = Visibility.Visible;
         CompletionPanel.Visibility = Visibility.Visible;
         StopPulse();
@@ -452,6 +453,7 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
         CompletionError.Text = presentation.Detail;
         CompletionHint.Visibility = presentation.HintVisible ? Visibility.Visible : Visibility.Collapsed;
         RetryPanel.Visibility = presentation.RetryVisible ? Visibility.Visible : Visibility.Collapsed;
+        CancelHint.Visibility = presentation.CancelHintVisible ? Visibility.Visible : Visibility.Collapsed;
         StartAutoDismiss(presentation.AutoDismissMs, DismissAndReset);
     }
 

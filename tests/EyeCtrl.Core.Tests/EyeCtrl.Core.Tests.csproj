@@ -30,4 +30,12 @@
              Link="TestSupport\DpiHelperScaleObserverAttribute.cs" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      The committed replay fixture for the fixation gates. A loose file next to the test binary, like
+      every other data file in this repo, so the committed bytes are exactly what the tests measured.
+    -->
+    <None Update="Analysis\Fixtures\fixation-gates-synthetic.csv" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

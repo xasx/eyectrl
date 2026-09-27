@@ -117,7 +117,10 @@ public class ToolbarLifecycleCoordinatorTests
         var app = File.ReadAllText(Path.Combine(root, "src", "EyeCtrl.App", "App.xaml.cs"));
         var showOverlays = app.IndexOf("ShowOverlays(splash, cursorCircle, toolbar, settings);",
             StringComparison.Ordinal);
-        var togglePause = app.IndexOf("im.TogglePause();", StringComparison.Ordinal);
+        // The startup pause push was extracted into PauseLaunchProvenance.Apply (which logs the
+        // paused source AND calls TogglePause). The marker moved with it; the O4 ordering pin is
+        // unchanged — the push must still land after ShowOverlays.
+        var togglePause = app.IndexOf("PauseLaunchProvenance.Apply(", StringComparison.Ordinal);
         // Each marker is asserted present BEFORE the ordering comparison: with only one marker
         // missing, IndexOf yields -1 and `N > -1` is TRUE — the ordering check would pass
         // vacuously and silently disarm the O4 pin. (-1 > -1 is false, but that covers only
@@ -128,9 +131,9 @@ public class ToolbarLifecycleCoordinatorTests
                 + "do not leave the ordering check comparing against -1.")
             .That(showOverlays).IsGreaterOrEqualThan(0);
         Check.WithCustomMessage(
-                "The im.TogglePause(); marker is gone from App.xaml.cs. If the startup pause push "
-                + "moved or was renamed, update the literal here — do not leave the ordering "
-                + "check comparing against -1.")
+                "The PauseLaunchProvenance.Apply( marker is gone from App.xaml.cs. If the startup "
+                + "pause push moved or was renamed, update the literal here — do not leave the "
+                + "ordering check comparing against -1.")
             .That(togglePause).IsGreaterOrEqualThan(0);
         Check.WithCustomMessage(
                 "The startup pause push must stay AFTER ShowOverlays (spec O4): the startup band "

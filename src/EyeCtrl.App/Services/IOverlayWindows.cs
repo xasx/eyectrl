@@ -70,6 +70,13 @@ public interface ICursorCircleOverlay
     void Hide();
     void UpdatePosition(PhysicalPoint point);
     void UpdateAppearance(CursorSettings settings);
+
+    /// <summary>
+    /// Dims the ring while interaction is paused. Paused no longer hides the ring — a visible,
+    /// dimmed ring is how the user sees that tracking is alive and where their gaze is while they
+    /// look for the resume target.
+    /// </summary>
+    void SetPausedDim(bool dimmed);
 }
 
 /// <summary>The fixation activation button.</summary>

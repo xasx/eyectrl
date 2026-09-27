@@ -259,12 +259,12 @@ public class ToolbarAutoHideControllerTests
 
     // ── Paused hides like any other state ──
     // Owner decision 2026-09-26, reversing the 2026-09-24 trap guard (which pinned the band visible
-    // while paused after a 1 h 43 min stranding). The stranding was the summon being dead, not the
-    // hide being wrong — one paused hide→summon was observed on this code (2026-09-26 23:19), so
-    // pause no longer touches visibility at all, and the Hidden case below summons with no pause
-    // gate. The way back while paused: past-edge gaze (the pause-indicator strip marks that edge),
-    // then dwell the Play toggle. A completed Play-dwell resume from a summoned band has not been
-    // observed yet; the tray ForceShow remains the non-gaze escape hatch.
+    // while paused after a 1 h 43 min stranding). The 2026-09-24 log says the summon worked: 10
+    // paused summons, 11 paused auto-hides, and 0 resumes — the step that failed was reaching Play
+    // after the summon. On the decision, pause no longer touches visibility at all, and the Hidden
+    // case below summons with no pause gate. The way back while paused: past-edge gaze (the
+    // pause-indicator strip marks that edge), then dwell the Play toggle; the tray ForceShow
+    // remains the non-gaze escape hatch.
 
     [Fact]
     public void WhilePaused_OffToolbarGaze_StillHides()

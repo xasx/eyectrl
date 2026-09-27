@@ -168,11 +168,10 @@ public sealed class ToolbarAutoHideController
 
         // Paused hides like any other state (owner decision 2026-09-26, reversing the 2026-09-24
         // trap guard): the toolbar auto-hides while paused, and the way back is the edge summon the
-        // pause-indicator strip marks. The guard's premise died with the bug it was masking — the
-        // summon failure that stranded the user. One paused hide→summon has been observed on this
-        // code (2026-09-26 23:19, raw y=−50 against the −50 px threshold — thin); a completed
-        // Play-dwell resume from a summoned band has not been observed yet. The tray ForceShow
-        // remains the non-gaze escape hatch.
+        // pause-indicator strip marks, then dwell Play. The 2026-09-24 log behind the decision says
+        // the summon itself worked: 10 paused summons, 11 paused auto-hides, and 0 resumes — the
+        // step that failed was reaching Play after the summon. The tray ForceShow remains the
+        // non-gaze escape hatch.
         //
         // If the band is already HIDDEN, no hide/show transition will fire to carry the pause
         // change into the visibility seam — re-assert the hide, keeping the seam and toolbar dwell

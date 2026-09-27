@@ -140,7 +140,10 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
                     // The LEFT-edge modifier bar. Its own try: a manager (or test fake) without
                     // the slot must not cost the user the right-bar buttons above. The icon set
                     // is rebuilt from the CURRENT latch on every show, so a stale highlight from
-                    // a previous session cannot survive a reopen.
+                    // a previous session cannot survive a reopen. That reset relies on the VM
+                    // receiving ShowActionMenuMessage before this coordinator (VM registered at
+                    // construction, coordinator at Initialize) — a startup re-order would
+                    // surface as stale latched icons after reopen.
                     try
                     {
                         var modAnchor = ScreenGeometry.LeftEdgeAnchor(RightEdgeInsetLogical, UIConstants.ButtonRadius);

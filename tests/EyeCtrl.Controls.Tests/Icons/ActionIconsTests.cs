@@ -19,15 +19,6 @@ using static EyeCtrl.Controls.Icons.ActionIcons;
 /// </summary>
 public class ActionIconsTests
 {
-    public ActionIconsTests()
-    {
-        // Geometry.ToString() formats path data with the CURRENT culture (de-DE emits
-        // "M4;8A2;2;…", en-US "M4,8A2,2,…"), so the LatchedRim substring assertion below is only
-        // deterministic when the culture is pinned to the one LatchedRim is authored in. The
-        // other checks in this class are culture-neutral.
-        CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
-    }
-
     [Fact]
     public void EveryActionIcon_HasGeometry()
     {
@@ -104,7 +95,7 @@ public class ActionIconsTests
         Check.That(ActionIcons.For(ActionIcon.ShiftLatched).Fill).IsNotNull();
         // The PRIMARY latched cue is the rim in the STROKE geometry (outline-level, peripheral-
         // vision rule) — pin that the latched stroke differs from the unlatched glyph:
-        Check.That(ActionIcons.For(ActionIcon.ShiftLatched).Stroke!.ToString().Contains(LatchedRim)).IsTrue();
+        Check.That(ActionIcons.For(ActionIcon.ShiftLatched).Stroke!.ToString(CultureInfo.InvariantCulture).Contains(LatchedRim)).IsTrue();
     }
 
     [Fact]

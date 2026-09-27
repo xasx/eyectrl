@@ -57,8 +57,10 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
         // ActionMenu: VM -> show/hide
         Context.ActionMenuVM.PropertyChanged += OnActionMenuVMPropertyChanged;
 
-        // The mod-bar icon swap: subscribed AFTER OnActionMenuVMPropertyChanged so the ring
-        // rebuild (main handler) precedes the bar-icon swap on a crossing.
+        // The mod-bar icon swap. Subscription order is NOT load-bearing: the two handlers
+        // filter different property names, and on a crossing the VM raises LatchedModifiers
+        // before BuildLayer() bumps RingVersion — the ordering that matters is the VM's raise
+        // order inside ActionMenuViewModel.Receive(ToggleActionMenuModifierMessage).
         Context.ActionMenuVM.PropertyChanged += OnActionMenuLatchedModifiersChanged;
 
         // Toolbar: VM state changes -> toolbar state

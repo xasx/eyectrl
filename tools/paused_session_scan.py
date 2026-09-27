@@ -354,6 +354,29 @@ def selftest() -> None:
         line("2026-09-26 09:31:00.000", 'State \u2192 "Paused"'),
         line("2026-09-26 09:32:30.000", "Shutdown"),
     )
+    # 15. Q4: a summon in a resolved pause A, then a quiet 3 min pause B with no summon. A's resume
+    # must resolve A's summon and nothing else — the real rule gives False. If a resume no longer
+    # resolved the paused summon, that summon would sit inside B's unresolved tail (180 s > 60) and
+    # flag.
+    summon_in_resolved_pause_then_quiet = log(
+        line("2026-09-19 10:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=\"StreamEngine\""),
+        line("2026-09-19 10:00:01.000", 'State \u2192 "Paused"'),
+        line("2026-09-19 10:00:30.000", "Toolbar summoned: slide-in animating"),
+        line("2026-09-19 10:01:01.000", 'State \u2192 "FreeLook"'),
+        line("2026-09-19 10:05:00.000", 'State \u2192 "Paused"'),
+        line("2026-09-19 10:08:00.000", "Shutdown"),
+    )
+    # 16. Q5: an unresolved paused summon in a 2 min pause that ends UNCLEANLY (the log restarts, no
+    # Shutdown line for that run). The 60 s floor must count the unclean tail too: the real rule
+    # flags via rule 1 alone (120 s > 60, and under the 300 s time rule). A check that looked only
+    # at the clean tail would see 0 and miss it.
+    unresolved_summon_short_unclean = log(
+        line("2026-09-20 10:00:00.000", "Startup: EyeCtrl v1.0.0.0, provider=\"StreamEngine\""),
+        line("2026-09-20 10:00:01.000", 'State \u2192 "Paused"'),
+        line("2026-09-20 10:01:00.000", "Toolbar summoned: slide-in animating"),
+        line("2026-09-20 10:02:01.000", "Startup: EyeCtrl v1.0.0.0, provider=\"StreamEngine\""),
+        line("2026-09-20 10:05:00.000", "Shutdown"),
+    )
 
     cases = [
         ("09-24 shape", stranded, [True]),
@@ -370,6 +393,8 @@ def selftest() -> None:
         ("long resolved pause + short unresolved summon (R-e)", resolved_then_short_unresolved, [False]),
         ("unresolved summon under 60 s (P4)", short_unresolved_summon, [False]),
         ("unpaused summon does not count as paused (P3)", unpaused_summon_then_quiet_pause, [False]),
+        ("resolved summon stays resolved (Q4)", summon_in_resolved_pause_then_quiet, [False]),
+        ("unclean tail counts toward the floor (Q5)", unresolved_summon_short_unclean, [True, False]),
     ]
 
     failed = False

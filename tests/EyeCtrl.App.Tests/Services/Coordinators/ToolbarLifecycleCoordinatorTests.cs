@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Tests.Services.Coordinators;
 
 using System.IO;
+using System.Text.RegularExpressions;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.Core.Models;
@@ -151,19 +152,23 @@ public class ToolbarLifecycleCoordinatorTests
         // leave the whole suite green. The user's only observed paused summon cleared the threshold
         // by 0–6 px (raw y=−50/−52/−56 against −50), so drift at this literal silently removes the
         // only gaze way out of Paused. Pin all three tunables at the wiring site.
+        //
+        // Word-boundary regexes, not Contains (review R-a): a substring match stays green for
+        // offScreenMarginPx: 500, hideDelayMs: 50000 and summonDelayMs: 4000 — drifts of exactly
+        // the kind this test exists to catch.
         var root = SourceScanner.RepoRoot().FullName;
         var text = SourceScanner.StripComments(File.ReadAllText(Path.Combine(root,
             "src", "EyeCtrl.App", "Services", "Coordinators", "ToolbarLifecycleCoordinator.cs")));
 
         Check.WithCustomMessage("ToolbarAutoHideController is no longer wired with hideDelayMs: 5000.")
-            .That(text.Contains("hideDelayMs: 5000")).IsTrue();
+            .That(Regex.IsMatch(text, @"hideDelayMs:\s*5000\b")).IsTrue();
         Check.WithCustomMessage("ToolbarAutoHideController is no longer wired with summonDelayMs: 400.")
-            .That(text.Contains("summonDelayMs: 400")).IsTrue();
+            .That(Regex.IsMatch(text, @"summonDelayMs:\s*400\b")).IsTrue();
         Check.WithCustomMessage(
                 "ToolbarAutoHideController is no longer wired with offScreenMarginPx: 50. The user's "
                 + "only observed paused summon cleared the threshold by 0–6 px — drift at this "
                 + "literal removes the only gaze way out of Paused.")
-            .That(text.Contains("offScreenMarginPx: 50")).IsTrue();
+            .That(Regex.IsMatch(text, @"offScreenMarginPx:\s*50\b")).IsTrue();
     }
 
     private static ToolbarAutoHideController NewAutoHide() => new(

@@ -305,11 +305,12 @@ public class FixationSettleTests
         {
             FixationSettleMs = 500,
         };
-        var settles = new List<long>();
-        detector.FixationSettled += _ => settles.Add(0);
+        var settleTimes = new List<long>();
+        long currentUs = 0;
+        detector.FixationSettled += _ => settleTimes.Add(currentUs);
         long fed = 0;
 
-        void FeedValid(long ts) { detector.Update(new PhysicalPoint(1000, 1000), ts); fed = ts; }
+        void FeedValid(long ts) { currentUs = ts; detector.Update(new PhysicalPoint(1000, 1000), ts); fed = ts; }
         void FeedInvalid(long ts) { detector.Update(new PhysicalPoint(1000, 1000), ts, isValid: false); fed = ts; }
 
         for (long ts = 0; ts <= 270_000; ts += StepUs) FeedValid(ts);   // credited 270
@@ -318,8 +319,9 @@ public class FixationSettleTests
 
         Check.That(fed).IsEqualTo(990_000);
         // Resume credits the cap (66) at t = 600 → 336; +30 a sample → the 500 ms bar is crossed at
-        // t = 780 ms (credited 516). Wall-clock semantics would have settled at t = 510 ms.
-        Check.That(settles).HasSize(1);
+        // t = 780 ms (credited 516). Wall-clock semantics would have settled at t = 510 ms, and
+        // uncapping the per-sample dt would have credited the whole 330 ms gap at t = 600.
+        Check.That(settleTimes).ContainsExactly(780_000);
     }
 
     [Fact]

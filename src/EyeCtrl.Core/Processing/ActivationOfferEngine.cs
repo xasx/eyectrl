@@ -25,6 +25,33 @@ public sealed record ActivationOffer(
     double HitRadiusPx,
     long ExpiresAtUs);
 
+/// <summary>What an accepted settle did to the offer — the engine's answer to
+/// <see cref="ActivationOfferEngine.NotifyFixationSettled"/>, used by the replay's counts.</summary>
+public enum SettleOutcome
+{
+    /// <summary>No offer: P lay in a chrome zone, no side of the ring was placeable, or the settle
+    /// arrived while a fired offer was still locked.</summary>
+    NoOffer,
+
+    /// <summary>There was no live offer; one was made for this settle.</summary>
+    Created,
+
+    /// <summary>The settle was outside the live offer's no-move zone: a new offer replaced it.</summary>
+    Replaced,
+
+    /// <summary>A near miss (nearer B than P, outside the hit area): the live offer's expiry moved.</summary>
+    Extended,
+
+    /// <summary>On P's side of the zone: swallowed and remembered as the pending re-offer.</summary>
+    Pending,
+
+    /// <summary>Inside B's hit area: the user is on the button, and the dwell owns it.</summary>
+    OnButton,
+
+    /// <summary>A fired offer was in flight: the settle changed nothing.</summary>
+    Locked,
+}
+
 /// <summary>
 /// The activation offer's engine — pure, sample-driven, and deliberately NOT wired into
 /// <see cref="InteractionManager"/> in ticket 7 (ticket 8 wires it at the accepted settle).
@@ -206,7 +233,8 @@ public sealed class ActivationOfferEngine
     /// class doc. Call it for every settle the InteractionManager accepts (state Fixation), after
     /// <see cref="Update"/> for the same instant.
     /// </summary>
-    public void NotifyFixationSettled(PhysicalPoint point, long timestampUs)
+    /// <returns>What the settle did, for the replay's counts (and the wiring's telemetry later).</returns>
+    public SettleOutcome NotifyFixationSettled(PhysicalPoint point, long timestampUs)
     {
         _runActive = true;
         _nearMissRunActive = false;
@@ -216,7 +244,7 @@ public sealed class ActivationOfferEngine
             // The fired lock: not replaced, not extended, not re-offered over. The run still exists
             // (its end must be recorded), but it changes nothing about the offer.
             _runRole = RunRole.None;
-            return;
+            return SettleOutcome.Locked;
         }
 
         if (_offer is not null)
@@ -227,7 +255,7 @@ public sealed class ActivationOfferEngine
                 // The user is on the button: the dwell owns it, and it must never be remembered — a
                 // declined on-button dwell would otherwise re-offer at the old button's own spot (R1).
                 _runRole = RunRole.None;
-                return;
+                return SettleOutcome.OnButton;
             }
 
             if (distanceToButton <= _offer.HitRadiusPx + _fixationRadiusPx)
@@ -240,21 +268,23 @@ public sealed class ActivationOfferEngine
                     _runRole = RunRole.NearMiss;
                     _nearMissRunActive = true;
                     ExtendExpiry(timestampUs);
+                    return SettleOutcome.Extended;
                 }
-                else
-                {
-                    // On P's side, inside the no-move zone: swallowed. Remembered so the user is not
-                    // stranded next to an expiring button (decision 7).
-                    _runRole = RunRole.Pending;
-                    _pending = point;
-                }
-                return;
+
+                // On P's side, inside the no-move zone: swallowed. Remembered so the user is not
+                // stranded next to an expiring button (decision 7).
+                _runRole = RunRole.Pending;
+                _pending = point;
+                return SettleOutcome.Pending;
             }
 
             // Outside the no-move zone: a fresh settle elsewhere replaces the live offer.
         }
 
-        MakeOffer(point, timestampUs);
+        bool hadOffer = _offer is not null;
+        return MakeOffer(point, timestampUs)
+            ? (hadOffer ? SettleOutcome.Replaced : SettleOutcome.Created)
+            : SettleOutcome.NoOffer;
     }
 
     /// <summary>
@@ -362,20 +392,22 @@ public sealed class ActivationOfferEngine
         _nearMissRunActive = false;
     }
 
-    private void MakeOffer(PhysicalPoint point, long timestampUs)
+    /// <returns>True when an offer was placed; false when P or both placement sides intersect
+    /// chrome.</returns>
+    private bool MakeOffer(PhysicalPoint point, long timestampUs)
     {
         _pending = null;
         _nearMissRunActive = false;
         _runRole = RunRole.None;
 
         if (InChrome(point))
-            return;
+            return false;
 
         var placement = ActivationButtonPlacement.Place(
             point, _ringSizeDip, LayoutConstants.ActivationButtonOffset, _scale, _hitRadiusPx,
             _screenBoundsPx, _chromeZones);
         if (!placement.Placed)
-            return;
+            return false;
 
         _offer = new ActivationOffer(
             _nextOfferId++, point, placement.ButtonCenter, _hitRadiusPx,
@@ -384,6 +416,7 @@ public sealed class ActivationOfferEngine
         _dwellUs = 0;
         _missSinceUs = null;
         _runRole = RunRole.Offered;
+        return true;
     }
 
     // The offer is gone: either the deadline passed or the caller declined. The pending re-offer takes

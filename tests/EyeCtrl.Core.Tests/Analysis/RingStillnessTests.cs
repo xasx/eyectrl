@@ -56,6 +56,29 @@ public class RingStillnessTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void SettlePlusGlideModel_PinsOnlyFromTheSettle_SoItsStillShareDropsBelowTheOnsetPin()
+    {
+        // Ticket 7's M2 prediction: pinning at settle loses the 300–500 ms of every run and every run
+        // shorter than the settle, so the settle model must NOT read like the onset pin. Mutation: pin
+        // at the onset in the settle model (drop the PinAtSettle check in RingStillness.IsPinned) →
+        // the two pinned shares become equal and this reds.
+        var recording = GazeRecordingFile.Read(FixturePath);
+        var frames = Replay(recording);
+        var runs = FixationReplayGates.DetectRuns(frames, FixationReplayGates.CentroidR75);
+        var episodes = FixationReplayGates.ExtractHeldEpisodes(frames, FixationReplayGates.Dispersion150Px);
+
+        var onset = RingStillness.Measure(
+            frames, episodes, RingStillness.Model.Pinned(runs), StillTolerancePx, lagMs: 0);
+        var settle = RingStillness.Measure(
+            frames, episodes, RingStillness.Model.PinnedAtSettle(runs, glideMs: 120),
+            StillTolerancePx, lagMs: 0);
+
+        Check.That(onset.ConsideredFrames).IsEqualTo(settle.ConsideredFrames);
+        Check.That(settle.PinnedShare).IsStrictlyGreaterThan(0.0);
+        Check.That(settle.PinnedShare).IsStrictlyLessThan(onset.PinnedShare);
+    }
+
+    [Fact]
     public void SyntheticFixture_PinningRaisesTheStillShare_OverFollowing()
     {
         var recording = GazeRecordingFile.Read(FixturePath);

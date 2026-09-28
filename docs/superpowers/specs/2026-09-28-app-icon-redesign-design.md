@@ -20,7 +20,7 @@ more opaque body gradient.
 | Exe/taskbar/Explorer icon | `<ApplicationIcon>Assets\eyectrl.ico</ApplicationIcon>` in `EyeCtrl.App.csproj` |
 | Embedded WPF resource | `<Resource Include="Assets\eyectrl.ico" />` in `EyeCtrl.App.csproj` |
 | System tray | `TrayIconManager` loads `pack://application:,,,/Assets/eyectrl.ico` |
-| Splash window | `SplashWindow.xaml` `<Image Source="/Assets/eyectrl.ico" ...>` |
+| Splash window | `SplashWindow.xaml` 64×64 `<Image Source="/Assets/eyectrl.ico">` — WPF/WIC selects the frame best matching the decode size, which is why the 64 px frame must exist in the plan |
 
 All four consume the same file, so this is an asset-only change: swap `eyectrl.ico`,
 rebuild, done. The splash `<Image>` renders the largest frame; it already works with
@@ -51,6 +51,10 @@ Layer order matters; listed back to front.
 6. **Pie fill** — `M48,48 L48,35.5 A12.5,12.5 0 1 0 60.5,48 Z`,
    fill = linear gradient (userSpace, from (60,48) toward (36,44)): `#F6C77E` → `#E8A33C`.
    Reads as a dwell ¾ complete: filled from 12 o'clock counter-clockwise (through 9, 6) ending at 3 o'clock.
+   Direction note: the real `DwellArcButton` sweeps **clockwise** from 12
+   (`UpdateArc`, DwellArcButton.cs — 12 → 3 → 6 → 9). The icon's pie is deliberately the
+   mirror of that (CCW) so the fill head and gaze dot land on the right for rightward
+   reading. Same ¾-to-a-click story, opposite rotation — intentional, not an error.
 7. **Gaze dot** — circle center (60.5,48), r 4.5, fill `#F7FCFF` — riding the fill head.
 
 ### Colors and their sources
@@ -93,7 +97,8 @@ should be reproducible. Build a small console tool:
   mirroring the repo's `IconGeometry` idiom.
 - Emits `src/EyeCtrl.App/Assets/eyectrl.ico`: classic BMP (BGRA, bottom-up, with AND mask)
   frames for 16/32/48/64/128 + a PNG-compressed 256 frame (the standard Vista+ layout; the
-  256-as-PNG convention keeps the file small).
+  256-as-PNG convention keeps the file small). Directory entries written in ascending size
+  order (16 → 256).
 - Deterministic output (no timestamps) so re-runs diff cleanly.
 - The master's Gaussian blur (σ=4) is approximated with WPF's `BlurEffect` (radius ≈ 8);
   acceptance is visual similarity to the approved mockup, not bit-exactness.
@@ -118,7 +123,7 @@ should be reproducible. Build a small console tool:
 | L1 | Rounded-square tile, not a disc | Win11 icon idiom; crisper at small sizes; distance from the old disc | Keeping the disc (too close to the old icon) |
 | L2 | Dark tile (F1), not the cyan-flip tile (F2) | matches the app's dark identity across all three themes | F2 Cyan Poster (parts from dark identity) |
 | L3 | Amber pie iris (`AccentWarning` hue) | warm focal point on cool body; palette-native | cyan pie (insufficient separation from the body) |
-| L4 | Pie reads ¾ filled, CCW from 12 o'clock | mirrors the app's dwell fill toward a click | full pie (loses "in progress"); ring-only (weaker story) |
+| L4 | Pie reads ¾ filled; rotation deliberately mirrored from the control's clockwise sweep so the head-dot lands rightward | echoes the dwell story (¾ toward a click) while keeping the approved rightward composition | full pie (loses "in progress"); ring-only (weaker story); CW rotation (dot lands left, unapproved) |
 | L5 | Gaze dot rides the fill head, not the centre | motion; owner chose V3 lineage (head dot) over V2 | centre dot ("Fixed Gaze") |
 | L6 | Whisper arc inside the track (W1) | owner's pick among W1/W2/W3 | ghost ring (W2), outer halo (W3) |
 | L7 | 16/32 px frames hand-tuned, not naive downscale | rim/glow/hairline/arc degrade to noise below 48 px | single-geometry scaling for all frames |

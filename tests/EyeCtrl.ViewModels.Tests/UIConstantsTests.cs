@@ -1,5 +1,6 @@
 namespace EyeCtrl.ViewModels.Tests;
 
+using EyeCtrl.Core;
 using EyeCtrl.ViewModels;
 
 /// <summary>
@@ -27,6 +28,28 @@ public class UIConstantsTests
     {
         Check.That(UIConstants.ActivationButtonOffset > 0).IsTrue();
         Check.That(UIConstants.ActivationButtonOffset).IsEqualTo(55);
+    }
+
+    [Fact]
+    public void ActivationButtonOffset_MovedToLayoutConstants_WithAnIntAliasKept()
+    {
+        // Ticket 7 (N9): Core's placement function owns the number now; the ViewModels alias stays an
+        // int for its existing readers. Mutation: change one without the other → red.
+        Check.That(LayoutConstants.ActivationButtonOffset).IsEqualTo(55.0);
+        Check.That(UIConstants.ActivationButtonOffset).IsEqualTo(55);
+        Check.That(UIConstants.ActivationButtonOffset)
+            .IsEqualTo((int)LayoutConstants.ActivationButtonOffset);
+    }
+
+    [Fact]
+    public void ActivationButtonHitRadius_IsItsOwnPhysicalConstant()
+    {
+        // Ticket 7 (N4): the dwell target is physical pixels and its own constant. Mutation: bump or
+        // reuse SharedButtonRadius for it → red on the size that roughly ten other buttons read.
+        Check.That(LayoutConstants.ActivationButtonHitRadiusPx).IsEqualTo(150.0);
+        Check.That(LayoutConstants.SharedButtonRadius).IsEqualTo(50.0);
+        Check.That(LayoutConstants.ActivationButtonHitRadiusPx)
+            .IsNotEqualTo(LayoutConstants.SharedButtonRadius);
     }
 
     /// <summary>

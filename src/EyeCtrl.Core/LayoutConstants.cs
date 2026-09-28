@@ -20,6 +20,30 @@ public static class LayoutConstants
     public const double SharedButtonRadius = 50.0;
 
     /// <summary>
+    /// Distance in logical pixels (DIP) from the cursor circle edge to the centre of the activation
+    /// offer, along each axis of the diagonal (the placement divides it by √2). Moved here from
+    /// <c>UIConstants</c> (ticket 7, re-check N9) so the Core placement function owns it; the only
+    /// production reader was a test, and <c>UIConstants</c> keeps an <c>int</c> alias.
+    ///
+    /// 55 DIP, as shipped: at the user's ring size 250 it puts the offer 180 DIP — 360 px at ScaleX 2.0 —
+    /// from the settle point.
+    /// </summary>
+    public const double ActivationButtonOffset = 55.0;
+
+    /// <summary>
+    /// Radius of the activation offer's dwell target in PHYSICAL pixels, never DPI-converted
+    /// (re-check N4). 150 px is the user's choice after the measured corner bias (75–130 px): the old
+    /// 100 px target (a 50 DIP <see cref="SharedButtonRadius"/>) let a biased near miss fall outside it,
+    /// and the offer would then move away from the attempt.
+    /// <para>
+    /// This is deliberately its own constant: <see cref="SharedButtonRadius"/> sizes about ten other
+    /// buttons and must not move with this one. Do not derive it through a logical-to-physical
+    /// conversion — bias and R live in physical pixels.
+    /// </para>
+    /// </summary>
+    public const double ActivationButtonHitRadiusPx = 150.0;
+
+    /// <summary>
     /// Radius of action menu buttons in logical pixels.
     /// Used for coordinate clamping calculations to ensure buttons stay on screen.
     /// Deliberately NOT <see cref="SharedButtonRadius"/> — see that constant for why.

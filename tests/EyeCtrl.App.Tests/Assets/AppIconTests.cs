@@ -118,6 +118,23 @@ public class AppIconTests
         ProbeBrightDot(bmp16, 10, 8);     // (62.5,48)@96 dot
     }
 
+    // A4b — pin the production call shape: the loader must request an explicit size
+    // (the ctor passes SystemInformation.SmallIconSize), never the bare Icon(Stream)
+    // that picks the large frame (64 px at 200 % DPI). TrayIconManager cannot be
+    // constructed in a test (its ctor makes a visible NotifyIcon), so the extracted
+    // static is the pin target.
+    [StaFact]
+    public void LoadTrayIcon_ExplicitSize_ResolvesRequestedFrame()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var resource = System.Windows.Application.GetResourceStream(new Uri(PackUri));
+        Check.That(resource).IsNotNull();
+        using var icon = EyeCtrl.App.Services.TrayIconManager.LoadTrayIcon(
+            resource!.Stream, new System.Drawing.Size(32, 32));
+        Check.That(icon.Width).IsEqualTo(32);
+        Check.That(icon.Height).IsEqualTo(32);
+    }
+
     private static void ProbeDarkTile(System.Drawing.Bitmap bmp, int x, int y)
     {
         var c = bmp.GetPixel(x, y);

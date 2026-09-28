@@ -77,12 +77,11 @@ public class TrayIconManager : IDisposable
             if (resourceInfo != null)
             {
                 using (resourceInfo.Stream)
-                using (var memoryStream = new MemoryStream())
                 {
-                    resourceInfo.Stream.CopyTo(memoryStream);
-                    memoryStream.Position = 0;
-                    // Icon constructor copies the data, so we can dispose the stream after
-                    _customIcon = new Icon(memoryStream);
+                    // L10/A4b: request the small-icon size so the tray gets the tuned small
+                    // frame (32 px at 200 % DPI) instead of the large frame that
+                    // Icon(Stream) picks and the shell then shrinks.
+                    _customIcon = LoadTrayIcon(resourceInfo.Stream, SystemInformation.SmallIconSize);
                     trayIcon = _customIcon;
                 }
             }
@@ -104,6 +103,19 @@ public class TrayIconManager : IDisposable
             _messenger.Send(new SettingsRequestedMessage()));
 
         interactionManager.StateChanged += OnStateChanged;
+    }
+
+    /// <summary>
+    /// Loads the tray icon at an explicit size. Internal static so App.Tests can pin the
+    /// size-requesting call (spec A4b): the ctor passes <see cref="System.Windows.Forms.SystemInformation.SmallIconSize"/>.
+    /// </summary>
+    internal static Icon LoadTrayIcon(Stream stream, System.Drawing.Size size)
+    {
+        using var memoryStream = new MemoryStream();
+        stream.CopyTo(memoryStream);
+        memoryStream.Position = 0;
+        // Icon constructor copies the data, so the caller's stream can be disposed after
+        return new Icon(memoryStream, size);
     }
 
     public void Dispose()

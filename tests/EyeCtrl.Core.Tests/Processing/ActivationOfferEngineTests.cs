@@ -208,6 +208,10 @@ public class ActivationOfferEngineTests
 
         engine.NotifyFixationSettled(PsidePoint(), 800_000);
         engine.NotifyFixationSettled(new PhysicalPoint(2500, 1800), 900_000);
+        // The fired offer is still the live one: a settle elsewhere must not have replaced it (the
+        // lock). Without this the mutation that drops the lock ends on the decline's null and passes.
+        Check.That(engine.CurrentOffer!.Id).IsEqualTo(offer.Id);
+
         engine.Decline();
 
         Check.That(engine.CurrentOffer).IsNull();

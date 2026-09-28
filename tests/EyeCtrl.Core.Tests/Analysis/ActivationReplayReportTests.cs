@@ -50,8 +50,10 @@ public class ActivationReplayReportTests(ITestOutputHelper output)
 
         output.WriteLine(markdown);
 
-        // The decision-10 guard: a re-offer must never move the button away from an attempt.
+        // The decision-10 guard: a re-offer must never move the button away from an attempt — and no
+        // offer may be left locked, because the replay accepts every fire (mutation: drop the accept).
         Check.That(markdown).Contains("| Re-offers that moved the button away from an attempt | 0 |");
+        Check.That(markdown).Contains("| Locked | 0 |");
 
         var outPath = Environment.GetEnvironmentVariable(ReportOutputEnvironmentVariable);
         if (!string.IsNullOrEmpty(outPath))

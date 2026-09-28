@@ -153,7 +153,7 @@ public class OverlayVmBindingCoordinatorTests
     }
 
     [Fact]
-    public void CursorPinnedState_IsForwardedToTheRing_AndReleasedOnHide()
+    public void CursorPinAndGlide_AreForwardedToTheRing_AsOneMoveCall()
     {
         var cursorCircle = new RecordingCursorCircle();
         var messenger = new WeakReferenceMessenger();
@@ -167,12 +167,28 @@ public class OverlayVmBindingCoordinatorTests
         var coordinator = NewCoordinator();
         SetContext(coordinator, ctx);
 
-        // The pin and the halo share one lifecycle: the activation widget's show/hide messages.
-        messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(600, 400), 75));
+        // A pin is Core's accepted settle, not the activation button's show (ticket 7).
+        messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), 0));
+        messenger.Send(new PinRingMessage(new PhysicalPoint(300, 200)));
         InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsPinned));
         Check.That(cursorCircle.PinnedCalls).ContainsExactly(true);
 
-        messenger.Send(new HideActivationButtonMessage());
+        // The first frame after the pin starts the glide: ONE call carrying the target and the flag,
+        // so the window never applies a position before it knows the jump is a pin (M3/N10).
+        messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(105, 100), 30_000));
+        InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.MoveTo));
+        Check.That(cursorCircle.MoveCalls).ContainsExactly((new PhysicalPoint(100, 100), true));
+
+        // A further glide frame: the interpolated position, still flagged.
+        messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(110, 100), 60_000));
+        InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.MoveTo));
+        Check.That(cursorCircle.MoveCalls).HasSize(2);
+        Check.That(cursorCircle.MoveCalls[1].Glide).IsTrue();
+        Check.That(cursorCircle.MoveCalls[1].Target.X).IsStrictlyGreaterThan(100);
+        Check.That(cursorCircle.MoveCalls[1].Target.X).IsStrictlyLessThan(300);
+
+        // Release: unpin. The snap to gaze arrives on the ordinary Position channel.
+        messenger.Send(new ReleaseRingMessage());
         InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsPinned));
         Check.That(cursorCircle.PinnedCalls).ContainsExactly(true, false);
     }
@@ -253,15 +269,17 @@ public class OverlayVmBindingCoordinatorTests
         method.Invoke(coordinator, new object?[] { null, new PropertyChangedEventArgs(propertyName) });
     }
 
-    /// <summary>Private nested fake (repo convention: no mocking library): records the pause dims and pins.</summary>
+    /// <summary>Private nested fake (repo convention: no mocking library): records the pause dims, pins and moves.</summary>
     private sealed class RecordingCursorCircle : ICursorCircleOverlay
     {
         public List<bool> PausedDimCalls { get; } = new();
         public List<bool> PinnedCalls { get; } = new();
+        public List<(PhysicalPoint Target, bool Glide)> MoveCalls { get; } = new();
 
         public void Show() { }
         public void Hide() { }
         public void UpdatePosition(PhysicalPoint point) { }
+        public void MoveTo(PhysicalPoint point, bool glide) => MoveCalls.Add((point, glide));
         public void UpdateAppearance(CursorSettings settings) { }
         public void SetPausedDim(bool dimmed) => PausedDimCalls.Add(dimmed);
         public void SetPinned(bool pinned) => PinnedCalls.Add(pinned);

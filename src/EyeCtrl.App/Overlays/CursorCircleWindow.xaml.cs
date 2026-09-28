@@ -66,7 +66,18 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
     private void ApplyEmphasis() =>
         Opacity = _isPaused ? PausedDimOpacity : _isPinned ? 1.0 : FreeLookQuietOpacity;
 
-    public void UpdatePosition(PhysicalPoint point)
+    public void UpdatePosition(PhysicalPoint point) => ApplyPosition(point, isGlideFrame: false);
+
+    /// <summary>
+    /// Applies a pin-edge or glide-frame position. Glide frames are ordinary Left/Top writes — the
+    /// interpolation itself lives in <c>CursorCircleViewModel</c> on the sample clock, deliberately
+    /// without <c>BeginAnimation</c>, so a pump-less read observes the drawn value and no held
+    /// animation outranks a later write — but they are NOT handed to instrument 2: its cadence
+    /// histogram measures the ring's steady-state writes, and an animation's frames would dominate it.
+    /// </summary>
+    public void MoveTo(PhysicalPoint point, bool glide) => ApplyPosition(point, isGlideFrame: glide);
+
+    private void ApplyPosition(PhysicalPoint point, bool isGlideFrame)
     {
         double left = DpiHelper.PhysicalToLogicalX(point.X) - Width / 2;
         double top = DpiHelper.PhysicalToLogicalY(point.Y) - Height / 2;
@@ -78,7 +89,7 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
         // write, so turning it off mid-session stops the work rather than waiting for a restart.
         // Strictly an observation of the two writes above: it reads back where the window actually
         // landed and reports it. Nothing about how the ring is positioned changes.
-        if (_quantizationProbe is not null && _diagnostics?.MeasureUiInstruments == true)
+        if (!isGlideFrame && _quantizationProbe is not null && _diagnostics?.MeasureUiInstruments == true)
             RecordQuantization(left, top);
     }
 

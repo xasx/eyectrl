@@ -55,6 +55,8 @@ public class GazeEngineAdapter : IDisposable
         _gazeEngine.FixationActivated += OnFixationActivated;
         _interactionManager.ShowActivationButton += OnShowActivationButton;
         _interactionManager.HideActivationButton += OnHideActivationButton;
+        _interactionManager.PinRing += OnPinRing;
+        _interactionManager.ReleaseRing += OnReleaseRing;
         _interactionManager.ShowActionMenu += OnShowActionMenu;
         _interactionManager.HideActionMenu += OnHideActionMenu;
         _interactionManager.StartManualSelection += OnStartManualSelection;
@@ -246,6 +248,15 @@ public class GazeEngineAdapter : IDisposable
     private void OnHideActivationButton() =>
         _dispatcher.BeginInvoke(() => _messenger.Send(new HideActivationButtonMessage()));
 
+    // The ring's own lifetime (ticket 7): a pin on the accepted settle, a release on every exit from
+    // Fixation. Deliberately separate from the button's show/hide, which now start and end on their own
+    // schedule — the ring must follow gaze again the moment the fixation ends, button or not (B1).
+    private void OnPinRing(PhysicalPoint point) =>
+        _dispatcher.BeginInvoke(() => _messenger.Send(new PinRingMessage(point)));
+
+    private void OnReleaseRing() =>
+        _dispatcher.BeginInvoke(() => _messenger.Send(new ReleaseRingMessage()));
+
     private void OnShowActionMenu(PhysicalPoint point) =>
         _dispatcher.BeginInvoke(() =>
         {
@@ -380,6 +391,8 @@ public class GazeEngineAdapter : IDisposable
         _gazeEngine.FixationActivated -= OnFixationActivated;
         _interactionManager.ShowActivationButton -= OnShowActivationButton;
         _interactionManager.HideActivationButton -= OnHideActivationButton;
+        _interactionManager.PinRing -= OnPinRing;
+        _interactionManager.ReleaseRing -= OnReleaseRing;
         _interactionManager.ShowActionMenu -= OnShowActionMenu;
         _interactionManager.HideActionMenu -= OnHideActionMenu;
         _interactionManager.StartManualSelection -= OnStartManualSelection;

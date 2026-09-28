@@ -133,6 +133,11 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
             case nameof(CursorCircleViewModel.Position):
                 cursorCircle.UpdatePosition(Context.CursorVM.Position);
                 break;
+            case nameof(CursorCircleViewModel.MoveTo):
+                // The pin and glide channel: one call carrying the target AND the glide flag, so the
+                // window never applies a position before it knows the jump is a pin edge (M3/N10).
+                cursorCircle.MoveTo(Context.CursorVM.MoveTo.Target, Context.CursorVM.MoveTo.Glide);
+                break;
             case nameof(CursorCircleViewModel.IsVisible):
                 if (Context.CursorVM.IsVisible && !_modal.SettingsOpen) cursorCircle.Show();
                 else cursorCircle.Hide();

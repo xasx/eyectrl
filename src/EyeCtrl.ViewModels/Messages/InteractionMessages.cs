@@ -20,6 +20,22 @@ public record ShowActivationButtonMessage(PhysicalPoint Position, double Fixatio
 public record HideActivationButtonMessage;
 
 /// <summary>
+/// Sent when the ring pins at an accepted settle: the ring moves to the settle centroid
+/// (<see cref="Position"/>, physical pixels) and stays literally still until the fixation ends. This is
+/// independent of the activation button's lifetime — the button still shows at onset in ticket 7 —
+/// because a ring frozen through the button's linger would read as a ring that no longer follows the
+/// eye (critique B1).
+/// </summary>
+public record PinRingMessage(PhysicalPoint Position);
+
+/// <summary>
+/// Sent on every exit from the Fixation state: the ring releases the pin and snaps back to gaze
+/// (the ViewModel keeps the latest sample for exactly this). A detector-keyed release would miss the
+/// keyboard toggle, which ends the fixation while suppression stops the detector feed (re-check N2).
+/// </summary>
+public record ReleaseRingMessage;
+
+/// <summary>
 /// Sent when Core's fixation rule completes an activation: the valid-time age reached the onset age plus
 /// the effective activation dwell. The activation VM consumes it (it never computes age itself), then
 /// publishes the dwell-completion cue and <see cref="ActivationCompletedMessage"/>. TimestampMicroseconds

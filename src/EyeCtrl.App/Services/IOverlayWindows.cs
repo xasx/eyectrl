@@ -69,6 +69,16 @@ public interface ICursorCircleOverlay
     void Show();
     void Hide();
     void UpdatePosition(PhysicalPoint point);
+
+    /// <summary>
+    /// Moves the ring to <paramref name="point"/> as one call carrying the glide flag, so the window
+    /// never sees a position before it knows it is a pin edge (critique M3): the ring's own lifetime
+    /// decides when to glide, never the jump size. <paramref name="glide"/> true marks a glide frame —
+    /// the window writes the same two properties but leaves instrument 2 out of it, whose cadence
+    /// histogram must keep measuring the ring's steady-state writes, not an animation.
+    /// </summary>
+    void MoveTo(PhysicalPoint point, bool glide);
+
     void UpdateAppearance(CursorSettings settings);
 
     /// <summary>

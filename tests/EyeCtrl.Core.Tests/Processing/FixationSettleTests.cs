@@ -223,6 +223,76 @@ public class FixationSettleTests
         Check.That(pins).IsEqualTo(1);                  // ignored: the run is over
     }
 
+    // ── Release on every exit ────────────────────────────────────────────────
+
+    [Fact]
+    public void ReleaseOnEveryExit_KeyboardTogglePath_ReleasesThePin()
+    {
+        // The keyboard toggle sets SuppressFixation and then calls OnFixationEnded directly
+        // (KeyboardCoordinator.cs:379-380): the detector stops being fed, so it raises no end. Mutation:
+        // release only on the detector's end event → the pin survives the toggle and this reds.
+        var s = Settings();
+        var provider = new ScriptedGazeProvider();
+        using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s);
+        var probe = new PinProbe(engine);
+        int releases = 0;
+        engine.InteractionManager.ReleaseRing += () => releases++;
+
+        probe.Hold(provider, 1000, 1000, 0, samples: 40);   // settled at ~510 ms
+        Check.That(probe.Pins).HasSize(1);
+
+        engine.SuppressFixation = true;                     // the coordinator's order
+        engine.InteractionManager.OnFixationEnded();
+
+        Check.That(releases).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void ReleaseOnEveryExit_PauseAndActivation_AlsoRelease()
+    {
+        // Mutation: release only in OnFixationEnded (not on the state transition) → the pause path
+        // reds, and the menu path reds.
+        var s = Settings();
+        var provider = new ScriptedGazeProvider();
+        using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s);
+        var probe = new PinProbe(engine);
+        int releases = 0;
+        engine.InteractionManager.ReleaseRing += () => releases++;
+
+        probe.Hold(provider, 1000, 1000, 0, samples: 40);           // Fixation, settled
+        engine.InteractionManager.TogglePause();                    // Fixation → Paused
+        Check.That(releases).IsEqualTo(1);
+
+        probe.Hold(provider, 1000, 1000, 1_200_000, samples: 20);   // paused: never fed
+        engine.InteractionManager.TogglePause();                    // Paused → FreeLook (re-arm)
+        probe.Hold(provider, 1000, 1000, 2_000_000, samples: 40);   // fresh run: onset + settle
+        Check.That(probe.Pins).HasSize(2);
+
+        engine.InteractionManager.OnActivationButtonDwelled();      // Fixation → menu
+        Check.That(releases).IsEqualTo(2);
+    }
+
+    // ── Pins on chrome ───────────────────────────────────────────────────────
+
+    [Fact]
+    public void SettleOverChrome_StillPins_TheChromeRuleOnlySuppressesTheOffer()
+    {
+        // The ring always says "you're holding" (decision 8): the pin path has no chrome input at all,
+        // and the offer engine's chrome rule (part C) suppresses only the offer. This is a regression
+        // guard for the day someone filters the pin by chrome: a settle in the top toolbar band would
+        // then stop pinning. The no-offer half is pinned next to the engine's SetChromeZones tests.
+        var s = Settings();
+        var provider = new ScriptedGazeProvider();
+        using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s);
+        var probe = new PinProbe(engine);
+
+        var inTheToolbarBand = new PhysicalPoint(1920, 30);   // 3840x2400, the top band
+        probe.Hold(provider, inTheToolbarBand.X, inTheToolbarBand.Y, 0, samples: 40);
+
+        Check.That(probe.Pins).HasSize(1);
+        Check.That(probe.Pins[0].Point).IsEqualTo(inTheToolbarBand);
+    }
+
     // ── Age is Core's valid-time ledger ──────────────────────────────────────
 
     [Fact]

@@ -38,8 +38,8 @@ so the current splash actually shows a blown-up 16 px frame.
 `SystemIcons.Application` (`SupervisorTrayIcon.cs:55`) — out of scope (L9).
 
 Note: the running app shows no taskbar button, title-bar icon, or Alt-Tab entry — every
-overlay window carries `WS_EX_TOOLWINDOW` (`OverlayWindow.cs`). Taskbar/title-bar visibility
-is therefore not a verification surface; use the pinned taskbar/Start shortcut if one exists.
+overlay window carries `WS_EX_TOOLWINDOW` (`OverlayWindow.cs:76`, `:113`). Taskbar/title-bar
+visibility is therefore not a verification surface; use the pinned taskbar/Start shortcut if one exists.
 
 ## Design specification (single master, 96×96 design grid)
 
@@ -51,7 +51,9 @@ Layer order matters; listed back to front.
    width 2, no fill.
 2. **Glow** — ellipse center (48,47), rx 30, ry 21, fill `#A5F3FC`, opacity 0.10,
    blur σ≈4 → WPF `BlurEffect` with **Radius = 12** in 96-grid units (r1 measured σ ≈ Radius/3),
-   glow rendered in its own visual so the blur doesn't clip on layer bounds.
+   glow rendered in its own visual — an Effect applies to a visual's entire subtree
+   (`ContainerVisual.Effect`), so a shared visual would blur the other layers too;
+   WPF pads the effect region itself, so there is no clipping concern.
 3. **Body (almond)** — path
    `M12,48 C26,26 70,26 84,48 C70,70 26,70 12,48 Z`,
    fill = linear gradient (userSpace, y 25→71): `#AFF0FF` → `#4A7ECF`.
@@ -75,10 +77,12 @@ Layer order matters; listed back to front.
 ### WPF gradient mapping (r1 Finding 8)
 
 - Tile: `RadialGradientBrush` with `Center` = `GradientOrigin` = (0.5, 0.38) and
-  `RadiusX` = `RadiusY` = 0.85 (WPF's gradient origin defaults to the centre; SVG's
-  defaults to cx/cy — set both explicitly; the brush has no single "radius" property).
-- Body and pie: `MappingMode = BrushMappingMode.Absolute` (userSpace-on-use; the enum is
-  `BrushMappingMode` — `GradientMappingMode` does not exist in WPF).
+  `RadiusX` = `RadiusY` = 0.85 (the brush has no single "radius" property). The origin
+  defaults differ: WPF's `GradientOrigin` defaults to (0.5,0.5) regardless of `Center`,
+  while SVG's fx/fy default to cx/cy — set both explicitly.
+- Body and pie: `MappingMode = BrushMappingMode.Absolute` (XAML `MappingMode="Absolute"`;
+  userSpace-on-use — the enum is `BrushMappingMode`; `GradientMappingMode` does not exist
+  in WPF and code copied from the earlier wording would not compile).
 - Interpolation: sRGB — WPF's default already matches SVG.
 - Blur: see layer 2 (Radius 12, own visual).
 
@@ -94,9 +98,9 @@ a future palette change requires manually re-deriving them against `tools/palett
 | `#A5F3FC` | whisper arc, glow | **exact** Midnight `Accent` |
 | `#E8A33C` | pie gradient tail | **exact** Midnight `AccentWarning` |
 | `#0A0A14` | iris hairline | **exact** Midnight `StrokeHalo` |
-| `#252B4A` | tile gradient (light stop) | hand-tuned, near `SurfaceKey #2A2A3E` |
-| `#141828` | tile gradient (dark stop), iris track fill | hand-tuned, between `StrokeHalo #0A0A14` and `SurfaceKey` |
-| `#4A5578` | tile rim | hand-tuned, nearest Midnight `BorderSubtle #616BA0` (r1 corrected the earlier SurfaceKeyModifier cite) |
+| `#252B4A` | tile gradient (light stop) | hand-tuned; perceptually nearest `SurfaceMedium` (ΔE00 2.7; `SurfaceKey #2A2A3E` next at 4.6) |
+| `#141828` | tile gradient (dark stop), iris track fill | hand-tuned; perceptually nearest `_core #1A1A2E` (ΔE00 3.3) |
+| `#4A5578` | tile rim | hand-tuned; perceptually nearest `SurfaceKeySwitch #38527F` (ΔE00 4.9); hue- and role-adjacent to `BorderSubtle #616BA0` — an earlier "nearest BorderSubtle" claim was false by the repo's own CIEDE2000 metric (r2) |
 | `#AFF0FF` | body gradient top | hand-tuned, brightened `Accent` |
 | `#4A7ECF` | body gradient bottom | hand-tuned, near `SurfaceKeyActive #5278B8` |
 | `#F6C77E` | pie gradient head | hand-tuned, lightened `AccentWarning` |
@@ -140,9 +144,10 @@ ICO container details (r1 Finding 7 — the spots implementers get wrong):
 - Convert the WPF render from Pbgra32 to **Bgra32 (straight alpha)** before encoding, or the
   anti-aliased edges get a dark fringe.
 - BMP frames (16/32/48/64/128): 32 bpp, `BI_RGB`, `biHeight = 2·h`, rows written bottom-up.
-- AND mask: rows padded to 4 bytes; set the bit where α == 0.
-- 256 frame: PNG-compressed; its directory entry carries width = height = 0, planes = 1,
-  bit count = 32.
+- AND mask: rows written bottom-up like the XOR rows, padded to 4 bytes; set the bit
+  where α == 0.
+- 256 frame: PNG-compressed; its directory entry carries width = height = 0.
+- All directory entries: planes = 1, bit count = 32, colour count = 0.
 - Directory entries in ascending size order (16 → 256). Never assume `Frames[i]` matches
   directory order when reading (WIC reorders by BMP/PNG mix — see splash note).
 - Deterministic output: no timestamps; two consecutive runs must be byte-identical (A1).
@@ -159,11 +164,18 @@ Which surface gets which frame at the owner's 200 % DPI:
 | Pinned taskbar/Start shortcut | ~48 or 64 (reasoned) |
 | Taskbar button / title bar / Alt-Tab | n/a — `WS_EX_TOOLWINDOW` overlays have none |
 
+Startup-order note (r2-measured): the process is already system-aware at `Main` start,
+before any WPF object exists — `SmallIconSize` = 32 and `IconSize` = 64 at 192 DPI
+regardless of startup order; in any case the splash is shown at App.xaml.cs:135-136
+before `TrayIconManager` runs at :268.
+
 Headless checks (all runnable without display or input):
 
 - Parse the ICONDIR bytes: 6 entries, ascending sizes, BMP 16–128 + PNG 256, header fields.
 - Splash pin: `ImageSourceConverter`-produced source has `PixelWidth == 128` (A3).
-- Tray pin: `new Icon(stream, new Size(32,32))` and `(64,64)` return the expected frames.
+- Tray pin: `new Icon(stream, new System.Drawing.Size(32,32))` and `(64,64)` return the
+  expected frames (`System.Drawing.Size` spelled out — the bare `Size` is ambiguous in a
+  test file that imports both System.Drawing and System.Windows and won't compile).
 - Per-frame colour probe via `CopyPixels` (tile corner, iris centre, dot).
 - Two builder runs byte-identical (A1).
 - Splash render via RTB at 192 dpi for the preview sheet (A5); precedent
@@ -186,19 +198,32 @@ parses the icon — not a frame gate, but the App test suite must stay green aft
    BMP payloads for 16–128 (32 bpp, `biHeight = 2·h`), PNG for 256 (0/0 dimension entry).
 3. **A3 Splash pin (new test):** decoding the resource the way `SplashWindow` does yields a
    source with `PixelWidth == 128`.
-4. **A4a Tray frame check (the file):** with an explicit size request —
-   `new Icon(stream, SystemInformation.SmallIconSize)` at 200 % DPI; `new Icon(stream,
-   new Size(32,32))` / `(16,16)` generally — the loader resolves to the corresponding
-   tuned frame. Never bare `new Icon(stream)` in tests (DPI trap above).
-   **A4b Production-call pin (the code):** a test pinning `TrayIconManager`'s loader to
-   the `SystemInformation.SmallIconSize` request (source pin or production-path
-   exercise) — guards regression of `TrayIconManager.cs:85` back to the bare
-   `Icon(stream)` call, which A4a alone cannot catch.
-5. **A5 Preview sheet:** all six frames rendered at true 192-dpi sizes on dark/light strips,
-   eyeballed by the owner — the 16/32 frames must read as tile + eye + amber iris + dot.
-6. **A6 Live swap:** Explorer file icon, tray, and splash show the new icon after the icon
-   cache is cleared (r1 Finding 4 — the cache can keep showing the old icon); `EyeCtrl.slnx`
-   builds; `EyeCtrl.App.Tests` stays green.
+4. **A4a Tray frame check (the file):** explicit sizes only — `new Icon(stream, new
+   System.Drawing.Size(32,32))` returns the 32 entry with a pixel probe matching the
+   tuned render, and `(16,16)` the 16 entry. SmallIconSize must NOT key the test: it is
+   32 at 192 DPI but 16 at 96 DPI (the CI runner), so a SmallIconSize-keyed test fails
+   on CI or degenerates into a tautology. Never bare `new Icon(stream)` in tests (DPI
+   trap above).
+   **A4b Production-call pin (the code):** `TrayIconManager` cannot be constructed in a
+   test (its ctor makes a visible `NotifyIcon`, TrayIconManager.cs:95-99), so pin the
+   call instead — preferred: extract `internal static Icon LoadTrayIcon(Stream,
+   System.Drawing.Size)`, tested directly, with the ctor passing
+   `SystemInformation.SmallIconSize`; fallback: a source-scan test asserting
+   `TrayIconManager` never calls the single-argument `Icon(Stream)` constructor.
+   Guards regression of `TrayIconManager.cs:85` to the bare call, which A4a alone
+   cannot catch.
+5. **A5 Preview sheet:** the frames rendered on dark/light strips at the sizes each
+   surface actually uses — tray 32, Explorer small 32, pinned shortcut 48/64, splash 128
+   (drawn at 64 DIP), Explorer medium 96 (from the 128 frame) — plus the 16 frame at true
+   size; eyeballed by the owner, 16/32 must read as tile + eye + amber iris + dot.
+   Producer: the builder's `--preview` mode (emits the strips as PNGs next to the .ico);
+   a scratch RTB script is acceptable.
+6. **A6 Live swap:** Explorer file icon, tray, and splash show the new icon after an
+   icon-cache refresh (`ie4uinit.exe -show` — no Explorer restart needed; the cache can
+   keep showing the old icon, r1 Finding 4); `dotnet build EyeCtrl.slnx` succeeds;
+   `dotnet test tests/EyeCtrl.App.Tests --filter "Category!=UI"` stays green — and
+   `EYECTRL_UI_TESTS` is never set for this, because the gated FlaUI tests launch the
+   real app and drive the OS cursor (AppFixture.cs:41-51, AppLaunchTests.cs:11).
 
 ## Decision ledger (owner-vetoable)
 
@@ -210,9 +235,9 @@ parses the icon — not a frame gate, but the App test suite must stay green aft
 | L4 | Pie reads ¾ filled; rotation deliberately mirrored from the control's clockwise sweep so the head-dot lands rightward | echoes the dwell story (¾ toward a click) while keeping the approved rightward composition | full pie (loses "in progress"); ring-only (weaker story); CW rotation (dot lands left, unapproved) |
 | L5 | Gaze dot rides the fill head, not the centre | motion; owner chose V3 lineage (head dot) over V2 | centre dot ("Fixed Gaze") |
 | L6 | Whisper arc inside the track (W1) | owner's pick among W1/W2/W3 | ghost ring (W2), outer halo (W3) |
-| L7 | 16/32 px frames hand-tuned, not naive downscale | rim/glow/hairline/arc degrade below 48 px; **with L10 the tray actually shows the tuned 32 at 200 %** — the premise r1 falsified now holds | single-geometry scaling for all frames |
+| L7 | 16/32 px frames hand-tuned, not naive downscale | rim/glow/hairline degrade below 48 px; the arc survives at 32 only thickened to width 3 and is dropped at 16; **with L10 the tray actually shows the tuned 32 at 200 %** — the premise r1 falsified now holds | single-geometry scaling for all frames |
 | L8 | Builder = small C# WPF console tool | PIL/ImageMagick unavailable; WPF rasterizes path data natively; repo-consistent idiom | Python/Pillow pipeline, one-off hand-pixelled asset |
 | L9 | Supervisor tray icon untouched | its generic `SystemIcons.Application` identity is deliberate | giving the supervisor the family icon |
 | L10 | **Tray loader change (r1 Finding 1, option a):** `TrayIconManager.cs:85` → `new Icon(memoryStream, SystemInformation.SmallIconSize)` | the tuned frames only matter if the tray requests them; one line, measured safe by r1; without it the shell shrinks the 64 px frame | option (b): stay asset-only and accept the downscaled tray icon (undermines the whole frame plan) |
-| L11 | 6-frame set (no 20/24/40) | owner's 200 % DPI needs 16/32/64, all present; 125/150 % rescaling accepted and documented (r1 Finding 11) | adding 20/24/40 frames (more tuned surfaces to maintain) |
+| L11 | 6-frame set (no 20/24/40) | the 200 % surfaces use 32, 48/64, 128 and 256 — all present (16 is the 100 % small size); 125/150 % rescaling accepted and documented (r1 Finding 11) | adding 20/24/40 frames (more tuned surfaces to maintain) |
 | L12 | No CI step for the builder | the committed `.ico` is the artifact; builder runs are part of the one-off regeneration and its verification, not every build (r1 Finding 10) | CI-generating the icon on every push |

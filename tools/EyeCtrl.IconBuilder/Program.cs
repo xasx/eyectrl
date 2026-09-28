@@ -13,29 +13,19 @@ internal static class Program
         // A1 determinism: rasterize in software so no GPU/driver variance can leak into bytes.
         RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
 
-        string? pngDir = null;
+        string? outPath = null;
         for (int i = 0; i < args.Length; i++)
         {
-            if (args[i] == "--png-dir" && i + 1 < args.Length)
-                pngDir = args[++i];
-        }
-        if (pngDir is null)
-        {
-            Console.WriteLine("nothing to do: pass --png-dir <dir> to render the six frames as PNGs");
-            return 1;
+            if (args[i] == "--out" && i + 1 < args.Length)
+                outPath = args[++i];
         }
 
         var repoRoot = FindRepoRoot(AppContext.BaseDirectory);
-        Directory.CreateDirectory(pngDir);
+        outPath ??= Path.Combine(repoRoot, "src", "EyeCtrl.App", "Assets", "eyectrl.ico");
 
-        foreach (var plan in FramePlan.All)
-        {
-            var bgra = FrameRenderer.RenderBgra(plan);
-            var png = FrameRenderer.EncodePng(plan.Size, bgra);
-            var path = Path.Combine(pngDir, $"{plan.Size}.png");
-            File.WriteAllBytes(path, png);
-            Console.WriteLine($"wrote {path} ({png.Length} bytes)");
-        }
+        var ico = IcoWriter.Build(FramePlan.All);
+        File.WriteAllBytes(outPath, ico);
+        Console.WriteLine($"wrote {outPath} ({ico.Length} bytes)");
         return 0;
     }
 

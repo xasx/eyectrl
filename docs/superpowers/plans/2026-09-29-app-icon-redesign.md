@@ -768,6 +768,7 @@ namespace EyeCtrl.App.Tests.Assets;
 
 using System.IO;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using EyeCtrl.App.Tests.Fixtures;
 
 /// <summary>
@@ -777,7 +778,10 @@ using EyeCtrl.App.Tests.Fixtures;
 /// </summary>
 public class AppIconTests
 {
-    private const string PackUri = "pack://application:,,,/Assets/eyectrl.ico";
+    // Assembly-qualified: bare "pack://application:,,,/Assets/..." resolves against the
+    // RUNNING assembly (the testhost), where the resource does not exist. The component
+    // form addresses EyeCtrl.App's embedded resource from anywhere.
+    private const string PackUri = "pack://application:,,,/EyeCtrl.App;component/Assets/eyectrl.ico";
 
     private static byte[] ReadIconResource()
     {

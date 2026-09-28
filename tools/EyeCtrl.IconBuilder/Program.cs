@@ -14,10 +14,13 @@ internal static class Program
         RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
 
         string? outPath = null;
+        string? previewDir = null;
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i] == "--out" && i + 1 < args.Length)
                 outPath = args[++i];
+            else if (args[i] == "--preview" && i + 1 < args.Length)
+                previewDir = args[++i];
         }
 
         var repoRoot = FindRepoRoot(AppContext.BaseDirectory);
@@ -26,6 +29,9 @@ internal static class Program
         var ico = IcoWriter.Build(FramePlan.All);
         File.WriteAllBytes(outPath, ico);
         Console.WriteLine($"wrote {outPath} ({ico.Length} bytes)");
+
+        if (previewDir is not null)
+            PreviewWriter.Write(previewDir);
         return 0;
     }
 

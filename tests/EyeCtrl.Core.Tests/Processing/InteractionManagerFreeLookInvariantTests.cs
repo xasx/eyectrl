@@ -5,8 +5,8 @@ using EyeCtrl.Core.Models;
 /// <summary>
 /// Ratchet on the FreeLook guard in <see cref="InteractionManager.OnFixationStarted"/>: outside
 /// <see cref="InteractionState.FreeLook"/> the method must be inert — it must not write
-/// <see cref="InteractionManager.FixationPoint"/> and must not raise
-/// <see cref="InteractionManager.ShowActivationButton"/>.
+/// <see cref="InteractionManager.FixationPoint"/>, must not raise
+/// <see cref="InteractionManager.FixationAccepted"/>, and must not pin the ring.
 /// <para>
 /// That one guard carries two independent findings. Keeping <c>FixationPoint</c> frozen for a whole
 /// manual-selection session is what makes a later recapture land deterministically on the original
@@ -15,6 +15,12 @@ using EyeCtrl.Core.Models;
 /// binding (<c>OverlayVmBindingCoordinator.cs:144-163</c>), so a re-show at a new point would move
 /// the dwell target and leave the window behind. A change that weakens the guard breaks both at
 /// once, silently — this test is what makes it loud.
+/// </para>
+/// <para>
+/// The observed signal is the explicit <see cref="InteractionManager.FixationAccepted"/> event
+/// (ticket 7), not the activation button's show: the show is a display event whose timing moves in
+/// ticket 8, and the guard is what must stay inert. The previous pin observed ShowActivationButton,
+/// which happened to be raised in the same branch.
 /// </para>
 /// <para>
 /// States are enumerated from <see cref="InteractionState"/>, so a state added later is covered the
@@ -45,22 +51,32 @@ public class InteractionManagerFreeLookInvariantTests
 
     [Theory]
     [MemberData(nameof(NonFreeLookStates))]
-    public void OnFixationStarted_OutsideFreeLook_DoesNotShowActivationButtonOrMoveFixationPoint(
+    public void OnFixationStarted_OutsideFreeLook_DoesNotAcceptFixationOrMoveFixationPoint(
         InteractionState state)
     {
         var manager = DriveIntoState(state);
         var fixationBefore = manager.FixationPoint;
-        var showActivationButtonFired = 0;
-        manager.ShowActivationButton += _ => showActivationButtonFired++;
-
+        var fixationAcceptedFired = 0;
+        var ringPinned = 0;
+        manager.FixationAccepted += _ => fixationAcceptedFired++;
+        manager.PinRing += _ => ringPinned++;
         manager.OnFixationStarted(new PhysicalPoint(900, 900));
 
         Check.WithCustomMessage(
-                $"{state}: ShowActivationButton was raised; OnFixationStarted must be inert outside FreeLook.")
-             .That(showActivationButtonFired).IsEqualTo(0);
+                $"{state}: FixationAccepted was raised; OnFixationStarted must be inert outside FreeLook.")
+             .That(fixationAcceptedFired).IsEqualTo(0);
         Check.WithCustomMessage(
                 $"{state}: FixationPoint moved from {fixationBefore} to {manager.FixationPoint}; OnFixationStarted must be inert outside FreeLook.")
              .That(manager.FixationPoint).IsEqualTo(fixationBefore);
+
+        // A settle is accepted in Fixation (that is the one state where it must pin), so the
+        // ignored-outside-Fixation half is asserted for every OTHER state only.
+        if (state == InteractionState.Fixation)
+            return;
+        manager.OnFixationSettled(new PhysicalPoint(900, 900));
+        Check.WithCustomMessage(
+                $"{state}: the ring was pinned; OnFixationSettled must be inert outside Fixation.")
+             .That(ringPinned).IsEqualTo(0);
     }
 
     /// <summary>Drives a fresh manager into <paramref name="state"/> through the public API only.</summary>

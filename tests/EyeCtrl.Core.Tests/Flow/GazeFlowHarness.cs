@@ -68,7 +68,13 @@ internal sealed class GazeFlowHarness
 
     /// <summary>Every state the machine transitioned into, in order.</summary>
     public List<InteractionState> States { get; } = new();
-    public List<PhysicalPoint> ActivationButtonsShown { get; } = new();
+    /// <summary>
+    /// Every accepted fixation onset, with its point. Fed by the explicit
+    /// <c>InteractionManager.FixationAccepted</c> event rather than the activation button's show
+    /// (ticket 7): the show moves to the settle once ticket 8 wires the button, and the harness wants
+    /// the onset.
+    /// </summary>
+    public List<PhysicalPoint> Onsets { get; } = new();
     public List<PhysicalPoint> ActionMenusShown { get; } = new();
     public List<(InteractionAction Action, PhysicalPoint Point)> ActionsRequested { get; } = new();
     public List<PhysicalPoint> ManualSelectionsStarted { get; } = new();
@@ -85,7 +91,7 @@ internal sealed class GazeFlowHarness
         Engine = new GazeEngine(Provider, Input, settings);
 
         Interaction.StateChanged += s => States.Add(s);
-        Interaction.ShowActivationButton += p => ActivationButtonsShown.Add(p);
+        Interaction.FixationAccepted += p => Onsets.Add(p);
         Interaction.ShowActionMenu += p => ActionMenusShown.Add(p);
         Interaction.ActionRequested += (a, p, _) => ActionsRequested.Add((a, p));
         Interaction.StartManualSelection += p => ManualSelectionsStarted.Add(p);

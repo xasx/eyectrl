@@ -147,6 +147,11 @@ public class FixationReplayGateTests(ITestOutputHelper output)
     {
         public Action<BuggyRule, EyeCtrl.Core.Models.PhysicalPoint, long>? OnUpdate { get; set; }
         public event Action<EyeCtrl.Core.Models.PhysicalPoint, long>? FixationStarted;
+        public event Action<EyeCtrl.Core.Models.PhysicalPoint, long>? FixationSettled
+        {
+            add { }
+            remove { }
+        }
         public event Action<long>? FixationActivated;
         public event Action<FixationRelease>? FixationReleased;
 

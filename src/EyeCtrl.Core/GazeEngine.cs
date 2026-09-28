@@ -604,6 +604,7 @@ public class GazeEngine : IDisposable
         d.FixationStarted += ClearRunAcceptance;
         d.FixationStarted += InteractionManager.OnFixationStarted;
         d.FixationEnded += InteractionManager.OnFixationEnded;
+        d.FixationSettled += InteractionManager.OnFixationSettled;
         d.FixationStarted += _startTrackingHandler;
         d.FixationEnded += _centroidTracker.StopTracking;
         d.FixationActivated += ForwardFixationActivated;
@@ -615,6 +616,7 @@ public class GazeEngine : IDisposable
         d.FixationStarted -= ClearRunAcceptance;
         d.FixationStarted -= InteractionManager.OnFixationStarted;
         d.FixationEnded -= InteractionManager.OnFixationEnded;
+        d.FixationSettled -= InteractionManager.OnFixationSettled;
         d.FixationStarted -= _startTrackingHandler;
         d.FixationEnded -= _centroidTracker.StopTracking;
         d.FixationActivated -= ForwardFixationActivated;

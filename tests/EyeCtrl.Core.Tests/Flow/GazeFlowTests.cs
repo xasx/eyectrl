@@ -16,7 +16,7 @@ using EyeCtrl.Core.Models;
 public class GazeFlowTests
 {
     [Fact]
-    public void HoldingGaze_TriggersFixation_ShowsActivationButton_AndFreezesCursor()
+    public void HoldingGaze_TriggersFixation_AndFreezesCursor()
     {
         var h = new GazeFlowHarness();
 
@@ -24,9 +24,9 @@ public class GazeFlowTests
 
         Check.That(h.State).IsEqualTo(InteractionState.Fixation);
         Check.That(h.States[0]).IsEqualTo(InteractionState.Fixation); // FreeLook → Fixation was the first transition
-        Check.That(h.ActivationButtonsShown.Count).IsEqualTo(1);
-        Check.That(h.ActivationButtonsShown[0].X).IsEqualTo(500d);
-        Check.That(h.ActivationButtonsShown[0].Y).IsEqualTo(400d);
+        Check.That(h.Onsets.Count).IsEqualTo(1);
+        Check.That(h.Onsets[0].X).IsEqualTo(500d);
+        Check.That(h.Onsets[0].Y).IsEqualTo(400d);
 
         // The cursor moved while free-looking, then must FREEZE once fixating — the core behavior
         // that keeps an eye-tracking user from losing their pointer while aiming.

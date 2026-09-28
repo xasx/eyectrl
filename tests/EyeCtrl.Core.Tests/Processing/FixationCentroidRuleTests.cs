@@ -65,7 +65,10 @@ public class FixationCentroidRuleTests
 
         public Probe(GazeEngine engine)
         {
-            engine.InteractionManager.ShowActivationButton += point => Onsets.Add((_currentUs, point));
+            // The explicit accepted-onset signal (ticket 7): the activation button's show/hide are
+            // display events and stop coinciding with the detector's onset/end once ticket 8 moves
+            // them. Parity must observe the onset itself.
+            engine.InteractionManager.FixationAccepted += point => Onsets.Add((_currentUs, point));
             engine.FixationActivated += activation => Activations.Add(activation);
             engine.FixationReleased += release => Releases.Add(release);
         }
@@ -402,8 +405,10 @@ public class FixationCentroidRuleTests
 
         var events = new List<string>();
         PhysicalPoint? fixationPointAtActivation = null;
-        engine.InteractionManager.ShowActivationButton += p => events.Add($"Show({p.X:0})");
-        engine.InteractionManager.HideActivationButton += () => events.Add("Hide");
+        // Explicit onset/end signals (ticket 7), not the activation button's show/hide: those move with
+        // ticket 8's button lifetime. The state order this test pins is unchanged.
+        engine.InteractionManager.FixationAccepted += p => events.Add($"Accepted({p.X:0})");
+        engine.InteractionManager.FixationEnded += () => events.Add("End");
         engine.InteractionManager.StateChanged += state => events.Add($"State({state})");
         engine.FixationActivated += _ => fixationPointAtActivation = engine.InteractionManager.FixationPoint;
 
@@ -419,15 +424,15 @@ public class FixationCentroidRuleTests
         var b = new PhysicalPoint(1400, 1000);
         FeedValid(provider, b.X, b.Y, ts, samples: 45);              // fresh onset at B + activation
 
-        var hideAt = events.IndexOf("Hide");
+        var endAt = events.IndexOf("End");
         var freeLookAt = events.IndexOf($"State({InteractionState.FreeLook})");
-        var showAtB = events.IndexOf("Show(1400)");
+        var acceptedAtB = events.IndexOf("Accepted(1400)");
         Check.WithCustomMessage($"events: {string.Join(", ", events)}")
-            .That(hideAt).IsStrictlyGreaterThan(-1);
+            .That(endAt).IsStrictlyGreaterThan(-1);
         Check.WithCustomMessage($"events: {string.Join(", ", events)}")
-            .That(freeLookAt).IsStrictlyGreaterThan(hideAt);
+            .That(freeLookAt).IsStrictlyGreaterThan(endAt);
         Check.WithCustomMessage($"events: {string.Join(", ", events)}")
-            .That(showAtB).IsStrictlyGreaterThan(freeLookAt);
+            .That(acceptedAtB).IsStrictlyGreaterThan(freeLookAt);
 
         Check.That(engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.Fixation);
         Check.That(engine.InteractionManager.FixationPoint!.Value.DistanceTo(b)).IsStrictlyLessThan(0.5);

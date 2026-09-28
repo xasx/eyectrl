@@ -12,14 +12,18 @@ using EyeCtrl.Core.Tests.Flow;
 /// <item>the pipeline's output — filtered X/Y, <see cref="GazeFrame.IsInGap"/> and timestamp on every
 /// sample; and</item>
 /// <item>what the engine feeds the fixation detector — the engine's onsets and ends observed through
-/// <c>InteractionManager.ShowActivationButton</c>/<c>HideActivationButton</c>, which fire synchronously
-/// inside <c>Push</c>, plus the engine's <c>FixationActivated</c>/<c>FixationReleased</c> ledger. Onsets
-/// are compared by time and point; ends by count, time and credited age (the round-3 addendum), so a
-/// rule that ends a run one sample early reds.</item>
+/// the explicit <c>InteractionManager.FixationAccepted</c>/<c>FixationEnded</c> events, which fire
+/// synchronously inside <c>Push</c>, plus the engine's <c>FixationActivated</c>/<c>FixationReleased</c>
+/// ledger and its <c>PinRing</c> settle. Onsets are compared by time and point; ends by count, time and
+/// credited age (the round-3 addendum); settles by time and point (ticket 7), so a rule that ends a run
+/// one sample early — or settles on the wrong sample — reds.</item>
 /// </list>
-/// Since ticket 3 the harness candidate is the PRODUCTION rule behind
-/// <see cref="ProductionFixationRule"/> and the test runs at the shipped radius (75). It is what killed
-/// the two feed mutations (feed the raw point; feed gap frames) that left every other test green.
+/// The parity was re-pointed from the activation button's show/hide (critique B3): that show moves to
+/// the settle and its hide to offer expiry once ticket 8 wires the button, and parity must keep
+/// observing the ONSET, which the explicit FixationAccepted event still fires. Since ticket 3 the harness
+/// candidate is the PRODUCTION rule behind <see cref="ProductionFixationRule"/> and the test runs at the
+/// shipped radius (75). It is what killed the two feed mutations (feed the raw point; feed gap frames)
+/// that left every other test green.
 /// </summary>
 public class ReplaySliceFidelityTests
 {
@@ -76,9 +80,9 @@ public class ReplaySliceFidelityTests
 
     /// <summary>
     /// Runs the same stream through the real engine and through the harness rule, and requires the
-    /// engine's observable ledger to equal the harness's runs: onset time and point, end count, end
-    /// time (last credited sample) and credited age. Ticket 3's adapter is pure forwarding, so any
-    /// mismatch is a feed or pipeline difference, never a rule re-implementation.
+    /// engine's observable ledger to equal the harness's runs: onset time and point, settle time and
+    /// point, end count, end time (last credited sample) and credited age. Ticket 3's adapter is pure
+    /// forwarding, so any mismatch is a feed or pipeline difference, never a rule re-implementation.
     /// </summary>
     private static void AssertEngineOnsetParity(GazeRecordingFile.Recording recording)
     {
@@ -89,12 +93,17 @@ public class ReplaySliceFidelityTests
         var provider = new ScriptedGazeProvider();
         using var engine = new GazeEngine(provider, new RecordingInputSimulator(), settings);
         var engineOnsets = new List<(long TimestampUs, PhysicalPoint Point)>();
+        var engineSettles = new List<(long TimestampUs, PhysicalPoint Point)>();
         var engineActivations = new List<long>();
         var engineReleases = new List<FixationRelease>();
         int engineEnds = 0;
         long currentUs = 0;
-        engine.InteractionManager.ShowActivationButton += point => engineOnsets.Add((currentUs, point));
-        engine.InteractionManager.HideActivationButton += () => engineEnds++;
+        // The explicit onset/end signals (ticket 7): NOT the activation button's show/hide, which move
+        // to settle and offer expiry once ticket 8 wires the button. Both are raised synchronously by
+        // the detector feed inside Push, so currentUs is the sample that caused them.
+        engine.InteractionManager.FixationAccepted += point => engineOnsets.Add((currentUs, point));
+        engine.InteractionManager.FixationEnded += () => engineEnds++;
+        engine.InteractionManager.PinRing += point => engineSettles.Add((currentUs, point));
         engine.FixationActivated += activation => engineActivations.Add(activation.TimestampUs);
         engine.FixationReleased += release => engineReleases.Add(
             new FixationRelease(release.LastCreditedUs, release.CreditedAgeUs, release.EndedByLeave));
@@ -116,6 +125,17 @@ public class ReplaySliceFidelityTests
             Check.That(engineOnsets[i].TimestampUs).IsEqualTo(runs[i].OnsetUs);
             Check.That(engineOnsets[i].Point.X).IsEqualTo(runs[i].Anchor.X);
             Check.That(engineOnsets[i].Point.Y).IsEqualTo(runs[i].Anchor.Y);
+        }
+
+        // Ticket 7 settle parity: the engine's accepted settle (PinRing) equals the harness's, in time
+        // and point. Mutation: settle on t − t_start instead of the valid-time age.
+        var settledRuns = runs.Where(r => r.IsSettled).ToList();
+        Check.That(engineSettles).HasSize(settledRuns.Count);
+        for (int i = 0; i < settledRuns.Count; i++)
+        {
+            Check.That(engineSettles[i].TimestampUs).IsEqualTo(settledRuns[i].SettleUs);
+            Check.That(engineSettles[i].Point.X).IsEqualTo(settledRuns[i].SettleAnchor!.Value.X);
+            Check.That(engineSettles[i].Point.Y).IsEqualTo(settledRuns[i].SettleAnchor!.Value.Y);
         }
 
         Check.That(engineEnds).IsEqualTo(runs.Count(r => r.EndedByLeave));

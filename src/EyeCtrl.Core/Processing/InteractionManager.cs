@@ -38,6 +38,35 @@ public class InteractionManager
 
     /// <summary>Raised when the interaction state changes.</summary>
     public event Action<InteractionState>? StateChanged;
+    /// <summary>
+    /// Raised when a fixation onset is accepted — i.e. exactly when the state machine enters
+    /// <see cref="InteractionState.Fixation"/> from FreeLook. This is the explicit onset signal the
+    /// replay parity observes; the activation button's show/hide are display events and stop coinciding
+    /// with the detector's onset/end once the button's lifetime is decoupled (ticket 7, critique B3).
+    /// Carries the onset point (the running centroid at onset, in physical pixels).
+    /// </summary>
+    public event Action<PhysicalPoint>? FixationAccepted;
+    /// <summary>
+    /// Raised when the <see cref="InteractionState.Fixation"/> state ends, whatever the reason
+    /// (gaze left, the eyes were lost, a pause, a keyboard toggle, or an accepted activation). Raised
+    /// before <see cref="StateChanged"/> for the same transition.
+    /// </summary>
+    public event Action? FixationEnded;
+    /// <summary>
+    /// Raised on every accepted settle, carrying the running centroid at settle (physical pixels). A
+    /// settle is accepted only in <see cref="InteractionState.Fixation"/> — which implies this run's
+    /// onset was accepted — and, deliberately, including settles over EyeCtrl's own controls: the ring
+    /// always says "you're holding", the offer (ticket 8) is what chrome suppresses.
+    /// </summary>
+    public event Action<PhysicalPoint>? PinRing;
+    /// <summary>
+    /// Raised on EVERY exit from <see cref="InteractionState.Fixation"/>, paired with
+    /// <see cref="FixationEnded"/>. Deliberately keyed on the state transition rather than on the
+    /// detector's end event: the keyboard toggle calls <see cref="OnFixationEnded"/> directly after
+    /// setting <c>GazeEngine.SuppressFixation</c>, so the detector is no longer fed and never raises an
+    /// end — a detector-keyed release would leave the ring frozen on the toolbar (re-check N2).
+    /// </summary>
+    public event Action? ReleaseRing;
     /// <summary>Raised when the user selects an action (click, scroll, etc.) at a specific point. Modifiers are opaque payload from the action menu's latch; repeat ticks carry null.</summary>
     public event Action<InteractionAction, PhysicalPoint, IReadOnlySet<ModifierKey>?>? ActionRequested;
     /// <summary>Raised to show the activation button at a given point.</summary>
@@ -84,7 +113,17 @@ public class InteractionManager
 
     private void SetState(InteractionState newState)
     {
+        var previous = CurrentState;
         CurrentState = newState;
+        // Every exit from Fixation, through whatever path, is one place: the explicit end signal the
+        // replay parity reads, and the ring release (re-check N2). The keyboard toggle is the proof
+        // case: it ends the fixation by calling OnFixationEnded directly while suppression stops the
+        // feed, so a detector-keyed release would never fire.
+        if (previous == InteractionState.Fixation && newState != InteractionState.Fixation)
+        {
+            FixationEnded?.Invoke();
+            ReleaseRing?.Invoke();
+        }
         StateChanged?.Invoke(newState);
     }
 
@@ -111,7 +150,27 @@ public class InteractionManager
         if (CurrentState != InteractionState.FreeLook) return;
         FixationPoint = point;
         SetState(InteractionState.Fixation);
+        // After SetState, so a listener that also watches StateChanged sees the state already moved.
+        FixationAccepted?.Invoke(point);
         ShowActivationButton?.Invoke(point);
+    }
+
+    /// <summary>
+    /// Called when the fixation detector reports a settle (its valid-time age reached
+    /// <c>max(onset, FixationSettleMs)</c>), carrying the running centroid at settle.
+    /// <para>
+    /// The settle is accepted only in <see cref="InteractionState.Fixation"/> — which is exactly "this
+    /// run's onset was accepted", because the state enters Fixation only on an accepted onset and leaves
+    /// it on the run's end. A settle that arrives after the state moved on (a pause, a menu, an
+    /// activation) is ignored. Acceptance raises <see cref="PinRing"/>: ticket 8 attaches the offer to
+    /// this same point.
+    /// </para>
+    /// </summary>
+    /// <param name="point">The running centroid at settle, in physical screen pixels.</param>
+    public void OnFixationSettled(PhysicalPoint point)
+    {
+        if (CurrentState != InteractionState.Fixation) return;
+        PinRing?.Invoke(point);
     }
 
     /// <summary>Called when the current fixation ends (gaze moves away from the fixation point).</summary>

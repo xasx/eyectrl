@@ -74,9 +74,11 @@ Layer order matters; listed back to front.
 
 ### WPF gradient mapping (r1 Finding 8)
 
-- Tile: `RadialGradientBrush` with `Center` = `GradientOrigin` = (0.5, 0.38), radius 0.85
-  (WPF's origin defaults to the centre; SVG's defaults to cx/cy — set both explicitly).
-- Body and pie: `GradientMappingMode.Absolute` (userSpace-on-use).
+- Tile: `RadialGradientBrush` with `Center` = `GradientOrigin` = (0.5, 0.38) and
+  `RadiusX` = `RadiusY` = 0.85 (WPF's gradient origin defaults to the centre; SVG's
+  defaults to cx/cy — set both explicitly; the brush has no single "radius" property).
+- Body and pie: `MappingMode = BrushMappingMode.Absolute` (userSpace-on-use; the enum is
+  `BrushMappingMode` — `GradientMappingMode` does not exist in WPF).
 - Interpolation: sRGB — WPF's default already matches SVG.
 - Blur: see layer 2 (Radius 12, own visual).
 
@@ -113,7 +115,7 @@ r1 Finding 5: replaced prose with an explicit layers × frames table. The owner'
 | Glow | yes | **no** | **no** |
 | Body | gradient | gradient | gradient |
 | Iris track | r 13.5 + hairline | r 14, **no hairline** | r 15.5, **no hairline** (track ring ≈ 0.17 px — invisible, intended) |
-| Whisper arc | r 11.5, width 2 | r 11.5, **width 3** (`M59.5,48 A11.5,11.5 0 0 0 48,36.5`) | **none** |
+| Whisper arc | r 11.5, width 2 | r 11.5, **width 3, opacity 0.60** (`M59.5,48 A11.5,11.5 0 0 0 48,36.5`) | **none** |
 | Pie fill | r 12.5, gradient (`M48,48 L48,35.5 A12.5,12.5 0 1 0 60.5,48 Z`) | r 13, **gradient** (`M48,48 L48,35 A13,13 0 1 0 61,48 Z`) | r 14.5, **solid `#E8A33C`** (`M48,48 L48,33.5 A14.5,14.5 0 1 0 62.5,48 Z`) |
 | Gaze dot | r 4.5 @ (60.5,48) | r 5 @ (61,48) | r 6 @ (62.5,48) |
 
@@ -184,8 +186,14 @@ parses the icon — not a frame gate, but the App test suite must stay green aft
    BMP payloads for 16–128 (32 bpp, `biHeight = 2·h`), PNG for 256 (0/0 dimension entry).
 3. **A3 Splash pin (new test):** decoding the resource the way `SplashWindow` does yields a
    source with `PixelWidth == 128`.
-4. **A4 Tray pin:** `new Icon(stream, SystemInformation.SmallIconSize)` resolves to the tuned
-   32 px frame at 200 % DPI (explicit size; never bare `new Icon(stream)` in tests).
+4. **A4a Tray frame check (the file):** with an explicit size request —
+   `new Icon(stream, SystemInformation.SmallIconSize)` at 200 % DPI; `new Icon(stream,
+   new Size(32,32))` / `(16,16)` generally — the loader resolves to the corresponding
+   tuned frame. Never bare `new Icon(stream)` in tests (DPI trap above).
+   **A4b Production-call pin (the code):** a test pinning `TrayIconManager`'s loader to
+   the `SystemInformation.SmallIconSize` request (source pin or production-path
+   exercise) — guards regression of `TrayIconManager.cs:85` back to the bare
+   `Icon(stream)` call, which A4a alone cannot catch.
 5. **A5 Preview sheet:** all six frames rendered at true 192-dpi sizes on dark/light strips,
    eyeballed by the owner — the 16/32 frames must read as tile + eye + amber iris + dot.
 6. **A6 Live swap:** Explorer file icon, tray, and splash show the new icon after the icon

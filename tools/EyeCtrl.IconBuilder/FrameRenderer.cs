@@ -51,7 +51,10 @@ internal static class FrameRenderer
             using (var dc = glow.RenderOpen())
             {
                 dc.PushTransform(new ScaleTransform(scale, scale));
-                Color A(double a) => Color.FromArgb((byte)Math.Round(255 * a), 0xA5, 0xF3, 0xFC);
+                // Stops carry fractions of the frame's peak alpha (Gaussian-ish falloff of the
+                // blurred disc: plateau, disc edge at 0.714 of the drawn radius, tail to 1.0).
+                Color A(double fraction) => Color.FromArgb(
+                    (byte)Math.Round(255 * plan.GlowPeakAlpha * fraction), 0xA5, 0xF3, 0xFC);
                 var brush = new RadialGradientBrush
                 {
                     Center = new Point(0.5, 0.5),
@@ -61,13 +64,12 @@ internal static class FrameRenderer
                     MappingMode = BrushMappingMode.RelativeToBoundingBox,
                     GradientStops =
                     {
-                        // plateau to ~0.58, disc edge at 30/42 (and 21/33) = 0.714, Gaussian-ish tail to 1.0
-                        new GradientStop(A(0.102), 0.00),
-                        new GradientStop(A(0.098), 0.58),
-                        new GradientStop(A(0.085), 0.714),
-                        new GradientStop(A(0.055), 0.78),
-                        new GradientStop(A(0.028), 0.86),
-                        new GradientStop(A(0.010), 0.93),
+                        new GradientStop(A(1.00), 0.00),
+                        new GradientStop(A(0.96), 0.58),
+                        new GradientStop(A(0.83), 0.714),
+                        new GradientStop(A(0.54), 0.78),
+                        new GradientStop(A(0.27), 0.86),
+                        new GradientStop(A(0.10), 0.93),
                         new GradientStop(A(0.0), 1.0),
                     },
                 };

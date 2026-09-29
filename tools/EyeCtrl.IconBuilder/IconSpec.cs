@@ -62,6 +62,7 @@ internal sealed record FramePlan(
     bool FlatTile,
     bool Rim,
     bool Glow,
+    double GlowPeakAlpha,   // bloom peak opacity; small frames need more than the master's 10% to read at all
     bool Hairline,
     double TrackRadius,
     double? ArcRadius,
@@ -76,7 +77,7 @@ internal sealed record FramePlan(
     // that read these after declaration would store nulls (the CS8601s this replaces were real).
     private static readonly FramePlan Tuned32 = new(
         32,
-        FlatTile: false, Rim: false, Glow: false, Hairline: false,
+        FlatTile: false, Rim: false, Glow: true, GlowPeakAlpha: 0.22, Hairline: false,
         TrackRadius: 14,
         ArcRadius: 11.5, ArcWidth: 3, ArcAlpha: 0.60,
         PieRadius: 13, PieGradient: true,
@@ -84,7 +85,7 @@ internal sealed record FramePlan(
 
     private static readonly FramePlan Tuned16 = new(
         16,
-        FlatTile: true, Rim: false, Glow: false, Hairline: false,
+        FlatTile: true, Rim: false, Glow: false, GlowPeakAlpha: 0, Hairline: false,
         TrackRadius: 15.5,
         ArcRadius: null, ArcWidth: null, ArcAlpha: 0,
         PieRadius: 14.5, PieGradient: false,
@@ -106,7 +107,7 @@ internal sealed record FramePlan(
 
     public static FramePlan Master(int size) => new(
         size,
-        FlatTile: false, Rim: true, Glow: true, Hairline: true,
+        FlatTile: false, Rim: true, Glow: true, GlowPeakAlpha: 0.10, Hairline: true,
         TrackRadius: 13.5,
         ArcRadius: 11.5, ArcWidth: 2, ArcAlpha: 0.55,
         PieRadius: 12.5, PieGradient: true,

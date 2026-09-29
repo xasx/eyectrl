@@ -13,11 +13,21 @@ internal static class FrameRenderer
     {
         var scale = plan.Size / IconSpec.GridSize;
 
-        var main = new DrawingVisual();
-        using (var dc = main.RenderOpen())
+        // Three compositing passes in the spec's layer order: tile, then glow, then body+.
+        // The glow MUST be its own pass AFTER the tile — compositing it before an opaque
+        // tile buried it completely (the tile is part of the top pass).
+        var tile = new DrawingVisual();
+        using (var dc = tile.RenderOpen())
         {
             dc.PushTransform(new ScaleTransform(scale, scale));
             DrawTile(dc, plan);
+            dc.Pop();
+        }
+
+        var rest = new DrawingVisual();
+        using (var dc = rest.RenderOpen())
+        {
+            dc.PushTransform(new ScaleTransform(scale, scale));
             DrawBody(dc);
             DrawTrack(dc, plan);
             if (plan.ArcRadius is double arcRadius)
@@ -28,25 +38,53 @@ internal static class FrameRenderer
         }
 
         var rtb = new RenderTargetBitmap(plan.Size, plan.Size, 96, 96, PixelFormats.Pbgra32);
+        rtb.Render(tile);
 
-        // The glow goes first, in its own visual: a BlurEffect on the main visual would blur
-        // every layer (an Effect applies to the visual's whole subtree).
+        // Soft bloom between tile and body. Deliberately NOT a BlurEffect: WPF effects do not
+        // render under SoftwareOnly (A1's determinism requirement) and a rendered-root effect
+        // is ignored by RenderTargetBitmap — the mockup's feGaussianBlur halo is approximated
+        // with a multi-stop radial gradient instead, deterministic by construction.
+        DrawingVisual? glow = null;
         if (plan.Glow)
         {
-            var glow = new DrawingVisual();
-            glow.Effect = new BlurEffect { Radius = IconSpec.BlurRadius };
+            glow = new DrawingVisual();
             using (var dc = glow.RenderOpen())
             {
                 dc.PushTransform(new ScaleTransform(scale, scale));
-                dc.DrawEllipse(new SolidColorBrush(IconSpec.Glow), null,
-                    IconSpec.GlowCenter, IconSpec.GlowRx, IconSpec.GlowRy);
+                Color A(double a) => Color.FromArgb((byte)Math.Round(255 * a), 0xA5, 0xF3, 0xFC);
+                var brush = new RadialGradientBrush
+                {
+                    Center = new Point(0.5, 0.5),
+                    GradientOrigin = new Point(0.5, 0.5),
+                    RadiusX = 0.5,
+                    RadiusY = 0.5,
+                    MappingMode = BrushMappingMode.RelativeToBoundingBox,
+                    GradientStops =
+                    {
+                        // plateau to ~0.58, disc edge at 30/42 (and 21/33) = 0.714, Gaussian-ish tail to 1.0
+                        new GradientStop(A(0.102), 0.00),
+                        new GradientStop(A(0.098), 0.58),
+                        new GradientStop(A(0.085), 0.714),
+                        new GradientStop(A(0.055), 0.78),
+                        new GradientStop(A(0.028), 0.86),
+                        new GradientStop(A(0.010), 0.93),
+                        new GradientStop(A(0.0), 1.0),
+                    },
+                };
+                dc.DrawEllipse(brush, null, IconSpec.GlowCenter,
+                    IconSpec.GlowRx + 12, IconSpec.GlowRy + 12);   // tail reaches 3σ past the disc
                 dc.Pop();
             }
             rtb.Render(glow);
         }
-        rtb.Render(main);
 
-        return ToStraightBgra(rtb);
+        rtb.Render(rest);
+
+        var pixels = ToStraightBgra(rtb);
+        GC.KeepAlive(tile);
+        GC.KeepAlive(glow);
+        GC.KeepAlive(rest);
+        return pixels;
     }
 
     public static BitmapSource ToBitmapSource(int size, byte[] bgra) =>

@@ -49,11 +49,15 @@ Layer order matters; listed back to front.
    `#252B4A` (center 50%,38%, r 85%) → `#141828`.
    Rim: same rect inset 1.5 (`x=5.5 y=5.5 w=85 h=85 rx=20.5`), stroke `#4A5578` at 55% opacity,
    width 2, no fill.
-2. **Glow** — ellipse center (48,47), rx 30, ry 21, fill `#A5F3FC`, opacity 0.10,
-   blur σ≈4 → WPF `BlurEffect` with **Radius = 12** in 96-grid units (r1 measured σ ≈ Radius/3),
-   glow rendered in its own visual — an Effect applies to a visual's entire subtree
-   (`ContainerVisual.Effect`), so a shared visual would blur the other layers too;
-   WPF pads the effect region itself, so there is no clipping concern.
+2. **Glow** — soft cyan bloom centred (48,47): full-strength ellipse rx 30, ry 21 peaking at
+   10 % opacity `#A5F3FC`, fading Gaussian-style to nothing ~12 units (3σ) past the disc edge.
+   **Mechanism (amended in execution, 2026-09-29):** shipped as a **multi-stop radial gradient**
+   (plateau 0.102 → disc edge 0.085 at 0.714 → 0 at 1.0, drawn at rx 42 / ry 33) — the earlier
+   `BlurEffect Radius = 12` prescription does not survive rendering: WPF effects do not render
+   under `SoftwareOnly` (A1's determinism requirement), and the first implementation also
+   composited the glow *beneath* the opaque tile, hiding it completely. Both defects were
+   verified by pixel-ramp (green-channel lift above/below the almond) and fixed in the builder;
+   the visual intent — the mockup's `feGaussianBlur` halo — is unchanged.
 3. **Body (almond)** — path
    `M12,48 C26,26 70,26 84,48 C70,70 26,70 12,48 Z`,
    fill = linear gradient (userSpace, y 25→71): `#AFF0FF` → `#4A7ECF`.

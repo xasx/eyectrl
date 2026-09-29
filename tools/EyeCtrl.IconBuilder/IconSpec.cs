@@ -77,7 +77,7 @@ internal sealed record FramePlan(
     // that read these after declaration would store nulls (the CS8601s this replaces were real).
     private static readonly FramePlan Tuned32 = new(
         32,
-        FlatTile: false, Rim: false, Glow: true, GlowPeakAlpha: 0.22, Hairline: false,
+        FlatTile: false, Rim: false, Glow: false, GlowPeakAlpha: 0, Hairline: false,
         TrackRadius: 14,
         ArcRadius: 11.5, ArcWidth: 3, ArcAlpha: 0.60,
         PieRadius: 13, PieGradient: true,

@@ -120,7 +120,7 @@ r1 Finding 5: replaced prose with an explicit layers × frames table. The owner'
 | Layer | 256 / 128 / 64 / 48 (master) | 32 (tuned) | 16 (tuned) |
 |---|---|---|---|
 | Tile | radial gradient + rim | radial gradient, **no rim** | flat `#1A2038` |
-| Glow | yes | **yes — 22 % peak** (owner-driven, L13) | **no** |
+| Glow | yes | **no** (L13 veto: back to the agreed plan) | **no** |
 | Body | gradient | gradient | gradient |
 | Iris track | r 13.5 + hairline | r 14, **no hairline** | r 15.5, **no hairline** (track ring ≈ 0.17 px — invisible, intended) |
 | Whisper arc | r 11.5, width 2 | r 11.5, **width 3, opacity 0.60** (`M59.5,48 A11.5,11.5 0 0 0 48,36.5`) | **none** |
@@ -240,7 +240,7 @@ parses the icon — not a frame gate, but the App test suite must stay green aft
 | L5 | Gaze dot rides the fill head, not the centre | motion; owner chose V3 lineage (head dot) over V2 | centre dot ("Fixed Gaze") |
 | L6 | Whisper arc inside the track (W1) | owner's pick among W1/W2/W3 | ghost ring (W2), outer halo (W3) |
 | L7 | 16/32 px frames hand-tuned, not naive downscale | rim/hairline degrade below 48 px; the arc survives at 32 only thickened to width 3 and is dropped at 16; the glow survives at 32 boosted to a 22 % peak (L13); **with L10 the tray actually shows the tuned 32 at 200 %** — the premise r1 falsified now holds | single-geometry scaling for all frames |
-| L13 | Tray frame carries the bloom at a 22 % peak (owner-driven, 2026-09-29 live verdict) | the owner rejected the glow-free tray: at 32 px the master's 10 % peak is invisible and the tile reads dead; 22 % reads without swallowing the small frame | keeping the tray glow-free (r1/r2's degrade-to-noise ruling — overruled by the owner's eyes); 10 % peak at 32 px (invisible) |
+| L13 | ~~Tray frame carries the bloom~~ **VETOED by the owner (2026-09-30, "deviates too much from what I agreed to")** — the 32 px frame is back to the agreed glow-free plan; the glow lives only at 48 px+, where it now renders correctly | tried and measured: 22 % peak is invisible at 32 physical px, 45 % reads but departs from the approved design — no bloom strength is both faithful and visible at tray size | 22 % peak (invisible); 45 % (visible but a deviation the owner rejected) |
 | L8 | Builder = small C# WPF console tool | PIL/ImageMagick unavailable; WPF rasterizes path data natively; repo-consistent idiom | Python/Pillow pipeline, one-off hand-pixelled asset |
 | L9 | Supervisor tray icon untouched | its generic `SystemIcons.Application` identity is deliberate | giving the supervisor the family icon |
 | L10 | **Tray loader change (r1 Finding 1, option a):** `TrayIconManager.cs:85` → `new Icon(memoryStream, SystemInformation.SmallIconSize)` | the tuned frames only matter if the tray requests them; one line, measured safe by r1; without it the shell shrinks the 64 px frame | option (b): stay asset-only and accept the downscaled tray icon (undermines the whole frame plan) |

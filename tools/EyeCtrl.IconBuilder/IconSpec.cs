@@ -11,30 +11,31 @@ internal static class IconSpec
 {
     public const double GridSize = 96;
 
-    // Tile — flat near-black navy, no rim, no gradient
-    public const double TileX = 4, TileY = 4, TileExtent = 88, TileRadius = 22;
+    // Tile — flat near-black navy, FULL-BLEED: other tray icons draw edge-to-edge, so the
+    // old 4-unit transparent border made the whole icon look smaller than its neighbours.
+    public const double TileX = 0, TileY = 0, TileExtent = 96, TileRadius = 24;
     public static readonly System.Windows.Media.Color Tile = System.Windows.Media.Color.FromRgb(0x14, 0x18, 0x28);
 
-    // Amber gaze point — the light source. Bold by design: the dot is ~73% of the tile
-    // width, so it holds the tray at 32 px (the 09-28 design died at 39%).
-    public static readonly Point DotCenter = new(47.5, 49.5);
-    public const double DotRadius = 32;
+    // Amber gaze point — the light source. r28 = 58% of the tile width: a touch smaller than
+    // the r32 the owner called "a bit big", now that the tile fills the frame.
+    public static readonly Point DotCenter = new(48, 48);
+    public const double DotRadius = 28;
     public static readonly System.Windows.Media.Color Amber = System.Windows.Media.Color.FromRgb(0xE8, 0xA3, 0x3C);
 
     // Trail — one fading motion dot toward the upper-left (two faint ones were invisible at tray size)
-    public static readonly Point TrailCenter = new(14, 17);
-    public const double TrailRadius = 7;
+    public static readonly Point TrailCenter = new(14, 15);
+    public const double TrailRadius = 7.5;
     public const double TrailAlpha = 0.5;
 
     // Amber bloom behind the dot (radial gradient, Gaussian-ish falloff)
-    public const double BloomRadius = 40;
+    public const double BloomRadius = 42;
     public static readonly (double Offset, double Alpha)[] BloomStops =
         [(0.0, 0.38), (0.55, 0.22), (1.0, 0.0)];
 
     // Dwell arc — starts 12 o'clock, sweeps 120° clockwise (mirrors DwellArcButton).
     // Screen angles (y-down): 270° = 12 o'clock.
-    public const double ArcRadius = 39.5;
-    public const double ArcWidth = 9;
+    public const double ArcRadius = 41;
+    public const double ArcWidth = 10;
     public const double ArcAlpha = 0.85;
     public const double ArcStartDegrees = 270;
     public const double ArcSweepDegrees = 120;

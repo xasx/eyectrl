@@ -15,28 +15,26 @@ internal static class IconSpec
     public const double TileX = 4, TileY = 4, TileExtent = 88, TileRadius = 22;
     public static readonly System.Windows.Media.Color Tile = System.Windows.Media.Color.FromRgb(0x14, 0x18, 0x28);
 
-    // Amber gaze point — the light source
-    public static readonly Point DotCenter = new(54, 54);
-    public const double DotRadius = 14;
+    // Amber gaze point — the light source. Bold by design: the dot is ~59% of the tile
+    // width, so it holds the tray at 32 px (the 09-28 design died at 39%).
+    public static readonly Point DotCenter = new(49, 52);
+    public const double DotRadius = 26;
     public static readonly System.Windows.Media.Color Amber = System.Windows.Media.Color.FromRgb(0xE8, 0xA3, 0x3C);
 
-    // Trail — two fading motion dots, upper-left of the gaze point
-    public static readonly Point TrailOuter = new(26, 26);
-    public const double TrailOuterRadius = 5;
-    public const double TrailOuterAlpha = 0.25;
-    public static readonly Point TrailInner = new(38, 38);
-    public const double TrailInnerRadius = 8;
-    public const double TrailInnerAlpha = 0.55;
+    // Trail — one fading motion dot toward the upper-left (two faint ones were invisible at tray size)
+    public static readonly Point TrailCenter = new(23, 25);
+    public const double TrailRadius = 7;
+    public const double TrailAlpha = 0.5;
 
     // Amber bloom behind the dot (radial gradient, Gaussian-ish falloff)
-    public const double BloomRadius = 27;
+    public const double BloomRadius = 38;
     public static readonly (double Offset, double Alpha)[] BloomStops =
         [(0.0, 0.38), (0.55, 0.22), (1.0, 0.0)];
 
     // Dwell arc — starts 12 o'clock, sweeps 120° clockwise (mirrors DwellArcButton).
     // Screen angles (y-down): 270° = 12 o'clock.
-    public const double ArcRadius = 21;
-    public const double ArcWidth = 6;
+    public const double ArcRadius = 35;
+    public const double ArcWidth = 8;
     public const double ArcAlpha = 0.85;
     public const double ArcStartDegrees = 270;
     public const double ArcSweepDegrees = 120;
@@ -45,12 +43,6 @@ internal static class IconSpec
     public static Point PointOnArc(double degrees) =>
         new(DotCenter.X + ArcRadius * System.Math.Cos(System.Math.PI * degrees / 180),
             DotCenter.Y + ArcRadius * System.Math.Sin(System.Math.PI * degrees / 180));
-
-    // The composition is authored inside the tile with comfortable margins, then scaled up
-    // about the tile centre — "too small" at tray size (owner verdict) is fixed by one knob
-    // instead of recomputing every coordinate. 1.35 puts the arc's stroke ~5 units from the
-    // tile edge at its widest.
-    public const double ContentScale = 1.35;
 }
 
 /// <summary>One .ico frame. The blank-slate design is a single geometry — frames differ only in size.</summary>

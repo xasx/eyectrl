@@ -17,10 +17,26 @@ internal static class FrameRenderer
         {
             dc.PushTransform(new ScaleTransform(scale, scale));
             DrawTile(dc);
+            // Scale the whole composition about the tile centre (IconSpec.ContentScale) —
+            // geometry constants stay authored in comfortable 96-grid margins. The tile
+            // itself stays full-size (scaling it would bleed past the canvas).
+            // TransformGroup composes children LAST-ADDED-FIRST: to map p -> 48 + k(p-48),
+            // the outer translate must be added LAST (measured: the other order shifted the
+            // whole composition +16.8 units and blew it past the tile).
+            dc.PushTransform(new TransformGroup
+            {
+                Children =
+                {
+                    new TranslateTransform(-48, -48),
+                    new ScaleTransform(IconSpec.ContentScale, IconSpec.ContentScale),
+                    new TranslateTransform(48, 48),
+                },
+            });
             DrawBloom(dc);
             DrawTrail(dc);
             DrawArc(dc);
             DrawDot(dc);
+            dc.Pop();
             dc.Pop();
         }
 

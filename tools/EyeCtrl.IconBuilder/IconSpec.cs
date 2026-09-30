@@ -45,6 +45,12 @@ internal static class IconSpec
     public static Point PointOnArc(double degrees) =>
         new(DotCenter.X + ArcRadius * System.Math.Cos(System.Math.PI * degrees / 180),
             DotCenter.Y + ArcRadius * System.Math.Sin(System.Math.PI * degrees / 180));
+
+    // The composition is authored inside the tile with comfortable margins, then scaled up
+    // about the tile centre — "too small" at tray size (owner verdict) is fixed by one knob
+    // instead of recomputing every coordinate. 1.35 puts the arc's stroke ~5 units from the
+    // tile edge at its widest.
+    public const double ContentScale = 1.35;
 }
 
 /// <summary>One .ico frame. The blank-slate design is a single geometry — frames differ only in size.</summary>

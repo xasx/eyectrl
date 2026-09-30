@@ -33,7 +33,7 @@ internal static class PreviewWriter
             int x = pad;
             foreach (var size in Sizes)
             {
-                var bgra = FrameRenderer.RenderBgra(FramePlan.PlanFor(size));
+                var bgra = FrameRenderer.RenderBgra(new FramePlan(size));
                 var image = FrameRenderer.ToBitmapSource(size, bgra);
                 dc.DrawImage(image, new Rect(x, pad + (tallest - size), size, size));
                 x += size + gap;

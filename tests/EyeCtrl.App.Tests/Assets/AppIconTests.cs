@@ -91,10 +91,11 @@ public class AppIconTests
     }
 
     // A4a — explicit sizes only: SmallIconSize keys would break on CI (16 at 96 DPI).
-    // Probes are colour sanity at structural points (tile/body/pie/dot); A2 is the
-    // structural guarantee for "which frame is in the file".
+    // Probes are colour sanity at the blank-slate design's structural points (tile / amber
+    // gaze dot / cyan dwell arc / warm bloom); A2 is the structural guarantee for
+    // "which frame is in the file". Sample-centre math: 32 px = 96-grid / 3.
     [StaFact]
-    public void Ico_ExplicitSizeRequest_ReturnsTunedSmallFrames()
+    public void Ico_ExplicitSizeRequest_ReturnsMatchingFrames()
     {
         var data = ReadIconResource();
 
@@ -103,19 +104,25 @@ public class AppIconTests
         Check.That(icon32.Width).IsEqualTo(32);
         Check.That(icon32.Height).IsEqualTo(32);
         using var bmp32 = icon32.ToBitmap();
-        ProbeDarkTile(bmp32, 4, 4);       // (13.5,13.5)@96 — inside the tile, clear of the corner cut
-        ProbeBody(bmp32, 10, 15);         // (30,44)@96 almond fill, clear of iris + edges
-        ProbeAmberPie(bmp32, 16, 16);     // (48,48)@96 pie apex
-        ProbeBrightDot(bmp32, 20, 16);    // (61,48)@96 gaze dot on the pie head
+        ProbeDarkTile(bmp32, 4, 4);       // (13.5,13.5)@96 — clear of bloom, trail, corner cut
+        ProbeAmberDot(bmp32, 18, 18);     // (55.5,55.5)@96 — inside the gaze point
+        ProbeCyanArc(bmp32, 18, 11);      // (55.5,34.5)@96 — on the 120° arc, 12-o'clock start
+        // No bloom probe at 32/16: the lift is ~6 R-points inside the dot's AA fringe —
+        // GDI+ rounding swamps it. The bloom is probed at 128 px below, where its band is wide.
 
         using var stream16 = new MemoryStream(data);
         using var icon16 = new System.Drawing.Icon(stream16, new System.Drawing.Size(16, 16));
         Check.That(icon16.Width).IsEqualTo(16);
         Check.That(icon16.Height).IsEqualTo(16);
         using var bmp16 = icon16.ToBitmap();
-        ProbeDarkTile(bmp16, 3, 3);       // (21,21)@96 — inside the tile, clear of the corner cut
-        ProbeAmberPie(bmp16, 8, 8);       // centre = solid #E8A33C pie
-        ProbeBrightDot(bmp16, 10, 8);     // (62.5,48)@96 dot
+        ProbeDarkTile(bmp16, 2, 2);       // (15,15)@96
+        ProbeAmberDot(bmp16, 9, 9);       // (57,57)@96
+
+        using var stream128 = new MemoryStream(data);
+        using var icon128 = new System.Drawing.Icon(stream128, new System.Drawing.Size(128, 128));
+        Check.That(icon128.Width).IsEqualTo(128);
+        using var bmp128 = icon128.ToBitmap();
+        ProbeWarmBloom(bmp128, 90, 90);   // (67.9,67.9)@96 — bloom tail, clean gradient, no AA edges
     }
 
     // A4b — pin the production call shape: the loader must request an explicit size
@@ -138,32 +145,36 @@ public class AppIconTests
     private static void ProbeDarkTile(System.Drawing.Bitmap bmp, int x, int y)
     {
         var c = bmp.GetPixel(x, y);
-        Check.That((int)c.R).IsStrictlyLessThan(64);
-        Check.That((int)c.G).IsStrictlyLessThan(64);
-        Check.That((int)c.B).IsStrictlyLessThan(96);
+        Check.That((int)c.R).IsStrictlyLessThan(40);
+        Check.That((int)c.G).IsStrictlyLessThan(40);
+        Check.That((int)c.B).IsStrictlyLessThan(56);
     }
 
-    private static void ProbeBody(System.Drawing.Bitmap bmp, int x, int y)
+    private static void ProbeAmberDot(System.Drawing.Bitmap bmp, int x, int y)
     {
         var c = bmp.GetPixel(x, y);
-        Check.That((int)c.B).IsStrictlyGreaterThan(205);  // body is the only blue-light region
-        Check.That((int)c.G).IsStrictlyGreaterThan(165);
-        Check.That((int)c.R).IsStrictlyLessThan(170);
+        Check.That((int)c.R).IsGreaterOrEqualThan(205);
+        Check.That((int)c.G).IsGreaterOrEqualThan(135);
+        Check.That((int)c.G).IsStrictlyLessThan(190);
+        Check.That((int)c.B).IsStrictlyLessThan(90);
     }
 
-    private static void ProbeAmberPie(System.Drawing.Bitmap bmp, int x, int y)
+    private static void ProbeCyanArc(System.Drawing.Bitmap bmp, int x, int y)
     {
         var c = bmp.GetPixel(x, y);
-        Check.That((int)c.R).IsStrictlyGreaterThan(200);
-        Check.That((int)c.G).IsStrictlyGreaterThan(140);
-        Check.That((int)c.B).IsStrictlyLessThan(160);
+        Check.That((int)c.G).IsStrictlyGreaterThan(180);
+        Check.That((int)c.B).IsStrictlyGreaterThan(185);
+        Check.That((int)c.R).IsStrictlyLessThan(180);
     }
 
-    private static void ProbeBrightDot(System.Drawing.Bitmap bmp, int x, int y)
+    private static void ProbeWarmBloom(System.Drawing.Bitmap bmp, int x, int y)
     {
         var c = bmp.GetPixel(x, y);
-        Check.That((int)c.R).IsStrictlyGreaterThan(215);
-        Check.That((int)c.G).IsStrictlyGreaterThan(225);
-        Check.That((int)c.B).IsStrictlyGreaterThan(230);
+        Check.That((int)c.R).IsGreaterOrEqualThan(30);
+        Check.That((int)c.R).IsStrictlyLessThan(85);
+        Check.That((int)c.G).IsGreaterOrEqualThan(26);
+        Check.That((int)c.G).IsStrictlyLessThan(70);
+        Check.That((int)c.B).IsStrictlyLessThan(55);
+        Check.That((int)c.R).IsStrictlyGreaterThan((int)c.G);  // warm, not grey
     }
 }

@@ -105,8 +105,8 @@ public class AppIconTests
         Check.That(icon32.Height).IsEqualTo(32);
         using var bmp32 = icon32.ToBitmap();
         ProbeDarkTile(bmp32, 4, 4);       // (13.5,13.5)@96 — corner, clear of bloom/trail/arc
-        ProbeAmberDot(bmp32, 16, 17);     // (49.5,52.5)@96 — inside the gaze point
-        ProbeCyanArc(bmp32, 28, 17);      // (85.5,52.5)@96 — on the arc at 3 o'clock
+        ProbeAmberDot(bmp32, 15, 16);     // (46.5,49.5)@96 — inside the gaze point
+        ProbeCyanArc(bmp32, 27, 17);      // (82.5,52.5)@96 — on the arc at 3 o'clock
         // No bloom probe at 32/16: the lift is ~5 R-points inside the dot's AA fringe —
         // GDI+ rounding swamps it. The bloom is probed at 128 px below, where its band is wide.
 
@@ -115,14 +115,14 @@ public class AppIconTests
         Check.That(icon16.Width).IsEqualTo(16);
         Check.That(icon16.Height).IsEqualTo(16);
         using var bmp16 = icon16.ToBitmap();
-        ProbeDarkTile(bmp16, 2, 2);       // (15,15)@96
-        ProbeAmberDot(bmp16, 8, 8);       // (51,51)@96
+        ProbeDarkTile(bmp16, 2, 1);       // (15,9)@96
+        ProbeAmberDot(bmp16, 7, 9);       // (43.5,55.5)@96
 
         using var stream128 = new MemoryStream(data);
         using var icon128 = new System.Drawing.Icon(stream128, new System.Drawing.Size(128, 128));
         Check.That(icon128.Width).IsEqualTo(128);
         using var bmp128 = icon128.ToBitmap();
-        ProbeWarmBloom(bmp128, 38, 96);   // (28.5,72)@96 — bloom tail at 135°, clean gradient
+        ProbeWarmBloom(bmp128, 30, 99);   // (22.5,74.3)@96 — bloom tail at 135°, clean gradient
     }
 
     // A4b — pin the production call shape: the loader must request an explicit size

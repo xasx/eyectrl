@@ -30,19 +30,19 @@ from such a strip, then directed the additions (dwell arc ≤ full ring → sett
 Layer order, back to front:
 
 1. **Tile** — rounded rect `x=4 y=4 w=88 h=88 rx=22`, flat fill `#141828`. No rim, no gradient.
-2. **Bloom** — radial gradient disc centred on the gaze point (49,52), radius 38, amber
+2. **Bloom** — radial gradient disc centred on the gaze point (44.5,52), radius 40, amber
    `#E8A33C` with stops: offset 0 → α 0.38, offset 0.55 → α 0.22, offset 1 → 0.
    Peak is 38 % — deliberately stronger than the old tile-glow's 10 %, because 32 px eats
    subtlety (measured: 10 % was invisible at tray size).
-3. **Trail** — one fading motion dot toward the upper-left: (23,25) r 7 α 0.5, amber.
+3. **Trail** — one fading motion dot toward the upper-left: (16.5,23.5) r 7.5 α 0.5, amber.
    (Two faint dots were invisible at tray size — one bold dot carries the motion.)
-4. **Dwell arc** — cyan `#A5F3FC`, radius 35 centred on the dot, width 8, α 0.85, round caps;
+4. **Dwell arc** — cyan `#A5F3FC`, radius 38 centred on the dot, width 9, α 0.85, round caps;
    **starts at 12 o'clock, sweeps 120° clockwise** — the same start and direction as the real
-   `DwellArcButton` (`UpdateArc`, DwellArcButton.cs:349-358). Endpoints (49,17) → (79.3,69.5).
-5. **Gaze point** — amber disc, centre (49,52), r 26 — ~54 % of the tile width. The first cut
-   (r 14 at (54,54), then a 1.35× content scale) was still "too small" at tray size; the
-   proportions are now authored at final size (L20), which also retired ContentScale and its
-   TransformGroup order trap.
+   `DwellArcButton` (`UpdateArc`, DwellArcButton.cs:349-358). Endpoints (44.5,9.5) → (77.4,71).
+5. **Gaze point** — amber disc, centre (44.5,52), r 30 — ~68 % of the tile width, ~5-unit
+   borders all around (owner: "the margin is too large" killed the earlier roomier layout).
+   The history: r 14 at (54,54) → 1.35× content scale (L19) → r 26 at (49,52) (L20) → r 30
+   tight (L21).
 
 Rendered via `StreamGeometry.ArcTo` (no path strings — no locale formatting traps).
 
@@ -77,3 +77,4 @@ math: 32 px = 96-grid/3):
 | L13 | (struck) tray bloom at 22 % | vetoed by the owner — deviated from the agreed design; see 09-28 spec ledger | — |
 | L19 | (superseded) content scale 1.35× | first answer to "too small"; still too small at tray size — the proportions were the problem, not the scale | more scaling (arc/trail already at tile edges) |
 | L20 | Tray-bold proportions: dot r 26 (~54 % of tile width) at (49,52), arc r 35 w 8, one trail dot r 7, bloom r 38; geometry authored at final size, no content scaling | second "too small" verdict; scaling was maxed (arc/trail at tile edges), so the internal proportions had to change | keeping the 1.35-scaled thin look; global scale above 1.35 (clips trail past the tile) |
+| L21 | Margins tightened: dot r 30 (~68 % of tile width) at (44.5,52), arc r 38 w 9, trail (16.5,23.5) | third verdict, "the margin is too large" — ~5-unit borders all around; the arc's top now sits ~1.5 units off the tile edge by design | uniform margin ≥ 8 (that was the complaint) |

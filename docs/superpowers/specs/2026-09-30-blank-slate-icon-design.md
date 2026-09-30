@@ -43,6 +43,13 @@ Layer order, back to front:
 
 Rendered via `StreamGeometry.ArcTo` (no path strings — no locale formatting traps).
 
+**Content scale (L19, owner-driven 2026-09-30 "too small"):** the whole composition (bloom,
+trail, arc, dot) is scaled 1.35× about the tile centre at render time
+(`IconSpec.ContentScale`, a TransformGroup pushed after the tile); the tile stays full-size.
+The tray dot is thus ~6.3 px, not 4.7 px. WPF gotcha pinned by measurement: TransformGroup
+composes children last-added-first — the translate pair must be added outer-translate-last,
+or the composition shifts +16.8 units and blows past the tile.
+
 ## Frame plan
 
 One geometry, rendered at 16/32/48/64/128/256. No per-frame tuning: the composition is bold
@@ -72,3 +79,4 @@ math: 32 px = 96-grid/3):
 | L17 | Concept = amber gaze point + trail + cyan 120° arc from 12 o'clock on near-black tile | owner's pick from the blank-slate strip, then directed arc angle/colour/glow through strip rounds | eye concepts, letter monogram, cursor concepts (same spread) |
 | L18 | Bloom peak 38 %, probed at 128 px only | 10 % invisible at tray size (measured); 32/16 px probes sit in AA fringes where GDI+ rounding masks the signal | probing bloom at 32 px |
 | L13 | (struck) tray bloom at 22 % | vetoed by the owner — deviated from the agreed design; see 09-28 spec ledger | — |
+| L19 | Composition scaled 1.35× about the tile centre | owner verdict "it is too small": the gaze dot was ~4.7 px at tray size; 1.35 puts it at ~6.3 px and the arc ~5 units from the tile edge | recomputing every coordinate by hand; smaller scale (owner saw it) |

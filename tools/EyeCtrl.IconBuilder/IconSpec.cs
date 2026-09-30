@@ -23,19 +23,19 @@ internal static class IconSpec
     public static readonly System.Windows.Media.Color Amber = System.Windows.Media.Color.FromRgb(0xE8, 0xA3, 0x3C);
 
     // Trail — one fading motion dot toward the upper-left (two faint ones were invisible at tray size)
-    public static readonly Point TrailCenter = new(14, 15);
+    public static readonly Point TrailCenter = new(12, 13);
     public const double TrailRadius = 7.5;
     public const double TrailAlpha = 0.5;
 
     // Amber bloom behind the dot (radial gradient, Gaussian-ish falloff)
-    public const double BloomRadius = 42;
+    public const double BloomRadius = 44;
     public static readonly (double Offset, double Alpha)[] BloomStops =
         [(0.0, 0.38), (0.55, 0.22), (1.0, 0.0)];
 
     // Dwell arc — starts 12 o'clock, sweeps 120° clockwise (mirrors DwellArcButton).
     // Screen angles (y-down): 270° = 12 o'clock.
-    public const double ArcRadius = 41;
-    public const double ArcWidth = 10;
+    public const double ArcRadius = 41.5;
+    public const double ArcWidth = 11;
     public const double ArcAlpha = 0.85;
     public const double ArcStartDegrees = 270;
     public const double ArcSweepDegrees = 120;

@@ -104,7 +104,7 @@ public class AppIconTests
         Check.That(icon32.Width).IsEqualTo(32);
         Check.That(icon32.Height).IsEqualTo(32);
         using var bmp32 = icon32.ToBitmap();
-        ProbeDarkTile(bmp32, 2, 2);       // (7.5,7.5)@96 — corner region, clear of trail/bloom/arc
+        ProbeDarkTile(bmp32, 8, 29);      // (25.5,88.5)@96 — bottom-left, clear of dot/bloom/arc ring
         ProbeAmberDot(bmp32, 16, 16);     // (49.5,49.5)@96 — inside the gaze point
         ProbeCyanArc(bmp32, 29, 16);      // (88.5,49.5)@96 — on the arc at 3 o'clock
         // No bloom probe at 32/16: the bloom's lift outside the dot is ~2-4 R-points with
@@ -116,7 +116,7 @@ public class AppIconTests
         Check.That(icon16.Width).IsEqualTo(16);
         Check.That(icon16.Height).IsEqualTo(16);
         using var bmp16 = icon16.ToBitmap();
-        ProbeDarkTile(bmp16, 5, 1);       // (25.5,9)@96 — top edge, clear of trail/arc ring
+        ProbeDarkTile(bmp16, 0, 13);      // (3,81)@96 — left edge, below the trail, off the arc ring
         ProbeAmberDot(bmp16, 8, 8);       // (51,51)@96
 
         using var stream128 = new MemoryStream(data);

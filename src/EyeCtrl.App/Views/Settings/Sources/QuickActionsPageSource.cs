@@ -132,6 +132,15 @@ internal sealed class QuickActionsPageSource : ISettingsPageSource
         _view = QaView.List;
     }
 
+    /// <summary>
+    /// The six views the state machine can show, in enum order. The reachability gate drives
+    /// every one, because the preset pages — the ones issue #113 was about — exist ONLY inside
+    /// the picker views: the List view alone never builds a <c>ChunkPresets</c> page, so a gate
+    /// that measured only the landing view would miss the bug entirely.
+    /// </summary>
+    public IReadOnlyList<(string Name, Action Enter)> Views =>
+        Enum.GetValues<QaView>().Select(v => (v.ToString(), (Action)(() => GoTo(v)))).ToList();
+
     // internal (not private) so the page-source test can drive the state machine directly instead of
     // reflecting into it (reflection on an enum-typed arg throws ArgumentException — Int32 does not
     // widen to a boxed enum). EyeCtrl.App.Tests is InternalsVisibleTo from EyeCtrl.App.

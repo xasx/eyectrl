@@ -129,9 +129,12 @@ public class DwellCompositeChildrenStabilityTests
         // SeparatorRow likewise lives outside this assembly (SettingsWindow's SeparatorSpec
         // visual) and is pinned, not by a case above, by
         // EyeCtrl.App.Tests.Settings.SettingsRowLayoutTests.ASeparatorRow_HasCachedEmptyChildren_AndAttaches.
+        // RingPreviewRow (the settings ring miniature) is the third: it registers no dwell target,
+        // hands out a cached empty Children list, and is pinned by
+        // SettingsRowLayoutTests.ARingPreviewRow_HasCachedEmptyChildren_AndAttaches.
         string[] covered =
             ["DwellColorPicker", "DwellComboBox", "DwellSlider", "DwellToggle",
-             "LabelledSettingsRow", "SeparatorRow"];
+             "LabelledSettingsRow", "RingPreviewRow", "SeparatorRow"];
 
         Check.WithCustomMessage(
                 "IDwellComposite implementers in src/ and the cases in this class have diverged."
@@ -187,6 +190,12 @@ public class DwellCompositeChildrenStabilityTests
                 "SeparatorRow's Children-stability pin is gone from SettingsRowLayoutTests. The"
                 + " census above vouches for it; restore the test or remove the name here.")
             .That(File.ReadAllText(path).Contains(SeparatorTestName)).IsTrue();
+
+        const string RingPreviewTestName = "ARingPreviewRow_HasCachedEmptyChildren_AndAttaches";
+        Check.WithCustomMessage(
+                "RingPreviewRow's Children-stability pin is gone from SettingsRowLayoutTests. The"
+                + " census above vouches for it; restore the test or remove the name here.")
+            .That(File.ReadAllText(path).Contains(RingPreviewTestName)).IsTrue();
     }
 
     /// <summary>

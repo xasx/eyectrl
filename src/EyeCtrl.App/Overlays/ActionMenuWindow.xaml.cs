@@ -8,10 +8,10 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using EyeCtrl.Controls;
-using EyeCtrl.Controls.Icons;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.App.Services;
 using EyeCtrl.Core;
+using EyeCtrl.Core.ActionMenu;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
@@ -67,8 +67,9 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
 
         var vm = DataContext as ActionMenuViewModel;
 
-        // Size window to fit buttons at the given ring radius
-        var windowSize = ActionMenuGeometry.WindowSize(ringRadius);
+        // Size window to fit buttons at the given ring radius. RingPlan.WindowSizeFor is the one
+        // definition of this square (the settings preview and its fit scalar read the same one).
+        var windowSize = RingPlan.WindowSizeFor(ringRadius);
         Width = windowSize;
         Height = windowSize;
 
@@ -211,24 +212,31 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
             MenuCanvas.Children.Add(pinHead);
         }
 
-        // Render action menu buttons from VM items using DwellArcButton
+        // Paint the ring through the shared painter — the one file that passes the ring radius
+        // into DwellArcButton.Create. The coordinate conversion below is this window's seam, not
+        // the painter's: itemVm.Position is an ABSOLUTE physical-screen point (menu center + ring
+        // offset) and MenuCanvas is window-relative (see ActionMenuGeometry's remarks for the
+        // 894ea34 off-canvas regression this guards against). Dwell registration is the
+        // ViewModel's, never the painter's.
         if (vm is not null)
         {
+            var slots = new List<RingPaintSlot>(vm.Items.Count);
             foreach (var itemVm in vm.Items)
             {
-                // itemVm.Position is an ABSOLUTE physical-screen point (menu center + ring offset);
-                // MenuCanvas is window-relative, so convert via ActionMenuGeometry (see its remarks
-                // for the 894ea34 off-canvas regression this guards against).
-                var canvasPoint = ActionMenuGeometry.ButtonCanvasCenter(itemVm.Position, center, canvasCenter);
-                var btn = DwellArcButton.Create(
-                    canvasPoint,
-                    ActionMenuGeometry.ButtonRadius,
-                    symbol: null,
-                    icon: ActionIcons.For(itemVm.Icon),
-                    label: showLabels ? itemVm.Label : null);
-                btn.AddTo(MenuCanvas);
-                _buttonVisuals[itemVm.Id] = btn;
+                slots.Add(new RingPaintSlot(
+                    itemVm.Id,
+                    ActionMenuGeometry.ButtonCanvasCenter(itemVm.Position, center, canvasCenter),
+                    itemVm.Icon,
+                    itemVm.Label,
+                    itemVm.Kind));
+            }
 
+            foreach (var (id, button) in ActionMenuRingPainter.Paint(
+                         MenuCanvas, slots, RingPaintOptions.Runtime(showLabels)))
+                _buttonVisuals[id] = button;
+
+            foreach (var itemVm in vm.Items)
+            {
                 var capturedId = itemVm.Id;
                 var capturedItem = itemVm;
                 PropertyChangedEventHandler handler = (_, e) =>

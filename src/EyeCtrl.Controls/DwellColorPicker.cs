@@ -76,8 +76,14 @@ public class DwellColorPicker : IDwellComposite
     /// violated when the radius was shrunk below the control target floor.
     /// </summary>
     public const double SwatchHeight = 100;
-    /// <summary>Horizontal gutter between swatches in the WrapPanel, in logical DIPs.</summary>
-    public const double SwatchHorizontalMargin = 8;
+    /// <summary>
+    /// Horizontal gutter between swatches in the WrapPanel, in logical DIPs. 10, not 8: a
+    /// 120 DIP cell plus two 10 DIP gutters puts adjacent centres 140 apart, clearing the
+    /// 40 DIP settings-reachability floor that the old 8 DIP gutter (136 centre pitch,
+    /// 36 clearance) fell 4 DIP short of — widened 2026-09-30 to retire the reachability
+    /// gate's only clearance exemption.
+    /// </summary>
+    public const double SwatchHorizontalMargin = 10;
     /// <summary>Vertical gutter between wrapped swatch rows, in logical DIPs.</summary>
     public const double SwatchVerticalMargin = 20;
 

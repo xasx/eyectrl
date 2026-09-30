@@ -54,6 +54,14 @@ public class ContainerRatioCensusTests
     private static readonly Dictionary<string, (string Ratio, int Count, string Why)[]> Census =
         new(StringComparer.OrdinalIgnoreCase)
         {
+            ["src/EyeCtrl.App/Overlays/ActionMenuRingPainter.cs"] =
+            [
+                ("Medium", 1, "the icon size in the preview's runtime label-placement arithmetic: "
+                    + "the scaled label is positioned under a 140px action-menu button's icon, and "
+                    + "a labelled ring button's icon is exactly Medium (DwellArcButton's own "
+                    + "choice — this site restates that stack offset scaled, see the painter's "
+                    + "RuntimeLabelGapRatio doc). Not a glyph drawn by this file."),
+            ],
             ["src/EyeCtrl.App/Overlays/DragTrailOverlay.xaml.cs"] =
             [
                 ("Badge", 2, "grab/release glyphs in a 26px disc — under the ~32px where a "

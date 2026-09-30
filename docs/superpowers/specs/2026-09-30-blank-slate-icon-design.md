@@ -1,7 +1,7 @@
 # Blank-Slate App Icon — Design (C1 "Amber Gaze")
 
 Date: 2026-09-30
-Status: implemented, awaiting owner A6 verdict
+Status: implemented; owner accepted the rim-tight design for now (2026-09-30, "keep this for now")
 Supersedes: the design sections of `2026-09-28-app-icon-redesign-design.md` (pie-iris eye).
 Carried over unchanged from that spec: the L10 tray-loader change (`LoadTrayIcon` +
 `SmallIconSize`), the ICO container recipe (ascending 16→256, BMP 16–128 with `biHeight = 2·h`

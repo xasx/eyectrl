@@ -29,20 +29,22 @@ from such a strip, then directed the additions (dwell arc ≤ full ring → sett
 
 Layer order, back to front:
 
-1. **Tile** — rounded rect `x=4 y=4 w=88 h=88 rx=22`, flat fill `#141828`. No rim, no gradient.
-2. **Bloom** — radial gradient disc centred on the gaze point (47.5,49.5), radius 40, amber
+1. **Tile** — rounded rect `0 0 96 96 rx=24`, flat fill `#141828`, **full-bleed** (L23: other
+   tray icons draw edge-to-edge; the old 4-unit transparent border made the whole icon look
+   smaller than its neighbours). No rim, no gradient.
+2. **Bloom** — radial gradient disc centred on the gaze point (48,48), radius 42, amber
    `#E8A33C` with stops: offset 0 → α 0.38, offset 0.55 → α 0.22, offset 1 → 0.
    Peak is 38 % — deliberately stronger than the old tile-glow's 10 %, because 32 px eats
    subtlety (measured: 10 % was invisible at tray size).
-3. **Trail** — one fading motion dot toward the upper-left corner: (14,17) r 7 α 0.5, amber.
+3. **Trail** — one fading motion dot toward the upper-left corner: (14,15) r 7.5 α 0.5, amber.
    (Two faint dots were invisible at tray size — one bold dot carries the motion.)
-4. **Dwell arc** — cyan `#A5F3FC`, radius 39.5 centred on the dot, width 9, α 0.85, round caps;
+4. **Dwell arc** — cyan `#A5F3FC`, radius 41 centred on the dot, width 10, α 0.85, round caps;
    **starts at 12 o'clock, sweeps 120° clockwise** — the same start and direction as the real
-   `DwellArcButton` (`UpdateArc`, DwellArcButton.cs:349-358). Endpoints (47.5,10) → (81.7,69.25).
-   The stroke sits ~1.5 units off the tile rim at 12 o'clock by design.
-5. **Gaze point** — amber disc, centre (47.5,49.5), r 32 — ~73 % of the tile width. The
-   history: r 14 at (54,54) → 1.35× content scale (L19) → r 26 at (49,52) (L20) → r 30 tight
-   (L21) → r 32 at the rim (L22, owner: "the outer margin").
+   `DwellArcButton` (`UpdateArc`, DwellArcButton.cs:349-358). Endpoints (48,7) → (83.5,68.5);
+   a ~2-unit rim margin all round on the full-bleed tile.
+5. **Gaze point** — amber disc, centre (48,48), r 28 — 58 % of the tile width. The history:
+   r 14 at (54,54) → 1.35× content scale (L19) → r 26 (L20) → r 30 (L21) → r 32 at the rim
+   (L22, "a bit big") → r 28 on the full-bleed tile (L23).
 
 Rendered via `StreamGeometry.ArcTo` (no path strings — no locale formatting traps).
 
@@ -79,3 +81,4 @@ math: 32 px = 96-grid/3):
 | L20 | Tray-bold proportions: dot r 26 (~54 % of tile width) at (49,52), arc r 35 w 8, one trail dot r 7, bloom r 38; geometry authored at final size, no content scaling | second "too small" verdict; scaling was maxed (arc/trail at tile edges), so the internal proportions had to change | keeping the 1.35-scaled thin look; global scale above 1.35 (clips trail past the tile) |
 | L21 | Margins tightened: dot r 30 (~68 % of tile width) at (44.5,52), arc r 38 w 9, trail (16.5,23.5) | third verdict, "the margin is too large" — ~5-unit borders all around; the arc's top now sits ~1.5 units off the tile edge by design | uniform margin ≥ 8 (that was the complaint) |
 | L22 | Outer margin tightened to the rim: dot r 32 (~73 % of tile width) centred (47.5,49.5), arc r 39.5 w 9 (~1.5 units off the rim), trail into the corner; bloom probe switched to a relative lift (bloom pixel vs pure-tile pixel, +10 R) | fourth verdict, "the outer margin" — the glyph now nearly touches the rim; the absolute bloom lift at 128 px is a few R-points, so the relative form is rounding-proof | keeping any visible outer band |
+| L23 | Full-bleed tile (0 0 96 96 rx 24) — no transparent border; dot eased to r 28 on the bigger canvas | fifth verdict pair: "the gaze dot is a bit big" + "other tray icons do not have that big margin and fill the available space" — the 4-unit transparent border was the real space-waster; the full-bleed tile makes every element effectively larger while the dot shrinks a step | keeping the transparent border; r 32 on the full-bleed tile (would re-overshoot) |

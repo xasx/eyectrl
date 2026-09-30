@@ -30,25 +30,21 @@ from such a strip, then directed the additions (dwell arc ≤ full ring → sett
 Layer order, back to front:
 
 1. **Tile** — rounded rect `x=4 y=4 w=88 h=88 rx=22`, flat fill `#141828`. No rim, no gradient.
-2. **Bloom** — radial gradient disc centred on the gaze point (48+6, 48+6) = (54,54),
-   radius 27, amber `#E8A33C` with stops: offset 0 → α 0.38, offset 0.55 → α 0.22, offset 1 → 0.
+2. **Bloom** — radial gradient disc centred on the gaze point (49,52), radius 38, amber
+   `#E8A33C` with stops: offset 0 → α 0.38, offset 0.55 → α 0.22, offset 1 → 0.
    Peak is 38 % — deliberately stronger than the old tile-glow's 10 %, because 32 px eats
    subtlety (measured: 10 % was invisible at tray size).
-3. **Trail** — two fading motion dots toward the upper-left:
-   (26,26) r 5 α 0.25 and (38,38) r 8 α 0.55, amber.
-4. **Dwell arc** — cyan `#A5F3FC`, radius 21 centred on the dot, width 6, α 0.85, round caps;
+3. **Trail** — one fading motion dot toward the upper-left: (23,25) r 7 α 0.5, amber.
+   (Two faint dots were invisible at tray size — one bold dot carries the motion.)
+4. **Dwell arc** — cyan `#A5F3FC`, radius 35 centred on the dot, width 8, α 0.85, round caps;
    **starts at 12 o'clock, sweeps 120° clockwise** — the same start and direction as the real
-   `DwellArcButton` (`UpdateArc`, DwellArcButton.cs:349-358). Endpoints (54,33) → (72.19,64.5).
-5. **Gaze point** — amber disc, centre (54,54), r 14.
+   `DwellArcButton` (`UpdateArc`, DwellArcButton.cs:349-358). Endpoints (49,17) → (79.3,69.5).
+5. **Gaze point** — amber disc, centre (49,52), r 26 — ~54 % of the tile width. The first cut
+   (r 14 at (54,54), then a 1.35× content scale) was still "too small" at tray size; the
+   proportions are now authored at final size (L20), which also retired ContentScale and its
+   TransformGroup order trap.
 
 Rendered via `StreamGeometry.ArcTo` (no path strings — no locale formatting traps).
-
-**Content scale (L19, owner-driven 2026-09-30 "too small"):** the whole composition (bloom,
-trail, arc, dot) is scaled 1.35× about the tile centre at render time
-(`IconSpec.ContentScale`, a TransformGroup pushed after the tile); the tile stays full-size.
-The tray dot is thus ~6.3 px, not 4.7 px. WPF gotcha pinned by measurement: TransformGroup
-composes children last-added-first — the translate pair must be added outer-translate-last,
-or the composition shifts +16.8 units and blows past the tile.
 
 ## Frame plan
 
@@ -79,4 +75,5 @@ math: 32 px = 96-grid/3):
 | L17 | Concept = amber gaze point + trail + cyan 120° arc from 12 o'clock on near-black tile | owner's pick from the blank-slate strip, then directed arc angle/colour/glow through strip rounds | eye concepts, letter monogram, cursor concepts (same spread) |
 | L18 | Bloom peak 38 %, probed at 128 px only | 10 % invisible at tray size (measured); 32/16 px probes sit in AA fringes where GDI+ rounding masks the signal | probing bloom at 32 px |
 | L13 | (struck) tray bloom at 22 % | vetoed by the owner — deviated from the agreed design; see 09-28 spec ledger | — |
-| L19 | Composition scaled 1.35× about the tile centre | owner verdict "it is too small": the gaze dot was ~4.7 px at tray size; 1.35 puts it at ~6.3 px and the arc ~5 units from the tile edge | recomputing every coordinate by hand; smaller scale (owner saw it) |
+| L19 | (superseded) content scale 1.35× | first answer to "too small"; still too small at tray size — the proportions were the problem, not the scale | more scaling (arc/trail already at tile edges) |
+| L20 | Tray-bold proportions: dot r 26 (~54 % of tile width) at (49,52), arc r 35 w 8, one trail dot r 7, bloom r 38; geometry authored at final size, no content scaling | second "too small" verdict; scaling was maxed (arc/trail at tile edges), so the internal proportions had to change | keeping the 1.35-scaled thin look; global scale above 1.35 (clips trail past the tile) |

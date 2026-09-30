@@ -1,5 +1,11 @@
 # App Icon Redesign — Design
 
+> **SUPERSEDED (2026-09-30):** the pie-iris design below was retired after the live render —
+> the owner rejected it and called a blank-slate restart. The current design lives in
+> `2026-09-30-blank-slate-icon-design.md`, which carries over this spec's L10 loader change,
+> ICO container recipe, and A1–A4 acceptance structure. Kept for the record: the review
+> rounds, the decision ledger L1–L13, and the tray-first lesson that motivated the restart.
+
 Date: 2026-09-28
 Status: revised after external review r1 (merged Opus+Muse, CHANGES-REQUIRED — all 12 findings applied; tray decision taken as option (a), ledger L10)
 Session: visual brainstorm via companion (motif rounds A–D → H1–H3 → C1–C3 → E1–E3 → F1/F2 → V1–V4 → W1–W3 → final)

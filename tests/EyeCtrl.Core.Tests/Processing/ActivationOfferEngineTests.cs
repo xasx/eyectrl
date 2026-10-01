@@ -657,6 +657,37 @@ public class ActivationOfferEngineTests
     }
 
     /// <summary>Feeds <paramref name="inHitSamples"/> valid samples at an in-hit point, one frame apart.</summary>
+    [Fact]
+    public void TwoShortExcursions600MsApart_OnlyPauseTheDwell_NeverResetIt()
+    {
+        // Ticket 7 review A's re-check, R13 (carried into ticket 8 as item 10): decision 9 says
+        // slipping off the button pauses the fill for up to 0.5 s, and only a longer look away resets
+        // it. Two wobbles more than the frame floor apart must not combine into a reset. The first
+        // excursion's miss is cleared by the first in-hit sample of the next stretch; without that
+        // clear, the second excursion dates from the first and resets (mutation at :380), so the
+        // 990/1500 assertion below goes red.
+        var engine = NewEngine(dwellMs: 1500);
+        engine.NotifyFixationSettled(P, 0);
+        var b = engine.CurrentOffer!.Button;
+
+        Feed(engine, b, FrameUs, samples: 13);              // 30–390 ms: 390 credited
+        Check.That(engine.DwellProgress).IsCloseTo(390.0 / 1500, 1e-9);
+
+        Feed(engine, P, 420_000, samples: 7);               // excursion 1: 420–600 ms
+        Feed(engine, b, 630_000, samples: 20);              // 630–1200 ms: 990 credited
+        Check.That(engine.DwellProgress).IsCloseTo(990.0 / 1500, 1e-9);
+
+        Feed(engine, P, 1_230_000, samples: 7);             // excursion 2: 1230–1410 ms
+        Check.WithCustomMessage("excursion 2 reset the dwell: separate wobbles must only pause it")
+            .That(engine.DwellProgress).IsCloseTo(990.0 / 1500, 1e-9);
+
+        Feed(engine, b, 1_440_000, samples: 16);            // 1440–1890 ms: 1470 credited, no fire
+        Check.That(engine.IsFired).IsFalse();
+
+        engine.Update(b, 1_920_000, isValid: true);         // exactly once, on the 1500 ms sample
+        Check.That(engine.IsFired).IsTrue();
+    }
+
     private static void FuelTheDwell(
         ActivationOfferEngine engine, PhysicalPoint point, long fromUs, int inHitSamples)
         => Feed(engine, point, fromUs, inHitSamples);

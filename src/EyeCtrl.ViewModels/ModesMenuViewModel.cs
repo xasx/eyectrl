@@ -83,13 +83,23 @@ public partial class ModesMenuViewModel : DwellOverlayViewModelBase,
     /// Window feedback after placement: each row's real screen centre and hit radius. Until this
     /// arrives the VM holds no dwell targets — a target at a placeholder point could fire on a
     /// corner gaze (the ToolbarWindow lesson, mirrored deliberately).
+    /// <para>
+    /// The positions are kept: ticket 8's chrome rule reads them as the menu's zone (plain data, no
+    /// window access), so a settle on a mode row never offers an activation button over it.
+    /// </para>
     /// </summary>
     public void SetRowScreenPositions(IReadOnlyList<(string Id, PhysicalPoint Center, double Radius)> rows)
     {
+        RowScreenPositions = rows;
         DwellDetector.ClearTargets();
         foreach (var (id, center, radius) in rows)
             DwellDetector.AddTarget(new DwellTarget(id, center, radius, _rowDwellMs));
     }
+
+    /// <summary>The row targets the window last reported, in physical pixels; empty before the first
+    /// placement. The modes menu's chrome zone is the union of these, not the panel's outer frame.</summary>
+    public IReadOnlyList<(string Id, PhysicalPoint Center, double Radius)> RowScreenPositions { get; private set; }
+        = Array.Empty<(string, PhysicalPoint, double)>();
 
     // Deliberately dwellable while paused (DwellOverlayViewModelBase.DwellActiveWhilePaused):
     // the modes menu holds the gaze-reachable pause toggle — gating it would make pause a one-way door.

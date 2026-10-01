@@ -105,8 +105,14 @@ public enum SettleOutcome
 public sealed class ActivationOfferEngine
 {
     /// <summary>How long an offer survives after its latest activity, on the sample clock, by default.
-    /// Settable per engine (review B's linger lever); the app will pass decision 3's 1 s.</summary>
+    /// Settable per engine (review B's linger lever); the replay walks this lever.</summary>
     public const int DefaultOfferExpiryMs = 1000;
+
+    /// <summary>The linger the product runs with: decision 3's 0.75 s, set by the user on 2026-10-01
+    /// from the ticket 7 replay report. The wiring (<c>GazeEngine.ConfigureActivationOffers</c>) sets
+    /// it on every engine it builds; the default stays at 1 s so the replay's lever table keeps its
+    /// documented baseline.</summary>
+    public const int ProductOfferExpiryMs = 750;
 
     /// <summary>How long a valid excursion outside the hit area may pause the dwell before it resets —
     /// the same 500 ms budget as ticket 3's gap rule. 0 means any outside sample resets (the replay's
@@ -125,6 +131,11 @@ public sealed class ActivationOfferEngine
     private ActivationOffer? _offer;
     private bool _fired;
     private long _dwellUs;
+    // The closest the live offer's dwell ever got, across the resets decision 9 allows. The expiry
+    // report needs it: by the time an untouched offer expires, the last look-away has always reset
+    // the CURRENT dwell to 0 (the reset budget is shorter than the linger), so the current value
+    // would report every expired attempt as zero.
+    private long _peakDwellUs;
     private long _lastSampleUs;
 
     // The longest current stretch with no valid sample inside B's hit area: invalid samples and valid
@@ -248,6 +259,18 @@ public sealed class ActivationOfferEngine
         }
     }
 
+    // The offer's closest approach to completion, across the pause resets: what <see cref="OfferExpired"/>
+    // reports. A fired offer reads 1.0.
+    private double PeakDwellProgress
+    {
+        get
+        {
+            if (_fired) return 1.0;
+            if (DwellMs <= 0) return 0.0;
+            return Math.Min(1.0, (double)_peakDwellUs / (DwellMs * 1000L));
+        }
+    }
+
     /// <summary>Whether the live offer's dwell has completed and it is waiting for accept or decline.</summary>
     public bool IsFired => _fired;
 
@@ -255,6 +278,15 @@ public sealed class ActivationOfferEngine
     /// the completion snapshot, B and the hit radius for the drawn feedback). Handlers run on the
     /// caller's thread (the gaze thread once wired).</summary>
     public event Action<ActivationOffer>? OfferFired;
+
+    /// <summary>
+    /// Fired when an offer's deadline passed with the dwell unfinished — never for an accepted or
+    /// declined one, and never for a teardown's <see cref="Clear"/>. Carries the offer that died, the
+    /// sample timestamp that found it dead, and the closest dwell fraction the offer ever reached
+    /// (its peak across the pause resets — by expiry time the current dwell has always been reset to
+    /// 0, since the reset budget is shorter than the linger). This is the "offers that expired
+    /// unused" half of ticket 8's button-dwell telemetry. Handlers run on the caller's thread.</summary>
+    public event Action<ActivationOffer, long, double>? OfferExpired;
 
     /// <summary>
     /// The EyeCtrl chrome zones, in physical pixels: the offer is never made over them, and a button
@@ -358,8 +390,13 @@ public sealed class ActivationOfferEngine
         if (!_fired && timestampUs > _offer.ExpiresAtUs)
         {
             // Past the deadline: the offer dies before this sample is allowed to touch it. A pending
-            // re-offer whose run still holds takes its place at once (decision 7).
+            // re-offer whose run still holds takes its place at once (decision 7). The progress is
+            // read BEFORE the death clears the dossier, and the event carries the dead offer by value
+            // so a re-offer in the same call cannot alias it.
+            var expired = _offer;
+            double progressAtExpiry = PeakDwellProgress;
             ExpireOrDecline(timestampUs);
+            OfferExpired?.Invoke(expired, timestampUs, progressAtExpiry);
             _lastSampleUs = timestampUs;
             if (_offer is null) return;
         }
@@ -476,6 +513,7 @@ public sealed class ActivationOfferEngine
             timestampUs + (OfferExpiryMs * 1000L));
         _fired = false;
         _dwellUs = 0;
+        _peakDwellUs = 0;
         _missSinceUs = null;
         _runRole = RunRole.Offered;
         return true;
@@ -501,6 +539,7 @@ public sealed class ActivationOfferEngine
         _offer = null;
         _fired = false;
         _dwellUs = 0;
+        _peakDwellUs = 0;
         _missSinceUs = null;
     }
 
@@ -514,8 +553,11 @@ public sealed class ActivationOfferEngine
     private void CreditSample(long timestampUs)
     {
         long dt = timestampUs - _lastSampleUs;
-        if (dt > 0)
-            _dwellUs += Math.Min(dt, FixationDetector.AgeCreditCapMs * 1000L);
+        if (dt <= 0)
+            return;
+        _dwellUs += Math.Min(dt, FixationDetector.AgeCreditCapMs * 1000L);
+        if (_dwellUs > _peakDwellUs)
+            _peakDwellUs = _dwellUs;
     }
 
     private void PauseDwell(long timestampUs)

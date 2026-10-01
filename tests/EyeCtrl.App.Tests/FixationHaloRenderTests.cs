@@ -4,10 +4,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Interop;
-using System.Windows.Media;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
+using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
@@ -15,39 +14,33 @@ using NFluent;
 using Xunit;
 
 /// <summary>
-/// Ticket 4's display geometry, headless and at the user's ScaleX 2.0.
+/// Ticket 8's button-halo geometry, headless and at the user's ScaleX 2.0.
 ///
 /// <para>
-/// The halo must be drawn where the dwell is counted (S3). On the pre-fix code the feedback was drawn
-/// <c>CircleSize/2 + 55</c> DIP from the fixation point — about 180 DIP, or 360 physical px at 2.0 —
-/// so the checks below go red on the offset placement. The window is sized/positioned in DIP from the
-/// rule's PHYSICAL radius, and the drawn centre is read back through an off-screen
-/// <see cref="HwndSource"/> whose <c>LayoutTransform</c> makes one DIP two device pixels (the
-/// <see cref="ToolbarPausedTargetAlignmentTests"/> technique), so "drawn" means the same thing the
-/// window manager would see. Nothing is ever shown on screen.
+/// The halo is centred on the offer's B and its outer radius never exceeds the button's hit radius —
+/// ticket 4's pin-centred, fixation-radius-sized halo went red on exactly these checks. "Drawn =
+/// counted" is read back from the window itself: the window positions in DIP from a physical B, and
+/// the read-back converts Left/Top + half the window back to physical pixels, so a DIP/px mix-up on
+/// any edge or corner goes red.
 /// </para>
 /// </summary>
 [Collection("WpfApplication")]
 public class FixationHaloRenderTests
 {
     private const double EffectiveScale = 2.0;
-    private const double RingSizeDip = 250;
-    private const double FixationRadiusPx = 75;
-
-    /// <summary>DIP shift keeping every window coordinate positive inside the off-screen source.</summary>
-    private const double HostShiftDip = 4000;
+    private static readonly double HitPx = LayoutConstants.ActivationButtonHitRadiusPx;
 
     [StaFact]
-    public void HaloRadius_AtScaleX2_GrowsFrom37Point5To75Dip()
+    public void HaloRadius_AtScaleX2_GrowsFromHalfToFullHitRadius()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         DpiHelper.Initialize(EffectiveScale, EffectiveScale);
         var window = new ActivationButtonWindow();
         try
         {
-            window.ShowAt(new PhysicalPoint(1000, 800), FixationRadiusPx);
+            window.ShowAt(new PhysicalPoint(1000, 800), HitPx);
 
-            // Progress 0: the hold radius R/ScaleX = 37.5 DIP. Progress 1: 2R/ScaleX = 75 DIP.
+            // Progress 0: hit/(2·scale) = 37.5 DIP. Progress 1: hit/scale = 75 DIP.
             Check.That(window.ProgressHalo.Width / 2).IsCloseTo(37.5, 1e-10);
             Check.That(window.ProgressRing.Width / 2).IsCloseTo(37.5, 1e-10);
 
@@ -58,14 +51,38 @@ public class FixationHaloRenderTests
             Check.That(window.ProgressHalo.Width / 2).IsCloseTo(75.0, 1e-10);
             Check.That(window.ProgressRing.Width / 2).IsCloseTo(75.0, 1e-10);
 
-            // Both bands share the window's centre: the halo is symmetric around the pin, and the
-            // window is wide enough for the largest radius plus the halo's own stroke.
+            // Both bands share the window's centre: the halo is symmetric around B, and the window is
+            // wide enough for the largest radius plus the halo's own stroke.
             Check.That(Canvas.GetLeft(window.ProgressHalo) + (window.ProgressHalo.Width / 2))
                 .IsCloseTo(window.Width / 2, 1e-10);
             Check.That(Canvas.GetTop(window.ProgressRing) + (window.ProgressRing.Height / 2))
                 .IsCloseTo(window.Height / 2, 1e-10);
             Check.That((window.ProgressHalo.Width / 2) + (window.ProgressHalo.StrokeThickness / 2))
                 .IsLessOrEqualThan(window.Width / 2);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [StaFact]
+    public void HaloOuterRadius_NeverExceedsTheHitRadius_InPhysicalPixels()
+    {
+        // The acceptance row at ScaleX 2.0: outer radius ≤ the hit radius. Drawn DIP × scale is the
+        // physical feedback, and it must never lie outside the counted area at any progress.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        DpiHelper.Initialize(EffectiveScale, EffectiveScale);
+        var window = new ActivationButtonWindow();
+        try
+        {
+            window.ShowAt(new PhysicalPoint(1000, 800), HitPx);
+            for (double p = 0.0; p <= 1.0; p += 0.1)
+            {
+                window.UpdateDwellProgress(p);
+                Check.WithCustomMessage($"progress {p}: the drawn halo escaped the hit radius")
+                    .That(window.ProgressHalo.Width / 2 * EffectiveScale).IsLessOrEqualThan(HitPx);
+            }
         }
         finally
         {
@@ -89,73 +106,46 @@ public class FixationHaloRenderTests
     }
 
     [StaTheory]
-    [InlineData(1200.0, 800.0)]     // mid-screen
-    [InlineData(10.0, 10.0)]        // top-left corner: the old placement clamped here
-    [InlineData(3830.0, 2390.0)]    // bottom-right corner of the user's 3840x2400 at 200 %
-    public void RingAndHalo_DrawnCentresCoincide_AndSitOnThePin(double x, double y)
+    [InlineData(0.0, 0.0)]           // top-left corner
+    [InlineData(3839.0, 0.0)]        // top-right
+    [InlineData(0.0, 2399.0)]        // bottom-left
+    [InlineData(3839.0, 2399.0)]     // bottom-right of the user's 3840x2400 at 200 %
+    [InlineData(1920.0, 1200.0)]     // mid-screen
+    [InlineData(0.0, 1200.0)]        // left edge
+    [InlineData(3839.0, 1200.0)]     // right edge
+    [InlineData(1920.0, 0.0)]        // top edge
+    [InlineData(1920.0, 2399.0)]     // bottom edge
+    public void DrawnCentre_ReadBack_EqualsB_InPhysicalPixels(double x, double y)
     {
+        // "Drawn = counted": the window's own Left/Top read back through the live scale is B. A DIP
+        // window placed with physical px (or the reverse) moves this by whole DIP on every edge and
+        // corner. No clamping — B is already clamped by the placement function.
         WpfApplicationGate.EnsureApplicationWithTokens();
         DpiHelper.Initialize(EffectiveScale, EffectiveScale);
-        var pin = new PhysicalPoint(x, y);
+        var b = new PhysicalPoint(x, y);
 
-        var ring = new CursorCircleWindow();
-        ring.UpdateAppearance(new CursorSettings { CircleSize = RingSizeDip });
-        ring.UpdatePosition(pin);
-        var halo = new ActivationButtonWindow();
-        halo.ShowAt(pin, FixationRadiusPx);
-        halo.UpdateDwellProgress(0.5);
-
-        using var source = new HwndSource(new HwndSourceParameters("ticket4-halo-concentricity")
+        var window = new ActivationButtonWindow();
+        try
         {
-            // WS_POPUP, parked off-screen, 1x1: the contents are hosted for layout and
-            // PointToScreen only. Never shown to anyone.
-            WindowStyle = unchecked((int)0x80000000),
-            PositionX = -30000,
-            PositionY = -30000,
-            Width = 1,
-            Height = 1,
-        });
+            window.ShowAt(b, HitPx);
 
-        var factor = EffectiveScale / source.CompositionTarget!.TransformToDevice.M11;
-        var root = new Canvas { Width = 8000, Height = 5000 };
-        root.LayoutTransform = new ScaleTransform(factor, factor);
-
-        var ringContent = Detach(ring, root, HostShiftDip + ring.Left, HostShiftDip + ring.Top);
-        var haloContent = Detach(halo, root, HostShiftDip + halo.Left, HostShiftDip + halo.Top);
-        source.RootVisual = root;
-        Layout(root);
-
-        var ringCentre = ringContent.PointToScreen(new Point(ring.Width / 2, ring.Height / 2));
-        var haloCentre = haloContent.PointToScreen(new Point(halo.Width / 2, halo.Height / 2));
-
-        var separation = Math.Sqrt(
-            Math.Pow(ringCentre.X - haloCentre.X, 2) + Math.Pow(ringCentre.Y - haloCentre.Y, 2));
-        Check.WithCustomMessage(
-                $"pin={pin}: the pinned ring and the halo must be concentric; their drawn centres "
-                + $"differ by {separation:F2} device px.")
-            .That(separation).IsStrictlyLessThan(0.5);
-
-        // S3: the drawn centre is the activation dwell point, in physical pixels. Clamping the halo
-        // (as the old button's ShowAt did) or re-adding the offset moves this by whole DIP.
-        var rootOrigin = root.PointToScreen(new Point(0, 0));
-        var expectedX = (HostShiftDip + (pin.X / EffectiveScale)) * EffectiveScale;
-        var expectedY = (HostShiftDip + (pin.Y / EffectiveScale)) * EffectiveScale;
-        Check.WithCustomMessage($"pin={pin}: the halo's drawn centre left the dwell point")
-            .That(haloCentre.X - rootOrigin.X).IsCloseTo(expectedX, 0.5);
-        Check.That(haloCentre.Y - rootOrigin.Y).IsCloseTo(expectedY, 0.5);
-        Check.WithCustomMessage($"pin={pin}: the ring's drawn centre left the dwell point")
-            .That(ringCentre.X - rootOrigin.X).IsCloseTo(expectedX, 0.5);
-        Check.That(ringCentre.Y - rootOrigin.Y).IsCloseTo(expectedY, 0.5);
-
-        ring.Close();
-        halo.Close();
+            var drawnX = DpiHelper.LogicalToPhysicalX(window.Left + (window.Width / 2));
+            var drawnY = DpiHelper.LogicalToPhysicalY(window.Top + (window.Height / 2));
+            Check.WithCustomMessage($"B=({x},{y}): the drawn centre is ({drawnX},{drawnY}), not B")
+                .That(drawnX).IsCloseTo(x, 1e-6);
+            Check.That(drawnY).IsCloseTo(y, 1e-6);
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     [StaFact]
     public void Halo_IsClickThrough_AndExcludedFromCapture()
     {
-        // A-F2: the halo sits exactly where the user is looking, so it must never become a mouse target
-        // over whatever is underneath it — the same contract the cursor ring has.
+        // The halo sits over the offered button, so it must never become a mouse target over whatever
+        // is underneath it — the same contract the cursor ring has.
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = new ActivationButtonWindow();
         try
@@ -170,18 +160,18 @@ public class FixationHaloRenderTests
     }
 
     [StaFact]
-    public void ReShow_StartsAtProgressZero_OnTheNewPin_WithoutAHeldOpacity()
+    public void ReShow_StartsAtProgressZero_OnTheNewButton_WithoutAHeldOpacity()
     {
-        // A-F4. HideImmediate's Opacity write must land, and the next show must be positioned and at
+        // HideImmediate's Opacity write must land, and the next show must be positioned and at
         // progress 0 before it can present anything — otherwise the previous halo flashes at the new
-        // gaze point at its last radius. Pumpless reads return base values, so this asserts base state
-        // and the presence/absence of a held animation rather than an animated frame.
+        // point at its last radius. Pumpless reads return base values, so this asserts base state and
+        // the presence/absence of a held animation rather than an animated frame.
         WpfApplicationGate.EnsureApplicationWithTokens();
         DpiHelper.Initialize(EffectiveScale, EffectiveScale);
         var window = new ActivationButtonWindow();
         try
         {
-            window.ShowAt(new PhysicalPoint(1000, 800), FixationRadiusPx);
+            window.ShowAt(new PhysicalPoint(1000, 800), HitPx);
             window.UpdateDwellProgress(1.0);
             Check.That(window.ProgressHalo.Width / 2).IsCloseTo(75.0, 1e-10);
             Check.That(window.HasAnimatedProperties).IsTrue(); // the fade-in holds Opacity
@@ -194,14 +184,14 @@ public class FixationHaloRenderTests
             Check.That(window.Opacity).IsEqualTo(0.0);
             Check.That(window.ProgressHalo.Width / 2).IsCloseTo(37.5, 1e-10);
 
-            var secondPin = new PhysicalPoint(300, 200);
-            window.ShowAt(secondPin, FixationRadiusPx);
+            var secondButton = new PhysicalPoint(300, 200);
+            window.ShowAt(secondButton, HitPx);
 
             Check.That(window.ProgressHalo.Width / 2).IsCloseTo(37.5, 1e-10);
             Check.That(window.Left + (window.Width / 2))
-                .IsCloseTo(DpiHelper.PhysicalToLogicalX(secondPin.X), 1e-10);
+                .IsCloseTo(DpiHelper.PhysicalToLogicalX(secondButton.X), 1e-10);
             Check.That(window.Top + (window.Height / 2))
-                .IsCloseTo(DpiHelper.PhysicalToLogicalY(secondPin.Y), 1e-10);
+                .IsCloseTo(DpiHelper.PhysicalToLogicalY(secondButton.Y), 1e-10);
             // The new fade-in starts from the base value, which is still 0: nothing full-opacity can
             // present before the animation's first pumped frame.
             Check.That(window.Opacity).IsEqualTo(0.0);
@@ -210,25 +200,6 @@ public class FixationHaloRenderTests
         {
             window.Close();
         }
-    }
-
-    private static FrameworkElement Detach(Window window, Canvas root, double left, double top)
-    {
-        var content = (FrameworkElement)window.Content;
-        window.Content = null;
-        content.Width = window.Width;
-        content.Height = window.Height;
-        Canvas.SetLeft(content, left);
-        Canvas.SetTop(content, top);
-        root.Children.Add(content);
-        return content;
-    }
-
-    private static void Layout(FrameworkElement content)
-    {
-        content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        content.Arrange(new Rect(content.DesiredSize));
-        content.UpdateLayout();
     }
 
     private static DirectoryInfo RepoRoot()

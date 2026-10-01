@@ -53,8 +53,9 @@ public class GazeEngineAdapter : IDisposable
         // Core -> ViewModel (via messages, marshaled to UI thread)
         _gazeEngine.CursorMoved += OnCursorMoved;
         _gazeEngine.FixationActivated += OnFixationActivated;
-        _interactionManager.ShowActivationButton += OnShowActivationButton;
-        _interactionManager.HideActivationButton += OnHideActivationButton;
+        _interactionManager.ActivationOfferShown += OnActivationOfferShown;
+        _interactionManager.ActivationOfferClosed += OnActivationOfferClosed;
+        _interactionManager.ActivationOfferFired += OnActivationOfferFired;
         _interactionManager.PinRing += OnPinRing;
         _interactionManager.ReleaseRing += OnReleaseRing;
         _interactionManager.ShowActionMenu += OnShowActionMenu;
@@ -67,33 +68,33 @@ public class GazeEngineAdapter : IDisposable
         _interactionManager.ActionRequested += OnActionRequested;
         _interactionManager.RepeatDwellProgressChanged += OnRepeatDwellProgress;
 
-        // ViewModel -> Core (via message subscriptions)
-        messenger.Register<ActivationCompletedMessage>(this, async (_, _) =>
+        // ViewModel -> Core (via message subscriptions). The completion carries the fired offer's
+        // snapshot: Auto Selection resolves at the offer's P — not at the live FixationPoint, which a
+        // later fixation may already have moved (ticket 8) — and the fallback and the error recovery
+        // decline the NAMED offer, never whatever happens to be live now (review A F2/R3).
+        messenger.Register<ActivationCompletedMessage>(this, async (_, msg) =>
         {
+            var offer = msg.Offer;
             try
             {
                 if (_interactionManager.SelectionMode == SelectionMode.AutoSelection)
-                {
-                    var fixationPoint = _interactionManager.FixationPoint;
-                    if (fixationPoint != null)
-                    {
-                        _interactionManager.AutoSelectionTarget = await ResolveTargetAsync(fixationPoint.Value);
-                    }
-                }
+                    _interactionManager.AutoSelectionTarget = await ResolveTargetAsync(offer.Point);
+
                 if (_interactionManager.SelectionMode == SelectionMode.AutoSelection
                     && _interactionManager.AutoSelectionTarget == null
                     && !_settings.AutoSelection.FallbackToPixelOnNoControl)
                 {
-                    _interactionManager.OnFixationEnded();
+                    _interactionManager.DeclineOffer(offer.Id);
                     return;
                 }
-                _interactionManager.OnActivationButtonDwelled();
+                _interactionManager.OnActivationButtonDwelled(offer);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to handle activation completed");
-                // Recovery must not throw out of this async void handler, or it crashes the app.
-                try { _interactionManager.OnFixationEnded(); }
+                // Recovery must not throw out of this async void handler, or it crashes the app. A
+                // rejected completion counts as a decline (R3), so the fired offer's lock is released.
+                try { _interactionManager.DeclineOffer(offer.Id); }
                 catch (Exception resetEx) { _logger.LogError(resetEx, "Failed to reset interaction state after activation error"); }
             }
         });
@@ -235,18 +236,21 @@ public class GazeEngineAdapter : IDisposable
         _dispatcher.BeginInvoke(() => _messenger.Send(
             new FixationActivatedMessage(activation.TimestampUs, activation.CreditedAgeUs)));
 
-    private void OnShowActivationButton(PhysicalPoint point)
-    {
-        // Read the rule's live radius HERE, on the gaze thread at onset: the halo is sized from the
-        // radius the dwell is actually counted within, and reading it on the dispatcher could straddle
-        // an adaptation fill that landed with a later sample.
-        var fixationRadiusPixels = _gazeEngine.EffectiveFixationRadiusPixels;
+    // The button's lifetime follows the offer (ticket 8): show at the offer's B, sized from its hit
+    // radius; close on every offer death. The payload is read from the offer, not from a settings
+    // object, so the drawn feedback cannot disagree with the geometry the dwell is counted in.
+    private void OnActivationOfferShown(ActivationOffer offer) =>
         _dispatcher.BeginInvoke(() => _messenger.Send(
-            new ShowActivationButtonMessage(point, fixationRadiusPixels)));
-    }
+            new ShowActivationButtonMessage(offer.Button, offer.HitRadiusPx)));
 
-    private void OnHideActivationButton() =>
+    private void OnActivationOfferClosed() =>
         _dispatcher.BeginInvoke(() => _messenger.Send(new HideActivationButtonMessage()));
+
+    // The fired offer reaches the VM, which publishes the completion hand-off and the cue. Marshaled
+    // with the rest of the Core-to-UI traffic; the snapshot travels whole so a later teardown can be
+    // detected by id.
+    private void OnActivationOfferFired(ActivationOffer offer, long timestampUs) =>
+        _dispatcher.BeginInvoke(() => _messenger.Send(new ActivationOfferFiredMessage(offer)));
 
     // The ring's own lifetime (ticket 7): a pin on the accepted settle, a release on every exit from
     // Fixation. Deliberately separate from the button's show/hide, which now start and end on their own
@@ -389,8 +393,9 @@ public class GazeEngineAdapter : IDisposable
 
         _gazeEngine.CursorMoved -= OnCursorMoved;
         _gazeEngine.FixationActivated -= OnFixationActivated;
-        _interactionManager.ShowActivationButton -= OnShowActivationButton;
-        _interactionManager.HideActivationButton -= OnHideActivationButton;
+        _interactionManager.ActivationOfferShown -= OnActivationOfferShown;
+        _interactionManager.ActivationOfferClosed -= OnActivationOfferClosed;
+        _interactionManager.ActivationOfferFired -= OnActivationOfferFired;
         _interactionManager.PinRing -= OnPinRing;
         _interactionManager.ReleaseRing -= OnReleaseRing;
         _interactionManager.ShowActionMenu -= OnShowActionMenu;

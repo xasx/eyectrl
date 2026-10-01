@@ -167,12 +167,12 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 if (Context.ActivationVM.IsVisible)
                 {
                     actionMenu.Hide();
-                    // Centred on the pin, sized for the radius the RULE is running with: the adapter
-                    // reads the detector's effective radius at onset and carries it on the show message.
+                    // Centred on the offer's B, sized for the offer's hit radius — both carried on the
+                    // show message, so the drawn feedback cannot disagree with the counted area.
                     // Positioned BEFORE showing — the other order presents the previous halo at the new
-                    // gaze point for a frame.
+                    // point for a frame.
                     activationButton.ShowAt(
-                        Context.ActivationVM.Position, Context.ActivationVM.FixationRadiusPixels);
+                        Context.ActivationVM.ButtonCenter, Context.ActivationVM.HitRadiusPixels);
                     activationButton.Show();
                 }
                 else

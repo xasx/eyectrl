@@ -27,7 +27,7 @@ public class InteractionManager
     public PhysicalPoint? ManualSelectionDwellPoint { get; private set; }
     /// <summary>
     /// Control resolved for Auto Selection at the current fixation, or null when none was found.
-    /// Set externally (by the platform adapter) before <see cref="OnActivationButtonDwelled"/>,
+    /// Set externally (by the platform adapter) before <see cref="OnActivationButtonDwelled(ActivationOffer)"/>,
     /// and cleared in <see cref="ResetToFreeLook"/> to prevent stale reuse.
     /// </summary>
     public ControlInfo? AutoSelectionTarget { get; set; }
@@ -69,10 +69,25 @@ public class InteractionManager
     public event Action? ReleaseRing;
     /// <summary>Raised when the user selects an action (click, scroll, etc.) at a specific point. Modifiers are opaque payload from the action menu's latch; repeat ticks carry null.</summary>
     public event Action<InteractionAction, PhysicalPoint, IReadOnlySet<ModifierKey>?>? ActionRequested;
-    /// <summary>Raised to show the activation button at a given point.</summary>
-    public event Action<PhysicalPoint>? ShowActivationButton;
-    /// <summary>Raised to hide the activation button.</summary>
-    public event Action? HideActivationButton;
+
+    /// <summary>
+    /// Raised when a live activation offer appears or moves: show the button at
+    /// <see cref="ActivationOffer.Button"/>, sized for <see cref="ActivationOffer.HitRadiusPx"/>. The
+    /// button's lifetime follows the OFFER since ticket 8, never the fixation's onset or end: the
+    /// fixation can end while the button lingers, and a settle elsewhere replaces it (critique B1).
+    /// </summary>
+    public event Action<ActivationOffer>? ActivationOfferShown;
+    /// <summary>Raised when the live offer goes: the linger expired, a teardown cleared it, or it was
+    /// accepted or declined. Hide the button.</summary>
+    public event Action? ActivationOfferClosed;
+    /// <summary>Raised once per offer when its button dwell completes, carrying the fired offer and the
+    /// sample timestamp. The completion path (ticket 8) resolves at the offer's P and accepts or
+    /// declines by its id.</summary>
+    public event Action<ActivationOffer, long>? ActivationOfferFired;
+    /// <summary>Raised when an offer expired unused: the button-dwell telemetry source for offers the
+    /// user looked at but never completed. Carries the dwell fraction reached.</summary>
+    public event Action<ActivationOffer, long, double>? ActivationOfferExpired;
+
     /// <summary>Raised to show the action menu at a given point.</summary>
     public event Action<PhysicalPoint>? ShowActionMenu;
     /// <summary>Raised to hide the action menu.</summary>
@@ -111,6 +126,158 @@ public class InteractionManager
     /// <summary>Raised with 0..1 progress of the armed locked-action dwell (drives the contracting cursor).</summary>
     public event Action<double>? RepeatDwellProgressChanged;
 
+    // ── The activation offer (ticket 8): gaze-thread state, driven here beside ticket 3's rule. ──
+    //
+    // The engine is attached by GazeEngine (which owns the geometry and the settings) and every
+    // mutation below happens on the gaze thread. Dispatcher-thread teardowns and completions set the
+    // volatile/Interlocked requests; ApplyPendingActivationOfferRequests (called at the top of the
+    // gaze pipeline) is the one place they are applied.
+    private const long NoActivationOfferRequest = -1;
+    private ActivationOfferEngine? _activationOffers;
+    private PhysicalRect[] _activationChromeZones = Array.Empty<PhysicalRect>();
+    // The id of the offer the button currently shows; 0 = none. Written and read on the gaze thread
+    // only — the offer lifecycle is published from here, never from a dispatcher thread.
+    private long _publishedActivationOfferId;
+    private bool _activationOfferClearRequested;
+    private long _activationOfferAcceptRequested = NoActivationOfferRequest;
+    private long _activationOfferDeclineRequested = NoActivationOfferRequest;
+
+    /// <summary>The live offer engine, or null before the app has configured a geometry (tests, and
+    /// the first samples of startup). Read on the gaze thread; null means no offers at all.</summary>
+    public ActivationOfferEngine? ActivationOffers => _activationOffers;
+
+    /// <summary>
+    /// Attaches the offer engine (gaze thread; GazeEngine applies its configure request here). The
+    /// chrome zones the app already published are re-applied, and the button state is re-published so
+    /// a rebuild drops whatever the previous engine was showing.
+    /// </summary>
+    public void AttachActivationOffers(ActivationOfferEngine engine)
+    {
+        if (_activationOffers is { } previous)
+        {
+            previous.OfferFired -= OnActivationOfferFired;
+            previous.OfferExpired -= OnActivationOfferExpired;
+        }
+        _activationOffers = engine;
+        engine.SetChromeZones(_activationChromeZones);
+        engine.OfferFired += OnActivationOfferFired;
+        engine.OfferExpired += OnActivationOfferExpired;
+        PublishActivationOfferState();
+    }
+
+    /// <summary>
+    /// Publishes EyeCtrl's chrome zones to the offer engine as plain data — the
+    /// <see cref="SetRepeatSuppressionZones"/> pattern. Called from the dispatcher on every chrome
+    /// change; the array reference swap is atomic and the engine only reads it on the gaze thread.
+    /// Zones already published survive an engine rebuild through <see cref="AttachActivationOffers"/>.
+    /// </summary>
+    public void SetActivationChromeZones(params PhysicalRect[] zones)
+    {
+        _activationChromeZones = zones ?? Array.Empty<PhysicalRect>();
+        _activationOffers?.SetChromeZones(_activationChromeZones);
+    }
+
+    /// <summary>
+    /// Feeds one non-gap sample to the offer engine (gaze thread). <paramref name="point"/> is the
+    /// filtered point, <paramref name="isValid"/> the raw sample's validity: a sample the tracker
+    /// reported invalid pauses the button dwell even though its held position looks valid.
+    /// </summary>
+    public void NoteActivationGazeSample(PhysicalPoint point, long timestampUs, bool isValid)
+    {
+        if (_activationOffers is null) return;
+        _activationOffers.Update(point, timestampUs, isValid);
+        PublishActivationOfferState();
+    }
+
+    /// <summary>
+    /// Applies the pending offer requests (teardowns, accepts, declines) on the gaze thread, then
+    /// publishes the resulting button state. Called at the top of the gaze pipeline before any sample
+    /// is fed, so a teardown lands before the next dwell step (re-check N3, the volatile-request
+    /// pattern).
+    /// </summary>
+    public void ApplyPendingActivationOfferRequests()
+    {
+        // Drained even when no engine is attached, so a request made before the first configure can
+        // never sit until a later engine's ids happen to match it.
+        bool clearRequested = _activationOfferClearRequested;
+        _activationOfferClearRequested = false;
+        long acceptId = Interlocked.Exchange(ref _activationOfferAcceptRequested, NoActivationOfferRequest);
+        long declineId = Interlocked.Exchange(ref _activationOfferDeclineRequested, NoActivationOfferRequest);
+
+        if (_activationOffers is null)
+            return;
+
+        // A teardown outranks a pending accept or decline: R3 says a teardown clears even a locked
+        // offer, so when both are in flight the user's exit wins over a completion racing it.
+        if (clearRequested)
+            _activationOffers.Clear();
+        if (acceptId != NoActivationOfferRequest)
+            _activationOffers.Accept(acceptId);
+        if (declineId != NoActivationOfferRequest)
+            _activationOffers.Decline(declineId);
+
+        PublishActivationOfferState();
+    }
+
+    /// <summary>
+    /// Whether the offer named by <paramref name="offerId"/> is still the live one, read from the
+    /// completion path (dispatcher). A pending teardown counts as gone so a completion racing a
+    /// teardown is a no-op. Reference and flag reads only — the offer itself is never mutated here.
+    /// </summary>
+    public bool IsActivationOfferLive(long offerId)
+        => !_activationOfferClearRequested
+           && _activationOffers?.CurrentOffer is { } offer
+           && offer.Id == offerId;
+
+    /// <summary>Requests a teardown of the offer (pause, keyboard, repeat mode, external dwell,
+    /// calibration, reset). Applied by the gaze thread on its next sample.</summary>
+    public void RequestActivationOfferClear() => _activationOfferClearRequested = true;
+
+    /// <summary>Requests that the offer named by <paramref name="offerId"/> be accepted. Applied by
+    /// the gaze thread; a stale id is a no-op there (review A F2).</summary>
+    public void RequestActivationOfferAccept(long offerId)
+        => Interlocked.Exchange(ref _activationOfferAcceptRequested, offerId);
+
+    /// <summary>Requests that the offer named by <paramref name="offerId"/> be declined. Applied by the
+    /// gaze thread; a stale id is a no-op there.</summary>
+    public void RequestActivationOfferDecline(long offerId)
+        => Interlocked.Exchange(ref _activationOfferDeclineRequested, offerId);
+
+    /// <summary>
+    /// The AutoSelection fallback's way out (ticket 8): declines the named offer and ends the fixation,
+    /// replacing the old <c>OnFixationEnded</c> call — which only left the state, leaving the offer
+    /// alive (and, from ticket 8, the button up).
+    /// </summary>
+    public void DeclineOffer(long offerId)
+    {
+        RequestActivationOfferDecline(offerId);
+        OnFixationEnded();
+    }
+
+    // The engine's fire and expiry reach the app through these, so one subscription site wires the
+    // whole offer lifecycle into the adapter.
+    private void OnActivationOfferFired(ActivationOffer offer)
+        => ActivationOfferFired?.Invoke(offer, _lastSampleTimestampUs);
+
+    private void OnActivationOfferExpired(ActivationOffer offer, long timestampUs, double progressAtExpiry)
+        => ActivationOfferExpired?.Invoke(offer, timestampUs, progressAtExpiry);
+
+    // The one publisher of the button's lifetime, called after every engine mutation. An id change is
+    // a close followed by a show when a replacement took the old offer's place, so the window never
+    // shows stale geometry.
+    private void PublishActivationOfferState()
+    {
+        var offer = _activationOffers?.CurrentOffer;
+        long id = offer?.Id ?? 0;
+        if (id == _publishedActivationOfferId) return;
+        bool hadOffer = _publishedActivationOfferId != 0;
+        _publishedActivationOfferId = id;
+        if (hadOffer)
+            ActivationOfferClosed?.Invoke();
+        if (offer is not null)
+            ActivationOfferShown?.Invoke(offer);
+    }
+
     private void SetState(InteractionState newState)
     {
         var previous = CurrentState;
@@ -121,6 +288,10 @@ public class InteractionManager
         // feed, so a detector-keyed release would never fire.
         if (previous == InteractionState.Fixation && newState != InteractionState.Fixation)
         {
+            // The offer survives the fixation's end (that is the linger), but the engine still has to
+            // learn the run ended: its expiry moves to the run end's deadline, and a pending re-offer
+            // from this run is cleared (it needs its run still holding).
+            _activationOffers?.NotifyFixationEnded(_lastSampleTimestampUs);
             FixationEnded?.Invoke();
             ReleaseRing?.Invoke();
         }
@@ -151,8 +322,9 @@ public class InteractionManager
         FixationPoint = point;
         SetState(InteractionState.Fixation);
         // After SetState, so a listener that also watches StateChanged sees the state already moved.
+        // No offer is made at onset: the button appears at the accepted settle (ticket 8), so resting
+        // at P can no longer activate.
         FixationAccepted?.Invoke(point);
-        ShowActivationButton?.Invoke(point);
     }
 
     /// <summary>
@@ -170,6 +342,10 @@ public class InteractionManager
     public void OnFixationSettled(PhysicalPoint point)
     {
         if (CurrentState != InteractionState.Fixation) return;
+        // The accepted settle is the offer's creation point (ticket 8): the engine classifies it
+        // (create / replace / extend / swallow) and the button's show and hide follow from there.
+        _activationOffers?.NotifyFixationSettled(point, _lastSampleTimestampUs);
+        PublishActivationOfferState();
         PinRing?.Invoke(point);
     }
 
@@ -188,26 +364,61 @@ public class InteractionManager
 
         if (CurrentState == InteractionState.Fixation)
         {
-            HideActivationButton?.Invoke();
+            // Deliberately no HideActivationButton here: the button's lifetime is the offer's, and
+            // the fixation ending is exactly what starts the linger. The engine learns the end in
+            // SetState's exit edge.
             SetState(InteractionState.FreeLook);
         }
     }
 
     /// <summary>
-    /// Called when the activation button dwell completes. Branches on <see cref="SelectionMode"/>:
-    /// Manual starts the zoom overlay; Auto shows the action menu at the resolved
-    /// <see cref="AutoSelectionTarget"/> (or the fixation point when none was found); None shows
-    /// the action menu at the fixation point.
+    /// The activation offer's completed dwell (ticket 8). The offer's liveness is checked first: a
+    /// stale id — the offer is already gone — is a <b>no-op</b>, because a rejection must never act on
+    /// whatever happens to be live now (review A F2). A wrong state (anything but
+    /// <see cref="InteractionState.Fixation"/> or <see cref="InteractionState.FreeLook"/>: the
+    /// fixation that formed on the button may already have ended, B4) declines the NAMED offer. The
+    /// accepted offer is released to the gaze thread, and the effect lands at the offer's P.
+    /// </summary>
+    /// <param name="snapshot">The fired offer's snapshot: its id and P.</param>
+    public void OnActivationButtonDwelled(ActivationOffer snapshot)
+    {
+        if (!IsActivationOfferLive(snapshot.Id)) return;
+
+        if (CurrentState is not (InteractionState.Fixation or InteractionState.FreeLook))
+        {
+            RequestActivationOfferDecline(snapshot.Id);
+            return;
+        }
+
+        RequestActivationOfferAccept(snapshot.Id);
+        CompleteActivation(snapshot.Point);
+    }
+
+    /// <summary>
+    /// Completes the activation at the current <see cref="FixationPoint"/>, with no offer bookkeeping.
+    /// The in-Fixation state-machine transition, for callers that already hold the run (and the
+    /// state-transition tests); the product goes through
+    /// <see cref="OnActivationButtonDwelled(ActivationOffer)"/>, which adds the offer's liveness
+    /// check, its accept, and lands at the offer's P.
     /// </summary>
     public void OnActivationButtonDwelled()
     {
         if (CurrentState != InteractionState.Fixation) return;
-        HideActivationButton?.Invoke();
+        CompleteActivation(FixationPoint!.Value);
+    }
+
+    /// <summary>The state-machine half: lands the action at <paramref name="point"/> and branches on
+    /// <see cref="SelectionMode"/> — Manual starts the zoom overlay; Auto shows the action menu at the
+    /// resolved <see cref="AutoSelectionTarget"/> (or the point when none was found); None shows the
+    /// action menu at the point.</summary>
+    private void CompleteActivation(PhysicalPoint point)
+    {
+        FixationPoint = point;
 
         switch (SelectionMode)
         {
             case SelectionMode.ManualSelection:
-                StartManualSelection?.Invoke(FixationPoint!.Value);
+                StartManualSelection?.Invoke(point);
                 SetState(InteractionState.ManualSelectionActive);
                 break;
 
@@ -215,12 +426,12 @@ public class InteractionManager
                 if (AutoSelectionTarget != null)
                     ShowActionMenu?.Invoke(AutoSelectionTarget.CenterPoint);
                 else
-                    ShowActionMenu?.Invoke(FixationPoint!.Value);
+                    ShowActionMenu?.Invoke(point);
                 SetState(InteractionState.ActionMenuVisible);
                 break;
 
             default: // None
-                ShowActionMenu?.Invoke(FixationPoint!.Value);
+                ShowActionMenu?.Invoke(point);
                 SetState(InteractionState.ActionMenuVisible);
                 break;
         }
@@ -340,7 +551,9 @@ public class InteractionManager
         }
         else
         {
-            HideActivationButton?.Invoke();
+            // Pausing is a teardown: the offer is requested clear on the gaze thread, so a linger
+            // cannot outlive the pause and complete while the user is elsewhere (M5).
+            RequestActivationOfferClear();
             HideActionMenu?.Invoke();
             if (CurrentState is InteractionState.ManualSelectionActive or InteractionState.ManualSelectionActionMenuVisible)
                 EndManualSelection?.Invoke();
@@ -376,6 +589,9 @@ public class InteractionManager
         // The Modes menu offers the click family only (D24) — anything else is a wiring bug,
         // not a user choice, and is refused rather than guessed at.
         if (!action.IsRepeatableClick()) return;
+        // Repeat mode is a teardown: its own dwell owns the screen's targeting, so a lingering offer
+        // must go (M5).
+        RequestActivationOfferClear();
         RepeatAction = action;
         SetState(InteractionState.RepeatMode);
     }
@@ -453,6 +669,9 @@ public class InteractionManager
 
     private void ResetToFreeLook()
     {
+        // A reset out of any overlay path is a teardown: no offer may survive it (M5). Requested, not
+        // cleared — the engine is gaze-thread state.
+        RequestActivationOfferClear();
         FixationPoint = null;
         ManualSelectionDwellPoint = null;
         AutoSelectionTarget = null;

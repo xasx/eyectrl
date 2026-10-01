@@ -95,18 +95,18 @@ public interface ICursorCircleOverlay
     void SetPinned(bool pinned);
 }
 
-/// <summary>The fixation feedback, drawn where the dwell is counted.</summary>
+/// <summary>The activation button's dwell feedback, drawn where the dwell is counted.</summary>
 public interface IActivationButtonOverlay
 {
     void Show();
 
     /// <summary>
-    /// Places the symmetric halo centred on <paramref name="position"/> — the pin, ticket 3's onset
-    /// centroid — and sizes it for <paramref name="fixationRadiusPixels"/> (physical px; the window
-    /// divides the live DPI scale out itself). There is no offset parameter on purpose: the drawn
-    /// centre must be the dwell point.
+    /// Places the symmetric halo centred on <paramref name="buttonCenter"/> — the offer's B — and
+    /// sizes it for <paramref name="hitRadiusPixels"/> (physical px; the window divides the live DPI
+    /// scale out itself). There is no offset parameter on purpose: the drawn centre must be the
+    /// counted centre, and the halo's outer radius never exceeds the hit radius.
     /// </summary>
-    void ShowAt(PhysicalPoint position, double fixationRadiusPixels);
+    void ShowAt(PhysicalPoint buttonCenter, double hitRadiusPixels);
 
     /// <summary>Hides with the fade-out animation.</summary>
     void Hide();

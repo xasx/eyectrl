@@ -145,14 +145,16 @@ public class ActivationButtonPlacementTests
     {
         // Review A, R2-1: with the drop guard alone, a small ring or a 100 % display had no placeable
         // side at all, so activation would be silently impossible there. Mutation: remove the offset
-        // floor (offsetPx stays ring/2 + 55 DIP) → both placements below return Placed == false, red.
+        // floor (offsetPx stays ring/2 + 55 DIP) → both placements below return Placed == false, red;
+        // floor at dropDistance WITHOUT the clearance (ticket 7 fixup-02 re-check, R2) → the exact
+        // distances below land on hit + R and these close-to checks go red.
         // ScaleX 1.0 with ring 250, R75: the plan's offset is 180 px, inside 150 + 75.
         var lowScale = ActivationButtonPlacement.Place(
             new PhysicalPoint(1000, 1000), 250, LayoutConstants.ActivationButtonOffset, 1.0,
             HitPx, 75, Screen);
         Check.That(lowScale.Placed).IsTrue();
         Check.That(lowScale.ButtonCenter.DistanceTo(new PhysicalPoint(1000, 1000)))
-            .IsStrictlyGreaterThan(HitPx + 75);
+            .IsCloseTo(HitPx + 75 + ActivationButtonPlacement.MinimumClearancePx, 1e-6);
 
         // ScaleX 2.0 with ring 60, R90: the plan's offset is 170 px, inside 150 + 90.
         var smallRing = ActivationButtonPlacement.Place(
@@ -160,7 +162,7 @@ public class ActivationButtonPlacementTests
             HitPx, 90, Screen);
         Check.That(smallRing.Placed).IsTrue();
         Check.That(smallRing.ButtonCenter.DistanceTo(new PhysicalPoint(1000, 1000)))
-            .IsStrictlyGreaterThan(HitPx + 90);
+            .IsCloseTo(HitPx + 90 + ActivationButtonPlacement.MinimumClearancePx, 1e-6);
 
         // The user's geometry (ring 250, ScaleX 2.0, R90) is above the floor and unchanged.
         var user = ActivationButtonPlacement.Place(

@@ -5,6 +5,7 @@ using System.Reflection;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
+using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
@@ -196,12 +197,12 @@ public class OverlayVmBindingCoordinatorTests
     }
 
     [Fact]
-    public void ActivationVisible_PlacesTheHaloOnThePin_SizedForTheRuleRadius()
+    public void ActivationVisible_PlacesTheHaloOnTheOfferButton_SizedForTheHitRadius()
     {
-        // S3 at the wiring level. The halo is centred on the pin and sized from the radius THE RULE IS
-        // RUNNING WITH — the value the adapter read from the live detector at onset, carried on the
-        // message. The setting here is 75 while the message carries 60 precisely so that reading the
-        // raw setting (or the old CircleSize/2 + 55 offset) goes red.
+        // Ticket 8 at the wiring level: the halo is centred on the OFFER's B and sized from the offer's
+        // hit radius — both carried on the show message. The fixation radius setting (75) and the ring
+        // size (250) are deliberately different from what the message carries, so reading either
+        // instead of the message goes red.
         var activationButton = new RecordingActivationButton();
         var settings = new EyeCtrlSettings();
         settings.Dwell.FixationRadiusPixels = 75;
@@ -220,15 +221,15 @@ public class OverlayVmBindingCoordinatorTests
         var coordinator = NewCoordinator();
         SetContext(coordinator, ctx);
 
-        var pin = new PhysicalPoint(1200, 800);
-        messenger.Send(new ShowActivationButtonMessage(pin, 60));
+        var buttonCenter = new PhysicalPoint(1200, 800);
+        messenger.Send(new ShowActivationButtonMessage(buttonCenter, LayoutConstants.ActivationButtonHitRadiusPx));
         InvokeActivationHandler(coordinator, nameof(ActivationButtonViewModel.IsVisible));
 
         Check.That(activationButton.ShownAt).HasSize(1);
         var (position, radiusPixels) = activationButton.ShownAt[0];
-        Check.That(position.X).IsEqualTo(pin.X);
-        Check.That(position.Y).IsEqualTo(pin.Y);
-        Check.That(radiusPixels).IsEqualTo(60);
+        Check.That(position.X).IsEqualTo(buttonCenter.X);
+        Check.That(position.Y).IsEqualTo(buttonCenter.Y);
+        Check.That(radiusPixels).IsEqualTo(LayoutConstants.ActivationButtonHitRadiusPx);
     }
 
     [Fact]
@@ -251,7 +252,8 @@ public class OverlayVmBindingCoordinatorTests
         var coordinator = NewCoordinator();
         SetContext(coordinator, ctx);
 
-        messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(1200, 800), 75));
+        messenger.Send(new ShowActivationButtonMessage(
+            new PhysicalPoint(1200, 800), LayoutConstants.ActivationButtonHitRadiusPx));
         InvokeActivationHandler(coordinator, nameof(ActivationButtonViewModel.IsVisible));
 
         Check.That(activationButton.Calls).ContainsExactly("ShowAt", "Show");

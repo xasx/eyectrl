@@ -24,6 +24,11 @@ using EyeCtrl.Core.Models;
 /// </summary>
 public static class ActivationButtonPlacement
 {
+    /// <summary>The clearance the offset is floored at, beyond hit + R: a few px, since the drop guard
+    /// is strict. Below the floor, the button stops tracking the ring edge and sits just outside the
+    /// zone where a hold at P could reach it (review A, R2-1).</summary>
+    public const double MinimumClearancePx = 30.0;
+
     /// <summary>Where the button went, and whether one could be placed at all.</summary>
     /// <param name="ButtonCenter">The clamped on-screen button centre B, in physical pixels.</param>
     /// <param name="Placed">False when no side of the ring is usable: both intersect chrome, or the one
@@ -63,8 +68,14 @@ public static class ActivationButtonPlacement
             throw new ArgumentOutOfRangeException(nameof(fixationRadiusPx), fixationRadiusPx, "Fixation radius must be positive and finite.");
 
         double offsetPx = (Math.Max(0, ringSizeDip) / 2 + Math.Max(0, offsetDip)) * scale;
-        double axisPx = offsetPx / Math.Sqrt(2);
         double dropDistancePx = buttonRadiusPx + fixationRadiusPx;
+
+        // Floor the offset so a button is always placeable: without this, a small ring or a low-DPI
+        // display puts the candidate inside hit + R of P and every configuration offers nothing, so
+        // activation would silently be impossible once ticket 8 wires the engine (review A, R2-1).
+        // Above the floor the button keeps following the ring size.
+        offsetPx = Math.Max(offsetPx, dropDistancePx + MinimumClearancePx);
+        double axisPx = offsetPx / Math.Sqrt(2);
 
         // Toward the screen's centre, the old edge-aware direction (7a85d328). Compared in physical
         // pixels — the centre of the bounds, not of the origin — so a non-zero screen origin and any

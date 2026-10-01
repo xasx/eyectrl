@@ -38,6 +38,8 @@ public class ActivationReplayReportTests(ITestOutputHelper output)
         Check.That(markdown).Contains("**Linger**");
         Check.That(markdown).Contains("**Settle time**");
         Check.That(markdown).Contains("**Hit radius**");
+        Check.That(markdown).Contains("Looks that still found a button");
+        Check.That(markdown).Contains("## Coordinator's reading (not a decision)");
         Check.That(markdown).Contains("## Ring still share");
         Check.That(markdown).Contains("Following, before ticket 4");
         Check.That(markdown).Contains("every run that can be offered");

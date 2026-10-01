@@ -141,6 +141,49 @@ public class ActivationButtonPlacementTests
     }
 
     [Fact]
+    public void Place_SmallRingOrLowDpi_StillPlaces_JustOutsideTheHoldZone()
+    {
+        // Review A, R2-1: with the drop guard alone, a small ring or a 100 % display had no placeable
+        // side at all, so activation would be silently impossible there. Mutation: remove the offset
+        // floor (offsetPx stays ring/2 + 55 DIP) → both placements below return Placed == false, red.
+        // ScaleX 1.0 with ring 250, R75: the plan's offset is 180 px, inside 150 + 75.
+        var lowScale = ActivationButtonPlacement.Place(
+            new PhysicalPoint(1000, 1000), 250, LayoutConstants.ActivationButtonOffset, 1.0,
+            HitPx, 75, Screen);
+        Check.That(lowScale.Placed).IsTrue();
+        Check.That(lowScale.ButtonCenter.DistanceTo(new PhysicalPoint(1000, 1000)))
+            .IsStrictlyGreaterThan(HitPx + 75);
+
+        // ScaleX 2.0 with ring 60, R90: the plan's offset is 170 px, inside 150 + 90.
+        var smallRing = ActivationButtonPlacement.Place(
+            new PhysicalPoint(1000, 1000), 60, LayoutConstants.ActivationButtonOffset, 2.0,
+            HitPx, 90, Screen);
+        Check.That(smallRing.Placed).IsTrue();
+        Check.That(smallRing.ButtonCenter.DistanceTo(new PhysicalPoint(1000, 1000)))
+            .IsStrictlyGreaterThan(HitPx + 90);
+
+        // The user's geometry (ring 250, ScaleX 2.0, R90) is above the floor and unchanged.
+        var user = ActivationButtonPlacement.Place(
+            new PhysicalPoint(1000, 1000), 250, LayoutConstants.ActivationButtonOffset, 2.0,
+            HitPx, 90, Screen);
+        Check.That(user.ButtonCenter.DistanceTo(new PhysicalPoint(1000, 1000))).IsCloseTo(360.0, 1e-9);
+    }
+
+    [Fact]
+    public void Place_DropsAClammedCandidateThatSitsBetweenHitAndHitPlusR()
+    {
+        // Review A, N2: the guard must use hit + R, not hit alone — a candidate 212 px from P is
+        // outside the hit area but inside the hold zone, where a hold's wobble toward B could still
+        // reach it. Mutation: use buttonRadiusPx alone as the drop distance → this is placed, red.
+        var p = new PhysicalPoint(300, 300);
+        var preferred = Place(p).ButtonCenter;
+        var result = Place(p, new[] { new PhysicalRect(preferred.X - 20, preferred.Y - 20, 40, 40) });
+
+        Check.That(result.ButtonCenter.DistanceTo(p)).IsCloseTo(212.13, 0.1);
+        Check.That(result.Placed).IsFalse();
+    }
+
+    [Fact]
     public void Place_UsesTheShippedOffsetConstant()
     {
         // The 55 DIP offset moved to LayoutConstants (N9); if someone re-tunes it, this pins the

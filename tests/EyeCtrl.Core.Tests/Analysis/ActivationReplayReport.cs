@@ -33,14 +33,17 @@ public static class ActivationReplayReport
     /// 112 button + 2×12 DIP margins + 2×4 DIP window padding = 144 DIP = 288 px.</summary>
     public const double ToolbarBandThicknessDip = 144;
 
-    /// <summary>The toolbar strip's width in px, centred: the 7-button canvas (952 DIP at size 112)
-    /// plus the indicator/resume-hint reserves and padding, ≈ 1225 DIP. Review B measured 2300–2600 px
-    /// as immaterial to the headline; the shape — a centred strip, not full width — is what matters.</summary>
+    /// <summary>The toolbar strip's width in px, centred: the 7-button canvas (976 DIP at size 112: the
+    /// 952 DIP extent plus the reset gap and margins) plus the indicator/resume-hint reserves and
+    /// padding, ≈ 1225 DIP. Review B measured 2300–2600 px as immaterial to the headline; the shape — a
+    /// centred strip, not full width — is what matters.</summary>
     public const double ToolbarBandWidthPx = 2450;
 
-    /// <summary>The corner bias probe's midpoint (TL 100–130 px), used in the report's arithmetic on
-    /// the probe, not on this recording.</summary>
-    public const double CornerBiasPx = 115.0;
+    /// <summary>The corner bias probe's range and midpoint, used in the report's arithmetic on the
+    /// probe (not on this recording): TL 100–130 px.</summary>
+    public const double CornerBiasMinPx = 100.0;
+    public const double CornerBiasMaxPx = 130.0;
+    public const double CornerBiasPx = (CornerBiasMinPx + CornerBiasMaxPx) / 2;
 
     /// <summary>What the replay is run with. Every lever the report moves is a field here.</summary>
     public sealed record Inputs(
@@ -85,7 +88,7 @@ public static class ActivationReplayReport
             this with { FixationRadiusPx = fixationRadiusPx };
     }
 
-    private sealed record Firing(ActivationOffer Offer, int VisitsSinceLastReset);
+    private sealed record Firing(ActivationOffer Offer, int VisitsSinceLastReset, int? LookDelayMs);
 
     private sealed record Settle(
         long Us,
@@ -93,6 +96,7 @@ public static class ActivationReplayReport
         SettleOutcome Outcome,
         PhysicalPoint? LiveButton,
         long? LiveExpiresAtUs,
+        long? LiveOfferId,
         bool InTopLeft,
         bool InTopRight);
 
@@ -118,7 +122,8 @@ public static class ActivationReplayReport
         int FirstLooksOver500Ms,
         int TopLeftSamples,
         int TopRightSamples,
-        int TotalSamples)
+        int TotalSamples,
+        Dictionary<long, long> OfferDeathUs)
     {
         public double PopUpsPerMinute => Minutes <= 0 ? 0 : PopUps / Minutes;
         public double CompletionsPerMinute => Minutes <= 0 ? 0 : Firings.Count / Minutes;
@@ -159,7 +164,7 @@ public static class ActivationReplayReport
         var lingerLevers = new List<LeverRow>();
         foreach (int expiryMs in new[] { 1000, 750, 500, 400 })
         {
-            lingerLevers.Add(new LeverRow($"{expiryMs / 1000.0:0.##} s",
+            lingerLevers.Add(new LeverRow($"{expiryMs} ms",
                 Analyze(recording, inputs.WithExpiry(expiryMs)),
                 Analyze(recording, inputs.WithExpiry(expiryMs).WithFixationRadius(DefaultFixationRadiusPx))));
         }
@@ -280,6 +285,7 @@ public static class ActivationReplayReport
         var inHit = new List<(long Us, long OfferId, bool InHit)>();
         var settleRecords = new List<Settle>();
         var nearActivation = new HashSet<long>();
+        var offerDeathUs = new Dictionary<long, long>();
         var firstHitUs = new Dictionary<long, long>();
         var runEndAtFirstHit = new Dictionary<long, long?>();
         int popUps = 0;
@@ -381,6 +387,7 @@ public static class ActivationReplayReport
             {
                 // The offer died on this sample: its last interval was on screen, in the bucket the
                 // state before the update was in.
+                offerDeathUs[before.Id] = ts;
                 onScreenUs += Math.Max(0, dt);
                 Classify(before.Id, ts, Math.Max(0, dt));
             }
@@ -411,7 +418,7 @@ public static class ActivationReplayReport
                 var live = engine.CurrentOffer;
                 var outcome = engine.NotifyFixationSettled(run.SettleAnchor!.Value, ts);
                 settleRecords.Add(new Settle(
-                    ts, run.SettleAnchor!.Value, outcome, live?.Button, live?.ExpiresAtUs,
+                    ts, run.SettleAnchor!.Value, outcome, live?.Button, live?.ExpiresAtUs, live?.Id,
                     InCorner(inputs, run.SettleAnchor!.Value, topLeft: true),
                     InCorner(inputs, run.SettleAnchor!.Value, topLeft: false)));
                 CaptureOffer(ts);
@@ -433,8 +440,9 @@ public static class ActivationReplayReport
 
         var firings = firedOffers
             .Select(offer => new Firing(offer, VisitsSinceLastReset(
-                inHit.Where(f => f.OfferId == offer.Id).Select(f => (f.Us, f.InHit)),
-                inputs.OutsidePauseBudgetMs)))
+                    inHit.Where(f => f.OfferId == offer.Id).Select(f => (f.Us, f.InHit)),
+                    inputs.OutsidePauseBudgetMs),
+                LookDelayMs(offer.Id, firstHitUs, runEndAtFirstHit)))
             .ToList();
         int firstLooksOver500 = firstHitUs.Count(kv =>
             runEndAtFirstHit[kv.Key] is { } end && kv.Value - end > 500_000);
@@ -449,7 +457,34 @@ public static class ActivationReplayReport
             resetFiredOffers.Count,
             offers, firings, settleRecords, nearActivation,
             firstHitUs.Count, firstLooksOver500,
-            topLeftSamples, topRightSamples, frames.Count);
+            topLeftSamples, topRightSamples, frames.Count,
+            offerDeathUs);
+    }
+
+    /// <summary>How long after the offered hold ended the first look at the button came, in ms, or null
+    /// when the run's end was not known at that moment.</summary>
+    private static int? LookDelayMs(
+        long offerId, Dictionary<long, long> firstHitUs, Dictionary<long, long?> runEndAtFirstHit)
+        => firstHitUs.TryGetValue(offerId, out var firstHit)
+           && runEndAtFirstHit.TryGetValue(offerId, out var runEnd)
+           && runEnd is { } end
+            ? (int)((firstHit - end) / 1000)
+            : null;
+
+    /// <summary>The first-look delays of the completions, as "0.1, 0.4 and 1.2 s".</summary>
+    private static string LookDelays(IReadOnlyList<Firing> firings)
+    {
+        var delays = firings
+            .Where(f => f.LookDelayMs is not null)
+            .Select(f => f.LookDelayMs!.Value / 1000.0)
+            .OrderBy(seconds => seconds)
+            .ToList();
+        if (delays.Count == 0)
+            return "at an unknown delay";
+        var parts = delays.Select(s => s.ToString("0.0", CultureInfo.InvariantCulture) + " s").ToList();
+        return parts.Count == 1
+            ? parts[0]
+            : string.Join(", ", parts.Take(parts.Count - 1)) + " and " + parts[^1];
     }
 
     /// <summary>
@@ -544,8 +579,19 @@ public static class ActivationReplayReport
                 .FirstOrDefault();
             bool reOffered = analysis.Sim.Offers.Any(o => o.Us > settle.Us && o.Offer.Point == settle.Point);
             if (reOffered)
+            {
                 reOffers++;
-            else if (settle.LiveExpiresAtUs is { } deadline && (runEndUs == 0 || runEndUs <= deadline))
+                continue;
+            }
+
+            // The live offer's ACTUAL death is the honest comparator: a later extension must not book a
+            // "no re-offer due" hold as stranded (review B's nit). The deadline at the settle is the
+            // fallback if the death was not observed.
+            long? offerDeathUs = settle.LiveOfferId is { } offerId
+                && analysis.Sim.OfferDeathUs.TryGetValue(offerId, out var death)
+                    ? death
+                    : settle.LiveExpiresAtUs;
+            if (offerDeathUs is { } deathUs && (runEndUs == 0 || runEndUs <= deathUs))
                 holdEndedFirst++;
             else
                 stranded++;
@@ -632,9 +678,9 @@ public static class ActivationReplayReport
         sb.AppendLine($"| Near-activations (dwell past half-way) | {I(userR.Sim.NearActivationOfferIds.Count)} | {I(defaultR.Sim.NearActivationOfferIds.Count)} |");
         sb.AppendLine($"| Pop-ups / min | {N(userR.Sim.PopUpsPerMinute)} | {N(defaultR.Sim.PopUpsPerMinute)} |");
         sb.AppendLine($"| Button on screen (anywhere) | {Pct(userR.Sim.OnScreenShare)} | {Pct(defaultR.Sim.OnScreenShare)} |");
-        sb.AppendLine($"| — the hold after the settle | {Pct((double)userR.Sim.HoldUs / userR.Sim.TotalUs)} | {Pct((double)defaultR.Sim.HoldUs / defaultR.Sim.TotalUs)} |");
-        sb.AppendLine($"| — the {I(inputs.OfferExpiryMs)} ms linger | {Pct((double)userR.Sim.LingerUs / userR.Sim.TotalUs)} | {Pct((double)defaultR.Sim.LingerUs / defaultR.Sim.TotalUs)} |");
-        sb.AppendLine($"| — extensions from looks | {Pct((double)userR.Sim.ExtensionUs / userR.Sim.TotalUs)} | {Pct((double)defaultR.Sim.ExtensionUs / defaultR.Sim.TotalUs)} |");
+        sb.AppendLine($"| — the hold after the settle (of the whole stream; the three add up) | {Pct((double)userR.Sim.HoldUs / userR.Sim.TotalUs)} | {Pct((double)defaultR.Sim.HoldUs / defaultR.Sim.TotalUs)} |");
+        sb.AppendLine($"| — the {I(inputs.OfferExpiryMs)} ms linger (of the whole stream) | {Pct((double)userR.Sim.LingerUs / userR.Sim.TotalUs)} | {Pct((double)defaultR.Sim.LingerUs / defaultR.Sim.TotalUs)} |");
+        sb.AppendLine($"| — extensions (looks at the button, near misses) | {Pct((double)userR.Sim.ExtensionUs / userR.Sim.TotalUs)} | {Pct((double)defaultR.Sim.ExtensionUs / defaultR.Sim.TotalUs)} |");
         sb.AppendLine($"| Gaze on the button, share of visible time | {Pct(userR.Sim.GazeOnButtonShare)} | {Pct(defaultR.Sim.GazeOnButtonShare)} |");
         sb.AppendLine($"| Outside the toolbar band, a button is up | {Pct(userR.Sim.OutsideBandShare)} of that time | {Pct(defaultR.Sim.OutsideBandShare)} of that time |");
         sb.AppendLine($"| Buttons never looked at | {I(userR.Sim.PopUps - userR.Sim.LookedAtOffers)} of {I(userR.Sim.PopUps)} | {I(defaultR.Sim.PopUps - defaultR.Sim.LookedAtOffers)} of {I(defaultR.Sim.PopUps)} |");
@@ -647,27 +693,36 @@ public static class ActivationReplayReport
         sb.AppendLine("| Re-offers that moved the button away | 0 (by construction, decision 10) | 0 |");
         sb.AppendLine($"| Settle outcomes | {OutcomeSummary(userR)} | {OutcomeSummary(defaultR)} |");
         sb.AppendLine();
-        sb.AppendLine("A \"no offer\" is the chrome rule working as decided: holds inside the toolbar band, where");
-        sb.AppendLine("the ring still pins and the offer is deliberately withheld (decision 8).");
+        sb.AppendLine("Almost all \"no offers\" are the chrome rule working as decided: holds inside the toolbar");
+        sb.AppendLine("band, where the ring still pins and the offer is deliberately withheld (decision 8). The");
+        sb.AppendLine("rest are unplaceable (a candidate clamped onto the hold, or both sides in chrome).");
         sb.AppendLine();
+        var onButtonDistancePx = defaultR.Sim.Settles
+            .Where(s => s.Outcome == SettleOutcome.OnButton && s.LiveButton is not null)
+            .Select(s => s.Point.DistanceTo(s.LiveButton!.Value))
+            .FirstOrDefault();
+        string r90Delays = LookDelays(userR.Sim.Firings);
+        string r75Delay = LookDelays(defaultR.Sim.Firings);
         sb.AppendLine("**The caveat is two-sided.** The recording was made under the old UI: it never kept a button");
         sb.AppendLine("up after a fixation ended, so glances at a lingering button are under-represented (G3′ reads");
         sb.AppendLine("low); and it drew its decoy button at exactly the spot today's offer goes, so looks toward B");
-        sb.AppendLine("are over-represented (G3′ reads high). At R75 the single completion looks like such a look — an");
-        sb.AppendLine("up-right saccade to B, then a hold 75 px away, 392 ms after the hold ended. Read G3′ as \"rare on");
-        sb.AppendLine("this recording\"; the live check decides.");
+        sb.AppendLine($"are over-represented (G3′ reads high). At R75 the single completion looks like such a look — an");
+        sb.AppendLine($"up-right saccade to B, then a hold {onButtonDistancePx:0} px from B, {r75Delay} after the hold ended. At R90");
+        sb.AppendLine($"the three completions reached B {r90Delays} after their holds ended; two are that decoy pattern,");
+        sb.AppendLine("and the latest is the one a 0.75 s or shorter linger removes (3 → 2 in the linger row). Read");
+        sb.AppendLine("G3′ as \"rare on this recording\"; the live check decides.");
         sb.AppendLine();
         sb.AppendLine("## The top corners");
         sb.AppendLine();
-        sb.AppendLine($"This recording has almost no corner evidence: the top-left quarter region (a 1/16 region)");
-        sb.AppendLine($"holds {I(tl.Settles)} settles ({tl.SampleShare.ToString("P1", ci)} of samples) and the top-right {I(tr.Settles)} settles");
-        sb.AppendLine($"({tr.SampleShare.ToString("P1", ci)} of samples), with {I(tl.WithLiveOffer)} and {I(tr.WithLiveOffer)} of them having a live offer. The corner");
-        sb.AppendLine("near-miss columns are therefore gone: they were 0 by absence of data, not by result.");
+        sb.AppendLine($"This recording has almost no corner evidence at R90: the top-left quarter region (a 1/16");
+        sb.AppendLine($"region) holds {I(tl.Settles)} settles ({tl.SampleShare.ToString("P1", ci)} of samples) and the top-right {I(tr.Settles)} settles");
+        sb.AppendLine($"({tr.SampleShare.ToString("P1", ci)} of samples), none of them with a live offer. The corner near-miss columns");
+        sb.AppendLine("are therefore gone: they were 0 by absence of data, not by result.");
         sb.AppendLine();
         sb.AppendLine($"The {I((int)inputs.HitRadiusPx)} px choice rests on the bias probe, not on this replay: an aim at a top-left");
-        sb.AppendLine($"button lands about {I((int)CornerBiasPx)} px (probe range 100–130 px) from its centre, which leaves 20–50 px of");
-        sb.AppendLine("margin inside 150 px (45–75 px at 175 px) against a hold wander of about 25 px per second.");
-        sb.AppendLine("The live check at a top corner decides.");
+        sb.AppendLine($"button lands about {I((int)CornerBiasPx)} px (probe range {I((int)CornerBiasMinPx)}–{I((int)CornerBiasMaxPx)} px) from its centre, which leaves");
+        sb.AppendLine($"{I((int)(inputs.HitRadiusPx - CornerBiasMaxPx))}–{I((int)(inputs.HitRadiusPx - CornerBiasMinPx))} px of margin inside {I((int)inputs.HitRadiusPx)} px ({I((int)(175 - CornerBiasMaxPx))}–{I((int)(175 - CornerBiasMinPx))} px at 175 px) against a hold");
+        sb.AppendLine("wander of about 25 px per second. The live check at a top corner decides.");
         sb.AppendLine();
         sb.AppendLine("## G1 at the settle centroid, beside the onset");
         sb.AppendLine();
@@ -718,8 +773,21 @@ public static class ActivationReplayReport
         AppendLeverTable(sb, "Hit radius", radiusLevers);
         sb.AppendLine();
         sb.AppendLine($"At a 0.5 s linger, {I(userR.Sim.FirstLooksOver500Ms)} of the {I(userR.Sim.LookedAtOffers)} R90 looks at a button on this recording would");
-        sb.AppendLine("have found it gone; the R75 completion arrived 392 ms after the hold ended and would survive.");
+        sb.AppendLine($"have found it gone; the R75 completion arrived {r75Delay} after the hold ended and would survive.");
         sb.AppendLine($"_(runs: {I(userR.Runs.Count)} at R90, {I(defaultR.Runs.Count)} at R75; settled: {I(userR.Runs.Count(r => r.IsSettled))} / {I(defaultR.Runs.Count(r => r.IsSettled))}.)_");
+        sb.AppendLine();
+        sb.AppendLine("## Coordinator's reading (not a decision)");
+        sb.AppendLine();
+        var lingerAtOneSecond = lingerLevers[0].AtUserR.Sim;
+        var lingerAtThreeQuarters = lingerLevers[1].AtUserR.Sim;
+        sb.AppendLine($"The data gives no reason to move the settle time from {I(inputs.SettleMs)} ms or the hit radius from");
+        sb.AppendLine($"{I((int)inputs.HitRadiusPx)} px. 600 ms cuts pop-ups but delays both the ring's pin and activation. 175 px adds");
+        sb.AppendLine("completions within noise, its corner benefit is unmeasured, and the measured corner offset");
+        sb.AppendLine("(100–130 px top-left) argues against going below 150 px. The linger is the one real trade-off:");
+        sb.AppendLine($"at your R90, 1 s keeps a button visible {Pct(lingerAtOneSecond.OnScreenShare)} of the time and serves");
+        sb.AppendLine($"{I(lingerAtOneSecond.LookedAtOffers)} looks; 0.75 s gives {Pct(lingerAtThreeQuarters.OnScreenShare)} and serves {I(lingerAtThreeQuarters.LookedAtOffers)}. Because you prefer");
+        sb.AppendLine("forgiving over precise, the coordinator would not go below 0.75 s before the live check, which");
+        sb.AppendLine("measures exactly this. The choice is yours, and the live check settles it.");
         sb.AppendLine();
         sb.AppendLine("## The user's decision (to be recorded)");
         sb.AppendLine();
@@ -735,14 +803,15 @@ public static class ActivationReplayReport
             var ci = CultureInfo.InvariantCulture;
             sb.AppendLine($"**{title}**");
             sb.AppendLine();
-            sb.AppendLine("| Value | On-screen R90 | On-screen R75 | Pop-ups/min R90 | Pop-ups/min R75 | G3′ R90 | G3′ R75 |");
-            sb.AppendLine("| --- | --- | --- | --- | --- | --- | --- |");
+            sb.AppendLine("| Value | On-screen R90 | On-screen R75 | Pop-ups/min R90 | Pop-ups/min R75 | G3′ R90 | G3′ R75 | Looks that still found a button R90 | R75 |");
+            sb.AppendLine("| --- | --- | --- | --- | --- | --- | --- | --- | --- |");
             foreach (var row in rows)
             {
                 sb.AppendLine(
                     $"| {row.Value} | {(row.AtUserR.Sim.OnScreenShare * 100).ToString("0.0", ci)} % | {(row.AtDefaultR.Sim.OnScreenShare * 100).ToString("0.0", ci)} % "
                     + $"| {row.AtUserR.Sim.PopUpsPerMinute.ToString("0.0", ci)} | {row.AtDefaultR.Sim.PopUpsPerMinute.ToString("0.0", ci)} "
-                    + $"| {row.AtUserR.Sim.Firings.Count.ToString(ci)} | {row.AtDefaultR.Sim.Firings.Count.ToString(ci)} |");
+                    + $"| {row.AtUserR.Sim.Firings.Count.ToString(ci)} | {row.AtDefaultR.Sim.Firings.Count.ToString(ci)} "
+                    + $"| {row.AtUserR.Sim.LookedAtOffers.ToString(ci)} | {row.AtDefaultR.Sim.LookedAtOffers.ToString(ci)} |");
             }
         }
     }

@@ -368,22 +368,21 @@ public sealed class ActivationOfferEngine
         {
             if (isValid && point.DistanceTo(_offer.Button) <= _offer.HitRadiusPx)
             {
-                // The offered fixation is still running: its end has not happened yet, and the expiry is
-                // 1 s after that end — so every sample of the run pushes the deadline out. Without this an
-                // offer for a hold longer than 1 s would die underneath the user while they still hold.
-                if (_runRole == RunRole.Offered)
-                    ExtendExpiry(timestampUs);
+                // The offered run's samples extend the deadline while it holds (the in-hit sample
+                // itself extends it too, below).
+                ExtendExpiry(timestampUs);
 
                 // A silence longer than the pause budget (and longer than a mere frame) is the same
-                // evidence as invalid samples: the eyes were not there, so it aborts the dwell (review
-                // A F5). The frame-scale floor keeps the reset-semantics comparison run (budget 0)
-                // meaningful: ordinary 30 ms frames are not "excursions".
+                // evidence as invalid samples: the eyes were not there, so it aborts the dwell and —
+                // as in the detector's new run — the resuming sample credits nothing (review A F5 and
+                // R2-3's companion nit).
                 long silenceUs = timestampUs - _lastSampleUs;
+                _missSinceUs = null;
                 if (silenceUs > Math.Max(FixationDetector.AgeCreditCapMs * 1000L, OutsidePauseBudgetMs * 1000L))
                     _dwellUs = 0;
+                else
+                    CreditSample(timestampUs);
 
-                ExtendExpiry(timestampUs);
-                ResumeDwell(timestampUs);
                 if (_dwellUs >= DwellMs * 1000L)
                 {
                     _fired = true;
@@ -429,20 +428,9 @@ public sealed class ActivationOfferEngine
     }
 
     /// <summary>
-    /// Declines the live offer (fired or not), and re-offers the pending settle at once when its run
-    /// still holds. The caller means "the current offer" — a teardown, or the replay's model.
-    /// </summary>
-    public void Decline()
-    {
-        if (_offer is null)
-            return;
-        ExpireOrDecline(_lastSampleUs);
-    }
-
-    /// <summary>
     /// Declines only the offer named by <paramref name="offerId"/>: a stale id does nothing, so a late
     /// decline for an older offer cannot clear the live one (review A, F2). Ticket 8's
-    /// <c>DeclineOffer(snapshot)</c> uses this shape.
+    /// <c>DeclineOffer(snapshot)</c> uses this shape; teardowns use <see cref="Clear"/>.
     /// </summary>
     public void Decline(long offerId)
     {
@@ -523,17 +511,26 @@ public sealed class ActivationOfferEngine
             _offer = _offer with { ExpiresAtUs = deadline };
     }
 
-    private void ResumeDwell(long timestampUs)
+    private void CreditSample(long timestampUs)
     {
         long dt = timestampUs - _lastSampleUs;
-        _missSinceUs = null;
         if (dt > 0)
             _dwellUs += Math.Min(dt, FixationDetector.AgeCreditCapMs * 1000L);
     }
 
     private void PauseDwell(long timestampUs)
     {
-        _missSinceUs ??= timestampUs;
+        if (_missSinceUs is null)
+        {
+            // A miss that STARTS after a silence is dated from the last sample, so the silence counts
+            // as time away — otherwise the ~400 ms before the first outside sample is lost and a gaze
+            // away for over the budget does not reset (review A, R2-3 / probe P11). The same frame
+            // floor as the in-hit reset keeps ordinary 30 ms frames out of it.
+            _missSinceUs = timestampUs - _lastSampleUs > FixationDetector.AgeCreditCapMs * 1000L
+                ? _lastSampleUs
+                : timestampUs;
+        }
+
         // Budget 0 is the reset-semantics comparison: any single outside sample resets (review B F8's
         // label), not the second one.
         if (OutsidePauseBudgetMs <= 0 || timestampUs - _missSinceUs > OutsidePauseBudgetMs * 1000L)

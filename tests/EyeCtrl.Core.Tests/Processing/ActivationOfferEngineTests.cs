@@ -122,7 +122,7 @@ public class ActivationOfferEngineTests
         var offer = engine.CurrentOffer!;
 
         engine.NotifyFixationSettled(offer.Button, 300_000);   // the next run settles ON the button
-        engine.Decline();
+        engine.Decline(engine.CurrentOffer!.Id);
 
         Check.That(engine.CurrentOffer).IsNull();
     }
@@ -214,7 +214,7 @@ public class ActivationOfferEngineTests
         // lock). Without this the mutation that drops the lock ends on the decline's null and passes.
         Check.That(engine.CurrentOffer!.Id).IsEqualTo(offer.Id);
 
-        engine.Decline();
+        engine.Decline(engine.CurrentOffer!.Id);
 
         Check.That(engine.CurrentOffer).IsNull();
     }
@@ -372,8 +372,81 @@ public class ActivationOfferEngineTests
         // 810 ms with no samples at all, then the gaze is back on the button.
         engine.Update(offer.Button, 1_200_000, isValid: true);
 
-        // Reset first (0), then the resume sample credits the per-sample cap: 66 ms.
-        Check.That(engine.DwellProgress).IsCloseTo(66.0 / 700, 1e-9);
+        // The silence aborts the dwell and the resuming sample credits NOTHING, exactly as the
+        // detector's fresh run does after its gap abort (review A, R2-3's companion nit).
+        Check.That(engine.DwellProgress).IsEqualTo(0.0);
+    }
+
+    [Fact]
+    public void BudgetZero_OneDroppedFrameIsNotAnExcursion_ButTwoOrABlinkOrAnOutsideSampleResets()
+    {
+        // Review A N7/N8: the reset-semantics comparison run rests on these semantics, so pin them.
+        // Mutation N7: drop the frame floor from the in-hit silence check (compare against the budget
+        // alone) → the 60 ms step resets and the StrictlyGreaterThan assertion reds. Mutation N8: drop
+        // the `<= 0` clause in PauseDwell (reset only from the second outside sample) → the blink does
+        // not reset and its IsEqualTo(0) reds.
+        var engine = NewEngine();
+        engine.OutsidePauseBudgetMs = 0;
+        engine.NotifyFixationSettled(P, 0);
+        var offer = engine.CurrentOffer!;
+
+        engine.Update(offer.Button, FrameUs, isValid: true);          // 30 ms
+        double afterOneFrame = engine.DwellProgress;
+        Check.That(afterOneFrame).IsStrictlyGreaterThan(0.0);
+
+        engine.Update(offer.Button, 90_000, isValid: true);           // one dropped frame: 60 ms
+        Check.That(engine.DwellProgress).IsStrictlyGreaterThan(afterOneFrame);
+
+        engine.Update(offer.Button, 180_000, isValid: true);          // two dropped frames: 90 ms
+        Check.That(engine.DwellProgress).IsEqualTo(0.0);              // a silence resets
+
+        engine.Update(offer.Button, 210_000, isValid: true);
+        Check.That(engine.DwellProgress).IsStrictlyGreaterThan(0.0);
+
+        engine.Update(offer.Button, 240_000, isValid: false);         // a blink sample
+        Check.That(engine.DwellProgress).IsEqualTo(0.0);
+
+        engine.Update(offer.Button, 270_000, isValid: true);
+        Check.That(engine.DwellProgress).IsStrictlyGreaterThan(0.0);
+
+        engine.Update(P, 300_000, isValid: true);                     // any outside sample
+        Check.That(engine.DwellProgress).IsEqualTo(0.0);
+    }
+
+    [Fact]
+    public void ASilenceThatEndsOffTheButton_StillResetsTheDwell()
+    {
+        // Review A R2-3 / probe P11: the gaze was away from the button for 400 ms of silence plus
+        // 210 ms of outside samples — over the 500 ms budget — so the dwell must reset. Mutation: date
+        // the miss from the first outside sample → the 400 ms before it is lost, the dwell continues
+        // from 390 ms and the closing assertion reds.
+        var engine = NewEngine();
+        engine.NotifyFixationSettled(P, 0);
+        var offer = engine.CurrentOffer!;
+        FuelTheDwell(engine, offer.Button, fromUs: FrameUs, inHitSamples: 13);   // 390 ms
+        Check.That(engine.DwellProgress).IsCloseTo(390.0 / 700, 1e-9);
+
+        Feed(engine, P, 790_000, samples: 7);   // 400 ms of silence, then 210 ms off the button
+
+        engine.Update(offer.Button, 1_000_000, isValid: true);
+        Check.That(engine.DwellProgress).IsCloseTo(30.0 / 700, 1e-9);   // reset, one frame credited
+    }
+
+    [Fact]
+    public void AcceptOnAMatchingUnfiredOffer_DeclinesIt()
+    {
+        // Review A N5: a completion for a live but unfired offer is a protocol violation, and a
+        // rejected completion counts as a decline. Mutation: make Accept a no-op unless fired → the
+        // offer survives and CurrentOffer is not null, red.
+        var engine = NewEngine();
+        engine.NotifyFixationSettled(P, 0);
+        var offer = engine.CurrentOffer!;
+        engine.Update(offer.Button, FrameUs, isValid: true);
+        Check.That(engine.IsFired).IsFalse();
+
+        engine.Accept(offer.Id);
+
+        Check.That(engine.CurrentOffer).IsNull();
     }
 
     [Fact]
@@ -443,8 +516,10 @@ public class ActivationOfferEngineTests
     public void APendingFromAnEndedRun_IsNotReOffered_WhenALaterRunSettlesOnTheButton()
     {
         // Review A F3b / E10: the pending dies with its run, so a later on-button run cannot resurrect
-        // it. Mutation: drop BOTH guards (skip the pending clear and keep the run active on the run
-        // end) → Decline() re-offers at the old run's point, red.
+        // it. Mutation: drop the pending clear alone (E10) → the later run's settle re-arms
+        // `_runActive`, the decline re-offers at the old run's point and a new offer appears, red.
+        // (The companion test below, ThePendingReOffer_IsClearedByItsRunsEnd, needs both guards
+        // dropped, because there `_runActive` stays false.)
         var engine = NewEngine();
         engine.Update(P, 0, true);
         engine.NotifyFixationSettled(P, 0);
@@ -453,7 +528,7 @@ public class ActivationOfferEngineTests
         engine.NotifyFixationEnded(400_000);                    // run X ends
         engine.NotifyFixationSettled(B, 500_000);               // run Y settles ON the button
 
-        engine.Decline();
+        engine.Decline(engine.CurrentOffer!.Id);
 
         Check.That(engine.CurrentOffer).IsNull();               // nothing re-offers at the old point
     }

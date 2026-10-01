@@ -157,13 +157,28 @@ public partial class SettingsWindow : OverlayWindow
     internal const double PaginationButtonMargin = 4;
 
     /// <summary>
-    /// Horizontal margin <c>MakeTabPagerButton</c> applies to each sidebar pager button, in DIP.
-    /// 14, not the content pager's <see cref="PaginationButtonMargin"/>: two 100-DIP buttons
-    /// registering <see cref="PagBtnRadius"/> (120-DIP hit circles) need ≥ 120 DIP between
-    /// centres to keep the circles clear of each other, and 14 + 100 + 14 = 128. A named const
-    /// because the pager geometry guard pins it.
+    /// VERTICAL margin <c>MakeTabPagerButton</c> applies to each sidebar pager button, in DIP.
+    /// The tab pager is a vertical stack since Phase 2 A3 (tab_prev above tab_next), so this
+    /// margin is what keeps the stack's two 60-DIP hit circles clear of each other: they need
+    /// ≥ 120 DIP between centres and 24 + 80 + 24 = 128. (It was the HORIZONTAL margin of the
+    /// old bottom row — 14 + 100 + 14 = 128 by the same arithmetic — until the stack turned
+    /// the pitch onto the buttons' height.) A named const because the pager geometry guard
+    /// pins it, and because <see cref="TabPagerReserveHeight"/> counts 2 × this per button.
     /// </summary>
-    internal const double TabPagerButtonMargin = 14;
+    internal const double TabPagerButtonMargin = 24;
+
+    /// <summary>
+    /// The margin <c>MakeTabPagerButton</c> builds every sidebar pager button with: the
+    /// vertical stack's shape, horizontal = <see cref="PaginationButtonMargin"/>, vertical =
+    /// <see cref="TabPagerButtonMargin"/>. ONE source for the shape on purpose (phase-2
+    /// review r2 M1): the buttons' margins carry the concurrent-detector clearances —
+    /// pager↔close, pager↔pager, pager↔first tab — and every pin of that geometry (the
+    /// stack-height block, the pager centres, the pitch) DERIVES from this thickness rather
+    /// than restating it, so swapping the shape back to the old horizontal row's form fails
+    /// the clearance pins instead of passing the whole suite with overlapping circles.
+    /// </summary>
+    internal static readonly Thickness TabPagerButtonThickness = new(
+        PaginationButtonMargin, TabPagerButtonMargin, PaginationButtonMargin, TabPagerButtonMargin);
 
     private const double ModalButtonHeight = 100;
 
@@ -410,6 +425,16 @@ public partial class SettingsWindow : OverlayWindow
         // Window sizing
         Width = SystemParameters.PrimaryScreenWidth * WindowSizeRatio;
         Height = SystemParameters.PrimaryScreenHeight * WindowSizeRatio;
+
+        // Phase 2 A1 put the pager row ABOVE the content card, and an Auto row measures only
+        // its margins (24 DIP) while the bar is hidden on single-page tabs vs 112 with the bar
+        // — every control on the card would sit 88 DIP lower on multi-page tabs, an 88-DIP
+        // jump on every tab switch for a gaze-only user. Pinning the ROW to the reserve makes
+        // the card's position independent of the tab's page count; the budget cost is zero
+        // because ContentAvailableHeight already subtracts the reserve unconditionally. The
+        // row, not the panel: a MinHeight on the panel would sit INSIDE its margins and pin
+        // the row to reserve + margins.
+        PagerRow.MinHeight = PaginationReserveHeight;
 
         // Wire up property change handlers
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
@@ -749,8 +774,11 @@ public partial class SettingsWindow : OverlayWindow
         var btn = MakeChromeButton(
             id, SettingsPagerChrome.GlyphFor(id, boundary),
             PaginationButtonWidth, PaginationButtonHeight,
-            new Thickness(TabPagerButtonMargin, PaginationButtonMargin,
-                TabPagerButtonMargin, PaginationButtonMargin),
+            // One margin story (review r2 M1): every pin of the pager's clearance geometry
+            // derives from this same thickness. The vertical margin is what keeps the two
+            // 60-DIP hit circles ≥ 120 DIP apart in the stack; the horizontal margin puts the
+            // buttons' centres at x = TabPagerPanel.Margin.Left + .Left + 50 = 64 DIP.
+            TabPagerButtonThickness,
             BtnBase, Tokens.BrushTextPrimary,
             () => ActivateTabPager(id, direction),
             _tabPagerButtons, _tabPagerBrushes);
@@ -1147,19 +1175,43 @@ public partial class SettingsWindow : OverlayWindow
         PaginationButtonHeight + 2 * PaginationButtonMargin + PaginationPanel.Margin.Top + PaginationPanel.Margin.Bottom;
 
     /// <summary>
-    /// The tab pager row's height, reserved unconditionally (the row collapses while every tab
-    /// fits one page, but the budget math counts it anyway) — same philosophy as
+    /// Production's sidebar reserve, as one testable derivation: TWO stacked pager buttons
+    /// (tab_prev above tab_next since A3) plus the pager panel's own margins, from the consts
+    /// the buttons are actually built with. <c>internal static</c> for the same reason as
+    /// <see cref="TabContainerHeight"/> — the headless guards pin the sidebar arithmetic
+    /// against it and cannot construct the window (eight non-optional dependencies), and a
+    /// restated formula in a test pins nothing: it passes against whatever the test says.
+    /// Phase-2 review r1 M1: a one-button undercount survived the whole suite until this
+    /// became readable. The per-button block reads <see cref="TabPagerButtonThickness"/>, not
+    /// a restated margin — one margin story everywhere (review r2 M1).
+    /// </summary>
+    /// <param name="panelMarginTop"><c>TabPagerPanel.Margin.Top</c> from the live element.</param>
+    /// <param name="panelMarginBottom"><c>TabPagerPanel.Margin.Bottom</c> from the live element.</param>
+    internal static double TabPagerStackReserve(double panelMarginTop, double panelMarginBottom) =>
+        2 * (PaginationButtonHeight + TabPagerButtonThickness.Top + TabPagerButtonThickness.Bottom)
+        + panelMarginTop + panelMarginBottom;
+
+    /// <summary>
+    /// The tab pager stack's height, reserved unconditionally (the row collapses while every
+    /// tab fits one page, but the budget math counts it anyway) — same philosophy as
     /// <see cref="PaginationReserveHeight"/>: a conditional reserve makes the tab-page count
-    /// oscillate as the pager appears and disappears.
+    /// oscillate as the pager appears and disappears. TWO buttons since A3: the pager is a
+    /// vertical stack now (tab_prev above tab_next), so the block is two buttons plus the
+    /// panel's own margins — counting one button would under-reserve by a whole button and
+    /// let the last tab slot overflow onto the pager.
     /// </summary>
     private double TabPagerReserveHeight =>
-        PaginationButtonHeight + 2 * PaginationButtonMargin + TabPagerPanel.Margin.Top + TabPagerPanel.Margin.Bottom;
+        TabPagerStackReserve(TabPagerPanel.Margin.Top, TabPagerPanel.Margin.Bottom);
 
     /// <summary>
     /// How much vertical room the tab list has: the window height minus the close button's
-    /// block, the pager row's reserve, and the tab panel's own margins. Read off the live
-    /// elements (like <see cref="ContentAvailableWidth"/>) so the arithmetic cannot drift
-    /// from the XAML that decides it; the chunker clamps degenerate values to one tab per page.
+    /// block, the pager stack's reserve, and the tab panel's own margins. The pager sits
+    /// BETWEEN the close button and the tab list since A3, but the arithmetic is
+    /// position-agnostic — every DIP any of the three blocks takes comes off the tab list
+    /// wherever the block sits, so the unconditional-reserve philosophy (no page-count
+    /// oscillation) survives the move. Read off the live elements (like
+    /// <see cref="ContentAvailableWidth"/>) so the arithmetic cannot drift from the XAML that
+    /// decides it; the chunker clamps degenerate values to one tab per page.
     /// </summary>
     private double SidebarTabBudget =>
         Height

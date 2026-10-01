@@ -369,19 +369,28 @@ public class SettingsPagerChromeTests
         Check.That(SettingsWindow.PaginationButtonWidth).IsEqualTo(100);
         Check.That(SettingsWindow.PaginationButtonHeight).IsEqualTo(80);
         Check.That(SettingsWindow.PaginationButtonMargin).IsEqualTo(4);
-        Check.That(SettingsWindow.TabPagerButtonMargin).IsEqualTo(14);
+        // The tab pager stacks VERTICALLY since Phase 2 A3 (tab_prev above tab_next), so its
+        // button margin is the vertical one: 24 between the stacked 80-DIP buttons keeps the
+        // two 60-DIP hit circles at 128 centre distance.
+        Check.That(SettingsWindow.TabPagerButtonMargin).IsEqualTo(24);
         Check.That(SettingsWindow.TabBtnRadius).IsEqualTo(85);
     }
 
     [Fact]
     public void TabPagerButtons_HitCirclesDoNotOverlapEachOther()
     {
-        // Two 100-DIP buttons registering a 60-DIP radius (120-DIP circles) need ≥ 120 between
-        // centres; the 14 DIP margin is what buys that: 14 + 100 + 14 = 128.
-        var centreDistance = SettingsWindow.TabPagerButtonMargin * 2 + SettingsWindow.PaginationButtonWidth;
+        // A VERTICAL stack since Phase 2 A3: the centre pitch is the buttons' height plus
+        // their OWN margins, read from the TabPagerButtonThickness the buttons are actually
+        // built with (review r2 M1 — a restated shape passes while the real circles overlap):
+        // 24 + 80 + 24 = 128 against the 120 the two 60-DIP circles need. (In the old
+        // horizontal bottom row the same arithmetic ran across the width: 14 + 100 + 14.)
+        var thickness = SettingsWindow.TabPagerButtonThickness;
+        var centreDistance = thickness.Top + SettingsWindow.PaginationButtonHeight + thickness.Bottom;
         Check.WithCustomMessage(
                 "The tab pager's two hit circles overlap: adjacent pager targets whose circles "
-                + "intersect make the nearest-target arbitration flip mid-dwell.")
+                + "intersect make the nearest-target arbitration flip mid-dwell. The margins "
+                + "here come from SettingsWindow.TabPagerButtonThickness — if this fails, the "
+                + "thickness no longer keeps the stacked buttons 120 DIP apart.")
             .That(centreDistance).IsGreaterOrEqualThan(2 * SettingsWindow.PagBtnRadius);
     }
 }

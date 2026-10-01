@@ -26,7 +26,9 @@ public static class ActivationButtonPlacement
 {
     /// <summary>Where the button went, and whether one could be placed at all.</summary>
     /// <param name="ButtonCenter">The clamped on-screen button centre B, in physical pixels.</param>
-    /// <param name="Placed">False when both sides of the ring intersect chrome: no offer is made.</param>
+    /// <param name="Placed">False when no side of the ring is usable: both intersect chrome, or the one
+    /// that does not was clamped so close to P that a plain hold at P would sit inside B's hit area —
+    /// which would be activation by rest (review A, F1).</param>
     public readonly record struct Result(PhysicalPoint ButtonCenter, bool Placed);
 
     /// <summary>
@@ -38,6 +40,9 @@ public static class ActivationButtonPlacement
     /// <param name="scale">The live DPI scale, applied to the DIP inputs.</param>
     /// <param name="buttonRadiusPx">The button's hit radius in physical pixels
     /// (<see cref="LayoutConstants.ActivationButtonHitRadiusPx"/>).</param>
+    /// <param name="fixationRadiusPx">The live fixation radius R in physical pixels. A candidate B is
+    /// unplaceable when it sits within hit + R of P: every sample of the held run would then be inside
+    /// the hit area, and a plain hold would fire.</param>
     /// <param name="screenBoundsPx">The primary screen's bounds in physical pixels.</param>
     /// <param name="chromeZones">EyeCtrl's chrome zones, in physical pixels; may be null/empty.</param>
     public static Result Place(
@@ -46,6 +51,7 @@ public static class ActivationButtonPlacement
         double offsetDip,
         double scale,
         double buttonRadiusPx,
+        double fixationRadiusPx,
         PhysicalRect screenBoundsPx,
         IReadOnlyList<PhysicalRect>? chromeZones = null)
     {
@@ -53,11 +59,14 @@ public static class ActivationButtonPlacement
             throw new ArgumentOutOfRangeException(nameof(scale), scale, "Scale must be positive and finite.");
         if (!double.IsFinite(buttonRadiusPx) || buttonRadiusPx < 0)
             throw new ArgumentOutOfRangeException(nameof(buttonRadiusPx), buttonRadiusPx, "Button radius must not be negative.");
+        if (!double.IsFinite(fixationRadiusPx) || fixationRadiusPx <= 0)
+            throw new ArgumentOutOfRangeException(nameof(fixationRadiusPx), fixationRadiusPx, "Fixation radius must be positive and finite.");
 
         double offsetPx = (Math.Max(0, ringSizeDip) / 2 + Math.Max(0, offsetDip)) * scale;
         double axisPx = offsetPx / Math.Sqrt(2);
+        double dropDistancePx = buttonRadiusPx + fixationRadiusPx;
 
-        // Away from the screen's centre, the old edge-aware direction (7a85d328). Compared in physical
+        // Toward the screen's centre, the old edge-aware direction (7a85d328). Compared in physical
         // pixels — the centre of the bounds, not of the origin — so a non-zero screen origin and any
         // scale stay exact.
         double dx = point.X < screenBoundsPx.X + (screenBoundsPx.Width / 2) ? 1.0 : -1.0;
@@ -65,15 +74,27 @@ public static class ActivationButtonPlacement
 
         var preferred = Clamp(new PhysicalPoint(point.X + (dx * axisPx), point.Y + (dy * axisPx)),
             buttonRadiusPx, screenBoundsPx);
-        if (!IntersectsChrome(preferred, buttonRadiusPx, chromeZones))
+        if (IsUsable(preferred, point, dropDistancePx, buttonRadiusPx, chromeZones))
             return new Result(preferred, Placed: true);
 
+        // The flip points toward the nearest corner; the clamp can pull it back onto P. It is only
+        // usable when it is both chrome-free and far enough that the hold at P stays outside its hit
+        // area — a button on top of P would be activation by rest (review A, F1).
         var flipped = Clamp(new PhysicalPoint(point.X - (dx * axisPx), point.Y - (dy * axisPx)),
             buttonRadiusPx, screenBoundsPx);
-        return IntersectsChrome(flipped, buttonRadiusPx, chromeZones)
-            ? new Result(flipped, Placed: false)
-            : new Result(flipped, Placed: true);
+        return IsUsable(flipped, point, dropDistancePx, buttonRadiusPx, chromeZones)
+            ? new Result(flipped, Placed: true)
+            : new Result(flipped, Placed: false);
     }
+
+    private static bool IsUsable(
+        PhysicalPoint candidate,
+        PhysicalPoint point,
+        double dropDistancePx,
+        double buttonRadiusPx,
+        IReadOnlyList<PhysicalRect>? chromeZones)
+        => candidate.DistanceTo(point) > dropDistancePx
+           && !IntersectsChrome(candidate, buttonRadiusPx, chromeZones);
 
     /// <summary>
     /// Clamps a button centre so its whole hit circle stays inside the screen. A screen too small for

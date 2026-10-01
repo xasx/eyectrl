@@ -182,8 +182,10 @@ public class ActivationOfferEngineTests
     [Fact]
     public void ThePendingReOffer_IsClearedByItsRunsEnd()
     {
-        // Mutation: never clear the pending on the run end → the expiry re-offers for a run that is
-        // over, red.
+        // Two guards enforce this — the pending clear and the run-active flag — so the mutation must
+        // drop both (keep the pending AND leave `_runActive` true on the end) to red this test; either
+        // guard alone leaves the behavior intact. The on-button-companion case that a single guard
+        // would miss is covered by APendingFromAnEndedRun_IsNotReOffered_... above.
         var engine = NewEngine();
         engine.Update(P, 0, true);
         engine.NotifyFixationSettled(P, 0);
@@ -355,26 +357,170 @@ public class ActivationOfferEngineTests
         Check.That(engine.CurrentOffer).IsNull();
     }
 
-    // ── Completion paths and teardown ────────────────────────────────────────
+    [Fact]
+    public void SilenceLongerThanThePauseBudget_ResetsTheDwell()
+    {
+        // Review A F5: a silence over the pause budget is the same evidence as invalid samples, so it
+        // must abort the dwell's accumulation. Mutation: drop the silence reset (pause from delivered
+        // samples only) → the dwell keeps its 390 ms and reads 456/700, red.
+        var engine = NewEngine();
+        engine.NotifyFixationSettled(P, 0);
+        var offer = engine.CurrentOffer!;
+        FuelTheDwell(engine, offer.Button, fromUs: FrameUs, inHitSamples: 13);   // 390 ms
+        Check.That(engine.DwellProgress).IsCloseTo(390.0 / 700, 1e-9);
+
+        // 810 ms with no samples at all, then the gaze is back on the button.
+        engine.Update(offer.Button, 1_200_000, isValid: true);
+
+        // Reset first (0), then the resume sample credits the per-sample cap: 66 ms.
+        Check.That(engine.DwellProgress).IsCloseTo(66.0 / 700, 1e-9);
+    }
 
     [Fact]
-    public void RejectedCompletion_CountsAsDecline_SoTheFiredLockNeverStrands()
+    public void FixationRadiusPx_IsSettable_SoTheNoMoveZoneFollowsIt()
     {
-        // Mutation: keep the lock on a rejected completion → the next settle is ignored and no new
-        // offer ever appears, red (R3).
+        // Review A, ticket-8 nit: R is a live setting and an adaptation knob, so it must be settable in
+        // place. Mutation: make the setter a no-op → the widened zone never classifies and the settle
+        // replaces the offer, red.
+        var engine = NewEngine();
+        engine.NotifyFixationSettled(P, 0);
+        var offer = engine.CurrentOffer!;
+
+        engine.FixationRadiusPx = 150;   // the zone grows from 225 to 300 around B
+        Check.That(engine.FixationRadiusPx).IsEqualTo(150.0);
+
+        // 280 px from B, 80 px from P: outside the R75 zone, inside the R150 one, on P's side.
+        var wideZonePoint = PointAtDistanceFromB(280);
+        engine.NotifyFixationSettled(wideZonePoint, 100_000);
+
+        Check.That(engine.CurrentOffer!.Id).IsEqualTo(offer.Id);   // kept, not replaced
+    }
+
+    [Fact]
+    public void AnOfferForARunStillHolding_IsAlive_AndDiesOneSecondAfterTheRunEnds()
+    {
+        // Review A F3a / E1: decision 3's "it goes 1 s after you look away", not 1 s after the settle.
+        // Mutation: drop the per-sample extension while the offered run holds → the offer dies at 1 s
+        // under a user who is still holding, red.
+        var engine = NewEngine();
+        engine.Update(P, 0, true);
+        engine.NotifyFixationSettled(P, 0);
+
+        Feed(engine, P, FrameUs, samples: 66);      // 30 ms .. 1.98 s: the user holds at P
+        engine.Update(P, 2_000_000, isValid: true);
+        Check.That(engine.CurrentOffer).IsNotNull();
+
+        engine.NotifyFixationEnded(2_000_000);
+        engine.Update(P, 2_900_000, isValid: true);   // 900 ms after the end
+        Check.That(engine.CurrentOffer).IsNotNull();
+
+        engine.Update(P, 3_050_000, isValid: true);   // past the linger
+        Check.That(engine.CurrentOffer).IsNull();
+    }
+
+    [Fact]
+    public void AFiredOffer_IsNotExpired_ByOutsideSamples_AndAcceptStillWorks()
+    {
+        // Review A F3c / E12: the fired lock's "cannot be expired" half. Mutation: allow a fired offer
+        // to expire → it is gone after the outside stretch and the accept finds nothing, red.
         var engine = NewEngine();
         engine.NotifyFixationSettled(P, 0);
         var offer = engine.CurrentOffer!;
         FuelTheDwell(engine, offer.Button, fromUs: FrameUs, inHitSamples: 24);
         Check.That(engine.IsFired).IsTrue();
 
-        engine.Accept(offer.Id + 999);        // a stale id: rejected, and a rejection is a decline
+        Feed(engine, P, 800_000, samples: 40);      // 1.2 s of samples well outside the hit area
+
+        Check.That(engine.CurrentOffer).IsNotNull();
+        Check.That(engine.CurrentOffer!.Id).IsEqualTo(offer.Id);
+
+        engine.Accept(offer.Id);
+        Check.That(engine.CurrentOffer).IsNull();
+        Check.That(engine.IsFired).IsFalse();
+    }
+
+    [Fact]
+    public void APendingFromAnEndedRun_IsNotReOffered_WhenALaterRunSettlesOnTheButton()
+    {
+        // Review A F3b / E10: the pending dies with its run, so a later on-button run cannot resurrect
+        // it. Mutation: drop BOTH guards (skip the pending clear and keep the run active on the run
+        // end) → Decline() re-offers at the old run's point, red.
+        var engine = NewEngine();
+        engine.Update(P, 0, true);
+        engine.NotifyFixationSettled(P, 0);
+
+        engine.NotifyFixationSettled(PsidePoint(), 300_000);    // run X: swallowed, pending
+        engine.NotifyFixationEnded(400_000);                    // run X ends
+        engine.NotifyFixationSettled(B, 500_000);               // run Y settles ON the button
+
+        engine.Decline();
+
+        Check.That(engine.CurrentOffer).IsNull();               // nothing re-offers at the old point
+    }
+
+    // ── Completion paths and teardown ────────────────────────────────────────
+
+    [Fact]
+    public void AStaleCompletionForAnOlderOffer_DoesNotTouchTheLiveOne()
+    {
+        // Review A F2 / probe P3: a completion naming an offer that is already gone must do nothing —
+        // it must not decline whatever happens to be live now. Mutation: decline on any stale id (the
+        // old Accept behavior) → offer 2 is cleared, red.
+        var engine = NewEngine();
+        engine.NotifyFixationSettled(P, 0);
+        var first = engine.CurrentOffer!;
+        FuelTheDwell(engine, first.Button, fromUs: FrameUs, inHitSamples: 24);   // fires
+        engine.Clear();                                     // a teardown during the resolve
+        engine.NotifyFixationEnded(1_000_000);
+
+        engine.NotifyFixationSettled(new PhysicalPoint(2500, 1800), 1_100_000);
+        var second = engine.CurrentOffer!;
+        Check.That(second.Id).IsNotEqualTo(first.Id);
+
+        engine.Accept(first.Id);                            // the late completion for offer 1
+
+        Check.That(engine.CurrentOffer).IsNotNull();
+        Check.That(engine.CurrentOffer!.Id).IsEqualTo(second.Id);
+    }
+
+    [Fact]
+    public void RejectedCompletion_CountsAsDecline_WhenItNamesTheLiveOffer()
+    {
+        // R3's other half: the state-based rejection (the IM calls Decline(snapshot.Id) when a pause or
+        // keyboard toggle landed during the dispatch) releases the fired lock, so a new settle is
+        // offered again. Mutation: keep a fired offer on decline (skip it in ExpireOrDecline) → the
+        // next settle is Locked and no offer appears, red.
+        var engine = NewEngine();
+        engine.NotifyFixationSettled(P, 0);
+        var offer = engine.CurrentOffer!;
+        FuelTheDwell(engine, offer.Button, fromUs: FrameUs, inHitSamples: 24);
+        Check.That(engine.IsFired).IsTrue();
+
+        engine.Decline(offer.Id);                           // the rejected completion, named
 
         Check.That(engine.CurrentOffer).IsNull();
 
         engine.NotifyFixationEnded(1_000_000);
         engine.NotifyFixationSettled(new PhysicalPoint(2500, 1800), 1_100_000);
         Check.That(engine.CurrentOffer).IsNotNull();
+    }
+
+    [Fact]
+    public void ADeclineForAnOlderOffer_DoesNotTouchTheLiveOne()
+    {
+        // F2's guard on the decline path too. Mutation: drop the id guard in Decline(id) → offer 2 is
+        // cleared, red.
+        var engine = NewEngine();
+        engine.NotifyFixationSettled(P, 0);
+        var first = engine.CurrentOffer!;
+        engine.Clear();
+        engine.NotifyFixationEnded(1_000_000);
+        engine.NotifyFixationSettled(new PhysicalPoint(2500, 1800), 1_100_000);
+        var second = engine.CurrentOffer!;
+
+        engine.Decline(first.Id);
+
+        Check.That(engine.CurrentOffer!.Id).IsEqualTo(second.Id);
     }
 
     [Fact]

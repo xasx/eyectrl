@@ -56,7 +56,7 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
         ApplyEmphasis();
     }
 
-    /// <summary>Raises the ring to its bold pinned look while a fixation is held at the onset centroid.</summary>
+    /// <summary>Raises the ring to its bold pinned look while a fixation is held at the settle centroid.</summary>
     public void SetPinned(bool pinned)
     {
         _isPinned = pinned;

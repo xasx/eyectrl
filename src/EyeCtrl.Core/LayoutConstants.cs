@@ -21,8 +21,8 @@ public static class LayoutConstants
 
     /// <summary>
     /// Distance in logical pixels (DIP) from the cursor circle edge to the centre of the activation
-    /// offer, along each axis of the diagonal (the placement divides it by √2). Moved here from
-    /// <c>UIConstants</c> (ticket 7, re-check N9) so the Core placement function owns it; the only
+    /// offer — the Euclidean gap, so the diagonal placement divides it into 1/√2 per axis. Moved here
+    /// from <c>UIConstants</c> (ticket 7, re-check N9) so the Core placement function owns it; the only
     /// production reader was a test, and <c>UIConstants</c> keeps an <c>int</c> alias.
     ///
     /// 55 DIP, as shipped: at the user's ring size 250 it puts the offer 180 DIP — 360 px at ScaleX 2.0 —

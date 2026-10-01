@@ -128,7 +128,10 @@ public class ReplaySliceFidelityTests
         }
 
         // Ticket 7 settle parity: the engine's accepted settle (PinRing) equals the harness's, in time
-        // and point. Mutation: settle on t − t_start instead of the valid-time age.
+        // and point. The parity's real teeth (review A F3e) are wiring and drift, measured red on both
+        // fixture and recording: X1, PinRing carrying the onset point instead of the settle centroid,
+        // and X2, the engine's detector settling at another age (400 ms). A settle on `t - t_start`
+        // would NOT red this — both sides run the same detector; SettleAge_BlinkPausesIt kills that.
         var settledRuns = runs.Where(r => r.IsSettled).ToList();
         Check.That(engineSettles).HasSize(settledRuns.Count);
         for (int i = 0; i < settledRuns.Count; i++)

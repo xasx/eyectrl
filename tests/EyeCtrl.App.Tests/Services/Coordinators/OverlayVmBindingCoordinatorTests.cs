@@ -167,8 +167,10 @@ public class OverlayVmBindingCoordinatorTests
         var coordinator = NewCoordinator();
         SetContext(coordinator, ctx);
 
-        // A pin is Core's accepted settle, not the activation button's show (ticket 7).
+        // A pin is Core's accepted settle, not the activation button's show (ticket 7). The onset's
+        // StateChanged precedes it; the VM accepts a pin only in Fixation (review A, F4).
         messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), 0));
+        messenger.Send(new StateChangedMessage(InteractionState.Fixation));
         messenger.Send(new PinRingMessage(new PhysicalPoint(300, 200)));
         InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsPinned));
         Check.That(cursorCircle.PinnedCalls).ContainsExactly(true);

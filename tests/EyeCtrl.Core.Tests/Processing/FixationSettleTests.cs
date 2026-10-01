@@ -186,8 +186,11 @@ public class FixationSettleTests
     public void SettleLatched_MenuExitAndReturn_NoSecondSettle()
     {
         // Fixup-02 R2-1's loop shape, on the settle: the gaze never moved, and the overlay exit zeroes
-        // the age but keeps the latches. Mutation: clear the settle latch on every FreeLook entry →
-        // a second pin ~500 ms after the exit, red.
+        // the age but keeps the latches. Note (review A F3e) what this test actually kills: clearing
+        // the settle latch on FreeLook entry alone leaves it GREEN, because the re-fired settle lands
+        // in FreeLook and OnFixationSettled's state guard drops it. This test pins the state guard as
+        // the loop's outer defence; the latch's own re-arm is killed by
+        // SettleLatched_ResetAge_DoesNotReArmIt above.
         var s = Settings();
         var provider = new ScriptedGazeProvider();
         using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s);

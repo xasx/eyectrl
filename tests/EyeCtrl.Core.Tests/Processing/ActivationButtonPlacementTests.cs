@@ -15,11 +15,12 @@ public class ActivationButtonPlacementTests
     private const double Scale = 2.0;
     private const double RingDip = 250;
     private const double HitPx = LayoutConstants.ActivationButtonHitRadiusPx;
+    private const double FixationR = 75;
 
     private static ActivationButtonPlacement.Result Place(
         PhysicalPoint point, IReadOnlyList<PhysicalRect>? chrome = null)
         => ActivationButtonPlacement.Place(
-            point, RingDip, LayoutConstants.ActivationButtonOffset, Scale, HitPx, Screen, chrome);
+            point, RingDip, LayoutConstants.ActivationButtonOffset, Scale, HitPx, FixationR, Screen, chrome);
 
     [Fact]
     public void Place_IsRingEdgePlusOffsetFromP_OnTheDiagonalTowardTheScreenCentre()
@@ -37,9 +38,9 @@ public class ActivationButtonPlacementTests
     }
 
     [Fact]
-    public void Place_GoesAwayFromTheCentre_OnAllFourQuadrants()
+    public void Place_GoesTowardTheCentre_OnAllFourQuadrants()
     {
-        // Mutation: fix the direction (always down-right) → the three other quadrants' assertions red.
+        // Mutation: fix the direction (always down-right) → the other three quadrants' assertions red.
         var topLeft = Place(new PhysicalPoint(1000, 1000)).ButtonCenter;
         Check.That(topLeft.X).IsStrictlyGreaterThan(1000);
         Check.That(topLeft.Y).IsStrictlyGreaterThan(1000);
@@ -61,7 +62,7 @@ public class ActivationButtonPlacementTests
     public void Place_FlipsToTheOppositeSideOnce_WhenThePreferredSideIntersectsChrome()
     {
         // Mutation: never flip (drop the second candidate) → Placed is false, red.
-        var p = new PhysicalPoint(200, 200);
+        var p = new PhysicalPoint(1000, 1000);
         var preferred = Place(p).ButtonCenter;
 
         // A zone covering the preferred button only.
@@ -70,53 +71,71 @@ public class ActivationButtonPlacementTests
 
         Check.That(result.Placed).IsTrue();
         Check.That(result.ButtonCenter.DistanceTo(preferred)).IsStrictlyGreaterThan(1.0);
-        // The flipped side is toward the corner, so the clamp lands it on the hit-radius margin.
-        Check.That(result.ButtonCenter.X).IsEqualTo(HitPx);
-        Check.That(result.ButtonCenter.Y).IsEqualTo(HitPx);
+        // The flipped side is the mirror of the preferred one about P.
+        Check.That(result.ButtonCenter.X).IsCloseTo((2 * p.X) - preferred.X, 1e-9);
+        Check.That(result.ButtonCenter.Y).IsCloseTo((2 * p.Y) - preferred.Y, 1e-9);
     }
 
     [Fact]
     public void Place_DropsWhenTheFlippedSideIntersectsChromeToo()
     {
         // Mutation: place anyway after the flip fails → Placed is true, red.
-        var p = new PhysicalPoint(200, 200);
+        var p = new PhysicalPoint(1000, 1000);
         var preferred = Place(p).ButtonCenter;
 
         var result = Place(p, new[]
         {
-            new PhysicalRect(preferred.X - 20, preferred.Y - 20, 40, 40),   // the preferred side
-            new PhysicalRect(0, 0, 2 * HitPx, 2 * HitPx),                    // the flipped side
+            new PhysicalRect(preferred.X - 20, preferred.Y - 20, 40, 40),          // the preferred side
+            new PhysicalRect((2 * p.X) - preferred.X - 20, (2 * p.Y) - preferred.Y - 20, 40, 40), // the flip
         });
 
         Check.That(result.Placed).IsFalse();
     }
 
     [Fact]
-    public void Place_ClampsSoTheWholeHitCircleStaysOnScreen()
+    public void Place_DropsAFlippedSideClampedOntoP()
     {
-        // Mutation: return the unclamped centre → a settle near a corner puts the hit area off-screen
-        // (the flipped case below lands at (-54.6, -54.6)), red.
+        // Review A, F1. Near a corner the flip points at the corner and the clamp pulls it back onto P:
+        // B would sit inside P's hold radius, so a plain hold at P would fire the offer. Mutation:
+        // remove the distance check in IsUsable (keep only the chrome test) → Placed is true, red.
         var p = new PhysicalPoint(200, 200);
         var preferred = Place(p).ButtonCenter;
+
         var result = Place(p, new[] { new PhysicalRect(preferred.X - 20, preferred.Y - 20, 40, 40) });
 
-        Check.That(result.ButtonCenter.X).IsStrictlyGreaterThan(0);
-        Check.That(result.ButtonCenter.Y).IsStrictlyGreaterThan(0);
+        Check.That(result.Placed).IsFalse();
+        // The candidate that was rejected is the clamped corner one.
         Check.That(result.ButtonCenter.X).IsEqualTo(HitPx);
         Check.That(result.ButtonCenter.Y).IsEqualTo(HitPx);
     }
 
     [Fact]
+    public void Place_ClampsSoTheWholeHitCircleStaysOnScreen()
+    {
+        // Mutation: return the unclamped centre → the flipped candidate below lands at (-54.6, -154.6)
+        // instead of on the screen margin, red.
+        var p = new PhysicalPoint(1000, 100);   // near the top edge; the preferred side faces down-right
+        var preferred = Place(p).ButtonCenter;
+        var result = Place(p, new[] { new PhysicalRect(preferred.X - 20, preferred.Y - 20, 40, 40) });
+
+        Check.That(result.Placed).IsTrue();
+        Check.That(result.ButtonCenter.Y).IsEqualTo(HitPx);   // clamped to the hit-radius margin
+        Check.That(result.ButtonCenter.X).IsCloseTo((2 * p.X) - preferred.X, 1e-9);
+    }
+
+    [Fact]
     public void Place_OnAScreenSmallerThanTheHitCircle_CollapsesToTheCentre_WithoutThrowing()
     {
-        // Math.Clamp would throw with its minimum above its maximum; a degenerate display must not
-        // take the gaze pipeline down. Mutation: restore the raw Math.Clamp → an exception escapes.
+        // Math.Clamp would throw with its minimum above its maximum; a degenerate display must not take
+        // the gaze pipeline down. The collapsed centre is P itself, so the drop rule then refuses the
+        // offer — no throw, and no button under the hold. Mutation: restore the raw Math.Clamp → an
+        // exception escapes.
         var tiny = new PhysicalRect(0, 0, 200, 200);
         var result = ActivationButtonPlacement.Place(
             new PhysicalPoint(100, 100), RingDip, LayoutConstants.ActivationButtonOffset, Scale,
-            HitPx, tiny);
+            HitPx, FixationR, tiny);
 
-        Check.That(result.Placed).IsTrue();
+        Check.That(result.Placed).IsFalse();
         Check.That(result.ButtonCenter.X).IsEqualTo(100);
         Check.That(result.ButtonCenter.Y).IsEqualTo(100);
     }

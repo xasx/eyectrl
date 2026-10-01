@@ -229,6 +229,9 @@ public static class FixationReplayGates
     /// <param name="SettleAnchor">The running centroid at settle — the pin point — or null for a rule
     /// that predates the settle (the frozen legacy baseline).</param>
     /// <param name="SettleUs">Timestamp of the sample on which the rule reported the settle, or null.</param>
+    /// <param name="EndSampleUs">Timestamp of the sample on which the rule RELEASED the run — for a
+    /// gaze-left, the first sample outside R, which is one frame or a gap-budget later than
+    /// <see cref="EndUs"/>. Null for the stream-end release and the frozen legacy rule.</param>
     public sealed record FixationRun(
         PhysicalPoint Anchor,
         long OnsetUs,
@@ -237,13 +240,18 @@ public static class FixationReplayGates
         long? ActivationUs,
         bool EndedByLeave,
         PhysicalPoint? SettleAnchor = null,
-        long? SettleUs = null)
+        long? SettleUs = null,
+        long? EndSampleUs = null)
     {
         /// <summary>True when the rule reported activation — the M1 "activatable fixation".</summary>
         public bool IsActivatable => ActivationUs is not null;
 
         /// <summary>True when the run settled — the ring pinned at <see cref="SettleAnchor"/>.</summary>
         public bool IsSettled => SettleUs is not null;
+
+        /// <summary>When the run actually ended, as the product sees it: the releasing sample when the
+        /// rule reported one (gaze left), else the last credited sample.</summary>
+        public long EndSampleOrEndUs => EndSampleUs ?? EndUs;
 
         /// <summary>True when the credited age reaches the keyboard-length threshold — M2 (G5).</summary>
         public bool IsKeyboardLength => CreditedAgeUs >= (FixationDetectionMs + KeyboardKeyDwellMs) * 1000L;
@@ -458,17 +466,21 @@ public static class FixationReplayGates
                 throw new InvalidOperationException("The rule reported an activation without a reported onset.");
             open.Activate(timestampUs);
         };
+        long fedUs = 0;
         rule.FixationReleased += release =>
         {
             if (open is null)
                 throw new InvalidOperationException("The rule released a run it never reported an onset for.");
-            runs.Add(open.Build(release));
+            // The sample being fed when the release fired: for a gaze-left, the first sample outside R
+            // (the product's end); for the stream end, the last fed sample.
+            runs.Add(open.Build(release, fedUs));
             open = null;
         };
 
         foreach (var frame in frames)
         {
             if (frame.IsInGap) continue;
+            fedUs = frame.Raw.TimestampMicroseconds;
             rule.Update(frame.Filtered, frame.Raw.TimestampMicroseconds, frame.Raw.IsValid);
         }
 
@@ -749,9 +761,9 @@ public static class FixationReplayGates
 
         public void Activate(long timestampUs) => _activationUs ??= timestampUs;
 
-        public FixationRun Build(FixationRelease release) =>
+        public FixationRun Build(FixationRelease release, long endSampleUs) =>
             new(anchor, onsetUs, release.LastCreditedUs, release.CreditedAgeUs, _activationUs, release.EndedByLeave,
-                _settleAnchor, _settleUs);
+                _settleAnchor, _settleUs, release.EndedByLeave ? endSampleUs : null);
     }
 }
 

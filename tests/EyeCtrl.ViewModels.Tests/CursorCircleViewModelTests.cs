@@ -74,6 +74,7 @@ public class CursorCircleViewModelTests
         // deliberately different from both that sample and the samples that follow.
         SendFrame(_messenger, new PhysicalPoint(100, 100), 0);
         var settleCentroid = new PhysicalPoint(140, 120);
+        _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
         _messenger.Send(new PinRingMessage(settleCentroid));
 
         Check.That(vm.IsPinned).IsTrue();
@@ -94,6 +95,7 @@ public class CursorCircleViewModelTests
         var vm = new CursorCircleViewModel(settings, _messenger);
 
         SendFrame(_messenger, new PhysicalPoint(100, 100), 0);
+        _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
         _messenger.Send(new PinRingMessage(new PhysicalPoint(140, 120)));
         SendFrame(_messenger, new PhysicalPoint(140, 120), 30_000);
         SendFrame(_messenger, new PhysicalPoint(140, 120), 200_000);  // glide landed
@@ -124,6 +126,7 @@ public class CursorCircleViewModelTests
         var pin = new PhysicalPoint(300, 200);
 
         SendFrame(_messenger, start, 0);
+        _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
         _messenger.Send(new PinRingMessage(pin));
         SendFrame(_messenger, new PhysicalPoint(101, 100), 0);   // first frame: starts the glide at `start`
         Check.That(vm.MoveTo.Glide).IsTrue();
@@ -162,6 +165,7 @@ public class CursorCircleViewModelTests
         var vm = new CursorCircleViewModel(settings, _messenger);
 
         SendFrame(_messenger, new PhysicalPoint(100, 100), 0);
+        _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
         _messenger.Send(new PinRingMessage(new PhysicalPoint(300, 200)));
         SendFrame(_messenger, new PhysicalPoint(101, 100), 30_000);
         SendFrame(_messenger, new PhysicalPoint(102, 100), 60_000);   // mid-glide
@@ -183,6 +187,7 @@ public class CursorCircleViewModelTests
         var vm = new CursorCircleViewModel(settings, _messenger);
 
         SendFrame(_messenger, new PhysicalPoint(100, 100), 0);
+        _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
         _messenger.Send(new PinRingMessage(new PhysicalPoint(300, 200)));
         SendFrame(_messenger, new PhysicalPoint(105, 100), 30_000);
         SendFrame(_messenger, new PhysicalPoint(110, 100), 60_000);   // mid-glide
@@ -226,6 +231,7 @@ public class CursorCircleViewModelTests
         Check.That(vm.IsPinned).IsFalse();          // onset is not the pin edge
         Check.That(vm.Position).IsEqualTo(new PhysicalPoint(0, 0));
 
+        _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
         _messenger.Send(new PinRingMessage(new PhysicalPoint(140, 120)));
         Check.That(vm.IsPinned).IsTrue();
 
@@ -242,6 +248,7 @@ public class CursorCircleViewModelTests
         var settings = new EyeCtrlSettings();
         var vm = new CursorCircleViewModel(settings, _messenger);
 
+        _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
         _messenger.Send(new PinRingMessage(new PhysicalPoint(140, 120)));
         Check.That(vm.IsPinned).IsTrue();
 
@@ -266,12 +273,33 @@ public class CursorCircleViewModelTests
         var settings = new EyeCtrlSettings();
         var vm = new CursorCircleViewModel(settings, _messenger);
 
+        _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
         _messenger.Send(new PinRingMessage(new PhysicalPoint(140, 120)));
         Check.That(vm.IsPinned).IsTrue();
 
         _messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
 
         Check.That(vm.IsPinned).IsFalse();
+    }
+
+    [Fact]
+    public void PinRing_IsIgnored_UnlessTheLastReportedStateIsFixation()
+    {
+        // Review A, F4: the exit is posted from the dispatcher, so a Release/StateChanged pair can land
+        // between the gaze thread's state check and its pin post; the ring would then stay frozen with
+        // no later release on the keyboard path. Mutation: drop the guard in Receive(PinRingMessage) →
+        // the paused pin sticks, red.
+        var settings = new EyeCtrlSettings();
+        var vm = new CursorCircleViewModel(settings, _messenger);
+
+        _messenger.Send(new StateChangedMessage(InteractionState.Paused));
+        _messenger.Send(new PinRingMessage(new PhysicalPoint(140, 120)));
+        Check.That(vm.IsPinned).IsFalse();
+
+        // A real onset's StateChanged(Fixation) precedes its settle's pin, and then it pins.
+        _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
+        _messenger.Send(new PinRingMessage(new PhysicalPoint(140, 120)));
+        Check.That(vm.IsPinned).IsTrue();
     }
 
     [Fact]

@@ -25,6 +25,12 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     // immediately, and while pinned the gaze channel deliberately does not move Position.
     private PhysicalPoint _latestGaze;
 
+    // The last state the machine reported. A pin is only accepted in Fixation, which makes "a pinned
+    // ring implies Fixation" structural: an exit posted by the dispatcher can land between the gaze
+    // thread's state check and its pin post (review A, F4), and without this the ring would stay
+    // frozen in FreeLook or Paused — with no later release on the keyboard path.
+    private InteractionState _lastState = InteractionState.FreeLook;
+
     // The glide (ticket 7): the ring eases from where it was to the settle centroid over
     // RingGlide.DurationMs, driven by the sample clock (the frames the gaze channel already delivers),
     // never by a WPF animation. _glideStartUs is -1 until the first frame after the pin, so the glide
@@ -101,6 +107,11 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     /// </summary>
     public void Receive(PinRingMessage message)
     {
+        // Only a fixation may pin. The check is against the last state the machine REPORTED, so a
+        // release/exit that arrives before this message (F4's race) refuses the pin outright.
+        if (_lastState != InteractionState.Fixation)
+            return;
+
         _glideFrom = Position;
         _glideTo = message.Position;
         _glideStartUs = -1;
@@ -122,6 +133,7 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
 
     public void Receive(StateChangedMessage message)
     {
+        _lastState = message.NewState;
         // Paused keeps the ring (dimmed) — it is the user's only evidence that tracking is alive
         // while they are looking for the resume target. RepeatMode hides the normal circle: the
         // contracting repeat cursor replaces it there.

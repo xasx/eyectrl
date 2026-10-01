@@ -70,7 +70,7 @@ public enum SettleOutcome
 /// <list type="bullet">
 /// <item><b>Creation.</b> Only an accepted settle makes an offer, and only when P is outside every
 /// chrome zone and the placement function finds a side whose hit area does not intersect one. The
-/// offer's B is at <c>ring/2 + 55 DIP</c> from P, on the diagonal away from the screen centre,
+/// offer's B is at <c>ring/2 + 55 DIP</c> from P, on the diagonal toward the screen centre,
 /// clamped on screen (see <see cref="ActivationButtonPlacement"/>).</item>
 /// <item><b>Replacement.</b> A settle outside the live offer's no-move zone (hit radius + R around B)
 /// replaces it. Inside the zone, a settle is classified by where it lands: inside the hit area it is
@@ -104,8 +104,9 @@ public enum SettleOutcome
 /// </summary>
 public sealed class ActivationOfferEngine
 {
-    /// <summary>How long an offer survives after its latest activity, on the sample clock.</summary>
-    public const int OfferExpiryMs = 1000;
+    /// <summary>How long an offer survives after its latest activity, on the sample clock, by default.
+    /// Settable per engine (review B's linger lever); the app will pass decision 3's 1 s.</summary>
+    public const int DefaultOfferExpiryMs = 1000;
 
     /// <summary>How long a valid excursion outside the hit area may pause the dwell before it resets —
     /// the same 500 ms budget as ticket 3's gap rule. 0 means any outside sample resets (the replay's
@@ -115,8 +116,8 @@ public sealed class ActivationOfferEngine
     private readonly PhysicalRect _screenBoundsPx;
     private readonly double _scale;
     private readonly double _ringSizeDip;
-    private readonly double _fixationRadiusPx;
     private readonly double _hitRadiusPx;
+    private double _fixationRadiusPx;
 
     private PhysicalRect[] _chromeZones = Array.Empty<PhysicalRect>();
 
@@ -134,6 +135,7 @@ public sealed class ActivationOfferEngine
     private bool _nearMissRunActive;
     private PhysicalPoint? _pending;
     private RunRole _runRole = RunRole.None;
+    private int _offerExpiryMs = DefaultOfferExpiryMs;
 
     /// <summary>What the current run is to the live offer — it decides what the run's end does to it.</summary>
     private enum RunRole
@@ -198,6 +200,41 @@ public sealed class ActivationOfferEngine
     /// replay's reset-semantics comparison sets it to 0.</summary>
     public int OutsidePauseBudgetMs { get; set; } = DefaultOutsidePauseBudgetMs;
 
+    /// <summary>
+    /// The live fixation radius R in physical pixels: the no-move zone is hit radius + this around B.
+    /// Settable in place like <see cref="DwellMs"/>, because R is a live setting and an adaptation
+    /// knob — ticket 8's wiring must not have to rebuild the engine (and drop a live offer) to follow
+    /// it (review A, ticket-8 nit).
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is not positive and finite.</exception>
+    public double FixationRadiusPx
+    {
+        get => _fixationRadiusPx;
+        set
+        {
+            if (!double.IsFinite(value) || value <= 0)
+                throw new ArgumentOutOfRangeException(nameof(value), value, "Fixation radius must be positive and finite.");
+            _fixationRadiusPx = value;
+        }
+    }
+
+    /// <summary>
+    /// How long an offer survives after its latest activity, in ms (decision 3's linger). Settable like
+    /// <see cref="DwellMs"/>: the replay's lever table moves it, and the live value may move with the
+    /// user's read-out.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is negative.</exception>
+    public int OfferExpiryMs
+    {
+        get => _offerExpiryMs;
+        set
+        {
+            if (value < 0)
+                throw new ArgumentOutOfRangeException(nameof(value), value, "Expiry must not be negative.");
+            _offerExpiryMs = value;
+        }
+    }
+
     /// <summary>Dwell progress of the live offer, 0.0–1.0; 0 when none is up. Published for the
     /// halo (ticket 8 puts it on the GazeFrame) and read by the replay.</summary>
     public double DwellProgress
@@ -238,6 +275,8 @@ public sealed class ActivationOfferEngine
     {
         _runActive = true;
         _nearMissRunActive = false;
+        if (timestampUs > _lastSampleUs)
+            _lastSampleUs = timestampUs;   // the settle sample is a sample: a later gap is measured from it
 
         if (_fired)
         {
@@ -327,14 +366,22 @@ public sealed class ActivationOfferEngine
 
         if (!_fired)
         {
-            // The offered fixation is still running: its end has not happened yet, and the expiry is
-            // 1 s after that end — so every sample of the run pushes the deadline out. Without this an
-            // offer for a hold longer than 1 s would die underneath the user while they still hold.
-            if (_runRole == RunRole.Offered)
-                ExtendExpiry(timestampUs);
-
             if (isValid && point.DistanceTo(_offer.Button) <= _offer.HitRadiusPx)
             {
+                // The offered fixation is still running: its end has not happened yet, and the expiry is
+                // 1 s after that end — so every sample of the run pushes the deadline out. Without this an
+                // offer for a hold longer than 1 s would die underneath the user while they still hold.
+                if (_runRole == RunRole.Offered)
+                    ExtendExpiry(timestampUs);
+
+                // A silence longer than the pause budget (and longer than a mere frame) is the same
+                // evidence as invalid samples: the eyes were not there, so it aborts the dwell (review
+                // A F5). The frame-scale floor keeps the reset-semantics comparison run (budget 0)
+                // meaningful: ordinary 30 ms frames are not "excursions".
+                long silenceUs = timestampUs - _lastSampleUs;
+                if (silenceUs > Math.Max(FixationDetector.AgeCreditCapMs * 1000L, OutsidePauseBudgetMs * 1000L))
+                    _dwellUs = 0;
+
                 ExtendExpiry(timestampUs);
                 ResumeDwell(timestampUs);
                 if (_dwellUs >= DwellMs * 1000L)
@@ -347,6 +394,11 @@ public sealed class ActivationOfferEngine
             {
                 if (isValid && _nearMissRunActive)
                     ExtendExpiry(timestampUs);
+
+                // The offered run's samples extend the deadline while it holds, even off the button.
+                if (_runRole == RunRole.Offered)
+                    ExtendExpiry(timestampUs);
+
                 PauseDwell(timestampUs);
             }
         }
@@ -355,14 +407,19 @@ public sealed class ActivationOfferEngine
     }
 
     /// <summary>
-    /// Accepts the fired offer. A stale or unknown id — or no fired offer at all — is REJECTED, and a
-    /// rejected completion counts as a decline: the fired lock must never strand the session (R3).
+    /// Accepts the completion for <paramref name="offerId"/>. It acts only on that offer: a stale id (the
+    /// offer it names is already gone) does NOTHING — a rejection must never decline whatever happens to
+    /// be live now (review A, F2). A matching id is accepted when the offer is fired, and declined when
+    /// it is not (a protocol violation; a rejected completion counts as a decline, R3).
     /// </summary>
     public void Accept(long offerId)
     {
-        if (_offer is null || !_fired || _offer.Id != offerId)
+        if (_offer is null || _offer.Id != offerId)
+            return;
+
+        if (!_fired)
         {
-            Decline();
+            Decline(offerId);
             return;
         }
 
@@ -373,9 +430,26 @@ public sealed class ActivationOfferEngine
 
     /// <summary>
     /// Declines the live offer (fired or not), and re-offers the pending settle at once when its run
-    /// still holds.
+    /// still holds. The caller means "the current offer" — a teardown, or the replay's model.
     /// </summary>
-    public void Decline() => ExpireOrDecline(_lastSampleUs);
+    public void Decline()
+    {
+        if (_offer is null)
+            return;
+        ExpireOrDecline(_lastSampleUs);
+    }
+
+    /// <summary>
+    /// Declines only the offer named by <paramref name="offerId"/>: a stale id does nothing, so a late
+    /// decline for an older offer cannot clear the live one (review A, F2). Ticket 8's
+    /// <c>DeclineOffer(snapshot)</c> uses this shape.
+    /// </summary>
+    public void Decline(long offerId)
+    {
+        if (_offer is null || _offer.Id != offerId)
+            return;
+        ExpireOrDecline(_lastSampleUs);
+    }
 
     /// <summary>
     /// A teardown (pause, keyboard, repeat mode, external dwell, calibration, reset): clears the offer
@@ -405,7 +479,7 @@ public sealed class ActivationOfferEngine
 
         var placement = ActivationButtonPlacement.Place(
             point, _ringSizeDip, LayoutConstants.ActivationButtonOffset, _scale, _hitRadiusPx,
-            _screenBoundsPx, _chromeZones);
+            _fixationRadiusPx, _screenBoundsPx, _chromeZones);
         if (!placement.Placed)
             return false;
 
@@ -460,7 +534,9 @@ public sealed class ActivationOfferEngine
     private void PauseDwell(long timestampUs)
     {
         _missSinceUs ??= timestampUs;
-        if (timestampUs - _missSinceUs > OutsidePauseBudgetMs * 1000L)
+        // Budget 0 is the reset-semantics comparison: any single outside sample resets (review B F8's
+        // label), not the second one.
+        if (OutsidePauseBudgetMs <= 0 || timestampUs - _missSinceUs > OutsidePauseBudgetMs * 1000L)
             _dwellUs = 0;
     }
 

@@ -22,7 +22,7 @@
     <Grid x:Name="RootGrid" ColumnDefinitions="240, *">
 
         <!-- Left: Sidebar with tab buttons. Row 2 paginates the tab list: the sidebar is a
-             plain non-scrolling stack, and on windows shorter than close-button + 11 tab slots
+             plain non-scrolling stack, and on windows shorter than close-button + 15 tab slots
              the bottom tabs would be clipped out of reach for a gaze user. -->
         <Grid Grid.Column="0" Background="{StaticResource BrushSurfaceMedium}" RowDefinitions="Auto, *, Auto">
 

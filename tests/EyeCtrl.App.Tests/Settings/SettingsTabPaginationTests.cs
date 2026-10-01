@@ -6,7 +6,7 @@ using EyeCtrl.App.Views.Settings;
 public class SettingsTabPaginationTests
 {
     // The sidebar is a plain vertical StackPanel — no scrolling — so on any window shorter than
-    // ~1312 DIP (close button + 11 x 108-DIP tab slots) the bottom tabs are clipped out of
+    // ~1744 DIP (close button + 15 x 108-DIP tab slots), the bottom tabs are clipped out of
     // reach for a gaze user. Found 2026-08-17: tabs 10-11 (General, Quick Actions) unreachable.
     // These tests pin the arithmetic of the fix: split the tab list into pages sized to the
     // height the sidebar actually has.

@@ -653,9 +653,9 @@ public static class ActivationReplayReport
         sb.AppendLine("**The caveat is two-sided.** The recording was made under the old UI: it never kept a button");
         sb.AppendLine("up after a fixation ended, so glances at a lingering button are under-represented (G3′ reads");
         sb.AppendLine("low); and it drew its decoy button at exactly the spot today's offer goes, so looks toward B");
-        sb.AppendLine("are over-represented (G3′ reads high — the one completion looks like such a look: an up-right");
-        sb.AppendLine("saccade to B, then a hold 75 px away, 392 ms after the hold ended). Read G3′ as \"rare on this");
-        sb.AppendLine("recording\"; the live check decides.");
+        sb.AppendLine("are over-represented (G3′ reads high). At R75 the single completion looks like such a look — an");
+        sb.AppendLine("up-right saccade to B, then a hold 75 px away, 392 ms after the hold ended. Read G3′ as \"rare on");
+        sb.AppendLine("this recording\"; the live check decides.");
         sb.AppendLine();
         sb.AppendLine("## The top corners");
         sb.AppendLine();
@@ -708,7 +708,8 @@ public static class ActivationReplayReport
         sb.AppendLine("Each row is the same recording with one constant moved, at both radii. The on-screen share is");
         sb.AppendLine("the time a button is visible somewhere; the linger is the biggest cheap lever (decision 3), the");
         sb.AppendLine("settle also moves when the ring pins and the time to activate, and the hit radius mostly moves");
-        sb.AppendLine("completions.");
+        sb.AppendLine("completions. The reset-on-excursion comparison run resets after one outside sample, blinks");
+        sb.AppendLine("included.");
         sb.AppendLine();
         AppendLeverTable(sb, "Linger", lingerLevers);
         sb.AppendLine();

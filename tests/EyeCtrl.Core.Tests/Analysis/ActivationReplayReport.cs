@@ -390,9 +390,9 @@ public static class ActivationReplayReport
                 outsideBandUs += Math.Max(0, dt);
                 if (after is not null || before is not null)
                     outsideBandOnScreenUs += Math.Max(0, dt);
-                if (InCorner(inputs, frame.Filtered, topLeft: true)) topLeftSamples++;
-                if (InCorner(inputs, frame.Filtered, topLeft: false)) topRightSamples++;
             }
+            if (InCorner(inputs, frame.Filtered, topLeft: true)) topLeftSamples++;
+            if (InCorner(inputs, frame.Filtered, topLeft: false)) topRightSamples++;
 
             if (firedThisFrame is { } firedId)
             {
@@ -717,8 +717,8 @@ public static class ActivationReplayReport
         sb.AppendLine();
         AppendLeverTable(sb, "Hit radius", radiusLevers);
         sb.AppendLine();
-        sb.AppendLine($"At a 0.5 s linger, {I(userR.Sim.FirstLooksOver500Ms)} of the {I(userR.Sim.LookedAtOffers)} looks at a button on this recording would have");
-        sb.AppendLine("found it gone; the one completion arrived 392 ms after the hold ended and would survive.");
+        sb.AppendLine($"At a 0.5 s linger, {I(userR.Sim.FirstLooksOver500Ms)} of the {I(userR.Sim.LookedAtOffers)} R90 looks at a button on this recording would");
+        sb.AppendLine("have found it gone; the R75 completion arrived 392 ms after the hold ended and would survive.");
         sb.AppendLine($"_(runs: {I(userR.Runs.Count)} at R90, {I(defaultR.Runs.Count)} at R75; settled: {I(userR.Runs.Count(r => r.IsSettled))} / {I(defaultR.Runs.Count(r => r.IsSettled))}.)_");
         sb.AppendLine();
         sb.AppendLine("## The user's decision (to be recorded)");

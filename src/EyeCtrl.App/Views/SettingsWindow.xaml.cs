@@ -92,6 +92,29 @@ public partial class SettingsWindow : OverlayWindow
     /// </summary>
     internal const double TwoColumnMinimumWidth = RowNameColumnWidth + 404 + 24;
 
+    /// <summary>
+    /// The gutter between the ring preview's painting and its honesty captions, in DIP.
+    ///
+    /// <c>internal</c> because the fit scalar must reserve the caption's room: the row's Grid and
+    /// <c>SettingsAutoPagination.FitRingPreview</c> read this one value, so the width the fit
+    /// assumes for the painting is the width the row actually gives it.
+    /// </summary>
+    internal const double RingPreviewCaptionGutter = 24;
+
+    /// <summary>
+    /// The narrowest caption column a ring preview may leave itself, in DIP.
+    ///
+    /// <c>FitRingPreview</c> reserves this plus <see cref="RingPreviewCaptionGutter"/> OUT of the
+    /// painting's width before asking <c>RingPlan.ScaleFor</c>. Without the reservation a
+    /// width-bound preview takes the whole column and the captions get zero room — text wrapped
+    /// to one character per line, drawn over the ring, or both. 200 DIP is two lines of the
+    /// longer caption ("runtime shows labels only while you dwell", 18 DIP type) — enough to
+    /// read, narrow enough not to shrink the painting on the reference display. A column that
+    /// cannot hold the legibility floor's painting plus this room omits the preview instead;
+    /// absent beats a caption the fold clips.
+    /// </summary>
+    internal const double RingPreviewMinCaptionWidth = 200;
+
     private const double TabBtnRadius = 85;
     private const double PagBtnRadius = 60;
     private const double ModalBtnRadius = 70;
@@ -813,10 +836,9 @@ public partial class SettingsWindow : OverlayWindow
     /// ContentAvailableWidth.
     ///
     /// <para>
-    /// The ring preview's spec-level fit runs first (<see cref="SettingsAutoPagination.FitRingPreview"/>):
-    /// it stamps the scale onto the ring row or drops the preview's rows entirely, BEFORE the
-    /// chunker — the chunker has no drop path, so an unfit preview left to it would get a page of
-    /// its own and then be clipped.
+    /// The pipeline itself — the ring preview's spec-level fit, then the height chunker — lives in
+    /// <see cref="SettingsAutoPagination.Repaginate"/>, because the reachability gate measures the
+    /// same pages through it. This method owns only the window's inputs and the decline rule.
     /// </para>
     /// </summary>
     private IReadOnlyList<PageSpec> MaybeRepaginateByHeight(IReadOnlyList<PageSpec> pages)
@@ -831,11 +853,8 @@ public partial class SettingsWindow : OverlayWindow
             return pages;
 
         var rows = pages.SelectMany(p => p.Rows).ToList();
-        rows = SettingsAutoPagination.FitRingPreview(rows, width, height);
-
         var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
-        return SettingsAutoPagination.ChunkByHeight(
-            rows, row => SettingsAutoPagination.MeasureRowHeight(row, width, r, _dwellMs), height);
+        return SettingsAutoPagination.Repaginate(rows, width, height, r, _dwellMs);
     }
 
     private void RenderCurrentPage()
@@ -1417,14 +1436,16 @@ public partial class SettingsWindow : OverlayWindow
     /// <para>
     /// The captions sit BESIDE the painting rather than under it, and that is budget arithmetic,
     /// not taste: the fit scalar sizes the painting to fill the height budget, so a caption row
-    /// below the square is the row the fold clips. The remaining column width is the caption's;
-    /// the text wraps.
+    /// below the square is the row the fold clips. The painting column is <c>Auto</c> — it takes
+    /// exactly the square's width — and the caption column is the star remainder, so the two can
+    /// never overlap. The star column is non-empty by construction: <c>FitRingPreview</c> reserved
+    /// <see cref="RingPreviewCaptionGutter"/> plus <see cref="RingPreviewMinCaptionWidth"/> out of
+    /// the width it scaled the painting into, or omitted the preview.
     /// </para>
     /// </summary>
     private sealed class RingPreviewRow : IDwellComposite
     {
         private static readonly IReadOnlyList<DwellControl> NoChildren = Array.Empty<DwellControl>();
-        private const double CaptionGutter = 24;
 
         private readonly Grid _root;
 
@@ -1458,13 +1479,16 @@ public partial class SettingsWindow : OverlayWindow
             var captions = new StackPanel
             {
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(CaptionGutter, 0, 0, 0),
+                Margin = new Thickness(RingPreviewCaptionGutter, 0, 0, 0),
             };
             captions.Children.Add(Caption(spec.CaptionNotAControl));
             captions.Children.Add(Caption(spec.CaptionLabels));
 
+            // Column 0 is Auto, NOT the default 1*: a star column would split the row 50/50 and
+            // the canvas — explicit Width, no layout clip — would paint the ring over the
+            // captions whenever the painting is wider than half the column (PR #175 F1).
             _root = new Grid { Height = side };
-            _root.ColumnDefinitions.Add(new ColumnDefinition());
+            _root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             _root.ColumnDefinitions.Add(
                 new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             Grid.SetColumn(canvas, 0);

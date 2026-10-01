@@ -60,19 +60,37 @@ public class RingPreviewTests
         SettingsAutoPagination.MeasureRowHeight(row, ColumnWidth, RadiusPhysical, DwellMs);
 
     /// <summary>Places one row the way ContentPanel does, arranges it, and returns the host.</summary>
-    private static StackPanel Place(SettingsRowSpec row)
+    private static StackPanel Place(SettingsRowSpec row) => Place(row, ColumnWidth);
+
+    /// <summary>
+    /// Places one row at an arbitrary column width, the way ContentPanel does: build through
+    /// production's path, attach, measure/arrange at the column width, and update layout.
+    /// </summary>
+    private static StackPanel Place(SettingsRowSpec row, double columnWidth)
     {
-        var host = new StackPanel { Width = ColumnWidth };
+        var host = new StackPanel { Width = columnWidth };
         TextElement.SetFontFamily(host, Tokens.FontStandard);
         var composite = (IDwellComposite)SettingsWindow.CreateControl(
             row, new SettingsAutoPagination.NoopDwellRegistrar(), RadiusPhysical, DwellMs,
-            ColumnWidth);
+            columnWidth);
         composite.Attach(host);
-        host.Measure(new Size(ColumnWidth, double.PositiveInfinity));
-        host.Arrange(new Rect(new Size(ColumnWidth, host.DesiredSize.Height)));
+        host.Measure(new Size(columnWidth, double.PositiveInfinity));
+        host.Arrange(new Rect(new Size(columnWidth, host.DesiredSize.Height)));
         host.UpdateLayout();
         return host;
     }
+
+    /// <summary>
+    /// The ring preview's two honesty captions, found by the text they were built with. Matching
+    /// on text is deliberate: at scale &lt; 1 the painter also draws one TextBlock per ring label
+    /// on the painting's canvas, so a tree-order or type-only walk would count those too.
+    /// </summary>
+    private static List<TextBlock> CaptionBlocks(DependencyObject host) =>
+        Descendants(host)
+            .OfType<TextBlock>()
+            .Where(t => t.Text == ActionMenuPageSource.RingPreviewCaptionNotAControl
+                        || t.Text == ActionMenuPageSource.RingPreviewCaptionLabels)
+            .ToList();
 
     /// <summary>Every painted button face under <paramref name="root"/>: the true-diameter ellipses.</summary>
     private static List<Ellipse> PaintedFaces(DependencyObject root) =>
@@ -149,6 +167,35 @@ public class RingPreviewTests
         Check.That(RingPlan.MinimumLegibleScale)
              .IsCloseTo(RingPlan.LegibilityFloorButtonRadiusDip / LayoutConstants.ActionMenuButtonRadius, 1e-12);
         Check.That(RingPlan.MinimumLegibleScale).IsCloseTo(36.0 / 70.0, 1e-12);
+    }
+
+    /// <summary>
+    /// PR #175 F2: <c>Repaginate</c> is the one production pipeline — fit, then chunk — and the
+    /// reachability gate measures through it. This pins the composition itself, from the pages
+    /// that come out: below the floor the preview's rows are gone, at 688 the stamped ring is on
+    /// the trailing page. Without this, a future edit could drop the fit from the pipeline and
+    /// every other gate would stay green while production rendered an unstamped, un-omitted
+    /// preview again.
+    /// </summary>
+    [StaFact]
+    public void Repaginate_RunsTheFitBeforeTheChunker()
+    {
+        var rows = ActionMenuRows();
+
+        var narrow = SettingsAutoPagination.Repaginate(
+            rows, ColumnWidth, NarrowBudget, RadiusPhysical, DwellMs);
+        Check.WithCustomMessage(
+                "Repaginate no longer runs the fit: the preview (and its jump row) survived a "
+                + "budget below the legibility floor, where production must omit it.")
+             .That(narrow.SelectMany(p => p.Rows).Where(r => r is RingPreviewSpec or RingJumpSpec))
+             .IsEmpty();
+
+        var reference = SettingsAutoPagination.Repaginate(
+            rows, ColumnWidth, ReferenceBudget, RadiusPhysical, DwellMs);
+        var ring = reference.SelectMany(p => p.Rows).OfType<RingPreviewSpec>().Single();
+        Check.WithCustomMessage("the ring row is no longer on the trailing page")
+             .That(reference[^1].Rows).Contains(ring);
+        Check.That(ring.Scale).IsCloseTo(1.0, 1e-9);
     }
 
     /// <summary>
@@ -240,6 +287,83 @@ public class RingPreviewTests
 
         Check.That(texts).Contains(ActionMenuPageSource.RingPreviewCaptionNotAControl);
         Check.That(texts).Contains(ActionMenuPageSource.RingPreviewCaptionLabels);
+    }
+
+    /// <summary>
+    /// PR #175 F1: the captions must never draw over the ring. The painting column is <c>Auto</c>
+    /// — exactly the square's width — and the caption column is the star remainder, so every
+    /// caption's arranged box starts to the RIGHT of the painting's <c>[0, side]</c> square and
+    /// stays inside the row. The fit reserved the caption's room out of the width before scaling
+    /// the painting, so no present case can starve the caption column.
+    ///
+    /// <para>
+    /// The cases are the real geometries the review measured: the gate's 1080p fixture (the one
+    /// geometry the old star column happened to hide the bug at), the user's 1920×1200 DIP
+    /// display at CircleSize 350 (34 DIP of overlap before the fix), 1440×900's 992×526 (6 DIP),
+    /// and 1080×1920 portrait (the width-bound case). 416×600 is the narrowest supported column:
+    /// it cannot hold the legibility floor's painting plus a readable caption column, so the
+    /// preview is omitted rather than overlapped or shrunk below the floor.
+    /// </para>
+    /// </summary>
+    [StaTheory]
+    [InlineData(1424.0, 688.0, 250.0, true)]   // the reference display / gate fixture
+    [InlineData(1424.0, 796.0, 350.0, true)]   // the user's display at CircleSize 350: 34 DIP overlap before
+    [InlineData(992.0, 526.0, 250.0, true)]    // 1440×900: 6 DIP overlap before
+    [InlineData(668.0, 1444.0, 250.0, true)]   // 1080×1920 portrait: width-bound
+    [InlineData(416.0, 600.0, 250.0, false)]   // narrowest column: no room for painting + captions
+    public void TheCaptions_NeverDrawOverTheRing(
+        double columnWidth, double budget, double circleSize, bool present)
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Cursor.CircleSize = circleSize;
+
+        var fitted = SettingsAutoPagination.FitRingPreview(ActionMenuRows(settings), columnWidth, budget);
+        var ring = fitted.OfType<RingPreviewSpec>().SingleOrDefault();
+
+        if (!present)
+        {
+            Check.WithCustomMessage(
+                    $"the preview must be omitted at {columnWidth}×{budget}: the column cannot "
+                    + "hold the legibility floor's painting plus a readable caption column, and "
+                    + "absent beats a caption drawn over the ring.")
+                 .That(ring).IsNull();
+            return;
+        }
+
+        Check.That(ring).IsNotNull();
+        var plan = ring!.Plan();
+        var side = plan.WindowSize * ring.Scale;
+        var host = Place(ring, columnWidth);
+
+        // The painting occupies exactly its Auto column: the square's own width.
+        var grid = (Grid)host.Children[0];
+        var paintingCanvas = grid.Children.OfType<Canvas>().Single();
+        Check.WithCustomMessage($"the painting column is not the square's width ({side:F2} DIP)")
+             .That(paintingCanvas.ActualWidth).IsCloseTo(side, 0.01);
+
+        var captions = CaptionBlocks(host);
+        Check.WithCustomMessage("the preview row lost a caption")
+             .That(captions).HasSize(2);
+
+        foreach (var caption in captions)
+        {
+            var box = caption.TransformToAncestor(host)
+                .TransformBounds(new Rect(0, 0, caption.ActualWidth, caption.ActualHeight));
+            var message =
+                $"caption \"{caption.Text}\" at {columnWidth}×{budget} (CircleSize {circleSize}, "
+                + $"painting {side:F2} DIP) lands at x {box.Left:F2}..{box.Right:F2}, "
+                + $"y {box.Top:F2}..{box.Bottom:F2}";
+            Check.WithCustomMessage(message + " — it overlaps the ring's square")
+                 .That(box.Left).IsGreaterOrEqualThan(side - 0.01);
+            Check.WithCustomMessage(message + " — it escapes the row to the right")
+                 .That(box.Right).IsLessOrEqualThan(columnWidth + 0.01);
+            Check.WithCustomMessage(message + " — it escapes the row above")
+                 .That(box.Top).IsGreaterOrEqualThan(-0.01);
+            Check.WithCustomMessage(message + " — it escapes the row below")
+                 .That(box.Bottom).IsLessOrEqualThan(side + 0.01);
+            Check.WithCustomMessage(message + " — the caption column collapsed")
+                 .That(caption.ActualWidth).IsStrictlyGreaterThan(0);
+        }
     }
 
     // ────── G8: append-only ──────
@@ -367,11 +491,21 @@ public class RingPreviewTargetTests
     /// registered id outside it (an <c>am_ring_*</c> target, a DwellControl the miniature forgot
     /// to avoid) fails here — the painter's structural half is pinned in
     /// <c>ActionMenuRingPainterTests</c>.
+    ///
+    /// <para>
+    /// A theory over the two real budgets, PR #175 F4: at 688 the ring row is unstamped (the
+    /// painter's unscaled branch), at 494 it is stamped at 494/670 — the scaled branch, the host
+    /// row as the render path really builds it. Both run through <c>FitRingPreview</c> first,
+    /// exactly as production does.
+    /// </para>
     /// </summary>
-    [StaFact]
-    public void BuildingTheWholePage_RegistersOnlyTheExistingRows_AndTheJumpRow()
+    [StaTheory]
+    [InlineData(688.0)]
+    [InlineData(494.0)]
+    public void BuildingTheWholePage_RegistersOnlyTheExistingRows_AndTheJumpRow(double budget)
     {
-        var registered = RegisteredIds(ActionMenuRows());
+        var rows = SettingsAutoPagination.FitRingPreview(ActionMenuRows(), ColumnWidth, budget);
+        var registered = RegisteredIds(rows);
 
         var expected = new HashSet<string>(StringComparer.Ordinal) { "am_reset" };
         foreach (var action in Enum.GetValues<InteractionAction>())
@@ -382,10 +516,10 @@ public class RingPreviewTargetTests
         expected.Add(ActionMenuPageSource.RingJumpRowId);
 
         Check.WithCustomMessage(
-                "The registered dwell ids on the Action Menu tab are no longer exactly the "
-                + "existing rows plus the jump row. The ring miniature must register NOTHING — "
-                + "it is the zero-target design — and the jump row is the only new target the "
-                + "preview adds. Registered: " + string.Join(", ", registered))
+                $"At the {budget} DIP budget the registered dwell ids on the Action Menu tab are "
+                + "no longer exactly the existing rows plus the jump row. The ring miniature must "
+                + "register NOTHING — it is the zero-target design — and the jump row is the only "
+                + "new target the preview adds. Registered: " + string.Join(", ", registered))
              .That(registered)
              .ContainsExactly(expected.OrderBy(id => id, StringComparer.Ordinal));
 
@@ -399,12 +533,14 @@ public class RingPreviewTargetTests
     /// <summary>
     /// The one-new-target claim from the other side: strip the jump row and the registered set is
     /// exactly what the tab registered before the preview existed — so the ring adds nothing and
-    /// the jump row adds exactly itself.
+    /// the jump row adds exactly itself. Same two budgets as the exact-set theory above.
     /// </summary>
-    [StaFact]
-    public void TheJumpRow_IsTheOnlyNewRegisteredTarget()
+    [StaTheory]
+    [InlineData(688.0)]
+    [InlineData(494.0)]
+    public void TheJumpRow_IsTheOnlyNewRegisteredTarget(double budget)
     {
-        var rows = ActionMenuRows();
+        var rows = SettingsAutoPagination.FitRingPreview(ActionMenuRows(), ColumnWidth, budget);
         var withJump = RegisteredIds(rows);
         var withoutJump = RegisteredIds(rows.Where(r => r is not RingJumpSpec).ToList());
 

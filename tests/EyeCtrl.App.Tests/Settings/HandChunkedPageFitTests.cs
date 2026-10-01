@@ -391,14 +391,17 @@ public class HandChunkedPageFitTests
 
     /// <summary>
     /// The pages production actually renders for this source: the source's own pages for a
-    /// hand-chunked one, and for an auto-paginated one its rows flattened and re-split by
-    /// <see cref="SettingsAutoPagination.ChunkByHeight"/> at the production budget — what
-    /// <c>SettingsWindow.MaybeRepaginateByHeight</c> does with the live window's numbers.
+    /// hand-chunked one, and for an auto-paginated one its rows flattened and run through
+    /// production's full pagination pipeline — <see cref="SettingsAutoPagination.Repaginate"/>,
+    /// which is the ring preview's fit THEN the height chunker, the same two steps
+    /// <c>SettingsWindow.MaybeRepaginateByHeight</c> runs with the live window's numbers.
     ///
     /// <para>
     /// This is the door the guard used to skip: auto-paginated sources were left out of the
     /// sweep entirely, so nothing ever measured the post-chunk pages production renders. The
     /// chunker's own tests cover the chunking arithmetic; this measures the pages that come out.
+    /// It calls the production method rather than restating its two steps, because a restated
+    /// pipeline drifts the next time production grows one (PR #175 F2).
     /// </para>
     /// </summary>
     /// <param name="source">The source whose pages these are.</param>
@@ -412,10 +415,7 @@ public class HandChunkedPageFitTests
         if (!source.PrefersAutoPagination) return pages;
 
         var rows = pages.SelectMany(p => p.Rows).ToList();
-        return SettingsAutoPagination.ChunkByHeight(
-            rows,
-            row => SettingsAutoPagination.MeasureRowHeight(row, columnWidth, RadiusPhysical, DwellMs),
-            budget);
+        return SettingsAutoPagination.Repaginate(rows, columnWidth, budget, RadiusPhysical, DwellMs);
     }
 
     // ────── Placement ──────
@@ -628,14 +628,17 @@ public class HandChunkedPageFitTests
     /// <para>
     /// The quick actions TYPE picker is a hard-wired page — a Back row plus four 90 DIP type
     /// buttons — and every row is centred in a 150 DIP box, so the page is 750 DIP against the
-    /// 688 DIP cell. The fifth circle's centre lands at 675, 13 DIP inside the budget, and what
-    /// crosses the fold is the trailing margin below the final button: nothing under the last
-    /// 62 DIP of that page is drawn or registered except the lower 37 DIP of that one circle.
-    /// Re-chunking the tab's entry point is a UX decision this gate does not take (the class
-    /// remarks above and <c>QaPresetsPerPage</c>'s carry the same position), and the
-    /// trailing-slack guard beside this one names the same page for the same reason. Fixing the
-    /// page rather than exempting it is the better outcome the day someone decides to spend the
-    /// extra page-turn; until then the exemption carries the number.
+    /// 688 DIP cell. The fifth circle's centre lands at 675, 13 DIP inside the budget; what
+    /// crosses the fold is the trailing margin below the final row plus that row's own content.
+    /// The 90 DIP button face is centred in its 150 DIP box, so it spans 630..720 — its lower
+    /// 32 DIP is drawn below the fold — and its hit circle spans 625..725, 37 DIP below. Nothing
+    /// else under the last 62 DIP of the page is drawn or registered (PR #175 F3: the earlier
+    /// prose said nothing was drawn, which understated the button face). Re-chunking the tab's
+    /// entry point is a UX decision this gate does not take (the class remarks above and
+    /// <c>QaPresetsPerPage</c>'s carry the same position), and the trailing-slack guard beside
+    /// this one names the same page for the same reason. Fixing the page rather than exempting
+    /// it is the better outcome the day someone decides to spend the extra page-turn; until then
+    /// the exemption carries the number.
     /// </para>
     /// </summary>
     private static readonly ReachExemption[] ReachExemptions =
@@ -647,8 +650,8 @@ public class HandChunkedPageFitTests
             MeasuredOverflowDip: 37.00,
             Reason: "measured 2026-09-30: type-picker page 750.00 DIP vs the 688.00 budget; "
                     + "centre 675.00 (13 inside), circle y 625.00..725.00, so its lower 37.00 "
-                    + "crosses the fold — accepted page, see the class remarks and "
-                    + "QaPresetsPerPage"),
+                    + "crosses the fold — the drawn 90 DIP face (630.00..720.00) puts 32.00 below "
+                    + "it too; accepted page, see the class remarks and QaPresetsPerPage"),
     ];
 
     /// <summary>

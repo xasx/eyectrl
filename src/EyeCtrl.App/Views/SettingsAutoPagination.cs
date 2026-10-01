@@ -95,16 +95,27 @@ internal static class SettingsAutoPagination
     ///
     /// <para>
     /// One computation decides both things: the fit scalar (<see cref="RingPlan.ScaleFor"/>) is
-    /// stamped onto the ring row, and the same scalar's legibility and height decide whether the
-    /// row survives. When it does not, the jump row is dropped with it — a "View ring preview"
-    /// row that lands on a page with no preview is a dead affordance. Every other row is returned
-    /// untouched and in order, so pages holding existing rows cannot move (append-only).
+    /// stamped onto the ring row, and the same scalar's legibility decides whether the row
+    /// survives. The width the scalar sees is the column MINUS the caption's room
+    /// (<see cref="SettingsWindow.RingPreviewCaptionGutter"/> +
+    /// <see cref="SettingsWindow.RingPreviewMinCaptionWidth"/>) — the painting and its captions
+    /// share the column, so a width-bound preview must scale the painting down to leave the
+    /// captions readable, never draw over them (PR #175 F1). If the reserved width cannot clear
+    /// the legibility floor, the preview is omitted rather than shrunk or overlapped.
     /// </para>
     ///
     /// <para>
-    /// The tolerance is for the scale's own round trip: at an exactly-fitting budget,
-    /// <c>(height / WindowSize) * WindowSize</c> can land a float epsilon above the height, and a
-    /// preview one epsilon over budget is present, not clipped.
+    /// Height never decides omission: <see cref="RingPlan.ScaleFor"/> is bounded by
+    /// <c>availableHeight / WindowSize</c>, so <c>WindowSize * scale ≤ availableHeight</c> holds
+    /// by construction. The legibility floor is the whole predicate. (An earlier revision also
+    /// carried a <c>WindowSize * scale &gt; availableHeight</c> clause with a float tolerance;
+    /// it was provably dead — PR #175 F5.)
+    /// </para>
+    ///
+    /// <para>
+    /// When the preview is omitted, the jump row goes with it — a "View ring preview" row that
+    /// lands on a page with no preview is a dead affordance. Every other row is returned untouched
+    /// and in order, so pages holding existing rows cannot move (append-only).
     /// </para>
     /// </summary>
     /// <param name="rows">The tab's rows, in order, before chunking.</param>
@@ -118,12 +129,44 @@ internal static class SettingsAutoPagination
         if (ring is null) return rows.ToList();
 
         var plan = ring.Plan();
-        var scale = plan.ScaleFor(availableWidth, availableHeight);
 
-        if (!RingPlan.IsLegibleAt(scale) || plan.WindowSize * scale > availableHeight + 1e-6)
+        // The caption's room is reserved in the SAME computation the row reads: the painting may
+        // only use what the column has left after the gutter and the narrowest readable caption
+        // column. RingPreviewRow's Grid gives the painting exactly this width (Auto column) and
+        // the captions the star remainder.
+        var paintingWidth = availableWidth
+            - SettingsWindow.RingPreviewCaptionGutter - SettingsWindow.RingPreviewMinCaptionWidth;
+        var scale = plan.ScaleFor(paintingWidth, availableHeight);
+
+        if (!RingPlan.IsLegibleAt(scale))
             return rows.Where(r => r is not (RingPreviewSpec or RingJumpSpec)).ToList();
 
         return rows.Select(r => r is RingPreviewSpec rr ? rr with { Scale = scale } : r).ToList();
+    }
+
+    /// <summary>
+    /// The complete re-pagination production runs for an auto-paginated source: the ring
+    /// preview's spec-level fit, then the height chunker — in that order, because the chunker has
+    /// no drop path. Extracted so every consumer measures the pages production actually renders:
+    /// <c>SettingsWindow.MaybeRepaginateByHeight</c> and the reachability gate's
+    /// <c>PagesAsRendered</c> both call this, so the gate cannot drift into measuring a pipeline
+    /// production no longer runs (PR #175 F2).
+    /// </summary>
+    /// <param name="rows">The tab's rows, in order, before pagination.</param>
+    /// <param name="availableWidth">Room in the content column, in DIP.</param>
+    /// <param name="availableHeight">The content cell's height budget, in DIP.</param>
+    /// <param name="radiusPhysical">Hit-test radius in physical screen pixels, for row measurement.</param>
+    /// <param name="dwellMs">Dwell duration, for row measurement.</param>
+    /// <returns>The pages production would render, in order.</returns>
+    public static List<PageSpec> Repaginate(
+        IReadOnlyList<SettingsRowSpec> rows, double availableWidth, double availableHeight,
+        double radiusPhysical, int dwellMs)
+    {
+        var fitted = FitRingPreview(rows, availableWidth, availableHeight);
+        return ChunkByHeight(
+            fitted,
+            row => MeasureRowHeight(row, availableWidth, radiusPhysical, dwellMs),
+            availableHeight);
     }
 
     /// <summary>

@@ -48,10 +48,11 @@ public record PinRingMessage(PhysicalPoint Position);
 public record ReleaseRingMessage;
 
 /// <summary>
-/// Sent when Core's fixation rule completes its valid-time age clock. Since ticket 8 this is the
-/// replay-only age signal: the activation VM no longer consumes it (the button dwell is the one
-/// completion path), and nothing in normal mode activates from it. TimestampMicroseconds and
-/// CreditedAgeUs are Core's ledger values, passed through for consumers that record them.
+/// The age clock's completion, as a message shape. Ticket 8 made the age signal replay-only and its
+/// fixup stopped the adapter from posting this at all (nothing received it); Core's
+/// <c>GazeEngine.FixationActivated</c> event remains for the replay. The record is kept as the shape
+/// the activation VM's immunity is pinned against — it must complete nothing even if something posts
+/// it again. TimestampMicroseconds and CreditedAgeUs are Core's ledger values.
 /// </summary>
 public record FixationActivatedMessage(long TimestampMicroseconds, long CreditedAgeUs);
 

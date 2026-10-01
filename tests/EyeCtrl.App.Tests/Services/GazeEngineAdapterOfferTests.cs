@@ -152,6 +152,72 @@ public class GazeEngineAdapterOfferTests
         Check.That(menus[0].GazePoint.Y).IsCloseTo(offer.Point.Y, 1e-9);
     }
 
+    [StaFact]
+    public void AutoSelectionNoControlNoFallback_DeclinesTheNamedOffer_AndReleasesTheLock()
+    {
+        // Review A C11/A2: with no control found and the pixel fallback off, the completion must
+        // DECLINE the named offer (releasing the fired lock), not act. Mutation: let the fallback
+        // complete instead → a menu opens and the fresh settle gets no offer, red.
+        var settings = new EyeCtrlSettings();
+        settings.Cursor.FilterMode = GazeFilterMode.Direct;
+        settings.Dwell.FixationRadiusPixels = 90;
+        settings.SelectionMode = SelectionMode.AutoSelection;
+        settings.AutoSelection.FallbackToPixelOnNoControl = false;
+        var provider = new TestFakes.FakeGazeProvider();
+        using var engine = new GazeEngine(provider, new TestFakes.FakeInputSimulator(), settings);
+        engine.ConfigureActivationOffers(Screen, scale: 2.0);
+
+        var messenger = new WeakReferenceMessenger();
+        var menus = new List<ShowActionMenuMessage>();
+        messenger.Register<ShowActionMenuMessage>(this, (_, message) => menus.Add(message));
+        var vm = new ActivationButtonViewModel(messenger);
+        var finder = new RecordingControlFinder();   // finds nothing
+        using var adapter = new GazeEngineAdapter(
+            engine, settings, messenger, Dispatcher.CurrentDispatcher,
+            NullLogger<GazeEngineAdapter>.Instance, finder);
+
+        SynchronizationContext.SetSynchronizationContext(
+            new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
+
+        long us = 0;
+        for (int i = 0; i < 20; i++)
+        {
+            us += 33_000;
+            provider.Raise(new GazePoint(P.X, P.Y, us, true));
+        }
+        var offer = engine.InteractionManager.ActivationOffers!.CurrentOffer!;
+        for (int i = 0; i < 25; i++)
+        {
+            us += 33_000;
+            provider.Raise(new GazePoint(offer.Button.X, offer.Button.Y, us, true));
+        }
+
+        var deadline = DateTime.UtcNow.AddSeconds(3);
+        while (finder.Queries.Count == 0 && DateTime.UtcNow < deadline)
+        {
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+            Thread.Sleep(5);
+        }
+        // The resolve's continuation (the decline) posts after the finder returns; give it a pass.
+        Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+
+        // The decline is a request; the next sample applies it.
+        us += 33_000;
+        provider.Raise(new GazePoint(offer.Button.X, offer.Button.Y, us, true));
+
+        Check.WithCustomMessage("the no-control completion must decline, not act").That(menus).IsEmpty();
+        Check.That(engine.InteractionManager.ActivationOffers!.CurrentOffer).IsNull();
+
+        // The lock was released: a fresh settle gets a fresh offer.
+        var p2 = new PhysicalPoint(600, 500);
+        for (int i = 0; i < 20; i++)
+        {
+            us += 33_000;
+            provider.Raise(new GazePoint(p2.X, p2.Y, us, true));
+        }
+        Check.That(engine.InteractionManager.ActivationOffers!.CurrentOffer).IsNotNull();
+    }
+
     private sealed class StubControlFinder : IControlFinder
     {
         public ControlInfo? FindTarget(PhysicalPoint point) => null;

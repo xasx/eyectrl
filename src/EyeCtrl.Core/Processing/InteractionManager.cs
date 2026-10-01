@@ -138,9 +138,20 @@ public class InteractionManager
     // The id of the offer the button currently shows; 0 = none. Written and read on the gaze thread
     // only — the offer lifecycle is published from here, never from a dispatcher thread.
     private long _publishedActivationOfferId;
-    private bool _activationOfferClearRequested;
+    // Every request slot is Interlocked: set on any thread, drained on the gaze thread. A plain
+    // volatile bool for the clear used to allow a set landing between the drain's read and its
+    // write-back of false to be lost (review A F2), which could strand the fired lock.
+    private int _activationOfferClearRequested;
     private long _activationOfferAcceptRequested = NoActivationOfferRequest;
     private long _activationOfferDeclineRequested = NoActivationOfferRequest;
+    // The run end is a request too (review A F1): SetState runs on the dispatcher for pause, the
+    // keyboard toggle, the Modes menu, DeclineOffer and completed activations, and the engine's run
+    // bookkeeping must not be mutated from there.
+    private long _activationRunEndRequestedUs = NoActivationOfferRequest;
+    // Chrome publishes request a gaze-thread re-validation of the live offer (review A F3), and the
+    // modal-surface suspension is applied there as well.
+    private int _activationChromeRevalidationRequested;
+    private int _activationOffersSuspendedRequested = -1;
 
     /// <summary>The live offer engine, or null before the app has configured a geometry (tests, and
     /// the first samples of startup). Read on the gaze thread; null means no offers at all.</summary>
@@ -175,7 +186,19 @@ public class InteractionManager
     {
         _activationChromeZones = zones ?? Array.Empty<PhysicalRect>();
         _activationOffers?.SetChromeZones(_activationChromeZones);
+        // Chrome that appeared over a live offer must take it away (review A F3): the text-field
+        // keyboard auto-shows without suppression, and the toolbar can be summoned over an offer's
+        // area. The re-validation runs on the gaze thread with the other requests.
+        Interlocked.Exchange(ref _activationChromeRevalidationRequested, 1);
     }
+
+    /// <summary>
+    /// Sets whether offers are suspended entirely (the settings window, the task switcher, the
+    /// quick-actions grid or the eye-care banner is open — the user's decision of 2026-10-02). A rise
+    /// clears a live unfired offer; the state is applied by the gaze thread with the other requests.
+    /// </summary>
+    public void SetActivationOffersSuspended(bool suspended)
+        => Interlocked.Exchange(ref _activationOffersSuspendedRequested, suspended ? 1 : 0);
 
     /// <summary>
     /// Feeds one non-gap sample to the offer engine (gaze thread). <paramref name="point"/> is the
@@ -199,13 +222,25 @@ public class InteractionManager
     {
         // Drained even when no engine is attached, so a request made before the first configure can
         // never sit until a later engine's ids happen to match it.
-        bool clearRequested = _activationOfferClearRequested;
-        _activationOfferClearRequested = false;
+        long runEndUs = Interlocked.Exchange(ref _activationRunEndRequestedUs, NoActivationOfferRequest);
+        int suspended = Interlocked.Exchange(ref _activationOffersSuspendedRequested, -1);
+        bool chromeRevalidate = Interlocked.Exchange(ref _activationChromeRevalidationRequested, 0) != 0;
+        bool clearRequested = Interlocked.Exchange(ref _activationOfferClearRequested, 0) != 0;
         long acceptId = Interlocked.Exchange(ref _activationOfferAcceptRequested, NoActivationOfferRequest);
         long declineId = Interlocked.Exchange(ref _activationOfferDeclineRequested, NoActivationOfferRequest);
 
         if (_activationOffers is null)
             return;
+
+        // Order: the run end first (review A F1 — it runs before the sample's settle can happen, the
+        // same ordering SetState provided synchronously), then the two chrome-shaped teardowns, then
+        // the explicit teardown, then the completion slots.
+        if (runEndUs != NoActivationOfferRequest)
+            _activationOffers.NotifyFixationEnded(runEndUs);
+        if (suspended >= 0)
+            _activationOffers.SetOffersSuspended(suspended != 0);
+        if (chromeRevalidate)
+            _activationOffers.RevalidateChromeZones();
 
         // A teardown outranks a pending accept or decline: R3 says a teardown clears even a locked
         // offer, so when both are in flight the user's exit wins over a completion racing it.
@@ -225,13 +260,23 @@ public class InteractionManager
     /// teardown is a no-op. Reference and flag reads only — the offer itself is never mutated here.
     /// </summary>
     public bool IsActivationOfferLive(long offerId)
-        => !_activationOfferClearRequested
+        => Volatile.Read(ref _activationOfferClearRequested) == 0
            && _activationOffers?.CurrentOffer is { } offer
            && offer.Id == offerId;
 
     /// <summary>Requests a teardown of the offer (pause, keyboard, repeat mode, external dwell,
     /// calibration, reset). Applied by the gaze thread on its next sample.</summary>
-    public void RequestActivationOfferClear() => _activationOfferClearRequested = true;
+    public void RequestActivationOfferClear()
+        => Interlocked.Exchange(ref _activationOfferClearRequested, 1);
+
+    /// <summary>
+    /// Requests that the current fixation run's end be recorded by the engine, at
+    /// <paramref name="timestampUs"/>. SetState calls this on every exit from Fixation; the gaze
+    /// thread applies it first among the pending requests, before the next sample's settle (review A
+    /// F1).
+    /// </summary>
+    public void RequestActivationRunEnd(long timestampUs)
+        => Interlocked.Exchange(ref _activationRunEndRequestedUs, timestampUs);
 
     /// <summary>Requests that the offer named by <paramref name="offerId"/> be accepted. Applied by
     /// the gaze thread; a stale id is a no-op there (review A F2).</summary>
@@ -290,8 +335,10 @@ public class InteractionManager
         {
             // The offer survives the fixation's end (that is the linger), but the engine still has to
             // learn the run ended: its expiry moves to the run end's deadline, and a pending re-offer
-            // from this run is cleared (it needs its run still holding).
-            _activationOffers?.NotifyFixationEnded(_lastSampleTimestampUs);
+            // from this run is cleared (it needs its run still holding). That mutation is a REQUEST —
+            // SetState runs on the dispatcher for pause, the keyboard toggle, the Modes menu,
+            // DeclineOffer and completed activations, and the engine is gaze-thread state (review A F1).
+            RequestActivationRunEnd(_lastSampleTimestampUs);
             FixationEnded?.Invoke();
             ReleaseRing?.Invoke();
         }
@@ -400,8 +447,13 @@ public class InteractionManager
     /// state-transition tests); the product goes through
     /// <see cref="OnActivationButtonDwelled(ActivationOffer)"/>, which adds the offer's liveness
     /// check, its accept, and lands at the offer's P.
+    /// <para>
+    /// INTERNAL since ticket 8's fixup (review A F6): it was public with no production caller, and it
+    /// bypasses the offer — a live offer survives it, so wiring it back would strand the fired lock.
+    /// The tests reach it through <c>InternalsVisibleTo</c>.
+    /// </para>
     /// </summary>
-    public void OnActivationButtonDwelled()
+    internal void OnActivationButtonDwelled()
     {
         if (CurrentState != InteractionState.Fixation) return;
         CompleteActivation(FixationPoint!.Value);

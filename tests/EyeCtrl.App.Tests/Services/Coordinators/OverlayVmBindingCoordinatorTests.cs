@@ -304,8 +304,78 @@ public class OverlayVmBindingCoordinatorTests
         }
 
         public void Hide() { }
-        public void HideImmediate() { }
+        public void HideImmediate() => Calls.Add("HideImmediate");
         public void UpdateDwellProgress(double progress) { }
+    }
+
+    [Fact]
+    public void Replacement_CloseThenShow_RepositionsTheHalo()
+    {
+        // Review A A-F4/C18: Core closes the old offer before showing the new one, and the coordinator's
+        // IsVisible edge must reposition the window at the new B. Mutation: drop the close → see
+        // ButtonCenterChange_WhileVisible_RepositionsTheHalo, which pins the belt-and-braces case.
+        var activationButton = new RecordingActivationButton();
+        var messenger = new WeakReferenceMessenger();
+        var activationVm = new ActivationButtonViewModel(messenger);
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            ActivationVM = activationVm,
+            Settings = new EyeCtrlSettings(),
+            Messenger = messenger,
+            OverlayManager = TestFakes.MakeOverlayManager(
+                activationButton: activationButton,
+                actionMenu: new TestFakes.FakeActionMenuOverlay()),
+        };
+        var coordinator = NewCoordinator();
+        SetContext(coordinator, ctx);
+
+        messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(100, 100), 150));
+        InvokeActivationHandler(coordinator, nameof(ActivationButtonViewModel.IsVisible));
+
+        // The replacement: close, then show at the new centre.
+        messenger.Send(new HideActivationButtonMessage());
+        InvokeActivationHandler(coordinator, nameof(ActivationButtonViewModel.IsVisible));
+        messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(700, 500), 150));
+        InvokeActivationHandler(coordinator, nameof(ActivationButtonViewModel.IsVisible));
+
+        Check.That(activationButton.ShownAt).HasSize(2);
+        Check.That(activationButton.ShownAt[1].Position.X).IsEqualTo(700);
+        Check.That(activationButton.ShownAt[1].Position.Y).IsEqualTo(500);
+        Check.That(activationButton.Calls)
+            .ContainsExactly("ShowAt", "Show", "HideImmediate", "ShowAt", "Show");
+    }
+
+    [Fact]
+    public void ButtonCenterChange_WhileVisible_RepositionsTheHalo()
+    {
+        // The belt-and-braces half of C18: if a future path changes the offer's B without a visibility
+        // edge, the halo must still follow. Mutation: drop the ButtonCenter case → only one ShowAt.
+        var activationButton = new RecordingActivationButton();
+        var messenger = new WeakReferenceMessenger();
+        var activationVm = new ActivationButtonViewModel(messenger);
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            ActivationVM = activationVm,
+            Settings = new EyeCtrlSettings(),
+            Messenger = messenger,
+            OverlayManager = TestFakes.MakeOverlayManager(
+                activationButton: activationButton,
+                actionMenu: new TestFakes.FakeActionMenuOverlay()),
+        };
+        var coordinator = NewCoordinator();
+        SetContext(coordinator, ctx);
+
+        messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(100, 100), 150));
+        InvokeActivationHandler(coordinator, nameof(ActivationButtonViewModel.IsVisible));
+        Check.That(activationButton.ShownAt).HasSize(1);
+
+        // No close: the VM is already visible and only the centre moves (Receive(Show) sets the centre
+        // before it re-assigns IsVisible, which is a no-change for an already-visible button).
+        messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(400, 400), 150));
+        InvokeActivationHandler(coordinator, nameof(ActivationButtonViewModel.ButtonCenter));
+
+        Check.That(activationButton.ShownAt).HasSize(2);
+        Check.That(activationButton.ShownAt[1].Position.X).IsEqualTo(400);
     }
 
     private static void InvokeManualSelectionHandler(OverlayVmBindingCoordinator coordinator, string propertyName)

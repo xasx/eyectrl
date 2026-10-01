@@ -117,9 +117,10 @@ public class EventCoordinator : IEventCoordinator
         _repeatModeController = new RepeatModeController();
         _repeatModeController.Initialize(context);
 
-        // Ticket 8: the activation offer's geometry and chrome zones. Constructed after the toolbar
-        // coordinator (it subscribes to its visibility event) and before any gaze sample arrives.
-        _activationOffers = new ActivationOfferCoordinator(_toolbar);
+        // Ticket 8: the activation offer's geometry, chrome zones and modal-surface suspension.
+        // Constructed after the toolbar coordinator (it subscribes to its visibility event) and
+        // before any gaze sample arrives.
+        _activationOffers = new ActivationOfferCoordinator(_toolbar, _modal);
         _activationOffers.Initialize(context);
 
         // Task Switcher visibility binding + the overlay VM PropertyChanged handlers moved to

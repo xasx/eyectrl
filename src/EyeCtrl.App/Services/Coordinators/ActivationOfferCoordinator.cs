@@ -8,7 +8,7 @@ using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
-/// Ticket 8's App-side half of the activation offer. Two jobs:
+/// Ticket 8's App-side half of the activation offer. Three jobs:
 ///
 /// <list type="number">
 /// <item><b>Geometry.</b> Screen bounds and DPI scale are App knowledge (Core owns no screen API),
@@ -19,7 +19,12 @@ using EyeCtrl.ViewModels.Messages;
 /// zones are re-published on every trigger the plan lists: keyboard show, hide and layout; toolbar
 /// slide-in, slide-out and auto-hide; the prediction bar's relayout; the action and modes menus'
 /// show and hide. The push goes through <c>InteractionManager.SetActivationChromeZones</c> as plain
-/// data, the <c>SetRepeatSuppressionZones</c> pattern.</item>
+/// data, the <c>SetRepeatSuppressionZones</c> pattern; Core re-validates a live offer against them,
+/// so chrome that appears over one takes it away (review A F3).</item>
+/// <item><b>Suspension.</b> While EyeCtrl's Settings window, the task switcher, the quick-actions
+/// grid or the eye-care banner is open, NO offer is made and a live unfired offer is cleared (the
+/// user's decision of 2026-10-02, review B F3). A single suspension flag carries that rule, because
+/// these surfaces are not chrome to avoid but interactions to yield to entirely.</item>
 /// </list>
 ///
 /// <para>
@@ -37,14 +42,18 @@ using EyeCtrl.ViewModels.Messages;
 internal sealed class ActivationOfferCoordinator : CoordinatorBase
 {
     private readonly ToolbarLifecycleCoordinator _toolbar;
+    private readonly ModalInteractionState _modal;
     private readonly Func<EventCoordinationContext, PhysicalRect[]> _collectZones;
     private bool _publishScheduled;
+    private bool _bannerActive;
 
     public ActivationOfferCoordinator(
         ToolbarLifecycleCoordinator toolbar,
+        ModalInteractionState modal,
         Func<EventCoordinationContext, PhysicalRect[]>? collectZones = null)
     {
         _toolbar = toolbar ?? throw new ArgumentNullException(nameof(toolbar));
+        _modal = modal ?? throw new ArgumentNullException(nameof(modal));
         _collectZones = collectZones ?? ActivationChromeZones.CollectFromProduction;
     }
 
@@ -62,6 +71,11 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
         // A toolbar size/edge edit moves its rect; the prediction bar's relayout shows up as a
         // keyboard SizeChanged, which the deferred publish reads as fresh bounds.
         context.Settings.Toolbar.PropertyChanged += OnToolbarSettingsChanged;
+        // The modal surfaces that suspend offers entirely.
+        _modal.SettingsOpenChanged += OnSettingsOpenChanged;
+        context.TaskSwitcherVM.PropertyChanged += OnTaskSwitcherVMPropertyChanged;
+        context.QuickActionsGridVM.PropertyChanged += OnQuickActionsGridVMPropertyChanged;
+
         context.Messenger.Register<ActivationOfferCoordinator, DisplayGeometryChangedMessage>(this, (_, _) =>
         {
             ConfigureEngine();
@@ -74,7 +88,13 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
             if (message.Active)
                 context.InteractionManager.RequestActivationOfferClear();
         });
+        context.Messenger.Register<ActivationOfferCoordinator, EyeCareBannerActiveMessage>(this, (_, message) =>
+        {
+            _bannerActive = message.Active;
+            RecomputeSuspension();
+        });
 
+        RecomputeSuspension();
         SchedulePublish();
     }
 
@@ -102,6 +122,33 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
     private void OnToolbarSettingsChanged(object? _, System.ComponentModel.PropertyChangedEventArgs e)
         => SchedulePublish();
 
+    private void OnSettingsOpenChanged(bool _) => RecomputeSuspension();
+
+    private void OnTaskSwitcherVMPropertyChanged(object? _, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(TaskSwitcherViewModel.IsVisible))
+            RecomputeSuspension();
+    }
+
+    private void OnQuickActionsGridVMPropertyChanged(object? _, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(QuickActionsGridViewModel.IsVisible))
+            RecomputeSuspension();
+    }
+
+    // One combined flag: any open modal surface suspends offers. Applied by the gaze thread through
+    // the ordinary request path (Core clears a live unfired offer on the rise).
+    private void RecomputeSuspension()
+    {
+        if (Context is null)
+            return;
+        bool suspended = _modal.SettingsOpen
+            || Context.TaskSwitcherVM.IsVisible
+            || Context.QuickActionsGridVM.IsVisible
+            || _bannerActive;
+        Context.InteractionManager.SetActivationOffersSuspended(suspended);
+    }
+
     // One layout pass of slack: keyboards and menus are SizeToContent, so on the synchronously
     // delivered show/hide the window may not have measured yet. Coalesced — a burst of triggers
     // costs one publish.
@@ -113,7 +160,14 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
         Context.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
         {
             _publishScheduled = false;
-            Context.InteractionManager.SetActivationChromeZones(_collectZones(Context));
+            var zones = _collectZones(Context);
+            // The live check's proof that the no-offer rule is in force, and when (review B F2).
+            Serilog.Log.Information(
+                "Activation chrome zones: {Count} {Zones}",
+                zones.Length,
+                string.Join("; ", zones.Select(z =>
+                    $"[{z.X:F0},{z.Y:F0} {z.Width:F0}×{z.Height:F0}]")));
+            Context.InteractionManager.SetActivationChromeZones(zones);
         });
     }
 
@@ -139,5 +193,8 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
         Context.ActionMenuVM.PropertyChanged -= OnActionMenuVMPropertyChanged;
         Context.ModesMenuVM.PropertyChanged -= OnModesMenuVMPropertyChanged;
         Context.Settings.Toolbar.PropertyChanged -= OnToolbarSettingsChanged;
+        _modal.SettingsOpenChanged -= OnSettingsOpenChanged;
+        Context.TaskSwitcherVM.PropertyChanged -= OnTaskSwitcherVMPropertyChanged;
+        Context.QuickActionsGridVM.PropertyChanged -= OnQuickActionsGridVMPropertyChanged;
     }
 }

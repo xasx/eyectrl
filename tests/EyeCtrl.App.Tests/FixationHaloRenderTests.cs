@@ -47,9 +47,12 @@ public class FixationHaloRenderTests
             window.UpdateDwellProgress(0.5);
             Check.That(window.ProgressHalo.Width / 2).IsCloseTo(56.25, 1e-10);
 
+            // The geometric radius at progress 1 is 75 DIP; the applied radius is capped at
+            // 75 − stroke/2 = 71.5 so the stroke's OUTER edge lands exactly on the hit radius
+            // (review B's nit). Mutation: drop the cap → 75 here and the outer edge at 78.5, red.
             window.UpdateDwellProgress(1.0);
-            Check.That(window.ProgressHalo.Width / 2).IsCloseTo(75.0, 1e-10);
-            Check.That(window.ProgressRing.Width / 2).IsCloseTo(75.0, 1e-10);
+            Check.That(window.ProgressHalo.Width / 2).IsCloseTo(71.5, 1e-10);
+            Check.That(window.ProgressRing.Width / 2).IsCloseTo(71.5, 1e-10);
 
             // Both bands share the window's centre: the halo is symmetric around B, and the window is
             // wide enough for the largest radius plus the halo's own stroke.
@@ -80,8 +83,11 @@ public class FixationHaloRenderTests
             for (double p = 0.0; p <= 1.0; p += 0.1)
             {
                 window.UpdateDwellProgress(p);
-                Check.WithCustomMessage($"progress {p}: the drawn halo escaped the hit radius")
-                    .That(window.ProgressHalo.Width / 2 * EffectiveScale).IsLessOrEqualThan(HitPx);
+                double outerEdgePx = (window.ProgressHalo.Width / 2
+                    + (window.ProgressHalo.StrokeThickness / 2)) * EffectiveScale;
+                Check.WithCustomMessage(
+                        $"progress {p}: the halo's STROKE edge ({outerEdgePx:F2} px) escaped the hit radius")
+                    .That(outerEdgePx).IsLessOrEqualThan(HitPx);
             }
         }
         finally
@@ -173,7 +179,7 @@ public class FixationHaloRenderTests
         {
             window.ShowAt(new PhysicalPoint(1000, 800), HitPx);
             window.UpdateDwellProgress(1.0);
-            Check.That(window.ProgressHalo.Width / 2).IsCloseTo(75.0, 1e-10);
+            Check.That(window.ProgressHalo.Width / 2).IsCloseTo(71.5, 1e-10);   // stroke-inside cap
             Check.That(window.HasAnimatedProperties).IsTrue(); // the fade-in holds Opacity
 
             window.HideImmediate();

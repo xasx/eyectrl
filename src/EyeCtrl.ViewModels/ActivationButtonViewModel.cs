@@ -109,6 +109,11 @@ public partial class ActivationButtonViewModel : MessengerViewModelBase,
         // The offer's dwell completed. Hand the snapshot to Core (effect) first, then the cue — the
         // same order the old detector-event path used (D8): the activation must not be lost to a
         // throwing cue subscriber.
+        //
+        // Dropping a hidden fire strands the engine's fired lock until a teardown, so every path that
+        // hides the button with a live offer must also clear it in Core. Today there is exactly one —
+        // ExternalDwellActiveMessage below, paired with the coordinator's clear request — and the
+        // adapter ships no other hide path while an offer is live (review B F6).
         if (!IsVisible || _completionSent)
             return;
         _completionSent = true;

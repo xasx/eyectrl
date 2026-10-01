@@ -180,6 +180,17 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                     activationButton.HideImmediate();
                 }
                 break;
+            case nameof(ActivationButtonViewModel.ButtonCenter):
+                // Belt and braces for a replacement (ticket 8 fixup, review A F4/C18): Core closes the
+                // old offer before showing the new one, so the IsVisible edge above repositions — but a
+                // ButtonCenter change while already visible must reposition too, or the halo would sit
+                // at the old B while the new B counts.
+                if (Context.ActivationVM.IsVisible)
+                {
+                    activationButton.ShowAt(
+                        Context.ActivationVM.ButtonCenter, Context.ActivationVM.HitRadiusPixels);
+                }
+                break;
             case nameof(ActivationButtonViewModel.DwellProgress):
                 activationButton.UpdateDwellProgress(Context.ActivationVM.DwellProgress);
                 break;

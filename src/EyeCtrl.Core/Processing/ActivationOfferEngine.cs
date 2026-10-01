@@ -203,6 +203,24 @@ public sealed class ActivationOfferEngine
     /// wiring's own messages) and by the replay.</summary>
     public ActivationOffer? CurrentOffer => _offer;
 
+    /// <summary>The primary screen's bounds in physical pixels the engine was built for. Exposed for
+    /// the wiring's configuration log and for tests (review A, A9).</summary>
+    public PhysicalRect ScreenBoundsPx => _screenBoundsPx;
+
+    /// <summary>The live DPI scale the engine was built for. Exposed for the configuration log.</summary>
+    public double Scale => _scale;
+
+    /// <summary>The cursor ring size in DIP the placement follows. Exposed for the configuration log.</summary>
+    public double RingSizeDip => _ringSizeDip;
+
+    /// <summary>
+    /// Whether offers are suspended entirely (EyeCtrl's own modal surfaces — Settings, the task
+    /// switcher, the quick-actions grid, the eye-care banner — are open; the user decided on
+    /// 2026-10-02 that nothing may be offered over them). Gaze-thread state: the wiring requests a
+    /// change and the gaze thread applies it through <see cref="SetOffersSuspended"/>.
+    /// </summary>
+    public bool OffersSuspended { get; private set; }
+
     /// <summary>The effective activation dwell in ms. Settable in place: adaptation's dwell knob must
     /// reach a live offer without rebuilding the engine.</summary>
     public int DwellMs { get; set; }
@@ -491,13 +509,52 @@ public sealed class ActivationOfferEngine
         _nearMissRunActive = false;
     }
 
-    /// <returns>True when an offer was placed; false when P or both placement sides intersect
-    /// chrome.</returns>
+    /// <summary>
+    /// Applies the offers-suspended state (gaze thread). While suspended no offer is made, and turning
+    /// it on clears a live UNFIRED offer at once — a fired offer is mid-completion and is left for its
+    /// accept or decline. See <see cref="OffersSuspended"/>.
+    /// </summary>
+    public void SetOffersSuspended(bool suspended)
+    {
+        if (suspended == OffersSuspended)
+            return;
+        OffersSuspended = suspended;
+        if (suspended && _offer is not null && !_fired)
+            ExpireOrDecline(_lastSampleUs);
+    }
+
+    /// <summary>
+    /// Re-checks a live unfired offer against the current chrome zones (gaze thread): chrome that
+    /// appeared over a live offer — the text-field keyboard auto-show, the toolbar summon — must take
+    /// it away, exactly as a settle there would not have made one. The offer dies through the ordinary
+    /// dead-offer path, so a pending re-offer is still re-offered only if its own point survives the
+    /// chrome check in <see cref="MakeOffer"/>. A fired offer is left alone: its completion is in
+    /// flight.
+    /// </summary>
+    public void RevalidateChromeZones()
+    {
+        if (_offer is null || _fired)
+            return;
+        if (InChrome(_offer.Point)
+            || ActivationButtonPlacement.IntersectsAnyZone(_offer.Button, _offer.HitRadiusPx, _chromeZones))
+            ExpireOrDecline(_lastSampleUs);
+    }
+
+    /// <returns>True when an offer was placed; false when offers are suspended, P is off screen, or P
+    /// or both placement sides intersect chrome.</returns>
     private bool MakeOffer(PhysicalPoint point, long timestampUs)
     {
         _pending = null;
         _nearMissRunActive = false;
         _runRole = RunRole.None;
+
+        // EyeCtrl's own modal surfaces: nothing at all is offered over them (the user's decision,
+        // 2026-10-02), and no offer is made for a P outside the primary screen — B would be clamped
+        // on screen and the completion would land (click or zoom) at an off-screen P (review B F4).
+        if (OffersSuspended)
+            return false;
+        if (!_screenBoundsPx.Contains(point.X, point.Y))
+            return false;
 
         if (InChrome(point))
             return false;

@@ -1,5 +1,6 @@
 namespace EyeCtrl.Core.Tests.Processing;
 
+using System.Reflection;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Enums;
@@ -28,6 +29,7 @@ public class ActivationOfferWiringTests
     {
         public ScriptedGazeProvider Provider { get; } = new();
         public GazeEngine Engine { get; }
+        public EyeCtrlSettings Settings { get; }
         public InteractionManager Im => Engine.InteractionManager;
         public ActivationOfferEngine Offers => Im.ActivationOffers!;
 
@@ -47,6 +49,7 @@ public class ActivationOfferWiringTests
             settings.Dwell.FixationRadiusPixels = 90;
             settings.Dwell.FixationDetectionMs = 300;
             settings.Dwell.ActivationButtonDwellMs = 700;
+            Settings = settings;
             Engine = new GazeEngine(Provider, new RecordingInputSimulator(), settings, effectiveSettings: effective);
             Engine.ConfigureActivationOffers(Screen, scale: 2.0);
 
@@ -444,5 +447,230 @@ public class ActivationOfferWiringTests
             h.Feed(offer.Button, samples: 1);
             Check.That(h.Offers.CurrentOffer).IsNull();
         }
+    }
+
+    // ── Ticket 8 fixup: thread safety (review A F1/F2) ───────────────────────
+
+    [Fact]
+    public void FixationEnd_FromTheDispatcher_IsARequest_AppliedByTheNextSample()
+    {
+        // Review A F1 / probe Q1: SetState runs on the dispatcher for pause, the keyboard toggle, the
+        // Modes menu, DeclineOffer and completions, and must not touch the engine's run bookkeeping
+        // there. The visible proxy is the engine's private run state (reflection, like review A's
+        // probe), because every public read coincides before and after the request is applied.
+        // Mutation: call NotifyFixationEnded directly in SetState again → the pre-sample assertions go
+        // red on this caller's thread.
+        using var h = new Harness();
+        var offer = h.SettleAt(P);
+
+        var runRole = typeof(ActivationOfferEngine)
+            .GetField("_runRole", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var runActive = typeof(ActivationOfferEngine)
+            .GetField("_runActive", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        Check.That(runRole.GetValue(h.Offers)!.ToString()).IsEqualTo("Offered");
+        Check.That(runActive.GetValue(h.Offers)).IsEqualTo(true);
+
+        h.Im.OnFixationEnded();   // the dispatcher path, played by this thread
+
+        Check.WithCustomMessage("SetState mutated the engine on the caller's thread")
+            .That(runRole.GetValue(h.Offers)!.ToString()).IsEqualTo("Offered");
+        Check.That(runActive.GetValue(h.Offers)).IsEqualTo(true);
+
+        h.Feed(offer.Button, samples: 1);   // the gaze thread applies the run end
+
+        Check.That(runRole.GetValue(h.Offers)!.ToString()).IsEqualTo("None");
+        Check.That(runActive.GetValue(h.Offers)).IsEqualTo(false);
+    }
+
+    [Fact]
+    public void PendingTeardown_MakesALiveOfferNotLive()
+    {
+        // Review A C6: the liveness check is the only guard when a clear request has not been applied
+        // yet (F2's window). Mutation: ignore the clear flag in IsActivationOfferLive → the completion
+        // opens a menu and this goes red.
+        using var h = new Harness();
+        var offer = h.SettleAt(P);
+
+        h.Im.RequestActivationOfferClear();
+        Check.That(h.Im.IsActivationOfferLive(offer.Id)).IsFalse();
+
+        h.Im.OnActivationButtonDwelled(offer);
+        h.Feed(offer.Button, samples: 1);
+
+        Check.That(h.Menus).IsEmpty();
+        Check.That(h.Offers.CurrentOffer).IsNull();
+    }
+
+    [Fact]
+    public void WrongStateCompletion_DeclinesTheNamedOffer_AndShowsNoSecondMenu()
+    {
+        // Review A C9 / probe Q4: settle and fire while the button's own run holds (state Fixation),
+        // take the parameterless in-Fixation transition to the menu — the offer is still live — then
+        // deliver the offer's completion in the wrong state. Mutation: accept in any state → the
+        // completion runs a second menu, and the offer survives, red.
+        using var h = new Harness();
+        var offer = h.SettleAt(P);
+        h.Feed(offer.Button, samples: 25);                    // fires while the B run holds
+        Check.That(h.Fired).HasSize(1);
+        Check.That(h.Im.CurrentState).IsEqualTo(InteractionState.Fixation);
+
+        h.Im.OnActivationButtonDwelled();                     // the parameterless state transition
+        Check.That(h.Im.CurrentState).IsEqualTo(InteractionState.ActionMenuVisible);
+        Check.That(h.Menus).HasSize(1);
+        Check.That(h.Im.IsActivationOfferLive(offer.Id)).IsTrue();
+
+        h.Im.OnActivationButtonDwelled(offer);                // wrong state: must decline, not act
+        h.Feed(offer.Button, samples: 1);
+
+        Check.That(h.Menus).HasSize(1);
+        Check.That(h.Offers.CurrentOffer).IsNull();
+    }
+
+    [Fact]
+    public void DeclineOffer_ReleasesTheLock_ForANewSettle()
+    {
+        // Review A C12: the direct decline path on the dispatcher. Mutation: DeclineOffer without the
+        // decline request → the offer survives the feed and this goes red.
+        using var h = new Harness();
+        var offer = h.SettleAt(P);
+
+        h.Im.DeclineOffer(offer.Id);
+        h.Feed(offer.Button, samples: 1);
+        Check.That(h.Offers.CurrentOffer).IsNull();
+
+        var p2 = new PhysicalPoint(2600, 1800);
+        var next = h.SettleAt(p2);
+        Check.That(h.Offers.CurrentOffer!.Id).IsEqualTo(next.Id);
+    }
+
+    [Fact]
+    public void ResetToFreeLook_TearsDownTheOffer()
+    {
+        // Review A C15: ResetToFreeLook (here through the menu-dismissed path) is a teardown even
+        // though the offer was live under an overlay. Mutation: drop the request in ResetToFreeLook →
+        // the offer survives and this goes red.
+        using var h = new Harness();
+        var offer = h.SettleAt(P);
+        h.Im.OnActivationButtonDwelled();                     // → ActionMenuVisible, offer still live
+        Check.That(h.Im.IsActivationOfferLive(offer.Id)).IsTrue();
+
+        h.Im.OnActionMenuDismissed();                         // → ResetToFreeLook
+        h.Feed(offer.Button, samples: 1);
+
+        Check.That(h.Offers.CurrentOffer).IsNull();
+    }
+
+    // ── Ticket 8 fixup: app-pushed state reaches the engine ──────────────────
+
+    [Fact]
+    public void LiveRChange_ReachesTheEngine_InPlace()
+    {
+        // Review A C23: R is live (the user runs 90). Mutation: don't sync FixationRadiusPx in
+        // ApplyPendingFixationReconfiguration → the engine keeps 90 and this goes red.
+        using var h = new Harness();
+        h.Feed(P, samples: 1);
+        Check.That(h.Offers.FixationRadiusPx).IsEqualTo(90);
+
+        h.Settings.Dwell.FixationRadiusPixels = 60;
+        h.Feed(P, samples: 1);
+
+        Check.That(h.Offers.FixationRadiusPx).IsEqualTo(60);
+        Check.That(h.Offers.CurrentOffer).IsNull();           // fresh R, no settle yet
+    }
+
+    [Fact]
+    public void RingSizeChange_RebuildsTheEngine()
+    {
+        // Review A C25: the placement follows the ring size, so a ring edit rebuilds. Mutation: drop
+        // the CircleSize branch in the cursor-settings handler → the engine instance survives and
+        // this goes red.
+        using var h = new Harness();
+        h.Feed(P, samples: 1);
+        var before = h.Im.ActivationOffers;
+        Check.That(before).IsNotNull();
+        Check.That(before!.RingSizeDip).IsEqualTo(250);
+
+        h.Settings.Cursor.CircleSize = 100;
+        h.Feed(P, samples: 1);
+
+        Check.That(ReferenceEquals(h.Im.ActivationOffers, before)).IsFalse();
+        Check.That(h.Im.ActivationOffers!.RingSizeDip).IsEqualTo(100);
+    }
+
+    // ── Ticket 8 fixup: chrome over a live offer, suspension, off-screen P ────
+
+    [Fact]
+    public void ChromeAppearingOverALiveOffer_ClearsIt_AndNothingFires()
+    {
+        // Review A F3 / probe Q3: the text-field keyboard auto-shows and the toolbar summons with no
+        // suppression edge, so the zone publish itself must take a live unfired offer away. Mutation:
+        // drop the re-validation in ApplyPendingActivationOfferRequests → 750 ms on B fires, red.
+        using var h = new Harness();
+        var offer = h.SettleAt(P);
+
+        h.Im.SetActivationChromeZones(
+            new PhysicalRect(offer.Button.X - 50, offer.Button.Y - 50, 100, 100));
+        h.Feed(offer.Button, samples: 25);                    // would fire without the re-validation
+
+        Check.That(h.Offers.CurrentOffer).IsNull();
+        Check.That(h.Closed).IsEqualTo(1);
+        Check.That(h.Fired).IsEmpty();
+    }
+
+    [Fact]
+    public void SuspendedOffers_ClearTheLiveOne_AndBlockNewOnes_UntilResumed()
+    {
+        // The user's decision (2026-10-02, review B F3): while a modal surface is open, no offer is
+        // made and the live unfired one goes. Mutation: skip the suspension apply (or the MakeOffer
+        // check) → an offer survives or appears, red.
+        using var h = new Harness();
+        var offer = h.SettleAt(P);
+
+        h.Im.SetActivationOffersSuspended(true);
+        h.Feed(offer.Button, samples: 1);
+        Check.That(h.Offers.CurrentOffer).IsNull();
+
+        var p2 = new PhysicalPoint(2600, 1800);
+        h.Feed(p2, samples: 20);                              // a full settle while suspended
+        Check.That(h.Offers.CurrentOffer).IsNull();
+
+        h.Im.SetActivationOffersSuspended(false);
+        h.Feed(new PhysicalPoint(2600, 600), samples: 20);    // a fresh run after resume
+        Check.That(h.Offers.CurrentOffer).IsNotNull();
+    }
+
+    [Fact]
+    public void OffScreenSettle_MakesNoOffer_ButStillPinsTheRing()
+    {
+        // Review B F4: P off the primary screen (a toolbar summon's gaze above the bezel). B would be
+        // clamped on screen and the completion would land off screen. Mutation: drop the Contains
+        // check in MakeOffer → an offer appears, red.
+        using var h = new Harness();
+        var off = new PhysicalPoint(3860, 1200);              // right of the 3840-wide screen
+
+        h.Feed(off, samples: 20);
+
+        Check.That(h.Offers.CurrentOffer).IsNull();
+        Check.That(h.Shown).IsEmpty();
+        Check.That(h.Pinned).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void Replacement_ClosesTheOldOfferBeforeItShowsTheNewOne()
+    {
+        // Review A A-F4/C18's Core half: the coordinator's IsVisible edge only repositions if Core
+        // closes before it shows. Mutation: drop the close in PublishActivationOfferState → only the
+        // show arrives, red.
+        using var h = new Harness();
+        var events = new List<string>();
+        h.Im.ActivationOfferClosed += () => events.Add("close");
+        h.Im.ActivationOfferShown += offer => events.Add("show");
+
+        h.SettleAt(P);
+        events.Clear();
+
+        h.SettleAt(new PhysicalPoint(2600, 1800));
+
+        Check.That(events).ContainsExactly("close", "show");
     }
 }

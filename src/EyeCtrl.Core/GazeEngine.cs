@@ -34,6 +34,9 @@ public class GazeEngine : IDisposable
     private readonly FixationCentroidTracker _centroidTracker;
     private readonly EffectiveSettingsProvider? _effectiveSettings;
     private readonly IStruggleTelemetrySink? _telemetry;
+    // The offer lifecycle's Information lines (ticket 8 fixup, review B F2) — the live check reads the
+    // run's constants and the offer events from the log. Null in tests.
+    private readonly ILogger<GazeEngine>? _logger;
     private readonly PropertyChangedEventHandler _dwellSettingsChangedHandler;
     private readonly Action? _effectiveSettingsChangedHandler;
     // Set from the dispatcher thread (FreeLook entry, SuppressFixation release) and read+cleared on the
@@ -297,6 +300,7 @@ public class GazeEngine : IDisposable
         _settings = settings;
         _calibrationService = calibrationService;
         _telemetry = telemetry;
+        _logger = logger;
 
         _effectiveSettings = effectiveSettings;
 
@@ -564,7 +568,7 @@ public class GazeEngine : IDisposable
         if (_activationOfferGeometry is not { } geometry)
             return;
 
-        InteractionManager.AttachActivationOffers(new ActivationOfferEngine(
+        var offers = new ActivationOfferEngine(
             geometry.ScreenBoundsPx,
             geometry.Scale,
             _settings.Cursor.CircleSize,
@@ -575,8 +579,24 @@ public class GazeEngine : IDisposable
             // from the engine's 1 s default. The default is left alone so the report's lever table
             // keeps its baseline.
             OfferExpiryMs = ActivationOfferEngine.ProductOfferExpiryMs,
-        });
+        };
+        InteractionManager.AttachActivationOffers(offers);
+        LogOfferEngineConfiguration(offers);
     }
+
+    // The live check's setup-sanity line (review B F2): the constants the product is actually running.
+    // Low-rate (configure, ring change, display change, and an effective R/dwell move), so it is not
+    // gated behind a diagnostics flag.
+    private void LogOfferEngineConfiguration(ActivationOfferEngine offers)
+        => _logger?.LogInformation(
+            "Offer engine: {Width}×{Height} px @{Scale}, ring {Ring}, R {R}, dwell {Dwell}, linger {Expiry} ms",
+            offers.ScreenBoundsPx.Width,
+            offers.ScreenBoundsPx.Height,
+            offers.Scale,
+            offers.RingSizeDip,
+            offers.FixationRadiusPx,
+            offers.DwellMs,
+            offers.OfferExpiryMs);
 
     // Runs on the gaze thread. Applies the current effective tolerance to the LIVE detector in place. No
     // rebuild, so an in-progress fixation is preserved across an adaptation step: the controller relaxes and
@@ -599,11 +619,17 @@ public class GazeEngine : IDisposable
         _fixationDetector.CooldownMs = _settings.Dwell.DwellCooldownMs;
 
         // The offer engine follows the same two live values. They are settable in place (review A's
-        // ticket-8 nit): an R or dwell change must not drop a live offer.
+        // ticket-8 nit): an R or dwell change must not drop a live offer. The live check reads the
+        // constants from the log, so a real move logs the new configuration — not every request, which
+        // fires on each adaptation fill even when the effective value is unchanged.
         if (InteractionManager.ActivationOffers is { } offers)
         {
+            int previousDwellMs = offers.DwellMs;
+            double previousRadiusPx = offers.FixationRadiusPx;
             offers.DwellMs = EffectiveActivationDwellMs();
             offers.FixationRadiusPx = EffectiveFixationRadius();
+            if (offers.DwellMs != previousDwellMs || offers.FixationRadiusPx != previousRadiusPx)
+                LogOfferEngineConfiguration(offers);
         }
     }
 
@@ -714,6 +740,11 @@ public class GazeEngine : IDisposable
 
     private void OnActivationOfferExpired(ActivationOffer offer, long timestampUs, double progressAtExpiry)
     {
+        // Every expiry is logged for the live check, before the telemetry threshold below: a glance
+        // that did not complete is exactly what the "no chase" and completion-count readings need.
+        _logger?.LogInformation(
+            "Offer expired unused #{Id} (dwell {Progress:P0})", offer.Id, progressAtExpiry);
+
         // The same threshold the age-based abandonment used: below it the gaze merely passed over the
         // button, not an attempt the user gave up on.
         if (_telemetry is null || progressAtExpiry < TelemetryThresholds.AbandonProgress)

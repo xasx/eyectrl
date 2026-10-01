@@ -105,7 +105,7 @@ public static class ActivationButtonPlacement
         double buttonRadiusPx,
         IReadOnlyList<PhysicalRect>? chromeZones)
         => candidate.DistanceTo(point) > dropDistancePx
-           && !IntersectsChrome(candidate, buttonRadiusPx, chromeZones);
+           && !IntersectsAnyZone(candidate, buttonRadiusPx, chromeZones);
 
     /// <summary>
     /// Clamps a button centre so its whole hit circle stays inside the screen. A screen too small for
@@ -125,7 +125,12 @@ public static class ActivationButtonPlacement
         return Math.Clamp(value, min, max);
     }
 
-    private static bool IntersectsChrome(
+    /// <summary>
+    /// Whether a button's hit circle intersects any chrome zone. Public since ticket 8's fixup: the
+    /// offer engine's chrome re-validation uses the same test the placement does, so a live offer and
+    /// a fresh one are judged identically (review A F3).
+    /// </summary>
+    public static bool IntersectsAnyZone(
         PhysicalPoint center, double radius, IReadOnlyList<PhysicalRect>? zones)
     {
         if (zones is null)

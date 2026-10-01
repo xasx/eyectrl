@@ -2,12 +2,14 @@ namespace EyeCtrl.App.Tests.Services.Coordinators;
 
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
-using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Enums;
+using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
@@ -16,11 +18,13 @@ using Xunit;
 
 /// <summary>
 /// Ticket 8's offer coordinator: the geometry hand-off, the chrome-zone publication on every trigger
-/// the plan lists, and the external-dwell teardown. The zone collector is injected, so these exercise
-/// the coordinator's subscriptions and the push into <see cref="InteractionManager"/> without standing
-/// up the keyboard/menu windows; the pure composition is pinned in
-/// <see cref="ActivationChromeZonesTests"/> and the production collector is a thin read on top of it.
+/// the plan lists, the modal-surface suspension, and the external-dwell teardown. The zone collector
+/// is injected, so these exercise the coordinator's subscriptions and the push into
+/// <see cref="InteractionManager"/> without standing up the keyboard/menu windows; the pure
+/// composition is pinned in <see cref="ActivationChromeZonesTests"/> and the production collector is
+/// a thin read on top of it.
 /// </summary>
+[Collection("WpfApplication")]
 public class ActivationOfferCoordinatorTests
 {
     private static readonly PhysicalRect Screen = new(0, 0, 3840, 2400);
@@ -32,7 +36,8 @@ public class ActivationOfferCoordinatorTests
         ActivationOfferEngine Engine,
         WeakReferenceMessenger Messenger,
         Dispatcher Dispatcher,
-        TestFakes.FakeGazeProvider Provider);
+        TestFakes.FakeGazeProvider Provider,
+        ModalInteractionState Modal);
 
     private static Setup Build(Func<EventCoordinationContext, PhysicalRect[]>? collect = null)
     {
@@ -44,6 +49,7 @@ public class ActivationOfferCoordinatorTests
         var engine = new ActivationOfferEngine(Screen, scale: 2.0, ringSizeDip: 250, dwellMs: 700, fixationRadiusPx: 90);
         im.AttachActivationOffers(engine);
 
+        var modal = new ModalInteractionState();
         var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
         {
             GazeEngine = gazeEngine,
@@ -54,14 +60,17 @@ public class ActivationOfferCoordinatorTests
             KeyboardVM = new KeyboardViewModel(settings, messenger),
             ActionMenuVM = new ActionMenuViewModel(settings, messenger),
             ModesMenuVM = new ModesMenuViewModel(settings, messenger),
+            TaskSwitcherVM = new TaskSwitcherViewModel(new TestFakes.FakeWindowActionManager(), settings, messenger),
+            QuickActionsGridVM = new QuickActionsGridViewModel(new NoOpQuickActionsStore(), settings, messenger),
         };
 
         var coordinator = new ActivationOfferCoordinator(
-            new ToolbarLifecycleCoordinator(new ModalInteractionState()),
+            new ToolbarLifecycleCoordinator(modal),
+            modal,
             collect ?? (_ => Array.Empty<PhysicalRect>()));
         coordinator.Initialize(context);
         Pump();
-        return new Setup(coordinator, context, im, engine, messenger, Dispatcher.CurrentDispatcher, provider);
+        return new Setup(coordinator, context, im, engine, messenger, Dispatcher.CurrentDispatcher, provider, modal);
     }
 
     private static void Pump() =>
@@ -176,5 +185,98 @@ public class ActivationOfferCoordinatorTests
         Check.WithCustomMessage("the display change must rebuild the offer engine")
             .That(ReferenceEquals(s.InteractionManager.ActivationOffers, before)).IsFalse();
         Check.That(s.InteractionManager.ActivationOffers).IsNotNull();
+    }
+
+    [StaFact]
+    public void ConfigureEngine_UsesPhysicalScreenBounds_AtTheLiveScale()
+    {
+        // Review A A9: dropping the ×ScaleX survives every other test, and at ScaleX 2.0 the clamp
+        // would pin every B inside the top-left quarter. Mutation: use DIP bounds, no scale.
+        double previousX = DpiHelper.ScaleX;
+        double previousY = DpiHelper.ScaleY;
+        try
+        {
+            DpiHelper.Initialize(2.0, 2.0);
+            var s = Build();
+            using var _ = s.Context.GazeEngine;
+
+            s.Provider.Raise(new GazePoint(500, 500, 33_000, true));
+            var engine = s.InteractionManager.ActivationOffers;
+            Check.That(engine).IsNotNull();
+            Check.That(engine!.ScreenBoundsPx.Width)
+                .IsCloseTo(System.Windows.SystemParameters.PrimaryScreenWidth * 2.0, 1e-9);
+            Check.That(engine.ScreenBoundsPx.Height)
+                .IsCloseTo(System.Windows.SystemParameters.PrimaryScreenHeight * 2.0, 1e-9);
+            Check.That(engine.Scale).IsEqualTo(2.0);
+        }
+        finally
+        {
+            DpiHelper.Initialize(previousX, previousY);
+        }
+    }
+
+    [StaFact]
+    public void EachModalSurface_SuspendsOffers_WhileOpen()
+    {
+        // The user's decision (2026-10-02): while Settings, the task switcher, the quick-actions grid
+        // or the eye-care banner is open, no offer is made and a live unfired one is cleared.
+        // Mutation (per surface): drop its subscription → the offer survives its opening, red.
+        var s = Build();
+        using var _ = s.Context.GazeEngine;
+
+        // Settings: the writer raises the event (SettingsUiCoordinator's contract).
+        var offer = Settle(s, 500, 500);
+        s.Modal.SettingsOpen = true;
+        s.Modal.SettingsOpenChanged?.Invoke(true);
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        Check.WithCustomMessage("opening Settings must clear the live offer")
+            .That(s.Engine.CurrentOffer).IsNull();
+        s.Modal.SettingsOpen = false;
+        s.Modal.SettingsOpenChanged?.Invoke(false);
+        Check.That(Settle(s, 600, 600)).IsNotNull();
+
+        // Task switcher.
+        s.InteractionManager.RequestActivationOfferClear();
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        s.Context.TaskSwitcherVM.IsVisible = true;
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        var whileTaskSwitcher = Settle(s, 700, 700);
+        Check.WithCustomMessage("no offer may be made while the task switcher is open")
+            .That(whileTaskSwitcher).IsNull();
+        s.Context.TaskSwitcherVM.IsVisible = false;
+
+        // Quick-actions grid.
+        s.Context.QuickActionsGridVM.IsVisible = true;
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        Check.That(Settle(s, 800, 800)).IsNull();
+        s.Context.QuickActionsGridVM.IsVisible = false;
+
+        // Eye-care banner.
+        s.Messenger.Send(new EyeCareBannerActiveMessage(true));
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        Check.That(Settle(s, 900, 900)).IsNull();
+        s.Messenger.Send(new EyeCareBannerActiveMessage(false));
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+
+        Check.That(Settle(s, 1000, 1000)).IsNotNull();
+    }
+
+    /// <summary>Ends any live fixation, settles at a fresh point through the public API, and returns
+    /// the offer (or null when none was made).</summary>
+    private static ActivationOffer? Settle(Setup s, double x, double y)
+    {
+        s.InteractionManager.OnFixationEnded();
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        var point = new PhysicalPoint(x, y);
+        s.InteractionManager.OnFixationStarted(point);
+        s.InteractionManager.OnFixationSettled(point);
+        return s.InteractionManager.ActivationOffers!.CurrentOffer;
+    }
+
+    private sealed class NoOpQuickActionsStore : IQuickActionsStore
+    {
+        public IReadOnlyList<QuickAction> LoadAll() => Array.Empty<QuickAction>();
+        public void Save(IReadOnlyList<QuickAction> actions) { }
+        public QuickAction? FindById(string id) => null;
     }
 }

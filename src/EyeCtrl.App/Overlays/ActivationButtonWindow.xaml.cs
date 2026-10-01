@@ -104,8 +104,11 @@ public partial class ActivationButtonWindow : OverlayWindow, IActivationButtonOv
     /// <summary>
     /// Draws the halo at the radius for <paramref name="progress"/> — half the hit radius at 0 through
     /// the full hit radius at 1, in physical px divided by the live scale, both bands sharing it,
-    /// centred in the window. No-op before <see cref="ShowAt"/> has supplied a radius: a progress
-    /// notification can arrive from the ViewModel's show path before the window has been placed.
+    /// centred in the window. The applied radius is capped so the STROKE's outer edge lands exactly on
+    /// the hit radius at full progress (the geometric radius alone would leave the 7 px stroke half
+    /// outside the counted area — review B's nit). No-op before <see cref="ShowAt"/> has supplied a
+    /// radius: a progress notification can arrive from the ViewModel's show path before the window has
+    /// been placed.
     /// </summary>
     public void UpdateDwellProgress(double progress)
     {
@@ -113,8 +116,10 @@ public partial class ActivationButtonWindow : OverlayWindow, IActivationButtonOv
             return;
 
         var radiusDip = ActivationButtonHaloGeometry.RadiusDip(_hitRadiusPixels, DpiHelper.ScaleX, progress);
-        ApplyRadius(ProgressHalo, radiusDip);
-        ApplyRadius(ProgressRing, radiusDip);
+        double maxStrokeInsideDip = ActivationButtonHaloGeometry.OuterRadiusDip(_hitRadiusPixels, DpiHelper.ScaleX)
+            - (ProgressHalo.StrokeThickness / 2);
+        ApplyRadius(ProgressHalo, Math.Min(radiusDip, maxStrokeInsideDip));
+        ApplyRadius(ProgressRing, Math.Min(radiusDip, maxStrokeInsideDip));
     }
 
     private void ApplyRadius(FrameworkElement band, double radiusDip)

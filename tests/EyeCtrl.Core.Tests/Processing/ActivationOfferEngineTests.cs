@@ -656,7 +656,6 @@ public class ActivationOfferEngineTests
         Check.That(engine.CurrentOffer).IsNull();
     }
 
-    /// <summary>Feeds <paramref name="inHitSamples"/> valid samples at an in-hit point, one frame apart.</summary>
     [Fact]
     public void TwoShortExcursions600MsApart_OnlyPauseTheDwell_NeverResetIt()
     {
@@ -688,6 +687,7 @@ public class ActivationOfferEngineTests
         Check.That(engine.IsFired).IsTrue();
     }
 
+    /// <summary>Feeds <paramref name="inHitSamples"/> valid samples at an in-hit point, one frame apart.</summary>
     private static void FuelTheDwell(
         ActivationOfferEngine engine, PhysicalPoint point, long fromUs, int inHitSamples)
         => Feed(engine, point, fromUs, inHitSamples);

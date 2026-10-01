@@ -19,6 +19,12 @@ using EyeCtrl.ViewModels;
 /// keyboard window exposes its laid-out bounds, and the two menus are composed from the ViewModel
 /// data the windows themselves reported — no extra window access.
 /// </para>
+///
+/// <para>
+/// The modal surfaces that suspend offers entirely (Settings, the task switcher, the quick-actions
+/// grid, the eye-care banner) are deliberately NOT zones: the user's rule is "no offer at all while
+/// one is open", which the engine's suspension flag carries more honestly than a screen-sized rect.
+/// </para>
 /// </summary>
 internal static class ActivationChromeZones
 {
@@ -30,30 +36,51 @@ internal static class ActivationChromeZones
     /// </summary>
     public static PhysicalRect[] CollectFromProduction(EventCoordinationContext context)
     {
-        var zones = new List<PhysicalRect>(4);
-
         var toolbar = context.OverlayManager.Toolbar;
-        if (toolbar.IsOnScreen)
-            zones.Add(toolbar.GetPhysicalBounds());
+        PhysicalRect toolbarBounds = toolbar.IsOnScreen ? toolbar.GetPhysicalBounds() : default;
 
         // The whole keyboard window: key grid, prediction bar and category bar together. The
         // prediction bar is inside this rect, and it is why a prediction relayout (SizeToContent)
         // re-publishes.
-        if (context.KeyboardVM.IsVisible
-            && context.OverlayManager.Keyboard.TryGetChromeBounds(out var keyboard))
-        {
+        PhysicalRect? keyboardBounds =
+            context.KeyboardVM.IsVisible
+            && context.OverlayManager.Keyboard.TryGetChromeBounds(out var bounds)
+                ? bounds
+                : null;
+
+        PhysicalRect? actionMenuBounds = context.ActionMenuVM.IsVisible
+            ? ActionMenuBounds(context.ActionMenuVM.Center, context.ActionMenuVM.EffectiveRingRadius, DpiHelper.ScaleX)
+            : null;
+
+        PhysicalRect? modesMenuBounds = context.ModesMenuVM.IsVisible
+            ? ModesMenuBounds(context.ModesMenuVM.RowScreenPositions)
+            : null;
+
+        return Compose(
+            toolbar.IsOnScreen, toolbarBounds,
+            context.KeyboardVM.IsVisible, keyboardBounds,
+            actionMenuBounds, modesMenuBounds);
+    }
+
+    /// <summary>
+    /// The composition itself, split out so the "which surface contributes" rules are unit-testable
+    /// without windows: a zone is included only when its surface is up and its bounds were sourced.
+    /// </summary>
+    public static PhysicalRect[] Compose(
+        bool toolbarOnScreen, PhysicalRect toolbarBounds,
+        bool keyboardVisible, PhysicalRect? keyboardBounds,
+        PhysicalRect? actionMenuBounds,
+        PhysicalRect? modesMenuBounds)
+    {
+        var zones = new List<PhysicalRect>(4);
+        if (toolbarOnScreen)
+            zones.Add(toolbarBounds);
+        if (keyboardVisible && keyboardBounds is { } keyboard)
             zones.Add(keyboard);
-        }
-
-        if (context.ActionMenuVM.IsVisible)
-            zones.Add(ActionMenuBounds(context.ActionMenuVM.Center, context.ActionMenuVM.EffectiveRingRadius, DpiHelper.ScaleX));
-
-        if (context.ModesMenuVM.IsVisible
-            && ModesMenuBounds(context.ModesMenuVM.RowScreenPositions) is { } modesMenu)
-        {
+        if (actionMenuBounds is { } actionMenu)
+            zones.Add(actionMenu);
+        if (modesMenuBounds is { } modesMenu)
             zones.Add(modesMenu);
-        }
-
         return zones.ToArray();
     }
 

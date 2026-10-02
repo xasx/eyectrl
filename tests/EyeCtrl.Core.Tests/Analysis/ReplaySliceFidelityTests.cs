@@ -14,7 +14,7 @@ using EyeCtrl.Core.Tests.Flow;
 /// <item>what the engine feeds the fixation detector — the engine's onsets and ends observed through
 /// the explicit <c>InteractionManager.FixationAccepted</c>/<c>FixationEnded</c> events, which fire
 /// synchronously inside <c>Push</c>, plus the engine's <c>FixationActivated</c>/<c>FixationReleased</c>
-/// ledger and its <c>PinRing</c> settle. Onsets are compared by time and point; ends by count, time and
+/// ledger and its <c>FixationSettled</c> settle. Onsets are compared by time and point; ends by count, time and
 /// credited age (the round-3 addendum); settles by time and point (ticket 7), so a rule that ends a run
 /// one sample early — or settles on the wrong sample — reds.</item>
 /// </list>
@@ -103,7 +103,7 @@ public class ReplaySliceFidelityTests
         // the detector feed inside Push, so currentUs is the sample that caused them.
         engine.InteractionManager.FixationAccepted += point => engineOnsets.Add((currentUs, point));
         engine.InteractionManager.FixationEnded += () => engineEnds++;
-        engine.InteractionManager.PinRing += point => engineSettles.Add((currentUs, point));
+        engine.InteractionManager.FixationSettled += point => engineSettles.Add((currentUs, point));
         engine.FixationActivated += activation => engineActivations.Add(activation.TimestampUs);
         engine.FixationReleased += release => engineReleases.Add(
             new FixationRelease(release.LastCreditedUs, release.CreditedAgeUs, release.EndedByLeave));
@@ -127,9 +127,9 @@ public class ReplaySliceFidelityTests
             Check.That(engineOnsets[i].Point.Y).IsEqualTo(runs[i].Anchor.Y);
         }
 
-        // Ticket 7 settle parity: the engine's accepted settle (PinRing) equals the harness's, in time
+        // Ticket 7 settle parity: the engine's accepted settle (FixationSettled) equals the harness's, in time
         // and point. The parity's real teeth (review A F3e) are wiring and drift, measured red on both
-        // fixture and recording: X1, PinRing carrying the onset point instead of the settle centroid,
+        // fixture and recording: X1, the settle event carrying the onset point instead of the settle centroid,
         // and X2, the engine's detector settling at another age (400 ms). A settle on `t - t_start`
         // would NOT red this — both sides run the same detector; SettleAge_BlinkPausesIt kills that.
         var settledRuns = runs.Where(r => r.IsSettled).ToList();

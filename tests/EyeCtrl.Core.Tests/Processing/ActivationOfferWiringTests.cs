@@ -237,6 +237,145 @@ public class ActivationOfferWiringTests
         Check.That(h.Released).IsEqualTo(0);                  // replaced while holding: nothing in between released it
     }
 
+    // ── The ring stays at P through settles that leave the offer as it was (review F1) ─────────
+
+    /// <summary>The point on the line from B toward P at <paramref name="fromButtonPx"/> from B.</summary>
+    private static PhysicalPoint TowardP(ActivationOffer offer, double fromButtonPx)
+    {
+        double length = offer.Point.DistanceTo(offer.Button);
+        double t = fromButtonPx / length;
+        return new PhysicalPoint(
+            offer.Button.X + ((offer.Point.X - offer.Button.X) * t),
+            offer.Button.Y + ((offer.Point.Y - offer.Button.Y) * t));
+    }
+
+    private const double HarnessRadiusPx = 90;
+
+    [Fact]
+    public void ANearMissSettle_LeavesTheRingAtP()
+    {
+        // A settle just outside the hit area, nearer B than P, is a near miss (it extends the offer).
+        // It is the user's common case — they find holding hard — and the ring must not move toward
+        // the button on it. Mutation: re-pin on an Extended settle → PinPoints gains the near miss.
+        using var h = new Harness();
+        var offer = h.SettleAt(P);
+        var nearMiss = TowardP(offer, offer.HitRadiusPx + 15);
+        Check.That(nearMiss.DistanceTo(offer.Button)).IsStrictlyLessThan(nearMiss.DistanceTo(P));
+        Check.That(nearMiss.DistanceTo(P)).IsStrictlyGreaterThan(HarnessRadiusPx);   // a run of its own
+
+        h.Feed(nearMiss, samples: 20);                        // settles inside the 750 ms linger
+
+        Check.That(h.Offers.CurrentOffer!.Id).IsEqualTo(offer.Id);
+        Check.That(h.PinPoints).ContainsExactly(P);
+        Check.That(h.Released).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void ASwallowedSettle_OnPsSide_LeavesTheRingAtP()
+    {
+        // A settle inside the no-move zone but on P's side is swallowed (remembered as the pending
+        // re-offer). The ring stays at P. Mutation: re-pin on a Pending settle → PinPoints gains it.
+        using var h = new Harness();
+        var offer = h.SettleAt(P);
+        var swallowed = TowardP(offer, offer.HitRadiusPx + HarnessRadiusPx - 10);
+        Check.That(swallowed.DistanceTo(P)).IsStrictlyLessThan(swallowed.DistanceTo(offer.Button));
+        Check.That(swallowed.DistanceTo(P)).IsStrictlyGreaterThan(HarnessRadiusPx);
+
+        h.Feed(swallowed, samples: 20);                       // settled at ~510 ms, before the expiry
+
+        Check.That(h.Offers.CurrentOffer!.Id).IsEqualTo(offer.Id);
+        Check.That(h.PinPoints).ContainsExactly(P);
+        Check.That(h.Released).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void APendingReOffer_PinsTheRingAtTheNewP()
+    {
+        // When the offer expires while the swallowed run still holds, the pending re-offer takes its
+        // place inside Update — not from a settle. The completion of that offer lands at ITS P, so the
+        // ring must mark it. Mutation: pin only from a settle's publish → the ring stays at the old P.
+        using var h = new Harness();
+        var first = h.SettleAt(P);
+        var swallowed = TowardP(first, first.HitRadiusPx + HarnessRadiusPx - 10);
+
+        h.Feed(swallowed, samples: 40);                       // 1.2 s: past the 750 ms linger, still holding
+
+        var reOffer = h.Offers.CurrentOffer;
+        Check.That(reOffer).IsNotNull();
+        Check.That(reOffer!.Id).IsNotEqualTo(first.Id);
+        Check.That(reOffer.Point.DistanceTo(swallowed)).IsStrictlyLessThan(1e-6);
+        Check.That(h.Pinned).IsEqualTo(2);
+        Check.That(h.PinPoints[1].DistanceTo(reOffer.Point)).IsStrictlyLessThan(1e-6);
+        Check.That(h.Released).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void AnOfferClearedDuringItsOwnHold_LeavesTheRingOnTheHold_UntilTheRunEnds()
+    {
+        // Chrome appearing over the offer (the keyboard auto-show, a toolbar summon) clears it while
+        // the user is still holding P. The ring is the user's "you're holding" signal and stays put
+        // until the run ends. Mutation: release on every close, even in Fixation → Released is 1 early.
+        using var h = new Harness();
+        var offer = h.SettleAt(P);
+
+        h.Im.SetActivationChromeZones(new PhysicalRect(P.X - 100, P.Y - 100, 500, 500));
+        h.Feed(P, samples: 5);                                // still holding P
+
+        Check.That(h.Offers.CurrentOffer).IsNull();
+        Check.That(h.Closed).IsEqualTo(1);
+        Check.That(h.Im.CurrentState).IsEqualTo(InteractionState.Fixation);
+        Check.That(h.Released).IsEqualTo(0);
+
+        h.FeedAway(samples: 2);                               // the run ends
+
+        Check.That(h.Released).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void AChromeSettleDuringTheLinger_PinsThere_AndIsReleasedAtItsRunsEnd()
+    {
+        // Review F2: a settle on the toolbar makes no offer and leaves the older offer up. The ring
+        // pins on the toolbar ("you're holding"), and that pin — not the offer's — must be released
+        // when the user leaves the toolbar, not frozen there until the old offer expires.
+        // Mutation: keep any pin through an exit to FreeLook while an offer lives → Released stays 0.
+        using var h = new Harness();
+        var toolbar = new PhysicalRect(1500, 0, 1000, 300);
+        h.Im.SetActivationChromeZones(toolbar);
+        var offer = h.SettleAt(P);
+        var onToolbar = new PhysicalPoint(2000, 150);
+
+        h.Feed(onToolbar, samples: 20);                       // a no-offer settle inside the linger
+
+        Check.That(h.Offers.CurrentOffer!.Id).IsEqualTo(offer.Id);
+        Check.That(h.PinPoints).ContainsExactly(P, onToolbar);
+        Check.That(h.Released).IsEqualTo(0);
+
+        h.FeedAway(samples: 2);                               // the user leaves the toolbar
+
+        Check.That(h.Offers.CurrentOffer).IsNotNull();        // the old offer still lingers...
+        Check.That(h.Released).IsEqualTo(1);                  // ...but the toolbar pin is gone
+    }
+
+    [Fact]
+    public void AnOfferExpiringDuringAnUnsettledRun_FreesTheOldPinAtOnce()
+    {
+        // Review F2's smaller sibling: the offer expires while the user's next run, far away, has
+        // reached its onset but not its settle. The ring must not sit at the old P for the rest of that
+        // run. Mutation: release a close only outside Fixation → Released stays 0 here.
+        using var h = new Harness();
+        h.SettleAt(P);
+        var far = new PhysicalPoint(3000, 600);
+
+        h.FeedAway(samples: 13);                              // 390 ms of saccades: the P run ended
+        for (int i = 0; i < 30 && h.Closed == 0; i++)
+            h.Feed(far, samples: 1);
+
+        Check.That(h.Closed).IsEqualTo(1);                    // the expiry...
+        Check.That(h.Im.CurrentState).IsEqualTo(InteractionState.Fixation);   // ...inside the far run
+        Check.That(h.Shown).HasSize(1);                       // ...before its settle
+        Check.That(h.Released).IsEqualTo(1);
+    }
+
     // ── Expiry ───────────────────────────────────────────────────────────────
 
     [Fact]

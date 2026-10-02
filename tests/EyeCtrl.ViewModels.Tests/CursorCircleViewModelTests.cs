@@ -316,6 +316,22 @@ public class CursorCircleViewModelTests
     }
 
     [Fact]
+    public void PinRing_IsIgnored_InFreeLook()
+    {
+        // The VM keeps a pin through FreeLook since the ring follows the offer, so a pin that lands
+        // after a dispatcher-side exit to FreeLook (the race Receive(PinRingMessage) guards) would
+        // persist until Core's next release. Core only pins in Fixation. Mutation: accept a pin in
+        // FreeLook → IsPinned is true, red.
+        var settings = new EyeCtrlSettings();
+        var vm = new CursorCircleViewModel(settings, _messenger);
+
+        _messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        _messenger.Send(new PinRingMessage(new PhysicalPoint(140, 120)));
+
+        Check.That(vm.IsPinned).IsFalse();
+    }
+
+    [Fact]
     public void PinRing_IsIgnored_UnlessTheLastReportedStateIsFixation()
     {
         // Review A, F4: the exit is posted from the dispatcher, so a Release/StateChanged pair can land

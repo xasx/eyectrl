@@ -71,20 +71,32 @@ public class InteractionManager
     /// </summary>
     public event Action? FixationEnded;
     /// <summary>
-    /// Raised on every accepted settle, carrying the running centroid at settle (physical pixels). A
-    /// settle is accepted only in <see cref="InteractionState.Fixation"/> — which implies this run's
-    /// onset was accepted — and, deliberately, including settles over EyeCtrl's own controls: the ring
-    /// always says "you're holding", the offer (ticket 8) is what chrome suppresses.
+    /// Raised to pin the ring at a point (physical pixels), always while the state is
+    /// <see cref="InteractionState.Fixation"/>. Two sources: an activation offer appearing (its P —
+    /// created or replaced by a settle, or a pending re-offer taking over a run that still holds), and
+    /// an accepted settle that made no offer at all (chrome, an unplaceable side, no engine yet),
+    /// deliberately including settles over EyeCtrl's own controls: the ring says "you're holding".
+    /// A settle that left a live offer as it was (on the button, a near miss, swallowed, locked) does
+    /// NOT raise it: while an offer lives the ring belongs to its P (live check 2026-10-02). It is
+    /// therefore not a settle signal; <see cref="FixationSettled"/> is.
     /// </summary>
     public event Action<PhysicalPoint>? PinRing;
     /// <summary>
-    /// Raised on EVERY exit from <see cref="InteractionState.Fixation"/>, paired with
-    /// <see cref="FixationEnded"/>. Deliberately keyed on the state transition rather than on the
-    /// detector's end event: the keyboard toggle calls <see cref="OnFixationEnded"/> directly after
-    /// setting <c>GazeEngine.SuppressFixation</c>, so the detector is no longer fed and never raises an
-    /// end — a detector-keyed release would leave the ring frozen on the toolbar (re-check N2).
+    /// Raised when the ring goes back to following the gaze. On an exit from
+    /// <see cref="InteractionState.Fixation"/> — keyed on the state transition, not the detector's end
+    /// event: the keyboard toggle calls <see cref="OnFixationEnded"/> directly after setting
+    /// <c>GazeEngine.SuppressFixation</c>, so the detector never raises an end (re-check N2) — EXCEPT an
+    /// exit to FreeLook while the ring is pinned at a live offer's P: that pin is released by the
+    /// offer's close instead, or by an offer closing while a later, unpinned run is forming.
     /// </summary>
     public event Action? ReleaseRing;
+    /// <summary>
+    /// Raised on every accepted settle (state <see cref="InteractionState.Fixation"/>), carrying the
+    /// running centroid at settle, before the offer engine classifies it. The replay's settle parity
+    /// observes this; <see cref="PinRing"/> stopped being one-per-settle when the ring began following
+    /// the offer.
+    /// </summary>
+    public event Action<PhysicalPoint>? FixationSettled;
     /// <summary>Raised when the user selects an action (click, scroll, etc.) at a specific point. Modifiers are opaque payload from the action menu's latch; repeat ticks carry null.</summary>
     public event Action<InteractionAction, PhysicalPoint, IReadOnlySet<ModifierKey>?>? ActionRequested;
 
@@ -153,9 +165,21 @@ public class InteractionManager
     private const long NoActivationOfferRequest = -1;
     private ActivationOfferEngine? _activationOffers;
     private PhysicalRect[] _activationChromeZones = Array.Empty<PhysicalRect>();
-    // The id of the offer the button currently shows; 0 = none. Written and read on the gaze thread
-    // only — the offer lifecycle is published from here, never from a dispatcher thread.
+    // The id of the offer the button currently shows; 0 = none. Written on the gaze thread only (the
+    // offer lifecycle is published from here, never from a dispatcher thread), with a full fence, and
+    // ALSO read by SetState, which runs on the dispatcher for the keyboard toggle, DeclineOffer and
+    // repeat-mode entry (review F3). SetState fences between its CurrentState write and this read, and
+    // the publish fences between this write and its CurrentState read, so one of the two always sees
+    // the other's write and a ring pinned at an offer is never left with nobody releasing it.
     private long _publishedActivationOfferId;
+    // Where the ring's last pin came from. Both are written on the gaze thread only (every pin is
+    // raised there). _ringPinnedAtOffer: the pin is a live offer's P, so a fixation exit to FreeLook
+    // leaves it to the offer's close; a pin at a no-offer settle (chrome, say) is released at its run's
+    // end like any other (review F2). _ringPinnedThisRun: the current run pinned the ring, so an offer
+    // closing mid-run leaves the user's own hold alone; an offer closing during a run that has not
+    // pinned yet frees the old P's pin at once.
+    private volatile bool _ringPinnedAtOffer;
+    private bool _ringPinnedThisRun;
     // Every request slot is Interlocked: set on any thread, drained on the gaze thread. A plain
     // volatile bool for the clear used to allow a set landing between the drain's read and its
     // write-back of false to be lost (review A F2), which could strand the fired lock.
@@ -343,8 +367,9 @@ public class InteractionManager
         var offer = _activationOffers?.CurrentOffer;
         long id = offer?.Id ?? 0;
         if (id == _publishedActivationOfferId) return;
-        bool hadOffer = _publishedActivationOfferId != 0;
-        _publishedActivationOfferId = id;
+        // The full fence pairs with SetState's (see the field): the CurrentState reads below must see
+        // a dispatcher-side exit that raced this publish.
+        bool hadOffer = Interlocked.Exchange(ref _publishedActivationOfferId, id) != 0;
         if (hadOffer)
             ActivationOfferClosed?.Invoke();
         if (offer is not null)
@@ -354,20 +379,32 @@ public class InteractionManager
             // offer appears (a settle's creation or replacement, or a pending re-offer taking over a
             // run that still holds) and stays there while the user looks at the button.
             if (CurrentState == InteractionState.Fixation)
-                PinRing?.Invoke(offer.Point);
+                RaisePinRing(offer.Point, atOffer: true);
         }
-        else if (hadOffer && CurrentState != InteractionState.Fixation)
+        else if (hadOffer && (CurrentState != InteractionState.Fixation || !_ringPinnedThisRun))
         {
-            // The offer is gone and no run is holding: the ring goes back to the gaze (snap out). A
-            // run that is still holding releases at its own end (SetState), when no offer is alive.
+            // The offer is gone: the ring goes back to the gaze (snap out) — unless the run that is
+            // holding now pinned it (the offer's own run, cleared by chrome or the keyboard mid-hold,
+            // or a chrome settle): that is the user's hold, released at the run's end (SetState). A
+            // run that has not pinned yet frees the old P at once.
             ReleaseRing?.Invoke();
         }
+    }
+
+    private void RaisePinRing(PhysicalPoint point, bool atOffer)
+    {
+        _ringPinnedAtOffer = atOffer;
+        _ringPinnedThisRun = true;
+        PinRing?.Invoke(point);
     }
 
     private void SetState(InteractionState newState)
     {
         var previous = CurrentState;
         CurrentState = newState;
+        // Pairs with the publish's fence (see _publishedActivationOfferId): either this read sees the
+        // gaze thread's close, or the close's CurrentState read sees this exit.
+        Interlocked.MemoryBarrier();
         // Every exit from Fixation, through whatever path, is one place: the explicit end signal the
         // replay parity reads, and the ring release (re-check N2). The keyboard toggle is the proof
         // case: it ends the fixation by calling OnFixationEnded directly while suppression stops the
@@ -384,8 +421,13 @@ public class InteractionManager
             // The ring stays pinned at P for as long as the offer lives (live check 2026-10-02: the
             // run flips FreeLook/Fixation every ~0.3 s while the user holds the button, and a ring that
             // released and re-pinned on every flip danced over the button). The release then comes
-            // from the offer's close (PublishActivationOfferState), or here when no offer is alive.
-            if (_publishedActivationOfferId == 0 || newState != InteractionState.FreeLook)
+            // from the offer's close (PublishActivationOfferState). It comes here when no offer is
+            // alive, when the pin is not the offer's (a chrome settle during the linger, review F2),
+            // and on every exit that is not to FreeLook.
+            bool keepOfferPin = newState == InteractionState.FreeLook
+                && _ringPinnedAtOffer
+                && Volatile.Read(ref _publishedActivationOfferId) != 0;
+            if (!keepOfferPin)
                 ReleaseRing?.Invoke();
         }
         StateChanged?.Invoke(newState);
@@ -413,6 +455,7 @@ public class InteractionManager
 
         if (CurrentState != InteractionState.FreeLook) return;
         FixationPoint = point;
+        _ringPinnedThisRun = false;
         SetState(InteractionState.Fixation);
         // After SetState, so a listener that also watches StateChanged sees the state already moved.
         // No offer is made at onset: the button appears at the accepted settle (ticket 8), so resting
@@ -427,14 +470,15 @@ public class InteractionManager
     /// The settle is accepted only in <see cref="InteractionState.Fixation"/> — which is exactly "this
     /// run's onset was accepted", because the state enters Fixation only on an accepted onset and leaves
     /// it on the run's end. A settle that arrives after the state moved on (a pause, a menu, an
-    /// activation) is ignored. Acceptance raises <see cref="PinRing"/>: ticket 8 attaches the offer to
-    /// this same point.
+    /// activation) is ignored. Acceptance raises <see cref="FixationSettled"/> and hands the point to
+    /// the offer engine; <see cref="PinRing"/> follows from what the engine made of it (see there).
     /// </para>
     /// </summary>
     /// <param name="point">The running centroid at settle, in physical screen pixels.</param>
     public void OnFixationSettled(PhysicalPoint point)
     {
         if (CurrentState != InteractionState.Fixation) return;
+        FixationSettled?.Invoke(point);
         // The accepted settle is the offer's creation point (ticket 8): the engine classifies it
         // (create / replace / extend / swallow) and the button's show and hide follow from there.
         var outcome = _activationOffers?.NotifyFixationSettled(point, _lastSampleTimestampUs);
@@ -447,7 +491,7 @@ public class InteractionManager
         // or replaced offer (already pinned by the publish), and a settle with no offer at all (chrome,
         // an unplaceable side, no engine yet), which keeps the old pin-at-settle behaviour.
         if (outcome is null or SettleOutcome.NoOffer)
-            PinRing?.Invoke(point);
+            RaisePinRing(point, atOffer: false);
     }
 
     /// <summary>Called when the current fixation ends (gaze moves away from the fixation point).</summary>

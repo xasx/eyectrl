@@ -9,9 +9,11 @@ using EyeCtrl.Core.Models;
 /// <para>
 /// Two display models are measured through the same predicate. "Following" is the pre-ticket-4 widget:
 /// the ring is at the pipeline's filtered point on every frame, so it moves with the eye's own
-/// jitter. "Pinned" is the shipped widget: while a fixation run covers a frame the ring is at the
-/// run's onset anchor (Core's running centroid at onset) and nothing can move it; outside a run it
-/// follows as before.
+/// jitter. "Pinned" is ticket 4's per-run widget: while a fixation run covers a frame the ring is
+/// at the run's onset anchor (Core's running centroid at onset) and nothing can move it; outside a
+/// run it follows. The shipped ring has since also stayed pinned BETWEEN runs while an activation
+/// offer lives (ticket 8's ring fix), which can only raise the held-episode share: these numbers are
+/// a conservative floor for it.
 /// </para>
 ///
 /// <para>

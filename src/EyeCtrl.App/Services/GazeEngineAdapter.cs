@@ -95,10 +95,21 @@ public class GazeEngineAdapter : IDisposable
                     _logger.LogInformation("Offer declined #{Id} (no control found)", offer.Id);
                     return;
                 }
-                _interactionManager.OnActivationButtonDwelled(offer);
-                _logger.LogInformation(
-                    "Offer accepted #{Id} → {Mode} at P=({Px:F0},{Py:F0})",
-                    offer.Id, _interactionManager.SelectionMode, offer.Point.X, offer.Point.Y);
+                // The log reflects what actually happened (ticket 8 fixup 02, review B): the
+                // completion can still go stale (a teardown raced the resolve) or be declined for a
+                // wrong state (a Pause landed), and it must not be reported as an activation then.
+                var result = _interactionManager.OnActivationButtonDwelled(offer);
+                if (result == ActivationCompletionResult.Accepted)
+                {
+                    _logger.LogInformation(
+                        "Offer accepted #{Id} → {Mode} at P=({Px:F0},{Py:F0})",
+                        offer.Id, _interactionManager.SelectionMode, offer.Point.X, offer.Point.Y);
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "Offer declined #{Id} ({Reason})", offer.Id, result.ToString().ToLowerInvariant());
+                }
             }
             catch (Exception ex)
             {

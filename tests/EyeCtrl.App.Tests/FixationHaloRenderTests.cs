@@ -47,12 +47,13 @@ public class FixationHaloRenderTests
             window.UpdateDwellProgress(0.5);
             Check.That(window.ProgressHalo.Width / 2).IsCloseTo(56.25, 1e-10);
 
-            // The geometric radius at progress 1 is 75 DIP; the applied radius is capped at
-            // 75 − stroke/2 = 71.5 so the stroke's OUTER edge lands exactly on the hit radius
-            // (review B's nit). Mutation: drop the cap → 75 here and the outer edge at 78.5, red.
+            // The radius at progress 1 is the full hit radius in DIP. WPF draws the stroke inside the
+            // element's bounds (review A's probe E1), so this element edge IS the stroke's outer edge
+            // and lands exactly on the hit radius. Mutation: cap it (the reverted fixup-01 form) →
+            // 71.5 here and the outer-edge test below red.
             window.UpdateDwellProgress(1.0);
-            Check.That(window.ProgressHalo.Width / 2).IsCloseTo(71.5, 1e-10);
-            Check.That(window.ProgressRing.Width / 2).IsCloseTo(71.5, 1e-10);
+            Check.That(window.ProgressHalo.Width / 2).IsCloseTo(75.0, 1e-10);
+            Check.That(window.ProgressRing.Width / 2).IsCloseTo(75.0, 1e-10);
 
             // Both bands share the window's centre: the halo is symmetric around B, and the window is
             // wide enough for the largest radius plus the halo's own stroke.
@@ -70,10 +71,12 @@ public class FixationHaloRenderTests
     }
 
     [StaFact]
-    public void HaloOuterRadius_NeverExceedsTheHitRadius_InPhysicalPixels()
+    public void HaloOuterEdge_NeverExceedsAndAtFullProgressEqualsTheHitRadius()
     {
-        // The acceptance row at ScaleX 2.0: outer radius ≤ the hit radius. Drawn DIP × scale is the
-        // physical feedback, and it must never lie outside the counted area at any progress.
+        // The acceptance row at ScaleX 2.0. WPF draws the stroke inside the element's bounds, so the
+        // element's edge (Width/2) IS the stroke's outer edge; at full progress it must land exactly on
+        // the hit radius, and no progress may exceed it. Mutation: re-add the fixup-01 stroke cap
+        // (subtract StrokeThickness/2) → 71.5 DIP at progress 1, red.
         WpfApplicationGate.EnsureApplicationWithTokens();
         DpiHelper.Initialize(EffectiveScale, EffectiveScale);
         var window = new ActivationButtonWindow();
@@ -83,12 +86,14 @@ public class FixationHaloRenderTests
             for (double p = 0.0; p <= 1.0; p += 0.1)
             {
                 window.UpdateDwellProgress(p);
-                double outerEdgePx = (window.ProgressHalo.Width / 2
-                    + (window.ProgressHalo.StrokeThickness / 2)) * EffectiveScale;
-                Check.WithCustomMessage(
-                        $"progress {p}: the halo's STROKE edge ({outerEdgePx:F2} px) escaped the hit radius")
+                double outerEdgePx = window.ProgressHalo.Width / 2 * EffectiveScale;
+                Check.WithCustomMessage($"progress {p}: the halo escaped the hit radius")
                     .That(outerEdgePx).IsLessOrEqualThan(HitPx);
             }
+
+            window.UpdateDwellProgress(1.0);
+            Check.WithCustomMessage("the halo's outer edge at full progress must BE the hit radius")
+                .That(window.ProgressHalo.Width / 2 * EffectiveScale).IsEqualTo(HitPx);
         }
         finally
         {
@@ -179,7 +184,7 @@ public class FixationHaloRenderTests
         {
             window.ShowAt(new PhysicalPoint(1000, 800), HitPx);
             window.UpdateDwellProgress(1.0);
-            Check.That(window.ProgressHalo.Width / 2).IsCloseTo(71.5, 1e-10);   // stroke-inside cap
+            Check.That(window.ProgressHalo.Width / 2).IsCloseTo(75.0, 1e-10);   // the full hit radius
             Check.That(window.HasAnimatedProperties).IsTrue(); // the fade-in holds Opacity
 
             window.HideImmediate();

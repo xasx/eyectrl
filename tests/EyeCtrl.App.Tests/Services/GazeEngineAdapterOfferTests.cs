@@ -10,6 +10,7 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NFluent;
 using Xunit;
@@ -218,9 +219,72 @@ public class GazeEngineAdapterOfferTests
         Check.That(engine.InteractionManager.ActivationOffers!.CurrentOffer).IsNotNull();
     }
 
+    [StaFact]
+    public void WrongStateCompletion_LogsDeclined_NotAccepted()
+    {
+        // Review B's Low (fixup 02): the "Offer accepted" line must only follow a real activation. A
+        // Pause-shaped wrong state during the resolve returns Declined, so the adapter must log a
+        // declined reason. Mutation: log accepted unconditionally → the assertion goes red.
+        var settings = new EyeCtrlSettings();
+        settings.Cursor.FilterMode = GazeFilterMode.Direct;
+        settings.Dwell.FixationRadiusPixels = 90;
+        var provider = new TestFakes.FakeGazeProvider();
+        using var engine = new GazeEngine(provider, new TestFakes.FakeInputSimulator(), settings);
+        engine.ConfigureActivationOffers(Screen, scale: 2.0);
+
+        var messenger = new WeakReferenceMessenger();
+        var logger = new RecordingLogger<GazeEngineAdapter>();
+        var vm = new ActivationButtonViewModel(messenger);
+        using var adapter = new GazeEngineAdapter(
+            engine, settings, messenger, Dispatcher.CurrentDispatcher, logger, new StubControlFinder());
+
+        SynchronizationContext.SetSynchronizationContext(
+            new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
+
+        long us = 0;
+        for (int i = 0; i < 20; i++)
+        {
+            us += 33_000;
+            provider.Raise(new GazePoint(P.X, P.Y, us, true));
+        }
+        var offer = engine.InteractionManager.ActivationOffers!.CurrentOffer!;
+        for (int i = 0; i < 25; i++)
+        {
+            us += 33_000;
+            provider.Raise(new GazePoint(offer.Button.X, offer.Button.Y, us, true));
+        }
+
+        // The wrong state arrives before the fire message is pumped: the offer is live, but the state
+        // no longer allows the completion, so the manager declines the named offer.
+        engine.InteractionManager.OnActivationButtonDwelled();
+        Check.That(engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.ActionMenuVisible);
+
+        var deadline = DateTime.UtcNow.AddSeconds(3);
+        while (!logger.Lines.Any(l => l.Contains("Offer declined")) && DateTime.UtcNow < deadline)
+        {
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+            Thread.Sleep(5);
+        }
+
+        Check.WithCustomMessage("a declined completion must not be logged as an activation")
+            .That(logger.Lines.Any(l => l.Contains("Offer accepted"))).IsFalse();
+        Check.WithCustomMessage("the decline's result reason must be in the line")
+            .That(logger.Lines.Any(l => l.Contains("Offer declined #") && l.Contains("(declined)"))).IsTrue();
+    }
+
     private sealed class StubControlFinder : IControlFinder
     {
         public ControlInfo? FindTarget(PhysicalPoint point) => null;
+    }
+
+    private sealed class RecordingLogger<T> : ILogger<T>
+    {
+        public List<string> Lines { get; } = new();
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter)
+            => Lines.Add(formatter(state, exception));
     }
 
     /// <summary>Records every control-finder query and finds nothing, so the fallback keeps the

@@ -104,11 +104,11 @@ public partial class ActivationButtonWindow : OverlayWindow, IActivationButtonOv
     /// <summary>
     /// Draws the halo at the radius for <paramref name="progress"/> — half the hit radius at 0 through
     /// the full hit radius at 1, in physical px divided by the live scale, both bands sharing it,
-    /// centred in the window. The applied radius is capped so the STROKE's outer edge lands exactly on
-    /// the hit radius at full progress (the geometric radius alone would leave the 7 px stroke half
-    /// outside the counted area — review B's nit). No-op before <see cref="ShowAt"/> has supplied a
-    /// radius: a progress notification can arrive from the ViewModel's show path before the window has
-    /// been placed.
+    /// centred in the window. WPF draws an Ellipse's stroke INSIDE the element's bounds (review A's
+    /// probe E1: Width 100, stroke 10 renders geometry at (5, 5, 90, 90)), so the element's edge is
+    /// the stroke's outer edge and at full progress it lands exactly on the hit radius — no cap is
+    /// needed. No-op before <see cref="ShowAt"/> has supplied a radius: a progress notification can
+    /// arrive from the ViewModel's show path before the window has been placed.
     /// </summary>
     public void UpdateDwellProgress(double progress)
     {
@@ -116,10 +116,8 @@ public partial class ActivationButtonWindow : OverlayWindow, IActivationButtonOv
             return;
 
         var radiusDip = ActivationButtonHaloGeometry.RadiusDip(_hitRadiusPixels, DpiHelper.ScaleX, progress);
-        double maxStrokeInsideDip = ActivationButtonHaloGeometry.OuterRadiusDip(_hitRadiusPixels, DpiHelper.ScaleX)
-            - (ProgressHalo.StrokeThickness / 2);
-        ApplyRadius(ProgressHalo, Math.Min(radiusDip, maxStrokeInsideDip));
-        ApplyRadius(ProgressRing, Math.Min(radiusDip, maxStrokeInsideDip));
+        ApplyRadius(ProgressHalo, radiusDip);
+        ApplyRadius(ProgressRing, radiusDip);
     }
 
     private void ApplyRadius(FrameworkElement band, double radiusDip)

@@ -494,7 +494,8 @@ public class ActivationOfferWiringTests
         h.Im.RequestActivationOfferClear();
         Check.That(h.Im.IsActivationOfferLive(offer.Id)).IsFalse();
 
-        h.Im.OnActivationButtonDwelled(offer);
+        var result = h.Im.OnActivationButtonDwelled(offer);
+        Check.That(result).IsEqualTo(ActivationCompletionResult.Stale);
         h.Feed(offer.Button, samples: 1);
 
         Check.That(h.Menus).IsEmpty();
@@ -519,7 +520,8 @@ public class ActivationOfferWiringTests
         Check.That(h.Menus).HasSize(1);
         Check.That(h.Im.IsActivationOfferLive(offer.Id)).IsTrue();
 
-        h.Im.OnActivationButtonDwelled(offer);                // wrong state: must decline, not act
+        var result = h.Im.OnActivationButtonDwelled(offer);   // wrong state: must decline, not act
+        Check.That(result).IsEqualTo(ActivationCompletionResult.Declined);
         h.Feed(offer.Button, samples: 1);
 
         Check.That(h.Menus).HasSize(1);
@@ -535,6 +537,8 @@ public class ActivationOfferWiringTests
         var offer = h.SettleAt(P);
 
         h.Im.DeclineOffer(offer.Id);
+        Check.WithCustomMessage("DeclineOffer must also end the fixation (review A C12)")
+            .That(h.Im.CurrentState).IsEqualTo(InteractionState.FreeLook);
         h.Feed(offer.Button, samples: 1);
         Check.That(h.Offers.CurrentOffer).IsNull();
 
@@ -672,5 +676,62 @@ public class ActivationOfferWiringTests
         h.SettleAt(new PhysicalPoint(2600, 1800));
 
         Check.That(events).ContainsExactly("close", "show");
+    }
+
+    [Fact]
+    public void SuspendedOffers_SurviveAnEngineRebuild()
+    {
+        // Review A R2-1: the ring-size slider lives IN Settings, and a ring-size change rebuilds the
+        // engine; the rebuild must re-apply the suspension, or buttons come back over Settings.
+        // Mutation: drop the SetOffersSuspended call in AttachActivationOffers → the rebuilt engine
+        // offers and this goes red.
+        using var h = new Harness();
+        var offer = h.SettleAt(P);
+        h.Im.SetActivationOffersSuspended(true);
+        h.Feed(offer.Button, samples: 1);
+        Check.That(h.Offers.CurrentOffer).IsNull();
+
+        var before = h.Im.ActivationOffers!;
+        h.Settings.Cursor.CircleSize = 100;
+        h.Feed(offer.Button, samples: 1);
+        Check.That(ReferenceEquals(h.Im.ActivationOffers, before)).IsFalse();
+        Check.WithCustomMessage("the rebuilt engine must inherit the suspension")
+            .That(h.Im.ActivationOffers!.OffersSuspended).IsTrue();
+
+        var p2 = new PhysicalPoint(2600, 1800);
+        h.Feed(p2, samples: 20);                              // a full settle while still suspended
+        Check.That(h.Offers.CurrentOffer).IsNull();
+    }
+
+    [Fact]
+    public void FiredOffer_SurvivesRevalidationAndSuspension_AndTheCompletionIsAccepted()
+    {
+        // Review A R2-2: a chrome publish or a modal surface opening during the ≤ 500 ms resolve must
+        // not turn a finished dwell into a stale no-op. Mutations: (N7) clear a fired offer in
+        // RevalidateChromeZones; (N10) clear one in SetOffersSuspended → the completion then reports
+        // Stale or Declined instead of Accepted, red.
+        using var h = new Harness();
+        var offer = h.SettleAt(P);
+        h.Feed(offer.Button, samples: 25);
+        Check.That(h.Fired).HasSize(1);
+        Check.That(h.Offers.IsFired).IsTrue();
+
+        h.Im.SetActivationChromeZones(
+            new PhysicalRect(offer.Button.X - 50, offer.Button.Y - 50, 100, 100));
+        h.Feed(offer.Button, samples: 1);
+        Check.WithCustomMessage("the re-validation must not touch a fired offer")
+            .That(h.Offers.CurrentOffer).IsNotNull();
+        Check.That(h.Offers.IsFired).IsTrue();
+
+        h.Im.SetActivationOffersSuspended(true);
+        h.Feed(offer.Button, samples: 1);
+        Check.WithCustomMessage("the suspension must not touch a fired offer")
+            .That(h.Offers.CurrentOffer).IsNotNull();
+        Check.That(h.Offers.IsFired).IsTrue();
+
+        var result = h.Im.OnActivationButtonDwelled(offer);
+        Check.That(result).IsEqualTo(ActivationCompletionResult.Accepted);
+        h.Feed(offer.Button, samples: 1);
+        Check.That(h.Offers.CurrentOffer).IsNull();
     }
 }

@@ -3,6 +3,24 @@ using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 
 /// <summary>
+/// What a button-dwell completion did, returned by
+/// <see cref="InteractionManager.OnActivationButtonDwelled(ActivationOffer)"/> so the caller can log
+/// the truth rather than assume an activation happened (ticket 8 fixup 02, review B).
+/// </summary>
+public enum ActivationCompletionResult
+{
+    /// <summary>The named offer was live and the state allowed it: the activation proceeded.</summary>
+    Accepted,
+
+    /// <summary>The named offer was live but the state was wrong (a Pause landed during the resolve,
+    /// for example): the named offer was declined.</summary>
+    Declined,
+
+    /// <summary>The named offer was already gone: nothing happened.</summary>
+    Stale,
+}
+
+/// <summary>
 /// Manages the interaction state machine for gaze-based interactions.
 /// All point coordinates are in physical screen pixels.
 /// </summary>
@@ -152,6 +170,10 @@ public class InteractionManager
     // modal-surface suspension is applied there as well.
     private int _activationChromeRevalidationRequested;
     private int _activationOffersSuspendedRequested = -1;
+    // The applied suspension state, held HERE and not only in the engine (review A R2-1): the
+    // settings window's ring-size slider rebuilds the engine, and a rebuild that forgot the
+    // suspension would offer buttons over Settings again.
+    private bool _activationOffersSuspended;
 
     /// <summary>The live offer engine, or null before the app has configured a geometry (tests, and
     /// the first samples of startup). Read on the gaze thread; null means no offers at all.</summary>
@@ -159,8 +181,8 @@ public class InteractionManager
 
     /// <summary>
     /// Attaches the offer engine (gaze thread; GazeEngine applies its configure request here). The
-    /// chrome zones the app already published are re-applied, and the button state is re-published so
-    /// a rebuild drops whatever the previous engine was showing.
+    /// chrome zones and the suspension state the app already published are re-applied, and the button
+    /// state is re-published so a rebuild drops whatever the previous engine was showing.
     /// </summary>
     public void AttachActivationOffers(ActivationOfferEngine engine)
     {
@@ -171,6 +193,7 @@ public class InteractionManager
         }
         _activationOffers = engine;
         engine.SetChromeZones(_activationChromeZones);
+        engine.SetOffersSuspended(_activationOffersSuspended);
         engine.OfferFired += OnActivationOfferFired;
         engine.OfferExpired += OnActivationOfferExpired;
         PublishActivationOfferState();
@@ -229,6 +252,11 @@ public class InteractionManager
         long acceptId = Interlocked.Exchange(ref _activationOfferAcceptRequested, NoActivationOfferRequest);
         long declineId = Interlocked.Exchange(ref _activationOfferDeclineRequested, NoActivationOfferRequest);
 
+        // The applied suspension is latched even with no engine attached, so an engine that arrives
+        // later (or replaces one) inherits it (review A R2-1).
+        if (suspended >= 0)
+            _activationOffersSuspended = suspended != 0;
+
         if (_activationOffers is null)
             return;
 
@@ -238,7 +266,7 @@ public class InteractionManager
         if (runEndUs != NoActivationOfferRequest)
             _activationOffers.NotifyFixationEnded(runEndUs);
         if (suspended >= 0)
-            _activationOffers.SetOffersSuspended(suspended != 0);
+            _activationOffers.SetOffersSuspended(_activationOffersSuspended);
         if (chromeRevalidate)
             _activationOffers.RevalidateChromeZones();
 
@@ -427,18 +455,22 @@ public class InteractionManager
     /// accepted offer is released to the gaze thread, and the effect lands at the offer's P.
     /// </summary>
     /// <param name="snapshot">The fired offer's snapshot: its id and P.</param>
-    public void OnActivationButtonDwelled(ActivationOffer snapshot)
+    /// <returns>What the completion did, so the caller can log the truth (ticket 8 fixup 02,
+    /// review B): a stale id and a wrong state do NOT activate.</returns>
+    public ActivationCompletionResult OnActivationButtonDwelled(ActivationOffer snapshot)
     {
-        if (!IsActivationOfferLive(snapshot.Id)) return;
+        if (!IsActivationOfferLive(snapshot.Id))
+            return ActivationCompletionResult.Stale;
 
         if (CurrentState is not (InteractionState.Fixation or InteractionState.FreeLook))
         {
             RequestActivationOfferDecline(snapshot.Id);
-            return;
+            return ActivationCompletionResult.Declined;
         }
 
         RequestActivationOfferAccept(snapshot.Id);
         CompleteActivation(snapshot.Point);
+        return ActivationCompletionResult.Accepted;
     }
 
     /// <summary>

@@ -137,15 +137,33 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
     }
 
     // One combined flag: any open modal surface suspends offers. Applied by the gaze thread through
-    // the ordinary request path (Core clears a live unfired offer on the rise).
+    // the ordinary request path (Core clears a live unfired offer on the rise). Each change is logged
+    // — a live session's gap in Offer-shown lines must be explainable (ticket 8 fixup 02, review B).
+    private string _lastSuspensionLog = string.Empty;
+
     private void RecomputeSuspension()
     {
         if (Context is null)
             return;
-        bool suspended = _modal.SettingsOpen
-            || Context.TaskSwitcherVM.IsVisible
-            || Context.QuickActionsGridVM.IsVisible
-            || _bannerActive;
+
+        var reasons = new List<string>(4);
+        if (_modal.SettingsOpen)
+            reasons.Add("Settings");
+        if (Context.TaskSwitcherVM.IsVisible)
+            reasons.Add("task switcher");
+        if (Context.QuickActionsGridVM.IsVisible)
+            reasons.Add("quick actions");
+        if (_bannerActive)
+            reasons.Add("eye-care banner");
+
+        bool suspended = reasons.Count > 0;
+        string reason = suspended ? string.Join(", ", reasons) : "none";
+        if ($"{suspended}|{reason}" != _lastSuspensionLog)
+        {
+            _lastSuspensionLog = $"{suspended}|{reason}";
+            Serilog.Log.Information("Activation offers suspended: {Suspended} ({Reason})", suspended, reason);
+        }
+
         Context.InteractionManager.SetActivationOffersSuspended(suspended);
     }
 

@@ -21,10 +21,16 @@
          same three numbers from this file and measures a picker button against them. -->
     <Grid x:Name="RootGrid" ColumnDefinitions="240, *">
 
-        <!-- Left: Sidebar with tab buttons. Row 2 paginates the tab list: the sidebar is a
-             plain non-scrolling stack, and on windows shorter than close-button + 11 tab slots
-             the bottom tabs would be clipped out of reach for a gaze user. -->
-        <Grid Grid.Column="0" Background="{StaticResource BrushSurfaceMedium}" RowDefinitions="Auto, *, Auto">
+        <!-- Left: Sidebar with tab buttons. Row 1 holds the tab-list pager as a VERTICAL
+             stack under the close button (Phase 2 A3): the phase-0 sessions put the pager at
+             the sidebar's top in all seven recorded runs. The stack is left-aligned so its
+             buttons' hit circles clear the close button's (different dwell categories accrue
+             CONCURRENTLY since the Tab->Pagination move — nearest-wins no longer masks an
+             overlap; SettingsPagerClearanceTests pins the distance off this very XAML). Row 2
+             paginates the tab list: the sidebar is a plain non-scrolling stack, and on windows
+             shorter than close-button + pager stack + 15 tab slots the bottom tabs would be
+             clipped out of reach for a gaze user. -->
+        <Grid Grid.Column="0" Background="{StaticResource BrushSurfaceMedium}" RowDefinitions="Auto, Auto, *">
 
             <!-- Close button at top -->
             <Border x:Name="CloseButton" Grid.Row="0"
@@ -38,22 +44,38 @@
                            VerticalAlignment="Center"/>
             </Border>
 
-            <!-- Current page of tab buttons -->
-            <StackPanel x:Name="TabButtonPanel" Grid.Row="1"
-                        Margin="8" VerticalAlignment="Top"/>
+            <!-- Tab-list pager (hidden while every tab fits one page). Vertical: tab_prev
+                 above tab_next. The buttons' own vertical margin (TabPagerButtonMargin) keeps
+                 the two 60-DIP hit circles clear of each other; the stack's bottom margin is
+                 what buys the last pager button its clearance from the FIRST tab of the list
+                 below (>= 85 + 60 DIP centre distance — the close button and the tabs ride a
+                 DIFFERENT dwell category than the pager, so nearest-wins no longer masks an
+                 overlap; SettingsPagerClearanceTests pins every pair off this very XAML). -->
+            <StackPanel x:Name="TabPagerPanel" Grid.Row="1"
+                        Orientation="Vertical"
+                        HorizontalAlignment="Left"
+                        Margin="10,4,0,24"/>
 
-            <!-- Tab-list pager (hidden while every tab fits one page) -->
-            <StackPanel x:Name="TabPagerPanel" Grid.Row="2"
-                        Orientation="Horizontal"
-                        HorizontalAlignment="Center"
-                        Margin="0,4,0,8"/>
+            <!-- Current page of tab buttons -->
+            <StackPanel x:Name="TabButtonPanel" Grid.Row="2"
+                        Margin="8" VerticalAlignment="Top"/>
         </Grid>
 
         <!-- Right: Content area with pagination.
              This Margin and ContentCard's Padding are the two nested insets
              ContentAvailableWidth subtracts; naming the element is what lets the code read them
              instead of repeating the number. -->
-        <Grid x:Name="ContentArea" Grid.Column="1" Margin="16" RowDefinitions="Auto, *, Auto">
+        <Grid x:Name="ContentArea" Grid.Column="1" Margin="16">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <!-- Pinned to PaginationReserveHeight in the ctor (Phase 2 review r1 M2): the
+                     pager row must measure the same on single-page tabs (bar hidden) and
+                     multi-page tabs (112-DIP bar), or the content card jumps 88 DIP on every
+                     tab switch. Zero budget cost — ContentAvailableHeight already subtracts
+                     the reserve unconditionally. -->
+                <RowDefinition x:Name="PagerRow" Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
 
             <!-- Page header: which tab this is, and one line on what it covers.
                  Fixed Height so ContentAvailableHeight can subtract it before the first layout
@@ -81,12 +103,15 @@
 
             <!-- Hidden UIA anchor for Settings_Panel_Content — StackPanel is not exposed
                  in the UIA control view; only TextBlock nodes are visible to FlaUI.
-                 Row 1, with the card: on row 0 it would land inside the header, and the only
-                 suite that reads this anchor is Category=UI, so nothing headless would notice. -->
+                 Row 2, with the card (the pager owns row 1 between the header and the card):
+                 on row 0 it would land inside the header, and the only suite that reads this
+                 anchor is Category=UI, so nothing headless would notice. -->
             <TextBlock AutomationProperties.AutomationId="Settings_Panel_Content"
-                       Grid.Row="1" Opacity="0" IsHitTestVisible="False"/>
+                       Grid.Row="2" Opacity="0" IsHitTestVisible="False"/>
 
-            <!-- Content page (no ScrollViewer — paginated), on a card.
+            <!-- Content page (no ScrollViewer — paginated), on a card. ROW 2: the pagination
+                 bar owns row 1 between the header and the card (Phase 2 A1 — the phase-0
+                 sessions put the pager above the content in every recorded run).
                  Padding="16,8", NOT 24,8: the horizontal inset has to stay 16 per side, which is
                  exactly what ContentPanel's own Margin="16" used to contribute, or the narrowest
                  supported content column drops below 416 DIP. DwellSlider's stepper row measures
@@ -95,7 +120,7 @@
                  SettingsContentFitTests.TheSliderRow_FitsTheContentColumn_OnANarrowDisplay is
                  what a wider inset would break, by 4 DIP.
                  ContentPanel carries no Margin of its own any more; this Padding replaced it. -->
-            <Grid Grid.Row="1" VerticalAlignment="Top">
+            <Grid Grid.Row="2" VerticalAlignment="Top">
                 <!-- NO Background, deliberately, and it must not be given one back.
 
                      Every control that sits on this card fills itself with SurfaceMedium:
@@ -153,8 +178,12 @@
                         IsHitTestVisible="False"/>
             </Grid>
 
-            <!-- Pagination bar -->
-            <StackPanel x:Name="PaginationPanel" Grid.Row="2"
+            <!-- Pagination bar. Row 1, BETWEEN the header and the card (Phase 2 A1): the
+                 phase-0 comparative sessions put the pager above the content in all seven
+                 recorded runs. The margin is unchanged from the old bottom row on purpose —
+                 ContentAvailableHeight reserves this block unconditionally wherever it sits,
+                 and an unchanged margin keeps every derived content budget identical. -->
+            <StackPanel x:Name="PaginationPanel" Grid.Row="1"
                         Orientation="Horizontal"
                         HorizontalAlignment="Center"
                         Margin="0,8,0,16"/>

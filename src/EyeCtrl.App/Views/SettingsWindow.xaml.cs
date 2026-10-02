@@ -90,8 +90,20 @@ public partial class SettingsWindow : OverlayWindow
     /// </summary>
     internal const double TwoColumnMinimumWidth = RowNameColumnWidth + 404 + 24;
 
-    private const double TabBtnRadius = 85;
-    private const double PagBtnRadius = 60;
+    /// <summary>
+    /// Hit radius of a sidebar tab, in DIP. <c>internal</c> because the tab-pager clearance
+    /// guard (SettingsPagerClearanceTests) must sum it with <see cref="PagBtnRadius"/> when it
+    /// checks that the pager's hit circle cannot overlap the last tab's on a short window.
+    /// </summary>
+    internal const double TabBtnRadius = 85;
+
+    /// <summary>
+    /// Hit radius of a pager button, in DIP. <c>internal</c> for the same reason as
+    /// <see cref="TabBtnRadius"/>: the clearance guard re-derives the pager/last-tab distance
+    /// from the live layout and compares it against the two radii it is allowed to overlap.
+    /// </summary>
+    internal const double PagBtnRadius = 60;
+
     private const double ModalBtnRadius = 70;
 
     // ── Container sizes that glyph sizes derive from ──
@@ -110,7 +122,19 @@ public partial class SettingsWindow : OverlayWindow
     /// tab's element tree, and every input it feeds that tree has to come from production.
     /// </summary>
     internal const double TabContainerHeight = 100;
-    private const double PaginationButtonWidth = 100;
+
+    /// <summary>
+    /// The uniform margin around a sidebar tab's Border, in DIP. The tab pitch the sidebar
+    /// chunker is sized against is <see cref="TabContainerHeight"/> + 2 × this, and the
+    /// tab-pager clearance guard re-derives the last tab's centre from it.
+    /// </summary>
+    internal const double TabButtonMargin = 4;
+
+    /// <summary>
+    /// The pager buttons' width, in DIP. <c>internal</c> so the headless chrome guards can pin
+    /// the pager geometry without constructing the window (eight non-optional dependencies).
+    /// </summary>
+    internal const double PaginationButtonWidth = 100;
 
     /// <summary>
     /// The pagination button's height, and one of the two terms of
@@ -131,6 +155,31 @@ public partial class SettingsWindow : OverlayWindow
     /// reason as <see cref="PaginationButtonHeight"/>.
     /// </summary>
     internal const double PaginationButtonMargin = 4;
+
+    /// <summary>
+    /// VERTICAL margin <c>MakeTabPagerButton</c> applies to each sidebar pager button, in DIP.
+    /// The tab pager is a vertical stack since Phase 2 A3 (tab_prev above tab_next), so this
+    /// margin is what keeps the stack's two 60-DIP hit circles clear of each other: they need
+    /// ≥ 120 DIP between centres and 24 + 80 + 24 = 128. (It was the HORIZONTAL margin of the
+    /// old bottom row — 14 + 100 + 14 = 128 by the same arithmetic — until the stack turned
+    /// the pitch onto the buttons' height.) A named const because the pager geometry guard
+    /// pins it, and because <see cref="TabPagerReserveHeight"/> counts 2 × this per button.
+    /// </summary>
+    internal const double TabPagerButtonMargin = 24;
+
+    /// <summary>
+    /// The margin <c>MakeTabPagerButton</c> builds every sidebar pager button with: the
+    /// vertical stack's shape, horizontal = <see cref="PaginationButtonMargin"/>, vertical =
+    /// <see cref="TabPagerButtonMargin"/>. ONE source for the shape on purpose (phase-2
+    /// review r2 M1): the buttons' margins carry the concurrent-detector clearances —
+    /// pager↔close, pager↔pager, pager↔first tab — and every pin of that geometry (the
+    /// stack-height block, the pager centres, the pitch) DERIVES from this thickness rather
+    /// than restating it, so swapping the shape back to the old horizontal row's form fails
+    /// the clearance pins instead of passing the whole suite with overlapping circles.
+    /// </summary>
+    internal static readonly Thickness TabPagerButtonThickness = new(
+        PaginationButtonMargin, TabPagerButtonMargin, PaginationButtonMargin, TabPagerButtonMargin);
+
     private const double ModalButtonHeight = 100;
 
     // Window sizing
@@ -187,6 +236,19 @@ public partial class SettingsWindow : OverlayWindow
     private readonly AppRestartCoordinator _restartCoordinator;
     private readonly UserDictionaryService? _dictionaryService;
     private readonly int _dwellMs;
+    private readonly SettingsPagerRearmGuard _pagerRearmGuard;
+
+    // Last LAID-OUT screen centre per pager target, recorded by the position pass. The jump's
+    // own re-render replaces the pager Border BEFORE GuardJumpedPager reads it, and a freshly
+    // added border has had no layout pass — its PointToScreen returns the panel origin, ~70
+    // DIP off pag_prev's real centre and ~240 off pag_next's, so a guard armed on that read
+    // decided the resting gaze was "outside" and re-armed on the first frame. The PREVIOUS
+    // border's centre is the truth: the window is NoResize and the row layout is independent
+    // of the page (the indicator carries a MinWidth), so the new border lands where the old
+    // one was. This dictionary is deliberately NOT cleared by RenderPagination — the jump's
+    // setPage runs that re-render before GuardJumpedPager reads here, and clearing would push
+    // the guard straight back onto the fresh-border read.
+    private readonly Dictionary<string, PhysicalPoint> _pagerCenters = new();
 
     private readonly SettingsPageContext _ctx;
     private readonly CursorPageSource _cursorSource;
@@ -210,7 +272,10 @@ public partial class SettingsWindow : OverlayWindow
     private readonly Dictionary<string, Border> _modalButtons = new();
 
     // Sidebar tab-list pagination (the sidebar cannot scroll): the current page's tab ids
-    // (registered while shown), the pager buttons, and the page arithmetic state.
+    // (registered while shown), the pager buttons, and the page arithmetic state. The tab pager
+    // registers under DwellCategory.Pagination, same as the content pager, so its brushes are a
+    // second set of targets washed from PagProgress (its own dict only because the buttons are
+    // different elements).
     private readonly List<string> _renderedTabIds = new();
     private readonly Dictionary<string, Border> _tabPagerButtons = new();
     private readonly Dictionary<string, SolidColorBrush> _tabPagerBrushes = new();
@@ -280,6 +345,13 @@ public partial class SettingsWindow : OverlayWindow
         _restartCoordinator = restartCoordinator;
         _dictionaryService = dictionaryService;
         _dwellMs = settings.Dwell.ToolbarButtonDwellMs;
+
+        // Holds a pager button disarmed after a wrap-jump until the gaze leaves its own hit
+        // circle (no timeout — a frozen gaze stream sends no frames, so nothing accrues dwell
+        // anywhere and a held guard costs nothing), so a resting gaze cannot walk the page
+        // list. The callback re-registers against the button's CURRENT boundary state, which
+        // may have flipped while it was held.
+        _pagerRearmGuard = new SettingsPagerRearmGuard(_viewModel, RearmPagerTarget);
 
         // An accepted restart must also be visible. The handshake allows the replacement up
         // to 30s to announce itself; the dispatcher stays free, but silence for that long is
@@ -354,6 +426,16 @@ public partial class SettingsWindow : OverlayWindow
         Width = SystemParameters.PrimaryScreenWidth * WindowSizeRatio;
         Height = SystemParameters.PrimaryScreenHeight * WindowSizeRatio;
 
+        // Phase 2 A1 put the pager row ABOVE the content card, and an Auto row measures only
+        // its margins (24 DIP) while the bar is hidden on single-page tabs vs 112 with the bar
+        // — every control on the card would sit 88 DIP lower on multi-page tabs, an 88-DIP
+        // jump on every tab switch for a gaze-only user. Pinning the ROW to the reserve makes
+        // the card's position independent of the tab's page count; the budget cost is zero
+        // because ContentAvailableHeight already subtracts the reserve unconditionally. The
+        // row, not the panel: a MinHeight on the panel would sit INSIDE its margins and pin
+        // the row to reserve + margins.
+        PagerRow.MinHeight = PaginationReserveHeight;
+
         // Wire up property change handlers
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         _viewModel.Settings.PropertyChanged += OnSettingsViewModelPropertyChanged;
@@ -427,10 +509,13 @@ public partial class SettingsWindow : OverlayWindow
             {
                 case nameof(SettingsWindowViewModel.TabProgress):
                     UpdateTabVisuals();
-                    UpdateTabPaginationVisuals();
                     break;
                 case nameof(SettingsWindowViewModel.PagProgress):
+                    // Both pagers register under Pagination now (the tab pager moved off Tab when
+                    // the tab flip's shared 400 ms detector was taken off its path), so one
+                    // progress notification washes both button sets.
                     UpdatePaginationVisuals();
+                    UpdateTabPaginationVisuals();
                     break;
                 case nameof(SettingsWindowViewModel.ModalProgress):
                     UpdateModalVisuals();
@@ -492,7 +577,7 @@ public partial class SettingsWindow : OverlayWindow
             var border = new Border
             {
                 Height = TabContainerHeight,
-                Margin = new Thickness(4),
+                Margin = new Thickness(TabButtonMargin),
                 CornerRadius = Tokens.StandardCornerRadius,
                 Background = tabBrush,
                 Cursor = System.Windows.Input.Cursors.Hand,
@@ -575,7 +660,7 @@ public partial class SettingsWindow : OverlayWindow
         // showing the active tab (page 0 when nothing is active yet — the ctor's ShowTab
         // follows and cannot change the page: "Cursor" IS page 0).
         _tabsPerPage = SettingsTabPagination.TabsPerPage(
-            SidebarTabBudget, TabContainerHeight + 2 * 4);
+            SidebarTabBudget, TabContainerHeight + 2 * TabButtonMargin);
         _tabPageCount = SettingsTabPagination.PageCount(_tabDefs.Length, _tabsPerPage);
         var activeIndex = Array.FindIndex(_tabDefs, t => t.Id == _viewModel.ActiveTabId);
         _tabPageIndex = activeIndex < 0 ? 0 : SettingsTabPagination.PageOf(activeIndex, _tabsPerPage);
@@ -624,16 +709,24 @@ public partial class SettingsWindow : OverlayWindow
     {
         if (_tabPageCount <= 1) return;   // every tab fits one page: no pager at all
 
-        TabPagerPanel.Children.Add(MakeTabPagerButton("tab_prev", "▲", -1));
-        TabPagerPanel.Children.Add(MakeTabPagerButton("tab_next", "▼", +1));
+        // Registration is NOT done here: the action and dwell depend on the boundary state,
+        // which changes with the tab page, so UpdateTabPagePagerState re-registers both buttons
+        // on every tab page change.
+        TabPagerPanel.Children.Add(MakeTabPagerButton("tab_prev", -1));
+        TabPagerPanel.Children.Add(MakeTabPagerButton("tab_next", +1));
     }
 
     /// <summary>
     /// The shared skeleton of the window's round dwell buttons (tab pager, content pager,
-    /// modal choices): mutable base brush, rounded border, centered strong label, mouse
-    /// fallback, OPTIONAL dwell registration (see <paramref name="onActivated"/>), and
-    /// storage into the caller's button/brush maps. Geometry, palette, category, hit
-    /// radius and both activation paths are the caller's.
+    /// modal choices): mutable base brush, rounded border, centered strong label, and the mouse
+    /// fallback. Geometry, palette and the activation paths are the caller's.
+    ///
+    /// Dwell registration is deliberately NOT done here. It used to be opt-in via an
+    /// <c>onActivated</c> parameter, but every caller that still registers does so for a reason
+    /// the factory cannot know: the modal path captures the palette's blend factor alongside
+    /// (UpdateModalVisibility), and the two pagers need the boundary-dependent action and dwell
+    /// through RegisterPagerTarget, which honours the re-arm guard. A registration in here would
+    /// duplicate or bypass both.
     ///
     /// FontSize is deliberately NOT parameterized: RawGeometryLiteralTests requires every
     /// FontSize value to reference the token surface, and a parameter name references no
@@ -643,8 +736,7 @@ public partial class SettingsWindow : OverlayWindow
     private Border MakeChromeButton(
         string id, string text, double width, double height, Thickness margin,
         Color fill, Brush textBrush,
-        DwellCategory category, double radiusLogical,
-        Action onMouseDown, Action? onActivated,
+        Action onMouseDown,
         Dictionary<string, Border> buttons, Dictionary<string, SolidColorBrush> brushes)
     {
         var brush = new SolidColorBrush(fill);
@@ -670,50 +762,74 @@ public partial class SettingsWindow : OverlayWindow
         btn.MouseLeftButtonDown += (_, _) => onMouseDown();
         buttons[id] = btn;
         brushes[id] = brush;
-        // Registration is opt-in: MakeModalButton's CALLER registers (UpdateModalVisibility
-        // captures the palette's blend factor alongside), so the modal adapter passes null —
-        // a double Register would duplicate dwell-detector state on a gaze-critical path.
-        // The two pager factories register here, as they always did.
-        if (onActivated is not null)
-            _viewModel.Register(id, category, DpiHelper.LogicalToPhysicalX(radiusLogical), _dwellMs, onActivated);
         return btn;
     }
 
-    // Dwell and mouse converge on the same switch; the dwell path routes through the
-    // registered action (SettingsWindowViewModel special-cases these ids before ShowTab).
-    private Border MakeTabPagerButton(string id, string glyph, int direction)
+    // Dwell and mouse converge on the same conditional action: step one page while there is a
+    // page to step to, wrap to the far end at the button's boundary (where the glyph is a double
+    // arrow). The registered dwell action is set in UpdateTabPagePagerState.
+    private Border MakeTabPagerButton(string id, int direction)
     {
+        var boundary = SettingsPagerChrome.IsBoundary(_tabPageIndex, _tabPageCount, direction);
         var btn = MakeChromeButton(
-            id, glyph, PaginationButtonWidth, PaginationButtonHeight,
-            // 14, not the content pager's 4: two 100-DIP buttons registering PagBtnRadius
-            // (60-DIP radius, 120-DIP hit circles) need ≥ 120 DIP between centres to keep the
-            // circles clear of each other; 14 + 100 + 14 = 128.
-            new Thickness(14, 4, 14, 4),
+            id, SettingsPagerChrome.GlyphFor(id, boundary),
+            PaginationButtonWidth, PaginationButtonHeight,
+            // One margin story (review r2 M1): every pin of the pager's clearance geometry
+            // derives from this same thickness. The vertical margin is what keeps the two
+            // 60-DIP hit circles ≥ 120 DIP apart in the stack; the horizontal margin puts the
+            // buttons' centres at x = TabPagerPanel.Margin.Left + .Left + 50 = 64 DIP.
+            TabPagerButtonThickness,
             BtnBase, Tokens.BrushTextPrimary,
-            DwellCategory.Tab, PagBtnRadius,
-            () => SwitchTabPage(_tabPageIndex + direction),
-            () => SwitchTabPage(_tabPageIndex + direction),
+            () => ActivateTabPager(id, direction),
             _tabPagerButtons, _tabPagerBrushes);
         ((TextBlock)btn.Child).FontSize = PaginationButtonHeight * ContainerRatio.Large;
         return btn;
     }
 
     /// <summary>
-    /// Boundary state for the tab pager: dimmed arrow at either end (matching the content
-    /// pager's opacity idiom — the target stays registered, a dwell there is just a no-op).
+    /// Refreshes the tab pager for the current tab page: glyph (double arrow at a boundary,
+    /// single arrow otherwise), full opacity — there are no dimmed-but-dead buttons any more,
+    /// because a boundary button is a live wrap-jump — and re-registration, since both the dwell
+    /// time (450 step / <c>_dwellMs</c> jump) and the action change with the boundary state.
     /// </summary>
     private void UpdateTabPagePagerState()
     {
         if (_tabPageCount <= 1) return;
-        _tabPagerButtons["tab_prev"].Opacity = _tabPageIndex <= 0 ? 0.3 : 1.0;
-        _tabPagerButtons["tab_next"].Opacity = _tabPageIndex >= _tabPageCount - 1 ? 0.3 : 1.0;
+        UpdateTabPagerButton("tab_prev", -1);
+        UpdateTabPagerButton("tab_next", +1);
     }
 
-    // Same blend as the content pagination buttons (UpdatePaginationVisuals); kept in its own
-    // dict because tab-pager targets live in the Tab category, not Pagination.
+    private void UpdateTabPagerButton(string id, int direction)
+    {
+        var boundary = SettingsPagerChrome.IsBoundary(_tabPageIndex, _tabPageCount, direction);
+        ((TextBlock)_tabPagerButtons[id].Child).Text = SettingsPagerChrome.GlyphFor(id, boundary);
+        RegisterTabPagerTarget(id, direction);
+    }
+
+    private void ActivateTabPager(string id, int direction) =>
+        SettingsPagerChrome.ActionFor(
+            id, direction, _tabPageIndex, _tabPageCount,
+            // The ViewModel does not auto-step tab_* (only pag_*), so the action carries the
+            // step itself — on both the mouse and the dwell path.
+            vmAutoSteps: false, setPage: SwitchTabPage, onJumped: GuardJumpedPager)();
+
+    private void RegisterTabPagerTarget(string id, int direction)
+    {
+        if (_tabPageCount <= 1 || !_tabPagerButtons.ContainsKey(id)) return;
+        var boundary = SettingsPagerChrome.IsBoundary(_tabPageIndex, _tabPageCount, direction);
+        RegisterPagerTarget(
+            id, SettingsPagerChrome.DwellMsFor(boundary, _dwellMs),
+            SettingsPagerChrome.ActionFor(
+                id, direction, _tabPageIndex, _tabPageCount,
+                vmAutoSteps: false, setPage: SwitchTabPage, onJumped: GuardJumpedPager));
+    }
+
+    // Both pagers register under Pagination now, so the tab pager's wash reads PagProgress like
+    // the content pager's; kept in its own brush dict because the two button sets are different
+    // elements.
     private void UpdateTabPaginationVisuals()
     {
-        BlendProgress(_viewModel.TabProgress, _tabPagerBrushes, BtnBase, 0.4);
+        BlendProgress(_viewModel.PagProgress, _tabPagerBrushes, BtnBase, 0.4);
     }
 
     // ────── Tab switching ──────
@@ -848,9 +964,23 @@ public partial class SettingsWindow : OverlayWindow
         _pagBrushes.Clear();
 
         // Use ViewModel's pagination state
-        if (_viewModel.Settings.TotalPages <= 1) return;
+        if (_viewModel.Settings.TotalPages <= 1)
+        {
+            // Unregister the pager targets. A registration left over from a multi-page tab
+            // keeps a live hit circle at its last pushed centre, and since the wrap-jump
+            // change its action can set CurrentPage to an out-of-range page — a dwell on
+            // vanished chrome would blank the content page with no pager to leave by.
+            _viewModel.Unregister("pag_prev", DwellCategory.Pagination);
+            _viewModel.Unregister("pag_next", DwellCategory.Pagination);
 
-        var prev = MakePagButton("pag_prev", "◀");
+            // The pager is gone; a guard left over from a jump would re-register a hit circle
+            // over chrome that is no longer drawn. Content pager only — the tab pager's
+            // guards keep their own lifecycle.
+            _pagerRearmGuard.ClearContentPager();
+            return;
+        }
+
+        var prev = MakePagButton("pag_prev", -1);
         var indicator = new TextBlock
         {
             Text = $"{_viewModel.Settings.CurrentPage + 1} / {_viewModel.Settings.TotalPages}",
@@ -862,28 +992,114 @@ public partial class SettingsWindow : OverlayWindow
             MinWidth = 80,
             TextAlignment = TextAlignment.Center
         };
-        var next = MakePagButton("pag_next", "▶");
-
-        // Disable buttons at boundaries
-        if (_viewModel.Settings.CurrentPage <= 0) prev.Opacity = 0.3;
-        if (_viewModel.Settings.CurrentPage >= _viewModel.Settings.TotalPages - 1) next.Opacity = 0.3;
+        var next = MakePagButton("pag_next", +1);
 
         PaginationPanel.Children.Add(prev);
         PaginationPanel.Children.Add(indicator);
         PaginationPanel.Children.Add(next);
     }
 
-    private Border MakePagButton(string id, string text)
+    // The glyph and the registered dwell/action both depend on the boundary state: a boundary
+    // button wears a double arrow and wraps to the far end at the jump dwell; a step button
+    // keeps its single arrow at the 450 ms step dwell.
+    private Border MakePagButton(string id, int direction)
     {
+        var boundary = SettingsPagerChrome.IsBoundary(
+            _viewModel.Settings.CurrentPage, _viewModel.Settings.TotalPages, direction);
         var btn = MakeChromeButton(
-            id, text, PaginationButtonWidth, PaginationButtonHeight, new Thickness(PaginationButtonMargin),
+            id, SettingsPagerChrome.GlyphFor(id, boundary),
+            PaginationButtonWidth, PaginationButtonHeight, new Thickness(PaginationButtonMargin),
             BtnBase, Tokens.BrushTextPrimary,
-            DwellCategory.Pagination, PagBtnRadius,
-            () => { if (id == "pag_prev") _viewModel.Settings.PreviousPage(); else _viewModel.Settings.NextPage(); },
-            () => { },
+            () => ActivateContentPager(id, direction),
             _pagButtons, _pagBrushes);
         ((TextBlock)btn.Child).FontSize = PaginationButtonHeight * ContainerRatio.Large;
+        RegisterContentPagerTarget(id, direction);
         return btn;
+    }
+
+    private void ActivateContentPager(string id, int direction) =>
+        SettingsPagerChrome.ActionFor(
+            id, direction, _viewModel.Settings.CurrentPage, _viewModel.Settings.TotalPages,
+            // Mouse path: nothing auto-steps for a click, so the action carries the step itself.
+            vmAutoSteps: false,
+            setPage: p => _viewModel.Settings.CurrentPage = p,
+            onJumped: GuardJumpedPager)();
+
+    private void RegisterContentPagerTarget(string id, int direction)
+    {
+        if (_viewModel.Settings.TotalPages <= 1) return;
+        var boundary = SettingsPagerChrome.IsBoundary(
+            _viewModel.Settings.CurrentPage, _viewModel.Settings.TotalPages, direction);
+        RegisterPagerTarget(
+            id, SettingsPagerChrome.DwellMsFor(boundary, _dwellMs),
+            SettingsPagerChrome.ActionFor(
+                id, direction, _viewModel.Settings.CurrentPage, _viewModel.Settings.TotalPages,
+                // Dwell path: the ViewModel's Pagination arm auto-steps pag_prev/pag_next (a
+                // no-op at a boundary), so a step registers an empty action or it would step twice.
+                vmAutoSteps: true,
+                setPage: p => _viewModel.Settings.CurrentPage = p,
+                onJumped: GuardJumpedPager));
+    }
+
+    /// <summary>
+    /// Registers one pager target unless the re-arm guard holds it disarmed. Every pager
+    /// registration goes through here: a jump re-renders the page and re-registers its buttons,
+    /// and a blind <c>Register</c> would silently undo the guard on the very frame it was armed.
+    /// </summary>
+    private void RegisterPagerTarget(string id, int dwellMs, Action onActivated)
+    {
+        if (_pagerRearmGuard.IsDisarmed(id)) return;
+        _viewModel.Register(
+            id, DwellCategory.Pagination, DpiHelper.LogicalToPhysicalX(PagBtnRadius), dwellMs, onActivated);
+    }
+
+    /// <summary>
+    /// Arms the re-arm guard on a pager button that just wrapped. The jump re-rendered the page
+    /// and re-registered the button; this removes that fresh target and holds the id until the
+    /// gaze leaves its hit circle, so a resting gaze cannot walk.
+    ///
+    /// <para>
+    /// The centre comes from LAID-OUT state only: the position loop's last pushed centre for
+    /// this id (<see cref="_pagerCenters"/>). By the time this runs, the jump's re-render has
+    /// already replaced the Border with one that has had no layout pass — reading it yields the
+    /// panel origin, tens to hundreds of DIP off the real centre, and the guard would re-arm on
+    /// the first frame and hand the oscillation straight back. The direct read is only a
+    /// fallback for an id no frame has ever pushed (the tab pager's borders update in place, so
+    /// for those it is equivalent).
+    /// </para>
+    /// </summary>
+    private void GuardJumpedPager(string id)
+    {
+        if (_pagerCenters.TryGetValue(id, out var tracked))
+        {
+            _pagerRearmGuard.Disarm(
+                id, DwellCategory.Pagination, tracked, DpiHelper.LogicalToPhysicalX(PagBtnRadius));
+            return;
+        }
+
+        Border? border = null;
+        if (_pagButtons.TryGetValue(id, out var content)) border = content;
+        else if (_tabPagerButtons.TryGetValue(id, out var tab)) border = tab;
+        if (border is null || !TryScreenCenter(border, out var center)) return;
+        _pagerRearmGuard.Disarm(
+            id, DwellCategory.Pagination, center, DpiHelper.LogicalToPhysicalX(PagBtnRadius));
+    }
+
+    /// <summary>
+    /// The guard's re-arm callback: re-registers one pager id against its CURRENT page state, so
+    /// a button that changed meaning while it was held (the jump-to-end button is a step-back
+    /// button once the jump lands) comes back with the right action and dwell.
+    /// </summary>
+    private void RearmPagerTarget(string id, DwellCategory category)
+    {
+        if (category != DwellCategory.Pagination) return;
+        switch (id)
+        {
+            case "pag_prev": RegisterContentPagerTarget(id, -1); break;
+            case "pag_next": RegisterContentPagerTarget(id, +1); break;
+            case "tab_prev": RegisterTabPagerTarget(id, -1); break;
+            case "tab_next": RegisterTabPagerTarget(id, +1); break;
+        }
     }
 
     // ────── Page builders per tab ──────
@@ -959,19 +1175,43 @@ public partial class SettingsWindow : OverlayWindow
         PaginationButtonHeight + 2 * PaginationButtonMargin + PaginationPanel.Margin.Top + PaginationPanel.Margin.Bottom;
 
     /// <summary>
-    /// The tab pager row's height, reserved unconditionally (the row collapses while every tab
-    /// fits one page, but the budget math counts it anyway) — same philosophy as
+    /// Production's sidebar reserve, as one testable derivation: TWO stacked pager buttons
+    /// (tab_prev above tab_next since A3) plus the pager panel's own margins, from the consts
+    /// the buttons are actually built with. <c>internal static</c> for the same reason as
+    /// <see cref="TabContainerHeight"/> — the headless guards pin the sidebar arithmetic
+    /// against it and cannot construct the window (eight non-optional dependencies), and a
+    /// restated formula in a test pins nothing: it passes against whatever the test says.
+    /// Phase-2 review r1 M1: a one-button undercount survived the whole suite until this
+    /// became readable. The per-button block reads <see cref="TabPagerButtonThickness"/>, not
+    /// a restated margin — one margin story everywhere (review r2 M1).
+    /// </summary>
+    /// <param name="panelMarginTop"><c>TabPagerPanel.Margin.Top</c> from the live element.</param>
+    /// <param name="panelMarginBottom"><c>TabPagerPanel.Margin.Bottom</c> from the live element.</param>
+    internal static double TabPagerStackReserve(double panelMarginTop, double panelMarginBottom) =>
+        2 * (PaginationButtonHeight + TabPagerButtonThickness.Top + TabPagerButtonThickness.Bottom)
+        + panelMarginTop + panelMarginBottom;
+
+    /// <summary>
+    /// The tab pager stack's height, reserved unconditionally (the row collapses while every
+    /// tab fits one page, but the budget math counts it anyway) — same philosophy as
     /// <see cref="PaginationReserveHeight"/>: a conditional reserve makes the tab-page count
-    /// oscillate as the pager appears and disappears.
+    /// oscillate as the pager appears and disappears. TWO buttons since A3: the pager is a
+    /// vertical stack now (tab_prev above tab_next), so the block is two buttons plus the
+    /// panel's own margins — counting one button would under-reserve by a whole button and
+    /// let the last tab slot overflow onto the pager.
     /// </summary>
     private double TabPagerReserveHeight =>
-        PaginationButtonHeight + 2 * PaginationButtonMargin + TabPagerPanel.Margin.Top + TabPagerPanel.Margin.Bottom;
+        TabPagerStackReserve(TabPagerPanel.Margin.Top, TabPagerPanel.Margin.Bottom);
 
     /// <summary>
     /// How much vertical room the tab list has: the window height minus the close button's
-    /// block, the pager row's reserve, and the tab panel's own margins. Read off the live
-    /// elements (like <see cref="ContentAvailableWidth"/>) so the arithmetic cannot drift
-    /// from the XAML that decides it; the chunker clamps degenerate values to one tab per page.
+    /// block, the pager stack's reserve, and the tab panel's own margins. The pager sits
+    /// BETWEEN the close button and the tab list since A3, but the arithmetic is
+    /// position-agnostic — every DIP any of the three blocks takes comes off the tab list
+    /// wherever the block sits, so the unconditional-reserve philosophy (no page-count
+    /// oscillation) survives the move. Read off the live elements (like
+    /// <see cref="ContentAvailableWidth"/>) so the arithmetic cannot drift from the XAML that
+    /// decides it; the chunker clamps degenerate values to one tab per page.
     /// </summary>
     private double SidebarTabBudget =>
         Height
@@ -1414,6 +1654,10 @@ public partial class SettingsWindow : OverlayWindow
 
     public void UpdateGaze(PhysicalPoint screenPoint, long timestampMicroseconds)
     {
+        // Re-arm any pager button a wrap-jump disarmed BEFORE the position pass, so a target the
+        // guard re-registers this frame gets its centre pushed in the same frame.
+        _pagerRearmGuard.Update(screenPoint);
+
         // Update button positions for ViewModel's dwell detection
         // ViewModel handles actual dwell updates via GazeCursorMovedMessage
         UpdateAllTargetPositions();
@@ -1425,9 +1669,10 @@ public partial class SettingsWindow : OverlayWindow
         TryUpdatePosition(CloseButton, "close", DwellCategory.Tab);
 
         // Update tab button positions (only the current tab page's borders are attached;
-        // detached ones throw and are skipped) and the tab pager's
+        // detached ones throw and are skipped) and the tab pager's — the tab pager rides
+        // Pagination, like the content pager, since the Tab->Pagination move.
         UpdateButtonPositions(_tabButtons, DwellCategory.Tab);
-        UpdateButtonPositions(_tabPagerButtons, DwellCategory.Tab);
+        UpdateButtonPositions(_tabPagerButtons, DwellCategory.Pagination);
 
         // Update pagination button positions
         UpdateButtonPositions(_pagButtons, DwellCategory.Pagination);
@@ -1505,6 +1750,8 @@ public partial class SettingsWindow : OverlayWindow
     /// <summary>
     /// Pushes one border's screen-space centre to the ViewModel under <paramref name="category"/>.
     /// Swallows the not-in-visual-tree throw, same contract as <see cref="UpdateButtonPositions"/>.
+    /// Pagination targets are also recorded into <see cref="_pagerCenters"/>: the re-arm guard's
+    /// disarm needs a LAID-OUT centre, and this pass is where laid-out state exists.
     /// </summary>
     private void TryUpdatePosition(Border border, string id, DwellCategory category)
     {
@@ -1512,11 +1759,44 @@ public partial class SettingsWindow : OverlayWindow
         {
             var pos = border.PointToScreen(
                 new Point(border.ActualWidth / 2, border.ActualHeight / 2));
-            _viewModel.UpdatePosition(id, category, new PhysicalPoint(pos.X, pos.Y));
+            var center = new PhysicalPoint(pos.X, pos.Y);
+            // Record only genuinely laid-out state: ActualWidth/Height are set by Arrange (with
+            // the VisualOffsets PointToScreen needs), so a border that is in the tree but not
+            // yet arranged would otherwise overwrite the previous border's good centre with the
+            // panel-origin read the probe caught.
+            if (category == DwellCategory.Pagination
+                && border.ActualWidth > 0 && border.ActualHeight > 0)
+            {
+                _pagerCenters[id] = center;
+            }
+
+            _viewModel.UpdatePosition(id, category, center);
         }
         catch (InvalidOperationException)
         {
             // Border not yet rendered or not in visual tree
+        }
+    }
+
+    /// <summary>
+    /// The border's screen-space centre, or false when it is not in a rendered visual tree (the
+    /// same swallow as <see cref="TryUpdatePosition"/>). The settings window is <c>NoResize</c>
+    /// and the pager row does not move, so a centre read at disarm time stays valid for the whole
+    /// time the re-arm guard holds the button.
+    /// </summary>
+    private static bool TryScreenCenter(Border border, out PhysicalPoint center)
+    {
+        try
+        {
+            var pos = border.PointToScreen(
+                new Point(border.ActualWidth / 2, border.ActualHeight / 2));
+            center = new PhysicalPoint(pos.X, pos.Y);
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            center = default;
+            return false;
         }
     }
 
@@ -1646,11 +1926,7 @@ public partial class SettingsWindow : OverlayWindow
             id, text, wide ? 460 : 170, ModalButtonHeight,
             wide ? new Thickness(0, 8, 0, 8) : new Thickness(12, 0, 12, 0),
             bg, foreground,
-            // category/radius are inert on this call — onActivated is null, so no Register
-            // happens here; UpdateModalVisibility owns the modal registration, as today.
-            DwellCategory.Modal, ModalBtnRadius,
             () => _viewModel.SimulateActivated(id, DwellCategory.Modal),
-            null,
             _modalButtons, _modalBrushes);
         ((TextBlock)border.Child).FontSize = Tokens.FontSizeTitle;
         _modalBaseColors[id] = bg;

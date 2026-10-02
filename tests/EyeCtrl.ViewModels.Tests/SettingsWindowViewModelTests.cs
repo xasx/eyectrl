@@ -229,6 +229,39 @@ public class SettingsWindowViewModelTests
         Check.That(vm.PagProgress["pag_next"] > 0).IsTrue();
     }
 
+    // The Pagination arm must resolve the registered action BEFORE its auto-step. The step
+    // changes CurrentPage, and the view's PropertyChanged re-render replaces the registration
+    // with one computed for the NEW page — a lookup after the step runs the NEW page's
+    // action, so a step landing on a boundary page wrap-jumped (review r1 C1). The App suite
+    // pins this against the full re-registering harness; this pin holds the VM's ordering
+    // itself.
+    [Fact]
+    public void PaginationStep_RunsTheActionRegisteredBeforeTheStep()
+    {
+        var vm = CreateViewModel();
+        vm.Settings.TotalPages = 4;
+        vm.Settings.CurrentPage = 1;
+
+        var preStepActionRan = false;
+        vm.Register("pag_prev", DwellCategory.Pagination, 60, 450, () => preStepActionRan = true);
+
+        // The view's re-render re-registers on the step's PropertyChanged; at page 0 that
+        // registration is the boundary jump. If the VM looked the action up AFTER its step,
+        // this post-step jump is the action it would run.
+        vm.Settings.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(SettingsViewModel.CurrentPage))
+                vm.Register("pag_prev", DwellCategory.Pagination, 60, 700,
+                    () => vm.Settings.CurrentPage = 3);
+        };
+
+        vm.SimulateActivated("pag_prev", DwellCategory.Pagination);
+
+        // The step landed on 0 and the PRE-step action ran — the post-step jump never did.
+        Check.That(vm.Settings.CurrentPage).IsEqualTo(0);
+        Check.That(preStepActionRan).IsTrue();
+    }
+
     #endregion
 
     #region Modal Tests
@@ -651,28 +684,12 @@ public class SettingsWindowViewModelTests
         Check.That(progress > 0).IsTrue();
     }
 
-    // The sidebar's tab-list pager rides the Tab category (it is sidebar chrome next to the
-    // tabs), so its ids arrive at the same switch arm as tab ids. They must run the action the
-    // view registered — the view owns tab-page state — and must NOT fall through to ShowTab:
-    // ShowTab("tab_next") would switch to a nonexistent tab. Found when the sidebar's tab
-    // pagination was added (2026-08-17): tabs 10-11 were unreachable on small windows.
-    [Fact]
-    public void TabPagerIds_RunRegisteredAction_AndDoNotSwitchTab()
-    {
-        var vm = CreateViewModel();
-        vm.Settings.ShowTab("Cursor");
-        var activeBefore = vm.ActiveTabId;
-        var activations = new List<string>();
-        vm.Register("tab_prev", DwellCategory.Tab, 60, 600, () => activations.Add("prev"));
-        vm.Register("tab_next", DwellCategory.Tab, 60, 600, () => activations.Add("next"));
-
-        vm.SimulateActivated("tab_next", DwellCategory.Tab);
-        vm.SimulateActivated("tab_prev", DwellCategory.Tab);
-
-        Check.That(activations).ContainsExactly("next", "prev");
-        Check.That(vm.ActiveTabId).IsEqualTo(activeBefore);
-        Check.That(vm.Settings.CurrentTabName).IsEqualTo("Cursor");
-    }
+    // The sidebar's tab-list pager used to ride the Tab category, with a `tab_prev`/`tab_next`
+    // special case here to stop it falling through to ShowTab. Both are gone: the pager now
+    // registers under DwellCategory.Pagination (the Tab->Pagination move took the tab flip off
+    // the shared 400 ms Tab detector), so the Pagination arm's generic action lookup runs it and
+    // the view's registered action carries the step and the wrap-jump. The pinning test
+    // (TabPagerIds_RunRegisteredAction_AndDoNotSwitchTab) was deleted with the special case.
 
     #endregion
 }

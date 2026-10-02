@@ -976,12 +976,14 @@ public class SettingsContentFitTests
     }
 
     /// <summary>
-    /// Adding the header pushed every row of <c>ContentArea</c> down by one, and one of the
-    /// elements that had to move is invisible: the hidden <c>Settings_Panel_Content</c> TextBlock
-    /// the FlaUI suite anchors on. Left on row 0 it would sit INSIDE the header, and the only
-    /// suite that reads it is <c>Category=UI</c> — skipped unless <c>EYECTRL_UI_TESTS=1</c>, so
-    /// CI could not catch the slip. This makes the row indices checkable headlessly instead: the
-    /// anchor must share the card's row, and the header must own the row above it.
+    /// Phase 2 A1 gave the pagination bar its own row BETWEEN the page header and the card,
+    /// which moved the card (and one of the elements that had to move with it is invisible:
+    /// the hidden <c>Settings_Panel_Content</c> TextBlock the FlaUI suite anchors on). The
+    /// anchor must share the card's row, the header must own the row above both, and the pager
+    /// must own the row between them. Left inside the header the anchor would sit on the wrong
+    /// content entirely, and the only suite that reads it is <c>Category=UI</c> — skipped
+    /// unless <c>EYECTRL_UI_TESTS=1</c>, so CI could not catch the slip. This makes the row
+    /// indices checkable headlessly instead.
     ///
     /// Read as declared attributes, not as layout, so nothing has to be rendered.
     /// </summary>
@@ -1015,28 +1017,171 @@ public class SettingsContentFitTests
 
         Check.WithCustomMessage(
                 $"HeaderPanel is on Grid.Row=\"{headerRow}\" and the content card's wrapper on "
-                + $"\"{cardRow}\". The header has to own the row ABOVE the card: sharing a row "
-                + "would stack the two on top of each other, and ContentAvailableHeight would be "
-                + "subtracting a header that takes no room of its own.")
+                + $"\"{cardRow}\". The header has to own the row ABOVE both the pager and the "
+                + "card: sharing a row would stack the two on top of each other, and "
+                + "ContentAvailableHeight would be subtracting a header that takes no room of "
+                + "its own.")
             .That(headerRow).IsEqualTo("0");
 
         Check.WithCustomMessage(
-                $"The content card's wrapper is on Grid.Row=\"{cardRow}\", expected \"1\" — the "
-                + "row below the header.")
-            .That(cardRow).IsEqualTo("1");
+                $"PaginationPanel is on Grid.Row=\"{pagerRow}\", expected \"1\" — its own row "
+                + "BETWEEN the header and the card (Phase 2 A1: the phase-0 sessions put the "
+                + "pager above the content in every recorded run). A pagination bar left on the "
+                + "card's row would render on top of the content card.")
+            .That(pagerRow).IsEqualTo("1");
 
         Check.WithCustomMessage(
-                $"PaginationPanel is on Grid.Row=\"{pagerRow}\", expected \"2\" — below the card. "
-                + "ContentArea declares three rows (Auto, *, Auto); a pagination bar left on row 1 "
-                + "would render on top of the content card.")
-            .That(pagerRow).IsEqualTo("2");
+                $"The content card's wrapper is on Grid.Row=\"{cardRow}\", expected \"2\" — "
+                + "below the pager's row (the bottom row disappeared with the A1 move).")
+            .That(cardRow).IsEqualTo("2");
 
         Check.WithCustomMessage(
                 $"The hidden Settings_Panel_Content anchor is on Grid.Row=\"{anchorRow}\" while "
-                + $"the content card is on \"{cardRow}\". On the header's row it lands inside the "
-                + "page header instead of over the content, and because the ONLY suite that reads "
-                + "this anchor is Category=UI, nothing else — headless or in CI — would notice.")
+                + $"the content card is on \"{cardRow}\". Anywhere but the card's row it lands "
+                + "inside other chrome instead of over the content, and because the ONLY suite "
+                + "that reads this anchor is Category=UI, nothing else — headless or in CI — "
+                + "would notice.")
             .That(anchorRow).IsEqualTo(cardRow);
+    }
+
+    /// <summary>
+    /// Phase-2 review r1 M2: the pager row sits ABOVE the card, and an Auto row collapses to
+    /// its margins (24 DIP) when the bar is hidden on single-page tabs vs 112 with the bar —
+    /// the card would jump 88 DIP on every tab switch. Production pins the ROW to
+    /// <c>PaginationReserveHeight</c> in the ctor. This holds the wiring in place headlessly:
+    /// the ctor reads the production PROPERTY (not a literal), the pin lives on the named ROW
+    /// (a MinHeight on the panel would sit inside its margins and pin the row to
+    /// reserve + margins), and the XAML itself carries no MinHeight literal the code could
+    /// drift from.
+    /// </summary>
+    [Fact]
+    public void ThePagerRow_IsPinnedToThePaginationReserve()
+    {
+        var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs"));
+        Check.WithCustomMessage(
+                "The ctor no longer pins PagerRow.MinHeight to PaginationReserveHeight. Without "
+                + "it the content card moves 88 DIP between single-page and multi-page tabs — a "
+                + "position jump on every tab switch for a gaze-only user. Restore the "
+                + "assignment (reading the property, never a literal), or repoint this guard at "
+                + "whatever now stabilises the row.")
+            .That(source).Contains("PagerRow.MinHeight = PaginationReserveHeight;");
+
+        var root = Xml();
+        var contentArea = Named(root, "ContentArea");
+        var rows = contentArea.Element(Wpf + "Grid.RowDefinitions");
+        Check.WithCustomMessage(
+                "ContentArea no longer declares explicit RowDefinitions; the pager row must be "
+                + "a named RowDefinition (x:Name=\"PagerRow\") for the ctor pin to attach to.")
+            .That(rows).IsNotNull();
+        var pagerRow = rows!.Elements(Wpf + "RowDefinition")
+            .SingleOrDefault(r => (string?)r.Attribute(Xaml + "Name") == "PagerRow");
+        Check.WithCustomMessage(
+                "ContentArea's pager row (row 1) is no longer named PagerRow — the ctor pins "
+                + "its MinHeight by that name. Restore the x:Name or repoint both sides.")
+            .That(pagerRow).IsNotNull();
+        Check.That((string?)pagerRow!.Attribute("Height")).IsEqualTo("Auto");
+
+        Check.WithCustomMessage(
+                "PaginationPanel carries a MinHeight in the XAML. The stabiliser belongs on the "
+                + "ROW (PagerRow), driven by the production property: a panel MinHeight sits "
+                + "inside the panel's margins and would pin the row to reserve + margins, "
+                + "shifting the card 24 DIP low in both pager states.")
+            .That(((string?)Named(root, "PaginationPanel").Attribute("MinHeight")) ?? "unset")
+            .IsEqualTo("unset");
+    }
+
+    /// <summary>
+    /// The mechanism behind the M2 fix, measured on a real layout pass: with the pager row
+    /// pinned to <c>PaginationReserveHeight</c> the card's Y offset is IDENTICAL whether the
+    /// bar is rendering (multi-page tab) or hidden (single-page tab); unpinned, the two states
+    /// differ by exactly the bar's 88 DIP — reproduced here so the pin cannot pass vacuously.
+    /// The reserve value is derived the way production's property derives it (button consts +
+    /// the live panel margins, whose formula shape is pinned source-side by
+    /// <c>SettingsAutoPaginationTests.PaginationReserveHeight_AccountsForButtonAndPanelMargins</c>).
+    /// </summary>
+    [StaFact]
+    public void TheContentCard_DoesNotMove_BetweenPagerStates()
+    {
+        var root = Xml();
+        var pagination = Margin(root, "PaginationPanel");
+
+        var reserve = SettingsWindow.PaginationButtonHeight
+            + 2 * SettingsWindow.PaginationButtonMargin
+            + pagination.Top + pagination.Bottom;
+
+        Grid BuildContentArea(bool withBar, bool pinned)
+        {
+            var area = new Grid();
+            area.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            area.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            area.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+            var header = new StackPanel
+            {
+                Height = FixedHeight(root, "HeaderPanel"),
+                Margin = Margin(root, "HeaderPanel"),
+            };
+            Grid.SetRow(header, 0);
+
+            var pager = new StackPanel { Margin = pagination };
+            if (pinned)
+                area.RowDefinitions[1].MinHeight = reserve;
+            if (withBar)
+            {
+                pager.Children.Add(new Border
+                {
+                    Width = SettingsWindow.PaginationButtonWidth,
+                    Height = SettingsWindow.PaginationButtonHeight,
+                    Margin = new Thickness(SettingsWindow.PaginationButtonMargin),
+                });
+            }
+
+            Grid.SetRow(pager, 1);
+            var card = new Border { Height = 10 };
+            Grid.SetRow(card, 2);
+
+            area.Children.Add(header);
+            area.Children.Add(pager);
+            area.Children.Add(card);
+            return area;
+        }
+
+        static double CardY(Grid area)
+        {
+            area.Measure(new Size(1000, double.PositiveInfinity));
+            area.Arrange(new Rect(0, 0, 1000, 800));
+            area.UpdateLayout();
+            return area.RowDefinitions[0].ActualHeight + area.RowDefinitions[1].ActualHeight;
+        }
+
+        var pinnedEmpty = CardY(BuildContentArea(withBar: false, pinned: true));
+        var pinnedWithBar = CardY(BuildContentArea(withBar: true, pinned: true));
+        var unpinnedEmpty = CardY(BuildContentArea(withBar: false, pinned: false));
+        var unpinnedWithBar = CardY(BuildContentArea(withBar: true, pinned: false));
+
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "With the pager row pinned to the reserve the card still moves between pager "
+                + "states: empty {0:F2} vs bar {1:F2}. The row is not actually pinned — check "
+                + "that the MinHeight landed on the RowDefinition and equals the reserve.",
+                pinnedEmpty, pinnedWithBar))
+            .That(pinnedEmpty).IsEqualTo(pinnedWithBar);
+
+        // Vacuity tripwire: WITHOUT the pin the two states really do differ, by the bar's
+        // block (button 80 + its margins 8) — the 88-DIP jump this file exists to prevent.
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "The unpinned rows measure {0:F2} (empty) and {1:F2} (bar) — no 88-DIP "
+                + "difference, so this harness no longer reproduces the layout it guards. The "
+                + "pager bar's geometry changed; re-derive the harness.",
+                unpinnedEmpty, unpinnedWithBar))
+            .That(unpinnedWithBar - unpinnedEmpty).IsEqualTo(SettingsWindow.PaginationButtonHeight
+                + 2 * SettingsWindow.PaginationButtonMargin);
+
+        // And the pinned row holds the card at exactly the bar-present height, so pinning
+        // costs the single-page tab nothing it did not already pay.
+        Check.That(pinnedEmpty).IsEqualTo(unpinnedWithBar);
     }
 
     /// <summary>

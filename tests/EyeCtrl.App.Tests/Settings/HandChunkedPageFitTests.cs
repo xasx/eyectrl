@@ -404,7 +404,7 @@ public class HandChunkedPageFitTests
         var types = AllSourceTypes();
         Check.WithCustomMessage(
                 "Reflection over the EyeCtrl.App assembly found NO concrete ISettingsPageSource "
-                + "implementation. The settings window has eleven tabs, so this is a broken "
+                + "implementation. The settings window has fifteen tabs, so this is a broken "
                 + "discovery query, not an empty codebase — and every assertion in this file "
                 + "would otherwise iterate nothing and pass.")
             .That(types).Not.IsEmpty();

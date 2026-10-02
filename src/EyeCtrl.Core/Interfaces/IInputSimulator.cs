@@ -64,4 +64,16 @@ public interface IInputSimulator
     /// <param name="virtualKeyCode">Win32 virtual key code for the main key.</param>
     /// <param name="isExtendedKey">Whether the main key is an extended key.</param>
     void SendModifiedKeyPress(IReadOnlySet<ModifierKey> modifiers, ushort virtualKeyCode, bool isExtendedKey) => SendModifiedKeyPress(modifiers, virtualKeyCode);
+    /// <summary>Performs a left click with the given modifiers held for the duration of the click (one atomic batch). The dispatcher routes bare clicks to <see cref="LeftClick(PhysicalPoint)"/>.</summary>
+    /// <param name="point">Target position in physical screen pixels.</param>
+    /// <param name="modifiers">Modifier keys held down for the click. Must be non-empty when called directly.</param>
+    void LeftClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers) => throw new NotSupportedException("This input simulator does not implement modified clicks.");
+    /// <summary>Performs a right click with the given modifiers held (one atomic batch).</summary>
+    void RightClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers) => throw new NotSupportedException("This input simulator does not implement modified clicks.");
+    /// <summary>Performs a middle click with the given modifiers held (one atomic batch).</summary>
+    void MiddleClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers) => throw new NotSupportedException("This input simulator does not implement modified clicks.");
+    /// <summary>Performs a double click with the given modifiers held (ONE batch: down, up, down, up between the modifier pair).</summary>
+    void DoubleClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers) => throw new NotSupportedException("This input simulator does not implement modified clicks.");
+    /// <summary>Sends a wheel scroll with the given modifiers held; the batch leads with an absolute move so the wheel lands on <paramref name="point"/>.</summary>
+    void Scroll(PhysicalPoint point, int deltaX, int deltaY, IReadOnlySet<ModifierKey>? modifiers) => throw new NotSupportedException("This input simulator does not implement modified scrolls.");
 }

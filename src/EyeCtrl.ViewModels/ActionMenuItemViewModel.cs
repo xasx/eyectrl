@@ -30,6 +30,14 @@ public partial class ActionMenuItemViewModel : ObservableObject
     public ActionMenuItemKind Kind { get; }
     public PhysicalPoint Position { get; }
 
+    /// <summary>
+    /// Whether this item is dimmed as a non-dwell-target for the current menu session: with a
+    /// modifier latched, Drag and ScrollMode make no sense (a modified drag or scroll is not a
+    /// thing the dispatcher can perform), so they keep their slot but lose their dwell target.
+    /// Immutable per build — the ring rebuilds on every dim-state change.
+    /// </summary>
+    public bool IsDisabled { get; }
+
     [ObservableProperty] private double _dwellProgress;
 
     public ActionMenuItemViewModel(
@@ -38,7 +46,8 @@ public partial class ActionMenuItemViewModel : ObservableObject
         ActionIcon icon,
         string label,
         PhysicalPoint position,
-        ActionMenuItemKind kind = ActionMenuItemKind.Action)
+        ActionMenuItemKind kind = ActionMenuItemKind.Action,
+        bool isDisabled = false)
     {
         Id = id;
         Action = action;
@@ -46,5 +55,6 @@ public partial class ActionMenuItemViewModel : ObservableObject
         Label = label;
         Position = position;
         Kind = kind;
+        IsDisabled = isDisabled;
     }
 }

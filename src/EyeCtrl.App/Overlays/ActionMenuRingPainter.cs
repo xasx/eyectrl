@@ -71,6 +71,15 @@ internal static class ActionMenuRingPainter
     private const double RuntimeLabelLineHeightRatio = 1.1;
 
     /// <summary>
+    /// Group opacity for disabled (<see cref="RingPaintSlot.IsDisabled"/>) ring slots.
+    /// The value the dim contrast test validates (<c>ActionIconDimContrastTests</c>) and the dim
+    /// render test reads (<c>ActionMenuWindowDimRenderTests</c>): 0.45 measured 2.30:1
+    /// dimmed-icon vs dimmed-fill on Midnight/#FFFFFF — below any usable floor. Adjust ONLY with
+    /// a measured note.
+    /// </summary>
+    internal const double DisabledOpacity = 0.6;
+
+    /// <summary>
     /// Paints one built layer's slots onto <paramref name="canvas"/> and returns the created
     /// buttons keyed by slot id, so the runtime window can route dwell progress to them. The
     /// returned map is empty only for an empty slot list.
@@ -96,7 +105,7 @@ internal static class ActionMenuRingPainter
                     symbol: null,
                     icon: ActionIcons.For(slot.Icon),
                     label: options.ShowLabels ? options.LabelFor(slot) : null);
-                button.AddTo(canvas);
+                AddButton(canvas, button, slot.IsDisabled);
                 buttons[slot.Id] = button;
             }
 
@@ -128,7 +137,7 @@ internal static class ActionMenuRingPainter
                 ActionMenuGeometry.ButtonRadius,
                 symbol: null,
                 icon: ActionIcons.For(slot.Icon));
-            button.AddTo(painting);
+            AddButton(painting, button, slot.IsDisabled);
             buttons[slot.Id] = button;
 
             var label = new TextBlock
@@ -148,6 +157,25 @@ internal static class ActionMenuRingPainter
 
         return buttons;
     }
+
+    /// <summary>
+    /// Adds a button's parts to <paramref name="canvas"/>, dimmed as a group when disabled.
+    /// </summary>
+    private static void AddButton(Canvas canvas, DwellArcButton button, bool disabled)
+    {
+        if (!disabled)
+        {
+            button.AddTo(canvas);
+            return;
+        }
+
+        // Group opacity via a per-button child canvas: AddTo places its parts relative to ANY
+        // canvas, so a host canvas at origin carries them unchanged and Opacity dims the whole
+        // group at once. Per-part opacity would be neither group opacity nor hazard-free.
+        var host = new Canvas { Opacity = DisabledOpacity };
+        button.AddTo(host);
+        canvas.Children.Add(host);
+    }
 }
 
 /// <summary>
@@ -159,12 +187,17 @@ internal static class ActionMenuRingPainter
 /// <param name="Icon">Which drawn icon the slot shows.</param>
 /// <param name="Label">The ring name (see <see cref="RingLabelMap"/>).</param>
 /// <param name="Kind">What a dwell on the slot would do; the More slot is annotated in preview mode.</param>
+/// <param name="IsDisabled">
+/// Drawn dimmed at <see cref="ActionMenuRingPainter.DisabledOpacity"/> — a latched modifier's
+/// Drag/ScrollMode, which the ViewModel also leaves without a dwell target. The preview never sets it.
+/// </param>
 internal readonly record struct RingPaintSlot(
     string Id,
     Point Center,
     ActionIcon Icon,
     string Label,
-    ActionMenuItemKind Kind);
+    ActionMenuItemKind Kind,
+    bool IsDisabled = false);
 
 /// <summary>
 /// How the painter draws a layer. The two factories are the two documented modes; the default is

@@ -228,7 +228,8 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
                     ActionMenuGeometry.ButtonCanvasCenter(itemVm.Position, center, canvasCenter),
                     itemVm.Icon,
                     itemVm.Label,
-                    itemVm.Kind));
+                    itemVm.Kind,
+                    itemVm.IsDisabled));
             }
 
             foreach (var (id, button) in ActionMenuRingPainter.Paint(

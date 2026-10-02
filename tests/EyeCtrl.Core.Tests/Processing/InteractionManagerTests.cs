@@ -52,7 +52,7 @@ public class InteractionManagerTests
         var manager = new InteractionManager();
         InteractionAction? firedAction = null;
         PhysicalPoint? firedPoint = null;
-        manager.ActionRequested += (action, point) => { firedAction = action; firedPoint = point; };
+        manager.ActionRequested += (action, point, _) => { firedAction = action; firedPoint = point; };
 
         manager.OnFixationStarted(new PhysicalPoint(100, 100));
         manager.OnActivationButtonDwelled();
@@ -86,7 +86,7 @@ public class InteractionManagerTests
         var manager = new InteractionManager { SelectionMode = SelectionMode.ManualSelection };
         InteractionAction? firedAction = null;
         PhysicalPoint? firedPoint = null;
-        manager.ActionRequested += (action, point) => { firedAction = action; firedPoint = point; };
+        manager.ActionRequested += (action, point, _) => { firedAction = action; firedPoint = point; };
 
         manager.OnFixationStarted(new PhysicalPoint(100, 100));
         manager.OnActivationButtonDwelled();
@@ -229,7 +229,7 @@ public class InteractionManagerTests
     {
         var manager = new InteractionManager { SelectionMode = SelectionMode.AutoSelection };
         PhysicalPoint? firedPoint = null;
-        manager.ActionRequested += (_, p) => firedPoint = p;
+        manager.ActionRequested += (_, p, _) => firedPoint = p;
 
         manager.OnFixationStarted(new PhysicalPoint(100, 100));
         manager.AutoSelectionTarget = new ControlInfo(new PhysicalRect(150, 150, 50, 50));
@@ -244,7 +244,7 @@ public class InteractionManagerTests
     {
         var manager = new InteractionManager { SelectionMode = SelectionMode.AutoSelection };
         PhysicalPoint? firedPoint = null;
-        manager.ActionRequested += (_, p) => firedPoint = p;
+        manager.ActionRequested += (_, p, _) => firedPoint = p;
 
         manager.OnFixationStarted(new PhysicalPoint(100, 100));
         manager.AutoSelectionTarget = null;
@@ -304,7 +304,7 @@ public class InteractionManagerTests
     {
         var manager = new InteractionManager();
         bool actionRequestedFired = false;
-        manager.ActionRequested += (_, _) => actionRequestedFired = true;
+        manager.ActionRequested += (_, _, _) => actionRequestedFired = true;
 
         manager.OnFixationStarted(new PhysicalPoint(100, 100));
         manager.OnActivationButtonDwelled();

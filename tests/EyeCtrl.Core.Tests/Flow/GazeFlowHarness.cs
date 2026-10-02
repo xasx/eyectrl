@@ -87,7 +87,7 @@ internal sealed class GazeFlowHarness
         Interaction.StateChanged += s => States.Add(s);
         Interaction.ShowActivationButton += p => ActivationButtonsShown.Add(p);
         Interaction.ShowActionMenu += p => ActionMenusShown.Add(p);
-        Interaction.ActionRequested += (a, p) => ActionsRequested.Add((a, p));
+        Interaction.ActionRequested += (a, p, _) => ActionsRequested.Add((a, p));
         Interaction.StartManualSelection += p => ManualSelectionsStarted.Add(p);
         Interaction.DragStarted += p => DragsStarted.Add(p);
 

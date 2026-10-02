@@ -84,6 +84,14 @@ public interface IOverlayManager
     /// </remarks>
     IEdgeButtonBar EdgeButtonBar { get; }
 
+    /// <summary>
+    /// The LEFT-edge modifier bar while the action menu is open. Owned exclusively by the action
+    /// menu (nothing else ever shows or hides it), so its hide path is unconditional. Default
+    /// throws — the six test fakes that implement this interface keep compiling, and
+    /// the test fakes gain an explicit optional slot for it (round-2 F9).
+    /// </summary>
+    IEdgeButtonBar ActionMenuModBar => throw new NotSupportedException("This overlay manager does not implement the action-menu modifier bar.");
+
     /// <summary>Gets the track status overlay window (eye position, distance, presence).</summary>
     ITrackStatusOverlay TrackStatus { get; }
 
@@ -122,6 +130,7 @@ public record OverlayViewModels(
     CalibrationViewModel Calibration,
     TargetHighlightOverlayViewModel TargetHighlight,
     EdgeButtonBarViewModel EdgeButtonBar,
+    EdgeButtonBarViewModel ActionMenuModBar,
     TrackStatusViewModel TrackStatus,
     TaskSwitcherViewModel TaskSwitcher,
     QuickActionsGridViewModel QuickActionsGrid,

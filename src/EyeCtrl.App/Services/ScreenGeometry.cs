@@ -51,6 +51,22 @@ internal static class ScreenGeometry
     }
 
     /// <summary>
+    /// Anchor at the LEFT screen edge — the mirror of <see cref="RightEdgeAnchor"/>. The returned
+    /// centre is offset from the left edge by <paramref name="logicalInset"/> +
+    /// <paramref name="logicalRadius"/> + <paramref name="logicalWindowMargin"/> logical px.
+    /// </summary>
+    public static PhysicalPoint LeftEdgeAnchor(double logicalInset, double logicalRadius, double logicalWindowMargin = EdgeButtonWindowMarginLogical)
+        => LeftEdgeAnchor(logicalInset, logicalRadius, logicalWindowMargin, SystemParameters.PrimaryScreenWidth, SystemParameters.PrimaryScreenHeight);
+
+    /// <summary>Pure-arithmetic overload, exposed for the same reason as RightEdgeAnchor's.</summary>
+    internal static PhysicalPoint LeftEdgeAnchor(double logicalInset, double logicalRadius, double logicalWindowMargin, double logicalScreenWidth, double logicalScreenHeight)
+    {
+        var leftOffsetLogical = logicalInset + logicalRadius + logicalWindowMargin;
+        var h = DpiHelper.LogicalToPhysicalY(logicalScreenHeight);
+        return new PhysicalPoint(DpiHelper.LogicalToPhysicalX(leftOffsetLogical), h / 2.0);
+    }
+
+    /// <summary>
     /// Anchor for the keyboard's edge-bar pair, tracking the keyboard's edge (spec ledger #15,
     /// mechanism B): keyboard Top → 25% of work-area height, Bottom → 75%, offset from the
     /// work-area TOP (not the screen top) so a taskbar shrinks the band the bar and the

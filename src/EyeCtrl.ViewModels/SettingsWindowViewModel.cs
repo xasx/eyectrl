@@ -223,19 +223,6 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
                     Messenger.Send(new CloseSettingsMessage());
                     return true;
                 }
-                // The sidebar's tab-list pager rides the Tab category (it is sidebar chrome
-                // beside the tabs), so its ids arrive at this arm too. They must run the action
-                // the view registered — the view owns the tab-page state — and must NOT fall
-                // through to ShowTab: ShowTab("tab_next") would switch to a nonexistent tab.
-                if (id is "tab_prev" or "tab_next")
-                {
-                    if (_tabActions.TryGetValue(id, out var pagerAction))
-                    {
-                        pagerAction.Invoke();
-                        return true;
-                    }
-                    return false;
-                }
                 _settingsViewModel.ShowTab(id);
                 ActiveTabId = id;
                 if (_tabActions.TryGetValue(id, out var tabAction))
@@ -245,12 +232,21 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
             case DwellCategory.Pagination:
                 if (id is "pag_prev" or "pag_next")
                 {
+                    // Resolve the registered action BEFORE the auto-step and invoke THAT after
+                    // it. The step changes CurrentPage, whose PropertyChanged re-renders the
+                    // pager synchronously on this same thread (everything here is UI thread)
+                    // and REPLACES the registration with an action computed for the NEW page.
+                    // Looking _pagActions up after the step would therefore run the new page's
+                    // action: a step landing on a boundary page (1 -> 0 of 4) would re-register
+                    // pag_prev as the jump to page 3 and run it. A jump's own resolution is
+                    // stable: at a boundary the step no-ops (PreviousPage/NextPage clamp), so
+                    // no page change fires and no re-render replaces the action mid-activation.
+                    _pagActions.TryGetValue(id, out var pagAction);
                     if (id == "pag_prev")
                         _settingsViewModel.PreviousPage();
                     else if (id == "pag_next")
                         _settingsViewModel.NextPage();
-                    if (_pagActions.TryGetValue(id, out var pagAction))
-                        pagAction.Invoke();
+                    pagAction?.Invoke();
                     return true;
                 }
                 if (_pagActions.TryGetValue(id, out var extra))

@@ -66,6 +66,11 @@ public class OverlayManager : IOverlayManager
 
     /// <inheritdoc />
     public IEdgeButtonBar EdgeButtonBar => _edgeButtonBarWindow;
+
+    private EdgeButtonBarWindow _actionMenuModBarWindow = null!;
+
+    /// <inheritdoc />
+    public IEdgeButtonBar ActionMenuModBar => _actionMenuModBarWindow;
     private TrackStatusWindow _trackStatus = null!;
     /// <inheritdoc />
     public ITrackStatusOverlay TrackStatus => _trackStatus;
@@ -110,6 +115,7 @@ public class OverlayManager : IOverlayManager
         _glassBackdrop = new GlassBackdropWindow();
         _targetHighlight = new TargetHighlightWindow();
         _edgeButtonBarWindow = new EdgeButtonBarWindow();
+        _actionMenuModBarWindow = new EdgeButtonBarWindow();
         _pauseIndicator = new PauseIndicatorWindow();
 
         // Configure ManualSelection indicator
@@ -150,6 +156,25 @@ public class OverlayManager : IOverlayManager
                     // re-enter the view model instead of the window. Casting to Window reaches
                     // Window.Hide, which is what "the VM went invisible" is supposed to do.
                     ((System.Windows.Window)_edgeButtonBarWindow).Hide();
+            }
+        };
+
+        // The LEFT-edge modifier bar, wired exactly like the right-edge bar above. Owned
+        // exclusively by the action menu (OverlayMessageCoordinator's show/hide handlers), so
+        // nothing here differs except which view model drives it.
+        _actionMenuModBarWindow.DataContext = viewModels.ActionMenuModBar;
+        viewModels.ActionMenuModBar.ButtonSetChanged += () => _actionMenuModBarWindow.SyncButtons();
+        viewModels.ActionMenuModBar.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(EdgeButtonBarViewModel.IsVisible))
+            {
+                if (viewModels.ActionMenuModBar.IsVisible)
+                    _actionMenuModBarWindow.Show();
+                else
+                    // Same REQUIRED cast as above: EdgeButtonBarWindow's `public new void Hide()`
+                    // clears the view model, which is the change that raised this notification.
+                    // Window.Hide is what "the VM went invisible" is supposed to do.
+                    ((System.Windows.Window)_actionMenuModBarWindow).Hide();
             }
         };
 

@@ -146,11 +146,18 @@ public class ActionMenuRingPainterTests : IDisposable
         Check.That(hosts).HasSize(disabledCount);
         foreach (var host in hosts)
         {
+            // At origin: the centre check above reads each part's offset relative to its HOST, so
+            // a displaced host would draw dimmed slots off their spot with that check still green.
+            Check.That(OffsetOrZero(Canvas.GetLeft(host))).IsEqualTo(0.0);
+            Check.That(OffsetOrZero(Canvas.GetTop(host))).IsEqualTo(0.0);
             Check.That(host.LayoutTransform.Value.IsIdentity).IsTrue();
             Check.That(host.RenderTransform.Value.IsIdentity).IsTrue();
             Check.That(host.Opacity).IsCloseTo(ActionMenuRingPainter.DisabledOpacity, 1e-9);
         }
     }
+
+    /// <summary>An unset <c>Canvas.Left</c>/<c>Top</c> (NaN) places a child at 0, same as an explicit 0.</summary>
+    private static double OffsetOrZero(double offset) => double.IsNaN(offset) ? 0.0 : offset;
 
     /// <summary>
     /// Runtime label mode: the Help toggle decides whether the label goes into <c>Create</c>, and

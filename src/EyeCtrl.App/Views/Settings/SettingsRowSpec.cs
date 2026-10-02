@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Views.Settings;
 
+using EyeCtrl.Core.ActionMenu;
+
 /// <summary>
 /// Declarative description of one row on a settings page. Pure data + delegates, no WPF types:
 /// <see cref="EyeCtrl.App.Views.SettingsWindow.CreateControl"/> is the single construction path that
@@ -48,6 +50,50 @@ public enum ButtonKind { Default, Reset, Delete, Danger }
 public sealed record ButtonSpec(
     string Id, string Label, Action OnActivate, ButtonKind Kind, double Width, double Height)
     : SettingsRowSpec(Id, Label);
+
+/// <summary>
+/// The Action Menu tab's jump-to-preview row: a nav button that takes the user straight to the
+/// preview page however many toggle pages the tab has grown to.
+///
+/// <para>
+/// A distinct kind rather than a plain <see cref="ButtonSpec"/> because it opts into the ring
+/// preview's spec-level omission: when the budget cannot show the ring, a "View ring preview"
+/// row that lands on a page with no preview is a dead affordance, so the shell drops the two
+/// together (<c>SettingsAutoPagination.FitRingPreview</c>). It renders exactly like a ButtonSpec
+/// row.
+/// </para>
+/// </summary>
+public sealed record RingJumpSpec(
+    string Id, string Label, Action OnActivate, ButtonKind Kind, double Width, double Height)
+    : SettingsRowSpec(Id, Label);
+
+/// <summary>
+/// The ring preview: the Action Menu tab's read-only miniature of the runtime ring's first
+/// layer, rendered by the same painter and plan the runtime uses, with ZERO dwell targets.
+///
+/// <para>
+/// Pure data + delegates, like every spec: <see cref="Plan"/> builds the same
+/// <see cref="RingPlan"/> the runtime window builds (visible-list order, live CircleSize), and
+/// <see cref="Scale"/> is the fit scalar the shell stamps before measure — one value driving
+/// both the <c>LayoutTransform</c> and the omission decision. It is the one spec kind that opts
+/// into that omission: a preview that cannot fit is dropped before chunking rather than
+/// clipped.
+/// </para>
+/// </summary>
+/// <param name="Id">The spec's id. Inert for dwell registration — the preview registers nothing.</param>
+/// <param name="Plan">Builds the plan the painting and the fit scalar read. Side-effect-free.</param>
+/// <param name="CaptionNotAControl">The "not a control" honesty caption, drawn beside the ring.</param>
+/// <param name="CaptionLabels">The labels-are-dwell-only honesty caption, drawn beside the ring.</param>
+/// <param name="Scale">
+/// The uniform fit scalar from <see cref="RingPlan.ScaleFor"/>, stamped by the shell before
+/// measure. The default is true size for consumers that never stamp (tests, gates).
+/// </param>
+public sealed record RingPreviewSpec(
+    string Id,
+    Func<RingPlan> Plan,
+    string CaptionNotAControl,
+    string CaptionLabels,
+    double Scale = 1.0) : SettingsRowSpec(Id, Label: "");
 
 /// <param name="Text">Deferred so dynamic labels (calibration status) re-evaluate on each rebuild.</param>
 /// <param name="Wrap">

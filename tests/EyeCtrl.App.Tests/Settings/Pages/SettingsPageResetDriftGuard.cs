@@ -84,6 +84,10 @@ internal static class SettingsPageResetDriftGuard
     internal static readonly Dictionary<string, string> NotASettingsKind = new(StringComparer.Ordinal)
     {
         [typeof(ButtonSpec).FullName!] = "action row — binds no setting to restore",
+        [typeof(RingJumpSpec).FullName!] =
+            "navigation row (jump to the ring preview page) — binds no setting to restore",
+        [typeof(RingPreviewSpec).FullName!] =
+            "read-only ring miniature — binds no setting to restore and registers no dwell target",
         [typeof(LabelSpec).FullName!] = "static text — binds no setting",
         [typeof(SeparatorSpec).FullName!] = "section rule — binds no setting (full-width divider)",
     };

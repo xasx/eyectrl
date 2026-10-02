@@ -5,6 +5,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core;
+using EyeCtrl.Core.ActionMenu;
 using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -89,6 +91,29 @@ public partial class SettingsWindow : OverlayWindow
     /// hit circles still registered at the same centres: a live dwell target over blank space.
     /// </summary>
     internal const double TwoColumnMinimumWidth = RowNameColumnWidth + 404 + 24;
+
+    /// <summary>
+    /// The gutter between the ring preview's painting and its honesty captions, in DIP.
+    ///
+    /// <c>internal</c> because the fit scalar must reserve the caption's room: the row's Grid and
+    /// <c>SettingsAutoPagination.FitRingPreview</c> read this one value, so the width the fit
+    /// assumes for the painting is the width the row actually gives it.
+    /// </summary>
+    internal const double RingPreviewCaptionGutter = 24;
+
+    /// <summary>
+    /// The narrowest caption column a ring preview may leave itself, in DIP.
+    ///
+    /// <c>FitRingPreview</c> reserves this plus <see cref="RingPreviewCaptionGutter"/> OUT of the
+    /// painting's width before asking <c>RingPlan.ScaleFor</c>. Without the reservation a
+    /// width-bound preview takes the whole column and the captions get zero room — text wrapped
+    /// to one character per line, drawn over the ring, or both. 200 DIP is two lines of the
+    /// longer caption ("runtime shows labels only while you dwell", 18 DIP type) — enough to
+    /// read, narrow enough not to shrink the painting on the reference display. A column that
+    /// cannot hold the legibility floor's painting plus this room omits the preview instead;
+    /// absent beats a caption the fold clips.
+    /// </summary>
+    internal const double RingPreviewMinCaptionWidth = 200;
 
     /// <summary>
     /// Hit radius of a sidebar tab, in DIP. <c>internal</c> because the tab-pager clearance
@@ -925,6 +950,12 @@ public partial class SettingsWindow : OverlayWindow
     /// Re-splits the current tab's rows into height-fitting pages when the tab's source
     /// opts in. Declines (passes pages through) on degenerate sizing inputs, mirroring
     /// ContentAvailableWidth.
+    ///
+    /// <para>
+    /// The pipeline itself — the ring preview's spec-level fit, then the height chunker — lives in
+    /// <see cref="SettingsAutoPagination.Repaginate"/>, because the reachability gate measures the
+    /// same pages through it. This method owns only the window's inputs and the decline rule.
+    /// </para>
     /// </summary>
     private IReadOnlyList<PageSpec> MaybeRepaginateByHeight(IReadOnlyList<PageSpec> pages)
     {
@@ -939,8 +970,7 @@ public partial class SettingsWindow : OverlayWindow
 
         var rows = pages.SelectMany(p => p.Rows).ToList();
         var r = DpiHelper.LogicalToPhysicalX(ControlBtnRadius);
-        return SettingsAutoPagination.ChunkByHeight(
-            rows, row => SettingsAutoPagination.MeasureRowHeight(row, width, r, _dwellMs), height);
+        return SettingsAutoPagination.Repaginate(rows, width, height, r, _dwellMs);
     }
 
     private void RenderCurrentPage()
@@ -1316,52 +1346,16 @@ public partial class SettingsWindow : OverlayWindow
                     cp.Label, cp.Get, cp.Set, cat,
                     DpiHelper.LogicalToPhysicalX(cp.RadiusLogical), dwellMs, showLabel: false));
             case ButtonSpec b:
-                var (fill, textBrush) = FillFor(b.Kind);
-                var button = new DwellButton(registrar, b.Id, b.Label, b.OnActivate, fill, cat,
-                    radiusPhysical, dwellMs, width: b.Width, height: b.Height, textBrush: textBrush);
-                // A standalone settings row, not a tile in someone else's panel. Pin it to the
-                // column's left axis — Stretch + the explicit Width above CENTRES in WPF, which
-                // drew these buttons at x=130 while every other row kind (toggles, headings,
-                // slider/combo rows) starts at x=0, two axes on one mixed page.
-                //
-                // And give it the SAME BOX every other row kind gets: the button is CENTRED in a
-                // LabelledRowMinHeight box, exactly as a labelled row centres its 100 DIP control
-                // in one. So its hit circle lands 75 DIP from the row top wherever a labelled
-                // row's does, and every pitch on a mixed page is exactly 150. Hit geometry, not
-                // rhythm.
-                //
-                // The asymmetric (4,0,4,24) this replaced measured 124 and put its circle at 50,
-                // so a labelled row followed by a button row left the two centres only
-                // (150-75) + 50 = 125 DIP apart — 25 DIP of clearance between two 100 DIP
-                // circles, against the 40 DIP the colour-swatch grid leaves
-                // (SwatchTargetGeometryTests). A stacked slider followed by a button was worse
-                // still, 106 apart. That gap sat directly below the last setting on EVERY tab,
-                // because every tab ends with a "Reset ..." ButtonSpec — a destructive action one
-                // gaze drift from the control above it.
-                //
-                // The inset is DERIVED from b.Height rather than written as a literal 25, and
-                // that is load-bearing: the settings pages ship three button heights, not one.
-                // A flat 25 per side gives the 100 DIP buttons the intended 150/75 but leaves the
-                // 90 DIP type-picker buttons at 140/70 and the 70 DIP Delete and Back buttons at
-                // 120/60 — and "qa_del" sits directly under a toggle row, which a flat 25 would
-                // leave 35 DIP of clearance, BELOW the swatch floor this pitch is measured
-                // against. Centring in the box is the only form that holds for every height.
-                //
-                // Max(0, ...) only guards a hypothetical taller-than-pitch button: the tallest
-                // today is 100. Such a button would keep its own height and simply set the pitch.
-                //
-                // DwellButton's own (4,0,4,0) default stays — toolbar/pagination/modal/composite
-                // tiles keep the layout they were designed against; only the settings-row path
-                // gets the row box. Nothing about the button's width, alignment, fill or hit
-                // radius changes here.
-                //
-                // Gated by SettingsRowPitchTests, which measures ARRANGED centre-to-centre
-                // distance across adjacent rows of DIFFERENT kinds, over every button height the
-                // page sources actually declare.
-                var buttonInset = Math.Max(0, (LabelledRowMinHeight - b.Height) / 2);
-                button.Root.HorizontalAlignment = HorizontalAlignment.Left;
-                button.Root.Margin = new Thickness(4, buttonInset, 4, buttonInset);
-                return button;
+                return ButtonRow(registrar, b.Id, b.Label, b.OnActivate, b.Kind, b.Width, b.Height,
+                    radiusPhysical, dwellMs, cat);
+            case RingJumpSpec j:
+                // The jump row is a nav button, so it takes the ButtonSpec row shape exactly
+                // (see ButtonRow). A distinct spec kind only so the ring preview's spec-level
+                // omission can drop it together with the ring.
+                return ButtonRow(registrar, j.Id, j.Label, j.OnActivate, j.Kind, j.Width, j.Height,
+                    radiusPhysical, dwellMs, cat);
+            case RingPreviewSpec r:
+                return new RingPreviewRow(r);
             case SeparatorSpec:
                 return new SeparatorRow();
             case LabelSpec l:
@@ -1375,6 +1369,68 @@ public partial class SettingsWindow : OverlayWindow
                 throw new InvalidOperationException(
                     $"Unknown settings row spec: {row?.GetType().Name ?? "<null>"}");
         }
+    }
+
+    /// <summary>
+    /// Builds one standalone action-button row — <see cref="ButtonSpec"/> and the ring preview's
+    /// <see cref="RingJumpSpec"/>, which renders through this exact shape.
+    ///
+    /// <para>
+    /// A standalone settings row, not a tile in someone else's panel. Pin it to the column's
+    /// left axis — Stretch + the explicit Width above CENTRES in WPF, which drew these buttons at
+    /// x=130 while every other row kind (toggles, headings, slider/combo rows) starts at x=0,
+    /// two axes on one mixed page.
+    /// </para>
+    /// <para>
+    /// And give it the SAME BOX every other row kind gets: the button is CENTRED in a
+    /// LabelledRowMinHeight box, exactly as a labelled row centres its 100 DIP control in one.
+    /// So its hit circle lands 75 DIP from the row top wherever a labelled row's does, and every
+    /// pitch on a mixed page is exactly 150. Hit geometry, not rhythm.
+    /// </para>
+    /// <para>
+    /// The asymmetric (4,0,4,24) this replaced measured 124 and put its circle at 50, so a
+    /// labelled row followed by a button row left the two centres only (150-75) + 50 = 125 DIP
+    /// apart — 25 DIP of clearance between two 100 DIP circles, against the 40 DIP the
+    /// colour-swatch grid leaves (SwatchTargetGeometryTests). A stacked slider followed by a
+    /// button was worse still, 106 apart. That gap sat directly below the last setting on EVERY
+    /// tab, because every tab ends with a "Reset ..." ButtonSpec — a destructive action one gaze
+    /// drift from the control above it.
+    /// </para>
+    /// <para>
+    /// The inset is DERIVED from the button's own height rather than written as a literal 25, and
+    /// that is load-bearing: the settings pages ship three button heights, not one. A flat 25 per
+    /// side gives the 100 DIP buttons the intended 150/75 but leaves the 90 DIP type-picker
+    /// buttons at 140/70 and the 70 DIP Delete and Back buttons at 120/60 — and "qa_del" sits
+    /// directly under a toggle row, which a flat 25 would leave 35 DIP of clearance, BELOW the
+    /// swatch floor this pitch is measured against. Centring in the box is the only form that
+    /// holds for every height.
+    /// </para>
+    /// <para>
+    /// Max(0, ...) only guards a hypothetical taller-than-pitch button: the tallest today is 100.
+    /// Such a button would keep its own height and simply set the pitch.
+    /// </para>
+    /// <para>
+    /// DwellButton's own (4,0,4,0) default stays — toolbar/pagination/modal/composite tiles keep
+    /// the layout they were designed against; only the settings-row path gets the row box.
+    /// Nothing about the button's width, alignment, fill or hit radius changes here.
+    /// </para>
+    /// <para>
+    /// Gated by SettingsRowPitchTests, which measures ARRANGED centre-to-centre distance across
+    /// adjacent rows of DIFFERENT kinds, over every button height the page sources actually
+    /// declare.
+    /// </para>
+    /// </summary>
+    private static DwellButton ButtonRow(
+        IDwellRegistrar registrar, string id, string label, Action onActivate, ButtonKind kind,
+        double width, double height, double radiusPhysical, int dwellMs, DwellCategory cat)
+    {
+        var (fill, textBrush) = FillFor(kind);
+        var button = new DwellButton(registrar, id, label, onActivate, fill, cat,
+            radiusPhysical, dwellMs, width: width, height: height, textBrush: textBrush);
+        var buttonInset = Math.Max(0, (LabelledRowMinHeight - height) / 2);
+        button.Root.HorizontalAlignment = HorizontalAlignment.Left;
+        button.Root.Margin = new Thickness(4, buttonInset, 4, buttonInset);
+        return button;
     }
 
     /// <summary>
@@ -1598,6 +1654,100 @@ public partial class SettingsWindow : OverlayWindow
                 Margin = new Thickness(0, 10, 0, 10),
             });
         }
+
+        public void Attach(Panel parent) => parent.Children.Add(_root);
+        public void Detach(Panel parent) => parent.Children.Remove(_root);
+        public IReadOnlyList<DwellControl> Children => NoChildren;
+    }
+
+    /// <summary>
+    /// The ring preview's visual: the layer-1 ring painted TRUE-SIZE by the shared painter under
+    /// a uniform <c>LayoutTransform</c>, with the honesty captions beside it — and ZERO dwell
+    /// targets. An <see cref="IDwellComposite"/> with an EMPTY cached Children list, exactly like
+    /// <see cref="SeparatorRow"/>: the painter takes no registrar and this row constructs no
+    /// <c>DwellControl</c>, so a dwell on the miniature is structurally impossible.
+    ///
+    /// <para>
+    /// The painting is true size and the SCALE IS THE TRANSFORM, never a scaled
+    /// <c>Create</c> — <c>DwellArcButton</c>'s strokes are not scale-invariant. The row's height
+    /// is exactly the scaled square, which is the number the chunker reserved and the G4 gate
+    /// compares against.
+    /// </para>
+    /// <para>
+    /// The captions sit BESIDE the painting rather than under it, and that is budget arithmetic,
+    /// not taste: the fit scalar sizes the painting to fill the height budget, so a caption row
+    /// below the square is the row the fold clips. The painting column is <c>Auto</c> — it takes
+    /// exactly the square's width — and the caption column is the star remainder, so the two can
+    /// never overlap. The star column is non-empty by construction: <c>FitRingPreview</c> reserved
+    /// <see cref="RingPreviewCaptionGutter"/> plus <see cref="RingPreviewMinCaptionWidth"/> out of
+    /// the width it scaled the painting into, or omitted the preview.
+    /// </para>
+    /// </summary>
+    private sealed class RingPreviewRow : IDwellComposite
+    {
+        private static readonly IReadOnlyList<DwellControl> NoChildren = Array.Empty<DwellControl>();
+
+        private readonly Grid _root;
+
+        internal RingPreviewRow(RingPreviewSpec spec)
+        {
+            var plan = spec.Plan();
+            var layer = plan.BuildLayer(RingLayer.Primary, showBack: false);
+            var side = plan.WindowSize * spec.Scale;
+
+            // True-size painting coordinates: the painter's scaled mode expects each slot at its
+            // true canvas centre and wraps the buttons in its own transform. This is the preview's
+            // own coordinate seam — no DpiHelper, no ButtonCanvasCenter (the runtime window's
+            // absolute-physical conversion does not apply to an in-settings canvas).
+            var canvas = new Canvas { Width = side, Height = side };
+            var canvasCenter = new Point(plan.WindowSize / 2, plan.WindowSize / 2);
+            var slots = new List<RingPaintSlot>(layer.Slots.Count);
+            foreach (var slot in layer.Slots)
+            {
+                var radians = slot.AngleDegrees * MathConstants.DegreesToRadians;
+                slots.Add(new RingPaintSlot(
+                    slot.Id,
+                    new Point(
+                        canvasCenter.X + plan.EffectiveRingRadius * Math.Cos(radians),
+                        canvasCenter.Y + plan.EffectiveRingRadius * Math.Sin(radians)),
+                    slot.Icon, slot.Label, slot.Kind));
+            }
+
+            ActionMenuRingPainter.Paint(
+                canvas, slots, RingPaintOptions.Preview(spec.Scale, plan.SecondaryActions.Count));
+
+            var captions = new StackPanel
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(RingPreviewCaptionGutter, 0, 0, 0),
+            };
+            captions.Children.Add(Caption(spec.CaptionNotAControl));
+            captions.Children.Add(Caption(spec.CaptionLabels));
+
+            // Column 0 is Auto, NOT the default 1*: a star column would split the row 50/50 and
+            // the canvas — explicit Width, no layout clip — would paint the ring over the
+            // captions whenever the painting is wider than half the column (PR #175 F1).
+            _root = new Grid { Height = side };
+            _root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            _root.ColumnDefinitions.Add(
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            Grid.SetColumn(canvas, 0);
+            Grid.SetColumn(captions, 1);
+            _root.Children.Add(canvas);
+            _root.Children.Add(captions);
+        }
+
+        /// <summary>One caption line. TextSecondary is the dimmest token that clears 4.5:1 on the
+        /// card in every theme (the description-block precedent in <see cref="LabelledSettingsRow"/>).</summary>
+        private static TextBlock Caption(string text) => new()
+        {
+            Text = text,
+            Foreground = Tokens.BrushTextSecondary,
+            FontSize = Tokens.FontSizeSubtitle,
+            FontFamily = Tokens.FontStandard,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 6),
+        };
 
         public void Attach(Panel parent) => parent.Children.Add(_root);
         public void Detach(Panel parent) => parent.Children.Remove(_root);

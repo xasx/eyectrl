@@ -3,36 +3,37 @@ namespace EyeCtrl.App.Tests.Settings;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
-using System.Text;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Xml.Linq;
+using EyeCtrl.App.Services;
 using EyeCtrl.App.Tests.Settings.Pages;
 using EyeCtrl.App.Views;
 using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Controls;
 using EyeCtrl.Controls.Theme;
+using EyeCtrl.Core.Prediction;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using NFluent;
 using Xunit;
 
 /// <summary>
-/// Every dwell target on a HAND-CHUNKED settings page has to sit inside the content cell the
-/// window actually gives it.
+/// Every dwell target on every settings page ANY source can show has to sit inside the content
+/// cell the window actually gives it, clear of its neighbours.
 ///
 /// <para>
-/// **The hole this closes.** <c>SettingsAutoPagination</c> re-splits a tab's rows to fit
-/// <c>ContentAvailableHeight</c>, and <c>SettingsAutoPaginationTests</c> covers that chunker
-/// thoroughly — but only over pages the chunker built. A source whose
-/// <see cref="ISettingsPageSource.PrefersAutoPagination"/> is <c>false</c> emits its OWN pages and
-/// <c>MaybeRepaginateByHeight</c> returns them untouched, so NOTHING measures them against the
-/// budget. Every existing height guard is therefore structurally blind to them, and the content
-/// area has no <c>ScrollViewer</c> (SettingsWindow.xaml: "no ScrollViewer — paginated"), so a row
-/// past the fold is not merely awkward: its hit circle is registered over pixels the user cannot
-/// look at. For a user whose only input channel is gaze, a registered-but-unreachable target is
-/// a setting that has silently ceased to exist.
+/// **The hole this closes.** No height budget used to be consulted for a source whose
+/// <see cref="ISettingsPageSource.PrefersAutoPagination"/> is <c>false</c>: the source emits its
+/// OWN pages and <c>MaybeRepaginateByHeight</c> returns them untouched, so NOTHING measured them
+/// against the budget. The content area has no <c>ScrollViewer</c> (SettingsWindow.xaml: "no
+/// ScrollViewer — paginated"), so a row past the fold is not merely awkward: its hit circle is
+/// registered over pixels the user cannot look at. For a user whose only input channel is gaze, a
+/// registered-but-unreachable target is a setting that has silently ceased to exist.
 /// </para>
 /// <para>
 /// That is not hypothetical. The two-column restyle made every row a uniform 150 DIP pitch and
@@ -43,15 +44,39 @@ using Xunit;
 /// </para>
 ///
 /// <para>
-/// **This asserts REACHABILITY, not page height — do not "tighten" it into a height check.**
+/// **The sweep was widened to every source, every view, every fixture, and that is where the
+/// #113 hole lived one door over.** An auto-paginated source is not measured as its source
+/// <c>Build</c>s it — its rows are flattened and re-split through production's
+/// <see cref="SettingsAutoPagination.ChunkByHeight"/> at the production budget, exactly what
+/// <c>SettingsWindow.MaybeRepaginateByHeight</c> does with the live window's numbers, so the
+/// pages measured here are the post-chunk pages the user pages through. And a multi-view source
+/// is driven through <see cref="ISettingsPageSource.Views"/>, because the pages issue #113 was
+/// about exist ONLY in the QuickActions picker views: the List view alone never builds a
+/// <c>ChunkPresets</c> page, and a sweep that measured the landing view alone would have missed
+/// the bug entirely. (The class and its guard keep their old names, "HandChunked" included,
+/// because production comments cite them; the scope, not the name, is what widened.)
+/// </para>
+///
+/// <para>
+/// **This asserts reachability, not page height — do not "tighten" it into a height check.**
 /// The two are different invariants and the weaker-looking one is the correct one. Measured here
 /// at the 1424 DIP content column against the 688 DIP budget, the quick-action TYPE picker's page
-/// is 750 DIP: it overflows the cell by 62, and yet all five of its dwell circles are reachable
-/// (centres 75, 225, 375, 525, 675 — the last one 13 DIP inside the budget). What is clipped is
-/// the trailing margin below the final button, and nothing is registered there. A
-/// "page height &lt;= budget" assertion would fail that page and would have to be relaxed or
-/// suppressed, which is how a guard gets deleted. The circle centres are what the user has to be
-/// able to aim at, so the circle centres are what is asserted.
+/// is 750 DIP: it overflows the cell by 62, and the fifth circle's CENTRE (675) stays 13 DIP
+/// inside the budget, so the centre a user aims at is visible; what crosses the fold is the
+/// trailing margin below the final button, and the only registered pixel it touches is that
+/// circle's lower edge — accepted by name below rather than silently. A "page height &lt;= budget"
+/// assertion would fail that page and would have to be relaxed or suppressed, which is how a
+/// guard gets deleted. The circles are what the user has to be able to aim at, so the circles are
+/// what is asserted.
+/// </para>
+///
+/// <para>
+/// **Three properties are asserted, and each is where the old assertion stopped short.** (1) The
+/// whole 2-D circle — centre ± <see cref="RadiusPhysical"/>, in BOTH axes — lies inside the
+/// content cell; the old assertion checked centre-Y only, so a ring of targets clipped sideways,
+/// or one whose lower half crossed the fold, passed. (2) Every pair of registered targets on a
+/// page clears the 40 DIP swatch-grid floor; the old assertion saw no neighbours at all. (3) Dwell
+/// ids are unique across a view's pages, so two pages cannot describe the same target differently.
 /// </para>
 ///
 /// <para>
@@ -76,18 +101,7 @@ using Xunit;
 /// exception, so a probe built on it reports nothing at all and passes.
 /// </para>
 /// <para>
-/// **It is UNCONDITIONAL, and it did not start that way.** It was born a two-directional ratchet
-/// over three targets that were already unreachable before the restyle — <c>qa_add</c> on the
-/// quick-action List page, and the <c>qa_del_</c>/<c>qa_en_</c> rows on its per-action pages,
-/// each measured on <c>main @ dd1baf5c</c> rather than assumed. Fixing them meant reordering a
-/// tab or spending an extra dwell page-turn, which is a decision about this application's only
-/// input channel and was not the restyle's to take. All three are now fixed, and because the
-/// ratchet failed in BOTH directions it was the guard itself that demanded each entry's deletion
-/// as its bug closed. The list went with the last entry: see the retirement note above the guard
-/// for why an empty one would have been worse than none.
-/// </para>
-/// <para>
-/// Nothing is shown and no input is simulated: a detached element tree renders no window. No UI
+/// **Nothing is shown and no input is simulated**: a detached element tree renders no window. No UI
 /// category, so CI runs it.
 /// </para>
 /// </summary>
@@ -106,14 +120,17 @@ public class HandChunkedPageFitTests
     /// (its page boundaries carry navigation semantics — per-page back-button ids). Asserting the
     /// narrow display here would therefore be asserting something the design cannot satisfy;
     /// scoping to the real display is the honest guard, and the gap is named rather than hidden.
+    /// (Auto-paginated sources DO re-chunk against that live budget and are exercised there by
+    /// <c>SettingsAutoPaginationTests</c>; this file measures the reference display, where the
+    /// width is roomy enough for every two-column row.)
     /// </para>
     /// <para>
-    /// KNOWN GAP, recorded not solved: on a genuinely small display this tab therefore has
-    /// unreachable dwell targets that no per-page constant can fix, and this guard will not see
-    /// them. It is the last part of issue #113 still open — the three targets that WERE tracked
-    /// here are fixed — and it is scoped out by display size, not by any exception list. Do not
-    /// attempt it by widening the assertion here, which would only make the guard unsatisfiable
-    /// and invite its deletion.
+    /// KNOWN GAP, recorded not solved: on a genuinely small display the QuickActions tab therefore
+    /// has unreachable dwell targets that no per-page constant can fix, and this guard will not
+    /// see them. It is the last part of issue #113 still open — the three targets that WERE
+    /// tracked here are fixed — and it is scoped out by display size, not by any exception list.
+    /// Do not attempt it by widening the assertion here, which would only make the guard
+    /// unsatisfiable and invite its deletion.
     /// </para>
     /// </summary>
     private const double DisplayWidthDip = 1920;
@@ -123,6 +140,14 @@ public class HandChunkedPageFitTests
 
     private const double RadiusPhysical = SettingsWindow.ControlBtnRadius;
     private const int DwellMs = 800;
+
+    /// <summary>
+    /// Sub-pixel slack for geometry comparisons. The arranged numbers here are exact at 100% DPI
+    /// for everything but intentional fractions (a wrapped swatch row's margins, a scaled plate),
+    /// and a comparison against a floor one float-operation away must not read a 139.99999999 as
+    /// a failure. An actual violation of any bound asserted here is DIP-scale, never sub-pixel.
+    /// </summary>
+    private const double Tolerance = 0.01;
 
     /// <summary>
     /// The content cell's height in DIP — every term of <c>SettingsWindow.ContentAvailableHeight</c>,
@@ -161,6 +186,23 @@ public class HandChunkedPageFitTests
             - cardPadding.Left - cardPadding.Right;
     }
 
+    /// <summary>
+    /// The clearance floor between two registered targets' hit circles, DERIVED from the colour
+    /// swatch grid — the only adjacent-target pitch in the application already pinned by a
+    /// geometry test (<c>SwatchTargetGeometryTests</c>) — rather than restated as a number this
+    /// file could quietly adapt to. It is the swatch row's vertical pitch: one cell plus its two
+    /// gutters, less one circle diameter.
+    ///
+    /// <para>
+    /// Same derivation and same reason as <see cref="SettingsRowPitchTests"/>'s private
+    /// <c>SwatchClearance</c>: taking an expected value from a DIFFERENT, independently pinned
+    /// control beats inventing a threshold here.
+    /// </para>
+    /// </summary>
+    private static double ClearanceFloorDip =>
+        DwellColorPicker.SwatchHeight + (2 * DwellColorPicker.SwatchVerticalMargin)
+        - (2 * SettingsWindow.ColorSwatchRadius);
+
     // ────── Source discovery ──────
 
     /// <summary>
@@ -186,8 +228,14 @@ public class HandChunkedPageFitTests
     /// </summary>
     /// <param name="type">The source type.</param>
     /// <param name="viewModel">The view model the source reads its live state from.</param>
+    /// <param name="registry">The model registry, for sources that read one.</param>
+    /// <param name="modelManagement">The download service, for sources that read one.</param>
+    /// <param name="dictionary">The learned-words service, for the Keyboard tab's dictionary page.</param>
     /// <returns>The constructed source.</returns>
-    private static ISettingsPageSource Construct(Type type, SettingsWindowViewModel viewModel)
+    private static ISettingsPageSource Construct(
+        Type type, SettingsWindowViewModel viewModel,
+        ModelRegistryService? registry = null, ModelManagementService? modelManagement = null,
+        UserDictionaryService? dictionary = null)
     {
         var ctor = type.GetConstructor([typeof(SettingsPageContext)])
             // Sources may declare additional OPTIONAL constructor dependencies (the Adaptation page's
@@ -206,12 +254,14 @@ public class HandChunkedPageFitTests
                 .FirstOrDefault();
         Check.WithCustomMessage(
                 $"{type.Name} has no (SettingsPageContext) constructor, so this guard cannot "
-                + "build it — and a hand-chunked page this harness cannot build is a page nothing "
+                + "build it — and a settings page this harness cannot build is a page nothing "
                 + "measures against the height budget. Teach the harness to construct it; do NOT "
                 + "filter it out.")
             .That(ctor).IsNotNull();
 
-        var ctx = TestSettingsPageContext.Build(viewModel: viewModel);
+        var ctx = TestSettingsPageContext.Build(
+            viewModel: viewModel, registry: registry, modelManagement: modelManagement,
+            dictionary: dictionary);
         try
         {
             var ps = ctor!.GetParameters();
@@ -251,38 +301,73 @@ public class HandChunkedPageFitTests
     /// file's tripwires are about, one level down. <c>QuickActionsPageSource.List</c> emits a page
     /// per group of configured actions, so over the default fixture — whose store is EMPTY — those
     /// pages do not exist and nothing measures them. A user with quick actions configured gets
-    /// pages this harness would never have built.
+    /// pages this harness would never have built. The same shape holds one tab over: Models'
+    /// management view exists only while a model is downloaded, and the Keyboard tab's
+    /// learned-words page only when the context carries a dictionary service with learned words.
     /// </para>
     /// </summary>
     /// <param name="type">The source type.</param>
-    /// <returns>(fixture name, constructed source) per fixture.</returns>
-    private static IEnumerable<(string Fixture, ISettingsPageSource Source)> FixturesOf(Type type)
+    /// <returns>(fixture name, constructed source, owned scope) per fixture.</returns>
+    private static IEnumerable<(string Fixture, ISettingsPageSource Source, IDisposable? Scope)>
+        FixturesOf(Type type)
     {
-        yield return ("nothing configured", Construct(type, QaTestSupport.MakeViewModel()));
+        if (type == typeof(QuickActionsPageSource))
+        {
+            yield return ("nothing configured", Construct(type, QaTestSupport.MakeViewModel()), null);
 
-        if (type != typeof(QuickActionsPageSource)) yield break;
+            var configured = QaTestSupport.MakeViewModel();
+            for (var i = 0; i < SeededActionCount; i++)
+                configured.QuickActionsEditor.AddKeyboardShortcut("Action " + i, "Ctrl+" + i);
+            yield return ($"{SeededActionCount} actions configured", Construct(type, configured), null);
+            yield break;
+        }
 
-        var configured = QaTestSupport.MakeViewModel();
-        for (var i = 0; i < SeededActionCount; i++)
-            configured.QuickActionsEditor.AddKeyboardShortcut("Action " + i, "Ctrl+" + i);
-        yield return ($"{SeededActionCount} actions configured", Construct(type, configured));
+        if (type == typeof(ModelsPageSource))
+        {
+            // The registry is REQUIRED (Build reads DownloadedModels off it), so even the empty
+            // fixture gets a real one — over a unique temp dir, as ModelTestFakes' remarks
+            // explain. Both fixtures are returned with their scopes so the caller can dispose
+            // them; a leaked temp dir per run is the alternative.
+            var empty = ModelTestFakes.Create();
+            var emptyRegistry = empty.EmptyRegistry();
+            yield return ("no models downloaded",
+                Construct(type, QaTestSupport.MakeViewModel(),
+                    registry: emptyRegistry, modelManagement: empty.NoOpManagement(emptyRegistry)),
+                empty);
+
+            var downloaded = ModelTestFakes.Create();
+            var (registry, management) = downloaded.WithDownloadedBundled();
+            yield return ("one model downloaded",
+                Construct(type, QaTestSupport.MakeViewModel(),
+                    registry: registry, modelManagement: management),
+                downloaded);
+            yield break;
+        }
+
+        if (type == typeof(KeyboardPageSource))
+        {
+            // Both states are real: the shell supplies a dictionary service, and the page's
+            // learned-words rows exist only once words have been learned. The null-service form
+            // (degraded hosts, and this harness's plain context) keeps its single page.
+            yield return ("no dictionary service", Construct(type, QaTestSupport.MakeViewModel()), null);
+
+            var learned = new LearnedWordsFixture();
+            yield return ("learned words",
+                Construct(type, QaTestSupport.MakeViewModel(), dictionary: learned.Service), learned);
+            yield break;
+        }
+
+        yield return ("nothing configured", Construct(type, QaTestSupport.MakeViewModel()), null);
     }
 
     /// <summary>
     /// Every page set a source can put on screen, one entry per navigable sub-view.
     ///
     /// <para>
-    /// Driving the sub-views is load-bearing, not thoroughness for its own sake:
-    /// <c>QuickActionsPageSource</c>'s preset pages — the ones issue #113 was about — exist ONLY
-    /// inside the picker views. The List view alone never builds a <c>ChunkPresets</c> page at
-    /// all, so a harness that only called <c>Build()</c> on a freshly constructed source would
-    /// miss the bug entirely while appearing to cover the tab.
-    /// </para>
-    /// <para>
-    /// The sub-view state machine is per-source and there is no interface member for it, so the
-    /// one source that has one is driven explicitly. An opted-out source this method does not know
-    /// how to drive FAILS in <see cref="TheHarness_CanDriveEveryHandChunkedSource"/> rather than
-    /// being quietly reduced to its default view.
+    /// The sub-view state machine is declared by the source itself through
+    /// <see cref="ISettingsPageSource.Views"/> — the seam this file's tripwires make sure stays
+    /// honest. A source that declares no views is a single-view source and its one
+    /// <see cref="ISettingsPageSource.Build"/> is the whole of what it can show.
     /// </para>
     /// </summary>
     /// <param name="source">The constructed source.</param>
@@ -290,28 +375,53 @@ public class HandChunkedPageFitTests
     private static IEnumerable<(string View, IReadOnlyList<PageSpec> Pages)> ViewsOf(
         ISettingsPageSource source)
     {
-        if (source is QuickActionsPageSource qa)
+        var views = source.Views;
+        if (views.Count == 0)
         {
-            foreach (var view in Enum.GetValues<QuickActionsPageSource.QaView>())
-            {
-                qa.GoTo(view);   // internal, and reachable: EyeCtrl.App.Tests has App internals.
-                yield return (view.ToString(), qa.Build());
-            }
+            yield return ("(default)", source.Build());
             yield break;
         }
 
-        yield return ("(default)", source.Build());
+        foreach (var (name, enter) in views)
+        {
+            enter();
+            yield return (name, source.Build());
+        }
     }
 
-    /// <summary>True for the sources this guard exists for: the ones nothing re-paginates.</summary>
-    /// <param name="source">The constructed source.</param>
-    /// <returns>True when the source keeps its own page boundaries.</returns>
-    private static bool IsHandChunked(ISettingsPageSource source) => !source.PrefersAutoPagination;
+    /// <summary>
+    /// The pages production actually renders for this source: the source's own pages for a
+    /// hand-chunked one, and for an auto-paginated one its rows flattened and run through
+    /// production's full pagination pipeline — <see cref="SettingsAutoPagination.Repaginate"/>,
+    /// which is the ring preview's fit THEN the height chunker, the same two steps
+    /// <c>SettingsWindow.MaybeRepaginateByHeight</c> runs with the live window's numbers.
+    ///
+    /// <para>
+    /// This is the door the guard used to skip: auto-paginated sources were left out of the
+    /// sweep entirely, so nothing ever measured the post-chunk pages production renders. The
+    /// chunker's own tests cover the chunking arithmetic; this measures the pages that come out.
+    /// It calls the production method rather than restating its two steps, because a restated
+    /// pipeline drifts the next time production grows one (PR #175 F2).
+    /// </para>
+    /// </summary>
+    /// <param name="source">The source whose pages these are.</param>
+    /// <param name="pages">The pages as the source built them.</param>
+    /// <param name="budget">The content cell's height in DIP.</param>
+    /// <param name="columnWidth">The content column's width in DIP.</param>
+    /// <returns>The pages production would render, in order.</returns>
+    private static IReadOnlyList<PageSpec> PagesAsRendered(
+        ISettingsPageSource source, IReadOnlyList<PageSpec> pages, double budget, double columnWidth)
+    {
+        if (!source.PrefersAutoPagination) return pages;
+
+        var rows = pages.SelectMany(p => p.Rows).ToList();
+        return SettingsAutoPagination.Repaginate(rows, columnWidth, budget, RadiusPhysical, DwellMs);
+    }
 
     // ────── Placement ──────
 
-    /// <summary>One dwell target, as its arranged vertical centre in content-panel coordinates.</summary>
-    private sealed record Target(string DwellId, double CentreY);
+    /// <summary>One dwell target, as its arranged centre in content-panel coordinates.</summary>
+    private sealed record Target(string DwellId, double CentreX, double CentreY);
 
     /// <summary>
     /// Builds a whole page through production's single construction path
@@ -381,10 +491,11 @@ public class HandChunkedPageFitTests
 
             foreach (var circle in circles)
             {
-                var top = circle.Root
+                var box = circle.Root
                     .TransformToAncestor(host)
                     .TransformBounds(new Rect(circle.Root.RenderSize));
-                targets.Add(new Target(circle.DwellId, top.Top + (top.Height / 2)));
+                targets.Add(new Target(
+                    circle.DwellId, box.Left + (box.Width / 2), box.Top + (box.Height / 2)));
             }
         }
 
@@ -411,48 +522,66 @@ public class HandChunkedPageFitTests
     }
 
     /// <summary>
-    /// At least one source must be hand-chunked, and this harness must know how to drive each one
-    /// that is.
+    /// The view seam has to stay honest in BOTH directions, and this is where that is checked.
     ///
     /// <para>
-    /// Two failure modes, one assertion each. If <c>PrefersAutoPagination</c> became true
-    /// everywhere the fit assertion below would sweep zero pages and stay green; and if a NEW
-    /// hand-chunked source appears with its own sub-view state machine,
-    /// <see cref="ViewsOf"/> would silently reduce it to its default view — measuring the one
-    /// page that probably fits and none of the ones that might not.
+    /// Direction one: the two sources that really do have view state machines must declare
+    /// their views through <see cref="ISettingsPageSource.Views"/>, by the exact names the gate
+    /// will report — a gutted override would otherwise quietly reduce them to one page.
+    /// </para>
+    /// <para>
+    /// Direction two, and the one that survives this file being edited: a source that grows a
+    /// view state machine must declare it. The marker is a nested <c>…View</c> enum in its
+    /// source file (that is the shape both real ones use) and the declaration is a
+    /// <c>Views =&gt;</c> override; a file with the first and not the second fails here instead
+    /// of being measured on its landing page alone. It is a scan, so it can only catch the shape
+    /// it knows — the same limit the source-drift scans elsewhere accept.
     /// </para>
     /// </summary>
     [StaFact]
-    public void TheHarness_CanDriveEveryHandChunkedSource()
+    public void TheViewSeam_DeclaresEveryViewOfEverySource()
     {
-        var handChunked = AllSourceTypes()
-            .Select(t => (Type: t, Source: Construct(t, QaTestSupport.MakeViewModel())))
-            .Where(p => IsHandChunked(p.Source))
+        var qa = (QuickActionsPageSource)Construct(
+            typeof(QuickActionsPageSource), QaTestSupport.MakeViewModel());
+        Check.WithCustomMessage(
+                "QuickActionsPageSource.Views no longer names its six views in enum order. The "
+                + "reachability gate drives these; a shorter list means picker pages nothing "
+                + "measures — and those are the pages issue #113 was about.")
+            .That(qa.Views.Select(v => v.Name)).ContainsExactly(
+                "List", "PickType", "PickShortcut", "PickMedia", "PickApp", "PickWindowAction");
+
+        var models = (ModelsPageSource)Construct(
+            typeof(ModelsPageSource), QaTestSupport.MakeViewModel());
+        Check.WithCustomMessage(
+                "ModelsPageSource.Views no longer names the list and management views. The "
+                + "management view's delete rows exist only behind it; a shorter list means "
+                + "nothing measures them.")
+            .That(models.Views.Select(v => v.Name)).ContainsExactly("List", "Manage");
+
+        var dir = Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Views", "Settings", "Sources");
+        var viewEnums = Directory.EnumerateFiles(dir, "*.cs")
+            .Where(f => System.Text.RegularExpressions.Regex.IsMatch(
+                SourceScanner.StripComments(File.ReadAllText(f)), @"enum\s+\w*View\b"))
             .ToList();
 
         Check.WithCustomMessage(
-                "No ISettingsPageSource reports PrefersAutoPagination == false, so this whole "
-                + "file now measures nothing. If the last hand-chunked source really did opt in to "
-                + "height-based re-pagination, delete these tests deliberately with that reason "
-                + "written down — do not leave a green guard over an empty set.")
-            .That(handChunked).Not.IsEmpty();
+                "No source file under Views/Settings/Sources declares a nested …View enum, so "
+                + "the tripwire below now sweeps an empty set and would pass no matter how many "
+                + "view state machines exist. If the state machines were renamed or reshaped, "
+                + "repoint this scan at the new shape — do not delete it.")
+            .That(viewEnums).Not.IsEmpty();
 
-        // ViewsOf knows one sub-view state machine. Any other hand-chunked source would be
-        // reduced to its default Build(), which is the blindness this file exists to remove.
-        var undrivable = handChunked
-            .Where(p => p.Type != typeof(QuickActionsPageSource))
-            .Select(p => p.Type.Name)
+        var undeclared = viewEnums
+            .Where(f => !SourceScanner.StripComments(File.ReadAllText(f)).Contains("Views =>"))
+            .Select(f => Path.GetFileName(f))
             .ToList();
-
-        Check.WithCustomMessage(string.Format(
-                CultureInfo.InvariantCulture,
-                "{0} is hand-chunked but HandChunkedPageFitTests.ViewsOf has no driver for it, so "
-                + "only its default view would be measured. If it has navigable sub-views (the way "
-                + "QuickActions has QaView), drive them there — its picker pages are precisely the "
-                + "ones no height budget checks. If it genuinely has one view, add it to this "
-                + "exemption with that stated.",
-                string.Join(", ", undrivable)))
-            .That(undrivable).IsEmpty();
+        Check.WithCustomMessage(
+                "These source files declare a …View state machine but no `Views =>` override, so "
+                + "the reachability gate would measure only their landing view. Declare every "
+                + "view through ISettingsPageSource.Views (see QuickActionsPageSource for the "
+                + "pattern) — a picker page nothing drives is a page nothing measures.")
+            .That(undeclared).IsEmpty();
     }
 
     // ────── The known-unreachable ratchet: RETIRED, deliberately ──────
@@ -467,28 +596,386 @@ public class HandChunkedPageFitTests
     // "the count went DOWN, that row is REACHABLE again".
     //
     // The machinery is gone with the last entry rather than left behind holding an empty array,
-    // and that is the point. An empty ratchet still compiles into somewhere to PUT a failure: the
-    // next person to break a page could add an entry and go green, and the file's own remarks
-    // would read as licence to. With it gone the assertion below is unconditional, so the only
-    // way past a failure is to fix the page or to rebuild this mechanism on purpose — a visible
-    // act, in a diff someone reviews. That is strictly the stronger guard, and it is the state
-    // this file was always meant to reach.
-    //
-    // If a genuinely pre-existing unreachable target is ever found again, the pattern is worth
-    // restoring rather than reinventing: git log this file back past issue #113. What made it
-    // work was the equality (a ceiling would let a prefix entry absorb three more broken rows in
-    // silence), the per-view key (a blanket "ignore the List view" would blind the guard to a
-    // real regression), and the requirement that every entry carry the measurement proving it
-    // predates the change that exposed it — the first draft of that list claimed these were
-    // restyle regressions, and measurement showed they were not.
-    //
-    // NOT retired: the narrow-display gap in DisplayWidthDip's remarks. That one is scoped out by
-    // display size, never by this list, and it is still open on issue #113.
+    // and that is still the point: an EMPTY ratchet is a place to PUT a failure, and the next
+    // person to break a page could add an entry and go green. The exemption below is
+    // deliberately NOT that. It is named, single-purpose, carries the measurement that earns
+    // it, and is ratcheted in BOTH directions just as the old list was — an exempted pair
+    // that stops needing its exemption FAILS until the entry is deleted, and an exempted target
+    // that gets WORSE than its recorded measurement fails too. So an entry cannot absorb a new
+    // offender, only the one geometry it names; adding another entry is a visible act in a diff
+    // someone reviews.
 
+    // ────── Named, measured exemptions ──────
+
+    /// <summary>
+    /// A target the full-circle rule rejects, exempted BY NAME with the measurement that earns
+    /// it. Matched on source, view and dwell id — the narrowest key that still names one target
+    /// — and the actual overflow may not exceed the recorded measurement, so the exemption
+    /// cannot hide the page getting worse.
+    /// </summary>
+    /// <param name="Source">The source type name the target belongs to.</param>
+    /// <param name="View">The view the target is shown in.</param>
+    /// <param name="DwellId">The dwell id, exactly as registered.</param>
+    /// <param name="MeasuredOverflowDip">How far the circle's edge crosses the budget, in DIP.</param>
+    /// <param name="Reason">Why the project accepts it — the measurement, in words.</param>
+    private sealed record ReachExemption(
+        string Source, string View, string DwellId, double MeasuredOverflowDip, string Reason);
+
+    /// <summary>
+    /// The one page this project has already decided to accept as reachable-but-overflowing,
+    /// measured here rather than assumed.
+    ///
+    /// <para>
+    /// The quick actions TYPE picker is a hard-wired page — a Back row plus four 90 DIP type
+    /// buttons — and every row is centred in a 150 DIP box, so the page is 750 DIP against the
+    /// 688 DIP cell. The fifth circle's centre lands at 675, 13 DIP inside the budget; what
+    /// crosses the fold is the trailing margin below the final row plus that row's own content.
+    /// The 90 DIP button face is centred in its 150 DIP box, so it spans 630..720 — its lower
+    /// 32 DIP is drawn below the fold — and its hit circle spans 625..725, 37 DIP below. Nothing
+    /// else under the last 62 DIP of the page is drawn or registered (PR #175 F3: the earlier
+    /// prose said nothing was drawn, which understated the button face). Re-chunking the tab's
+    /// entry point is a UX decision this gate does not take (the class remarks above and
+    /// <c>QaPresetsPerPage</c>'s carry the same position), and the trailing-slack guard beside
+    /// this one names the same page for the same reason. Fixing the page rather than exempting
+    /// it is the better outcome the day someone decides to spend the extra page-turn; until then
+    /// the exemption carries the number.
+    /// </para>
+    /// </summary>
+    private static readonly ReachExemption[] ReachExemptions =
+    [
+        new(
+            Source: nameof(QuickActionsPageSource),
+            View: nameof(QuickActionsPageSource.QaView.PickType),
+            DwellId: "qa_type_window",
+            MeasuredOverflowDip: 37.00,
+            Reason: "measured 2026-09-30: type-picker page 750.00 DIP vs the 688.00 budget; "
+                    + "centre 675.00 (13 inside), circle y 625.00..725.00, so its lower 37.00 "
+                    + "crosses the fold — the drawn 90 DIP face (630.00..720.00) puts 32.00 below "
+                    + "it too; accepted page, see the class remarks and QaPresetsPerPage"),
+    ];
+
+    /// <summary>
+    /// A pair of registered targets the clearance floor rejects, exempted BY NAME with the
+    /// measurement that earns it. Matched on the dwell-id prefix both targets carry (ids are
+    /// <c>{prefix}_{index}</c>), and the actual clearance may not be less than the recorded
+    /// measurement — a pair that gets tighter than it has ever been is a failure, not a
+    /// coincidence.
+    /// </summary>
+    /// <param name="IdPrefixes">
+    /// The colour pickers whose swatch pairs are exempt, by the id prefix their swatch ids carry:
+    /// <c>c_color</c> (Cursor), <c>s_highlight</c> (Selection), <c>av_drag_color</c> (Advanced),
+    /// <c>cal_color</c> (Calibration). Each prefix belongs to exactly one picker, and a pair is
+    /// covered only when BOTH ids carry the same one.
+    /// </param>
+    /// <param name="MeasuredClearanceDip">The clearance the grid has always left, in DIP.</param>
+    /// <param name="Reason">Why the project accepts it — the measurement, in words.</param>
+    private sealed record ClearanceExemption(
+        string[] IdPrefixes, double MeasuredClearanceDip, string Reason);
+
+    /// <summary>
+    /// EMPTY since 2026-09-30: the swatch-grid entry was retired the day the horizontal
+    /// gutter widened from 8 to 10 DIP (<c>DwellColorPicker.SwatchHorizontalMargin</c>),
+    /// putting adjacent centres 140 apart and clearing the floor outright — the
+    /// both-direction ratchet below is what forced this deletion. Kept as an empty, named
+    /// mechanism rather than removed so a future legitimate case is added as a visible,
+    /// measured entry (see the pairwise failure text), never a threshold tweak.
+    /// </summary>
+    private static readonly ClearanceExemption[] ClearanceExemptions = [];
 
     // ────── The guard ──────
 
     /// <summary>One unreachable target, with enough context to name it in a failure.</summary>
+    private sealed record Unreachable(
+        string Source, string View, string Fixture, int Page, int Pages, double PageHeight,
+        string DwellId, double Left, double Right, double Top, double Bottom)
+    {
+        /// <summary>Renders this offender as one line of a failure message.</summary>
+        /// <returns>The formatted line.</returns>
+        public string Describe() => string.Format(
+            CultureInfo.InvariantCulture,
+            "  {0}.{1} [{2}] page {3}/{4} (page height {5:F2}): \"{6}\" circle "
+            + "x {7:F2}..{8:F2}, y {9:F2}..{10:F2}",
+            Source, View, Fixture, Page, Pages, PageHeight, DwellId, Left, Right, Top, Bottom);
+    }
+
+    /// <summary>Two registered targets whose hit circles are closer than the floor.</summary>
+    private sealed record ClearancePair(
+        string Source, string View, string Fixture, int Page, int Pages,
+        string FirstId, double FirstX, double FirstY,
+        string SecondId, double SecondX, double SecondY,
+        double Distance)
+    {
+        /// <summary>The empty space between the two circles, in DIP.</summary>
+        public double Clearance => Distance - (2 * RadiusPhysical);
+
+        /// <summary>Renders this offender as one line of a failure message.</summary>
+        /// <returns>The formatted line.</returns>
+        public string Describe() => string.Format(
+            CultureInfo.InvariantCulture,
+            "  {0}.{1} [{2}] page {3}/{4}: \"{5}\" ({6:F2}, {7:F2}) and \"{8}\" ({9:F2}, {10:F2}) "
+            + "are {11:F2} apart — {12:F2} of clearance between two {13:F2} circles (floor {14:F2})",
+            Source, View, Fixture, Page, Pages, FirstId, FirstX, FirstY, SecondId, SecondX,
+            SecondY, Distance, Clearance, 2 * RadiusPhysical, ClearanceFloorDip);
+    }
+
+    /// <summary>One dwell id registered on more than one page of the same view.</summary>
+    private sealed record DuplicateId(
+        string Source, string View, string Fixture, string DwellId, int FirstPage, int AgainOnPage)
+    {
+        /// <summary>Renders this offender as one line of a failure message.</summary>
+        /// <returns>The formatted line.</returns>
+        public string Describe() => string.Format(
+            CultureInfo.InvariantCulture,
+            "  {0}.{1} [{2}]: \"{3}\" is used on page {4} and again on page {5}",
+            Source, View, Fixture, DwellId, FirstPage, AgainOnPage);
+    }
+
+    /// <summary>
+    /// The invariant: on every page every source emits, in every view, under every fixture, each
+    /// registered dwell circle's whole 2-D extent sits inside the content cell, every pair of
+    /// registered circles on a page clears the swatch-grid floor, and no view registers the same
+    /// dwell id on two pages.
+    ///
+    /// <para>
+    /// Nowhere to record a failure but the named exemption above, which carries its
+    /// measurement and is ratcheted in both directions — see the retirement note for why there is
+    /// no general suppression list, and why it is not one.
+    /// </para>
+    /// </summary>
+    [StaFact]
+    public void EveryHandChunkedPage_KeepsItsDwellCirclesInsideTheContentCell()
+    {
+        var root = SettingsContentFitTests.Xml();
+        var budget = ContentHeightBudget(root);
+        var columnWidth = ContentColumnWidth(root);
+
+        var unreachable = new List<Unreachable>();
+        var tooClose = new List<ClearancePair>();
+        var duplicateIds = new List<DuplicateId>();
+        var scopes = new List<IDisposable>();
+        var usedReachExemptions = new HashSet<ReachExemption>();
+        var usedClearanceExemptions = new HashSet<ClearanceExemption>();
+        var pagesChecked = 0;
+        var viewsDeclared = new HashSet<string>(StringComparer.Ordinal);
+        var viewsWithPages = new HashSet<string>(StringComparer.Ordinal);
+
+        try
+        {
+            foreach (var type in AllSourceTypes())
+            {
+                foreach (var (fixture, source, scope) in FixturesOf(type))
+                {
+                    if (scope is not null) scopes.Add(scope);
+
+                    foreach (var (view, built) in ViewsOf(source))
+                    {
+                        var pages = PagesAsRendered(source, built, budget, columnWidth);
+                        var firstPageOfId = new Dictionary<string, int>(StringComparer.Ordinal);
+                        var viewKey = $"{type.Name}.{view}";
+                        viewsDeclared.Add(viewKey);
+                        if (pages.Count > 0) viewsWithPages.Add(viewKey);
+
+                        for (var p = 0; p < pages.Count; p++)
+                        {
+                            var (pageHeight, targets) = Place(pages[p], columnWidth);
+                            pagesChecked++;
+
+                            foreach (var t in targets)
+                            {
+                                if (firstPageOfId.TryGetValue(t.DwellId, out var firstPage))
+                                    duplicateIds.Add(new DuplicateId(
+                                        type.Name, view, fixture, t.DwellId, firstPage, p + 1));
+                                else
+                                    firstPageOfId[t.DwellId] = p + 1;
+
+                                var left = t.CentreX - RadiusPhysical;
+                                var right = t.CentreX + RadiusPhysical;
+                                var top = t.CentreY - RadiusPhysical;
+                                var bottom = t.CentreY + RadiusPhysical;
+
+                                var beyondBottom = bottom > budget + Tolerance;
+                                var beyondLeft = left < -Tolerance;
+                                var beyondRight = right > columnWidth + Tolerance;
+                                var beyondTop = top < -Tolerance;
+                                if (!beyondBottom && !beyondLeft && !beyondRight && !beyondTop)
+                                    continue;
+
+                                // Only a bottom overrun is exemptible — the one accepted page
+                                // crosses the fold, never a side. An exempted id that also left
+                                // the column, or a page that got worse than its measurement,
+                                // falls through to the failure list.
+                                var exemption = !beyondLeft && !beyondRight && !beyondTop && beyondBottom
+                                    ? ReachExemptions.FirstOrDefault(e =>
+                                        e.Source == type.Name && e.View == view && e.DwellId == t.DwellId)
+                                    : null;
+                                if (exemption is not null)
+                                {
+                                    usedReachExemptions.Add(exemption);
+                                    if (bottom - budget <= exemption.MeasuredOverflowDip + Tolerance)
+                                        continue;
+                                }
+
+                                unreachable.Add(new Unreachable(
+                                    type.Name, view, fixture, p + 1, pages.Count, pageHeight,
+                                    t.DwellId, left, right, top, bottom));
+                            }
+
+                            for (var i = 0; i < targets.Count; i++)
+                            for (var j = i + 1; j < targets.Count; j++)
+                            {
+                                var a = targets[i];
+                                var b = targets[j];
+                                var dx = a.CentreX - b.CentreX;
+                                var dy = a.CentreY - b.CentreY;
+                                var distance = Math.Sqrt((dx * dx) + (dy * dy));
+                                var clearance = distance - (2 * RadiusPhysical);
+
+                                // A pair that clears the base floor needs no exemption and marks
+                                // none used — that is what makes a stale entry fail the
+                                // both-direction check after the geometry is fixed.
+                                if (clearance >= ClearanceFloorDip - Tolerance) continue;
+
+                                var exemption = FindClearanceExemption(a.DwellId, b.DwellId);
+                                if (exemption is not null)
+                                {
+                                    usedClearanceExemptions.Add(exemption);
+                                    if (clearance >= exemption.MeasuredClearanceDip - Tolerance)
+                                        continue;
+                                }
+
+                                tooClose.Add(new ClearancePair(
+                                    type.Name, view, fixture, p + 1, pages.Count,
+                                    a.DwellId, a.CentreX, a.CentreY,
+                                    b.DwellId, b.CentreX, b.CentreY, distance));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        finally
+        {
+            foreach (var scope in scopes) scope.Dispose();
+        }
+
+        var context = string.Format(
+            CultureInfo.InvariantCulture,
+            "(budget {0:F2} DIP, {1:F0}x{2:F0} display, {3:F2} DIP content column, "
+            + "circle radius {4:F2}, clearance floor {5:F2}, {6} pages checked)",
+            budget, DisplayWidthDip, DisplayHeightDip, columnWidth, RadiusPhysical,
+            ClearanceFloorDip, pagesChecked);
+
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "These dwell circles are NOT wholly inside the content cell {0}:{1}{2}{1}"
+                + "The content area has no ScrollViewer, so a circle past the fold cannot be "
+                + "looked at — the setting is registered and unreachable, which for a gaze-only "
+                + "user is the same as gone. Every page shape here is either hand-chunked (its "
+                + "source returns PrefersAutoPagination == false, so MaybeRepaginateByHeight "
+                + "passes it through untouched and no amount of chunker fixing helps) or the "
+                + "post-chunk output of the chunker itself. For a hand-chunked page, reduce the "
+                + "source's own per-page count (QuickActionsPageSource.QaConfigRowsPerPage, "
+                + "QaActionsPerPage or QaPresetsPerPage — mind that an ACTION contributes two "
+                + "rows, a toggle and a Delete), reorder the rows so the ones that matter lead, "
+                + "or make the source opt in to auto-pagination if its page boundaries carry no "
+                + "navigation semantics. For an auto-paginated page, the row that overflowed is "
+                + "one the chunker believes fits but which ARRANGES taller than it MEASURES — "
+                + "fix the row's measurement/arrangement parity rather than the chunker. Do NOT "
+                + "relax this into a page-height check: see this class's remarks for why the "
+                + "type-picker page legitimately overflows its cell while its circles stay "
+                + "aimable. And "
+                + "there is no general known-unreachable list to add these to — the ratchet that "
+                + "held issue #113's three offenders was retired WITH them, and the two named "
+                + "exemptions above carry measurements and ratchet in both directions. An "
+                + "exemption is a decision to argue for in a diff, not a way to go green.",
+                context, Environment.NewLine,
+                string.Join(Environment.NewLine, unreachable.Select(o => o.Describe()))))
+            .That(unreachable).IsEmpty();
+
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "These pairs of registered targets leave less than the {0:F2} DIP clearance floor "
+                + "between their hit circles {1}:{2}{1}"
+                + "The floor is the colour-swatch grid's own vertical pitch (a swatch cell plus "
+                + "its two gutters, less one circle diameter), the only adjacent-target gap in "
+                + "the application already pinned by a geometry test. A dwell target is a centre "
+                + "plus a radius, so two circles closer than that put a neighbour's target within "
+                + "one gaze drift of the one being aimed at. Fix the row's own geometry (add room "
+                + "between the controls), or — if the geometry is a deliberately accepted, "
+                + "pre-existing pitch — add a named ClearanceExemption carrying the measured "
+                + "number; note the exemption applies to the pair it names and FAILS once the "
+                + "pair stops needing it.",
+                ClearanceFloorDip, Environment.NewLine,
+                string.Join(Environment.NewLine, tooClose.Select(o => o.Describe()))))
+            .That(tooClose).IsEmpty();
+
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "These dwell ids are registered on more than one page of the same view {0}:{1}{2}{1}"
+                + "Pages of one view are the same surface at different scroll positions, built "
+                + "from one source state; an id that appears twice means two pages describe the "
+                + "same target with different geometry or actions, and which one fires depends on "
+                + "which page-turn the user happens to be on.",
+                context, Environment.NewLine,
+                string.Join(Environment.NewLine, duplicateIds.Select(o => o.Describe()))))
+            .That(duplicateIds).IsEmpty();
+
+        // Both-direction ratchets for the named exemptions. A target or pair that no longer
+        // needs its exemption fails here until the entry is deleted, exactly as the retired
+        // known-unreachable list demanded; the reverse direction (an offender getting worse) is
+        // enforced at the point of use, by the measured numbers.
+        var staleReachExemptions = ReachExemptions.Where(e => !usedReachExemptions.Contains(e)).ToList();
+        Check.WithCustomMessage(
+                "These reachability exemptions were never needed: the targets they name now fit "
+                + "the content cell, or no longer exist under those names. That is the moment the "
+                + "entry is supposed to be deleted — the exemption list must not outlive its "
+                + "offenders. Delete the entry (the file's retirement note explains why an "
+                + "exemption left behind is a place to hide the next failure).")
+            .That(staleReachExemptions.Select(e => $"{e.Source}.{e.View}.{e.DwellId}")).IsEmpty();
+
+        var staleClearanceExemptions =
+            ClearanceExemptions.Where(e => !usedClearanceExemptions.Contains(e)).ToList();
+        Check.WithCustomMessage(
+                "These clearance exemptions were never needed: the pairs they name now clear the "
+                + "floor, or their prefixes no longer exist. That is the moment the entry is "
+                + "supposed to be deleted — the exemption list must not outlive its offenders. "
+                + "Delete the entry (the file's retirement note explains why an exemption left "
+                + "behind is a place to hide the next failure).")
+            .That(staleClearanceExemptions.Select(e => string.Join(", ", e.IdPrefixes))).IsEmpty();
+
+        // The whole sweep, not just one page of it: a view that emitted no page — a source
+        // gutted to return an empty list, a fixture that stopped reaching a page — would
+        // otherwise be measured by nothing at all while the per-page assertions above pass
+        // vacuously over it.
+        Check.WithCustomMessage(
+                "No page was measured for these declared views. The sources were discovered and "
+                + "constructed and the views were driven, so this means each emitted zero pages — "
+                + "every assertion above then passed over nothing for it.")
+            .That(viewsDeclared.Where(v => !viewsWithPages.Contains(v)))
+            .IsEmpty();
+
+        Check.WithCustomMessage(
+                "No settings page was measured at all. The sources were discovered and "
+                + "constructed, so this means every one of them emitted zero pages — every "
+                + "assertion above then passed over nothing.")
+            .That(pagesChecked).IsStrictlyGreaterThan(0);
+    }
+
+    /// <summary>
+    /// The named clearance exemption covering this pair, or null. The match is on BOTH ids
+    /// carrying the same exempt prefix — <c>{prefix}_{index}</c> is the id shape every composite
+    /// in this application uses for its parts — so a pair from some other control, in the same
+    /// source or any other, is not covered by a prefix it does not carry.
+    /// </summary>
+    /// <param name="firstId">One target's dwell id.</param>
+    /// <param name="secondId">The other target's dwell id.</param>
+    /// <returns>The exemption, or null.</returns>
+    private static ClearanceExemption? FindClearanceExemption(string firstId, string secondId) =>
+        ClearanceExemptions.FirstOrDefault(e =>
+            e.IdPrefixes.Any(p => firstId.StartsWith(p + "_", StringComparison.Ordinal)
+                                  && secondId.StartsWith(p + "_", StringComparison.Ordinal)));
+
+    /// <summary>One unreachable trailing page, with enough context to name it in a failure.</summary>
     private sealed record Offender(
         string Source, string View, string Fixture, int Page, int Pages, double PageHeight,
         string DwellId, double CentreY)
@@ -499,82 +986,6 @@ public class HandChunkedPageFitTests
             CultureInfo.InvariantCulture,
             "  {0}.{1} [{2}] page {3}/{4} (page height {5:F2}): \"{6}\" centre {7:F2}",
             Source, View, Fixture, Page, Pages, PageHeight, DwellId, CentreY);
-    }
-
-    /// <summary>
-    /// The invariant: on every page every hand-chunked source emits, in every sub-view, under
-    /// every fixture, each registered dwell circle's arranged centre sits inside the content
-    /// height budget. No exceptions and nowhere to record one — see the retirement note above the
-    /// guard for why the ratchet that used to carry three is gone.
-    /// </summary>
-    [StaFact]
-    public void EveryHandChunkedPage_KeepsItsDwellCirclesInsideTheContentCell()
-    {
-        var root = SettingsContentFitTests.Xml();
-        var budget = ContentHeightBudget(root);
-        var columnWidth = ContentColumnWidth(root);
-
-        var offenders = new List<Offender>();
-        var pagesChecked = 0;
-
-        foreach (var type in AllSourceTypes())
-        {
-            foreach (var (fixture, source) in FixturesOf(type))
-            {
-                if (!IsHandChunked(source)) break;   // per-type property; no fixture changes it.
-
-                foreach (var (view, pages) in ViewsOf(source))
-                {
-                    for (var p = 0; p < pages.Count; p++)
-                    {
-                        var (pageHeight, targets) = Place(pages[p], columnWidth);
-                        pagesChecked++;
-
-                        offenders.AddRange(targets
-                            .Where(t => t.CentreY > budget)
-                            .Select(t => new Offender(
-                                type.Name, view, fixture, p + 1, pages.Count, pageHeight,
-                                t.DwellId, t.CentreY)));
-                    }
-                }
-            }
-        }
-
-        var context = string.Format(
-            CultureInfo.InvariantCulture,
-            "(budget {0:F2} DIP, {1:F0}x{2:F0} display, {3:F2} DIP content column, "
-            + "{4} pages checked)",
-            budget, DisplayWidthDip, DisplayHeightDip, columnWidth, pagesChecked);
-
-        Check.WithCustomMessage(string.Format(
-                CultureInfo.InvariantCulture,
-                "These dwell circles are registered BELOW the content cell {0}:{1}{2}{1}"
-                + "The content area has no ScrollViewer, so a circle past the fold cannot be "
-                + "looked at — the setting is registered and unreachable, which for a gaze-only "
-                + "user is the same as gone. These pages are HAND-CHUNKED: their source returns "
-                + "PrefersAutoPagination == false, so MaybeRepaginateByHeight passes them through "
-                + "untouched and no amount of chunker fixing helps. Reduce the source's own "
-                + "per-page count (QuickActionsPageSource.QaConfigRowsPerPage, QaActionsPerPage "
-                + "or QaPresetsPerPage — mind that an ACTION contributes two rows, a toggle and a "
-                + "Delete) until the last circle fits, reorder the rows so the ones that matter "
-                + "lead, or make the source opt in to auto-pagination if its page boundaries "
-                + "carry no navigation semantics. Do NOT relax this into a page-height check: see "
-                + "this class's remarks for why the type picker legitimately overflows its cell "
-                + "while every one of its circles stays reachable. And there is deliberately no "
-                + "known-unreachable list to add these to — the ratchet that held issue #113's "
-                + "three offenders was retired WITH them, precisely so that a failure here has "
-                + "nowhere to go but a fix. Reintroducing one is a decision to argue for in a "
-                + "diff, not a way to go green.",
-                context, Environment.NewLine,
-                string.Join(Environment.NewLine, offenders.Select(o => o.Describe()))))
-            .That(offenders).IsEmpty();
-
-
-        Check.WithCustomMessage(
-                "No hand-chunked page was measured at all. The sources were discovered and "
-                + "constructed, so this means every one of them emitted zero pages — every "
-                + "assertion above then passed over nothing.")
-            .That(pagesChecked).IsStrictlyGreaterThan(0);
     }
 
     /// <summary>
@@ -602,9 +1013,10 @@ public class HandChunkedPageFitTests
     /// <para>
     /// ONE page is out of scope BY NAME: the type picker (<c>QaView.PickType</c>), whose
     /// hard-wired Back + four type buttons is the 13-DIP page this class's remarks document
-    /// as legitimately reachable-but-overflowing. Re-chunking the tab's entry point is a UX
-    /// decision this guard does not take; the exclusion is a named view with its reason
-    /// stated, not an anonymous entry in a suppression list.
+    /// as legitimately reachable-but-overflowing, and which the reachability guard's own named
+    /// <see cref="ReachExemptions"/> entry carries with its measurement. Re-chunking the tab's
+    /// entry point is a UX decision this guard does not take; the exclusion is a named view
+    /// with its reason stated, not an anonymous entry in a suppression list.
     /// </para>
     /// </summary>
     [StaFact]
@@ -617,7 +1029,7 @@ public class HandChunkedPageFitTests
         var offenders = new List<Offender>();
         var pagesChecked = 0;
 
-        foreach (var (fixture, source) in FixturesOf(typeof(QuickActionsPageSource)))
+        foreach (var (fixture, source, _) in FixturesOf(typeof(QuickActionsPageSource)))
         {
             foreach (var (view, pages) in ViewsOf(source))
             {
@@ -658,5 +1070,55 @@ public class HandChunkedPageFitTests
         Check.WithCustomMessage(
                 "No chunked page was measured — the trailing-slack guard swept an empty set.")
             .That(pagesChecked).IsStrictlyGreaterThan(0);
+    }
+
+    /// <summary>
+    /// The Keyboard tab's learned-words page only exists when the context carries a real
+    /// <see cref="UserDictionaryService"/>, so the gate builds one over unique temp dirs — the
+    /// fixture shape <c>KeyboardDictionaryPageTests</c> uses — with eight learned words, enough
+    /// that the page is several chunk pages long. Disposed with the test; a leaked temp dir per
+    /// run is the alternative.
+    /// </summary>
+    private sealed class LearnedWordsFixture : IDisposable
+    {
+        private readonly string _baseDir;
+        private readonly string _appDataDir;
+
+        /// <summary>The service the Keyboard source builds its learned-words page through.</summary>
+        public UserDictionaryService Service { get; }
+
+        /// <summary>Writes the base dictionary and a user dictionary with eight learned words.</summary>
+        public LearnedWordsFixture()
+        {
+            _baseDir = Path.Combine(Path.GetTempPath(), "eyectrl_reach_kb_" + Guid.NewGuid());
+            _appDataDir = Path.Combine(Path.GetTempPath(), "eyectrl_reach_kb_app_" + Guid.NewGuid());
+            Directory.CreateDirectory(Path.Combine(_baseDir, "Resources", "Dictionaries"));
+            Directory.CreateDirectory(_appDataDir);
+
+            // "hello" is base-dictionary vocabulary, so it is not learned; the other eight are
+            // the set difference the page lists, most-used first.
+            File.WriteAllText(
+                Path.Combine(_baseDir, "Resources", "Dictionaries", "en.json"),
+                JsonSerializer.Serialize(new { words = new Dictionary<string, int> { ["hello"] = 100 } }));
+            File.WriteAllText(
+                Path.Combine(_appDataDir, "user_dictionary_en.json"),
+                JsonSerializer.Serialize(new Dictionary<string, int>
+                {
+                    ["hello"] = 100, ["aardvark"] = 40, ["zeppelin"] = 36, ["marigold"] = 32,
+                    ["trombone"] = 28, ["quokka"] = 24, ["nectarine"] = 20, ["windmill"] = 16,
+                    ["yodel"] = 12,
+                }));
+
+            var settings = new EyeCtrlSettings();
+            settings.Keyboard.LanguagePack = "en";
+            Service = new UserDictionaryService(settings, _appDataDir, _baseDir);
+        }
+
+        /// <inheritdoc/>
+        public void Dispose()
+        {
+            try { Directory.Delete(_baseDir, recursive: true); } catch (IOException) { }
+            try { Directory.Delete(_appDataDir, recursive: true); } catch (IOException) { }
+        }
     }
 }

@@ -4,6 +4,7 @@ using System.Windows;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.Core;
+using EyeCtrl.Core.ActionMenu;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
@@ -55,7 +56,7 @@ public class ActionMenuGeometryTests : IDisposable
             CircleSize: settings.Cursor.CircleSize));
 
         // Window layout exactly as ActionMenuWindow.Show computes it.
-        var windowSize = ActionMenuGeometry.WindowSize(vm.EffectiveRingRadius);
+        var windowSize = RingPlan.WindowSizeFor(vm.EffectiveRingRadius);
         var canvasCenter = new Point(windowSize / 2, windowSize / 2);
 
         // The visible actions must actually produce buttons ("no buttons in the action menu" symptom).
@@ -129,7 +130,7 @@ public class ActionMenuGeometryTests : IDisposable
 
     /// <summary>
     /// The window must hold each button plus whatever the button strokes beyond its own radius.
-    /// <see cref="ActionMenuGeometry.WindowSizeMargin"/> is the only slack there is, and it is
+    /// <see cref="RingPlan.WindowSizeMargin"/> is the only slack there is, and it is
     /// split between the two sides — so the test is against half of it.
     ///
     /// **Do not confuse this with the arc halo.** <c>DwellArcButton.HaloPath</c> is the PROGRESS
@@ -145,7 +146,7 @@ public class ActionMenuGeometryTests : IDisposable
         // thickness: 2.5 + 1.5 = 4 DIP past the button radius.
         const double RimHaloOvershootDip = 4.0;
 
-        Check.That(ActionMenuGeometry.WindowSizeMargin / 2.0)
+        Check.That(RingPlan.WindowSizeMargin / 2.0)
              .IsStrictlyGreaterThan(RimHaloOvershootDip);
     }
 }

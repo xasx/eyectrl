@@ -178,8 +178,9 @@ public class SettingsRowPitchTests
     }
 
     /// <summary>
-    /// Distinct <c>Height:</c> arguments in the page sources, which are exactly the
-    /// <c>ButtonSpec</c> heights.
+    /// Distinct <c>Height:</c> arguments in the page sources, which are exactly the button-row
+    /// heights (<c>ButtonSpec</c> and the ring preview's <c>RingJumpSpec</c>, which renders through
+    /// the same button row shape).
     ///
     /// <para>
     /// Matched on the bare <c>Height:</c> argument rather than on <c>ButtonSpec(</c> followed by
@@ -188,8 +189,8 @@ public class SettingsRowPitchTests
     /// between the type name and the argument, and <c>BackButton</c> is a target-typed
     /// <c>new(...)</c> that never spells "ButtonSpec" at all. Both are 70 DIP — the shortest
     /// buttons, and therefore the ones a flat inset would misplace furthest. The looseness is safe
-    /// because <c>ButtonSpec</c> is the only row spec with a <c>Height</c>, which
-    /// <see cref="ButtonSpec_IsStillTheOnlyRowSpecWithAHeight"/> pins rather than assumes.
+    /// because the only row specs with a <c>Height</c> are button rows, which
+    /// <see cref="TheOnlyRowSpecsWithAHeight_AreButtonRows"/> pins rather than assumes.
     /// </para>
     /// </summary>
     private static IReadOnlyList<double> RealButtonHeights()
@@ -217,13 +218,16 @@ public class SettingsRowPitchTests
     }
 
     /// <summary>
-    /// The premise <see cref="RealButtonHeights"/> relies on: <c>ButtonSpec</c> is the only row
-    /// spec that takes a <c>Height</c>, so every <c>Height:</c> argument in the page sources is a
-    /// button's. Pinned rather than assumed — a second spec kind with a Height would quietly feed
-    /// this theory numbers that are not button heights.
+    /// The premise <see cref="RealButtonHeights"/> relies on: the only row specs that take a
+    /// <c>Height</c> are BUTTON rows, so every <c>Height:</c> argument in the page sources is a
+    /// button's. <c>RingJumpSpec</c> (the ring preview's "View ring preview" nav row, T4) joined
+    /// <c>ButtonSpec</c> as the second, and it renders through the same
+    /// <c>SettingsWindow.ButtonRow</c> shape, so its height belongs in these theories exactly as a
+    /// ButtonSpec's does. Pinned rather than assumed — a spec kind with a Height that is NOT a
+    /// button would quietly feed this theory numbers that are not button heights.
     /// </summary>
     [Fact]
-    public void ButtonSpec_IsStillTheOnlyRowSpecWithAHeight()
+    public void TheOnlyRowSpecsWithAHeight_AreButtonRows()
     {
         var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
             "src", "EyeCtrl.App", "Views", "Settings", "SettingsRowSpec.cs"));
@@ -236,11 +240,12 @@ public class SettingsRowPitchTests
 
         Check.WithCustomMessage(
                 "The row specs declaring a Height are now [" + string.Join(", ", withHeight)
-                + "], not just ButtonSpec. RealButtonHeights in this file scrapes every "
+                + "], not ButtonSpec + RingJumpSpec. RealButtonHeights in this file scrapes every "
                 + "\"Height:\" argument out of the page sources and feeds them to the pitch "
-                + "theories as BUTTON heights; a second spec kind with a Height makes that scrape "
-                + "wrong. Narrow the pattern, or add the new kind to these sequences properly.")
-            .That(withHeight).ContainsExactly("ButtonSpec");
+                + "theories as BUTTON heights; a spec kind with a Height that is not a button row "
+                + "makes that scrape wrong. Narrow the pattern, or add the new kind to these "
+                + "sequences properly.")
+             .That(withHeight).ContainsExactly("ButtonSpec", "RingJumpSpec");
     }
 
     /// <summary>

@@ -2,6 +2,7 @@ namespace EyeCtrl.Core.Tests.Settings;
 
 using System.Collections.Generic;
 using System.Linq;
+using EyeCtrl.Core.ActionMenu;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using NFluent;
@@ -11,6 +12,11 @@ using Xunit;
 /// The primary/secondary split, and the migration that has to leave an existing settings file
 /// working.
 ///
+/// The split itself is computed by <see cref="RingPlan"/> (T2, 2026-09-30): the settings object
+/// owns the two lists, and the plan owns their partition — in VISIBLE-list order, which is the
+/// order the runtime ring draws. The deleted <c>EffectivePrimaryActions</c> ordered by the
+/// primary list instead, and was never reached in production.
+///
 /// The migration is the part with teeth. <c>VisibleActions</c> is user-owned — the Settings
 /// Action Menu tab edits it, and <c>EnsureDefaultsOnce</c> exists precisely because a
 /// per-startup default re-add made that tab lie across restarts. The primary list inherits that
@@ -19,6 +25,9 @@ using Xunit;
 /// </summary>
 public class ActionMenuSettingsPrimaryTests
 {
+    private static RingPlan PlanFor(ActionMenuSettings settings) =>
+        RingPlan.Create(settings.VisibleActions, settings.PrimaryActions, new CursorSettings().CircleSize);
+
     [Fact]
     public void AFreshSettings_HasFourPrimaryActions()
     {
@@ -44,7 +53,7 @@ public class ActionMenuSettingsPrimaryTests
     {
         var settings = new ActionMenuSettings();
 
-        Check.That(settings.SecondaryActions).ContainsExactly(
+        Check.That(PlanFor(settings).SecondaryActions).ContainsExactly(
             InteractionAction.Drag,
             InteractionAction.ScrollUp,
             InteractionAction.ScrollDown,
@@ -63,7 +72,7 @@ public class ActionMenuSettingsPrimaryTests
 
         // ScrollLeft/ScrollRight ship OFF. Turning an action off in the Settings tab must remove
         // it from the ring entirely, not push it onto the second layer.
-        Check.That(settings.SecondaryActions).IsEmpty();
+        Check.That(PlanFor(settings).SecondaryActions).IsEmpty();
     }
 
     [Fact]
@@ -79,7 +88,7 @@ public class ActionMenuSettingsPrimaryTests
             },
         };
 
-        Check.That(settings.EffectivePrimaryActions).ContainsExactly(InteractionAction.LeftClick);
+        Check.That(PlanFor(settings).PrimaryActions).ContainsExactly(InteractionAction.LeftClick);
     }
 
     [Fact]

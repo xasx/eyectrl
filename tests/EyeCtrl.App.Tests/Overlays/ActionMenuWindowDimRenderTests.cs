@@ -21,8 +21,8 @@ using Xunit;
 /// I2: the dim branch could be deleted with the whole suite green).
 ///
 /// <para>
-/// <c>ActionMenuWindow.Show</c> puts every disabled item's <c>DwellArcButton</c> parts under a
-/// per-button host <see cref="Canvas"/> at <c>ActionMenuWindow.DisabledOpacity</c> (group
+/// <c>ActionMenuWindow.Show</c> (through <c>ActionMenuRingPainter</c>) puts every disabled item's <c>DwellArcButton</c> parts under a
+/// per-button host <see cref="Canvas"/> at <c>ActionMenuRingPainter.DisabledOpacity</c> (group
 /// opacity), while live items' parts go straight onto <c>MenuCanvas</c>. <c>DwellArcButton.AddTo</c>
 /// adds only shapes — never a nested canvas — so the host canvases are the ONLY
 /// <see cref="Canvas"/> children <c>MenuCanvas</c> ever has.
@@ -69,7 +69,7 @@ public class ActionMenuWindowDimRenderTests
             // hosts means the live LeftClick item's parts sit directly on MenuCanvas.
             var hosts = window.MenuCanvas.Children.OfType<Canvas>().ToList();
             Check.That(hosts).HasSize(2); // Drag + ScrollMode
-            Check.That(hosts.All(h => Math.Abs(h.Opacity - ActionMenuWindow.DisabledOpacity) < 0.001)).IsTrue();
+            Check.That(hosts.All(h => Math.Abs(h.Opacity - ActionMenuRingPainter.DisabledOpacity) < 0.001)).IsTrue();
             Check.That(hosts.All(h => h.Children.Count > 0)).IsTrue(); // the dimmed button parts ride inside
         }
         finally

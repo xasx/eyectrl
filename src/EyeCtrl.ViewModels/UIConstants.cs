@@ -24,11 +24,9 @@ public static class UIConstants
     /// </summary>
     public const double ActionMenuButtonRadius = LayoutConstants.ActionMenuButtonRadius;
 
-    /// <summary>
-    /// Gap between the cursor circle edge and the action menu button ring in logical pixels.
-    /// This defines how far action menu buttons are positioned from the cursor circle.
-    /// </summary>
-    public const double ActionMenuButtonOuterGap = LayoutConstants.ActionMenuButtonOuterGap;
+    // ActionMenuButtonOuterGap was deleted 2026-09-30 (T4): the ring radius formula moved into
+    // RingPlan.EffectiveRingRadiusFor, which reads LayoutConstants directly, and this alias had no
+    // production caller left. The LayoutConstants member itself stays — the plan uses it.
 
     /// <summary>
     /// Gap between the ManualSelection overlay edge and side buttons in logical pixels.

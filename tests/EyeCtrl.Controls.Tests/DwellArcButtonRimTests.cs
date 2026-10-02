@@ -20,7 +20,7 @@ public class DwellArcButtonRimTests
 
     /// <summary>
     /// How far past the button radius the halo may reach. The action-menu window's only slack is
-    /// half of <c>ActionMenuGeometry.WindowSizeMargin</c> (10 DIP), so anything under that is safe;
+    /// half of <c>RingPlan.WindowSizeMargin</c> (10 DIP), so anything under that is safe;
     /// this pins the number so a later widening cannot silently clip the outermost buttons.
     /// </summary>
     private const double ActionMenuRimOvershoot = 4;

@@ -1,6 +1,7 @@
 namespace EyeCtrl.ViewModels.Helpers;
 
 using EyeCtrl.Core;
+using EyeCtrl.Core.ActionMenu;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 
@@ -26,10 +27,11 @@ public static class ActionMenuLayoutHelper
         double screenWidthPhysical,
         double screenHeightPhysical)
     {
-        // Margin keeps the full button ring on-screen.
-        // EffectiveRingRadius = CircleSize/2 + ButtonRadius + ButtonOuterGap
+        // Margin keeps the full button ring on-screen. The radius formula lives ONLY in the Core
+        // plan (this was its second site until 2026-09-30 — see RingPlan.EffectiveRingRadiusFor);
+        // restating it here would let the clamp and the drawn ring disagree.
         // Clamp uses: effectiveRingRadius + ButtonRadius
-        var effectiveRingRadius = circleSize / 2 + LayoutConstants.ActionMenuButtonRadius + LayoutConstants.ActionMenuButtonOuterGap;
+        var effectiveRingRadius = RingPlan.EffectiveRingRadiusFor(circleSize);
 
         // Scale margin to physical pixels for clamping against physical gaze coords
         var marginLogical = effectiveRingRadius + LayoutConstants.ActionMenuButtonRadius;

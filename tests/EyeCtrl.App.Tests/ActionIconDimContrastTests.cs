@@ -10,7 +10,7 @@ using Xunit;
 /// <summary>
 /// The dim render's contrast claim, as an executable matrix. A disabled action-menu item
 /// (<see cref="EyeCtrl.ViewModels.ActionMenuItemViewModel.IsDisabled"/>) is drawn by
-/// <c>ActionMenuWindow.Show</c> as a whole group at <c>DisabledOpacity</c> over whatever the
+/// <c>ActionMenuWindow.Show</c> (through <c>ActionMenuRingPainter</c>) as a whole group at <c>DisabledOpacity</c> over whatever the
 /// screen behind the transparent overlay shows, so both its icon AND its fill blend with the
 /// backdrop. The claim has two halves:
 ///
@@ -35,7 +35,7 @@ public class ActionIconDimContrastTests
 {
     // External review I2: the matrix validates the PRODUCT opacity, not a copy of it — if the
     // window's dim value changes, this matrix must re-run against the new number.
-    private static double DisabledOpacity => ActionMenuWindow.DisabledOpacity;
+    private static double DisabledOpacity => ActionMenuRingPainter.DisabledOpacity;
 
     private const double IdentifiabilityFloor = 2.0;
     private const double SeparabilityFloor = 1.5;

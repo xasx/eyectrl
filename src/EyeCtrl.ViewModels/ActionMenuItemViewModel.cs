@@ -1,24 +1,8 @@
 namespace EyeCtrl.ViewModels;
 
 using CommunityToolkit.Mvvm.ComponentModel;
+using EyeCtrl.Core.ActionMenu;
 using EyeCtrl.Core.Models;
-
-/// <summary>
-/// What a dwell on a ring item does. Replaced a bool <c>IsBackButton</c> on 2026-08-26: the ring
-/// gained a second layer, and with it three distinct non-action affordances that a bool cannot
-/// separate.
-/// </summary>
-public enum ActionMenuItemKind
-{
-    /// <summary>Performs its <see cref="ActionMenuItemViewModel.Action"/> and closes the menu.</summary>
-    Action,
-    /// <summary>Opens the ring's second layer. Does not close the menu.</summary>
-    OpenMore,
-    /// <summary>Returns to the ring's first layer. Does not close the menu.</summary>
-    BackToPrimary,
-    /// <summary>Leaves the menu entirely — the Back that returns from zoom or manual selection.</summary>
-    ExitMenu,
-}
 
 public partial class ActionMenuItemViewModel : ObservableObject
 {
@@ -38,6 +22,11 @@ public partial class ActionMenuItemViewModel : ObservableObject
     /// </summary>
     public string Label { get; }
 
+    /// <summary>
+    /// What a dwell on this item does. The enum moved to Core beside <c>RingPlan</c> on
+    /// 2026-09-30: the plan's slots are read by both the runtime ring and the settings preview,
+    /// and both must agree on what a slot IS.
+    /// </summary>
     public ActionMenuItemKind Kind { get; }
     public PhysicalPoint Position { get; }
 

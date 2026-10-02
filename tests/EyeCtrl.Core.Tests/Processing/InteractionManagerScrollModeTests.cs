@@ -30,7 +30,7 @@ public class InteractionManagerScrollModeTests
     {
         var im = InActionMenu(out _);
         bool fired = false;
-        im.ActionRequested += (_, _) => fired = true;
+        im.ActionRequested += (_, _, _) => fired = true;
         im.OnActionSelected(InteractionAction.ScrollMode);
         Check.That(fired).IsFalse();
     }

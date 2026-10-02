@@ -1,4 +1,5 @@
 namespace EyeCtrl.Core.Processing;
+using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 
 /// <summary>
@@ -37,8 +38,8 @@ public class InteractionManager
 
     /// <summary>Raised when the interaction state changes.</summary>
     public event Action<InteractionState>? StateChanged;
-    /// <summary>Raised when the user selects an action (click, scroll, etc.) at a specific point.</summary>
-    public event Action<InteractionAction, PhysicalPoint>? ActionRequested;
+    /// <summary>Raised when the user selects an action (click, scroll, etc.) at a specific point. Modifiers are opaque payload from the action menu's latch; repeat ticks carry null.</summary>
+    public event Action<InteractionAction, PhysicalPoint, IReadOnlySet<ModifierKey>?>? ActionRequested;
     /// <summary>Raised to show the activation button at a given point.</summary>
     public event Action<PhysicalPoint>? ShowActivationButton;
     /// <summary>Raised to hide the activation button.</summary>
@@ -184,7 +185,7 @@ public class InteractionManager
     /// snapped <see cref="AutoSelectionTarget"/> center (falling back to the fixation point when no
     /// control was resolved), so the action lands on the control rather than the raw gaze position.
     /// </summary>
-    public void OnActionSelected(InteractionAction action)
+    public void OnActionSelected(InteractionAction action, IReadOnlySet<ModifierKey>? modifiers = null)
     {
         PhysicalPoint? targetPoint = CurrentState switch
         {
@@ -221,7 +222,7 @@ public class InteractionManager
             return;
         }
 
-        ActionRequested?.Invoke(action, targetPoint.Value);
+        ActionRequested?.Invoke(action, targetPoint.Value, modifiers);
         ResetToFreeLook();
     }
 
@@ -359,7 +360,7 @@ public class InteractionManager
         {
             _repeatDwellFired = true;   // one fire per fixation; re-arm needs a new fixation
             RepeatDwellProgressChanged?.Invoke(1);
-            ActionRequested?.Invoke(RepeatAction!.Value, target);
+            ActionRequested?.Invoke(RepeatAction!.Value, target, null);
             // The cursor STAYS contracted after the fire (review round 3 finding 6): a held
             // stare cannot re-fire, so snapping straight back to full size would read as
             // "ready" when it is not. It resets on fixation end / the next arm. The gaze

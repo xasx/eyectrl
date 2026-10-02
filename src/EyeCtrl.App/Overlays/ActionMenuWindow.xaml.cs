@@ -28,6 +28,15 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
     private const double PinLineThickness = 2.0; // Thickness of pin line
     private const int PreviewCircleBorderThickness = 2; // Border thickness of preview circle
 
+    /// <summary>
+    /// Group opacity for disabled (<see cref="ActionMenuItemViewModel.IsDisabled"/>) ring items.
+    /// The value the dim contrast test validates (<c>ActionIconDimContrastTests</c>) and the dim
+    /// render test reads (<c>ActionMenuWindowDimRenderTests</c>): 0.45 measured 2.30:1
+    /// dimmed-icon vs dimmed-fill on Midnight/#FFFFFF — below any usable floor. Adjust ONLY with
+    /// a measured note.
+    /// </summary>
+    internal const double DisabledOpacity = 0.6;
+
     private readonly Dictionary<string, DwellArcButton> _buttonVisuals = new();
 
     /// <summary>
@@ -226,7 +235,19 @@ public partial class ActionMenuWindow : OverlayWindow, IActionMenuOverlay
                     symbol: null,
                     icon: ActionIcons.For(itemVm.Icon),
                     label: showLabels ? itemVm.Label : null);
-                btn.AddTo(MenuCanvas);
+                if (itemVm.IsDisabled)
+                {
+                    // Group opacity via a per-button child canvas: AddTo places its parts relative to ANY
+                    // canvas, so a host canvas at origin carries them unchanged and Opacity dims the whole
+                    // group at once. Per-part opacity would be neither group opacity nor hazard-free.
+                    var host = new Canvas { Opacity = DisabledOpacity };
+                    btn.AddTo(host);
+                    MenuCanvas.Children.Add(host);
+                }
+                else
+                {
+                    btn.AddTo(MenuCanvas);
+                }
                 _buttonVisuals[itemVm.Id] = btn;
 
                 var capturedId = itemVm.Id;

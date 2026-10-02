@@ -474,7 +474,7 @@ public class FixationCentroidRuleTests
         using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s);
         var im = engine.InteractionManager;
         var fired = new List<PhysicalPoint>();
-        im.ActionRequested += (_, point) => fired.Add(point);
+        im.ActionRequested += (_, point, _) => fired.Add(point);
 
         im.EnterRepeatMode(InteractionAction.LeftClick);
         im.RepeatDwellMs = 300;

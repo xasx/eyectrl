@@ -58,7 +58,7 @@ public class InteractionManagerRepeatModeTests
     {
         var im = Armed(InteractionAction.RightClick);
         var fired = new List<(InteractionAction A, PhysicalPoint P)>();
-        im.ActionRequested += (a, p) => fired.Add((a, p));
+        im.ActionRequested += (a, p, _) => fired.Add((a, p));
 
         im.OnFixationStarted(new PhysicalPoint(300, 400));           // arms at lastSample=10ms
         im.NoteGazeSample(true, 10 * Ms + 599 * Ms);                 // 1 ms short: no fire
@@ -77,7 +77,7 @@ public class InteractionManagerRepeatModeTests
     {
         var im = Armed(InteractionAction.LeftClick);
         var fired = 0;
-        im.ActionRequested += (_, _) => fired++;
+        im.ActionRequested += (_, _, _) => fired++;
 
         im.OnFixationStarted(new PhysicalPoint(300, 400));
         im.NoteGazeSample(true, 10 * Ms + 700 * Ms);
@@ -90,7 +90,7 @@ public class InteractionManagerRepeatModeTests
     {
         var im = Armed(InteractionAction.LeftClick);
         var fired = 0;
-        im.ActionRequested += (_, _) => fired++;
+        im.ActionRequested += (_, _, _) => fired++;
 
         im.OnFixationStarted(new PhysicalPoint(300, 400));
         im.NoteGazeSample(true, 10 * Ms + 700 * Ms);
@@ -106,7 +106,7 @@ public class InteractionManagerRepeatModeTests
     {
         var im = Armed(InteractionAction.LeftClick);
         var fired = 0;
-        im.ActionRequested += (_, _) => fired++;
+        im.ActionRequested += (_, _, _) => fired++;
 
         im.OnFixationStarted(new PhysicalPoint(300, 400));
         im.NoteGazeSample(true, 10 * Ms + 400 * Ms);
@@ -120,7 +120,7 @@ public class InteractionManagerRepeatModeTests
     {
         var im = Armed(InteractionAction.LeftClick);
         var fired = 0;
-        im.ActionRequested += (_, _) => fired++;
+        im.ActionRequested += (_, _, _) => fired++;
 
         im.OnFixationStarted(new PhysicalPoint(300, 400));
         im.NoteGazeSample(false, 10 * Ms + 700 * Ms);   // eyes lost: dwell frozen
@@ -133,7 +133,7 @@ public class InteractionManagerRepeatModeTests
         var im = Armed(InteractionAction.LeftClick);
         im.SetRepeatSuppressionZones(new PhysicalRect(0, 0, 1920, 250));   // toolbar band
         var fired = 0;
-        im.ActionRequested += (_, _) => fired++;
+        im.ActionRequested += (_, _, _) => fired++;
 
         im.OnFixationStarted(new PhysicalPoint(960, 120));              // inside the band
         im.NoteGazeSample(true, 10 * Ms + 1000 * Ms);

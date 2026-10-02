@@ -73,8 +73,14 @@ public abstract partial class DwellOverlayViewModelBase : MessengerViewModelBase
     /// use this to suppress their OS-input effect while still performing their own dismissal —
     /// gating the dwell itself would make the dismissal unreachable (round-2 blocker: a paused
     /// task switcher with a dead close path is an inescapable fullscreen overlay).
+    /// <see cref="Receive"/> OVERRIDES must stamp it via <see cref="NoteSamplePaused"/> themselves
+    /// — the base only sets it on its own path, and an override that skips it leaves the flag
+    /// stale-false and silently disarms the pause suppression above.
     /// </summary>
     protected bool LastSampleWasPaused { get; private set; }
+
+    /// <summary>Stamps <see cref="LastSampleWasPaused"/> — the override-accessible writer.</summary>
+    protected void NoteSamplePaused(bool isPaused) => LastSampleWasPaused = isPaused;
 
     /// <summary>
     /// The shared per-sample dwell gate: a gap-held sample never accumulates, and a paused

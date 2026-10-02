@@ -182,7 +182,7 @@ public partial class App : Application
 
             // ── Resolve ViewModels ──
             var (cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm,
-                 manualSelectionIndicatorVm, backdropVm, calibrationVm, targetHighlightVm, edgeButtonBarVm, trackStatusVm, taskSwitcherVm,
+                 manualSelectionIndicatorVm, backdropVm, calibrationVm, targetHighlightVm, edgeButtonBarVm, actionMenuModBarVm, trackStatusVm, taskSwitcherVm,
                  quickActionsGridVm, modesMenuVm, repeatCursorVm) = ResolveViewModels(settings);
 
             // Resolve adapter (triggers Core event subscriptions)
@@ -195,7 +195,7 @@ public partial class App : Application
 
             // ── Initialize overlay windows via OverlayManager ──
             var overlayManager = _serviceProvider.GetRequiredService<IOverlayManager>();
-            var viewModels = new OverlayViewModels(cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm, manualSelectionIndicatorVm, calibrationVm, targetHighlightVm, edgeButtonBarVm, trackStatusVm, taskSwitcherVm,
+            var viewModels = new OverlayViewModels(cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm, manualSelectionIndicatorVm, calibrationVm, targetHighlightVm, edgeButtonBarVm, actionMenuModBarVm, trackStatusVm, taskSwitcherVm,
                 quickActionsGridVm, modesMenuVm, repeatCursorVm);
             var (cursorCircle, toolbar) = InitializeOverlays(overlayManager, viewModels, settings, activeProviderType);
 
@@ -581,6 +581,7 @@ public partial class App : Application
              CalibrationViewModel CalibrationVm,
              TargetHighlightOverlayViewModel TargetHighlightVm,
              EdgeButtonBarViewModel EdgeButtonBarVm,
+             EdgeButtonBarViewModel ActionMenuModBarVm,
              TrackStatusViewModel TrackStatusVm,
              TaskSwitcherViewModel TaskSwitcherVm,
              QuickActionsGridViewModel QuickActionsGridVm,
@@ -591,7 +592,7 @@ public partial class App : Application
         var backdropVm = _serviceProvider.GetRequiredService<GlassBackdropViewModel>();
         return (vms.CursorCircle, vms.ActivationButton, vms.ManualSelectionOverlay, vms.ActionMenu,
                 vms.Toolbar, vms.Keyboard, vms.ManualSelectionIndicator, backdropVm,
-                vms.Calibration, vms.TargetHighlight, vms.EdgeButtonBar, vms.TrackStatus, vms.TaskSwitcher,
+                vms.Calibration, vms.TargetHighlight, vms.EdgeButtonBar, vms.ActionMenuModBar, vms.TrackStatus, vms.TaskSwitcher,
                 vms.QuickActionsGrid, vms.ModesMenu, vms.RepeatCursor);
     }
 

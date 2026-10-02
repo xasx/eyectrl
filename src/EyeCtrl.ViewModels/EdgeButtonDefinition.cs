@@ -16,6 +16,12 @@ using EyeCtrl.Core.Models;
 ///
 /// <paramref name="Label"/> lives on the definition rather than being special-cased in the window
 /// because two buttons need it, and a second special case is how a convention becomes a mess.
+///
+/// <paramref name="RearmOnGazeExit"/> marks a toggle whose activation latches the bar's re-arm
+/// gate: until gaze has stayed outside this button's effective region for the re-arm debounce
+/// (see <c>EdgeButtonBarViewModel</c>), further samples the detector would award to this button
+/// are delivered as if they hit nothing, so a held gaze cannot re-fire it. Default false — every
+/// non-toggle definition keeps today's behaviour.
 /// </summary>
 public sealed record EdgeButtonDefinition(
     string Id,
@@ -25,4 +31,5 @@ public sealed record EdgeButtonDefinition(
     double VerticalOffset,
     double RadiusLogical = UIConstants.DragButtonRadius,
     ActionIcon? Icon = null,
-    string? Label = null);
+    string? Label = null,
+    bool RearmOnGazeExit = false);

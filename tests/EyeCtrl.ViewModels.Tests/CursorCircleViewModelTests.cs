@@ -264,12 +264,14 @@ public class CursorCircleViewModelTests
     }
 
     [Fact]
-    public void KeyboardToggle_StateChangedAwayFromFixation_AlsoUnpins()
+    public void StateChangedToAStateThatIsNotFixationOrFreeLook_AlsoUnpins()
     {
         // Belt and braces (re-check N2): the keyboard toggle calls OnFixationEnded directly while
         // suppression stops the detector, so a release keyed on the detector would strand the pin.
         // Core raises ReleaseRing on the state transition; the VM additionally unpins structurally on
-        // any state that is not Fixation. Mutation: drop the StateChanged unpin → this reds.
+        // any state that is neither Fixation nor FreeLook (FreeLook is where the pin outlives the
+        // fixation while an offer is alive; Core's ReleaseRing frees it there). Mutation: drop the
+        // StateChanged unpin → this reds.
         var settings = new EyeCtrlSettings();
         var vm = new CursorCircleViewModel(settings, _messenger);
 
@@ -277,9 +279,40 @@ public class CursorCircleViewModelTests
         _messenger.Send(new PinRingMessage(new PhysicalPoint(140, 120)));
         Check.That(vm.IsPinned).IsTrue();
 
-        _messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        _messenger.Send(new StateChangedMessage(InteractionState.ManualSelectionActive));
 
         Check.That(vm.IsPinned).IsFalse();
+    }
+
+    [Fact]
+    public void FreeLookWhilePinned_KeepsThePinAndTheRingStill_UntilCoreReleases()
+    {
+        // Live check 2026-10-02: while the user holds the activation button the fixation flips
+        // Fixation/FreeLook about every 0.3 s. A VM that unpinned on every FreeLook snapped the ring to
+        // the gaze and re-pinned it, over the button. Core owns the release (offer closed, or the run
+        // ended with no offer). Mutation: unpin on FreeLook again → the first assertion reds.
+        var settings = new EyeCtrlSettings();
+        var vm = new CursorCircleViewModel(settings, _messenger);
+        var pin = new PhysicalPoint(140, 120);
+
+        _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
+        _messenger.Send(new PinRingMessage(pin));
+        SendFrame(_messenger, new PhysicalPoint(150, 125), 0);
+        SendFrame(_messenger, new PhysicalPoint(150, 125), 1_000_000);   // the glide has landed
+
+        _messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        SendFrame(_messenger, new PhysicalPoint(600, 700), 1_030_000);   // the gaze is on the button now
+        _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
+        _messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        SendFrame(_messenger, new PhysicalPoint(610, 705), 1_060_000);
+
+        Check.That(vm.IsPinned).IsTrue();
+        Check.That(vm.Position).IsEqualTo(pin);
+
+        _messenger.Send(new ReleaseRingMessage());                        // the offer closed
+
+        Check.That(vm.IsPinned).IsFalse();
+        Check.That(vm.Position).IsEqualTo(new PhysicalPoint(610, 705));
     }
 
     [Fact]

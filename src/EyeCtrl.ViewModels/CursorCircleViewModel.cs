@@ -64,11 +64,12 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     [ObservableProperty] private bool _isPaused;
 
     /// <summary>
-    /// True from Core's accepted settle (the <c>PinRing</c> event) until the fixation ends. While pinned
-    /// the ring does not follow gaze: it eases to the settle centroid and then sits literally still
-    /// there. That stillness is the "you're holding" signal the user asked for ("the circle almost
-    /// never stands still"). Deliberately NOT keyed on the activation button's show/hide: the button's
-    /// lifetime is its own (it still shows at onset in ticket 7, and will linger in ticket 8).
+    /// True from Core's <c>PinRing</c> (the accepted settle, or an offer appearing) until Core's
+    /// <c>ReleaseRing</c>: the fixation's end, or — while an activation offer is alive — the offer's
+    /// close, so the ring does not move while the user looks at the button. While pinned the ring does
+    /// not follow gaze: it eases to the pin and then sits literally still there. That stillness is the
+    /// "you're holding" signal the user asked for ("the circle almost never stands still"). The VM
+    /// itself is keyed on Core's two messages, never on the button's show/hide.
     /// </summary>
     [ObservableProperty] private bool _isPinned;
 
@@ -138,10 +139,12 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
         // while they are looking for the resume target. RepeatMode hides the normal circle: the
         // contracting repeat cursor replaces it there.
         IsPaused = message.NewState == InteractionState.Paused;
-        // Belt and braces for the release: a pinned ring implies Fixation, so any other state cancels
-        // the pin (and an in-flight glide) structurally, even if the release message is ever lost.
-        // This is also the Paused rule that predates the pin.
-        if (message.NewState != InteractionState.Fixation)
+        // Belt and braces for the release: a pinned ring implies Fixation or FreeLook — FreeLook only
+        // because the ring stays at the offer's P while the user looks at the button, and Core's
+        // ReleaseRing (offer closed, or the run ended with no offer) is what frees it there. Any
+        // other state cancels the pin (and an in-flight glide) structurally, even if the release
+        // message is ever lost. This is also the Paused rule that predates the pin.
+        if (message.NewState is not (InteractionState.Fixation or InteractionState.FreeLook))
         {
             _gliding = false;
             IsPinned = false;

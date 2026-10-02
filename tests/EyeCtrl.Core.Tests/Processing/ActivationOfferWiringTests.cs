@@ -37,6 +37,7 @@ public class ActivationOfferWiringTests
         public List<ActivationOffer> Shown { get; } = new();
         public int Closed;
         public int Pinned;
+        public List<PhysicalPoint> PinPoints { get; } = new();
         public int Released;
         public List<PhysicalPoint> Menus { get; } = new();
 
@@ -56,7 +57,7 @@ public class ActivationOfferWiringTests
             Im.ActivationOfferFired += (offer, _) => Fired.Add(offer);
             Im.ActivationOfferShown += offer => Shown.Add(offer);
             Im.ActivationOfferClosed += () => Closed++;
-            Im.PinRing += _ => Pinned++;
+            Im.PinRing += point => { Pinned++; PinPoints.Add(point); };
             Im.ReleaseRing += () => Released++;
             Im.ShowActionMenu += point => Menus.Add(point);
         }
@@ -167,27 +168,73 @@ public class ActivationOfferWiringTests
         h.Feed(b, samples: 25);
 
         Check.That(h.Fired).HasSize(1);
-        Check.That(h.Released).IsEqualTo(1);                  // the fixation did end on the way there
+        Check.That(h.Released).IsEqualTo(0);                  // the fixation did end on the way there, the ring did not move
         Check.That(h.Closed).IsEqualTo(0);                    // ...and the button stayed up
     }
 
     // ── Ring free, button up ─────────────────────────────────────────────────
 
     [Fact]
-    public void FixationEnd_ReleasesTheRing_ButKeepsTheButtonUp()
+    public void FixationEnd_KeepsTheRingPinnedAtP_WhileTheButtonIsUp_AndReleasesItWhenTheOfferCloses()
     {
-        // B1: the ring's lifetime is the Fixation state's; the button's is the offer's linger. Mutation:
-        // release the ring on the button's hide, or hide the button on the fixation end → one of the
-        // two assertions goes red.
+        // Live check 2026-10-02: the user holding the button flips the run FreeLook/Fixation every
+        // ~0.3 s, and a ring that released and re-pinned on each flip danced over the button. The ring
+        // now follows the OFFER: pinned at P from the offer's appearance, released at its close.
+        // Mutations: release on the fixation end again (SetState) → the first Released check reds;
+        // drop the release on the offer's close (PublishActivationOfferState) → the last one reds.
         using var h = new Harness();
         var offer = h.SettleAt(P);
         Check.That(h.Pinned).IsEqualTo(1);
+        Check.That(h.PinPoints[0]).IsEqualTo(P);
 
         h.Feed(offer.Button, samples: 1);                     // the move ends the fixation
 
-        Check.That(h.Released).IsEqualTo(1);
+        Check.That(h.Released).IsEqualTo(0);
         Check.That(h.Closed).IsEqualTo(0);
         Check.That(h.Offers.CurrentOffer).IsNotNull();
+
+        h.FeedAway(samples: 40);                              // the linger runs out
+
+        Check.That(h.Closed).IsEqualTo(1);
+        Check.That(h.Released).IsEqualTo(1);                  // the ring goes back to the gaze with the button
+        Check.That(h.Pinned).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void SettlingOnTheButton_DoesNotRePinTheRing()
+    {
+        // The user's own button dwell forms a fixation on B, whose settle the engine classifies as
+        // OnButton. That settle must leave the ring at P: pinning it to B (and releasing it again on
+        // the next flip) was the dance. Mutation: pin on every accepted settle (drop the outcome
+        // check in OnFixationSettled) → Pinned reaches 2.
+        using var h = new Harness();
+        var offer = h.SettleAt(P);
+
+        h.Feed(offer.Button, samples: 20);                    // 600 ms on B: the run settles, the dwell is not done
+
+        Check.That(h.Fired).IsEmpty();
+        Check.That(h.Pinned).IsEqualTo(1);
+        Check.That(h.PinPoints).ContainsExactly(P);
+        Check.That(h.Released).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void ASettleElsewhere_ReplacesTheOffer_AndPinsTheRingOnceAtTheNewP()
+    {
+        // A fresh settle outside the no-move zone replaces the offer; the ring follows to the new P
+        // exactly once (the offer's appearance pins it — OnFixationSettled must not pin a second time).
+        // Mutation: drop the pin on a new offer → the second pin never comes; pin unconditionally in
+        // OnFixationSettled as well → the count is 3.
+        using var h = new Harness();
+        var first = h.SettleAt(P);
+        var elsewhere = new PhysicalPoint(3000, 1800);
+
+        h.Feed(elsewhere, samples: 20);
+
+        Check.That(h.Offers.CurrentOffer!.Id).IsNotEqualTo(first.Id);
+        Check.That(h.Pinned).IsEqualTo(2);
+        Check.That(h.PinPoints[1]).IsEqualTo(elsewhere);
+        Check.That(h.Released).IsEqualTo(0);                  // replaced while holding: nothing in between released it
     }
 
     // ── Expiry ───────────────────────────────────────────────────────────────

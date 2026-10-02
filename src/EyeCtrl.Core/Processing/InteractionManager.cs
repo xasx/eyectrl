@@ -348,7 +348,20 @@ public class InteractionManager
         if (hadOffer)
             ActivationOfferClosed?.Invoke();
         if (offer is not null)
+        {
             ActivationOfferShown?.Invoke(offer);
+            // The ring follows the offer, not the fixation state: it pins at the offer's P as the
+            // offer appears (a settle's creation or replacement, or a pending re-offer taking over a
+            // run that still holds) and stays there while the user looks at the button.
+            if (CurrentState == InteractionState.Fixation)
+                PinRing?.Invoke(offer.Point);
+        }
+        else if (hadOffer && CurrentState != InteractionState.Fixation)
+        {
+            // The offer is gone and no run is holding: the ring goes back to the gaze (snap out). A
+            // run that is still holding releases at its own end (SetState), when no offer is alive.
+            ReleaseRing?.Invoke();
+        }
     }
 
     private void SetState(InteractionState newState)
@@ -368,7 +381,12 @@ public class InteractionManager
             // DeclineOffer and completed activations, and the engine is gaze-thread state (review A F1).
             RequestActivationRunEnd(_lastSampleTimestampUs);
             FixationEnded?.Invoke();
-            ReleaseRing?.Invoke();
+            // The ring stays pinned at P for as long as the offer lives (live check 2026-10-02: the
+            // run flips FreeLook/Fixation every ~0.3 s while the user holds the button, and a ring that
+            // released and re-pinned on every flip danced over the button). The release then comes
+            // from the offer's close (PublishActivationOfferState), or here when no offer is alive.
+            if (_publishedActivationOfferId == 0 || newState != InteractionState.FreeLook)
+                ReleaseRing?.Invoke();
         }
         StateChanged?.Invoke(newState);
     }
@@ -419,9 +437,17 @@ public class InteractionManager
         if (CurrentState != InteractionState.Fixation) return;
         // The accepted settle is the offer's creation point (ticket 8): the engine classifies it
         // (create / replace / extend / swallow) and the button's show and hide follow from there.
-        _activationOffers?.NotifyFixationSettled(point, _lastSampleTimestampUs);
-        PublishActivationOfferState();
-        PinRing?.Invoke(point);
+        var outcome = _activationOffers?.NotifyFixationSettled(point, _lastSampleTimestampUs);
+        PublishActivationOfferState();   // a new offer pins the ring at its P (below)
+
+        // A settle that changed nothing about a live offer — on the button, a near miss next to it, a
+        // swallowed one on P's side, or one arriving while a fired offer is locked — must NOT move the
+        // ring: it belongs to the offer's P until the offer closes, and re-pinning on the user's own
+        // button dwell is exactly the dance the live check found. Everything else pins here: a created
+        // or replaced offer (already pinned by the publish), and a settle with no offer at all (chrome,
+        // an unplaceable side, no engine yet), which keeps the old pin-at-settle behaviour.
+        if (outcome is null or SettleOutcome.NoOffer)
+            PinRing?.Invoke(point);
     }
 
     /// <summary>Called when the current fixation ends (gaze moves away from the fixation point).</summary>

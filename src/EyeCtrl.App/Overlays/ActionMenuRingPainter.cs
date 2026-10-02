@@ -137,7 +137,7 @@ internal static class ActionMenuRingPainter
                 ActionMenuGeometry.ButtonRadius,
                 symbol: null,
                 icon: ActionIcons.For(slot.Icon));
-            AddButton(painting, button, slot.IsDisabled);
+            button.AddTo(painting);
             buttons[slot.Id] = button;
 
             var label = new TextBlock
@@ -189,7 +189,8 @@ internal static class ActionMenuRingPainter
 /// <param name="Kind">What a dwell on the slot would do; the More slot is annotated in preview mode.</param>
 /// <param name="IsDisabled">
 /// Drawn dimmed at <see cref="ActionMenuRingPainter.DisabledOpacity"/> — a latched modifier's
-/// Drag/ScrollMode, which the ViewModel also leaves without a dwell target. The preview never sets it.
+/// Drag/ScrollMode, which the ViewModel also leaves without a dwell target. Runtime mode only: the
+/// preview never sets it (it has no latch and no targets at all), and the scaled mode ignores it.
 /// </param>
 internal readonly record struct RingPaintSlot(
     string Id,

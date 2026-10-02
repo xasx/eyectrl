@@ -14,6 +14,7 @@ using EyeCtrl.Controls.Icons;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core;
 using EyeCtrl.Core.ActionMenu;
+using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
@@ -47,14 +48,22 @@ public class ActionMenuRingPainterTests : IDisposable
     /// <summary>
     /// Builds a VM, drives it open, and converts its items the way <c>ActionMenuWindow.Show</c>
     /// does — including the absolute-physical → window-relative conversion through
-    /// <see cref="ActionMenuGeometry.ButtonCanvasCenter"/> — then paints them.
+    /// <see cref="ActionMenuGeometry.ButtonCanvasCenter"/> — then paints them. With
+    /// <paramref name="latched"/>, Drag and ScrollMode are pinned onto layer one and a modifier is
+    /// latched, so the dimmed slots go through the painter too.
     /// </summary>
     private static (ActionMenuViewModel Vm, List<RingPaintSlot> Slots) OpenAndBuildSlots(
-        double scale, bool showBack = false)
+        double scale, bool showBack = false, bool latched = false)
     {
         DpiHelper.Initialize(scale, scale);
 
         var settings = new EyeCtrlSettings();
+        if (latched)
+        {
+            settings.ActionMenu.PrimaryActions = new List<InteractionAction>
+            { InteractionAction.LeftClick, InteractionAction.Drag, InteractionAction.ScrollMode };
+        }
+
         var messenger = new WeakReferenceMessenger();
         var vm = new ActionMenuViewModel(settings, messenger);
 
@@ -68,6 +77,8 @@ public class ActionMenuRingPainterTests : IDisposable
             GazePoint: center,
             ManualSelectionDisplayRadius: 0,
             CircleSize: settings.Cursor.CircleSize));
+        if (latched)
+            vm.Receive(new ToggleActionMenuModifierMessage(ModifierKey.Ctrl));
 
         var windowSize = RingPlan.WindowSizeFor(vm.EffectiveRingRadius);
         var canvasCenter = new Point(windowSize / 2, windowSize / 2);
@@ -78,7 +89,8 @@ public class ActionMenuRingPainterTests : IDisposable
                 ActionMenuGeometry.ButtonCanvasCenter(i.Position, center, canvasCenter),
                 i.Icon,
                 i.Label,
-                i.Kind))
+                i.Kind,
+                i.IsDisabled))
             .ToList();
 
         return (vm, slots);
@@ -88,15 +100,22 @@ public class ActionMenuRingPainterTests : IDisposable
     /// At DPI 1.0 and 2.0 the painter's runtime mode reproduces today's coordinates exactly: every
     /// button's drawn centre equals the <see cref="ActionMenuGeometry.ButtonCanvasCenter"/> the
     /// window computed, and every button is the true diameter — a <c>Create(s × radius)</c> would
-    /// change the width at one of the two scales.
+    /// change the width at one of the two scales. The latched cases put dimmed slots through the
+    /// same path: their parts ride in a per-button host canvas at origin, so the drawn centre and
+    /// width must not move.
     /// </summary>
     [StaTheory]
-    [InlineData(1.0)]
-    [InlineData(2.0)]
-    public void RuntimePaint_PlacesEveryButtonAtTheCanvasCenter_AtAnyDpi(double scale)
+    [InlineData(1.0, false)]
+    [InlineData(2.0, false)]
+    [InlineData(1.0, true)]
+    [InlineData(2.0, true)]
+    public void RuntimePaint_PlacesEveryButtonAtTheCanvasCenter_AtAnyDpi(double scale, bool latched)
     {
-        var (vm, slots) = OpenAndBuildSlots(scale);
+        var (vm, slots) = OpenAndBuildSlots(scale, latched: latched);
         using var _vm = vm;
+        var disabledCount = slots.Count(s => s.IsDisabled);
+        Check.WithCustomMessage("The latched case dimmed nothing, so it would pin nothing.")
+             .That(disabledCount > 0).IsEqualTo(latched);
 
         var canvas = new Canvas();
         var buttons = ActionMenuRingPainter.Paint(canvas, slots, RingPaintOptions.Runtime(showLabels: false));
@@ -121,8 +140,16 @@ public class ActionMenuRingPainterTests : IDisposable
         }
 
         // Runtime mode paints directly onto the canvas — no transform wrapper between it and the
-        // window's own children.
-        Check.That(canvas.Children.OfType<Canvas>()).IsEmpty();
+        // window's own children. The only nested canvases are the dim hosts, one per disabled
+        // slot, untransformed and at DisabledOpacity.
+        var hosts = canvas.Children.OfType<Canvas>().ToList();
+        Check.That(hosts).HasSize(disabledCount);
+        foreach (var host in hosts)
+        {
+            Check.That(host.LayoutTransform.Value.IsIdentity).IsTrue();
+            Check.That(host.RenderTransform.Value.IsIdentity).IsTrue();
+            Check.That(host.Opacity).IsCloseTo(ActionMenuRingPainter.DisabledOpacity, 1e-9);
+        }
     }
 
     /// <summary>

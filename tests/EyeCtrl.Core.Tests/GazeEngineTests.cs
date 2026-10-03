@@ -36,7 +36,7 @@ public class GazeEngineTests
 
         // Subscribe to ActionRequested (App.xaml.cs handles execution via message bus)
         InteractionAction? firedAction = null;
-        engine.InteractionManager.ActionRequested += (action, _) => firedAction = action;
+        engine.InteractionManager.ActionRequested += (action, _, _) => firedAction = action;
 
         // Directly trigger action through the interaction manager
         engine.InteractionManager.OnFixationStarted(new PhysicalPoint(200, 200));

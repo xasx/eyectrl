@@ -57,24 +57,6 @@ public partial class ActionMenuSettings : ObservableObject, IValidatable
     public const int MaxPrimaryActions = 4;
 
     /// <summary>
-    /// <see cref="PrimaryActions"/> restricted to what is actually switched on. A primary action
-    /// the user turned off in the Settings tab must vanish from the ring, not linger on layer one.
-    /// </summary>
-    public IReadOnlyList<InteractionAction> EffectivePrimaryActions =>
-        (PrimaryActions ?? new List<InteractionAction>())
-            .Where(a => VisibleActions?.Contains(a) == true)
-            .ToList();
-
-    /// <summary>
-    /// Everything visible that is not primary — the ring's second layer, reached through More.
-    /// Derived rather than stored so it cannot drift out of sync with the two lists it spans.
-    /// </summary>
-    public IReadOnlyList<InteractionAction> SecondaryActions =>
-        (VisibleActions ?? new List<InteractionAction>())
-            .Where(a => PrimaryActions?.Contains(a) != true)
-            .ToList();
-
-    /// <summary>
     /// Populates <see cref="PrimaryActions"/> exactly once per settings file, then never touches
     /// it again. The startup caller must use this rather than assigning the defaults directly —
     /// see <see cref="PrimaryMigrated"/>.

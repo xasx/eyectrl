@@ -13,9 +13,11 @@ public class MagicNumberReplacementTests
     public void ActionMenuRingRadius_UsesNamedConstants()
     {
         // The formula: circleSize/2 + ActionMenuButtonRadius + ActionMenuButtonOuterGap
-        // With circleSize=100, should be: 100/2 + 70 + 60 = 180
+        // With circleSize=100, should be: 100/2 + 70 + 60 = 180. The gap alias moved off
+        // UIConstants when the ring formula's single home became RingPlan (T2/T3); the Core
+        // constant is what remains wired.
         var circleSize = 100.0;
-        var expectedRadius = circleSize / 2 + UIConstants.ActionMenuButtonRadius + UIConstants.ActionMenuButtonOuterGap;
+        var expectedRadius = circleSize / 2 + UIConstants.ActionMenuButtonRadius + LayoutConstants.ActionMenuButtonOuterGap;
 
         Check.That(expectedRadius).IsEqualTo(180.0);
     }

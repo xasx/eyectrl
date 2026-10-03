@@ -2,8 +2,8 @@ namespace EyeCtrl.App.Views.Settings;
 
 /// <summary>
 /// Arithmetic for paginating the settings sidebar's tab list. The sidebar is a plain vertical
-/// <c>StackPanel</c> with no scrolling, so on any window shorter than close-button + 11 tab
-/// slots (~1312 DIP) the bottom tabs are clipped out of reach for a gaze user — found
+/// <c>StackPanel</c> with no scrolling, so on any window shorter than close-button + 15 tab
+/// slots the bottom tabs are clipped out of reach for a gaze user — found
 /// 2026-08-17 when tabs 10-11 (General, Quick Actions) were unreachable. The window therefore
 /// splits the tab list into pages sized to the height the sidebar actually has and pages
 /// through them with dwell buttons; this class is the pure math that split, so it stays

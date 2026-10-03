@@ -584,7 +584,7 @@ public class SettingsAutoPaginationWiringTests
 
         // The count is only true if MakePagButton actually applies that margin; if its margin
         // changed, the reserve's 2 * PaginationButtonMargin term must change with it.
-        var makePag = ExtractMethod(source, "private Border MakePagButton(string id, string text)");
+        var makePag = ExtractMethod(source, "private Border MakePagButton(string id, int direction)");
         Check.WithCustomMessage(
                 "MakePagButton no longer sizes its margin from PaginationButtonMargin — the const "
                 + "exists so the button margin and the reserve cannot drift apart. Restore "

@@ -145,8 +145,8 @@ internal sealed class KeyboardInteractionDispatcher : CoordinatorBase
         if (Context is null) return;
 
         var pt = msg.IsPreciseTarget ? msg.Point : (Context.GazeEngine.StableCentroid ?? msg.Point);
-        Log.Information("Action: {Action} at ({X:F0}, {Y:F0}) [PreciseTarget={IsPreciseTarget}]",
-            msg.Action, pt.X, pt.Y, msg.IsPreciseTarget);
+        Log.Information("Action: {Action} at ({X:F0}, {Y:F0}) [PreciseTarget={IsPreciseTarget}] [Modifiers={Modifiers}]",
+            msg.Action, pt.X, pt.Y, msg.IsPreciseTarget, msg.Modifiers);
 
         if (msg.Action == InteractionAction.PinNote)
         {
@@ -167,17 +167,40 @@ internal sealed class KeyboardInteractionDispatcher : CoordinatorBase
         if (msg.Action == InteractionAction.Keyboard)
             Context.Messenger.Send(new KeyboardShowRequestedMessage());
 
+        // Modifier routing: a non-empty set goes to the modified (atomic-batch) overloads; null
+        // AND empty sets stay on the bare methods — byte-identical to the pre-modifier paths.
+        // Modified scrolls send exactly one notch (the batch's leading move already puts the wheel
+        // on the point; the arm's sign still carries the direction).
+        var mods = msg.Modifiers;
+        var modified = mods is { Count: > 0 };
+
         switch (msg.Action)
         {
-            case InteractionAction.LeftClick:    Context.InputSimulator.LeftClick(pt);        break;
-            case InteractionAction.RightClick:   Context.InputSimulator.RightClick(pt);       break;
-            case InteractionAction.DoubleClick:  Context.InputSimulator.DoubleClick(pt);      break;
-            case InteractionAction.MiddleClick:  Context.InputSimulator.MiddleClick(pt);      break;
+            case InteractionAction.LeftClick:
+                if (modified) Context.InputSimulator.LeftClick(pt, mods); else Context.InputSimulator.LeftClick(pt);
+                break;
+            case InteractionAction.RightClick:
+                if (modified) Context.InputSimulator.RightClick(pt, mods); else Context.InputSimulator.RightClick(pt);
+                break;
+            case InteractionAction.DoubleClick:
+                if (modified) Context.InputSimulator.DoubleClick(pt, mods); else Context.InputSimulator.DoubleClick(pt);
+                break;
+            case InteractionAction.MiddleClick:
+                if (modified) Context.InputSimulator.MiddleClick(pt, mods); else Context.InputSimulator.MiddleClick(pt);
+                break;
 
-            case InteractionAction.ScrollUp:     Context.InputSimulator.Scroll(pt, 0, DefaultScrollAmount);    break;
-            case InteractionAction.ScrollDown:   Context.InputSimulator.Scroll(pt, 0, -DefaultScrollAmount);   break;
-            case InteractionAction.ScrollLeft:   Context.InputSimulator.Scroll(pt, -DefaultScrollAmount, 0);   break;
-            case InteractionAction.ScrollRight:  Context.InputSimulator.Scroll(pt, DefaultScrollAmount, 0);    break;
+            case InteractionAction.ScrollUp:
+                if (modified) Context.InputSimulator.Scroll(pt, 0, 1, mods); else Context.InputSimulator.Scroll(pt, 0, DefaultScrollAmount);
+                break;
+            case InteractionAction.ScrollDown:
+                if (modified) Context.InputSimulator.Scroll(pt, 0, -1, mods); else Context.InputSimulator.Scroll(pt, 0, -DefaultScrollAmount);
+                break;
+            case InteractionAction.ScrollLeft:
+                if (modified) Context.InputSimulator.Scroll(pt, -1, 0, mods); else Context.InputSimulator.Scroll(pt, -DefaultScrollAmount, 0);
+                break;
+            case InteractionAction.ScrollRight:
+                if (modified) Context.InputSimulator.Scroll(pt, 1, 0, mods); else Context.InputSimulator.Scroll(pt, DefaultScrollAmount, 0);
+                break;
         }
 
         if (Context.TargetHighlightVM.IsVisible)

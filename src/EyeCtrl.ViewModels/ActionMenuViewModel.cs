@@ -4,7 +4,9 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
+using EyeCtrl.Core.ActionMenu;
 using EyeCtrl.Core.Adaptation;
+using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
@@ -14,10 +16,12 @@ using EyeCtrl.ViewModels.Messages;
 public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
     IRecipient<ShowActionMenuMessage>,
     IRecipient<HideActionMenuMessage>,
-    IRecipient<ToggleActionMenuLabelsMessage>
+    IRecipient<ToggleActionMenuLabelsMessage>,
+    IRecipient<ToggleActionMenuModifierMessage>
 {
 
     private readonly Dictionary<string, ActionMenuItemViewModel> _itemLookup = new();
+    private readonly HashSet<ModifierKey> _latchedModifiers = new();
     private readonly EyeCtrlSettings _settings;
     private bool _onSecondaryLayer;
     private ShowActionMenuMessage? _shownWith;
@@ -42,6 +46,12 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
     public int? ManualSelectionRadius { get; private set; }
     public PhysicalPoint GazePoint { get; private set; } = new(0, 0);
 
+    /// <summary>Modifiers latched for the CURRENT menu session. Cleared on hide, reset on show.</summary>
+    public IReadOnlySet<ModifierKey> LatchedModifiers => _latchedModifiers;
+
+    /// <summary>The modifier whose toggle raised the last <see cref="LatchedModifiers"/> change (the App branch swaps exactly this button's icon).</summary>
+    public ModifierKey LastToggledModifier { get; private set; }
+
     public ObservableCollection<ActionMenuItemViewModel> Items { get; } = new();
 
     public ActionMenuViewModel(EyeCtrlSettings settings, IMessenger messenger,
@@ -65,6 +75,11 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
         _shownWith = message;
         ShowLabels = false;
 
+        // The latch dies with the previous session. This must run BEFORE BuildLayer: the dim
+        // read inside it decides dwell-target membership, and a stale latch would dim Drag and
+        // ScrollMode on an open whose modifiers the user already lost.
+        _latchedModifiers.Clear();
+
         BuildLayer();
         IsVisible = true;
     }
@@ -86,54 +101,39 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
         // Partition what the MESSAGE asked for, not what settings hold. Production is
         // equivalent — GazeEngineAdapter passes settings.ActionMenu.VisibleActions — but every
         // existing test drives the ring by sending a hand-picked action list. Reading settings
-        // here instead would silently ignore the message and break all of them.
-        var primaryList = _settings.ActionMenu.PrimaryActions ?? new List<InteractionAction>();
-        var primary = message.Actions.Where(a => primaryList.Contains(a)).ToList();
-        var secondary = message.Actions.Where(a => !primaryList.Contains(a)).ToList();
+        // here instead would silently ignore the message and break all of them. The plan keeps
+        // that same rule: visible-list order filtered by primary membership, deliberately not
+        // PrimaryActions order.
+        var plan = RingPlan.Create(
+            message.Actions, _settings.ActionMenu.PrimaryActions, message.CircleSize);
+        var layer = plan.BuildLayer(
+            _onSecondaryLayer ? RingLayer.Secondary : RingLayer.Primary, message.ShowBack);
+        if (layer.Slots.Count == 0) return;
 
-        var allItems = new List<(string Id, InteractionAction? Action, ActionIcon Icon, string Label, ActionMenuItemKind Kind)>();
-
-        if (_onSecondaryLayer)
-        {
-            foreach (var action in secondary)
-                allItems.Add((action.ToString(), action, GetActionIcon(action), FriendlyName(action), ActionMenuItemKind.Action));
-            allItems.Add(("BackToPrimary", null, ActionIcon.Back, "Back", ActionMenuItemKind.BackToPrimary));
-        }
-        else
-        {
-            foreach (var action in primary)
-                allItems.Add((action.ToString(), action, GetActionIcon(action), FriendlyName(action), ActionMenuItemKind.Action));
-
-            // No More target when it would open an empty layer.
-            if (secondary.Count > 0)
-                allItems.Add(("More", null, ActionIcon.More, "More", ActionMenuItemKind.OpenMore));
-
-            // The zoom Back only exists on layer one. From layer two it takes two dwells — back
-            // to primary, then Back — because one nav slot cannot mean two things.
-            if (message.ShowBack)
-                allItems.Add(("Back", null, ActionIcon.Back, "Back", ActionMenuItemKind.ExitMenu));
-        }
-
-        if (allItems.Count == 0) return;
-
-        EffectiveRingRadius = message.CircleSize / 2 + UIConstants.ActionMenuButtonRadius + UIConstants.ActionMenuButtonOuterGap;
-        var physicalRingRadius = DpiHelper.LogicalToPhysicalX(EffectiveRingRadius);
+        EffectiveRingRadius = plan.EffectiveRingRadius;
+        var physicalRingRadius = DpiHelper.LogicalToPhysicalX(plan.EffectiveRingRadius);
         var physicalButtonRadius = DpiHelper.LogicalToPhysicalX(UIConstants.ActionMenuButtonRadius);
 
-        var angleStep = MathConstants.FullCircleDegrees / allItems.Count;
-        for (int i = 0; i < allItems.Count; i++)
+        foreach (var slot in layer.Slots)
         {
-            var (id, action, icon, label, kind) = allItems[i];
-            var angleRad = (angleStep * i - MathConstants.RightAngleDegrees) * MathConstants.DegreesToRadians;
+            var angleRad = slot.AngleDegrees * MathConstants.DegreesToRadians;
             var bx = message.Center.X + physicalRingRadius * Math.Cos(angleRad);
             var by = message.Center.Y + physicalRingRadius * Math.Sin(angleRad);
             var position = new PhysicalPoint(bx, by);
 
-            var itemVm = new ActionMenuItemViewModel(id, action, icon, label, position, kind);
+            // A latched modifier dims Drag and ScrollMode: neither action has a meaning the
+            // dispatcher can perform once a modifier rides along. Dimmed items keep their plan
+            // slot (the plan spaced the ring over every slot) but gain no dwell target, so
+            // dwelling their position does nothing at all.
+            var disabled = _latchedModifiers.Count > 0
+                && slot.Action is InteractionAction.Drag or InteractionAction.ScrollMode;
+            var itemVm = new ActionMenuItemViewModel(
+                slot.Id, slot.Action, slot.Icon, slot.Label, position, slot.Kind, disabled);
             Items.Add(itemVm);
-            _itemLookup[id] = itemVm;
+            _itemLookup[slot.Id] = itemVm;
 
-            DwellDetector.AddTarget(new DwellTarget(id, position, physicalButtonRadius, message.DwellTimeMs));
+            if (!disabled)
+                DwellDetector.AddTarget(new DwellTarget(slot.Id, position, physicalButtonRadius, message.DwellTimeMs));
         }
 
         // The window redraws only when something it subscribes to changes. It listens to
@@ -160,12 +160,33 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
         _onSecondaryLayer = false;
         _shownWith = null;
         ShowLabels = false;
+        _latchedModifiers.Clear();
         DwellDetector.ClearTargets();
         Items.Clear();
         _itemLookup.Clear();
     }
 
     public void Receive(ToggleActionMenuLabelsMessage message) => ShowLabels = !ShowLabels;
+
+    /// <summary>
+    /// Toggles one modifier's latch for the current menu session (the left-edge bar). Toggling
+    /// across the empty/non-empty boundary rebuilds the ring, because that crossing is what
+    /// changes Drag/ScrollMode between dwell-target and dimmed non-target — a toggle inside a
+    /// non-empty latch changes only which modifiers ride along at capture.
+    /// </summary>
+    public void Receive(ToggleActionMenuModifierMessage message)
+    {
+        if (!IsVisible) return;
+
+        var wasEmpty = _latchedModifiers.Count == 0;
+        LastToggledModifier = message.Modifier;
+        if (!_latchedModifiers.Remove(message.Modifier))
+            _latchedModifiers.Add(message.Modifier);
+        OnPropertyChanged(nameof(LatchedModifiers));
+
+        if (wasEmpty != (_latchedModifiers.Count == 0))
+            BuildLayer(); // empty↔non-empty crossing: dim state changed; BuildLayer bumps RingVersion LAST
+    }
 
     protected override void OnTargetActivated(string targetId)
     {
@@ -188,7 +209,13 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
                 break;
 
             case ActionMenuItemKind.Action when item.Action.HasValue:
-                Messenger.Send(new ActionSelectedMessage(item.Action.Value));
+                if (_latchedModifiers.Count > 0 && item.Action is InteractionAction.Drag or InteractionAction.ScrollMode)
+                    return; // backstop: dimmed items have no dwell target; unreachable in practice
+                // Copy-on-capture: the message must carry its own set, or the hide that follows
+                // the activation would empty an aliased latch before the dispatcher reads it.
+                Messenger.Send(new ActionSelectedMessage(
+                    item.Action.Value,
+                    _latchedModifiers.Count > 0 ? new HashSet<ModifierKey>(_latchedModifiers) : null));
                 break;
         }
     }
@@ -205,53 +232,4 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
         if (_itemLookup.TryGetValue(targetId, out var item))
             item.DwellProgress = progress;
     }
-
-    /// <summary>
-    /// The user-facing name for an action. Duplicated from <c>ActionMenuPageSource.FriendlyName</c>
-    /// rather than shared: that one lives in EyeCtrl.App and names a settings row, this one names
-    /// a ring target, and they are free to diverge — a settings row has room for "Scroll Mode"
-    /// where the ring wants "Scroll".
-    /// </summary>
-    private static string FriendlyName(InteractionAction? action) => action switch
-    {
-        InteractionAction.LeftClick => "Left click",
-        InteractionAction.RightClick => "Right click",
-        InteractionAction.DoubleClick => "Double click",
-        InteractionAction.MiddleClick => "Middle click",
-        InteractionAction.Drag => "Drag",
-        InteractionAction.ScrollUp => "Scroll up",
-        InteractionAction.ScrollDown => "Scroll down",
-        InteractionAction.ScrollLeft => "Scroll left",
-        InteractionAction.ScrollRight => "Scroll right",
-        InteractionAction.ScrollMode => "Scroll",
-        InteractionAction.PinNote => "Pin note",
-        InteractionAction.Keyboard => "Keyboard",
-        null => "Back",
-        _ => action.Value.ToString(),
-    };
-
-    /// <summary>
-    /// The single source of truth for which icon an action shows. There is deliberately no
-    /// default arm: a new <see cref="InteractionAction"/> must be given an icon here, and
-    /// <c>ActionMenuViewModelSymbolTests.EveryAction_MapsToADistinctIcon</c> fails until it is.
-    /// The glyph version this replaced ended in <c>_ => action.ToString()</c>, which silently
-    /// rendered enum names in the ring when a case was dropped.
-    /// </summary>
-    private static ActionIcon GetActionIcon(InteractionAction action) => action switch
-    {
-        InteractionAction.LeftClick => ActionIcon.LeftClick,
-        InteractionAction.RightClick => ActionIcon.RightClick,
-        InteractionAction.DoubleClick => ActionIcon.DoubleClick,
-        InteractionAction.MiddleClick => ActionIcon.MiddleClick,
-        InteractionAction.Drag => ActionIcon.Drag,
-        InteractionAction.ScrollUp => ActionIcon.ScrollUp,
-        InteractionAction.ScrollDown => ActionIcon.ScrollDown,
-        InteractionAction.ScrollLeft => ActionIcon.ScrollLeft,
-        InteractionAction.ScrollRight => ActionIcon.ScrollRight,
-        InteractionAction.ScrollMode => ActionIcon.ScrollMode,
-        InteractionAction.PinNote => ActionIcon.PinNote,
-        InteractionAction.Keyboard => ActionIcon.Keyboard,
-        _ => throw new ArgumentOutOfRangeException(
-            nameof(action), action, "No ActionIcon is mapped for this InteractionAction."),
-    };
 }

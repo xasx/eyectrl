@@ -55,4 +55,16 @@ public enum ActionIcon
     Keyboard,
     /// <summary>A keyboard with up and down chevrons — flips the keyboard between screen edges.</summary>
     KeyboardEdge,
+    /// <summary>An up-arrow modifier keycap — the Shift button on the left-edge mod bar.</summary>
+    Shift,
+    /// <summary>A caret-marked modifier keycap — the Ctrl button on the left-edge mod bar.</summary>
+    Ctrl,
+    /// <summary>A diamond-marked modifier keycap — the Alt button on the left-edge mod bar.</summary>
+    Alt,
+    /// <summary>Shift latched: same glyph, plus a rim circling the glyph and a filled margin dot.</summary>
+    ShiftLatched,
+    /// <summary>Ctrl latched (rim + margin dot).</summary>
+    CtrlLatched,
+    /// <summary>Alt latched (rim + margin dot).</summary>
+    AltLatched,
 }

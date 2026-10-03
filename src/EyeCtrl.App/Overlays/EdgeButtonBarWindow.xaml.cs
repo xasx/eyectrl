@@ -26,6 +26,7 @@ public partial class EdgeButtonBarWindow : OverlayWindow, IEdgeButtonBar
     public EdgeButtonBarWindow()
     {
         IsClickThrough = true;
+        ExcludeFromScreenCapture = true; // the action-menu preview must never bake the edge bars in
         InitializeComponent();
     }
 

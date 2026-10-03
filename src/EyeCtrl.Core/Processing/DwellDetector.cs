@@ -327,26 +327,7 @@ public class DwellDetector
         _lastActivationTimestamp = null; // cooldown elapsed, clear it
 
         // ── Find the single nearest target within hit range ──
-        string? nearestId = null;
-        double nearestDistSq = double.MaxValue;
-
-        for (int i = 0; i < targets.Length; i++)
-        {
-            var target = targets[i];
-            if (targetFilter != null && !targetFilter(target))
-                continue;
-            if (target.HitTest(gazePoint))
-            {
-                double dx = gazePoint.X - target.Center.X;
-                double dy = gazePoint.Y - target.Center.Y;
-                double distSq = dx * dx + dy * dy;
-                if (distSq < nearestDistSq)
-                {
-                    nearestDistSq = distSq;
-                    nearestId = target.Id;
-                }
-            }
-        }
+        var nearestId = FindNearestHittingTargetId(targets, gazePoint, targetFilter);
 
         // ── Accumulate dwell on nearest only; reset all others ──
         string? activatedId = null;
@@ -427,6 +408,53 @@ public class DwellDetector
             if (activationOutcome is { } completed)
                 _sink.Report(completed);
         }
+    }
+
+    /// <summary>
+    /// The id of the nearest hitting target for <paramref name="gazePoint"/>, or null when no
+    /// eligible target's region contains the point. This is the SAME selection <see cref="Update(PhysicalPoint, long)"/>
+    /// uses to award dwell — callers that need to predict it (the mod-bar re-arm gate) must come
+    /// here rather than reimplementing the scan.
+    /// </summary>
+    public string? NearestHittingTargetId(PhysicalPoint gazePoint, Func<DwellTarget, bool>? targetFilter = null)
+        => FindNearestHittingTargetId(_targetsSnapshot, gazePoint, targetFilter);
+
+    /// <summary>
+    /// Whether the CURRENT effective region of target <paramref name="targetId"/> contains
+    /// <paramref name="gazePoint"/>. Unknown ids answer false.
+    /// </summary>
+    public bool TargetHit(string targetId, PhysicalPoint gazePoint)
+    {
+        foreach (var t in _targetsSnapshot)
+            if (t.Id == targetId && t.HitTest(gazePoint))
+                return true;
+        return false;
+    }
+
+    private static string? FindNearestHittingTargetId(DwellTarget[] targets, PhysicalPoint gazePoint, Func<DwellTarget, bool>? targetFilter)
+    {
+        string? nearestId = null;
+        double nearestDistSq = double.MaxValue;
+
+        for (int i = 0; i < targets.Length; i++)
+        {
+            var target = targets[i];
+            if (targetFilter != null && !targetFilter(target))
+                continue;
+            if (target.HitTest(gazePoint))
+            {
+                double dx = gazePoint.X - target.Center.X;
+                double dy = gazePoint.Y - target.Center.Y;
+                double distSq = dx * dx + dy * dy;
+                if (distSq < nearestDistSq)
+                {
+                    nearestDistSq = distSq;
+                    nearestId = target.Id;
+                }
+            }
+        }
+
+        return nearestId;
     }
 
     /// <summary>

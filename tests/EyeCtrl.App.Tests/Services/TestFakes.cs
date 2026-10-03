@@ -202,10 +202,11 @@ internal static class TestFakes
         ICursorCircleOverlay? cursorCircle = null,
         IActivationButtonOverlay? activationButton = null,
         IGlassBackdropOverlay? glassBackdrop = null,
+        IEdgeButtonBar? actionMenuModBar = null,
         IActionMenuOverlay? actionMenu = null)
         => new PartialOverlayManager(
             edgeButtonBar, toolbar, pauseIndicator, manualSelection, manualSelectionIndicator,
-            cursorCircle, activationButton, glassBackdrop, actionMenu);
+            cursorCircle, activationButton, glassBackdrop, actionMenuModBar, actionMenu);
 
     /// <summary>No-op action menu: the activation-show path hides it, so it must be present.</summary>
     internal sealed class FakeActionMenuOverlay : IActionMenuOverlay
@@ -298,6 +299,7 @@ internal static class TestFakes
         private readonly ICursorCircleOverlay? _cursorCircle;
         private readonly IActivationButtonOverlay? _activationButton;
         private readonly IGlassBackdropOverlay? _glassBackdrop;
+        private readonly IEdgeButtonBar? _actionMenuModBar;
         private readonly IActionMenuOverlay? _actionMenu;
 
         public IModesMenuOverlay ModesMenu => throw new NotImplementedException();
@@ -307,16 +309,20 @@ internal static class TestFakes
             IPauseIndicatorOverlay? pauseIndicator, IManualSelectionOverlay? manualSelection,
             IManualSelectionIndicatorOverlay? manualSelectionIndicator,
             ICursorCircleOverlay? cursorCircle = null, IActivationButtonOverlay? activationButton = null,
-            IGlassBackdropOverlay? glassBackdrop = null, IActionMenuOverlay? actionMenu = null)
+            IGlassBackdropOverlay? glassBackdrop = null,
+            IEdgeButtonBar? actionMenuModBar = null, IActionMenuOverlay? actionMenu = null)
         {
             _bar = bar; _toolbar = toolbar; _pauseIndicator = pauseIndicator;
             _manualSelection = manualSelection; _manualSelectionIndicator = manualSelectionIndicator;
             _cursorCircle = cursorCircle; _activationButton = activationButton; _glassBackdrop = glassBackdrop;
-            _actionMenu = actionMenu;
+            _actionMenuModBar = actionMenuModBar; _actionMenu = actionMenu;
         }
 
         public IEdgeButtonBar EdgeButtonBar =>
             _bar ?? throw new NotImplementedException("test supplied no edge-button bar");
+
+        public IEdgeButtonBar ActionMenuModBar =>
+            _actionMenuModBar ?? throw new NotImplementedException("test supplied no action-menu modifier bar");
 
         public IToolbarOverlay Toolbar =>
             _toolbar ?? throw new NotImplementedException("test supplied no toolbar");
@@ -393,13 +399,16 @@ internal static class TestFakes
         /// </summary>
         public bool ButtonsBalanced => MouseDownCount == MouseUpCount;
 
+        public List<(InteractionAction Action, PhysicalPoint Point, IReadOnlySet<ModifierKey> Modifiers)> ModifiedClicks { get; } = new();
+        public int BareClickCount { get; private set; }
+        public List<(PhysicalPoint Point, int Dx, int Dy)> ModifiedScrolls { get; } = new();
+        public List<(int Dx, int Dy)> BareScrolls { get; } = new();
+
         public void MoveCursor(PhysicalPoint point)
         {
         }
 
-        public void LeftClick(PhysicalPoint point)
-        {
-        }
+        public void LeftClick(PhysicalPoint point) => BareClickCount++;
 
         public void RightClick(PhysicalPoint point)
         {
@@ -418,8 +427,44 @@ internal static class TestFakes
 
         public void MouseUp(PhysicalPoint point) => ButtonEvents.Add(("MouseUp", point));
 
-        public void Scroll(PhysicalPoint point, int deltaX, int deltaY)
+        public void Scroll(PhysicalPoint point, int deltaX, int deltaY) => BareScrolls.Add((deltaX, deltaY));
+
+        // The MODIFIED overloads throw on null/empty (the dispatcher must never pass them a
+        // nullable) and record otherwise:
+        public void LeftClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)
         {
+            if (modifiers is not { Count: > 0 })
+                throw new InvalidOperationException("dispatcher routed a bare click through the modified overload");
+            ModifiedClicks.Add((InteractionAction.LeftClick, point, modifiers));
+        }
+
+        public void RightClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)
+        {
+            if (modifiers is not { Count: > 0 })
+                throw new InvalidOperationException("dispatcher routed a bare click through the modified overload");
+            ModifiedClicks.Add((InteractionAction.RightClick, point, modifiers));
+        }
+
+        public void MiddleClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)
+        {
+            if (modifiers is not { Count: > 0 })
+                throw new InvalidOperationException("dispatcher routed a bare click through the modified overload");
+            ModifiedClicks.Add((InteractionAction.MiddleClick, point, modifiers));
+        }
+
+        public void DoubleClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)
+        {
+            if (modifiers is not { Count: > 0 })
+                throw new InvalidOperationException("dispatcher routed a bare click through the modified overload");
+            ModifiedClicks.Add((InteractionAction.DoubleClick, point, modifiers));
+        }
+
+        public void Scroll(PhysicalPoint point, int deltaX, int deltaY, IReadOnlySet<ModifierKey>? modifiers)
+        {
+            if (modifiers is not { Count: > 0 })
+                throw new InvalidOperationException("dispatcher routed a bare scroll through the modified overload");
+            ModifiedScrolls.Add((point, deltaX, deltaY)); // point recorded too (external review M3):
+            // a dispatcher mutant passing the wrong point to the modified scroll survives without it
         }
 
         public void SendKeyPress(ushort virtualKeyCode)

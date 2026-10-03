@@ -9,6 +9,8 @@ using EyeCtrl.App.Views;
 using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Controls;
 using EyeCtrl.Controls.Theme;
+using EyeCtrl.Core.ActionMenu;
+using EyeCtrl.Core.Models;
 using NFluent;
 using Xunit;
 
@@ -483,6 +485,44 @@ public class SettingsRowLayoutTests
         var composite = (IDwellComposite)SettingsWindow.CreateControl(
             new SeparatorSpec(), new SettingsAutoPagination.NoopDwellRegistrar(),
             RadiusPhysical, DwellMs, WideColumnWidth);
+
+        var first = composite.Children;
+        var second = composite.Children;
+        Check.That(first).IsEmpty();
+        Check.That(ReferenceEquals(first, second)).IsTrue();
+
+        var host = new System.Windows.Controls.Grid();
+        composite.Attach(host);
+        Check.That(host.Children.Count).IsEqualTo(1);
+    }
+
+    /// <summary>
+    /// <c>RingPreviewRow</c> is the third <see cref="IDwellComposite"/> implementer outside
+    /// EyeCtrl.Controls (the settings ring miniature), so the same two things the separator pin
+    /// above holds there hold here: <see cref="IDwellComposite.Children"/> hands out ONE cached
+    /// object (a readonly field, never a collection expression — <c>=&gt; []</c> would allocate
+    /// once per preview per gaze frame in <c>SettingsWindow.UpdateAllTargetPositions</c>), and the
+    /// list is EMPTY because the preview registers no dwell target — that emptiness is the
+    /// zero-target safety claim seen from the frame loop. The composite is built through
+    /// production's one construction path, so its real painting ran before this assertion.
+    /// <c>DwellCompositeChildrenStabilityTests</c> in EyeCtrl.Controls.Tests names this test in
+    /// its census.
+    /// </summary>
+    [StaFact]
+    public void ARingPreviewRow_HasCachedEmptyChildren_AndAttaches()
+    {
+        var spec = new RingPreviewSpec(
+            "am_preview",
+            () => RingPlan.Create(
+                new[] { InteractionAction.LeftClick, InteractionAction.Keyboard },
+                new[] { InteractionAction.LeftClick },
+                circleSize: 250),
+            "preview, not a control",
+            "runtime shows labels only while you dwell");
+
+        var composite = (IDwellComposite)SettingsWindow.CreateControl(
+            spec, new SettingsAutoPagination.NoopDwellRegistrar(), RadiusPhysical, DwellMs,
+            WideColumnWidth);
 
         var first = composite.Children;
         var second = composite.Children;

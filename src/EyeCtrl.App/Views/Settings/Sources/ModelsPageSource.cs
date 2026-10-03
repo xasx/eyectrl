@@ -70,6 +70,18 @@ internal sealed class ModelsPageSource : ISettingsPageSource
     /// <summary>Called by the shell when the user switches tabs, so re-entering Models lands on the list.</summary>
     public void ResetView() => _view = ModelsView.List;
 
+    /// <summary>
+    /// The list and the management view. The management view is real only while at least one
+    /// model is downloaded (delete rows plus a Back), so the reachability gate drives both
+    /// over a fixture with a model on disk — with an empty registry, Manage falls through to
+    /// the list by design.
+    /// </summary>
+    public IReadOnlyList<(string Name, Action Enter)> Views =>
+    [
+        (nameof(ModelsView.List), () => GoTo(ModelsView.List)),
+        (nameof(ModelsView.Manage), () => GoTo(ModelsView.Manage)),
+    ];
+
     private void GoTo(ModelsView view)
     {
         _view = view;

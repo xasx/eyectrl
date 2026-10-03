@@ -1,9 +1,27 @@
 namespace EyeCtrl.App.Views.Settings;
 
+using EyeCtrl.Core.ActionMenu;
 using EyeCtrl.Core.Models;
 
 internal sealed class ActionMenuPageSource : ISettingsPageSource
 {
+    /// <summary>
+    /// The jump row's dwell id, in the style of the QA picker's per-page <c>qa_back_{page}</c>
+    /// ids. It is the ONLY new registered target the preview adds — the ring miniature itself
+    /// registers nothing (the painter takes no registrar).
+    /// </summary>
+    internal const string RingJumpRowId = "am_jump_0";
+
+    /// <summary>
+    /// Default honesty copy for the preview page (adoption 2026-09-30; user-changeable later):
+    /// the miniature looks dwellable and is not, and the runtime only shows ring labels while a
+    /// target is being dwelled.
+    /// </summary>
+    internal const string RingPreviewCaptionNotAControl = "preview, not a control";
+
+    /// <inheritdoc cref="RingPreviewCaptionNotAControl"/>
+    internal const string RingPreviewCaptionLabels = "runtime shows labels only while you dwell";
+
     private readonly SettingsPageContext _ctx;
     public ActionMenuPageSource(SettingsPageContext ctx) => _ctx = ctx;
 
@@ -12,7 +30,14 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
     public IReadOnlyList<PageSpec> Build()
     {
         var a = _ctx.Settings.ActionMenu;
-        var rows = new List<SettingsRowSpec>();
+        var rows = new List<SettingsRowSpec>
+        {
+            // Leads the tab so the preview is one dwell away however many pages the toggles run
+            // to. The shell drops it together with the ring when the budget cannot show the
+            // preview (see RingJumpSpec), so it never lands on a page with no preview.
+            new RingJumpSpec(RingJumpRowId, "View ring preview", JumpToRingPreview,
+                ButtonKind.Default, Width: 360, Height: 100),
+        };
 
         // The tab's one real setting: which actions appear in the ring. Every InteractionAction
         // gets a toggle — including ScrollLeft/ScrollRight and MiddleClick, which ship OFF — so the
@@ -88,7 +113,29 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
             // 311 DIP of text at the live type ramp and clipped its tail inside 300 - 40 padding.
             ButtonKind.Reset, Width: 380, Height: 100));
 
+        // Trailing: the preview is appended AFTER every existing row, so the chunker can never
+        // move a toggle — pages holding existing rows are identical with and without it (G8).
+        // The captions live inside this row, beside the painting: a preview scaled to fill the
+        // height budget leaves no room for a caption row underneath, and a caption the fold
+        // clips is not an honesty caption.
+        rows.Add(new RingPreviewSpec(
+            "am_preview",
+            () => RingPlan.Create(a.VisibleActions, a.PrimaryActions, _ctx.Settings.Cursor.CircleSize),
+            RingPreviewCaptionNotAControl,
+            RingPreviewCaptionLabels));
+
         return [new PageSpec(rows)];
+    }
+
+    /// <summary>
+    /// Jumps to the trailing preview page. The page list is built before the shell sets
+    /// <c>TotalPages</c>, so the target is resolved at activation time — the jump row's delegate
+    /// runs on a dwell, long after the rebuild that rendered it.
+    /// </summary>
+    private void JumpToRingPreview()
+    {
+        var settings = _ctx.ViewModel.Settings;
+        settings.CurrentPage = Math.Max(0, settings.TotalPages - 1);
     }
 
     private static string FriendlyName(InteractionAction action) => action switch

@@ -21,11 +21,10 @@ internal static class ActionMenuGeometry
     /// </summary>
     internal const double ButtonRadius = LayoutConstants.ActionMenuButtonRadius;
 
-    /// <summary>Extra margin (DIP) around the button ring when sizing the window.</summary>
-    internal const int WindowSizeMargin = 20;
-
-    /// <summary>Side length (DIP) of the square menu window that fits the button ring.</summary>
-    internal static double WindowSize(double ringRadiusDip) => (ringRadiusDip + ButtonRadius) * 2 + WindowSizeMargin;
+    // WindowSize / WindowSizeMargin were deleted 2026-09-30 (T4): RingPlan.WindowSizeFor is the
+    // one definition of the square the ring fits — the runtime window, the settings preview and
+    // the fit scalar all read it there. The former copy here was the second site of the class of
+    // two-site drift the ring plan exists to kill.
 
     /// <summary>
     /// Converts a button's absolute physical-screen position to a window-relative canvas point,

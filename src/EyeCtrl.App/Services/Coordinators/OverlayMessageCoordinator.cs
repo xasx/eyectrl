@@ -137,6 +137,29 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
                                 : Context.Settings.Dwell.ActionMenuDwellMs),
                         edgeAnchor);
 
+                    // The LEFT-edge modifier bar. Its own try: a manager (or test fake) without
+                    // the slot must not cost the user the right-bar buttons above. The icon set
+                    // is rebuilt from the CURRENT latch on every show, so a stale highlight from
+                    // a previous session cannot survive a reopen. That reset relies on the VM
+                    // receiving ShowActionMenuMessage before this coordinator (VM registered at
+                    // construction, coordinator at Initialize) — a startup re-order would
+                    // surface as stale latched icons after reopen.
+                    try
+                    {
+                        var modAnchor = ScreenGeometry.LeftEdgeAnchor(RightEdgeInsetLogical, UIConstants.ButtonRadius);
+                        Context.OverlayManager.ActionMenuModBar.ShowButtons(
+                            ActionMenuModifierButtons.Definitions(
+                                msg.ShowBack
+                                    ? Context.Settings.Dwell.ManualSelectionActionMenuDwellMs
+                                    : Context.Settings.Dwell.ActionMenuDwellMs,
+                                Context.ActionMenuVM.LatchedModifiers),
+                            modAnchor);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error(ex, "Error showing action-menu modifier bar");
+                    }
+
                     if (msg.ResolvedControl == null) return;
                     var highlightVM = Context.TargetHighlightVM;
                     highlightVM.IsVisible = true;
@@ -176,7 +199,27 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
                     var bar = Context?.OverlayManager.EdgeButtonBar;
                     if (bar?.EdgeBarVm?.DefinitionFor(ActionMenuEdgeButtons.CloseId) is not null)
                         bar.Hide();
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Error hiding the action-menu edge bar");
+                }
 
+                // The LEFT-edge modifier bar hides UNCONDITIONALLY: nothing but the action menu
+                // ever owns it, so there is no ownership question — and a throwing mod bar (an
+                // overlay manager without the slot) must not prevent the hides around it
+                // (spec mechanism 9). Its own try keeps the fault here.
+                try
+                {
+                    Context?.OverlayManager.ActionMenuModBar.Hide();
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Error hiding action-menu modifier bar");
+                }
+
+                try
+                {
                     if (Context is not null && Context.TargetHighlightVM.IsVisible)
                     {
                         Context.TargetHighlightVM.IsVisible = false;

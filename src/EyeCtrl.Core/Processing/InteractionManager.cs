@@ -86,8 +86,9 @@ public class InteractionManager
     /// <see cref="InteractionState.Fixation"/> — keyed on the state transition, not the detector's end
     /// event: the keyboard toggle calls <see cref="OnFixationEnded"/> directly after setting
     /// <c>GazeEngine.SuppressFixation</c>, so the detector never raises an end (re-check N2) — EXCEPT an
-    /// exit to FreeLook while the ring is pinned at a live offer's P: that pin is released by the
-    /// offer's close instead, or by an offer closing while a later, unpinned run is forming.
+    /// exit to FreeLook while an offer is live: the ring stays at the offer's P (or is pinned back there
+    /// from a chrome settle's pin), and is released by the offer's close instead, or by an offer
+    /// closing while a later, unpinned run is forming.
     /// </summary>
     public event Action? ReleaseRing;
     /// <summary>
@@ -172,10 +173,12 @@ public class InteractionManager
     // the publish fences between this write and its CurrentState read, so one of the two always sees
     // the other's write and a ring pinned at an offer is never left with nobody releasing it.
     private long _publishedActivationOfferId;
-    // Where the ring's last pin came from. Both are written on the gaze thread only (every pin is
-    // raised there). _ringPinnedAtOffer: the pin is a live offer's P, so a fixation exit to FreeLook
-    // leaves it to the offer's close; a pin at a no-offer settle (chrome, say) is released at its run's
-    // end like any other (review F2). _ringPinnedThisRun: the current run pinned the ring, so an offer
+    // Where the ring's last pin came from, written wherever a pin is raised: the gaze thread, and
+    // SetState's exit edge (which runs on the dispatcher for the keyboard toggle and DeclineOffer —
+    // both teardowns whose clear releases a sample later, so a write there is short-lived).
+    // _ringPinnedAtOffer: the pin is a live offer's P, so a fixation exit to FreeLook leaves it to
+    // the offer's close; a pin at a no-offer settle (chrome, say) goes back to the offer's P at its
+    // run's end (review F2, re-check R-1). _ringPinnedThisRun: the current run pinned the ring, so an offer
     // closing mid-run leaves the user's own hold alone; an offer closing during a run that has not
     // pinned yet frees the old P's pin at once.
     private volatile bool _ringPinnedAtOffer;
@@ -422,12 +425,16 @@ public class InteractionManager
             // run flips FreeLook/Fixation every ~0.3 s while the user holds the button, and a ring that
             // released and re-pinned on every flip danced over the button). The release then comes
             // from the offer's close (PublishActivationOfferState). It comes here when no offer is
-            // alive, when the pin is not the offer's (a chrome settle during the linger, review F2),
-            // and on every exit that is not to FreeLook.
-            bool keepOfferPin = newState == InteractionState.FreeLook
-                && _ringPinnedAtOffer
+            // alive, and on every exit that is not to FreeLook. An exit to FreeLook from a pin that
+            // is NOT the offer's (a toolbar settle during the linger, review F2) goes back to the
+            // offer's P instead (re-check R-1): released, the ring would follow the gaze over the
+            // button for the whole dwell if the user's next stop is the button. The pin is raised
+            // before StateChanged(FreeLook), so the VM still accepts it.
+            bool toFreeLookWithOffer = newState == InteractionState.FreeLook
                 && Volatile.Read(ref _publishedActivationOfferId) != 0;
-            if (!keepOfferPin)
+            if (toFreeLookWithOffer && !_ringPinnedAtOffer && _activationOffers?.CurrentOffer is { } offer)
+                RaisePinRing(offer.Point, atOffer: true);
+            else if (!toFreeLookWithOffer || !_ringPinnedAtOffer)
                 ReleaseRing?.Invoke();
         }
         StateChanged?.Invoke(newState);

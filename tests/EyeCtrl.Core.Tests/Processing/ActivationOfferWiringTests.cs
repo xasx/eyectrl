@@ -39,6 +39,7 @@ public class ActivationOfferWiringTests
         public int Pinned;
         public List<PhysicalPoint> PinPoints { get; } = new();
         public int Released;
+        public int Settles;
         public List<PhysicalPoint> Menus { get; } = new();
 
         private long _us;
@@ -59,6 +60,7 @@ public class ActivationOfferWiringTests
             Im.ActivationOfferClosed += () => Closed++;
             Im.PinRing += point => { Pinned++; PinPoints.Add(point); };
             Im.ReleaseRing += () => Released++;
+            Im.FixationSettled += _ => Settles++;
             Im.ShowActionMenu += point => Menus.Add(point);
         }
 
@@ -268,6 +270,9 @@ public class ActivationOfferWiringTests
         Check.That(h.Offers.CurrentOffer!.Id).IsEqualTo(offer.Id);
         Check.That(h.PinPoints).ContainsExactly(P);
         Check.That(h.Released).IsEqualTo(0);
+        // Re-check N2: the settle event is not the pin. Both settles are reported with offers wired,
+        // the near miss included. Mutation: raise FixationSettled only without an engine → 0.
+        Check.That(h.Settles).IsEqualTo(2);
     }
 
     [Fact]
@@ -332,12 +337,13 @@ public class ActivationOfferWiringTests
     }
 
     [Fact]
-    public void AChromeSettleDuringTheLinger_PinsThere_AndIsReleasedAtItsRunsEnd()
+    public void AChromeSettleDuringTheLinger_PinsThere_AndGoesBackToPAtItsRunsEnd()
     {
-        // Review F2: a settle on the toolbar makes no offer and leaves the older offer up. The ring
-        // pins on the toolbar ("you're holding"), and that pin — not the offer's — must be released
-        // when the user leaves the toolbar, not frozen there until the old offer expires.
-        // Mutation: keep any pin through an exit to FreeLook while an offer lives → Released stays 0.
+        // Review F2 / re-check R-1: a settle on the toolbar makes no offer and leaves the older offer
+        // up. The ring pins on the toolbar ("you're holding"), and that pin — not the offer's — must
+        // not stay frozen there once the user leaves the toolbar: the ring goes back to the live
+        // offer's P, and is released when the offer closes. Mutation: keep any pin through an exit to
+        // FreeLook while an offer lives → no third pin.
         using var h = new Harness();
         var toolbar = new PhysicalRect(1500, 0, 1000, 300);
         h.Im.SetActivationChromeZones(toolbar);
@@ -353,7 +359,35 @@ public class ActivationOfferWiringTests
         h.FeedAway(samples: 2);                               // the user leaves the toolbar
 
         Check.That(h.Offers.CurrentOffer).IsNotNull();        // the old offer still lingers...
-        Check.That(h.Released).IsEqualTo(1);                  // ...but the toolbar pin is gone
+        Check.That(h.PinPoints).ContainsExactly(P, onToolbar, P);   // ...and the ring is back at its P
+        Check.That(h.Released).IsEqualTo(0);
+
+        h.FeedAway(samples: 30);                              // the linger runs out
+
+        Check.That(h.Closed).IsEqualTo(1);
+        Check.That(h.Released).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void FromTheToolbarStraightToTheButton_TheRingWaitsAtP_ForTheWholeDwell()
+    {
+        // Re-check R-1, the user's scenario: a toolbar settle inside the linger, then straight onto
+        // the button. The button run's settle is OnButton and never pins, so a ring RELEASED on leaving
+        // the toolbar followed the gaze over the button for the whole dwell. It must wait at P.
+        // Mutation: release instead of re-pinning on that exit → Released is 1 and no third pin.
+        using var h = new Harness();
+        var toolbar = new PhysicalRect(1500, 0, 1000, 300);
+        h.Im.SetActivationChromeZones(toolbar);
+        var offer = h.SettleAt(P);
+        var onToolbar = new PhysicalPoint(2000, 150);
+
+        h.Feed(onToolbar, samples: 20);                       // a no-offer settle inside the linger
+        h.Feed(offer.Button, samples: 25);                    // straight to the button: 750 ms
+
+        Check.That(h.Fired).HasSize(1);
+        Check.That(h.Fired[0].Id).IsEqualTo(offer.Id);
+        Check.That(h.PinPoints).ContainsExactly(P, onToolbar, P);
+        Check.That(h.Released).IsEqualTo(0);                  // never followed the gaze onto the button
     }
 
     [Fact]

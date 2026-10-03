@@ -45,13 +45,15 @@ public class DwellClientTests
             inBufferSize: 4096, outBufferSize: 4096);
         var serverTask = Task.Run(async () =>
         {
-            await squatter.WaitForConnectionAsync();
-            // The client may reject our identity and disconnect before or below this write —
-            // a broken pipe here IS the behavior under test (it never reads from a squatter),
-            // so a failed write is a pass-shaped outcome, not an error. The reject raced the
-            // write on 2 of 3 CI runs; locally the write always won.
+            // The client may reject our identity and disconnect before, during or after this
+            // connect-and-write — a closed or broken pipe here IS the behavior under test (it never
+            // reads from a squatter), so it is a pass-shaped outcome, not an error. The reject raced
+            // the write on 2 of 3 CI runs, and on main 417c5d6e (2026-10-03) it landed before the
+            // connect completed: WaitForConnectionAsync threw "The pipe is being closed", which the
+            // try used to miss. Locally the write always won.
             try
             {
+                await squatter.WaitForConnectionAsync();
                 using var writer = new System.IO.StreamWriter(squatter, new System.Text.UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
                 await writer.WriteLineAsync("""{"type":"activated","id":"btn"}""");
             }

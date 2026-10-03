@@ -206,6 +206,10 @@ public class InteractionManager
     /// the first samples of startup). Read on the gaze thread; null means no offers at all.</summary>
     public ActivationOfferEngine? ActivationOffers => _activationOffers;
 
+    /// <summary>True while the button shows an offer, i.e. from its show to its close as published
+    /// here. The gaze engine holds the mouse pointer still for that span, as the ring is.</summary>
+    public bool HasPublishedActivationOffer => Volatile.Read(ref _publishedActivationOfferId) != 0;
+
     /// <summary>
     /// Attaches the offer engine (gaze thread; GazeEngine applies its configure request here). The
     /// chrome zones and the suspension state the app already published are re-applied, and the button

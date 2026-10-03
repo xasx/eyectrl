@@ -28,6 +28,7 @@ public class ActivationOfferWiringTests
     private sealed class Harness : IDisposable
     {
         public ScriptedGazeProvider Provider { get; } = new();
+        public RecordingInputSimulator Input { get; } = new();
         public GazeEngine Engine { get; }
         public EyeCtrlSettings Settings { get; }
         public InteractionManager Im => Engine.InteractionManager;
@@ -52,7 +53,7 @@ public class ActivationOfferWiringTests
             settings.Dwell.FixationDetectionMs = 300;
             settings.Dwell.ActivationButtonDwellMs = 700;
             Settings = settings;
-            Engine = new GazeEngine(Provider, new RecordingInputSimulator(), settings, effectiveSettings: effective);
+            Engine = new GazeEngine(Provider, Input, settings, effectiveSettings: effective);
             Engine.ConfigureActivationOffers(Screen, scale: 2.0);
 
             Im.ActivationOfferFired += (offer, _) => Fired.Add(offer);
@@ -429,6 +430,46 @@ public class ActivationOfferWiringTests
         Check.That(h.Im.CurrentState).IsEqualTo(InteractionState.Fixation);   // ...inside the far run
         Check.That(h.Shown).HasSize(1);                       // ...before its settle
         Check.That(h.Released).IsEqualTo(1);
+    }
+
+    // ── The mouse pointer holds still while the button is up (live check 2026-10-03) ──────────
+
+    private static List<PhysicalPoint> Moves(Harness h) =>
+        h.Input.Calls.Where(c => c.Action == "Move").Select(c => c.Point).ToList();
+
+    [Fact]
+    public void ThePointerDoesNotMove_WhileTheUserDwellsOnTheButton()
+    {
+        // The user: "the cursor shall not move on fixation either". Moving to the button ends the
+        // fixation (FreeLook), and FreeLook used to drag the pointer along with the gaze. Mutation:
+        // ignore the live offer in GazeEngine's pointer rule → the pointer moves onto the button.
+        using var h = new Harness();
+        var offer = h.SettleAt(P);
+        int movesBefore = Moves(h).Count;
+
+        h.Feed(offer.Button, samples: 25);                    // the whole dwell, through the fire
+
+        Check.That(h.Fired).HasSize(1);
+        Check.That(Moves(h).Count).IsEqualTo(movesBefore);
+    }
+
+    [Fact]
+    public void ThePointerFollowsTheGazeAgain_OnceTheOfferCloses()
+    {
+        // The hold lasts exactly as long as the offer: after the linger runs out, FreeLook moves the
+        // pointer as before. Mutation: never move the pointer in FreeLook → no move after the close.
+        using var h = new Harness();
+        h.SettleAt(P);
+        var away = new PhysicalPoint(3000, 600);
+
+        h.FeedSaccades(away, new PhysicalPoint(600, 1800), samples: 30);   // 900 ms: the linger ends
+        Check.That(h.Closed).IsEqualTo(1);
+        int movesAtClose = Moves(h).Count;
+
+        h.FeedSaccades(away, new PhysicalPoint(600, 1800), samples: 2);
+
+        Check.That(Moves(h).Count).IsEqualTo(movesAtClose + 2);
+        Check.That(Moves(h)[^1]).IsEqualTo(new PhysicalPoint(600, 1800));
     }
 
     // ── Expiry ───────────────────────────────────────────────────────────────

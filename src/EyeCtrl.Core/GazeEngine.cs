@@ -902,9 +902,18 @@ public class GazeEngine : IDisposable
 
         // RepeatMode keeps the cursor following gaze (like Dragging): the dwell-to-act click
         // lands at the fixated point, so the user must see where the pointer is.
-        if (interactionState is InteractionState.FreeLook
-            or InteractionState.Dragging
-            or InteractionState.RepeatMode)
+        // FreeLook does NOT move the pointer while an activation offer is up (live check
+        // 2026-10-03, the user: "the cursor shall not move on fixation either"): holding the button
+        // flips the run FreeLook/Fixation every ~0.3 s, and the pointer jumped toward the button in
+        // every FreeLook gap. Like the ring, it stays where the fixation left it until the offer
+        // closes. Read after this sample's offer update, so a close frees it on the same sample.
+        bool pointerFollows = interactionState switch
+        {
+            InteractionState.FreeLook => !InteractionManager.HasPublishedActivationOffer,
+            InteractionState.Dragging or InteractionState.RepeatMode => true,
+            _ => false,
+        };
+        if (pointerFollows)
         {
             _inputSimulator.MoveCursor(filtered);
         }

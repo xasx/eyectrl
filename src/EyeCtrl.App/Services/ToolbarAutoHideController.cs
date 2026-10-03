@@ -72,14 +72,54 @@ public sealed class ToolbarAutoHideController
     // "no active run" semantics (that bug caused both test failures and instant-hide-at-launch).
     public enum State { Visible, Hidden }
     private const long Unseeded = long.MinValue;
+    // Longest stretch without a valid sample (invalid frames, or no frames at all) the Hidden-case
+    // summon run survives; measured between the valid samples on either side of it. 400 ms keeps
+    // the longest invalid stretch in the user's 443 s recording (302 ms) without being anything
+    // like a walk-away: longer means the user was not there for the run, so the next valid sample
+    // starts a fresh one.
+    private const long SummonGapCapUs = 400_000;
     private volatile State _state = State.Visible;
     private long _hideAnchorUs = Unseeded;   // Visible: timestamp of the start of the current off-toolbar run (or last on-toolbar sample)
     private long _summonRunUs = Unseeded;     // Hidden:  start of the current sustained past-edge run
     private volatile bool _suspended;
     private volatile bool _paused;
 
+    // Diagnostic-transition trackers (gaze thread only, Feed is their only writer). See _diagnostics.
+    private bool _lastSampleOnToolbar;
+    private bool _lastSampleValid = true;
+
+    // Summon-start lines are persist-gated like the reset lines: a gaze flickering across the
+    // threshold starts and resets a run every few samples, and an ungated start line would log at
+    // up to half the sample rate. The flag marks the CURRENT run as logged; cleared on run start,
+    // on the threshold transition and by nothing else.
+    private bool _summonStartLogged;
+
+    // The summon margin band (past the screen edge, short of the summon threshold — see
+    // IsInsideSummonMarginBand). Entry is logged only after the band has held for the same 100 ms
+    // the run lines use, so flicker at the threshold logs nothing; invalid samples freeze the band
+    // state (a blink while hovering must not read as "left the band"). Both gaze-thread-only.
+    private long? _marginBandSinceUs;
+    private bool _marginBandLogged;
+
+    // Timestamp of the last VALID sample seen while Hidden; null on entry to Hidden. The Hidden
+    // case returns early on invalid samples (spec §State machine: "Invalid samples reset neither
+    // timer"), so this is what measures the gap that ends a summon run: on the next valid sample, a
+    // stretch longer than SummonGapCapUs means the user was away — invalid frames, or no frames at
+    // all, because a walk-away's TIMED_OUT storm sends neither — and the run is killed rather than
+    // resumed. Gaze-thread only.
+    private long? _lastValidHiddenUs;
+
     // ── Output seam ──
     private IToolbarVisibility? _visibility;
+
+    // Optional diagnostic sink (production wiring: Serilog; tests: null). The 2026-09-26 field
+    // failure — a hide with no summon for 25 s of edge gaze — was undiagnosable from the log
+    // because the summon run's start/reset and every state write were silent. These lines exist
+    // to make one real run decisive. Every call site is edge-triggered or persist-gated, never
+    // per sample: state writes (SetPaused/SetSuspended, change-only), sample-validity flips,
+    // toolbar-rect enter/leave, summon-run start/reset/threshold gated to runs of ≥100 ms, and
+    // the margin-band enter/leave gated to holds of ≥100 ms.
+    private Action<string>? _diagnostics;
 
     public ToolbarAutoHideController(bool enabled, string edge, double screenW, double screenH,
         PhysicalRect toolbarRect, int hideDelayMs, int summonDelayMs, double offScreenMarginPx,
@@ -96,6 +136,11 @@ public sealed class ToolbarAutoHideController
         _calibrationActive = calibrationActive;
         _toScreen = toScreen;
     }
+
+    /// <summary>Binds the diagnostic sink. Call once during wiring, before the first sample.</summary>
+    internal void AttachDiagnostics(Action<string> sink) => _diagnostics = sink;
+
+    private void Diag(string message) => _diagnostics?.Invoke(message);
 
     /// <summary>Binds the output seam. Real wiring passes an OverlayManager adapter; tests pass a fake.</summary>
     public void Attach(IToolbarVisibility visibility)
@@ -122,27 +167,22 @@ public sealed class ToolbarAutoHideController
         // measured 129 such re-asserts against 3 real hides.
         if (paused == _paused) return;
         _paused = paused;
+        Diag($"paused={paused} (state={_state})");
 
-        if (paused)
-        {
-            // Paused-trap guard (2026-09-24: 1 h 43 min stranded in Paused): the toolbar IS the
-            // resume target, so it must be reachable. Recover from hidden so a pause that lands
-            // while the band is away still leaves the toggle on screen; Feed's paused guard then
-            // keeps it up. Both anchors reset so the hide countdown starts fresh on resume rather
-            // than firing the instant the user unpauses.
-            if (_state == State.Hidden && _enabled && !_suspended)
-                _visibility?.ForceShow();
-            _state = State.Visible;
-            Volatile.Write(ref _hideAnchorUs, Unseeded);
-            Volatile.Write(ref _summonRunUs, Unseeded);
-            return;
-        }
-
-        // Resuming while hidden is only reachable through a hide that raced the pause (or the test
-        // seam). Re-assert the hide so the seam and toolbar dwell stay consistent with the Hidden
-        // state. HideToolbar does NOT touch the pause indicator under the strip-neutral contract
-        // (spec H1): the paused argument only reaches the adapter's log, and the strip's own
-        // mirror in ToolbarLifecycleCoordinator commands it on the same StateChangedMessage.
+        // Paused hides like any other state (owner decision 2026-09-26, after that day's
+        // instrumented run; it reverses the 2026-09-24 trap guard): the toolbar auto-hides while
+        // paused, and the way back is the edge summon the pause-indicator strip marks, then dwell
+        // Play. The 2026-09-24 log (the stranding the trap guard answered) shows 10 paused summons
+        // and 11 paused auto-hides, and no resume followed any of them — the summon worked. No
+        // summon → Play → resume has been observed on this code yet. The tray ForceShow remains
+        // the non-gaze escape hatch.
+        //
+        // If the band is already HIDDEN, no hide/show transition will fire to carry the pause
+        // change into the visibility seam — re-assert the hide, keeping the seam and toolbar dwell
+        // consistent with the Hidden state (dwell re-deactivated, window re-hidden). HideToolbar
+        // does NOT touch the pause indicator under the strip-neutral contract (spec H1): the
+        // paused argument only reaches the adapter's log, and the strip's own mirror in
+        // ToolbarLifecycleCoordinator commands it on the same StateChangedMessage.
         if (_state == State.Hidden && _enabled && !_suspended)
             _visibility?.HideToolbar(paused);
     }
@@ -151,6 +191,7 @@ public sealed class ToolbarAutoHideController
     {
         if (suspended == _suspended) return;
         _suspended = suspended;
+        Diag($"suspended={suspended} (state={_state})");
         if (suspended)
         {
             // Recover from hidden so the user isn't stranded while the Settings window is up (the
@@ -254,16 +295,32 @@ public sealed class ToolbarAutoHideController
         if (_calibrationActive?.Invoke() == true)
             return _state; // suspended during calibration
 
+        // Sample validity is tracked in BOTH states, edge-triggered. While Hidden the summon
+        // decision reads raw coordinates, so "never attempted" must be distinguishable from "gaze
+        // was lost" and from "hovering short of the threshold" — the silent six minutes of
+        // 2026-09-26 23:19–23:25 (Hidden, no line at all) is exactly what Visible-only tracking
+        // could not see.
+        if (!sample.IsValid)
+        {
+            if (_lastSampleValid)
+                Diag("gaze samples went INVALID (hide/summon tests skip these)");
+            _lastSampleValid = false;
+        }
+        else if (!_lastSampleValid)
+        {
+            Diag("gaze samples valid again");
+            _lastSampleValid = true;
+        }
+
         switch (_state)
         {
             case State.Visible:
             {
-                // Paused-trap guard: while paused the toolbar is the resume target, so it never
-                // hides and never runs the hide countdown. SetPaused(true) reset the anchor, and on
-                // resume the first off-toolbar sample seeds a fresh 5 s window — unpausing does not
-                // hide the band the instant the user looks away.
-                if (_paused)
-                    break;
+                // Paused runs the same countdown as unpaused (owner decision 2026-09-26, reversing
+                // the 2026-09-24 trap guard): the band hides under paused gaze exactly as it does
+                // unpaused, and the Hidden case below summons it back with no pause gate. The way
+                // back while paused: past-edge gaze (the pause-indicator strip marks that edge),
+                // then dwell the Play toggle.
 
                 // The rect is screen geometry captured from the live window, but the sample arrives
                 // pre-calibration (GazeSampled fires before the calibration transform in
@@ -272,7 +329,8 @@ public sealed class ToolbarAutoHideController
                 // raw coordinates: off-screen gaze is outside the transform's fitted domain.
                 if (!sample.IsValid)
                 {
-                    // Blink: ignored, does NOT reset the hide countdown (per spec).
+                    // Blink: ignored, does NOT reset the hide countdown (per spec). The validity
+                    // flip already logged above.
                 }
                 else
                 {
@@ -281,12 +339,20 @@ public sealed class ToolbarAutoHideController
                         : _toScreen(new PhysicalPoint(sample.X, sample.Y));
                     if (_geometry.ToolbarRect.Contains(probe.X, probe.Y))
                     {
+                        if (!_lastSampleOnToolbar)
+                            Diag("gaze entered the toolbar rect");
+                        _lastSampleOnToolbar = true;
+
                         // Gaze on toolbar — anchor to "now" so the hide countdown measures time since
                         // the LAST on-toolbar sample (a later off-toolbar run resumes the count from here).
                         Volatile.Write(ref _hideAnchorUs, timestampUs);
                     }
                     else
                     {
+                        if (_lastSampleOnToolbar)
+                            Diag("gaze left the toolbar rect");
+                        _lastSampleOnToolbar = false;
+
                         // Off-toolbar run. Seed the anchor on the first such sample, then measure elapsed.
                         var anchor = Volatile.Read(ref _hideAnchorUs);
                         if (anchor == Unseeded)
@@ -296,8 +362,10 @@ public sealed class ToolbarAutoHideController
                         }
                         if (timestampUs - anchor >= _hideDelayUs)
                         {
+                            Diag($"hide fired after {(timestampUs - anchor) / 1000} ms off-toolbar");
                             _state = State.Hidden;
                             Volatile.Write(ref _summonRunUs, Unseeded);
+                            _lastValidHiddenUs = null; // the first Hidden sample measures its own gap
                             _visibility.HideToolbar(_paused);
                         }
                     }
@@ -306,6 +374,52 @@ public sealed class ToolbarAutoHideController
             }
 
             case State.Hidden:
+            {
+                // A blink is not a broken summon run (spec §State machine: "Invalid samples reset
+                // neither timer", and this is now the only gaze way out of Paused, so forgiving
+                // beats precise): skip the run test and let the run keep counting through the gap.
+                if (!sample.IsValid)
+                    return _state;
+
+                // The gap that DOES end a run is measured between the valid samples on either side
+                // of it, so it covers invalid frames and frame silence alike (a walk-away ends in a
+                // TIMED_OUT storm, where no callbacks arrive at all). A run that straddles a gap
+                // longer than SummonGapCapUs is dead; this sample seeds a fresh one below.
+                if (_lastValidHiddenUs is long lastValid
+                    && timestampUs - lastValid > SummonGapCapUs
+                    && Volatile.Read(ref _summonRunUs) != Unseeded)
+                {
+                    Volatile.Write(ref _summonRunUs, Unseeded);
+                    _summonStartLogged = false;
+                }
+                _lastValidHiddenUs = timestampUs;
+
+                // The summon margin band: past the screen edge but short of the summon threshold
+                // (top: -50 ≤ raw y < 0). This is where a user summaring too shallowly sits — the
+                // state the log previously could not distinguish from not trying at all. Entry is
+                // logged only after the band has held 100 ms, exit only if entry logged, and
+                // invalid samples freeze the band state (a blink while hovering is not a leave).
+                if (sample.IsValid)
+                {
+                    var inBand = IsInsideSummonMarginBand(sample);
+                    if (inBand)
+                    {
+                        _marginBandSinceUs ??= timestampUs;
+                        if (!_marginBandLogged && timestampUs - _marginBandSinceUs.Value >= 100_000)
+                        {
+                            _marginBandLogged = true;
+                            Diag($"raw gaze inside the summon margin band for 100+ ms (raw y={sample.Y:F0}, x={sample.X:F0}, margin={_offScreenMarginPx:F0}) — short of the summon threshold");
+                        }
+                    }
+                    else if (_marginBandSinceUs is not null)
+                    {
+                        if (_marginBandLogged)
+                            Diag("raw gaze left the summon margin band");
+                        _marginBandLogged = false;
+                        _marginBandSinceUs = null;
+                    }
+                }
+
                 if (IsPastDockedEdge(sample))
                 {
                     var runStart = Volatile.Read(ref _summonRunUs);
@@ -313,20 +427,47 @@ public sealed class ToolbarAutoHideController
                     {
                         runStart = timestampUs;
                         Volatile.Write(ref _summonRunUs, runStart);
+                        _summonStartLogged = false;
                     }
                     if (timestampUs - runStart >= _summonDelayUs)
                     {
                         _state = State.Visible;
                         Volatile.Write(ref _summonRunUs, Unseeded);
                         Volatile.Write(ref _hideAnchorUs, timestampUs); // start the post-summon hide countdown fresh
+                        _summonStartLogged = false;
+                        _marginBandLogged = false;
+                        _marginBandSinceUs = null;
+                        Diag("summon threshold reached");
                         _visibility.ShowToolbar();
+                    }
+                    else if (!_summonStartLogged && timestampUs - runStart >= 100_000)
+                    {
+                        // Gated to runs of ≥100 ms exactly like the reset line below: a flicker
+                        // across the threshold starts a run per sample-pair, and an ungated start
+                        // line would log at up to half the sample rate. (2cc6745c's commit message
+                        // wrongly claimed this gate already covered the start line.)
+                        _summonStartLogged = true;
+                        Diag($"summon run started (raw y={sample.Y:F0}, x={sample.X:F0}, margin={_offScreenMarginPx:F0})");
                     }
                 }
                 else
                 {
-                    Volatile.Write(ref _summonRunUs, Unseeded); // condition broken — reset summon countdown
+                    // Condition broken — reset the summon countdown. Only a run that lasted ≥100 ms
+                    // is worth a line; together with the gated start line, threshold flicker is
+                    // silent and a real attempt leaves exactly two lines (started + reset). The
+                    // sample is guaranteed valid here (invalid samples returned above), so this
+                    // line can never print the provider's invalid sentinel (raw y=0, x=0) as a
+                    // position — the misleading "jump to the top-left corner" the r1 review named.
+                    var runStart = Volatile.Read(ref _summonRunUs);
+                    if (runStart != Unseeded)
+                    {
+                        Volatile.Write(ref _summonRunUs, Unseeded);
+                        if (timestampUs - runStart >= 100_000)
+                            Diag($"summon run reset after {(timestampUs - runStart) / 1000} ms (raw y={sample.Y:F0}, x={sample.X:F0})");
+                    }
                 }
                 break;
+            }
         }
 
         return _state;
@@ -355,6 +496,23 @@ public sealed class ToolbarAutoHideController
             "left"   => s.X < -_offScreenMarginPx,
             "right"  => s.X > g.ScreenW + _offScreenMarginPx,
             _        => false, // unknown/malformed edge never summons (defensive)
+        };
+    }
+
+    // Same raw-coordinate domain and one-geometry-read discipline as IsPastDockedEdge: the band
+    // between the screen edge and the summon threshold (top: -50 ≤ raw y < 0). Only the Hidden
+    // case consults it, for the persist-gated margin-band line.
+    private bool IsInsideSummonMarginBand(GazePoint s)
+    {
+        if (!s.IsValid) return false;
+        var g = _geometry;
+        return _edgeKey switch
+        {
+            "top"    => s.Y < 0 && s.Y >= -_offScreenMarginPx,
+            "bottom" => s.Y > g.ScreenH && s.Y <= g.ScreenH + _offScreenMarginPx,
+            "left"   => s.X < 0 && s.X >= -_offScreenMarginPx,
+            "right"  => s.X > g.ScreenW && s.X <= g.ScreenW + _offScreenMarginPx,
+            _        => false,
         };
     }
 

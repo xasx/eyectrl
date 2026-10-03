@@ -91,7 +91,7 @@ The controller runs a per-sample state machine with two states. All inputs are c
 
 - Both timers are run-length: any sample that breaks the condition resets that timer to zero. A glance back onto the toolbar resets the hide countdown; a sample that returns valid-and-onscreen (off the hot edge) resets the summon countdown.
 - The only exit from `HIDDEN` is the off-screen summon. `isOnToolbar` is **not** evaluated in `HIDDEN` (otherwise the toolbar would pop back the instant the user's gaze wanders across its former location).
-- Invalid samples reset neither timer.
+- Invalid samples reset neither timer — except that the summon run ends when the gap between two valid Hidden samples exceeds 400 ms: the gap is measured from the last valid sample, so it covers invalid frames and frame silence alike (a walk-away is not a blink; 2026-09-27, reviews F2/R-b).
 
 **Defaults** (private `const`, easy to tune):
 
@@ -144,7 +144,7 @@ Rendering: a new minimal overlay window, `PauseIndicatorWindow`, derived from `O
 2. **Settings window open** — (Keyboard-open no longer suspends auto-hide since 2026-09-10 — see `2026-09-10-keyboard-action-and-edge-toggle-design.md` B2, ledger #9; its escape is the keyboard edge bar's Close.) Auto-hide is **suspended** while the Settings window is open. The `_settingsOpen` flag is a `private volatile bool` on `EventCoordinator` (`EventCoordinator.cs:41-42`), not accessible to a standalone controller. Mechanism: `EventCoordinator` calls `controller.Suspend(true)` when it becomes true and `controller.Suspend(false)` when it clears — mirroring the existing `OnSettingsChanged` ping pattern already used to refresh the cached rect. While suspended: no hide transitions occur; if currently hidden, the toolbar is force-shown so the user is not stranded. Re-evaluates when it closes.
 3. **Calibration running** — suspended when `_context.CalibrationService.IsSessionActive` (`CalibrationService.cs:45`) is true. (The eye-care wiring does not itself check calibration — it delegates to `EyeCareService`; here we name the explicit gate.) No hide/summon during calibration.
 4. **Toolbar re-summoned while paused** — edge bar hides, the full toolbar (with the resume button) shows.
-5. **Invalid samples** — ignored for both hide and summon. They reset neither timer, so a brief blink mid-idle-count does not restart the 5s.
+5. **Invalid samples** — ignored for both hide and summon. They reset neither timer, so a brief blink mid-idle-count does not restart the 5s. The summon run tolerates at most 400 ms between valid Hidden samples — measured from the last valid sample, so invalid frames and frame silence count the same; a longer gap ends the run, so a walk-away does not summon on return (2026-09-27, reviews F2/R-b).
 6. **Gaze resumes onto toolbar** — resets the hide countdown (no flicker).
 7. **App startup** — controller starts in `VISIBLE`; it waits one layout pass before caching the rect (no premature hide).
 8. **`IsDocked` toggled at runtime** — when the user changes docked/floating or the dock edge in settings, `OnSettingsChanged` fires. The controller re-evaluates `IsEnabled` (`IsDocked` may have flipped to false → controller disables, force-shows the toolbar), and if still enabled refreshes its cached rect and active edge direction.

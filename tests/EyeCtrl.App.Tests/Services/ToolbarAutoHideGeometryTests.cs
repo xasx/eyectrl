@@ -28,8 +28,12 @@ public class ToolbarAutoHideGeometryTests
         c.Attach(vis);
         c.HideForTest(vis);   // only a hidden toolbar can be summoned
 
-        // Two samples: the first seeds the summon anchor, the second clears the delay.
+        // Three samples: the first seeds the summon anchor, the middle one keeps every gap well
+        // inside the 400 ms cap, and the last clears the delay. Two samples exactly 400 ms apart
+        // would sit ON the gap cap, making every geometry test depend on that boundary (the
+        // boundary itself is pinned explicitly in ToolbarPausedReturnTests).
         c.Feed(new GazePoint(x, y, 0, true), 0);
+        c.Feed(new GazePoint(x, y, 200_000, true), 200_000);
         c.Feed(new GazePoint(x, y, 400_000, true), 400_000);
         return vis.Shown;
     }

@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels.Messages;
+using Serilog;
 
 /// <summary>
 /// Owns the toolbar lifecycle surface of <see cref="EventCoordinator"/>: the auto-hide controller,
@@ -190,7 +191,9 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
         if (Context is null || _autoHide == null) return;
         Context.Dispatcher.BeginInvoke(new Action(() =>
         {
-            _autoHide.UpdateToolbarRect(CaptureToolbarRect());
+            var rect = CaptureToolbarRect();
+            Log.Information("Toolbar auto-hide rect refreshed: {Rect}", rect);
+            _autoHide.UpdateToolbarRect(rect);
         }), System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
@@ -272,7 +275,17 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
 
         var vis = new ToolbarVisibilityAdapter(Context.OverlayManager, Context.Dispatcher, Context.ToolbarVM);
         controller.Attach(vis);
+        // The summon-failure diagnosis of 2026-09-26 hinged on the summon run's start/reset being
+        // silent; wire the controller's transition lines into the same log so one real run is
+        // decisive. See ToolbarAutoHideController._diagnostics.
+        controller.AttachDiagnostics(message => Log.Information("Toolbar auto-hide: {Detail}", message));
         vis.VisibilityChanged += visible => ToolbarVisibilityChanged?.Invoke(visible);
+
+        Log.Information(
+            "Toolbar auto-hide wired: edge={Edge} enabled={Enabled} rect={Rect} screen={W}x{H} hideMs=5000 summonMs=400 margin=50",
+            s.DockedEdge, enabled, toolbarRect,
+            System.Windows.SystemParameters.PrimaryScreenWidth * DpiHelper.ScaleX,
+            System.Windows.SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY);
 
         _autoHide = controller;
         _visibility = vis;

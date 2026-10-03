@@ -22,7 +22,10 @@ using EyeCtrl.ViewModels;
 /// The visible Play button went dead and the visible SelectionMode button paused the app. The
 /// targets are published once (<see cref="ToolbarWindow.UpdateGaze"/> → the VM's
 /// <c>UpdateButtonScreenPosition</c>) and the coordinator's gaze route stops delivering after the
-/// latch, so a layout shift is never repaired.
+/// latch, so a layout shift is never repaired. The hint has since been removed outright (owner
+/// call, 2026-09-26: the reserved slot cost width on every state), so this suite now guards the
+/// wider invariant it was a special case of: nothing pause-state-dependent lives in the band's
+/// flow at all — the icon swap changes no geometry.
 /// </para>
 ///
 /// <para>
@@ -63,11 +66,11 @@ public class ToolbarPausedTargetAlignmentTests
     private static readonly Rect WorkAreaDip = new(0, 0, 1920, 1200);
 
     [StaTheory]
-    [InlineData(false, "Top")]     // unpaused → the hint appears (runtime pause)
+    [InlineData(false, "Top")]     // unpaused → paused (runtime pause)
     [InlineData(false, "Bottom")]
     [InlineData(false, "Left")]
     [InlineData(false, "Right")]
-    [InlineData(true, "Top")]      // paused → the hint disappears (first resume after --paused)
+    [InlineData(true, "Top")]      // paused → unpaused (first resume after --paused)
     [InlineData(true, "Bottom")]
     [InlineData(true, "Left")]
     [InlineData(true, "Right")]
@@ -105,7 +108,7 @@ public class ToolbarPausedTargetAlignmentTests
         source.RootVisual = content;
 
         if (startPaused)
-            window.SetPausedState(true); // --paused: the hint is up before the first placement
+            window.SetPausedState(true); // --paused: the Play icon is up before the first placement
 
         Layout(content);
         var sizeBefore = content.DesiredSize;
@@ -120,14 +123,16 @@ public class ToolbarPausedTargetAlignmentTests
         Layout(content);
         var sizeAfter = content.DesiredSize;
 
-        // Structural invariant: the reserved Hidden slot means the band's desired size is IDENTICAL
-        // in both states. This is what kills both Collapsed variants on all four edges — the face
-        // check alone is absorbed by the hit radius on vertical docks, and the old PlaceAtEdge
-        // check re-placed at the post-toggle size and could not fail.
+        // Structural invariant: no pause-state-dependent element lives in the band's flow, so the
+        // band's desired size is IDENTICAL in both states. This is what kills any Collapsed↔Visible
+        // element on all four edges; the reserved-Hidden resume label passed it by construction and
+        // was removed for width instead (5b0a383b), not by this test. The face check alone is
+        // absorbed by the hit radius on vertical docks, and the old PlaceAtEdge check re-placed at
+        // the post-toggle size and could not fail.
         Check.WithCustomMessage(
                 $"[startPaused={startPaused}, edge={edge}] the pause toggle changed the band's "
-                + $"desired size {sizeBefore} -> {sizeAfter}; the hint must reserve its slot "
-                + "(Visibility.Hidden, never Collapsed).")
+                + $"desired size {sizeBefore} -> {sizeAfter}; nothing pause-state-dependent may "
+                + "live in the band's flow (see ToolbarWindow.SetPausedState).")
             .That(sizeAfter).IsEqualTo(sizeBefore);
 
         // The correct shift is zero; 0.5 px is slack for floating-point/layout noise, far below

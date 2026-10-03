@@ -117,6 +117,24 @@ public class GazeFlowTests
     }
 
     [Fact]
+    public void Dragging_CursorFollowsGaze()
+    {
+        // A drag is MouseDown at the grab point, the pointer carried by the gaze, MouseUp at the drop:
+        // without the moves the dragged thing never travels. Pinned by re-check 4 of the pointer hold
+        // (b546dc7f), which rewrote this rule. Mutation: drop Dragging from the pointer rule in
+        // GazeEngine.OnGazePoint → no move, red.
+        var h = new GazeFlowHarness(SelectionMode.None);
+
+        h.FixateAndActivate(640, 480);
+        h.Interaction.OnActionSelected(InteractionAction.Drag);
+        Check.That(h.State).IsEqualTo(InteractionState.Dragging);
+
+        var movesBefore = h.Input.MoveCount;
+        h.Gaze(900, 700);
+        Check.That(h.Input.MoveCount).IsStrictlyGreaterThan(movesBefore);
+    }
+
+    [Fact]
     public void RepeatMode_CursorKeepsFollowingGaze()
     {
         var h = new GazeFlowHarness(SelectionMode.None);

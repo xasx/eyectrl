@@ -243,6 +243,7 @@ public class ManualSelectionRecaptureTests
             public void Show() { }
             public void Hide() { }
             public void UpdatePosition(PhysicalPoint point) { }
+            public void MoveTo(PhysicalPoint point, bool glide) { }
             public void UpdateAppearance(CursorSettings settings) { }
             public void SetPausedDim(bool dimmed) { }
             public void SetPinned(bool pinned) { }

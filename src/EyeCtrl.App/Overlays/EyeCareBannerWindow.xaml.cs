@@ -89,6 +89,8 @@ public partial class EyeCareBannerWindow : OverlayWindow, IEyeCareBanner
 
         WorkDim.Visibility = Visibility.Visible;
         Show();
+        // The offer coordinator suspends offers while the banner is up (ticket 8 fixup, review B F3).
+        _messenger.Send(new EyeCareBannerActiveMessage(true));
 
         _tcs = new TaskCompletionSource<bool>();
         _autoSnooze = new DispatcherTimer(
@@ -126,6 +128,9 @@ public partial class EyeCareBannerWindow : OverlayWindow, IEyeCareBanner
         _autoSnooze = null;
         Hide();
         WorkDim.Visibility = Visibility.Collapsed;
+        // Offers may resume. Resolve can run before the banner ever showed (Cancel on a never-shown
+        // banner), so the message is sent unconditionally — the coordinator's flag is idempotent.
+        _messenger.Send(new EyeCareBannerActiveMessage(false));
         _tcs?.TrySetResult(accepted);
         _tcs = null;
     }

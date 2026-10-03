@@ -3,27 +3,56 @@ namespace EyeCtrl.ViewModels.Messages;
 using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Processing;
 
 // Core -> ViewModel
 
 /// <summary>
-/// Sent to show the fixation feedback. Position is in physical screen pixels: the pin, i.e. the
-/// running centroid the rule published at onset.
+/// Sent to show the activation button at the live offer's button centre (ticket 8). The button's
+/// lifetime follows the OFFER — it appears at the accepted settle and stays up through the linger —
+/// never the fixation onset or end.
 /// </summary>
-/// <param name="FixationRadiusPixels">
-/// The LIVE rule's fixation radius in physical pixels, read from the detector at onset — the
-/// adaptation-effective value, not the raw setting. The halo is sized from it, so the drawn hold
-/// radius always marks the radius the dwell is actually counted within.
+/// <param name="ButtonCenter">
+/// B, the button centre in physical screen pixels. The window's drawn centre must read back exactly
+/// this value at the live scale.
 /// </param>
-public record ShowActivationButtonMessage(PhysicalPoint Position, double FixationRadiusPixels);
+/// <param name="HitRadiusPx">
+/// The offer's hit radius in physical pixels (<c>LayoutConstants.ActivationButtonHitRadiusPx</c>).
+/// The halo's outer radius never exceeds it: no drawn feedback may lie outside the counted area.
+/// </param>
+public record ShowActivationButtonMessage(PhysicalPoint ButtonCenter, double HitRadiusPx);
 
 public record HideActivationButtonMessage;
 
 /// <summary>
-/// Sent when Core's fixation rule completes an activation: the valid-time age reached the onset age plus
-/// the effective activation dwell. The activation VM consumes it (it never computes age itself), then
-/// publishes the dwell-completion cue and <see cref="ActivationCompletedMessage"/>. TimestampMicroseconds
-/// and CreditedAgeUs are Core's ledger values, passed through for consumers that record them.
+/// Sent by the adapter when Core's offer dwell completes (ticket 8): the fired offer's snapshot (id
+/// and P). The activation VM turns it into the completion hand-off and the cue; the adapter resolves
+/// Auto Selection at the offer's P and accepts or declines by the snapshot's id.
+/// </summary>
+public record ActivationOfferFiredMessage(ActivationOffer Offer);
+
+/// <summary>
+/// Sent when the ring pins at an accepted settle: the ring moves to the settle centroid
+/// (<see cref="Position"/>, physical pixels) and stays literally still until the fixation ends. This is
+/// independent of the activation button's lifetime — the button still shows at onset in ticket 7 —
+/// because a ring frozen through the button's linger would read as a ring that no longer follows the
+/// eye (critique B1).
+/// </summary>
+public record PinRingMessage(PhysicalPoint Position);
+
+/// <summary>
+/// Sent on every exit from the Fixation state: the ring releases the pin and snaps back to gaze
+/// (the ViewModel keeps the latest sample for exactly this). A detector-keyed release would miss the
+/// keyboard toggle, which ends the fixation while suppression stops the detector feed (re-check N2).
+/// </summary>
+public record ReleaseRingMessage;
+
+/// <summary>
+/// The age clock's completion, as a message shape. Ticket 8 made the age signal replay-only and its
+/// fixup stopped the adapter from posting this at all (nothing received it); Core's
+/// <c>GazeEngine.FixationActivated</c> event remains for the replay. The record is kept as the shape
+/// the activation VM's immunity is pinned against — it must complete nothing even if something posts
+/// it again. TimestampMicroseconds and CreditedAgeUs are Core's ledger values.
 /// </summary>
 public record FixationActivatedMessage(long TimestampMicroseconds, long CreditedAgeUs);
 
@@ -111,7 +140,13 @@ public record ResetManualSelectionIndicatorMessage;
 public record ManualSelectionAnchorChangedMessage(PhysicalPoint? Anchor);
 
 // ViewModel -> Core
-public record ActivationCompletedMessage;
+/// <summary>
+/// The activation VM's completion hand-off for a fired offer (ticket 8). The adapter resolves Auto
+/// Selection at <see cref="Offer"/>'s P, then accepts or declines by its id. Carrying the snapshot is
+/// what lets a late or stale completion be rejected without touching whatever offer is live now
+/// (review A F2).
+/// </summary>
+public record ActivationCompletedMessage(ActivationOffer Offer);
 public record ActionSelectedMessage(InteractionAction Action, IReadOnlySet<ModifierKey>? Modifiers = null);
 public record BackSelectedMessage;
 

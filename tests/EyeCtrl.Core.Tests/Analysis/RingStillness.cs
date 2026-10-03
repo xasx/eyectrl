@@ -9,9 +9,11 @@ using EyeCtrl.Core.Models;
 /// <para>
 /// Two display models are measured through the same predicate. "Following" is the pre-ticket-4 widget:
 /// the ring is at the pipeline's filtered point on every frame, so it moves with the eye's own
-/// jitter. "Pinned" is the shipped widget: while a fixation run covers a frame the ring is at the
-/// run's onset anchor (Core's running centroid at onset) and nothing can move it; outside a run it
-/// follows as before.
+/// jitter. "Pinned" is ticket 4's per-run widget: while a fixation run covers a frame the ring is
+/// at the run's onset anchor (Core's running centroid at onset) and nothing can move it; outside a
+/// run it follows. The shipped ring has since also stayed pinned BETWEEN runs while an activation
+/// offer lives (ticket 8's ring fix), which can only raise the held-episode share: these numbers are
+/// a conservative floor for it.
 /// </para>
 ///
 /// <para>
@@ -59,20 +61,41 @@ public static class RingStillness
     }
 
     /// <summary>
-    /// The display models a measurement can be taken through: the pre-ticket-4 following ring, or the
-    /// shipped pinned one.
+    /// The display models a measurement can be taken through: the pre-ticket-4 following ring, the
+    /// ticket-4 pinned ring (pins from the run's onset), or ticket 7's pin at settle with its glide.
     /// </summary>
     /// <param name="PinnedRuns">
     /// The runs whose press holds the ring, or null for the "today" model that follows gaze everywhere.
     /// </param>
-    public sealed record Model(string Name, IReadOnlyList<FixationReplayGates.FixationRun>? PinnedRuns)
+    /// <param name="PinAtSettle">
+    /// Ticket 7's model: the ring follows gaze until the run SETTLES, then eases to the settle centroid
+    /// over <paramref name="GlideMs"/> ms, then holds. A run that never settled never pins.
+    /// </param>
+    /// <param name="GlideMs">
+    /// The glide's duration for the settle model. The glide frames are counted as FOLLOWING — the ring
+    /// is deliberately moving across them, so they are not still, and the prediction stays conservative.
+    /// </param>
+    public sealed record Model(
+        string Name,
+        IReadOnlyList<FixationReplayGates.FixationRun>? PinnedRuns,
+        bool PinAtSettle = false,
+        int GlideMs = 0)
     {
         /// <summary>The pre-ticket-4 widget: the ring follows filtered gaze on every frame.</summary>
         public static Model Following { get; } = new("following (today)", null);
 
-        /// <summary>The shipped widget: pinned at the run's onset anchor while a run covers the frame.</summary>
+        /// <summary>Ticket 4's shipped widget: pinned at the run's onset anchor while a run covers the frame.</summary>
         public static Model Pinned(IReadOnlyList<FixationReplayGates.FixationRun> runs) =>
             new("pinned", runs);
+
+        /// <summary>
+        /// Ticket 7's widget: follows gaze, then glides to the run's settle centroid and holds there
+        /// until the run ends. A run whose settle never came pins nowhere (M2's settle-plus-glide
+        /// prediction, beside the onset-pinned model).
+        /// </summary>
+        public static Model PinnedAtSettle(
+            IReadOnlyList<FixationReplayGates.FixationRun> runs, int glideMs) =>
+            new("pinned at settle + glide", runs, PinAtSettle: true, GlideMs: glideMs);
     }
 
     /// <summary>
@@ -104,7 +127,7 @@ public static class RingStillness
                             && f.Raw.TimestampMicroseconds >= episode.StartUs
                             && f.Raw.TimestampMicroseconds <= episode.EndUs
                             && !(postActivation == PostActivation.Dropped
-                                 && IsPostActivationCovered(f, model.PinnedRuns)))
+                                 && IsPostActivationCovered(f, model)))
                 .ToList();
 
             int predecessor = -1;
@@ -120,12 +143,12 @@ public static class RingStillness
                 if (predecessor < 0)
                     continue;
 
-                var here = RingAt(inEpisode[i], model.PinnedRuns, postActivation);
-                var before = RingAt(inEpisode[predecessor], model.PinnedRuns, postActivation);
+                var here = RingAt(inEpisode[i], model, postActivation);
+                var before = RingAt(inEpisode[predecessor], model, postActivation);
                 considered++;
                 if (here.DistanceTo(before) <= tolerancePx)
                     still++;
-                if (IsPinned(inEpisode[i], model.PinnedRuns, postActivation))
+                if (IsPinned(inEpisode[i], model, postActivation))
                     pinned++;
             }
         }
@@ -139,32 +162,47 @@ public static class RingStillness
     /// <summary>The ring position this frame draws under the model: the anchor while pinned, else gaze.</summary>
     private static PhysicalPoint RingAt(
         ReplayPipeline.Frame frame,
-        IReadOnlyList<FixationReplayGates.FixationRun>? pinnedRuns,
+        Model model,
         PostActivation postActivation)
-        => IsPinned(frame, pinnedRuns, postActivation) ? RunFor(frame, pinnedRuns!)!.Anchor : frame.Filtered;
+    {
+        if (!IsPinned(frame, model, postActivation))
+            return frame.Filtered;
+        var run = RunFor(frame, model.PinnedRuns!)!;
+        return model.PinAtSettle ? run.SettleAnchor ?? run.Anchor : run.Anchor;
+    }
 
     /// <summary>
     /// Whether the ring is held on this frame. A covered frame is pinned except under
     /// <see cref="PostActivation.Following"/>, where the model gives the ring back to gaze after the
-    /// run's activation.
+    /// run's activation. The settle model additionally follows gaze until the settle and through the
+    /// glide — those frames move by design.
     /// </summary>
     private static bool IsPinned(
         ReplayPipeline.Frame frame,
-        IReadOnlyList<FixationReplayGates.FixationRun>? pinnedRuns,
+        Model model,
         PostActivation postActivation)
     {
-        if (pinnedRuns is null)
+        if (model.PinnedRuns is null)
             return false;
-        var run = RunFor(frame, pinnedRuns);
+        var run = RunFor(frame, model.PinnedRuns);
         if (run is null)
             return false;
+
+        if (model.PinAtSettle)
+        {
+            if (run.SettleUs is not { } settleUs)
+                return false;   // never settled: nothing to pin on
+            if (frame.Raw.TimestampMicroseconds < settleUs + (model.GlideMs * 1000L))
+                return false;   // pre-settle, or still gliding
+        }
+
         return !(postActivation == PostActivation.Following && IsPostActivation(frame, run));
     }
 
     /// <summary>Whether the frame is covered AND sits after that run's activation sample.</summary>
     private static bool IsPostActivationCovered(
-        ReplayPipeline.Frame frame, IReadOnlyList<FixationReplayGates.FixationRun>? pinnedRuns)
-        => pinnedRuns is not null && RunFor(frame, pinnedRuns) is { } run && IsPostActivation(frame, run);
+        ReplayPipeline.Frame frame, Model model)
+        => model.PinnedRuns is not null && RunFor(frame, model.PinnedRuns) is { } run && IsPostActivation(frame, run);
 
     private static bool IsPostActivation(
         ReplayPipeline.Frame frame, FixationReplayGates.FixationRun run)

@@ -16,7 +16,7 @@ using EyeCtrl.Core.Models;
 public class GazeFlowTests
 {
     [Fact]
-    public void HoldingGaze_TriggersFixation_ShowsActivationButton_AndFreezesCursor()
+    public void HoldingGaze_TriggersFixation_AndFreezesCursor()
     {
         var h = new GazeFlowHarness();
 
@@ -24,9 +24,9 @@ public class GazeFlowTests
 
         Check.That(h.State).IsEqualTo(InteractionState.Fixation);
         Check.That(h.States[0]).IsEqualTo(InteractionState.Fixation); // FreeLook → Fixation was the first transition
-        Check.That(h.ActivationButtonsShown.Count).IsEqualTo(1);
-        Check.That(h.ActivationButtonsShown[0].X).IsEqualTo(500d);
-        Check.That(h.ActivationButtonsShown[0].Y).IsEqualTo(400d);
+        Check.That(h.Onsets.Count).IsEqualTo(1);
+        Check.That(h.Onsets[0].X).IsEqualTo(500d);
+        Check.That(h.Onsets[0].Y).IsEqualTo(400d);
 
         // The cursor moved while free-looking, then must FREEZE once fixating — the core behavior
         // that keeps an eye-tracking user from losing their pointer while aiming.
@@ -114,6 +114,24 @@ public class GazeFlowTests
 
         h.Interaction.CompleteDrag();
         Check.That(h.State).IsEqualTo(InteractionState.FreeLook);
+    }
+
+    [Fact]
+    public void Dragging_CursorFollowsGaze()
+    {
+        // A drag is MouseDown at the grab point, the pointer carried by the gaze, MouseUp at the drop:
+        // without the moves the dragged thing never travels. Pinned by re-check 4 of the pointer hold
+        // (b546dc7f), which rewrote this rule. Mutation: drop Dragging from the pointer rule in
+        // GazeEngine.OnGazePoint → no move, red.
+        var h = new GazeFlowHarness(SelectionMode.None);
+
+        h.FixateAndActivate(640, 480);
+        h.Interaction.OnActionSelected(InteractionAction.Drag);
+        Check.That(h.State).IsEqualTo(InteractionState.Dragging);
+
+        var movesBefore = h.Input.MoveCount;
+        h.Gaze(900, 700);
+        Check.That(h.Input.MoveCount).IsStrictlyGreaterThan(movesBefore);
     }
 
     [Fact]

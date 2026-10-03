@@ -52,9 +52,11 @@ public class GazeEngineAdapter : IDisposable
 
         // Core -> ViewModel (via messages, marshaled to UI thread)
         _gazeEngine.CursorMoved += OnCursorMoved;
-        _gazeEngine.FixationActivated += OnFixationActivated;
-        _interactionManager.ShowActivationButton += OnShowActivationButton;
-        _interactionManager.HideActivationButton += OnHideActivationButton;
+        _interactionManager.ActivationOfferShown += OnActivationOfferShown;
+        _interactionManager.ActivationOfferClosed += OnActivationOfferClosed;
+        _interactionManager.ActivationOfferFired += OnActivationOfferFired;
+        _interactionManager.PinRing += OnPinRing;
+        _interactionManager.ReleaseRing += OnReleaseRing;
         _interactionManager.ShowActionMenu += OnShowActionMenu;
         _interactionManager.HideActionMenu += OnHideActionMenu;
         _interactionManager.StartManualSelection += OnStartManualSelection;
@@ -65,33 +67,60 @@ public class GazeEngineAdapter : IDisposable
         _interactionManager.ActionRequested += OnActionRequested;
         _interactionManager.RepeatDwellProgressChanged += OnRepeatDwellProgress;
 
-        // ViewModel -> Core (via message subscriptions)
-        messenger.Register<ActivationCompletedMessage>(this, async (_, _) =>
+        // ViewModel -> Core (via message subscriptions). The completion carries the fired offer's
+        // snapshot: Auto Selection resolves at the offer's P — not at the live FixationPoint, which a
+        // later fixation may already have moved (ticket 8) — and the fallback and the error recovery
+        // decline the NAMED offer, never whatever happens to be live now (review A F2/R3).
+        messenger.Register<ActivationCompletedMessage>(this, async (_, msg) =>
         {
+            var offer = msg.Offer;
             try
             {
-                if (_interactionManager.SelectionMode == SelectionMode.AutoSelection)
+                // A completion whose offer is already gone is a no-op (review A F2), and the live
+                // check's log must not claim an activation that did not happen.
+                if (!_interactionManager.IsActivationOfferLive(offer.Id))
                 {
-                    var fixationPoint = _interactionManager.FixationPoint;
-                    if (fixationPoint != null)
-                    {
-                        _interactionManager.AutoSelectionTarget = await ResolveTargetAsync(fixationPoint.Value);
-                    }
+                    _logger.LogInformation("Offer declined #{Id} (stale)", offer.Id);
+                    return;
                 }
+
+                if (_interactionManager.SelectionMode == SelectionMode.AutoSelection)
+                    _interactionManager.AutoSelectionTarget = await ResolveTargetAsync(offer.Point);
+
                 if (_interactionManager.SelectionMode == SelectionMode.AutoSelection
                     && _interactionManager.AutoSelectionTarget == null
                     && !_settings.AutoSelection.FallbackToPixelOnNoControl)
                 {
-                    _interactionManager.OnFixationEnded();
+                    _interactionManager.DeclineOffer(offer.Id);
+                    _logger.LogInformation("Offer declined #{Id} (no control found)", offer.Id);
                     return;
                 }
-                _interactionManager.OnActivationButtonDwelled();
+                // The log reflects what actually happened (ticket 8 fixup 02, review B): the
+                // completion can still go stale (a teardown raced the resolve) or be declined for a
+                // wrong state (a Pause landed), and it must not be reported as an activation then.
+                var result = _interactionManager.OnActivationButtonDwelled(offer);
+                if (result == ActivationCompletionResult.Accepted)
+                {
+                    _logger.LogInformation(
+                        "Offer accepted #{Id} → {Mode} at P=({Px:F0},{Py:F0})",
+                        offer.Id, _interactionManager.SelectionMode, offer.Point.X, offer.Point.Y);
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "Offer declined #{Id} ({Reason})", offer.Id, result.ToString().ToLowerInvariant());
+                }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to handle activation completed");
-                // Recovery must not throw out of this async void handler, or it crashes the app.
-                try { _interactionManager.OnFixationEnded(); }
+                // Recovery must not throw out of this async void handler, or it crashes the app. A
+                // rejected completion counts as a decline (R3), so the fired offer's lock is released.
+                try
+                {
+                    _interactionManager.DeclineOffer(offer.Id);
+                    _logger.LogInformation("Offer declined #{Id} (activation error)", offer.Id);
+                }
                 catch (Exception resetEx) { _logger.LogError(resetEx, "Failed to reset interaction state after activation error"); }
             }
         });
@@ -226,25 +255,45 @@ public class GazeEngineAdapter : IDisposable
         _logger.LogInformation("UI instrument 1 — {Summary}", _dispatchProbe.Describe());
     }
 
-    // Core's fixation rule completed the valid-time activation clock (ticket 3). The VM consumes this —
-    // it never recomputes age — and publishes the completion/cue messages that drive the existing
-    // ActivationCompletedMessage path (auto-selection resolve, then OnActivationButtonDwelled).
-    private void OnFixationActivated(FixationActivation activation) =>
-        _dispatcher.BeginInvoke(() => _messenger.Send(
-            new FixationActivatedMessage(activation.TimestampUs, activation.CreditedAgeUs)));
+    // The button's lifetime follows the offer (ticket 8): show at the offer's B, sized from its hit
+    // radius; close on every offer death. The payload is read from the offer, not from a settings
+    // object, so the drawn feedback cannot disagree with the geometry the dwell is counted in.
+    // The Information lines are the live check's pop-up and on-screen-share evidence (review B F2).
+    private long _lastShownOfferId;
 
-    private void OnShowActivationButton(PhysicalPoint point)
+    private void OnActivationOfferShown(ActivationOffer offer)
     {
-        // Read the rule's live radius HERE, on the gaze thread at onset: the halo is sized from the
-        // radius the dwell is actually counted within, and reading it on the dispatcher could straddle
-        // an adaptation fill that landed with a later sample.
-        var fixationRadiusPixels = _gazeEngine.EffectiveFixationRadiusPixels;
+        _lastShownOfferId = offer.Id;
+        _logger.LogInformation(
+            "Offer shown #{Id} P=({Px:F0},{Py:F0}) B=({Bx:F0},{By:F0})",
+            offer.Id, offer.Point.X, offer.Point.Y, offer.Button.X, offer.Button.Y);
         _dispatcher.BeginInvoke(() => _messenger.Send(
-            new ShowActivationButtonMessage(point, fixationRadiusPixels)));
+            new ShowActivationButtonMessage(offer.Button, offer.HitRadiusPx)));
     }
 
-    private void OnHideActivationButton() =>
+    private void OnActivationOfferClosed()
+    {
+        _logger.LogInformation("Offer closed #{Id}", _lastShownOfferId);
         _dispatcher.BeginInvoke(() => _messenger.Send(new HideActivationButtonMessage()));
+    }
+
+    // The fired offer reaches the VM, which publishes the completion hand-off and the cue. Marshaled
+    // with the rest of the Core-to-UI traffic; the snapshot travels whole so a later teardown can be
+    // detected by id.
+    private void OnActivationOfferFired(ActivationOffer offer, long timestampUs)
+    {
+        _logger.LogInformation("Offer fired #{Id}", offer.Id);
+        _dispatcher.BeginInvoke(() => _messenger.Send(new ActivationOfferFiredMessage(offer)));
+    }
+
+    // The ring's own lifetime (ticket 7): a pin on the accepted settle, a release on every exit from
+    // Fixation. Deliberately separate from the button's show/hide, which now start and end on their own
+    // schedule — the ring must follow gaze again the moment the fixation ends, button or not (B1).
+    private void OnPinRing(PhysicalPoint point) =>
+        _dispatcher.BeginInvoke(() => _messenger.Send(new PinRingMessage(point)));
+
+    private void OnReleaseRing() =>
+        _dispatcher.BeginInvoke(() => _messenger.Send(new ReleaseRingMessage()));
 
     private void OnShowActionMenu(PhysicalPoint point) =>
         _dispatcher.BeginInvoke(() =>
@@ -377,9 +426,11 @@ public class GazeEngineAdapter : IDisposable
             _logger.LogInformation("UI instrument 1 (final) — {Summary}", _dispatchProbe.Describe());
 
         _gazeEngine.CursorMoved -= OnCursorMoved;
-        _gazeEngine.FixationActivated -= OnFixationActivated;
-        _interactionManager.ShowActivationButton -= OnShowActivationButton;
-        _interactionManager.HideActivationButton -= OnHideActivationButton;
+        _interactionManager.ActivationOfferShown -= OnActivationOfferShown;
+        _interactionManager.ActivationOfferClosed -= OnActivationOfferClosed;
+        _interactionManager.ActivationOfferFired -= OnActivationOfferFired;
+        _interactionManager.PinRing -= OnPinRing;
+        _interactionManager.ReleaseRing -= OnReleaseRing;
         _interactionManager.ShowActionMenu -= OnShowActionMenu;
         _interactionManager.HideActionMenu -= OnHideActionMenu;
         _interactionManager.StartManualSelection -= OnStartManualSelection;

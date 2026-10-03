@@ -54,19 +54,34 @@ public class CursorCircleViewModelTests
         Check.That(vm.IsPaused).IsFalse();
     }
 
-    // ── The pin (ticket 4): the ring stops on the onset centroid, and the three looks' transitions ──
+    // ── The pin (ticket 7): the ring glides to the settle centroid and stops there ──
+    //
+    // The pin's lifetime is Core's: PinRingMessage on an accepted settle, ReleaseRingMessage on every
+    // exit from Fixation. The activation button's show/hide are NOT part of it (it shows at onset and
+    // its lifetime is its own), which is what keeps the ring following gaze while the button lingers.
+
+    /// <summary>Sends the gaze frames a running glide needs: one per step, starting the clock on the first.</summary>
+    private static void SendFrame(WeakReferenceMessenger messenger, PhysicalPoint position, long timestampUs) =>
+        messenger.Send(new GazeCursorMovedMessage(position, timestampUs));
 
     [Fact]
-    public void Pin_HoldsTheOnsetCentroid_NotTheCurrentOrFirstSample()
+    public void Pin_GlidesToTheSettleCentroid_NotTheCurrentOrFirstSample()
     {
         var settings = new EyeCtrlSettings();
         var vm = new CursorCircleViewModel(settings, _messenger);
 
-        // A sample arrives before the onset; the pin message then carries ticket 3's onset centroid,
+        // A sample arrives before the pin; the pin message then carries Core's settle centroid,
         // deliberately different from both that sample and the samples that follow.
-        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 100), 0));
-        var onsetCentroid = new PhysicalPoint(140, 120);
-        _messenger.Send(new ShowActivationButtonMessage(onsetCentroid, 75));
+        SendFrame(_messenger, new PhysicalPoint(100, 100), 0);
+        var settleCentroid = new PhysicalPoint(140, 120);
+        _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
+        _messenger.Send(new PinRingMessage(settleCentroid));
+
+        Check.That(vm.IsPinned).IsTrue();
+        Check.That(vm.Position.X).IsEqualTo(100);   // no teleport: the glide starts from where it was
+
+        SendFrame(_messenger, new PhysicalPoint(101, 100), 30_000);   // starts the clock
+        SendFrame(_messenger, new PhysicalPoint(105, 100), 150_000);  // 120 ms elapsed: landed
 
         Check.That(vm.IsPinned).IsTrue();
         Check.That(vm.Position.X).IsEqualTo(140);
@@ -79,20 +94,149 @@ public class CursorCircleViewModelTests
         var settings = new EyeCtrlSettings();
         var vm = new CursorCircleViewModel(settings, _messenger);
 
-        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(140, 120), 75));
-        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(300, 400), 0));
-        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(95, 105), 0));
+        SendFrame(_messenger, new PhysicalPoint(100, 100), 0);
+        _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
+        _messenger.Send(new PinRingMessage(new PhysicalPoint(140, 120)));
+        SendFrame(_messenger, new PhysicalPoint(140, 120), 30_000);
+        SendFrame(_messenger, new PhysicalPoint(140, 120), 200_000);  // glide landed
+
+        SendFrame(_messenger, new PhysicalPoint(300, 400), 230_000);
+        SendFrame(_messenger, new PhysicalPoint(95, 105), 260_000);
 
         // Literally still: samples inside the hold must not nudge the ring.
         Check.That(vm.Position.X).IsEqualTo(140);
         Check.That(vm.Position.Y).IsEqualTo(120);
 
-        _messenger.Send(new HideActivationButtonMessage());
+        _messenger.Send(new ReleaseRingMessage());
         Check.That(vm.IsPinned).IsFalse();
 
-        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(300, 400), 0));
+        SendFrame(_messenger, new PhysicalPoint(300, 400), 290_000);
         Check.That(vm.Position.X).IsEqualTo(300);
         Check.That(vm.Position.Y).IsEqualTo(400);
+    }
+
+    [Fact]
+    public void Glide_EasesMonotonicallyOver120ms_AndEndsExactlyOnThePin()
+    {
+        // Mutation: set the drawn position directly on the pin (drop the interpolation, apply the pin
+        // in Receive(PinRingMessage)) → no MoveTo frame is ever raised and the first assertion reds.
+        var settings = new EyeCtrlSettings();
+        var vm = new CursorCircleViewModel(settings, _messenger);
+        var start = new PhysicalPoint(100, 100);
+        var pin = new PhysicalPoint(300, 200);
+
+        SendFrame(_messenger, start, 0);
+        _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
+        _messenger.Send(new PinRingMessage(pin));
+        SendFrame(_messenger, new PhysicalPoint(101, 100), 0);   // first frame: starts the glide at `start`
+        Check.That(vm.MoveTo.Glide).IsTrue();
+        Check.That(vm.MoveTo.Target).IsEqualTo(start);
+        Check.That(vm.Position).IsEqualTo(start);                // not at the pin yet
+
+        var drawnX = new List<double>();
+        foreach (long ts in new[] { 30_000L, 60_000L, 90_000L, 119_000L })
+        {
+            SendFrame(_messenger, new PhysicalPoint(102, 100), ts);
+            drawnX.Add(vm.MoveTo.Target.X);
+        }
+
+        for (int i = 0; i < drawnX.Count; i++)
+        {
+            Check.WithCustomMessage($"frame {i} at {drawnX[i]} must be strictly inside (100, 300)")
+                 .That(drawnX[i]).IsStrictlyGreaterThan(100);
+            Check.WithCustomMessage($"frame {i} at {drawnX[i]} must be strictly inside (100, 300)")
+                 .That(drawnX[i]).IsStrictlyLessThan(300);
+        }
+        for (int i = 1; i < drawnX.Count; i++)
+            Check.WithCustomMessage($"frame {i}: {drawnX[i]} must advance past {drawnX[i - 1]}")
+                 .That(drawnX[i]).IsStrictlyGreaterThan(drawnX[i - 1]);
+
+        SendFrame(_messenger, new PhysicalPoint(103, 100), 120_000);   // the clock reaches the duration
+        Check.That(vm.Position).IsEqualTo(pin);                        // ends EXACTLY on the pin
+        Check.That(vm.IsPinned).IsTrue();
+    }
+
+    [Fact]
+    public void SnapOut_OnRelease_TheDrawnPositionIsTheGazeOnTheNextSample()
+    {
+        // Mutation: glide on release (keep easing toward the old pin after the release) → the release
+        // leaves the ring at the midpoint and the next sample's assertion reds.
+        var settings = new EyeCtrlSettings();
+        var vm = new CursorCircleViewModel(settings, _messenger);
+
+        SendFrame(_messenger, new PhysicalPoint(100, 100), 0);
+        _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
+        _messenger.Send(new PinRingMessage(new PhysicalPoint(300, 200)));
+        SendFrame(_messenger, new PhysicalPoint(101, 100), 30_000);
+        SendFrame(_messenger, new PhysicalPoint(102, 100), 60_000);   // mid-glide
+
+        _messenger.Send(new ReleaseRingMessage());
+        Check.That(vm.IsPinned).IsFalse();
+
+        SendFrame(_messenger, new PhysicalPoint(900, 700), 90_000);
+        Check.That(vm.Position.X).IsEqualTo(900);   // jumped straight to gaze, no sweep
+        Check.That(vm.Position.Y).IsEqualTo(700);
+    }
+
+    [Fact]
+    public void CancelledGlide_ReleaseMidGlide_SnapsToGaze_NothingFreezes()
+    {
+        // Mutation: keep interpolating to the old pin after a release → the frame after the release
+        // still advances toward the pin and no frame ever reaches the live gaze.
+        var settings = new EyeCtrlSettings();
+        var vm = new CursorCircleViewModel(settings, _messenger);
+
+        SendFrame(_messenger, new PhysicalPoint(100, 100), 0);
+        _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
+        _messenger.Send(new PinRingMessage(new PhysicalPoint(300, 200)));
+        SendFrame(_messenger, new PhysicalPoint(105, 100), 30_000);
+        SendFrame(_messenger, new PhysicalPoint(110, 100), 60_000);   // mid-glide
+
+        var lastGlideFrame = vm.MoveTo;
+        _messenger.Send(new ReleaseRingMessage());
+
+        SendFrame(_messenger, new PhysicalPoint(500, 500), 200_000);
+        SendFrame(_messenger, new PhysicalPoint(600, 600), 230_000);
+        Check.That(vm.Position.X).IsEqualTo(600);   // following gaze again, not the stale pin
+        Check.That(vm.Position.Y).IsEqualTo(600);
+        // Nothing kept interpolating: the release wrote no further glide frame.
+        Check.That(vm.MoveTo).IsEqualTo(lastGlideFrame);
+    }
+
+    [Fact]
+    public void Saccade_WithNoPinEdge_IsFollowedWithinOneSample()
+    {
+        // Mutation: glide on any large jump (drive the glide from the jump size, not the pin edge) →
+        // the 400 px FreeLook jump becomes a glide frame and Position stays behind, red.
+        var settings = new EyeCtrlSettings();
+        var vm = new CursorCircleViewModel(settings, _messenger);
+
+        SendFrame(_messenger, new PhysicalPoint(100, 100), 0);
+        SendFrame(_messenger, new PhysicalPoint(500, 100), 30_000);
+
+        Check.That(vm.Position.X).IsEqualTo(500);   // followed in one sample
+        Check.That(vm.MoveTo.Glide).IsFalse();      // and not as a glide
+        Check.That(vm.IsPinned).IsFalse();
+    }
+
+    [Fact]
+    public void ActivationButtonShowAndHide_DoNotPinOrUnpinTheRing()
+    {
+        // Mutation: re-point the ring at the button's show/hide (the old contract) → the show pins
+        // at onset, red on the first assertion.
+        var settings = new EyeCtrlSettings();
+        var vm = new CursorCircleViewModel(settings, _messenger);
+
+        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(140, 120), 75));
+        Check.That(vm.IsPinned).IsFalse();          // onset is not the pin edge
+        Check.That(vm.Position).IsEqualTo(new PhysicalPoint(0, 0));
+
+        _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
+        _messenger.Send(new PinRingMessage(new PhysicalPoint(140, 120)));
+        Check.That(vm.IsPinned).IsTrue();
+
+        _messenger.Send(new HideActivationButtonMessage());
+        Check.That(vm.IsPinned).IsTrue();           // the button's hide is not the release
     }
 
     [Fact]
@@ -104,7 +248,8 @@ public class CursorCircleViewModelTests
         var settings = new EyeCtrlSettings();
         var vm = new CursorCircleViewModel(settings, _messenger);
 
-        _messenger.Send(new ShowActivationButtonMessage(new PhysicalPoint(140, 120), 75));
+        _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
+        _messenger.Send(new PinRingMessage(new PhysicalPoint(140, 120)));
         Check.That(vm.IsPinned).IsTrue();
 
         _messenger.Send(new StateChangedMessage(InteractionState.Paused));
@@ -113,9 +258,97 @@ public class CursorCircleViewModelTests
         Check.That(vm.IsPaused).IsTrue();
         Check.That(vm.IsVisible).IsTrue();
 
-        _messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(300, 400), 0));
+        SendFrame(_messenger, new PhysicalPoint(300, 400), 0);
         Check.That(vm.Position.X).IsEqualTo(300);
         Check.That(vm.Position.Y).IsEqualTo(400);
+    }
+
+    [Fact]
+    public void StateChangedToAStateThatIsNotFixationOrFreeLook_AlsoUnpins()
+    {
+        // Belt and braces (re-check N2): the keyboard toggle calls OnFixationEnded directly while
+        // suppression stops the detector, so a release keyed on the detector would strand the pin.
+        // Core raises ReleaseRing on the state transition; the VM additionally unpins structurally on
+        // any state that is neither Fixation nor FreeLook (FreeLook is where the pin outlives the
+        // fixation while an offer is alive; Core's ReleaseRing frees it there). Mutation: drop the
+        // StateChanged unpin → this reds.
+        var settings = new EyeCtrlSettings();
+        var vm = new CursorCircleViewModel(settings, _messenger);
+
+        _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
+        _messenger.Send(new PinRingMessage(new PhysicalPoint(140, 120)));
+        Check.That(vm.IsPinned).IsTrue();
+
+        _messenger.Send(new StateChangedMessage(InteractionState.ManualSelectionActive));
+
+        Check.That(vm.IsPinned).IsFalse();
+    }
+
+    [Fact]
+    public void FreeLookWhilePinned_KeepsThePinAndTheRingStill_UntilCoreReleases()
+    {
+        // Live check 2026-10-02: while the user holds the activation button the fixation flips
+        // Fixation/FreeLook about every 0.3 s. A VM that unpinned on every FreeLook snapped the ring to
+        // the gaze and re-pinned it, over the button. Core owns the release (offer closed, or the run
+        // ended with no offer). Mutation: unpin on FreeLook again → the first assertion reds.
+        var settings = new EyeCtrlSettings();
+        var vm = new CursorCircleViewModel(settings, _messenger);
+        var pin = new PhysicalPoint(140, 120);
+
+        _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
+        _messenger.Send(new PinRingMessage(pin));
+        SendFrame(_messenger, new PhysicalPoint(150, 125), 0);
+        SendFrame(_messenger, new PhysicalPoint(150, 125), 1_000_000);   // the glide has landed
+
+        _messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        SendFrame(_messenger, new PhysicalPoint(600, 700), 1_030_000);   // the gaze is on the button now
+        _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
+        _messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        SendFrame(_messenger, new PhysicalPoint(610, 705), 1_060_000);
+
+        Check.That(vm.IsPinned).IsTrue();
+        Check.That(vm.Position).IsEqualTo(pin);
+
+        _messenger.Send(new ReleaseRingMessage());                        // the offer closed
+
+        Check.That(vm.IsPinned).IsFalse();
+        Check.That(vm.Position).IsEqualTo(new PhysicalPoint(610, 705));
+    }
+
+    [Fact]
+    public void PinRing_IsIgnored_InFreeLook()
+    {
+        // The VM keeps a pin through FreeLook since the ring follows the offer, so a pin that lands
+        // after a dispatcher-side exit to FreeLook (the race Receive(PinRingMessage) guards) would
+        // persist until Core's next release. Core only pins in Fixation. Mutation: accept a pin in
+        // FreeLook → IsPinned is true, red.
+        var settings = new EyeCtrlSettings();
+        var vm = new CursorCircleViewModel(settings, _messenger);
+
+        _messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        _messenger.Send(new PinRingMessage(new PhysicalPoint(140, 120)));
+
+        Check.That(vm.IsPinned).IsFalse();
+    }
+
+    [Fact]
+    public void PinRing_IsIgnored_UnlessTheLastReportedStateIsFixation()
+    {
+        // Review A, F4: the exit is posted from the dispatcher, so a Release/StateChanged pair can land
+        // between the gaze thread's state check and its pin post; the ring would then stay frozen with
+        // no later release on the keyboard path. Mutation: drop the guard in Receive(PinRingMessage) →
+        // the paused pin sticks, red.
+        var settings = new EyeCtrlSettings();
+        var vm = new CursorCircleViewModel(settings, _messenger);
+
+        _messenger.Send(new StateChangedMessage(InteractionState.Paused));
+        _messenger.Send(new PinRingMessage(new PhysicalPoint(140, 120)));
+        Check.That(vm.IsPinned).IsFalse();
+
+        // A real onset's StateChanged(Fixation) precedes its settle's pin, and then it pins.
+        _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
+        _messenger.Send(new PinRingMessage(new PhysicalPoint(140, 120)));
+        Check.That(vm.IsPinned).IsTrue();
     }
 
     [Fact]

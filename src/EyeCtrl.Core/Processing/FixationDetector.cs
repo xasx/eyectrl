@@ -52,8 +52,10 @@ public readonly record struct FixationRelease(
 /// sample is tested against the mean BEFORE it is added, and a sample outside the radius ends the run and
 /// starts a fresh one. Age is the sum of valid inter-sample dt, each capped at
 /// <see cref="AgeCreditCapMs"/>, and it includes the <see cref="FixationTimeMs"/> onset window: onset is
-/// reported when age reaches <see cref="FixationTimeMs"/> (the button's first appearance), activation when
-/// it reaches <see cref="FixationTimeMs"/> + <see cref="ActivationDwellMs"/>. A gap of at most
+/// reported when age reaches <see cref="FixationTimeMs"/> (the button's first appearance), settle when it
+/// reaches <c>max(<see cref="FixationTimeMs"/>, <see cref="FixationSettleMs"/>)</c> (the ring pins and —
+/// from ticket 8 — the offer is made), activation when it reaches <see cref="FixationTimeMs"/> +
+/// <see cref="ActivationDwellMs"/>. A gap of at most
 /// <see cref="GapAbortMs"/> pauses the age (the paused sample credits only the per-sample cap, never the
 /// gap); a longer gap aborts the run and starts a new one at the current sample. The
 /// <c>GapInterpolator</c>'s 150 ms long-gap reset is deliberately NOT an abort signal: 3 of 33 real blinks
@@ -77,11 +79,17 @@ public class FixationDetector
     /// debate's skeptic conditions (300 ms + a 100 ms blink + 700 ms fires; 300 ms + 5 s lost does not).</summary>
     public const int GapAbortMs = 500;
 
+    /// <summary>The default valid-time age (ms) at which a reported run settles — the ring-pin edge
+    /// (ticket 7). The effective threshold is <c>max(onset age, this)</c>, so the settle can never
+    /// precede the onset; the user may raise it after reading the replay report.</summary>
+    public const int DefaultFixationSettleMs = 500;
+
     private readonly long _ageCreditCapUs = AgeCreditCapMs * MathConstants.MicrosecondsPerMillisecond;
     private readonly long _gapAbortUs = GapAbortMs * MathConstants.MicrosecondsPerMillisecond;
 
     private double _radiusPixels;
     private long _fixationTimeMicroseconds;
+    private long _fixationSettleMicroseconds = DefaultFixationSettleMs * MathConstants.MicrosecondsPerMillisecond;
     private long _activationDwellMicroseconds;
     private long _cooldownMicroseconds;
 
@@ -94,12 +102,21 @@ public class FixationDetector
     private long _lastCreditedUs;
     private bool _onsetFired;
     private bool _activated;
+    private bool _settleFired;
 
     // Last activation across runs, for the cooldown. Survives ClearRun.
     private long? _lastActivationUs;
 
     /// <summary>Fired when fixation starts. Point is the running centroid at onset, in physical pixels.</summary>
     public event Action<PhysicalPoint>? FixationStarted;
+
+    /// <summary>
+    /// Fired once per run when the valid-time age reaches the settle threshold — <c>max(onset age,
+    /// FixationSettleMs)</c> — carrying the running centroid at settle, in physical pixels. This is the
+    /// ring-pin edge: the ring stops following gaze here, not at the onset. Fired on the same sample as
+    /// the onset when the onset age is already past the settle threshold, AFTER <see cref="FixationStarted"/>.
+    /// </summary>
+    public event Action<PhysicalPoint>? FixationSettled;
 
     /// <summary>Fired when the current fixation ends because gaze moved outside the radius or the eyes were
     /// lost past the gap budget.</summary>
@@ -185,6 +202,24 @@ public class FixationDetector
         {
             ValidateTime(value, nameof(value));
             _fixationTimeMicroseconds = value * MathConstants.MicrosecondsPerMillisecond;
+        }
+    }
+
+    /// <summary>
+    /// The valid-time age (ms) at which a reported run settles. The effective threshold is
+    /// <c>max(<see cref="FixationTimeMs"/>, this)</c>, so a settle can never precede the onset (re-check
+    /// N7): with <see cref="FixationTimeMs"/> ≥ this, onset and settle fall on the same sample and the
+    /// onset is raised first. Settable in place like the other tolerances — the user may move it after
+    /// reading the replay report, and the sensitivity grid runs the production rule at each value.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the value is not positive.</exception>
+    public int FixationSettleMs
+    {
+        get => (int)(_fixationSettleMicroseconds / MathConstants.MicrosecondsPerMillisecond);
+        set
+        {
+            ValidateTime(value, nameof(value));
+            _fixationSettleMicroseconds = value * MathConstants.MicrosecondsPerMillisecond;
         }
     }
 
@@ -304,6 +339,7 @@ public class FixationDetector
         }
 
         FireOnsetIfDue();
+        FireSettleIfDue();
         FireActivationIfDue(timestampMicroseconds);
     }
 
@@ -363,6 +399,7 @@ public class FixationDetector
         ResetAge();
         _onsetFired = false;
         _activated = false;
+        _settleFired = false;
     }
 
     /// <summary>
@@ -427,6 +464,7 @@ public class FixationDetector
         _lastCreditedUs = 0;
         _onsetFired = false;
         _activated = false;
+        _settleFired = false;
     }
 
     private void FireOnsetIfDue()
@@ -437,6 +475,19 @@ public class FixationDetector
         // The anchor is the running centroid at onset — never the run's first sample, which sits behind
         // the saccade (median 37 px off in the recording).
         FixationStarted?.Invoke(_centroid!.Value);
+    }
+
+    // The settle is a second, later latch on the same run. It is cleared only by a new run or Rearm —
+    // never by ResetAge, which keeps the latches on every FreeLook entry (fixup-02 R2-1): otherwise a
+    // settlement would re-fire after each menu or zoom exit while the gaze is unmoved.
+    private void FireSettleIfDue()
+    {
+        if (_settleFired || !_onsetFired)
+            return;
+        if (_creditedUs < _fixationTimeMicroseconds || _creditedUs < _fixationSettleMicroseconds)
+            return;
+        _settleFired = true;
+        FixationSettled?.Invoke(_centroid!.Value);
     }
 
     private void FireActivationIfDue(long timestampMicroseconds)

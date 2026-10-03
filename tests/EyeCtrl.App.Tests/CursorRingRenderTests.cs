@@ -141,6 +141,36 @@ public class CursorRingRenderTests
     }
 
     [StaFact]
+    public void MoveTo_WritesTheSameDrawnPositionAsUpdatePosition()
+    {
+        // Ticket 7's glide frames arrive through MoveTo rather than UpdatePosition so instrument 2 can
+        // skip them; the drawn position itself must be identical. Mutation: make MoveTo a no-op (or
+        // forget the position writes) → the glide's frames stop moving the ring and this reds.
+        var window = CreateWindow();
+        try
+        {
+            window.UpdateAppearance(new CursorSettings { CircleSize = 250 });
+            var point = new PhysicalPoint(1400, 900);
+
+            window.UpdatePosition(point);
+            var expectedLeft = window.Left;
+            var expectedTop = window.Top;
+
+            window.UpdatePosition(new PhysicalPoint(0, 0));   // move away
+            window.MoveTo(point, glide: true);                // a glide frame brings it back
+
+            Check.That(window.Left).IsEqualTo(expectedLeft);
+            Check.That(window.Top).IsEqualTo(expectedTop);
+
+            window.MoveTo(new PhysicalPoint(0, 0), glide: false);
+            Check.That(window.Left).IsEqualTo(0 - (window.Width / 2));
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+    [StaFact]
     public void ThreeLooks_FreeLookQuiet_PinnedBold_PausedDimmed_WithPausedWinning()
     {
         // The three explicit looks (ticket 4): FreeLook quiet, Fixation pinned + bold, Paused dimmed.

@@ -19,24 +19,29 @@ public sealed class ProductionFixationRule : IFixationRule
     private readonly FixationDetector _detector;
     private long _currentTs;
 
-    /// <summary>Creates the forwarding adapter at a radius, with the pinned detection time, activation
-    /// dwell and cooldown the production rule runs with.</summary>
+    /// <summary>Creates the forwarding adapter at a radius, with the pinned detection time, settle
+    /// threshold, activation dwell and cooldown the production rule runs with.</summary>
     /// <param name="radiusPixels">Fixation radius in physical pixels.</param>
     /// <param name="fixationMs">Onset age (the pinned <c>DwellSettings</c> default).</param>
     /// <param name="activationDwellMs">Activation dwell after onset (the pinned <c>DwellSettings</c> default).</param>
     /// <param name="cooldownMs">Post-activation cooldown (the pinned <c>DwellSettings</c> default).</param>
+    /// <param name="fixationSettleMs">Settle threshold (the pinned <c>FixationDetector</c> default); the
+    /// sensitivity grid varies it.</param>
     public ProductionFixationRule(
         double radiusPixels,
         int fixationMs = FixationReplayGates.FixationDetectionMs,
         int activationDwellMs = FixationReplayGates.ActivationButtonDwellMs,
-        int cooldownMs = FixationReplayGates.ActivationCooldownMs)
+        int cooldownMs = FixationReplayGates.ActivationCooldownMs,
+        int fixationSettleMs = FixationReplayGates.FixationSettleMs)
     {
         _detector = new FixationDetector(radiusPixels, fixationMs)
         {
+            FixationSettleMs = fixationSettleMs,
             ActivationDwellMs = activationDwellMs,
             CooldownMs = cooldownMs,
         };
         _detector.FixationStarted += point => FixationStarted?.Invoke(point, _currentTs);
+        _detector.FixationSettled += point => FixationSettled?.Invoke(point, _currentTs);
         _detector.FixationActivated += activation => FixationActivated?.Invoke(activation.TimestampUs);
         _detector.FixationReleased += release => FixationReleased?.Invoke(
             new FixationRelease(release.LastCreditedUs, release.CreditedAgeUs, release.EndedByLeave));
@@ -44,6 +49,9 @@ public sealed class ProductionFixationRule : IFixationRule
 
     /// <inheritdoc />
     public event Action<PhysicalPoint, long>? FixationStarted;
+
+    /// <inheritdoc />
+    public event Action<PhysicalPoint, long>? FixationSettled;
 
     /// <inheritdoc />
     public event Action<long>? FixationActivated;

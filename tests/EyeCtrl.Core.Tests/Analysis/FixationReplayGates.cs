@@ -28,6 +28,11 @@ public interface IFixationRule
     /// <summary>Fired when the rule reports a fixation onset: the activation point and the sample time.</summary>
     event Action<PhysicalPoint, long>? FixationStarted;
 
+    /// <summary>Fired when the rule reports a settle — the run's valid-time age reached the settle
+    /// threshold — carrying the running centroid at settle and the sample time. Never fires on the
+    /// frozen legacy rule, which predates the settle.</summary>
+    event Action<PhysicalPoint, long>? FixationSettled;
+
     /// <summary>Fired when the rule's activation clock completes: the sample time at completion.</summary>
     event Action<long>? FixationActivated;
 
@@ -83,6 +88,14 @@ public static class FixationReplayGates
 
     /// <summary>Fixation-detection time (<c>DwellSettings</c> default). The activation clock starts only when a run is reported.</summary>
     public const int FixationDetectionMs = 300;
+
+    /// <summary>
+    /// The settle threshold (<c>FixationDetector.DefaultFixationSettleMs</c>): the run's valid-time age
+    /// at which it settles — the ring pins and ticket 8's offer is made. The effective threshold is
+    /// <c>max(onset, this)</c>. Pinned here beside the other DwellSettings mirrors so a production
+    /// default drift is visible in the report.
+    /// </summary>
+    public const int FixationSettleMs = 500;
 
     /// <summary>Activation-button dwell (<c>DwellSettings</c> default). A run is "activatable" when its age reaches fix + this.</summary>
     public const int ActivationButtonDwellMs = 700;
@@ -213,16 +226,32 @@ public static class FixationReplayGates
     /// <param name="CreditedAgeUs">Valid-time age accrued from the run's anchor to <see cref="EndUs"/>.</param>
     /// <param name="ActivationUs">Timestamp at which the rule's activation clock completed, or null.</param>
     /// <param name="EndedByLeave">False when the stream ended while the run was still open.</param>
+    /// <param name="SettleAnchor">The running centroid at settle — the pin point — or null for a rule
+    /// that predates the settle (the frozen legacy baseline).</param>
+    /// <param name="SettleUs">Timestamp of the sample on which the rule reported the settle, or null.</param>
+    /// <param name="EndSampleUs">Timestamp of the sample on which the rule RELEASED the run — for a
+    /// gaze-left, the first sample outside R, which is one frame or a gap-budget later than
+    /// <see cref="EndUs"/>. Null for the stream-end release and the frozen legacy rule.</param>
     public sealed record FixationRun(
         PhysicalPoint Anchor,
         long OnsetUs,
         long EndUs,
         long CreditedAgeUs,
         long? ActivationUs,
-        bool EndedByLeave)
+        bool EndedByLeave,
+        PhysicalPoint? SettleAnchor = null,
+        long? SettleUs = null,
+        long? EndSampleUs = null)
     {
         /// <summary>True when the rule reported activation — the M1 "activatable fixation".</summary>
         public bool IsActivatable => ActivationUs is not null;
+
+        /// <summary>True when the run settled — the ring pinned at <see cref="SettleAnchor"/>.</summary>
+        public bool IsSettled => SettleUs is not null;
+
+        /// <summary>When the run actually ended, as the product sees it: the releasing sample when the
+        /// rule reported one (gaze left), else the last credited sample.</summary>
+        public long EndSampleOrEndUs => EndSampleUs ?? EndUs;
 
         /// <summary>True when the credited age reaches the keyboard-length threshold — M2 (G5).</summary>
         public bool IsKeyboardLength => CreditedAgeUs >= (FixationDetectionMs + KeyboardKeyDwellMs) * 1000L;
@@ -425,23 +454,33 @@ public static class FixationReplayGates
                     "The rule reported a second fixation onset before releasing the first; runs would be dropped and flicker under-counted.");
             open = new RunBuilder(point, timestampUs);
         };
+        rule.FixationSettled += (point, timestampUs) =>
+        {
+            if (open is null)
+                throw new InvalidOperationException("The rule reported a settle without a reported onset.");
+            open.Settle(point, timestampUs);
+        };
         rule.FixationActivated += timestampUs =>
         {
             if (open is null)
                 throw new InvalidOperationException("The rule reported an activation without a reported onset.");
             open.Activate(timestampUs);
         };
+        long fedUs = 0;
         rule.FixationReleased += release =>
         {
             if (open is null)
                 throw new InvalidOperationException("The rule released a run it never reported an onset for.");
-            runs.Add(open.Build(release));
+            // The sample being fed when the release fired: for a gaze-left, the first sample outside R
+            // (the product's end); for the stream end, the last fed sample.
+            runs.Add(open.Build(release, fedUs));
             open = null;
         };
 
         foreach (var frame in frames)
         {
             if (frame.IsInGap) continue;
+            fedUs = frame.Raw.TimestampMicroseconds;
             rule.Update(frame.Filtered, frame.Raw.TimestampMicroseconds, frame.Raw.IsValid);
         }
 
@@ -548,13 +587,20 @@ public static class FixationReplayGates
     /// with an episode by the ONSET WINDOW [episode start, start + <see cref="ServedOnsetWindowMs"/>];
     /// G3's idle test asks whether the onset falls in the episode's OWN SPAN, which is the debate's
     /// definition and does not penalise a rule that holds longer inside an episode.
+    /// <para>
+    /// <paramref name="atSettle"/> scores the distance from the <see cref="FixationRun.SettleAnchor"/>
+    /// (the pin and, from ticket 8, the click point) instead of the onset anchor, and a run that never
+    /// settled cannot serve: from ticket 7 the click lands at the settle centroid, so a run that pins
+    /// nowhere pins nowhere to serve.
+    /// </para>
     /// </summary>
-    private static GateRow MeasureAt(
+    public static GateRow MeasureAt(
         IReadOnlyList<HeldEpisode> episodes,
         IReadOnlyList<FixationRun> activatable,
         double minutes,
         double dispersionPx,
-        double servedDistancePx)
+        double servedDistancePx,
+        bool atSettle = false)
     {
         int served = 0, elsewhere = 0;
         foreach (var episode in episodes)
@@ -564,7 +610,8 @@ public static class FixationReplayGates
             {
                 if (!InOnsetWindow(run.OnsetUs, episode)) continue;
                 inWindow = true;
-                if (run.Anchor.DistanceTo(episode.Median) <= servedDistancePx) near = true;
+                var anchor = atSettle ? run.SettleAnchor : run.Anchor;
+                if (anchor is { } a && a.DistanceTo(episode.Median) <= servedDistancePx) near = true;
             }
 
             if (near) served++;
@@ -699,11 +746,24 @@ public static class FixationReplayGates
     private sealed class RunBuilder(PhysicalPoint anchor, long onsetUs)
     {
         private long? _activationUs;
+        private PhysicalPoint? _settleAnchor;
+        private long? _settleUs;
+
+        public void Settle(PhysicalPoint point, long timestampUs)
+        {
+            // One settle per run is the production contract (latched in FixationDetector); a second
+            // would mean the settle is no longer a latch, so fail rather than silently take the last.
+            if (_settleUs is not null)
+                throw new InvalidOperationException("The rule reported a second settle for one run.");
+            _settleAnchor = point;
+            _settleUs = timestampUs;
+        }
 
         public void Activate(long timestampUs) => _activationUs ??= timestampUs;
 
-        public FixationRun Build(FixationRelease release) =>
-            new(anchor, onsetUs, release.LastCreditedUs, release.CreditedAgeUs, _activationUs, release.EndedByLeave);
+        public FixationRun Build(FixationRelease release, long endSampleUs) =>
+            new(anchor, onsetUs, release.LastCreditedUs, release.CreditedAgeUs, _activationUs, release.EndedByLeave,
+                _settleAnchor, _settleUs, release.EndedByLeave ? endSampleUs : null);
     }
 }
 
@@ -753,6 +813,16 @@ public sealed class LegacyFixationRule : IFixationRule
 
     /// <inheritdoc />
     public event Action<PhysicalPoint, long>? FixationStarted;
+
+    /// <summary>
+    /// Never fires: the frozen pre-ticket-3 rule predates the settle, so "today" has no pin edge. Kept
+    /// on the interface so the gates can score both candidates through one seam.
+    /// </summary>
+    public event Action<PhysicalPoint, long>? FixationSettled
+    {
+        add { }
+        remove { }
+    }
 
     /// <inheritdoc />
     public event Action<long>? FixationActivated;

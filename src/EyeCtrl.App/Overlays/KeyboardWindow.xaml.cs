@@ -532,6 +532,14 @@ public partial class KeyboardWindow : OverlayWindow
     /// latch on a pass where any element failed.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// The keyboard's on-screen bounds in physical pixels, INCLUDING the prediction bar, the category
+    /// bar and the key grid — everything a gaze landing there would interact with. False before the
+    /// window has been laid out, when there is no rect to publish. Ticket 8's offer chrome rule
+    /// consumes this as plain data: no activation button is offered over EyeCtrl's own controls.
+    /// </summary>
+    public bool TryGetChromeBounds(out PhysicalRect bounds) => TryGetScreenRect(this, out bounds);
+
     private static bool TryGetScreenRect(FrameworkElement element, out PhysicalRect rect)
     {
         rect = default;

@@ -54,3 +54,11 @@ public record GazeCursorMovedMessage(GazeFrame Frame)
 /// cursor ring is hidden so EyeCtrl's own dwell-progress feedback shows over the control instead.
 /// </summary>
 public record ExternalDwellActiveMessage(bool Active);
+
+/// <summary>
+/// Sent by the eye-care banner when it appears (<c>Active = true</c>) and when it is dismissed or
+/// auto-snoozes (<c>false</c>). The activation-offer coordinator suspends offers while it is up
+/// (ticket 8 fixup, review B F3): the banner carries its own dwell targets and must not compete with
+/// an activation button.
+/// </summary>
+public record EyeCareBannerActiveMessage(bool Active);

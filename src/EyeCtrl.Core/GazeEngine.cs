@@ -34,6 +34,9 @@ public class GazeEngine : IDisposable
     private readonly FixationCentroidTracker _centroidTracker;
     private readonly EffectiveSettingsProvider? _effectiveSettings;
     private readonly IStruggleTelemetrySink? _telemetry;
+    // The offer lifecycle's Information lines (ticket 8 fixup, review B F2) — the live check reads the
+    // run's constants and the offer events from the log. Null in tests.
+    private readonly ILogger<GazeEngine>? _logger;
     private readonly PropertyChangedEventHandler _dwellSettingsChangedHandler;
     private readonly Action? _effectiveSettingsChangedHandler;
     // Set from the dispatcher thread (FreeLook entry, SuppressFixation release) and read+cleared on the
@@ -57,11 +60,12 @@ public class GazeEngine : IDisposable
     // gaze thread for fixation end), and a torn read at worst mis-classifies one edge, which the next
     // FreeLook corrects.
     private InteractionState _previousInteractionState = InteractionState.FreeLook;
-    // Whether the CURRENT run's onset was accepted by the InteractionManager (ShowActivationButton
-    // fired for it). Cleared on every onset before the InteractionManager sees it, set if it raises the
-    // show. Struggle telemetry reports only accepted runs (fixup-01 F1b), so a stare held while a menu,
-    // scroll, drag or the keyboard is up — where no activation button exists — never emits an outcome.
-    private bool _runAccepted;
+    // The activation offer's geometry, pushed by the app (screen bounds and scale are app knowledge —
+    // Core owns no screen API). The rebuild runs on the gaze thread like every other live-pipeline
+    // mutation: ConfigureActivationOffers only records the request.
+    private sealed record ActivationOfferGeometry(PhysicalRect ScreenBoundsPx, double Scale);
+    private volatile ActivationOfferGeometry? _activationOfferGeometry;
+    private volatile bool _activationOfferRebuildRequested;
     // Set by the effective-settings Changed handler / the DwellSettings handler (dispatcher thread) and
     // read+cleared on the gaze thread at the top of OnGazePoint. Deferring the apply onto the gaze thread
     // keeps every _fixationDetector mutation on the one thread that calls Update, eliminating the
@@ -146,6 +150,14 @@ public class GazeEngine : IDisposable
                 _fixationAgeResetRequested = true;
                 _fixationRearmRequested = true;
                 _fixationRearmEndsReportedRun = true;
+            }
+            if (!_suppressFixation && value)
+            {
+                // Every suppression owner is a teardown — the keyboard toggle, external dwell and
+                // calibration all take this edge — so the offer goes with them. Requested, applied by
+                // the gaze thread; the pipeline keeps running while suppressed even though the
+                // detector is not fed, so the clear lands on the next sample.
+                InteractionManager.RequestActivationOfferClear();
             }
             _suppressFixation = value;
         }
@@ -288,6 +300,7 @@ public class GazeEngine : IDisposable
         _settings = settings;
         _calibrationService = calibrationService;
         _telemetry = telemetry;
+        _logger = logger;
 
         _effectiveSettings = effectiveSettings;
 
@@ -308,6 +321,14 @@ public class GazeEngine : IDisposable
                 // gaze thread mutates inside Process. Coalescing is a bonus: dragging a smoothing slider now
                 // costs one rebuild per gaze frame instead of one per PropertyChanged tick.
                 _interpolatorRebuildRequested = true;
+            }
+
+            if (e.PropertyName == nameof(CursorSettings.CircleSize))
+            {
+                // The ring size is part of the offer geometry (the placement offset follows it), so a
+                // ring change rebuilds the offer engine once on the gaze thread. It drops a live offer,
+                // which is right: its B was placed for the old ring.
+                _activationOfferRebuildRequested = true;
             }
         };
         _settings.Cursor.PropertyChanged += _cursorSettingsChangedHandler;
@@ -364,9 +385,11 @@ public class GazeEngine : IDisposable
         };
         InteractionManager.StateChanged += _interactionStateChangedHandler;
 
-        // Acceptance tracking for telemetry (F1b): the InteractionManager raises this synchronously
-        // inside OnFixationStarted, and only when the run's onset was accepted (FreeLook).
-        InteractionManager.ShowActivationButton += OnActivationButtonShownForTelemetry;
+        // Button-dwell telemetry (ticket 8, M7/N8): completions and offers that expired unused. The
+        // age-based reports the detector used to feed are retired with _runAccepted — the age signal
+        // is replay-only now, and the offer is the one activation ledger.
+        InteractionManager.ActivationOfferFired += OnActivationOfferFired;
+        InteractionManager.ActivationOfferExpired += OnActivationOfferExpired;
 
         // Reconfigure when an adaptation delta changes the effective tolerance. The provider's Changed fires
         // on EVERY SetMomentaryFill (any knob), so a fill on a non-tolerance knob also lands here; the apply
@@ -520,6 +543,61 @@ public class GazeEngine : IDisposable
             _adaptiveRebuildRequested = true;
     }
 
+    /// <summary>
+    /// Records the activation offer's geometry — the primary screen's bounds in physical pixels and the
+    /// live DPI scale, both app knowledge Core has no API for (ticket 8, the plan's "the app pushes the
+    /// screen bounds and the scale as plain data"). Callable from the dispatcher; the rebuild that
+    /// consumes it runs on the gaze thread at the top of the next sample, like every other live-pipeline
+    /// mutation. A later call replaces the geometry and rebuilds again (ring size changes request the
+    /// same rebuild through the settings handler).
+    /// </summary>
+    public void ConfigureActivationOffers(PhysicalRect screenBoundsPx, double scale)
+    {
+        _activationOfferGeometry = new ActivationOfferGeometry(screenBoundsPx, scale);
+        _activationOfferRebuildRequested = true;
+    }
+
+    // Runs on the gaze thread. Builds the offer engine for the recorded geometry and attaches it to the
+    // InteractionManager, which drives it from then on. Rebuilding drops a live offer — only a ring or
+    // screen change does it, and the old B was placed for the old geometry.
+    private void ApplyPendingActivationOfferRebuild()
+    {
+        if (!_activationOfferRebuildRequested)
+            return;
+        _activationOfferRebuildRequested = false;
+        if (_activationOfferGeometry is not { } geometry)
+            return;
+
+        var offers = new ActivationOfferEngine(
+            geometry.ScreenBoundsPx,
+            geometry.Scale,
+            _settings.Cursor.CircleSize,
+            EffectiveActivationDwellMs(),
+            EffectiveFixationRadius())
+        {
+            // Decision 3's linger was set by the user from the ticket 7 replay report (750 ms), down
+            // from the engine's 1 s default. The default is left alone so the report's lever table
+            // keeps its baseline.
+            OfferExpiryMs = ActivationOfferEngine.ProductOfferExpiryMs,
+        };
+        InteractionManager.AttachActivationOffers(offers);
+        LogOfferEngineConfiguration(offers);
+    }
+
+    // The live check's setup-sanity line (review B F2): the constants the product is actually running.
+    // Low-rate (configure, ring change, display change, and an effective R/dwell move), so it is not
+    // gated behind a diagnostics flag.
+    private void LogOfferEngineConfiguration(ActivationOfferEngine offers)
+        => _logger?.LogInformation(
+            "Offer engine: {Width}×{Height} px @{Scale}, ring {Ring}, R {R}, dwell {Dwell}, linger {Expiry} ms",
+            offers.ScreenBoundsPx.Width,
+            offers.ScreenBoundsPx.Height,
+            offers.Scale,
+            offers.RingSizeDip,
+            offers.FixationRadiusPx,
+            offers.DwellMs,
+            offers.OfferExpiryMs);
+
     // Runs on the gaze thread. Applies the current effective tolerance to the LIVE detector in place. No
     // rebuild, so an in-progress fixation is preserved across an adaptation step: the controller relaxes and
     // recovers a knob every tick (250 ms) while active, and a rebuild-per-step would end the fixation each
@@ -539,6 +617,20 @@ public class GazeEngine : IDisposable
         _fixationDetector.FixationTimeMs = _settings.Dwell.FixationDetectionMs;
         _fixationDetector.ActivationDwellMs = EffectiveActivationDwellMs();
         _fixationDetector.CooldownMs = _settings.Dwell.DwellCooldownMs;
+
+        // The offer engine follows the same two live values. They are settable in place (review A's
+        // ticket-8 nit): an R or dwell change must not drop a live offer. The live check reads the
+        // constants from the log, so a real move logs the new configuration — not every request, which
+        // fires on each adaptation fill even when the effective value is unchanged.
+        if (InteractionManager.ActivationOffers is { } offers)
+        {
+            int previousDwellMs = offers.DwellMs;
+            double previousRadiusPx = offers.FixationRadiusPx;
+            offers.DwellMs = EffectiveActivationDwellMs();
+            offers.FixationRadiusPx = EffectiveFixationRadius();
+            if (offers.DwellMs != previousDwellMs || offers.FixationRadiusPx != previousRadiusPx)
+                LogOfferEngineConfiguration(offers);
+        }
     }
 
     // Runs on the gaze thread, before Process below, so CopyStateFrom reads the outgoing interpolator on the
@@ -598,12 +690,9 @@ public class GazeEngine : IDisposable
 
     private void WireFixation(FixationDetector d)
     {
-        // Ordered: the acceptance flag is cleared BEFORE the state machine sees the onset, so an onset
-        // rejected by a non-FreeLook state (menu, scroll, drag, keyboard, repeat armed) stays unaccepted
-        // for telemetry; the Show handler that follows sets it when the onset IS accepted.
-        d.FixationStarted += ClearRunAcceptance;
         d.FixationStarted += InteractionManager.OnFixationStarted;
         d.FixationEnded += InteractionManager.OnFixationEnded;
+        d.FixationSettled += InteractionManager.OnFixationSettled;
         d.FixationStarted += _startTrackingHandler;
         d.FixationEnded += _centroidTracker.StopTracking;
         d.FixationActivated += ForwardFixationActivated;
@@ -612,88 +701,65 @@ public class GazeEngine : IDisposable
 
     private void UnwireFixation(FixationDetector d)
     {
-        d.FixationStarted -= ClearRunAcceptance;
         d.FixationStarted -= InteractionManager.OnFixationStarted;
         d.FixationEnded -= InteractionManager.OnFixationEnded;
+        d.FixationSettled -= InteractionManager.OnFixationSettled;
         d.FixationStarted -= _startTrackingHandler;
         d.FixationEnded -= _centroidTracker.StopTracking;
         d.FixationActivated -= ForwardFixationActivated;
         d.FixationReleased -= ForwardFixationReleased;
     }
 
-    // Runs on the gaze thread, first thing on every reported onset. See _runAccepted. A state that is
-    // ALREADY Fixation means the button is up, which carries the acceptance across a suppression
-    // re-onset (the state machine raises no new Show there, fixup-02 low item).
-    private void ClearRunAcceptance(PhysicalPoint _) =>
-        _runAccepted = InteractionManager.CurrentState == InteractionState.Fixation;
-
-    // Raised synchronously inside InteractionManager.OnFixationStarted when the onset was accepted.
-    private void OnActivationButtonShownForTelemetry(PhysicalPoint _) => _runAccepted = true;
-
     // Method groups, not lambdas: UnwireFixation must be able to remove exactly these subscriptions.
+    // Ticket 8: these are pure forwarding now — the age-based telemetry that used to hang off them is
+    // retired with the offer (M7/N8), and the age signal is replay-only.
     private void ForwardFixationActivated(FixationActivation activation)
-    {
-        FixationActivated?.Invoke(activation);
-        // Accepted runs only. The state check covers the suppression-release path, where an onset can
-        // re-fire while the state is already Fixation and no new Show is raised.
-        if (_runAccepted || InteractionManager.CurrentState == InteractionState.Fixation)
-            ReportActivationOutcome(activation);
-    }
+        => FixationActivated?.Invoke(activation);
 
     private void ForwardFixationReleased(FixationRelease release)
-    {
-        FixationReleased?.Invoke(release);
-        if (_runAccepted)
-            ReportAbandonOutcome(release);
-    }
+        => FixationReleased?.Invoke(release);
 
-    // Ticket 3 item 6: the activation surface's clock moved out of the ViewModel's DwellDetector (whose
-    // progress at DwellDetector.cs:370-371 credited blink gaps), so its telemetry is emitted HERE, from the
-    // valid-time ledger. Same context/target id as the surface used, same abandon threshold.
-    private void ReportActivationOutcome(FixationActivation activation)
+    // Ticket 8's button-dwell telemetry, replacing ticket 3's age-based reports in the same change that
+    // moved the button's show to the offer. The target geometry is the button's own: TargetCenter = B
+    // and TargetRadius = the hit radius, with GazePoint = B as the old activation reports had
+    // (NearMiss 0) so adaptation's geometric drives see the same shape they always did.
+    private void OnActivationOfferFired(ActivationOffer offer, long timestampUs)
     {
         _telemetry?.Report(new DwellOutcome(
-            activation.TimestampUs,
+            timestampUs,
             DwellContext.ActivationButton,
             ActivationTargetId,
             OutcomeKind.Activated,
             AbandonReason.None,
             1.0,
-            activation.Point,
-            activation.Point,
-            _fixationDetector.RadiusPixels,
+            offer.Button,
+            offer.Button,
+            offer.HitRadiusPx,
             TargetBounds: null));
     }
 
-    private void ReportAbandonOutcome(FixationRelease release)
+    private void OnActivationOfferExpired(ActivationOffer offer, long timestampUs, double progressAtExpiry)
     {
-        // Only a gaze-left abandonment counts as an attempt the user gave up on. A run that ended because
-        // the eyes were lost past the gap budget has no "gave up" evidence (the same distinction the
-        // DwellDetector draws for a lost stream), a stream end is not the user's doing at all, and a run
-        // that ACTIVATED is a success — the legacy DwellDetector nulled the target's entry on activation,
-        // so it reported no abandonment for a success either (fixup-01 F1a).
-        if (_telemetry is null || release.Activated || release.Reason != FixationEndReason.GazeLeft)
+        // Every expiry is logged for the live check, before the telemetry threshold below: a glance
+        // that did not complete is exactly what the "no chase" and completion-count readings need.
+        _logger?.LogInformation(
+            "Offer expired unused #{Id} (dwell {Progress:P0})", offer.Id, progressAtExpiry);
+
+        // The same threshold the age-based abandonment used: below it the gaze merely passed over the
+        // button, not an attempt the user gave up on.
+        if (_telemetry is null || progressAtExpiry < TelemetryThresholds.AbandonProgress)
             return;
 
-        // The detector's own onset age, not the raw setting: during the one-sample window after a
-        // FixationDetectionMs edit the setting is ahead of what the run actually ran with.
-        long onsetAgeUs = _fixationDetector.FixationTimeMs * 1000L;
-        long dwellUs = _fixationDetector.ActivationDwellMs * 1000L;
-        double progress = dwellUs <= 0
-            ? (release.CreditedAgeUs >= onsetAgeUs ? 1.0 : 0.0)
-            : Math.Clamp((release.CreditedAgeUs - onsetAgeUs) / (double)dwellUs, 0.0, 1.0);
-        if (progress < TelemetryThresholds.AbandonProgress)
-            return;
         _telemetry.Report(new DwellOutcome(
-            release.LastCreditedUs,
+            timestampUs,
             DwellContext.ActivationButton,
             ActivationTargetId,
             OutcomeKind.Abandoned,
             AbandonReason.GazeLeft,
-            progress,
-            release.Point,
-            release.Point,
-            _fixationDetector.RadiusPixels,
+            progressAtExpiry,
+            offer.Button,
+            offer.Button,
+            offer.HitRadiusPx,
             TargetBounds: null));
     }
 
@@ -776,6 +842,10 @@ public class GazeEngine : IDisposable
         // live pipeline state stay on this thread. Each is skipped when nothing was requested.
         ApplyPendingFixationReconfiguration();
         ApplyPendingInterpolatorRebuild(gaze.TimestampMicroseconds);
+        // The offer engine before the sample that will drive it: a pending rebuild attaches first, then
+        // the volatile teardown/completion requests land, then the sample is fed.
+        ApplyPendingActivationOfferRebuild();
+        InteractionManager.ApplyPendingActivationOfferRequests();
 
         // Per-sample snapshot: InteractionManager.CurrentState is also written from the dispatcher thread
         // (TogglePause / OnActionSelected), so re-reading it per decision lets a write land between the
@@ -810,23 +880,40 @@ public class GazeEngine : IDisposable
         // ones; an age reset requested by FreeLook entry / SuppressFixation release lands before the feed.
         ApplyPendingFixationAgeReset();
         if (interactionState != InteractionState.Paused && !SuppressFixation && !isInGap)
+        {
+            // The offer engine first, then the detector: the settle the detector may raise on this
+            // sample is classified against the sample the engine has already seen (the engine's
+            // documented call order). Both see only non-gap samples; the engine additionally gets the
+            // raw validity so a tracker-reported invalid sample pauses the button dwell.
+            InteractionManager.NoteActivationGazeSample(filtered, gaze.TimestampMicroseconds, gaze.IsValid);
             _fixationDetector.Update(filtered, gaze.TimestampMicroseconds);
+        }
 
         // Always fire CursorMoved so the cursor circle + toolbar receive gaze
         // (this allows unpause via toolbar dwell even when paused). Gap-held samples are published
         // too — display surfaces may keep showing the held point — but the frame says so, and every
         // dwell surface downstream skips its DwellDetector.Update for them.
         PublishCursorMoved(new GazeFrame(
-            filtered, gaze.TimestampMicroseconds, isInGap, _fixationDetector.DwellProgress));
+            filtered, gaze.TimestampMicroseconds, isInGap, _fixationDetector.DwellProgress,
+            InteractionManager.ActivationOffers?.DwellProgress ?? 0));
 
         if (interactionState == InteractionState.Paused)
             return;
 
         // RepeatMode keeps the cursor following gaze (like Dragging): the dwell-to-act click
         // lands at the fixated point, so the user must see where the pointer is.
-        if (interactionState is InteractionState.FreeLook
-            or InteractionState.Dragging
-            or InteractionState.RepeatMode)
+        // FreeLook does NOT move the pointer while an activation offer is up (live check
+        // 2026-10-03, the user: "the cursor shall not move on fixation either"): holding the button
+        // flips the run FreeLook/Fixation every ~0.3 s, and the pointer jumped toward the button in
+        // every FreeLook gap. Like the ring, it stays where the fixation left it until the offer
+        // closes. Read after this sample's offer update, so a close frees it on the same sample.
+        bool pointerFollows = interactionState switch
+        {
+            InteractionState.FreeLook => !InteractionManager.HasPublishedActivationOffer,
+            InteractionState.Dragging or InteractionState.RepeatMode => true,
+            _ => false,
+        };
+        if (pointerFollows)
         {
             _inputSimulator.MoveCursor(filtered);
         }
@@ -857,7 +944,8 @@ public class GazeEngine : IDisposable
         if (_effectiveSettings is not null && _effectiveSettingsChangedHandler is not null)
             _effectiveSettings.Changed -= _effectiveSettingsChangedHandler;
         InteractionManager.StateChanged -= _interactionStateChangedHandler;
-        InteractionManager.ShowActivationButton -= OnActivationButtonShownForTelemetry;
+        InteractionManager.ActivationOfferFired -= OnActivationOfferFired;
+        InteractionManager.ActivationOfferExpired -= OnActivationOfferExpired;
         _gazeProvider.GazePointReceived -= OnGazePoint;
         UnwireFixation(_fixationDetector);
         _gazeProvider.Dispose();

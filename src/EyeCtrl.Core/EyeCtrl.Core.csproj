@@ -10,6 +10,10 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="EyeCtrl.Core.Tests" />
+    <!-- App.Tests drives InteractionManager's in-Fixation transition directly in its state-machine
+         tests; the method is internal so no production wiring can bypass the offer path (ticket 8
+         fixup, review A F6). -->
+    <InternalsVisibleTo Include="EyeCtrl.App.Tests" />
   </ItemGroup>
 
   <ItemGroup>

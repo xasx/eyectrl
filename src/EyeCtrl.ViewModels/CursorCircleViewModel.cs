@@ -10,8 +10,8 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     IRecipient<GazeCursorMovedMessage>,
     IRecipient<StateChangedMessage>,
     IRecipient<ExternalDwellActiveMessage>,
-    IRecipient<ShowActivationButtonMessage>,
-    IRecipient<HideActivationButtonMessage>
+    IRecipient<PinRingMessage>,
+    IRecipient<ReleaseRingMessage>
 {
     private readonly EyeCtrlSettings _settings;
 
@@ -21,8 +21,41 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     private bool _stateAllowsCursor = true;
     private bool _externalDwellActive;
 
+    // The latest sample position, tracked even while pinned: the release snaps the ring back to gaze
+    // immediately, and while pinned the gaze channel deliberately does not move Position.
+    private PhysicalPoint _latestGaze;
+
+    // The last state the machine reported. A pin is only accepted in Fixation, which makes "a pinned
+    // ring implies Fixation" structural: an exit posted by the dispatcher can land between the gaze
+    // thread's state check and its pin post (review A, F4), and without this the ring would stay
+    // frozen in FreeLook or Paused — with no later release on the keyboard path.
+    private InteractionState _lastState = InteractionState.FreeLook;
+
+    // The glide (ticket 7): the ring eases from where it was to the settle centroid over
+    // RingGlide.DurationMs, driven by the sample clock (the frames the gaze channel already delivers),
+    // never by a WPF animation. _glideStartUs is -1 until the first frame after the pin, so the glide
+    // is measured from the first sample at or after the pin edge.
+    private bool _gliding;
+    private PhysicalPoint _glideFrom;
+    private PhysicalPoint _glideTo;
+    private long _glideStartUs = -1;
+
+    /// <summary>One call to the overlay: move the ring to <see cref="Target"/>, and whether this write
+    /// is a glide frame (instrument 2 skips glide frames — their cadence is the animation's, not the
+    /// ring's). The record carries both at once so the window never sees a position before it knows it
+    /// is a pin (critique M3/N10).</summary>
+    public readonly record struct RingMove(PhysicalPoint Target, bool Glide);
+
     [ObservableProperty] private PhysicalPoint _position = new(0, 0);
     [ObservableProperty] private bool _isVisible = true;
+
+    /// <summary>
+    /// The one position channel for pin edges and glide frames, forwarded by the binding coordinator to
+    /// <c>ICursorCircleOverlay.MoveTo</c>. <see cref="Position"/> stays the channel for ordinary
+    /// gaze-following writes and its existing readers; during a glide only this property moves, so the
+    /// glide's frames never reach instrument 2 through the Position path.
+    /// </summary>
+    [ObservableProperty] private RingMove _moveTo;
 
     /// <summary>
     /// True while the interaction state is Paused. Paused does not hide the ring: it stays visible
@@ -31,10 +64,12 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     [ObservableProperty] private bool _isPaused;
 
     /// <summary>
-    /// True from the activation widget's show until its hide — i.e. exactly while Core's rule reports a
-    /// fixation the interaction state accepted. While pinned the ring does not follow gaze: it sits
-    /// literally still on the onset centroid. That stillness is the "you're holding" signal the user
-    /// asked for ("the circle almost never stands still").
+    /// True from Core's <c>PinRing</c> (the accepted settle, or an offer appearing) until Core's
+    /// <c>ReleaseRing</c>: the fixation's end, or — while an activation offer is alive — the offer's
+    /// close, so the ring does not move while the user looks at the button. While pinned the ring does
+    /// not follow gaze: it eases to the pin and then sits literally still there. That stillness is the
+    /// "you're holding" signal the user asked for ("the circle almost never stands still"). The VM
+    /// itself is keyed on Core's two messages, never on the button's show/hide.
     /// </summary>
     [ObservableProperty] private bool _isPinned;
 
@@ -51,7 +86,15 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
 
     public void Receive(GazeCursorMovedMessage message)
     {
-        // Pinned means the ring stays where the fixation started; a gaze move inside the hold radius
+        _latestGaze = message.Position;
+
+        if (_gliding)
+        {
+            AdvanceGlide(message.Frame.TimestampMicroseconds);
+            return;
+        }
+
+        // Pinned means the ring stays where the fixation settled; a gaze move inside the hold radius
         // must not nudge it. FreeLook (and Paused) follow as before, so the user can still see where
         // the tracker thinks they are looking.
         if (IsVisible && !IsPinned)
@@ -59,29 +102,54 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     }
 
     /// <summary>
-    /// Pins the ring on the fixation's onset centroid. The message carries exactly what ticket 3's rule
-    /// published at onset — <c>InteractionManager.FixationPoint</c> set from the detector's running
-    /// centroid — NOT the latest filtered sample, which sits behind the saccade. Pinning on the latest
-    /// sample would re-introduce the anchor offset the centroid rule removed.
+    /// Pins the ring on the settle centroid Core published on the accepted settle. The glide starts
+    /// from the ring's current position — the point it was following a moment ago — and ends exactly on
+    /// the pin; the first frame after the pin starts the clock.
     /// </summary>
-    public void Receive(ShowActivationButtonMessage message)
+    public void Receive(PinRingMessage message)
     {
-        Position = message.Position;
+        // Only a fixation may pin. The check is against the last state the machine REPORTED, so a
+        // release/exit that arrives before this message (F4's race) refuses the pin outright.
+        if (_lastState != InteractionState.Fixation)
+            return;
+
+        _glideFrom = Position;
+        _glideTo = message.Position;
+        _glideStartUs = -1;
+        _gliding = true;
         IsPinned = true;
     }
 
-    public void Receive(HideActivationButtonMessage message) => IsPinned = false;
+    /// <summary>
+    /// Releases the pin and snaps to gaze — the next drawn position is the latest sample, applied
+    /// directly, with no glide sweeping behind the eye after it has already landed (decision 2). Also
+    /// cancels a glide that was still in flight, so nothing keeps interpolating toward a stale pin.
+    /// </summary>
+    public void Receive(ReleaseRingMessage message)
+    {
+        _gliding = false;
+        IsPinned = false;
+        Position = _latestGaze;
+    }
 
     public void Receive(StateChangedMessage message)
     {
+        _lastState = message.NewState;
         // Paused keeps the ring (dimmed) — it is the user's only evidence that tracking is alive
         // while they are looking for the resume target. RepeatMode hides the normal circle: the
         // contracting repeat cursor replaces it there.
         IsPaused = message.NewState == InteractionState.Paused;
-        // Paused is not a measured state — no sample feeds the rule — so it also releases the pin,
-        // structurally rather than relying on the pause path's hide message arriving first.
-        if (IsPaused)
+        // Belt and braces for the release: a pinned ring implies Fixation or FreeLook — FreeLook only
+        // because the ring stays at the offer's P while the user looks at the button, and Core's
+        // ReleaseRing (offer closed, or the run ended with no offer) is what frees it there. Any
+        // other state cancels the pin (and an in-flight glide) structurally, even if the release
+        // message is ever lost. This is also the Paused rule that predates the pin.
+        if (message.NewState is not (InteractionState.Fixation or InteractionState.FreeLook))
+        {
+            _gliding = false;
             IsPinned = false;
+            Position = _latestGaze;
+        }
         _stateAllowsCursor = message.NewState
             is InteractionState.FreeLook or InteractionState.Fixation or InteractionState.Paused;
         UpdateVisibility();
@@ -91,6 +159,28 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     {
         _externalDwellActive = message.Active;
         UpdateVisibility();
+    }
+
+    private void AdvanceGlide(long timestampUs)
+    {
+        if (_glideStartUs < 0)
+        {
+            // The first sample at or after the pin: it starts the clock and draws the glide's start.
+            _glideStartUs = timestampUs;
+            MoveTo = new RingMove(_glideFrom, Glide: true);
+            return;
+        }
+
+        double elapsedMs = (timestampUs - _glideStartUs) / 1000.0;
+        if (elapsedMs >= RingGlide.DurationMs)
+        {
+            // Landed: the ordinary Position channel draws the exact pin (and is instrumented).
+            _gliding = false;
+            Position = _glideTo;
+            return;
+        }
+
+        MoveTo = new RingMove(RingGlide.At(_glideFrom, _glideTo, elapsedMs), Glide: true);
     }
 
     private void UpdateVisibility() => IsVisible = _stateAllowsCursor && !_externalDwellActive;

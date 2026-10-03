@@ -33,6 +33,7 @@ public class EventCoordinator : IEventCoordinator
     private OverlayVmBindingCoordinator? _overlayVm;
     private OverlayMessageCoordinator? _overlayMessage;
     private SettingsUiCoordinator? _settingsUi;
+    private ActivationOfferCoordinator? _activationOffers;
 
     /// <summary>
     /// Gets the word predictor instance used for keyboard predictions, if enabled.
@@ -115,6 +116,12 @@ public class EventCoordinator : IEventCoordinator
 
         _repeatModeController = new RepeatModeController();
         _repeatModeController.Initialize(context);
+
+        // Ticket 8: the activation offer's geometry, chrome zones and modal-surface suspension.
+        // Constructed after the toolbar coordinator (it subscribes to its visibility event) and
+        // before any gaze sample arrives.
+        _activationOffers = new ActivationOfferCoordinator(_toolbar, _modal);
+        _activationOffers.Initialize(context);
 
         // Task Switcher visibility binding + the overlay VM PropertyChanged handlers moved to
         // OverlayVmBindingCoordinator (cluster 1) — they are pure VM→window glue.
@@ -219,6 +226,10 @@ public class EventCoordinator : IEventCoordinator
 
         // Dispose the repeat-mode sub-coordinator (stop button, tick timer, escape hook).
         _repeatModeController?.Dispose();
+
+        // Dispose the activation-offer coordinator (chrome-zone and geometry subscriptions).
+        _activationOffers?.Dispose();
+        _activationOffers = null;
 
         // Dispose the input-action sub-coordinators (each handles its own message cleanup — each
         // registers as itself, so each UnregisterAll(this) is correctly keyed).

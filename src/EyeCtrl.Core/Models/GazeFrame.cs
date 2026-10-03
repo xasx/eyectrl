@@ -25,9 +25,21 @@ namespace EyeCtrl.Core.Models;
 /// a gap, so progress holds rather than resets); consumers that skip gap frames — the activation VM does
 /// — never read it. The trailing default keeps every existing construction site compiling and every
 /// sample without a fixation reading 0.
+/// <para>
+/// Since ticket 8 the age signal is replay-only: nothing in normal mode activates from it. It stays
+/// on the frame for the replay harness, which compares the rule against its runs.
+/// </para>
+/// </param>
+/// <param name="ButtonDwellProgress">
+/// The activation offer's button-dwell progress, 0.0–1.0; 0 when no offer is up (ticket 8). This is
+/// what the drawn halo follows now — the feedback is on the one action that fires, the dwell at the
+/// button, not on the fixation age. 1.0 while a fired offer waits for its accept or decline. A
+/// gap-held sample carries the engine's last value like <paramref name="ActivationProgress"/> does;
+/// the VM skips those frames. Trailing and defaulted so every existing construction site compiles.
 /// </param>
 public readonly record struct GazeFrame(
     PhysicalPoint Position,
     long TimestampMicroseconds,
     bool IsInGap,
-    double ActivationProgress = 0.0);
+    double ActivationProgress = 0.0,
+    double ButtonDwellProgress = 0.0);

@@ -114,6 +114,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         if (Context is null || _settingsWindow != null) return;
 
         _modal.SettingsOpen = true;
+        _modal.SettingsOpenChanged?.Invoke(true);
         _toolbar.SetAutoHideSuspended(true);
         _quickActions.SetSummonSuspended(true);
         Context.OverlayManager.CursorCircle.Hide();
@@ -152,6 +153,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         catch
         {
             _modal.SettingsOpen = false;
+            _modal.SettingsOpenChanged?.Invoke(false);
             // Window construction threw before Show() — OnSettingsWindowClosed will never fire, so
             // undo the suspend we set alongside _modal.SettingsOpen = true above.
             _toolbar.SetAutoHideSuspended(false);
@@ -221,6 +223,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
 
         _settingsWindow = null;
         _modal.SettingsOpen = false;
+        _modal.SettingsOpenChanged?.Invoke(false);
         _toolbar.SetAutoHideSuspended(false);
         _quickActions.SetSummonSuspended(false);
         if (Context.CursorVM.IsVisible)

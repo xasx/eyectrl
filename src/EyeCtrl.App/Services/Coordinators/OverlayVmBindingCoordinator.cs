@@ -133,6 +133,11 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
             case nameof(CursorCircleViewModel.Position):
                 cursorCircle.UpdatePosition(Context.CursorVM.Position);
                 break;
+            case nameof(CursorCircleViewModel.MoveTo):
+                // The pin and glide channel: one call carrying the target AND the glide flag, so the
+                // window never applies a position before it knows the jump is a pin edge (M3/N10).
+                cursorCircle.MoveTo(Context.CursorVM.MoveTo.Target, Context.CursorVM.MoveTo.Glide);
+                break;
             case nameof(CursorCircleViewModel.IsVisible):
                 if (Context.CursorVM.IsVisible && !_modal.SettingsOpen) cursorCircle.Show();
                 else cursorCircle.Hide();
@@ -162,17 +167,28 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 if (Context.ActivationVM.IsVisible)
                 {
                     actionMenu.Hide();
-                    // Centred on the pin, sized for the radius the RULE is running with: the adapter
-                    // reads the detector's effective radius at onset and carries it on the show message.
+                    // Centred on the offer's B, sized for the offer's hit radius — both carried on the
+                    // show message, so the drawn feedback cannot disagree with the counted area.
                     // Positioned BEFORE showing — the other order presents the previous halo at the new
-                    // gaze point for a frame.
+                    // point for a frame.
                     activationButton.ShowAt(
-                        Context.ActivationVM.Position, Context.ActivationVM.FixationRadiusPixels);
+                        Context.ActivationVM.ButtonCenter, Context.ActivationVM.HitRadiusPixels);
                     activationButton.Show();
                 }
                 else
                 {
                     activationButton.HideImmediate();
+                }
+                break;
+            case nameof(ActivationButtonViewModel.ButtonCenter):
+                // Belt and braces for a replacement (ticket 8 fixup, review A F4/C18): Core closes the
+                // old offer before showing the new one, so the IsVisible edge above repositions — but a
+                // ButtonCenter change while already visible must reposition too, or the halo would sit
+                // at the old B while the new B counts.
+                if (Context.ActivationVM.IsVisible)
+                {
+                    activationButton.ShowAt(
+                        Context.ActivationVM.ButtonCenter, Context.ActivationVM.HitRadiusPixels);
                 }
                 break;
             case nameof(ActivationButtonViewModel.DwellProgress):

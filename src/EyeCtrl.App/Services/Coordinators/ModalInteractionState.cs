@@ -13,4 +13,11 @@ internal sealed class ModalInteractionState
     // early-out), written on the UI thread.
     public volatile bool KeyboardVisible;
     public volatile bool SettingsOpen;
+
+    /// <summary>
+    /// Raised after <see cref="SettingsOpen"/> flips, on the UI thread. The activation-offer
+    /// coordinator suspends offers while the settings window is open (ticket 8 fixup, review B F3);
+    /// the field remains a plain volatile flag for its gaze-thread readers.
+    /// </summary>
+    public Action<bool>? SettingsOpenChanged;
 }

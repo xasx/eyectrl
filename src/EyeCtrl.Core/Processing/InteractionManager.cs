@@ -432,8 +432,23 @@ public class InteractionManager
             // before StateChanged(FreeLook), so the VM still accepts it.
             bool toFreeLookWithOffer = newState == InteractionState.FreeLook
                 && Volatile.Read(ref _publishedActivationOfferId) != 0;
-            if (toFreeLookWithOffer && !_ringPinnedAtOffer && _activationOffers?.CurrentOffer is { } offer)
+            // A teardown that already asked for the offer to go (the keyboard toggle requests its
+            // clear one line before ending the fixation; DeclineOffer its decline) must not have the
+            // ring re-pinned at an offer that is about to close (re-check 2, S1).
+            bool offerGoing = Volatile.Read(ref _activationOfferClearRequested) != 0
+                || Interlocked.Read(ref _activationOfferDeclineRequested) != NoActivationOfferRequest;
+            if (toFreeLookWithOffer && !_ringPinnedAtOffer && !offerGoing
+                && _activationOffers?.CurrentOffer is { } offer)
+            {
                 RaisePinRing(offer.Point, atOffer: true);
+                // The gaze thread may have closed the offer between the id read above and this pin;
+                // its release then sits BEFORE the pin in the VM's queue, and with suppression up no
+                // settle comes to free it (S1). Re-read after a fence and release again: the VM's
+                // last ring event is then a release.
+                Interlocked.MemoryBarrier();
+                if (Volatile.Read(ref _publishedActivationOfferId) == 0)
+                    ReleaseRing?.Invoke();
+            }
             else if (!toFreeLookWithOffer || !_ringPinnedAtOffer)
                 ReleaseRing?.Invoke();
         }

@@ -369,6 +369,27 @@ public class ActivationOfferWiringTests
     }
 
     [Fact]
+    public void AKeyboardToggleDuringAToolbarHoldInTheLinger_ReleasesTheRing_WithoutRePinningAtP()
+    {
+        // Re-check 2, S1: the keyboard toggle requests the offer's clear, then ends the fixation
+        // (KeyboardCoordinator). The exit edge must not re-pin the ring at an offer that is about to
+        // close — with suppression up, no settle would come to free a pin that lands after the clear's
+        // release. Mutation: re-pin regardless of the pending clear → PinPoints gains P again.
+        using var h = new Harness();
+        var toolbar = new PhysicalRect(1500, 0, 1000, 300);
+        h.Im.SetActivationChromeZones(toolbar);
+        h.SettleAt(P);
+        var onToolbar = new PhysicalPoint(2000, 150);
+        h.Feed(onToolbar, samples: 20);                       // a no-offer settle inside the linger
+
+        h.Engine.SuppressFixation = true;                     // the keyboard toggle, as the dispatcher does it
+        h.Im.OnFixationEnded();
+
+        Check.That(h.PinPoints).ContainsExactly(P, onToolbar);
+        Check.That(h.Released).IsEqualTo(1);
+    }
+
+    [Fact]
     public void FromTheToolbarStraightToTheButton_TheRingWaitsAtP_ForTheWholeDwell()
     {
         // Re-check R-1, the user's scenario: a toolbar settle inside the linger, then straight onto

@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
+using EyeCtrl.Core;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Prediction;
@@ -358,10 +359,10 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
             ? fresh with { ActiveModelVerification = stored.ActiveModelVerification }
             : fresh;
 
-    // manageSuppression: true for the toolbar toggle (deliberately pauses fixation while the
-    // keyboard is up); false for the text-field auto-show/hide request path, which must NOT touch
-    // SuppressFixation (it may be owned elsewhere, e.g. note editing, and typing shouldn't pause
-    // fixation for the rest of the app).
+    // manageSuppression: true for the toolbar toggle (holds the keyboard's fixation-suppression
+    // claim while the keyboard is up); false for the text-field auto-show/hide request path, which
+    // takes no claim (typing there shouldn't pause fixation for the rest of the app). Each owner
+    // releases only its own claim, so this release cannot clear another owner's hold.
     private void SetKeyboardVisible(bool visible, bool manageSuppression)
     {
         if (Context is null) return;
@@ -376,7 +377,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
             ShowKeyboardEdgeBar();
             if (manageSuppression)
             {
-                Context.GazeEngine.SuppressFixation = true;
+                Context.GazeEngine.AcquireFixationSuppression(FixationSuppressor.Keyboard);
                 Context.InteractionManager.OnFixationEnded();
             }
             Context.Messenger.Send(new ShowKeyboardMessage());
@@ -385,7 +386,7 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
         {
             Context.OverlayManager.Keyboard.Hide();
             if (manageSuppression)
-                Context.GazeEngine.SuppressFixation = false;
+                Context.GazeEngine.ReleaseFixationSuppression(FixationSuppressor.Keyboard);
             HideKeyboardEdgeBar();
             Context.Messenger.Send(new HideKeyboardMessage());
         }

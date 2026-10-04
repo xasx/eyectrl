@@ -186,10 +186,10 @@ public class GazeEngineActivationTelemetryTests
         var b = SettleAtP(engine, provider, out long ts);
         ts = Feed(provider, b.X, b.Y, ts, samples: 10);      // a real attempt, in flight
 
-        engine.SuppressFixation = true;
+        engine.AcquireFixationSuppression(FixationSuppressor.Keyboard);
         ts = Feed(provider, b.X, b.Y, ts, samples: 60);      // the clear lands on the next sample
 
-        engine.SuppressFixation = false;
+        engine.ReleaseFixationSuppression(FixationSuppressor.Keyboard);
         // Long enough away for an un-cleared 300 ms attempt to expire and report: the clear is what
         // this test observes, so a mutated "no clear" must surface an abandonment here.
         FeedAway(provider, ts, samples: 40);

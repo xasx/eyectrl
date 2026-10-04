@@ -244,15 +244,15 @@ public sealed class ExternalDwellService : IDisposable
         }
     }
 
-    // SuppressFixation is a single bool shared with EventCoordinator (keyboard / calibration).
-    // We manage ONLY our own contribution: set it true while an external target is active, and
-    // clear it ONLY if we set it. We never write it on frames where we aren't involved — doing so
-    // would clobber another owner (e.g. clearing suppression while the keyboard is open).
+    // Fixation suppression is a claim set on GazeEngine shared with the keyboard, calibration and
+    // the Modes menu. We hold the ExternalDwell claim while an external target is active and
+    // release only that claim, so releasing it cannot clear another owner's hold (e.g. the
+    // keyboard's while it is open). _suppressing tracks our claim for the ring-hide edges.
     private void AcquireSuppression()
     {
         if (_suppressing) return;
         _suppressing = true;
-        _gazeEngine.SuppressFixation = true;
+        _gazeEngine.AcquireFixationSuppression(FixationSuppressor.ExternalDwell);
         SetCursorRingHidden(true);
     }
 
@@ -260,7 +260,7 @@ public sealed class ExternalDwellService : IDisposable
     {
         if (!_suppressing) return;
         _suppressing = false;
-        _gazeEngine.SuppressFixation = false;
+        _gazeEngine.ReleaseFixationSuppression(FixationSuppressor.ExternalDwell);
         SetCursorRingHidden(false);
     }
 

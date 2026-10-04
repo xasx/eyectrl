@@ -132,34 +132,56 @@ public class GazeEngine : IDisposable
 
     /// <summary>Interaction state machine controlling fixation → activation → action flow.</summary>
     public InteractionManager InteractionManager { get; }
+    // Suppression claims, one per owner (FixationSuppressor). Guarded by _suppressionLock: external
+    // dwell acquires and releases on the gaze thread, every other owner on the dispatcher.
+    // _suppressFixation mirrors "any claim held" so the per-sample read stays a single volatile load.
+    private readonly object _suppressionLock = new();
+    private readonly HashSet<FixationSuppressor> _suppressionClaims = new();
     private volatile bool _suppressFixation;
 
-    /// <summary>When true, fixation detection is suppressed (e.g., during overlay input or dwell cooldown).</summary>
-    public bool SuppressFixation
+    /// <summary>
+    /// True while any owner holds a fixation-suppression claim: the detector is not fed and no
+    /// activation can start. Read-only — owners go through
+    /// <see cref="AcquireFixationSuppression"/> / <see cref="ReleaseFixationSuppression"/>, so one
+    /// owner's release can never cancel another owner's hold.
+    /// </summary>
+    public bool SuppressFixation => _suppressFixation;
+
+    /// <summary>
+    /// Adds <paramref name="owner"/>'s suppression claim. Idempotent per owner. Only the first claim
+    /// (none held → one held) suppresses: it requests an activation-offer clear, because every
+    /// suppression owner is a teardown and the offer goes with it. The request is applied by the
+    /// gaze thread; the pipeline keeps running while suppressed even though the detector is not
+    /// fed, so the clear lands on the next sample. Thread-safe.
+    /// </summary>
+    public void AcquireFixationSuppression(FixationSuppressor owner)
     {
-        get => _suppressFixation;
-        set
+        lock (_suppressionLock)
         {
-            // Releasing the gate ends the run whose onset was reported — the interaction state is still
-            // Fixation, and only an end can return it to FreeLook (fixup-02 N1) — and re-arms (age +
-            // latches) so the user gets a deliberate fresh onset rather than an activation inherited from
-            // before the gate. Time accumulated before the overlay opened cannot complete an activation
-            // on the first sample after it closes (skeptic condition 2).
-            if (_suppressFixation && !value)
-            {
-                _fixationAgeResetRequested = true;
-                _fixationRearmRequested = true;
-                _fixationRearmEndsReportedRun = true;
-            }
-            if (!_suppressFixation && value)
-            {
-                // Every suppression owner is a teardown — the keyboard toggle, external dwell and
-                // calibration all take this edge — so the offer goes with them. Requested, applied by
-                // the gaze thread; the pipeline keeps running while suppressed even though the
-                // detector is not fed, so the clear lands on the next sample.
-                InteractionManager.RequestActivationOfferClear();
-            }
-            _suppressFixation = value;
+            if (!_suppressionClaims.Add(owner) || _suppressionClaims.Count != 1) return;
+            InteractionManager.RequestActivationOfferClear();
+            _suppressFixation = true;
+        }
+    }
+
+    /// <summary>
+    /// Drops <paramref name="owner"/>'s suppression claim. A release without a held claim is a
+    /// no-op. Only the last release (one held → none held) lifts suppression: it ends the run whose
+    /// onset was reported — the interaction state is still Fixation, and only an end can return it
+    /// to FreeLook (fixup-02 N1) — and re-arms (age + latches), so the user gets a deliberate fresh
+    /// onset rather than an activation inherited from before the gate. Time accumulated before the
+    /// overlay opened cannot complete an activation on the first sample after it closes (skeptic
+    /// condition 2). Thread-safe.
+    /// </summary>
+    public void ReleaseFixationSuppression(FixationSuppressor owner)
+    {
+        lock (_suppressionLock)
+        {
+            if (!_suppressionClaims.Remove(owner) || _suppressionClaims.Count != 0) return;
+            _fixationAgeResetRequested = true;
+            _fixationRearmRequested = true;
+            _fixationRearmEndsReportedRun = true;
+            _suppressFixation = false;
         }
     }
     /// <summary>Stable centroid position in physical screen pixels.</summary>
@@ -372,7 +394,7 @@ public class GazeEngine : IDisposable
         // unmoved gaze, and re-arming there would re-onset at +300 ms and re-open the overlay in a loop
         // (fixup-02 R2-1). This path re-arms SILENTLY — the state has already left Fixation, so no end is
         // needed (and an end here would read as an abandonment). Suppression release re-arms too, and
-        // there the run must be ENDED first (see the SuppressFixation setter and _fixationRearmEndsReportedRun).
+        // there the run must be ENDED first (see ReleaseFixationSuppression and _fixationRearmEndsReportedRun).
         _interactionStateChangedHandler = state =>
         {
             var previous = _previousInteractionState;

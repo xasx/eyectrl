@@ -84,8 +84,8 @@ public class InteractionManager
     /// <summary>
     /// Raised when the ring goes back to following the gaze. On an exit from
     /// <see cref="InteractionState.Fixation"/> — keyed on the state transition, not the detector's end
-    /// event: the keyboard toggle calls <see cref="OnFixationEnded"/> directly after setting
-    /// <c>GazeEngine.SuppressFixation</c>, so the detector never raises an end (re-check N2) — EXCEPT an
+    /// event: the keyboard toggle calls <see cref="OnFixationEnded"/> directly after acquiring its
+    /// fixation-suppression claim on <c>GazeEngine</c>, so the detector never raises an end (re-check N2) — EXCEPT an
     /// exit to FreeLook while an offer is live: the ring stays at the offer's P (or is pinned back there
     /// from a chrome settle's pin), and is released by the offer's close instead, or by an offer
     /// closing while a later, unpinned run is forming.

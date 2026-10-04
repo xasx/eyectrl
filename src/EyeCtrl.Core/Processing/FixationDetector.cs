@@ -369,8 +369,8 @@ public class FixationDetector
 
     /// <summary>
     /// Re-arms the detector so held gaze can report a fresh onset after a re-arm edge. The re-arm is
-    /// deliberately narrow: only <c>Paused → FreeLook</c> and the <c>GazeEngine.SuppressFixation</c>
-    /// true→false edge use it.
+    /// deliberately narrow: only <c>Paused → FreeLook</c> and the release of the last fixation-suppression
+    /// claim (<c>GazeEngine.ReleaseFixationSuppression</c>, <c>SuppressFixation</c> true→false) use it.
     /// <para>
     /// Clearing the latches on EVERY FreeLook entry is wrong (fixup-02 R2-1): a fixed-position exit
     /// button — the edge-bar Close at <c>RightEdgeAnchor</c> — sits under an unmoved gaze, so the

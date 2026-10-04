@@ -972,11 +972,33 @@ public class KeyboardCoordinatorTests
                 "src", "EyeCtrl.App", "Services", "Coordinators", "KeyboardCoordinator.cs"))),
             @"\s+", string.Empty);
 
+        // Branch placement, not just presence (re-check 1, K7): each call is pinned together with
+        // the line before it, so swapping the two calls between the show and hide branches fails.
         Check.WithCustomMessage("The keyboard show no longer takes its suppression claim — the "
                 + "next fixation would pop an action menu over the keyboard.")
-            .That(source.Contains("if(manageSuppression)ApplyKeyboardSuppression(visible:true);")).IsTrue();
+            .That(source.Contains(
+                "ShowKeyboardEdgeBar();if(manageSuppression)ApplyKeyboardSuppression(visible:true);")).IsTrue();
         Check.WithCustomMessage("The keyboard hide no longer releases its suppression claim — "
                 + "fixation would stay off until restart.")
-            .That(source.Contains("if(manageSuppression)ApplyKeyboardSuppression(visible:false);")).IsTrue();
+            .That(source.Contains(
+                "Context.OverlayManager.Keyboard.Hide();if(manageSuppression)ApplyKeyboardSuppression(visible:false);")).IsTrue();
+
+        // The three live handlers must pass manageSuppression: true (re-check 1, K8–K10). The
+        // edge-bar Close is the keyboard's own gaze escape: without the flag it hides the keyboard
+        // but keeps the claim, and fixation stays off until restart. The toggle and the ring show
+        // without it would leave free-look active under the keyboard.
+        Check.WithCustomMessage("The toolbar toggle no longer manages the keyboard's claim.")
+            .That(source.Contains(
+                "Register<KeyboardCoordinator,KeyboardToggledMessage>(this,(_,_)=>context.Dispatcher.BeginInvoke(()=>"
+                + "SetKeyboardVisible(!_modal.KeyboardVisible,manageSuppression:true)));")).IsTrue();
+        Check.WithCustomMessage("The ring/edge-bar show no longer takes the keyboard's claim.")
+            .That(source.Contains(
+                "Register<KeyboardCoordinator,KeyboardShowRequestedMessage>(this,(_,_)=>context.Dispatcher.BeginInvoke(()=>"
+                + "{if(ShouldShow(_modal.KeyboardVisible))SetKeyboardVisible(true,manageSuppression:true);}));")).IsTrue();
+        Check.WithCustomMessage("The edge-bar Close no longer releases the keyboard's claim — "
+                + "fixation would stay off until restart.")
+            .That(source.Contains(
+                "Register<KeyboardCoordinator,KeyboardHideRequestedMessage>(this,(_,_)=>context.Dispatcher.BeginInvoke(()=>"
+                + "SetKeyboardVisible(false,manageSuppression:true)));")).IsTrue();
     }
 }

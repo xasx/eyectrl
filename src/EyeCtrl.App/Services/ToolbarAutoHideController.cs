@@ -178,8 +178,10 @@ public sealed class ToolbarAutoHideController
         // 2026-09-28 (20:29:53) and twice on 2026-09-30 (02:54:13 → 02:54:27; 02:55:01 Paused →
         // 02:57:10 summoned → 02:57:12 FreeLook), and ToolbarPausedReturnTests walks
         // paused → Hidden → summon → Play → resume headless on all four edges at 3840×2400.
-        // Caveat: tray actions don't log, so the live resumes are very likely gaze, not provable
-        // from the log. The tray ForceShow remains the non-gaze escape hatch.
+        // Caveats: tray actions don't log, so the live resumes are very likely gaze, not provable
+        // from the log; and "observed" is not "always taken" — the same logs hold paused summons
+        // with no resume, which tools/paused_session_scan.py flags and cannot tell apart from a
+        // deliberately parked pause. The tray ForceShow remains the non-gaze escape hatch.
         //
         // If the band is already HIDDEN, no hide/show transition will fire to carry the pause
         // change into the visibility seam — re-assert the hide, keeping the seam and toolbar dwell

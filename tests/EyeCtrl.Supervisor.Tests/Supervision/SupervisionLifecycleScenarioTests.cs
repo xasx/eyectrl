@@ -52,17 +52,26 @@ public class SupervisionLifecycleScenarioTests
                 Handle(new LaunchRequest(Now));
         }
 
-        /// <summary>SupervisorApp.OnHeartbeatReceived: adopt in IdleWatch (only when enabled), then feed.</summary>
+        /// <summary>SupervisorApp.OnHeartbeatReceived: offer adoption (the MACHINE gates it on
+        /// enabled, ticket 06-F2), bind only when accepted, then feed the heartbeat.</summary>
         public void Heartbeat()
         {
             if (Machine.State == SupervisorState.IdleWatch)
             {
-                if (!Enabled) return;          // ticket 06-B adoption gate
+                Handle(new AdoptRequest(Now));
+                if (Machine.State != SupervisorState.Supervising) return;   // refused: supervision is off
                 Bound = true;
                 KillInitiated = false;
-                Handle(new AdoptRequest(Now));
             }
             Handle(new HeartbeatReceived(Now));
+        }
+
+        /// <summary>The FallenBack dialog's "Retry EyeCtrl once": launch paused, then re-arm IdleWatch.</summary>
+        public void Retry()
+        {
+            KillInitiated = false;
+            Bound = true;
+            Handle(new FallenBackRetry(Now));
         }
 
         /// <summary>An unannounced exit (crash). Not a supervisor kill.</summary>
@@ -124,17 +133,20 @@ public class SupervisionLifecycleScenarioTests
 
         void ISupervisionClockHost.ClearPendingLaunch() => PendingLaunchAt = null;
 
-        void ISupervisionClockHost.LaunchPendingNow()
+        bool ISupervisionClockHost.TryLaunchPendingNow()
         {
+            // Models DoLaunchApp's try/catch; Tick feeds LaunchExecuted/LaunchFailed from the
+            // result (ticket 06-F2), so this decision is covered by clock tests.
             Launches++;
             KillInitiated = false;
-            if (LaunchThrows)
-            {
-                Handle(new LaunchFailed(Now));          // DoLaunchApp's catch (ticket 06-C)
-                return;
-            }
+            if (LaunchThrows) return false;
             Bound = true;
-            Handle(new LaunchExecuted(Now));            // DoLaunchApp's success path
+            return true;
+        }
+
+        void ISupervisionClockHost.WireLaunchedProcess()
+        {
+            // The wire-time race guard (F4). The scenario's processes never exit at wire time.
         }
 
         public void Tick()
@@ -259,6 +271,7 @@ public class SupervisionLifecycleScenarioTests
         Check.That(h.State).IsEqualTo(SupervisorState.FallenBack);
         Check.That(h.Fallbacks).IsEqualTo(1);
         Check.That(h.Strikes).IsEqualTo(4);
+        Check.That(h.Kills).IsEqualTo(4);                    // F1: every hang strike kills the hung app
         Check.That(h.FallenBackAtTick).IsNotNull();
         // Measured: tick 230 (~230 s), each stuck relaunch costs one 60 s grace + its backoff.
         Check.That(h.FallenBackAtTick!.Value).IsStrictlyGreaterThan(200);
@@ -388,5 +401,33 @@ public class SupervisionLifecycleScenarioTests
         Check.That(h.Kills).IsEqualTo(0);                         // never kills
         Check.That(h.Strikes).IsEqualTo(0);
         Check.That(h.Bound).IsFalse();
+    }
+
+    [Fact]
+    public void Scenario12_RetryThenGazeDeath_EscalatesWithAKill()
+    {
+        // Review 06 F1: after the dialog's Retry the failure count stays at 4, so the retried
+        // app's next hang/gaze-death escalates immediately — and that escalation must kill the
+        // app, not leave it holding the mutex with the one-shot Retry spent.
+        var h = new Harness();
+        h.Startup();
+        h.Run(2);
+        h.Heartbeat();
+        h.Run(2);
+        h.Run(240);                                          // hang loop -> FallenBack
+        Check.That(h.State).IsEqualTo(SupervisorState.FallenBack);
+        var killsBefore = h.Kills;
+
+        h.Retry();
+        Check.That(h.State).IsEqualTo(SupervisorState.IdleWatch);
+        h.Heartbeat();
+        Check.That(h.State).IsEqualTo(SupervisorState.Supervising);
+        Check.That(h.Strikes).IsEqualTo(4);                  // the budget does NOT reset on retry
+
+        h.Handle(new GazeStreamDead(h.Now));
+
+        Check.That(h.State).IsEqualTo(SupervisorState.FallenBack);
+        Check.That(h.Kills).IsEqualTo(killsBefore + 1);      // F1: the retried app is killed
+        Check.That(h.Strikes).IsEqualTo(5);
     }
 }

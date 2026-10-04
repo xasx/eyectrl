@@ -190,7 +190,16 @@ public class SupervisionClockTests
 
         public void ClearPendingLaunch() => PendingLaunchAt = null;
 
-        public void LaunchPendingNow() => Actions.Add("LaunchPendingNow");
+        /// <summary>Models <c>DoLaunchApp</c>: true when a process started, false when it threw.</summary>
+        public bool LaunchFails { get; set; }
+
+        public bool TryLaunchPendingNow()
+        {
+            Actions.Add("LaunchPendingNow");
+            return !LaunchFails;
+        }
+
+        public void WireLaunchedProcess() => Actions.Add("WireLaunchedProcess");
     }
 
     private static Host Supervising(DateTime since, DateTime lastHeartbeat)
@@ -278,7 +287,7 @@ public class SupervisionClockTests
 
         SupervisionClock.Tick(now, host);
 
-        Check.That(host.Actions).ContainsExactly("StartupGraceElapsed", "LaunchPendingNow");
+        Check.That(host.Actions).ContainsExactly("StartupGraceElapsed", "LaunchPendingNow", "LaunchExecuted", "WireLaunchedProcess");
         Check.That(host.PendingLaunchAt).IsNull();
     }
 
@@ -369,6 +378,39 @@ public class SupervisionClockTests
         Check.That(host.Actions).Not.Contains("LaunchPendingNow");
         Check.That(host.PendingLaunchAt).IsNull();
         Check.That(host.Machine.State).IsEqualTo(SupervisorState.IdleWatch);
+    }
+
+    [Fact]
+    public void Tick_FeedsLaunchOutcome_BeforeTheWireGuard()
+    {
+        // Ticket 06 review F4: a process that already exited at wire time must be seen as
+        // launched-then-exited. The outcome feed comes first; only then the race guard.
+        var host = Supervising(T0, T0);
+        host.Feed(new ProcessExited(T0.AddSeconds(1)));   // Recovering
+        host.PendingLaunchAt = T0.AddSeconds(10);
+
+        SupervisionClock.Tick(T0.AddSeconds(10), host);
+
+        Check.That(host.Actions).ContainsExactly("LaunchPendingNow", "LaunchExecuted", "WireLaunchedProcess");
+    }
+
+    [Fact]
+    public void Tick_FailedLaunch_FeedsLaunchFailed_AndBooksAStrike()
+    {
+        // Ticket 06-F2: the launch outcome is fed by Tick, not by SupervisorApp glue, so deleting
+        // the feeder (mutants P2/P3) is a clock-level mutation covered here and by Scenario 6.
+        var host = Supervising(T0, T0);
+        host.Feed(new ProcessExited(T0.AddSeconds(1)));   // strike 1, Recovering
+        host.PendingLaunchAt = T0.AddSeconds(10);
+        host.LaunchFails = true;
+
+        SupervisionClock.Tick(T0.AddSeconds(10), host);
+
+        Check.That(host.Actions).Contains("LaunchPendingNow");
+        Check.That(host.Actions).Contains("LaunchFailed");
+        Check.That(host.Actions).Not.Contains("LaunchExecuted");
+        Check.That(host.Actions).Not.Contains("WireLaunchedProcess");   // no process to guard
+        Check.That(host.Machine.ConsecutiveFailures).IsEqualTo(2);   // the throw booked a strike
     }
 
     [Fact]

@@ -65,6 +65,53 @@ public class SupervisionStateMachineTests
             sm.Handle(new ProcessExited(T0.AddSeconds(i))); // strikes 1..4 (> maxRetries 3 -> escalate)
         Check.That(sm.State).IsEqualTo(SupervisorState.FallenBack);
         Check.That(sm.Commands).Contains(SupervisorCommand.LaunchFallbackAt);
+        Check.That(sm.Commands).Not.Contains(SupervisorCommand.ForceKill); // a crash already ended the process
+    }
+
+    // ── Ticket 06 review F1: escalation kills a hung process ──────────────────
+
+    [Fact]
+    public void Escalation_FromAHang_KillsBeforeFallingBack()
+    {
+        // A hang/gaze-death/grace escalation must kill the still-running app: FallenBack is
+        // terminal for the session, and a hung process that keeps holding the app mutex makes the
+        // dialog's Retry launch an instance that dies on it (review 06 F1).
+        var sm = NewMachine();
+        sm.Handle(new LaunchRequest(T0));
+        sm.Handle(new StartupGraceElapsed(T0.AddSeconds(1)));   // strike 1 (force-kill recovery)
+        sm.Handle(new StartupGraceElapsed(T0.AddSeconds(2)));   // strike 2
+        sm.Handle(new StartupGraceElapsed(T0.AddSeconds(3)));   // strike 3
+
+        sm.Handle(new StartupGraceElapsed(T0.AddSeconds(4)));   // strike 4 -> escalation
+
+        Check.That(sm.State).IsEqualTo(SupervisorState.FallenBack);
+        Check.That(sm.Commands).ContainsExactly(SupervisorCommand.ForceKill, SupervisorCommand.LaunchFallbackAt);
+    }
+
+    [Fact]
+    public void Escalation_FromACrash_DoesNotKill()
+    {
+        // A crash already ended the process; escalation only launches the fallback AT.
+        var sm = NewMachine();
+        sm.Handle(new LaunchRequest(T0));
+        for (int i = 1; i <= 4; i++) sm.Handle(new ProcessExited(T0.AddSeconds(i)));
+
+        Check.That(sm.State).IsEqualTo(SupervisorState.FallenBack);
+        Check.That(sm.Commands).Contains(SupervisorCommand.LaunchFallbackAt);
+        Check.That(sm.Commands).Not.Contains(SupervisorCommand.ForceKill);
+    }
+
+    [Fact]
+    public void AdoptRequest_WhenDisabled_IsIgnored()
+    {
+        // Ticket 06-B/F2: the adoption gate lives in the machine, so it is covered by machine
+        // tests rather than by untested SupervisorApp glue.
+        var sm = NewMachine(isSupervisionEnabled: () => false);
+
+        sm.Handle(new AdoptRequest(T0));
+
+        Check.That(sm.State).IsEqualTo(SupervisorState.IdleWatch);
+        Check.That(sm.Commands).IsEmpty();
     }
 
     [Fact]

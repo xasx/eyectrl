@@ -24,10 +24,16 @@ internal interface ISupervisionClockHost
     /// <summary>Feeds an input to the machine and drains its commands (<c>HandleInput</c>).</summary>
     void Handle(SupervisionInput input);
     /// <summary>Consumes the due pending relaunch. <see cref="SupervisionClock.Tick"/> calls this
-    /// immediately before <see cref="LaunchPendingNow"/> as part of the relaunch contract.</summary>
+    /// immediately before <see cref="TryLaunchPendingNow"/> as part of the relaunch contract.</summary>
     void ClearPendingLaunch();
-    /// <summary>Launches the app now. The pending relaunch has already been cleared by the tick.</summary>
-    void LaunchPendingNow();
+    /// <summary>Attempts the deferred launch. Returns true when a process started, false when the
+    /// launch threw. Tick feeds <see cref="LaunchExecuted"/>/<see cref="LaunchFailed"/> from the
+    /// result, so the outcome decision lives in tested clock code (ticket 06-F2).</summary>
+    bool TryLaunchPendingNow();
+    /// <summary>Runs the host's wire-time race guard for the just-launched process, AFTER the
+    /// launch outcome was fed: a process that already exited must be seen as launched-then-exited,
+    /// in that order (ticket 06 review F4). Only called when the launch succeeded.</summary>
+    void WireLaunchedProcess();
 }
 
 /// <summary>
@@ -105,9 +111,20 @@ internal static class SupervisionClock
                 // during the backoff. Launching is never gated: the tray's "Launch EyeCtrl now"
                 // must not become a dead button while supervision is off.
                 if (host.Machine.State == SupervisorState.Recovering && !host.SupervisionEnabled)
+                {
                     host.Handle(new SupervisionDisabled(now));
+                }
                 else
-                    host.LaunchPendingNow();
+                {
+                    // Ticket 06-F2: the launch outcome is fed here, not by SupervisorApp glue, so
+                    // deleting a feeder is a clock-level mutation covered by clock tests. F4: the
+                    // wire-time race guard runs after the stamp, so an already-exited process is
+                    // seen as launched-then-exited (one strike), not exit-then-stamp.
+                    var launched = host.TryLaunchPendingNow();
+                    SupervisionInput outcome = launched ? new LaunchExecuted(now) : new LaunchFailed(now);
+                    host.Handle(outcome);
+                    if (launched) host.WireLaunchedProcess();
+                }
             }
         }
     }

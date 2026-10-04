@@ -66,7 +66,10 @@ public sealed class SupervisionStateMachine
                 _commands.Add(SupervisorCommand.LaunchApp);
                 break;
 
-            case AdoptRequest when State == SupervisorState.IdleWatch:
+            case AdoptRequest when State == SupervisorState.IdleWatch && _isSupervisionEnabled():
+                // Ticket 06-F2: the enabled gate lives here, in the tested machine, so a disabled
+                // supervisor cannot adopt a running app. The orchestrator binds the process only
+                // after the state actually became Supervising.
                 State = SupervisorState.Supervising;
                 _supervisingSince = input.At;
                 break;
@@ -218,6 +221,11 @@ public sealed class SupervisionStateMachine
         if (_crash.ShouldEscalate(at, ConsecutiveFailures))
         {
             State = SupervisorState.FallenBack;
+            // Ticket 06 review F1: a hang/gaze-death/grace escalation must kill the still-running
+            // app before handing over to the fallback AT. Otherwise the hung process keeps holding
+            // the app's single-instance mutex, and the dialog's one-shot Retry launches an
+            // instance that dies on it. KillInitiated keeps the kill's Exited from re-escalating.
+            if (forceKill) _commands.Add(SupervisorCommand.ForceKill);
             _commands.Add(SupervisorCommand.LaunchFallbackAt);
         }
         else

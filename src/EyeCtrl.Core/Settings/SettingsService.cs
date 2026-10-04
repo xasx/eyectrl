@@ -563,6 +563,14 @@ public class SettingsService
     }
 
     /// <summary>
+    /// Cross-process writer mutex name. Settings writers hold it across their read-merge-replace
+    /// (<see cref="Save"/> and the one-key supervision persist); outside readers (the Supervisor's
+    /// enabled re-read) take it too, so no read handle is open while a writer replaces the file —
+    /// <c>File.Move(..., overwrite: true)</c> fails with access denied under an open handle.
+    /// </summary>
+    public const string WriterMutexName = @"Local\EyeCtrl.Settings.Writer";
+
+    /// <summary>
     /// Validates and immediately saves settings to disk. Throws if validation fails.
     /// </summary>
     /// <param name="settings">The settings object to persist.</param>
@@ -584,7 +592,7 @@ public class SettingsService
         }
 
         // Cross-process mutual exclusion so the read-merge-write sequence is atomic across writers.
-        using var mutex = new Mutex(false, @"Local\EyeCtrl.Settings.Writer");
+        using var mutex = new Mutex(false, WriterMutexName);
         bool owned = false;
         try
         {

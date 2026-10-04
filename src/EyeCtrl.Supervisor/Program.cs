@@ -301,10 +301,12 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
             //    the very first verified heartbeat adopts it into Supervising.
             if (_sm.State == SupervisorState.IdleWatch)
             {
-                // Ticket 06-B: do not adopt while supervision is off on disk. The app may still be
-                // publishing (publishing is never turned off), so heartbeats keep arriving; a later
-                // re-enable adopts on the next one. No logging per heartbeat — only the transition.
-                if (!IsSupervisionEnabledNow()) return;
+                // Ticket 06-B/F2: the enabled gate lives in the machine (AdoptRequest is accepted
+                // only in IdleWatch while enabled), so a disabled supervisor never adopts. The app
+                // may still be publishing, so heartbeats keep arriving; a later re-enable adopts on
+                // the next one. No logging per heartbeat — only the transition.
+                HandleInput(new AdoptRequest(now));
+                if (_sm.State != SupervisorState.Supervising) return;   // refused: supervision is off
 
                 // Adopt the manually-launched app: bind its PID into ProcessController so exit-detection
                 // and ForceKill work for it (not just for supervisor-launched apps). id is non-null here
@@ -316,7 +318,6 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
                     WireProcessExited();
                     Log.Information("Adopted manually-launched app (pid={Pid}, exe={Exe}).", id.Pid, id.ExePath);
                 }
-                HandleInput(new AdoptRequest(now));
             }
             HandleInput(new HeartbeatReceived(now));
 
@@ -354,7 +355,30 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
 
     void ISupervisionClockHost.ClearPendingLaunch() => _pendingLaunchAt = null;
 
-    void ISupervisionClockHost.LaunchPendingNow() => DoLaunchApp();
+    bool ISupervisionClockHost.TryLaunchPendingNow()
+    {
+        // This runs on the dispatcher via the clock tick, not inside HandleInput's lock. An
+        // unhandled exception here (e.g. Process.Start throwing because the app exe is missing —
+        // the installer-less default) would surface as a DispatcherUnhandledException and tear
+        // down the supervisor itself. Guard it: false makes Tick feed LaunchFailed, which books a
+        // strike and retries with backoff instead of leaving the machine waiting for a startup
+        // grace that can never fire (ticket 06-C/F2). The wire-time race guard runs after Tick
+        // feeds the outcome (WireLaunchedProcess, ticket 06 review F4).
+        try
+        {
+            Log.Information("LaunchApp: starting {AppExePath}.", _appExePath);
+            _pc.Launch(_appExePath, paused: false);
+            EnsurePipeStarted(); // adoption-mode pipe starts eagerly at startup; this is an idempotent no-op.
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "LaunchApp failed (app exe missing or Process.Start threw); booking a strike and retrying with backoff.");
+            return false;
+        }
+    }
+
+    void ISupervisionClockHost.WireLaunchedProcess() => WireProcessExited();
 
     /// <summary>
     /// Ticket 06-B: the live on-disk <c>supervision.enabled</c>. Every evaluation reads the file;
@@ -424,37 +448,10 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         }
     }
 
-    /// <summary>Performs the actual app launch (not paused by default) and wires exit detection. Called by the clock tick (SupervisionClock.Tick -> LaunchPendingNow) after the backoff delay.</summary>
-    private void DoLaunchApp()
-    {
-        // This runs on the dispatcher via the clock tick, not inside HandleInput's lock, so feeding
-        // the machine from here is safe. An unhandled exception here (e.g. Process.Start throwing
-        // because the app exe is missing — the installer-less default) would surface as a
-        // DispatcherUnhandledException and tear down the supervisor itself. Guard it: a thrown
-        // launch books a strike (LaunchFailed → GoRecovering) and retries with backoff, instead of
-        // leaving the machine waiting for a startup grace that can never fire because no process
-        // ever started (ticket 06-C).
-        try
-        {
-            Log.Information("LaunchApp: starting {AppExePath}.", _appExePath);
-            _pc.Launch(_appExePath, paused: false);
-            WireProcessExited(); // exit callback so an unannounced exit feeds ProcessExited.
-            EnsurePipeStarted(); // adoption-mode pipe starts eagerly at startup; this is an idempotent no-op.
-            // Ticket 06-C: the startup-grace clock starts when the process actually starts, not when
-            // the recovery was decided — the backoff can be up to 60 s (spec curve 0/5/15/60).
-            HandleInput(new LaunchExecuted(DateTime.UtcNow));
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "LaunchApp failed (app exe missing or Process.Start threw); booking a strike and retrying with backoff.");
-            HandleInput(new LaunchFailed(DateTime.UtcNow));
-        }
-    }
-
     /// <summary>
     /// No-op now that the pipe starts eagerly in adoption mode (see <see cref="EnsurePipeStartedAdoption"/>
-    /// / Initialize). Kept as an idempotent call site for <see cref="LaunchApp"/> and the FallenBack
-    /// retry path so they don't need to care which startup mode is active.
+    /// / Initialize). Kept as an idempotent call site for <see cref="ISupervisionClockHost.TryLaunchPendingNow"/>
+    /// and the FallenBack retry path so they don't need to care which startup mode is active.
     /// </summary>
     /// <remarks>
     /// <para><b>Strict-vs-adoption tradeoff.</b> Previously the pipe was constructed here, after the
@@ -606,7 +603,7 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
             }
             catch (Exception ex)
             {
-                // The same Process.Start failure DoLaunchApp guards against (app exe missing) applies
+                // The same Process.Start failure TryLaunchPendingNow guards against (app exe missing) applies
                 // here — at the user's most vulnerable moment. The dialog STAYS OPEN so the user can
                 // retry after the cause is fixed, instead of the exception killing the supervisor.
                 Log.Error(ex, "FallenBack retry: launch failed; dialog stays open, machine stays in FallenBack.");

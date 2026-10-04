@@ -112,7 +112,7 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     // only on the UI thread, so no synchronization.
     private readonly RollingFaultBudget _dispatcherFaultBudget = new(10, TimeSpan.FromSeconds(60));
 
-    public void Initialize(Func<bool>? appAlreadyRunning = null)
+    public void Initialize()
     {
         var appDataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -161,12 +161,14 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         _appExePath = AppExePathResolver.Resolve();
         Log.Information("App exe path resolved to {AppExePath}.", _appExePath);
 
-        // 3. Construct the supervision components.
+        // 3. Construct the supervision components. Ticket 04 re-check 2 R2-1: the enabled predicate
+        // (tracker-backed: disk, never the in-memory snapshot) and the startup decision live in the
+        // composition factory, pinned by SupervisorCompositionTests — this class is integration
+        // wiring that cannot be composed in a test.
         var sup = _settings.Supervision;
-        _sm = new SupervisionStateMachine(
-            maxRetries: sup.MaxRetries,
-            windowSeconds: sup.CrashWindowSeconds,
-            isSupervisionEnabled: IsSupervisionEnabledNow);   // ticket 06-B: re-read at every recovery decision
+        var composition = SupervisorComposition.Create(_settings, settingsPath);
+        _enabledTracker = composition.EnabledTracker;
+        _sm = composition.Machine;
         // hangThresholdSeconds / startupGraceSeconds are read directly from settings in the clock-tick
         // checks (SupervisionClock.HeartbeatStale / StartupGraceElapsed, via SupervisionClock.Tick).
         _pc = new ProcessController();
@@ -203,9 +205,7 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         // and every such exit would book a strike (04-review F1 — 4 strikes reach TD Control over a
         // healthy app). If supervision is off, the process stays running but idle (spec: "always
         // runs at logon to watch the app even when StartOnBoot is off").
-        var probe = appAlreadyRunning ?? (() => AppInstanceProbe.IsRunning());
-        var alreadyRunning = probe();
-        if (StartupLaunchPolicy.ShouldLaunchAtStartup(sup.Enabled, _settings.General.StartOnBoot, alreadyRunning))
+        if (composition.ShouldEmitStartupLaunch)
         {
             Log.Information("Supervision enabled + StartOnBoot + no EyeCtrl running: emitting initial LaunchRequest.");
             HandleInput(new LaunchRequest(DateTime.UtcNow));
@@ -214,7 +214,7 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         {
             Log.Information(
                 "Startup launch skipped (enabled={Enabled}, StartOnBoot={StartOnBoot}, appAlreadyRunning={AppAlreadyRunning}); staying in IdleWatch.",
-                sup.Enabled, _settings.General.StartOnBoot, alreadyRunning);
+                sup.Enabled, _settings.General.StartOnBoot, composition.AppAlreadyRunning);
         }
     }
 
@@ -350,7 +350,7 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     SupervisionSettings ISupervisionClockHost.Settings => _settings.Supervision;
     DateTime? ISupervisionClockHost.CleanExitRequestedAt => _cleanExitRequestedAt;
     DateTime? ISupervisionClockHost.PendingLaunchAt => _pendingLaunchAt;
-    bool ISupervisionClockHost.SupervisionEnabled => IsSupervisionEnabledNow();
+    bool ISupervisionClockHost.SupervisionEnabled => _enabledTracker.Current;
     void ISupervisionClockHost.Handle(SupervisionInput input) => HandleInput(input);
 
     void ISupervisionClockHost.ClearPendingLaunch() => _pendingLaunchAt = null;
@@ -379,14 +379,6 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     }
 
     void ISupervisionClockHost.WireLaunchedProcess() => WireProcessExited();
-
-    /// <summary>
-    /// Ticket 06-B: the live on-disk <c>supervision.enabled</c>. Every evaluation reads the file;
-    /// a damaged or unparseable file resolves to the last value successfully read from disk
-    /// (<see cref="SupervisionEnabledTracker"/>), never to the in-memory settings object that the
-    /// setup window mutates on open and on unsaved toggle clicks.
-    /// </summary>
-    private bool IsSupervisionEnabledNow() => _enabledTracker.Current;
 
     // ---- Command drain -----------------------------------------------------------------
 

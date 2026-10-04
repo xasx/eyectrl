@@ -101,8 +101,21 @@ public class SettingsViewModelTests
         var defaults = new EyeCtrlSettings();
         var defaultSubs = defaults.EnumerateSubSettings().ToDictionary(t => t.Name, t => t.Settings);
 
+        // Exemptions, each a decision: the reset is asserted over every enumerated sub-setting
+        // EXCEPT these. Supervision is Supervisor-owned (SettingsWriter.Supervisor); its enable
+        // flag is turned off through the supervision row's sanctioned path, never a bulk reset.
+        var notResetByDesign = new Dictionary<string, string>
+        {
+            ["Supervision"] =
+                "Supervisor-owned section; turning crash recovery off must go through the "
+                + "supervision row's sanctioned persist + Run-key path, not a bulk in-memory reset",
+        };
+
         foreach (var (name, sub) in settings.EnumerateSubSettings())
         {
+            if (notResetByDesign.ContainsKey(name))
+                continue;
+
             var defaultSub = defaultSubs[name];
             var comparableProps = sub.GetType().GetProperties()
                 .Where(p => p.CanRead && p.CanWrite &&
@@ -113,5 +126,22 @@ public class SettingsViewModelTests
                     .That(prop.GetValue(sub)).IsEqualTo(prop.GetValue(defaultSub));
             }
         }
+    }
+
+    [Fact]
+    public void ResetAllSettings_LeavesTheSupervisorOwnedSectionUntouched()
+    {
+        // F4 pin: reset-all must not disarm the live crash policy while disk and the Supervisor
+        // stay on. Supervision.Enabled and its siblings survive; other sections still reset.
+        var settings = new EyeCtrlSettings();
+        settings.Supervision.Enabled = true;
+        settings.Supervision.MaxRetries = 7;
+        settings.Cursor.CircleSize = 400;
+
+        new SettingsViewModel(settings).ResetAllSettings();
+
+        Check.That(settings.Supervision.Enabled).IsTrue();
+        Check.That(settings.Supervision.MaxRetries).IsEqualTo(7);
+        Check.That(settings.Cursor.CircleSize).IsEqualTo(new EyeCtrlSettings().Cursor.CircleSize);
     }
 }

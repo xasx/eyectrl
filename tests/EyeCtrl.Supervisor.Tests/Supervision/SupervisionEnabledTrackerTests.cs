@@ -17,6 +17,8 @@ public class SupervisionEnabledTrackerTests : IDisposable
 {
     private readonly string _path = Path.Combine(
         Path.GetTempPath(), "eyectrl-supenabled-tracker-" + Guid.NewGuid().ToString("N") + ".json");
+    private readonly string _writerMutexName =
+        @"Local\EyeCtrl.Settings.Writer.Test." + Guid.NewGuid().ToString("N");
 
     public void Dispose()
     {
@@ -27,7 +29,7 @@ public class SupervisionEnabledTrackerTests : IDisposable
     public void Current_ReadsTheDiskOnEveryEvaluation()
     {
         File.WriteAllText(_path, """{"supervision":{"enabled":true}}""");
-        var tracker = new SupervisionEnabledTracker(_path, seedFromDisk: false);
+        var tracker = new SupervisionEnabledTracker(_path, seedFromDisk: false, writerMutexName: _writerMutexName);
         Check.That(tracker.Current).IsTrue();
 
         File.WriteAllText(_path, """{"supervision":{"enabled":false}}""");
@@ -41,7 +43,7 @@ public class SupervisionEnabledTrackerTests : IDisposable
     public void Current_DamagedFile_KeepsTheLastDiskValue_NotAMemoryValue()
     {
         File.WriteAllText(_path, """{"supervision":{"enabled":true}}""");
-        var tracker = new SupervisionEnabledTracker(_path, seedFromDisk: false);
+        var tracker = new SupervisionEnabledTracker(_path, seedFromDisk: false, writerMutexName: _writerMutexName);
         Check.That(tracker.Current).IsTrue();          // last disk value = true
 
         File.WriteAllText(_path, "{ damaged");          // e.g. after an unsaved toggle click in memory
@@ -53,7 +55,7 @@ public class SupervisionEnabledTrackerTests : IDisposable
     public void Current_DamagedFileWithADifferentLastDiskValue_KeepsThatValue()
     {
         File.WriteAllText(_path, """{"supervision":{"enabled":false}}""");
-        var tracker = new SupervisionEnabledTracker(_path, seedFromDisk: true);  // stale seed
+        var tracker = new SupervisionEnabledTracker(_path, seedFromDisk: true, writerMutexName: _writerMutexName);  // stale seed
         Check.That(tracker.Current).IsFalse();          // the good disk read updates the last value
 
         File.WriteAllText(_path, "not json at all");
@@ -64,14 +66,14 @@ public class SupervisionEnabledTrackerTests : IDisposable
     public void Current_DamagedFileAtFirstRead_UsesTheSeedFromTheStartupLoad()
     {
         File.WriteAllText(_path, "{ damaged");
-        var tracker = new SupervisionEnabledTracker(_path, seedFromDisk: true);
+        var tracker = new SupervisionEnabledTracker(_path, seedFromDisk: true, writerMutexName: _writerMutexName);
         Check.That(tracker.Current).IsTrue();
     }
 
     [Fact]
     public void Current_MissingFile_IsDisabled()
     {
-        var tracker = new SupervisionEnabledTracker(_path, seedFromDisk: true);
+        var tracker = new SupervisionEnabledTracker(_path, seedFromDisk: true, writerMutexName: _writerMutexName);
         Check.That(tracker.Current).IsFalse();          // no file: defaults say disabled, seed overridden
     }
 }

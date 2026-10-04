@@ -14,11 +14,17 @@ namespace EyeCtrl.Supervisor.Supervision;
 internal sealed class SupervisionEnabledTracker
 {
     private readonly string _settingsPath;
+    private readonly string? _writerMutexName;
     private bool _lastReadFromDisk;
 
-    public SupervisionEnabledTracker(string settingsPath, bool seedFromDisk)
+    /// <param name="settingsPath">The settings file to read.</param>
+    /// <param name="seedFromDisk">The last value successfully read from disk (the startup Load).</param>
+    /// <param name="writerMutexName">Writer mutex name passed to the reader; injectable so tests
+    /// use a GUID name and never touch the production mutex. Null = the production name.</param>
+    public SupervisionEnabledTracker(string settingsPath, bool seedFromDisk, string? writerMutexName = null)
     {
         _settingsPath = settingsPath;
+        _writerMutexName = writerMutexName;
         _lastReadFromDisk = seedFromDisk;
     }
 
@@ -27,7 +33,7 @@ internal sealed class SupervisionEnabledTracker
     {
         get
         {
-            var disk = SupervisionEnabledReader.TryRead(_settingsPath);
+            var disk = SupervisionEnabledReader.TryRead(_settingsPath, _writerMutexName);
             if (disk.HasValue) _lastReadFromDisk = disk.Value;
             return disk ?? _lastReadFromDisk;
         }

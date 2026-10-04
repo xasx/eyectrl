@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using EyeCtrl.Controls;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.Supervisor.Supervision;
 using Media = System.Windows.Media;
 
 /// <summary>
@@ -36,6 +37,10 @@ public partial class SupervisorSetupWindow : Window
     private readonly Action<EyeCtrlSettings> _saveChanges;
     private readonly Action _launchAppNow;
 
+    /// <summary>The enable value as loaded when this window opened: the baseline a save compares
+    /// against to tell "the user changed the toggle here" from "the App wrote it since".</summary>
+    private readonly bool _enabledAtOpen;
+
     /// <summary>
     /// Constructs the setup window.
     /// </summary>
@@ -58,6 +63,7 @@ public partial class SupervisorSetupWindow : Window
         _settingsService = settingsService;
         _saveChanges = saveChanges;
         _launchAppNow = launchAppNow;
+        _enabledAtOpen = settings.Supervision.Enabled;
 
         InitializeComponent();
         PopulateFallbackList();
@@ -157,6 +163,15 @@ public partial class SupervisorSetupWindow : Window
             _settings.Supervision.MaxRetries = maxRetries;
         if (int.TryParse(HangThresholdBox.Text, out var hangThreshold))
             _settings.Supervision.HangThresholdSeconds = hangThreshold;
+
+        // enabled is the one key the App may also write (its sanctioned exception). The App's
+        // Settings row can have turned it on since this window opened; re-read disk and keep the
+        // on-disk value unless the user changed the toggle in THIS window, so a save cannot
+        // silently write the stale value back. See SupervisionSetupSave.
+        _settings.Supervision.Enabled = SupervisionSetupSave.ResolveEnabled(
+            current: _settings.Supervision.Enabled,
+            atOpen: _enabledAtOpen,
+            onDisk: _settingsService.Load().Supervision.Enabled);
 
         try
         {

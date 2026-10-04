@@ -663,7 +663,7 @@ public class SettingsService
 
         // The same cross-process mutex Save uses: this is a read-edit-write of the shared file,
         // and a concurrent Supervisor save must either precede or follow it, never interleave.
-        using var mutex = new Mutex(false, @"Local\EyeCtrl.Settings.Writer");
+        using var mutex = new Mutex(false, WriterMutexName);
         bool owned = false;
         try
         {

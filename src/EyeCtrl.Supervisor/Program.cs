@@ -49,7 +49,8 @@ internal static class Program
 /// <remarks>
 /// <para><b>This class is integration wiring, not unit-tested as a whole.</b> Every pure decision
 /// it delegates to (freshness, reset, clean-exit gating, identity binding) is already covered by
-/// the tests in Tasks 12b/13/16. The supervision loop here is a thin adapter: it feeds inputs
+/// the tests in Tasks 12b/13/16, and the clock-tick thresholds and their order by
+/// <see cref="SupervisionClock"/>'s table tests. The supervision loop here is a thin adapter: it feeds inputs
 /// (pipe events + a clock tick) into <see cref="SupervisionStateMachine.Handle"/> and dispatches
 /// the emitted <see cref="SupervisionStateMachine.Commands"/> to launch / kill / fallback actions.</para>
 /// <para><b>Threading model.</b> All state-machine contact is serialized on the UI
@@ -59,16 +60,8 @@ internal static class Program
 /// UI thread. A <see cref="Process.Exited"/>-style callback on the bound process is likewise
 /// marshaled to the UI thread.</para>
 /// </remarks>
-internal sealed class SupervisorApp : Application
+internal sealed class SupervisorApp : Application, ISupervisionClockHost
 {
-    /// <summary>
-    /// Clean-exit grace: once the app signals <c>ShuttingDown</c> the supervisor waits this long
-    /// for the process to actually exit before treating it as a hung shutdown (DeadlineElapsed).
-    /// See spec "Clean exit" + the Task 20 pseudocode ("if sm.State == CleanExitPending && now -
-    /// cleanExitRequestedAt > 5s -> DeadlineElapsed").
-    /// </summary>
-    private const int CleanExitDeadlineSeconds = 5;
-
     /// <summary>
     /// Clock-tick interval for the periodic supervision checks (heartbeat staleness, survived-window
     /// reset, clean-exit deadline). ~1s per the Task 20 plan.
@@ -97,7 +90,7 @@ internal sealed class SupervisorApp : Application
     private DateTime? _cleanExitRequestedAt;
 
     // C2: a deferred recovery relaunch — stamped when LaunchApp command fires, executed by
-    // PeriodicCheckPendingRelaunch once NextBackoffDelay elapses. Null when no relaunch pending.
+    // the clock tick (SupervisionClock.RelaunchDue) once NextBackoffDelay elapses. Null when no relaunch pending.
     private DateTime? _pendingLaunchAt;
 
     // True once a fallback AT has been launched this session — guards against re-launching it (or
@@ -169,7 +162,7 @@ internal sealed class SupervisorApp : Application
             maxRetries: sup.MaxRetries,
             windowSeconds: sup.CrashWindowSeconds);
         // hangThresholdSeconds / startupGraceSeconds are read directly from settings in the clock-tick
-        // checks (PeriodicCheckStale / PeriodicCheckStartupGrace).
+        // checks (SupervisionClock.HeartbeatStale / StartupGraceElapsed, via SupervisionClock.Tick).
         _pc = new ProcessController();
         _freshness = new HeartbeatFreshnessEvaluator(sup.HangThresholdSeconds);
 
@@ -324,77 +317,25 @@ internal sealed class SupervisorApp : Application
         }));
     }
 
-    /// <summary>Periodic clock-tick: startup-grace, stale-heartbeat, survived-window reset, clean-exit deadline.</summary>
-    private void OnClockTick()
-    {
-        // The checks below each call HandleInput (which takes _loopLock), so the tick itself
-        // does not need to lock — there is no shared mutable access here beyond reading _sm state,
-        // and the tick already runs on the UI thread alongside all other HandleInput callers.
-        var now = DateTime.UtcNow;
-        PeriodicCheckStartupGrace(now);
-        PeriodicCheckStale(now);
-        PeriodicCheckSurvivedWindow(now);
-        PeriodicCheckCleanExitDeadline(now);
-        PeriodicCheckPendingRelaunch(now);
-    }
+    /// <summary>
+    /// Periodic clock tick: startup grace, stale heartbeat, survived-window reset, clean-exit
+    /// deadline, then the deferred relaunch — the decisions and their order live in the pure,
+    /// table-tested <see cref="SupervisionClock"/>. The checks each call HandleInput (which takes
+    /// _loopLock), so the tick itself does not need to lock, and it already runs on the UI thread
+    /// alongside all other HandleInput callers.
+    /// </summary>
+    private void OnClockTick() => SupervisionClock.Tick(DateTime.UtcNow, this);
 
-    /// <summary>C1: startup grace — app launched but no heartbeat within StartupGraceSeconds -> recover (spec failure mode #2).</summary>
-    private void PeriodicCheckStartupGrace(DateTime now)
-    {
-        if (_sm.State == SupervisorState.Launching && _sm.LaunchingSince.HasValue &&
-            (now - _sm.LaunchingSince.Value).TotalSeconds > _settings.Supervision.StartupGraceSeconds)
-        {
-            Log.Warning("Startup grace ({Grace}s) elapsed in LAUNCHING with no heartbeat; recovering.", _settings.Supervision.StartupGraceSeconds);
-            HandleInput(new StartupGraceElapsed(now));
-        }
-    }
+    SupervisionStateMachine ISupervisionClockHost.Machine => _sm;
+    SupervisionSettings ISupervisionClockHost.Settings => _settings.Supervision;
+    DateTime? ISupervisionClockHost.CleanExitRequestedAt => _cleanExitRequestedAt;
+    DateTime? ISupervisionClockHost.PendingLaunchAt => _pendingLaunchAt;
+    void ISupervisionClockHost.Handle(SupervisionInput input) => HandleInput(input);
 
-    /// <summary>C2: apply backoff before a recovery relaunch — defer LaunchApp until NextBackoffDelay elapses.</summary>
-    private void PeriodicCheckPendingRelaunch(DateTime now)
+    void ISupervisionClockHost.LaunchPendingNow()
     {
-        // A recovery relaunch (GoRecovering -> LaunchApp command) is NOT executed immediately in
-        // DrainCommands; instead it's deferred here until the backoff delay elapses, so a tight
-        // crash loop doesn't hammer the app/process table and the spec's worked-example timing holds.
-        // The initial logon launch (LaunchRequest from IdleWatch) has ConsecutiveFailures==0 -> delay 0.
-        if (_pendingLaunchAt.HasValue && now >= _pendingLaunchAt.Value)
-        {
-            _pendingLaunchAt = null;
-            DoLaunchApp();
-        }
-    }
-
-    private void PeriodicCheckStale(DateTime now)
-    {
-        if (_sm.LastHeartbeatUtc.HasValue &&
-            (now - _sm.LastHeartbeatUtc.Value).TotalSeconds > _settings.Supervision.HangThresholdSeconds &&
-            _sm.State == SupervisorState.Supervising)
-        {
-            HandleInput(new HeartbeatStale(now));
-        }
-    }
-
-    private void PeriodicCheckSurvivedWindow(DateTime now)
-    {
-        // SurvivedWindow reset is driven entirely by the state machine (it resets the crash
-        // window + counter on a SurvivedWindow input, AND re-arms SupervisingSince to input.At so
-        // this check doesn't re-fire every tick). We emit the input after the app has been
-        // continuously Supervising for longer than the crash window, reading the machine's own
-        // SupervisingSince (single source of truth — no duplicated local field).
-        if (_sm.State == SupervisorState.Supervising && _sm.SupervisingSince.HasValue &&
-            (now - _sm.SupervisingSince.Value).TotalSeconds > _settings.Supervision.CrashWindowSeconds)
-        {
-            HandleInput(new SurvivedWindow(now));
-        }
-    }
-
-    private void PeriodicCheckCleanExitDeadline(DateTime now)
-    {
-        if (_sm.State == SupervisorState.CleanExitPending &&
-            _cleanExitRequestedAt.HasValue &&
-            (now - _cleanExitRequestedAt.Value).TotalSeconds > CleanExitDeadlineSeconds)
-        {
-            HandleInput(new DeadlineElapsed(now));
-        }
+        _pendingLaunchAt = null;
+        DoLaunchApp();
     }
 
     // ---- Command drain -----------------------------------------------------------------
@@ -413,7 +354,7 @@ internal sealed class SupervisorApp : Application
             {
                 case SupervisorCommand.LaunchApp:
                     // C2: backoff — defer the relaunch until NextBackoffDelay elapses (checked in
-                    // PeriodicCheckPendingRelaunch). The initial logon launch has ConsecutiveFailures==0
+                    // SupervisionClock.Tick). The initial logon launch has ConsecutiveFailures==0
                     // -> delay 0, so it still happens on the next tick (~immediate). Recovery relaunches
                     // after N failures are spread per the 0/5/15/60s curve (spec worked example).
                     // _sm.State is already the POST-transition state here: HandleInput calls
@@ -443,10 +384,10 @@ internal sealed class SupervisorApp : Application
         }
     }
 
-    /// <summary>Performs the actual app launch (not paused by default) and wires exit detection. Called by PeriodicCheckPendingRelaunch after the backoff delay.</summary>
+    /// <summary>Performs the actual app launch (not paused by default) and wires exit detection. Called by the clock tick (SupervisionClock.Tick -> LaunchPendingNow) after the backoff delay.</summary>
     private void DoLaunchApp()
     {
-        // This runs on the dispatcher (via PeriodicCheckPendingRelaunch). An unhandled exception here
+        // This runs on the dispatcher (via the clock tick). An unhandled exception here
         // (e.g. Process.Start throwing because the app exe is missing — the installer-less default) would
         // surface as a DispatcherUnhandledException and tear down the supervisor itself. Guard it: on
         // launch failure, log and leave the state machine in its current (Launching/Recovering) state;

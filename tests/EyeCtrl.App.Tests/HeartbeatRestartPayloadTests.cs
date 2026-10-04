@@ -291,7 +291,7 @@ public class HeartbeatRestartPayloadTests
     {
         // Load-bearing, and not an optimisation: a successful probe ADOPTS this app into
         // the supervisor's Supervising state (Program.cs:270-278). With no periodic
-        // heartbeats following, PeriodicCheckStale force-kills it after
+        // heartbeats following, the supervisor's stale-heartbeat check (SupervisionClock.HeartbeatStale) force-kills it after
         // HangThresholdSeconds. Probing without publishing is a delayed kill.
         var received = ReceiveOneAsync(TimeSpan.FromSeconds(2));
 

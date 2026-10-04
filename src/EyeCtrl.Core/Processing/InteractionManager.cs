@@ -61,6 +61,16 @@ public class InteractionManager
     /// </summary>
     public event Action<InteractionState>? StateChanged;
     /// <summary>
+    /// Raised once per lost-gaze episode while the state is <see cref="InteractionState.Dragging"/>
+    /// or <see cref="InteractionState.ScrollMode"/>: raw gaze has been invalid for longer than
+    /// <see cref="LostGazeExitThresholdUs"/>, so the user cannot dwell the mode's cancel/stop button.
+    /// The state is NOT changed here — the drag's owner must release the pressed OS button and scroll
+    /// mode's owner must stop its worker, which a state-only exit would skip. Raised on the gaze
+    /// thread, inside the provider's lock: handlers marshal and stay cheap. RepeatMode still exits
+    /// itself (it holds no OS state).
+    /// </summary>
+    public event Action<InteractionState>? LockedModeGazeLost;
+    /// <summary>
     /// Raised when a fixation onset is accepted — i.e. exactly when the state machine enters
     /// <see cref="InteractionState.Fixation"/> from FreeLook. This is the explicit onset signal the
     /// replay parity observes; the activation button's show/hide are display events and stop coinciding
@@ -144,9 +154,13 @@ public class InteractionManager
     // fixation. Liveness also comes from raw validity (review PR #139 finding 1 — every filtered
     // view of a lost-eyes gap looks like a valid frozen point), so NoteGazeSample is the one
     // place "eyes actually present" is still observable.
-    private const long LostGazeExitThresholdUs = 2_000_000; // sustained loss ends the mode
+    /// <summary>Sustained gaze loss (µs) that ends a locked mode — repeat itself, drag and scroll via
+    /// <see cref="LockedModeGazeLost"/>. The App's no-frames check uses the same span.</summary>
+    public const long LostGazeExitThresholdUs = 2_000_000;
     private long _lastSampleTimestampUs = long.MinValue;
     private long _lastValidGazeTimestampUs = long.MinValue;
+    // Whether LockedModeGazeLost already fired for the current lost-gaze episode. Gaze thread only.
+    private bool _lockedModeGazeLostRaised;
     private PhysicalRect[] _repeatSuppressionZones = Array.Empty<PhysicalRect>();
     private PhysicalPoint? _repeatDwellPoint;
     private long _repeatDwellStartedUs;
@@ -800,10 +814,30 @@ public class InteractionManager
         if (timestampUs > _lastSampleTimestampUs) _lastSampleTimestampUs = timestampUs;
         if (isValid && timestampUs > _lastValidGazeTimestampUs) _lastValidGazeTimestampUs = timestampUs;
 
-        if (CurrentState != InteractionState.RepeatMode) return;
+        var state = CurrentState;   // one snapshot: the dispatcher also writes it
+        var gazeLost = _lastSampleTimestampUs > _lastValidGazeTimestampUs
+            && _lastSampleTimestampUs - _lastValidGazeTimestampUs > LostGazeExitThresholdUs;
 
-        if (_lastSampleTimestampUs > _lastValidGazeTimestampUs
-            && _lastSampleTimestampUs - _lastValidGazeTimestampUs > LostGazeExitThresholdUs)
+        if (state is InteractionState.Dragging or InteractionState.ScrollMode)
+        {
+            // Core does not end these two modes itself: their owners hold OS state (the drag's
+            // pressed button, the scroll worker) that a state-only exit would leave behind. The
+            // event hands the exit to them, once per episode — a valid sample re-arms it.
+            if (!gazeLost)
+            {
+                _lockedModeGazeLostRaised = false;
+                return;
+            }
+            if (_lockedModeGazeLostRaised) return;
+            _lockedModeGazeLostRaised = true;
+            LockedModeGazeLost?.Invoke(state);
+            return;
+        }
+        _lockedModeGazeLostRaised = false;
+
+        if (state != InteractionState.RepeatMode) return;
+
+        if (gazeLost)
         {
             ExitRepeatMode();
             return;

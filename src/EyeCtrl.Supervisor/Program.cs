@@ -332,11 +332,9 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     DateTime? ISupervisionClockHost.PendingLaunchAt => _pendingLaunchAt;
     void ISupervisionClockHost.Handle(SupervisionInput input) => HandleInput(input);
 
-    void ISupervisionClockHost.LaunchPendingNow()
-    {
-        _pendingLaunchAt = null;
-        DoLaunchApp();
-    }
+    void ISupervisionClockHost.ClearPendingLaunch() => _pendingLaunchAt = null;
+
+    void ISupervisionClockHost.LaunchPendingNow() => DoLaunchApp();
 
     // ---- Command drain -----------------------------------------------------------------
 
@@ -357,6 +355,12 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
                     // SupervisionClock.Tick). The initial logon launch has ConsecutiveFailures==0
                     // -> delay 0, so it still happens on the next tick (~immediate). Recovery relaunches
                     // after N failures are spread per the 0/5/15/60s curve (spec worked example).
+                    // The one-tick wait is load-bearing, not scheduling slack: a tick that issued
+                    // ForceKill must not launch in the same tick, because Launch clears KillInitiated
+                    // before the killed process's queued Exited callback runs, and that callback would
+                    // then book a second strike for one incident (the F1 double count). The timer runs
+                    // at Background priority and the callback is marshalled at Normal, so Exited is
+                    // handled first, while KillInitiated is still set.
                     // _sm.State is already the POST-transition state here: HandleInput calls
                     // DrainCommands after _sm.Handle(input). The pair is what distinguishes a
                     // restart (CleanExitPending -> Launching, no strike) from the hung-shutdown

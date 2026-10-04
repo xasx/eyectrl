@@ -20,7 +20,10 @@ internal interface ISupervisionClockHost
     DateTime? PendingLaunchAt { get; }
     /// <summary>Feeds an input to the machine and drains its commands (<c>HandleInput</c>).</summary>
     void Handle(SupervisionInput input);
-    /// <summary>Clears the pending relaunch and launches the app now.</summary>
+    /// <summary>Consumes the due pending relaunch. <see cref="SupervisionClock.Tick"/> calls this
+    /// immediately before <see cref="LaunchPendingNow"/> as part of the relaunch contract.</summary>
+    void ClearPendingLaunch();
+    /// <summary>Launches the app now. The pending relaunch has already been cleared by the tick.</summary>
     void LaunchPendingNow();
 }
 
@@ -77,9 +80,14 @@ internal static class SupervisionClock
 
         // C2: a recovery relaunch is NOT executed immediately when the machine commands it; it is
         // deferred until the backoff delay elapses, so a tight crash loop doesn't hammer the
-        // app/process table and the spec's worked-example timing holds.
+        // app/process table and the spec's worked-example timing holds. Consuming the pending
+        // relaunch (clear-then-launch) is the tick's contract, not the host's: a host that
+        // launched without clearing would relaunch on every tick.
         if (RelaunchDue(now, host.PendingLaunchAt))
+        {
+            host.ClearPendingLaunch();
             host.LaunchPendingNow();
+        }
     }
 
     /// <summary>Launching for longer than <paramref name="startupGraceSeconds"/> with no heartbeat.</summary>

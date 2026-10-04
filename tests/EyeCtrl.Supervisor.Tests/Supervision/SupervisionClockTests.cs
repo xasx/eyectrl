@@ -33,6 +33,8 @@ public class SupervisionClockTests
                 T0.AddSeconds(60).AddMilliseconds(offsetMs), SupervisorState.Launching, T0, 60))
             .IsEqualTo(fires);
 
+    // The Recovering row pins TODAY's behaviour: a known gap (a relaunch that never heartbeats
+    // leaves the Supervisor stuck there), tracked as ticket 06 — not a statement that it is correct.
     [Theory]
     [MemberData(nameof(NotLaunching))]
     public void StartupGrace_OnlyWhileLaunching(SupervisorState state) =>
@@ -53,6 +55,8 @@ public class SupervisionClockTests
                 T0.AddSeconds(20).AddMilliseconds(offsetMs), SupervisorState.Supervising, T0, 20))
             .IsEqualTo(fires);
 
+    // The Recovering row pins TODAY's behaviour: a known gap (a relaunch that never heartbeats
+    // leaves the Supervisor stuck there), tracked as ticket 06 — not a statement that it is correct.
     [Theory]
     [MemberData(nameof(NotSupervising))]
     public void HeartbeatStale_OnlyWhileSupervising(SupervisorState state) =>
@@ -127,8 +131,20 @@ public class SupervisionClockTests
     /// does.</summary>
     private sealed class Host : ISupervisionClockHost
     {
-        public SupervisionStateMachine Machine { get; } = new(maxRetries: 3, windowSeconds: 120);
-        public SupervisionSettings Settings { get; } = new();   // grace 60, hang 20, window 120
+        // Deliberately NOT the class defaults (60/20/120): three explicit, pairwise-distinct
+        // thresholds so a tick-level test can tell WHICH setting a check reads. A copy-paste that
+        // wires the wrong one (mutants W1-W3) changes the outcome at hang+1 s.
+        private const int GraceSeconds = 45;
+        private const int HangSeconds = 15;
+        private const int WindowSeconds = 115;
+
+        public SupervisionSettings Settings { get; } = new()
+        {
+            StartupGraceSeconds = GraceSeconds,
+            HangThresholdSeconds = HangSeconds,
+            CrashWindowSeconds = WindowSeconds,
+        };
+        public SupervisionStateMachine Machine { get; } = new(maxRetries: 3, windowSeconds: WindowSeconds);
         public DateTime? CleanExitRequestedAt { get; private set; }
         public DateTime? PendingLaunchAt { get; set; }
         public List<string> Actions { get; } = new();
@@ -152,11 +168,9 @@ public class SupervisionClockTests
                 CleanExitRequestedAt = null;
         }
 
-        public void LaunchPendingNow()
-        {
-            Actions.Add("LaunchPendingNow");
-            PendingLaunchAt = null;
-        }
+        public void ClearPendingLaunch() => PendingLaunchAt = null;
+
+        public void LaunchPendingNow() => Actions.Add("LaunchPendingNow");
     }
 
     private static Host Supervising(DateTime since, DateTime lastHeartbeat)
@@ -234,7 +248,9 @@ public class SupervisionClockTests
     [Fact]
     public void Tick_TheDeferredRelaunchIsCheckedLast()
     {
-        // Mutation: check the relaunch before the four thresholds → it launches first.
+        // Mutation: check the relaunch before the four thresholds → it launches first. The clear is
+        // part of Tick's contract (finding 3), so the final check observes production code: a Tick
+        // that launched without clearing (old mutant A1, now in Tick) leaves PendingLaunchAt due.
         var host = new Host();
         host.Feed(new LaunchRequest(DateTime.UtcNow));
         var now = DateTime.UtcNow.AddSeconds(host.Settings.StartupGraceSeconds + 1);
@@ -270,5 +286,39 @@ public class SupervisionClockTests
 
         Check.That(host.InputTimes).ContainsExactly(now);
         Check.That(host.Machine.SupervisingSince).IsEqualTo(now);
+    }
+
+    // ── The tick wires each check to its own setting (W1-W3) ─────────────────
+    // The pure-function edge tests above take thresholds as parameters, so they cannot see a
+    // copy-paste in Tick that passes the wrong setting. The host's thresholds are pairwise
+    // distinct (grace 45, hang 15, window 115); probing at hang+1 lands past the hang threshold
+    // but well inside the other two, so a mis-wired check flips the outcome.
+
+    [Fact]
+    public void Tick_LaunchingAtHangPlusOne_DoesNotFireStartupGrace()
+    {
+        var host = new Host();
+        host.Feed(new LaunchRequest(DateTime.UtcNow));
+
+        // 16 s into Launching: past HangThresholdSeconds, far inside StartupGraceSeconds. Mutant
+        // W1 (grace reads HangThresholdSeconds) fires StartupGraceElapsed here.
+        var now = DateTime.UtcNow.AddSeconds(host.Settings.HangThresholdSeconds + 1);
+        SupervisionClock.Tick(now, host);
+
+        Check.That(host.Actions).IsEmpty();
+    }
+
+    [Fact]
+    public void Tick_SupervisingAtHangPlusOne_HeartbeatStale()
+    {
+        var host = Supervising(T0, T0);
+
+        // 16 s since the last heartbeat: past HangThresholdSeconds, inside StartupGraceSeconds and
+        // CrashWindowSeconds. Mutants W2 (stale reads StartupGraceSeconds) and W3 (stale reads
+        // CrashWindowSeconds) do not fire HeartbeatStale here.
+        var now = T0.AddSeconds(host.Settings.HangThresholdSeconds + 1);
+        SupervisionClock.Tick(now, host);
+
+        Check.That(host.Actions).ContainsExactly("HeartbeatStale");
     }
 }

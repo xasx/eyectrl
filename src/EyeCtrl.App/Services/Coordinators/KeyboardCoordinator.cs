@@ -376,19 +376,37 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
             ApplyInitialToolbarOccupancy();
             ShowKeyboardEdgeBar();
             if (manageSuppression)
-            {
-                Context.GazeEngine.AcquireFixationSuppression(FixationSuppressor.Keyboard);
-                Context.InteractionManager.OnFixationEnded();
-            }
+                ApplyKeyboardSuppression(visible: true);
             Context.Messenger.Send(new ShowKeyboardMessage());
         }
         else
         {
             Context.OverlayManager.Keyboard.Hide();
             if (manageSuppression)
-                Context.GazeEngine.ReleaseFixationSuppression(FixationSuppressor.Keyboard);
+                ApplyKeyboardSuppression(visible: false);
             HideKeyboardEdgeBar();
             Context.Messenger.Send(new HideKeyboardMessage());
+        }
+    }
+
+    /// <summary>
+    /// The keyboard's fixation-suppression claim, held while the keyboard is up from the toolbar
+    /// toggle. Showing takes the claim and ends a fixation in flight — the detector raises no end
+    /// once suppressed, and a state left at Fixation would block every FreeLook-guarded entry.
+    /// Hiding releases only this claim. Internal so tests can drive it without showing the real
+    /// window; <see cref="SetKeyboardVisible"/> is its only production caller.
+    /// </summary>
+    internal void ApplyKeyboardSuppression(bool visible)
+    {
+        if (Context is null) return;
+        if (visible)
+        {
+            Context.GazeEngine.AcquireFixationSuppression(FixationSuppressor.Keyboard);
+            Context.InteractionManager.OnFixationEnded();
+        }
+        else
+        {
+            Context.GazeEngine.ReleaseFixationSuppression(FixationSuppressor.Keyboard);
         }
     }
 

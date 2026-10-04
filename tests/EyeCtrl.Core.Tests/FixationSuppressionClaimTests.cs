@@ -152,4 +152,46 @@ public class FixationSuppressionClaimTests
         engine.ReleaseFixationSuppression(FixationSuppressor.ExternalDwell);
         Check.That(engine.SuppressFixation).IsTrue();
     }
+
+    [Fact]
+    public void EveryClaimChange_IsLogged_WithTheOwnerAndTheClaimsStillHeld()
+    {
+        // A stuck claim reads to the user as "fixation stopped working"; the log is the only place
+        // it can be traced to its owner (review F2). No-op acquires and releases change nothing and
+        // log nothing. Mutation: drop either log call → red.
+        var logger = new CapturingLogger();
+        using var engine = new GazeEngine(new ScriptedGazeProvider(), new RecordingInputSimulator(),
+            new EyeCtrlSettings(), logger: logger);
+
+        engine.AcquireFixationSuppression(FixationSuppressor.ModesMenu);
+        engine.AcquireFixationSuppression(FixationSuppressor.Keyboard);
+        engine.AcquireFixationSuppression(FixationSuppressor.Keyboard);       // no-op: not logged
+        engine.ReleaseFixationSuppression(FixationSuppressor.ModesMenu);
+        engine.ReleaseFixationSuppression(FixationSuppressor.Calibration);    // no-op: not logged
+        engine.ReleaseFixationSuppression(FixationSuppressor.Keyboard);
+
+        Check.That(logger.Lines).ContainsExactly(
+            "Fixation suppression acquired by ModesMenu (held: ModesMenu)",
+            "Fixation suppression acquired by Keyboard (held: Keyboard, ModesMenu)",
+            "Fixation suppression released by ModesMenu (held: Keyboard)",
+            "Fixation suppression released by Keyboard (held: none)");
+    }
+
+    private sealed class CapturingLogger : Microsoft.Extensions.Logging.ILogger<GazeEngine>
+    {
+        public List<string> Lines { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId,
+            TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            var line = formatter(state, exception);
+            if (line.StartsWith("Fixation suppression", StringComparison.Ordinal))
+                Lines.Add(line);
+        }
+    }
 }

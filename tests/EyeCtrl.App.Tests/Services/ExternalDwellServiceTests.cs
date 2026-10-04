@@ -201,7 +201,7 @@ public class ExternalDwellServiceTests
             using var svc = NewService(engine, _ => null);
             svc.Start();
 
-            // Another owner (keyboard / calibration via EventCoordinator) suppresses fixation.
+            // Another owner (here the keyboard, via KeyboardCoordinator) holds a suppression claim.
             engine.AcquireFixationSuppression(FixationSuppressor.Keyboard);
 
             // A gaze frame with no registered targets must NOT clear another owner's suppression.

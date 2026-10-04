@@ -39,18 +39,20 @@ public class GazeEngine : IDisposable
     private readonly ILogger<GazeEngine>? _logger;
     private readonly PropertyChangedEventHandler _dwellSettingsChangedHandler;
     private readonly Action? _effectiveSettingsChangedHandler;
-    // Set from the dispatcher thread (FreeLook entry, SuppressFixation release) and read+cleared on the
-    // gaze thread before the detector is fed. Zeroing the age on those edges is what stops pent-up age
+    // Set on FreeLook entry (on whichever thread raised the state change) and on the release of the last
+    // fixation-suppression claim (the dispatcher, or the gaze thread when external dwell held that claim),
+    // and read+cleared on the gaze thread before the detector is fed. Zeroing the age on those edges is
+    // what stops pent-up age
     // — time the eyes spent inside another overlay or another state — from firing an activation the
     // moment the gate lifts (skeptic condition 2).
     private volatile bool _fixationAgeResetRequested;
-    // The narrower re-arm (age + latches), set only on Paused → FreeLook and on the SuppressFixation
-    // true→false edge. It is what lets held gaze re-show the button after a short pause or a suppressed
+    // The narrower re-arm (age + latches), set only on Paused → FreeLook and on the last-claim release
+    // of fixation suppression. It is what lets held gaze re-show the button after a short pause or a suppressed
     // stretch; every other FreeLook entry deliberately keeps the latches (fixup-02 R2-1 — a fixed exit
     // button under an unmoved gaze would otherwise re-open the overlay in a loop).
     private volatile bool _fixationRearmRequested;
     // Whether that pending re-arm must also END the run whose onset was reported. Set only by the
-    // SuppressFixation release edge: the interaction state is still Fixation there, and ending the run is
+    // last-claim release of fixation suppression: the interaction state is still Fixation there, and ending the run is
     // the only thing that can unstrand it (fixup-02 N1). The Paused → FreeLook edge leaves it false —
     // that state already left Fixation, so an end there would be a spurious transition.
     private volatile bool _fixationRearmEndsReportedRun;
@@ -156,12 +158,18 @@ public class GazeEngine : IDisposable
     /// </summary>
     public void AcquireFixationSuppression(FixationSuppressor owner)
     {
+        string? held;
         lock (_suppressionLock)
         {
-            if (!_suppressionClaims.Add(owner) || _suppressionClaims.Count != 1) return;
-            InteractionManager.RequestActivationOfferClear();
-            _suppressFixation = true;
+            if (!_suppressionClaims.Add(owner)) return;
+            held = DescribeSuppressionClaims();
+            if (_suppressionClaims.Count == 1)
+            {
+                InteractionManager.RequestActivationOfferClear();
+                _suppressFixation = true;
+            }
         }
+        _logger?.LogInformation("Fixation suppression acquired by {Owner} (held: {Claims})", owner, held);
     }
 
     /// <summary>
@@ -175,15 +183,29 @@ public class GazeEngine : IDisposable
     /// </summary>
     public void ReleaseFixationSuppression(FixationSuppressor owner)
     {
+        string? held;
         lock (_suppressionLock)
         {
-            if (!_suppressionClaims.Remove(owner) || _suppressionClaims.Count != 0) return;
-            _fixationAgeResetRequested = true;
-            _fixationRearmRequested = true;
-            _fixationRearmEndsReportedRun = true;
-            _suppressFixation = false;
+            if (!_suppressionClaims.Remove(owner)) return;
+            held = DescribeSuppressionClaims();
+            if (_suppressionClaims.Count == 0)
+            {
+                _fixationAgeResetRequested = true;
+                _fixationRearmRequested = true;
+                _fixationRearmEndsReportedRun = true;
+                _suppressFixation = false;
+            }
         }
+        _logger?.LogInformation("Fixation suppression released by {Owner} (held: {Claims})", owner, held);
     }
+
+    // The claim set as a log value, so a stuck claim ("fixation stopped working") can be traced to
+    // its owner from the log alone — the only diagnostic channel a gaze-only user has. Called under
+    // _suppressionLock; built only when there is a logger (null in tests).
+    private string? DescribeSuppressionClaims() =>
+        _logger is null ? null
+        : _suppressionClaims.Count == 0 ? "none"
+        : string.Join(", ", _suppressionClaims.Order());
     /// <summary>Stable centroid position in physical screen pixels.</summary>
     public PhysicalPoint? StableCentroid => _centroidTracker.StableCentroid;
     /// <summary>Gaze-speed standard deviation (px/s) of the last *completed* fixation — a jitter/shakiness

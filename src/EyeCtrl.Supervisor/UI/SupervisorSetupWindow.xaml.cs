@@ -65,9 +65,10 @@ public partial class SupervisorSetupWindow : Window
         _launchAppNow = launchAppNow;
 
         // The window opens on the CURRENT on-disk value, not the supervisor's startup snapshot:
-        // the App's Settings row may have turned supervision on since this process loaded.
-        _enabledState = new SupervisionSetupEnabledState(settingsService);
-        settings.Supervision.Enabled = _enabledState.EnabledAtOpen;
+        // the App's Settings row may have turned supervision on since this process loaded. The
+        // state object applies the value to the snapshot itself, so this call is the whole
+        // wiring and cannot be half-done.
+        _enabledState = new SupervisionSetupEnabledState(settingsService, settings);
 
         InitializeComponent();
         PopulateFallbackList();

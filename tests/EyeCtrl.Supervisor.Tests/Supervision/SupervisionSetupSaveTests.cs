@@ -69,9 +69,33 @@ public class SupervisionSetupSaveTests
             written.Supervision.Enabled = true;                  // the App's row wrote true since
             service.Save(written);
 
-            var state = new SupervisionSetupEnabledState(service);
+            var snapshot = new EyeCtrlSettings();
+            var state = new SupervisionSetupEnabledState(service, snapshot);
 
             Check.That(state.EnabledAtOpen).IsTrue();
+            Check.That(snapshot.Supervision.Enabled).IsTrue();   // and it is applied to the snapshot
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Constructor_AppliesTheOnDiskValueToTheSnapshot()
+    {
+        // S2 pin: the state object (not the window's separate assignment) applies the value, so
+        // removing that assignment cannot leave the toggle stale — which would make an untouched
+        // save read the stale value as an in-window change and write it back.
+        var path = TempPath();
+        try
+        {
+            var service = new SettingsService(path, SettingsWriter.Supervisor);
+            var onDisk = new EyeCtrlSettings();
+            onDisk.Supervision.Enabled = true;
+            service.Save(onDisk);
+
+            var snapshot = new EyeCtrlSettings();       // the process's stale startup snapshot: off
+            _ = new SupervisionSetupEnabledState(service, snapshot);
+
+            Check.That(snapshot.Supervision.Enabled).IsTrue();
         }
         finally { File.Delete(path); }
     }
@@ -89,7 +113,7 @@ public class SupervisionSetupSaveTests
             seed.Supervision.Enabled = true;
             service.Save(seed);
 
-            var state = new SupervisionSetupEnabledState(service);   // opens on true
+            var state = new SupervisionSetupEnabledState(service, new EyeCtrlSettings());   // opens on true
 
             var flipped = service.Load();
             flipped.Supervision.Enabled = false;                     // the App turned it off since
@@ -109,7 +133,7 @@ public class SupervisionSetupSaveTests
             var service = new SettingsService(path, SettingsWriter.Supervisor);
             service.Save(new EyeCtrlSettings());                     // opens on off
 
-            var state = new SupervisionSetupEnabledState(service);
+            var state = new SupervisionSetupEnabledState(service, new EyeCtrlSettings());
 
             Check.That(state.ResolveForSave(current: true)).IsTrue();
         }

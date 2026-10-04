@@ -35,10 +35,15 @@ internal sealed class SupervisionSetupEnabledState
     private readonly SettingsService _settingsService;
 
     /// <param name="settingsService">The Supervisor-writer service the window saves through.</param>
-    public SupervisionSetupEnabledState(SettingsService settingsService)
+    /// <param name="settings">The live snapshot whose toggle the window shows. The constructor
+    /// applies the on-disk value to it here, so the window cannot forget: an un-applied snapshot
+    /// makes <see cref="ResolveForSave"/> read the stale value as an in-window change and write
+    /// it back — the exact failure this state object exists to prevent.</param>
+    public SupervisionSetupEnabledState(SettingsService settingsService, EyeCtrlSettings settings)
     {
         _settingsService = settingsService;
         EnabledAtOpen = settingsService.Load().Supervision.Enabled;
+        settings.Supervision.Enabled = EnabledAtOpen;
     }
 
     /// <summary>The on-disk value when the window opened — what the toggle shows, and the

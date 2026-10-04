@@ -18,6 +18,9 @@ internal interface ISupervisionClockHost
     DateTime? CleanExitRequestedAt { get; }
     /// <summary>When a deferred (backed-off) relaunch is due; null when none is pending.</summary>
     DateTime? PendingLaunchAt { get; }
+    /// <summary>Fresh on-disk <c>supervision.enabled</c> (last known value when unreadable). Read
+    /// only when a due relaunch is about to execute (ticket 06-B).</summary>
+    bool SupervisionEnabled { get; }
     /// <summary>Feeds an input to the machine and drains its commands (<c>HandleInput</c>).</summary>
     void Handle(SupervisionInput input);
     /// <summary>Consumes the due pending relaunch. <see cref="SupervisionClock.Tick"/> calls this
@@ -57,11 +60,13 @@ internal static class SupervisionClock
         var settings = host.Settings;
 
         // C1: startup grace — app launched but no heartbeat within StartupGraceSeconds -> recover
-        // (spec failure mode #2).
+        // (spec failure mode #2). Ticket 06-C: also in RECOVERING, so a recovery relaunch that
+        // never starts heartbeating books a strike, is killed and is retried (or escalates),
+        // instead of leaving the supervisor stuck in RECOVERING forever.
         if (StartupGraceElapsed(now, host.Machine.State, host.Machine.LaunchingSince, settings.StartupGraceSeconds))
         {
-            Log.Warning("Startup grace ({Grace}s) elapsed in LAUNCHING with no heartbeat; recovering.",
-                settings.StartupGraceSeconds);
+            Log.Warning("Startup grace ({Grace}s) elapsed in {State} with no heartbeat; recovering.",
+                settings.StartupGraceSeconds, host.Machine.State);
             host.Handle(new StartupGraceElapsed(now));
         }
 
@@ -81,18 +86,40 @@ internal static class SupervisionClock
         // C2: a recovery relaunch is NOT executed immediately when the machine commands it; it is
         // deferred until the backoff delay elapses, so a tight crash loop doesn't hammer the
         // app/process table and the spec's worked-example timing holds. Consuming the pending
-        // relaunch (clear-then-launch) is the tick's contract, not the host's: a host that
-        // launched without clearing would relaunch on every tick.
-        if (RelaunchDue(now, host.PendingLaunchAt))
+        // relaunch (clear-then-launch) is the tick's contract, not the host's.
+        var pendingLaunch = host.PendingLaunchAt;
+        if (pendingLaunch is not null)
         {
-            host.ClearPendingLaunch();
-            host.LaunchPendingNow();
+            if (!LaunchExpected(host.Machine.State))
+            {
+                // Ticket 06-A: the machine no longer expects a launch — the app was adopted or
+                // came up another way (or recovery escalated). Consume it; launching would race a
+                // live instance into the app's single-instance mutex (04-review F1).
+                host.ClearPendingLaunch();
+            }
+            else if (RelaunchDue(now, pendingLaunch))
+            {
+                host.ClearPendingLaunch();
+                // Ticket 06-B: a Recovering relaunch is gated on the FRESH enabled read — enabled
+                // was true when the strike was booked, but the user can switch supervision off
+                // during the backoff. Launching is never gated: the tray's "Launch EyeCtrl now"
+                // must not become a dead button while supervision is off.
+                if (host.Machine.State == SupervisorState.Recovering && !host.SupervisionEnabled)
+                    host.Handle(new SupervisionDisabled(now));
+                else
+                    host.LaunchPendingNow();
+            }
         }
     }
 
-    /// <summary>Launching for longer than <paramref name="startupGraceSeconds"/> with no heartbeat.</summary>
+    /// <summary>A pending launch still has a state that expects it: Launching (a requested launch —
+    /// logon, tray, restart) or Recovering (a recovery relaunch).</summary>
+    public static bool LaunchExpected(SupervisorState state) =>
+        state is SupervisorState.Launching or SupervisorState.Recovering;
+
+    /// <summary>Launching or Recovering for longer than <paramref name="startupGraceSeconds"/> with no heartbeat.</summary>
     public static bool StartupGraceElapsed(DateTime now, SupervisorState state, DateTime? launchingSince, int startupGraceSeconds) =>
-        state == SupervisorState.Launching && launchingSince.HasValue &&
+        state is SupervisorState.Launching or SupervisorState.Recovering && launchingSince.HasValue &&
         (now - launchingSince.Value).TotalSeconds > startupGraceSeconds;
 
     /// <summary>Supervising, and the last heartbeat is older than <paramref name="hangThresholdSeconds"/>.</summary>

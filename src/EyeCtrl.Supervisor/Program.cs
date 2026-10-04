@@ -81,6 +81,10 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     private EyeCtrlSettings _settings = null!;
     private string _appExePath = null!;
 
+    // Ticket 06-B: last disk-read supervision.enabled, kept by the tracker so a damaged file falls
+    // back to the last DISK value — never to the in-memory settings object the setup window edits.
+    private SupervisionEnabledTracker _enabledTracker = null!;
+
     // Pipe server is constructed EAGERLY at startup in adoption mode (exe-path-only binding) — see
     // EnsurePipeStartedAdoption / Initialize. This lets a manually-launched app (supervised +
     // StartOnBoot-off) connect and be adopted before any supervisor launch. EnsurePipeStarted is
@@ -108,7 +112,7 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     // only on the UI thread, so no synchronization.
     private readonly RollingFaultBudget _dispatcherFaultBudget = new(10, TimeSpan.FromSeconds(60));
 
-    public void Initialize()
+    public void Initialize(Func<bool>? appAlreadyRunning = null)
     {
         var appDataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -151,6 +155,7 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         // 2. Settings — supervisor owns ONLY the Supervision section (SettingsWriter.Supervisor).
         _settingsService = new SettingsService(settingsPath, SettingsWriter.Supervisor);
         _settings = _settingsService.Load();
+        _enabledTracker = new SupervisionEnabledTracker(settingsPath, seedFromDisk: _settings.Supervision.Enabled);
 
         // Resolve the app exe path (env override > sibling-of-supervisor-exe default).
         _appExePath = AppExePathResolver.Resolve();
@@ -160,10 +165,14 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         var sup = _settings.Supervision;
         _sm = new SupervisionStateMachine(
             maxRetries: sup.MaxRetries,
-            windowSeconds: sup.CrashWindowSeconds);
+            windowSeconds: sup.CrashWindowSeconds,
+            isSupervisionEnabled: IsSupervisionEnabledNow);   // ticket 06-B: re-read at every recovery decision
         // hangThresholdSeconds / startupGraceSeconds are read directly from settings in the clock-tick
         // checks (SupervisionClock.HeartbeatStale / StartupGraceElapsed, via SupervisionClock.Tick).
         _pc = new ProcessController();
+        // The Exited subscription lives on ProcessController so a stand-down can detach it
+        // (ticket 06-B); this handler marshals to the UI thread and applies the F1 suppression.
+        _pc.BoundProcessExited += OnBoundProcessExited;
         _freshness = new HeartbeatFreshnessEvaluator(sup.HangThresholdSeconds);
 
         // 3a. Tray icon — settings/launch/exit callbacks wired to the loop below.
@@ -187,20 +196,25 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         EnsurePipeStartedAdoption();
 
         // 4. Initial behavior at startup. If supervision is enabled AND the user wants the app at
-        // logon, the supervisor owns the launch (LaunchRequest -> Launching -> LaunchApp). If
-        // supervision is on but StartOnBoot is off, stay in IdleWatch and wait to adopt a
-        // manually-launched app via its first heartbeat. If supervision is disabled, the process
-        // stays running but idle (spec: "always runs at logon to watch the app even when
-        // StartOnBoot is off").
-        if (sup.Enabled && _settings.General.StartOnBoot)
+        // logon AND no EyeCtrl is already running, the supervisor owns the launch (LaunchRequest ->
+        // Launching -> LaunchApp). If the app is already running (the row or Restart → "with
+        // supervisor" starts the supervisor while EyeCtrl is up), stay in IdleWatch and adopt it on
+        // its first heartbeat: launching a duplicate would die on the app's single-instance mutex
+        // and every such exit would book a strike (04-review F1 — 4 strikes reach TD Control over a
+        // healthy app). If supervision is off, the process stays running but idle (spec: "always
+        // runs at logon to watch the app even when StartOnBoot is off").
+        var probe = appAlreadyRunning ?? (() => AppInstanceProbe.IsRunning());
+        var alreadyRunning = probe();
+        if (StartupLaunchPolicy.ShouldLaunchAtStartup(sup.Enabled, _settings.General.StartOnBoot, alreadyRunning))
         {
-            Log.Information("Supervision enabled + StartOnBoot: emitting initial LaunchRequest.");
+            Log.Information("Supervision enabled + StartOnBoot + no EyeCtrl running: emitting initial LaunchRequest.");
             HandleInput(new LaunchRequest(DateTime.UtcNow));
         }
         else
         {
-            Log.Information("Supervision enabled={Enabled}, StartOnBoot={StartOnBoot}; staying in IdleWatch.",
-                sup.Enabled, _settings.General.StartOnBoot);
+            Log.Information(
+                "Startup launch skipped (enabled={Enabled}, StartOnBoot={StartOnBoot}, appAlreadyRunning={AppAlreadyRunning}); staying in IdleWatch.",
+                sup.Enabled, _settings.General.StartOnBoot, alreadyRunning);
         }
     }
 
@@ -287,6 +301,11 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
             //    the very first verified heartbeat adopts it into Supervising.
             if (_sm.State == SupervisorState.IdleWatch)
             {
+                // Ticket 06-B: do not adopt while supervision is off on disk. The app may still be
+                // publishing (publishing is never turned off), so heartbeats keep arriving; a later
+                // re-enable adopts on the next one. No logging per heartbeat — only the transition.
+                if (!IsSupervisionEnabledNow()) return;
+
                 // Adopt the manually-launched app: bind its PID into ProcessController so exit-detection
                 // and ForceKill work for it (not just for supervisor-launched apps). id is non-null here
                 // (unbound heartbeats were dropped at the top of the handler); id.Pid is uint, cast to
@@ -330,11 +349,20 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     SupervisionSettings ISupervisionClockHost.Settings => _settings.Supervision;
     DateTime? ISupervisionClockHost.CleanExitRequestedAt => _cleanExitRequestedAt;
     DateTime? ISupervisionClockHost.PendingLaunchAt => _pendingLaunchAt;
+    bool ISupervisionClockHost.SupervisionEnabled => IsSupervisionEnabledNow();
     void ISupervisionClockHost.Handle(SupervisionInput input) => HandleInput(input);
 
     void ISupervisionClockHost.ClearPendingLaunch() => _pendingLaunchAt = null;
 
     void ISupervisionClockHost.LaunchPendingNow() => DoLaunchApp();
+
+    /// <summary>
+    /// Ticket 06-B: the live on-disk <c>supervision.enabled</c>. Every evaluation reads the file;
+    /// a damaged or unparseable file resolves to the last value successfully read from disk
+    /// (<see cref="SupervisionEnabledTracker"/>), never to the in-memory settings object that the
+    /// setup window mutates on open and on unsaved toggle clicks.
+    /// </summary>
+    private bool IsSupervisionEnabledNow() => _enabledTracker.Current;
 
     // ---- Command drain -----------------------------------------------------------------
 
@@ -375,6 +403,14 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
                     Log.Information("ForceKill command: killing supervised process.");
                     _pc.ForceKill();
                     break;
+                case SupervisorCommand.StandDown:
+                    // Ticket 06-B: supervision is off on disk. Release the process WITHOUT killing
+                    // it, drop any deferred relaunch, and stay idle. The machine has already gone to
+                    // IdleWatch; no strike was booked.
+                    Log.Warning("Supervision disabled on disk; standing down without killing or relaunching.");
+                    _pendingLaunchAt = null;
+                    _pc.Unbind();
+                    break;
                 case SupervisorCommand.LaunchFallbackAt:
                     // Handled by OnFallenBack (driven off the state transition, not the command,
                     // so the dialog is shown exactly once per entry into FallenBack).
@@ -391,25 +427,27 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     /// <summary>Performs the actual app launch (not paused by default) and wires exit detection. Called by the clock tick (SupervisionClock.Tick -> LaunchPendingNow) after the backoff delay.</summary>
     private void DoLaunchApp()
     {
-        // This runs on the dispatcher (via the clock tick). An unhandled exception here
-        // (e.g. Process.Start throwing because the app exe is missing — the installer-less default) would
-        // surface as a DispatcherUnhandledException and tear down the supervisor itself. Guard it: on
-        // launch failure, log and leave the state machine in its current (Launching/Recovering) state;
-        // the next clock tick's startup-grace / stale checks drive recovery without killing the supervisor.
+        // This runs on the dispatcher via the clock tick, not inside HandleInput's lock, so feeding
+        // the machine from here is safe. An unhandled exception here (e.g. Process.Start throwing
+        // because the app exe is missing — the installer-less default) would surface as a
+        // DispatcherUnhandledException and tear down the supervisor itself. Guard it: a thrown
+        // launch books a strike (LaunchFailed → GoRecovering) and retries with backoff, instead of
+        // leaving the machine waiting for a startup grace that can never fire because no process
+        // ever started (ticket 06-C).
         try
         {
             Log.Information("LaunchApp: starting {AppExePath}.", _appExePath);
             _pc.Launch(_appExePath, paused: false);
             WireProcessExited(); // exit callback so an unannounced exit feeds ProcessExited.
             EnsurePipeStarted(); // adoption-mode pipe starts eagerly at startup; this is an idempotent no-op.
+            // Ticket 06-C: the startup-grace clock starts when the process actually starts, not when
+            // the recovery was decided — the backoff can be up to 60 s (spec curve 0/5/15/60).
+            HandleInput(new LaunchExecuted(DateTime.UtcNow));
         }
         catch (Exception ex)
         {
-            // Launch failed (app exe missing or Process.Start threw). Leave the state machine in its
-            // current state — the next clock tick's startup-grace / stale checks drive recovery without
-            // killing the supervisor. _pc has no bound process here (Launch threw before assigning it),
-            // so no Exited event can double-count.
-            Log.Error(ex, "LaunchApp failed (app exe missing or Process.Start threw); leaving state for recovery.");
+            Log.Error(ex, "LaunchApp failed (app exe missing or Process.Start threw); booking a strike and retrying with backoff.");
+            HandleInput(new LaunchFailed(DateTime.UtcNow));
         }
     }
 
@@ -452,36 +490,45 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         Log.Information("Heartbeat pipe started in adoption mode (exe-path-only binding for {AppExePath}).", _appExePath);
     }
 
-    /// <summary>Wires the bound process's Exited event so a crash/exit feeds ProcessExited.</summary>
+    /// <summary>
+    /// Runs the wire-time race guard for the currently bound process. The Exited subscription
+    /// itself lives on <see cref="ProcessController.BoundProcessExited"/> (wired once in
+    /// Initialize, detached on unbind), so a stand-down silences a later exit of the released
+    /// process (ticket 06-B).
+    /// </summary>
     private void WireProcessExited()
     {
+        // Race guard: if the process already exited between Adopt()/Launch() and the subscription,
+        // the Exited event may already have fired (or never will). Check now and feed
+        // ProcessExited immediately.
         var proc = _pc.BoundProcess;
         if (proc == null) return;
-        proc.Exited += () =>
-        {
-            // Exited fires on a background thread — marshal to UI before touching the state machine.
-            Dispatcher.BeginInvoke(new Action(() =>
-            {
-                // F1: a supervisor-initiated ForceKill already booked a strike via GoRecovering (hang /
-                // gaze-death / startup-grace recovery). The Exited event from OUR kill is the expected
-                // consequence, NOT an independent crash — feeding ProcessExited here would double-count
-                // the incident and halve the crash budget. Suppress it. (KillInitiated clears on relaunch.)
-                if (_pc.KillInitiated)
-                {
-                    Log.Information("Bound process exited after supervisor-initiated kill (pid={Pid}); not counting as a separate crash.", proc.Id);
-                    return;
-                }
-                Log.Information("Bound process exited (pid={Pid}).", proc.Id);
-                HandleInput(new ProcessExited(DateTime.UtcNow));
-            }));
-        };
-        // Race guard: if the process already exited between Adopt()/Launch() and the event wire,
-        // the Exited event won't fire. Check now and feed ProcessExited immediately.
         if (proc.HasExited)
         {
             Log.Information("Bound process already exited at wire time (pid={Pid}); feeding ProcessExited.", proc.Id);
             HandleInput(new ProcessExited(DateTime.UtcNow));
         }
+    }
+
+    /// <summary><see cref="ProcessController"/>'s exit callback: marshals to the UI thread and
+    /// applies the F1 suppression (a supervisor-initiated kill is not an independent crash).</summary>
+    private void OnBoundProcessExited(IProcessHandle proc)
+    {
+        // Exited fires on a background thread — marshal to UI before touching the state machine.
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            // F1: a supervisor-initiated ForceKill already booked a strike via GoRecovering (hang /
+            // gaze-death / startup-grace recovery). The Exited event from OUR kill is the expected
+            // consequence, NOT an independent crash — feeding ProcessExited here would double-count
+            // the incident and halve the crash budget. Suppress it. (KillInitiated clears on relaunch.)
+            if (_pc.KillInitiated)
+            {
+                Log.Information("Bound process exited after supervisor-initiated kill (pid={Pid}); not counting as a separate crash.", proc.Id);
+                return;
+            }
+            Log.Information("Bound process exited (pid={Pid}).", proc.Id);
+            HandleInput(new ProcessExited(DateTime.UtcNow));
+        }));
     }
 
     // ---- FALLEN_BACK handling ----------------------------------------------------------
@@ -592,8 +639,9 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
                 //    construction, so push them in via UpdatePolicy (previously ignored until restart);
                 //  - HangThresholdSeconds is baked into the freshness evaluator, so rebuild it (the
                 //    stale-heartbeat check already reads it live each tick).
-                // Enabled toggles take effect on the next transition/logon. StartOnBoot lives in
-                // GeneralSettings (App-owned) and is NOT persisted by the supervisor.
+                // Enabled also takes effect live (ticket 06-B): the machine re-reads it at every
+                // recovery decision, adoption re-checks it, and a due Recovering relaunch re-checks it.
+                // StartOnBoot lives in GeneralSettings (App-owned) and is NOT persisted by the supervisor.
                 var s = _settings.Supervision;
                 _sm.UpdatePolicy(s.MaxRetries, s.CrashWindowSeconds);
                 _freshness = new HeartbeatFreshnessEvaluator(s.HangThresholdSeconds);

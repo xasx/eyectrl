@@ -15,34 +15,37 @@ public class SupervisionClockTests
     private static readonly DateTime T0 = new(2026, 10, 4, 12, 0, 0, DateTimeKind.Utc);
     private static readonly TimeSpan OneMs = TimeSpan.FromMilliseconds(1);
 
-    private static IEnumerable<SupervisorState> AllStatesExcept(SupervisorState s) =>
-        Enum.GetValues<SupervisorState>().Where(x => x != s);
+    private static IEnumerable<SupervisorState> AllStatesExcept(params SupervisorState[] excluded) =>
+        Enum.GetValues<SupervisorState>().Where(x => !excluded.Contains(x));
 
-    public static TheoryData<SupervisorState> NotLaunching() => new(AllStatesExcept(SupervisorState.Launching));
+    public static TheoryData<SupervisorState> NotLaunchingOrRecovering() => new(AllStatesExcept(SupervisorState.Launching, SupervisorState.Recovering));
     public static TheoryData<SupervisorState> NotSupervising() => new(AllStatesExcept(SupervisorState.Supervising));
     public static TheoryData<SupervisorState> NotCleanExitPending() => new(AllStatesExcept(SupervisorState.CleanExitPending));
 
-    // ── Startup grace (Launching, > StartupGraceSeconds) ─────────────────────
+    // ── Startup grace (Launching or Recovering, > StartupGraceSeconds) ───────
 
     [Theory]
-    [InlineData(-1, false)]   // just below
-    [InlineData(0, false)]    // exactly at: strictly greater is required
-    [InlineData(1, true)]     // just above
-    public void StartupGrace_Edge(int offsetMs, bool fires) =>
+    [InlineData(SupervisorState.Launching, -1, false)]   // just below
+    [InlineData(SupervisorState.Launching, 0, false)]    // exactly at: strictly greater is required
+    [InlineData(SupervisorState.Launching, 1, true)]     // just above
+    [InlineData(SupervisorState.Recovering, -1, false)]  // ticket 06-C: a recovery relaunch is
+    [InlineData(SupervisorState.Recovering, 0, false)]   // bounded by the same grace, so a stuck
+    [InlineData(SupervisorState.Recovering, 1, true)]    // Recovering is never terminal
+    public void StartupGrace_Edge(SupervisorState state, int offsetMs, bool fires) =>
         Check.That(SupervisionClock.StartupGraceElapsed(
-                T0.AddSeconds(60).AddMilliseconds(offsetMs), SupervisorState.Launching, T0, 60))
+                T0.AddSeconds(60).AddMilliseconds(offsetMs), state, T0, 60))
             .IsEqualTo(fires);
 
-    // The Recovering row pins TODAY's behaviour: a known gap (a relaunch that never heartbeats
-    // leaves the Supervisor stuck there), tracked as ticket 06 — not a statement that it is correct.
     [Theory]
-    [MemberData(nameof(NotLaunching))]
-    public void StartupGrace_OnlyWhileLaunching(SupervisorState state) =>
+    [MemberData(nameof(NotLaunchingOrRecovering))]
+    public void StartupGrace_OnlyWhileLaunchingOrRecovering(SupervisorState state) =>
         Check.That(SupervisionClock.StartupGraceElapsed(T0.AddSeconds(600), state, T0, 60)).IsFalse();
 
-    [Fact]
-    public void StartupGrace_NoLaunchTimestamp_NeverFires() =>
-        Check.That(SupervisionClock.StartupGraceElapsed(T0.AddSeconds(600), SupervisorState.Launching, null, 60)).IsFalse();
+    [Theory]
+    [InlineData(SupervisorState.Launching)]
+    [InlineData(SupervisorState.Recovering)]
+    public void StartupGrace_NoLaunchTimestamp_NeverFires(SupervisorState state) =>
+        Check.That(SupervisionClock.StartupGraceElapsed(T0.AddSeconds(600), state, null, 60)).IsFalse();
 
     // ── Heartbeat stale (Supervising, > HangThresholdSeconds) ────────────────
 
@@ -124,6 +127,22 @@ public class SupervisionClockTests
     public void RelaunchDue_NothingPending_NeverDue() =>
         Check.That(SupervisionClock.RelaunchDue(T0.AddSeconds(600), null)).IsFalse();
 
+    // ── Which states still expect a launch (ticket 06-A) ─────────────────────
+    // A pending relaunch executes only while the machine is Launching (a requested launch) or
+    // Recovering (a recovery relaunch). In any other state it is obsolete — the app came up some
+    // other way (adoption), or the machine moved on (escalation) — and launching would race a
+    // live instance.
+
+    [Theory]
+    [InlineData(SupervisorState.Launching, true)]
+    [InlineData(SupervisorState.Recovering, true)]
+    [InlineData(SupervisorState.IdleWatch, false)]
+    [InlineData(SupervisorState.Supervising, false)]
+    [InlineData(SupervisorState.CleanExitPending, false)]
+    [InlineData(SupervisorState.FallenBack, false)]
+    public void LaunchExpected_OnlyWhileLaunchingOrRecovering(SupervisorState state, bool expected) =>
+        Check.That(SupervisionClock.LaunchExpected(state)).IsEqualTo(expected);
+
     // ── The tick, against the real state machine ─────────────────────────────
 
     /// <summary>A supervisor stand-in over a real <see cref="SupervisionStateMachine"/>, recording
@@ -145,6 +164,7 @@ public class SupervisionClockTests
             CrashWindowSeconds = WindowSeconds,
         };
         public SupervisionStateMachine Machine { get; } = new(maxRetries: 3, windowSeconds: WindowSeconds);
+        public bool SupervisionEnabled { get; set; } = true;
         public DateTime? CleanExitRequestedAt { get; private set; }
         public DateTime? PendingLaunchAt { get; set; }
         public List<string> Actions { get; } = new();
@@ -266,12 +286,89 @@ public class SupervisionClockTests
     public void Tick_NothingDue_DoesNothing()
     {
         var host = Supervising(T0, T0.AddSeconds(100));
+
+        SupervisionClock.Tick(T0.AddSeconds(110), host);
+
+        Check.That(host.Actions).IsEmpty();
+        Check.That(host.PendingLaunchAt).IsNull();
+    }
+
+    [Fact]
+    public void Tick_PendingNotDue_InRecovering_IsKept()
+    {
+        var host = Supervising(T0, T0);
+        host.Feed(new ProcessExited(T0.AddSeconds(1)));
+        Check.That(host.Machine.State).IsEqualTo(SupervisorState.Recovering);
         host.PendingLaunchAt = T0.AddSeconds(200);
 
         SupervisionClock.Tick(T0.AddSeconds(110), host);
 
         Check.That(host.Actions).IsEmpty();
         Check.That(host.PendingLaunchAt).IsEqualTo(T0.AddSeconds(200));
+    }
+
+    [Fact]
+    public void Tick_ObsoletePending_InSupervising_IsConsumedNotLaunched()
+    {
+        // Ticket 06-A: the app was adopted (or came up another way) while a deferred launch was
+        // still pending. The machine no longer expects a launch, so the tick consumes it instead
+        // of racing a second instance into the app's single-instance mutex.
+        var host = Supervising(T0, T0);
+        host.PendingLaunchAt = T0;   // already due
+
+        SupervisionClock.Tick(T0.AddSeconds(1), host);
+
+        Check.That(host.Actions).IsEmpty();
+        Check.That(host.PendingLaunchAt).IsNull();
+    }
+
+    [Fact]
+    public void Tick_PendingInLaunching_ExecutesEvenWhenDisabled()
+    {
+        // Ticket 06-B: the tray "Launch EyeCtrl now" must not become a dead button when
+        // supervision is off. Launching is not gated on the enabled read; F1 safety comes from the
+        // startup policy, and a disabled launch is stood down by the grace (Launching ->
+        // GoRecovering -> disabled -> StandDown) without a kill.
+        var host = new Host { SupervisionEnabled = false };
+        host.Feed(new LaunchRequest(DateTime.UtcNow));
+        var now = DateTime.UtcNow.AddSeconds(host.Settings.HangThresholdSeconds + 1);
+        host.PendingLaunchAt = now;
+
+        SupervisionClock.Tick(now, host);
+
+        Check.That(host.Actions).Contains("LaunchPendingNow");
+        Check.That(host.PendingLaunchAt).IsNull();
+    }
+
+    [Fact]
+    public void Tick_PendingInRecovering_WhenEnabled_Executes()
+    {
+        var host = Supervising(T0, T0);
+        host.Feed(new ProcessExited(T0.AddSeconds(1)));
+        host.PendingLaunchAt = T0.AddSeconds(10);
+
+        SupervisionClock.Tick(T0.AddSeconds(10), host);
+
+        Check.That(host.Actions).Contains("LaunchPendingNow");
+        Check.That(host.PendingLaunchAt).IsNull();
+    }
+
+    [Fact]
+    public void Tick_PendingInRecovering_WhenDisabled_StandsDownWithoutLaunching()
+    {
+        // Ticket 06-B deferred-launch race: enabled was true when the strike was booked, but the
+        // fresh read at execution time says off. No launch, no kill — stand down.
+        var host = Supervising(T0, T0);
+        host.Feed(new ProcessExited(T0.AddSeconds(1)));
+        host.PendingLaunchAt = T0.AddSeconds(10);
+        host.SupervisionEnabled = false;
+
+        SupervisionClock.Tick(T0.AddSeconds(10), host);
+
+        Check.That(host.Actions).Contains("SupervisionDisabled");
+        Check.That(host.Actions).Not.Contains("LaunchPendingNow");
+        Check.That(host.PendingLaunchAt).IsNull();
+        Check.That(host.Machine.State).IsEqualTo(SupervisorState.IdleWatch);
     }
 
     [Fact]

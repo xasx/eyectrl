@@ -19,3 +19,12 @@ public sealed record DeadlineElapsed(DateTime At) : SupervisionInput(At);
 public sealed record SurvivedWindow(DateTime At) : SupervisionInput(At);    // survived a full crash window -> reset
 public sealed record StartupGraceElapsed(DateTime At) : SupervisionInput(At); // 60s in LAUNCHING with no heartbeat -> RECOVERING (spec failure mode #2)
 public sealed record FallenBackRetry(DateTime At) : SupervisionInput(At);    // user clicked "Retry EyeCtrl once" in the FALLEN_BACK dialog -> IdleWatch (re-adopt)
+/// <summary>A launch attempt actually started a process (ticket 06-C). Stamps the launch clock the
+/// startup grace measures, so the grace covers the process's start, not the decision to recover.</summary>
+public sealed record LaunchExecuted(DateTime At) : SupervisionInput(At);
+/// <summary>A launch attempt threw before starting a process (ticket 06-C). Books a strike instead
+/// of waiting forever for a grace that can never fire.</summary>
+public sealed record LaunchFailed(DateTime At) : SupervisionInput(At);
+/// <summary>supervision.enabled re-read as false (ticket 06-B): stand down to IdleWatch without a
+/// kill or a relaunch.</summary>
+public sealed record SupervisionDisabled(DateTime At) : SupervisionInput(At);

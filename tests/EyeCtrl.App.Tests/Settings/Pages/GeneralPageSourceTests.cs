@@ -1,6 +1,8 @@
 namespace EyeCtrl.App.Tests.Settings.Pages;
 
+using EyeCtrl.App.Services;
 using EyeCtrl.App.Views.Settings;
+using EyeCtrl.Core.Settings;
 using NFluent;
 using Xunit;
 
@@ -22,4 +24,52 @@ public class GeneralPageSourceTests
         // are Reset kind" without pinning the count.
         Check.That(buttons.Select(b => b.Kind)).ContainsOnlyElementsThatMatch(k => k == ButtonKind.Reset);
     }
+
+    [Fact]
+    public void General_WhenTheSupervisorIsAvailable_ShowsTheCrashRecoveryToggleAndItsLiveStatus()
+    {
+        var settings = new EyeCtrlSettings();
+        var ctx = TestSettingsPageContext.Build(
+            settings: settings, supervision: BuildSupervision(settings, available: true));
+        var rows = new GeneralPageSource(ctx).Build().Single().Rows;
+
+        var toggle = rows.OfType<ToggleSpec>().Single(t => t.Id == "g_supervision");
+        Check.That(toggle.Label).IsEqualTo("Automatic Crash Recovery");
+        Check.That(toggle.Description).IsNotNull();
+        Check.That(toggle.Description!).Contains("restarts automatically");
+        Check.That(toggle.Get()).IsFalse();
+
+        // The status line is the deferred LabelSpec next to the toggle; on a fresh install it
+        // says Off (and what that means for a supervisor that is already running).
+        Check.That(rows.OfType<LabelSpec>().Any(l => l.Text().StartsWith("Off"))).IsTrue();
+    }
+
+    [Fact]
+    public void General_WhenTheSupervisorIsNotAvailable_ShowsTheReasonInsteadOfAToggle()
+    {
+        var settings = new EyeCtrlSettings();
+        var ctx = TestSettingsPageContext.Build(
+            settings: settings, supervision: BuildSupervision(settings, available: false));
+        var rows = new GeneralPageSource(ctx).Build().Single().Rows;
+
+        // Same swap convention as the Cursor page's unavailable rows: no dead dwell target,
+        // the reason in its place.
+        Check.That(rows.OfType<ToggleSpec>().Any(t => t.Id == "g_supervision")).IsFalse();
+        Check.That(rows.OfType<LabelSpec>().Any(l => l.Text().Contains("not installed"))).IsTrue();
+    }
+
+    private static SupervisionToggleService BuildSupervision(EyeCtrlSettings settings, bool available) =>
+        new(settings,
+            new SupervisorBringUp(
+                settings,
+                enablePublishing: () => { },
+                launchSupervisor: () => false,
+                persistEnabled: _ => { },
+                reconcileRunKey: () => { },
+                tryReachSupervisor: () => false),
+            persistEnabled: _ => { },
+            supervisorInstalled: () => available,
+            reconcileRunKey: () => { },
+            runInBackground: work => work(),
+            postToUi: work => work());
 }

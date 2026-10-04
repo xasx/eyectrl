@@ -31,6 +31,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     private ModelRegistryService? _modelRegistry;
     private ModelManagementService? _modelManagementService;
     private AppRestartCoordinator? _restartCoordinator;
+    private SupervisionToggleService? _supervisionToggle;
     // Owned HERE — moved from EventCoordinator. Read in OnSettingsChanged to gate the toolbar
     // re-init (only re-initialize the toolbar when its layout-affecting settings changed).
     private ToolbarSnapshot? _toolbarSnapshot;
@@ -89,6 +90,10 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     /// <summary>Hands the restart coordinator to the settings window at construction. Called once at startup.</summary>
     public void SetRestartCoordinator(AppRestartCoordinator coordinator) => _restartCoordinator = coordinator;
 
+    /// <summary>Hands the supervision toggle (ticket 04) to the settings window at construction.
+    /// Called once at startup, like <see cref="SetRestartCoordinator"/>.</summary>
+    public void SetSupervisionToggle(SupervisionToggleService service) => _supervisionToggle = service;
+
     /// <summary>Gaze-routing seam (consumed by ToolbarLifecycleCoordinator.SetupGazeRouting after
     /// the cluster-8 fold): forwards the sample to the settings window iff it is open and visible.
     /// The visibility check lives here because the <c>_settingsWindow</c> reference moved out of EC
@@ -144,6 +149,8 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
                 Context.CalibrationService,
                 _restartCoordinator ?? throw new InvalidOperationException(
                     "Restart coordinator not set; SetRestartCoordinator must be called at startup."),
+                _supervisionToggle ?? throw new InvalidOperationException(
+                    "Supervision toggle not set; SetSupervisionToggle must be called at startup."),
                 Context.UserDictionary);
 
             _settingsWindow.SettingsChanged += OnSettingsChanged;

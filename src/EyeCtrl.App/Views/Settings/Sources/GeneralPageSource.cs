@@ -30,6 +30,7 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                 new ToggleSpec("g_track", "Show Track Status",
                     () => s.TrackStatus.Enabled, v => { s.TrackStatus.Enabled = v; _ctx.ApplyAndSave(); })
                     { Description = "A corner box showing live eye-tracker status." },
+                .. SupervisionRows(),
                 new ButtonSpec("g_restart", "↻ Restart Now", OnRestart, ButtonKind.Reset, Width: 300, Height: 100),
                 new ButtonSpec("g_reset", "Reset General Settings",
                     // N4 (round-1 review): the reset now includes the theme, which only
@@ -63,6 +64,37 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                     ButtonKind.Reset, Width: 300, Height: 100),
             ]),
         ];
+    }
+
+    /// <summary>
+    /// The supervision row group (ticket 04): the dwell toggle plus its live status line.
+    /// Not available (no Supervisor exe): a single note with the reason, in place of the toggle —
+    /// the Cursor page's unavailable-row-swaps-to-a-note convention. Null service (headless or
+    /// otherwise degraded host): no rows at all.
+    /// </summary>
+    private IEnumerable<SettingsRowSpec> SupervisionRows()
+    {
+        var supervision = _ctx.Supervision;
+        if (supervision is null)
+            yield break;
+
+        if (!supervision.IsAvailable)
+        {
+            yield return new LabelSpec(() => "Automatic Crash Recovery is unavailable: "
+                + "the EyeCtrl Supervisor is not installed on this PC.");
+            yield break;
+        }
+
+        yield return new ToggleSpec("g_supervision", "Automatic Crash Recovery",
+            () => supervision.Enabled,
+            v =>
+            {
+                if (v) supervision.RequestEnable();
+                else supervision.RequestDisable();
+            })
+            { Description = "If EyeCtrl stops responding or crashes, it restarts automatically; "
+                + "if it keeps failing, TD Control opens instead." };
+        yield return new LabelSpec(() => supervision.StatusText);
     }
 
     private void OnRestart()

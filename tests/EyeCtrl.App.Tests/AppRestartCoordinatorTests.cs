@@ -16,6 +16,21 @@ using Xunit;
 /// </summary>
 public class AppRestartCoordinatorTests
 {
+    private sealed class FakeClock
+    {
+        public DateTime Now { get; private set; } = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        public void Advance(TimeSpan by) => Now += by;
+    }
+
+    /// <summary>A bring-up that is never exercised: these tests pin the strategies around it.</summary>
+    private static SupervisorBringUp UnusedBringUp(EyeCtrlSettings settings) =>
+        new(settings,
+            enablePublishing: () => { },
+            launchSupervisor: () => false,
+            persistEnabled: _ => { },
+            reconcileRunKey: () => { },
+            tryReachSupervisor: () => false);
+
     private sealed class Harness
     {
         public bool SupervisorReachable { get; set; }
@@ -31,9 +46,10 @@ public class AppRestartCoordinatorTests
         public int Launches { get; private set; }
         public bool PublishingEnabled { get; private set; }
         public bool SupervisionPersisted { get; private set; }
+        public bool RunKeyReconciled { get; private set; }
         public EyeCtrlSettings Settings { get; }
 
-        /// <summary>Bring-up steps in the order TryBringUpSupervisor performed them.</summary>
+        /// <summary>Bring-up steps in the order the shared sequence performed them.</summary>
         public List<string> BringUp { get; } = new();
 
         /// <summary>
@@ -49,6 +65,19 @@ public class AppRestartCoordinatorTests
             settings.Supervision.Enabled = supervisionEnabled;
             Settings = settings;
 
+            // The reachability budget is real time in production; a fake clock keeps the
+            // never-reachable cases instant.
+            var clock = new FakeClock();
+            var bringUp = new SupervisorBringUp(
+                settings,
+                enablePublishing: () => { PublishingEnabled = true; BringUp.Add("publish"); },
+                launchSupervisor: () => { Launches++; BringUp.Add("launch"); return SupervisorLaunches; },
+                persistEnabled: _ => { SupervisionPersisted = true; BringUp.Add("persist"); },
+                reconcileRunKey: () => { RunKeyReconciled = true; BringUp.Add("runkey"); },
+                tryReachSupervisor: () => { Probes++; return SupervisorReachable; },
+                utcNow: () => clock.Now,
+                sleep: clock.Advance);
+
             Coordinator = new AppRestartCoordinator(
                 Messenger,
                 settings,
@@ -57,12 +86,10 @@ public class AppRestartCoordinatorTests
                 shutdown: () => Log.Add("shutdown"),
                 reportInProgress: () => Notices++,
                 reportUnavailable: reason => Log.Add("report:" + reason),
-                runInBackground: work => work(),   // inline: the tests are the background thread
+                runInBackground: work => work(),
                 postToUi: work => work(),
                 supervisorInstalled: () => SupervisorInstalled,
-                launchSupervisor: () => { Launches++; BringUp.Add("launch"); return SupervisorLaunches; },
-                enablePublishing: () => { PublishingEnabled = true; BringUp.Add("publish"); },
-                persistSettings: () => { SupervisionPersisted = true; BringUp.Add("persist"); });
+                bringUp: bringUp);
         }
 
         public void Request(bool startSupervisor = false) =>
@@ -147,10 +174,8 @@ public class AppRestartCoordinatorTests
             reportUnavailable: _ => { },
             runInBackground: work => work(),
             postToUi: work => work(),
-            supervisorInstalled: () => false,
-            launchSupervisor: () => false,
-            enablePublishing: () => { },
-            persistSettings: () => { });
+                supervisorInstalled: () => false,
+                bringUp: UnusedBringUp(settings));
 
         messenger.Send(new RestartAppRequestedMessage());
 
@@ -204,10 +229,8 @@ public class AppRestartCoordinatorTests
             reportUnavailable: _ => { },
             runInBackground: work => work(),
             postToUi: work => work(),
-            supervisorInstalled: () => false,
-            launchSupervisor: () => false,
-            enablePublishing: () => { },
-            persistSettings: () => { });
+                supervisorInstalled: () => false,
+                bringUp: UnusedBringUp(settings));
 
         messenger.Send(new RestartAppRequestedMessage());
 
@@ -232,10 +255,8 @@ public class AppRestartCoordinatorTests
             reportUnavailable: _ => { },
             runInBackground: work => { order.Add("background"); work(); },
             postToUi: work => { order.Add("ui"); work(); },
-            supervisorInstalled: () => false,
-            launchSupervisor: () => false,
-            enablePublishing: () => { },
-            persistSettings: () => { });
+                supervisorInstalled: () => false,
+                bringUp: UnusedBringUp(settings));
 
         messenger.Send(new RestartAppRequestedMessage());
 
@@ -261,10 +282,8 @@ public class AppRestartCoordinatorTests
             reportUnavailable: _ => { },
             runInBackground: work => { order.Add("background"); work(); },
             postToUi: work => { order.Add("ui"); work(); },
-            supervisorInstalled: () => false,
-            launchSupervisor: () => false,
-            enablePublishing: () => { },
-            persistSettings: () => { });
+                supervisorInstalled: () => false,
+                bringUp: UnusedBringUp(settings));
 
         messenger.Send(new RestartAppRequestedMessage());
 
@@ -288,10 +307,8 @@ public class AppRestartCoordinatorTests
             reportUnavailable: _ => { },
             runInBackground: work => requests.Add(work),   // defer: the request is "in flight"
             postToUi: work => work(),
-            supervisorInstalled: () => false,
-            launchSupervisor: () => false,
-            enablePublishing: () => { },
-            persistSettings: () => { });
+                supervisorInstalled: () => false,
+                bringUp: UnusedBringUp(settings));
 
         messenger.Send(new RestartAppRequestedMessage());  // first: in flight
         messenger.Send(new RestartAppRequestedMessage());  // second: dropped
@@ -326,10 +343,8 @@ public class AppRestartCoordinatorTests
             reportUnavailable: reports.Add,
             runInBackground: work => work(),
             postToUi: work => work(),
-            supervisorInstalled: () => false,
-            launchSupervisor: () => false,
-            enablePublishing: () => { },
-            persistSettings: () => { });
+                supervisorInstalled: () => false,
+                bringUp: UnusedBringUp(settings));
 
         messenger.Send(new RestartAppRequestedMessage());
 
@@ -376,6 +391,7 @@ public class AppRestartCoordinatorTests
         h.Request(startSupervisor: true);
 
         Check.That(h.PublishingEnabled).IsTrue();
+        Check.That(h.RunKeyReconciled).IsTrue();
         Check.That(h.Settings.Supervision.Enabled).IsTrue();
         Check.That(h.SupervisionPersisted).IsTrue();
         Check.That(h.Launches).IsEqualTo(1);
@@ -393,9 +409,11 @@ public class AppRestartCoordinatorTests
         // change that makes "opt-in" mean opted-in.
         //
         // What has NOT changed, and must not: publishing is still first (nothing can adopt an
-        // instance that never heartbeats), and persist still precedes the poll and the
-        // shutdown, so the replacement the supervisor relaunches still reads Enabled == true.
-        Check.That(h.BringUp).ContainsExactly("publish", "launch", "persist");
+        // instance that never heartbeats), the Run key reconcile still follows the persist
+        // (that is the old combined persist lambda's order, now explicit in the shared
+        // sequence), and persist still precedes the poll and the shutdown, so the replacement
+        // the supervisor relaunches still reads Enabled == true.
+        Check.That(h.BringUp).ContainsExactly("publish", "launch", "persist", "runkey");
     }
 
     [Fact]

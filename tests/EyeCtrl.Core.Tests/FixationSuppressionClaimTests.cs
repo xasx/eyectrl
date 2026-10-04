@@ -120,7 +120,7 @@ public class FixationSuppressionClaimTests
     }
 
     [Fact]
-    public void ConcurrentOwners_OnTwoThreads_LeaveAConsistentClaimSet()
+    public async Task ConcurrentOwners_OnTwoThreads_LeaveAConsistentClaimSet()
     {
         // External dwell claims on the gaze thread; the other owners on the dispatcher. Mutation:
         // drop the lock → the HashSet races (lost claims or a corrupted set) and the final state is
@@ -139,10 +139,10 @@ public class FixationSuppressionClaimTests
             }
         }
 
-        var a = Task.Run(() => Churn(FixationSuppressor.ExternalDwell));
-        var b = Task.Run(() => Churn(FixationSuppressor.Keyboard));
+        var a = Task.Run(() => Churn(FixationSuppressor.ExternalDwell), TestContext.Current.CancellationToken);
+        var b = Task.Run(() => Churn(FixationSuppressor.Keyboard), TestContext.Current.CancellationToken);
         start.Set();
-        Task.WaitAll(a, b);
+        await Task.WhenAll(a, b);
 
         Check.That(engine.SuppressFixation).IsFalse();
 

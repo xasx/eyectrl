@@ -155,7 +155,6 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         // 2. Settings — supervisor owns ONLY the Supervision section (SettingsWriter.Supervisor).
         _settingsService = new SettingsService(settingsPath, SettingsWriter.Supervisor);
         _settings = _settingsService.Load();
-        _enabledTracker = new SupervisionEnabledTracker(settingsPath, seedFromDisk: _settings.Supervision.Enabled);
 
         // Resolve the app exe path (env override > sibling-of-supervisor-exe default).
         _appExePath = AppExePathResolver.Resolve();

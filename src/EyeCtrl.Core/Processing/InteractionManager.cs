@@ -54,7 +54,11 @@ public class InteractionManager
     /// <summary>The action locked for the active repeat session, or null outside <see cref="InteractionState.RepeatMode"/>.</summary>
     public InteractionAction? RepeatAction { get; private set; }
 
-    /// <summary>Raised when the interaction state changes.</summary>
+    /// <summary>
+    /// Raised when the interaction state changes, synchronously on whichever thread wrote it: the
+    /// dispatcher (pause, menus, mode entry) or the gaze thread (fixation edges, repeat mode's
+    /// lost-gaze exit). Any thread, then — a subscriber that touches UI must marshal itself.
+    /// </summary>
     public event Action<InteractionState>? StateChanged;
     /// <summary>
     /// Raised when a fixation onset is accepted — i.e. exactly when the state machine enters

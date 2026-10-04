@@ -1,5 +1,6 @@
 namespace EyeCtrl.Core.Tests.Settings;
 
+using System.Text.Json.Nodes;
 using EyeCtrl.Core.Settings;
 
 /// <summary>
@@ -120,6 +121,109 @@ public class SettingsServiceWriterOwnershipTests
             var roundTripped = new SettingsService(path, SettingsWriter.Supervisor).Load();
             Check.That(roundTripped.Supervision.Enabled).IsTrue();          // supervisor's write preserved
             Check.That(roundTripped.Dwell.ActivationButtonDwellMs).IsEqualTo(1234); // app's write preserved
+        }
+        finally { File.Delete(path); }
+    }
+
+    // ── The sanctioned App exception (SaveSupervisionEnabled) ────────────────────────────────
+
+    [Fact]
+    public void AppException_SaveSupervisionEnabled_PersistsOnlyThatKey_AndPreservesEverythingElse()
+    {
+        // The App's one sanctioned way to flip supervision on: a Supervisor-writer instance,
+        // editing one key on the raw on-disk JSON. Everything else must survive — the section's
+        // other values, unknown keys inside the section (a future Supervisor knob), unknown root
+        // keys, and every App-owned section. A whole-section replacement would drop the former.
+        var path = TempPath();
+        try
+        {
+            var app = new SettingsService(path, SettingsWriter.App);
+            var seed = new EyeCtrlSettings();
+            seed.Dwell.ActivationButtonDwellMs = 1234;
+            app.Save(seed);   // an App-owned section value on disk
+
+            var supervisor = new SettingsService(path, SettingsWriter.Supervisor);
+            var sup = supervisor.Load();
+            sup.Supervision.MaxRetries = 7;
+            sup.Supervision.HangThresholdSeconds = 42;
+            supervisor.Save(sup);   // the section's non-default siblings, App sections preserved
+
+            var node = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+            node["supervision"]!.AsObject()["futureKey"] = "keep-me";
+            node["rootFuture"] = 42;
+            File.WriteAllText(path, node.ToJsonString());
+
+            var writer = new SettingsService(path, SettingsWriter.Supervisor);
+            writer.SaveSupervisionEnabled(true);
+
+            var raw = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+            Check.That(raw["supervision"]!["enabled"]!.GetValue<bool>()).IsTrue();
+            Check.That(raw["supervision"]!["maxRetries"]!.GetValue<int>()).IsEqualTo(7);
+            Check.That(raw["supervision"]!["hangThresholdSeconds"]!.GetValue<int>()).IsEqualTo(42);
+            Check.That(raw["supervision"]!["futureKey"]!.GetValue<string>()).IsEqualTo("keep-me");
+            Check.That(raw["dwell"]!["activationButtonDwellMs"]!.GetValue<int>()).IsEqualTo(1234);
+            Check.That(raw["rootFuture"]!.GetValue<int>()).IsEqualTo(42);
+
+            // And back off — the turn-off path goes through the same method.
+            writer.SaveSupervisionEnabled(false);
+            Check.That(JsonNode.Parse(File.ReadAllText(path))!["supervision"]!["enabled"]!.GetValue<bool>())
+                .IsFalse();
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void SaveSupervisionEnabled_OnAnAppWriterInstance_Throws()
+    {
+        // The exception is one-directional by design: the App routes it through a Supervisor-writer
+        // instance, so the call that would silently discard the write is never reachable.
+        var path = TempPath();
+        try
+        {
+            InvalidOperationException? ex = null;
+            try { new SettingsService(path, SettingsWriter.App).SaveSupervisionEnabled(true); }
+            catch (InvalidOperationException e) { ex = e; }
+
+            Check.That(ex).IsNotNull();
+            Check.That(ex!.Message).Contains("SettingsWriter.Supervisor");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void SaveSupervisionEnabled_DamagedFile_ThrowsAndLeavesItUntouched()
+    {
+        // This write is defined as "one key changes, everything else stays". A file that cannot be
+        // read as a JSON object has no safe edit, so the method must refuse rather than replace it
+        // with something minimal — a human (or a later whole-file Save) still has the original.
+        var path = TempPath();
+        try
+        {
+            foreach (var damaged in new[] { "{ not json", "[1, 2, 3]", "" })
+            {
+                File.WriteAllText(path, damaged);
+
+                InvalidOperationException? ex = null;
+                try { new SettingsService(path, SettingsWriter.Supervisor).SaveSupervisionEnabled(true); }
+                catch (InvalidOperationException e) { ex = e; }
+
+                Check.WithCustomMessage($"content: {damaged}").That(ex).IsNotNull();
+                Check.That(File.ReadAllText(path)).IsEqualTo(damaged);
+            }
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void SaveSupervisionEnabled_WithNoFileYet_WritesTheMinimalSection()
+    {
+        // First run: there is no settings file at all, and the flip must not need one.
+        var path = TempPath();
+        try
+        {
+            new SettingsService(path, SettingsWriter.Supervisor).SaveSupervisionEnabled(true);
+
+            Check.That(new SettingsService(path, SettingsWriter.Supervisor).Load().Supervision.Enabled).IsTrue();
         }
         finally { File.Delete(path); }
     }

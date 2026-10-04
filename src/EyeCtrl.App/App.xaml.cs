@@ -160,8 +160,8 @@ public partial class App : Application
             // toggle later in the session is honoured by a subsequent StartOnBoot change; the
             // policy computation is shared with the supervision composition (see the factory).
             var startupRegistrar = _serviceProvider.GetRequiredService<IStartupRegistrar>();
-            var reconcileRunKey = SupervisionComposition.CreateRunKeyReconciler(
-                settings, startupRegistrar, () => SupervisorLaunchRegistration.IsRegistered);
+            var reconcileRunKey = SupervisionComposition.CreateProductionRunKeyReconciler(
+                settings, startupRegistrar);
             reconcileRunKey();
 
             // Live-toggle: if the user changes StartOnBoot in settings, apply immediately.
@@ -336,16 +336,15 @@ public partial class App : Application
             // persisting through the sanctioned App exception (a Supervisor-writer
             // SettingsService, never the App writer — an App-writer Save overlays the on-disk
             // Supervision section and would silently discard the flip), both reconciling the
-            // Run key through the same live predicate built above.
-            var (bringUp, supervisionToggle) = SupervisionComposition.Create(
+            // Run key through the same live predicate built above. CreateForProduction binds the
+            // static probes (the launcher and the launch-registration question) itself, so this
+            // call site cannot pass a wrong answer for them.
+            var (bringUp, supervisionToggle, _) = SupervisionComposition.CreateForProduction(
                 settings,
                 settingsFilePath,
                 startupRegistrar,
                 enablePublishing: () => _heartbeatPublisher?.EnablePublishing(),
-                launchSupervisor: SupervisorLauncher.TryLaunch,
                 tryReachSupervisor: () => _heartbeatPublisher?.TryReachSupervisor() ?? false,
-                isSupervisorInstalled: () => SupervisorLauncher.IsExecutablePresent,
-                isLaunchRegistered: () => SupervisorLaunchRegistration.IsRegistered,
                 runInBackground: work => System.Threading.Tasks.Task.Run(work),
                 postToUi: work => Dispatcher.Invoke(work));
 

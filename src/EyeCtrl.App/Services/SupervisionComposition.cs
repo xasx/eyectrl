@@ -33,6 +33,18 @@ public static class SupervisionComposition
             isLaunchRegistered()));
 
     /// <summary>
+    /// The production Run-key reconciler: binds the real registration probe. App.xaml.cs uses
+    /// this for the startup reconciliation and the StartOnBoot handler, and
+    /// <see cref="CreateForProduction"/> uses it for both consumers of the composition, so no
+    /// call site passes the probe itself.
+    /// </summary>
+    public static Action CreateProductionRunKeyReconciler(
+        EyeCtrlSettings settings,
+        IStartupRegistrar startupRegistrar) =>
+        CreateRunKeyReconciler(
+            settings, startupRegistrar, () => SupervisorLaunchRegistration.IsRegistered);
+
+    /// <summary>
     /// Composes the bring-up and the toggle over the given settings file. Both persist through the
     /// sanctioned <see cref="SupervisionEnabledWriter.Persist"/> — the App writer's
     /// <see cref="SettingsService.Save"/> would overlay the on-disk Supervision section and
@@ -52,8 +64,55 @@ public static class SupervisionComposition
         Action<Action> runInBackground,
         Action<Action> postToUi)
     {
-        var writer = new SupervisionEnabledWriter(settingsFilePath);
         var reconcileRunKey = CreateRunKeyReconciler(settings, startupRegistrar, isLaunchRegistered);
+        return Compose(
+            settings, settingsFilePath, reconcileRunKey, enablePublishing, launchSupervisor,
+            tryReachSupervisor, isSupervisorInstalled, runInBackground, postToUi);
+    }
+
+    /// <summary>
+    /// The composition <c>App.xaml.cs</c> calls: binds the STATIC production probes itself —
+    /// <see cref="SupervisorLauncher.TryLaunch"/>,
+    /// <see cref="SupervisorLauncher.IsExecutablePresent"/> and
+    /// <c>SupervisorLaunchRegistration.IsRegistered</c> — so a call site cannot accidentally pass
+    /// a wrong answer for them (a <c>() =&gt; true</c> registration probe would hand the HKCU Run
+    /// key to a Scheduled Task that does not exist: a lockout at the next logon). Only the live
+    /// instance collaborators (publishing, the pipe probe, marshalling) are injected.
+    /// </summary>
+    /// <returns>The bring-up, the toggle, and the live Run-key reconciler they share — the
+    /// reconciler is returned so a test can drive the exact production binding.</returns>
+    public static (SupervisorBringUp BringUp, SupervisionToggleService Toggle, Action ReconcileRunKey)
+        CreateForProduction(
+            EyeCtrlSettings settings,
+            string settingsFilePath,
+            IStartupRegistrar startupRegistrar,
+            Action enablePublishing,
+            Func<bool> tryReachSupervisor,
+            Action<Action> runInBackground,
+            Action<Action> postToUi)
+    {
+        var reconcileRunKey = CreateProductionRunKeyReconciler(settings, startupRegistrar);
+        var (bringUp, toggle) = Compose(
+            settings, settingsFilePath, reconcileRunKey, enablePublishing,
+            launchSupervisor: SupervisorLauncher.TryLaunch,
+            tryReachSupervisor,
+            isSupervisorInstalled: () => SupervisorLauncher.IsExecutablePresent,
+            runInBackground, postToUi);
+        return (bringUp, toggle, reconcileRunKey);
+    }
+
+    private static (SupervisorBringUp BringUp, SupervisionToggleService Toggle) Compose(
+        EyeCtrlSettings settings,
+        string settingsFilePath,
+        Action reconcileRunKey,
+        Action enablePublishing,
+        Func<bool> launchSupervisor,
+        Func<bool> tryReachSupervisor,
+        Func<bool> isSupervisorInstalled,
+        Action<Action> runInBackground,
+        Action<Action> postToUi)
+    {
+        var writer = new SupervisionEnabledWriter(settingsFilePath);
 
         var bringUp = new SupervisorBringUp(
             settings,

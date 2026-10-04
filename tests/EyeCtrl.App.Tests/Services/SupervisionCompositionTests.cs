@@ -122,4 +122,45 @@ public class SupervisionCompositionTests
 
         Check.That(registrar.Writes).ContainsExactly(false, true);
     }
+
+    [Fact]
+    public void ProductionOverload_KeepsSelfRegistration_WhenNoLaunchOwnerExists()
+    {
+        // C1 pin: CreateForProduction binds the REAL registration probe. With StartOnBoot and
+        // supervision both on and nothing demonstrably owning launch-at-logon, the app must keep
+        // self-registering; a `() => true` binding would surrender the HKCU Run key to a
+        // Scheduled Task that does not exist — a lockout at the next logon.
+        var path = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(), $"eyectrl_t04_prod_{Guid.NewGuid()}.json");
+        try
+        {
+            var settings = new EyeCtrlSettings();
+            settings.General.StartOnBoot = true;
+            settings.Supervision.Enabled = true;
+            var registrar = new FakeStartupRegistrar();
+
+            var (_, toggle, reconcile) = SupervisionComposition.CreateForProduction(
+                settings, path, registrar,
+                enablePublishing: () => { },
+                tryReachSupervisor: () => false,
+                runInBackground: work => work(),
+                postToUi: work => work());
+
+            reconcile();
+
+            Check.That(registrar.Writes).ContainsExactly(
+                StartOnBootPolicy.ShouldSelfRegister(
+                    supervised: true,
+                    startOnBoot: true,
+                    supervisorOwnsLaunchAtLogon: SupervisorLaunchRegistration.IsRegistered));
+
+            // And the availability probe is the production one too, not a call-site override.
+            Check.That(toggle.IsAvailable).IsEqualTo(SupervisorLauncher.IsExecutablePresent);
+        }
+        finally
+        {
+            File.Delete(path);
+            File.Delete(path + ".tmp");
+        }
+    }
 }

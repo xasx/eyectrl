@@ -330,9 +330,9 @@ public class FixationCentroidRuleTests
         long ts = FeedValid(provider, 1000, 1000, 0, samples: 31);  // 0..900 ms, no activation yet
         Check.That(probe.Activations).IsEmpty();
 
-        engine.SuppressFixation = true;
+        engine.AcquireFixationSuppression(FixationSuppressor.Keyboard);
         ts = FeedValid(provider, 1000, 1000, ts, samples: 5);        // suppressed: not fed
-        engine.SuppressFixation = false;
+        engine.ReleaseFixationSuppression(FixationSuppressor.Keyboard);
         ts = FeedValid(provider, 1000, 1000, ts, samples: 3);        // resume: age restarts at the cap
 
         Check.That(probe.Activations).IsEmpty();                     // would fire here without the reset
@@ -379,9 +379,9 @@ public class FixationCentroidRuleTests
         long ts = FeedValid(provider, 1000, 1000, 0, samples: 40);   // onset + activation
         Check.That(probe.Activations).HasSize(1);
 
-        engine.SuppressFixation = true;
+        engine.AcquireFixationSuppression(FixationSuppressor.Keyboard);
         ts = FeedValid(provider, 1000, 1000, ts, samples: 5);         // suppressed: not fed
-        engine.SuppressFixation = false;                              // re-arm, age restarts
+        engine.ReleaseFixationSuppression(FixationSuppressor.Keyboard); // re-arm, age restarts
         FeedValid(provider, 1000, 1000, ts, samples: 40);             // re-earns the full clock
 
         Check.That(probe.Activations).HasSize(2);
@@ -415,9 +415,9 @@ public class FixationCentroidRuleTests
         long ts = FeedValid(provider, 1000, 1000, 0, samples: 40);   // onset at A + activation
         Check.That(engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.Fixation);
 
-        engine.SuppressFixation = true;
+        engine.AcquireFixationSuppression(FixationSuppressor.Keyboard);
         ts = FeedValid(provider, 1000, 1000, ts, samples: suppressMs / 30);   // suppressed: not fed
-        engine.SuppressFixation = false;
+        engine.ReleaseFixationSuppression(FixationSuppressor.Keyboard);
 
         events.Clear();
         fixationPointAtActivation = null;
@@ -487,9 +487,9 @@ public class FixationCentroidRuleTests
         long ts = FeedValid(provider, 1000, 1000, 0, samples: 11);   // onset arms the dwell at A
         Check.That(fired).IsEmpty();
 
-        engine.SuppressFixation = true;
+        engine.AcquireFixationSuppression(FixationSuppressor.Keyboard);
         ts = FeedValid(provider, 1000, 1000, ts, samples: 5);         // suppressed: not fed to the detector
-        engine.SuppressFixation = false;
+        engine.ReleaseFixationSuppression(FixationSuppressor.Keyboard);
 
         var b = new PhysicalPoint(1400, 1000);
         FeedValid(provider, b.X, b.Y, ts, samples: 21);               // release ends the old arm; the fresh arm at B fires
@@ -514,9 +514,9 @@ public class FixationCentroidRuleTests
         long ts = FeedValid(provider, 1000, 1000, 0, samples: 33);   // credited 960 ms
         Check.That(probe.Activations).IsEmpty();
 
-        engine.SuppressFixation = true;
+        engine.AcquireFixationSuppression(FixationSuppressor.Keyboard);
         ts = FeedValid(provider, 1000, 1000, ts, samples: 5);         // 150 ms suppressed: not fed
-        engine.SuppressFixation = false;
+        engine.ReleaseFixationSuppression(FixationSuppressor.Keyboard);
 
         FeedValid(provider, 1000, 1000, ts, samples: 1);              // the first post-release sample
 
@@ -526,17 +526,17 @@ public class FixationCentroidRuleTests
     [Fact]
     public void RedundantSuppressReleaseWrite_DoesNotZeroALiveRun()
     {
-        // Fixup-01 F7 / ME: the SuppressFixation reset fires on the true → false EDGE only. A redundant
-        // `= false` write (a writer re-releasing a gate it does not hold) must leave a live run's age
-        // alone. Mutation: drop the `_suppressFixation &&` edge check → the redundant write zeroes the
-        // run and this activation never reaches its ~1020 ms clock.
+        // Fixup-01 F7 / ME: the suppression reset fires on the last-claim release EDGE only. A release
+        // by an owner holding no claim (a writer re-releasing a gate it does not hold) must leave a
+        // live run's age alone. Mutation: drop the "claim was held" check in ReleaseFixationSuppression
+        // → the stray release zeroes the run and this activation never reaches its ~1020 ms clock.
         var s = Settings();
         var provider = new ScriptedGazeProvider();
         using var engine = new GazeEngine(provider, new RecordingInputSimulator(), s);
         var probe = new Probe(engine);
 
         long ts = FeedValid(provider, 1000, 1000, 0, samples: 31);   // credited 900 ms
-        engine.SuppressFixation = false;                              // already false: a no-op
+        engine.ReleaseFixationSuppression(FixationSuppressor.Keyboard); // no claim held: a no-op
         FeedValid(provider, 1000, 1000, ts, samples: 4);              // credited reaches 1020 ms
 
         Check.That(probe.Activations).HasSize(1);

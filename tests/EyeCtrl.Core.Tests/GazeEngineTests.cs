@@ -59,7 +59,7 @@ public class GazeEngineTests
     }
 
     [Fact]
-    public void SuppressFixation_CanBeToggled()
+    public void SuppressFixation_FollowsASingleOwnersClaim()
     {
         var provider = new FakeGazeProvider();
         var simulator = new FakeInputSimulator();
@@ -67,10 +67,10 @@ public class GazeEngineTests
 
         var engine = new GazeEngine(provider, simulator, settings);
 
-        engine.SuppressFixation = true;
+        engine.AcquireFixationSuppression(FixationSuppressor.Keyboard);
         Check.That(engine.SuppressFixation).IsTrue();
 
-        engine.SuppressFixation = false;
+        engine.ReleaseFixationSuppression(FixationSuppressor.Keyboard);
         Check.That(engine.SuppressFixation).IsFalse();
     }
 }

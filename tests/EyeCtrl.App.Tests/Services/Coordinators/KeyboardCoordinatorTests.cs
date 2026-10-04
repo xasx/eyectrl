@@ -874,4 +874,131 @@ public class KeyboardCoordinatorTests
         public Dictionary<string, int> Load() => new();
         public void Save(Dictionary<string, int> words) { }
     }
+
+    // ---- Fixation-suppression claim (architecture-check-2026-10, ticket 01 review F1) ------
+    // Under the claim set a wrong key or a skipped release leaves fixation suppressed until
+    // restart, and nothing else lifts it. The handler's window work (Show/Hide, edge bar) needs a
+    // visible window, so the claim lives in ApplyKeyboardSuppression, driven here against the
+    // real Initialize; the source pin below holds SetKeyboardVisible's two calls in place.
+
+    private sealed class SilentGazeProvider : EyeCtrl.Core.Interfaces.IGazeProvider
+    {
+        public event Action<GazePoint>? GazePointReceived { add { } remove { } }
+        public bool IsConnected => false;
+        public void Start() { }
+        public void Stop() { }
+        public void Dispose() { }
+    }
+
+    private static (KeyboardCoordinator Coordinator, GazeEngine Engine) NewInitializedWithEngine()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var keyboard = new KeyboardWindow();
+        keyboard.SetViewModel(new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger()));
+        var engine = new GazeEngine(new SilentGazeProvider(), new TestFakes.FakeInputSimulator(), new EyeCtrlSettings());
+        var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            OverlayManager = new KeyboardOnlyOverlayManager(keyboard),
+            Dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher,
+            Messenger = new WeakReferenceMessenger(),
+            GazeEngine = engine,
+            InteractionManager = engine.InteractionManager,
+        };
+        var c = NewCoordinator();
+        c.Initialize(context);
+        return (c, engine);
+    }
+
+    [StaFact]
+    public void KeyboardClaim_PairsUnderItsOwnKey_AndLeavesOtherOwnersAlone()
+    {
+        // Mutations: acquire under another key (K1), skip the release (K2), release under another
+        // key (K3) — each leaks a claim, so suppression outlives both owners below → red.
+        var (c, engine) = NewInitializedWithEngine();
+        try
+        {
+            engine.AcquireFixationSuppression(FixationSuppressor.Calibration);   // a second owner
+
+            c.ApplyKeyboardSuppression(visible: true);
+            Check.That(engine.SuppressFixation).IsTrue();
+
+            c.ApplyKeyboardSuppression(visible: false);
+            Check.WithCustomMessage("Hiding the keyboard released calibration's claim.")
+                .That(engine.SuppressFixation).IsTrue();
+
+            engine.ReleaseFixationSuppression(FixationSuppressor.Calibration);
+            Check.WithCustomMessage("A claim leaked: suppression outlived both owners, and only a "
+                    + "restart would bring fixation back.")
+                .That(engine.SuppressFixation).IsFalse();
+        }
+        finally
+        {
+            c.Dispose();
+            engine.Dispose();
+        }
+    }
+
+    [StaFact]
+    public void KeyboardShow_EndsAFixationInFlight()
+    {
+        // Once suppressed the detector raises no end, so the show ends the run itself; a state left
+        // at Fixation blocks every FreeLook-guarded entry (re-check N2). Mutation: drop the
+        // OnFixationEnded() after the keyboard's acquire (K4) → red.
+        var (c, engine) = NewInitializedWithEngine();
+        try
+        {
+            engine.InteractionManager.OnFixationStarted(new PhysicalPoint(500, 500));
+            Check.That(engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.Fixation);
+
+            c.ApplyKeyboardSuppression(visible: true);
+            Check.That(engine.InteractionManager.CurrentState).IsEqualTo(InteractionState.FreeLook);
+        }
+        finally
+        {
+            c.Dispose();
+            engine.Dispose();
+        }
+    }
+
+    [Fact]
+    public void SetKeyboardVisible_RoutesTheToolbarPathThroughTheClaim()
+    {
+        // Source pin over comment-stripped, whitespace-collapsed code (same discipline as the
+        // verdict-wiring pin above): the behavioural tests drive ApplyKeyboardSuppression directly,
+        // so only this pin sees SetKeyboardVisible stop calling it.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Services", "Coordinators", "KeyboardCoordinator.cs"))),
+            @"\s+", string.Empty);
+
+        // Branch placement, not just presence (re-check 1, K7): each call is pinned together with
+        // the line before it, so swapping the two calls between the show and hide branches fails.
+        Check.WithCustomMessage("The keyboard show no longer takes its suppression claim — the "
+                + "next fixation would pop an action menu over the keyboard.")
+            .That(source.Contains(
+                "ShowKeyboardEdgeBar();if(manageSuppression)ApplyKeyboardSuppression(visible:true);")).IsTrue();
+        Check.WithCustomMessage("The keyboard hide no longer releases its suppression claim — "
+                + "fixation would stay off until restart.")
+            .That(source.Contains(
+                "Context.OverlayManager.Keyboard.Hide();if(manageSuppression)ApplyKeyboardSuppression(visible:false);")).IsTrue();
+
+        // The three live handlers must pass manageSuppression: true (re-check 1, K8–K10). The
+        // edge-bar Close is the keyboard's own gaze escape: without the flag it hides the keyboard
+        // but keeps the claim, and fixation stays off until restart. The toggle and the ring show
+        // without it would leave free-look active under the keyboard.
+        Check.WithCustomMessage("The toolbar toggle no longer manages the keyboard's claim.")
+            .That(source.Contains(
+                "Register<KeyboardCoordinator,KeyboardToggledMessage>(this,(_,_)=>context.Dispatcher.BeginInvoke(()=>"
+                + "SetKeyboardVisible(!_modal.KeyboardVisible,manageSuppression:true)));")).IsTrue();
+        Check.WithCustomMessage("The ring/edge-bar show no longer takes the keyboard's claim.")
+            .That(source.Contains(
+                "Register<KeyboardCoordinator,KeyboardShowRequestedMessage>(this,(_,_)=>context.Dispatcher.BeginInvoke(()=>"
+                + "{if(ShouldShow(_modal.KeyboardVisible))SetKeyboardVisible(true,manageSuppression:true);}));")).IsTrue();
+        Check.WithCustomMessage("The edge-bar Close no longer releases the keyboard's claim — "
+                + "fixation would stay off until restart.")
+            .That(source.Contains(
+                "Register<KeyboardCoordinator,KeyboardHideRequestedMessage>(this,(_,_)=>context.Dispatcher.BeginInvoke(()=>"
+                + "SetKeyboardVisible(false,manageSuppression:true)));")).IsTrue();
+    }
 }

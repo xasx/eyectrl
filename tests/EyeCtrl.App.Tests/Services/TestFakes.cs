@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Tests.Services;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
+using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Keyboard;
@@ -203,10 +204,21 @@ internal static class TestFakes
         IActivationButtonOverlay? activationButton = null,
         IGlassBackdropOverlay? glassBackdrop = null,
         IEdgeButtonBar? actionMenuModBar = null,
-        IActionMenuOverlay? actionMenu = null)
+        IActionMenuOverlay? actionMenu = null,
+        ICalibrationOverlay? calibration = null)
         => new PartialOverlayManager(
             edgeButtonBar, toolbar, pauseIndicator, manualSelection, manualSelectionIndicator,
-            cursorCircle, activationButton, glassBackdrop, actionMenuModBar, actionMenu);
+            cursorCircle, activationButton, glassBackdrop, actionMenuModBar, actionMenu, calibration);
+
+    /// <summary>No-op calibration overlay: the calibration state handler shows, updates and
+    /// dismisses it on every state, so it must be present.</summary>
+    internal sealed class FakeCalibrationOverlay : ICalibrationOverlay
+    {
+        public void Show() { }
+        public void Hide() { }
+        public void UpdateVisualState(CalibrationState state, double progress) { }
+        public void DismissCalibration() { }
+    }
 
     /// <summary>No-op action menu: the activation-show path hides it, so it must be present.</summary>
     internal sealed class FakeActionMenuOverlay : IActionMenuOverlay
@@ -302,6 +314,7 @@ internal static class TestFakes
         private readonly IGlassBackdropOverlay? _glassBackdrop;
         private readonly IEdgeButtonBar? _actionMenuModBar;
         private readonly IActionMenuOverlay? _actionMenu;
+        private readonly ICalibrationOverlay? _calibration;
 
         public IModesMenuOverlay ModesMenu => throw new NotImplementedException();
         public IRepeatCursorOverlay RepeatCursor => throw new NotImplementedException();
@@ -311,12 +324,13 @@ internal static class TestFakes
             IManualSelectionIndicatorOverlay? manualSelectionIndicator,
             ICursorCircleOverlay? cursorCircle = null, IActivationButtonOverlay? activationButton = null,
             IGlassBackdropOverlay? glassBackdrop = null,
-            IEdgeButtonBar? actionMenuModBar = null, IActionMenuOverlay? actionMenu = null)
+            IEdgeButtonBar? actionMenuModBar = null, IActionMenuOverlay? actionMenu = null,
+            ICalibrationOverlay? calibration = null)
         {
             _bar = bar; _toolbar = toolbar; _pauseIndicator = pauseIndicator;
             _manualSelection = manualSelection; _manualSelectionIndicator = manualSelectionIndicator;
             _cursorCircle = cursorCircle; _activationButton = activationButton; _glassBackdrop = glassBackdrop;
-            _actionMenuModBar = actionMenuModBar; _actionMenu = actionMenu;
+            _actionMenuModBar = actionMenuModBar; _actionMenu = actionMenu; _calibration = calibration;
         }
 
         public IEdgeButtonBar EdgeButtonBar =>
@@ -344,7 +358,8 @@ internal static class TestFakes
             _manualSelectionIndicator ?? throw new NotImplementedException("test supplied no manual-selection indicator");
         public IGlassBackdropOverlay GlassBackdrop =>
             _glassBackdrop ?? throw new NotImplementedException("test supplied no glass backdrop");
-        public ICalibrationOverlay Calibration => throw new NotImplementedException();
+        public ICalibrationOverlay Calibration =>
+            _calibration ?? throw new NotImplementedException("test supplied no calibration overlay");
         public ITargetHighlightOverlay TargetHighlight => throw new NotImplementedException();
         public ITrackStatusOverlay TrackStatus => throw new NotImplementedException();
         public ITaskSwitcherOverlay TaskSwitcher => throw new NotImplementedException();

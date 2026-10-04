@@ -108,7 +108,7 @@ internal sealed class RepeatModeController : CoordinatorBase
         {
             if (context.ModesMenuVM.IsVisible)
             {
-                context.GazeEngine.SuppressFixation = true;
+                context.GazeEngine.AcquireFixationSuppression(FixationSuppressor.ModesMenu);
                 // A fixation already in flight would leave the state at Fixation when the row
                 // activates — end it, exactly as the keyboard does when it takes over gaze.
                 context.InteractionManager.OnFixationEnded();
@@ -119,7 +119,7 @@ internal sealed class RepeatModeController : CoordinatorBase
             }
             else
             {
-                context.GazeEngine.SuppressFixation = false;
+                context.GazeEngine.ReleaseFixationSuppression(FixationSuppressor.ModesMenu);
                 if (_active)
                     ApplySuppressionZones(BuildToolbarBandRect(context.Settings.Toolbar.Size));
             }

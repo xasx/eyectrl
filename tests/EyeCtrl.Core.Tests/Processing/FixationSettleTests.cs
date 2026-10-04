@@ -244,7 +244,7 @@ public class FixationSettleTests
         probe.Hold(provider, 1000, 1000, 0, samples: 40);   // settled at ~510 ms
         Check.That(probe.Pins).HasSize(1);
 
-        engine.SuppressFixation = true;                     // the coordinator's order
+        engine.AcquireFixationSuppression(FixationSuppressor.Keyboard); // the coordinator's order
         engine.InteractionManager.OnFixationEnded();
 
         Check.That(releases).IsEqualTo(1);

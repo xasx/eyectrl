@@ -383,7 +383,7 @@ public class ActivationOfferWiringTests
         var onToolbar = new PhysicalPoint(2000, 150);
         h.Feed(onToolbar, samples: 20);                       // a no-offer settle inside the linger
 
-        h.Engine.SuppressFixation = true;                     // the keyboard toggle, as the dispatcher does it
+        h.Engine.AcquireFixationSuppression(FixationSuppressor.Keyboard); // the keyboard toggle, as the dispatcher does it
         h.Im.OnFixationEnded();
 
         Check.That(h.PinPoints).ContainsExactly(P, onToolbar);
@@ -725,7 +725,7 @@ public class ActivationOfferWiringTests
         using (var h = new Harness())
         {
             var offer = h.SettleAt(P);
-            h.Engine.SuppressFixation = true;
+            h.Engine.AcquireFixationSuppression(FixationSuppressor.Keyboard);
             h.Feed(offer.Button, samples: 1);
             Check.That(h.Offers.CurrentOffer).IsNull();
         }

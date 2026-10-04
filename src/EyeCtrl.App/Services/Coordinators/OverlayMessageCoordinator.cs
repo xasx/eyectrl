@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Services.Coordinators;
 
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
+using EyeCtrl.Core;
 using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels;
@@ -265,7 +266,7 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
                 {
                     case CalibrationState.Collecting:
                     case CalibrationState.Training:
-                        Context.GazeEngine.SuppressFixation = true;
+                        Context.GazeEngine.AcquireFixationSuppression(FixationSuppressor.Calibration);
                         // Deactivate toolbar dwell while gaze is being collected at calibration
                         // targets — they can land on screen edges/corners where a docked toolbar
                         // lives, and would otherwise dwell-activate a hidden/stale button position.
@@ -277,7 +278,7 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
                         break;
                     case CalibrationState.Active:
                     case CalibrationState.Failed:
-                        Context.GazeEngine.SuppressFixation = false;
+                        Context.GazeEngine.ReleaseFixationSuppression(FixationSuppressor.Calibration);
                         // Re-activate toolbar dwell via the auto-hide controller, which is
                         // state-aware: it re-asserts a hide if the toolbar auto-hid while Feed was
                         // suppressed (calibration suppresses Feed on IsSessionActive, which flips
@@ -298,7 +299,7 @@ internal sealed class OverlayMessageCoordinator : CoordinatorBase
                         // CalibrationState.Idle / CalibrationState.Cancelled — calibration is over
                         // (not in progress), so toolbar dwell resumes — but only if the toolbar
                         // hasn't since auto-hidden (same state-aware path as the Active/Failed case).
-                        Context.GazeEngine.SuppressFixation = false;
+                        Context.GazeEngine.ReleaseFixationSuppression(FixationSuppressor.Calibration);
                         _toolbar.ReassertVisibility();
                         if (Context.CursorVM.IsVisible) cursorCircle.Show();
                         calWindow.DismissCalibration();

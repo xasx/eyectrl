@@ -201,8 +201,8 @@ public class ExternalDwellServiceTests
             using var svc = NewService(engine, _ => null);
             svc.Start();
 
-            // Another owner (keyboard / calibration via EventCoordinator) suppresses fixation.
-            engine.SuppressFixation = true;
+            // Another owner (here the keyboard, via KeyboardCoordinator) holds a suppression claim.
+            engine.AcquireFixationSuppression(FixationSuppressor.Keyboard);
 
             // A gaze frame with no registered targets must NOT clear another owner's suppression.
             provider.Raise(new GazePoint(500, 500, 1_000, IsValid: true));
@@ -394,6 +394,28 @@ public class ExternalDwellServiceTests
 
             Check.That(afterAccumulate).IsTrue();  // mid-dwell over a gated target suppresses fixation
             Check.That(afterLeave).IsFalse();      // leaving the target releases our suppression
+        });
+    }
+
+    [Fact]
+    public void LeavingTarget_WhileKeyboardHoldsSuppression_KeepsFixationSuppressed()
+    {
+        // External dwell releases only its own claim. Before the claim set it wrote the shared flag
+        // false on leave, clearing the keyboard's hold (architecture-check-2026-10, item 1).
+        RunOnStaThread(() =>
+        {
+            var provider = new StubGazeProvider();
+            using var engine = new GazeEngine(provider, new StubInputSimulator(), new EyeCtrlSettings());
+            using var svc = NewService(engine, _ => 7);
+            svc.Start();
+            engine.AcquireFixationSuppression(FixationSuppressor.Keyboard); // the keyboard is up
+
+            var (afterAccumulate, afterLeave) =
+                RegisterAccumulateThenLeave(engine, provider, _pipeName).GetAwaiter().GetResult();
+
+            Check.That(afterAccumulate).IsTrue();
+            Check.WithCustomMessage("External dwell's release cleared the keyboard's suppression.")
+                .That(afterLeave).IsTrue();
         });
     }
 

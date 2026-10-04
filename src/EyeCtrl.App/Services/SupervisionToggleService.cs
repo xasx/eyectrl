@@ -89,13 +89,12 @@ public sealed class SupervisionToggleService
                 return _lastFailure;
             }
 
-            // The off text says plainly what happens to a supervisor that is already running:
-            // it was adopted into Supervising and does not consult the setting again, so it
-            // keeps watching until EyeCtrl exits cleanly — then it stays idle in the background.
+            // The off text describes the world where the Supervisor re-reads the flag at every
+            // recovery decision and stands down when it is false (ticket 06, which merges before
+            // this row): nothing restarts EyeCtrl after a crash, exactly as "Off" says.
             return _settings.Supervision.Enabled
                 ? "On \u2014 EyeCtrl restarts automatically if it stops responding or crashes."
-                : "Off \u2014 a Supervisor that is already running keeps watching until EyeCtrl exits, "
-                    + "then stays idle. If EyeCtrl crashes first, nothing restarts it.";
+                : "Off \u2014 if EyeCtrl stops responding or crashes, it is not restarted automatically.";
         }
     }
 
@@ -134,16 +133,19 @@ public sealed class SupervisionToggleService
             catch (Exception ex)
             {
                 // The persist step can throw; the live flag may already be true, so disarm it.
-                return RollBack("Could not save supervision settings: " + ex.Message);
+                // The row gets a short message — ex.Message can carry a full path.
+                Serilog.Log.Warning(ex, "Enabling supervision failed while saving settings.");
+                return RollBack("Could not save supervision settings; supervision is off.");
             }
         });
     }
 
     /// <summary>
     /// Turns supervised lifecycle off for the next start: persists false through the sanctioned
-    /// path and restores self-registration. The running supervisor is not stopped — see
-    /// <see cref="StatusText"/> for what that means. Returns immediately; the outcome arrives
-    /// via <see cref="StateChanged"/>.
+    /// path and restores self-registration. A supervisor process that is already running is not
+    /// stopped; it re-reads the flag at its next recovery decision and stands down, so nothing
+    /// restarts or kills EyeCtrl once Off. Returns immediately; the outcome arrives via
+    /// <see cref="StateChanged"/>.
     /// </summary>
     public void RequestDisable()
     {
@@ -154,19 +156,33 @@ public sealed class SupervisionToggleService
 
         StartRequest(turningOn: false, () =>
         {
+            // Persist first, in its own try. If the WRITE fails, disk still says enabled and the
+            // live flag must keep matching it — the crash policy must describe the recovery that
+            // actually exists. Only once the write lands may the session stand down; a reconcile
+            // failure past that point must NOT re-arm the flag (disk says unsupervised).
             try
             {
-                _settings.Supervision.Enabled = false;
                 _persistEnabled(false);
+            }
+            catch (Exception ex)
+            {
+                Serilog.Log.Warning(ex, "Persisting supervision.enabled=false failed.");
+                return "Could not save supervision settings; supervision is still on.";
+            }
+
+            _settings.Supervision.Enabled = false;
+
+            try
+            {
                 _reconcileRunKey();
                 return null;
             }
             catch (Exception ex)
             {
-                // The on-disk flag was not changed, so keep the live flag matching it: the
-                // crash policy must describe the recovery that actually exists.
-                _settings.Supervision.Enabled = true;
-                return "Could not save supervision settings: " + ex.Message;
+                // Supervision IS off (the persist landed); only launch-at-logon is stale. The
+                // user is told, and the flag stays off because that is what disk says.
+                Serilog.Log.Warning(ex, "Reconciling launch-at-logon after turn-off failed.");
+                return "Supervision is off, but launch-at-logon could not be updated.";
             }
         });
     }

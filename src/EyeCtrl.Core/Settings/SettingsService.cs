@@ -684,9 +684,11 @@ public class SettingsService
                 root = new JsonObject();
             }
 
-            // A damaged section is replaced by a minimal valid one: the flag cannot be written
-            // any other way, and the section was unusable in its current form. Everything outside
-            // the section is still preserved verbatim.
+            // A NON-OBJECT section (scalar, array, null) is replaced by a minimal valid one: the
+            // flag cannot be written through it, and the section was unusable in its current
+            // form. An OBJECT section with bad values is edited in place — the load-time repair
+            // heals it on the next App save. Everything outside the section is still preserved
+            // verbatim.
             if (root[SupervisionSectionName] is not JsonObject supervision)
             {
                 supervision = new JsonObject();

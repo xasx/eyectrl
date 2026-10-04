@@ -80,9 +80,9 @@ public sealed class SupervisorBringUp
     }
 
     /// <summary>
-    /// Runs the sequence. The only step that can throw is <paramref name="persistEnabled"/>
-    /// (<c>SettingsService</c> can reject a write); the callers' handlers turn that into a report
-    /// rather than a dead control.
+    /// Runs the sequence. The persist step can throw (a settings write), and so can the Run-key
+    /// reconcile (a registry write); the callers' handlers turn that into a report rather than a
+    /// dead control.
     /// </summary>
     public SupervisorBringUpOutcome TryBringUp()
     {

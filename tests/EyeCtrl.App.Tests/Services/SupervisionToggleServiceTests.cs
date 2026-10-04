@@ -43,6 +43,8 @@ public class SupervisionToggleServiceTests
         public bool LaunchSucceeds { get; set; } = true;
         public bool Reachable { get; set; } = true;
         public bool SupervisorOwnsLaunch { get; set; } = true;
+        public bool PersistThrows { get; set; }
+        public bool ReconcileThrows { get; set; }
         public bool PublishingEnabled { get; private set; }
         public int StateChanges { get; private set; }
         public List<Action> Pending { get; } = new();
@@ -59,7 +61,12 @@ public class SupervisionToggleServiceTests
 
             var clock = new FakeClock();
             var writer = new SupervisionEnabledWriter(Path);
-            Action<bool> persist = value => { Steps.Add($"persist:{value}"); writer.Persist(value); };
+            Action<bool> persist = value =>
+            {
+                Steps.Add($"persist:{value}");
+                if (PersistThrows) throw new InvalidOperationException("the settings write failed");
+                writer.Persist(value);
+            };
             var bringUp = new SupervisorBringUp(
                 Settings,
                 enablePublishing: () => { PublishingEnabled = true; Steps.Add("publish"); },
@@ -88,6 +95,7 @@ public class SupervisionToggleServiceTests
         private void ReconcileStep()
         {
             Steps.Add("runkey");
+            if (ReconcileThrows) throw new InvalidOperationException("the registry write failed");
             Registrar.SetStartOnBoot(StartOnBootPolicy.ShouldSelfRegister(
                 Settings.Supervision.Enabled, Settings.General.StartOnBoot, SupervisorOwnsLaunch));
         }
@@ -169,7 +177,48 @@ public class SupervisionToggleServiceTests
         Check.That(h.OnDiskEnabled()).IsFalse();
         Check.That(h.Steps).ContainsExactly("persist:False", "runkey");
         Check.That(h.Registrar.Writes).ContainsExactly(true);   // supervised=false → self-register
-        Check.That(h.Service.StatusText).Contains("keeps watching until EyeCtrl exits");
+        Check.That(h.Service.StatusText).Contains("not restarted automatically");
+    }
+
+    [Fact]
+    public void StatusText_Off_StatesTheStandDownWorldPlainly()
+    {
+        // F2 pin: the Off text describes the world where the Supervisor re-reads the flag at its
+        // recovery decisions and stands down (ticket 06). No "keeps watching" promise.
+        using var h = new Harness(enabled: false);
+
+        Check.That(h.Service.StatusText).IsEqualTo(
+            "Off \u2014 if EyeCtrl stops responding or crashes, it is not restarted automatically.");
+    }
+
+    [Fact]
+    public void Disable_WhenPersistFails_KeepsTheLiveFlagOn()
+    {
+        // F5/R5 pin: the failure is at the WRITE, so disk still says enabled and the live flag
+        // must keep matching it — the crash policy describes the recovery that exists.
+        using var h = new Harness(enabled: true);
+        h.PersistThrows = true;
+
+        h.Service.RequestDisable();
+
+        Check.That(h.Service.Enabled).IsTrue();
+        Check.That(h.Service.StatusText).Contains("still on");
+    }
+
+    [Fact]
+    public void Disable_WhenReconcileFails_KeepsSupervisionOffAndSaysSo()
+    {
+        // F5 pin: the persist landed (disk false), so a reconcile failure AFTER it must NOT
+        // re-arm the live flag — kill-for-respawn against a disk that says unsupervised is
+        // exactly the shape the split try exists to prevent.
+        using var h = new Harness(enabled: true);
+        h.ReconcileThrows = true;
+
+        h.Service.RequestDisable();
+
+        Check.That(h.Service.Enabled).IsFalse();
+        Check.That(h.OnDiskEnabled()).IsFalse();
+        Check.That(h.Service.StatusText).Contains("launch-at-logon could not be updated");
     }
 
     [Fact]

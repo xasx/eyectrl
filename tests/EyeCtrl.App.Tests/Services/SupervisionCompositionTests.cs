@@ -29,6 +29,7 @@ public class SupervisionCompositionTests
         public FakeStartupRegistrar Registrar { get; } = new();
         public SupervisorBringUp BringUp { get; }
         public SupervisionToggleService Toggle { get; }
+        public SupervisorStartupEnsure Ensure { get; }
         public string Path { get; }
 
         public Harness()
@@ -43,7 +44,7 @@ public class SupervisionCompositionTests
             Settings = new SettingsService(Path, SettingsWriter.App).Load();
             Settings.General.StartOnBoot = true;
 
-            (BringUp, Toggle) = SupervisionComposition.Create(
+            (BringUp, Toggle, Ensure) = SupervisionComposition.Create(
                 Settings,
                 Path,
                 Registrar,
@@ -52,6 +53,7 @@ public class SupervisionCompositionTests
                 tryReachSupervisor: () => true,
                 isSupervisorInstalled: () => true,
                 isLaunchRegistered: () => true,
+                isSupervisorConnected: () => true,
                 runInBackground: work => work(),
                 postToUi: work => work());
         }
@@ -143,6 +145,7 @@ public class SupervisionCompositionTests
                 settings, path, registrar,
                 enablePublishing: () => { },
                 tryReachSupervisor: () => false,
+                isSupervisorConnected: () => false,
                 runInBackground: work => work(),
                 postToUi: work => work());
 
@@ -162,5 +165,34 @@ public class SupervisionCompositionTests
             File.Delete(path);
             File.Delete(path + ".tmp");
         }
+    }
+
+    // ── Ticket 07 addition A: the crash policy's presence predicate ──────────
+
+    private static readonly DateTime Now = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+    [Theory]
+    [InlineData(-9, true)]
+    [InlineData(-10, true)]     // exactly at the window still counts (expiry is strictly greater)
+    [InlineData(-11, false)]
+    public void PresencePredicate_FollowsTheDeliveryFreshnessWindow(int offsetSeconds, bool present)
+    {
+        var predicate = SupervisionComposition.CreateSupervisorPresencePredicate(
+            lastDeliveredUtc: () => Now.AddSeconds(offsetSeconds),
+            utcNow: () => Now,
+            window: TimeSpan.FromSeconds(10));
+
+        Check.That(predicate()).IsEqualTo(present);
+    }
+
+    [Fact]
+    public void PresencePredicate_NeverDelivered_IsAbsent()
+    {
+        var predicate = SupervisionComposition.CreateSupervisorPresencePredicate(
+            lastDeliveredUtc: () => null,
+            utcNow: () => Now,
+            window: TimeSpan.FromSeconds(10));
+
+        Check.That(predicate()).IsFalse();
     }
 }

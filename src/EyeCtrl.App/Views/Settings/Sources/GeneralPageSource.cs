@@ -94,6 +94,16 @@ internal sealed class GeneralPageSource : ISettingsPageSource
             })
             { Description = "If EyeCtrl stops responding or crashes, it restarts automatically; "
                 + "if it keeps failing, TD Control opens instead." };
+
+        // Ticket 07: enabled but no Supervisor answering (e.g. after a reboot, before the startup
+        // ensure lands, or after a Supervisor exit) — offer the retry, sized like the Restart
+        // button for aimability, and keep the toggle On (the row never flips the disk flag itself).
+        if (supervision.Enabled && !supervision.IsSupervisorConnected)
+        {
+            yield return new ButtonSpec("g_supervision_retry", "\u21BB Start Supervisor",
+                () => supervision.RequestEnsure(), ButtonKind.Default, Width: 300, Height: 100);
+        }
+
         yield return new LabelSpec(() => supervision.StatusText);
     }
 

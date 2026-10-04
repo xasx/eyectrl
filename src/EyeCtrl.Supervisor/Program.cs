@@ -135,7 +135,10 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         DispatcherUnhandledException += (_, args) =>
         {
             Log.Error(args.Exception, "Unhandled supervisor dispatcher exception");
-            if (DispatcherCrashPolicy.ShouldKeepRunning(supervisionEnabled: false, _dispatcherFaultBudget))
+            // The watchdog itself has no watcher: supervisorPresent is always false, so the
+            // standalone budget applies exactly as before the ticket 07 signature change.
+            if (DispatcherCrashPolicy.ShouldKeepRunning(
+                    supervisionEnabled: false, supervisorPresent: false, _dispatcherFaultBudget))
                 args.Handled = true; // the watchdog stays up
             else
                 Log.Fatal("Supervisor dispatcher fault budget exhausted; giving up (hard loop).");

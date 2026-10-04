@@ -42,18 +42,26 @@ public sealed class RollingFaultBudget
 }
 
 /// <summary>
-/// The dispatcher crash policy both EyeCtrl processes share. Supervised: always die on a UI-thread
-/// fault — the supervisor's respawn owns recovery rather than the app limping on in a corrupt
-/// state. Standalone (nothing respawns the process; a crash strands a gaze-only user until a
-/// caregiver arrives): log-and-continue while the budget lasts; a hard-looping UI dies instead of
-/// wedging input invisibly.
+/// The dispatcher crash policy both EyeCtrl processes share. Supervised (and a supervisor is
+/// actually present): always die on a UI-thread fault — the supervisor's respawn owns recovery
+/// rather than the app limping on in a corrupt state. Standalone (nothing respawns the process; a
+/// crash strands a gaze-only user until a caregiver arrives): log-and-continue while the budget
+/// lasts; a hard-looping UI dies instead of wedging input invisibly.
+/// <para>Ticket 07: "supervised" alone is not enough. After a reboot nothing starts the Supervisor
+/// (no installer task exists), so with <c>enabled=true</c> on disk the old rule armed
+/// kill-for-respawn against a watcher that was not there — On was worse than Off. The caller must
+/// establish that a Supervisor is present (recently delivered heartbeats), not merely that the
+/// user configured one.</para>
 /// </summary>
 public static class DispatcherCrashPolicy
 {
     /// <summary>Whether the dispatcher fault should be contained (true → set
     /// <c>Handled</c> and keep running) or let the process die.</summary>
-    /// <param name="supervisionEnabled">Whether a supervisor owns this process's recovery.</param>
+    /// <param name="supervisionEnabled">Whether the user has supervision switched on.</param>
+    /// <param name="supervisorPresent">Whether a Supervisor is actually connected (e.g. it accepted
+    /// a heartbeat within the freshness window). false on the Supervisor's own call site: nothing
+    /// watches the watchdog.</param>
     /// <param name="budget">The standalone-mode fault budget.</param>
-    public static bool ShouldKeepRunning(bool supervisionEnabled, RollingFaultBudget budget) =>
-        !supervisionEnabled && budget.TryConsume();
+    public static bool ShouldKeepRunning(bool supervisionEnabled, bool supervisorPresent, RollingFaultBudget budget) =>
+        (!supervisionEnabled || !supervisorPresent) && budget.TryConsume();
 }

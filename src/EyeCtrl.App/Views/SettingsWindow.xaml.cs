@@ -4,6 +4,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
 using EyeCtrl.Core.ActionMenu;
@@ -260,6 +261,8 @@ public partial class SettingsWindow : OverlayWindow
     private readonly CalibrationService _calibrationService;
     private readonly AppRestartCoordinator _restartCoordinator;
     private readonly SupervisionToggleService _supervisionToggle;
+    /// <summary>Ticket 07: 2s presence refresh while this window is open (change-only rebuilds).</summary>
+    private readonly DispatcherTimer _supervisionRefreshTimer;
     private readonly UserDictionaryService? _dictionaryService;
     private readonly int _dwellMs;
     private readonly SettingsPagerRearmGuard _pagerRearmGuard;
@@ -474,12 +477,24 @@ public partial class SettingsWindow : OverlayWindow
         // close — a recreated window must not accumulate handlers.
         _supervisionToggle.StateChanged += OnSupervisionStateChanged;
 
+        // Ticket 07: while the window is open, re-read the cached Supervisor presence every 2s so
+        // a mid-session Supervisor exit (or a late startup ensure) reaches the row. RefreshConnection
+        // raises StateChanged only on a real change, so dwell targets never flap under a gaze that
+        // cannot fixate. No IPC: the read is the cached delivery timestamp.
+        _supervisionRefreshTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromSeconds(2)
+        };
+        _supervisionRefreshTimer.Tick += (_, _) => _supervisionToggle.RefreshConnection();
+        _supervisionRefreshTimer.Start();
+
         // Dispose ViewModel on window close
         Closed += (_, _) =>
         {
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
             _viewModel.Settings.PropertyChanged -= OnSettingsViewModelPropertyChanged;
             _supervisionToggle.StateChanged -= OnSupervisionStateChanged;
+            _supervisionRefreshTimer.Stop();
             // The models source subscribed to the singleton management service's progress
             // event; the window is recreated per open, so leaving the subscription live
             // would accumulate one handler per settings visit.

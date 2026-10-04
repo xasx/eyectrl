@@ -53,6 +53,11 @@ public partial class App : Application
     // DispatcherUnhandledException registration). Touched only on the UI thread.
     private readonly RollingFaultBudget _dispatcherFaultBudget = new(10, TimeSpan.FromSeconds(60));
 
+    // Ticket 07: the composition-built presence predicate (delivered-heartbeat freshness). The
+    // crash handler calls only this; forcing presence true/false is a composition mutation covered
+    // by tests, not untestable glue here.
+    private Func<bool> _isSupervisorPresent = null!;
+
     /// <summary>
     /// When true, the app uses MouseGazeProvider and skips the splash delay.
     /// Activated by launching with --test-mode CLI argument.
@@ -345,6 +350,8 @@ public partial class App : Application
                 startupRegistrar,
                 enablePublishing: () => _heartbeatPublisher?.EnablePublishing(),
                 tryReachSupervisor: () => _heartbeatPublisher?.TryReachSupervisor() ?? false,
+                isSupervisorConnected: () => _heartbeatPublisher?.WasRecentlyDelivered(
+                    DateTime.UtcNow, HeartbeatPublisher.DeliveryFreshnessWindow) == true,
                 runInBackground: work => System.Threading.Tasks.Task.Run(work),
                 postToUi: work => Dispatcher.Invoke(work));
 
@@ -374,6 +381,12 @@ public partial class App : Application
             // toggle so the General tab can drive it.
             _eventCoordinator.SetRestartCoordinator(_restartCoordinator);
             _eventCoordinator.SetSupervisionToggle(supervisionToggle);
+
+            // Ticket 07: after a reboot nothing else starts the Supervisor (no installer task
+            // exists), yet enabled=true arms the kill-for-respawn crash policy. Run the write-free
+            // ensure now — non-blocking, and through the toggle's latch so the row shows progress
+            // and a concurrent retry dwell cannot start a second launch. No persist, no Run-key.
+            supervisionToggle.RequestEnsure();
 
             // External dwell pipe server (cooperating-app control activation).
             _serviceProvider.GetRequiredService<ExternalDwellService>().Start();
@@ -709,19 +722,27 @@ public partial class App : Application
         };
 
         // Crash policy, two regimes:
-        // - Supervision ENABLED: a UI-thread fault deliberately kills the process (log only, no
-        //   e.Handled) so the supervisor's respawn owns recovery, rather than the app limping
-        //   on in a corrupt state.
-        // - Standalone (the current live configuration): nothing respawns this process. A crash
-        //   strands a gaze-only user until a caregiver arrives, so the policy is log-and-continue
-        //   under a budget (RollingFaultBudget: 10 faults / 60s) — a hard-looping UI, and dying
-        //   (relaunchable) beats an app that wedges input invisibly.
+        // - Supervision enabled AND a Supervisor is actually present (recently DELIVERED
+        //   heartbeats, ticket 07): a UI-thread fault deliberately kills the process so the
+        //   supervisor's respawn owns recovery, rather than the app limping on in a corrupt state.
+        // - Standalone (supervision off, or enabled with nobody answering after a reboot/Supervisor
+        //   exit): nothing respawns this process. A crash strands a gaze-only user until a caregiver
+        //   arrives, so the policy is log-and-continue under a budget (RollingFaultBudget: 10
+        //   faults / 60s) — a hard-looping UI, and dying (relaunchable) beats an app that wedges
+        //   input invisibly. The presence predicate is built by the composition; this handler only
+        //   calls it.
         // In BOTH death cases the held drag button is released first — a SendInput button-down
         // outlives the process.
+        _isSupervisorPresent = SupervisionComposition.CreateSupervisorPresencePredicate(
+            () => _heartbeatPublisher?.LastDeliveredUtc,
+            () => DateTime.UtcNow,
+            HeartbeatPublisher.DeliveryFreshnessWindow);
+
         DispatcherUnhandledException += (_, args) =>
         {
             Log.Error(args.Exception, "Unhandled dispatcher exception");
-            if (!DispatcherCrashPolicy.ShouldKeepRunning(settings.Supervision.Enabled, _dispatcherFaultBudget))
+            if (!DispatcherCrashPolicy.ShouldKeepRunning(
+                    settings.Supervision.Enabled, _isSupervisorPresent(), _dispatcherFaultBudget))
             {
                 ReleaseHeldDragButtonForFatalExit();
                 return; // deliberately unhandled: the process dies

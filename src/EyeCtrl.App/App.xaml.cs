@@ -45,8 +45,6 @@ public partial class App : Application
     private SingleInstanceGuard? _singleInstance;
     private HeartbeatPublisher? _heartbeatPublisher;
     private AppRestartCoordinator? _restartCoordinator;
-    private SupervisorBringUp? _supervisorBringUp;
-    private SupervisionToggleService? _supervisionToggle;
     private DisplayGeometryWatcher? _displayGeometryWatcher;
     private string _appDataDir = null!;
     private DispatcherTimer? _heartbeatTimer;
@@ -158,20 +156,19 @@ public partial class App : Application
             // key and left nothing at all starting the app — see SupervisorLaunchRegistration.
             // Until something demonstrably owns launch, the app keeps its own registration and
             // the single-instance mutex arbitrates any transient double-launch.
-            // `supervised` is captured once at launch: live-toggling supervision mode isn't
-            // supported. The PropertyChanged handler only re-reacts to StartOnBoot changes.
+            // The reconciler reads supervision.enabled and the registration probe LIVE, so a row
+            // toggle later in the session is honoured by a subsequent StartOnBoot change; the
+            // policy computation is shared with the supervision composition (see the factory).
             var startupRegistrar = _serviceProvider.GetRequiredService<IStartupRegistrar>();
-            var supervised = settings.Supervision.Enabled;
-            var supervisorOwnsLaunch = SupervisorLaunchRegistration.IsRegistered;
-            startupRegistrar.SetStartOnBoot(StartOnBootPolicy.ShouldSelfRegister(
-                supervised, settings.General.StartOnBoot, supervisorOwnsLaunch));
+            var reconcileRunKey = SupervisionComposition.CreateRunKeyReconciler(
+                settings, startupRegistrar, () => SupervisorLaunchRegistration.IsRegistered);
+            reconcileRunKey();
 
             // Live-toggle: if the user changes StartOnBoot in settings, apply immediately.
             settings.General.PropertyChanged += (_, e) =>
             {
                 if (e.PropertyName == nameof(settings.General.StartOnBoot))
-                    startupRegistrar.SetStartOnBoot(StartOnBootPolicy.ShouldSelfRegister(
-                        supervised, settings.General.StartOnBoot, supervisorOwnsLaunch));
+                    reconcileRunKey();
             };
 
             var activeProviderType = GazeProviderFactory.GetProviderType(gazeProvider);
@@ -334,31 +331,23 @@ public partial class App : Application
             // The coordinator refuses to shut down unless a successor has been proven, so
             // a failed restart leaves a running app rather than a dark screen.
             //
-            // The bring-up sequence is shared with the Settings row's supervision toggle; the
-            // persist step goes through the sanctioned App exception (a Supervisor-writer
-            // SettingsService), never the App writer — an App-writer Save overlays the on-disk
-            // Supervision section and would silently discard the flip (ticket 04's lead).
-            var supervisionWriter = new SupervisionEnabledWriter(settingsFilePath);
-            var superviseRunKey = () =>
-            {
-                // Supervision just turned on (or off). Handing the HKCU Run key over avoids a
-                // double-launch at next logon — but ONLY if something else is registered to
-                // launch the app. Nothing is, until the installer creates the Scheduled
-                // Task, so this reconciliation now asks rather than assumes. Surrendering
-                // the Run key to a mechanism that does not exist is a lockout, not a race.
-                // The predicate reads the live flag, so one delegate serves both edges.
-                startupRegistrar.SetStartOnBoot(StartOnBootPolicy.ShouldSelfRegister(
-                    supervised: settings.Supervision.Enabled,
-                    settings.General.StartOnBoot,
-                    SupervisorLaunchRegistration.IsRegistered));
-            };
-            _supervisorBringUp = new SupervisorBringUp(
+            // The whole supervision graph is composed by ONE testable factory
+            // (SupervisionComposition): the shared bring-up and the Settings-row toggle, both
+            // persisting through the sanctioned App exception (a Supervisor-writer
+            // SettingsService, never the App writer — an App-writer Save overlays the on-disk
+            // Supervision section and would silently discard the flip), both reconciling the
+            // Run key through the same live predicate built above.
+            var (bringUp, supervisionToggle) = SupervisionComposition.Create(
                 settings,
+                settingsFilePath,
+                startupRegistrar,
                 enablePublishing: () => _heartbeatPublisher?.EnablePublishing(),
                 launchSupervisor: SupervisorLauncher.TryLaunch,
-                persistEnabled: supervisionWriter.Persist,
-                reconcileRunKey: superviseRunKey,
-                tryReachSupervisor: () => _heartbeatPublisher?.TryReachSupervisor() ?? false);
+                tryReachSupervisor: () => _heartbeatPublisher?.TryReachSupervisor() ?? false,
+                isSupervisorInstalled: () => SupervisorLauncher.IsExecutablePresent,
+                isLaunchRegistered: () => SupervisorLaunchRegistration.IsRegistered,
+                runInBackground: work => System.Threading.Tasks.Task.Run(work),
+                postToUi: work => Dispatcher.Invoke(work));
 
             _restartCoordinator = new AppRestartCoordinator(
                 messenger,
@@ -379,24 +368,13 @@ public partial class App : Application
                 runInBackground: work => System.Threading.Tasks.Task.Run(work),
                 postToUi: work => Dispatcher.Invoke(work),
                 supervisorInstalled: () => SupervisorLauncher.IsExecutablePresent,
-                bringUp: _supervisorBringUp);
-
-            // The Settings row's in-place supervision switch (ticket 04): same bring-up as the
-            // restart path, plus rollback-on-unreachable for the running session and turn-off.
-            _supervisionToggle = new SupervisionToggleService(
-                settings,
-                _supervisorBringUp,
-                supervisionWriter.Persist,
-                supervisorInstalled: () => SupervisorLauncher.IsExecutablePresent,
-                reconcileRunKey: superviseRunKey,
-                runInBackground: work => System.Threading.Tasks.Task.Run(work),
-                postToUi: work => Dispatcher.Invoke(work));
+                bringUp: bringUp);
 
             // Hand the coordinator to the settings window's owner so the restart button
             // can ask whether to offer the supervisor (Task 13 Step 6), and the supervision
             // toggle so the General tab can drive it.
             _eventCoordinator.SetRestartCoordinator(_restartCoordinator);
-            _eventCoordinator.SetSupervisionToggle(_supervisionToggle);
+            _eventCoordinator.SetSupervisionToggle(supervisionToggle);
 
             // External dwell pipe server (cooperating-app control activation).
             _serviceProvider.GetRequiredService<ExternalDwellService>().Start();

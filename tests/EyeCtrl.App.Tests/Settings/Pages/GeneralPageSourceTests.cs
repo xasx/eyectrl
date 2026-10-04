@@ -1,7 +1,9 @@
 namespace EyeCtrl.App.Tests.Settings.Pages;
 
+using System.IO;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Views.Settings;
+using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Settings;
 using NFluent;
 using Xunit;
@@ -40,7 +42,7 @@ public class GeneralPageSourceTests
         Check.That(toggle.Get()).IsFalse();
 
         // The status line is the deferred LabelSpec next to the toggle; on a fresh install it
-        // says Off (and what that means for a supervisor that is already running).
+        // says Off — nothing restarts EyeCtrl after a crash.
         Check.That(rows.OfType<LabelSpec>().Any(l => l.Text().StartsWith("Off"))).IsTrue();
     }
 
@@ -56,6 +58,51 @@ public class GeneralPageSourceTests
         // the reason in its place.
         Check.That(rows.OfType<ToggleSpec>().Any(t => t.Id == "g_supervision")).IsFalse();
         Check.That(rows.OfType<LabelSpec>().Any(l => l.Text().Contains("not installed"))).IsTrue();
+    }
+
+    [Fact]
+    public void General_TheCrashRecoveryToggle_DrivesTheServiceInBothDirections()
+    {
+        // R4 pin: the row's setter must route On to RequestEnable and Off to RequestDisable.
+        // A composition-backed service makes a wrong or dead direction observable (the enabled
+        // flag would stay false), instead of the silent no-op an inverted setter produced.
+        var path = Path.Combine(Path.GetTempPath(), $"eyectrl_t04_row_{Guid.NewGuid()}.json");
+        try
+        {
+            var settings = new EyeCtrlSettings();
+            var (_, toggle) = SupervisionComposition.Create(
+                settings, path, new FakeStartupRegistrar(),
+                enablePublishing: () => { },
+                launchSupervisor: () => true,
+                tryReachSupervisor: () => true,
+                isSupervisorInstalled: () => true,
+                isLaunchRegistered: () => true,
+                runInBackground: work => work(),
+                postToUi: work => work());
+
+            var ctx = TestSettingsPageContext.Build(settings: settings, supervision: toggle);
+            var row = new GeneralPageSource(ctx).Build().Single().Rows
+                .OfType<ToggleSpec>().Single(t => t.Id == "g_supervision");
+
+            row.Set(true);
+            Check.That(settings.Supervision.Enabled).IsTrue();
+            Check.That(toggle.Enabled).IsTrue();
+
+            row.Set(false);
+            Check.That(settings.Supervision.Enabled).IsFalse();
+            Check.That(toggle.Enabled).IsFalse();
+        }
+        finally
+        {
+            File.Delete(path);
+            File.Delete(path + ".tmp");
+        }
+    }
+
+    private sealed class FakeStartupRegistrar : IStartupRegistrar
+    {
+        public bool IsRegistered => true;
+        public void SetStartOnBoot(bool enabled) { }
     }
 
     private static SupervisionToggleService BuildSupervision(EyeCtrlSettings settings, bool available) =>

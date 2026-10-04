@@ -24,9 +24,14 @@ public class ScrollModeControllerThreadingTests
     internal sealed class RecordingScrollOverlay : IScrollOverlaySurface
     {
         public int? ShowThreadId { get; private set; }
+        public int ShowCount { get; private set; }
         public int? CloseThreadId { get; private set; }
         public bool Closed => CloseThreadId is not null;
-        public void Show(ScrollOverlayViewModel vm) => ShowThreadId = Environment.CurrentManagedThreadId;
+        public void Show(ScrollOverlayViewModel vm)
+        {
+            ShowThreadId = Environment.CurrentManagedThreadId;
+            ShowCount++;
+        }
         public void UpdateFeedback(double dotOffsetX, double dotOffsetY, double velMagnitude) { }
         public void Close() => CloseThreadId = Environment.CurrentManagedThreadId;
     }
@@ -132,6 +137,11 @@ public class ScrollModeControllerThreadingTests
             Check.WithCustomMessage("A stale queued edge tore down a live scroll mode.")
                 .That(controller.IsActive).IsTrue();
             Check.That(window.Closed).IsFalse();
+            // Re-check 1 N1: the stale edge now reaches EnterScrollMode, so its "already active"
+            // guard is load-bearing. Mutation: drop it → a second worker and window replace the
+            // first, which keeps scrolling after exit and never closes.
+            Check.WithCustomMessage("A stale queued edge entered scroll mode a second time.")
+                .That(window.ShowCount).IsEqualTo(1);
         }
     }
 

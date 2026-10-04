@@ -312,6 +312,11 @@ public class LostGazeExitCoordinatorTests
         w.Im.EnterRepeatMode(InteractionAction.LeftClick);
         w.Pump();
         w.Messenger.UnregisterAll(w.Repeat);                           // the exit will not land
+        // Re-check 1 N2: this test ticks by hand; a live 250 ms tick would add stray retries and
+        // make the exact counts below flaky on a slow box. Stop the real timer (pinned elsewhere).
+        ((System.Windows.Threading.DispatcherTimer?)typeof(LostGazeExitCoordinator)
+            .GetField("_timer", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(w.Exit))?.Stop();
         var (recipient, sends) = w.RecordSends<ExitRepeatModeMessage>();
 
         w.NowMs += LostGazeExitCoordinator.NoFramesThresholdMs + 1;

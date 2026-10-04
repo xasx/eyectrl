@@ -111,6 +111,31 @@ public class ScrollModeControllerThreadingTests
     }
 
     [StaFact]
+    public void AStaleGazeThreadEdge_QueuedBeforeAnInlineEntry_DoesNotTearScrollDown()
+    {
+        // Ticket 02 review F2, the reviewer's probe: a gaze-thread Fixation edge queues
+        // ApplyState for later; the action menu then enters scroll mode inline on the UI thread.
+        // When the queued edge runs it must decide from the CURRENT state. Mutation: decide from the
+        // event payload → it exits a live scroll mode, leaving Core in ScrollMode with no window and
+        // no Stop button.
+        var (controller, im, window, dispatcher) = NewScrollWorld(new TestFakes.FakeInputSimulator());
+        using (controller)
+        {
+            Task.Run(() => im.OnFixationStarted(new PhysicalPoint(400, 400))).Wait();   // queued edge
+            im.OnActivationButtonDwelled();
+            im.OnActionSelected(InteractionAction.ScrollMode);                          // inline entry
+            Check.That(controller.IsActive).IsTrue();
+
+            Pump(dispatcher);
+
+            Check.That(im.CurrentState).IsEqualTo(InteractionState.ScrollMode);
+            Check.WithCustomMessage("A stale queued edge tore down a live scroll mode.")
+                .That(controller.IsActive).IsTrue();
+            Check.That(window.Closed).IsFalse();
+        }
+    }
+
+    [StaFact]
     public void AStaleEntryAfterTheModeEnded_EntersNothing()
     {
         // A marshaled ScrollMode entry can land after the mode already ended; the anchor is gone by

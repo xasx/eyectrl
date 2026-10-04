@@ -65,18 +65,22 @@ public class ScrollModeController : IDisposable
     // lost-gaze exit, a fixation edge) — while Enter/Exit create and close WPF windows and a
     // DispatcherTimer. Off the UI thread, marshal; on it, run inline so the dispatcher entry path
     // (the action menu's Scroll) keeps its synchronous behaviour.
-    private void OnInteractionStateChanged(InteractionState state)
+    private void OnInteractionStateChanged(InteractionState _)
     {
         if (_context.Dispatcher.CheckAccess())
-            ApplyState(state);
+            ApplyCurrentState();
         else
-            _context.Dispatcher.BeginInvoke(() => ApplyState(state));
+            _context.Dispatcher.BeginInvoke(ApplyCurrentState);
     }
 
-    private void ApplyState(InteractionState state)
+    // Decides from the state as it is NOW, not the event's payload: a marshaled edge can be stale
+    // by the time it runs — a gaze-thread Fixation edge queued just before the action menu entered
+    // scroll mode inline would otherwise tear down a live scroll mode, leaving Core in ScrollMode
+    // with no window and no Stop button (ticket 02 review F2).
+    private void ApplyCurrentState()
     {
         if (_disposed) return;
-        if (state == InteractionState.ScrollMode)
+        if (_context.InteractionManager.CurrentState == InteractionState.ScrollMode)
             EnterScrollMode();
         else if (_scrollModeActive)
             ExitScrollMode();
@@ -86,10 +90,9 @@ public class ScrollModeController : IDisposable
     {
         if (_context == null || _scrollModeActive) return;
 
-        // A marshaled entry can run after the mode already ended (the anchor is cleared on exit):
-        // there is nothing to enter, and the exit queued behind it finds the mode inactive.
-        if (_context.InteractionManager.CurrentState != InteractionState.ScrollMode
-            || _context.InteractionManager.ScrollAnchor is not { } anchor)
+        // The caller saw ScrollMode; the anchor is the mode's own payload. Bail rather than throw if
+        // it is missing (cleared on exit).
+        if (_context.InteractionManager.ScrollAnchor is not { } anchor)
             return;
 
         _context.InputSimulator.MoveCursor(anchor);

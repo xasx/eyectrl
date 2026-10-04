@@ -27,6 +27,7 @@ public class EventCoordinator : IEventCoordinator
     private QuickActionsCoordinator? _quickActions;
     private DragCoordinator? _dragCoordinator;
     private RepeatModeController? _repeatModeController;
+    private LostGazeExitCoordinator? _lostGazeExit;
     private QuickActionDispatcher? _quickActionDispatcher;
     private KeyboardInteractionDispatcher? _keyboardInteractionDispatcher;
     private KeyboardCoordinator? _keyboard;
@@ -116,6 +117,11 @@ public class EventCoordinator : IEventCoordinator
 
         _repeatModeController = new RepeatModeController();
         _repeatModeController.Initialize(context);
+
+        // Ends drag/scroll/repeat when the gaze is gone (ticket 02). It only sends the cancel
+        // messages the drag, scroll and repeat owners above already handle.
+        _lostGazeExit = new LostGazeExitCoordinator();
+        _lostGazeExit.Initialize(context);
 
         // Ticket 8: the activation offer's geometry, chrome zones and modal-surface suspension.
         // Constructed after the toolbar coordinator (it subscribes to its visibility event) and
@@ -220,6 +226,9 @@ public class EventCoordinator : IEventCoordinator
             _disposed = true;
             return;
         }
+
+        // Dispose the lost-gaze exit first: it sends into the drag/scroll/repeat owners below.
+        _lostGazeExit?.Dispose();
 
         // Dispose the drag sub-coordinator (handles its own event/message cleanup).
         _dragCoordinator?.Dispose();

@@ -8,7 +8,7 @@ using System.Windows.Shapes;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
 
-public partial class ScrollOverlayWindow : OverlayWindow
+public partial class ScrollOverlayWindow : OverlayWindow, EyeCtrl.App.Services.IScrollOverlaySurface
 {
     public ScrollOverlayWindow()
     {

@@ -107,4 +107,23 @@ public class EventCoordinatorTests
         Check.ThatCode(() => coordinator.SetModelServices(null!, null!, null!))
             .Throws<ObjectDisposedException>();
     }
+
+    [Fact]
+    public void Initialize_WiresTheLostGazeExit()
+    {
+        // Source pin over comment-stripped, whitespace-collapsed code: Initialize needs the whole
+        // window/VM graph (see the class note), so this is the only guard that the lost-gaze exit
+        // (ticket 02) is constructed, initialized and disposed in production. Without it a lost-gaze
+        // drag keeps the OS button pressed and a lost-gaze scroll keeps scrolling.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Services", "EventCoordinator.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage("EventCoordinator.Initialize no longer creates and initializes the lost-gaze exit.")
+            .That(source.Contains("_lostGazeExit=newLostGazeExitCoordinator();_lostGazeExit.Initialize(context);")).IsTrue();
+        Check.WithCustomMessage("EventCoordinator.Dispose no longer disposes the lost-gaze exit.")
+            .That(source.Contains("_lostGazeExit?.Dispose();")).IsTrue();
+    }
 }

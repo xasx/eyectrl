@@ -123,10 +123,11 @@ public class SupervisionEnabledReaderTests : IDisposable
         // exactly what the Supervisor's own ForceKill produces when the app hung inside Save.
         File.WriteAllText(_path, """{"supervision":{"enabled":true}}""");
 
+        Mutex? abandoned = null;
         var abandoner = new Thread(() =>
         {
-            var mutex = new Mutex(false, _writerMutexName);
-            mutex.WaitOne();
+            abandoned = new Mutex(false, _writerMutexName);
+            abandoned.WaitOne();
             // Deliberately no ReleaseMutex: the thread exits owning the mutex, abandoning it.
         });
         abandoner.Start();
@@ -134,6 +135,11 @@ public class SupervisionEnabledReaderTests : IDisposable
 
         // Must be treated as acquired: read the disk value rather than falling back to null.
         Check.That(SupervisionEnabledReader.TryRead(_path, _writerMutexName)).IsEqualTo(true);
+
+        // Keep the abandoned kernel object alive through the read: if it were finalized in the gap,
+        // no handle would remain, the object would be destroyed, and TryRead would create a fresh
+        // (non-abandoned) mutex — the run would pass without exercising the abandoned branch.
+        GC.KeepAlive(abandoned);
 
         // ... and it must have been released again. The probe runs on a DIFFERENT thread: mutex
         // ownership is thread-affine, so a same-thread WaitOne would succeed even unreleased.

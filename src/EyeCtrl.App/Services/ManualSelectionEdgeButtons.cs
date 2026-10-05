@@ -18,9 +18,9 @@ using EyeCtrl.ViewModels.Messages;
 /// Close keeps its label always, the same reasoning as <see cref="ActionMenuEdgeButtons"/>'s Close:
 /// it is the escape hatch — the user's gaze-driven way out of a modal view, and a caregiver must be
 /// able to recognise it without training. It reuses <see cref="ActionIcon.Close"/> rather than a
-/// second drawn icon for the same glyph. Recapture has no equivalent drawn icon yet, so it keeps
-/// its Unicode glyph and gains only a label: it is not the escape hatch, and a missing icon does
-/// not strand the user the way a missing exit would.
+/// second drawn icon for the same glyph. Recapture keeps its label too, so it carries a drawn icon
+/// (<see cref="ActionIcon.Recapture"/>) on the same convention: a labelled button must have an
+/// icon, because the label is stacked under the icon and would otherwise be drawn over a symbol.
 /// </summary>
 internal static class ManualSelectionEdgeButtons
 {
@@ -49,10 +49,11 @@ internal static class ManualSelectionEdgeButtons
                 Icon: ActionIcon.Close,
                 Label: "Close"),
             new EdgeButtonDefinition(
-                RecaptureId, Symbol: "↻", dwellMs,
+                RecaptureId, Symbol: string.Empty, dwellMs,
                 m => m.Send(new ManualSelectionRecaptureMessage()),
                 VerticalOffset: offset,
                 RadiusLogical: radius,
+                Icon: ActionIcon.Recapture,
                 Label: "Recapture"),
         };
     }

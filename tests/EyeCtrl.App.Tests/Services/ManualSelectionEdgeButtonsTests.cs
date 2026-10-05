@@ -39,12 +39,16 @@ public class ManualSelectionEdgeButtonsTests
     }
 
     [Fact]
-    public void Recapture_CarriesALabel()
+    public void Recapture_CarriesIconAndLabel()
     {
+        // The drawn replacement for the old ↻ glyph. A labelled button must carry an icon, or the
+        // label is drawn over the symbol — the defect this ticket fixes.
         var def = ManualSelectionEdgeButtons.Definitions(dwellMs: 600)
             .Single(d => d.Id == ManualSelectionEdgeButtons.RecaptureId);
 
+        Check.That(def.Icon).IsEqualTo(ActionIcon.Recapture);
         Check.That(def.Label).IsEqualTo("Recapture");
+        Check.That(def.Symbol).IsEmpty();
     }
 
     [Fact]

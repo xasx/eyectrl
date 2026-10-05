@@ -55,6 +55,8 @@ public enum ActionIcon
     Keyboard,
     /// <summary>A keyboard with up and down chevrons — flips the keyboard between screen edges.</summary>
     KeyboardEdge,
+    /// <summary>A clockwise rotation arrow — captures the screen region again. The drawn replacement for the ↻ glyph.</summary>
+    Recapture,
     /// <summary>An up-arrow modifier keycap — the Shift button on the left-edge mod bar.</summary>
     Shift,
     /// <summary>A caret-marked modifier keycap — the Ctrl button on the left-edge mod bar.</summary>

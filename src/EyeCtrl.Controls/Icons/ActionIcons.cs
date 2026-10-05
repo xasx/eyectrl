@@ -17,7 +17,8 @@ using EyeCtrl.Core.Models;
 /// <para>
 /// <b>Most actions are mouse actions, so most icons are mice.</b> The deliberate exceptions —
 /// <see cref="ActionIcon.More"/> (navigation, not a click), <see cref="ActionIcon.Keyboard"/>
-/// and <see cref="ActionIcon.KeyboardEdge"/> (keyboard commands, not mouse actions) — break
+/// and <see cref="ActionIcon.KeyboardEdge"/> (keyboard commands, not mouse actions), and
+/// <see cref="ActionIcon.Recapture"/> (re-shoots the screen region, not a click) — break
 /// the mouse silhouette on purpose: drawing them as mice would say they perform a click.
 /// Modifiers sit in the margins and never on the body: scroll variants take chevrons at the
 /// right, drag takes motion bars at the left. <see cref="ActionIcon.DoubleClick"/> is the
@@ -155,6 +156,15 @@ public static class ActionIcons
             + " M7.8,12 L9.8,12 M10.8,12 L12.8,12 M13.8,12 L15.4,12"
             + " M7.8,14.4 L15.4,14.4"
             + " M9.6,7.4 L11.6,5.4 L13.6,7.4 M9.6,19 L11.6,21 L13.6,19"),
+
+        // A clockwise rotation arrow, the drawn form of the ↻ glyph Recapture carried before it
+        // had an icon: a near-full circle with the arrowhead at the upper-right, pointing along
+        // the spin. Mirrored from ToolbarIcons' ResetAdaptation (the counter-clockwise arrow
+        // that resets adaptation) so the two rotation marks share one shape language; the clock
+        // direction is the whole difference, and it is the meaning — Recapture re-shoots the
+        // capture forward from now, ResetAdaptation unwinds to baseline.
+        [ActionIcon.Recapture] = IconGeometry.FromPathData(
+            "M21,12 A9,9 0 1 1 12,3 A9,9 0 0 1 18.74,5.74 L21,8 M21,3 L21,8 L16,8"),
 
         [ActionIcon.Back] = IconGeometry.FromPathData(
             "M10,5.5 L4.5,11 L10,16.5 M4.5,11 L14.5,11 A5,5 0 0 1 19.5,16 L19.5,19"),

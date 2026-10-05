@@ -9,7 +9,8 @@ using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
 /// The right-edge buttons shown during manual (zoom-to-point) selection: Close, which exits back
-/// to free look, and Recapture, which re-shoots the magnifier at the same fixation point.
+/// to free look, and Recapture (labelled "Retake"), which re-shoots the magnifier at the same
+/// fixation point.
 ///
 /// Extracted from <c>OverlayVmBindingCoordinator</c> to mirror <see cref="ActionMenuEdgeButtons"/>'s
 /// shape (a static <c>Definitions(dwellMs)</c> factory) rather than staying inline, so the plain
@@ -54,7 +55,7 @@ internal static class ManualSelectionEdgeButtons
                 VerticalOffset: offset,
                 RadiusLogical: radius,
                 Icon: ActionIcon.Recapture,
-                Label: "Recapture"),
+                Label: "Retake"),
         };
     }
 }

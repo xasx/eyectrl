@@ -47,7 +47,7 @@ public class ManualSelectionEdgeButtonsTests
             .Single(d => d.Id == ManualSelectionEdgeButtons.RecaptureId);
 
         Check.That(def.Icon).IsEqualTo(ActionIcon.Recapture);
-        Check.That(def.Label).IsEqualTo("Recapture");
+        Check.That(def.Label).IsEqualTo("Retake");
         Check.That(def.Symbol).IsEmpty();
     }
 

@@ -11,15 +11,15 @@ using EyeCtrl.ViewModels;
 
 /// <summary>
 /// Every labelled edge button, measured through <see cref="ArcLabelFit"/> against the real
-/// window: Close, Help, Flip, the modifier keycaps, and Recapture.
+/// window: Close, Help, Flip, the modifier keycaps, and Recapture — whose on-screen label is
+/// "Retake".
 ///
 /// <para>
-/// <b>Recapture is split on purpose.</b> After its icon was drawn, the label no longer sits on the
-/// glyph, so the no-overlap assertion must pass and is asserted here. The fit assertion for
-/// "Recapture" is intentionally NOT asserted: the word is still too long for the stacked layout at
-/// the shipped radius (about -7.7 DIP, measured) and the word is the user's open choice — the
-/// committed label stays "Recapture" until that choice is made. The fit assertion itself is
-/// mutation-checked (margin shrunk to a failing value and back) rather than left unexercised.
+/// <b>The Recapture word.</b> After its icon was drawn, the button's label no longer sat on the
+/// glyph, but the old word "Recapture" still crossed the arc's inner edge when stacked under the
+/// icon (measured at about -8.2 DIP, against the +2 rule). The user chose "Retake" (+4.5 DIP
+/// measured); the dedicated test below asserts both rules for it, exactly like the theory does
+/// for every other labelled button.
 /// </para>
 ///
 /// <para>
@@ -72,24 +72,34 @@ public class EdgeButtonLabelFitTests
              .That(fit.ClearanceDip).IsGreaterOrEqualThan(ArcLabelFit.RequiredClearanceDip);
     }
 
+    /// <summary>
+    /// Recapture's half of the fit contract, split from the theory only because its label is the
+    /// word that changed: "Retake" must both clear the arc by +2 DIP and keep off the icon, the
+    /// two rules the old "Recapture" label failed (the second while drawn over the ↻ glyph, the
+    /// first at about -8.2 DIP after the icon existed).
+    /// </summary>
     [StaFact]
-    public void Recapture_NoLongerDrawsItsLabelOverTheIcon()
+    public void Retake_FitsTheArcAndNoLongerDrawsOverTheIcon()
     {
-        var fit = ArcLabelFit.Measure(Definition("ManualSelection Recapture"));
+        const string name = "ManualSelection Retake";
+        var fit = ArcLabelFit.Measure(Definition(name));
 
-        _output.WriteLine(Describe("ManualSelection Recapture", fit));
+        _output.WriteLine(Describe(name, fit));
 
         Check.That(fit.HasLabel).IsTrue();
         Check.That(fit.HasIcon).IsTrue();
         Check.That(fit.HasSymbol).IsFalse();
 
-        // The defect, pinned: a label's ink box that intersects the icon's (or a symbol's) bounds
-        // fails here, whether or not it stays inside the progress arc.
+        // The overlap defect, pinned: the label's ink box intersecting the icon's (or a symbol's)
+        // bounds fails here, whether or not it stays inside the progress arc.
         Check.That(fit.OverlapsIcon).IsFalse();
         Check.That(fit.OverlapsSymbol).IsFalse();
 
-        // No fit assertion — see the class doc: "Recapture" is expected to fail it until the user
-        // picks the word, and the fit assertion is mutation-checked separately.
+        Check.WithCustomMessage(
+                $"{name}: label ink {fit.LabelInkBox} clears the arc's inner edge "
+                + $"({fit.ArcInnerEdgeDip:0.#} DIP) by {fit.ClearanceDip:0.##} DIP; the assertion "
+                + $"needs at least {ArcLabelFit.RequiredClearanceDip:0.#}.")
+             .That(fit.ClearanceDip).IsGreaterOrEqualThan(ArcLabelFit.RequiredClearanceDip);
     }
 
     private static string Describe(string name, ArcLabelFitResult fit) =>
@@ -108,7 +118,7 @@ public class EdgeButtonLabelFitTests
             .Single(d => d.Id == KeyboardEdgeButtons.FlipId),
         "ManualSelection Close" => ManualSelectionEdgeButtons.Definitions(600)
             .Single(d => d.Id == ManualSelectionEdgeButtons.CloseId),
-        "ManualSelection Recapture" => ManualSelectionEdgeButtons.Definitions(600)
+        "ManualSelection Retake" => ManualSelectionEdgeButtons.Definitions(600)
             .Single(d => d.Id == ManualSelectionEdgeButtons.RecaptureId),
         "Modifier Shift" => Modifier("ActionMenu_mod_Shift", latched: false),
         "Modifier Ctrl" => Modifier("ActionMenu_mod_Ctrl", latched: false),

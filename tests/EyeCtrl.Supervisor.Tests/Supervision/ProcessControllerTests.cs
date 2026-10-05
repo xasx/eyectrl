@@ -181,6 +181,69 @@ public class ProcessControllerTests
         Check.That(controller.ExePath).IsEqualTo("test.exe");
     }
 
+    [Fact]
+    public void BoundProcessExited_RaisedWhenTheBoundProcessExits()
+    {
+        var controller = CreateController(out var handle);
+        IProcessHandle? seen = null;
+        controller.BoundProcessExited += h => seen = h;
+        controller.Launch("test.exe", paused: false);
+
+        handle.RaiseExited();
+
+        Check.That(seen).IsSameReferenceAs(handle);
+    }
+
+    [Fact]
+    public void Unbind_DetachesTheExitedHandler_SoALaterExitIsNotReported()
+    {
+        // Ticket 06-B: after a stand-down, the released process's exit must book nothing. The
+        // handler must be detached, not merely the handle dropped.
+        var controller = CreateController(out var handle);
+        var raised = 0;
+        controller.BoundProcessExited += _ => raised++;
+        controller.Launch("test.exe", paused: false);
+        handle.RaiseExited();
+        Check.That(raised).IsEqualTo(1);
+
+        controller.Unbind();
+        handle.RaiseExited();
+
+        Check.That(raised).IsEqualTo(1);                    // detached: the unbound exit is silent
+        Check.That(controller.BoundProcess).IsNull();
+    }
+
+    [Fact]
+    public void Unbind_DoesNotKill_AndClearsKillInitiated()
+    {
+        var controller = CreateController(out var handle);
+        controller.Launch("test.exe", paused: false);
+        controller.ForceKill();
+
+        controller.Unbind();
+
+        Check.That(handle.KillCalled).IsTrue();             // only the explicit ForceKill killed
+        Check.That(controller.KillInitiated).IsFalse();
+        Check.That(controller.BoundProcess).IsNull();
+        Check.That(controller.IsAlive).IsFalse();
+    }
+
+    [Fact]
+    public void Unbind_IsIdempotent_AndRebindingWorks()
+    {
+        var controller = CreateController(out var handle);
+        controller.Launch("test.exe", paused: false);
+
+        controller.Unbind();
+        controller.Unbind();
+        controller.Launch("test.exe", paused: false);
+
+        var raised = 0;
+        controller.BoundProcessExited += _ => raised++;
+        handle.RaiseExited();
+        Check.That(raised).IsEqualTo(1);                    // the new binding is wired again
+    }
+
     private static ProcessController CreateController(out FakeProcessHandle handle, bool hasExited = false, FakeProcessHandle? adoptResult = null)
     {
         handle = new FakeProcessHandle(12345, hasExited);

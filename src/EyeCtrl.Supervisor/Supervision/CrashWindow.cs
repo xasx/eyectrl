@@ -30,8 +30,18 @@ public sealed class CrashWindow
 
     public void Reset() => _strikes.Clear();
 
-    public bool ShouldEscalate(DateTime now)
+    /// <summary>
+    /// Whether the crash policy has run out of patience. Two rules (ticket 06-C):
+    /// more than <c>maxRetries</c> strikes inside the window, OR more than <c>maxRetries</c>
+    /// consecutive failures since the last reset. The second rule exists because a loop slower
+    /// than the window — e.g. one failed relaunch per 60 s grace — never accumulates enough strikes
+    /// inside it, so the window rule alone would retry forever without escalating. A reset
+    /// (<see cref="Reset"/>, driven by a survived crash window) clears both.
+    /// </summary>
+    public bool ShouldEscalate(DateTime now, int consecutiveFailures)
     {
+        if (consecutiveFailures > _maxRetries) return true;
+
         var cutoff = now.AddSeconds(-_windowSeconds);
         // Strictly greater than maxRetries: maxRetries attempts are always permitted.
         int inWindow = 0;

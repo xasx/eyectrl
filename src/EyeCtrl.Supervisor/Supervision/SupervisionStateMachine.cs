@@ -7,6 +7,7 @@ public sealed class SupervisionStateMachine
 {
     private readonly CrashWindow _crash;
     private readonly BackoffPolicy _backoff = new();
+    private readonly Func<bool> _isSupervisionEnabled;
     private readonly List<SupervisorCommand> _commands = new();
     private DateTime? _supervisingSince;
     private DateTime? _launchingSince;
@@ -29,15 +30,22 @@ public sealed class SupervisionStateMachine
 
     /// <param name="maxRetries">Max restart attempts within the crash window (escalate on the next).</param>
     /// <param name="windowSeconds">The sliding crash-window length (seconds) over which strikes are counted.</param>
+    /// <param name="isSupervisionEnabled">
+    /// Ticket 06-B: consulted at every recovery decision (<see cref="GoRecovering"/>). false means
+    /// the on-disk <c>supervision.enabled</c> was re-read as off (or its last known value says so);
+    /// the machine stands down to IdleWatch instead of killing or relaunching. Defaults to true so
+    /// every pre-existing caller and test keeps the old behaviour.
+    /// </param>
     /// <remarks>
     /// hangThresholdSeconds, startupGraceSeconds, and the windowReset interval are NOT machine state — the
     /// orchestrator enforces them directly via its clock tick (<see cref="SupervisionClock"/>'s
     /// HeartbeatStale / StartupGraceElapsed / SurvivedCrashWindow) reading SettingsService. They were removed
     /// from this constructor to avoid implying the machine enforces them.
     /// </remarks>
-    public SupervisionStateMachine(int maxRetries, int windowSeconds)
+    public SupervisionStateMachine(int maxRetries, int windowSeconds, Func<bool>? isSupervisionEnabled = null)
     {
         _crash = new CrashWindow(maxRetries, windowSeconds);
+        _isSupervisionEnabled = isSupervisionEnabled ?? (() => true);
     }
 
     /// <summary>
@@ -58,7 +66,10 @@ public sealed class SupervisionStateMachine
                 _commands.Add(SupervisorCommand.LaunchApp);
                 break;
 
-            case AdoptRequest when State == SupervisorState.IdleWatch:
+            case AdoptRequest when State == SupervisorState.IdleWatch && _isSupervisionEnabled():
+                // Ticket 06-F2: the enabled gate lives here, in the tested machine, so a disabled
+                // supervisor cannot adopt a running app. The orchestrator binds the process only
+                // after the state actually became Supervising.
                 State = SupervisorState.Supervising;
                 _supervisingSince = input.At;
                 break;
@@ -129,10 +140,12 @@ public sealed class SupervisionStateMachine
                 GoRecovering(input.At, forceKill: false); // unannounced exit / startup crash
                 break;
 
-            case StartupGraceElapsed when State == SupervisorState.Launching:
+            case StartupGraceElapsed when State is SupervisorState.Launching or SupervisorState.Recovering:
                 // Spec failure mode #2: app launched but never sent a heartbeat within the 60s
                 // startup grace (e.g. UI thread deadlocked during DI/Tobii init, process still
-                // alive). Force-kill + recover. Counts as one strike.
+                // alive). Force-kill + recover. Counts as one strike. Ticket 06-C extends this to
+                // Recovery: a relaunch that never heartbeats must not leave the supervisor stuck in
+                // Recovering forever.
                 GoRecovering(input.At, forceKill: true);
                 break;
 
@@ -157,17 +170,62 @@ public sealed class SupervisionStateMachine
             case DeadlineElapsed when State == SupervisorState.CleanExitPending:
                 GoRecovering(input.At, forceKill: true); // claimed shutdown but didn't exit
                 break;
+
+            // Ticket 06-C: a launch attempt actually started a process — start the startup-grace
+            // clock now, not when GoRecovering decided to recover (the backoff can be up to 60 s).
+            case LaunchExecuted le when State is SupervisorState.Launching or SupervisorState.Recovering:
+                _launchingSince = le.At;
+                break;
+
+            // Ticket 06-C: Process.Start threw. Book the failure instead of leaving the machine
+            // waiting for a grace that can never elapse (no process ever started).
+            case LaunchFailed lf when State is SupervisorState.Launching or SupervisorState.Recovering:
+                GoRecovering(lf.At, forceKill: false);
+                break;
+
+            // Ticket 06-B: supervision was switched off. Stand down without a kill or a relaunch.
+            case SupervisionDisabled when State is SupervisorState.Launching or SupervisorState.Recovering
+                or SupervisorState.Supervising or SupervisorState.CleanExitPending:
+                StandDown();
+                break;
         }
+    }
+
+    /// <summary>
+    /// Ticket 06-B: supervision is off. Go idle without killing, relaunching, or booking a strike;
+    /// the <see cref="SupervisorCommand.StandDown"/> command tells the orchestrator to clear its
+    /// pending launch and release the process. Deliberately does not reset the crash counters — no
+    /// recovery happened, but the failure history survives for a later re-enable.
+    /// </summary>
+    private void StandDown()
+    {
+        State = SupervisorState.IdleWatch;
+        _supervisingSince = null;
+        _launchingSince = null;
+        _restartAfterExit = false;
+        _commands.Add(SupervisorCommand.StandDown);
     }
 
     private void GoRecovering(DateTime at, bool forceKill)
     {
+        // Ticket 06-B: the on-disk enabled flag is the source of truth at every recovery decision.
+        if (!_isSupervisionEnabled())
+        {
+            StandDown();
+            return;
+        }
+
         _restartAfterExit = false;
         ConsecutiveFailures++;
         _crash.RecordStrike(at);
-        if (_crash.ShouldEscalate(at))
+        if (_crash.ShouldEscalate(at, ConsecutiveFailures))
         {
             State = SupervisorState.FallenBack;
+            // Ticket 06 review F1: a hang/gaze-death/grace escalation must kill the still-running
+            // app before handing over to the fallback AT. Otherwise the hung process keeps holding
+            // the app's single-instance mutex, and the dialog's one-shot Retry launches an
+            // instance that dies on it. KillInitiated keeps the kill's Exited from re-escalating.
+            if (forceKill) _commands.Add(SupervisorCommand.ForceKill);
             _commands.Add(SupervisorCommand.LaunchFallbackAt);
         }
         else

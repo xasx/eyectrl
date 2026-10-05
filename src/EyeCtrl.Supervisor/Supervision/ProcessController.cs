@@ -24,6 +24,12 @@ public sealed class ProcessController
     /// </summary>
     public bool KillInitiated { get; private set; }
 
+    /// <summary>Raised when the bound process exits. Detached on <see cref="Unbind"/>/rebind, so an
+    /// exit of a process the supervisor no longer watches is not reported (ticket 06-B).</summary>
+    public event Action<IProcessHandle>? BoundProcessExited;
+
+    private Action? _onExited;
+
     private readonly Func<ProcessStartInfo, IProcessHandle?> _processFactory;
     private readonly Func<int, IProcessHandle?> _adoptFactory;
 
@@ -54,7 +60,7 @@ public sealed class ProcessController
         ExePath = exePath;
         var psi = new ProcessStartInfo(exePath) { UseShellExecute = false };
         if (paused) psi.ArgumentList.Add("--paused");
-        _process = _processFactory(psi);
+        Bind(_processFactory(psi));
         StartTimeUtc = _process?.StartTime;
     }
 
@@ -76,7 +82,7 @@ public sealed class ProcessController
     {
         ReleasePrevious();
         KillInitiated = false;
-        _process = _adoptFactory(pid);
+        Bind(_adoptFactory(pid));
         if (_process != null)
         {
             ExePath = _process.ExePath;
@@ -114,9 +120,33 @@ public sealed class ProcessController
         }
     }
 
-    /// <summary>Disposes the previously-bound handle before a relaunch/adopt.</summary>
+    /// <summary>Binds a handle and wires its exit to <see cref="BoundProcessExited"/>.</summary>
+    private void Bind(IProcessHandle? handle)
+    {
+        _process = handle;
+        if (handle is null) return;
+        _onExited = () => BoundProcessExited?.Invoke(handle);
+        handle.Exited += _onExited;
+    }
+
+    /// <summary>
+    /// Releases the bound process without killing it (ticket 06-B stand-down). The exit handler is
+    /// detached, so a later exit of the released process books nothing. Idempotent.
+    /// </summary>
+    public void Unbind()
+    {
+        ReleasePrevious();
+        KillInitiated = false;
+    }
+
+    /// <summary>Detaches the exit handler and disposes the previously-bound handle before a relaunch/adopt.</summary>
     private void ReleasePrevious()
     {
+        if (_process is not null && _onExited is not null)
+        {
+            try { _process.Exited -= _onExited; } catch { }
+        }
+        _onExited = null;
         try { _process?.Dispose(); } catch { }
         _process = null;
     }

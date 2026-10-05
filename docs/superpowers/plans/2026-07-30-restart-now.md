@@ -14,7 +14,7 @@
 
 ## Two strategies, and why the order matters
 
-**Supervisor-mediated is preferred wherever it is available**, because it is the only one where a *failed* relaunch is still recovered: if `Process.Start` throws, `DoLaunchApp` logs and deliberately leaves the machine in `Launching` (`src/EyeCtrl.Supervisor/Program.cs:399-422`), where the startup-grace check fires `StartupGraceElapsed → GoRecovering` (`SupervisionStateMachine.cs:110-115`) and retries. Nothing in-process can offer that, because the thing that would do the retrying is the thing that exited.
+**Supervisor-mediated is preferred wherever it is available**, because it is the only one where a *failed* relaunch is still recovered: if `Process.Start` throws, `DoLaunchApp` feeds `LaunchFailed`, which books a strike and retries with backoff (`GoRecovering`); a relaunch that starts but never heartbeats is bounded by the startup grace, which fires in `Recovering` as well as `Launching` (ticket 06-C). Nothing in-process can offer that, because the thing that would do the retrying is the thing that exited.
 
 **Self-restart is the fallback, and it has one genuine obstacle: the mutex.** `SingleInstanceGuard.TryAcquire` uses `WaitOne(0)` (`src/EyeCtrl.Core/Services/SingleInstanceGuard.cs`), so a child launched while the parent still holds the mutex exits instantly (`src/EyeCtrl.App/App.xaml.cs:81-87`), and the mutex is not released until `OnExit` runs (`App.xaml.cs:311` today; Task 6 Step 3 moves it to the *end* of `OnExit`, so the successor cannot start while this instance still holds the settings file, the Tobii device or the dwell pipe). Naively, then, the parent cannot confirm a healthy child before committing to exit — which is what made this look unsafe.
 
@@ -128,7 +128,7 @@ Failure branches, all landing somewhere safe:
 | Child signals, then dies during init | **The residual risk**, on the self-restart path only. Task 12's offer moves the operation onto the supervised path, where it is recovered |
 | Supervisor dies between probe and exit | App exits, no relaunch. **Accepted residual risk** — a ~2s window, indistinguishable from the supervisor crashing at any other moment |
 | App signals restart but hangs (supervised) | 5s deadline → `DeadlineElapsed` → `GoRecovering(forceKill: true)` → killed and relaunched (`SupervisionStateMachine.cs:135-137`) |
-| `Process.Start` throws on relaunch (supervised) | State stays `Launching` → startup grace → `GoRecovering` → retry (`Program.cs:416-420`) |
+| `Process.Start` throws on relaunch (supervised) | `LaunchFailed` → `GoRecovering` → strike + retry on the 0/5/15/60 s backoff (`Program.DoLaunchApp`, ticket 06-C) |
 
 ---
 

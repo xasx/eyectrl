@@ -32,12 +32,18 @@ public partial class ModesMenuViewModel : DwellOverlayViewModelBase,
     /// <summary>Dwell for a mode row: same as toolbar buttons — this is toolbar-adjacent chrome.</summary>
     private readonly int _rowDwellMs;
 
+    /// <summary>
+    /// The rows' short labels (Option A, user decision 2026-10-05): the icons already show which
+    /// mouse button, and these are the words that fit the disc. The action-menu ring keeps its
+    /// long labels as a recorded exception; the window draws these only when every one clears the
+    /// arc (all-or-none).
+    /// </summary>
     private static readonly (string Id, InteractionAction Action, string Label)[] Rows =
     {
-        ("modes_left", InteractionAction.LeftClick, "Left click"),
-        ("modes_right", InteractionAction.RightClick, "Right click"),
-        ("modes_double", InteractionAction.DoubleClick, "Double click"),
-        ("modes_middle", InteractionAction.MiddleClick, "Middle click"),
+        ("modes_left", InteractionAction.LeftClick, "Left"),
+        ("modes_right", InteractionAction.RightClick, "Right"),
+        ("modes_double", InteractionAction.DoubleClick, "Double"),
+        ("modes_middle", InteractionAction.MiddleClick, "Middle"),
     };
 
     /// <summary>The action currently locked (null = mode off). Drives the active-button marker.</summary>

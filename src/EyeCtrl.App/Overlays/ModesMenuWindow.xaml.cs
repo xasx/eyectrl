@@ -26,6 +26,13 @@ public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
     private const double BelowToolbarMarginLogical = 14;
     private const double ButtonGapLogical = 12;
 
+    /// <summary>
+    /// The clearance, in DIP, every drawn label's ink box must keep from the progress arc's inner
+    /// edge. The same +2 rule the shared <c>ArcLabelFit</c> test helper asserts — kept as its own
+    /// constant so lowering this one cannot silently weaken that rendered check.
+    /// </summary>
+    private const double RequiredLabelClearanceDip = 2.0;
+
     private ModesMenuViewModel? _vm;
     private double _toolbarBandHeightLogical = 140;
     private double _buttonSizeLogical = 120;
@@ -54,18 +61,41 @@ public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
         if (_vm is null) return;
 
         var logicalW = System.Windows.SystemParameters.PrimaryScreenWidth;
-        var count = _vm.RowDefinitions.Count;
-        var panelW = count * _buttonSizeLogical + (count + 1) * ButtonGapLogical;
-        var panelH = _buttonSizeLogical + 2 * ButtonGapLogical;
-        Width = panelW;
-        Height = panelH;
-        Left = (logicalW - panelW) / 2.0;
-        Top = _toolbarBandHeightLogical;
+        var positions = BuildButtonsAt(
+            _buttonSizeLogical,
+            (logicalW - PanelWidthLogical(_buttonSizeLogical)) / 2.0,
+            _toolbarBandHeightLogical);
+
+        Show();
+        _vm.SetRowScreenPositions(positions);
+    }
+
+    /// <summary>
+    /// The headless half of <see cref="ShowAtTopCentre"/> (critique M3): lays the panel out for
+    /// <paramref name="sizeLogical"/> at the given window origin and rebuilds the buttons, without
+    /// <c>Show()</c>. Returns the row targets it computed; production publishes them through the VM
+    /// only after the window is shown. The fit tests build real buttons through this seam on an STA
+    /// thread, so they measure what the window draws rather than a re-implementation of it.
+    /// </summary>
+    internal IReadOnlyList<(string Id, PhysicalPoint Centre, double Radius)> BuildButtonsAt(
+        double sizeLogical, double windowLeft, double windowTop)
+    {
+        _buttonSizeLogical = sizeLogical;
+        Width = PanelWidthLogical(sizeLogical);
+        Height = sizeLogical + 2 * ButtonGapLogical;
+        Left = windowLeft;
+        Top = windowTop;
 
         RebuildButtons();
-        Show();
-        _vm.SetRowScreenPositions(ComputeButtonCentres(_vm.RowDefinitions, Left, Top, _buttonSizeLogical));
+        return _vm is null
+            ? Array.Empty<(string, PhysicalPoint, double)>()
+            : ComputeButtonCentres(_vm.RowDefinitions, windowLeft, windowTop, sizeLogical);
     }
+
+    private double PanelWidthLogical(double sizeLogical)
+        => _vm is null
+            ? 0
+            : _vm.RowDefinitions.Count * sizeLogical + (_vm.RowDefinitions.Count + 1) * ButtonGapLogical;
 
     /// <summary>
     /// Per-button target centres in physical px. Pure arithmetic so a geometry test can pin it:
@@ -99,6 +129,7 @@ public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
         if (_vm is null) return;
 
         var radius = _buttonSizeLogical / 2;
+        var showLabels = LabelsFit(_buttonSizeLogical);
         for (var i = 0; i < _vm.RowDefinitions.Count; i++)
         {
             var (id, action, label) = _vm.RowDefinitions[i];
@@ -112,7 +143,8 @@ public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
                 Core.Models.InteractionAction.DoubleClick => ActionIcons.For(Core.Models.ActionIcon.DoubleClick),
                 _ => ActionIcons.For(Core.Models.ActionIcon.MiddleClick),
             };
-            var button = DwellArcButton.Create(centreLogical, radius, symbol: null, icon: icon, label: label);
+            var button = DwellArcButton.Create(
+                centreLogical, radius, symbol: null, icon: icon, label: showLabels ? label : null);
             button.AddTo(ButtonCanvas);
             _buttons[id] = button;
         }
@@ -130,6 +162,33 @@ public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
             _progressSubs.Add((vmButton, handler));
         }
     }
+
+    /// <summary>
+    /// All-or-none (Option A, user decision 2026-10-05): labels are drawn only when EVERY row's
+    /// label clears the arc at the drawn size, so the menu never mixes labelled and icon-only
+    /// discs. The measurement is production-static
+    /// (<see cref="DwellArcButton.LabelInkClearance"/>); the tests check the rendered result
+    /// independently, so a measuring bug cannot certify itself.
+    /// </summary>
+    private bool LabelsFit(double sizeLogical)
+    {
+        if (_vm is null) return false;
+
+        foreach (var (_, _, label) in _vm.RowDefinitions)
+        {
+            if (DwellArcButton.LabelInkClearance(sizeLogical, label, stackedUnderIcon: true)
+                < RequiredLabelClearanceDip)
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// The buttons the last rebuild drew, keyed by row id — test seam for the fit and geometry
+    /// checks, which measure these real control instances rather than rebuilding them.
+    /// </summary>
+    internal IReadOnlyDictionary<string, DwellArcButton> DrawnButtons => _buttons;
 
     private void DetachProgressSubs()
     {

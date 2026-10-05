@@ -66,6 +66,7 @@ public class SupervisionStateMachineTests
         Check.That(sm.State).IsEqualTo(SupervisorState.FallenBack);
         Check.That(sm.Commands).Contains(SupervisorCommand.LaunchFallbackAt);
         Check.That(sm.Commands).Not.Contains(SupervisorCommand.ForceKill); // a crash already ended the process
+        Check.That(sm.Commands).Contains(SupervisorCommand.StopListening); // F2: a FallenBack supervisor stops listening
     }
 
     // ── Ticket 06 review F1: escalation kills a hung process ──────────────────
@@ -85,20 +86,39 @@ public class SupervisionStateMachineTests
         sm.Handle(new StartupGraceElapsed(T0.AddSeconds(4)));   // strike 4 -> escalation
 
         Check.That(sm.State).IsEqualTo(SupervisorState.FallenBack);
-        Check.That(sm.Commands).ContainsExactly(SupervisorCommand.ForceKill, SupervisorCommand.LaunchFallbackAt);
+        Check.That(sm.Commands).ContainsExactly(
+            SupervisorCommand.ForceKill, SupervisorCommand.LaunchFallbackAt, SupervisorCommand.StopListening);
     }
 
     [Fact]
     public void Escalation_FromACrash_DoesNotKill()
     {
-        // A crash already ended the process; escalation only launches the fallback AT.
+        // A crash already ended the process; escalation only launches the fallback AT and stops
+        // listening (F2).
         var sm = NewMachine();
         sm.Handle(new LaunchRequest(T0));
         for (int i = 1; i <= 4; i++) sm.Handle(new ProcessExited(T0.AddSeconds(i)));
 
         Check.That(sm.State).IsEqualTo(SupervisorState.FallenBack);
         Check.That(sm.Commands).Contains(SupervisorCommand.LaunchFallbackAt);
+        Check.That(sm.Commands).Contains(SupervisorCommand.StopListening);
         Check.That(sm.Commands).Not.Contains(SupervisorCommand.ForceKill);
+    }
+
+    [Fact]
+    public void FallenBackRetry_CommandsStartListening()
+    {
+        // Ticket 07 review F2: the dialog's Retry reopens the pipe the FallenBack escalation
+        // closed, so the retried app can be adopted on its first heartbeat.
+        var sm = NewMachine();
+        sm.Handle(new LaunchRequest(T0));
+        for (int i = 1; i <= 4; i++) sm.Handle(new ProcessExited(T0.AddSeconds(i)));
+        Check.That(sm.State).IsEqualTo(SupervisorState.FallenBack);
+
+        sm.Handle(new FallenBackRetry(T0.AddSeconds(5)));
+
+        Check.That(sm.State).IsEqualTo(SupervisorState.IdleWatch);
+        Check.That(sm.Commands).Contains(SupervisorCommand.StartListening);
     }
 
     [Fact]

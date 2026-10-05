@@ -94,30 +94,37 @@ public static class SupervisionComposition
     /// <see cref="SupervisorLauncher.IsExecutablePresent"/> and
     /// <c>SupervisorLaunchRegistration.IsRegistered</c> — so a call site cannot accidentally pass
     /// a wrong answer for them (a <c>() =&gt; true</c> registration probe would hand the HKCU Run
-    /// key to a Scheduled Task that does not exist: a lockout at the next logon). Only the live
-    /// instance collaborators (publishing, the pipe probe, marshalling) are injected.
+    /// key to a Scheduled Task that does not exist: a lockout at the next logon).
     /// </summary>
-    /// <returns>The bring-up, the toggle, and the live Run-key reconciler they share — the
-    /// reconciler is returned so a test can drive the exact production binding.</returns>
-    public static (SupervisorBringUp BringUp, SupervisionToggleService Toggle, Action ReconcileRunKey)
+    /// <param name="publisher">The app's heartbeat publisher, read lazily (null before OnStartup
+    /// creates it). Ticket 07 review F1: this is the SINGLE source for publishing, the pipe probe,
+    /// the crash handler's presence predicate and the row's connected read — no second hand-written
+    /// freshness lambda exists to drift.</param>
+    /// <returns>The bring-up, the toggle, the live Run-key reconciler they share, and the presence
+    /// predicate <c>App.xaml.cs</c> hands to the crash handler.</returns>
+    public static (SupervisorBringUp BringUp, SupervisionToggleService Toggle, Action ReconcileRunKey, Func<bool> IsSupervisorPresent)
         CreateForProduction(
             EyeCtrlSettings settings,
             string settingsFilePath,
             IStartupRegistrar startupRegistrar,
-            Action enablePublishing,
-            Func<bool> tryReachSupervisor,
-            Func<bool> isSupervisorConnected,
+            Func<HeartbeatPublisher?> publisher,
             Action<Action> runInBackground,
             Action<Action> postToUi)
     {
         var reconcileRunKey = CreateProductionRunKeyReconciler(settings, startupRegistrar);
+        var isSupervisorPresent = CreateSupervisorPresencePredicate(
+            () => publisher()?.LastDeliveredUtc,
+            () => DateTime.UtcNow,
+            HeartbeatPublisher.DeliveryFreshnessWindow);
         var (bringUp, toggle, _) = Compose(
-            settings, settingsFilePath, reconcileRunKey, enablePublishing,
+            settings, settingsFilePath, reconcileRunKey,
+            enablePublishing: () => publisher()?.EnablePublishing(),
             launchSupervisor: SupervisorLauncher.TryLaunch,
-            tryReachSupervisor,
+            tryReachSupervisor: () => publisher()?.TryReachSupervisor() ?? false,
             isSupervisorInstalled: () => SupervisorLauncher.IsExecutablePresent,
-            isSupervisorConnected, runInBackground, postToUi);
-        return (bringUp, toggle, reconcileRunKey);
+            isSupervisorConnected: isSupervisorPresent,
+            runInBackground, postToUi);
+        return (bringUp, toggle, reconcileRunKey, isSupervisorPresent);
     }
 
     private static (SupervisorBringUp BringUp, SupervisionToggleService Toggle, SupervisorStartupEnsure StartupEnsure) Compose(

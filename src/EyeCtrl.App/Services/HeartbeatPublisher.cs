@@ -265,6 +265,10 @@ public sealed class HeartbeatPublisher : IDisposable
     /// back to the standalone budget, which contains the fault. Under thread-pool starvation a
     /// late probe or send can read past the window and tip the app to standalone — the safe
     /// direction, by design.
+    /// <para><c>HangThresholdSeconds</c> is user-settable down to 5 s, so "shorter than the hang
+    /// threshold" holds only at the default. With a threshold below 10 s the gate can stay armed
+    /// for a few seconds after the Supervisor has already declared the app hung; that is harmless,
+    /// because the Supervisor that declared it is alive and respawning.</para>
     /// </summary>
     public static readonly TimeSpan DeliveryFreshnessWindow = TimeSpan.FromSeconds(10);
 

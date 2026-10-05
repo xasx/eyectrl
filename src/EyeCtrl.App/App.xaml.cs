@@ -55,8 +55,9 @@ public partial class App : Application
 
     // Ticket 07: the composition-built presence predicate (delivered-heartbeat freshness). The
     // crash handler calls only this; forcing presence true/false is a composition mutation covered
-    // by tests, not untestable glue here.
-    private Func<bool> _isSupervisorPresent = null!;
+    // by tests, not untestable glue here. Initialised safe: false means the standalone budget,
+    // which is the right regime before the composition has run.
+    private Func<bool> _isSupervisorPresent = () => false;
 
     /// <summary>
     /// When true, the app uses MouseGazeProvider and skips the splash delay.
@@ -344,16 +345,16 @@ public partial class App : Application
             // Run key through the same live predicate built above. CreateForProduction binds the
             // static probes (the launcher and the launch-registration question) itself, so this
             // call site cannot pass a wrong answer for them.
-            var (bringUp, supervisionToggle, _) = SupervisionComposition.CreateForProduction(
+            var (bringUp, supervisionToggle, _, isSupervisorPresent) = SupervisionComposition.CreateForProduction(
                 settings,
                 settingsFilePath,
                 startupRegistrar,
-                enablePublishing: () => _heartbeatPublisher?.EnablePublishing(),
-                tryReachSupervisor: () => _heartbeatPublisher?.TryReachSupervisor() ?? false,
-                isSupervisorConnected: () => _heartbeatPublisher?.WasRecentlyDelivered(
-                    DateTime.UtcNow, HeartbeatPublisher.DeliveryFreshnessWindow) == true,
+                publisher: () => _heartbeatPublisher,
                 runInBackground: work => System.Threading.Tasks.Task.Run(work),
                 postToUi: work => Dispatcher.Invoke(work));
+            // Ticket 07 review F1: the crash handler's presence predicate is the composition's,
+            // built from the same publisher as publishing, the probe and the row's connected read.
+            _isSupervisorPresent = isSupervisorPresent;
 
             _restartCoordinator = new AppRestartCoordinator(
                 messenger,
@@ -729,15 +730,11 @@ public partial class App : Application
         //   exit): nothing respawns this process. A crash strands a gaze-only user until a caregiver
         //   arrives, so the policy is log-and-continue under a budget (RollingFaultBudget: 10
         //   faults / 60s) — a hard-looping UI, and dying (relaunchable) beats an app that wedges
-        //   input invisibly. The presence predicate is built by the composition; this handler only
-        //   calls it.
+        //   input invisibly. The presence predicate is built by the composition (F1) and assigned
+        //   there; until then the field's safe default (false) keeps the standalone budget. This
+        //   handler only calls it.
         // In BOTH death cases the held drag button is released first — a SendInput button-down
         // outlives the process.
-        _isSupervisorPresent = SupervisionComposition.CreateSupervisorPresencePredicate(
-            () => _heartbeatPublisher?.LastDeliveredUtc,
-            () => DateTime.UtcNow,
-            HeartbeatPublisher.DeliveryFreshnessWindow);
-
         DispatcherUnhandledException += (_, args) =>
         {
             Log.Error(args.Exception, "Unhandled dispatcher exception");

@@ -430,4 +430,19 @@ public class SupervisionToggleServiceTests
         h.Service.RefreshConnection();
         Check.That(h.StateChanges).IsEqualTo(1);   // unchanged again
     }
+
+    [Fact]
+    public void Completion_SyncsTheReportedConnection_SoTheRefreshDoesNotRebuildAgain()
+    {
+        // Ticket 07 review F3: a toggle used to rebuild twice — once on completion, then again
+        // when the 2s refresh saw the same transition. The completion syncs the refresh baseline.
+        using var h = new Harness(enabled: false);
+        h.Connected = true;
+
+        h.Service.RequestEnable();
+        Check.That(h.StateChanges).IsEqualTo(2);   // progress + completion
+
+        h.Service.RefreshConnection();
+        Check.That(h.StateChanges).IsEqualTo(2);   // no second rebuild for the same change
+    }
 }

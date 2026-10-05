@@ -260,6 +260,10 @@ public sealed class SupervisionToggleService
             {
                 _inFlight = false;
                 _lastFailure = failure;
+                // Ticket 07 review F3: this completion has just told the row the new truth, so
+                // sync the refresh's baseline — otherwise the 2s timer sees the same transition
+                // and rebuilds again (once per toggle).
+                _lastReportedConnected = IsSupervisorConnected;
                 StateChanged?.Invoke();
             });
         });

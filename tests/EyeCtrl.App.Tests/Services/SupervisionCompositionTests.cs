@@ -3,6 +3,10 @@ namespace EyeCtrl.App.Tests.Services;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Pipes;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Startup;
 using EyeCtrl.Core.Interfaces;
@@ -141,11 +145,9 @@ public class SupervisionCompositionTests
             settings.Supervision.Enabled = true;
             var registrar = new FakeStartupRegistrar();
 
-            var (_, toggle, reconcile) = SupervisionComposition.CreateForProduction(
+            var (_, toggle, reconcile, _) = SupervisionComposition.CreateForProduction(
                 settings, path, registrar,
-                enablePublishing: () => { },
-                tryReachSupervisor: () => false,
-                isSupervisorConnected: () => false,
+                publisher: () => null,
                 runInBackground: work => work(),
                 postToUi: work => work());
 
@@ -194,5 +196,88 @@ public class SupervisionCompositionTests
             window: TimeSpan.FromSeconds(10));
 
         Check.That(predicate()).IsFalse();
+    }
+
+    [Fact]
+    public void PresencePredicate_NeverDeliveredSentinel_IsAbsent()
+    {
+        // Production binds LastDeliveredUtc, whose never-delivered value is DateTime.MinValue
+        // (not null): pin the sentinel production actually sends.
+        var predicate = SupervisionComposition.CreateSupervisorPresencePredicate(
+            lastDeliveredUtc: () => DateTime.MinValue,
+            utcNow: () => Now,
+            window: TimeSpan.FromSeconds(10));
+
+        Check.That(predicate()).IsFalse();
+    }
+
+    // ── Ticket 07 review F1: one publisher source for everything ─────────────
+
+    [Fact]
+    public async Task ProductionComposition_BindsEverythingToThePublisher()
+    {
+        // F1: publish, probe, presence and the row's connected read all come from the one
+        // Func<HeartbeatPublisher?>. Real publisher, GUID pipe name (never the production name):
+        // nothing listening ⇒ absent + disconnected; after a delivery ⇒ present + connected.
+        var path = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(), $"eyectrl_t07_prod_{Guid.NewGuid()}.json");
+        try
+        {
+            var settings = new EyeCtrlSettings();
+            settings.Supervision.Enabled = true;
+            var pipeName = "eyectrl_watch_test_" + Guid.NewGuid().ToString("N");
+            using var publisher = new HeartbeatPublisher(supervised: false, pipeName: pipeName)
+            {
+                TrustAnyServerForTests = true
+            };
+            var pending = new List<Action>();
+            var (_, toggle, _, presence) = SupervisionComposition.CreateForProduction(
+                settings, path, new FakeStartupRegistrar(),
+                publisher: () => publisher,
+                runInBackground: work => pending.Add(work),
+                postToUi: work => work());
+
+            // Phase 1: nothing delivered.
+            Check.That(presence()).IsFalse();
+            Check.That(toggle.IsSupervisorConnected).IsFalse();
+
+            // The startup ensure/retry start through the latch; the queued work is never run here
+            // because the production overload binds the REAL SupervisorLauncher.TryLaunch.
+            toggle.RequestEnsure();
+            Check.That(toggle.InFlight).IsTrue();
+            Check.That(toggle.StatusText).StartsWith("Starting the Supervisor");
+            Check.That(pending).HasSize(1);
+
+            // Phase 2: a delivery reaches a test server; crash predicate and row both flip.
+            using var server = new NamedPipeServerStream(
+                pipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+            var received = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var testToken = TestContext.Current.CancellationToken;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using var listenCts = CancellationTokenSource.CreateLinkedTokenSource(testToken);
+                    listenCts.CancelAfter(TimeSpan.FromSeconds(10));
+                    await server.WaitForConnectionAsync(listenCts.Token);
+                    using var reader = new StreamReader(server, Encoding.UTF8, false, 1024, leaveOpen: true);
+                    received.TrySetResult(await reader.ReadLineAsync() ?? "");
+                }
+                catch (Exception ex) { received.TrySetException(ex); }
+            }, testToken);
+
+            publisher.EnablePublishing();
+            publisher.SignalShuttingDown();
+            var completed = await Task.WhenAny(received.Task, Task.Delay(TimeSpan.FromSeconds(5), testToken));
+            Check.That(completed == received.Task).IsTrue();
+
+            Check.That(presence()).IsTrue();
+            Check.That(toggle.IsSupervisorConnected).IsTrue();
+        }
+        finally
+        {
+            File.Delete(path);
+            File.Delete(path + ".tmp");
+        }
     }
 }

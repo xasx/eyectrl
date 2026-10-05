@@ -55,6 +55,9 @@ public class HeartbeatPublisherTests
 
         Check.That(reached).IsFalse();
         Check.That(await drain).IsNull(); // nothing was ever written to the squatter
+        // F4/H1: a squatter must never make the app believe a Supervisor is present — that would
+        // arm kill-for-respawn against nothing.
+        Check.That(pub.LastDeliveredUtc).IsEqualTo(DateTime.MinValue);
     }
 
     [Fact]
@@ -234,6 +237,17 @@ public class HeartbeatPublisherTests
         Check.That(pub.TryReachSupervisor()).IsFalse();
         Check.That(pub.LastDeliveredUtc).IsEqualTo(DateTime.MinValue);
         Check.That(pub.WasRecentlyDelivered(DateTime.UtcNow, TimeSpan.FromMinutes(5))).IsFalse();
+    }
+
+    [Fact]
+    public void DeliveryFreshnessWindow_IsTenSeconds_AndShorterThanTheDefaultHangThreshold()
+    {
+        // F4/H5: the value is a deliberate policy choice (three heartbeat periods plus margin,
+        // shorter than the Supervisor's default 20s hang threshold); pin it.
+        Check.That(HeartbeatPublisher.DeliveryFreshnessWindow).IsEqualTo(TimeSpan.FromSeconds(10));
+        // NFluent has no TimeSpan comparison; assert the relation directly.
+        Check.That(HeartbeatPublisher.DeliveryFreshnessWindow
+            < TimeSpan.FromSeconds(new EyeCtrl.Core.Settings.SupervisionSettings().HangThresholdSeconds)).IsTrue();
     }
 
     /// <summary>

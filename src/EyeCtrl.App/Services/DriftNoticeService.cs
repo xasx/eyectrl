@@ -7,7 +7,7 @@ using Serilog;
 /// <summary>
 /// Surfaces the drift "report" (design §7.1): when the monitor gates the <see cref="FailureMode.Drift"/>
 /// mode (a cross-context coherent near-miss bias, §13.1), shows a report-only notice suggesting the user
-/// consider re-calibrating — **calibration is never auto-touched** (§8.5). Rate-limited to once per
+/// consider recalibrating in Tobii — **calibration is never auto-touched** (§8.5). Rate-limited to once per
 /// drift-gated episode (re-armed when Drift clears) and suppressed in sensitive contexts (§8.10). Subscribes
 /// to <see cref="AdaptationCoordinator"/>'s per-tick <c>AssessmentUpdated</c> event; the decision
 /// (<see cref="OnAssessment"/>) is pure and headless-testable via its <c>bool</c> return.

@@ -16,7 +16,7 @@
             <TextBlock x:Name="Message"
                        AutomationProperties.AutomationId="DriftNotice_Message"
                        Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeSubtitle}" TextAlignment="Center"
-                       Text="Tracking may have drifted — consider re-calibrating"/>
+                       Text="Tracking may have drifted — consider recalibrating in Tobii"/>
         </Border>
     </Grid>
 </overlays:OverlayWindow>

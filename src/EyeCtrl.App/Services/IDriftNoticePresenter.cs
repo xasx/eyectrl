@@ -7,6 +7,6 @@ namespace EyeCtrl.App.Services;
 /// </summary>
 public interface IDriftNoticePresenter
 {
-    /// <summary>Shows the auto-fading "tracking may have drifted — consider re-calibrating" banner.</summary>
+    /// <summary>Shows the auto-fading "Tracking may have drifted — consider recalibrating in Tobii" banner.</summary>
     void ShowDriftNotice();
 }

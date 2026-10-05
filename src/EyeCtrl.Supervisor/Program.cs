@@ -654,22 +654,13 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
                     s.MaxRetries, s.CrashWindowSeconds, s.HangThresholdSeconds);
             },
             launchAppNow: () => HandleInput(new LaunchRequest(DateTime.UtcNow)),
-            statusText: $"Supervisor state: {_sm.State}");
+            statusText: "Supervisor state: " + SupervisorStateText.Describe(_sm.State));
         window.Show();
     }
 
     private void UpdateTrayStatus()
     {
-        var text = _sm.State switch
-        {
-            SupervisorState.IdleWatch => "EyeCtrl Supervisor: idle",
-            SupervisorState.Launching => "EyeCtrl Supervisor: launching",
-            SupervisorState.Supervising => "EyeCtrl Supervisor: watching",
-            SupervisorState.Recovering => "EyeCtrl Supervisor: recovering",
-            SupervisorState.CleanExitPending => "EyeCtrl Supervisor: clean exit pending",
-            SupervisorState.FallenBack => "EyeCtrl Supervisor: FALLEN BACK (fallback AT running)",
-            _ => "EyeCtrl Supervisor"
-        };
+        var text = SupervisorStateText.TrayPrefix + SupervisorStateText.Describe(_sm.State);
         _tray.SetStatusText(text);
     }
 

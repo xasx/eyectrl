@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Tests.TestSupport;
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Windows;
@@ -97,34 +98,84 @@ internal static class ArcLabelFit
             .Single(e => Math.Abs(e.Width - dia) < 1e-6);
         var centre = new Point(Canvas.GetLeft(background) + radius, Canvas.GetTop(background) + radius);
 
-        var thickness = Math.Max(dia * DwellArcButton.ArcThicknessRatio, DwellArcButton.MinArcThickness);
-        var innerEdge = radius - DwellArcButton.DefaultArcInset - thickness / 2;
-
         var label = LabelOf(definition, canvas);
         var symbol = SymbolOf(definition, canvas, label);
-        var ink = label is null ? Rect.Empty : InkBoxOf(label);
 
-        var iconBounds = IconBoundsOf(canvas);
-        var symbolBounds = symbol is null
+        return BuildResult(
+            definition.Id,
+            hasLabel: label is not null,
+            hasIcon: definition.Icon is not null,
+            hasSymbol: symbol is not null,
+            ink: label is null ? Rect.Empty : InkBoxOf(label),
+            centre,
+            InnerEdgeOf(radius),
+            IconBoundsOf(canvas.Children.OfType<Path>().Where(p => p.RenderTransform is ScaleTransform)),
+            BoundsOf(symbol),
+            FaceOf(label, symbol));
+    }
+
+    /// <summary>
+    /// Measures a button the caller already built and laid out — the modes menu builds its buttons
+    /// in the window, and that window's own fit decision is what produced (or omitted) the label.
+    /// No canvas is needed: <see cref="DwellArcButton"/> publishes the placed visuals, and the
+    /// label's character rects only require the label to have been measured and arranged first.
+    /// </summary>
+    internal static ArcLabelFitResult MeasureButton(DwellArcButton button, string buttonId)
+    {
+        var radius = button.Background.Width / 2;
+        var centre = new Point(
+            Canvas.GetLeft(button.Background) + radius,
+            Canvas.GetTop(button.Background) + radius);
+        var ink = button.Label is null ? Rect.Empty : InkBoxOf(button.Label);
+
+        return BuildResult(
+            buttonId,
+            hasLabel: button.Label is not null,
+            hasIcon: button.IconStroke is not null || button.IconFill is not null,
+            hasSymbol: button.Symbol is not null,
+            ink,
+            centre,
+            InnerEdgeOf(radius),
+            IconBoundsOf(IconPathsOf(button)),
+            BoundsOf(button.Symbol),
+            FaceOf(button.Label, button.Symbol));
+    }
+
+    private static ArcLabelFitResult BuildResult(
+        string buttonId, bool hasLabel, bool hasIcon, bool hasSymbol,
+        Rect ink, Point centre, double innerEdge, Rect iconBounds, Rect symbolBounds, string face)
+        => new(
+            buttonId,
+            hasLabel,
+            hasIcon,
+            hasSymbol,
+            ink,
+            ink.IsEmpty ? double.NaN : ClearanceOf(ink, centre, innerEdge),
+            innerEdge,
+            Overlaps(ink, iconBounds),
+            Overlaps(ink, symbolBounds),
+            face);
+
+    private static double InnerEdgeOf(double radius)
+    {
+        var thickness = Math.Max(radius * 2 * DwellArcButton.ArcThicknessRatio, DwellArcButton.MinArcThickness);
+        return radius - DwellArcButton.DefaultArcInset - thickness / 2;
+    }
+
+    private static IEnumerable<Path> IconPathsOf(DwellArcButton button)
+    {
+        if (button.IconStroke is not null) yield return button.IconStroke;
+        if (button.IconFill is not null) yield return button.IconFill;
+    }
+
+    private static Rect BoundsOf(TextBlock? text)
+        => text is null
             ? Rect.Empty
             : new Rect(
-                Canvas.GetLeft(symbol),
-                Canvas.GetTop(symbol),
-                symbol.DesiredSize.Width,
-                symbol.DesiredSize.Height);
-
-        return new ArcLabelFitResult(
-            definition.Id,
-            HasLabel: label is not null,
-            HasIcon: definition.Icon is not null,
-            HasSymbol: symbol is not null,
-            LabelInkBox: ink,
-            ClearanceDip: ink.IsEmpty ? double.NaN : ClearanceOf(ink, centre, innerEdge),
-            ArcInnerEdgeDip: innerEdge,
-            OverlapsIcon: Overlaps(ink, iconBounds),
-            OverlapsSymbol: Overlaps(ink, symbolBounds),
-            ResolvedFace: FaceOf(label, symbol));
-    }
+                Canvas.GetLeft(text),
+                Canvas.GetTop(text),
+                text.DesiredSize.Width,
+                text.DesiredSize.Height);
 
     /// <summary>
     /// The label's ink box in canvas coordinates. <c>AddTo</c> paints the label last, which is how
@@ -187,12 +238,15 @@ internal static class ArcLabelFit
     }
 
     /// <summary>The union of the icon layers' drawn bounds (path bounds plus half their stroke).</summary>
-    private static Rect IconBoundsOf(Canvas canvas)
+    private static Rect IconBoundsOf(IEnumerable<Path> paths)
     {
         var bounds = Rect.Empty;
-        foreach (var path in canvas.Children.OfType<Path>().Where(p => p.RenderTransform is ScaleTransform))
+        foreach (var path in paths)
         {
-            var scale = (ScaleTransform)path.RenderTransform;
+            var scale = path.RenderTransform as ScaleTransform
+                ?? throw new InvalidOperationException(
+                    "An icon path lost the ScaleTransform Create gives it; ArcLabelFit would then "
+                    + "measure its unscaled grid bounds, not the drawn icon.");
             // Half the stroke sits outside the path's own bounds; Data.Bounds is in grid units and
             // the RenderTransform scales the stroke with the geometry.
             var halfStroke = path.Stroke is null ? 0 : path.StrokeThickness / 2;

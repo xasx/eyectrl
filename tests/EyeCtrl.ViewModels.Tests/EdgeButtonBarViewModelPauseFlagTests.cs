@@ -33,7 +33,8 @@ public class EdgeButtonBarViewModelPauseFlagTests
 
     private static EdgeButtonDefinition Def() => new(
         "pauseProbe", Symbol: string.Empty, DwellMs: 600,
-        Activate: static _ => { }, VerticalOffset: 0, RadiusLogical: 50, Label: "probe");
+        Activate: static _ => { }, VerticalOffset: 0, RadiusLogical: 50,
+        Icon: ActionIcon.Close, Label: "probe");
 
     private static GazeCursorMovedMessage Sample(bool paused = false, bool inGap = false) =>
         new(new GazeFrame(Anchor, 1_000_000, IsInGap: inGap)) { IsPaused = paused };

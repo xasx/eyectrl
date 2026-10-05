@@ -139,6 +139,33 @@ public class DwellArcButtonIconTests
     }
 
     [StaFact]
+    public void ASymbolWithALabel_IsRefused()
+    {
+        // Production's Recapture was exactly this pair (glyph + label, no drawn icon) and the
+        // label was drawn across the glyph. The icon/label stack cannot lay the pair out
+        // correctly, so it is refused rather than rendered wrong.
+        ArgumentException? ex = null;
+        try
+        {
+            DwellArcButton.Create(new Point(0, 0), 50, symbol: "\u21BB", label: "Recapture");
+        }
+        catch (ArgumentException e) { ex = e; }
+
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("symbol");
+    }
+
+    [StaFact]
+    public void AnEmptySymbolWithALabel_IsNotRefused()
+    {
+        // The guard is specifically about a NON-EMPTY symbol: keyboard and manual-selection
+        // definitions carry Symbol: string.Empty beside their drawn icon.
+        var button = DwellArcButton.Create(new Point(0, 0), 50, symbol: string.Empty, label: "Recapture");
+
+        Check.That(button.Label).IsNotNull();
+    }
+
+    [StaFact]
     public void TheIcon_ScalesWithTheButton_AtEverySizeAndScale()
     {
         // Plan 1 shipped a crash that a green suite missed because every layout test ran at DPI

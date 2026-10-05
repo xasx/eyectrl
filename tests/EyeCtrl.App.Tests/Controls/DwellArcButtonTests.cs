@@ -75,26 +75,27 @@ public class DwellArcButtonTests
 
     /// <summary>
     /// The pairing guard for <see cref="DwellArcButton.RemoveFrom"/>. Built with every optional
-    /// layer present — a symbol, an icon with BOTH a fill and a stroke layer, and a label — so
-    /// all eight elements exist; a button created with fewer would let a missed removal pass.
+    /// layer the button can legally carry — an icon with BOTH a fill and a stroke layer, and a
+    /// label — so all seven elements exist; a symbol cannot join them (Create refuses a symbol
+    /// beside a label, and a symbol-only button would leave a layer untested).
     ///
     /// The removal side is stated as "the canvas is empty afterwards" rather than as a count, so
     /// that it needs no editing when the element set grows. The fixture assertion below IS a
-    /// count, and on a ninth element it is what fires first — so its message names RemoveFrom
+    /// count, and on an eighth element it is what fires first — so its message names RemoveFrom
     /// rather than sending the reader off to fix the fixture and move on.
     /// </summary>
     [StaFact]
     public void RemoveFrom_IsTheInverseOfAddTo()
     {
         var canvas = new Canvas();
-        var btn = DwellArcButton.Create(new Point(10, 10), radius: 20, symbol: "X",
+        var btn = DwellArcButton.Create(new Point(10, 10), radius: 20, symbol: null,
             icon: ToolbarIcons.For(ToolbarIconKey.SelectionManual), label: "Label");
 
         btn.AddTo(canvas);
         Check.WithCustomMessage("AddTo added a number of elements this fixture does not expect. "
-                + "If you have just added a NINTH element to AddTo, this fires before the removal "
+                + "If you have just added an EIGHTH element to AddTo, this fires before the removal "
                 + "check below: add it to RemoveFrom too, then update this count.")
-            .That(canvas.Children.Count).IsEqualTo(8);
+            .That(canvas.Children.Count).IsEqualTo(7);
 
         btn.RemoveFrom(canvas);
 

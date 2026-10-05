@@ -98,6 +98,7 @@ public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
     public void ReplaceButton(string id, EdgeButtonDefinition definition)
     {
         if (!_definitions.ContainsKey(id)) return;
+        Validate(definition);
         _definitions[id] = definition;
         ButtonSetChanged?.Invoke();
     }
@@ -195,12 +196,31 @@ public partial class EdgeButtonBarViewModel : DwellOverlayViewModelBase
 
     private void AddTarget(EdgeButtonDefinition def)
     {
+        Validate(def);
         _definitions[def.Id] = def;
         var center = _edgeAnchor + new PhysicalPoint(0, def.VerticalOffset);
         _seedCenters[def.Id] = center;
         var radiusPhysical = DpiHelper.LogicalToPhysicalX(def.RadiusLogical);
         DwellDetector.AddTarget(new DwellTarget(def.Id, center, radiusPhysical, def.DwellMs));
         Buttons.Add(new EdgeButtonState(def.Id, def.Symbol, def.RadiusLogical));
+    }
+
+    /// <summary>
+    /// A labelled button must carry a drawn icon. <c>DwellArcButton.Create</c> stacks a label
+    /// under an icon; with no icon the label is centred on the button, where a symbol would be
+    /// drawn over it — and <c>Create</c> refuses that pair outright. Validated at this one seam
+    /// every definition reaches the window through, so a bad definition fails loudly at its
+    /// caller instead of taking the process down on the dispatcher at draw time.
+    /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="definition"/> has a Label but no Icon.</exception>
+    private static void Validate(EdgeButtonDefinition definition)
+    {
+        if (definition.Label is not null && definition.Icon is null)
+            throw new ArgumentException(
+                $"Edge button '{definition.Id}' has a Label but no Icon. A labelled button must "
+                + "carry a drawn Icon (with an empty Symbol): the label is stacked under the icon "
+                + "and would otherwise be drawn over the symbol.",
+                nameof(definition));
     }
 
     /// <summary>

@@ -95,6 +95,27 @@ internal sealed class DragCoordinator : CoordinatorBase
         });
     }
 
+    /// <summary>
+    /// Builds the drag-cancel button (above the anchor on the right edge). Static and internal so
+    /// the symbol/label sweep test can reach the definition without a live coordinator — the same
+    /// pattern as <see cref="ScrollModeController.CreateScrollStopButtonDefinition"/>.
+    /// </summary>
+    internal static EdgeButtonDefinition CreateCancelButtonDefinition(int dwellMs)
+        => new(
+            "Drag_cancel", "\u2715", dwellMs,
+            m => m.Send(new DragCancelMessage()),
+            VerticalOffset: DpiHelper.LogicalToPhysicalY(30));
+
+    /// <summary>
+    /// Builds the post-drop back button (below the anchor). Static and internal for the same
+    /// reason as <see cref="CreateCancelButtonDefinition"/>.
+    /// </summary>
+    internal static EdgeButtonDefinition CreateBackButtonDefinition(int dwellMs)
+        => new(
+            "Drag_back", "\u21A9", dwellMs,
+            m => m.Send(new DragDismissManualSelectionMessage()),
+            VerticalOffset: -DpiHelper.LogicalToPhysicalY(30));
+
     internal void OnDragStarted(PhysicalPoint grabOrigin)
     {
         if (Context is null) return;
@@ -117,10 +138,7 @@ internal sealed class DragCoordinator : CoordinatorBase
             _dragTrailOverlay.Show();
 
             var anchor = ScreenGeometry.RightEdgeAnchor(RightEdgeInsetLogical, UIConstants.DragButtonRadius);
-            var cancelDef = new EdgeButtonDefinition(
-                "Drag_cancel", "\u2715", Context.Settings.Dwell.DragRightEdgeButtonDwellMs,
-                m => m.Send(new DragCancelMessage()),
-                VerticalOffset: DpiHelper.LogicalToPhysicalY(30));
+            var cancelDef = CreateCancelButtonDefinition(Context.Settings.Dwell.DragRightEdgeButtonDwellMs);
             Context.OverlayManager.EdgeButtonBar.ShowButtons(new[] { cancelDef }, anchor);
 
             Context.Messenger.Send(new StartDragTrailMessage(grabOrigin));
@@ -243,10 +261,7 @@ internal sealed class DragCoordinator : CoordinatorBase
                 var bar = Context.OverlayManager.EdgeButtonBar;
                 if (Context.DragTrailVM.ShowBack)
                 {
-                    var backDef = new EdgeButtonDefinition(
-                        "Drag_back", "\u21A9", Context.Settings.Dwell.DragRightEdgeButtonDwellMs,
-                        m => m.Send(new DragDismissManualSelectionMessage()),
-                        VerticalOffset: -DpiHelper.LogicalToPhysicalY(30));
+                    var backDef = CreateBackButtonDefinition(Context.Settings.Dwell.DragRightEdgeButtonDwellMs);
                     bar.AddButton(backDef);
                 }
                 else

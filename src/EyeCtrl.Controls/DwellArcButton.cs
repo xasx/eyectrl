@@ -162,6 +162,17 @@ public class DwellArcButton
         IconGeometry? icon = null,
         string? label = null)
     {
+        // A symbol and a label can never share a face: the label is laid out from the icon stack
+        // (iconSize and stackGap both collapse to 0 with no icon), so it is centred on the button —
+        // exactly where the symbol is drawn. Refusing the pair here keeps the mislayout off the
+        // screen and out of any layout arithmetic; the edge bar validates its definitions upstream
+        // (EdgeButtonBarViewModel), and a sweep test proves no definition set produces the pair.
+        if (!string.IsNullOrEmpty(symbol) && label is not null)
+            throw new ArgumentException(
+                "A button cannot combine a symbol with a label: the label would be drawn over the "
+                + "symbol. Give the definition a drawn Icon (with an empty Symbol) or drop the label.",
+                nameof(symbol));
+
         var fillBrush = fill ?? Tokens.BrushSurfaceMedium;
         var strokeBrush = stroke ?? Tokens.BrushBorderSubtle;
         var arcBrushActual = arcBrush ?? Tokens.BrushAccent;

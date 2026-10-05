@@ -224,10 +224,15 @@ public class GazeEngineAdapter : IDisposable
     {
         try
         {
-            // IsPaused is read here on the UI thread at delivery time: CurrentState is written on
-            // this thread, so the flag rides the message without a cross-thread read, and the
-            // pause gate in DwellOverlayViewModelBase sees the state as of dispatch, one frame
-            // stale at worst.
+            // IsPaused is sampled here on the UI thread at delivery time and rides the message as a
+            // plain value — a snapshot, not a live view. CurrentState has writers on both threads (see
+            // its declaration in InteractionManager), but only TogglePause enters or leaves Paused, and
+            // it runs on this thread (toolbar Play, the tray, startup); the gaze-thread writes move only
+            // among FreeLook, Fixation and RepeatMode. So the Paused bit read here is exact at delivery,
+            // and the pause gate in DwellOverlayViewModelBase lags a toggle by at most one delivered
+            // sample. The one exception is InteractionManager's unlocked read-decide-write: a gaze-thread
+            // OnFixationStarted that read FreeLook before a TogglePause can overwrite Paused with
+            // Fixation — a lost pause, not a stale one.
             _messenger.Send(new GazeCursorMovedMessage(frame)
             {
                 IsPaused = _interactionManager.CurrentState == InteractionState.Paused

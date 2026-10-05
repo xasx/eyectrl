@@ -49,6 +49,10 @@ public class SupervisionToggleServiceTests
         public int StateChanges { get; private set; }
         public List<Action> Pending { get; } = new();
 
+        /// <summary>The cached presence the row/retry read (ticket 07); separate from the active
+        /// pipe probe <see cref="Reachable"/> on purpose — the retry gate and status use this.</summary>
+        public bool Connected { get; set; }
+
         public SupervisionToggleService Service { get; }
         public string Path { get; }
 
@@ -77,6 +81,14 @@ public class SupervisionToggleServiceTests
                 utcNow: () => clock.Now,
                 sleep: clock.Advance);
 
+            var ensure = new SupervisorStartupEnsure(
+                Settings,
+                enablePublishing: () => { PublishingEnabled = true; Steps.Add("ensure-publish"); },
+                launchSupervisor: () => { Steps.Add("ensure-launch"); return LaunchSucceeds; },
+                tryReachSupervisor: () => { Steps.Add("ensure-probe"); return Reachable; },
+                utcNow: () => clock.Now,
+                sleep: clock.Advance);
+
             Action<Action> run = deferBackground
                 ? work => Pending.Add(work)
                 : work => work();
@@ -84,8 +96,10 @@ public class SupervisionToggleServiceTests
             Service = new SupervisionToggleService(
                 Settings,
                 bringUp,
+                ensure,
                 persist,
                 supervisorInstalled: () => SupervisorInstalled,
+                isSupervisorConnected: () => Connected,
                 reconcileRunKey: ReconcileStep,
                 runInBackground: run,
                 postToUi: work => work());
@@ -264,7 +278,8 @@ public class SupervisionToggleServiceTests
         h.Service.RequestEnable();
 
         var budget = new RollingFaultBudget(10, TimeSpan.FromSeconds(60), nowMs: () => 0);
-        Check.That(DispatcherCrashPolicy.ShouldKeepRunning(h.Settings.Supervision.Enabled, budget))
+        Check.That(DispatcherCrashPolicy.ShouldKeepRunning(
+                h.Settings.Supervision.Enabled, supervisorPresent: true, budget))
             .IsFalse();
     }
 
@@ -278,7 +293,8 @@ public class SupervisionToggleServiceTests
         h.Service.RequestEnable();
 
         var budget = new RollingFaultBudget(10, TimeSpan.FromSeconds(60), nowMs: () => 0);
-        Check.That(DispatcherCrashPolicy.ShouldKeepRunning(h.Settings.Supervision.Enabled, budget))
+        Check.That(DispatcherCrashPolicy.ShouldKeepRunning(
+                h.Settings.Supervision.Enabled, supervisorPresent: false, budget))
             .IsTrue();
     }
 
@@ -292,5 +308,143 @@ public class SupervisionToggleServiceTests
 
         h.Service.RequestDisable();
         Check.That(h.StateChanges).IsEqualTo(4);
+    }
+
+    // ── Ticket 07: the startup/retry ensure, honest status, change-only refresh ──
+
+    [Fact]
+    public void Ensure_WhenUnreachable_LaunchesAndReportsFailure()
+    {
+        using var h = new Harness(enabled: true);
+        h.Connected = false;
+        h.Reachable = false;                 // never answers
+
+        h.Service.RequestEnsure();
+
+        Check.That(h.Service.InFlight).IsFalse();
+        Check.That(h.Steps).Contains("ensure-publish");
+        Check.That(h.Steps).Contains("ensure-launch");
+        Check.That(h.Steps).Not.Contains("persist:True");
+        Check.That(h.Steps).Not.Contains("runkey");
+        // Re-check 1 nit: a launch that did happen (or a Supervisor silent in FallenBack) is not
+        // "could not be started" — the row must not misstate it.
+        Check.That(h.Service.StatusText).IsEqualTo("The Supervisor is not answering.");
+    }
+
+    [Fact]
+    public void Ensure_WhenAProbeAlreadyAnswers_DoesNotLaunch()
+    {
+        using var h = new Harness(enabled: true);
+        h.Connected = false;                 // the cheap read says absent (stale)...
+        h.Reachable = true;                  // ...but the active probe adopts: already running
+
+        h.Service.RequestEnsure();
+
+        Check.That(h.Steps).Contains("ensure-publish");
+        Check.That(h.Steps).Contains("ensure-probe");
+        Check.That(h.Steps).Not.Contains("ensure-launch");
+        Check.That(h.Service.StatusText).StartsWith("On");
+    }
+
+    [Fact]
+    public void Ensure_WhenAlreadyConnected_IsANoOp()
+    {
+        using var h = new Harness(enabled: true);
+        h.Connected = true;
+
+        h.Service.RequestEnsure();
+
+        Check.That(h.Steps).IsEmpty();
+    }
+
+    [Fact]
+    public void Ensure_WhenDisabled_IsANoOp()
+    {
+        using var h = new Harness(enabled: false);
+
+        h.Service.RequestEnsure();
+
+        Check.That(h.Steps).IsEmpty();
+    }
+
+    [Fact]
+    public void Ensure_WhileInFlight_BlocksRetryAndDisable_ThroughTheSameLatch()
+    {
+        // Addition B: the startup ensure and the row share ONE latch. While it runs, the row says
+        // "Starting the Supervisor…" and neither a retry dwell nor a turn-off can race it.
+        using var h = new Harness(enabled: true, deferBackground: true);
+        h.Connected = false;
+        h.Reachable = false;
+
+        h.Service.RequestEnsure();
+        Check.That(h.Service.InFlight).IsTrue();
+        Check.That(h.Service.StatusText).StartsWith("Starting the Supervisor");
+
+        h.Service.RequestEnsure();    // dropped by the latch
+        h.Service.RequestDisable();   // dropped: turning off mid-ensure would race the launch
+        h.Service.RequestEnable();    // dropped
+
+        Check.That(h.Pending).HasSize(1);
+        Check.That(h.Steps).IsEmpty();   // nothing ran until the deferred work executes
+
+        h.Pending[0]();
+
+        Check.That(h.Service.InFlight).IsFalse();
+        Check.That(h.Service.Enabled).IsTrue();
+        Check.That(h.Steps).Not.Contains("persist:True");
+        Check.That(h.Steps).Not.Contains("runkey");
+    }
+
+    [Fact]
+    public void Status_EnabledButNotConnected_IsHonest()
+    {
+        using var h = new Harness(enabled: true);
+        h.Connected = false;
+
+        Check.That(h.Service.StatusText).IsEqualTo(
+            "On \u2014 but the Supervisor is not answering. Dwell Start Supervisor to try again.");
+    }
+
+    [Fact]
+    public void Status_EnabledAndConnected_SaysOn()
+    {
+        using var h = new Harness(enabled: true);
+        h.Connected = true;
+
+        Check.That(h.Service.StatusText).IsEqualTo(
+            "On \u2014 EyeCtrl restarts automatically if it stops responding or crashes.");
+    }
+
+    [Fact]
+    public void RefreshConnection_RaisesOnlyOnARealChange()
+    {
+        // Addition C: no flapping under a gaze that cannot fixate on a moving target.
+        using var h = new Harness(enabled: true);
+        h.Connected = false;
+
+        h.Service.RefreshConnection();
+        Check.That(h.StateChanges).IsEqualTo(0);   // unchanged
+
+        h.Connected = true;
+        h.Service.RefreshConnection();
+        Check.That(h.StateChanges).IsEqualTo(1);   // changed: exactly one rebuild
+
+        h.Service.RefreshConnection();
+        Check.That(h.StateChanges).IsEqualTo(1);   // unchanged again
+    }
+
+    [Fact]
+    public void Completion_SyncsTheReportedConnection_SoTheRefreshDoesNotRebuildAgain()
+    {
+        // Ticket 07 review F3: a toggle used to rebuild twice — once on completion, then again
+        // when the 2s refresh saw the same transition. The completion syncs the refresh baseline.
+        using var h = new Harness(enabled: false);
+        h.Connected = true;
+
+        h.Service.RequestEnable();
+        Check.That(h.StateChanges).IsEqualTo(2);   // progress + completion
+
+        h.Service.RefreshConnection();
+        Check.That(h.StateChanges).IsEqualTo(2);   // no second rebuild for the same change
     }
 }

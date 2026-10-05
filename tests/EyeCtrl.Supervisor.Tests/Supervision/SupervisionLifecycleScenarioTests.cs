@@ -25,6 +25,9 @@ public class SupervisionLifecycleScenarioTests
         public bool LaunchThrows { get; set; }
         public bool Bound { get; private set; }
         public bool KillInitiated { get; private set; }
+        /// <summary>Ticket 07 review F2: the Supervisor's heartbeat pipe. Closed on FallenBack,
+        /// reopened on the dialog's Retry.</summary>
+        public bool Listening { get; private set; } = true;
         public int Launches { get; private set; }
         public int Kills { get; private set; }
         public int Fallbacks { get; private set; }
@@ -114,6 +117,12 @@ public class SupervisionLifecycleScenarioTests
                         break;
                     case SupervisorCommand.LaunchFallbackAt:
                         if (!_fallbackLaunched) { _fallbackLaunched = true; Fallbacks++; }
+                        break;
+                    case SupervisorCommand.StopListening:
+                        Listening = false;                  // ticket 07 review F2
+                        break;
+                    case SupervisorCommand.StartListening:
+                        Listening = true;                   // ticket 07 review F2
                         break;
                 }
             }
@@ -272,6 +281,7 @@ public class SupervisionLifecycleScenarioTests
         Check.That(h.Fallbacks).IsEqualTo(1);
         Check.That(h.Strikes).IsEqualTo(4);
         Check.That(h.Kills).IsEqualTo(4);                    // F1: every hang strike kills the hung app
+        Check.That(h.Listening).IsFalse();                   // F2: a FallenBack supervisor stops listening
         Check.That(h.FallenBackAtTick).IsNotNull();
         // Measured: tick 230 (~230 s), each stuck relaunch costs one 60 s grace + its backoff.
         Check.That(h.FallenBackAtTick!.Value).IsStrictlyGreaterThan(200);
@@ -416,10 +426,12 @@ public class SupervisionLifecycleScenarioTests
         h.Run(2);
         h.Run(240);                                          // hang loop -> FallenBack
         Check.That(h.State).IsEqualTo(SupervisorState.FallenBack);
+        Check.That(h.Listening).IsFalse();                   // F2: the pipe closed
         var killsBefore = h.Kills;
 
         h.Retry();
         Check.That(h.State).IsEqualTo(SupervisorState.IdleWatch);
+        Check.That(h.Listening).IsTrue();                    // F2: the pipe reopened before the first heartbeat
         h.Heartbeat();
         Check.That(h.State).IsEqualTo(SupervisorState.Supervising);
         Check.That(h.Strikes).IsEqualTo(4);                  // the budget does NOT reset on retry

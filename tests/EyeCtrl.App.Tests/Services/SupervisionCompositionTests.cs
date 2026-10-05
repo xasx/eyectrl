@@ -3,6 +3,10 @@ namespace EyeCtrl.App.Tests.Services;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Pipes;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Startup;
 using EyeCtrl.Core.Interfaces;
@@ -29,6 +33,7 @@ public class SupervisionCompositionTests
         public FakeStartupRegistrar Registrar { get; } = new();
         public SupervisorBringUp BringUp { get; }
         public SupervisionToggleService Toggle { get; }
+        public SupervisorStartupEnsure Ensure { get; }
         public string Path { get; }
 
         public Harness()
@@ -43,7 +48,7 @@ public class SupervisionCompositionTests
             Settings = new SettingsService(Path, SettingsWriter.App).Load();
             Settings.General.StartOnBoot = true;
 
-            (BringUp, Toggle) = SupervisionComposition.Create(
+            (BringUp, Toggle, Ensure) = SupervisionComposition.Create(
                 Settings,
                 Path,
                 Registrar,
@@ -52,6 +57,7 @@ public class SupervisionCompositionTests
                 tryReachSupervisor: () => true,
                 isSupervisorInstalled: () => true,
                 isLaunchRegistered: () => true,
+                isSupervisorConnected: () => true,
                 runInBackground: work => work(),
                 postToUi: work => work());
         }
@@ -139,10 +145,9 @@ public class SupervisionCompositionTests
             settings.Supervision.Enabled = true;
             var registrar = new FakeStartupRegistrar();
 
-            var (_, toggle, reconcile) = SupervisionComposition.CreateForProduction(
+            var (_, toggle, reconcile, _) = SupervisionComposition.CreateForProduction(
                 settings, path, registrar,
-                enablePublishing: () => { },
-                tryReachSupervisor: () => false,
+                publisher: () => null,
                 runInBackground: work => work(),
                 postToUi: work => work());
 
@@ -156,6 +161,128 @@ public class SupervisionCompositionTests
 
             // And the availability probe is the production one too, not a call-site override.
             Check.That(toggle.IsAvailable).IsEqualTo(SupervisorLauncher.IsExecutablePresent);
+        }
+        finally
+        {
+            File.Delete(path);
+            File.Delete(path + ".tmp");
+        }
+    }
+
+    // ── Ticket 07 addition A: the crash policy's presence predicate ──────────
+
+    private static readonly DateTime Now = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+    [Theory]
+    [InlineData(-9, true)]
+    [InlineData(-10, true)]     // exactly at the window still counts (expiry is strictly greater)
+    [InlineData(-11, false)]
+    public void PresencePredicate_FollowsTheDeliveryFreshnessWindow(int offsetSeconds, bool present)
+    {
+        var predicate = SupervisionComposition.CreateSupervisorPresencePredicate(
+            lastDeliveredUtc: () => Now.AddSeconds(offsetSeconds),
+            utcNow: () => Now,
+            window: TimeSpan.FromSeconds(10));
+
+        Check.That(predicate()).IsEqualTo(present);
+    }
+
+    [Fact]
+    public void PresencePredicate_NeverDelivered_IsAbsent()
+    {
+        var predicate = SupervisionComposition.CreateSupervisorPresencePredicate(
+            lastDeliveredUtc: () => null,
+            utcNow: () => Now,
+            window: TimeSpan.FromSeconds(10));
+
+        Check.That(predicate()).IsFalse();
+    }
+
+    [Fact]
+    public void PresencePredicate_NeverDeliveredSentinel_IsAbsent()
+    {
+        // Production binds LastDeliveredUtc, whose never-delivered value is DateTime.MinValue
+        // (not null): pin the sentinel production actually sends.
+        var predicate = SupervisionComposition.CreateSupervisorPresencePredicate(
+            lastDeliveredUtc: () => DateTime.MinValue,
+            utcNow: () => Now,
+            window: TimeSpan.FromSeconds(10));
+
+        Check.That(predicate()).IsFalse();
+    }
+
+    // ── Ticket 07 review F1: one publisher source for everything ─────────────
+
+    [Fact]
+    public async Task ProductionComposition_BindsEverythingToThePublisher()
+    {
+        // F1: publish, probe, presence and the row's connected read all come from the one
+        // Func<HeartbeatPublisher?>. Real publisher, GUID pipe name (never the production name):
+        // nothing listening ⇒ absent + disconnected; after a delivery ⇒ present + connected.
+        var path = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(), $"eyectrl_t07_prod_{Guid.NewGuid()}.json");
+        try
+        {
+            var settings = new EyeCtrlSettings();
+            settings.Supervision.Enabled = true;
+            var pipeName = "eyectrl_watch_test_" + Guid.NewGuid().ToString("N");
+            // Generous probe wait: 500 ms is a UI budget, not a latency guarantee under a starved
+            // thread pool (HeartbeatPublisher.DefaultProbeWait).
+            using var publisher = new HeartbeatPublisher(
+                supervised: false, pipeName: pipeName, probeWait: TimeSpan.FromSeconds(5))
+            {
+                TrustAnyServerForTests = true
+            };
+            var pending = new List<Action>();
+            var (_, toggle, _, presence) = SupervisionComposition.CreateForProduction(
+                settings, path, new FakeStartupRegistrar(),
+                publisher: () => publisher,
+                runInBackground: work => pending.Add(work),
+                postToUi: work => work());
+
+            // Phase 1: nothing delivered.
+            Check.That(presence()).IsFalse();
+            Check.That(toggle.IsSupervisorConnected).IsFalse();
+
+            // The startup ensure/retry start through the latch.
+            toggle.RequestEnsure();
+            Check.That(toggle.InFlight).IsTrue();
+            Check.That(toggle.StatusText).StartsWith("Starting the Supervisor");
+            Check.That(pending).HasSize(1);
+
+            // Phase 2 (re-check N1): run the QUEUED ensure work against the trusted test server, so
+            // the COMPOSED publish and probe bindings are what execute. The composed probe delivers
+            // to the server, so Run returns true and the REAL TryLaunch is never reached.
+            using var server = new NamedPipeServerStream(
+                pipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+            var received = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var testToken = TestContext.Current.CancellationToken;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using var listenCts = CancellationTokenSource.CreateLinkedTokenSource(testToken);
+                    listenCts.CancelAfter(TimeSpan.FromSeconds(10));
+                    await server.WaitForConnectionAsync(listenCts.Token);
+                    using var reader = new StreamReader(server, Encoding.UTF8, false, 1024, leaveOpen: true);
+                    received.TrySetResult(await reader.ReadLineAsync() ?? "");
+                }
+                catch (Exception ex) { received.TrySetException(ex); }
+            }, testToken);
+
+            Check.That(pending).HasSize(1);
+            pending[0]();   // composed publish -> composed probe (delivered)
+
+            var completed = await Task.WhenAny(received.Task, Task.Delay(TimeSpan.FromSeconds(5), testToken));
+            Check.That(completed == received.Task).IsTrue();   // F1e: a forced-true probe delivers nothing
+            Check.That(await received.Task).Contains("pid");   // the server got the real probe payload
+            Check.That(publisher.IsPublishing).IsTrue();       // F1f: the composed publish binding ran
+
+            Check.That(toggle.InFlight).IsFalse();
+            Check.That(presence()).IsTrue();
+            Check.That(toggle.IsSupervisorConnected).IsTrue();
+            Check.That(toggle.StatusText)
+                .IsEqualTo("On \u2014 EyeCtrl restarts automatically if it stops responding or crashes.");
         }
         finally
         {

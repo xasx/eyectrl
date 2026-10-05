@@ -55,6 +55,9 @@ public class HeartbeatPublisherTests
 
         Check.That(reached).IsFalse();
         Check.That(await drain).IsNull(); // nothing was ever written to the squatter
+        // F4/H1: a squatter must never make the app believe a Supervisor is present — that would
+        // arm kill-for-respawn against nothing.
+        Check.That(pub.LastDeliveredUtc).IsEqualTo(DateTime.MinValue);
     }
 
     [Fact]
@@ -179,6 +182,72 @@ public class HeartbeatPublisherTests
 
         pub.EnablePublishing();
         Check.That(pub.IsPublishing).IsTrue();
+    }
+
+    // ── Ticket 07: the delivery stamp behind the crash policy's presence signal ──
+
+    [Fact]
+    public async Task DeliveredPayload_StampsTheDelivery_AndTheWindowDecidesPresence()
+    {
+        // Uses the same proven listener skeleton as the SignalShuttingDown delivery test: a
+        // background accept, a synchronous bounded send, then the delivery assert. The stamp sits
+        // in SendOneAsync, so this covers every successful-send path (writer loop, probe, final).
+        using var server = new NamedPipeServerStream(
+            _pipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+
+        var received = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var testToken = TestContext.Current.CancellationToken;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var listenCts = CancellationTokenSource.CreateLinkedTokenSource(testToken);
+                listenCts.CancelAfter(TimeSpan.FromSeconds(10));
+                await server.WaitForConnectionAsync(listenCts.Token);
+                using var reader = new StreamReader(server, Encoding.UTF8, false, 1024, leaveOpen: true);
+                received.TrySetResult(await reader.ReadLineAsync() ?? "");
+            }
+            catch (Exception ex) { received.TrySetException(ex); }
+        }, testToken);
+
+        using var pub = new HeartbeatPublisher(supervised: false, pipeName: _pipeName)
+            { TrustAnyServerForTests = true };
+        pub.EnablePublishing();
+        pub.SignalShuttingDown();
+
+        var completed = await Task.WhenAny(received.Task, Task.Delay(TimeSpan.FromSeconds(5), testToken));
+        Check.That(completed == received.Task).IsTrue();   // delivered
+
+        var delivered = pub.LastDeliveredUtc;
+        Check.That(delivered).IsNotEqualTo(DateTime.MinValue);
+        Check.That(pub.WasRecentlyDelivered(delivered.AddSeconds(9), TimeSpan.FromSeconds(10))).IsTrue();
+        Check.That(pub.WasRecentlyDelivered(delivered.AddSeconds(10), TimeSpan.FromSeconds(10))).IsTrue();
+        Check.That(pub.WasRecentlyDelivered(delivered.AddSeconds(11), TimeSpan.FromSeconds(10))).IsFalse();
+    }
+
+    [Fact]
+    public void NoDeliveryEver_MeansAbsent_NoMatterTheWindow()
+    {
+        // The post-reboot shape: nothing listening, so nothing is ever stamped and the crash
+        // policy must stay standalone. A failed send can never vouch for a supervisor.
+        using var pub = new HeartbeatPublisher(
+            supervised: false, pipeName: _pipeName, probeWait: TimeSpan.FromMilliseconds(100));
+        pub.EnablePublishing();
+
+        Check.That(pub.TryReachSupervisor()).IsFalse();
+        Check.That(pub.LastDeliveredUtc).IsEqualTo(DateTime.MinValue);
+        Check.That(pub.WasRecentlyDelivered(DateTime.UtcNow, TimeSpan.FromMinutes(5))).IsFalse();
+    }
+
+    [Fact]
+    public void DeliveryFreshnessWindow_IsTenSeconds_AndShorterThanTheDefaultHangThreshold()
+    {
+        // F4/H5: the value is a deliberate policy choice (three heartbeat periods plus margin,
+        // shorter than the Supervisor's default 20s hang threshold); pin it.
+        Check.That(HeartbeatPublisher.DeliveryFreshnessWindow).IsEqualTo(TimeSpan.FromSeconds(10));
+        // NFluent has no TimeSpan comparison; assert the relation directly.
+        Check.That(HeartbeatPublisher.DeliveryFreshnessWindow
+            < TimeSpan.FromSeconds(new EyeCtrl.Core.Settings.SupervisionSettings().HangThresholdSeconds)).IsTrue();
     }
 
     /// <summary>

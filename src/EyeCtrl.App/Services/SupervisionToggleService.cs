@@ -19,23 +19,32 @@ using EyeCtrl.Core.Settings;
 /// </summary>
 public sealed class SupervisionToggleService
 {
+    private enum RequestKind { Enabling, Disabling, Ensuring }
+
     private readonly EyeCtrlSettings _settings;
     private readonly SupervisorBringUp _bringUp;
+    private readonly SupervisorStartupEnsure _startupEnsure;
     private readonly Action<bool> _persistEnabled;
     private readonly Func<bool> _supervisorInstalled;
+    private readonly Func<bool> _isSupervisorConnected;
     private readonly Action _reconcileRunKey;
     private readonly Action<Action> _runInBackground;
     private readonly Action<Action> _postToUi;
 
     private bool _inFlight;
-    private bool _turningOn;
+    private RequestKind _kind;
     private string? _lastFailure;
+    private bool _lastReportedConnected;
 
     /// <param name="settings">The live settings instance the app's crash policy reads.</param>
     /// <param name="bringUp">The shared publish → launch → persist → Run-key → poll sequence.</param>
+    /// <param name="startupEnsure">The write-free ensure sequence: the startup launch (ticket 07)
+    /// and the row's retry share it, so a retry cannot start a second Supervisor by a different path.</param>
     /// <param name="persistEnabled">The sanctioned supervision.enabled write path
     /// (<see cref="SupervisionEnabledWriter.Persist"/> in production, never the App writer).</param>
     /// <param name="supervisorInstalled">The Supervisor exe probe (the row's availability).</param>
+    /// <param name="isSupervisorConnected">Cheap cached delivery-freshness read (no IPC): whether a
+    /// Supervisor is answering right now. The row's status and retry condition.</param>
     /// <param name="reconcileRunKey">
     /// Applies the supervised launch-at-logon policy. Reads the live flag, so the same delegate
     /// serves bring-up (flag already true) and turn-off (flag already false).
@@ -45,19 +54,24 @@ public sealed class SupervisionToggleService
     public SupervisionToggleService(
         EyeCtrlSettings settings,
         SupervisorBringUp bringUp,
+        SupervisorStartupEnsure startupEnsure,
         Action<bool> persistEnabled,
         Func<bool> supervisorInstalled,
+        Func<bool> isSupervisorConnected,
         Action reconcileRunKey,
         Action<Action> runInBackground,
         Action<Action> postToUi)
     {
         _settings = settings;
         _bringUp = bringUp;
+        _startupEnsure = startupEnsure;
         _persistEnabled = persistEnabled;
         _supervisorInstalled = supervisorInstalled;
+        _isSupervisorConnected = isSupervisorConnected;
         _reconcileRunKey = reconcileRunKey;
         _runInBackground = runInBackground;
         _postToUi = postToUi;
+        _lastReportedConnected = IsSupervisorConnected;
     }
 
     /// <summary>Raised whenever the row needs rebuilding (request start and completion).</summary>
@@ -72,6 +86,23 @@ public sealed class SupervisionToggleService
     /// <summary>True while a turn-on or turn-off is running; the toggle stays put until it completes.</summary>
     public bool InFlight => _inFlight;
 
+    /// <summary>Whether a Supervisor is answering AND supervision is on (ticket 07). Uses the
+    /// cached delivery freshness, not the on-disk flag alone.</summary>
+    public bool IsSupervisorConnected => _settings.Supervision.Enabled && _isSupervisorConnected();
+
+    /// <summary>
+    /// Ticket 07 addition C: cheap cached comparison for the settings window's refresh timer.
+    /// Raises <see cref="StateChanged"/> only when the answer actually changed, so dwell targets
+    /// never shift under a gaze that cannot fixate on a flapping row. No IPC.
+    /// </summary>
+    public void RefreshConnection()
+    {
+        var connected = IsSupervisorConnected;
+        if (connected == _lastReportedConnected) return;
+        _lastReportedConnected = connected;
+        StateChanged?.Invoke();
+    }
+
     /// <summary>The row's status line: progress, the last failure, or what the current state means.</summary>
     public string StatusText
     {
@@ -79,9 +110,12 @@ public sealed class SupervisionToggleService
         {
             if (_inFlight)
             {
-                return _turningOn
-                    ? "Turning on\u2026 this can take up to 15 seconds."
-                    : "Turning off\u2026";
+                return _kind switch
+                {
+                    RequestKind.Enabling => "Turning on\u2026 this can take up to 15 seconds.",
+                    RequestKind.Disabling => "Turning off\u2026",
+                    _ => "Starting the Supervisor\u2026"
+                };
             }
 
             if (_lastFailure is not null)
@@ -89,12 +123,20 @@ public sealed class SupervisionToggleService
                 return _lastFailure;
             }
 
-            // The off text describes the world where the Supervisor re-reads the flag at every
-            // recovery decision and stands down when it is false (ticket 06, which merges before
-            // this row): nothing restarts EyeCtrl after a crash, exactly as "Off" says.
-            return _settings.Supervision.Enabled
+            if (!_settings.Supervision.Enabled)
+            {
+                // The off text describes the world where the Supervisor re-reads the flag at every
+                // recovery decision and stands down when it is false (ticket 06): nothing restarts
+                // EyeCtrl after a crash, exactly as "Off" says.
+                return "Off \u2014 if EyeCtrl stops responding or crashes, it is not restarted automatically.";
+            }
+
+            // Ticket 07: enabled is only a promise while something is actually answering. After a
+            // reboot (or a Supervisor exit) the honest text is the second one, with the retry row
+            // next to it — claiming "On" with no watcher is the bug this ticket exists for.
+            return IsSupervisorConnected
                 ? "On \u2014 EyeCtrl restarts automatically if it stops responding or crashes."
-                : "Off \u2014 if EyeCtrl stops responding or crashes, it is not restarted automatically.";
+                : "On \u2014 but the Supervisor is not answering. Dwell Start Supervisor to try again.";
         }
     }
 
@@ -117,7 +159,7 @@ public sealed class SupervisionToggleService
             return;
         }
 
-        StartRequest(turningOn: true, () =>
+        StartRequest(RequestKind.Enabling, () =>
         {
             try
             {
@@ -141,6 +183,23 @@ public sealed class SupervisionToggleService
     }
 
     /// <summary>
+    /// Ticket 07: the row's retry, and the App's startup ensure. Runs the write-free
+    /// <see cref="SupervisorStartupEnsure"/> through the same in-flight latch as enable/disable —
+    /// the row shows "Starting the Supervisor…" while it runs, and a retry dwell during it cannot
+    /// start a second launch — and never persists or reconciles the Run key.
+    /// </summary>
+    public void RequestEnsure()
+    {
+        if (_inFlight || !_settings.Supervision.Enabled || IsSupervisorConnected)
+        {
+            return;
+        }
+
+        StartRequest(RequestKind.Ensuring, () =>
+            _startupEnsure.Run() ? null : "The Supervisor is not answering.");
+    }
+
+    /// <summary>
     /// Turns supervised lifecycle off for the next start: persists false through the sanctioned
     /// path and restores self-registration. A supervisor process that is already running is not
     /// stopped; it re-reads the flag at its next recovery decision and stands down, so nothing
@@ -154,7 +213,7 @@ public sealed class SupervisionToggleService
             return;
         }
 
-        StartRequest(turningOn: false, () =>
+        StartRequest(RequestKind.Disabling, () =>
         {
             // Persist first, in its own try. If the WRITE fails, disk still says enabled and the
             // live flag must keep matching it — the crash policy must describe the recovery that
@@ -187,10 +246,10 @@ public sealed class SupervisionToggleService
         });
     }
 
-    private void StartRequest(bool turningOn, Func<string?> work)
+    private void StartRequest(RequestKind kind, Func<string?> work)
     {
         _inFlight = true;
-        _turningOn = turningOn;
+        _kind = kind;
         _lastFailure = null;
         StateChanged?.Invoke();   // called on the UI thread: show progress before the wait
 
@@ -201,6 +260,10 @@ public sealed class SupervisionToggleService
             {
                 _inFlight = false;
                 _lastFailure = failure;
+                // Ticket 07 review F3: this completion has just told the row the new truth, so
+                // sync the refresh's baseline — otherwise the 2s timer sees the same transition
+                // and rebuilds again (once per toggle).
+                _lastReportedConnected = IsSupervisorConnected;
                 StateChanged?.Invoke();
             });
         });

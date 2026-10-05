@@ -51,14 +51,32 @@ public class RollingFaultBudgetTests
 public class DispatcherCrashPolicyTests
 {
     [Fact]
-    public void Supervised_AlwaysDies_EvenWithAFreshBudget()
+    public void SupervisedAndPresent_AlwaysDies_EvenWithAFreshBudget()
     {
-        // The crash-to-die contract: with supervision enabled, the supervisor's respawn owns
-        // recovery — the dispatcher fault must NEVER be contained.
+        // The crash-to-die contract: with supervision enabled AND a Supervisor actually answering,
+        // its respawn owns recovery — the dispatcher fault must NEVER be contained.
         var budget = new RollingFaultBudget(10, TimeSpan.FromSeconds(60), nowMs: () => 0);
 
-        Check.That(DispatcherCrashPolicy.ShouldKeepRunning(supervisionEnabled: true, budget)).IsFalse();
-        Check.That(DispatcherCrashPolicy.ShouldKeepRunning(supervisionEnabled: true, budget)).IsFalse();
+        Check.That(DispatcherCrashPolicy.ShouldKeepRunning(
+            supervisionEnabled: true, supervisorPresent: true, budget)).IsFalse();
+        Check.That(DispatcherCrashPolicy.ShouldKeepRunning(
+            supervisionEnabled: true, supervisorPresent: true, budget)).IsFalse();
+    }
+
+    [Fact]
+    public void SupervisedButAbsent_UsesTheStandaloneBudget_ThenDies()
+    {
+        // Ticket 07: enabled on disk with nobody answering (the post-reboot world) must NOT die
+        // for a respawn that will not come — the standalone budget contains the fault instead. A
+        // hard-looping UI still dies at exhaustion rather than wedging input invisibly.
+        var budget = new RollingFaultBudget(2, TimeSpan.FromSeconds(60), nowMs: () => 0);
+
+        Check.That(DispatcherCrashPolicy.ShouldKeepRunning(
+            supervisionEnabled: true, supervisorPresent: false, budget)).IsTrue();
+        Check.That(DispatcherCrashPolicy.ShouldKeepRunning(
+            supervisionEnabled: true, supervisorPresent: false, budget)).IsTrue();
+        Check.That(DispatcherCrashPolicy.ShouldKeepRunning(
+            supervisionEnabled: true, supervisorPresent: false, budget)).IsFalse();
     }
 
     [Fact]
@@ -66,8 +84,23 @@ public class DispatcherCrashPolicyTests
     {
         var budget = new RollingFaultBudget(2, TimeSpan.FromSeconds(60), nowMs: () => 0);
 
-        Check.That(DispatcherCrashPolicy.ShouldKeepRunning(supervisionEnabled: false, budget)).IsTrue();
-        Check.That(DispatcherCrashPolicy.ShouldKeepRunning(supervisionEnabled: false, budget)).IsTrue();
-        Check.That(DispatcherCrashPolicy.ShouldKeepRunning(supervisionEnabled: false, budget)).IsFalse();
+        Check.That(DispatcherCrashPolicy.ShouldKeepRunning(
+            supervisionEnabled: false, supervisorPresent: false, budget)).IsTrue();
+        Check.That(DispatcherCrashPolicy.ShouldKeepRunning(
+            supervisionEnabled: false, supervisorPresent: false, budget)).IsTrue();
+        Check.That(DispatcherCrashPolicy.ShouldKeepRunning(
+            supervisionEnabled: false, supervisorPresent: false, budget)).IsFalse();
+    }
+
+    [Fact]
+    public void DisabledEvenWithAPresentSupervisor_UsesTheStandaloneBudget()
+    {
+        // Ticket 07: the on-disk flag is the decision. A Supervisor that is still answering while
+        // supervision is OFF (standing down, or a stale delivery just inside the window) must not
+        // re-arm kill-for-respawn behind the user's back.
+        var budget = new RollingFaultBudget(1, TimeSpan.FromSeconds(60), nowMs: () => 0);
+
+        Check.That(DispatcherCrashPolicy.ShouldKeepRunning(
+            supervisionEnabled: false, supervisorPresent: true, budget)).IsTrue();
     }
 }

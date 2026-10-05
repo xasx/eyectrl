@@ -42,13 +42,14 @@ public class GeneralPageSourceResetDriftTests
             settings.Supervision.MaxRetries = 7;
             new SupervisionEnabledWriter(path).Persist(true);
 
-            var (_, toggle) = SupervisionComposition.Create(
+            var (_, toggle, _) = SupervisionComposition.Create(
                 settings, path, new FakeStartupRegistrar(),
                 enablePublishing: () => { },
                 launchSupervisor: () => false,
                 tryReachSupervisor: () => false,
                 isSupervisorInstalled: () => true,
                 isLaunchRegistered: () => true,
+                isSupervisorConnected: () => true,
                 runInBackground: work => work(),
                 postToUi: work => work());
 

@@ -165,6 +165,9 @@ public sealed class SupervisionStateMachine
                 State = SupervisorState.IdleWatch;
                 _supervisingSince = null;
                 _launchingSince = null;
+                // Ticket 07 review F2: the pipe was closed on entering FallenBack; reopen it BEFORE
+                // the retried app's first heartbeat (the app takes seconds to start).
+                _commands.Add(SupervisorCommand.StartListening);
                 break;
 
             case DeadlineElapsed when State == SupervisorState.CleanExitPending:
@@ -227,6 +230,9 @@ public sealed class SupervisionStateMachine
             // instance that dies on it. KillInitiated keeps the kill's Exited from re-escalating.
             if (forceKill) _commands.Add(SupervisorCommand.ForceKill);
             _commands.Add(SupervisorCommand.LaunchFallbackAt);
+            // Ticket 07 review F2: FallenBack has given up — stop accepting heartbeats, or the
+            // app's presence gate would stay armed for a respawn this Supervisor will never do.
+            _commands.Add(SupervisorCommand.StopListening);
         }
         else
         {

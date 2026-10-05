@@ -135,7 +135,10 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         DispatcherUnhandledException += (_, args) =>
         {
             Log.Error(args.Exception, "Unhandled supervisor dispatcher exception");
-            if (DispatcherCrashPolicy.ShouldKeepRunning(supervisionEnabled: false, _dispatcherFaultBudget))
+            // The watchdog itself has no watcher: supervisorPresent is always false, so the
+            // standalone budget applies exactly as before the ticket 07 signature change.
+            if (DispatcherCrashPolicy.ShouldKeepRunning(
+                    supervisionEnabled: false, supervisorPresent: false, _dispatcherFaultBudget))
                 args.Handled = true; // the watchdog stays up
             else
                 Log.Fatal("Supervisor dispatcher fault budget exhausted; giving up (hard loop).");
@@ -429,6 +432,19 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
                 case SupervisorCommand.LaunchFallbackAt:
                     // Handled by OnFallenBack (driven off the state transition, not the command,
                     // so the dialog is shown exactly once per entry into FallenBack).
+                    break;
+                case SupervisorCommand.StopListening:
+                    // Ticket 07 review F2: a FallenBack Supervisor has given up. Closing the pipe
+                    // makes the app's deliveries fail, so its presence gate stays standalone and
+                    // its row says "not answering" instead of promising a respawn that will not
+                    // come. StartListening reopens it on the dialog's Retry.
+                    Log.Information("StopListening: closing the heartbeat pipe (FallenBack).");
+                    _pipe?.Dispose();
+                    _pipe = null;
+                    break;
+                case SupervisorCommand.StartListening:
+                    Log.Information("StartListening: reopening the heartbeat pipe (retry).");
+                    EnsurePipeStartedAdoption();
                     break;
                 case SupervisorCommand.NotifyCleanExit:
                     Log.Information("NotifyCleanExit: app signalled authenticated clean shutdown.");

@@ -64,6 +64,7 @@ public sealed class HeartbeatPublisher : IDisposable
     // Cross-thread access (gaze thread writes lastFrameTicks, Dispatcher reads/writes)
     // uses Interlocked on a long (ticks), never a plain DateTime field.
     private long _lastFrameTicks = DateTime.UtcNow.Ticks;
+    private long _lastDeliveredTicks;   // 0 = no delivery ever (ticket 07)
     private HeartbeatPayload? _pending;          // next payload to send
     private readonly SemaphoreSlim _sendSignal = new(0, 1);
     private volatile bool _shuttingDown;
@@ -256,6 +257,37 @@ public sealed class HeartbeatPublisher : IDisposable
     public static readonly TimeSpan DefaultProbeWait = TimeSpan.FromMilliseconds(500);
 
     /// <summary>
+    /// Ticket 07: how long a delivered heartbeat vouches for the supervisor's presence. The
+    /// heartbeat stamps every 3 s, so 10 s is three periods plus margin, and it is deliberately
+    /// SHORTER than the supervisor's own <c>HangThresholdSeconds</c> (20 s default): the two
+    /// directions are asymmetric because the failure directions are. A false "present" makes the
+    /// app die for a respawn that will not come (the ticket's bug); a false "absent" only falls
+    /// back to the standalone budget, which contains the fault. Under thread-pool starvation a
+    /// late probe or send can read past the window and tip the app to standalone — the safe
+    /// direction, by design.
+    /// <para><c>HangThresholdSeconds</c> is user-settable down to 5 s, so "shorter than the hang
+    /// threshold" holds only at the default. With a threshold below 10 s the gate can stay armed
+    /// for a few seconds after the Supervisor has already declared the app hung; that is harmless,
+    /// because the Supervisor that declared it is alive and respawning.</para>
+    /// </summary>
+    public static readonly TimeSpan DeliveryFreshnessWindow = TimeSpan.FromSeconds(10);
+
+    /// <summary>When a heartbeat was last DELIVERED to the supervisor (UTC);
+    /// <see cref="DateTime.MinValue"/> when none ever was. Thread-safe (Interlocked ticks).</summary>
+    public DateTime LastDeliveredUtc =>
+        new(Interlocked.Read(ref _lastDeliveredTicks), DateTimeKind.Utc);
+
+    /// <summary>Whether a heartbeat was delivered within <paramref name="window"/> of
+    /// <paramref name="nowUtc"/> — the crash policy's presence signal (ticket 07). A delivery
+    /// exactly one window old still counts (expiry is strictly greater, like
+    /// <see cref="EyeCtrl.Core.Diagnostics.RollingFaultBudget"/>).</summary>
+    public bool WasRecentlyDelivered(DateTime nowUtc, TimeSpan window)
+    {
+        var last = new DateTime(Interlocked.Read(ref _lastDeliveredTicks), DateTimeKind.Utc);
+        return last != default && nowUtc - last <= window;
+    }
+
+    /// <summary>
     /// Starts publishing heartbeats, if not already. Idempotent.
     ///
     /// Called from the constructor when <c>Supervision.Enabled</c>, and again if the user
@@ -333,6 +365,13 @@ public sealed class HeartbeatPublisher : IDisposable
 
         var json = JsonSerializer.Serialize(payload, JsonOptions) + "\n";
         await client.WriteAsync(Encoding.UTF8.GetBytes(json), token).ConfigureAwait(false);
+
+        // Ticket 07: a payload reached the supervisor. This is the app's only positive evidence
+        // that a supervisor is present; the crash policy reads it (WasRecentlyDelivered) instead
+        // of trusting the on-disk flag. Set only after the write completes, so a failed or
+        // timed-out send never counts as presence. Interlocked: the writer loop and the probe run
+        // on pool threads; the fault handler reads on the UI thread.
+        Interlocked.Exchange(ref _lastDeliveredTicks, DateTime.UtcNow.Ticks);
         return true;
     }
 

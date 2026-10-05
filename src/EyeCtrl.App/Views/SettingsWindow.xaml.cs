@@ -260,6 +260,8 @@ public partial class SettingsWindow : OverlayWindow
     private readonly CalibrationService _calibrationService;
     private readonly AppRestartCoordinator _restartCoordinator;
     private readonly SupervisionToggleService _supervisionToggle;
+    /// <summary>Ticket 07: 2s presence refresh while this window is open (change-only rebuilds).</summary>
+    private readonly SupervisionPresenceRefresher _supervisionRefresher;
     private readonly UserDictionaryService? _dictionaryService;
     private readonly int _dwellMs;
     private readonly SettingsPagerRearmGuard _pagerRearmGuard;
@@ -474,12 +476,21 @@ public partial class SettingsWindow : OverlayWindow
         // close — a recreated window must not accumulate handlers.
         _supervisionToggle.StateChanged += OnSupervisionStateChanged;
 
+        // Ticket 07: while the window is open, re-read the cached Supervisor presence every 2s so
+        // a mid-session Supervisor exit (or a late startup ensure) reaches the row. RefreshConnection
+        // raises StateChanged only on a real change, so dwell targets never flap under a gaze that
+        // cannot fixate. No IPC: the read is the cached delivery timestamp. Extracted (F5) so the
+        // tick and the stop-on-close are pinned by SupervisionPresenceRefresherTests.
+        _supervisionRefresher = new SupervisionPresenceRefresher(_supervisionToggle.RefreshConnection);
+        _supervisionRefresher.Start();
+
         // Dispose ViewModel on window close
         Closed += (_, _) =>
         {
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
             _viewModel.Settings.PropertyChanged -= OnSettingsViewModelPropertyChanged;
             _supervisionToggle.StateChanged -= OnSupervisionStateChanged;
+            _supervisionRefresher.Stop();
             // The models source subscribed to the singleton management service's progress
             // event; the window is recreated per open, so leaving the subscription live
             // would accumulate one handler per settings visit.
@@ -921,8 +932,14 @@ public partial class SettingsWindow : OverlayWindow
     // ────── Pagination ──────
 
     /// <summary>The supervision toggle's progress and outcome arrive already marshaled to the UI
-    /// thread; a rebuild re-reads the toggle, the status line and any failure reason.</summary>
-    private void OnSupervisionStateChanged() => RebuildContent();
+    /// thread. Ticket 07 review F3: rebuild only while the General tab is showing — a rebuild
+    /// resets the open tab's in-progress dwells, the other tabs do not show these rows, and the
+    /// next switch to General rebuilds the content anyway, so the change is never lost.</summary>
+    private void OnSupervisionStateChanged()
+    {
+        if (SupervisionRebuildPolicy.ShouldRebuildNow(_viewModel.Settings.CurrentTabName))
+            RebuildContent();
+    }
 
     private void RebuildContent()
     {

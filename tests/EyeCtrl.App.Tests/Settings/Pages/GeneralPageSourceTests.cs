@@ -70,13 +70,14 @@ public class GeneralPageSourceTests
         try
         {
             var settings = new EyeCtrlSettings();
-            var (_, toggle) = SupervisionComposition.Create(
+            var (_, toggle, _) = SupervisionComposition.Create(
                 settings, path, new FakeStartupRegistrar(),
                 enablePublishing: () => { },
                 launchSupervisor: () => true,
                 tryReachSupervisor: () => true,
                 isSupervisorInstalled: () => true,
                 isLaunchRegistered: () => true,
+                isSupervisorConnected: () => true,
                 runInBackground: work => work(),
                 postToUi: work => work());
 
@@ -99,13 +100,97 @@ public class GeneralPageSourceTests
         }
     }
 
+    // ── Ticket 07: the honest row and its retry ──────────────────────────────
+
+    [Fact]
+    public void General_EnabledButNotConnected_ShowsTheRetryAndTheHonestStatus()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Supervision.Enabled = true;
+        var ctx = TestSettingsPageContext.Build(
+            settings: settings, supervision: BuildSupervision(settings, available: true, connected: false));
+        var rows = new GeneralPageSource(ctx).Build().Single().Rows;
+
+        Check.That(rows.OfType<ToggleSpec>().Single(t => t.Id == "g_supervision").Get()).IsTrue();
+        var retry = rows.OfType<ButtonSpec>().Single(b => b.Id == "g_supervision_retry");
+        Check.That(retry.Width).IsEqualTo(300);     // aimable, sized like the Restart button
+        Check.That(retry.Height).IsEqualTo(100);
+        Check.That(rows.OfType<LabelSpec>().Any(l => l.Text().Contains("not answering"))).IsTrue();
+    }
+
+    [Fact]
+    public void General_EnabledAndConnected_HasNoRetry()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.Supervision.Enabled = true;
+        var ctx = TestSettingsPageContext.Build(
+            settings: settings, supervision: BuildSupervision(settings, available: true, connected: true));
+        var rows = new GeneralPageSource(ctx).Build().Single().Rows;
+
+        Check.That(rows.OfType<ButtonSpec>().Any(b => b.Id == "g_supervision_retry")).IsFalse();
+        Check.That(rows.OfType<LabelSpec>().Any(l => l.Text().StartsWith("On"))).IsTrue();
+    }
+
+    [Fact]
+    public void General_Disabled_HasNoRetry()
+    {
+        var settings = new EyeCtrlSettings();
+        var ctx = TestSettingsPageContext.Build(
+            settings: settings, supervision: BuildSupervision(settings, available: true, connected: false));
+        var rows = new GeneralPageSource(ctx).Build().Single().Rows;
+
+        Check.That(rows.OfType<ButtonSpec>().Any(b => b.Id == "g_supervision_retry")).IsFalse();
+    }
+
+    [Fact]
+    public void General_TheRetryButton_RunsTheEnsure_NotAReEnable()
+    {
+        // Ticket 07: a retry taken while enabled must run the write-free ensure. The old shape —
+        // routing the retry to RequestEnable — is a silent no-op (RequestEnable returns when the
+        // flag is already true), so a dead button; this pins the live path instead.
+        var path = Path.Combine(Path.GetTempPath(), $"eyectrl_t07_row_{Guid.NewGuid()}.json");
+        try
+        {
+            var settings = new EyeCtrlSettings();
+            settings.Supervision.Enabled = true;
+            var steps = new System.Collections.Generic.List<string>();
+            var probes = 0;
+            var (_, toggle, _) = SupervisionComposition.Create(
+                settings, path, new FakeStartupRegistrar(),
+                enablePublishing: () => steps.Add("ensure-publish"),
+                launchSupervisor: () => { steps.Add("ensure-launch"); return true; },
+                tryReachSupervisor: () => ++probes > 1,   // absent at first, answering after launch
+                isSupervisorInstalled: () => true,
+                isLaunchRegistered: () => true,
+                isSupervisorConnected: () => false,
+                runInBackground: work => work(),
+                postToUi: work => work());
+
+            var ctx = TestSettingsPageContext.Build(settings: settings, supervision: toggle);
+            var retry = new GeneralPageSource(ctx).Build().Single().Rows
+                .OfType<ButtonSpec>().Single(b => b.Id == "g_supervision_retry");
+
+            retry.OnActivate();
+
+            Check.That(steps).Contains("ensure-publish");
+            Check.That(steps).Contains("ensure-launch");
+            Check.That(toggle.Enabled).IsTrue();   // the retry never flips the row
+        }
+        finally
+        {
+            File.Delete(path);
+            File.Delete(path + ".tmp");
+        }
+    }
+
     private sealed class FakeStartupRegistrar : IStartupRegistrar
     {
         public bool IsRegistered => true;
         public void SetStartOnBoot(bool enabled) { }
     }
 
-    private static SupervisionToggleService BuildSupervision(EyeCtrlSettings settings, bool available) =>
+    private static SupervisionToggleService BuildSupervision(
+        EyeCtrlSettings settings, bool available, bool connected = false) =>
         new(settings,
             new SupervisorBringUp(
                 settings,
@@ -114,8 +199,14 @@ public class GeneralPageSourceTests
                 persistEnabled: _ => { },
                 reconcileRunKey: () => { },
                 tryReachSupervisor: () => false),
+            new SupervisorStartupEnsure(
+                settings,
+                enablePublishing: () => { },
+                launchSupervisor: () => false,
+                tryReachSupervisor: () => false),
             persistEnabled: _ => { },
             supervisorInstalled: () => available,
+            isSupervisorConnected: () => connected,
             reconcileRunKey: () => { },
             runInBackground: work => work(),
             postToUi: work => work());

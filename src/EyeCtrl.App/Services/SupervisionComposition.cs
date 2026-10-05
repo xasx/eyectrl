@@ -33,6 +33,20 @@ public static class SupervisionComposition
             isLaunchRegistered()));
 
     /// <summary>
+    /// Ticket 07 (re-check addition A): the crash policy's presence predicate, produced HERE so the
+    /// fault handler only calls it. A mutant forcing presence true/false (or dropping the freshness
+    /// window) is then a composition-level mutation covered by tests, not untestable App glue.
+    /// </summary>
+    /// <param name="lastDeliveredUtc">When a heartbeat was last DELIVERED; null when never.</param>
+    /// <param name="utcNow">The clock read at fault time.</param>
+    /// <param name="window">The freshness window (<see cref="HeartbeatPublisher.DeliveryFreshnessWindow"/>).</param>
+    public static Func<bool> CreateSupervisorPresencePredicate(
+        Func<DateTime?> lastDeliveredUtc,
+        Func<DateTime> utcNow,
+        TimeSpan window) =>
+        () => lastDeliveredUtc() is { } last && utcNow() - last <= window;
+
+    /// <summary>
     /// The production Run-key reconciler: binds the real registration probe. App.xaml.cs uses
     /// this for the startup reconciliation and the StartOnBoot handler, and
     /// <see cref="CreateForProduction"/> uses it for both consumers of the composition, so no
@@ -45,14 +59,17 @@ public static class SupervisionComposition
             settings, startupRegistrar, () => SupervisorLaunchRegistration.IsRegistered);
 
     /// <summary>
-    /// Composes the bring-up and the toggle over the given settings file. Both persist through the
-    /// sanctioned <see cref="SupervisionEnabledWriter.Persist"/> — the App writer's
-    /// <see cref="SettingsService.Save"/> would overlay the on-disk Supervision section and
-    /// silently discard the flip.
+    /// Composes the bring-up, the toggle and the startup ensure over the given settings file.
+    /// Both writers persist through the sanctioned <see cref="SupervisionEnabledWriter.Persist"/>
+    /// — the App writer's <see cref="SettingsService.Save"/> would overlay the on-disk Supervision
+    /// section and silently discard the flip.
     /// </summary>
-    /// <returns>The shared bring-up and the Settings-row toggle, wired to the same sanctioned
-    /// writer and the same live Run-key reconciler.</returns>
-    public static (SupervisorBringUp BringUp, SupervisionToggleService Toggle) Create(
+    /// <param name="isSupervisorConnected">Cheap cached read of the delivery freshness (no IPC);
+    /// the row's truthful status and retry condition. The active pipe probe is
+    /// <paramref name="tryReachSupervisor"/>.</param>
+    /// <returns>The shared bring-up, the toggle and the write-free startup ensure.</returns>
+    public static (SupervisorBringUp BringUp, SupervisionToggleService Toggle, SupervisorStartupEnsure StartupEnsure)
+        Create(
         EyeCtrlSettings settings,
         string settingsFilePath,
         IStartupRegistrar startupRegistrar,
@@ -61,13 +78,14 @@ public static class SupervisionComposition
         Func<bool> tryReachSupervisor,
         Func<bool> isSupervisorInstalled,
         Func<bool> isLaunchRegistered,
+        Func<bool> isSupervisorConnected,
         Action<Action> runInBackground,
         Action<Action> postToUi)
     {
         var reconcileRunKey = CreateRunKeyReconciler(settings, startupRegistrar, isLaunchRegistered);
         return Compose(
             settings, settingsFilePath, reconcileRunKey, enablePublishing, launchSupervisor,
-            tryReachSupervisor, isSupervisorInstalled, runInBackground, postToUi);
+            tryReachSupervisor, isSupervisorInstalled, isSupervisorConnected, runInBackground, postToUi);
     }
 
     /// <summary>
@@ -76,32 +94,40 @@ public static class SupervisionComposition
     /// <see cref="SupervisorLauncher.IsExecutablePresent"/> and
     /// <c>SupervisorLaunchRegistration.IsRegistered</c> — so a call site cannot accidentally pass
     /// a wrong answer for them (a <c>() =&gt; true</c> registration probe would hand the HKCU Run
-    /// key to a Scheduled Task that does not exist: a lockout at the next logon). Only the live
-    /// instance collaborators (publishing, the pipe probe, marshalling) are injected.
+    /// key to a Scheduled Task that does not exist: a lockout at the next logon).
     /// </summary>
-    /// <returns>The bring-up, the toggle, and the live Run-key reconciler they share — the
-    /// reconciler is returned so a test can drive the exact production binding.</returns>
-    public static (SupervisorBringUp BringUp, SupervisionToggleService Toggle, Action ReconcileRunKey)
+    /// <param name="publisher">The app's heartbeat publisher, read lazily (null before OnStartup
+    /// creates it). Ticket 07 review F1: this is the SINGLE source for publishing, the pipe probe,
+    /// the crash handler's presence predicate and the row's connected read — no second hand-written
+    /// freshness lambda exists to drift.</param>
+    /// <returns>The bring-up, the toggle, the live Run-key reconciler they share, and the presence
+    /// predicate <c>App.xaml.cs</c> hands to the crash handler.</returns>
+    public static (SupervisorBringUp BringUp, SupervisionToggleService Toggle, Action ReconcileRunKey, Func<bool> IsSupervisorPresent)
         CreateForProduction(
             EyeCtrlSettings settings,
             string settingsFilePath,
             IStartupRegistrar startupRegistrar,
-            Action enablePublishing,
-            Func<bool> tryReachSupervisor,
+            Func<HeartbeatPublisher?> publisher,
             Action<Action> runInBackground,
             Action<Action> postToUi)
     {
         var reconcileRunKey = CreateProductionRunKeyReconciler(settings, startupRegistrar);
-        var (bringUp, toggle) = Compose(
-            settings, settingsFilePath, reconcileRunKey, enablePublishing,
+        var isSupervisorPresent = CreateSupervisorPresencePredicate(
+            () => publisher()?.LastDeliveredUtc,
+            () => DateTime.UtcNow,
+            HeartbeatPublisher.DeliveryFreshnessWindow);
+        var (bringUp, toggle, _) = Compose(
+            settings, settingsFilePath, reconcileRunKey,
+            enablePublishing: () => publisher()?.EnablePublishing(),
             launchSupervisor: SupervisorLauncher.TryLaunch,
-            tryReachSupervisor,
+            tryReachSupervisor: () => publisher()?.TryReachSupervisor() ?? false,
             isSupervisorInstalled: () => SupervisorLauncher.IsExecutablePresent,
+            isSupervisorConnected: isSupervisorPresent,
             runInBackground, postToUi);
-        return (bringUp, toggle, reconcileRunKey);
+        return (bringUp, toggle, reconcileRunKey, isSupervisorPresent);
     }
 
-    private static (SupervisorBringUp BringUp, SupervisionToggleService Toggle) Compose(
+    private static (SupervisorBringUp BringUp, SupervisionToggleService Toggle, SupervisorStartupEnsure StartupEnsure) Compose(
         EyeCtrlSettings settings,
         string settingsFilePath,
         Action reconcileRunKey,
@@ -109,6 +135,7 @@ public static class SupervisionComposition
         Func<bool> launchSupervisor,
         Func<bool> tryReachSupervisor,
         Func<bool> isSupervisorInstalled,
+        Func<bool> isSupervisorConnected,
         Action<Action> runInBackground,
         Action<Action> postToUi)
     {
@@ -122,15 +149,23 @@ public static class SupervisionComposition
             reconcileRunKey,
             tryReachSupervisor);
 
+        var startupEnsure = new SupervisorStartupEnsure(
+            settings,
+            enablePublishing,
+            launchSupervisor,
+            tryReachSupervisor);
+
         var toggle = new SupervisionToggleService(
             settings,
             bringUp,
+            startupEnsure,
             writer.Persist,
             isSupervisorInstalled,
+            isSupervisorConnected,
             reconcileRunKey,
             runInBackground,
             postToUi);
 
-        return (bringUp, toggle);
+        return (bringUp, toggle, startupEnsure);
     }
 }

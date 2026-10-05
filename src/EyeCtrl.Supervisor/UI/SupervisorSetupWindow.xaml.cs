@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using EyeCtrl.Controls;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.Supervisor.Supervision;
 using Media = System.Windows.Media;
 
 /// <summary>
@@ -36,6 +37,10 @@ public partial class SupervisorSetupWindow : Window
     private readonly Action<EyeCtrlSettings> _saveChanges;
     private readonly Action _launchAppNow;
 
+    /// <summary>The enable value as on disk when this window opened, plus the save-time re-read:
+    /// the running supervisor's startup snapshot can predate the App's Settings-row write.</summary>
+    private readonly SupervisionSetupEnabledState _enabledState;
+
     /// <summary>
     /// Constructs the setup window.
     /// </summary>
@@ -58,6 +63,12 @@ public partial class SupervisorSetupWindow : Window
         _settingsService = settingsService;
         _saveChanges = saveChanges;
         _launchAppNow = launchAppNow;
+
+        // The window opens on the CURRENT on-disk value, not the supervisor's startup snapshot:
+        // the App's Settings row may have turned supervision on since this process loaded. The
+        // state object applies the value to the snapshot itself, so this call is the whole
+        // wiring and cannot be half-done.
+        _enabledState = new SupervisionSetupEnabledState(settingsService, settings);
 
         InitializeComponent();
         PopulateFallbackList();
@@ -157,6 +168,11 @@ public partial class SupervisorSetupWindow : Window
             _settings.Supervision.MaxRetries = maxRetries;
         if (int.TryParse(HangThresholdBox.Text, out var hangThreshold))
             _settings.Supervision.HangThresholdSeconds = hangThreshold;
+
+        // enabled is the one key the App may also write (its sanctioned exception). Re-read disk
+        // at save and keep the on-disk value unless the user changed the toggle in THIS window,
+        // so a save cannot silently write the stale startup value back.
+        _settings.Supervision.Enabled = _enabledState.ResolveForSave(_settings.Supervision.Enabled);
 
         try
         {

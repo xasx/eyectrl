@@ -68,6 +68,13 @@ public class EventCoordinator : IEventCoordinator
         _settingsUi!.SetRestartCoordinator(coordinator);
     }
 
+    /// <summary>Hands the supervision toggle (ticket 04) to the settings window at construction.</summary>
+    public void SetSupervisionToggle(SupervisionToggleService service)
+    {
+        RequireInitialized(nameof(SetSupervisionToggle));
+        _settingsUi!.SetSupervisionToggle(service);
+    }
+
     /// <summary>
     /// Guards the sub-coordinator forwards that carry startup state (model services, restart
     /// coordinator, keyboard load). Throws when <see cref="Initialize"/> has not run, so a

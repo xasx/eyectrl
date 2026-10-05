@@ -39,6 +39,10 @@ public class SettingsService
     /// whose ownership is split across writers today.</summary>
     private const string SupervisionSectionName = "supervision";
 
+    /// <summary>JSON property name of the one Supervision key the App may write through
+    /// <see cref="SaveSupervisionEnabled"/>.</summary>
+    private const string SupervisionEnabledKey = "enabled";
+
     private CancellationTokenSource? _debounceCts;
     private readonly object _debounceLock = new();
     private const int DebounceMs = 500;
@@ -620,6 +624,103 @@ public class SettingsService
         finally
         {
             if (owned) mutex.ReleaseMutex();
+        }
+    }
+
+    /// <summary>
+    /// Persists ONLY <c>supervision.enabled</c> — the single App→Supervision ownership exception.
+    /// </summary>
+    /// <remarks>
+    /// The App cannot persist the Supervision section (see <see cref="SettingsWriter"/>): an
+    /// App-writer <see cref="Save"/> overlays the raw on-disk section, which is what stops a stale
+    /// in-memory snapshot from clobbering the Supervisor's values — and is why the App's own flip
+    /// of this flag was silently discarded whenever a valid section existed. This method is the
+    /// sanctioned way around that: it edits the one key on the raw on-disk JSON under the same
+    /// cross-process mutex as <see cref="Save"/>, preserving every other key — in the section and
+    /// in every other section, unknown/future keys included — so it can never clash with the
+    /// Supervisor's own edits to its other values.
+    /// <para>
+    /// Must be called on an instance constructed with <see cref="SettingsWriter.Supervisor"/>: the
+    /// guard makes the ownership exception explicit in code rather than an accident of wiring.
+    /// The App calls it, for exactly this one key; nothing else in the section is the App's to write.
+    /// </para>
+    /// </remarks>
+    /// <param name="enabled">Whether supervised process lifecycle is on.</param>
+    /// <exception cref="InvalidOperationException">
+    /// This instance is not a <see cref="SettingsWriter.Supervisor"/> writer, or the on-disk file
+    /// exists but cannot be read as a JSON object. Editing in place would have to discard what
+    /// cannot be read, which is not this method's call to make — a whole-file write is
+    /// <see cref="Save"/>'s.
+    /// </exception>
+    public void SaveSupervisionEnabled(bool enabled)
+    {
+        if (_writer != SettingsWriter.Supervisor)
+        {
+            throw new InvalidOperationException(
+                "SaveSupervisionEnabled is the App's single write into the Supervision section and "
+                + "must be called on a SettingsService constructed with SettingsWriter.Supervisor.");
+        }
+
+        // The same cross-process mutex Save uses: this is a read-edit-write of the shared file,
+        // and a concurrent Supervisor save must either precede or follow it, never interleave.
+        using var mutex = new Mutex(false, WriterMutexName);
+        bool owned = false;
+        try
+        {
+            mutex.WaitOne();
+            owned = true;
+
+            // Read the raw baseline: the whole point of this write is "one key changes, everything
+            // else stays". An unreadable, unparseable, or non-object file has nothing safe to edit,
+            // so fail instead of guessing — the file is left untouched for the caller to report.
+            JsonObject root;
+            if (File.Exists(_filePath))
+            {
+                var json = File.ReadAllText(_filePath);
+                root = ParseObjectForEdit(json);
+            }
+            else
+            {
+                root = new JsonObject();
+            }
+
+            // A NON-OBJECT section (scalar, array, null) is replaced by a minimal valid one: the
+            // flag cannot be written through it, and the section was unusable in its current
+            // form. An OBJECT section with bad values is edited in place — the load-time repair
+            // heals it on the next App save. Everything outside the section is still preserved
+            // verbatim.
+            if (root[SupervisionSectionName] is not JsonObject supervision)
+            {
+                supervision = new JsonObject();
+                root[SupervisionSectionName] = supervision;
+            }
+
+            supervision[SupervisionEnabledKey] = enabled;
+
+            var directory = Path.GetDirectoryName(_filePath);
+            if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+            var tmp = _filePath + ".tmp";
+            File.WriteAllText(tmp, root.ToJsonString(JsonOptions));
+            File.Move(tmp, _filePath, overwrite: true);
+        }
+        finally
+        {
+            if (owned) mutex.ReleaseMutex();
+        }
+    }
+
+    private JsonObject ParseObjectForEdit(string json)
+    {
+        try
+        {
+            return JsonNode.Parse(json) as JsonObject
+                ?? throw new InvalidOperationException(
+                    $"Cannot edit supervision.enabled: {_filePath} is not a JSON object.");
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException(
+                $"Cannot edit supervision.enabled: {_filePath} is not valid JSON.", ex);
         }
     }
 

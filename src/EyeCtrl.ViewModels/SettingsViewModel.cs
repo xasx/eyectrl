@@ -42,16 +42,26 @@ public partial class SettingsViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Restores every sub-setting (plus SelectionMode and ViewPosition) from a fresh
+    /// Restores every App-owned sub-setting (plus SelectionMode and ViewPosition) from a fresh
     /// default <see cref="EyeCtrlSettings"/>. Callers follow with ApplyAndSave +
     /// RebuildContent, so no UI refresh happens here.
+    ///
+    /// <para><b>Supervision is deliberately skipped.</b> The App does not own that section
+    /// (<c>SettingsWriter.Supervisor</c>): its enable flag is written only through the sanctioned
+    /// exception, and crash recovery is turned off through the supervision row's RequestDisable
+    /// (persist + Run-key), never a bulk reset. Resetting it in memory would disarm the running
+    /// app's crash policy while disk and the Supervisor stayed on.</para>
     /// </summary>
     public void ResetAllSettings()
     {
         var defaults = new EyeCtrlSettings();
         var defaultSubs = defaults.EnumerateSubSettings().ToDictionary(t => t.Name, t => t.Settings);
         foreach (var (name, sub) in _settings.EnumerateSubSettings())
+        {
+            if (name == nameof(EyeCtrlSettings.Supervision))
+                continue;
             CopySettings(defaultSubs[name], sub);
+        }
         _settings.SelectionMode = defaults.SelectionMode;
         _settings.ViewPosition = defaults.ViewPosition;
         CurrentPage = 0;

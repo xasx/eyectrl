@@ -10,6 +10,20 @@ using EyeCtrl.App.Views.Settings;
 /// </summary>
 internal static class SettingsPageResetDriftGuard
 {
+    /// <summary>
+    /// Settings-row ids deliberately outside the reset contract, keyed by id, each with the
+    /// reason. An entry here is a decision: the row binds a setting the page's reset must NOT
+    /// restore. Absence from here and from the page's rows is an accident of the page.
+    /// </summary>
+    internal static readonly Dictionary<string, string> NotResetByPageReset = new(StringComparer.Ordinal)
+    {
+        ["g_supervision"] =
+            "Supervisor-owned (SettingsWriter.Supervisor): the App may write only supervision.enabled, "
+            + "and turning crash recovery off must go through the row's RequestDisable (sanctioned "
+            + "persist + Run-key reconcile), never a bulk in-memory reset — pinned by "
+            + "GeneralPageSourceResetDriftTests.ResetGeneral_WithSupervisionAvailable_LeavesSupervisionUntouched",
+    };
+
     internal static void ResetRestoresEverySettingsRow(
         Func<SettingsPageContext, IReadOnlyList<PageSpec>> build,
         string resetButtonId, string pageName)
@@ -31,9 +45,9 @@ internal static class SettingsPageResetDriftGuard
             $"No settings rows were enumerated from the {pageName} page's Build() — the guard "
             + "would pass vacuously. Either the page stopped rendering settings rows or "
             + "IsSettingsRow went stale.")
-            .That(rows.Where(IsSettingsRow).ToList()).Not.IsEmpty();
+            .That(rows.Where(IsGuardableRow).ToList()).Not.IsEmpty();
 
-        foreach (var row in rows.Where(IsSettingsRow))
+        foreach (var row in rows.Where(IsGuardableRow))
         {
             Perturb(row);
             // A row whose Set is dead or mis-wired reads its default before AND after the
@@ -52,7 +66,7 @@ internal static class SettingsPageResetDriftGuard
 
         // Read back through a fresh Build — the same path RebuildContent takes in the window.
         var drifted = build(ctx).SelectMany(p => p.Rows)
-            .Where(IsSettingsRow)
+            .Where(IsGuardableRow)
             .Select(r => (Id: r.Id, Got: Read(r)))
             .Where(x => !expected.TryGetValue(x.Id, out var def) || !Equals(x.Got, def))
             .Select(x => expected.TryGetValue(x.Id, out var def)
@@ -95,11 +109,16 @@ internal static class SettingsPageResetDriftGuard
     private static bool IsSettingsRow(SettingsRowSpec r) =>
         SettingsKinds.Any(k => k.IsInstanceOfType(r));
 
+    /// <summary>A row the guard perturbs and reads back: a settings kind the page's reset must
+    /// restore. Rows in <see cref="NotResetByPageReset"/> are excluded by decision, not by kind.</summary>
+    private static bool IsGuardableRow(SettingsRowSpec r) =>
+        IsSettingsRow(r) && !NotResetByPageReset.ContainsKey(r.Id);
+
     /// <summary>The page's getter view over a fresh default settings object: row Id → value.</summary>
     private static Dictionary<string, object> DefaultViewByRowId(
         Func<SettingsPageContext, IReadOnlyList<PageSpec>> build) =>
         build(TestSettingsPageContext.Build())
-            .SelectMany(p => p.Rows).Where(IsSettingsRow)
+            .SelectMany(p => p.Rows).Where(IsGuardableRow)
             .ToDictionary(r => r.Id, Read);
 
     private static object Read(SettingsRowSpec r) => r switch

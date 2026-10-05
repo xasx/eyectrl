@@ -24,12 +24,21 @@ internal sealed class SettingsPageContext
     public AppRestartCoordinator Restart { get; }
 
     /// <summary>
+    /// The General tab's supervision toggle (ticket 04), or null in a degraded host (headless test
+    /// contexts, any host without the app-lifetime wiring). A null service makes the General page
+    /// omit the supervision row entirely — there is nothing to drive.
+    /// </summary>
+    public SupervisionToggleService? Supervision { get; }
+
+    /// <summary>
     /// Learned-words management for the Keyboard tab's dictionary page (prediction controls #22).
     /// Null in the headless test context (and any degraded host): the Keyboard page then builds
     /// without its dictionary page.
     /// </summary>
     public UserDictionaryService? Dictionary { get; }
 
+    /// <param name="supervision">The General tab's supervision toggle (ticket 04); null in a
+    /// degraded host, which makes that page omit the supervision row.</param>
     /// <param name="showModal"><c>(message, onYes)</c> — the two-button Yes/No modal. A thin wrapper
     /// over <see cref="ViewModel"/><c>.ShowModal(message, onYes)</c>; kept on the context for
     /// call-site readability. The General tab's three-choice modal bypasses it and calls
@@ -48,6 +57,7 @@ internal sealed class SettingsPageContext
         EyeCtrlSettings settings, SettingsWindowViewModel viewModel,
         ModelRegistryService registry, ModelManagementService modelManagement,
         CalibrationService calibration, IMessenger messenger, AppRestartCoordinator restart,
+        SupervisionToggleService? supervision,
         UserDictionaryService? dictionary,
         Action<string, Action> showModal, Action<string> showError,
         Action applyAndSave, Action rebuildContent, Action<Action> invoke, Action close,
@@ -60,6 +70,7 @@ internal sealed class SettingsPageContext
         Calibration = calibration;
         Messenger = messenger;
         Restart = restart;
+        Supervision = supervision;
         Dictionary = dictionary;
         ShowModal = showModal;
         ShowError = showError;

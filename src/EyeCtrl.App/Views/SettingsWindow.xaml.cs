@@ -259,6 +259,7 @@ public partial class SettingsWindow : OverlayWindow
     private readonly IMessenger _messenger;
     private readonly CalibrationService _calibrationService;
     private readonly AppRestartCoordinator _restartCoordinator;
+    private readonly SupervisionToggleService _supervisionToggle;
     private readonly UserDictionaryService? _dictionaryService;
     private readonly int _dwellMs;
     private readonly SettingsPagerRearmGuard _pagerRearmGuard;
@@ -335,8 +336,6 @@ public partial class SettingsWindow : OverlayWindow
     // INTENTIONALLY NOT EXPOSED in the settings UI (audit this list when adding settings):
     //  - ManualSelection.Enabled (driven by SelectionMode; the Selection tab owns the mode)
     //  - Keyboard ML/model settings (CustomModels etc. — managed by the model registry; Models tab)
-    //  - Supervision — its UI is SupervisorSetupWindow in the supervisor process; the App
-    //    cannot persist that section (SettingsWriter.Supervisor owns it)
     // Everything else in EyeCtrlSettings.EnumerateSubSettings() should have a tab/control here.
     private readonly (string Id, string Icon, string Label, string Description)[] _tabDefs;
     private readonly Dictionary<string, ISettingsPageSource> _sources = new();
@@ -350,6 +349,7 @@ public partial class SettingsWindow : OverlayWindow
         IMessenger messenger,
         CalibrationService calibrationService,
         AppRestartCoordinator restartCoordinator,
+        SupervisionToggleService supervisionToggle,
         UserDictionaryService? dictionaryService = null)
     {
         InitializeComponent();
@@ -368,6 +368,7 @@ public partial class SettingsWindow : OverlayWindow
         _messenger = messenger;
         _calibrationService = calibrationService;
         _restartCoordinator = restartCoordinator;
+        _supervisionToggle = supervisionToggle;
         _dictionaryService = dictionaryService;
         _dwellMs = settings.Dwell.ToolbarButtonDwellMs;
 
@@ -468,11 +469,17 @@ public partial class SettingsWindow : OverlayWindow
         // Mouse fallback for close button
         CloseButton.MouseLeftButtonDown += (_, _) => Close();
 
+        // The supervision toggle outlives this window (app-lifetime service): subscribe for the
+        // window's lifetime so its progress and outcome rebuild the row, and drop the handler on
+        // close — a recreated window must not accumulate handlers.
+        _supervisionToggle.StateChanged += OnSupervisionStateChanged;
+
         // Dispose ViewModel on window close
         Closed += (_, _) =>
         {
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
             _viewModel.Settings.PropertyChanged -= OnSettingsViewModelPropertyChanged;
+            _supervisionToggle.StateChanged -= OnSupervisionStateChanged;
             // The models source subscribed to the singleton management service's progress
             // event; the window is recreated per open, so leaving the subscription live
             // would accumulate one handler per settings visit.
@@ -484,7 +491,7 @@ public partial class SettingsWindow : OverlayWindow
         // bag carries the view-delegate seam (ShowModal etc.) so sources stay WPF-free.
         _ctx = new SettingsPageContext(
             _settings, _viewModel, _registryService, _modelManagementService,
-            _calibrationService, _messenger, _restartCoordinator, _dictionaryService,
+            _calibrationService, _messenger, _restartCoordinator, _supervisionToggle, _dictionaryService,
             ShowModal, ShowError, ApplyAndSave, RebuildContent, a => Dispatcher.Invoke(a), Close,
             () => System.Windows.Clipboard.GetText() ?? "");
         _cursorSource = new CursorPageSource(_ctx);
@@ -912,6 +919,10 @@ public partial class SettingsWindow : OverlayWindow
     }
 
     // ────── Pagination ──────
+
+    /// <summary>The supervision toggle's progress and outcome arrive already marshaled to the UI
+    /// thread; a rebuild re-reads the toggle, the status line and any failure reason.</summary>
+    private void OnSupervisionStateChanged() => RebuildContent();
 
     private void RebuildContent()
     {

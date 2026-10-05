@@ -45,6 +45,7 @@ internal sealed class RecordingSettingsPageContext
         ModelManagementService? modelManagement = null,
         CalibrationService? calibration = null,
         string clipboard = "",
+        SupervisionToggleService? supervision = null,
         UserDictionaryService? dictionary = null)
     {
         // Recipients are kept alive by `this` for the scope of the test (WeakReferenceMessenger
@@ -62,6 +63,7 @@ internal sealed class RecordingSettingsPageContext
             calibration ?? new CalibrationService(),
             _messenger,
             restart: null!,
+            supervision: supervision,
             dictionary: dictionary,
             showModal: CaptureModal,
             showError: message => { _errors.Add(message); _log.Add(ErrorEntry); },

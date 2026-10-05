@@ -18,7 +18,7 @@
                 BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="0,0,0,1">
             <Grid Margin="20,0">
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Left">
-                    <TextBlock x:Name="MessageText" Text="👁 Time for an eye break"
+                    <TextBlock x:Name="MessageText"
                                Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeSubtitle}" FontWeight="{StaticResource FontWeightMedium}"/>
                     <TextBlock x:Name="SubText" Text="You've been fixating for a while"
                                Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeBody}" Margin="0,2,0,0"/>

@@ -31,8 +31,8 @@ public sealed class SupervisionStateMachine
     /// <param name="windowSeconds">The sliding crash-window length (seconds) over which strikes are counted.</param>
     /// <remarks>
     /// hangThresholdSeconds, startupGraceSeconds, and the windowReset interval are NOT machine state — the
-    /// orchestrator (Program.cs) enforces them directly via its clock tick (PeriodicCheckStale /
-    /// PeriodicCheckStartupGrace / PeriodicCheckSurvivedWindow) reading SettingsService. They were removed
+    /// orchestrator enforces them directly via its clock tick (<see cref="SupervisionClock"/>'s
+    /// HeartbeatStale / StartupGraceElapsed / SurvivedCrashWindow) reading SettingsService. They were removed
     /// from this constructor to avoid implying the machine enforces them.
     /// </remarks>
     public SupervisionStateMachine(int maxRetries, int windowSeconds)

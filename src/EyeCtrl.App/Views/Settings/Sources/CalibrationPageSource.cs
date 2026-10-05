@@ -31,7 +31,7 @@ internal sealed class CalibrationPageSource : ISettingsPageSource
                 new ColorPickerSpec("cal_color", "Target Color",
                     () => cal.TargetColor, v => { cal.TargetColor = v; _ctx.ApplyAndSave(); },
                     SettingsWindow.ColorSwatchRadius)
-                    { Description = "Colour of the calibration target. Applies after a restart." },
+                    { Description = "Color of the calibration target. Applies after a restart." },
             ]),
             new PageSpec([
                 new LabelSpec(StatusText),

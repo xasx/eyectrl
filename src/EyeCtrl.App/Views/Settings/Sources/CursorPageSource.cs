@@ -40,7 +40,7 @@ internal sealed class CursorPageSource : ISettingsPageSource
                         () => c.CircleColor,
                         v => { c.CircleColor = v; _ctx.ApplyAndSave(); },
                         SettingsWindow.ColorSwatchRadius)
-                        { Description = "The cursor ring’s colour; every preset stays clearly visible." },
+                        { Description = "The cursor ring’s color; every preset stays clearly visible." },
             ]),
             new PageSpec([
                 new ComboBoxSpec("c_ring_style", "Ring Style",
@@ -63,7 +63,7 @@ internal sealed class CursorPageSource : ISettingsPageSource
                 new SliderSpec("c_opacity", "Circle Opacity", 0.1, 1, 0.1, 1,
                     () => c.CircleOpacity,
                     v => { c.CircleOpacity = v; _ctx.ApplyAndSave(); })
-                    { Description = "Lowering this dims the coloured half of the ring's edge, which is what keeps it visible." },
+                    { Description = "Lowering this dims the colored half of the ring's edge, which is what keeps it visible." },
                 new SliderSpec("c_thick", "Circle Thickness", 1, 6, 0.5, 1,
                     () => c.CircleThickness,
                     v => { c.CircleThickness = v; _ctx.ApplyAndSave(); })

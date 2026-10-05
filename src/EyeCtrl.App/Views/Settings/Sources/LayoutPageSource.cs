@@ -19,7 +19,7 @@ internal sealed class LayoutPageSource : ISettingsPageSource
                     new[] { "At Gaze", "At Center" }, null,
                     () => s.ViewPosition == ViewPosition.AtGaze ? "At Gaze" : "At Center",
                     v => { s.ViewPosition = v == "At Gaze" ? ViewPosition.AtGaze : ViewPosition.AtCenter; _ctx.ApplyAndSave(); })
-                    { Description = "The action menu and magnifier: at your gaze, or centred." },
+                    { Description = "The action menu and magnifier: at your gaze, or centered." },
                 new ButtonSpec("lay_reset", "Reset Layout Settings",
                     () => _ctx.ShowModal("Reset Layout settings to defaults?", () =>
                     {

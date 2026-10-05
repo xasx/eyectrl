@@ -39,7 +39,7 @@ internal sealed class SelectionPageSource : ISettingsPageSource
                 new ColorPickerSpec("s_highlight", "Highlight Color",
                     () => s.AutoSelection.HighlightColor, v => { s.AutoSelection.HighlightColor = v; _ctx.ApplyAndSave(); },
                     SettingsWindow.ControlBtnRadius)
-                    { Description = "Colour of the box around an auto-selected control." },
+                    { Description = "Color of the box around an auto-selected control." },
                 new SliderSpec("s_highlightThickness", "Highlight Thickness", 1, 10, 1, 0,
                     () => s.AutoSelection.HighlightThickness, v => { s.AutoSelection.HighlightThickness = v; _ctx.ApplyAndSave(); })
                     { Description = "Line weight of that auto-selection box." },
@@ -51,9 +51,9 @@ internal sealed class SelectionPageSource : ISettingsPageSource
                 new SliderSpec("s_gi_outer", "Gaze Ring Diameter (px)", 20, 200, 5, 0,
                     () => s.ManualSelection.GazeIndicatorOuterDiameter, v => { s.ManualSelection.GazeIndicatorOuterDiameter = v; _ctx.ApplyAndSave(); })
                     { Description = "Diameter of the ring shown at your gaze; applies from the next selection." },
-                new SliderSpec("s_gi_dot", "Centre Dot (px)", 2, 40, 1, 0,
+                new SliderSpec("s_gi_dot", "Center Dot (px)", 2, 40, 1, 0,
                     () => s.ManualSelection.GazeIndicatorCenterDotDiameter, v => { s.ManualSelection.GazeIndicatorCenterDotDiameter = v; _ctx.ApplyAndSave(); })
-                    { Description = "Diameter of the dot at the centre of the gaze ring; applies after a restart." },
+                    { Description = "Diameter of the dot at the center of the gaze ring; applies after a restart." },
                 new SliderSpec("s_gi_stroke", "Ring Stroke (px)", 0.5, 10, 0.5, 1,
                     () => s.ManualSelection.GazeIndicatorStrokeThickness, v => { s.ManualSelection.GazeIndicatorStrokeThickness = v; _ctx.ApplyAndSave(); })
                     { Description = "Thickness of the gaze ring's outline; applies after a restart." },

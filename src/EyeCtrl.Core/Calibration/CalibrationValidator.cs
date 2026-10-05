@@ -293,11 +293,11 @@ public static class CalibrationValidator
         var ny = target.Y / screenSize.Y;
 
         string vertical = ny <= 1.0 / 3.0 ? "top" : ny >= 2.0 / 3.0 ? "bottom" : "middle";
-        string horizontal = nx <= 1.0 / 3.0 ? "left" : nx >= 2.0 / 3.0 ? "right" : "centre";
+        string horizontal = nx <= 1.0 / 3.0 ? "left" : nx >= 2.0 / 3.0 ? "right" : "center";
 
-        if (vertical == "middle" && horizontal == "centre") return "the centre point";
+        if (vertical == "middle" && horizontal == "center") return "the center point";
         if (vertical == "middle") return $"the {horizontal} point";
-        if (horizontal == "centre") return $"the {vertical} point";
+        if (horizontal == "center") return $"the {vertical} point";
         return $"the {vertical}-{horizontal} point";
     }
 

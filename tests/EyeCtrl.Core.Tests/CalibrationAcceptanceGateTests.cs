@@ -202,7 +202,7 @@ public class CalibrationAcceptanceGateTests
             CalibrationValidator.FindQualityFailures(Identity(), points, Screen));
 
         Check.That(message).Contains("the top-left point");
-        Check.That(message).Contains("the centre point");
+        Check.That(message).Contains("the center point");
         Check.That(message).Contains("the bottom-right point");
         Check.That(message).Contains("misses it by");
         Check.That(message).Contains("scattered");

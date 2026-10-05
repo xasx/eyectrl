@@ -196,7 +196,7 @@ public sealed class SupervisionToggleService
         }
 
         StartRequest(RequestKind.Ensuring, () =>
-            _startupEnsure.Run() ? null : "The Supervisor could not be started.");
+            _startupEnsure.Run() ? null : "The Supervisor is not answering.");
     }
 
     /// <summary>

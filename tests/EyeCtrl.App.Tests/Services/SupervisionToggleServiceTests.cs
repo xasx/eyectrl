@@ -326,7 +326,9 @@ public class SupervisionToggleServiceTests
         Check.That(h.Steps).Contains("ensure-launch");
         Check.That(h.Steps).Not.Contains("persist:True");
         Check.That(h.Steps).Not.Contains("runkey");
-        Check.That(h.Service.StatusText).Contains("could not be started");
+        // Re-check 1 nit: a launch that did happen (or a Supervisor silent in FallenBack) is not
+        // "could not be started" — the row must not misstate it.
+        Check.That(h.Service.StatusText).IsEqualTo("The Supervisor is not answering.");
     }
 
     [Fact]

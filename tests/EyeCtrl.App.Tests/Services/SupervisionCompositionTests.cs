@@ -226,7 +226,10 @@ public class SupervisionCompositionTests
             var settings = new EyeCtrlSettings();
             settings.Supervision.Enabled = true;
             var pipeName = "eyectrl_watch_test_" + Guid.NewGuid().ToString("N");
-            using var publisher = new HeartbeatPublisher(supervised: false, pipeName: pipeName)
+            // Generous probe wait: 500 ms is a UI budget, not a latency guarantee under a starved
+            // thread pool (HeartbeatPublisher.DefaultProbeWait).
+            using var publisher = new HeartbeatPublisher(
+                supervised: false, pipeName: pipeName, probeWait: TimeSpan.FromSeconds(5))
             {
                 TrustAnyServerForTests = true
             };
@@ -241,14 +244,15 @@ public class SupervisionCompositionTests
             Check.That(presence()).IsFalse();
             Check.That(toggle.IsSupervisorConnected).IsFalse();
 
-            // The startup ensure/retry start through the latch; the queued work is never run here
-            // because the production overload binds the REAL SupervisorLauncher.TryLaunch.
+            // The startup ensure/retry start through the latch.
             toggle.RequestEnsure();
             Check.That(toggle.InFlight).IsTrue();
             Check.That(toggle.StatusText).StartsWith("Starting the Supervisor");
             Check.That(pending).HasSize(1);
 
-            // Phase 2: a delivery reaches a test server; crash predicate and row both flip.
+            // Phase 2 (re-check N1): run the QUEUED ensure work against the trusted test server, so
+            // the COMPOSED publish and probe bindings are what execute. The composed probe delivers
+            // to the server, so Run returns true and the REAL TryLaunch is never reached.
             using var server = new NamedPipeServerStream(
                 pipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
             var received = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -266,13 +270,19 @@ public class SupervisionCompositionTests
                 catch (Exception ex) { received.TrySetException(ex); }
             }, testToken);
 
-            publisher.EnablePublishing();
-            publisher.SignalShuttingDown();
-            var completed = await Task.WhenAny(received.Task, Task.Delay(TimeSpan.FromSeconds(5), testToken));
-            Check.That(completed == received.Task).IsTrue();
+            Check.That(pending).HasSize(1);
+            pending[0]();   // composed publish -> composed probe (delivered)
 
+            var completed = await Task.WhenAny(received.Task, Task.Delay(TimeSpan.FromSeconds(5), testToken));
+            Check.That(completed == received.Task).IsTrue();   // F1e: a forced-true probe delivers nothing
+            Check.That(await received.Task).Contains("pid");   // the server got the real probe payload
+            Check.That(publisher.IsPublishing).IsTrue();       // F1f: the composed publish binding ran
+
+            Check.That(toggle.InFlight).IsFalse();
             Check.That(presence()).IsTrue();
             Check.That(toggle.IsSupervisorConnected).IsTrue();
+            Check.That(toggle.StatusText)
+                .IsEqualTo("On \u2014 EyeCtrl restarts automatically if it stops responding or crashes.");
         }
         finally
         {

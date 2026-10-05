@@ -1,6 +1,8 @@
 namespace EyeCtrl.Controls;
 
 using System;
+using System.Globalization;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -290,7 +292,7 @@ public class DwellArcButton
         // Centres the icon and its label together rather than centring the icon alone. With no
         // label this reduces to center.Y - iconSize / 2, which is what
         // DwellArcButtonIconTests.TheIcon_IsCentredOnTheButton pins.
-        var iconTop = center.Y - (iconSize + stackGap + labelHeight) / 2;
+        var iconTop = center.Y + StackTopOffset(iconSize, stackGap, labelHeight);
 
         Path? iconStrokePath = null;
         Path? iconFillPath = null;
@@ -340,6 +342,82 @@ public class DwellArcButton
 
         return new DwellArcButton(bg, rimHalo, haloPath, progressPath, haloSegment, arcSegment, symbolText, iconStrokePath, iconFillPath, labelText, center, arcRad);
     }
+
+    /// <summary>
+    /// The clearance, in DIP, between <paramref name="label"/>'s ink box and the progress arc's
+    /// inner edge for a button of <paramref name="diameter"/> whose label is stacked under a drawn
+    /// icon (<paramref name="stackedUnderIcon"/>) or centred alone. Positive means every ink-box
+    /// corner stays inside the arc; negative means at least one crosses it.
+    ///
+    /// <para>
+    /// This is the production half of the modes menu's all-or-none label decision
+    /// (<c>ModesMenuWindow</c>). It reads the same tokens <see cref="Create"/> draws with and its
+    /// stack top comes from the shared <see cref="StackTopOffset"/>, so the decision cannot drift
+    /// from the drawing. The rendered check lives in the test suite's <c>ArcLabelFit</c>, which
+    /// measures the drawn <see cref="TextBlock"/> independently — a bug in this arithmetic cannot
+    /// certify itself.
+    /// </para>
+    ///
+    /// <para>
+    /// The references match <c>ArcLabelFit</c>'s ink box: vertical extent from
+    /// <see cref="FormattedText.BuildGeometry"/> (descenders count; empty line space does not),
+    /// horizontal extent from <see cref="FormattedText.Width"/> — the line's advance width, which
+    /// is what <see cref="TextAlignment.Center"/> centres and what the laid-out label's character
+    /// rects span. The measurement is a DIP-space description of the glyphs; Ideal text formatting
+    /// makes it independent of the device pixel grid (the app never switches formatting mode, and
+    /// the test helper guards the Ideal mode it assumes).
+    /// </para>
+    /// </summary>
+    public static double LabelInkClearance(double diameter, string label, bool stackedUnderIcon)
+    {
+        ArgumentNullException.ThrowIfNull(label);
+
+        var radius = diameter / 2;
+        var arcThicknessActual = Math.Max(diameter * ArcThicknessRatio, MinArcThickness);
+        var innerEdge = radius - DefaultArcInset - arcThicknessActual / 2;
+
+        var typeface = new Typeface(
+            Tokens.FontStandard, FontStyles.Normal, Tokens.FontWeightMedium, FontStretches.Normal);
+        var formatted = new FormattedText(
+            label,
+            CultureInfo.CurrentUICulture,
+            FlowDirection.LeftToRight,
+            typeface,
+            Tokens.FontSizeSubtitle,
+            Tokens.BrushTextPrimary,
+            pixelsPerDip: 1.0);
+
+        // Ink box relative to the line box's top-left, which is where the TextBlock is placed.
+        var ink = formatted.BuildGeometry(new Point(0, 0)).Bounds;
+
+        var iconSize = stackedUnderIcon ? diameter * ContainerRatio.Medium : 0;
+        var stackGap = stackedUnderIcon ? diameter * LabelGapRatio : 0;
+        var labelTop = StackTopOffset(
+            iconSize, stackGap, Tokens.FontSizeSubtitle * LabelLineHeightRatio) + iconSize + stackGap;
+
+        var halfWidth = formatted.Width / 2;
+        var top = labelTop + ink.Top;
+        var bottom = labelTop + ink.Bottom;
+
+        var corners = new[]
+        {
+            new Point(-halfWidth, top),
+            new Point(halfWidth, top),
+            new Point(-halfWidth, bottom),
+            new Point(halfWidth, bottom),
+        };
+        var furthest = corners.Max(c => Math.Sqrt(c.X * c.X + c.Y * c.Y));
+
+        return innerEdge - furthest;
+    }
+
+    /// <summary>
+    /// Centre-to-top offset of the icon/label stack <see cref="Create"/> centres on the button.
+    /// The measurement above calls it with the same arguments the drawing does, so the fit
+    /// decision can never quietly model a different stack from the one drawn.
+    /// </summary>
+    private static double StackTopOffset(double iconSize, double stackGap, double labelHeight)
+        => -(iconSize + stackGap + labelHeight) / 2;
 
     public void UpdateProgress(double progress)
     {

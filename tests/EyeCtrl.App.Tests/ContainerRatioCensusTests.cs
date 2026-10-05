@@ -141,9 +141,11 @@ public class ContainerRatioCensusTests
                     + "icon-only, so the icon IS the button's entire content — the situation "
                     + "Dominant names. 140 x 0.45 = 63px. Half of a ternary since 2026-08-26: "
                     + "the same line picks Medium once a label shares the face."),
-                ("Medium", 1, "the icon on a 140px action-menu button that is ALSO showing a "
+                ("Medium", 2, "the icon on a 140px action-menu button that is ALSO showing a "
                     + "label — the icon is no longer the button's entire content, so Dominant "
-                    + "stops applying. 140 x 0.32 = 44.8px."),
+                    + "stops applying. 140 x 0.32 = 44.8px. The second read is LabelInkClearance "
+                    + "modelling that same label-stack icon, so the modes-menu fit decision "
+                    + "measures what Create draws."),
             ],
         };
 

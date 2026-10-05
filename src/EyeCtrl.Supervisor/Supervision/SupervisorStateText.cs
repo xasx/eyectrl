@@ -2,9 +2,9 @@ namespace EyeCtrl.Supervisor.Supervision;
 
 /// <summary>
 /// The caretaker-facing phrase for each <see cref="SupervisorState"/>, shared by the tray tooltip and the
-/// setup window's status line. Deliberately exhaustive with no default arm: adding a state must break at
-/// the mapping (a <see cref="System.Runtime.CompilerServices.SwitchExpressionException"/> at runtime),
-/// never fall back to a phrase that names the wrong state.
+/// setup window's status line. Deliberately exhaustive: adding a state must break at the mapping (the
+/// discard arm throws <see cref="ArgumentOutOfRangeException"/>) rather than fall back to a phrase that
+/// names the wrong state.
 /// </summary>
 internal static class SupervisorStateText
 {
@@ -21,5 +21,7 @@ internal static class SupervisorStateText
         SupervisorState.Recovering => "restarting EyeCtrl",
         SupervisorState.CleanExitPending => "EyeCtrl is closing",
         SupervisorState.FallenBack => "EyeCtrl stopped — backup program running",
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(state), state, "No caretaker phrase for this SupervisorState."),
     };
 }

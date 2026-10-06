@@ -200,14 +200,15 @@ public static class ActionIcons
             + " M10.1,12 A1.9,1.9 0 1 1 13.9,12 A1.9,1.9 0 1 1 10.1,12 Z"
             + " M16.5,12 A1.9,1.9 0 1 1 20.3,12 A1.9,1.9 0 1 1 16.5,12 Z"),
 
-        // A solid X (user pick C2, 2026-10-06): fat round-ended arms, no outline. The one target
-        // that must read as "none of the above", so it borrows no part of the mouse silhouette
-        // the actions share. Fill-only, like More.
+        // A solid X with a lighter 2.26-unit arm (live-check revision, 2026-10-07): the same
+        // construction as the user's C2 pick, whose 3.2-unit arm read as too bold on the real
+        // edge bar. The one target that must read as "none of the above", so it borrows no part
+        // of the mouse silhouette the actions share. Fill-only, like More.
         [ActionIcon.Close] = IconGeometry.FromPathData(
             null,
-            "M6.73,4.47 L12,9.74 L17.27,4.47 A1.6,1.6 0 0 1 19.53,6.73 L14.26,12 L19.53,17.27"
-            + " A1.6,1.6 0 0 1 17.27,19.53 L12,14.26 L6.73,19.53 A1.6,1.6 0 0 1 4.47,17.27"
-            + " L9.74,12 L4.47,6.73 A1.6,1.6 0 0 1 6.73,4.47 Z"),
+            "M6.33,4.73 L12,10.4 L17.67,4.73 A1.13,1.13 0 0 1 19.27,6.33 L13.6,12 L19.27,17.67"
+            + " A1.13,1.13 0 0 1 17.67,19.27 L12,13.6 L6.33,19.27 A1.13,1.13 0 0 1 4.73,17.67"
+            + " L10.4,12 L4.73,6.33 A1.13,1.13 0 0 1 6.33,4.73 Z"),
 
         // The bold question mark (user pick H1): a 4.2-radius hook with a low stem, and the dot —
         // the only filled part. Bigger and rounder than the old hook so it holds at 40px.

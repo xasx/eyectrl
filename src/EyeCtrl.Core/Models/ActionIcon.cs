@@ -49,7 +49,7 @@ public enum ActionIcon
     More,
     /// <summary>A bold question mark — toggles the action names on. Navigation, not an action.</summary>
     Help,
-    /// <summary>A solid X — dismisses the menu without performing anything. Navigation, not an action.</summary>
+    /// <summary>A solid X with a light arm — dismisses the menu without performing anything. Navigation, not an action.</summary>
     Close,
     /// <summary>A keyboard with key rows and a space bar — the ring's show-keyboard action.</summary>
     Keyboard,

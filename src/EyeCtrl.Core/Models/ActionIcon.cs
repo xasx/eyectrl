@@ -21,15 +21,15 @@ namespace EyeCtrl.Core.Models;
 /// </summary>
 public enum ActionIcon
 {
-    /// <summary>Mouse with its left button filled.</summary>
+    /// <summary>Mouse whose left button is a solid piece lifted out of the outline ("popped").</summary>
     LeftClick,
-    /// <summary>Mouse with its right button filled.</summary>
+    /// <summary>Mouse whose right button is a solid piece lifted out of the outline ("popped").</summary>
     RightClick,
-    /// <summary>Left button filled, two click ripples off the upper-left, and a "2" at the right margin.</summary>
+    /// <summary>Two mice, the back one peeking out up-left — the outline itself says "twice".</summary>
     DoubleClick,
-    /// <summary>Mouse with the wheel button filled — the pressed middle button.</summary>
+    /// <summary>Mouse whose wheel pillar rises through the body's socket — the pressed middle button.</summary>
     MiddleClick,
-    /// <summary>Left button filled, with motion bars trailing at the left.</summary>
+    /// <summary>Mouse with the left button popped out and motion bars trailing at the left.</summary>
     Drag,
     /// <summary>Mouse with a wheel and an up chevron at the right margin.</summary>
     ScrollUp,
@@ -47,15 +47,15 @@ public enum ActionIcon
     Back,
     /// <summary>Three dots — opens the ring's second layer. Navigation, not an action.</summary>
     More,
-    /// <summary>A question mark — toggles the action names on. Navigation, not an action.</summary>
+    /// <summary>A bold question mark — toggles the action names on. Navigation, not an action.</summary>
     Help,
-    /// <summary>An X — dismisses the menu without performing anything. Navigation, not an action.</summary>
+    /// <summary>A solid X — dismisses the menu without performing anything. Navigation, not an action.</summary>
     Close,
     /// <summary>A keyboard with key rows and a space bar — the ring's show-keyboard action.</summary>
     Keyboard,
     /// <summary>A keyboard with up and down chevrons — flips the keyboard between screen edges.</summary>
     KeyboardEdge,
-    /// <summary>A clockwise rotation arrow — captures the screen region again. The drawn replacement for the ↻ glyph.</summary>
+    /// <summary>A camera with a clockwise arrow — captures the screen region again. Not a mouse: it re-shoots, not clicks.</summary>
     Recapture,
     /// <summary>An up-arrow modifier keycap — the Shift button on the left-edge mod bar.</summary>
     Shift,

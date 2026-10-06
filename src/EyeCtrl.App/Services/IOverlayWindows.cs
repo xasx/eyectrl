@@ -82,9 +82,9 @@ public interface ICursorCircleOverlay
     void UpdateAppearance(CursorSettings settings);
 
     /// <summary>
-    /// Dims the ring while interaction is paused. Paused no longer hides the ring — a visible,
-    /// dimmed ring is how the user sees that tracking is alive and where their gaze is while they
-    /// look for the resume target.
+    /// Dims the ring for the paused state. The VM hides the ring while paused (the PauseIndicator
+    /// strip is the pause feedback); the dim remains the state's look should the window ever be
+    /// shown while paused anyway — a direct show path must not present the quiet FreeLook ring.
     /// </summary>
     void SetPausedDim(bool dimmed);
 

@@ -12,11 +12,11 @@ namespace EyeCtrl.Controls.Theme;
 /// **Named for containers, not glyphs**, because it also covers keyboard letters and
 /// prediction words, for which "glyph" would be wrong.
 ///
-/// **Two members are named for a role, three for a magnitude.** `Badge` and `Dominant` name
-/// situations, not sizes — check them first. `Large`/`Medium`/`Small` name relative weight
-/// inside an ordinary container. That mixed axis is deliberate: `Badge` is the *largest*
-/// ratio but serves the app's *smallest* container (26px), so a magnitude name would invert
-/// the reader's mental model. Size intuition alone will pick wrong.
+/// **Three members are named for a role, three for a magnitude.** `Badge`, `Solo` and
+/// `Dominant` name situations, not sizes — check them first. `Large`/`Medium`/`Small` name
+/// relative weight inside an ordinary container. That mixed axis is deliberate: `Badge` is the
+/// *largest* ratio but serves the app's *smallest* container (26px), so a magnitude name would
+/// invert the reader's mental model. Size intuition alone will pick wrong.
 ///
 /// Deliberately NOT theme tokens: a ratio describes a geometric relationship, and no palette
 /// changes it. If one ever needs to vary per theme it can move to <see cref="ITheme"/> the
@@ -32,6 +32,28 @@ public static class ContainerRatio
     /// illegible. Observed: <c>DragTrailOverlay</c>'s grab/release icons at 16/26 = 0.615.
     /// </summary>
     public const double Badge = 0.60;
+
+    /// <summary>
+    /// A drawn icon that is the WHOLE content of its disc on one of the two gaze-target surfaces
+    /// (the modes menu and the icon-only edge buttons), with no label beside it to share the face.
+    /// Larger than <see cref="Dominant"/> because those discs hold nothing else — and the user's
+    /// toolbar can be as small as 40px, where an icon at Dominant reads as a stamp in a wide ring.
+    ///
+    /// <para>
+    /// 0.58 is a measured ceiling, not a taste: it is the largest ratio at which every icon in the
+    /// redesigned set keeps the required +2 DIP clearance to the progress arc's inner edge at the
+    /// smallest supported size (40px). The tightest, Double click's two mice at +2.34 DIP, sets it
+    /// — see the Phase-1 clearance table and the icon-fit test that sweeps 40–200.
+    /// </para>
+    ///
+    /// <para>
+    /// Scoped by construction: <see cref="Dominant"/> still sizes the toolbar, the ring and the
+    /// quick-actions grid, which must not move. A caller takes this ratio only by asking
+    /// <see cref="EyeCtrl.Controls.DwellArcButton.Create"/>'s <c>IconSize.Solo</c>, which refuses a
+    /// label — the ratio names a label-less face.
+    /// </para>
+    /// </summary>
+    public const double Solo = 0.58;
 
     /// <summary>
     /// A 40–50px chrome affordance whose entire content is one glyph, with no label beside

@@ -12,6 +12,7 @@ using System.Windows.Shapes;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.Controls;
+using EyeCtrl.Controls.Icons;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
@@ -23,7 +24,7 @@ using EyeCtrl.ViewModels;
 /// full button width and would fail every word, "Flip" included.
 ///
 /// <para>
-/// <b>Two assertions, reported as data.</b> The caller asserts:
+/// <b>Three assertions, reported as data.</b> The caller asserts:
 /// <list type="number">
 /// <item><description>
 /// <b>Fit.</b> <see cref="ArcLabelFitResult.ClearanceDip"/> is at least
@@ -36,6 +37,11 @@ using EyeCtrl.ViewModels;
 /// icon paths' bounds or the symbol's box. This is the assertion that catches the actual Recapture
 /// defect, which the fit rule alone cannot see: the label was drawn over the glyph but sat inside
 /// the arc, so a fit-only test stayed green.
+/// </description></item>
+/// <item><description>
+/// <b>Icon fit.</b> <see cref="ArcLabelFitResult.IconClearanceDip"/> is at least
+/// <see cref="RequiredClearanceDip"/> — the icon's real drawn ink (flattened outlines plus half
+/// the stroke, walked point by point) stays that far inside the arc. Box corners are never used.
 /// </description></item>
 /// </list>
 /// </para>
@@ -70,12 +76,12 @@ internal static class ArcLabelFit
     private const double AnchorLogicalY = 500.0;
 
     /// <summary>
-    /// Builds one edge-bar button for <paramref name="definition"/> through the production
-    /// window and measures its label. Must run on an STA thread.
+    /// Builds one edge-bar button for <paramref name="definition"/> through the production window
+    /// — <c>ShowButtons</c> + <c>SyncButtons</c>, laid out by hand — and returns the real button
+    /// and its canvas. Must run on an STA thread. Shared by <see cref="Measure"/> and the UIA-name
+    /// checks, so both inspect the same production-drawn control.
     /// </summary>
-    /// <param name="definition">The definition to render; its Label is what gets measured.</param>
-    /// <returns>The measurement, including the resolved font face for the caller to log.</returns>
-    internal static ArcLabelFitResult Measure(EdgeButtonDefinition definition)
+    internal static (DwellArcButton Button, Canvas Canvas) BuildButton(EdgeButtonDefinition definition)
     {
         var vm = new EdgeButtonBarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
         var window = new EdgeButtonBarWindow { DataContext = vm };
@@ -92,6 +98,18 @@ internal static class ArcLabelFit
         canvas.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         canvas.Arrange(new Rect(new Point(0, 0), canvas.DesiredSize));
 
+        return (window.DrawnButtons[definition.Id], canvas);
+    }
+
+    /// <summary>
+    /// Measures the button <see cref="BuildButton"/> built: the label's ink fit and overlap, and
+    /// the icon's real-ink clearance to the arc.
+    /// </summary>
+    /// <param name="definition">The definition to render; its Label and Icon are what get measured.</param>
+    /// <returns>The measurement, including the resolved font face for the caller to log.</returns>
+    internal static ArcLabelFitResult Measure(EdgeButtonDefinition definition)
+    {
+        var (_, canvas) = BuildButton(definition);
         var radius = definition.RadiusLogical;
         var dia = radius * 2;
         var background = canvas.Children.OfType<Ellipse>()
@@ -100,6 +118,7 @@ internal static class ArcLabelFit
 
         var label = LabelOf(definition, canvas);
         var symbol = SymbolOf(definition, canvas, label);
+        var iconPaths = IconPathsOf(canvas);
 
         return BuildResult(
             definition.Id,
@@ -109,8 +128,9 @@ internal static class ArcLabelFit
             ink: label is null ? Rect.Empty : InkBoxOf(label),
             centre,
             InnerEdgeOf(radius),
-            IconBoundsOf(canvas.Children.OfType<Path>().Where(p => p.RenderTransform is ScaleTransform)),
+            IconBoundsOf(iconPaths),
             BoundsOf(symbol),
+            iconPaths,
             FaceOf(label, symbol));
     }
 
@@ -127,6 +147,7 @@ internal static class ArcLabelFit
             Canvas.GetLeft(button.Background) + radius,
             Canvas.GetTop(button.Background) + radius);
         var ink = button.Label is null ? Rect.Empty : InkBoxOf(button.Label);
+        var iconPaths = IconPathsOf(button).ToList();
 
         return BuildResult(
             buttonId,
@@ -136,14 +157,16 @@ internal static class ArcLabelFit
             ink,
             centre,
             InnerEdgeOf(radius),
-            IconBoundsOf(IconPathsOf(button)),
+            IconBoundsOf(iconPaths),
             BoundsOf(button.Symbol),
+            iconPaths,
             FaceOf(button.Label, button.Symbol));
     }
 
     private static ArcLabelFitResult BuildResult(
         string buttonId, bool hasLabel, bool hasIcon, bool hasSymbol,
-        Rect ink, Point centre, double innerEdge, Rect iconBounds, Rect symbolBounds, string face)
+        Rect ink, Point centre, double innerEdge, Rect iconBounds, Rect symbolBounds,
+        IReadOnlyList<Path> iconPaths, string face)
         => new(
             buttonId,
             hasLabel,
@@ -154,6 +177,7 @@ internal static class ArcLabelFit
             innerEdge,
             Overlaps(ink, iconBounds),
             Overlaps(ink, symbolBounds),
+            IconInkClearanceOf(iconPaths, centre, innerEdge),
             face);
 
     private static double InnerEdgeOf(double radius)
@@ -167,6 +191,14 @@ internal static class ArcLabelFit
         if (button.IconStroke is not null) yield return button.IconStroke;
         if (button.IconFill is not null) yield return button.IconFill;
     }
+
+    /// <summary>
+    /// The icon layers off a built button canvas. The ScaleTransform filter is the same rule
+    /// <see cref="IconBoundsOf"/> used inline: only Create's icon layers carry one, while the
+    /// halo and progress arc paths do not.
+    /// </summary>
+    private static IReadOnlyList<Path> IconPathsOf(Canvas canvas)
+        => canvas.Children.OfType<Path>().Where(p => p.RenderTransform is ScaleTransform).ToList();
 
     private static Rect BoundsOf(TextBlock? text)
         => text is null
@@ -262,6 +294,84 @@ internal static class ArcLabelFit
         return bounds;
     }
 
+    /// <summary>
+    /// The clearance, in DIP, between the icon's INK and the arc's inner edge: the farthest point
+    /// of the real drawn geometry — flattened outlines, plus half the stroke — from the button
+    /// centre, subtracted from the inner edge. Positive means every drawn point is inside the arc.
+    /// NaN when the button has no icon.
+    ///
+    /// <para>
+    /// Bounding-box corners are deliberately NOT used: an icon's box corner can cross the arc
+    /// while every drawn point stays well inside (rejecting a correctly sized glyph), and a
+    /// box-based rule can also accept a spiky shape whose box happens to fit. This walks the ink.
+    /// </para>
+    /// </summary>
+    private static double IconInkClearanceOf(
+        IReadOnlyList<Path> paths, Point centre, double innerEdge)
+    {
+        if (paths.Count == 0) return double.NaN;
+
+        var clearance = double.PositiveInfinity;
+        foreach (var path in paths)
+        {
+            var scale = path.RenderTransform as ScaleTransform
+                ?? throw new InvalidOperationException(
+                    "An icon path lost the ScaleTransform Create gives it; ArcLabelFit would then "
+                    + "measure its unscaled grid radius, not the drawn ink.");
+            // Half the stroke sits outside the path's own outline; the RenderTransform scales it
+            // with the geometry. Both are grid units, so the sum scales once.
+            var halfStroke = path.Stroke is null ? 0 : path.StrokeThickness / 2;
+            var inkRadiusDip = (MaxDistanceFromGridCentre(path.Data) + halfStroke) * scale.ScaleX;
+            clearance = Math.Min(clearance, innerEdge - inkRadiusDip);
+        }
+
+        return clearance;
+    }
+
+    /// <summary>
+    /// The farthest a point of <paramref name="geometry"/> sits from the icon grid's centre
+    /// (12, 12), in grid units. Flattened first, at a tight tolerance: a curve's control points
+    /// lie OUTSIDE the curve, so reading segment points unflattened would overstate the ink, and
+    /// a bounding box would overstate it in every direction at once.
+    /// </summary>
+    private static double MaxDistanceFromGridCentre(Geometry geometry)
+    {
+        const double gridCentre = ActionIcons.GridSize / 2;
+        var flattened = geometry.GetFlattenedPathGeometry(0.001, ToleranceType.Absolute);
+        var max = 0.0;
+
+        void Consider(Point p)
+        {
+            var dx = p.X - gridCentre;
+            var dy = p.Y - gridCentre;
+            max = Math.Max(max, Math.Sqrt(dx * dx + dy * dy));
+        }
+
+        foreach (var figure in flattened.Figures)
+        {
+            Consider(figure.StartPoint);
+            foreach (var segment in figure.Segments)
+            {
+                switch (segment)
+                {
+                    case LineSegment line:
+                        Consider(line.Point);
+                        break;
+                    case PolyLineSegment poly:
+                        foreach (var p in poly.Points) Consider(p);
+                        break;
+                    default:
+                        throw new InvalidOperationException(
+                            $"Flattened geometry produced a {segment.GetType().Name}, which "
+                            + "MaxDistanceFromGridCentre does not enumerate; the measurement would "
+                            + "silently understate the icon's ink.");
+                }
+            }
+        }
+
+        return max;
+    }
+
     private static double ClearanceOf(Rect ink, Point centre, double innerEdge)
     {
         var corners = new[]
@@ -299,9 +409,10 @@ internal static class ArcLabelFit
 }
 
 /// <summary>
-/// One measured button. <see cref="ClearanceDip"/> is positive while the whole ink box is inside
-/// the arc's inner edge, and negative once any corner crosses it; the pass threshold lives on
-/// <see cref="ArcLabelFit.RequiredClearanceDip"/>.
+/// One measured button. <see cref="ClearanceDip"/> is positive while the whole label ink box is
+/// inside the arc's inner edge, and negative once any corner crosses it;
+/// <see cref="IconClearanceDip"/> does the same for the icon's real drawn ink. Both pass
+/// thresholds live on <see cref="ArcLabelFit.RequiredClearanceDip"/>.
 /// </summary>
 internal sealed record ArcLabelFitResult(
     string ButtonId,
@@ -313,4 +424,5 @@ internal sealed record ArcLabelFitResult(
     double ArcInnerEdgeDip,
     bool OverlapsIcon,
     bool OverlapsSymbol,
+    double IconClearanceDip,
     string ResolvedFace);

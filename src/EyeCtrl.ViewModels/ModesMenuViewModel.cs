@@ -33,17 +33,16 @@ public partial class ModesMenuViewModel : DwellOverlayViewModelBase,
     private readonly int _rowDwellMs;
 
     /// <summary>
-    /// The rows' short labels (Option A, user decision 2026-10-05): the icons already show which
-    /// mouse button, and these are the words that fit the disc. The action-menu ring keeps its
-    /// long labels as a recorded exception; the window draws these only when every one clears the
-    /// arc (all-or-none).
+    /// The rows: one icon-only button per mouse click. The labels are gone (user decision
+    /// 2026-10-06 — "drop the labels and just have good icons"); the ring's own action names
+    /// (<c>RingLabelMap</c>) are what the window exposes to UIA instead.
     /// </summary>
-    private static readonly (string Id, InteractionAction Action, string Label)[] Rows =
+    private static readonly (string Id, InteractionAction Action)[] Rows =
     {
-        ("modes_left", InteractionAction.LeftClick, "Left"),
-        ("modes_right", InteractionAction.RightClick, "Right"),
-        ("modes_double", InteractionAction.DoubleClick, "Double"),
-        ("modes_middle", InteractionAction.MiddleClick, "Middle"),
+        ("modes_left", InteractionAction.LeftClick),
+        ("modes_right", InteractionAction.RightClick),
+        ("modes_double", InteractionAction.DoubleClick),
+        ("modes_middle", InteractionAction.MiddleClick),
     };
 
     /// <summary>The action currently locked (null = mode off). Drives the active-button marker.</summary>
@@ -61,13 +60,13 @@ public partial class ModesMenuViewModel : DwellOverlayViewModelBase,
     }
 
     /// <summary>The rows the view should render, in order.</summary>
-    public IReadOnlyList<(string Id, InteractionAction Action, string Label)> RowDefinitions => Rows;
+    public IReadOnlyList<(string Id, InteractionAction Action)> RowDefinitions => Rows;
 
     private void RebuildButtons()
     {
         Buttons.Clear();
-        foreach (var (id, action, label) in Rows)
-            Buttons.Add(new ModesMenuButtonViewModel(id, action, label));
+        foreach (var (id, action) in Rows)
+            Buttons.Add(new ModesMenuButtonViewModel(id, action));
     }
 
     public void Receive(ModesMenuToggledMessage message)

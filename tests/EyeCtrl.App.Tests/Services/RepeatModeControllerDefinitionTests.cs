@@ -41,12 +41,12 @@ public class RepeatModeControllerDefinitionTests
     {
         // D29 (round 3 finding 2 lineage): each dwell button gets its own centre — the
         // field-round text rows shared one centre, and the detector's tie-break chose.
-        var defs = new (string Id, InteractionAction Action, string Label)[]
+        var defs = new (string Id, InteractionAction Action)[]
         {
-            ("a", InteractionAction.LeftClick, "L"),
-            ("b", InteractionAction.RightClick, "R"),
-            ("c", InteractionAction.DoubleClick, "D"),
-            ("d", InteractionAction.MiddleClick, "M"),
+            ("a", InteractionAction.LeftClick),
+            ("b", InteractionAction.RightClick),
+            ("c", InteractionAction.DoubleClick),
+            ("d", InteractionAction.MiddleClick),
         };
 
         var centres = ModesMenuWindow.ComputeButtonCentres(defs, windowLeft: 100, windowTop: 200, buttonSizeLogical: 120);

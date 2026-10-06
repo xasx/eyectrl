@@ -24,6 +24,10 @@ public class ActionMenuEdgeButtonsTests
 
         Check.That(defs.Select(d => d.Id)).ContainsExactly("ActionMenu_close", "ActionMenu_help");
         Check.That(defs.Select(d => d.Icon)).ContainsExactly(ActionIcon.Close, ActionIcon.Help);
+        // Icon-only since 2026-10-06: the names that used to sit under the icons survive as UIA
+        // names (pinned on the built buttons by EdgeButtonFitTests).
+        Check.That(defs.All(d => d.Label is null)).IsTrue();
+        Check.That(defs.Select(d => d.AccessibleName)).ContainsExactly("Close", "Help");
     }
 
     [Fact]

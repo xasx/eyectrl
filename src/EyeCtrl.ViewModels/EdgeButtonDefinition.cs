@@ -22,6 +22,12 @@ using EyeCtrl.Core.Models;
 /// (see <c>EdgeButtonBarViewModel</c>), further samples the detector would award to this button
 /// are delivered as if they hit nothing, so a held gaze cannot re-fire it. Default false — every
 /// non-toggle definition keeps today's behaviour.
+///
+/// <paramref name="AccessibleName"/> is the button's UIA name when it has no visible
+/// <paramref name="Label"/> to be read from — the icon-only buttons, whose drawn Path has no
+/// automation peer of its own. A labelled button does not need it: the window falls back to the
+/// label's text. Null (the default) means "no name of its own": symbol-only buttons still expose
+/// their symbol text.
 /// </summary>
 public sealed record EdgeButtonDefinition(
     string Id,
@@ -32,4 +38,5 @@ public sealed record EdgeButtonDefinition(
     double RadiusLogical = UIConstants.DragButtonRadius,
     ActionIcon? Icon = null,
     string? Label = null,
-    bool RearmOnGazeExit = false);
+    bool RearmOnGazeExit = false,
+    string? AccessibleName = null);

@@ -3,28 +3,29 @@ namespace EyeCtrl.App.Tests.Overlays;
 using System;
 using System.Linq;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.App.Tests.TestSupport;
 using EyeCtrl.Controls;
+using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 
 /// <summary>
-/// The modes menu's label contract (Option A, user decision 2026-10-05): short labels, drawn only
-/// when EVERY one clears the arc at the drawn size (all-or-none), never a mix — and its disc
-/// geometry, pinned against the targets the window publishes.
+/// The modes menu's two contracts since the labels were dropped (user decision 2026-10-06): every
+/// icon's real drawn ink clears the progress arc's inner edge by the required +2 DIP at every
+/// toolbar size, and each drawn disc sits exactly on the target the window publishes.
 ///
 /// <para>
 /// Both checks build the real window through the internal <c>BuildButtonsAt</c> seam, which lays
 /// the panel out and rebuilds the buttons without <c>Show()</c> — no HWND, no screen, no input.
-/// The labels are measured on the window's own built <see cref="DwellArcButton"/>s by
-/// <see cref="ArcLabelFit.MeasureButton"/>, so the window's production fit decision
-/// (<see cref="DwellArcButton.LabelInkClearance"/>) is checked against the rendered result, not
-/// against itself.
+/// The icons are measured on the window's own built <see cref="DwellArcButton"/>s by
+/// <see cref="ArcLabelFit.MeasureButton"/>, walking the real flattened geometry (never box
+/// corners), so the window's production sizing is checked against the rendered result.
 /// </para>
 ///
 /// <para>
@@ -34,20 +35,20 @@ using EyeCtrl.ViewModels;
 /// </para>
 /// </summary>
 [Collection("DpiHelper Tests (App)")]
-public class ModesMenuLabelFitTests
+public class ModesMenuFitTests
 {
     private const double WindowLeft = 120.0;
     private const double WindowTop = 250.0;
 
     private readonly ITestOutputHelper _output;
 
-    public ModesMenuLabelFitTests(ITestOutputHelper output)
+    public ModesMenuFitTests(ITestOutputHelper output)
     {
         _output = output;
         DpiHelper.Initialize(1.0, 1.0);
     }
 
-    /// <summary>Every slider size (40–120 step 4) plus off-grid sizes so the decision is computed.</summary>
+    /// <summary>Every slider size (40–120 step 4) plus off-grid sizes so the sizing is computed.</summary>
     public static TheoryData<double> ToolbarSizes()
     {
         var data = new TheoryData<double>();
@@ -59,9 +60,14 @@ public class ModesMenuLabelFitTests
         return data;
     }
 
+    /// <summary>
+    /// Every icon, at every toolbar size: the real ink stays at least +2 DIP inside the arc's
+    /// inner edge, and no button draws a label. 40 is the tightest size (a 20 DIP radius) and the
+    /// reason ContainerRatio.Solo stops at 0.58.
+    /// </summary>
     [StaTheory]
     [MemberData(nameof(ToolbarSizes))]
-    public void EveryToolbarSize_DrawsEveryLabelInsideTheArcOrNoneAtAll(double size)
+    public void EveryToolbarSize_DrawsEveryIconInsideTheArc(double size)
     {
         var (window, _) = Build(size);
         Layout(window);
@@ -69,32 +75,65 @@ public class ModesMenuLabelFitTests
 
         Check.That(buttons).HasSize(4);
 
-        var labelled = buttons.Values.Count(b => b.Label is not null);
-        var iconOnly = buttons.Values.Count(b => b.Label is null);
-        Check.WithCustomMessage(
-                $"{size:0.#}: the menu mixed {labelled} labelled with {iconOnly} icon-only discs; "
-                + "Option A shows all four labels or none.")
-             .That(labelled == 0 || iconOnly == 0).IsTrue();
-
         foreach (var (id, button) in buttons)
         {
-            if (labelled == 0)
-            {
-                Check.WithCustomMessage(
-                        $"{size:0.#}/{id}: no label may be drawn when the menu hid the labels.")
-                     .That(button.Label).IsNull();
-                continue;
-            }
+            var fit = ArcLabelFit.MeasureButton(button, id);
+            _output.WriteLine($"{size:0.#}: {Describe(id, fit)}");
 
-            AssertFitsAndClears(size, id, button);
+            Check.WithCustomMessage($"{size:0.#}/{id}: the button must carry a drawn icon.")
+                 .That(fit.HasIcon).IsTrue();
+            Check.WithCustomMessage(
+                    $"{size:0.#}/{id}: no label may be drawn — the modes menu is icon-only since "
+                    + "the user dropped the labels.")
+                 .That(fit.HasLabel).IsFalse();
+            Check.WithCustomMessage(
+                    $"{size:0.#}/{id}: icon ink clears the arc's inner edge "
+                    + $"({fit.ArcInnerEdgeDip:0.#} DIP) by {fit.IconClearanceDip:0.##} DIP; the "
+                    + $"assertion needs at least {ArcLabelFit.RequiredClearanceDip:0.#}.")
+                 .That(fit.IconClearanceDip).IsGreaterOrEqualThan(ArcLabelFit.RequiredClearanceDip);
+        }
+    }
+
+    /// <summary>
+    /// The accessibility half of dropping the labels: every icon-only button still exposes the
+    /// ring's action name to UIA ("Left click", ...), through the invisible automation anchor on
+    /// the built button.
+    /// </summary>
+    [StaFact]
+    public void EveryButton_ExposesItsActionNameToUia()
+    {
+        var (window, _) = Build(112);
+        Layout(window);
+
+        var expected = new[]
+        {
+            ("modes_left", InteractionAction.LeftClick),
+            ("modes_right", InteractionAction.RightClick),
+            ("modes_double", InteractionAction.DoubleClick),
+            ("modes_middle", InteractionAction.MiddleClick),
+        };
+
+        foreach (var (id, action) in expected)
+        {
+            var button = window.DrawnButtons[id];
+
+            Check.WithCustomMessage($"{id}: an icon-only button needs an automation anchor for UIA.")
+                 .That(button.AutomationAnchor).IsNotNull();
+            Check.WithCustomMessage($"{id}: the anchor must publish the ring's action name.")
+                 .That(AutomationProperties.GetName(button.AutomationAnchor!))
+                 .IsEqualTo(RingLabelMap.For(action));
+            Check.WithCustomMessage($"{id}: the anchor must be sized to the disc so its UIA rect is "
+                    + "the button's, not a text sliver.")
+                 .That(button.AutomationAnchor!.Width).IsEqualTo(button.Background.Width);
+            Check.That(button.AutomationAnchor!.Height).IsEqualTo(button.Background.Height);
         }
     }
 
     /// <summary>
     /// Replaces revision 1's vacuous invariant (critique M3): the drawn disc's own Background
     /// ellipse must sit exactly on the target the window published — the two are separate
-    /// arithmetic paths in the window, so a 1 DIP offset in drawing fails here. Runs with labels
-    /// off (small sizes) and on (large sizes), since the theory covers both.
+    /// arithmetic paths in the window, so a 1 DIP offset in drawing fails here. Runs at every
+    /// toolbar size.
     /// </summary>
     [StaTheory]
     [MemberData(nameof(ToolbarSizes))]
@@ -132,64 +171,9 @@ public class ModesMenuLabelFitTests
         }
     }
 
-    /// <summary>
-    /// The user's 112 (their settings.json size) and a size beyond the slider: all four short
-    /// labels are drawn and pass both rules. This is the mutation anchor for "force always show
-    /// labels" only in the other direction — with the old long labels restored, the drawn
-    /// "Double" fails here.
-    /// </summary>
-    [StaTheory]
-    [InlineData(112.0)]
-    [InlineData(200.0)]
-    public void AtTheUsersSizeAndBeyond_AllFourShortLabelsAreDrawnAndPass(double size)
-    {
-        var (window, _) = Build(size);
-        Layout(window);
-        var buttons = window.DrawnButtons;
-
-        Check.That(buttons.Values.All(b => b.Label is not null)).IsTrue();
-        Check.That(buttons["modes_left"].Label?.Text).IsEqualTo("Left");
-        Check.That(buttons["modes_right"].Label?.Text).IsEqualTo("Right");
-        Check.That(buttons["modes_double"].Label?.Text).IsEqualTo("Double");
-        Check.That(buttons["modes_middle"].Label?.Text).IsEqualTo("Middle");
-
-        foreach (var (id, button) in buttons)
-            AssertFitsAndClears(size, id, button);
-    }
-
-    [StaFact]
-    public void AtTheSmallestSliderSize_NoLabelIsDrawn()
-    {
-        var (window, _) = Build(40);
-        Layout(window);
-
-        Check.WithCustomMessage("At size 40 no label can clear the arc, so the whole menu is icon-only.")
-             .That(window.DrawnButtons.Values.All(b => b.Label is null)).IsTrue();
-    }
-
-    private void AssertFitsAndClears(double size, string id, DwellArcButton button)
-    {
-        var fit = ArcLabelFit.MeasureButton(button, id);
-        _output.WriteLine($"{size:0.#}: {Describe(id, fit)}");
-
-        Check.WithCustomMessage($"{size:0.#}/{id}: the drawn label must be measured.")
-             .That(fit.HasLabel).IsTrue();
-        Check.WithCustomMessage($"{size:0.#}/{id}: the button must carry a drawn icon.")
-             .That(fit.HasIcon).IsTrue();
-        Check.WithCustomMessage($"{size:0.#}/{id}: label ink {fit.LabelInkBox} overlaps the icon {fit.OverlapsIcon}.")
-             .That(fit.OverlapsIcon).IsFalse();
-        Check.WithCustomMessage($"{size:0.#}/{id}: label ink {fit.LabelInkBox} overlaps a symbol {fit.OverlapsSymbol}.")
-             .That(fit.OverlapsSymbol).IsFalse();
-        Check.WithCustomMessage(
-                $"{size:0.#}/{id}: label ink {fit.LabelInkBox} clears the arc's inner edge "
-                + $"({fit.ArcInnerEdgeDip:0.#} DIP) by {fit.ClearanceDip:0.##} DIP; the assertion "
-                + $"needs at least {ArcLabelFit.RequiredClearanceDip:0.#}.")
-             .That(fit.ClearanceDip).IsGreaterOrEqualThan(ArcLabelFit.RequiredClearanceDip);
-    }
-
     private static string Describe(string id, ArcLabelFitResult fit) =>
-        $"{id}: face {fit.ResolvedFace}; ink {fit.LabelInkBox}; inner edge {fit.ArcInnerEdgeDip:0.#}; "
-        + $"clearance {fit.ClearanceDip:0.##} DIP; overlap icon={fit.OverlapsIcon} symbol={fit.OverlapsSymbol}";
+        $"{id}: inner edge {fit.ArcInnerEdgeDip:0.#}; icon ink clearance {fit.IconClearanceDip:0.##} DIP; "
+        + $"label drawn={fit.HasLabel}; face {fit.ResolvedFace}";
 
     /// <summary>
     /// Builds the real window through the production seam and publishes the row targets the way
@@ -208,8 +192,7 @@ public class ModesMenuLabelFitTests
 
     /// <summary>
     /// The window is never shown, so its canvas has no presentation source and its children are
-    /// never measured or arranged; a bare Canvas Measure/Arrange is all the labels need for
-    /// <c>GetCharacterRect</c> to answer.
+    /// never measured or arranged; a bare Canvas Measure/Arrange is all the icon paths need.
     /// </summary>
     private static void Layout(ModesMenuWindow window)
     {

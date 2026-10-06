@@ -26,13 +26,6 @@ public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
     private const double BelowToolbarMarginLogical = 14;
     private const double ButtonGapLogical = 12;
 
-    /// <summary>
-    /// The clearance, in DIP, every drawn label's ink box must keep from the progress arc's inner
-    /// edge. The same +2 rule the shared <c>ArcLabelFit</c> test helper asserts — kept as its own
-    /// constant so lowering this one cannot silently weaken that rendered check.
-    /// </summary>
-    private const double RequiredLabelClearanceDip = 2.0;
-
     private ModesMenuViewModel? _vm;
     private double _toolbarBandHeightLogical = 140;
     private double _buttonSizeLogical = 120;
@@ -103,7 +96,7 @@ public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
     /// row-centre helper from review round 3 — same distinctness contract, horizontal layout).
     /// </summary>
     internal static IReadOnlyList<(string Id, PhysicalPoint Centre, double Radius)> ComputeButtonCentres(
-        IReadOnlyList<(string Id, InteractionAction Action, string Label)> definitions,
+        IReadOnlyList<(string Id, InteractionAction Action)> definitions,
         double windowLeft, double windowTop, double buttonSizeLogical)
     {
         var result = new List<(string, PhysicalPoint, double)>();
@@ -129,10 +122,9 @@ public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
         if (_vm is null) return;
 
         var radius = _buttonSizeLogical / 2;
-        var showLabels = LabelsFit(_buttonSizeLogical);
         for (var i = 0; i < _vm.RowDefinitions.Count; i++)
         {
-            var (id, action, label) = _vm.RowDefinitions[i];
+            var (id, action) = _vm.RowDefinitions[i];
             var centreLogical = new Point(
                 ButtonGapLogical + i * (_buttonSizeLogical + ButtonGapLogical) + radius,
                 ButtonGapLogical + radius);
@@ -143,8 +135,12 @@ public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
                 Core.Models.InteractionAction.DoubleClick => ActionIcons.For(Core.Models.ActionIcon.DoubleClick),
                 _ => ActionIcons.For(Core.Models.ActionIcon.MiddleClick),
             };
+            // Icon-only by the user's call: labels are gone, Solo fills the freed disc, and the
+            // ring's own action name ("Left click", ...) survives as the UIA name.
             var button = DwellArcButton.Create(
-                centreLogical, radius, symbol: null, icon: icon, label: showLabels ? label : null);
+                centreLogical, radius, symbol: null, icon: icon,
+                iconSize: DwellArcButton.IconSize.Solo,
+                accessibleName: RingLabelMap.For(action));
             button.AddTo(ButtonCanvas);
             _buttons[id] = button;
         }
@@ -161,27 +157,6 @@ public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
             vmButton.PropertyChanged += handler;
             _progressSubs.Add((vmButton, handler));
         }
-    }
-
-    /// <summary>
-    /// All-or-none (Option A, user decision 2026-10-05): labels are drawn only when EVERY row's
-    /// label clears the arc at the drawn size, so the menu never mixes labelled and icon-only
-    /// discs. The measurement is production-static
-    /// (<see cref="DwellArcButton.LabelInkClearance"/>); the tests check the rendered result
-    /// independently, so a measuring bug cannot certify itself.
-    /// </summary>
-    private bool LabelsFit(double sizeLogical)
-    {
-        if (_vm is null) return false;
-
-        foreach (var (_, _, label) in _vm.RowDefinitions)
-        {
-            if (DwellArcButton.LabelInkClearance(sizeLogical, label, stackedUnderIcon: true)
-                < RequiredLabelClearanceDip)
-                return false;
-        }
-
-        return true;
     }
 
     /// <summary>

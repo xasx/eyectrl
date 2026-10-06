@@ -137,15 +137,22 @@ public class ContainerRatioCensusTests
                     + "and ManualSelection side buttons, whose 22/100 is where Small was "
                     + "observed. No longer the action menu: it took Small while it rendered a "
                     + "Unicode glyph, and now draws an icon."),
+                ("Solo", 1, "IconSize.Solo's branch — the icon-only gaze surfaces (the modes "
+                    + "menu and the icon-only edge buttons), where the drawn icon is the disc's "
+                    + "entire content and nothing shares the face. 0.58 is measured, not taste: "
+                    + "the largest ratio every picked icon holds the +2 DIP arc clearance at the "
+                    + "smallest toolbar size (40px), with Double click's two mice at +2.34 DIP the "
+                    + "tightest. The labelled ring, the labelled modifier bar and the toolbar keep "
+                    + "Dominant or Medium and do not read this."),
                 ("Dominant", 1, "the drawn icon on a 140px action-menu button while the ring is "
                     + "icon-only, so the icon IS the button's entire content — the situation "
                     + "Dominant names. 140 x 0.45 = 63px. Half of a ternary since 2026-08-26: "
                     + "the same line picks Medium once a label shares the face."),
-                ("Medium", 2, "the icon on a 140px action-menu button that is ALSO showing a "
+                ("Medium", 1, "the icon on a 140px action-menu button that is ALSO showing a "
                     + "label — the icon is no longer the button's entire content, so Dominant "
-                    + "stops applying. 140 x 0.32 = 44.8px. The second read is LabelInkClearance "
-                    + "modelling that same label-stack icon, so the modes-menu fit decision "
-                    + "measures what Create draws."),
+                    + "stops applying. 140 x 0.32 = 44.8px. The only remaining labelled caller is "
+                    + "the action-menu ring (the edge bars' labels were dropped, and their "
+                    + "icon-only buttons take Solo)."),
             ],
         };
 

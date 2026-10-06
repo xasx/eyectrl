@@ -190,4 +190,73 @@ public class DwellArcButtonIconTests
                  .That(radius * 2 * ContainerRatio.Dominant).IsStrictlyLessThan(radius * 2);
         }
     }
+
+    [StaFact]
+    public void SoloIcon_TakesContainerRatioSolo()
+    {
+        // The icon-only gaze surfaces (modes menu, icon-only edge buttons) opt into Solo; every
+        // other caller keeps the Standard default and does not move.
+        var button = DwellArcButton.Create(
+            new Point(0, 0), 20, symbol: null,
+            icon: ActionIcons.For(ActionIcon.DoubleClick),
+            iconSize: DwellArcButton.IconSize.Solo);
+
+        var expectedScale = 40 * ContainerRatio.Solo / ActionIcons.GridSize;
+        var transform = (ScaleTransform)button.IconStroke!.RenderTransform;
+
+        Check.WithCustomMessage(
+                "A Solo icon-only button must draw its icon at diameter x ContainerRatio.Solo.")
+             .That(transform.ScaleX).IsCloseTo(expectedScale, 1e-9);
+        Check.That(transform.ScaleY).IsCloseTo(expectedScale, 1e-9);
+    }
+
+    [StaFact]
+    public void SoloWithALabel_IsRefused()
+    {
+        // Solo names a label-less face: the stack would reserve icon space for a label the ratio
+        // was not measured beside, so the pair is refused rather than silently downgraded.
+        ArgumentException? ex = null;
+        try
+        {
+            DwellArcButton.Create(
+                new Point(0, 0), 50, symbol: string.Empty, label: "Close",
+                icon: ActionIcons.For(ActionIcon.Close),
+                iconSize: DwellArcButton.IconSize.Solo);
+        }
+        catch (ArgumentException e) { ex = e; }
+
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("iconSize");
+    }
+
+    [StaFact]
+    public void AnIconWithAnAccessibleName_AddsASizedAutomationAnchor()
+    {
+        // The drawn Path has no automation peer, so an icon-only button's UIA name needs a
+        // peer-bearing element: a hidden TextBlock sized to the disc (ToolbarBand's pattern).
+        var centre = new Point(30, 40);
+        var button = DwellArcButton.Create(
+            centre, 25, symbol: null, icon: ActionIcons.For(ActionIcon.Close),
+            accessibleName: "Close");
+
+        Check.That(button.AutomationAnchor).IsNotNull();
+        Check.That(System.Windows.Automation.AutomationProperties.GetName(button.AutomationAnchor!))
+             .IsEqualTo("Close");
+        Check.WithCustomMessage("The anchor's rect must be the disc's, not a text sliver.")
+             .That(button.AutomationAnchor!.Width).IsEqualTo(50);
+        Check.That(button.AutomationAnchor!.Height).IsEqualTo(50);
+        Check.That(Canvas.GetLeft(button.AutomationAnchor)).IsEqualTo(5);
+        Check.That(Canvas.GetTop(button.AutomationAnchor)).IsEqualTo(15);
+        Check.That(button.AutomationAnchor.IsHitTestVisible).IsFalse();
+    }
+
+    [StaFact]
+    public void AnIconWithNoAccessibleName_HasNoAnchor()
+    {
+        // No name, no anchor: the element set only grows where UIA actually needs it.
+        var button = DwellArcButton.Create(
+            new Point(0, 0), 20, symbol: null, icon: ActionIcons.For(ActionIcon.Close));
+
+        Check.That(button.AutomationAnchor).IsNull();
+    }
 }

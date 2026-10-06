@@ -31,6 +31,13 @@ using EyeCtrl.ViewModels;
 /// </para>
 ///
 /// <para>
+/// Since 2026-10-06 there is a third invariant: an icon-only definition must carry an
+/// <see cref="EdgeButtonDefinition.AccessibleName"/>. The drawn icon has no automation peer and
+/// there is no text element left to name the button, so without it the target would be anonymous
+/// to UIA — the accessibility cost of dropping the labels.
+/// </para>
+///
+/// <para>
 /// The set list covers every construction in <c>src</c>: the three edge-bar pairs, the modifier
 /// bar in all three latch states plus the <c>with</c> swap, and the drag/scroll/repeat stop
 /// buttons. Adding a set means adding it here.
@@ -76,6 +83,23 @@ public class EdgeButtonDefinitionSweepTests
                     + "no Icon. A labelled button must carry a drawn icon: its label is stacked "
                     + "under the icon and is otherwise drawn over the symbol.")
                  .That(definition.Label is null || definition.Icon is not null).IsTrue();
+        }
+    }
+
+    [Fact]
+    public void EveryIconOnlyDefinition_CarriesItsUiaName()
+    {
+        // Dropping the labels left these buttons with no text element at all — the drawn Path has
+        // no automation peer, so without an AccessibleName UIA would see an unnamed target. The
+        // labelled definitions are covered by their own label text.
+        foreach (var definition in EveryDefinition())
+        {
+            if (definition.Icon is null || definition.Label is not null) continue;
+
+            Check.WithCustomMessage(
+                    $"Edge-button definition '{definition.Id}' is icon-only and has no "
+                    + "AccessibleName: nothing remains that can name the button to UIA.")
+                 .That(string.IsNullOrWhiteSpace(definition.AccessibleName)).IsFalse();
         }
     }
 

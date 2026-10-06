@@ -27,27 +27,29 @@ public class ManualSelectionEdgeButtonsTests
     }
 
     [Fact]
-    public void Close_CarriesIconAndLabel()
+    public void Close_CarriesItsIconAndUiaName()
     {
-        // The escape hatch: it must be recognisable without training, the same reasoning
-        // ActionMenuEdgeButtons gives for never hiding Close's label.
+        // The escape hatch: it must be recognisable without training. Icon-only since
+        // 2026-10-06, so its name travels as the UIA name instead of a drawn label.
         var def = ManualSelectionEdgeButtons.Definitions(dwellMs: 600)
             .Single(d => d.Id == ManualSelectionEdgeButtons.CloseId);
 
         Check.That(def.Icon).IsEqualTo(ActionIcon.Close);
-        Check.That(def.Label).IsEqualTo("Close");
+        Check.That(def.Label).IsNull();
+        Check.That(def.AccessibleName).IsEqualTo("Close");
     }
 
     [Fact]
-    public void Recapture_CarriesIconAndLabel()
+    public void Recapture_CarriesItsIconAndUiaName()
     {
-        // The drawn replacement for the old ↻ glyph. A labelled button must carry an icon, or the
-        // label is drawn over the symbol — the defect this ticket fixes.
+        // The drawn camera replaced the ↻ glyph and the "Retake" label; the name the button had
+        // on screen is now only its UIA name.
         var def = ManualSelectionEdgeButtons.Definitions(dwellMs: 600)
             .Single(d => d.Id == ManualSelectionEdgeButtons.RecaptureId);
 
         Check.That(def.Icon).IsEqualTo(ActionIcon.Recapture);
-        Check.That(def.Label).IsEqualTo("Retake");
+        Check.That(def.Label).IsNull();
+        Check.That(def.AccessibleName).IsEqualTo("Recapture");
         Check.That(def.Symbol).IsEmpty();
     }
 

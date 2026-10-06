@@ -123,4 +123,24 @@ public class DwellArcButtonTests
         Check.That(canvas.Children.Contains(keep.Background)).IsTrue();
         Check.That(canvas.Children.Contains(drop.Background)).IsFalse();
     }
+
+    /// <summary>
+    /// The automation anchor is part of the button's element set: it must travel with AddTo and
+    /// RemoveFrom like every drawn layer, or a rebuilt button leaves a stale UIA node behind.
+    /// </summary>
+    [StaFact]
+    public void AddToAndRemoveFrom_IncludeTheAutomationAnchor()
+    {
+        var canvas = new Canvas();
+        var btn = DwellArcButton.Create(new Point(10, 10), radius: 20, symbol: null,
+            icon: ToolbarIcons.For(ToolbarIconKey.SelectionManual), accessibleName: "Manual");
+
+        btn.AddTo(canvas);
+        Check.That(btn.AutomationAnchor).IsNotNull();
+        Check.That(canvas.Children.Contains(btn.AutomationAnchor!)).IsTrue();
+
+        btn.RemoveFrom(canvas);
+        Check.WithCustomMessage("RemoveFrom left the automation anchor behind.")
+             .That(canvas.Children.Count).IsEqualTo(0);
+    }
 }

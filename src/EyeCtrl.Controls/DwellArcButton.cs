@@ -1,9 +1,8 @@
 namespace EyeCtrl.Controls;
 
 using System;
-using System.Globalization;
-using System.Linq;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
@@ -13,6 +12,22 @@ using EyeCtrl.Core;
 
 public class DwellArcButton
 {
+    /// <summary>
+    /// How <see cref="Create"/> sizes a drawn icon. <see cref="Standard"/> keeps every existing
+    /// caller's behaviour (Dominant when the icon is the whole face, Medium beside a label);
+    /// <see cref="Solo"/> takes <see cref="ContainerRatio.Solo"/> on a label-less icon-only face.
+    /// A caller opts in per surface, so the toolbar, the ring and the quick-actions grid do not
+    /// move.
+    /// </summary>
+    public enum IconSize
+    {
+        /// <summary>Dominant with no label, Medium with one. The historical behaviour.</summary>
+        Standard,
+
+        /// <summary>Icon-only gaze surface: the larger, measured <see cref="ContainerRatio.Solo"/>.</summary>
+        Solo,
+    }
+
     public const double DefaultArcInset = 4;
 
     /// <summary>
@@ -122,14 +137,31 @@ public class DwellArcButton
     /// <summary>
     /// The button's name, drawn under the icon, or null when this button is icon-only. Present
     /// only where a target has to be READ rather than recognised — the action-menu ring while
-    /// Help has names switched on, and the Help and Close targets themselves.
+    /// Help has names switched on, and the left-edge modifier bar.
     /// </summary>
     public TextBlock? Label { get; }
+
+    /// <summary>
+    /// The invisible TextBlock that carries an icon-only button's UIA name, or null when the
+    /// button needs no anchor: it already has a peer-bearing text element (its <see cref="Label"/>
+    /// or <see cref="Symbol"/>, which the name is set on instead), or no name was given.
+    ///
+    /// <para>
+    /// The anchor exists because a drawn icon cannot be exposed by itself: Shape never overrides
+    /// <c>OnCreateAutomationPeer</c>, so the <see cref="Ellipse"/>s and <see cref="Path"/>s a
+    /// button is made of are absent from the UIA tree. This is the same mechanism
+    /// <c>ToolbarBand.AddButton</c> already uses for the toolbar's automation ids — an
+    /// <c>Opacity 0</c>, non-hit-testable TextBlock sized to the disc, kept in the tree by
+    /// <c>UIElement.IsVisible</c> (which ignores Opacity and depends only on Visibility and a
+    /// presentation source).
+    /// </para>
+    /// </summary>
+    public TextBlock? AutomationAnchor { get; }
 
     private readonly Point _center;
     private readonly double _arcRadius;
 
-    private DwellArcButton(Ellipse background, Ellipse rimHalo, Path haloPath, Path progressPath, ArcSegment haloArc, ArcSegment arc, TextBlock? symbol, Path? iconStroke, Path? iconFill, TextBlock? label, Point center, double arcRadius)
+    private DwellArcButton(Ellipse background, Ellipse rimHalo, Path haloPath, Path progressPath, ArcSegment haloArc, ArcSegment arc, TextBlock? symbol, Path? iconStroke, Path? iconFill, TextBlock? label, TextBlock? automationAnchor, Point center, double arcRadius)
     {
         Background = background;
         RimHalo = rimHalo;
@@ -141,6 +173,7 @@ public class DwellArcButton
         IconStroke = iconStroke;
         IconFill = iconFill;
         Label = label;
+        AutomationAnchor = automationAnchor;
         _center = center;
         _arcRadius = arcRadius;
     }
@@ -162,10 +195,12 @@ public class DwellArcButton
         double? arcThickness = null, double arcInset = DefaultArcInset,
         double? fontSize = null,
         IconGeometry? icon = null,
-        string? label = null)
+        string? label = null,
+        IconSize iconSize = IconSize.Standard,
+        string? accessibleName = null)
     {
         // A symbol and a label can never share a face: the label is laid out from the icon stack
-        // (iconSize and stackGap both collapse to 0 with no icon), so it is centred on the button —
+        // (iconSide and stackGap both collapse to 0 with no icon), so it is centred on the button —
         // exactly where the symbol is drawn. Refusing the pair here keeps the mislayout off the
         // screen and out of any layout arithmetic; the edge bar validates its definitions upstream
         // (EdgeButtonBarViewModel), and a sweep test proves no definition set produces the pair.
@@ -174,6 +209,16 @@ public class DwellArcButton
                 "A button cannot combine a symbol with a label: the label would be drawn over the "
                 + "symbol. Give the definition a drawn Icon (with an empty Symbol) or drop the label.",
                 nameof(symbol));
+
+        // Solo names a label-less face (ContainerRatio.Solo's own contract), and the icon/label
+        // stack would still reserve icon space for a label it cannot legally carry at that ratio.
+        // Refused rather than ignored so a caller cannot ask for Solo and silently get Standard.
+        if (iconSize == IconSize.Solo && label is not null)
+            throw new ArgumentException(
+                "IconSize.Solo draws the larger icon-only face and cannot carry a label: the "
+                + "label would share the disc the ratio was measured to fill alone. Use "
+                + "IconSize.Standard beside a label.",
+                nameof(iconSize));
 
         var fillBrush = fill ?? Tokens.BrushSurfaceMedium;
         var strokeBrush = stroke ?? Tokens.BrushBorderSubtle;
@@ -273,32 +318,36 @@ public class DwellArcButton
             symbolText.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             Canvas.SetLeft(symbolText, center.X - radius);
             Canvas.SetTop(symbolText, center.Y - symbolText.DesiredSize.Height / 2);
+            AutomationProperties.SetName(symbolText, accessibleName ?? symbol);
         }
 
-        // Drawn icon. Sized by ContainerRatio.Dominant when the icon is the button's whole
-        // content, and by ContainerRatio.Medium when a label shares the face — Dominant names the
-        // former case only. The scale goes on RenderTransform rather than Geometry.Transform on
-        // purpose: RenderTransform scales the stroke with the path, so GridStrokeThickness stays
-        // 1.8 at every size. Geometry.Transform would leave a 1.8px hairline on a 63px icon.
+        // Drawn icon. Sized by ContainerRatio.Solo on an icon-only gaze surface (IconSize.Solo),
+        // by ContainerRatio.Dominant when the icon is the button's whole content, and by
+        // ContainerRatio.Medium when a label shares the face — Dominant names the label-less
+        // default only, Solo the larger measured variant. The scale goes on RenderTransform rather
+        // than Geometry.Transform on purpose: RenderTransform scales the stroke with the path, so
+        // GridStrokeThickness stays 1.8 at every size. Geometry.Transform would leave a 1.8px
+        // hairline on a 63px icon.
         //
-        // iconSize and iconTop are hoisted out of the `icon is not null` block because the label
+        // iconSide and iconTop are hoisted out of the `icon is not null` block because the label
         // is positioned from them. Both are 0 when there is no icon, which is also the case where
         // the icon/label stack collapses to the label alone.
-        var iconSize = icon is null
+        var iconSide = icon is null
             ? 0
-            : dia * (label is null ? ContainerRatio.Dominant : ContainerRatio.Medium);
+            : dia * (iconSize == IconSize.Solo ? ContainerRatio.Solo
+                : label is null ? ContainerRatio.Dominant : ContainerRatio.Medium);
         var labelHeight = label is null ? 0 : Tokens.FontSizeSubtitle * LabelLineHeightRatio;
         var stackGap = label is null || icon is null ? 0 : dia * LabelGapRatio;
         // Centres the icon and its label together rather than centring the icon alone. With no
-        // label this reduces to center.Y - iconSize / 2, which is what
+        // label this reduces to center.Y - iconSide / 2, which is what
         // DwellArcButtonIconTests.TheIcon_IsCentredOnTheButton pins.
-        var iconTop = center.Y + StackTopOffset(iconSize, stackGap, labelHeight);
+        var iconTop = center.Y + StackTopOffset(iconSide, stackGap, labelHeight);
 
         Path? iconStrokePath = null;
         Path? iconFillPath = null;
         if (icon is not null)
         {
-            var scale = iconSize / ActionIcons.GridSize;
+            var scale = iconSide / ActionIcons.GridSize;
 
             Path BuildLayer(Geometry geometry, bool filled)
             {
@@ -313,7 +362,7 @@ public class DwellArcButton
                     Fill = filled ? symbolBrushActual : null,
                     RenderTransform = new ScaleTransform(scale, scale),
                 };
-                Canvas.SetLeft(path, center.X - iconSize / 2);
+                Canvas.SetLeft(path, center.X - iconSide / 2);
                 Canvas.SetTop(path, iconTop);
                 return path;
             }
@@ -337,78 +386,31 @@ public class DwellArcButton
             };
             labelText.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             Canvas.SetLeft(labelText, center.X - radius);
-            Canvas.SetTop(labelText, iconTop + iconSize + stackGap);
+            Canvas.SetTop(labelText, iconTop + iconSide + stackGap);
+            AutomationProperties.SetName(labelText, accessibleName ?? label);
         }
 
-        return new DwellArcButton(bg, rimHalo, haloPath, progressPath, haloSegment, arcSegment, symbolText, iconStrokePath, iconFillPath, labelText, center, arcRad);
-    }
-
-    /// <summary>
-    /// The clearance, in DIP, between <paramref name="label"/>'s ink box and the progress arc's
-    /// inner edge for a button of <paramref name="diameter"/> whose label is stacked under a drawn
-    /// icon (<paramref name="stackedUnderIcon"/>) or centred alone. Positive means every ink-box
-    /// corner stays inside the arc; negative means at least one crosses it.
-    ///
-    /// <para>
-    /// This is the production half of the modes menu's all-or-none label decision
-    /// (<c>ModesMenuWindow</c>). It reads the same tokens <see cref="Create"/> draws with and its
-    /// stack top comes from the shared <see cref="StackTopOffset"/>, so the decision cannot drift
-    /// from the drawing. The rendered check lives in the test suite's <c>ArcLabelFit</c>, which
-    /// measures the drawn <see cref="TextBlock"/> independently — a bug in this arithmetic cannot
-    /// certify itself.
-    /// </para>
-    ///
-    /// <para>
-    /// The references match <c>ArcLabelFit</c>'s ink box: vertical extent from
-    /// <see cref="FormattedText.BuildGeometry"/> (descenders count; empty line space does not),
-    /// horizontal extent from <see cref="FormattedText.Width"/> — the line's advance width, which
-    /// is what <see cref="TextAlignment.Center"/> centres and what the laid-out label's character
-    /// rects span. The measurement is a DIP-space description of the glyphs; Ideal text formatting
-    /// makes it independent of the device pixel grid (the app never switches formatting mode, and
-    /// the test helper guards the Ideal mode it assumes).
-    /// </para>
-    /// </summary>
-    public static double LabelInkClearance(double diameter, string label, bool stackedUnderIcon)
-    {
-        ArgumentNullException.ThrowIfNull(label);
-
-        var radius = diameter / 2;
-        var arcThicknessActual = Math.Max(diameter * ArcThicknessRatio, MinArcThickness);
-        var innerEdge = radius - DefaultArcInset - arcThicknessActual / 2;
-
-        var typeface = new Typeface(
-            Tokens.FontStandard, FontStyles.Normal, Tokens.FontWeightMedium, FontStretches.Normal);
-        var formatted = new FormattedText(
-            label,
-            CultureInfo.CurrentUICulture,
-            FlowDirection.LeftToRight,
-            typeface,
-            Tokens.FontSizeSubtitle,
-            Tokens.BrushTextPrimary,
-            pixelsPerDip: 1.0);
-
-        // Ink box relative to the line box's top-left, which is where the TextBlock is placed.
-        var ink = formatted.BuildGeometry(new Point(0, 0)).Bounds;
-
-        var iconSize = stackedUnderIcon ? diameter * ContainerRatio.Medium : 0;
-        var stackGap = stackedUnderIcon ? diameter * LabelGapRatio : 0;
-        var labelTop = StackTopOffset(
-            iconSize, stackGap, Tokens.FontSizeSubtitle * LabelLineHeightRatio) + iconSize + stackGap;
-
-        var halfWidth = formatted.Width / 2;
-        var top = labelTop + ink.Top;
-        var bottom = labelTop + ink.Bottom;
-
-        var corners = new[]
+        // Icon-only button with a name: the icon paths have no automation peer (see
+        // AutomationAnchor), so the name needs a peer-bearing element of its own. Sized to the
+        // disc so its published bounding rect is the button's, not a text sliver — the same reason
+        // (and the same pattern) ToolbarBand.AddButton gives its anchor.
+        TextBlock? automationAnchor = null;
+        if (symbolText is null && labelText is null && accessibleName is not null)
         {
-            new Point(-halfWidth, top),
-            new Point(halfWidth, top),
-            new Point(-halfWidth, bottom),
-            new Point(halfWidth, bottom),
-        };
-        var furthest = corners.Max(c => Math.Sqrt(c.X * c.X + c.Y * c.Y));
+            automationAnchor = new TextBlock
+            {
+                Text = accessibleName,
+                Opacity = 0,
+                IsHitTestVisible = false,
+                Width = dia,
+                Height = dia,
+            };
+            AutomationProperties.SetName(automationAnchor, accessibleName);
+            Canvas.SetLeft(automationAnchor, center.X - radius);
+            Canvas.SetTop(automationAnchor, center.Y - radius);
+        }
 
-        return innerEdge - furthest;
+        return new DwellArcButton(bg, rimHalo, haloPath, progressPath, haloSegment, arcSegment, symbolText, iconStrokePath, iconFillPath, labelText, automationAnchor, center, arcRad);
     }
 
     /// <summary>
@@ -462,6 +464,8 @@ public class DwellArcButton
             canvas.Children.Add(IconStroke);
         if (Label is not null)
             canvas.Children.Add(Label);
+        if (AutomationAnchor is not null)
+            canvas.Children.Add(AutomationAnchor);
     }
 
     /// <summary>
@@ -494,5 +498,7 @@ public class DwellArcButton
             canvas.Children.Remove(IconStroke);
         if (Label is not null)
             canvas.Children.Remove(Label);
+        if (AutomationAnchor is not null)
+            canvas.Children.Remove(AutomationAnchor);
     }
 }

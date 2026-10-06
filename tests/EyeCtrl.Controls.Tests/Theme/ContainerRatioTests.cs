@@ -18,6 +18,7 @@ public class ContainerRatioTests
     public void Ratios_HoldTheValuesTheirSitesObserved()
     {
         Check.That(ContainerRatio.Badge).IsEqualTo(0.60);      // DragTrail 16/26 = 0.615
+        Check.That(ContainerRatio.Solo).IsEqualTo(0.58);       // icon-only gaze surfaces, measured
         Check.That(ContainerRatio.Dominant).IsEqualTo(0.45);   // QuickActions close 20/44 = 0.455
         Check.That(ContainerRatio.Large).IsEqualTo(0.40);      // Toolbar's existing 0.4; emoji 28/70
         Check.That(ContainerRatio.Medium).IsEqualTo(0.32);     // category 22/70; skin-tone 36/105
@@ -27,7 +28,8 @@ public class ContainerRatioTests
     [Fact]
     public void Ratios_DescendAndStayWithinSaneBounds()
     {
-        Check.That(ContainerRatio.Badge).IsStrictlyGreaterThan(ContainerRatio.Dominant);
+        Check.That(ContainerRatio.Badge).IsStrictlyGreaterThan(ContainerRatio.Solo);
+        Check.That(ContainerRatio.Solo).IsStrictlyGreaterThan(ContainerRatio.Dominant);
         Check.That(ContainerRatio.Dominant).IsStrictlyGreaterThan(ContainerRatio.Large);
         Check.That(ContainerRatio.Large).IsStrictlyGreaterThan(ContainerRatio.Medium);
         Check.That(ContainerRatio.Medium).IsStrictlyGreaterThan(ContainerRatio.Small);

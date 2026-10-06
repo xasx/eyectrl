@@ -9,19 +9,16 @@ using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
 /// The right-edge buttons shown during manual (zoom-to-point) selection: Close, which exits back
-/// to free look, and Recapture (labelled "Retake"), which re-shoots the magnifier at the same
-/// fixation point.
+/// to free look, and Recapture, which re-shoots the magnifier at the same fixation point.
 ///
 /// Extracted from <c>OverlayVmBindingCoordinator</c> to mirror <see cref="ActionMenuEdgeButtons"/>'s
 /// shape (a static <c>Definitions(dwellMs)</c> factory) rather than staying inline, so the plain
 /// data driving both edge-button pairs is testable the same way.
 ///
-/// Close keeps its label always, the same reasoning as <see cref="ActionMenuEdgeButtons"/>'s Close:
-/// it is the escape hatch — the user's gaze-driven way out of a modal view, and a caregiver must be
-/// able to recognise it without training. It reuses <see cref="ActionIcon.Close"/> rather than a
-/// second drawn icon for the same glyph. Recapture keeps its label too, so it carries a drawn icon
-/// (<see cref="ActionIcon.Recapture"/>) on the same convention: a labelled button must have an
-/// icon, because the label is stacked under the icon and would otherwise be drawn over a symbol.
+/// Both are icon-only since 2026-10-06 — the drawn camera (user pick Re3) replaced Retake, whose
+/// label is gone with the rest of the edge labels — so each carries an
+/// <see cref="EdgeButtonDefinition.AccessibleName"/> for UIA. Close is the escape hatch and reuses
+/// <see cref="ActionIcon.Close"/> rather than a second drawn icon for the same glyph.
 /// </summary>
 internal static class ManualSelectionEdgeButtons
 {
@@ -48,14 +45,14 @@ internal static class ManualSelectionEdgeButtons
                 VerticalOffset: -offset,
                 RadiusLogical: radius,
                 Icon: ActionIcon.Close,
-                Label: "Close"),
+                AccessibleName: "Close"),
             new EdgeButtonDefinition(
                 RecaptureId, Symbol: string.Empty, dwellMs,
                 m => m.Send(new ManualSelectionRecaptureMessage()),
                 VerticalOffset: offset,
                 RadiusLogical: radius,
                 Icon: ActionIcon.Recapture,
-                Label: "Retake"),
+                AccessibleName: "Recapture"),
         };
     }
 }

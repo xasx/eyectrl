@@ -10,6 +10,8 @@ using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.App.Tests.TestSupport;
 using EyeCtrl.Controls;
+using EyeCtrl.Controls.Icons;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
@@ -35,7 +37,7 @@ using EyeCtrl.ViewModels;
 /// </para>
 /// </summary>
 [Collection("DpiHelper Tests (App)")]
-public class ModesMenuFitTests
+public class ModesMenuFitTests : IDisposable
 {
     private const double WindowLeft = 120.0;
     private const double WindowTop = 250.0;
@@ -48,6 +50,13 @@ public class ModesMenuFitTests
         DpiHelper.Initialize(1.0, 1.0);
     }
 
+    /// <summary>
+    /// Restores the process-global scale after every test (the repo's DpiHelper-writer pattern;
+    /// the assembly restore attribute is the backstop). The scale-2.0 cases below are the user's
+    /// 200% display, and xUnit does not guarantee which theory case runs last.
+    /// </summary>
+    public void Dispose() => DpiHelper.Initialize(1.0, 1.0);
+
     /// <summary>Every slider size (40–120 step 4) plus off-grid sizes so the sizing is computed.</summary>
     public static TheoryData<double> ToolbarSizes()
     {
@@ -57,6 +66,28 @@ public class ModesMenuFitTests
         data.Add(110); // off the slider's grid
         data.Add(150); // above the slider, inside validation's 40–200
         data.Add(200);
+        return data;
+    }
+
+    /// <summary>
+    /// Sizes × display scales for the disc-equals-target pin. The full slider sweep runs at 1.0,
+    /// where the class's default lives; 1.5 and 2.0 are sampled across the range (40 = tightest
+    /// target, 200 = largest). 2.0 is the user's actual display, where a missing or doubled
+    /// LogicalToPhysical in ComputeButtonCentres cannot hide behind physical == logical.
+    /// </summary>
+    public static TheoryData<double, double> ToolbarSizesAndScales()
+    {
+        var data = new TheoryData<double, double>();
+        for (var size = 40.0; size <= 120.0; size += 4.0)
+            data.Add(size, 1.0);
+        data.Add(110, 1.0);
+        data.Add(150, 1.0);
+        data.Add(200, 1.0);
+        foreach (var size in new[] { 40.0, 56.0, 80.0, 112.0, 200.0 })
+        {
+            data.Add(size, 1.5);
+            data.Add(size, 2.0);
+        }
         return data;
     }
 
@@ -91,6 +122,17 @@ public class ModesMenuFitTests
                     + $"({fit.ArcInnerEdgeDip:0.#} DIP) by {fit.IconClearanceDip:0.##} DIP; the "
                     + $"assertion needs at least {ArcLabelFit.RequiredClearanceDip:0.#}.")
                  .That(fit.IconClearanceDip).IsGreaterOrEqualThan(ArcLabelFit.RequiredClearanceDip);
+
+            // The fit rule is one-sided (a smaller icon only gains clearance), so pin the size
+            // itself: flipping ModesMenuWindow back to Standard keeps every fit green while
+            // silently undoing the user's "bigger icons" decision.
+            var expectedScale = button.Background.Width * ContainerRatio.Solo / ActionIcons.GridSize;
+            Check.WithCustomMessage(
+                    $"{size:0.#}/{id}: icon scale {fit.IconScale:0.####} must equal diameter "
+                    + $"{button.Background.Width:0.#} x ContainerRatio.Solo / {ActionIcons.GridSize} "
+                    + $"= {expectedScale:0.####} (Standard would draw "
+                    + $"{button.Background.Width * ContainerRatio.Dominant / ActionIcons.GridSize:0.####}).")
+                 .That(fit.IconScale).IsCloseTo(expectedScale, 1e-9);
         }
     }
 
@@ -133,12 +175,16 @@ public class ModesMenuFitTests
     /// Replaces revision 1's vacuous invariant (critique M3): the drawn disc's own Background
     /// ellipse must sit exactly on the target the window published — the two are separate
     /// arithmetic paths in the window, so a 1 DIP offset in drawing fails here. Runs at every
-    /// toolbar size.
+    /// toolbar size at scale 1.0, and at 1.5/2.0 (the user's display) on sampled sizes: at 1.0 a
+    /// missing or doubled LogicalToPhysical in <c>ComputeButtonCentres</c> is invisible, because
+    /// physical equals logical there.
     /// </summary>
     [StaTheory]
-    [MemberData(nameof(ToolbarSizes))]
-    public void EveryToolbarSize_DrawsEachDiscExactlyOnItsPublishedTarget(double size)
+    [MemberData(nameof(ToolbarSizesAndScales))]
+    public void EveryToolbarSize_DrawsEachDiscExactlyOnItsPublishedTarget(double size, double scale)
     {
+        DpiHelper.Initialize(scale, scale);
+
         var (window, vm) = Build(size);
         Layout(window);
 
@@ -151,21 +197,22 @@ public class ModesMenuFitTests
             var expectedX = DpiHelper.PhysicalToLogicalX(target.Center.X) - window.Left;
             var expectedY = DpiHelper.PhysicalToLogicalY(target.Center.Y) - window.Top;
             var expectedDiameter = 2 * DpiHelper.PhysicalToLogicalX(target.Radius);
+            var at = $"{size:0.#}@{scale:0.0}x/{target.Id}";
 
             Check.WithCustomMessage(
-                    $"{size:0.#}/{target.Id}: drawn centre ({centreX:0.###}, {centreY:0.###}) must equal "
+                    $"{at}: drawn centre ({centreX:0.###}, {centreY:0.###}) must equal "
                     + $"the published target ({expectedX:0.###}, {expectedY:0.###}) in window coordinates.")
                  .That(centreX).IsCloseTo(expectedX, 1e-6);
             Check.WithCustomMessage(
-                    $"{size:0.#}/{target.Id}: drawn centre Y {centreY:0.###} must equal the published "
+                    $"{at}: drawn centre Y {centreY:0.###} must equal the published "
                     + $"target Y {expectedY:0.###}.")
                  .That(centreY).IsCloseTo(expectedY, 1e-6);
             Check.WithCustomMessage(
-                    $"{size:0.#}/{target.Id}: the disc's width {background.Width:0.###} must equal twice "
+                    $"{at}: the disc's width {background.Width:0.###} must equal twice "
                     + $"the published radius ({expectedDiameter:0.###}).")
                  .That(background.Width).IsCloseTo(expectedDiameter, 1e-6);
             Check.WithCustomMessage(
-                    $"{size:0.#}/{target.Id}: the disc's height {background.Height:0.###} must equal twice "
+                    $"{at}: the disc's height {background.Height:0.###} must equal twice "
                     + $"the published radius ({expectedDiameter:0.###}).")
                  .That(background.Height).IsCloseTo(expectedDiameter, 1e-6);
         }

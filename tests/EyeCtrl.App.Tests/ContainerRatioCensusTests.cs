@@ -148,11 +148,12 @@ public class ContainerRatioCensusTests
                     + "icon-only, so the icon IS the button's entire content — the situation "
                     + "Dominant names. 140 x 0.45 = 63px. Half of a ternary since 2026-08-26: "
                     + "the same line picks Medium once a label shares the face."),
-                ("Medium", 1, "the icon on a 140px action-menu button that is ALSO showing a "
-                    + "label — the icon is no longer the button's entire content, so Dominant "
-                    + "stops applying. 140 x 0.32 = 44.8px. The only remaining labelled caller is "
-                    + "the action-menu ring (the edge bars' labels were dropped, and their "
-                    + "icon-only buttons take Solo)."),
+                ("Medium", 1, "the icon on a labelled face — no longer the button's entire "
+                    + "content, so Dominant stops applying. 140 x 0.32 = 44.8px. The labelled "
+                    + "callers are the action-menu ring and the Shift/Ctrl/Alt modifier bar, "
+                    + "which reaches this arm through EdgeButtonBarWindow (its icon-only edge "
+                    + "neighbours take Solo; the ring's preview path restates the same value in "
+                    + "ActionMenuRingPainter)."),
             ],
         };
 

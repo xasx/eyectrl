@@ -182,6 +182,32 @@ public class EdgeButtonBarViewModelTests
         Check.That(vm.DefinitionFor("ManualSelection_close")!.Icon).IsEqualTo(ActionIcon.Close);
     }
 
+    [Fact]
+    public void ShowButtons_WithABadDefinition_LeavesThePreviousSetIntact()
+    {
+        // ShowButtons validates the whole list before clearing anything, so a rejected definition
+        // cannot leave a half-built bar (or an empty one) behind the exception.
+        var vm = CreateVm(out _);
+        vm.ShowButtons(new[] { CancelDef() }, new PhysicalPoint(1000, 500));
+
+        var bad = new EdgeButtonDefinition(
+            "Bad", "\u21BB", 600, _ => { }, VerticalOffset: 0,
+            RadiusLogical: 50, Icon: null, Label: "Recapture");
+
+        ArgumentException? ex = null;
+        try
+        {
+            vm.ShowButtons(new[] { CancelDef(), bad }, new PhysicalPoint(1000, 500));
+        }
+        catch (ArgumentException e) { ex = e; }
+
+        Check.That(ex).IsNotNull();
+        Check.WithCustomMessage("The bar must keep the previous set, not a half-built one.")
+             .That(vm.Buttons.Select(b => b.Id)).ContainsExactly("Drag_cancel");
+        Check.That(vm.DefinitionFor("Drag_cancel")).IsNotNull();
+        Check.That(vm.IsVisible).IsTrue();
+    }
+
     private sealed class FakeMessenger : IMessenger
     {
         public List<object> Sent { get; } = new();

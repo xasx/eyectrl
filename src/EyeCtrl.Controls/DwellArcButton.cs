@@ -341,7 +341,7 @@ public class DwellArcButton
         // Centres the icon and its label together rather than centring the icon alone. With no
         // label this reduces to center.Y - iconSide / 2, which is what
         // DwellArcButtonIconTests.TheIcon_IsCentredOnTheButton pins.
-        var iconTop = center.Y + StackTopOffset(iconSide, stackGap, labelHeight);
+        var iconTop = center.Y - (iconSide + stackGap + labelHeight) / 2;
 
         Path? iconStrokePath = null;
         Path? iconFillPath = null;
@@ -412,14 +412,6 @@ public class DwellArcButton
 
         return new DwellArcButton(bg, rimHalo, haloPath, progressPath, haloSegment, arcSegment, symbolText, iconStrokePath, iconFillPath, labelText, automationAnchor, center, arcRad);
     }
-
-    /// <summary>
-    /// Centre-to-top offset of the icon/label stack <see cref="Create"/> centres on the button.
-    /// The measurement above calls it with the same arguments the drawing does, so the fit
-    /// decision can never quietly model a different stack from the one drawn.
-    /// </summary>
-    private static double StackTopOffset(double iconSize, double stackGap, double labelHeight)
-        => -(iconSize + stackGap + labelHeight) / 2;
 
     public void UpdateProgress(double progress)
     {

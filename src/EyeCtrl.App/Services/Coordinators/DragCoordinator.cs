@@ -104,7 +104,8 @@ internal sealed class DragCoordinator : CoordinatorBase
         => new(
             "Drag_cancel", "\u2715", dwellMs,
             m => m.Send(new DragCancelMessage()),
-            VerticalOffset: DpiHelper.LogicalToPhysicalY(30));
+            VerticalOffset: DpiHelper.LogicalToPhysicalY(30),
+            AccessibleName: "Cancel drag");
 
     /// <summary>
     /// Builds the post-drop back button (below the anchor). Static and internal for the same
@@ -114,7 +115,8 @@ internal sealed class DragCoordinator : CoordinatorBase
         => new(
             "Drag_back", "\u21A9", dwellMs,
             m => m.Send(new DragDismissManualSelectionMessage()),
-            VerticalOffset: -DpiHelper.LogicalToPhysicalY(30));
+            VerticalOffset: -DpiHelper.LogicalToPhysicalY(30),
+            AccessibleName: "Back");
 
     internal void OnDragStarted(PhysicalPoint grabOrigin)
     {

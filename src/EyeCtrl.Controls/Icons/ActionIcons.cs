@@ -78,10 +78,10 @@ public static class ActionIcons
     private const string PoppedWheelFill = "M10.1,2.9 A1.9,1.9 0 0 1 13.9,2.9 L13.9,7.1 A1.9,1.9 0 0 1 10.1,7.1 Z";
 
     /// <summary>
-    /// Double click's "two mice": the front popped mouse plus a back mouse peeking out up-left,
-    /// as two clicks drawn as two of the thing. The fill is a serialized union (the back
-    /// silhouette outside the front's widened outline) long enough to live beside the map below,
-    /// so the hand-authored constants stay readable.
+    /// Double click's "two mice": the front mouse, left button filled in place, plus a back mouse
+    /// peeking out up-left, as two clicks drawn as two of the thing. The fill is a serialized
+    /// union (the back silhouette outside the front's widened outline) long enough to live beside
+    /// the map below, so the hand-authored constants stay readable.
     /// </summary>
     private const string TwoMiceStroke = "M8,9A5.5,5.5,0,0,1,19,9L19,17A5.5,5.5,0,0,1,8,17z M13.5,3.5L13.5,12.5 M8,12.5L19,12.5";
 
@@ -135,10 +135,13 @@ public static class ActionIcons
 
         // The held left button (the popped family's left cap) plus motion bars trailing at the
         // left. The body follows the family so the drag reads as the same mouse as LeftClick —
-        // only the bars say "held and moving". The upper bar starts where the lifted cap ends
-        // (its round cap meets y10.5 exactly) so the two never cross.
+        // only the bars say "held and moving". The bars sit clear of the body's wall: at x3.6 and
+        // x1 the stroked bars span 2.7–4.5, a ~0.6-unit gap to the wall's 5.1–6.9, so in the ring
+        // the pair reads as motion rather than a thickened wall. The upper bar's round cap ends
+        // just below the lifted cap (y10.5), never crossing it, and x1 keeps the ink inside the
+        // grid at every size the fit tests sweep.
         [ActionIcon.Drag] = IconGeometry.FromPathData(
-            PoppedLeftBody + " M4.4,11.4 L4.4,15.4 M1.6,10.6 L1.6,13.4",
+            PoppedLeftBody + " M3.6,11.6 L3.6,15.4 M1,10.6 L1,13.4",
             PoppedLeftFill),
 
         [ActionIcon.ScrollUp] = IconGeometry.FromPathData(Body + Wheel + " M18.6,12.4 L20.8,10 L23,12.4"),

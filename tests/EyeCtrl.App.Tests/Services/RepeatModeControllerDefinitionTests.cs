@@ -3,7 +3,6 @@ namespace EyeCtrl.App.Tests.Services;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services.Coordinators;
 using System.Linq;
-using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
 
@@ -40,16 +39,11 @@ public class RepeatModeControllerDefinitionTests
     public void ComputeButtonCentres_GivesEachButtonItsOwnAscendingTarget()
     {
         // D29 (round 3 finding 2 lineage): each dwell button gets its own centre — the
-        // field-round text rows shared one centre, and the detector's tie-break chose.
-        var defs = new (string Id, InteractionAction Action)[]
-        {
-            ("a", InteractionAction.LeftClick),
-            ("b", InteractionAction.RightClick),
-            ("c", InteractionAction.DoubleClick),
-            ("d", InteractionAction.MiddleClick),
-        };
+        // field-round text rows shared one centre, and the detector's tie-break chose. The helper
+        // takes ids only; the action carried in a row tuple is not part of its arithmetic.
+        var ids = new[] { "a", "b", "c", "d" };
 
-        var centres = ModesMenuWindow.ComputeButtonCentres(defs, windowLeft: 100, windowTop: 200, buttonSizeLogical: 120);
+        var centres = ModesMenuWindow.ComputeButtonCentres(ids, windowLeft: 100, windowTop: 200, buttonSizeLogical: 120);
 
         Check.That(centres).HasSize(4);
         var xs = centres.Select(c => c.Centre.X).ToList();

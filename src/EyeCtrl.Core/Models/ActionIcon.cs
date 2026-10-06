@@ -18,6 +18,12 @@ namespace EyeCtrl.Core.Models;
 /// <see cref="Back"/> is a navigation affordance rather than an action, and this enum will grow
 /// entries for the More layer and the Help toggle that no InteractionAction names.
 /// </para>
+///
+/// <para>
+/// <b>Members are not persisted</b> — no settings file or wire message names one — so insertion
+/// position is free (Recapture was inserted mid-enum for reading order). If one is ever persisted,
+/// append only: a mid-enum insertion would renumber every member after it.
+/// </para>
 /// </summary>
 public enum ActionIcon
 {

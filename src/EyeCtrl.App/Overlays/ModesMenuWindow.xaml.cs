@@ -82,7 +82,8 @@ public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
         RebuildButtons();
         return _vm is null
             ? Array.Empty<(string, PhysicalPoint, double)>()
-            : ComputeButtonCentres(_vm.RowDefinitions, windowLeft, windowTop, sizeLogical);
+            : ComputeButtonCentres(
+                _vm.RowDefinitions.Select(row => row.Id).ToList(), windowLeft, windowTop, sizeLogical);
     }
 
     private double PanelWidthLogical(double sizeLogical)
@@ -91,21 +92,27 @@ public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
             : _vm.RowDefinitions.Count * sizeLogical + (_vm.RowDefinitions.Count + 1) * ButtonGapLogical;
 
     /// <summary>
-    /// Per-button target centres in physical px. Pure arithmetic so a geometry test can pin it:
-    /// one (size + gap) slot per button after a gap + half-size inset (design D29; supersedes the
-    /// row-centre helper from review round 3 — same distinctness contract, horizontal layout).
+    /// Per-button target centres in physical px, one (size + gap) slot per id after a gap +
+    /// half-size inset (design D29; supersedes the row-centre helper from review round 3 — same
+    /// distinctness contract, horizontal layout). Pure arithmetic so a geometry test can pin it.
+    ///
+    /// <para>
+    /// Takes the ids alone: the helper reads only a row's id and the count, so it stays
+    /// independent of the caller's row shape (the modes VM's tuple carries the action, which
+    /// this arithmetic does not need).
+    /// </para>
     /// </summary>
     internal static IReadOnlyList<(string Id, PhysicalPoint Centre, double Radius)> ComputeButtonCentres(
-        IReadOnlyList<(string Id, InteractionAction Action)> definitions,
+        IReadOnlyList<string> definitionIds,
         double windowLeft, double windowTop, double buttonSizeLogical)
     {
         var result = new List<(string, PhysicalPoint, double)>();
-        for (var i = 0; i < definitions.Count; i++)
+        for (var i = 0; i < definitionIds.Count; i++)
         {
             var centreLogicalX = windowLeft + ButtonGapLogical + i * (buttonSizeLogical + ButtonGapLogical)
                                  + buttonSizeLogical / 2;
             var centreLogicalY = windowTop + ButtonGapLogical + buttonSizeLogical / 2;
-            result.Add((definitions[i].Id,
+            result.Add((definitionIds[i],
                 new PhysicalPoint(
                     DpiHelper.LogicalToPhysicalX(centreLogicalX),
                     DpiHelper.LogicalToPhysicalY(centreLogicalY)),

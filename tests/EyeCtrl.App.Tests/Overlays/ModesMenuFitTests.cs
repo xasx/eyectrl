@@ -31,9 +31,11 @@ using EyeCtrl.ViewModels;
 /// </para>
 ///
 /// <para>
-/// This class writes <c>DpiHelper</c>'s process-global scale (1.0, so physical pixels are DIPs),
-/// so it lives in the exclusive DpiHelper collection; the window's <c>StaticResource</c> lookups
-/// need the shared <see cref="WpfApplicationGate"/> token dictionary.
+/// This class writes <c>DpiHelper</c>'s process-global scale — 1.0 for most cases and 1.5/2.0 for
+/// the disc-placement matrix (2.0 is the user's display, where physical differs from logical) —
+/// so it lives in the exclusive DpiHelper collection and restores 1.0 after every test; the
+/// window's <c>StaticResource</c> lookups need the shared <see cref="WpfApplicationGate"/> token
+/// dictionary.
 /// </para>
 /// </summary>
 [Collection("DpiHelper Tests (App)")]

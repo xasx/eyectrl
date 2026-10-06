@@ -3,8 +3,11 @@ namespace EyeCtrl.App.Tests.Overlays;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Automation;
+using System.Windows.Controls;
+using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
+using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.App.Tests.TestSupport;
 using EyeCtrl.Controls;
 using EyeCtrl.Controls.Icons;
@@ -124,6 +127,26 @@ public class EdgeButtonFitTests
     }
 
     /// <summary>
+    /// The glass backdrop's hide button is the same escape-hatch shape as the glyph edge buttons
+    /// — a bare "✕" gaze target, the dismissal path out of a modal view — so it carries a UIA
+    /// name too. Built through the real window's <c>DrawHideButton</c>, never re-created here.
+    /// </summary>
+    [StaFact]
+    public void BackdropHideButton_ExposesItsUiaName()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+
+        var window = new GlassBackdropWindow();
+        window.DrawHideButton(new PhysicalPoint(600 * DpiHelper.ScaleX, 400 * DpiHelper.ScaleY));
+
+        var canvas = (Canvas)window.FindName("BackdropCanvas")!;
+        var symbol = canvas.Children.OfType<TextBlock>().Single(t => t.Text == "\u2715");
+
+        Check.WithCustomMessage("The backdrop hide button must publish 'Close', not the raw glyph.")
+             .That(AutomationProperties.GetName(symbol)).IsEqualTo("Close");
+    }
+
+    /// <summary>
     /// The labelled surface that remains: the modifier bar's Shift/Ctrl/Alt (and their latched
     /// variants) keep their stacked labels, so each must still fit the arc and clear its icon.
     /// </summary>
@@ -167,11 +190,14 @@ public class EdgeButtonFitTests
     {
         var expected = diameter * ratio / ActionIcons.GridSize;
         var dominantFallback = diameter * ContainerRatio.Dominant / ActionIcons.GridSize;
+        var slip = ratioName == "Solo"
+            ? $"Standard would shrink it to Dominant ({dominantFallback:0.####})"
+            : $"Solo would throw beside a label, and Dominant would shrink it ({dominantFallback:0.####})";
 
         Check.WithCustomMessage(
                 $"{name}: icon scale {fit.IconScale:0.####} must equal diameter {diameter:0.#} x "
                 + $"ContainerRatio.{ratioName} / {ActionIcons.GridSize} = {expected:0.####} "
-                + $"(Standard would draw {dominantFallback:0.####}).")
+                + $"({slip}).")
              .That(fit.IconScale).IsCloseTo(expected, 1e-9);
     }
 

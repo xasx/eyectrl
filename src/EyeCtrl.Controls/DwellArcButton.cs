@@ -13,15 +13,15 @@ using EyeCtrl.Core;
 public class DwellArcButton
 {
     /// <summary>
-    /// How <see cref="Create"/> sizes a drawn icon. <see cref="Standard"/> keeps every existing
-    /// caller's behaviour (Dominant when the icon is the whole face, Medium beside a label);
-    /// <see cref="Solo"/> takes <see cref="ContainerRatio.Solo"/> on a label-less icon-only face.
-    /// A caller opts in per surface, so the toolbar, the ring and the quick-actions grid do not
-    /// move.
+    /// How <see cref="Create"/> sizes a drawn icon. <see cref="Standard"/> resolves per face —
+    /// <see cref="ContainerRatio.Dominant"/> when the icon is that face's whole content, Medium
+    /// when a label shares it; <see cref="Solo"/> always takes
+    /// <see cref="ContainerRatio.Solo"/> on a label-less face. A caller opts in per surface, so
+    /// the toolbar, the ring and the quick-actions grid keep Standard and do not move.
     /// </summary>
     public enum IconSize
     {
-        /// <summary>Dominant with no label, Medium with one. The historical behaviour.</summary>
+        /// <summary>The historical behaviour: Dominant label-less, Medium labelled.</summary>
         Standard,
 
         /// <summary>Icon-only gaze surface: the larger, measured <see cref="ContainerRatio.Solo"/>.</summary>

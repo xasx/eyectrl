@@ -22,7 +22,7 @@ internal sealed class DwellPageSource : ISettingsPageSource
                 new SliderSpec("d_menu", "Action Menu (ms)", 200, 1500, 50, 0,
                     () => d.ActionMenuDwellMs, v => { d.ActionMenuDwellMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = "How long to rest on an action in the ring." },
-                new SliderSpec("d_ManualSelection", "ManualSelection Action Menu (ms)", 200, 1500, 50, 0,
+                new SliderSpec("d_ManualSelection", "Manual Selection Action Menu (ms)", 200, 1500, 50, 0,
                     () => d.ManualSelectionActionMenuDwellMs, v => { d.ManualSelectionActionMenuDwellMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = "Dwell for the action ring inside manual selection." },
             ]),

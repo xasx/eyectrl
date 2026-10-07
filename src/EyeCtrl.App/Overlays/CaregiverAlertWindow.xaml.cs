@@ -34,7 +34,7 @@ public partial class CaregiverAlertWindow : OverlayWindow, ICaregiverAlertPresen
     public void ShowCaregiverAlert(CaregiverAlertCondition condition)
     {
         Message.Text = condition == CaregiverAlertCondition.SustainedPoorTracking
-            ? "Eye tracking has been unreliable for the last minute — consider repositioning or re-calibrating."
+            ? "Eye tracking has been unreliable for the last minute — consider repositioning, or recalibrating in Tobii."
             : "The user has been struggling continuously — consider checking in.";
         EnsurePositioned();
         // Cancel any in-flight fade and re-show at full opacity (the drift banner's re-show discipline:

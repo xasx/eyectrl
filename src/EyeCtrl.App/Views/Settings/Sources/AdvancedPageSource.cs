@@ -41,7 +41,7 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
                 new ColorPickerSpec("av_drag_color", "Drag Trail Color",
                     () => drag.TrailColor, v => { drag.TrailColor = v; _ctx.ApplyAndSave(); },
                     SettingsWindow.ColorSwatchRadius)
-                    { Description = "Colour of the trail drawn while dragging." },
+                    { Description = "Color of the trail drawn while dragging." },
                 new SliderSpec("av_drag_opacity", "Drag Trail Opacity", 0.1, 1.0, 0.05, 2,
                     () => drag.TrailOpacity, v => { drag.TrailOpacity = v; _ctx.ApplyAndSave(); })
                     { Description = "How visible the drag trail is." },

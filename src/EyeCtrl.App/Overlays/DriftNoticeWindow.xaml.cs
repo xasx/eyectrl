@@ -7,7 +7,7 @@ using System.Windows.Threading;
 using EyeCtrl.App.Services;
 
 /// <summary>
-/// The report-only drift notice (design §7.1/§8.5): a bottom-center banner suggesting re-calibration that
+/// The report-only drift notice (design §7.1/§8.5): a bottom-center banner suggesting recalibration in Tobii that
 /// holds ~8 s then fades out. It is click-through and <see cref="OverlayWindow.ExcludeFromScreenCapture"/>
 /// =true, so it never intercepts gaze/mouse (no dwell targets — zero mis-activation surface) and is not
 /// baked into the magnifier / action-menu capture. It only ever *shows a message* — it never modifies

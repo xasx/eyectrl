@@ -43,6 +43,15 @@ jobs:
       - name: Validate theme palettes
         run: python tools/palette_validate.py
 
+      # tools/strings_validate.py is the ONE canonicalizer of the German tables: English shape and
+      # closed enums, key/placeholder parity, German wording (glossary avoid[] terms, no informal
+      # address, identical-to-English allowlist), stale `src`, unused keys, and — the load-bearing
+      # one — a manifest surface must be complete before it may show German, crisis keys included.
+      # Stdlib only, so there is nothing to install. It runs here, beside the palette gates,
+      # before the build so a bad table fails in a second.
+      - name: Validate string tables
+        run: python tools/strings_validate.py
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:

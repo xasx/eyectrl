@@ -29,6 +29,20 @@ public sealed class CalibrationFailedException : InvalidOperationException
     private static string TechnicalMessage(CalibrationFailure failure)
     {
         ArgumentNullException.ThrowIfNull(failure);
+
+        // For the quality gate the per-target numbers ARE the diagnostics this user has: the old
+        // user-facing message carried them, and "Calibration failed: Quality." alone would drop the
+        // region, the metric and the two values when the log is read after a failed session.
+        if (failure.Code == CalibrationFailureCode.Quality
+            && failure.Arguments.Count == 1
+            && failure.Arguments[0] is IReadOnlyList<CalibrationQualityFailure> targets
+            && targets.Count > 0)
+        {
+            return $"Calibration failed: {failure.Code}. "
+                 + string.Join("; ", targets.Select(t =>
+                     $"target {t.TargetIndex} {t.Region}: {t.Reason} (value {t.Value:F0}, limit {t.Limit:F0})"));
+        }
+
         return $"Calibration failed: {failure.Code}.";
     }
 }

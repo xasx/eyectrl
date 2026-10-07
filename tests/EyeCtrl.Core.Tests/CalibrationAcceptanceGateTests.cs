@@ -257,6 +257,66 @@ public class CalibrationAcceptanceGateTests
         Check.That(failures[0].Reason).IsEqualTo(CalibrationQualityReason.ResidualTooLarge);
     }
 
+    [Theory]
+    [InlineData(0, 0, CalibrationTargetRegion.TopLeft)]
+    [InlineData(1, 0, CalibrationTargetRegion.TopCenter)]
+    [InlineData(2, 0, CalibrationTargetRegion.TopRight)]
+    [InlineData(0, 1, CalibrationTargetRegion.MiddleLeft)]
+    [InlineData(1, 1, CalibrationTargetRegion.Center)]
+    [InlineData(2, 1, CalibrationTargetRegion.MiddleRight)]
+    [InlineData(0, 2, CalibrationTargetRegion.BottomLeft)]
+    [InlineData(1, 2, CalibrationTargetRegion.BottomCenter)]
+    [InlineData(2, 2, CalibrationTargetRegion.BottomRight)]
+    public void EveryScreenCell_ResolvesToItsOwnRegion(int col, int row, CalibrationTargetRegion expected)
+    {
+        // All nine arms of the geometry-to-region map. The cell's centre is used deliberately (1/6,
+        // 1/2, 5/6 of each axis): the 1/3 and 2/3 boundaries are inclusive on the left/top and
+        // exclusive on the right/bottom, so a point placed exactly on one would not test the arm it
+        // names. Gaze sits 500 px off the target so the residual gate fires and the failure carries
+        // the region.
+        var target = new PhysicalPoint(
+            Screen.X * (col + 0.5) / 3.0,
+            Screen.Y * (row + 0.5) / 3.0);
+        var points = new[]
+        {
+            new CalibrationPoint(target, new PhysicalPoint(target.X + 500, target.Y), 2, 2, 30),
+        };
+
+        var failures = CalibrationValidator.FindQualityFailures(Identity(), points, Screen);
+
+        Check.That(failures).HasSize(1);
+        Check.That(failures[0].Region).IsEqualTo(expected);
+        Check.That(failures[0].Reason).IsEqualTo(CalibrationQualityReason.ResidualTooLarge);
+    }
+
+    [Fact]
+    public void TheQualityFailureLogMessage_CarriesEachTargetsRegionReasonAndNumbers()
+    {
+        // The completion panel renders the user's sentence on the window side, so the exception's
+        // message is the only place the per-target numbers survive for the log. "Calibration failed:
+        // Quality." alone would drop exactly the diagnostics a failed session is read for.
+        var failures = new CalibrationQualityFailure[]
+        {
+            new(0, CalibrationTargetRegion.TopLeft, CalibrationQualityReason.ExcessScatter, 311, 100),
+            new(2, CalibrationTargetRegion.BottomRight, CalibrationQualityReason.LowCoverage, 1, 50),
+        };
+
+        var exception = new CalibrationFailedException(
+            new CalibrationFailure(CalibrationFailureCode.Quality, failures));
+
+        Check.That(exception.Message).Contains("TopLeft");
+        Check.That(exception.Message).Contains("ExcessScatter");
+        Check.That(exception.Message).Contains("311");
+        Check.That(exception.Message).Contains("100");
+        Check.That(exception.Message).Contains("BottomRight");
+        Check.That(exception.Message).Contains("LowCoverage");
+        Check.That(exception.Message).Contains("target 2");
+
+        // Every other code keeps the one-line message; only the quality gate has per-target detail.
+        Check.That(new CalibrationFailedException(CalibrationFailure.Unexpected).Message)
+             .IsEqualTo("Calibration failed: Unexpected.");
+    }
+
     // ── The gate is actually WIRED ────────────────────────────────────────────
     //
     // Everything above tests FindQualityFailures directly, which says the gate works but not that

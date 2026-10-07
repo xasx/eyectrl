@@ -171,7 +171,13 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     /// the overlay shows come from one renderer (<see cref="CalibrationFailureText"/>) and a test can
     /// assert the code and its arguments rather than the sentence.
     /// </summary>
-    public CalibrationFailure? Failure { get; private set; }
+    /// <remarks>
+    /// <see cref="ErrorText"/> is computed from this, so a change here also notifies for it: a view
+    /// that binds <c>ErrorText</c> directly must update the moment a session fails.
+    /// </remarks>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ErrorText))]
+    private CalibrationFailure? _failure;
 
     /// <summary>
     /// The failure rendered as the sentence the completion panel shows, or null when no failure ended

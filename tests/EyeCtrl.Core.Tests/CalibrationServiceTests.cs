@@ -44,6 +44,65 @@ public class CalibrationServiceTests
     }
 
     [Fact]
+    public void CompleteSession_RejectsGazeThatNeverChangedAcrossTargets_WithTheGazeVariationCode()
+    {
+        // On this small screen the 120 px band floor dominates the layout: at X = 168 every target is
+        // inside the band of the collected mean (|168-48| = 120, |168-272| = 104), so collection
+        // succeeds while the collected gaze never spans the target X span. That is the gaze-variation
+        // refusal, and it must carry its own code rather than one of the transform codes it shares
+        // CompleteSession with.
+        var screen = new PhysicalPoint(320, 240);
+        var service = new CalibrationService();
+        service.StartSession(5, screen);
+        var targets = CalibrationTargetPositionHelper.GetPositions(5, screen);
+
+        for (int i = 0; i < targets.Count; i++)
+        {
+            service.BeginTarget(i, settleWindowMs: 0);
+            for (int j = 0; j < 10; j++)
+                service.AddRawSample(new PhysicalPoint(168, targets[i].Y));
+            service.EndTarget();
+        }
+
+        var thrown = Check.ThatCode(() => service.CompleteSession(screen, "DISPLAY1"))
+                           .Throws<CalibrationFailedException>().Value;
+
+        Check.That(thrown.Failure.Code).IsEqualTo(CalibrationFailureCode.GazeVariation);
+        Check.That(service.CurrentTransform).IsNull();
+    }
+
+    [Fact]
+    public void CompleteSession_FitFault_IsCarriedAsUnexpected_WithTheTechnicalFaultInside()
+    {
+        // Gaze that passes the variation check but makes the fit singular: on this screen every target
+        // is within the 120 px band of the line y = x, and every sample sits exactly on it, so the
+        // design matrix is rank-deficient and Fit's own guard fires. That message is technical and
+        // stays; CompleteSession must still hand the window a renderable code, with the technical
+        // fault kept as the inner exception for the log.
+        var screen = new PhysicalPoint(280, 280);
+        var service = new CalibrationService();
+        service.StartSession(5, screen);
+        var targets = CalibrationTargetPositionHelper.GetPositions(5, screen);
+
+        for (int i = 0; i < targets.Count; i++)
+        {
+            var onDiagonal = (targets[i].X + targets[i].Y) / 2.0;
+            var gaze = new PhysicalPoint(onDiagonal, onDiagonal);
+            service.BeginTarget(i, settleWindowMs: 0);
+            for (int j = 0; j < 10; j++)
+                service.AddRawSample(gaze);
+            service.EndTarget();
+        }
+
+        var thrown = Check.ThatCode(() => service.CompleteSession(screen, "DISPLAY1"))
+                           .Throws<CalibrationFailedException>().Value;
+
+        Check.That(thrown.Failure.Code).IsEqualTo(CalibrationFailureCode.Unexpected);
+        Check.That(thrown.InnerException).IsInstanceOf<InvalidOperationException>();
+        Check.That(service.CurrentTransform).IsNull();
+    }
+
+    [Fact]
     public void CurrentTransform_IsNull_WhenNoCalibration()
     {
         var service = new CalibrationService();

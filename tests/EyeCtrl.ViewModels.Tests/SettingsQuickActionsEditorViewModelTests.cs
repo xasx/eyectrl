@@ -129,18 +129,21 @@ public class SettingsQuickActionsEditorViewModelTests
         vm.Load();
 
         // The exact match gets its id; the user-named and drifted tiles are untouched; nothing
-        // is dropped, and the match wrote the list back once.
+        // is dropped or reordered, and the match wrote the list back once.
         Check.That(matching.PresetId).IsEqualTo("kbd.copy");
         Check.That(renamed.PresetId).IsNull();
         Check.That(canned.PresetId).IsNull();
         Check.That(vm.Actions).HasSize(3);
+        Check.That(vm.Actions.Select(a => a.Id)).ContainsExactly(matching.Id, renamed.Id, canned.Id);
         Check.That(store.SaveCount).IsEqualTo(1);
         Check.That(store.Saved).HasSize(3);
+        Check.That(store.Saved.Select(a => a.Id)).ContainsExactly(matching.Id, renamed.Id, canned.Id);
 
-        // A second load has nothing left to fill: no second write.
+        // A second load has nothing left to fill: no second write, and the order still holds.
         vm.Load();
         Check.That(store.SaveCount).IsEqualTo(1);
         Check.That(vm.Actions).HasSize(3);
+        Check.That(vm.Actions.Select(a => a.Id)).ContainsExactly(matching.Id, renamed.Id, canned.Id);
     }
 
     [Fact]

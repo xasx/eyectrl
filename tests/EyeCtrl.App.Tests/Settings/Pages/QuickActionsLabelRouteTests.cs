@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Tests.Settings.Pages;
 
+using System;
 using System.IO;
 using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Core.Interfaces;
@@ -57,22 +58,28 @@ public class QuickActionsLabelRouteTests
         Check.That(rec.LastModalMessage!).Not.Contains("Kopie (veraltet)");
     }
 
-    [Fact]
-    public void PickerAdd_StoresThePresetId_BesideTheEnglishLabel()
+    [Theory]
+    [InlineData("PickShortcut", QuickActionType.KeyboardShortcut, "kbd.copy", "Copy", "Ctrl+C")]
+    [InlineData("PickMedia", QuickActionType.MediaControl, "media.play_pause", "Play / Pause", "PlayPause")]
+    [InlineData("PickWindowAction", QuickActionType.WindowAction, "window.minimize", "Minimize Window", "Minimize")]
+    public void PickerAdd_StoresThePresetId_BesideTheEnglishLabel(
+        string viewName, QuickActionType expectedType, string expectedPresetId,
+        string expectedLabel, string expectedPayload)
     {
         var rec = new RecordingSettingsPageContext(
             viewModel: QaTestSupport.MakeViewModel(StoreWith()));
         var editor = rec.Context.ViewModel.QuickActionsEditor;
         var src = new QuickActionsPageSource(rec.Context);
 
-        src.GoTo(QuickActionsPageSource.QaView.PickShortcut);
+        src.GoTo(Enum.Parse<QuickActionsPageSource.QaView>(viewName));
         var preset = src.Build().First().Rows.OfType<ButtonSpec>().First(b => !b.Id.StartsWith("qa_back"));
         preset.OnActivate();
 
         Check.That(editor.Actions).HasSize(1);
-        Check.That(editor.Actions[0].PresetId).IsEqualTo("kbd.copy");
-        Check.That(editor.Actions[0].Label).IsEqualTo("Copy");
-        Check.That(editor.Actions[0].Payload).IsEqualTo("Ctrl+C");
+        Check.That(editor.Actions[0].Type).IsEqualTo(expectedType);
+        Check.That(editor.Actions[0].PresetId).IsEqualTo(expectedPresetId);
+        Check.That(editor.Actions[0].Label).IsEqualTo(expectedLabel);
+        Check.That(editor.Actions[0].Payload).IsEqualTo(expectedPayload);
     }
 
     [Fact]

@@ -148,4 +148,20 @@ public static class QuickActionPresets
         }
         return false;
     }
+
+    /// <summary>
+    /// Runs <see cref="TryAssignPresetId"/> over a loaded collection — the one-time match for a
+    /// whole store. Both callers (startup and the Settings editor's load) use this, so the two
+    /// cannot drift. The order is the collection's; nothing is dropped or renamed.
+    /// </summary>
+    /// <param name="actions">The loaded actions, mutated in place.</param>
+    /// <returns>True when at least one action gained an id; the caller saves only then.</returns>
+    public static bool AssignMissingPresetIds(IEnumerable<QuickAction> actions)
+    {
+        ArgumentNullException.ThrowIfNull(actions);
+        var changed = false;
+        foreach (var action in actions)
+            changed |= TryAssignPresetId(action);
+        return changed;
+    }
 }

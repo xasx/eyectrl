@@ -1,5 +1,7 @@
 namespace EyeCtrl.Core.Models;
 
+using System.Text.Json.Serialization;
+
 /// <summary>The kind of action a quick action performs when triggered.</summary>
 public enum QuickActionType
 {
@@ -31,7 +33,15 @@ public class QuickAction
     /// or null for a user-named action. The displayed label resolves through
     /// <see cref="QuickActionPresets.DisplayLabel(QuickAction, System.Func{string,string})"/>;
     /// the stored <see cref="Label"/> stays as the readable English fallback.
+    ///
+    /// <para>
+    /// A null id is omitted from <c>actions.json</c>, so an existing install's file does not
+    /// grow a <c>"PresetId": null</c> line. The condition is scoped to this property alone —
+    /// unlike a serializer-wide null omission, it leaves every other legacy field, including an
+    /// explicit null <see cref="Payload"/>, exactly as it was found.
+    /// </para>
     /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? PresetId { get; set; }
     /// <summary>The display label shown on the toolbar button.</summary>
     public string Label { get; set; } = string.Empty;

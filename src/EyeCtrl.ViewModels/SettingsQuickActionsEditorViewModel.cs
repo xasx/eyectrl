@@ -35,13 +35,10 @@ public partial class SettingsQuickActionsEditorViewModel : ObservableObject
     public void Load()
     {
         Actions.Clear();
-        var changed = false;
-        foreach (var a in _store.LoadAll())
-        {
-            changed |= QuickActionPresets.TryAssignPresetId(a);
+        var loaded = _store.LoadAll();
+        foreach (var a in loaded)
             Actions.Add(a);
-        }
-        if (changed) Save();
+        if (QuickActionPresets.AssignMissingPresetIds(loaded)) Save();
     }
 
     /// <summary>Persists the current <see cref="Actions"/> collection.</summary>

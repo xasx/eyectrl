@@ -8,7 +8,9 @@ namespace EyeCtrl.Core.Models;
 ///
 /// <para>
 /// The rules for the ring's navigation affordances ("More", "Back") are not here: a Back slot is
-/// not an action, and the plan composes those slots itself.
+/// not an action, and the plan composes those slots itself. <c>RingPlan</c> now consumes the map
+/// only through <c>RingLabelSource.English</c>, the host-supplied seam every surface passes until
+/// its own keys arrive.
 /// </para>
 /// </summary>
 public static class RingLabelMap

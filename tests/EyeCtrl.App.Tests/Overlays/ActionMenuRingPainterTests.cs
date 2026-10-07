@@ -416,4 +416,43 @@ public class ActionMenuRingPainterTests : IDisposable
                 + "live target. The painter draws DwellArcButtons only.")
              .That(DwellControlConstruction.IsMatch(source)).IsFalse();
     }
+
+    private static RingPaintSlot MoreSlot() =>
+        new("More", new Point(0, 0), ActionIcon.More, "More", ActionMenuItemKind.OpenMore);
+
+    /// <summary>
+    /// The More slot's "+N" annotation is host-composed (D3, one key per surface): the preview
+    /// options must call the supplied composer, and the default stays the English format.
+    /// </summary>
+    [Fact]
+    public void PreviewMoreAnnotation_ComesFromTheHost_WithAnEnglishDefault()
+    {
+        var hostFormat = RingPaintOptions.Preview(0.5, secondaryActionCount: 3,
+            (label, count) => $"{label} ({count})");
+        Check.That(hostFormat.LabelFor(MoreSlot())).IsEqualTo("More (3)");
+
+        var defaultFormat = RingPaintOptions.Preview(0.5, secondaryActionCount: 3);
+        Check.That(defaultFormat.LabelFor(MoreSlot())).IsEqualTo("More +3");
+    }
+
+    /// <summary>
+    /// The runtime never annotates: no count means the format is never called, and only the More
+    /// slot is ever annotated in preview mode.
+    /// </summary>
+    [Fact]
+    public void MoreAnnotation_IsOnlyEverAppliedToTheMoreSlot()
+    {
+        var runtime = new RingPaintOptions
+        {
+            ShowLabels = true,
+            MoreAnnotationFormat = (_, _) => throw new InvalidOperationException("runtime must never annotate"),
+        };
+        var actionSlot = new RingPaintSlot(
+            "LeftClick", new Point(0, 0), ActionIcon.LeftClick, "Left click", ActionMenuItemKind.Action);
+        Check.That(runtime.LabelFor(actionSlot)).IsEqualTo("Left click");
+
+        var preview = RingPaintOptions.Preview(0.5, secondaryActionCount: 3,
+            (_, _) => throw new InvalidOperationException("only the More slot may be annotated"));
+        Check.That(preview.LabelFor(actionSlot)).IsEqualTo("Left click");
+    }
 }

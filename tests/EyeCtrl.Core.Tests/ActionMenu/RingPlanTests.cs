@@ -182,4 +182,32 @@ public class RingPlanTests
         Check.That(plan.BuildLayer(RingLayer.Primary, showBack: false).Slots.Select(s => s.Kind))
              .Not.Contains(ActionMenuItemKind.ExitMenu);
     }
+
+    [Fact]
+    public void HostLabelSource_DecidesEverySlotLabel_BackAndMoreIncluded()
+    {
+        var labels = new RingLabelSource(
+            action => $"A:{action}",
+            BackLabel: "Zurück",
+            MoreLabel: "Mehr");
+
+        var plan = RingPlan.Create(
+            AllActions.Take(5).ToList(), AllActions.Take(3).ToList(), DefaultCircleSize, labels);
+
+        Check.That(plan.BuildLayer(RingLayer.Primary, showBack: true).Slots.Select(s => s.Label))
+             .ContainsExactly("A:LeftClick", "A:RightClick", "A:DoubleClick", "Mehr", "Zurück");
+
+        // Layer two's Back-to-first-layer slot is the host's Back label too.
+        Check.That(plan.BuildLayer(RingLayer.Secondary, showBack: false).Slots.Select(s => s.Label))
+             .ContainsExactly("A:MiddleClick", "A:Drag", "Zurück");
+    }
+
+    [Fact]
+    public void DefaultLabelSource_IsTheEnglishRingVocabulary()
+    {
+        var plan = RingPlan.Create(AllActions.Take(3).ToList(), AllActions.Take(1).ToList(), DefaultCircleSize);
+
+        Check.That(plan.BuildLayer(RingLayer.Primary, showBack: true).Slots.Select(s => s.Label))
+             .ContainsExactly("Left click", "More", "Back");
+    }
 }

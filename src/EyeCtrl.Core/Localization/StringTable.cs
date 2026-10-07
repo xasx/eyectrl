@@ -84,14 +84,25 @@ public sealed class StringTable
     /// surface is in the manifest and complete — and the invariant culture otherwise.
     /// </summary>
     /// <remarks>
-    /// T02 migrates the UI's non-key numbers to this so a number matches the language of the text
-    /// around it, including a surface degraded to English and an English-selected instance.
+    /// An unknown surface id logs a warning and returns the invariant culture; it never throws,
+    /// because a typo must not crash a screen the user controls by gaze. A build-time scan over
+    /// the literal call sites catches the typo before it can reach a user. T02 migrates the UI's
+    /// non-key numbers to this so a number matches the language of the text around it, including
+    /// a surface degraded to English and an English-selected instance.
     /// </remarks>
     /// <param name="surface">The surface id whose language the number sits in, e.g. <c>settings</c>.</param>
     /// <returns>de-DE or the invariant culture.</returns>
     public IFormatProvider FormatProviderFor(string surface)
     {
         ArgumentNullException.ThrowIfNull(surface);
+        if (!StringTableSchema.Surfaces.Contains(surface, StringComparer.Ordinal))
+        {
+            _warn?.Invoke(
+                $"Unknown surface id '{surface}' for a number format; the invariant culture is used. "
+                + "This is a build defect — surface ids are the closed enum in StringTableSchema.");
+            return CultureInfo.InvariantCulture;
+        }
+
         return Language == UiLanguage.German && _germanEffectiveSurfaces.Contains(surface)
             ? GermanFormatCulture
             : CultureInfo.InvariantCulture;
@@ -352,7 +363,9 @@ public sealed class StringTable
             string formatted;
             try
             {
-                formatted = string.Format(provider, "{" + index + specifier + "}", count);
+                // The specifier belongs to placeholder `index`; the probe always formats the
+                // single count as {0}, so a count at any argument index works.
+                formatted = string.Format(provider, "{0" + specifier + "}", count);
             }
             catch (FormatException)
             {

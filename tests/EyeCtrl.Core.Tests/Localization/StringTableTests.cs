@@ -75,6 +75,7 @@ public class StringTableTests
 
         Check.That(table.T("settings.alpha")).IsEqualTo("Alpha");
         Check.That(table.T("settings.beta")).IsEqualTo("Beta");
+        Check.That(table.FormatProviderFor("settings")).IsSameReferenceAs(CultureInfo.InvariantCulture);
         Check.That(warnings).HasElementThatMatches(w => w.Contains("settings", StringComparison.Ordinal)
             && w.Contains("incomplete", StringComparison.Ordinal));
     }
@@ -198,6 +199,29 @@ public class StringTableTests
     }
 
     [Fact]
+    public void Plurals_WithTheCountAtArgumentIndexOne_UseTheFormattedRule()
+    {
+        const string english = """
+        {
+          "settings.files": { "text": { "one": "{0}: {1} file", "other": "{0}: {1} files" }, "who": "user", "where": "settings", "fit": "row", "args": ["name", "count"] },
+          "settings.units": { "text": { "one": "{0}: {1:0.0} unit", "other": "{0}: {1:0.0} units" }, "who": "user", "where": "settings", "fit": "row", "args": ["name", "count"] }
+        }
+        """;
+        var table = StringTable.Create(
+            UiLanguage.English,
+            CultureInfo.InvariantCulture,
+            StringTableContent.ParseEnglish(english));
+
+        Check.That(table.T("settings.files", "Docs", 1)).IsEqualTo("Docs: 1 file");
+        Check.That(table.T("settings.files", "Docs", 2)).IsEqualTo("Docs: 2 files");
+        Check.That(table.T("settings.files", "Docs", 1.0)).IsEqualTo("Docs: 1 file");
+
+        // {1:0.0} renders every count with a visible decimal, so even 1 reads "1.0" (other).
+        Check.That(table.T("settings.units", "Docs", 1)).IsEqualTo("Docs: 1.0 units");
+        Check.That(table.T("settings.units", "Docs", 1.0)).IsEqualTo("Docs: 1.0 units");
+    }
+
+    [Fact]
     public void Plurals_FormatTheCountWithTheRenderedTextsProvider()
     {
         const string english = """
@@ -270,6 +294,16 @@ public class StringTableTests
     {
         var english = Build(selection: UiLanguage.English, culture: "de-DE", manifest: ["settings"]);
         Check.That(english.FormatProviderFor("settings")).IsSameReferenceAs(CultureInfo.InvariantCulture);
+    }
+
+    [Fact]
+    public void FormatProviderFor_UnknownSurfaceId_WarnsAndIsInvariant()
+    {
+        var warnings = new List<string>();
+        var table = Build(manifest: ["settings"], warnings: warnings);
+
+        Check.That(table.FormatProviderFor("setings")).IsSameReferenceAs(CultureInfo.InvariantCulture);
+        Check.That(warnings).HasElementThatMatches(w => w.Contains("setings", StringComparison.Ordinal));
     }
 
     [Fact]

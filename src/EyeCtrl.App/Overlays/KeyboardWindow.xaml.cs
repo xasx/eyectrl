@@ -235,6 +235,10 @@ public partial class KeyboardWindow : OverlayWindow
                 // unique. Regular keys (no SpecialAction) keep the positional id.
                 var id = !string.IsNullOrEmpty(key.SpecialAction) ? key.SpecialAction : $"key_{rowIdx}_{keyIdx}";
 
+                // The box the label must fit: the same width the Border below takes. The
+                // symbol-caption fit limit is stated against this number.
+                var boxWidth = _keySize * key.Width + (key.Width > 1 ? (key.Width - 1) * 4 : 0);
+
                 var label = new TextBlock
                 {
                     Text = key.Label,
@@ -253,7 +257,15 @@ public partial class KeyboardWindow : OverlayWindow
                     // gate it >= 12, not == 12 — so raising body text to 14 would silently grow
                     // this glyph, and three others, at the bottom of the multiplier range. A
                     // minimum also has no business being theme-dependent.
-                    FontSize = Math.Max(_keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize),
+                    //
+                    // A symbol caption (⇪ ⇧ ⌫ ⌫⌫ ⌴ ↵ ⇥ ✂ ↶ ↷ ← ↑ → ↓ 😀) takes the T14 rule
+                    // (user's pick, 2026-10-07): x1.4 in the theme's medium weight, fit-limited
+                    // to the box. Resolve returns the base font untouched for every other key.
+                    FontSize = SymbolCaptionFonts.Resolve(
+                        key,
+                        Math.Max(_keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize),
+                        boxWidth),
+                    FontWeight = SymbolCaptionRule.IsSymbolCaption(key) ? Tokens.FontWeightMedium : FontWeights.Normal,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
                 };
@@ -261,7 +273,7 @@ public partial class KeyboardWindow : OverlayWindow
                 var keyBrush = new SolidColorBrush(GetKeyBaseColor(key));
                 var container = new Border
                 {
-                    Width = _keySize * key.Width + (key.Width > 1 ? (key.Width - 1) * 4 : 0),
+                    Width = boxWidth,
                     Height = _keySize,
                     Margin = new Thickness(2),
                     Background = keyBrush,
@@ -270,6 +282,9 @@ public partial class KeyboardWindow : OverlayWindow
                 _keyBrushes[id] = keyBrush;
 
                 System.Windows.Automation.AutomationProperties.SetAutomationId(label, $"Keyboard_Key_{id}");
+                // A symbol caption is unpronounceable to a screen reader, so the layout supplies
+                // its name ("⌫" -> "Rücktaste"). Ordinary labels already read as their names.
+                System.Windows.Automation.AutomationProperties.SetName(label, key.AccessibleName ?? key.Label);
 
                 RegisterKeyVisual(id, key, container, label);
                 rowPanel.Children.Add(container);

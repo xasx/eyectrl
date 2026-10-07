@@ -1,0 +1,48 @@
+namespace EyeCtrl.App.Overlays;
+
+using System.Globalization;
+using System.Windows;
+using System.Windows.Media;
+using EyeCtrl.Controls.Theme;
+using EyeCtrl.Core.Keyboard;
+
+/// <summary>
+/// The font half of the T14 symbol-caption rule: <see cref="Resolve"/> maps a key's clamped base
+/// font to the font its label is drawn at, applying <see cref="SymbolCaptionRule.Scale"/> and the
+/// T14 Phase-2 hand-off's fit limit. The rule's classification lives in
+/// <see cref="SymbolCaptionRule"/>, in Core.
+/// </summary>
+internal static class SymbolCaptionFonts
+{
+    /// <summary>
+    /// The pixels-per-DIP the rule was measured at (the reference probe and the user's 200 %
+    /// display). It only rounds the fit decision, which runs against a 2 DIP margin twice the
+    /// measured DPI sensitivity, so production uses the same value the designer measured with.
+    /// </summary>
+    private const double ReferencePixelsPerDip = 2.0;
+
+    /// <summary>
+    /// The exact font size <c>KeyboardWindow.RebuildKeys</c> gives a key's label: the base font
+    /// unchanged for an ordinary caption, and for a symbol caption the base times
+    /// <see cref="SymbolCaptionRule.Scale"/>, reduced just enough that the advance keeps
+    /// <see cref="SymbolCaptionRule.EdgePadding"/> DIP clear of each side of the key box.
+    /// </summary>
+    /// <param name="key">The key being drawn.</param>
+    /// <param name="baseFont">The clamped key font, <c>max(keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize)</c>.</param>
+    /// <param name="boxWidth">The key Border's width, <c>keySize * units + (units - 1) * 4</c> for units &gt; 1.</param>
+    /// <returns>The label's FontSize.</returns>
+    public static double Resolve(KeyDefinition key, double baseFont, double boxWidth)
+    {
+        if (!SymbolCaptionRule.IsSymbolCaption(key)) return baseFont;
+
+        var font = baseFont * SymbolCaptionRule.Scale;
+        var typeface = new Typeface(
+            Tokens.FontStandard, FontStyles.Normal, Tokens.FontWeightMedium, FontStretches.Normal);
+        var advance = new FormattedText(
+            key.Label, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+            typeface, font, Tokens.BrushTextPrimary, ReferencePixelsPerDip).WidthIncludingTrailingWhitespace;
+        var room = boxWidth - 2 * SymbolCaptionRule.EdgePadding;
+
+        return advance > room ? font * room / advance : font;
+    }
+}

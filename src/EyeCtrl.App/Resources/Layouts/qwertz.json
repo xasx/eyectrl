@@ -17,10 +17,10 @@
           { "label": "I", "output": "i", "shiftOutput": "I", "width": 1.0 },
           { "label": "O", "output": "o", "shiftOutput": "O", "width": 1.0 },
           { "label": "P", "output": "p", "shiftOutput": "P", "width": 1.0 },
-          { "label": "Acc", "output": "", "width": 0.8, "specialAction": "switchSub:accents" }
+          { "label": "àé", "output": "", "width": 0.8, "specialAction": "switchSub:accents" }
         ],
         [
-          { "label": "Caps", "output": "", "width": 1.2, "specialAction": "toggle:capslock" },
+          { "label": "⇪", "output": "", "width": 1.2, "specialAction": "toggle:capslock", "accessibleName": "Feststelltaste" },
           { "label": "A", "output": "a", "shiftOutput": "A", "width": 1.0 },
           { "label": "S", "output": "s", "shiftOutput": "S", "width": 1.0 },
           { "label": "D", "output": "d", "shiftOutput": "D", "width": 1.0 },
@@ -35,7 +35,7 @@
         ],
         [
           { "label": "Alt", "output": "", "width": 1.2, "specialAction": "modifier:alt" },
-          { "label": "Shift", "output": "", "width": 1.2, "specialAction": "modifier:shift" },
+          { "label": "⇧", "output": "", "width": 1.2, "specialAction": "modifier:shift", "accessibleName": "Umschalttaste" },
           { "label": "Y", "output": "y", "shiftOutput": "Y", "width": 1.0 },
           { "label": "X", "output": "x", "shiftOutput": "X", "width": 1.0 },
           { "label": "C", "output": "c", "shiftOutput": "C", "width": 1.0 },
@@ -44,19 +44,19 @@
           { "label": "N", "output": "n", "shiftOutput": "N", "width": 1.0 },
           { "label": "M", "output": "m", "shiftOutput": "M", "width": 1.0 },
           { "label": "\u00dc", "output": "\u00fc", "shiftOutput": "\u00dc", "width": 1.0 },
-          { "label": "Bksp", "output": "", "width": 1.2, "specialAction": "backspace" },
-          { "label": "DelWd", "output": "", "width": 1.2, "specialAction": "deleteWord" }
+          { "label": "⌫", "output": "", "width": 1.2, "specialAction": "backspace", "accessibleName": "Rücktaste" },
+          { "label": "⌫⌫", "output": "", "width": 1.2, "specialAction": "deleteWord", "accessibleName": "Wort löschen" }
         ],
         [
-          { "label": "Ctrl", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" },
+          { "label": "Strg", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" },
           { "label": "123", "output": "", "width": 1.5, "specialAction": "switchSub:numbers" },
           { "label": "#+=", "output": "", "width": 1.5, "specialAction": "switchSub:symbols" },
           { "label": "ß", "output": "ß", "shiftOutput": "ẞ", "width": 1.0 },
-          { "label": "\ud83d\ude00", "output": "", "width": 1.0, "specialAction": "switchEmoji" },
+          { "label": "\ud83d\ude00", "output": "", "width": 1.0, "specialAction": "switchEmoji", "accessibleName": "Emoji" },
           { "label": "Fn", "output": "", "width": 1.0, "specialAction": "switchSub:function" },
-          { "label": "Space", "output": " ", "width": 2.0, "specialAction": "space" },
-          { "label": "Enter", "output": "", "width": 1.5, "specialAction": "enter" },
-          { "label": "Tab", "output": "", "width": 1.0, "specialAction": "tab" }
+          { "label": "⌴", "output": " ", "width": 2.0, "specialAction": "space", "accessibleName": "Leertaste" },
+          { "label": "↵", "output": "", "width": 1.5, "specialAction": "enter", "accessibleName": "Eingabetaste" },
+          { "label": "⇥", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" }
         ]
       ]
     },
@@ -77,7 +77,7 @@
           { "label": "0", "output": "0", "width": 1.0 }
         ],
         [
-          { "label": "Caps", "output": "", "width": 1.2, "specialAction": "toggle:capslock" },
+          { "label": "⇪", "output": "", "width": 1.2, "specialAction": "toggle:capslock", "accessibleName": "Feststelltaste" },
           { "label": "+", "output": "+", "width": 1.0 },
           { "label": "-", "output": "-", "width": 1.0 },
           { "label": "*", "output": "*", "width": 1.0 },
@@ -90,7 +90,7 @@
         ],
         [
           { "label": "Alt", "output": "", "width": 1.2, "specialAction": "modifier:alt" },
-          { "label": "Shift", "output": "", "width": 1.2, "specialAction": "modifier:shift" },
+          { "label": "⇧", "output": "", "width": 1.2, "specialAction": "modifier:shift", "accessibleName": "Umschalttaste" },
           { "label": ",", "output": ",", "width": 1.0 },
           { "label": ":", "output": ":", "width": 1.0 },
           { "label": ";", "output": ";", "width": 1.0 },
@@ -99,18 +99,18 @@
           { "label": "@", "output": "@", "width": 1.0 },
           { "label": "#", "output": "#", "width": 1.0 },
           { "label": "$", "output": "$", "width": 1.0 },
-          { "label": "Bksp", "output": "", "width": 1.2, "specialAction": "backspace" },
-          { "label": "DelWd", "output": "", "width": 1.2, "specialAction": "deleteWord" }
+          { "label": "⌫", "output": "", "width": 1.2, "specialAction": "backspace", "accessibleName": "Rücktaste" },
+          { "label": "⌫⌫", "output": "", "width": 1.2, "specialAction": "deleteWord", "accessibleName": "Wort löschen" }
         ],
         [
-          { "label": "Ctrl", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" },
+          { "label": "Strg", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" },
           { "label": "ABC", "output": "", "width": 1.5, "specialAction": "switchSub:letters" },
           { "label": "#+=", "output": "", "width": 1.5, "specialAction": "switchSub:symbols" },
-          { "label": "\ud83d\ude00", "output": "", "width": 1.0, "specialAction": "switchEmoji" },
+          { "label": "\ud83d\ude00", "output": "", "width": 1.0, "specialAction": "switchEmoji", "accessibleName": "Emoji" },
           { "label": "Fn", "output": "", "width": 1.0, "specialAction": "switchSub:function" },
-          { "label": "Space", "output": " ", "width": 3.0, "specialAction": "space" },
-          { "label": "Enter", "output": "", "width": 1.5, "specialAction": "enter" },
-          { "label": "Tab", "output": "", "width": 1.0, "specialAction": "tab" }
+          { "label": "⌴", "output": " ", "width": 3.0, "specialAction": "space", "accessibleName": "Leertaste" },
+          { "label": "↵", "output": "", "width": 1.5, "specialAction": "enter", "accessibleName": "Eingabetaste" },
+          { "label": "⇥", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" }
         ]
       ]
     },
@@ -130,7 +130,7 @@
           { "label": "_", "output": "_", "width": 1.0 }
         ],
         [
-          { "label": "Caps", "output": "", "width": 1.2, "specialAction": "toggle:capslock" },
+          { "label": "⇪", "output": "", "width": 1.2, "specialAction": "toggle:capslock", "accessibleName": "Feststelltaste" },
           { "label": "[", "output": "[", "width": 1.0 },
           { "label": "]", "output": "]", "width": 1.0 },
           { "label": "{", "output": "{", "width": 1.0 },
@@ -143,7 +143,7 @@
         ],
         [
           { "label": "Alt", "output": "", "width": 1.2, "specialAction": "modifier:alt" },
-          { "label": "Shift", "output": "", "width": 1.2, "specialAction": "modifier:shift" },
+          { "label": "⇧", "output": "", "width": 1.2, "specialAction": "modifier:shift", "accessibleName": "Umschalttaste" },
           { "label": "\u20ac", "output": "\u20ac", "width": 1.0 },
           { "label": "\u00a3", "output": "\u00a3", "width": 1.0 },
           { "label": "\u00a5", "output": "\u00a5", "width": 1.0 },
@@ -152,18 +152,18 @@
           { "label": "\u2026", "output": "\u2026", "width": 1.0 },
           { "label": "\u2014", "output": "\u2014", "width": 1.0 },
           { "label": "\u2013", "output": "\u2013", "width": 1.0 },
-          { "label": "Bksp", "output": "", "width": 1.2, "specialAction": "backspace" },
-          { "label": "DelWd", "output": "", "width": 1.2, "specialAction": "deleteWord" }
+          { "label": "⌫", "output": "", "width": 1.2, "specialAction": "backspace", "accessibleName": "Rücktaste" },
+          { "label": "⌫⌫", "output": "", "width": 1.2, "specialAction": "deleteWord", "accessibleName": "Wort löschen" }
         ],
         [
-          { "label": "Ctrl", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" },
+          { "label": "Strg", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" },
           { "label": "ABC", "output": "", "width": 1.5, "specialAction": "switchSub:letters" },
           { "label": "123", "output": "", "width": 1.5, "specialAction": "switchSub:numbers" },
-          { "label": "\ud83d\ude00", "output": "", "width": 1.0, "specialAction": "switchEmoji" },
+          { "label": "\ud83d\ude00", "output": "", "width": 1.0, "specialAction": "switchEmoji", "accessibleName": "Emoji" },
           { "label": "Fn", "output": "", "width": 1.0, "specialAction": "switchSub:function" },
-          { "label": "Space", "output": " ", "width": 3.0, "specialAction": "space" },
-          { "label": "Enter", "output": "", "width": 1.5, "specialAction": "enter" },
-          { "label": "Tab", "output": "", "width": 1.0, "specialAction": "tab" }
+          { "label": "⌴", "output": " ", "width": 3.0, "specialAction": "space", "accessibleName": "Leertaste" },
+          { "label": "↵", "output": "", "width": 1.5, "specialAction": "enter", "accessibleName": "Eingabetaste" },
+          { "label": "⇥", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" }
         ]
       ]
     },
@@ -204,18 +204,18 @@
           { "label": "Œ", "output": "Œ", "width": 1.2 },
           { "label": "«", "output": "«", "width": 1.2 },
           { "label": "»", "output": "»", "width": 1.2 },
-          { "label": "Bksp", "output": "", "width": 1.6, "specialAction": "backspace" },
-          { "label": "DelWd", "output": "", "width": 1.6, "specialAction": "deleteWord" }
+          { "label": "⌫", "output": "", "width": 1.6, "specialAction": "backspace", "accessibleName": "Rücktaste" },
+          { "label": "⌫⌫", "output": "", "width": 1.6, "specialAction": "deleteWord", "accessibleName": "Wort löschen" }
         ],
         [
           { "label": "ABC", "output": "", "width": 1.5, "specialAction": "switchSub:letters" },
           { "label": "123", "output": "", "width": 1.5, "specialAction": "switchSub:numbers" },
           { "label": "#+=", "output": "", "width": 1.5, "specialAction": "switchSub:symbols" },
-          { "label": "😀", "output": "", "width": 1.0, "specialAction": "switchEmoji" },
+          { "label": "😀", "output": "", "width": 1.0, "specialAction": "switchEmoji", "accessibleName": "Emoji" },
           { "label": "Fn", "output": "", "width": 1.0, "specialAction": "switchSub:function" },
-          { "label": "Space", "output": " ", "width": 2.0, "specialAction": "space" },
-          { "label": "Enter", "output": "", "width": 1.5, "specialAction": "enter" },
-          { "label": "Tab", "output": "", "width": 1.0, "specialAction": "tab" }
+          { "label": "⌴", "output": " ", "width": 2.0, "specialAction": "space", "accessibleName": "Leertaste" },
+          { "label": "↵", "output": "", "width": 1.5, "specialAction": "enter", "accessibleName": "Eingabetaste" },
+          { "label": "⇥", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" }
         ]
       ]
     },
@@ -235,40 +235,40 @@
           { "label": "F9", "output": "", "width": 1.0, "specialAction": "key:F9" }
         ],
         [
-          { "label": "PrtSc", "output": "", "width": 1.2, "specialAction": "key:PrintScreen" },
+          { "label": "Druck", "output": "", "width": 1.2, "specialAction": "key:PrintScreen" },
           { "label": "F10", "output": "", "width": 1.0, "specialAction": "key:F10" },
           { "label": "F11", "output": "", "width": 1.0, "specialAction": "key:F11" },
           { "label": "F12", "output": "", "width": 1.0, "specialAction": "key:F12" },
-          { "label": "Home", "output": "", "width": 1.0, "specialAction": "key:Home" },
-          { "label": "End", "output": "", "width": 1.0, "specialAction": "key:End" },
-          { "label": "PgUp", "output": "", "width": 1.0, "specialAction": "key:PageUp" },
-          { "label": "PgDn", "output": "", "width": 1.0, "specialAction": "key:PageDown" },
-          { "label": "Ins", "output": "", "width": 1.0, "specialAction": "key:Insert" },
-          { "label": "Del", "output": "", "width": 1.0, "specialAction": "key:Delete" }
+          { "label": "Pos1", "output": "", "width": 1.0, "specialAction": "key:Home" },
+          { "label": "Ende", "output": "", "width": 1.0, "specialAction": "key:End" },
+          { "label": "Bild↑", "output": "", "width": 1.0, "specialAction": "key:PageUp", "accessibleName": "Bild-auf-Taste" },
+          { "label": "Bild↓", "output": "", "width": 1.0, "specialAction": "key:PageDown", "accessibleName": "Bild-ab-Taste" },
+          { "label": "Einfg", "output": "", "width": 1.0, "specialAction": "key:Insert" },
+          { "label": "Entf", "output": "", "width": 1.0, "specialAction": "key:Delete" }
         ],
         [
-          { "label": "Copy", "output": "", "width": 1.7, "specialAction": "shortcut:Ctrl+C" },
-          { "label": "Paste", "output": "", "width": 1.7, "specialAction": "shortcut:Ctrl+V" },
-          { "label": "Cut", "output": "", "width": 1.7, "specialAction": "shortcut:Ctrl+X" },
-          { "label": "Undo", "output": "", "width": 1.7, "specialAction": "shortcut:Ctrl+Z" },
-          { "label": "Redo", "output": "", "width": 1.7, "specialAction": "shortcut:Ctrl+Y" },
-          { "label": "Sel All", "output": "", "width": 1.7, "specialAction": "shortcut:Ctrl+A" },
-          { "label": "Add Word", "output": "", "width": 1.4, "specialAction": "addWord" }
+          { "label": "Kopieren", "output": "", "width": 1.7, "specialAction": "shortcut:Ctrl+C" },
+          { "label": "Einfügen", "output": "", "width": 1.7, "specialAction": "shortcut:Ctrl+V" },
+          { "label": "✂", "output": "", "width": 1.7, "specialAction": "shortcut:Ctrl+X", "accessibleName": "Ausschneiden" },
+          { "label": "↶", "output": "", "width": 1.7, "specialAction": "shortcut:Ctrl+Z", "accessibleName": "Rückgängig" },
+          { "label": "↷", "output": "", "width": 1.7, "specialAction": "shortcut:Ctrl+Y", "accessibleName": "Wiederholen" },
+          { "label": "Alles mark.", "output": "", "width": 1.7, "specialAction": "shortcut:Ctrl+A" },
+          { "label": "+ Wort", "output": "", "width": 1.4, "specialAction": "addWord" }
         ],
         [
           { "label": "ABC", "output": "", "width": 2.0, "specialAction": "switchSub:letters" },
-          { "label": "↑", "output": "", "width": 1.5, "specialAction": "key:ArrowUp" },
-          { "label": "Space", "output": " ", "width": 4.0, "specialAction": "space" },
-          { "label": "Enter", "output": "", "width": 1.5, "specialAction": "enter" },
-          { "label": "Tab", "output": "", "width": 1.0, "specialAction": "tab" }
+          { "label": "↑", "output": "", "width": 1.5, "specialAction": "key:ArrowUp", "accessibleName": "Nach-oben-Taste" },
+          { "label": "⌴", "output": " ", "width": 4.0, "specialAction": "space", "accessibleName": "Leertaste" },
+          { "label": "↵", "output": "", "width": 1.5, "specialAction": "enter", "accessibleName": "Eingabetaste" },
+          { "label": "⇥", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" }
         ],
         [
           { "label": "123", "output": "", "width": 1.5, "specialAction": "switchSub:numbers" },
-          { "label": "←", "output": "", "width": 1.5, "specialAction": "key:ArrowLeft" },
-          { "label": "↓", "output": "", "width": 1.5, "specialAction": "key:ArrowDown" },
-          { "label": "→", "output": "", "width": 1.5, "specialAction": "key:ArrowRight" },
-          { "label": "Bksp", "output": "", "width": 2.5, "specialAction": "backspace" },
-          { "label": "DelWd", "output": "", "width": 2.5, "specialAction": "deleteWord" }
+          { "label": "←", "output": "", "width": 1.5, "specialAction": "key:ArrowLeft", "accessibleName": "Nach-links-Taste" },
+          { "label": "↓", "output": "", "width": 1.5, "specialAction": "key:ArrowDown", "accessibleName": "Nach-unten-Taste" },
+          { "label": "→", "output": "", "width": 1.5, "specialAction": "key:ArrowRight", "accessibleName": "Nach-rechts-Taste" },
+          { "label": "⌫", "output": "", "width": 2.5, "specialAction": "backspace", "accessibleName": "Rücktaste" },
+          { "label": "⌫⌫", "output": "", "width": 2.5, "specialAction": "deleteWord", "accessibleName": "Wort löschen" }
         ]
       ]
     }

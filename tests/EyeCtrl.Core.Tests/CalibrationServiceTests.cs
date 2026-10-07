@@ -464,6 +464,14 @@ public class CalibrationServiceTests
         return path;
     }
 
+    /// <summary>Loads a saved calibration as if on the given monitor and returns the rejection sentence.</summary>
+    private static string LoadRejection(string path, string currentName, string currentId = "")
+    {
+        var service = new CalibrationService();
+        service.Load(path, new PhysicalPoint(3840, 2400), currentName, currentId);
+        return service.LastLoadRejection ?? "(none)";
+    }
+
     [Fact]
     public void Load_LogsWarningNamingBothMonitors_OnMonitorMismatch()
     {
@@ -539,6 +547,43 @@ public class CalibrationServiceTests
         finally
         {
             File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_RecordsMonitorMismatch_AsOneWholePhrase_PerHardwareIdCombination()
+    {
+        // The rejection is built from ONE whole phrase per combination of the optional hardware ids,
+        // not from a base string plus a conditionally appended ", {id}" fragment. German decides its
+        // own punctuation and word order, and a fragment is not a phrase (T03c). Pinning all four
+        // exact sentences here keeps each arm whole and the English word-for-word.
+        var screen = new PhysicalPoint(3840, 2400);
+        var savedName = "\\\\.\\DISPLAY14";
+        var currentName = "\\\\.\\DISPLAY2";
+
+        var bothIds = SaveValidCalibration(screen, savedName, "AUOC5AC");
+        var savedIdOnly = SaveValidCalibration(screen, savedName, "AUOC5AC");
+        var currentIdOnly = SaveValidCalibration(screen, savedName);
+        var neitherId = SaveValidCalibration(screen, savedName);
+        try
+        {
+            Check.That(LoadRejection(bothIds, currentName, "DELA1CF")).IsEqualTo(
+                "Not applied — saved on a different monitor (\\\\.\\DISPLAY14, AUOC5AC), "
+                + "current is \\\\.\\DISPLAY2, DELA1CF. Recalibrate to fix.");
+            Check.That(LoadRejection(savedIdOnly, currentName)).IsEqualTo(
+                "Not applied — saved on a different monitor (\\\\.\\DISPLAY14, AUOC5AC), "
+                + "current is \\\\.\\DISPLAY2. Recalibrate to fix.");
+            Check.That(LoadRejection(currentIdOnly, currentName, "DELA1CF")).IsEqualTo(
+                "Not applied — saved on a different monitor (\\\\.\\DISPLAY14), "
+                + "current is \\\\.\\DISPLAY2, DELA1CF. Recalibrate to fix.");
+            Check.That(LoadRejection(neitherId, currentName)).IsEqualTo(
+                "Not applied — saved on a different monitor (\\\\.\\DISPLAY14), "
+                + "current is \\\\.\\DISPLAY2. Recalibrate to fix.");
+        }
+        finally
+        {
+            foreach (var path in new[] { bothIds, savedIdOnly, currentIdOnly, neitherId })
+                File.Delete(path);
         }
     }
 

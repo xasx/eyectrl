@@ -25,7 +25,9 @@ internal sealed class CursorPageSource : ISettingsPageSource
         return
         [
             new PageSpec([
-                new ComboBoxSpec("c_filter", "Filter Mode", Enum.GetNames<GazeFilterMode>(), null,
+                new ComboBoxSpec("c_filter", "Filter Mode",
+                    new[] { "Direct", "Smoothed", "Smoothed with Snapping", "One Euro" },
+                    Enum.GetNames<GazeFilterMode>(),
                     () => c.FilterMode.ToString(),
                     v => { c.FilterMode = Enum.Parse<GazeFilterMode>(v); _ctx.ApplyAndSave(); })
                     { Description = "Filtering applied to raw gaze samples." },
@@ -72,7 +74,8 @@ internal sealed class CursorPageSource : ISettingsPageSource
                     () => c.MaxGapInterpolationMs, v => { c.MaxGapInterpolationMs = (int)v; _ctx.ApplyAndSave(); })
                     { Description = "Bridge short tracker dropouts up to this long." },
                 new ComboBoxSpec("c_pos_style", "Position Indicator",
-                    Enum.GetNames<Core.Models.PositionIndicatorStyle>(), null,
+                    new[] { "Crosshair", "Pin" },
+                    Enum.GetNames<Core.Models.PositionIndicatorStyle>(),
                     () => c.PositionIndicatorStyle.ToString(),
                     v => { c.PositionIndicatorStyle = Enum.Parse<Core.Models.PositionIndicatorStyle>(v); _ctx.ApplyAndSave(); })
                     { Description = "How the position indicator is drawn; applies from the next action-menu open." },

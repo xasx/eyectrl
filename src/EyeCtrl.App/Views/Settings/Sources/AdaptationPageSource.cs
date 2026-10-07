@@ -26,7 +26,8 @@ internal sealed class AdaptationPageSource : ISettingsPageSource
                     () => s.Enabled, v => { s.Enabled = v; _ctx.ApplyAndSave(); })
                     { Description = "Ease dwell and targeting automatically while you struggle." },
                 new ComboBoxSpec("ad_posture", "Posture",
-                    Enum.GetNames<Core.Settings.AdaptationPosture>(), null,
+                    new[] { "Conservative", "Balanced", "Responsive" },
+                    Enum.GetNames<Core.Settings.AdaptationPosture>(),
                     () => s.Posture.ToString(),
                     v => { s.Posture = Enum.Parse<Core.Settings.AdaptationPosture>(v); _ctx.ApplyAndSave(); })
                     { Description = "How readily adaptation responds to struggle." },

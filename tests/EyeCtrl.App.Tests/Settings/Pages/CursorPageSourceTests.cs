@@ -86,6 +86,9 @@ public class CursorPageSourceTests
         Check.That(rows.Last()).IsInstanceOf<ButtonSpec>();
         var combo = rows.OfType<ComboBoxSpec>().Single(c => c.Id == "c_pos_style");
         Check.That(combo.Display).ContainsExactly("Crosshair", "Pin");
+        // T03a: the enum member names are the explicit codes (they are also the display names,
+        // which survive unchanged), so T07 can translate the display without changing saved values.
+        Check.That(combo.Code).ContainsExactly("Crosshair", "Pin");
     }
 
     [Fact]

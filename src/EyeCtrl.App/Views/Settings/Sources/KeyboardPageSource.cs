@@ -16,7 +16,8 @@ internal sealed class KeyboardPageSource : ISettingsPageSource
         [
             new PageSpec([
                 new ComboBoxSpec("k_layout", "Active Layout",
-                    new[] { "QWERTY", "QWERTZ", "AZERTY" }, null,
+                    new[] { "QWERTY", "QWERTZ", "AZERTY" },
+                    new[] { "QWERTY", "QWERTZ", "AZERTY" },
                     () => k.ActiveLayout, v => { k.ActiveLayout = v; _ctx.ApplyAndSave(); })
                     { Description = "Key arrangement; QWERTZ suits German, AZERTY suits French." },
                 new SliderSpec("k_size", "Key Size Multiplier", 0.5, 2.0, 0.1, 1,
@@ -38,7 +39,8 @@ internal sealed class KeyboardPageSource : ISettingsPageSource
                     () => k.ClickSoundEnabled, v => { k.ClickSoundEnabled = v; _ctx.ApplyAndSave(); })
                     { Description = "Plays a click each time a key activates." },
                 new ComboBoxSpec("k_edge", "Screen Edge",
-                    new[] { "Bottom", "Top" }, null,
+                    new[] { "Bottom", "Top" },
+                    new[] { "Bottom", "Top" },
                     () => k.ScreenEdge, v => { k.ScreenEdge = v; _ctx.ApplyAndSave(); })
                     { Description = "The screen edge the keyboard docks to." },
                 new ButtonSpec("k_reset", "Reset Keyboard Settings",

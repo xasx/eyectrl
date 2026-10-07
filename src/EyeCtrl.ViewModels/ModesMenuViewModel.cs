@@ -32,12 +32,17 @@ public partial class ModesMenuViewModel : DwellOverlayViewModelBase,
     /// <summary>Dwell for a mode row: same as toolbar buttons — this is toolbar-adjacent chrome.</summary>
     private readonly int _rowDwellMs;
 
-    private static readonly (string Id, InteractionAction Action, string Label)[] Rows =
+    /// <summary>
+    /// The rows: one icon-only button per mouse click. The labels are gone (user decision
+    /// 2026-10-06 — "drop the labels and just have good icons"); the ring's own action names
+    /// (<c>RingLabelMap</c>) are what the window exposes to UIA instead.
+    /// </summary>
+    private static readonly (string Id, InteractionAction Action)[] Rows =
     {
-        ("modes_left", InteractionAction.LeftClick, "Left click"),
-        ("modes_right", InteractionAction.RightClick, "Right click"),
-        ("modes_double", InteractionAction.DoubleClick, "Double click"),
-        ("modes_middle", InteractionAction.MiddleClick, "Middle click"),
+        ("modes_left", InteractionAction.LeftClick),
+        ("modes_right", InteractionAction.RightClick),
+        ("modes_double", InteractionAction.DoubleClick),
+        ("modes_middle", InteractionAction.MiddleClick),
     };
 
     /// <summary>The action currently locked (null = mode off). Drives the active-button marker.</summary>
@@ -55,13 +60,13 @@ public partial class ModesMenuViewModel : DwellOverlayViewModelBase,
     }
 
     /// <summary>The rows the view should render, in order.</summary>
-    public IReadOnlyList<(string Id, InteractionAction Action, string Label)> RowDefinitions => Rows;
+    public IReadOnlyList<(string Id, InteractionAction Action)> RowDefinitions => Rows;
 
     private void RebuildButtons()
     {
         Buttons.Clear();
-        foreach (var (id, action, label) in Rows)
-            Buttons.Add(new ModesMenuButtonViewModel(id, action, label));
+        foreach (var (id, action) in Rows)
+            Buttons.Add(new ModesMenuButtonViewModel(id, action));
     }
 
     public void Receive(ModesMenuToggledMessage message)

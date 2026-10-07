@@ -24,7 +24,8 @@ public class EdgeButtonBarViewModelRearmTests
         int dwellMs = 1, bool rearm = true, Action? afterToggle = null) => new(
         id, Symbol: string.Empty, DwellMs: dwellMs,
         Activate: _ => { toggles.Add(id); afterToggle?.Invoke(); },
-        VerticalOffset: verticalOffset, RadiusLogical: 50, Label: id, RearmOnGazeExit: rearm);
+        VerticalOffset: verticalOffset, RadiusLogical: 50,
+        Icon: ActionIcon.Close, Label: id, RearmOnGazeExit: rearm);
 
     private static void Look(EdgeButtonBarViewModel vm, PhysicalPoint p, long t, bool inGap = false, bool paused = false)
         => vm.Receive(new GazeCursorMovedMessage(new GazeFrame(p, t, IsInGap: inGap)) { IsPaused = paused });

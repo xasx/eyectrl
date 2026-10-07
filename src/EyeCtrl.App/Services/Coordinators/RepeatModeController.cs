@@ -48,7 +48,8 @@ internal sealed class RepeatModeController : CoordinatorBase
             DwellMs: dwellMs,
             Activate: m => m.Send(new ExitRepeatModeMessage()),
             VerticalOffset: verticalOffset,
-            RadiusLogical: UIConstants.ButtonRadius);
+            RadiusLogical: UIConstants.ButtonRadius,
+            AccessibleName: "Stop repeat");
 
     private bool _active;
     private PhysicalPoint _stopCenterPhysical;

@@ -281,7 +281,10 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
             DpiHelper.PhysicalToLogicalX(buttonCenter.X),
             DpiHelper.PhysicalToLogicalY(buttonCenter.Y));
 
-        _hideButton = DwellArcButton.Create(dipCenter, UIConstants.ButtonRadius, "\u2715");
+        // The same escape-hatch shape as the edge buttons: a bare glyph whose drawn face cannot
+        // name itself to UIA, so it carries the name explicitly.
+        _hideButton = DwellArcButton.Create(
+            dipCenter, UIConstants.ButtonRadius, "\u2715", accessibleName: "Close");
         _hideButton.AddTo(BackdropCanvas);
 
         if (progress > 0)

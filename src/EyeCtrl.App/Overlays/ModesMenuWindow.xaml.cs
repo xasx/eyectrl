@@ -54,35 +54,65 @@ public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
         if (_vm is null) return;
 
         var logicalW = System.Windows.SystemParameters.PrimaryScreenWidth;
-        var count = _vm.RowDefinitions.Count;
-        var panelW = count * _buttonSizeLogical + (count + 1) * ButtonGapLogical;
-        var panelH = _buttonSizeLogical + 2 * ButtonGapLogical;
-        Width = panelW;
-        Height = panelH;
-        Left = (logicalW - panelW) / 2.0;
-        Top = _toolbarBandHeightLogical;
+        var positions = BuildButtonsAt(
+            _buttonSizeLogical,
+            (logicalW - PanelWidthLogical(_buttonSizeLogical)) / 2.0,
+            _toolbarBandHeightLogical);
 
-        RebuildButtons();
         Show();
-        _vm.SetRowScreenPositions(ComputeButtonCentres(_vm.RowDefinitions, Left, Top, _buttonSizeLogical));
+        _vm.SetRowScreenPositions(positions);
     }
 
     /// <summary>
-    /// Per-button target centres in physical px. Pure arithmetic so a geometry test can pin it:
-    /// one (size + gap) slot per button after a gap + half-size inset (design D29; supersedes the
-    /// row-centre helper from review round 3 — same distinctness contract, horizontal layout).
+    /// The headless half of <see cref="ShowAtTopCentre"/> (critique M3): lays the panel out for
+    /// <paramref name="sizeLogical"/> at the given window origin and rebuilds the buttons, without
+    /// <c>Show()</c>. Returns the row targets it computed; production publishes them through the VM
+    /// only after the window is shown. The fit tests build real buttons through this seam on an STA
+    /// thread, so they measure what the window draws rather than a re-implementation of it.
+    /// </summary>
+    internal IReadOnlyList<(string Id, PhysicalPoint Centre, double Radius)> BuildButtonsAt(
+        double sizeLogical, double windowLeft, double windowTop)
+    {
+        _buttonSizeLogical = sizeLogical;
+        Width = PanelWidthLogical(sizeLogical);
+        Height = sizeLogical + 2 * ButtonGapLogical;
+        Left = windowLeft;
+        Top = windowTop;
+
+        RebuildButtons();
+        return _vm is null
+            ? Array.Empty<(string, PhysicalPoint, double)>()
+            : ComputeButtonCentres(
+                _vm.RowDefinitions.Select(row => row.Id).ToList(), windowLeft, windowTop, sizeLogical);
+    }
+
+    private double PanelWidthLogical(double sizeLogical)
+        => _vm is null
+            ? 0
+            : _vm.RowDefinitions.Count * sizeLogical + (_vm.RowDefinitions.Count + 1) * ButtonGapLogical;
+
+    /// <summary>
+    /// Per-button target centres in physical px, one (size + gap) slot per id after a gap +
+    /// half-size inset (design D29; supersedes the row-centre helper from review round 3 — same
+    /// distinctness contract, horizontal layout). Pure arithmetic so a geometry test can pin it.
+    ///
+    /// <para>
+    /// Takes the ids alone: the helper reads only a row's id and the count, so it stays
+    /// independent of the caller's row shape (the modes VM's tuple carries the action, which
+    /// this arithmetic does not need).
+    /// </para>
     /// </summary>
     internal static IReadOnlyList<(string Id, PhysicalPoint Centre, double Radius)> ComputeButtonCentres(
-        IReadOnlyList<(string Id, InteractionAction Action, string Label)> definitions,
+        IReadOnlyList<string> definitionIds,
         double windowLeft, double windowTop, double buttonSizeLogical)
     {
         var result = new List<(string, PhysicalPoint, double)>();
-        for (var i = 0; i < definitions.Count; i++)
+        for (var i = 0; i < definitionIds.Count; i++)
         {
             var centreLogicalX = windowLeft + ButtonGapLogical + i * (buttonSizeLogical + ButtonGapLogical)
                                  + buttonSizeLogical / 2;
             var centreLogicalY = windowTop + ButtonGapLogical + buttonSizeLogical / 2;
-            result.Add((definitions[i].Id,
+            result.Add((definitionIds[i],
                 new PhysicalPoint(
                     DpiHelper.LogicalToPhysicalX(centreLogicalX),
                     DpiHelper.LogicalToPhysicalY(centreLogicalY)),
@@ -101,7 +131,7 @@ public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
         var radius = _buttonSizeLogical / 2;
         for (var i = 0; i < _vm.RowDefinitions.Count; i++)
         {
-            var (id, action, label) = _vm.RowDefinitions[i];
+            var (id, action) = _vm.RowDefinitions[i];
             var centreLogical = new Point(
                 ButtonGapLogical + i * (_buttonSizeLogical + ButtonGapLogical) + radius,
                 ButtonGapLogical + radius);
@@ -112,7 +142,12 @@ public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
                 Core.Models.InteractionAction.DoubleClick => ActionIcons.For(Core.Models.ActionIcon.DoubleClick),
                 _ => ActionIcons.For(Core.Models.ActionIcon.MiddleClick),
             };
-            var button = DwellArcButton.Create(centreLogical, radius, symbol: null, icon: icon, label: label);
+            // Icon-only by the user's call: labels are gone, Solo fills the freed disc, and the
+            // ring's own action name ("Left click", ...) survives as the UIA name.
+            var button = DwellArcButton.Create(
+                centreLogical, radius, symbol: null, icon: icon,
+                iconSize: DwellArcButton.IconSize.Solo,
+                accessibleName: RingLabelMap.For(action));
             button.AddTo(ButtonCanvas);
             _buttons[id] = button;
         }
@@ -130,6 +165,12 @@ public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
             _progressSubs.Add((vmButton, handler));
         }
     }
+
+    /// <summary>
+    /// The buttons the last rebuild drew, keyed by row id — test seam for the fit and geometry
+    /// checks, which measure these real control instances rather than rebuilding them.
+    /// </summary>
+    internal IReadOnlyDictionary<string, DwellArcButton> DrawnButtons => _buttons;
 
     private void DetachProgressSubs()
     {

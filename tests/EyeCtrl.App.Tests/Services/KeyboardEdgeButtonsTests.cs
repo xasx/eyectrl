@@ -95,8 +95,11 @@ public class KeyboardEdgeButtonsTests
         Check.That(close.DwellMs).IsEqualTo(600);
         Check.That(flip.Icon).IsEqualTo(ActionIcon.KeyboardEdge);
         Check.That(close.Icon).IsEqualTo(ActionIcon.Close);
-        Check.That(flip.Label).IsEqualTo("Flip");
-        Check.That(close.Label).IsEqualTo("Close");
+        // Icon-only since 2026-10-06: no label is drawn, the name survives as the UIA name.
+        Check.That(flip.Label).IsNull();
+        Check.That(close.Label).IsNull();
+        Check.That(flip.AccessibleName).IsEqualTo("Flip");
+        Check.That(close.AccessibleName).IsEqualTo("Close");
     }
 
     [Fact]

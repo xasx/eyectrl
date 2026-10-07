@@ -33,7 +33,8 @@ public class ScrollModeController : IDisposable
             DwellMs: dwellMs,
             Activate: m => m.Send(new ExitScrollModeMessage()),
             VerticalOffset: verticalOffset,
-            RadiusLogical: UIConstants.ButtonRadius);
+            RadiusLogical: UIConstants.ButtonRadius,
+            AccessibleName: "Stop scrolling");
 
     private readonly EventCoordinationContext _context;
     private readonly Func<IScrollOverlaySurface> _createOverlayWindow;

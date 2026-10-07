@@ -132,6 +132,82 @@ public class EdgeButtonBarViewModelTests
         Check.That(vm.Buttons.Select(b => b.Id)).ContainsExactly("Drag_cancel");
     }
 
+    [Fact]
+    public void ALabelledDefinitionWithoutAnIcon_IsRefusedAtShow()
+    {
+        // The Recapture defect's definition shape: a glyph symbol plus a label but no drawn icon.
+        // DwellArcButton.Create refuses the pair outright, so the bar must refuse it one step
+        // earlier — a bad definition fails at its caller, not on the dispatcher at draw time.
+        var vm = CreateVm(out _);
+        var bad = new EdgeButtonDefinition(
+            "ManualSelection_recapture", "\u21BB", 600, _ => { }, VerticalOffset: 0,
+            RadiusLogical: 50, Icon: null, Label: "Recapture");
+
+        ArgumentException? ex = null;
+        try { vm.ShowButtons(new[] { bad }, new PhysicalPoint(1000, 500)); }
+        catch (ArgumentException e) { ex = e; }
+
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("definition");
+    }
+
+    [Fact]
+    public void ALabelledDefinitionWithoutAnIcon_IsRefusedAtReplace()
+    {
+        var vm = CreateVm(out _);
+        vm.ShowButtons(new[] { CancelDef() }, new PhysicalPoint(1000, 500));
+        var bad = new EdgeButtonDefinition(
+            "Drag_cancel", "\u2715", 50, _ => { }, VerticalOffset: 30,
+            RadiusLogical: 50, Icon: null, Label: "Cancel");
+
+        ArgumentException? ex = null;
+        try { vm.ReplaceButton("Drag_cancel", bad); }
+        catch (ArgumentException e) { ex = e; }
+
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("definition");
+    }
+
+    [Fact]
+    public void ALabelledDefinitionWithAnIcon_IsAccepted()
+    {
+        var vm = CreateVm(out _);
+        var good = new EdgeButtonDefinition(
+            "ManualSelection_close", string.Empty, 600, _ => { }, VerticalOffset: 0,
+            RadiusLogical: 50, Icon: ActionIcon.Close, Label: "Close");
+
+        vm.ShowButtons(new[] { good }, new PhysicalPoint(1000, 500));
+
+        Check.That(vm.Buttons).HasSize(1);
+        Check.That(vm.DefinitionFor("ManualSelection_close")!.Icon).IsEqualTo(ActionIcon.Close);
+    }
+
+    [Fact]
+    public void ShowButtons_WithABadDefinition_LeavesThePreviousSetIntact()
+    {
+        // ShowButtons validates the whole list before clearing anything, so a rejected definition
+        // cannot leave a half-built bar (or an empty one) behind the exception.
+        var vm = CreateVm(out _);
+        vm.ShowButtons(new[] { CancelDef() }, new PhysicalPoint(1000, 500));
+
+        var bad = new EdgeButtonDefinition(
+            "Bad", "\u21BB", 600, _ => { }, VerticalOffset: 0,
+            RadiusLogical: 50, Icon: null, Label: "Recapture");
+
+        ArgumentException? ex = null;
+        try
+        {
+            vm.ShowButtons(new[] { CancelDef(), bad }, new PhysicalPoint(1000, 500));
+        }
+        catch (ArgumentException e) { ex = e; }
+
+        Check.That(ex).IsNotNull();
+        Check.WithCustomMessage("The bar must keep the previous set, not a half-built one.")
+             .That(vm.Buttons.Select(b => b.Id)).ContainsExactly("Drag_cancel");
+        Check.That(vm.DefinitionFor("Drag_cancel")).IsNotNull();
+        Check.That(vm.IsVisible).IsTrue();
+    }
+
     private sealed class FakeMessenger : IMessenger
     {
         public List<object> Sent { get; } = new();

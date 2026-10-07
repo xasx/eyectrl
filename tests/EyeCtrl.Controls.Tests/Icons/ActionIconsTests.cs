@@ -114,13 +114,16 @@ public class ActionIconsTests
     {
         // With labels off, double click must differ from left click in OUTLINE, not in detail:
         // a mark inside the same silhouette is invisible in the periphery, which is where a gaze
-        // user finds a target before saccading to it. The ripples reach left of the mouse body
-        // (x=7) and the numeral reaches right of it (x=17).
-        var single = ActionIcons.For(ActionIcon.LeftClick).Stroke!.Bounds;
-        var doubled = ActionIcons.For(ActionIcon.DoubleClick).Stroke!.Bounds;
+        // user finds a target before saccading to it. It draws TWO mice — the back one peeking out
+        // up-left — so the drawn silhouette reaches past the single popped cap in three
+        // directions. A copy-paste slip that left both halves the same mouse fails here.
+        var single = ActionIcons.For(ActionIcon.LeftClick).Fill!.Bounds;
+        var doubled = ActionIcons.For(ActionIcon.DoubleClick).Fill!.Bounds;
 
         Check.WithCustomMessage("DoubleClick does not extend left of LeftClick")
              .That(doubled.Left).IsStrictlyLessThan(single.Left);
+        Check.WithCustomMessage("DoubleClick does not reach above LeftClick")
+             .That(doubled.Top).IsStrictlyLessThan(single.Top);
         Check.WithCustomMessage("DoubleClick does not extend right of LeftClick")
              .That(doubled.Right).IsStrictlyGreaterThan(single.Right);
     }

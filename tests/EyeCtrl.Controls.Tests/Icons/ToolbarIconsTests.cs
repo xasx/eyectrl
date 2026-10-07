@@ -3,6 +3,7 @@ namespace EyeCtrl.Controls.Tests.Icons;
 using System;
 using System.Windows;
 using EyeCtrl.Controls.Icons;
+using EyeCtrl.Core.Models;
 using NFluent;
 using Xunit;
 
@@ -78,5 +79,22 @@ public class ToolbarIconsTests
         // window-construction time in front of a user whose only input channel is an eye tracker.
         foreach (var key in Enum.GetValues<ToolbarIconKey>())
             Check.ThatCode(() => ToolbarIcons.For(key)).DoesNotThrow();
+    }
+
+    /// <summary>
+    /// The four locked-action mode keys alias <see cref="ActionIcons"/> directly, so the user's
+    /// "everywhere" icon redesign must reach the toolbar with it. Pinned by REFERENCE: the same
+    /// frozen geometry instance, not an equal redraw, so a future copy that drifts from the
+    /// registry fails here.
+    /// </summary>
+    [Theory]
+    [InlineData(ToolbarIconKey.ModeLeftClick, ActionIcon.LeftClick)]
+    [InlineData(ToolbarIconKey.ModeRightClick, ActionIcon.RightClick)]
+    [InlineData(ToolbarIconKey.ModeDoubleClick, ActionIcon.DoubleClick)]
+    [InlineData(ToolbarIconKey.ModeMiddleClick, ActionIcon.MiddleClick)]
+    public void ModeKeys_ResolveToTheActionIconsGeometry(ToolbarIconKey key, ActionIcon icon)
+    {
+        Check.That(ToolbarIcons.For(key).Stroke).IsSameReferenceAs(ActionIcons.For(icon).Stroke);
+        Check.That(ToolbarIcons.For(key).Fill).IsSameReferenceAs(ActionIcons.For(icon).Fill);
     }
 }

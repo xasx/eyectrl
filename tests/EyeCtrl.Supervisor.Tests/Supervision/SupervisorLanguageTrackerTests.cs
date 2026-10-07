@@ -44,12 +44,18 @@ public class SupervisorLanguageTrackerTests : IDisposable
     [Fact]
     public void DamagedFile_KeepsTheLastSuccessfullyReadValue()
     {
+        // English, then German, then damaged: "last" must mean the most recent successful read.
+        // Keeping the FIRST read would make the Supervisor revert to English after the user
+        // switched to German and the App's OnExit save contended with a read.
         File.WriteAllText(_path, """{"general":{"uiLanguage":"english"}}""");
         var tracker = Tracker();
         Check.That(tracker.Current).IsEqualTo(UiLanguage.English);
 
+        File.WriteAllText(_path, """{"general":{"uiLanguage":"german"}}""");
+        Check.That(tracker.Current).IsEqualTo(UiLanguage.German);
+
         File.WriteAllText(_path, "{ not json");
-        Check.That(tracker.Current).IsEqualTo(UiLanguage.English);
+        Check.That(tracker.Current).IsEqualTo(UiLanguage.German);
     }
 
     [Fact]

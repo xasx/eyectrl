@@ -24,9 +24,10 @@ public class SingleSurfaceKeyTests
     [
         // Folders that really hold one surface.
         ("src/EyeCtrl.App/Views/Settings/**", ["settings"]),
-        // The Supervisor's tray, setup window and FallenBack dialog are one surface (D4), and its
-        // recovery strings are their own (D5) — the Supervisor process holds both.
-        ("src/EyeCtrl.Supervisor/**", ["supervisor", "language-recovery"]),
+        // The Supervisor's tray, setup window and FallenBack dialog are one surface (D4). Its
+        // recovery strings are another (D5), and the Supervisor files that hold them are listed
+        // explicitly by T05b — a glob must not grant both surfaces to every file.
+        ("src/EyeCtrl.Supervisor/**", ["supervisor"]),
 
         // Mixed folders: explicit files only.
         ("src/EyeCtrl.App/Views/SettingsWindow.xaml", ["settings", "language-recovery"]),
@@ -47,7 +48,7 @@ public class SingleSurfaceKeyTests
             var references = StringKeyReferences.Extract(text);
             if (references.Count == 0) continue;
 
-            var allowed = AllowedSurfaces(relative);
+            var allowed = AllowedSurfaces(SurfaceMap, relative);
             if (allowed is null)
             {
                 violations.Add(
@@ -70,19 +71,32 @@ public class SingleSurfaceKeyTests
         return violations;
     }
 
-    private static string[]? AllowedSurfaces(string relativePath)
+    /// <summary>
+    /// Exact-file entries are checked before globs, so a file entry added after a covering glob
+    /// still wins; the first exact match and then the first glob match are used.
+    /// </summary>
+    private static string[]? AllowedSurfaces(
+        (string Pattern, string[] Surfaces)[] map,
+        string relativePath)
     {
-        foreach (var (pattern, surfaces) in SurfaceMap)
+        foreach (var (pattern, surfaces) in map)
         {
-            if (pattern.EndsWith("/**", StringComparison.Ordinal))
-            {
-                if (relativePath.StartsWith(pattern[..^2], StringComparison.Ordinal)) return surfaces;
-            }
-            else if (string.Equals(pattern, relativePath, StringComparison.Ordinal))
+            if (!pattern.EndsWith("/**", StringComparison.Ordinal)
+                && string.Equals(pattern, relativePath, StringComparison.Ordinal))
             {
                 return surfaces;
             }
         }
+
+        foreach (var (pattern, surfaces) in map)
+        {
+            if (pattern.EndsWith("/**", StringComparison.Ordinal)
+                && relativePath.StartsWith(pattern[..^2], StringComparison.Ordinal))
+            {
+                return surfaces;
+            }
+        }
+
         return null;
     }
 
@@ -132,12 +146,31 @@ public class SingleSurfaceKeyTests
     }
 
     [Fact]
-    public void TheSupervisorFolder_AllowsBothOfItsSurfaces()
+    public void TheSupervisorFolder_AllowsOnlyTheSupervisorSurface()
     {
+        Check.That(FindViolations(
+            [("src/EyeCtrl.Supervisor/UI/SetupWindow.xaml.cs", """var a = T("supervisor.tray.start");""")]))
+            .IsEmpty();
+
+        // Recovery strings belong to files T05b lists explicitly, never to the whole folder glob.
         var violations = FindViolations(
-            [("src/EyeCtrl.Supervisor/UI/RecoveryWindow.xaml.cs",
-              """var a = T("supervisor.tray.start"); var b = T("language-recovery.restarting");""")]);
-        Check.That(violations).IsEmpty();
+            [("src/EyeCtrl.Supervisor/UI/SetupWindow.xaml.cs", """var a = T("language-recovery.restarting");""")]);
+        Check.That(violations).HasSize(1);
+        Check.That(violations[0]).Contains("language-recovery.restarting");
+    }
+
+    [Fact]
+    public void ExactFileEntries_WinOverGlobs()
+    {
+        var map = new (string, string[])[]
+        {
+            ("src/X/**", ["overlays"]),
+            ("src/X/File.cs", ["settings"])
+        };
+
+        Check.That(AllowedSurfaces(map, "src/X/File.cs")).ContainsExactly("settings");
+        Check.That(AllowedSurfaces(map, "src/X/Other.cs")).ContainsExactly("overlays");
+        Check.That(AllowedSurfaces(map, "src/Y/File.cs")).IsNull();
     }
 
     [Fact]

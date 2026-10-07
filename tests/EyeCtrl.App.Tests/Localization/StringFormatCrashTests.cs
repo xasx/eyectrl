@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Tests.Localization;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using EyeCtrl.Core.Enums;
@@ -115,6 +116,67 @@ public class StringFormatCrashTests
                 }
             }
         }
+    }
+
+    [Fact]
+    public void ShippedGermanTable_EveryKeyAndForm_FormatsDirectlyUnderDeDe()
+    {
+        // The German file is loose and never parsed by the embedded-English check: a German
+        // template with a dropped or shifted placeholder renders the raw template (or silently
+        // loses the number), so it gets the same direct-format crash check as English.
+        var path = Path.Combine(
+            SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Localization", StringTable.GermanFileName);
+        Check.WithCustomMessage($"The shipped German table is missing at {path}")
+            .That(File.Exists(path)).IsTrue();
+
+        Dictionary<string, int> argsByKey;
+        using (var english = LocalizationTestData.EnglishDocument())
+        {
+            argsByKey = ArgsByKey(english);
+        }
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        foreach (var entry in document.RootElement.EnumerateObject())
+        {
+            var count = argsByKey.TryGetValue(entry.Name, out var declared) ? declared : 0;
+            foreach (var form in Forms(entry.Value.GetProperty("text")))
+            {
+                var dummies = Dummies(count, 3);
+                Check.ThatCode(() => { _ = string.Format(CultureInfo.GetCultureInfo("de-DE"), form, dummies); })
+                    .DoesNotThrow();
+            }
+        }
+    }
+
+    [Fact]
+    public void Fixture_GermanEveryKeyAndForm_FormatsDirectlyUnderDeDe()
+    {
+        using var english = JsonDocument.Parse(FixtureEnglish);
+        var argsByKey = ArgsByKey(english);
+        using var document = JsonDocument.Parse(FixtureGerman);
+        foreach (var entry in document.RootElement.EnumerateObject())
+        {
+            var count = argsByKey.TryGetValue(entry.Name, out var declared) ? declared : 0;
+            foreach (var form in Forms(entry.Value.GetProperty("text")))
+            {
+                var dummies = Dummies(count, 3);
+                Check.ThatCode(() => { _ = string.Format(CultureInfo.GetCultureInfo("de-DE"), form, dummies); })
+                    .DoesNotThrow();
+            }
+        }
+    }
+
+    /// <summary>English <c>args</c> count per key — the German file carries no args metadata.</summary>
+    private static Dictionary<string, int> ArgsByKey(JsonDocument english)
+    {
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var entry in english.RootElement.EnumerateObject())
+        {
+            counts[entry.Name] = entry.Value.TryGetProperty("args", out var args)
+                ? args.GetArrayLength()
+                : 0;
+        }
+        return counts;
     }
 
     [Fact]

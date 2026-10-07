@@ -87,6 +87,36 @@ public class StringTableIsolationTests
     }
 
     [Fact]
+    public void TheObserver_FlagsALeakedEnglishTable()
+    {
+        // An activated English fixture table behaves like the default but is not it: the observer
+        // must compare by reference, or the leak of an English table would go unnoticed.
+        StringTable.Activate(StringTable.Create(
+            UiLanguage.English,
+            System.Globalization.CultureInfo.InvariantCulture,
+            StringTableContent.ParseEnglish("{}")));
+        try
+        {
+            var observer = new StringTableObserverAttribute();
+            var method = typeof(StringTableIsolationTests)
+                .GetMethod(nameof(TheObserver_FlagsALeakedEnglishTable))!;
+            var test = (IXunitTest)TestContext.Current.Test!;
+
+            observer.Before(method, test);
+            Check.WithCustomMessage(
+                    "An activated English fixture table is a leaked global; the observer must flag it "
+                    + "by reference, not by comparing the effective language.")
+                .ThatCode(() => observer.After(method, test)).Throws<InvalidOperationException>();
+
+            Check.That(StringTable.Current).IsSameReferenceAs(StringTable.EmbeddedEnglish);
+        }
+        finally
+        {
+            StringTable.ResetToEmbeddedEnglish();
+        }
+    }
+
+    [Fact]
     public void EveryCoreReferencingTestProject_InstallsBothGuards()
     {
         var projects = Projects();

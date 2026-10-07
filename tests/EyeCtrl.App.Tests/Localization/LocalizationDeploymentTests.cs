@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Tests.Localization;
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Xml.Linq;
@@ -46,10 +47,20 @@ public class LocalizationDeploymentTests
     }
 
     [Fact]
-    public void EmbeddedEnglish_Parses()
+    public void EmbeddedEnglish_ParsesCleanly()
     {
-        var content = LocalizationTestData.EnglishContent();
+        // The parse itself, not just a non-null result: a corrupted embedded table must redden
+        // here (the Core load test catches its side, this one catches the App-side deployment).
+        using var stream = typeof(StringTable).Assembly
+            .GetManifestResourceStream(StringTable.EmbeddedResourceName);
+        Check.That(stream).IsNotNull();
+
+        using var reader = new StreamReader(stream!);
+        var warnings = new List<string>();
+        var content = StringTableContent.ParseEnglish(reader.ReadToEnd(), warnings.Add);
+
         Check.That(content).IsNotNull();
+        Check.That(warnings).IsEmpty();
     }
 
     [Fact]

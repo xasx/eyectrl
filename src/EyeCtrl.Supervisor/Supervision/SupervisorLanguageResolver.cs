@@ -15,9 +15,7 @@ using EyeCtrl.Core.Localization;
 /// </summary>
 internal sealed class SupervisorLanguageResolver
 {
-    private readonly string _settingsPath;
     private readonly string _appExeDirectory;
-    private readonly string? _writerMutexName;
     private readonly SupervisorLanguageTracker _tracker;
 
     /// <param name="settingsPath">The settings file holding <c>uiLanguage</c>.</param>
@@ -30,10 +28,8 @@ internal sealed class SupervisorLanguageResolver
         string? appExePath = null,
         string? writerMutexName = null)
     {
-        _settingsPath = settingsPath;
         var resolvedAppExe = appExePath ?? AppExePathResolver.Resolve();
         _appExeDirectory = Path.GetDirectoryName(resolvedAppExe) ?? AppContext.BaseDirectory;
-        _writerMutexName = writerMutexName;
         _tracker = new SupervisorLanguageTracker(settingsPath, writerMutexName);
     }
 

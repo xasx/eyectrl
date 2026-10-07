@@ -8,11 +8,11 @@ using EyeCtrl.Core.Localization;
 using Xunit.v3;
 
 /// <summary>
-/// Fails the first test that STARTS with a non-English <see cref="StringTable.Current"/>, naming
-/// the test and the language it observed. It is the effect half of
-/// <see cref="StringTableRestoreAttribute"/>: the restore hook makes a leak harmless, and this
+/// Fails the first test that STARTS with a <see cref="StringTable.Current"/> other than the
+/// embedded English singleton, naming the test and the language it observed. It is the effect half
+/// of <see cref="StringTableRestoreAttribute"/>: the restore hook makes a leak harmless, and this
 /// observer makes a restore that stopped working loud — so a mutation that disables the reset
-/// reddens the suite instead of silently feeding every later test German output.
+/// reddens the suite instead of silently feeding every later test a leaked table.
 ///
 /// <para>
 /// Why it observes in <c>Before</c> and throws in <c>After</c>, never at the point of observation:
@@ -36,10 +36,11 @@ public sealed class StringTableObserverAttribute : BeforeAfterTestAttribute
     /// <inheritdoc/>
     public override void Before(MethodInfo methodUnderTest, IXunitTest test)
     {
-        var language = StringTable.Current.Language;
-        if (language == UiLanguage.English) return;
+        // Reference equality, not a language comparison: any activated fixture table — an English
+        // one included — is a leaked global, and only the embedded singleton is clean.
+        if (ReferenceEquals(StringTable.Current, StringTable.EmbeddedEnglish)) return;
 
-        CorruptedStarts[test.UniqueID] = language;
+        CorruptedStarts[test.UniqueID] = StringTable.Current.Language;
     }
 
     /// <inheritdoc/>
@@ -52,11 +53,11 @@ public sealed class StringTableObserverAttribute : BeforeAfterTestAttribute
 
         throw new InvalidOperationException(
             $"{methodUnderTest.DeclaringType?.FullName}.{methodUnderTest.Name} started with "
-            + $"StringTable.Current in {observed}, so the per-test restore did not run for a previous "
-            + "test and this test read a leaked language — any text it asserts is suspect. Check "
-            + "StringTableRestoreAttribute.After: it must reset to embedded English unconditionally, "
-            + "for every test. If this is a test that deliberately activates a German global, put it "
-            + "in a collection declared [CollectionDefinition(..., DisableParallelization = true)] in "
-            + "the same test project.");
+            + $"StringTable.Current not being the embedded English singleton (its effective language "
+            + $"was {observed}), so the per-test restore did not run for a previous test and this test "
+            + "read a leaked table — any text it asserts is suspect. Check StringTableRestoreAttribute.After: "
+            + "it must reset to embedded English unconditionally, for every test. If this is a test that "
+            + "deliberately activates a table, put it in a collection declared "
+            + "[CollectionDefinition(..., DisableParallelization = true)] in the same test project.");
     }
 }

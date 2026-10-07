@@ -50,4 +50,14 @@ public class UiLanguageSerializerPinTests
             if (File.Exists(path)) File.Delete(path);
         }
     }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void InternalConstructor_RejectsABlankMutexName(string mutexName)
+    {
+        // An empty name creates an unnamed mutex, silently dropping the cross-process exclusion.
+        Check.ThatCode(() => new SettingsService("unused.json", SettingsWriter.App, mutexName))
+            .Throws<ArgumentException>();
+    }
 }

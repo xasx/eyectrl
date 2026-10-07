@@ -85,6 +85,8 @@ public class SettingsService
     /// </remarks>
     internal SettingsService(string filePath, SettingsWriter writer, string writerMutexName, ILogger<SettingsService>? logger = null)
     {
+        // An empty name creates an unnamed mutex — no cross-process exclusion at all.
+        ArgumentException.ThrowIfNullOrWhiteSpace(writerMutexName);
         _filePath = filePath;
         _writer = writer;
         _writerMutexName = writerMutexName;

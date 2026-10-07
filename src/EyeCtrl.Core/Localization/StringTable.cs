@@ -48,6 +48,7 @@ public sealed class StringTable
 
     private readonly IReadOnlyDictionary<string, StringTableText> _english;
     private readonly IReadOnlyDictionary<string, StringTableText> _germanEffective;
+    private readonly IReadOnlySet<string> _germanEffectiveSurfaces;
     private readonly Action<string>? _warn;
 
     private StringTable(
@@ -61,10 +62,11 @@ public sealed class StringTable
         Selection = selection;
         Culture = culture;
         Language = ResolveLanguage(selection, culture);
-        FormatProvider = Language == UiLanguage.German ? GermanFormatCulture : CultureInfo.InvariantCulture;
         _english = english.Texts;
         _warn = warn;
-        _germanEffective = BuildEffectiveGerman(english, german, germanSurfaces, warn);
+        var effectiveSurfaces = new HashSet<string>(StringComparer.Ordinal);
+        _germanEffective = BuildEffectiveGerman(english, german, germanSurfaces, warn, effectiveSurfaces);
+        _germanEffectiveSurfaces = effectiveSurfaces;
     }
 
     /// <summary>The selection this table was built for (<c>System</c>, <c>German</c> or <c>English</c>).</summary>
@@ -76,8 +78,24 @@ public sealed class StringTable
     /// <summary>The injected UI culture <c>System</c> was resolved against.</summary>
     public CultureInfo Culture { get; }
 
-    /// <summary>de-DE for German, invariant for English — the explicit provider every format uses.</summary>
-    public IFormatProvider FormatProvider { get; }
+    /// <summary>
+    /// The format provider for a number rendered without a key on <paramref name="surface"/>:
+    /// de-DE when that surface's German actually renders — the resolved language is German, the
+    /// surface is in the manifest and complete — and the invariant culture otherwise.
+    /// </summary>
+    /// <remarks>
+    /// T02 migrates the UI's non-key numbers to this so a number matches the language of the text
+    /// around it, including a surface degraded to English and an English-selected instance.
+    /// </remarks>
+    /// <param name="surface">The surface id whose language the number sits in, e.g. <c>settings</c>.</param>
+    /// <returns>de-DE or the invariant culture.</returns>
+    public IFormatProvider FormatProviderFor(string surface)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        return Language == UiLanguage.German && _germanEffectiveSurfaces.Contains(surface)
+            ? GermanFormatCulture
+            : CultureInfo.InvariantCulture;
+    }
 
     /// <summary>The process-global table. Defaults to embedded English before anything loads.</summary>
     /// <remarks>
@@ -171,6 +189,11 @@ public sealed class StringTable
     public string T(string key) => T(key, []);
 
     /// <summary>Resolves and formats <paramref name="key"/> in the effective language.</summary>
+    /// <remarks>
+    /// The format provider follows the language of the text actually resolved: German text is
+    /// formatted with de-DE, English text — by selection or by fallback — with the invariant
+    /// culture, so an English surface never shows German decimals.
+    /// </remarks>
     /// <param name="key">The literal key, e.g. <c>settings.count</c>.</param>
     /// <param name="args">Format arguments; for a plural entry the first numeric argument picks the form.</param>
     /// <returns>The resolved text; the raw key when the table has no such key.</returns>
@@ -181,12 +204,12 @@ public sealed class StringTable
         if (Language == UiLanguage.German
             && _germanEffective.TryGetValue(key, out var germanText))
         {
-            return FormatText(germanText, args, FormatProvider);
+            return FormatText(germanText, args, GermanFormatCulture);
         }
 
         if (_english.TryGetValue(key, out var englishText))
         {
-            return FormatText(englishText, args, FormatProvider);
+            return FormatText(englishText, args, CultureInfo.InvariantCulture);
         }
 
         _warn?.Invoke(
@@ -202,6 +225,8 @@ public sealed class StringTable
     /// The German branch resolves through the same effective map the instance uses, so a named
     /// lookup obeys the whole-surface rule: an unsigned-off surface — T04's target-language
     /// restart prompt before T11 included — shows English, never a partial or unapproved German.
+    /// The provider too follows the resolved text, not the requested language:
+    /// German text is formatted with de-DE, English text with the invariant culture.
     /// <see cref="UiLanguage.System"/> names this instance's effective language.
     /// </remarks>
     /// <param name="language">The language to resolve in.</param>
@@ -218,17 +243,16 @@ public sealed class StringTable
         }
 
         var resolved = language == UiLanguage.System ? Language : language;
-        var provider = resolved == UiLanguage.German ? GermanFormatCulture : CultureInfo.InvariantCulture;
 
         if (resolved == UiLanguage.German
             && _germanEffective.TryGetValue(key, out var germanText))
         {
-            return FormatText(germanText, args, provider);
+            return FormatText(germanText, args, GermanFormatCulture);
         }
 
         if (_english.TryGetValue(key, out var englishText))
         {
-            return FormatText(englishText, args, provider);
+            return FormatText(englishText, args, CultureInfo.InvariantCulture);
         }
 
         _warn?.Invoke(
@@ -248,13 +272,16 @@ public sealed class StringTable
 
     /// <summary>
     /// The effective German map: for every manifest surface, all of its English keys must have a
-    /// complete German value, or the whole surface stays English with a warning.
+    /// complete German value, or the whole surface stays English with a warning. Surfaces that
+    /// pass are recorded in <paramref name="effectiveSurfaces"/> — the set
+    /// <see cref="FormatProviderFor"/> reads.
     /// </summary>
     private static IReadOnlyDictionary<string, StringTableText> BuildEffectiveGerman(
         StringTableContent english,
         StringTableContent german,
         IReadOnlyCollection<string> germanSurfaces,
-        Action<string>? warn)
+        Action<string>? warn,
+        HashSet<string> effectiveSurfaces)
     {
         var effective = new Dictionary<string, StringTableText>(StringComparer.Ordinal);
         foreach (var surface in germanSurfaces.Distinct(StringComparer.Ordinal))
@@ -278,6 +305,7 @@ public sealed class StringTable
             }
 
             foreach (var key in keys) effective[key] = german.Texts[key];
+            effectiveSurfaces.Add(surface);
         }
 
         return effective;
@@ -285,7 +313,7 @@ public sealed class StringTable
 
     private string FormatText(StringTableText text, object?[] args, IFormatProvider provider)
     {
-        var template = text.IsPlural ? SelectPluralForm(text, args) : text.Value!;
+        var template = text.IsPlural ? SelectPluralForm(text, args, provider) : text.Value!;
         try
         {
             return string.Format(provider, template, args);
@@ -298,7 +326,7 @@ public sealed class StringTable
     }
 
     /// <summary>
-    /// Chooses the plural form. Both rules are settled and documented here:
+    /// Chooses the plural form. Both rules are settled and documented here.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -307,36 +335,105 @@ public sealed class StringTable
     /// numeric argument falls back to <c>other</c>.
     /// </para>
     /// <para>
-    /// <b><c>one</c> applies only to an integral count of exactly 1.</b> A floating-point or
-    /// decimal count is treated as a visible decimal even when its value is whole — 1.0 renders
-    /// as "1.0" under <c>{0:0.0}</c> — so it takes <c>other</c>, following CLDR's rule for
-    /// languages without a special decimal category (German and English alike).
+    /// <b><c>one</c> is chosen only when the count, formatted exactly the way the template formats
+    /// it (the placeholder's own specifier, the rendered language's provider), reads as the integer
+    /// 1.</b> So <c>1</c> and the double <c>1.0</c> under <c>{0} items</c> are <c>one</c> ("1"),
+    /// while <c>1.0</c> under <c>{0:0.0} units</c> is <c>other</c> ("1.0"), following CLDR's
+    /// visible-digits rule; <c>2</c> is always <c>other</c>.
     /// </para>
     /// </remarks>
-    private static string SelectPluralForm(StringTableText text, object?[] args)
+    private static string SelectPluralForm(StringTableText text, object?[] args, IFormatProvider provider)
     {
-        foreach (var arg in args)
+        for (var index = 0; index < args.Length; index++)
         {
-            if (!TryGetCount(arg, out var count, out var integral)) continue;
-            return integral && count == 1m ? text.One! : text.Other!;
+            if (!TryGetCount(args[index], out var count)) continue;
+
+            var specifier = CountFormatSpecifier(text, index);
+            string formatted;
+            try
+            {
+                formatted = string.Format(provider, "{" + index + specifier + "}", count);
+            }
+            catch (FormatException)
+            {
+                return text.Other!;
+            }
+
+            return formatted == "1" ? text.One! : text.Other!;
         }
 
         return text.Other!;
     }
 
-    private static bool TryGetCount(object? value, out decimal count, out bool integral)
+    /// <summary>
+    /// The format specifier (including its colon, or empty) the entry's template gives the
+    /// placeholder at <paramref name="countIndex"/>; empty when the template does not mention it.
+    /// Reads the <c>one</c> form first, then <c>other</c>.
+    /// </summary>
+    private static string CountFormatSpecifier(StringTableText text, int countIndex)
+    {
+        foreach (var form in new[] { text.One, text.Other })
+        {
+            if (form is null) continue;
+            var specifier = PlaceholderSpecifier(form, countIndex);
+            if (specifier is not null) return specifier;
+        }
+
+        return string.Empty;
+    }
+
+    /// <summary>
+    /// Scans one template for the <c>{countIndex}</c> placeholder and returns its specifier with
+    /// the colon (e.g. <c>:0.0</c>), or null when absent. Doubled braces are literal, and only a
+    /// well-formed numeric placeholder is considered — a stray brace is FormatText's problem.
+    /// </summary>
+    private static string? PlaceholderSpecifier(string form, int countIndex)
+    {
+        var position = 0;
+        while (position < form.Length)
+        {
+            var current = form[position];
+            if (current == '{' && position + 1 < form.Length && form[position + 1] == '{')
+            {
+                position += 2;
+                continue;
+            }
+            if (current == '}' && position + 1 < form.Length && form[position + 1] == '}')
+            {
+                position += 2;
+                continue;
+            }
+            if (current == '{')
+            {
+                var close = form.IndexOf('}', position + 1);
+                if (close < 0) return null;
+                var body = form[(position + 1)..close];
+                var colon = body.IndexOf(':');
+                var numberPart = colon < 0 ? body : body[..colon];
+                if (int.TryParse(numberPart, out var number) && number == countIndex)
+                {
+                    return colon < 0 ? string.Empty : body[colon..];
+                }
+                position = close + 1;
+                continue;
+            }
+            position++;
+        }
+
+        return null;
+    }
+
+    private static bool TryGetCount(object? value, out decimal count)
     {
         switch (value)
         {
             case sbyte or byte or short or ushort or int or uint or long or ulong:
                 count = Convert.ToDecimal(value, CultureInfo.InvariantCulture);
-                integral = true;
                 return true;
             case float or double or decimal:
                 try
                 {
                     count = Convert.ToDecimal(value, CultureInfo.InvariantCulture);
-                    integral = false;
                     return true;
                 }
                 catch (OverflowException)
@@ -348,7 +445,6 @@ public sealed class StringTable
         }
 
         count = 0m;
-        integral = false;
         return false;
     }
 

@@ -163,20 +163,24 @@ public class StringTableTests
     }
 
     [Fact]
-    public void Plurals_UseOneOnlyForAnIntegralCountOfExactlyOne()
+    public void Plurals_ChooseTheFormFromTheCountAsTheTemplateFormatsIt()
     {
-        // A floating-point or decimal count is a visible decimal (CLDR's "other"), even when its
-        // value is whole: 1.0 renders as "1.0" under {0:0.0}, so it must not take the singular.
-        // (decimal preserves its scale in formatting too, which is why the checked text is "1.0".)
         var table = Build(selection: UiLanguage.English);
-        Check.That(table.T("overlays.count", 1.0)).IsEqualTo("1 items");
-        Check.That(table.T("overlays.count", 1.0f)).IsEqualTo("1 items");
-        Check.That(table.T("overlays.count", 1.0m)).IsEqualTo("1.0 items");
+        Check.That(table.T("overlays.count", 1)).IsEqualTo("1 item");
+        Check.That(table.T("overlays.count", 2)).IsEqualTo("2 items");
+        Check.That(table.T("overlays.count", 0)).IsEqualTo("0 items");
         Check.That(table.T("overlays.count", 1L)).IsEqualTo("1 item");
+
+        // The count is formatted with the template's own specifier: under {0} a whole double
+        // reads "1" and is singular; decimal preserves its scale, so 1.0m reads "1.0" (other).
+        Check.That(table.T("overlays.count", 1.0)).IsEqualTo("1 item");
+        Check.That(table.T("overlays.count", 1.0f)).IsEqualTo("1 item");
+        Check.That(table.T("overlays.count", 1m)).IsEqualTo("1 item");
+        Check.That(table.T("overlays.count", 1.0m)).IsEqualTo("1.0 items");
     }
 
     [Fact]
-    public void Plurals_UnderADecimalFormat_IntegerOneIsSingularFloatingOneIsNot()
+    public void Plurals_UnderADecimalFormat_TheFormattedCountDecides()
     {
         var table = StringTable.Create(
             UiLanguage.English,
@@ -187,9 +191,40 @@ public class StringTableTests
             }
             """));
 
-        Check.That(table.T("overlays.decimal", 1)).IsEqualTo("1.0 unit");
+        // "{0:0.0}" renders every count with a visible decimal, so even 1 reads "1.0" (other).
+        Check.That(table.T("overlays.decimal", 1)).IsEqualTo("1.0 units");
         Check.That(table.T("overlays.decimal", 1.0)).IsEqualTo("1.0 units");
         Check.That(table.T("overlays.decimal", 2)).IsEqualTo("2.0 units");
+    }
+
+    [Fact]
+    public void Plurals_FormatTheCountWithTheRenderedTextsProvider()
+    {
+        const string english = """
+        {
+          "overlays.decimal": { "text": { "one": "{0:0.0} unit", "other": "{0:0.0} units" }, "who": "user", "where": "overlays", "fit": "A44", "args": ["count"] }
+        }
+        """;
+        const string german = """
+        {
+          "overlays.decimal": { "text": { "one": "{0:0.0} Einheit", "other": "{0:0.0} Einheiten" }, "src": "00000000" }
+        }
+        """;
+
+        var germanTable = StringTable.Create(
+            UiLanguage.German,
+            CultureInfo.GetCultureInfo("de-DE"),
+            StringTableContent.ParseEnglish(english),
+            StringTableContent.ParseGerman(german),
+            ["overlays"]);
+        Check.That(germanTable.T("overlays.decimal", 1.0)).IsEqualTo("1,0 Einheiten");
+        Check.That(germanTable.T("overlays.decimal", 1)).IsEqualTo("1,0 Einheiten");
+
+        var englishTable = StringTable.Create(
+            UiLanguage.English,
+            CultureInfo.GetCultureInfo("de-DE"),
+            StringTableContent.ParseEnglish(english));
+        Check.That(englishTable.T("overlays.decimal", 1.0)).IsEqualTo("1.0 units");
     }
 
     [Fact]
@@ -200,15 +235,41 @@ public class StringTableTests
     }
 
     [Fact]
-    public void FormatProvider_IsDeDeForGerman_AndInvariantForEnglish()
+    public void TheG1Probe_EnglishTextOnDeDeKeepsEnglishNumbers()
     {
-        var german = Build(manifest: ["settings"]);
-        var english = Build(selection: UiLanguage.English, culture: "de-DE");
+        // The review's probe: System on de-DE with no manifest surface renders English text, and
+        // the number must stay English too ("Price 12.5", never "Price 12,5").
+        var table = Build(selection: UiLanguage.System, culture: "de-DE", manifest: []);
 
-        Check.That(german.T("settings.price", 12.5)).IsEqualTo("Preis 12,5");
-        Check.That(english.T("settings.price", 12.5)).IsEqualTo("Price 12.5");
-        Check.That(((CultureInfo)german.FormatProvider).Name).IsEqualTo("de-DE");
-        Check.That(english.FormatProvider).IsSameReferenceAs(CultureInfo.InvariantCulture);
+        Check.That(table.Language).IsEqualTo(UiLanguage.German);
+        Check.That(table.T("settings.price", 12.5)).IsEqualTo("Price 12.5");
+        Check.That(table.FormatProviderFor("settings")).IsSameReferenceAs(CultureInfo.InvariantCulture);
+    }
+
+    [Fact]
+    public void GermanEffectiveTextOnDeDe_UsesGermanNumbers()
+    {
+        var table = Build(selection: UiLanguage.System, culture: "de-DE", manifest: ["settings"]);
+
+        Check.That(table.T("settings.price", 12.5)).IsEqualTo("Preis 12,5");
+        Check.That(((CultureInfo)table.FormatProviderFor("settings")).Name).IsEqualTo("de-DE");
+    }
+
+    [Fact]
+    public void EnglishFallbackInsideAGermanSelection_UsesInvariantNumbers()
+    {
+        // overlays is not in the manifest, so it renders English on a German-effective instance.
+        var table = Build(selection: UiLanguage.System, culture: "de-DE", manifest: ["settings"]);
+
+        Check.That(table.T("overlays.count", 12.5)).IsEqualTo("12.5 items");
+        Check.That(table.FormatProviderFor("overlays")).IsSameReferenceAs(CultureInfo.InvariantCulture);
+    }
+
+    [Fact]
+    public void FormatProviderFor_IsInvariantWhenTheSelectionIsEnglish()
+    {
+        var english = Build(selection: UiLanguage.English, culture: "de-DE", manifest: ["settings"]);
+        Check.That(english.FormatProviderFor("settings")).IsSameReferenceAs(CultureInfo.InvariantCulture);
     }
 
     [Fact]
@@ -239,11 +300,15 @@ public class StringTableTests
     }
 
     [Fact]
-    public void NamedLanguageLookup_FormatsWithThatLanguagesProvider()
+    public void NamedLanguageLookup_FormatsWithTheResolvedTextsProvider()
     {
-        var englishTable = Build(selection: UiLanguage.English, manifest: ["settings"]);
-        Check.That(englishTable.T(UiLanguage.German, "settings.price", 12.5)).IsEqualTo("Preis 12,5");
-        Check.That(englishTable.T(UiLanguage.English, "settings.price", 12.5)).IsEqualTo("Price 12.5");
+        var table = Build(selection: UiLanguage.English, culture: "de-DE", manifest: ["settings"]);
+
+        // German text uses de-DE...
+        Check.That(table.T(UiLanguage.German, "settings.price", 12.5)).IsEqualTo("Preis 12,5");
+        // ...English text uses the invariant culture, whether asked for or fallen back to.
+        Check.That(table.T(UiLanguage.English, "settings.price", 12.5)).IsEqualTo("Price 12.5");
+        Check.That(table.T(UiLanguage.German, "overlays.count", 12.5)).IsEqualTo("12.5 items");
     }
 
     [Fact]

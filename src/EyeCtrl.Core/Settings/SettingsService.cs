@@ -28,6 +28,7 @@ public class SettingsService
     private readonly string _filePath;
     private readonly ILogger<SettingsService>? _logger;
     private readonly SettingsWriter _writer;
+    private readonly string _writerMutexName;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -66,9 +67,27 @@ public class SettingsService
     /// <param name="writer">Which process owns this instance — controls which sections <see cref="Save"/> may persist.</param>
     /// <param name="logger">Optional logger for diagnostic messages.</param>
     public SettingsService(string filePath, SettingsWriter writer, ILogger<SettingsService>? logger = null)
+        : this(filePath, writer, WriterMutexName, logger)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance with an explicit writer mutex name.
+    /// </summary>
+    /// <param name="filePath">Full path to the settings JSON file.</param>
+    /// <param name="writer">Which process owns this instance.</param>
+    /// <param name="writerMutexName">The writer mutex to take; the production name by default.</param>
+    /// <param name="logger">Optional logger for diagnostic messages.</param>
+    /// <remarks>
+    /// The test seam: tests that persist use a GUID-suffixed name so they never contend with a
+    /// live EyeCtrl on this box (the box-wide rule for named kernel objects). Production uses the
+    /// default.
+    /// </remarks>
+    internal SettingsService(string filePath, SettingsWriter writer, string writerMutexName, ILogger<SettingsService>? logger = null)
     {
         _filePath = filePath;
         _writer = writer;
+        _writerMutexName = writerMutexName;
         _logger = logger;
     }
 
@@ -596,7 +615,7 @@ public class SettingsService
         }
 
         // Cross-process mutual exclusion so the read-merge-write sequence is atomic across writers.
-        using var mutex = new Mutex(false, WriterMutexName);
+        using var mutex = new Mutex(false, _writerMutexName);
         bool owned = false;
         try
         {
@@ -663,7 +682,7 @@ public class SettingsService
 
         // The same cross-process mutex Save uses: this is a read-edit-write of the shared file,
         // and a concurrent Supervisor save must either precede or follow it, never interleave.
-        using var mutex = new Mutex(false, WriterMutexName);
+        using var mutex = new Mutex(false, _writerMutexName);
         bool owned = false;
         try
         {

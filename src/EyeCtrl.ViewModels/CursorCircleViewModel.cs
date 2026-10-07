@@ -59,8 +59,10 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
 
     /// <summary>
     /// True while the interaction state is Paused. Paused hides the ring (<see cref="_stateAllowsCursor"/>
-    /// excludes it); IsPaused survives as the View's dim input for that state — belt and braces for any
-    /// path that shows the ring directly while paused (the startup ShowOverlays call is one).
+    /// excludes it). IsPaused survives purely as a defensive View input: no production path shows the
+    /// window while paused (the startup show precedes the paused-launch toggle, whose single state
+    /// message dims and then hides in one dispatcher callback, so the dim is never presented) — but a
+    /// future direct-show path must still read as paused rather than as the quiet FreeLook ring.
     /// </summary>
     [ObservableProperty] private bool _isPaused;
 
@@ -96,8 +98,9 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
         }
 
         // Pinned means the ring stays where the fixation settled; a gaze move inside the hold radius
-        // must not nudge it. FreeLook (and Paused) follow as before, so the user can still see where
-        // the tracker thinks they are looking.
+        // must not nudge it. Hidden states (Paused included) do not follow either: the IsVisible
+        // gate below stops Position updates while the window is away, so the ring reappears
+        // exactly where UpdateVisibility's reappear snap put it.
         if (IsVisible && !IsPinned)
             Position = message.Position;
     }
@@ -136,9 +139,10 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     public void Receive(StateChangedMessage message)
     {
         _lastState = message.NewState;
-        // Paused hides the ring: the PauseIndicator strip is the pause feedback, and the edge-summon
-        // dwell stays active while paused (DwellActiveWhilePaused), so resume needs no cursor. The dim
-        // (IsPaused below) remains the View's look for the state should anything show the ring anyway.
+        // Paused hides the ring: the PauseIndicator strip is the pause feedback, and resume needs no
+        // cursor — the past-edge summon carries no pause gate and the toolbar band is deliberately
+        // dwellable while paused (ToolbarViewModel.DwellActiveWhilePaused). The dim (IsPaused below)
+        // remains only as the View's defensive look; see IsPaused's summary.
         // RepeatMode hides the normal circle too: the contracting repeat cursor replaces it there.
         IsPaused = message.NewState == InteractionState.Paused;
         // Belt and braces for the release: a pinned ring implies Fixation or FreeLook — FreeLook only
@@ -188,13 +192,18 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     private void UpdateVisibility()
     {
         var wasVisible = IsVisible;
-        IsVisible = _stateAllowsCursor && !_externalDwellActive;
+        var nowVisible = _stateAllowsCursor && !_externalDwellActive;
 
         // A ring that reappears after a hidden stretch draws where the gaze is NOW. The hidden
         // window keeps its last drawn Left/Top, so without this the first shown frame presents
         // the position from before the stretch — minutes old when the stretch was a pause. The
         // pin is exempt: a pinned ring must stay exactly where it is until Core releases it.
-        if (!wasVisible && IsVisible && !IsPinned)
+        // Position is written BEFORE IsVisible so the coordinator's Show lands on a window that
+        // is already at the live gaze — same order as the activation halo (position, then show),
+        // and for the same reason: the other order presents the previous position for a frame.
+        if (!wasVisible && nowVisible && !IsPinned)
             Position = _latestGaze;
+
+        IsVisible = nowVisible;
     }
 }

@@ -480,4 +480,24 @@ public class ActionMenuRingPainterTests : IDisposable
         Check.That(options.Scale).IsEqualTo(0.5);
         Check.That(options.LabelFor(MoreSlot())).IsEqualTo("More (4)");
     }
+
+    /// <summary>
+    /// R3 (T03d review 02): the shell renders the preview through <see cref="RingPaintOptions.ForPreview"/>,
+    /// the one hand-off that copies the spec's More format. Calling <c>Preview</c> directly at the
+    /// shell would drop the spec's format back to the English default with nothing failing.
+    /// </summary>
+    [Fact]
+    public void SettingsShell_RendersThePreviewThroughForPreview()
+    {
+        var source = SourceScanner.ScannedFiles()
+            .Single(f => f.Relative == "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs").Text;
+
+        Check.WithCustomMessage(
+                "The Settings shell must render the preview through RingPaintOptions.ForPreview, "
+                + "whose hand-off copies the spec's More format.")
+             .That(source).Contains("RingPaintOptions.ForPreview(");
+        Check.WithCustomMessage(
+                "RingPaintOptions.Preview at the shell would silently drop the spec's More format.")
+             .That(source).Not.Contains("RingPaintOptions.Preview(");
+    }
 }

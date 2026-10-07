@@ -283,8 +283,11 @@ public partial class KeyboardWindow : OverlayWindow
 
                 System.Windows.Automation.AutomationProperties.SetAutomationId(label, $"Keyboard_Key_{id}");
                 // A symbol caption is unpronounceable to a screen reader, so the layout supplies
-                // its name ("⌫" -> "Rücktaste"). Ordinary labels already read as their names.
-                System.Windows.Automation.AutomationProperties.SetName(label, key.AccessibleName ?? key.Label);
+                // its name ("⌫" -> "Rücktaste"). Set ONLY when supplied: an explicit name freezes
+                // a shift-variant key at its resting label, while an unnamed label keeps the
+                // peer's live text (ß announces ẞ under Caps).
+                if (key.AccessibleName is not null)
+                    System.Windows.Automation.AutomationProperties.SetName(label, key.AccessibleName);
 
                 RegisterKeyVisual(id, key, container, label);
                 rowPanel.Children.Add(container);

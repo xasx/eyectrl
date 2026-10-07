@@ -55,7 +55,7 @@ public class ComboCodeIdentityTests
         Check.That(combos["ad_posture"].Display).ContainsExactly("Conservative", "Balanced", "Responsive");
         Check.That(combos["ad_posture"].Code).ContainsExactly("Conservative", "Balanced", "Responsive");
         Check.That(combos["c_filter"].Display).ContainsExactly(
-            "Direct", "Smoothed", "Smoothed with Snapping", "One Euro");
+            "Direct", "Smoothed", "Smoothed (Legacy)", "One Euro");
         Check.That(combos["c_filter"].Code).ContainsExactly(
             "Direct", "Smoothed", "SmoothedWithSnapping", "OneEuro");
         Check.That(combos["c_pos_style"].Display).ContainsExactly("Crosshair", "Pin");

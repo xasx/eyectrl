@@ -26,7 +26,7 @@ internal sealed class CursorPageSource : ISettingsPageSource
         [
             new PageSpec([
                 new ComboBoxSpec("c_filter", "Filter Mode",
-                    new[] { "Direct", "Smoothed", "Smoothed with Snapping", "One Euro" },
+                    new[] { "Direct", "Smoothed", "Smoothed (Legacy)", "One Euro" },
                     Enum.GetNames<GazeFilterMode>(),
                     () => c.FilterMode.ToString(),
                     v => { c.FilterMode = Enum.Parse<GazeFilterMode>(v); _ctx.ApplyAndSave(); })

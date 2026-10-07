@@ -106,6 +106,23 @@ public class QuickActionsGridViewModelTests
     }
 
     [Fact]
+    public void Reload_UsesTheHostsPresetLabelFunction()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var actions = new List<QuickAction>
+        {
+            new() { Label = "Copy", Type = QuickActionType.KeyboardShortcut, Payload = "Ctrl+C", PresetId = "kbd.copy" },
+        };
+        var vm = CreateVM(messenger, actions);
+        vm.PresetLabelFor = _ => "Kopieren";
+
+        messenger.Send(new QuickActionsToggledMessage());
+
+        Check.That(vm.Tiles[0].Label).IsEqualTo("Kopieren");
+        Check.That(vm.Tiles[0].Action.Label).IsEqualTo("Copy"); // stored data is untouched
+    }
+
+    [Fact]
     public void SimulateTargetActivated_SendsSelectionMessage()
     {
         var messenger = new WeakReferenceMessenger();

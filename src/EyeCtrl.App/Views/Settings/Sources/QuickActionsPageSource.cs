@@ -159,9 +159,12 @@ internal sealed class QuickActionsPageSource : ISettingsPageSource
     public IReadOnlyList<PageSpec> Build() => _view switch
     {
         QaView.PickType => TypePicker(),
-        QaView.PickShortcut => PresetPicker("qa_ks", Core.Models.QuickActionPresets.KeyboardShortcuts, _ctx.ViewModel.QuickActionsEditor.AddKeyboardShortcut),
-        QaView.PickMedia => PresetPicker("qa_md", Core.Models.QuickActionPresets.MediaControls, _ctx.ViewModel.QuickActionsEditor.AddMediaControl),
-        QaView.PickWindowAction => PresetPicker("qa_win", Core.Models.QuickActionPresets.WindowActions, _ctx.ViewModel.QuickActionsEditor.AddWindowAction),
+        QaView.PickShortcut => PresetPicker("qa_ks", Core.Models.QuickActionPresets.KeyboardShortcuts,
+            p => _ctx.ViewModel.QuickActionsEditor.AddKeyboardShortcut(p.Label, p.Payload, p.Id)),
+        QaView.PickMedia => PresetPicker("qa_md", Core.Models.QuickActionPresets.MediaControls,
+            p => _ctx.ViewModel.QuickActionsEditor.AddMediaControl(p.Label, p.Payload, p.Id)),
+        QaView.PickWindowAction => PresetPicker("qa_win", Core.Models.QuickActionPresets.WindowActions,
+            p => _ctx.ViewModel.QuickActionsEditor.AddWindowAction(p.Label, p.Payload, p.Id)),
         QaView.PickApp => AppPicker(),
         _ => List(),
     };
@@ -194,10 +197,10 @@ internal sealed class QuickActionsPageSource : ISettingsPageSource
             foreach (var a in chunk)
             {
                 var captured = a;
-                var caption = $"{Glyph(a.Type)}  {a.Label}";
+                var caption = $"{Glyph(a.Type)}  {QuickActionPresets.DisplayLabel(a, PresetLabelFor)}";
                 rows.Add(new ToggleSpec("qa_en_" + a.Id, caption, () => captured.Enabled, _ => editor.ToggleEnabled(captured.Id)));
                 rows.Add(new ButtonSpec("qa_del_" + a.Id, "\u2715  Delete",
-                    () => _ctx.ShowModal($"Delete \"{captured.Label}\"?", () => { editor.DeleteAction(captured.Id); _ctx.RebuildContent(); }),
+                    () => _ctx.ShowModal($"Delete \"{QuickActionPresets.DisplayLabel(captured, PresetLabelFor)}\"?", () => { editor.DeleteAction(captured.Id); _ctx.RebuildContent(); }),
                     ButtonKind.Delete, Width: 360, Height: 70));
             }
             pages.Add(new PageSpec(rows));
@@ -216,12 +219,22 @@ internal sealed class QuickActionsPageSource : ISettingsPageSource
         ]),
     ];
 
+    /// <summary>
+    /// The Settings surface's preset-label function. Every preset label the tab shows — the
+    /// picker buttons, the list caption, the delete modal — resolves through this one function,
+    /// so keying the tab later means changing its body, not its call sites.
+    /// </summary>
+    private static string? PresetLabelFor(string presetId) => QuickActionPresets.EnglishLabelFor(presetId);
+
     private IReadOnlyList<PageSpec> PresetPicker(string idPrefix,
-        IReadOnlyList<(string Label, string Payload)> presets, Action<string, string> add) =>
+        IReadOnlyList<QuickActionPreset> presets, Action<QuickActionPreset> add) =>
         ChunkPresets(presets.Count, idPrefix, i =>
         {
-            var (label, payload) = presets[i];
-            return (label, () => { add(label, payload); GoTo(QaView.List); });
+            var preset = presets[i];
+            // The button text comes from the host's label function; the stored English label is
+            // written only when the tile is created (the Add* call above).
+            return (QuickActionPresets.DisplayLabel(preset, PresetLabelFor),
+                    () => { add(preset); GoTo(QaView.List); });
         });
 
     private IReadOnlyList<PageSpec> AppPicker()

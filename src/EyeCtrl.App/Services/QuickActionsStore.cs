@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Services;
 
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 
@@ -16,7 +17,10 @@ public class QuickActionsStore : IQuickActionsStore
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
-        WriteIndented = true
+        WriteIndented = true,
+        // An action without a preset must not grow a "PresetId": null line on save — the file is
+        // user data and existing installs keep the exact shape they had.
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
     /// <summary>Wraps the serialized action list so the on-disk JSON is a single named property.</summary>
@@ -79,7 +83,8 @@ public class QuickActionsStore : IQuickActionsStore
             Type = action.Type,
             Label = action.Label,
             Payload = action.Payload,
-            Enabled = action.Enabled
+            Enabled = action.Enabled,
+            PresetId = action.PresetId
         };
     }
 

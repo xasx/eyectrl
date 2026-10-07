@@ -26,6 +26,13 @@ public class QuickAction
     public string Id { get; init; } = Guid.NewGuid().ToString();
     /// <summary>The kind of action to perform when this quick action is triggered.</summary>
     public QuickActionType Type { get; set; }
+    /// <summary>
+    /// The stable id of the preset this action was created from (for example <c>kbd.copy</c>),
+    /// or null for a user-named action. The displayed label resolves through
+    /// <see cref="QuickActionPresets.DisplayLabel(QuickAction, System.Func{string,string})"/>;
+    /// the stored <see cref="Label"/> stays as the readable English fallback.
+    /// </summary>
+    public string? PresetId { get; set; }
     /// <summary>The display label shown on the toolbar button.</summary>
     public string Label { get; set; } = string.Empty;
     /// <summary>Action-specific data (key sequence, text, path, URL, etc.).</summary>

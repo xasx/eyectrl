@@ -39,4 +39,30 @@ public class QuickActionTileViewModelTests
 
         Check.That(vm.Icon).IsEqualTo("▣");
     }
+
+    [Fact]
+    public void Label_PresetTile_ShowsTheHostsLabel()
+    {
+        var action = new QuickAction
+        {
+            Type = QuickActionType.KeyboardShortcut,
+            Payload = "Ctrl+C",
+            Label = "Copy",
+            PresetId = "kbd.copy",
+        };
+
+        var vm = new QuickActionTileViewModel(action, _ => "Kopieren");
+
+        Check.That(vm.Label).IsEqualTo("Kopieren");
+    }
+
+    [Fact]
+    public void Label_UserNamedTile_ShowsItsStoredLabel()
+    {
+        var action = new QuickAction { Type = QuickActionType.CannedText, Label = "Hi", Payload = "hi" };
+
+        var vm = new QuickActionTileViewModel(action);
+
+        Check.That(vm.Label).IsEqualTo("Hi");
+    }
 }

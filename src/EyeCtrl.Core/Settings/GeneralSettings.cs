@@ -12,11 +12,13 @@ public partial class GeneralSettings : ObservableObject, IValidatable
     [ObservableProperty] private bool _startPaused = false;
     /// <summary>Gaze provider type to use (Auto, StreamEngine, or Mouse).</summary>
     [ObservableProperty] private GazeProviderType _gazeProviderType = GazeProviderType.Auto;
+    /// <summary>Language for EyeCtrl's own UI; <see cref="UiLanguage.System"/> follows the Windows display language.</summary>
+    [ObservableProperty] private UiLanguage _uiLanguage = UiLanguage.System;
 
     /// <inheritdoc />
     public IReadOnlyList<string> Validate()
     {
-        // GeneralSettings only has booleans and enums - no validation needed
-        return new List<string>();
+        return ValidationHelper.CollectErrors(
+            ValidationHelper.ValidateEnumDefined(UiLanguage, nameof(UiLanguage)));
     }
 }

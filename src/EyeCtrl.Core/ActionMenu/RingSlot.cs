@@ -44,7 +44,7 @@ public sealed class RingSlot
     /// <summary>Which drawn icon the slot shows (see <see cref="ActionIconMap"/>).</summary>
     public ActionIcon Icon { get; }
 
-    /// <summary>The ring name (see <see cref="RingLabelMap"/>).</summary>
+    /// <summary>The slot's text, resolved by the plan from its host's <c>RingLabelSource</c>.</summary>
     public string Label { get; }
 
     /// <summary>What a dwell on the slot does.</summary>

@@ -85,19 +85,20 @@ public sealed class RingPlan
     /// <param name="primaryActions">The actions promoted to the ring's first layer.</param>
     /// <param name="circleSize">The cursor circle diameter in DIP (the Cursor tab's CircleSize).</param>
     /// <param name="labels">
-    /// The host's text for every slot, Back and More included. Omitted (or null) means
-    /// <see cref="RingLabelSource.English"/> — the behaviour every pre-existing caller gets.
+    /// The host's text for every slot, Back and More included. Required — a host that forgets it
+    /// does not compile, which is the compiler enforcing D3. The English source is
+    /// <see cref="RingLabelSource.English"/>.
     /// </param>
     public static RingPlan Create(
         IReadOnlyList<InteractionAction>? visibleActions,
         IReadOnlyList<InteractionAction>? primaryActions,
         double circleSize,
-        RingLabelSource? labels = null)
+        RingLabelSource labels)
         => new(
             visibleActions ?? Array.Empty<InteractionAction>(),
             primaryActions ?? Array.Empty<InteractionAction>(),
             circleSize,
-            labels ?? RingLabelSource.English);
+            labels);
 
     /// <summary>The cursor circle diameter in DIP the ring is built around.</summary>
     public double CircleSize { get; }

@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Overlays;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Controls;
 using EyeCtrl.Controls.Icons;
 using EyeCtrl.Controls.Theme;
@@ -263,6 +264,17 @@ internal sealed record RingPaintOptions
         MoreAnnotationCount = secondaryActionCount,
         MoreAnnotationFormat = moreAnnotationFormat ?? EnglishMoreAnnotation,
     };
+
+    /// <summary>
+    /// The preview options for one spec — the shell's single hand-off between a
+    /// <see cref="RingPreviewSpec"/> and this painter. The spec's More format is copied through
+    /// unconditionally, so the shell cannot silently drop it and fall back to English.
+    /// </summary>
+    /// <param name="spec">The preview spec being rendered.</param>
+    /// <param name="secondaryActionCount">How many actions sit behind More.</param>
+    /// <returns>Options for the miniature.</returns>
+    internal static RingPaintOptions ForPreview(RingPreviewSpec spec, int secondaryActionCount)
+        => Preview(spec.Scale, secondaryActionCount, spec.MoreAnnotationFormat);
 
     /// <summary>
     /// The text this slot's label shows under these options: the slot's ring name, plus the

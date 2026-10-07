@@ -9,6 +9,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
+using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Controls;
 using EyeCtrl.Controls.Icons;
 using EyeCtrl.Controls.Theme;
@@ -229,7 +230,8 @@ public class ActionMenuRingPainterTests : IDisposable
                 InteractionAction.Keyboard,
             },
             new List<InteractionAction> { InteractionAction.LeftClick, InteractionAction.RightClick },
-            circleSize: 250);
+            circleSize: 250,
+            labels: RingLabelSource.English);
         var layer = plan.BuildLayer(RingLayer.Primary, showBack: false);
 
         var canvasCenter = new Point(plan.WindowSize / 2, plan.WindowSize / 2);
@@ -317,7 +319,8 @@ public class ActionMenuRingPainterTests : IDisposable
         var plan = RingPlan.Create(
             new List<InteractionAction> { InteractionAction.LeftClick, InteractionAction.Keyboard },
             new List<InteractionAction> { InteractionAction.LeftClick },
-            circleSize: 250);
+            circleSize: 250,
+            labels: RingLabelSource.English);
 
         var previewLayer = plan.BuildLayer(RingLayer.Primary, showBack: false);
         Check.That(previewLayer.Slots.Any(slot => slot.Kind == ActionMenuItemKind.ExitMenu)).IsFalse();
@@ -454,5 +457,27 @@ public class ActionMenuRingPainterTests : IDisposable
         var preview = RingPaintOptions.Preview(0.5, secondaryActionCount: 3,
             (_, _) => throw new InvalidOperationException("only the More slot may be annotated"));
         Check.That(preview.LabelFor(actionSlot)).IsEqualTo("Left click");
+    }
+
+    /// <summary>
+    /// F3 (T03d review 01): the shell renders a spec through <see cref="RingPaintOptions.ForPreview"/>,
+    /// and that hand-off must copy the spec's More format — a dropped format would silently fall
+    /// back to English once the preview's "+N" is keyed.
+    /// </summary>
+    [Fact]
+    public void PreviewHandoff_CarriesTheSpecsMoreFormat()
+    {
+        var spec = new RingPreviewSpec(
+            "am_preview",
+            () => throw new InvalidOperationException("this test never builds the plan"),
+            CaptionNotAControl: "preview, not a control",
+            CaptionLabels: "runtime shows labels only while you dwell",
+            Scale: 0.5,
+            MoreAnnotationFormat: (label, count) => $"{label} ({count})");
+
+        var options = RingPaintOptions.ForPreview(spec, secondaryActionCount: 4);
+
+        Check.That(options.Scale).IsEqualTo(0.5);
+        Check.That(options.LabelFor(MoreSlot())).IsEqualTo("More (4)");
     }
 }

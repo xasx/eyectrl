@@ -8,6 +8,7 @@ using System.Windows.Controls;
 using EyeCtrl.App.Services;
 using EyeCtrl.Controls;
 using EyeCtrl.Controls.Icons;
+using EyeCtrl.Core.ActionMenu;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
@@ -47,6 +48,13 @@ public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
         _buttonSizeLogical = toolbarSizeLogical;
         _toolbarBandHeightLogical = toolbarSizeLogical + BelowToolbarMarginLogical;
     }
+
+    /// <summary>
+    /// The host's names for the mode buttons' UIA accessible names. English by default; the App
+    /// shell will set its own overlay-keyed source at composition (T08), the same seam the ring
+    /// uses. Read on every rebuild, so a source set before the next show is honoured.
+    /// </summary>
+    public RingLabelSource Labels { get; set; } = RingLabelSource.English;
 
     /// <summary>Places the panel top-centre under the toolbar and reports each button's dwell target.</summary>
     public void ShowAtTopCentre()
@@ -143,11 +151,12 @@ public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
                 _ => ActionIcons.For(Core.Models.ActionIcon.MiddleClick),
             };
             // Icon-only by the user's call: labels are gone, Solo fills the freed disc, and the
-            // ring's own action name ("Left click", ...) survives as the UIA name.
+            // ring's own action name ("Left click", ...) survives as the UIA name, resolved
+            // through the host's label source.
             var button = DwellArcButton.Create(
                 centreLogical, radius, symbol: null, icon: icon,
                 iconSize: DwellArcButton.IconSize.Solo,
-                accessibleName: RingLabelMap.For(action));
+                accessibleName: Labels.ActionLabel(action));
             button.AddTo(ButtonCanvas);
             _buttons[id] = button;
         }

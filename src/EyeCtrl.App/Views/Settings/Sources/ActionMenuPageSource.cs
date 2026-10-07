@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Views.Settings;
 
+using EyeCtrl.App.Overlays;
 using EyeCtrl.Core.ActionMenu;
 using EyeCtrl.Core.Models;
 
@@ -123,7 +124,8 @@ internal sealed class ActionMenuPageSource : ISettingsPageSource
             () => RingPlan.Create(a.VisibleActions, a.PrimaryActions, _ctx.Settings.Cursor.CircleSize,
                 RingLabelSource.English),
             RingPreviewCaptionNotAControl,
-            RingPreviewCaptionLabels));
+            RingPreviewCaptionLabels,
+            MoreAnnotationFormat: RingPaintOptions.EnglishMoreAnnotation));
 
         return [new PageSpec(rows)];
     }

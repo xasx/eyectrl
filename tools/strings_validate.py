@@ -21,14 +21,17 @@ English table shape:
   * required meta (text, who, where, fit, args) and closed enums (who, where, fit)
   * text is a string or both plural forms {one, other}
   * placeholder parity: the `{n}` indices in every form are exactly 0..len(args)-1
+  * no unbalanced single `{` or `}` (doubled braces are literal)
   * keys sorted; every key's prefix equals its `where` surface id
   * `mirrors: <key>` names an existing key with the same `fit` and `args`
 
 German table:
   * keys must exist in the English table; entry shape is {text, src}
+  * German placeholder parity: every form's `{n}` set equals the English form's
+  * no unbalanced single `{` or `}`
   * forbidden terms from the glossary's avoid[] (stem prefix, German values only,
     after stripping placeholders and U+00AD)
-  * no du/dich/dir/dein/deine
+  * no informal address: whole words du/dich/dir/dein/deine/deinen/deinem/deiner/deines
   * German identical to English fails unless the value is on the allowlist
 
 Staleness and coverage:
@@ -41,7 +44,8 @@ Staleness and coverage:
     json.dumps({"one": ..., "other": ...}, ensure_ascii=False, sort_keys=True,
     separators=(",", ":")) using exactly the two declared forms
   * src = sha256(utf8(canonical_text + "\x1f" + fit)).hexdigest()[:8]
-  * Only this script writes src, and only in --refresh-de-src mode.
+  * Only this script writes src, and only in --refresh-de-src mode; that mode writes
+    nothing on any error and carries unknown-key entries through unchanged.
 """
 
 from __future__ import annotations
@@ -91,7 +95,21 @@ FIT_CLASSES = [
 
 REQUIRED_ENGLISH_META = {"text", "who", "where", "fit", "args"}
 OPTIONAL_ENGLISH_META = {"terms", "crisis", "mirrors"}
-PRONOUN_STEMS = ["du", "dich", "dir", "dein"]
+
+# Whole words only. "du" must not reject "durch"/"Dutzend", "dir" must not reject
+# "Direktmodus", "dich" must not reject "Dichte" — the stem-prefix rule below is for the
+# glossary's avoid[] stems alone.
+PRONOUN_WORDS = {
+    "du",
+    "dich",
+    "dir",
+    "dein",
+    "deine",
+    "deinen",
+    "deinem",
+    "deiner",
+    "deines",
+}
 SOFT_HYPHEN = "\u00ad"
 
 PLACEHOLDER = re.compile(r"\{(\d+)\}")
@@ -104,19 +122,54 @@ def strip_markup(text: str) -> str:
     return text.replace(SOFT_HYPHEN, "")
 
 
+def words(text: str) -> list[str]:
+    """Splits on anything that is not a letter or digit; umlauts count as letters."""
+    return [word for word in re.split(r"[^\w]+", text.casefold()) if word]
+
+
 def word_starts_with(text: str, stem: str) -> bool:
     """True when any word in text starts with stem, case-insensitively.
 
     The glossary's avoid[] entries are stems, not whole words: "Verweildauer"
-    must also catch "Verweildauern". Words are split on anything that is not a
-    letter or digit, so umlauts count as letters.
+    must also catch "Verweildauern".
     """
-    folded = text.casefold()
     stem_folded = stem.casefold()
-    for word in re.split(r"[^\w]+", folded):
-        if word.startswith(stem_folded):
-            return True
-    return False
+    return any(word.startswith(stem_folded) for word in words(text))
+
+
+def contains_pronoun(text: str) -> str | None:
+    """The first informal-address word in text, or None. Whole words only."""
+    for word in words(text):
+        if word in PRONOUN_WORDS:
+            return word
+    return None
+
+
+def unbalanced_brace(form: str) -> str | None:
+    """Describes the first unbalanced `{` or `}`, or None when every brace is well formed.
+
+    Doubled `{{`/`}}` are literals; `{n}` is a placeholder; anything else is an error.
+    Kept as a scanner (not a regex) so a stray brace cannot hide behind a valid one.
+    """
+    index = 0
+    while index < len(form):
+        char = form[index]
+        if char == "{" and index + 1 < len(form) and form[index + 1] == "{":
+            index += 2
+            continue
+        if char == "}" and index + 1 < len(form) and form[index + 1] == "}":
+            index += 2
+            continue
+        if char == "{":
+            match = PLACEHOLDER.match(form, index)
+            if match:
+                index = match.end()
+                continue
+            return f"unbalanced '{{' at index {index}"
+        if char == "}":
+            return f"unbalanced '}}' at index {index}"
+        index += 1
+    return None
 
 
 def read_json(path: Path, errors: list[str]) -> object:
@@ -231,6 +284,9 @@ def validate_english(english: dict, errors: list[str]) -> None:
                     f"{key}: placeholder parity broken in {form!r}: found "
                     f"{sorted(found)}, args declares {sorted(declared)}"
                 )
+            brace = unbalanced_brace(form)
+            if brace:
+                errors.append(f"{key}: {brace} in {form!r}")
 
         optional = entry.get("terms")
         if optional is not None and (
@@ -332,16 +388,27 @@ def validate_german(
             )
 
         for form in forms:
+            brace = unbalanced_brace(form)
+            if brace:
+                errors.append(f"strings.de.json: {key}: {brace} in {form!r}")
+
             plain = strip_markup(form)
-            for stem in PRONOUN_STEMS:
-                if word_starts_with(plain, stem):
-                    errors.append(f"strings.de.json: {key}: informal address {stem!r} in {form!r}")
+            pronoun = contains_pronoun(plain)
+            if pronoun:
+                errors.append(f"strings.de.json: {key}: informal address {pronoun!r} in {form!r}")
             for term in avoid_terms:
                 if word_starts_with(plain, term):
                     errors.append(f"strings.de.json: {key}: forbidden glossary term {term!r} in {form!r}")
 
         if len(forms) == len(source_forms):
             for form, source_form in zip(forms, source_forms):
+                german_placeholders = set(placeholders(form))
+                source_placeholders = set(placeholders(source_form))
+                if german_placeholders != source_placeholders:
+                    errors.append(
+                        f"strings.de.json: {key}: placeholder parity broken in {form!r}: found "
+                        f"{sorted(german_placeholders)}, English has {sorted(source_placeholders)}"
+                    )
                 if form == source_form and form not in allowlist:
                     errors.append(
                         f"strings.de.json: {key}: German is identical to English ({form!r}); "
@@ -402,22 +469,35 @@ def validate_unused_keys(english: dict, src_dir: Path, errors: list[str]) -> Non
 
 
 def refresh_de_src(german_path: Path, english: dict, errors: list[str]) -> None:
+    """Recomputes src in place. Writes nothing on any error, and never drops an entry.
+
+    An entry whose key no longer exists in English is carried through unchanged (with a
+    notice): it may be a finished translation of a key that is coming back, and silently
+    deleting it is how data is lost. A malformed file or a non-object entry leaves the file
+    untouched.
+    """
     german = read_json(german_path, errors)
+    if errors:
+        return  # unreadable or unparseable: write nothing
     if not isinstance(german, dict):
         errors.append("strings.de.json: root is not an object; nothing to refresh")
         return
 
     refreshed: dict[str, dict] = {}
-    for key in sorted(german):
-        entry = german[key]
+    for key, entry in german.items():
         if not isinstance(entry, dict):
-            errors.append(f"strings.de.json: {key}: entry is not an object")
+            errors.append(f"strings.de.json: {key}: entry is not an object; nothing was written")
             continue
         if key not in english:
-            errors.append(f"strings.de.json: {key}: does not exist in strings.json; nothing to refresh")
+            print(f"strings_validate: {key!r} is not in strings.json; carried through unchanged")
+            refreshed[key] = entry
             continue
-        new_entry = {"text": entry.get("text"), "src": compute_src(english[key])}
-        refreshed[key] = new_entry
+        updated = dict(entry)
+        updated["src"] = compute_src(english[key])
+        refreshed[key] = updated
+
+    if errors:
+        return  # any error: the file is left exactly as it was
 
     german_path.write_text(
         json.dumps(refreshed, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

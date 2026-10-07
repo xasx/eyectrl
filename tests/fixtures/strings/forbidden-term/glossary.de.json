@@ -1,0 +1,13 @@
+{
+  "entries": [
+    {
+      "en": "dwell time",
+      "deShort": "Verweilzeit",
+      "deLong": "Verweilzeit",
+      "avoid": [
+        "Verweildauer"
+      ],
+      "fit": "row"
+    }
+  ]
+}

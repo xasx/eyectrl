@@ -1,7 +1,6 @@
 namespace EyeCtrl.Core.Localization;
 
 using System.Globalization;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using EyeCtrl.Core.Enums;
 
@@ -48,7 +47,6 @@ public sealed class StringTable
     private static StringTable _current = EmbeddedEnglishTable;
 
     private readonly IReadOnlyDictionary<string, StringTableText> _english;
-    private readonly IReadOnlyDictionary<string, StringTableText> _germanRaw;
     private readonly IReadOnlyDictionary<string, StringTableText> _germanEffective;
     private readonly Action<string>? _warn;
 
@@ -65,7 +63,6 @@ public sealed class StringTable
         Language = ResolveLanguage(selection, culture);
         FormatProvider = Language == UiLanguage.German ? GermanFormatCulture : CultureInfo.InvariantCulture;
         _english = english.Texts;
-        _germanRaw = german.Texts;
         _warn = warn;
         _germanEffective = BuildEffectiveGerman(english, german, germanSurfaces, warn);
     }
@@ -199,11 +196,12 @@ public sealed class StringTable
     }
 
     /// <summary>
-    /// Resolves <paramref name="key"/> in a named language, bypassing the manifest.
+    /// Resolves <paramref name="key"/> in a named language, gated by the manifest.
     /// </summary>
     /// <remarks>
-    /// This is the recovery seam T04's target-language restart prompt needs: the prompt must be
-    /// readable in the target language even though that surface has not been switched on yet.
+    /// The German branch resolves through the same effective map the instance uses, so a named
+    /// lookup obeys the whole-surface rule: an unsigned-off surface — T04's target-language
+    /// restart prompt before T11 included — shows English, never a partial or unapproved German.
     /// <see cref="UiLanguage.System"/> names this instance's effective language.
     /// </remarks>
     /// <param name="language">The language to resolve in.</param>
@@ -223,7 +221,7 @@ public sealed class StringTable
         var provider = resolved == UiLanguage.German ? GermanFormatCulture : CultureInfo.InvariantCulture;
 
         if (resolved == UiLanguage.German
-            && _germanRaw.TryGetValue(key, out var germanText))
+            && _germanEffective.TryGetValue(key, out var germanText))
         {
             return FormatText(germanText, args, provider);
         }
@@ -268,7 +266,7 @@ public sealed class StringTable
             if (keys.Count == 0) continue;
 
             var missing = keys
-                .Where(key => !german.Texts.TryGetValue(key, out var text) || !text.IsComplete)
+                .Where(key => !german.Texts.TryGetValue(key, out _))
                 .ToList();
             if (missing.Count > 0)
             {
@@ -300,32 +298,45 @@ public sealed class StringTable
     }
 
     /// <summary>
-    /// German and English share the same plural rule: exactly one takes <c>one</c>, everything
-    /// else <c>other</c>. The first argument that is numerically a count picks the form; an entry
-    /// formatted without one falls back to <c>other</c>.
+    /// Chooses the plural form. Both rules are settled and documented here:
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The count is the first numeric argument.</b> Arguments are inspected in order and the
+    /// first integer-typed or floating-typed value is the count; an entry formatted without a
+    /// numeric argument falls back to <c>other</c>.
+    /// </para>
+    /// <para>
+    /// <b><c>one</c> applies only to an integral count of exactly 1.</b> A floating-point or
+    /// decimal count is treated as a visible decimal even when its value is whole — 1.0 renders
+    /// as "1.0" under <c>{0:0.0}</c> — so it takes <c>other</c>, following CLDR's rule for
+    /// languages without a special decimal category (German and English alike).
+    /// </para>
+    /// </remarks>
     private static string SelectPluralForm(StringTableText text, object?[] args)
     {
         foreach (var arg in args)
         {
-            if (!TryGetCount(arg, out var count)) continue;
-            return count == 1m ? text.One! : text.Other!;
+            if (!TryGetCount(arg, out var count, out var integral)) continue;
+            return integral && count == 1m ? text.One! : text.Other!;
         }
 
         return text.Other!;
     }
 
-    private static bool TryGetCount(object? value, out decimal count)
+    private static bool TryGetCount(object? value, out decimal count, out bool integral)
     {
         switch (value)
         {
             case sbyte or byte or short or ushort or int or uint or long or ulong:
                 count = Convert.ToDecimal(value, CultureInfo.InvariantCulture);
+                integral = true;
                 return true;
             case float or double or decimal:
                 try
                 {
                     count = Convert.ToDecimal(value, CultureInfo.InvariantCulture);
+                    integral = false;
                     return true;
                 }
                 catch (OverflowException)
@@ -337,6 +348,7 @@ public sealed class StringTable
         }
 
         count = 0m;
+        integral = false;
         return false;
     }
 
@@ -417,8 +429,10 @@ public sealed class StringTable
 
             return surfaces;
         }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
+            // Catch-all, like ReadGerman: a truncated manifest mid-write, an IO error or anything
+            // else must leave the App on English rather than escape into the startup try.
             warn?.Invoke($"'{ManifestFileName}' could not be read ({ex.Message}); German surfaces will show English.");
             return [];
         }

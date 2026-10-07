@@ -159,8 +159,37 @@ public class StringTableTests
         Check.That(table.T("overlays.count", 1)).IsEqualTo("1 item");
         Check.That(table.T("overlays.count", 2)).IsEqualTo("2 items");
         Check.That(table.T("overlays.count", 0)).IsEqualTo("0 items");
-        Check.That(table.T("overlays.count", 1.0)).IsEqualTo("1 item");
         Check.That(table.T("overlays.count", 3L)).IsEqualTo("3 items");
+    }
+
+    [Fact]
+    public void Plurals_UseOneOnlyForAnIntegralCountOfExactlyOne()
+    {
+        // A floating-point or decimal count is a visible decimal (CLDR's "other"), even when its
+        // value is whole: 1.0 renders as "1.0" under {0:0.0}, so it must not take the singular.
+        // (decimal preserves its scale in formatting too, which is why the checked text is "1.0".)
+        var table = Build(selection: UiLanguage.English);
+        Check.That(table.T("overlays.count", 1.0)).IsEqualTo("1 items");
+        Check.That(table.T("overlays.count", 1.0f)).IsEqualTo("1 items");
+        Check.That(table.T("overlays.count", 1.0m)).IsEqualTo("1.0 items");
+        Check.That(table.T("overlays.count", 1L)).IsEqualTo("1 item");
+    }
+
+    [Fact]
+    public void Plurals_UnderADecimalFormat_IntegerOneIsSingularFloatingOneIsNot()
+    {
+        var table = StringTable.Create(
+            UiLanguage.English,
+            CultureInfo.InvariantCulture,
+            StringTableContent.ParseEnglish("""
+            {
+              "overlays.decimal": { "text": { "one": "{0:0.0} unit", "other": "{0:0.0} units" }, "who": "user", "where": "overlays", "fit": "A44", "args": ["count"] }
+            }
+            """));
+
+        Check.That(table.T("overlays.decimal", 1)).IsEqualTo("1.0 unit");
+        Check.That(table.T("overlays.decimal", 1.0)).IsEqualTo("1.0 units");
+        Check.That(table.T("overlays.decimal", 2)).IsEqualTo("2.0 units");
     }
 
     [Fact]
@@ -183,21 +212,36 @@ public class StringTableTests
     }
 
     [Fact]
-    public void NamedLanguageLookup_BypassesTheManifest_AndUsesThatLanguage()
+    public void NamedLanguageLookup_IsGatedByTheManifest()
     {
         var warnings = new List<string>();
-        // The German table is complete, but no surface is switched on yet.
-        var table = Build(manifest: [], warnings: warnings);
-
-        Check.That(table.T(UiLanguage.German, "settings.alpha")).IsEqualTo("Alfa");
-        Check.That(table.T(UiLanguage.English, "settings.alpha")).IsEqualTo("Alpha");
+        // The German table is complete, but no surface is switched on yet: German shows English.
+        var gated = Build(manifest: [], warnings: warnings);
+        Check.That(gated.T(UiLanguage.German, "settings.alpha")).IsEqualTo("Alpha");
+        Check.That(gated.T(UiLanguage.English, "settings.alpha")).IsEqualTo("Alpha");
         Check.That(warnings).IsEmpty();
+
+        // A manifest surface may resolve German; a non-manifest one stays English.
+        var german = Build(manifest: ["settings"]);
+        Check.That(german.T(UiLanguage.German, "settings.alpha")).IsEqualTo("Alfa");
+        Check.That(german.T(UiLanguage.German, "overlays.count", 3)).IsEqualTo("3 items");
+    }
+
+    [Fact]
+    public void NamedLanguageLookup_OnAnIncompleteSurface_IsEnglish()
+    {
+        var table = Build(
+            german: """{ "settings.beta": { "text": "Beta-de", "src": "00000000" } }""",
+            manifest: ["settings"]);
+
+        Check.That(table.T(UiLanguage.German, "settings.beta")).IsEqualTo("Beta");
+        Check.That(table.T(UiLanguage.German, "settings.alpha")).IsEqualTo("Alpha");
     }
 
     [Fact]
     public void NamedLanguageLookup_FormatsWithThatLanguagesProvider()
     {
-        var englishTable = Build(selection: UiLanguage.English);
+        var englishTable = Build(selection: UiLanguage.English, manifest: ["settings"]);
         Check.That(englishTable.T(UiLanguage.German, "settings.price", 12.5)).IsEqualTo("Preis 12,5");
         Check.That(englishTable.T(UiLanguage.English, "settings.price", 12.5)).IsEqualTo("Price 12.5");
     }

@@ -25,11 +25,6 @@ internal sealed record StringTableText
     /// <summary>Whether this entry carries plural forms rather than one string.</summary>
     public bool IsPlural => Value is null;
 
-    /// <summary>Whether every form this entry uses carries non-blank text.</summary>
-    public bool IsComplete => IsPlural
-        ? !string.IsNullOrWhiteSpace(One) && !string.IsNullOrWhiteSpace(Other)
-        : !string.IsNullOrWhiteSpace(Value);
-
     /// <summary>Creates a single-string entry.</summary>
     /// <param name="value">The text.</param>
     /// <returns>The entry.</returns>

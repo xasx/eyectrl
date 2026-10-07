@@ -118,6 +118,24 @@ public class StringTableLoadTests : IDisposable
             w => w.Contains(StringTable.ManifestFileName, StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("[ \"settings\"")]   // truncated mid-write
+    [InlineData("{ not json")]       // not JSON at all
+    public void UnparseableManifest_IsEnglishWithALog_AndNeverThrows(string json)
+    {
+        WriteGerman("{}");
+        WriteManifest(json);
+
+        var warnings = new List<string>();
+        var table = StringTable.Load(
+            UiLanguage.German, CultureInfo.GetCultureInfo("de-DE"), _directory, warnings.Add);
+
+        Check.That(table.Language).IsEqualTo(UiLanguage.German);
+        Check.That(table.T("settings.alpha")).IsEqualTo("settings.alpha");
+        Check.That(warnings).HasElementThatMatches(
+            w => w.Contains(StringTable.ManifestFileName, StringComparison.Ordinal));
+    }
+
     [Fact]
     public void ManifestWithANonStringEntry_WarnsAndIgnoresIt()
     {

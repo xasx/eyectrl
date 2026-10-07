@@ -59,7 +59,7 @@ public class TrackStatusViewModelTests
         Check.That(vm.LeftEyeX).IsEqualTo(0.3);
         Check.That(vm.RightEyeX).IsEqualTo(0.7);
         Check.That(vm.HeadDistanceMm).IsEqualTo(600.0);
-        Check.That(vm.DistanceQuality).IsEqualTo("Good");
+        Check.That(vm.DistanceQuality).IsEqualTo(DistanceQuality.Good);
         Check.That(vm.UserPresent).IsTrue();
     }
 
@@ -80,7 +80,7 @@ public class TrackStatusViewModelTests
         // A valid sample populates the display...
         vm.PollLatest();
         Check.That(vm.LeftEyeValid).IsTrue();
-        Check.That(vm.DistanceQuality).IsEqualTo("Good");
+        Check.That(vm.DistanceQuality).IsEqualTo(DistanceQuality.Good);
 
         // ...then the tracker stops providing data (e.g. disconnect). The display must clear
         // to a no-signal state, not freeze on the last-known (misleadingly "live") values.
@@ -91,7 +91,7 @@ public class TrackStatusViewModelTests
         Check.That(vm.RightEyeValid).IsFalse();
         Check.That(vm.HeadDistanceValid).IsFalse();
         Check.That(vm.UserPresent).IsFalse();
-        Check.That(vm.DistanceQuality).IsEqualTo("Unknown");
+        Check.That(vm.DistanceQuality).IsEqualTo(DistanceQuality.Unknown);
     }
 
     private sealed class FakeTrackStatusProvider : IGazeProvider

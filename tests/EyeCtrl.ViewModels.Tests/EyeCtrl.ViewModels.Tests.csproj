@@ -26,6 +26,11 @@
              Link="TestSupport\DpiHelperRestoreAttribute.cs" />
     <Compile Include="..\TestSupport\DpiHelperScaleObserverAttribute.cs"
              Link="TestSupport\DpiHelperScaleObserverAttribute.cs" />
+    <!-- Same shared-rule link for the string-table restore hook and its observer. -->
+    <Compile Include="..\TestSupport\StringTableRestoreAttribute.cs"
+             Link="TestSupport\StringTableRestoreAttribute.cs" />
+    <Compile Include="..\TestSupport\StringTableObserverAttribute.cs"
+             Link="TestSupport\StringTableObserverAttribute.cs" />
   </ItemGroup>
 
 </Project>

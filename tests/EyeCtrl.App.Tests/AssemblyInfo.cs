@@ -14,3 +14,10 @@ using EyeCtrl.Tests.TestSupport;
 // DpiHelperWriterIsolationTests.TheScaleObserver_IsInstalledOnThisAssembly; its own summary says
 // what the suite assumes of constructors and why the top layer stays documented.
 [assembly: DpiHelperScaleObserver]
+
+// Puts StringTable's process-global table back to embedded English after every test, and the
+// observer reddens the first test that STARTS on a non-English global. Presence of both is pinned
+// by StringTableIsolationTests in this assembly; German-path tests use injected tables or the
+// "StringTable Tests (App)" exclusive collection.
+[assembly: StringTableRestore]
+[assembly: StringTableObserver]

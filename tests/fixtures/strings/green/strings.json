@@ -1,4 +1,7 @@
 {
+  "_meta": {
+    "note": "reserved meta note; ignored by the validator and never counted as unused"
+  },
   "settings.count": {
     "text": {
       "one": "{0} file",

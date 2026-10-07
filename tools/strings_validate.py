@@ -17,6 +17,11 @@ Layout (paths are overridable for fixture-based mutation checks):
 
 Gates
 -----
+Reserved meta notes:
+  * keys starting with `_` are file notes for the table's authors (the settled plural
+    rules, for example); they are never resolved, never validated as entries, and
+    never counted as unused.
+
 English table shape:
   * required meta (text, who, where, fit, args) and closed enums (who, where, fit)
   * text is a string or both plural forms {one, other}
@@ -232,11 +237,13 @@ def placeholders(form: str) -> list[int]:
 
 
 def validate_english(english: dict, errors: list[str]) -> None:
-    keys = list(english)
+    keys = [key for key in english if not key.startswith("_")]
     if keys != sorted(keys):
         errors.append("strings.json: keys are not sorted (sorted() order is the enforced merge-friendly order)")
 
     for key, entry in english.items():
+        if key.startswith("_"):
+            continue  # reserved meta note
         if not isinstance(key, str) or "." not in key:
             errors.append(f"{key}: key must contain a surface prefix and a dot")
             continue
@@ -344,7 +351,7 @@ def validate_german(
     allowlist: set[str],
     errors: list[str],
 ) -> None:
-    keys = list(german)
+    keys = [key for key in german if not key.startswith("_")]
     if keys != sorted(keys):
         errors.append("strings.de.json: keys are not sorted")
     if set(keys) - set(english):
@@ -357,6 +364,8 @@ def validate_german(
             avoid_terms.extend(t for t in entry.get("avoid", []) if isinstance(t, str))
 
     for key, entry in german.items():
+        if key.startswith("_"):
+            continue  # reserved meta note
         if not isinstance(entry, dict):
             errors.append(f"strings.de.json: {key}: entry is not an object")
             continue
@@ -461,6 +470,8 @@ def validate_unused_keys(english: dict, src_dir: Path, errors: list[str]) -> Non
     corpus = "\n".join(corpus_parts)
 
     for key in english:
+        if key.startswith("_"):
+            continue  # reserved meta note
         if f'"{key}"' not in corpus and f"'{key}'" not in corpus:
             errors.append(
                 f"strings.json: key {key!r} is never referenced as a literal in src/; "
@@ -485,6 +496,9 @@ def refresh_de_src(german_path: Path, english: dict, errors: list[str]) -> None:
 
     refreshed: dict[str, dict] = {}
     for key, entry in german.items():
+        if key.startswith("_"):
+            refreshed[key] = entry  # reserved meta note: carry through untouched
+            continue
         if not isinstance(entry, dict):
             errors.append(f"strings.de.json: {key}: entry is not an object; nothing was written")
             continue
@@ -567,7 +581,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"strings_validate: {len(errors)} error(s)")
         return 1
 
-    count = len(english)
+    count = len([key for key in english if not key.startswith("_")])
     print(f"strings_validate: OK ({count} key(s), {len(manifest)} manifest surface(s))")
     return 0
 

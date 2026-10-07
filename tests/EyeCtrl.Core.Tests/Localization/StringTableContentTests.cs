@@ -74,4 +74,30 @@ public class StringTableContentTests
         var content = StringTableContent.ParseGerman("""{ "settings.blank": { "text": "   " } }""");
         Check.That(content.Count).IsEqualTo(0);
     }
+
+    [Fact]
+    public void ReservedMetaKeys_AreSkippedSilently()
+    {
+        var warnings = new List<string>();
+        var english = StringTableContent.ParseEnglish("""
+        {
+          "_meta": { "note": "reserved" },
+          "settings.alpha": { "text": "Alpha", "who": "user", "where": "settings", "fit": "row", "args": [] }
+        }
+        """, warnings.Add);
+
+        Check.That(english.Count).IsEqualTo(1);
+        Check.That(english.ContainsKey("settings.alpha")).IsTrue();
+        Check.That(warnings).IsEmpty();
+
+        var german = StringTableContent.ParseGerman("""
+        {
+          "_meta": { "note": "reserved" },
+          "settings.alpha": { "text": "Alfa", "src": "00000000" }
+        }
+        """, warnings.Add);
+
+        Check.That(german.Count).IsEqualTo(1);
+        Check.That(warnings).IsEmpty();
+    }
 }

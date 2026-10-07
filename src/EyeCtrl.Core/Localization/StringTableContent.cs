@@ -50,7 +50,8 @@ public sealed class StringTableContent
     /// <summary>
     /// Parses English table JSON: <c>key → {text, who, where, fit, args, …}</c>, where
     /// <c>text</c> is a string or <c>{one, other}</c>. Entries without a valid <c>text</c> or
-    /// <c>where</c> are skipped with a warning.
+    /// <c>where</c> are skipped with a warning; <c>_</c>-prefixed keys are reserved meta notes
+    /// and skipped silently.
     /// </summary>
     /// <param name="json">The file's contents.</param>
     /// <param name="warn">Receives human-readable warning lines; null discards them.</param>
@@ -63,6 +64,8 @@ public sealed class StringTableContent
         var surfaces = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var (key, node) in root)
         {
+            if (IsReservedMetaKey(key)) continue;
+
             if (node is not JsonObject entry)
             {
                 warn?.Invoke($"String table entry '{key}' is not an object; skipped.");
@@ -91,7 +94,8 @@ public sealed class StringTableContent
 
     /// <summary>
     /// Parses German table JSON: <c>key → {text, src}</c>, where <c>text</c> is a string or
-    /// <c>{one, other}</c>. Entries without a valid <c>text</c> are skipped with a warning.
+    /// <c>{one, other}</c>. Entries without a valid <c>text</c> are skipped with a warning;
+    /// <c>_</c>-prefixed keys are reserved meta notes and skipped silently.
     /// </summary>
     /// <param name="json">The file's contents.</param>
     /// <param name="warn">Receives human-readable warning lines; null discards them.</param>
@@ -103,6 +107,8 @@ public sealed class StringTableContent
         var texts = new Dictionary<string, StringTableText>(StringComparer.Ordinal);
         foreach (var (key, node) in root)
         {
+            if (IsReservedMetaKey(key)) continue;
+
             if (node is not JsonObject entry)
             {
                 warn?.Invoke($"German string entry '{key}' is not an object; skipped.");
@@ -121,6 +127,12 @@ public sealed class StringTableContent
 
         return new StringTableContent(texts, new Dictionary<string, string>(StringComparer.Ordinal));
     }
+
+    /// <summary>
+    /// Whether a key is a reserved meta note. Underscore-prefixed keys carry file notes for the
+    /// table's authors (the settled plural rule, for example) and are never resolved.
+    /// </summary>
+    private static bool IsReservedMetaKey(string key) => key.StartsWith('_');
 
     private static bool TryParseRoot(string json, Action<string>? warn, out JsonObject root)
     {

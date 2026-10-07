@@ -50,6 +50,10 @@ public class StringFormatCrashTests
         }
     }
 
+    /// <summary>Real entries only: underscore-prefixed keys are reserved meta notes.</summary>
+    private static IEnumerable<JsonProperty> RealEntries(JsonDocument document) =>
+        document.RootElement.EnumerateObject().Where(entry => !entry.Name.StartsWith('_'));
+
     [Fact]
     public void Fixture_PluralBracesAndNonAscii_FormatUnderBothLanguages()
     {
@@ -100,7 +104,7 @@ public class StringFormatCrashTests
     public void ShippedTable_EveryKeyAndForm_FormatsDirectlyUnderDeDeAndInvariant()
     {
         using var document = LocalizationTestData.EnglishDocument();
-        foreach (var entry in document.RootElement.EnumerateObject())
+        foreach (var entry in RealEntries(document))
         {
             var count = entry.Value.TryGetProperty("args", out var args) ? args.GetArrayLength() : 0;
             foreach (var form in Forms(entry.Value.GetProperty("text")))
@@ -170,7 +174,7 @@ public class StringFormatCrashTests
     private static Dictionary<string, int> ArgsByKey(JsonDocument english)
     {
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var entry in english.RootElement.EnumerateObject())
+        foreach (var entry in RealEntries(english))
         {
             counts[entry.Name] = entry.Value.TryGetProperty("args", out var args)
                 ? args.GetArrayLength()
@@ -189,7 +193,7 @@ public class StringFormatCrashTests
             english);
 
         using var document = LocalizationTestData.EnglishDocument();
-        foreach (var entry in document.RootElement.EnumerateObject())
+        foreach (var entry in RealEntries(document))
         {
             var count = entry.Value.TryGetProperty("args", out var args) ? args.GetArrayLength() : 0;
             foreach (var plural in new[] { 1, 3 })

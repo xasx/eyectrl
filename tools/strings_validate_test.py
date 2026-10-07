@@ -96,7 +96,7 @@ class StringsValidateFixtureTests(unittest.TestCase):
     def test_every_fixture_case_is_present(self) -> None:
         # Guards the guard: a deleted fixture would otherwise silently stop testing its gate.
         present = {p.name for p in FIXTURES.iterdir() if p.is_dir()} if FIXTURES.is_dir() else set()
-        expected = set(CASES) | {"refresh-orphan"}
+        expected = set(CASES) | {"refresh-orphan", "refresh-non-object"}
         self.assertEqual([], sorted(expected - present), "fixture case directory is missing")
 
     def test_every_case_matches_its_expected_exit_code_and_errors(self) -> None:
@@ -155,6 +155,31 @@ class StringsValidateFixtureTests(unittest.TestCase):
             )
 
             self.assertNotEqual(0, result.returncode)
+            self.assertEqual(before, target.read_bytes())
+
+    def test_refresh_de_src_writes_nothing_on_a_non_object_entry(self) -> None:
+        # Review 02 G2: a non-object entry is an error, and an error must leave the file alone.
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "strings.de.json"
+            shutil.copy(FIXTURES / "refresh-non-object" / "strings.de.json", target)
+            before = target.read_bytes()
+
+            result = subprocess.run(
+                validator_command(
+                    FIXTURES / "refresh-non-object" / "strings.json",
+                    target,
+                    FIXTURES / "refresh-non-object" / "strings.de.manifest.json",
+                    FIXTURES / "refresh-non-object" / "src",
+                    DEFAULT_GLOSSARY,
+                    DEFAULT_ALLOWLIST,
+                    "--refresh-de-src",
+                ),
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("entry is not an object", result.stdout + result.stderr)
             self.assertEqual(before, target.read_bytes())
 
     def test_refresh_de_src_makes_a_stale_file_validate(self) -> None:

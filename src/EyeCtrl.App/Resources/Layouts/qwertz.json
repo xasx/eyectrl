@@ -45,7 +45,7 @@
           { "label": "M", "output": "m", "shiftOutput": "M", "width": 1.0 },
           { "label": "\u00dc", "output": "\u00fc", "shiftOutput": "\u00dc", "width": 1.0 },
           { "label": "⌫", "output": "", "width": 1.2, "specialAction": "backspace", "accessibleName": "Rücktaste" },
-          { "label": "⌫", "subLabel": "Wort", "output": "", "width": 1.2, "specialAction": "deleteWord", "accessibleName": "Wort löschen" }
+          { "label": "Aa", "labelFrame": "eraseLeft", "output": "", "width": 1.2, "specialAction": "deleteWord", "accessibleName": "Wort löschen" }
         ],
         [
           { "label": "Strg", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" },
@@ -100,7 +100,7 @@
           { "label": "#", "output": "#", "width": 1.0 },
           { "label": "$", "output": "$", "width": 1.0 },
           { "label": "⌫", "output": "", "width": 1.2, "specialAction": "backspace", "accessibleName": "Rücktaste" },
-          { "label": "⌫", "subLabel": "Wort", "output": "", "width": 1.2, "specialAction": "deleteWord", "accessibleName": "Wort löschen" }
+          { "label": "Aa", "labelFrame": "eraseLeft", "output": "", "width": 1.2, "specialAction": "deleteWord", "accessibleName": "Wort löschen" }
         ],
         [
           { "label": "Strg", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" },
@@ -153,7 +153,7 @@
           { "label": "\u2014", "output": "\u2014", "width": 1.0 },
           { "label": "\u2013", "output": "\u2013", "width": 1.0 },
           { "label": "⌫", "output": "", "width": 1.2, "specialAction": "backspace", "accessibleName": "Rücktaste" },
-          { "label": "⌫", "subLabel": "Wort", "output": "", "width": 1.2, "specialAction": "deleteWord", "accessibleName": "Wort löschen" }
+          { "label": "Aa", "labelFrame": "eraseLeft", "output": "", "width": 1.2, "specialAction": "deleteWord", "accessibleName": "Wort löschen" }
         ],
         [
           { "label": "Strg", "output": "", "width": 1.2, "specialAction": "modifier:ctrl" },
@@ -205,7 +205,7 @@
           { "label": "«", "output": "«", "width": 1.2 },
           { "label": "»", "output": "»", "width": 1.2 },
           { "label": "⌫", "output": "", "width": 1.6, "specialAction": "backspace", "accessibleName": "Rücktaste" },
-          { "label": "⌫", "subLabel": "Wort", "output": "", "width": 1.6, "specialAction": "deleteWord", "accessibleName": "Wort löschen" }
+          { "label": "Aa", "labelFrame": "eraseLeft", "output": "", "width": 1.6, "specialAction": "deleteWord", "accessibleName": "Wort löschen" }
         ],
         [
           { "label": "ABC", "output": "", "width": 1.5, "specialAction": "switchSub:letters" },
@@ -268,7 +268,7 @@
           { "label": "↓", "output": "", "width": 1.5, "specialAction": "key:ArrowDown", "accessibleName": "Nach-unten-Taste" },
           { "label": "→", "output": "", "width": 1.5, "specialAction": "key:ArrowRight", "accessibleName": "Nach-rechts-Taste" },
           { "label": "⌫", "output": "", "width": 2.5, "specialAction": "backspace", "accessibleName": "Rücktaste" },
-          { "label": "⌫", "subLabel": "Wort", "output": "", "width": 2.5, "specialAction": "deleteWord", "accessibleName": "Wort löschen" }
+          { "label": "Aa", "labelFrame": "eraseLeft", "output": "", "width": 2.5, "specialAction": "deleteWord", "accessibleName": "Wort löschen" }
         ]
       ]
     }

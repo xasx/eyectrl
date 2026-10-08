@@ -12,6 +12,7 @@ using System.Windows.Automation;
 using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Media;
+using Path = System.Windows.Shapes.Path;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
@@ -74,8 +75,9 @@ public class SymbolCaptionFitTests
         ["Segoe UI Variable", "Segoe UI", "Segoe UI Symbol", "Segoe UI Emoji"];
 
     /// <summary>
-    /// The qwertz symbol captions after round 2 (A2: Caps ⬆; B4: word-backspace ⌫ over "Wort",
-    /// so ⌫⌫ is gone and ⌫ is shared by two actions) — the labels the T14 rule must cover.
+    /// The qwertz symbol captions after rounds 2-3 (A2: Caps ⬆; C3+D3: word-backspace "Aa" inside
+    /// the erase arrow, which is an ordinary caption and contributes nothing here) — the labels
+    /// the T14 symbol rule must cover.
     /// </summary>
     private static readonly string[] ExpectedSymbolCaptions =
     [
@@ -101,8 +103,8 @@ public class SymbolCaptionFitTests
 
     public SymbolCaptionFitTests(ITestOutputHelper output) => _output = output;
 
-    private static KeyboardLayout ShippedLayout(string file) => KeyboardLayoutLoader.Load(Path.Combine(
-        SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Resources", "Layouts", file));
+    private static KeyboardLayout ShippedLayout(string file) => KeyboardLayoutLoader.Load(
+        System.IO.Path.Combine(SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Resources", "Layouts", file));
 
     private static KeyboardLayout ShippedQwertz() => ShippedLayout("qwertz.json");
 
@@ -122,7 +124,7 @@ public class SymbolCaptionFitTests
         var wrongBox = new List<string>();
         var wrongKeySize = new List<string>();
         var notOneLine = new List<string>();
-        var linePins = new List<string>();
+        var captionPins = new List<string>();
         var verticalOverflow = new List<string>();
         var cases = new List<(double Side, string Where)>();
         var minAdvance = double.PositiveInfinity;
@@ -159,15 +161,64 @@ public class SymbolCaptionFitTests
                             wrongBox.Add($"{file} {sub} '{label.Text}' ({id}) at {mult:0.0}x: box "
                                          + $"{container.ActualWidth:0.###}, formula {expectedWidth:0.###}");
 
-                        // Clipping is the ADVANCE (what the text needs) exceeding the box. Not
-                        // DesiredSize: when a label overflows, layout clamps DesiredSize to the
-                        // available width, so the overflow is invisible there. A two-line caption
-                        // (B4) is as wide as its WIDEST line, so both lines are checked.
-                        var advance = CaptionLines(content, label).Max(Advance);
+                        // Clipping is the ADVANCE (what the caption DRAWS) exceeding the box, not
+                        // DesiredSize: WPF clamps that to the available size, so an overflow is
+                        // invisible there. An ordinary caption's advance is its widest line; a
+                        // framed caption's is the drawn arrow's extent, stroke included.
+                        double advance, captionHeight;
+                        if (key.LabelFrame == EraseLabelFrame.EraseLeft)
+                        {
+                            var (canvas, arrow, text) = EraseFrameParts(content);
+                            advance = canvas.Width;
+                            captionHeight = canvas.Height;
+
+                            // The frame must stay inside the key minus the rule's edge padding
+                            // (round-3 gate), and the label must stay the invisible UIA anchor.
+                            if (advance > container.ActualWidth - 2 * 2.0 + 1e-6)
+                                clipped.Add($"{file} {sub} '{label.Text}' ({id}) at {mult:0.0}x: frame "
+                                            + $"{advance:0.000} > box {container.ActualWidth:0.###} minus padding");
+                            if (captionHeight > container.ActualHeight - 2 * 2.0 + 1e-6)
+                                verticalOverflow.Add($"{file} {sub} '{label.Text}' ({id}) at {mult:0.0}x: frame "
+                                                     + $"{captionHeight:0.000} > key {container.ActualHeight:0.###} minus padding");
+                            if (label.Opacity != 0)
+                                captionPins.Add($"{file} {sub} '{label.Text}' ({id}) at {mult:0.0}x: the frame's "
+                                                + $"label is visible (Opacity {label.Opacity})");
+
+                            // The filled text is drawn at a font in [12, label.FontSize]; a fixed
+                            // size below the floor (or above the key font) leaves that band. The
+                            // 1e-3 slack absorbs Geometry.Bounds' outline-approximation noise
+                            // (measured ~1.3e-6); the mutation it guards moves the glyphs by DIP.
+                            var drawnText = text.Data.Bounds;
+                            var atKeyFont = TextGeometry(label.Text, label.FontSize).Bounds;
+                            var atFloor = TextGeometry(label.Text, Legibility.MinimumGlyphFontSize).Bounds;
+                            if (drawnText.Width > atKeyFont.Width + 1e-3 || drawnText.Width < atFloor.Width - 1e-3
+                                || drawnText.Height > atKeyFont.Height + 1e-3 || drawnText.Height < atFloor.Height - 1e-3)
+                                captionPins.Add($"{file} {sub} '{label.Text}' ({id}) at {mult:0.0}x: drawn text "
+                                                + $"{drawnText.Width:0.###}x{drawnText.Height:0.###} is outside the "
+                                                + $"key-font..floor band {atFloor.Width:0.###}x{atFloor.Height:0.###}"
+                                                + $"..{atKeyFont.Width:0.###}x{atKeyFont.Height:0.###}");
+                        }
+                        else
+                        {
+                            advance = CaptionLines(content, label).Max(Advance);
+                            // The vertical gate. Measured UNCONSTRAINED and against the key height
+                            // minus the rule's edge padding: inside the fixed-height Border WPF
+                            // clamps DesiredSize to the available height, so reading it there can
+                            // never fail (review-03 F1; mutant V1 survived that). Invalidate first —
+                            // a clean element ignores a new measure constraint.
+                            content.InvalidateMeasure();
+                            content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                            captionHeight = content.DesiredSize.Height;
+                            if (captionHeight > container.ActualHeight - 2 * 2.0 + 1e-6)
+                                verticalOverflow.Add($"{file} {sub} '{label.Text}' ({id}) at {mult:0.0}x: "
+                                                     + $"caption {captionHeight:0.###} > key "
+                                                     + $"{container.ActualHeight - 2 * 2.0:0.###} minus padding");
+                        }
+
                         minAdvance = Math.Min(minAdvance, advance);
                         var side = container.ActualWidth - advance;
                         cases.Add((side, $"{sub} '{label.Text}' ({id}) at {mult:0.0}x"));
-                        if (advance > container.ActualWidth + 1e-6)
+                        if (key.LabelFrame is null && advance > container.ActualWidth + 1e-6)
                         {
                             var exception = (file, key.SpecialAction ?? "", mult);
                             if (PreExistingClips.Contains(exception))
@@ -175,44 +226,6 @@ public class SymbolCaptionFitTests
                             else
                                 clipped.Add($"{file} {sub} '{label.Text}' ({id}) at {mult:0.0}x: advance "
                                             + $"{advance:0.000} > box {container.ActualWidth:0.000}");
-                        }
-
-                        // The round-2 vertical gate. Measured UNCONSTRAINED and against the key
-                        // height minus the rule's edge padding: inside the fixed-height Border WPF
-                        // clamps DesiredSize to the available height, so reading it there can never
-                        // fail (review-03 F1; mutant V1 survived that). Invalidate first — a clean
-                        // element ignores a new measure constraint. The designer measured the
-                        // ⌫/Wort stack at 28.8 DIP in 35 at 0.5x.
-                        content.InvalidateMeasure();
-                        content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-                        var captionHeight = content.DesiredSize.Height;
-                        if (captionHeight > container.ActualHeight - 2 * 2.0 + 1e-6)
-                            verticalOverflow.Add($"{file} {sub} '{label.Text}' ({id}) at {mult:0.0}x: "
-                                                 + $"caption {captionHeight:0.###} > key "
-                                                 + $"{container.ActualHeight - 2 * 2.0:0.###} minus padding");
-
-                        // A two-line caption is exactly as tall as its two font sizes by
-                        // construction: each line is BlockLineHeight with LineHeight == FontSize
-                        // (V1 removes those and must fail), and the height cap guarantees their sum
-                        // keeps the edge padding. Pinned per line so a failure names the line.
-                        // NaN-safe: an unset LineHeight is NaN, and NaN comparisons are false, so
-                        // the bare difference test was vacuous (review-04 N1; V6 survived it).
-                        if (key.SubLabel is not null)
-                        {
-                            var lines = CaptionLines(content, label).ToList();
-                            foreach (var line in lines)
-                            {
-                                if (line.LineStackingStrategy != LineStackingStrategy.BlockLineHeight
-                                    || double.IsNaN(line.LineHeight)
-                                    || Math.Abs(line.LineHeight - line.FontSize) > 1e-9)
-                                    linePins.Add($"{file} {sub} '{line.Text}' ({id}) at {mult:0.0}x: "
-                                                 + $"LineStackingStrategy={line.LineStackingStrategy}, "
-                                                 + $"LineHeight={line.LineHeight:0.###}, FontSize={line.FontSize:0.###}");
-                            }
-                            var fontSum = lines.Sum(l => l.FontSize);
-                            if (fontSum > container.ActualHeight - 2 * 2.0 + 1e-6)
-                                linePins.Add($"{file} {sub} '{label.Text}' ({id}) at {mult:0.0}x: line fonts "
-                                             + $"{fontSum:0.###} > key {container.ActualHeight:0.###} minus padding");
                         }
 
                         // The key's own size is pinned too: this gate's arithmetic is stated in
@@ -247,9 +260,9 @@ public class SymbolCaptionFitTests
                     + string.Join("; ", verticalOverflow))
                  .That(verticalOverflow).IsEmpty();
             Check.WithCustomMessage(
-                    "Two-line caption lines are not exactly their font size high: "
-                    + string.Join("; ", linePins))
-                 .That(linePins).IsEmpty();
+                    "Caption details are wrong (a visible frame label, or a drawn text size outside "
+                    + "the key-font..floor band): " + string.Join("; ", captionPins))
+                 .That(captionPins).IsEmpty();
             Check.WithCustomMessage(
                     "Key heights do not match BaseKeySize (70) x multiplier: "
                     + string.Join("; ", wrongKeySize))
@@ -308,14 +321,6 @@ public class SymbolCaptionFitTests
                         var expectedFont = symbol
                             ? OracleSymbolFont(label.Text, baseFont, container.ActualWidth)
                             : baseFont;
-                        if (symbol && key.SubLabel is not null)
-                        {
-                            // Round-2 B4: the symbol line is also capped so the two-line stack
-                            // fits the key's height.
-                            expectedFont = Math.Min(
-                                expectedFont,
-                                container.ActualHeight - 2 * 2.0 - OracleSubLabelFont(baseFont));
-                        }
                         var expectedWeight = symbol ? Tokens.FontWeightMedium : FontWeights.Normal;
 
                         if (Math.Abs(label.FontSize - expectedFont) > 1e-4)
@@ -327,27 +332,6 @@ public class SymbolCaptionFitTests
                                          + $"{label.FontWeight}, expected {expectedWeight}"
                                          + (symbol ? " (symbol caption)" : " (ordinary caption)"));
                         if (symbol) { symbolCases++; symbolLabels.Add(label.Text); }
-
-                        // B4's second line: the sub-label at max(0.75 x base, 12), Normal.
-                        if (key.SubLabel is null) continue;
-                        var wordLine = CaptionLines(content, label)
-                            .SingleOrDefault(t => !ReferenceEquals(t, label));
-                        if (wordLine is null)
-                        {
-                            problems.Add($"{sub} '{label.Text}' ({id}) at {mult:0.0}x: SubLabel "
-                                         + $"'{key.SubLabel}' has no second caption line");
-                            continue;
-                        }
-                        var expectedWordFont = OracleSubLabelFont(baseFont);
-                        if (wordLine.Text != key.SubLabel)
-                            problems.Add($"{sub} '{label.Text}' ({id}) at {mult:0.0}x: second line "
-                                         + $"'{wordLine.Text}', expected '{key.SubLabel}'");
-                        if (Math.Abs(wordLine.FontSize - expectedWordFont) > 1e-4)
-                            problems.Add($"{sub} '{label.Text}' ({id}) at {mult:0.0}x: sub-label FontSize "
-                                         + $"{wordLine.FontSize:0.###}, expected {expectedWordFont:0.###}");
-                        if (wordLine.FontWeight != FontWeights.Normal)
-                            problems.Add($"{sub} '{label.Text}' ({id}) at {mult:0.0}x: sub-label FontWeight "
-                                         + $"{wordLine.FontWeight}, expected Normal");
                     }
                 }
             }
@@ -519,14 +503,14 @@ public class SymbolCaptionFitTests
     }
 
     /// <summary>
-    /// B4's second line must survive every repaint. The window rebuilds captions on sub-layout
-    /// swaps and erases them with modifier repaints; a repaint that rebuilt the key's content from
-    /// the label alone would silently drop "Wort" while the dwell outline, the id and the name
-    /// stayed healthy. Caps and Shift are both exercised, twice so a repaint that drops the stack
-    /// on the way back is caught too.
+    /// The round-3 erase frame must survive every repaint. The window rebuilds captions on
+    /// sub-layout swaps and erases them with modifier repaints; a repaint that rebuilt the key's
+    /// content from the label alone would drop the arrow. Caps and Shift are both exercised, twice
+    /// so a repaint that drops the frame on the way back is caught too, and the drawing must keep
+    /// following the label's foreground.
     /// </summary>
     [StaFact]
-    public void ShippedQwertz_TwoLineCaption_SurvivesCapsAndShiftRepaints()
+    public void ShippedQwertz_EraseFrame_SurvivesCapsAndShiftRepaints()
     {
         var layout = ShippedQwertz();
         var (window, vm) = Open(layout, 1.5);
@@ -534,68 +518,99 @@ public class SymbolCaptionFitTests
         {
             foreach (var modifier in new[] { ModifierKey.CapsLock, ModifierKey.Shift })
             {
-                var before = TwoLine(window, layout);
-                Check.WithCustomMessage($"{modifier}: the word-backspace key is not a two-line caption to begin with")
+                var before = EraseFrame(window, layout);
+                Check.WithCustomMessage($"{modifier}: the word-backspace key has no erase frame to begin with")
                      .That(before).IsNotNull();
 
                 vm.ToggleModifier(modifier);
                 Layout(window);
-                var on = TwoLine(window, layout);
-                Check.WithCustomMessage($"{modifier} on dropped the sub-label (content "
-                        + $"{ContentKind(window, layout)}): the two-line caption must survive every repaint.")
+                var on = EraseFrame(window, layout);
+                Check.WithCustomMessage(
+                        $"{modifier} on dropped the erase frame (content {ContentKind(window, layout)}): "
+                        + "the frame must survive every repaint.")
                      .That(on).IsNotNull();
-                Check.That(on!.Value.Symbol.Text).IsEqualTo("⌫");
-                Check.That(on.Value.Symbol.FontSize).IsEqualTo(before!.Value.Symbol.FontSize);
-                Check.That(on.Value.Word.Text).IsEqualTo("Wort");
-                Check.That(on.Value.Word.FontSize).IsEqualTo(before.Value.Word.FontSize);
+                Check.That(on!.Value.Canvas.Width).IsEqualTo(before!.Value.Canvas.Width);
+                Check.That(on.Value.Canvas.Height).IsEqualTo(before.Value.Canvas.Height);
+                Check.That(on.Value.Arrow.Data.Bounds).IsEqualTo(before.Value.Arrow.Data.Bounds);
+                Check.That(on.Value.Text.Data.Bounds).IsEqualTo(before.Value.Text.Data.Bounds);
+                Check.WithCustomMessage("the drawing must follow the label's foreground")
+                     .That(on.Value.Arrow.Stroke).IsSameReferenceAs(on.Value.Label.Foreground);
+                Check.That(on.Value.Text.Fill).IsSameReferenceAs(on.Value.Label.Foreground);
+                Check.That(on.Value.Label.Opacity).IsEqualTo(0.0);
 
                 vm.ToggleModifier(modifier);
                 Layout(window);
-                Check.WithCustomMessage($"{modifier} off dropped the sub-label")
-                     .That(TwoLine(window, layout)).IsNotNull();
+                Check.WithCustomMessage($"{modifier} off dropped the erase frame")
+                     .That(EraseFrame(window, layout)).IsNotNull();
             }
         }
         finally { window.Close(); }
     }
 
     /// <summary>
-    /// The B4 height cap, pinned where it actually binds. At the shipped sizes the cap never
-    /// engages (35 - 4 - 12 = 19 ≥ 16.8 at 0.5x), so a synthetic base font large enough for the
-    /// two lines to overrun a 35 DIP key is the only way to see it: dropping the cap returns the
-    /// uncapped x1.4 font here.
+    /// The erase frame's fit limit, pinned where it binds. With "Aa" the shipped sizes never
+    /// squeeze, so the limit is exercised synthetically: a frame wider than its room must shrink
+    /// the gap; a base font too large for the box must shrink toward the 12 px floor, never below.
+    /// The fixtures self-calibrate from the unfitted frame, so they cannot drift into vacuity.
     /// </summary>
     [StaFact]
-    public void SymbolLine_IsHeightCappedSoTheTwoLineStackFitsTheKey()
+    public void EraseFrame_FitLimit_KeepsTheFrameInsideTheEdgePadding()
     {
-        const double keySize = 35.0;
-        const double baseFont = 40.0;
-        const double edgePadding = 2.0;
-        var key = new KeyDefinition
-        {
-            Label = "⌫", SubLabel = "Wort", SpecialAction = "deleteWord", Width = 1.2
-        };
+        const double big = 1000;   // no height/width pressure from the key itself
+        var floor = Legibility.MinimumGlyphFontSize;
 
-        var symbolFont = SymbolCaptionFonts.Resolve(key, baseFont, boxWidth: 42.8, keySize);
-        var wordFont = SymbolCaptionFonts.SubLabelFont(baseFont);
+        // Gap branch: room just under the natural width at the floor font.
+        var natural = EraseLabelFrame.Measure("Aa", floor, big, big);
+        var room = natural.Width - 0.1;
+        var squeezed = EraseLabelFrame.Measure("Aa", floor, big, room + 2 * SymbolCaptionRule.EdgePadding);
+        Check.WithCustomMessage(
+                $"the fixture no longer exercises the gap shrink — retune it (natural "
+                + $"{natural.Width:0.####}, room {room:0.####}, squeezed {squeezed.Width:0.####}, "
+                + $"gap {squeezed.Gap:0.####})")
+             .That(squeezed.Gap).IsStrictlyLessThan(EraseLabelFrame.GapRatio);
+        Check.WithCustomMessage(
+                $"the squeezed frame {squeezed.Width:0.###} must stay inside {room:0.###}")
+             .That(squeezed.Width).IsLessOrEqualThan(room + 2e-6);   // the fit's own 1e-6 epsilon + slack
 
-        Check.WithCustomMessage(
-                $"symbol {symbolFont:0.###} + word {wordFont:0.###} must fit {keySize} - "
-                + $"2 x {edgePadding} = {keySize - 2 * edgePadding:0.###}")
-             .That(symbolFont + wordFont).IsLessOrEqualThan(keySize - 2 * edgePadding);
-        Check.WithCustomMessage(
-                "the cap did not bind, so this fixture no longer proves the cap exists — retune it "
-                + "(the uncapped x1.4 font must exceed the stack room)")
-             .That(baseFont * 1.4).IsStrictlyGreaterThan(keySize - 2 * edgePadding - wordFont);
-        Check.WithCustomMessage("the symbol line must be exactly the capped value")
-             .That(symbolFont).IsEqualTo(keySize - 2 * edgePadding - wordFont);
+        // The build must emit exactly the measured frame, and its stroked ink must stay inside it.
+        var label = new TextBlock { Text = "Aa", FontSize = floor, Foreground = Tokens.BrushTextPrimary };
+        var holder = EraseLabelFrame.Build(label, big, room + 2 * SymbolCaptionRule.EdgePadding);
+        var canvas = ((Grid)holder).Children.OfType<Canvas>().Single();
+        var arrow = canvas.Children.OfType<Path>().First();
+        Check.That(canvas.Width).IsEqualTo(squeezed.Width);
+        Check.That(canvas.Height).IsEqualTo(squeezed.Height);
+        // Ink-consistency: the stroked outline must not paint outside the nominal frame. 1e-3
+        // absorbs Geometry.Bounds' outline-approximation noise (measured ~1.6e-7).
+        Check.That(arrow.Data.Bounds.Width + arrow.StrokeThickness).IsLessOrEqualThan(canvas.Width + 1e-3);
+        Check.That(arrow.Data.Bounds.Height + arrow.StrokeThickness).IsLessOrEqualThan(canvas.Height + 1e-3);
+
+        // Font branch: a room between the floor's and the base font's natural width shrinks the
+        // font toward the floor, and the drawn frame respects that room.
+        var atFloor = EraseLabelFrame.Measure("AAAA", floor, big, big);
+        var atBase = EraseLabelFrame.Measure("AAAA", 24, big, big);
+        var midRoom = (atFloor.Width + atBase.Width) / 2;
+        var shrunk = EraseLabelFrame.Measure("AAAA", 24, big, midRoom + 2 * SymbolCaptionRule.EdgePadding);
+        Check.That(shrunk.Font).IsStrictlyLessThan(24);
+        Check.WithCustomMessage("the fit limit shrank the text below the 12 px legibility floor")
+             .That(shrunk.Font).IsGreaterOrEqualThan(floor);
+        Check.That(shrunk.Width).IsLessOrEqualThan(midRoom + 2e-6);   // the fit's own 1e-6 epsilon + slack
     }
 
-    private static (TextBlock Symbol, TextBlock Word)? TwoLine(KeyboardWindow window, KeyboardLayout layout)
+    private static (TextBlock Label, Canvas Canvas, Path Arrow, Path Text)? EraseFrame(
+        KeyboardWindow window, KeyboardLayout layout)
     {
         var visual = KeyVisuals(window, layout, "letters").Single(v => v.Key.SpecialAction == "deleteWord");
-        if (visual.Content is not StackPanel stack) return null;
-        var lines = stack.Children.OfType<TextBlock>().ToList();
-        return lines.Count == 2 ? (lines[0], lines[1]) : null;
+        if (visual.Content is not Grid holder) return null;
+        var canvas = holder.Children.OfType<Canvas>().SingleOrDefault();
+        var paths = canvas?.Children.OfType<Path>().ToList();
+        return paths is { Count: 2 } ? (visual.Label, canvas!, paths[0], paths[1]) : null;
+    }
+
+    private static (Canvas Canvas, Path Arrow, Path Text) EraseFrameParts(FrameworkElement content)
+    {
+        var canvas = ((Grid)content).Children.OfType<Canvas>().Single();
+        var paths = canvas.Children.OfType<Path>().ToList();
+        return (canvas, paths[0], paths[1]);
     }
 
     /// <summary>
@@ -640,6 +655,13 @@ public class SymbolCaptionFitTests
         return visual.Content.GetType().Name;
     }
 
+    /// <summary>The glyph geometry the erase frame draws its fill from, at a given font size.</summary>
+    private static Geometry TextGeometry(string text, double size) =>
+        new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+                new Typeface(Tokens.FontStandard, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal),
+                size, Brushes.Black, 2.0)
+            .BuildGeometry(new Point(0, 0));
+
     /// <summary>The name UIA would actually announce: the explicit name when set, else the live text.</summary>
     private static string PeerName(TextBlock label) => new TextBlockAutomationPeer(label).GetName();
 
@@ -669,7 +691,7 @@ public class SymbolCaptionFitTests
     /// rule is SpecialAction else <c>key_{row}_{col}</c> (KeyboardWindow.xaml.cs). Read through the
     /// window's private <c>_keyVisuals</c> registry, which is the only way to reach the real
     /// containers and labels. <c>Content</c> is the element the dwell outline wraps — the label
-    /// itself, or the two-line caption stack whose first line is the label (B4).
+    /// itself, or the erase frame's holder grid whose first child is the label (round 3).
     /// </summary>
     private static List<(string Id, KeyDefinition Key, Border Container, TextBlock Label, FrameworkElement Content)>
         KeyVisuals(KeyboardWindow window, KeyboardLayout layout, string sub)
@@ -693,13 +715,20 @@ public class SymbolCaptionFitTests
             var container = (Border)value.GetType().GetField("Item1")!.GetValue(value)!;
             var label = (TextBlock)value.GetType().GetField("Item2")!.GetValue(value)!;
             var id = (string)entry.Key;
-            var content = label.Parent is StackPanel stack ? (FrameworkElement)stack : label;
+            // The dwell grid's first child is the caption content: the label itself, or the erase
+            // frame's holder (whose first child is the label). Read it from the container, never
+            // from the label's parent — the frame holder is a Grid, like the dwell grid.
+            var content = container.Child is Grid dwell && dwell.Children.Count > 0
+                          && dwell.Children[0] is FrameworkElement caption
+                ? caption
+                : label;
             result.Add((id, byId[id], container, label, content));
         }
         return result;
     }
 
-    /// <summary>The TextBlocks a key draws — one for an ordinary caption, two for a B4 stack.</summary>
+    /// <summary>The caption TextBlocks a key draws: the label alone, or (round 3) the frame holder's
+    /// hidden anchor label.</summary>
     private static IEnumerable<TextBlock> CaptionLines(FrameworkElement content, TextBlock label) =>
         content is StackPanel stack ? stack.Children.OfType<TextBlock>() : [label];
 
@@ -746,13 +775,6 @@ public class SymbolCaptionFitTests
         var room = boxWidth - 2 * 2.0;
         return advance > room ? font * room / advance : font;
     }
-
-    /// <summary>
-    /// The reference sub-label font (round-2 README, B4): max(0.75 x base, 12), Normal. The 0.75 is
-    /// restated here as the oracle, not read from the production constant.
-    /// </summary>
-    private static double OracleSubLabelFont(double baseFont) =>
-        Math.Max(baseFont * 0.75, Legibility.MinimumGlyphFontSize);
 
     private sealed record GlyphRunInfo(string Family, ushort[] Glyphs);
 

@@ -261,47 +261,21 @@ public partial class KeyboardWindow : OverlayWindow
                     // A symbol caption (⬆ ⇧ ⌫ ⌴ ↵ ⇥ ✂ ↶ ↷ ← ↑ → ↓ 😀) takes the T14 rule
                     // (user's pick, 2026-10-07): x1.4 in the theme's medium weight, fit-limited
                     // to the box. Resolve returns the base font untouched for every other key.
-                    // A sub-label (B4) adds a second line, and Resolve reserves its height.
                     FontSize = SymbolCaptionFonts.Resolve(
                         key,
                         Math.Max(_keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize),
-                        boxWidth,
-                        _keySize),
+                        boxWidth),
                     FontWeight = SymbolCaptionRule.IsSymbolCaption(key) ? Tokens.FontWeightMedium : FontWeights.Normal,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
                 };
 
-                // B4 (user's live-check pick, 2026-10-08): the word-backspace key reads the
-                // symbol over a small word, the modifier bar's icon-over-label pattern. The word
-                // is static text — Shift and Caps never touch it. Each line is exactly its font
-                // size high, so the stack's height is symbol + word by construction.
+                // A label frame (round 3: the word-delete key's erase arrow) replaces the label's
+                // visuals: the label stays the UIA anchor at Opacity 0 and the frame is drawn as
+                // geometry around it. Everything that acts on the label still works.
                 FrameworkElement captionContent = label;
-                if (key.SubLabel is not null)
-                {
-                    label.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
-                    label.LineHeight = label.FontSize;
-
-                    var wordLine = new DecorativeTextBlock
-                    {
-                        Text = key.SubLabel,
-                        Foreground = Tokens.BrushTextPrimary,
-                        FontSize = SymbolCaptionFonts.SubLabelFont(
-                            Math.Max(_keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize)),
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        LineStackingStrategy = LineStackingStrategy.BlockLineHeight
-                    };
-                    wordLine.LineHeight = wordLine.FontSize;
-
-                    var captionStack = new StackPanel
-                    {
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        VerticalAlignment = VerticalAlignment.Center
-                    };
-                    captionStack.Children.Add(label);
-                    captionStack.Children.Add(wordLine);
-                    captionContent = captionStack;
-                }
+                if (key.LabelFrame == EraseLabelFrame.EraseLeft)
+                    captionContent = EraseLabelFrame.Build(label, _keySize, boxWidth);
 
                 var keyBrush = new SolidColorBrush(GetKeyBaseColor(key));
                 var container = new Border

@@ -27,10 +27,10 @@ public class QwertzKeyCaptionDataTests
     private static KeyboardLayout Qwertz() => KeyboardLayoutLoader.Load(Path.Combine(
         SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Resources", "Layouts", "qwertz.json"));
 
-    /// <summary>Every picked caption, keyed by specialAction: label, optional sub-label and accessibleName (null = none).</summary>
-    private static readonly Dictionary<string, (string Label, string? SubLabel, string? Name)> FinalPicks = BuildPicks();
+    /// <summary>Every picked caption, keyed by specialAction: label, optional label frame and accessibleName (null = none).</summary>
+    private static readonly Dictionary<string, (string Label, string? Frame, string? Name)> FinalPicks = BuildPicks();
 
-    private static Dictionary<string, (string Label, string? SubLabel, string? Name)> BuildPicks()
+    private static Dictionary<string, (string Label, string? Frame, string? Name)> BuildPicks()
     {
         var picks = new Dictionary<string, (string, string?, string?)>(StringComparer.Ordinal)
         {
@@ -40,7 +40,7 @@ public class QwertzKeyCaptionDataTests
             ["modifier:shift"] = ("\u21E7", null, "Umschalttaste"),              // ⇧
             ["toggle:capslock"] = ("\u2B06", null, "Feststelltaste"),           // ⬆ (A2, 2026-10-08)
             ["backspace"] = ("\u232B", null, "R\u00FCcktaste"),                 // ⌫  Rücktaste
-            ["deleteWord"] = ("\u232B", "Wort", "Wort l\u00F6schen"),           // ⌫ over "Wort" (B4, 2026-10-08)
+            ["deleteWord"] = ("Aa", "eraseLeft", "Wort l\u00F6schen"),          // Aa inside the erase arrow (C3+D3, 2026-10-08)
             ["space"] = ("\u2334", null, "Leertaste"),                          // ⌴
             ["enter"] = ("\u21B5", null, "Eingabetaste"),                       // ↵
             ["tab"] = ("\u21E5", null, "Tabulatortaste"),                       // ⇥
@@ -128,13 +128,13 @@ public class QwertzKeyCaptionDataTests
                 Check.WithCustomMessage(
                         $"{subId}: action '{key.SpecialAction}' is not in the T14 pick table")
                      .That(FinalPicks.ContainsKey(key.SpecialAction)).IsTrue();
-                var (label, subLabel, name) = FinalPicks[key.SpecialAction];
+                var (label, frame, name) = FinalPicks[key.SpecialAction];
                 Check.WithCustomMessage(
                         $"{subId}: '{key.SpecialAction}' captions '{key.Label}', expected '{label}'")
                      .That(key.Label).IsEqualTo(label);
                 Check.WithCustomMessage(
-                        $"{subId}: '{key.SpecialAction}' subLabel '{key.SubLabel}', expected '{subLabel}'")
-                     .That(key.SubLabel).IsEqualTo(subLabel);
+                        $"{subId}: '{key.SpecialAction}' labelFrame '{key.LabelFrame}', expected '{frame}'")
+                     .That(key.LabelFrame).IsEqualTo(frame);
                 Check.WithCustomMessage(
                         $"{subId}: '{key.SpecialAction}' accessibleName '{key.AccessibleName}', expected '{name}'")
                      .That(key.AccessibleName).IsEqualTo(name);
@@ -173,21 +173,23 @@ public class QwertzKeyCaptionDataTests
     }
 
     [Fact]
-    public void AccessibleNames_SitOnExactlyTheSpecialKeysWhoseCaptionContainsASymbol()
+    public void AccessibleNames_SitOnExactlyTheSpecialKeysThatNeedOne()
     {
-        // The mechanism: a name is required when the caption is unpronounceable, and only then —
-        // a name on an ASCII key ("Strg") or a missing one on a symbol caption both fail.
+        // The mechanism: a name is required when the caption is not its own name — a symbol
+        // caption, or a framed caption whose letters are decoration ("Aa" inside the erase
+        // arrow). And only then: a name on a plain word key ("Strg") fails too.
         var layout = Qwertz();
         var problems = new List<string>();
 
         foreach (var (subId, sub) in layout.SubLayouts)
             foreach (var key in sub.Rows.SelectMany(r => r))
             {
-                var hasSymbol = key.SpecialAction is not null && ContainsSymbol(key.Label);
+                var needsName = key.SpecialAction is not null
+                                && (ContainsSymbol(key.Label) || key.LabelFrame is not null);
                 var hasName = key.AccessibleName is not null;
-                if (hasSymbol != hasName)
+                if (needsName != hasName)
                     problems.Add($"{subId}: '{key.Label}' ({key.SpecialAction ?? "no action"}) "
-                                 + $"symbol={hasSymbol} but accessibleName={hasName}");
+                                 + $"needsName={needsName} but accessibleName={hasName}");
             }
 
         Check.WithCustomMessage(string.Join("; ", problems)).That(problems).IsEmpty();

@@ -20,8 +20,8 @@ public class KeyDefinition
     /// </summary>
     public string? AccessibleName { get; set; }
     /// <summary>
-    /// Optional second caption line, drawn small under <see cref="Label"/> (T14 round 2, B4:
-    /// "⌫" over "Wort"). Null for a single-line key. Static: it never changes with Shift or Caps.
+    /// Optional frame drawn around the caption (T14 round 3: "eraseLeft" draws "Aa" inside the
+    /// word-delete key's ⌫-shaped arrow). Null for an ordinary caption.
     /// </summary>
-    public string? SubLabel { get; set; }
+    public string? LabelFrame { get; set; }
 }

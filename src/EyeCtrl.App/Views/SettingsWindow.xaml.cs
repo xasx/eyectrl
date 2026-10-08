@@ -8,6 +8,8 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
 using EyeCtrl.Core.ActionMenu;
 using EyeCtrl.Core.Calibration;
+using EyeCtrl.Core.Enums;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Prediction;
@@ -32,6 +34,15 @@ public partial class SettingsWindow : OverlayWindow
     // Swatches render at DwellColorPicker.SwatchWidth x SwatchHeight with WrapPanel gutters sized so the
     // standard control radius (100 px hit circle) fits without overlapping neighbours — see SwatchTargetGeometryTests.
     internal const double ColorSwatchRadius = ControlBtnRadius;
+
+    /// <summary>
+    /// The names the settings host gives its colour swatches, one per
+    /// <see cref="DwellColorPicker.PresetsFor"/> entry (T02). Host-supplied so the control owns no
+    /// English; T07 replaces each with a settings key. Kept as a field so the count can be pinned
+    /// headlessly against every palette (<c>ColorSwatchNamesTests</c>) — the coupling is otherwise
+    /// only a run-time throw.
+    /// </summary>
+    internal static readonly string[] ColorSwatchNames = ["Accent", "Green", "Amber", "Light"];
 
     // ── The labelled-row geometry (name on the left, control on the right) ──
 
@@ -266,6 +277,9 @@ public partial class SettingsWindow : OverlayWindow
     private readonly int _dwellMs;
     private readonly SettingsPagerRearmGuard _pagerRearmGuard;
 
+    /// <summary>The tray item's deep link, queued while a modal is up (T04's open-modal case).</summary>
+    private readonly SettingsDeepLinkQueue _languageRowDeepLink = new();
+
     // Last LAID-OUT screen centre per pager target, recorded by the position pass. The jump's
     // own re-render replaces the pager Border BEFORE GuardJumpedPager reads it, and a freshly
     // added border has had no layout pass — its PointToScreen returns the panel origin, ~70
@@ -390,12 +404,16 @@ public partial class SettingsWindow : OverlayWindow
         // The one button only HIDES the notice — it cannot cancel a restart whose child may
         // already be running, and it must exist: a modal with no dwell target would trap a
         // gaze-only user if the outcome never arrived.
+        //
+        // The notice's text belongs to the `language-recovery` surface (D5, T04) and resolves in
+        // the TARGET language — the saved selection resolved against the machine culture, i.e.
+        // what the replacement will run (F1). An ordinary restart resolves to the running
+        // language, unchanged. RestartNotices owns the keys so the English text is headlessly
+        // pinned.
         _messenger.Register<RestartInProgressMessage>(this, (_, _) =>
             Dispatcher.Invoke(() => _viewModel.ShowModal(
-                "Restarting EyeCtrl…\n"
-                + "Waiting for the new EyeCtrl to start. If it cannot, this one keeps running.\n"
-                + "Hiding this notice does not stop the restart.",
-                [new ModalChoice("restart_progress_hide", "✕ Hide", ModalChoiceKind.Neutral, null)])));
+                RestartNotices.InProgressMessage(TargetLanguage()),
+                RestartNotices.InProgressChoices(TargetLanguage()))));
 
         // A refused restart must be visible: the user just completed a dwell, and
         // silence reads as the dwell not registering.
@@ -404,11 +422,11 @@ public partial class SettingsWindow : OverlayWindow
         // "✕ No" to "the new EyeCtrl did not start in time" means nothing, and for a gaze
         // user every extra target is another chance to mis-dwell on a message that only
         // needs dismissing. The multi-choice modal makes a single button expressible;
-        // before it existed this had to borrow the Yes/No form.
+        // before it existed this had to borrow the Yes/No form. The reason text already
+        // arrives localized in the same target from the coordinator.
         _messenger.Register<RestartUnavailableMessage>(this, (_, m) =>
             Dispatcher.Invoke(() => _viewModel.ShowModal(
-                m.Reason,
-                [new ModalChoice("restart_failed_ok", "✓ OK", ModalChoiceKind.Affirmative, null)])));
+                m.Reason, RestartNotices.RefusedChoices(TargetLanguage()))));
 
         // Initialize tab definitions
         _tabDefs =
@@ -568,6 +586,10 @@ public partial class SettingsWindow : OverlayWindow
                     break;
                 case nameof(SettingsWindowViewModel.IsModalVisible):
                     UpdateModalVisibility();
+                    // The deep link that arrived while this modal was up runs now. A modal is
+                    // never discarded to satisfy the link (T04's three window states).
+                    if (_languageRowDeepLink.TryApply(_viewModel.IsModalVisible))
+                        ShowLanguageRow();
                     break;
             }
         });
@@ -882,6 +904,43 @@ public partial class SettingsWindow : OverlayWindow
         // Update ViewModel's tab state - property changed handler will rebuild content
         _viewModel.Settings.ShowTab(tabId);
     }
+
+    /// <summary>
+    /// D9's deep link: bring this window forward and land on General page 1, where the language
+    /// row is the first row. A modal already up is never discarded to satisfy the link — the
+    /// navigation queues behind it and runs when it closes.
+    /// </summary>
+    internal void NavigateToLanguageRow()
+    {
+        // WS_EX_NOACTIVATE (OverlayWindow): Activate() is either blocked or it steals the
+        // foreground from the user's app. RaiseToTop reasserts HWND_TOPMOST with SWP_NOACTIVATE.
+        RaiseToTop();
+        if (_languageRowDeepLink.Request(_viewModel.IsModalVisible))
+            ShowLanguageRow();
+    }
+
+    /// <summary>
+    /// Lands the whole window on the language row: content tab, sidebar highlight AND the sidebar
+    /// page holding General (F6). The dwell path sets <see cref="SettingsWindowViewModel.ActiveTabId"/>
+    /// too — without it the sidebar keeps highlighting the previous tab, which for a wrong-language
+    /// user is a sidebar that contradicts the content.
+    /// </summary>
+    private void ShowLanguageRow()
+    {
+        ShowTab("General");
+        _viewModel.ActiveTabId = "General";
+        var index = Array.FindIndex(_tabDefs, t => t.Id == "General");
+        if (index >= 0)
+            SwitchTabPage(SettingsTabPagination.PageOf(index, _tabsPerPage));
+    }
+
+    /// <summary>
+    /// The language the restart flow speaks (F1, D5): the SAVED selection resolved against the
+    /// machine culture — the language the replacement will actually run. An ordinary restart (no
+    /// pending change) resolves to the running language, so its notices are unchanged.
+    /// </summary>
+    private UiLanguage TargetLanguage() =>
+        StringTable.ResolveLanguage(_settings.General.UiLanguage, StringTable.Current.Culture);
 
     // ────── Live apply + debounced save ──────
 
@@ -1272,10 +1331,28 @@ public partial class SettingsWindow : OverlayWindow
     /// decides it; the chunker clamps degenerate values to one tab per page.
     /// </summary>
     private double SidebarTabBudget =>
-        Height
-        - CloseButton.Height - CloseButton.Margin.Top - CloseButton.Margin.Bottom
-        - TabPagerReserveHeight
-        - TabButtonPanel.Margin.Top - TabButtonPanel.Margin.Bottom;
+        SidebarTabBudgetFor(
+            Height,
+            CloseButton.Height + CloseButton.Margin.Top + CloseButton.Margin.Bottom,
+            TabPagerReserveHeight,
+            TabButtonPanel.Margin.Top + TabButtonPanel.Margin.Bottom);
+
+    /// <summary>
+    /// <see cref="SidebarTabBudget"/>'s arithmetic, as one shared derivation: the window height
+    /// minus the close button's block, the tab-pager stack's reserve and the tab list's own
+    /// margins. <c>internal static</c> so <c>LanguageRowReachTests</c> measures the reach with
+    /// THIS formula rather than restating it (F8) — a restated formula in a test pins nothing
+    /// (the same lesson as <c>TabPagerStackReserve</c>). The caller reads every term off the live
+    /// element it belongs to.
+    /// </summary>
+    /// <param name="windowHeight"><c>Height</c>.</param>
+    /// <param name="closeButtonBlock">The close button's height plus its vertical margins.</param>
+    /// <param name="tabPagerReserve">The two-button tab pager stack plus its panel margins.</param>
+    /// <param name="tabPanelBlock">The tab list panel's vertical margins.</param>
+    /// <returns>The sidebar's tab-list budget in DIP.</returns>
+    internal static double SidebarTabBudgetFor(
+        double windowHeight, double closeButtonBlock, double tabPagerReserve, double tabPanelBlock) =>
+        windowHeight - closeButtonBlock - tabPagerReserve - tabPanelBlock;
 
     /// <summary>
     /// Caps <paramref name="root"/> so it cannot be drawn wider than the content column can show.
@@ -1361,18 +1438,23 @@ public partial class SettingsWindow : OverlayWindow
             case SliderSpec s:
                 return LabelledRow(s, availableWidth, new DwellSlider(registrar, s.Id, s.Label,
                     s.Min, s.Max, s.Step, s.Decimals, s.Get, s.Set, cat, radiusPhysical, dwellMs,
-                    showLabel: false));
+                    showLabel: false,
+                    formatProvider: StringTable.Current.FormatProviderFor("settings")));
             case ToggleSpec t:
+                // Host-supplied state words (T02): today's English, replaced by settings keys in T07.
                 return LabelledRow(t, availableWidth, new DwellToggle(registrar, t.Id, t.Label,
-                    t.Get, t.Set, cat, radiusPhysical, dwellMs, showLabel: false));
+                    "On", "Off", t.Get, t.Set, cat, radiusPhysical, dwellMs, showLabel: false));
             case ComboBoxSpec c:
+                // Host-supplied marker format (T02); T07 passes a key carrying the same shape.
                 return LabelledRow(c, availableWidth, new DwellComboBox(registrar, c.Id, c.Label,
                     c.Display, c.Code ?? c.Display, c.Get, c.Set, cat, radiusPhysical, dwellMs,
-                    showLabel: false));
+                    "⚠ {0} (not available)", showLabel: false));
             case ColorPickerSpec cp:
+                // Host-supplied swatch names (T02); T07 passes settings keys.
                 return LabelledRow(cp, availableWidth, new DwellColorPicker(registrar, cp.Id,
                     cp.Label, cp.Get, cp.Set, cat,
-                    DpiHelper.LogicalToPhysicalX(cp.RadiusLogical), dwellMs, showLabel: false));
+                    DpiHelper.LogicalToPhysicalX(cp.RadiusLogical), dwellMs,
+                    swatchNames: ColorSwatchNames, showLabel: false));
             case ButtonSpec b:
                 return ButtonRow(registrar, b.Id, b.Label, b.OnActivate, b.Kind, b.Width, b.Height,
                     radiusPhysical, dwellMs, cat);

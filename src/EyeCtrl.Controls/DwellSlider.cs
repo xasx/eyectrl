@@ -1,6 +1,7 @@
 namespace EyeCtrl.Controls;
 
 using System.Collections.Generic;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -125,6 +126,14 @@ public class DwellSlider : IDwellComposite
     private readonly bool _showLabel;
 
     /// <summary>
+    /// The provider every number on this control is rendered through. Supplied by the host —
+    /// the settings surface passes <c>StringTable.FormatProviderFor("settings")</c> so the plate
+    /// matches the language of the text around it — and invariant when the host passes nothing.
+    /// <see cref="CultureInfo.CurrentCulture"/> is deliberately never consulted (T02).
+    /// </summary>
+    private readonly IFormatProvider _formatProvider;
+
+    /// <summary>
     /// Cached once in the constructor, not rebuilt per get: SettingsWindow's
     /// UpdateAllTargetPositions iterates <see cref="Children"/> for every attached composite on
     /// every gaze frame, and the collection expression this replaced (<c>=&gt; [_minus, _plus]</c>)
@@ -189,6 +198,11 @@ public class DwellSlider : IDwellComposite
     /// lays the name out itself — the settings window's two-column rows put the name in their
     /// left column, and a second copy inside the composite would duplicate it.
     /// </param>
+    /// <param name="formatProvider">
+    /// The provider the value and both end-labels are formatted with — the host's surface
+    /// provider, so the plate shows de-DE only when the surrounding text really is German.
+    /// Null keeps the previous behaviour: <see cref="CultureInfo.InvariantCulture"/>.
+    /// </param>
     public DwellSlider(
         IDwellRegistrar registrar,
         string idPrefix,
@@ -202,7 +216,8 @@ public class DwellSlider : IDwellComposite
         DwellCategory category,
         double radiusPhysical,
         int dwellMs,
-        bool showLabel = true)
+        bool showLabel = true,
+        IFormatProvider? formatProvider = null)
     {
         _get = get;
         _set = set;
@@ -211,6 +226,7 @@ public class DwellSlider : IDwellComposite
         _step = step;
         _decimals = decimals;
         _showLabel = showLabel;
+        _formatProvider = formatProvider ?? CultureInfo.InvariantCulture;
 
         _label = new DwellLabel(label);
 
@@ -235,7 +251,7 @@ public class DwellSlider : IDwellComposite
         // fails. Theme.SliderPlateContrastTests gates this in every theme.
         _minText = new TextBlock
         {
-            Text = Format(decimals, min),
+            Text = Format(decimals, min, _formatProvider),
             Foreground = Tokens.BrushTextSecondary,
             FontSize = Tokens.FontSizeSubtitle,
             VerticalAlignment = VerticalAlignment.Center,
@@ -244,7 +260,7 @@ public class DwellSlider : IDwellComposite
 
         _maxText = new TextBlock
         {
-            Text = Format(decimals, max),
+            Text = Format(decimals, max, _formatProvider),
             Foreground = Tokens.BrushTextSecondary,
             FontSize = Tokens.FontSizeSubtitle,
             VerticalAlignment = VerticalAlignment.Center,
@@ -389,9 +405,18 @@ public class DwellSlider : IDwellComposite
             : Math.Clamp((value - _min) / span, 0, 1);
     }
 
-    private string FormatVal(double v) => Format(_decimals, v);
+    private string FormatVal(double v) => Format(_decimals, v, _formatProvider);
 
-    internal static string Format(int decimals, double v) =>
-        decimals == 0 ? ((int)v).ToString(System.Globalization.CultureInfo.InvariantCulture)
-                      : v.ToString($"F{decimals}", System.Globalization.CultureInfo.InvariantCulture);
+    /// <summary>
+    /// Renders a value with a fixed number of decimals through an explicit provider. The provider
+    /// is required rather than defaulted: a silent invariant fallback here is exactly the shape
+    /// that would let a German plate show English decimals (or vice versa) with nothing failing.
+    /// </summary>
+    /// <param name="decimals">Decimal places; 0 renders an integer.</param>
+    /// <param name="v">The value to render.</param>
+    /// <param name="provider">The provider to render through.</param>
+    /// <returns>The formatted value.</returns>
+    internal static string Format(int decimals, double v, IFormatProvider provider) =>
+        decimals == 0 ? ((int)v).ToString(provider)
+                      : v.ToString($"F{decimals}", provider);
 }

@@ -59,8 +59,17 @@ internal sealed class CalibrationPageSource : ISettingsPageSource
         var data = _ctx.Calibration.CurrentData;
         if (data != null)
         {
-            return $"Last calibration: {data.CalibratedAt.LocalDateTime:g}  \u00B7  "
-                + $"{data.ComputeMeanErrorPixels():F1} px ({data.ComputeQualityPercent():F1}%)";
+            // The date and both numbers follow the SURFACE they are drawn on — the Settings
+            // window's Calibration tab — not the calibration overlay (T02 fixup-01 F2): T07 keys
+            // this sentence as a settings.* key. The date itself goes through the pure helper
+            // (fixup-02): English shows the unambiguous "2026-10-08 14:03", German the provider's
+            // own "g". The provider is inline here too, so the surface-reference gate can see it.
+            var date = CalibrationDateText.Format(
+                data.CalibratedAt.LocalDateTime,
+                EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("settings"));
+            return string.Create(
+                EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("settings"),
+                $"Last calibration: {date}  \u00B7  {data.ComputeMeanErrorPixels():F1} px ({data.ComputeQualityPercent():F1}%)");
         }
         // A calibration that exists on disk but was refused at startup is otherwise indistinguishable
         // from never having calibrated — both leave CurrentData null and gaze running raw. Surface the

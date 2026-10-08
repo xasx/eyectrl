@@ -51,10 +51,16 @@ public partial class SettingsViewModel : ObservableObject
     /// exception, and crash recovery is turned off through the supervision row's RequestDisable
     /// (persist + Run-key), never a bulk reset. Resetting it in memory would disarm the running
     /// app's crash policy while disk and the Supervisor stayed on.</para>
+    ///
+    /// <para><b>The language survives (D10, the user's call 2026-10-07).</b> A bulk reset must not
+    /// undo a language choice — for a user who cannot read the reset button's language, being
+    /// dropped back into it on the next restart is its own recovery problem. Reset General leaves
+    /// <c>UiLanguage</c> alone for the same reason.</para>
     /// </summary>
     public void ResetAllSettings()
     {
         var defaults = new EyeCtrlSettings();
+        var language = _settings.General.UiLanguage;
         var defaultSubs = defaults.EnumerateSubSettings().ToDictionary(t => t.Name, t => t.Settings);
         foreach (var (name, sub) in _settings.EnumerateSubSettings())
         {
@@ -62,6 +68,7 @@ public partial class SettingsViewModel : ObservableObject
                 continue;
             CopySettings(defaultSubs[name], sub);
         }
+        _settings.General.UiLanguage = language;
         _settings.SelectionMode = defaults.SelectionMode;
         _settings.ViewPosition = defaults.ViewPosition;
         CurrentPage = 0;

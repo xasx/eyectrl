@@ -34,6 +34,13 @@ public class DwellComboBoxSelectionTests
     /// </summary>
     private static readonly string[] NarrowOptions = ["Low", "Mid", "High"];
 
+    /// <summary>
+    /// The host's unmatched-marker format (T02: the host owns the wording). Deliberately not
+    /// today's shipped English, so the assertions below fail if the control ignores the host's
+    /// format and renders a built-in of its own.
+    /// </summary>
+    private const string MarkerFormat = "out of range: {0}";
+
     /// <summary>A three-option combo over a captured selection.</summary>
     /// <param name="selected">The option that starts out selected.</param>
     private static DwellComboBox Build(string selected) =>
@@ -53,7 +60,7 @@ public class DwellComboBoxSelectionTests
         return new DwellComboBox(
             registrar, "cb", "Mode", options,
             () => current, v => current = v,
-            DwellCategory.Control, 50, 800);
+            DwellCategory.Control, 50, 800, MarkerFormat);
     }
 
     /// <summary>
@@ -246,7 +253,7 @@ public class DwellComboBoxSelectionTests
         return new DwellComboBox(
             new FakeDwellRegistrar(), "cb", "Mode", Options,
             () => current, v => current = v,
-            DwellCategory.Control, 50, 800, showLabel: false);
+            DwellCategory.Control, 50, 800, MarkerFormat, showLabel: false);
     }
 
     /// <summary>
@@ -364,7 +371,7 @@ public class DwellComboBoxSelectionTests
         Check.WithCustomMessage(
                 "the marker names 360M but does not say it is unavailable, so it reads as a "
                 + "third live option.")
-            .That(MarkerLabel(combo).Text).Contains("not available");
+            .That(MarkerLabel(combo).Text).Contains("out of range:");
         Check.That(UnmatchedMarker(combo).Visibility).IsEqualTo(Visibility.Visible);
     }
 
@@ -394,8 +401,9 @@ public class DwellComboBoxSelectionTests
 
     /// <summary>
     /// The empty-value branch, which nothing observed until review: an empty stored code matches
-    /// no option either, so without the guard it renders "⚠  (not available)" — a warning pill
-    /// naming nothing. The guard keeps that branch silent.
+    /// no option either, so without the guard it renders the marker with an empty value — a
+    /// warning pill naming nothing (the host's format with <c>{0}</c> blank). The guard keeps
+    /// that branch silent.
     ///
     /// <para>
     /// The positive control runs FIRST and in the same test, because the assertion below is a
@@ -481,7 +489,7 @@ public class DwellComboBoxSelectionTests
         Check.WithCustomMessage(
                 $"the marker reads '{markerText}', which never says the value is unavailable — "
                 + "the state the user has to be told.")
-            .That(markerText).Contains("not available");
+            .That(markerText).Contains("out of range:");
     }
 
     /// <summary>

@@ -6,6 +6,7 @@ using System.IO;
 using System.Windows.Forms;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.ViewModels.Messages;
@@ -54,6 +55,10 @@ public class TrayIconManager : IDisposable
         var menu = new ContextMenuStrip();
         menu.Items.Add(_pauseMenuItem);
         menu.Items.Add(settingsItem);
+        // D9 (the user's call 2026-10-07): ONE flat language item, no submenu — a hover cascade
+        // is a poor fit for unsteady gaze. It deep-links to the language row in Settings, where
+        // the endonyms are; it does not restart anything itself.
+        menu.Items.Add(CreateLanguageMenuItem(dispatcher, _messenger));
         menu.Items.Add(resetAdaptationItem);
         if (showToolbarCallback != null)
         {
@@ -116,6 +121,23 @@ public class TrayIconManager : IDisposable
         memoryStream.Position = 0;
         // Icon constructor copies the data, so the caller's stream can be disposed after
         return new Icon(memoryStream, size);
+    }
+
+    /// <summary>
+    /// The one flat "Sprache / Language" item (D9): it deep-links to General page 1 with the
+    /// language row in view, where the endonyms are readable whatever the current language.
+    /// A factory rather than inline constructor lines so the label and the deep-link target are
+    /// pinnable headlessly — a real <see cref="NotifyIcon"/> needs a shell tray.
+    /// </summary>
+    /// <param name="dispatcher">Marshals the send onto the UI thread, like every other item.</param>
+    /// <param name="messenger">Receives <see cref="SettingsRequestedMessage"/>.</param>
+    /// <returns>The configured menu item.</returns>
+    internal static ToolStripMenuItem CreateLanguageMenuItem(Dispatcher dispatcher, IMessenger messenger)
+    {
+        var item = new ToolStripMenuItem(StringTable.Current.T("language-recovery.tray.item"));
+        item.Click += (_, _) => dispatcher.BeginInvoke(() =>
+            messenger.Send(new SettingsRequestedMessage(SettingsTarget.GeneralPage1)));
+        return item;
     }
 
     public void Dispose()

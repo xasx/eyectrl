@@ -1,5 +1,6 @@
 namespace EyeCtrl.ViewModels.Tests;
 
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Settings;
 
 public class SettingsViewModelTests
@@ -111,6 +112,14 @@ public class SettingsViewModelTests
                 + "supervision row's sanctioned persist + Run-key path, not a bulk in-memory reset",
         };
 
+        // Property-level exemptions inside a section the reset otherwise covers. D10 (the user's
+        // call 2026-10-07): the language survives every reset, so General.UiLanguage is expected
+        // to KEEP its perturbed-valued-shaped default and must not be equality-checked here.
+        var notResetPropsByDesign = new HashSet<(string Sub, string Prop)>
+        {
+            ("General", nameof(GeneralSettings.UiLanguage)),
+        };
+
         foreach (var (name, sub) in settings.EnumerateSubSettings())
         {
             if (notResetByDesign.ContainsKey(name))
@@ -122,10 +131,28 @@ public class SettingsViewModelTests
                             (p.PropertyType.IsValueType || p.PropertyType == typeof(string)));
             foreach (var prop in comparableProps)
             {
+                if (notResetPropsByDesign.Contains((name, prop.Name)))
+                    continue;
+
                 Check.WithCustomMessage($"{name}.{prop.Name} was not reset")
                     .That(prop.GetValue(sub)).IsEqualTo(prop.GetValue(defaultSub));
             }
         }
+    }
+
+    [Fact]
+    public void ResetAllSettings_KeepsTheLanguage()
+    {
+        // D10 (the user's call 2026-10-07). A user who chose English must not be dropped back
+        // into German by the bulk reset — especially one who cannot read the reset button.
+        var settings = new EyeCtrlSettings();
+        settings.General.UiLanguage = UiLanguage.English;
+        settings.Cursor.CircleSize = 400;
+
+        new SettingsViewModel(settings).ResetAllSettings();
+
+        Check.That(settings.General.UiLanguage).IsEqualTo(UiLanguage.English);
+        Check.That(settings.Cursor.CircleSize).IsEqualTo(new EyeCtrlSettings().Cursor.CircleSize);
     }
 
     [Fact]

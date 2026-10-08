@@ -187,7 +187,23 @@ public record KeyboardHideRequestedMessage;
 /// bar's Flip button (spec ledger #15).</summary>
 public record KeyboardEdgeToggledMessage;
 
-public record SettingsRequestedMessage;
+/// <summary>Where a settings request should land.</summary>
+public enum SettingsTarget
+{
+    /// <summary>The default landing tab — the toolbar's Settings button and the tray double-click.</summary>
+    Default = 0,
+
+    /// <summary>
+    /// General page 1 with the language row in view — the App tray's "Sprache / Language" item
+    /// (D9's reading-free recovery path). No prompt is raised by the link itself; the user
+    /// chooses from the row.
+    /// </summary>
+    GeneralPage1 = 1
+}
+
+/// <param name="Target">Where to navigate once the window is up; <see cref="SettingsTarget.Default"/>
+/// keeps the historical behaviour (open on the last/default tab).</param>
+public record SettingsRequestedMessage(SettingsTarget Target = SettingsTarget.Default);
 public record KeyActivatedMessage(string Key, IReadOnlySet<ModifierKey>? Modifiers = null);
 public record PredictionSelectedMessage(string Word, int DeleteCount = 0);
 public record SpecialKeyMessage(string KeyName, IReadOnlySet<ModifierKey>? Modifiers = null);

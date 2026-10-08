@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Services;
 
+using System.Globalization;
 using System.IO;
 using Serilog;
 using Serilog.Events;
@@ -32,6 +33,10 @@ public static class LoggingInitializer
                 // grow without bound otherwise. The count limit bounds both time and size rolls.
                 fileSizeLimitBytes: MaxLogSizeBytes,
                 rollOnFileSizeLimit: true,
+                // Invariant, explicitly: Serilog has an IFormatProvider parameter for the
+                // properties it renders into the template, and a log file should not change
+                // shape with the machine's locale (CA1305 is an error here since T02).
+                formatProvider: CultureInfo.InvariantCulture,
                 outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] [{SourceContext}] {Message:lj}{NewLine}{Exception}")
             .CreateLogger();
     }

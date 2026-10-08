@@ -87,7 +87,7 @@ public class DwellProgressContrastTests
         var state = true;
         var registrar = new FakeDwellRegistrar();
         var toggle = new DwellToggle(
-            registrar, "id", "Label", () => state, v => state = v,
+            registrar, "id", "Label", "On", "Off", () => state, v => state = v,
             DwellCategory.Control, 50, 800);
 
         var surface = (SolidColorBrush)toggle.RowSurface.Background;

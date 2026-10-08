@@ -1,6 +1,7 @@
 namespace EyeCtrl.Controls;
 
 using System.Collections.Generic;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -97,6 +98,13 @@ public class DwellComboBox : IDwellComposite
     private readonly Action<string> _setCode;
     private readonly bool _showLabel;
 
+    /// <summary>
+    /// The host's format for the unmatched-value marker, <c>{0}</c> being the stored code.
+    /// The library owns no wording of its own (T02); today the settings host passes
+    /// "⚠ {0} (not available)", and T07 replaces it with a key.
+    /// </summary>
+    private readonly string _notAvailableFormat;
+
     /// <inheritdoc/>
     public IReadOnlyList<DwellControl> Children => _options;
 
@@ -121,6 +129,10 @@ public class DwellComboBox : IDwellComposite
     /// <param name="category">Dwell category the option buttons are registered under.</param>
     /// <param name="radiusPhysical">Hit-test radius in physical screen pixels.</param>
     /// <param name="dwellMs">Dwell duration in milliseconds.</param>
+    /// <param name="notAvailableFormat">
+    /// The host's text for the unmatched-value marker: a format whose <c>{0}</c> is the stored
+    /// code. Required, so the control carries no built-in wording.
+    /// </param>
     /// <param name="showLabel">
     /// Whether this composite draws its own heading above its controls. False when the host
     /// lays the name out itself — the settings window's two-column rows put the name in their
@@ -141,8 +153,10 @@ public class DwellComboBox : IDwellComposite
         DwellCategory category,
         double radiusPhysical,
         int dwellMs,
+        string notAvailableFormat,
         bool showLabel = true)
     {
+        ArgumentNullException.ThrowIfNull(notAvailableFormat);
         if (displayOptions.Length != codeOptions.Length)
         {
             throw new ArgumentException(
@@ -154,6 +168,7 @@ public class DwellComboBox : IDwellComposite
         _getCode = getCode;
         _setCode = setCode;
         _showLabel = showLabel;
+        _notAvailableFormat = notAvailableFormat;
 
         _label = new DwellLabel(label);
 
@@ -277,6 +292,10 @@ public class DwellComboBox : IDwellComposite
     /// <param name="category">Dwell category the option buttons are registered under.</param>
     /// <param name="radiusPhysical">Hit-test radius in physical screen pixels.</param>
     /// <param name="dwellMs">Dwell duration in milliseconds.</param>
+    /// <param name="notAvailableFormat">
+    /// The host's text for the unmatched-value marker: a format whose <c>{0}</c> is the stored
+    /// code. Required, so the control carries no built-in wording.
+    /// </param>
     /// <param name="showLabel">
     /// Whether this composite draws its own heading above its controls. False when the host
     /// lays the name out itself — the settings window's two-column rows put the name in their
@@ -292,9 +311,10 @@ public class DwellComboBox : IDwellComposite
         DwellCategory category,
         double radiusPhysical,
         int dwellMs,
+        string notAvailableFormat,
         bool showLabel = true)
         : this(registrar, idPrefix, label, options, options, get, set, category, radiusPhysical,
-               dwellMs, showLabel)
+               dwellMs, notAvailableFormat, showLabel)
     {
     }
 
@@ -382,6 +402,11 @@ public class DwellComboBox : IDwellComposite
         var unmatched = selectedIndex < 0 && !string.IsNullOrWhiteSpace(storedCode);
         _unmatchedMarker.Visibility = unmatched ? Visibility.Visible : Visibility.Collapsed;
         if (unmatched)
-            _unmatchedText.Text = $"\u26A0 {storedCode} (not available)";
+        {
+            // The stored code is a plain string; the invariant provider only keeps CA1305 quiet
+            // and cannot change the rendered text.
+            _unmatchedText.Text = string.Format(
+                CultureInfo.InvariantCulture, _notAvailableFormat, storedCode);
+        }
     }
 }

@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Services;
 using System;
 using System.Threading;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
@@ -168,6 +169,12 @@ public sealed class AppRestartCoordinator
 
         _runInBackground(() =>
         {
+            // The language the whole restart flow speaks (D5/F1): the SAVED selection resolved
+            // against the machine culture — what the replacement will actually run. An ordinary
+            // restart (no pending change) resolves to the running language, unchanged. Read once
+            // here, before the guard, because the catch below reports through it too.
+            var target = StringTable.ResolveLanguage(
+                _settings.General.UiLanguage, StringTable.Current.Culture);
             // Guarded exactly as in Task 8, and it matters more here: the bring-up's persist step
             // (SettingsService.Save/SaveSupervisionEnabled) THROWS on invalid settings or an
             // unreadable file. Unguarded, that exception would vanish into an unobserved faulted
@@ -212,16 +219,18 @@ public sealed class AppRestartCoordinator
                     else
                     {
                         Volatile.Write(ref _restartInFlight, 0);   // re-arm: the user may try again
-                        _reportUnavailable(SelfRestartStrategy.Describe(outcome));
+                        _reportUnavailable(SelfRestartStrategy.Describe(outcome, target));
                     }
                 });
             }
             catch (Exception ex)
             {
-                // Never leave the button latched — see Task 8.
+                // Never leave the button latched — see Task 8. The frame is language-recovery
+                // (D5); the raw exception message inside it stays English (or the OS language),
+                // which the translation model must not translate.
                 Volatile.Write(ref _restartInFlight, 0);
                 _postToUi(() => _reportUnavailable(
-                    "Restart failed: " + ex.Message + " EyeCtrl is still running."));
+                    StringTable.Current.T(target, "language-recovery.restart.failed.frame", ex.Message)));
             }
         });
     }

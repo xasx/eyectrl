@@ -272,14 +272,32 @@ public sealed class StringTable
         return key;
     }
 
-    private static UiLanguage ResolveLanguage(UiLanguage selection, CultureInfo culture) => selection switch
+    /// <summary>
+    /// The effective language <paramref name="selection"/> resolves to against
+    /// <paramref name="culture"/> — the exact rule this table applied at construction.
+    /// </summary>
+    /// <remarks>
+    /// Public so a caller can resolve a selection the process is NOT running yet without building
+    /// a table: T04's pending-restart note asks whether the SAVED <see cref="UiLanguage"/> resolves
+    /// differently from the language this process started with, and only a resolution of the saved
+    /// value answers it.
+    /// </remarks>
+    /// <param name="selection">The configured selection.</param>
+    /// <param name="culture">The UI culture <c>System</c> resolves against.</param>
+    /// <returns>The effective language.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="culture"/> is null.</exception>
+    public static UiLanguage ResolveLanguage(UiLanguage selection, CultureInfo culture)
     {
-        UiLanguage.German => UiLanguage.German,
-        UiLanguage.English => UiLanguage.English,
-        _ => string.Equals(culture.TwoLetterISOLanguageName, "de", StringComparison.OrdinalIgnoreCase)
-            ? UiLanguage.German
-            : UiLanguage.English
-    };
+        ArgumentNullException.ThrowIfNull(culture);
+        return selection switch
+        {
+            UiLanguage.German => UiLanguage.German,
+            UiLanguage.English => UiLanguage.English,
+            _ => string.Equals(culture.TwoLetterISOLanguageName, "de", StringComparison.OrdinalIgnoreCase)
+                ? UiLanguage.German
+                : UiLanguage.English
+        };
+    }
 
     /// <summary>
     /// The effective German map: for every manifest surface, all of its English keys must have a

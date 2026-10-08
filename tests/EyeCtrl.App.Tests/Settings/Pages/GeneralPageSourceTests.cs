@@ -14,7 +14,7 @@ public class GeneralPageSourceTests
     public void General_OnePageWithThemeBootPauseTrackAndThreeButtons()
     {
         var rows = new GeneralPageSource(TestSettingsPageContext.Build()).Build().Single().Rows;
-        Check.That(rows.OfType<ComboBoxSpec>().Single().Id).IsEqualTo("g_theme");
+        Check.That(rows.OfType<ComboBoxSpec>().Single(c => c.Id == "g_theme").Id).IsEqualTo("g_theme");
         Check.That(rows.OfType<ToggleSpec>().Select(t => t.Id))
             .Contains(new[] { "g_boot", "g_pause", "g_track" });
         var buttons = rows.OfType<ButtonSpec>().ToList();

@@ -22,7 +22,8 @@ public class DwellComboBoxValidationTests
                 _ => { },
                 DwellCategory.Control,
                 40,
-                800))
+                800,
+                "⚠ {0} (not available)"))
             .Throws<ArgumentException>();
     }
 
@@ -39,9 +40,32 @@ public class DwellComboBoxValidationTests
             _ => { },
             DwellCategory.Control,
             40,
-            800);
+            800,
+            "⚠ {0} (not available)");
 
         Check.That(combo).IsNotNull();
+    }
+
+    /// <summary>
+    /// A null marker format would otherwise surface late as a string.Format throw the first time
+    /// a stored value matches no option (T02 fixup-01, uneven null guards).
+    /// </summary>
+    [StaFact]
+    public void Constructor_NullNotAvailableFormat_ThrowsArgumentNullException()
+    {
+        Check.ThatCode(() => new DwellComboBox(
+                new FakeDwellRegistrar(),
+                "prefix",
+                "label",
+                new[] { "A" },
+                new[] { "1" },
+                () => "",
+                _ => { },
+                DwellCategory.Control,
+                40,
+                800,
+                null!))
+            .Throws<ArgumentNullException>();
     }
 
 }

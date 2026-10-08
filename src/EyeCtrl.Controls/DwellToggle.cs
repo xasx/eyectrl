@@ -123,6 +123,8 @@ public class DwellToggle : IDwellComposite
 
     private readonly Func<bool> _get;
     private readonly Action<bool> _set;
+    private readonly string _onText;
+    private readonly string _offText;
     private readonly TextBlock _label;
     private readonly TextBlock _stateText;
     // Null in the headless form, which builds no card at all. See the type doc.
@@ -194,6 +196,9 @@ public class DwellToggle : IDwellComposite
     /// <param name="registrar">The dwell registrar for this overlay.</param>
     /// <param name="id">Unique target identifier within <paramref name="category"/>.</param>
     /// <param name="label">The setting's name, shown on the row's left.</param>
+    /// <param name="onText">The state word shown when the setting is on — the host's word, so the
+    /// library owns no English. Today the hosts pass "On"/"Off"; T06–T08 pass keys.</param>
+    /// <param name="offText">The state word shown when the setting is off.</param>
     /// <param name="get">Returns the current boolean value of the setting.</param>
     /// <param name="set">Applies a new boolean value when the switch activates.</param>
     /// <param name="category">Dwell category the switch is registered under.</param>
@@ -209,6 +214,8 @@ public class DwellToggle : IDwellComposite
         IDwellRegistrar registrar,
         string id,
         string label,
+        string onText,
+        string offText,
         Func<bool> get,
         Action<bool> set,
         DwellCategory category,
@@ -216,8 +223,12 @@ public class DwellToggle : IDwellComposite
         int dwellMs,
         bool showLabel = true)
     {
+        ArgumentNullException.ThrowIfNull(onText);
+        ArgumentNullException.ThrowIfNull(offText);
         _get = get;
         _set = set;
+        _onText = onText;
+        _offText = offText;
 
         _label = new TextBlock
         {
@@ -495,7 +506,7 @@ public class DwellToggle : IDwellComposite
     private void RefreshVisual()
     {
         var on = _get();
-        _stateText.Text = on ? "On" : "Off";
+        _stateText.Text = on ? _onText : _offText;
         // The switch has no text of its own, and a Border carries no UIA name, so the accessible
         // name has to be composed here: the setting the user is looking at, plus its state.
         System.Windows.Automation.AutomationProperties.SetName(

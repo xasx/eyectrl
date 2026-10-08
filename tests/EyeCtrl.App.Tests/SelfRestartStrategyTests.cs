@@ -108,8 +108,9 @@ public class SelfRestartStrategyTests
     [InlineData(RestartOutcome.ChildNotReady)]
     public void EveryFailureOutcome_HasAUserFacingExplanation(RestartOutcome outcome)
     {
-        // The user completed a dwell and the app is still here; "why" must be sayable.
-        var reason = SelfRestartStrategy.Describe(outcome);
+        // The user completed a dwell and the app is still here; "why" must be sayable. The
+        // explanation resolves in the target language the caller passes (F1).
+        var reason = SelfRestartStrategy.Describe(outcome, EyeCtrl.Core.Enums.UiLanguage.English);
         Check.That(reason).IsNotEmpty();
         Check.That(reason).Contains("running");
     }

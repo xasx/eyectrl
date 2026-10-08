@@ -22,6 +22,10 @@ internal static class SettingsPageResetDriftGuard
             + "and turning crash recovery off must go through the row's RequestDisable (sanctioned "
             + "persist + Run-key reconcile), never a bulk in-memory reset — pinned by "
             + "GeneralPageSourceResetDriftTests.ResetGeneral_WithSupervisionAvailable_LeavesSupervisionUntouched",
+        ["g_language"] =
+            "the language survives resets by decision (D10, the user's call 2026-10-07): a user who "
+            + "chose a readable language must not be reset back into one they cannot read — pinned by "
+            + "GeneralPageSourceResetDriftTests.ResetGeneral_KeepsTheLanguage",
     };
 
     internal static void ResetRestoresEverySettingsRow(

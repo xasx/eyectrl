@@ -1,6 +1,7 @@
 namespace EyeCtrl.ViewModels;
 
 using EyeCtrl.Core.Calibration;
+using EyeCtrl.Core.Localization;
 
 /// <summary>
 /// Renders a <see cref="CalibrationFailure"/> as the sentence the calibration window shows.
@@ -56,8 +57,11 @@ public static class CalibrationFailureText
     {
         var bandRadiusPx = (double)arguments[0]!;
         var attemptedSamples = (int)arguments[1]!;
-        return $"Gaze reached the target but never stayed within {bandRadiusPx:0}px of it long enough "
-             + $"to collect a sample ({attemptedSamples} samples seen, all out of band).";
+        // The number follows the calibration surface's language (T02): invariant while English,
+        // de-DE once its German is effective. Never CultureInfo.Current.
+        return string.Create(
+            StringTable.Current.FormatProviderFor("calibration"),
+            $"Gaze reached the target but never stayed within {bandRadiusPx:0}px of it long enough to collect a sample ({attemptedSamples} samples seen, all out of band).");
     }
 
     private static string DescribeRegion(CalibrationTargetRegion region) => region switch
@@ -77,12 +81,20 @@ public static class CalibrationFailureText
 
     private static string DescribeReason(CalibrationQualityFailure failure) => failure.Reason switch
     {
+        // The provider is inline at each site (not a local) so the format scan can see the
+        // surface id at the call site, as T01's own scan does.
         CalibrationQualityReason.ResidualTooLarge =>
-            $"the fit misses it by {failure.Value:F0}px (limit {failure.Limit:F0}px)",
+            string.Create(
+                StringTable.Current.FormatProviderFor("calibration"),
+                $"the fit misses it by {failure.Value:F0}px (limit {failure.Limit:F0}px)"),
         CalibrationQualityReason.ExcessScatter =>
-            $"gaze was too scattered on it (spread {failure.Value:F0}px, limit {failure.Limit:F0}px)",
+            string.Create(
+                StringTable.Current.FormatProviderFor("calibration"),
+                $"gaze was too scattered on it (spread {failure.Value:F0}px, limit {failure.Limit:F0}px)"),
         CalibrationQualityReason.LowCoverage =>
-            $"gaze was on it only {failure.Value:F0}% of the time (needs {failure.Limit:F0}%)",
+            string.Create(
+                StringTable.Current.FormatProviderFor("calibration"),
+                $"gaze was on it only {failure.Value:F0}% of the time (needs {failure.Limit:F0}%)"),
         _ => throw new ArgumentOutOfRangeException(nameof(failure), failure.Reason, "Unknown calibration quality reason."),
     };
 }

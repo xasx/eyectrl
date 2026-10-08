@@ -44,12 +44,12 @@ public class ColorPickerPresetTests
     [MemberData(nameof(AllThemes))]
     public void EveryPreset_ClearsSevenToOneAgainstStrokeHalo(ITheme theme)
     {
-        foreach (var (hex, name) in DwellColorPicker.PresetsFor(theme))
+        foreach (var hex in DwellColorPicker.PresetsFor(theme))
         {
             var c = (Color)ColorConverter.ConvertFromString(hex)!;
             var ratio = Contrast(c, theme.StrokeHalo);
             Check.WithCustomMessage(
-                    $"{theme.Name}: preset '{name}' ({hex}) reaches only {ratio:F2}:1 "
+                    $"{theme.Name}: preset '{hex}' reaches only {ratio:F2}:1 "
                     + "against StrokeHalo; §5 step 9 requires >= 7:1 or the halo "
                     + "guarantee on the cursor ring collapses.")
                 .That(ratio).IsStrictlyGreaterThan(7.0);
@@ -62,7 +62,7 @@ public class ColorPickerPresetTests
     {
         // Accent is the default dwell colour; it should be the first choice offered.
         var expected = $"#{theme.Accent.R:X2}{theme.Accent.G:X2}{theme.Accent.B:X2}";
-        Check.That(DwellColorPicker.PresetsFor(theme)[0].Hex).IsEqualTo(expected);
+        Check.That(DwellColorPicker.PresetsFor(theme)[0]).IsEqualTo(expected);
     }
 
     [Theory]
@@ -87,7 +87,7 @@ public class ColorPickerPresetTests
         // `Hex()` format, a swapped entry — that leaves every palette value correct
         // but ships a different preset list than the one users had. It is the only
         // test that fixes the *order and membership* of the shipped list.
-        Check.That(DwellColorPicker.PresetsFor(MidnightTheme.Instance).Select(p => p.Hex))
+        Check.That(DwellColorPicker.PresetsFor(MidnightTheme.Instance))
              .ContainsExactly("#A5F3FC", "#7EE787", "#E8A33C", "#D6DEF5");
     }
 

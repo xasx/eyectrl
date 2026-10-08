@@ -5,6 +5,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using EyeCtrl.Controls;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Supervisor.Supervision;
@@ -24,9 +25,9 @@ using Media = System.Windows.Media;
 /// disk under a mutex and preserves every other section).
 /// <para>
 /// <c>StartOnBoot</c> lives in <see cref="GeneralSettings"/>, which the App process owns —
-/// the supervisor may not persist it. Its toggle is therefore reflected into the in-memory
-/// snapshot and handed to <paramref name="saveChanges"/>; Task 20 decides how (or whether)
-/// to route that across writers (it is not the supervisor's section to write).
+/// the supervisor may not persist it. Its toggle asks the App over the request channel
+/// (<see cref="StartOnBootSetupRow"/>): the row shows the value on disk, or the parked choice
+/// labelled as parked, and never writes the in-memory snapshot.
 /// </para>
 /// </remarks>
 public partial class SupervisorSetupWindow : Window
@@ -36,6 +37,15 @@ public partial class SupervisorSetupWindow : Window
     private readonly SettingsService _settingsService;
     private readonly Action<EyeCtrlSettings> _saveChanges;
     private readonly Action _launchAppNow;
+    private readonly StartOnBootSetupRow _startOnBoot;
+    private readonly StringTable _strings;
+    private readonly TextBlock _startOnBootNote = new()
+    {
+        Foreground = new Media.SolidColorBrush(Media.Color.FromRgb(0xF4, 0xD0, 0x3F)),
+        FontSize = 13,
+        TextWrapping = TextWrapping.Wrap,
+        Margin = new Thickness(0, -16, 0, 16),
+    };
 
     /// <summary>The enable value as on disk when this window opened, plus the save-time re-read:
     /// the running supervisor's startup snapshot can predate the App's Settings-row write.</summary>
@@ -47,22 +57,29 @@ public partial class SupervisorSetupWindow : Window
     /// <param name="settings">The live settings snapshot to view/edit.</param>
     /// <param name="settingsService">A <see cref="SettingsService"/> constructed with <see cref="SettingsWriter.Supervisor"/> for persisting the Supervision section.</param>
     /// <param name="saveChanges">
-    /// Invoked when the user saves, with the edited snapshot. Task 20 uses this to react to
-    /// changes the supervisor cannot own (e.g. StartOnBoot) and to refresh the running loop.
+    /// Invoked when the user saves, with the edited snapshot, so the host can apply the saved
+    /// supervision policy to the running loop.
     /// </param>
     /// <param name="launchAppNow">Invoked by the "Launch EyeCtrl now" diagnostics button.</param>
+    /// <param name="startOnBoot">The logon row's state over the Supervisor's StartOnBoot delivery;
+    /// the window disposes it when it closes.</param>
+    /// <param name="strings">The Supervisor's string table for this window.</param>
     /// <param name="statusText">Initial diagnostics status text (e.g. current supervisor state).</param>
-    public SupervisorSetupWindow(
+    internal SupervisorSetupWindow(
         EyeCtrlSettings settings,
         SettingsService settingsService,
         Action<EyeCtrlSettings> saveChanges,
         Action launchAppNow,
+        StartOnBootSetupRow startOnBoot,
+        StringTable strings,
         string statusText = "")
     {
         _settings = settings;
         _settingsService = settingsService;
         _saveChanges = saveChanges;
         _launchAppNow = launchAppNow;
+        _startOnBoot = startOnBoot;
+        _strings = strings;
 
         // The window opens on the CURRENT on-disk value, not the supervisor's startup snapshot:
         // the App's Settings row may have turned supervision on since this process loaded. The
@@ -76,6 +93,13 @@ public partial class SupervisorSetupWindow : Window
         StatusLabel.Text = string.IsNullOrEmpty(statusText) ? "Supervisor idle." : statusText;
         BuildToggles();
         BuildDiagnostics();
+
+        _startOnBoot.Changed += OnStartOnBootChanged;
+        Closed += (_, _) =>
+        {
+            _startOnBoot.Changed -= OnStartOnBootChanged;
+            _startOnBoot.Dispose();
+        };
     }
 
     private void PopulateFallbackList()
@@ -86,8 +110,11 @@ public partial class SupervisorSetupWindow : Window
 
     private void PopulateAdvancedFields()
     {
-        MaxRetriesBox.Text = _settings.Supervision.MaxRetries.ToString();
-        HangThresholdBox.Text = _settings.Supervision.HangThresholdSeconds.ToString();
+        // The supervisor surface's provider (T02): invariant while the surface is English, de-DE
+        // once its German is effective. The same provider reads the boxes back in OnSave.
+        var provider = EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("supervisor");
+        MaxRetriesBox.Text = SupervisorNumericField.Format(_settings.Supervision.MaxRetries, provider);
+        HangThresholdBox.Text = SupervisorNumericField.Format(_settings.Supervision.HangThresholdSeconds, provider);
     }
 
     private void BuildToggles()
@@ -97,6 +124,9 @@ public partial class SupervisorSetupWindow : Window
             registrar: _registrar,
             id: "setup_enable_supervision",
             label: "Enable supervision",
+            // Host-supplied state words (T02); T06 passes supervisor keys.
+            onText: "On",
+            offText: "Off",
             get: () => _settings.Supervision.Enabled,
             set: value =>
             {
@@ -111,20 +141,38 @@ public partial class SupervisorSetupWindow : Window
             radiusPhysical: 200,
             dwellMs: 600);
 
-        // Start on logon — reflected into GeneralSettings.StartOnBoot, but NOT persisted by the
-        // supervisor (that section is App-owned). Handed to the save callback for Task 20 to route.
+        // Start on logon — App-owned (GeneralSettings), so the toggle asks the App to save it and
+        // shows the value on disk or the parked choice; it never writes the snapshot.
         var startOnLogonToggle = new DwellToggle(
             registrar: _registrar,
             id: "setup_start_on_logon",
             label: "Start EyeCtrl at logon",
-            get: () => _settings.General.StartOnBoot,
-            set: value => _settings.General.StartOnBoot = value,
+            onText: "On",
+            offText: "Off",
+            get: () => _startOnBoot.Value,
+            set: _startOnBoot.Choose,
             category: DwellCategory.Control,
             radiusPhysical: 200,
             dwellMs: 600);
 
         enableToggle.Attach(ToggleHost);
         startOnLogonToggle.Attach(ToggleHost);
+        ToggleHost.Children.Add(_startOnBootNote);
+        RefreshStartOnBootNote();
+    }
+
+    private void OnStartOnBootChanged()
+    {
+        RefreshStartOnBootNote();
+        if (_startOnBoot.StatusText(_strings) is { } status)
+            StatusLabel.Text = status;
+    }
+
+    private void RefreshStartOnBootNote()
+    {
+        var note = _startOnBoot.Note(_strings);
+        _startOnBootNote.Text = note ?? "";
+        _startOnBootNote.Visibility = note is null ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void BuildDiagnostics()
@@ -163,10 +211,12 @@ public partial class SupervisorSetupWindow : Window
 
     private void OnSave()
     {
-        // Pull advanced numeric fields into the snapshot before persisting.
-        if (int.TryParse(MaxRetriesBox.Text, out var maxRetries))
+        // Pull advanced numeric fields into the snapshot before persisting. Same provider as
+        // PopulateAdvancedFields, so what this window writes it can read back.
+        var provider = EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("supervisor");
+        if (SupervisorNumericField.TryParse(MaxRetriesBox.Text, provider, out var maxRetries))
             _settings.Supervision.MaxRetries = maxRetries;
-        if (int.TryParse(HangThresholdBox.Text, out var hangThreshold))
+        if (SupervisorNumericField.TryParse(HangThresholdBox.Text, provider, out var hangThreshold))
             _settings.Supervision.HangThresholdSeconds = hangThreshold;
 
         // enabled is the one key the App may also write (its sanctioned exception). Re-read disk
@@ -186,7 +236,7 @@ public partial class SupervisorSetupWindow : Window
             StatusLabel.Text = $"Save failed: {ex.Message}";
         }
 
-        // Let Task 20 react (e.g. apply the StartOnBoot change and refresh the running loop).
+        // Let the host refresh the running loop with the saved supervision policy.
         _saveChanges(_settings);
     }
 }

@@ -342,7 +342,7 @@ public class DwellCompositeChildrenStabilityTests
             new FakeDwellRegistrar(), "cb", "Mode",
             ["Alpha", "Beta"], ["a", "b"],
             () => code, v => code = v,
-            DwellCategory.Control, 50, 800);
+            DwellCategory.Control, 50, 800, "⚠ {0} (not available)");
     }
 
     private static DwellColorPicker NewPicker()
@@ -351,14 +351,15 @@ public class DwellCompositeChildrenStabilityTests
         return new DwellColorPicker(
             new FakeDwellRegistrar(), "cp", "Colour", () => hex, v => hex = v,
             DwellCategory.Control, 50, 800,
-            presets: [(hex, "Test"), ("#F87171", "Other")]);
+            swatchNames: ["Test", "Other"],
+            presets: [hex, "#F87171"]);
     }
 
     private static DwellToggle NewToggle()
     {
         var on = false;
         return new DwellToggle(
-            new FakeDwellRegistrar(), "tg", "Start on Windows Boot",
+            new FakeDwellRegistrar(), "tg", "Start on Windows Boot", "On", "Off",
             () => on, v => on = v,
             DwellCategory.Control, 50, 800);
     }

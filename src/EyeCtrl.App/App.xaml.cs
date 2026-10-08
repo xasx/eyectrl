@@ -46,6 +46,7 @@ public partial class App : Application
     private EventCoordinator _eventCoordinator = null!;
     private SingleInstanceGuard? _singleInstance;
     private HeartbeatPublisher? _heartbeatPublisher;
+    private SupervisorRequestService? _supervisorRequests;
     private AppRestartCoordinator? _restartCoordinator;
     private DisplayGeometryWatcher? _displayGeometryWatcher;
     private string _appDataDir = null!;
@@ -124,7 +125,7 @@ public partial class App : Application
         SplashWindow? splash = null;
         try
         {
-            var (settings, settingsFilePath) = InitializeSettingsAndLogging();
+            var (settings, settingsFilePath) = InitializeSettingsAndLogging(e.Args);
 
             // ── String table ──
             // After logging exists (the load path logs, never fails) and before the theme and the
@@ -183,12 +184,8 @@ public partial class App : Application
                 settings, startupRegistrar);
             reconcileRunKey();
 
-            // Live-toggle: if the user changes StartOnBoot in settings, apply immediately.
-            settings.General.PropertyChanged += (_, e) =>
-            {
-                if (e.PropertyName == nameof(settings.General.StartOnBoot))
-                    reconcileRunKey();
-            };
+            // Live-toggle: if StartOnBoot changes (Settings row or Supervisor request), apply immediately.
+            SupervisionComposition.ReconcileRunKeyOnStartOnBootChange(settings, reconcileRunKey);
 
             var activeProviderType = GazeProviderFactory.GetProviderType(gazeProvider);
             ActiveProviderType = activeProviderType;
@@ -405,6 +402,15 @@ public partial class App : Application
             // External dwell pipe server (cooperating-app control activation).
             _serviceProvider.GetRequiredService<ExternalDwellService>().Start();
 
+            // Supervisor → App request channel: the Supervisor asks, the App saves (single writer).
+            _supervisorRequests = new SupervisorRequestService(
+                new SupervisorRequestHandler(
+                    settings, settingsService.Save,
+                    _serviceProvider.GetRequiredService<ILogger<SupervisorRequestHandler>>()).Handle,
+                runOnUi: work => Dispatcher.InvokeAsync(work).Task,
+                _serviceProvider.GetRequiredService<ILogger<SupervisorRequestService>>());
+            _supervisorRequests.Start();
+
             // Eye-care break reminder: subscribe to raw gaze samples for scheduler + fatigue monitor.
             // Resolving IEyeCareService constructs the singleton and its EyeCareHooks,
             // which registers for GazeCursorMovedMessage to feed gaze into overlays.
@@ -547,6 +553,10 @@ public partial class App : Application
         // Stop ticking before the publisher goes away: a tick racing Dispose would call Stamp on
         // a disposed publisher from the dispatcher.
         Step("stop heartbeat timer", () => _heartbeatTimer?.Stop());
+
+        // Stop taking Supervisor requests before the exit save: a request mid-flight now sees the
+        // pipe close, and the Supervisor parks it and re-sends to the next App.
+        Step("dispose supervisor request service", () => _supervisorRequests?.Dispose());
 
         // Before the coordinators: SystemEvents holds a static reference to the handler, so an
         // un-unsubscribed watcher outlives the app object and would fire into disposed services.
@@ -697,10 +707,11 @@ public partial class App : Application
 
     /// <summary>
     /// Resolves the app data directory (stored in <see cref="_appDataDir"/>), loads settings
-    /// while migrating newly-introduced defaults, initializes Serilog, and registers the global
-    /// (AppDomain + dispatcher) exception handlers.
+    /// while migrating newly-introduced defaults, applies the <c>--ui-language</c> flag,
+    /// initializes Serilog, and registers the global (AppDomain + dispatcher) exception handlers.
     /// </summary>
-    private (EyeCtrlSettings Settings, string SettingsFilePath) InitializeSettingsAndLogging()
+    /// <param name="args">The process arguments; <c>--ui-language</c> is read from them.</param>
+    private (EyeCtrlSettings Settings, string SettingsFilePath) InitializeSettingsAndLogging(string[] args)
     {
         _appDataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
@@ -726,6 +737,19 @@ public partial class App : Application
 
         var logsDir = Path.Combine(_appDataDir, "logs");
         LoggingInitializer.Initialize(logsDir);
+
+        // ── --ui-language ──
+        // A persisting setter: the choice is saved through this method's App writer, then the
+        // string table below loads from the mutated settings, so the launch the flag arrives on
+        // already shows the requested language. Deliberately HERE, inside the method OnStartup
+        // calls only after the single-instance guard: a duplicate that loses the mutex exits
+        // before this point and therefore never writes (T04). Logging must already exist, or an
+        // ignored value's warning would be discarded. Never throws; a failed save is a log line.
+        if (UiLanguageArgument.Apply(
+                args, settings, () => tempSettingsService.Save(settings)) is { } uiLanguageOutcome)
+        {
+            Log.Information("--ui-language: {Outcome}", uiLanguageOutcome);
+        }
 
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {

@@ -77,11 +77,16 @@ public class ComboCodeIdentityTests
             combos.AddRange(CombosOf(models));
         }
 
-        Check.That(combos.Select(c => c.Id)).HasSize(14);
+        Check.That(combos.Select(c => c.Id)).HasSize(15);
         foreach (var id in PreChangeSavedValues.Keys)
             Check.That(combos.Select(c => c.Id)).Contains(id);
         Check.That(combos.Select(c => c.Id)).Contains(
             "c_ring_style", "k_lang", "md_active", "s_mode", "av_backdrop_type");
+        // T04's language row: saved codes are the UiLanguageTokens JSON tokens, never the
+        // endonym display — selecting "Deutsch" must persist "german".
+        Check.That(combos.Select(c => c.Id)).Contains("g_language");
+        Check.That(combos.Single(c => c.Id == "g_language").Code)
+            .ContainsExactly("system", "german", "english");
 
         foreach (var combo in combos)
         {

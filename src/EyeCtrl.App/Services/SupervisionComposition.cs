@@ -33,6 +33,20 @@ public static class SupervisionComposition
             isLaunchRegistered()));
 
     /// <summary>
+    /// Re-runs <paramref name="reconcileRunKey"/> whenever <c>General.StartOnBoot</c> changes —
+    /// from the Settings row or from the Supervisor's <c>SetStartOnBoot</c> request alike, so the
+    /// Run key follows the live value whichever surface changed it.
+    /// </summary>
+    /// <param name="settings">Live settings whose <c>General</c> section is watched.</param>
+    /// <param name="reconcileRunKey">The reconciler (<see cref="CreateProductionRunKeyReconciler"/>).</param>
+    public static void ReconcileRunKeyOnStartOnBootChange(EyeCtrlSettings settings, Action reconcileRunKey) =>
+        settings.General.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(GeneralSettings.StartOnBoot))
+                reconcileRunKey();
+        };
+
+    /// <summary>
     /// Ticket 07 (re-check addition A): the crash policy's presence predicate, produced HERE so the
     /// fault handler only calls it. A mutant forcing presence true/false (or dropping the freshness
     /// window) is then a composition-level mutation covered by tests, not untestable App glue.

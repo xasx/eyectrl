@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Views;
+using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
@@ -53,8 +54,8 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         var messenger = context.Messenger;
 
         // Settings window
-        messenger.Register<SettingsUiCoordinator, SettingsRequestedMessage>(this, (_, _) =>
-            context.Dispatcher.BeginInvoke(() => ShowSettingsWindow()));
+        messenger.Register<SettingsUiCoordinator, SettingsRequestedMessage>(this, (_, m) =>
+            context.Dispatcher.BeginInvoke(() => ShowSettingsWindow(m.Target)));
 
         // CloseSettings -> close settings window
         messenger.Register<SettingsUiCoordinator, CloseSettingsMessage>(this, (_, _) =>
@@ -114,44 +115,64 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
             trackStatusWindow.StopTracking();
     }
 
-    private void ShowSettingsWindow()
+    /// <summary>
+    /// Opens settings, or applies a deep link to the window that is already open. There is no
+    /// branch here: <see cref="SettingsDeepLink.Dispatch"/> decides (pure, unit-tested), turns the
+    /// action into a plan and runs it — open first, then the fresh navigation, so the navigation
+    /// lands after construction without its own guard. The modal case is the window's own queue.
+    /// </summary>
+    /// <param name="target">Where the request should land; <see cref="SettingsTarget.Default"/>
+    /// keeps the historical "open where it opens" behaviour and never touches an open window.</param>
+    private void ShowSettingsWindow(SettingsTarget target = SettingsTarget.Default)
     {
-        if (Context is null || _settingsWindow != null) return;
+        if (Context is null) return;
+
+        SettingsDeepLink.Dispatch(
+            windowOpen: _settingsWindow is not null,
+            target: target,
+            openWindow: OpenSettingsWindow,
+            navigate: () => _settingsWindow?.NavigateToLanguageRow());
+    }
+
+    /// <summary>Constructs and shows a fresh settings window. Never navigates; the caller does.</summary>
+    private void OpenSettingsWindow()
+    {
+        var context = Context!;
 
         _modal.SettingsOpen = true;
         _modal.SettingsOpenChanged?.Invoke(true);
         _toolbar.SetAutoHideSuspended(true);
         _quickActions.SetSummonSuspended(true);
-        Context.OverlayManager.CursorCircle.Hide();
+        context.OverlayManager.CursorCircle.Hide();
 
         try
         {
             // Create SettingsViewModels
-            var settingsVM = new SettingsViewModel(Context.Settings);
+            var settingsVM = new SettingsViewModel(context.Settings);
 
             var quickActionsEditor = new SettingsQuickActionsEditorViewModel(
-                Context.QuickActionsStore, Context.InstalledAppProvider);
+                context.QuickActionsStore, context.InstalledAppProvider);
             quickActionsEditor.Load();
 
             var settingsWindowVM = new SettingsWindowViewModel(
                 settingsVM,
                 quickActionsEditor,
-                Context.Messenger,
-                Context.Settings.Dwell);
+                context.Messenger,
+                context.Settings.Dwell);
 
             _settingsWindow = new SettingsWindow(
                 settingsWindowVM,
-                Context.Settings,
-                Context.SettingsService,
+                context.Settings,
+                context.SettingsService,
                 _modelRegistry ?? throw new InvalidOperationException("Model services not initialized. Call SetModelServices() before ShowSettingsWindow()."),
                 _modelManagementService ?? throw new InvalidOperationException("Model services not initialized. Call SetModelServices() before ShowSettingsWindow()."),
-                Context.Messenger,
-                Context.CalibrationService,
+                context.Messenger,
+                context.CalibrationService,
                 _restartCoordinator ?? throw new InvalidOperationException(
                     "Restart coordinator not set; SetRestartCoordinator must be called at startup."),
                 _supervisionToggle ?? throw new InvalidOperationException(
                     "Supervision toggle not set; SetSupervisionToggle must be called at startup."),
-                Context.UserDictionary);
+                context.UserDictionary);
 
             _settingsWindow.SettingsChanged += OnSettingsChanged;
             _settingsWindow.Closed += OnSettingsWindowClosed;
@@ -165,8 +186,8 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
             // undo the suspend we set alongside _modal.SettingsOpen = true above.
             _toolbar.SetAutoHideSuspended(false);
             _quickActions.SetSummonSuspended(false);
-            if (Context.CursorVM.IsVisible)
-                Context.OverlayManager.CursorCircle.Show();
+            if (context.CursorVM.IsVisible)
+                context.OverlayManager.CursorCircle.Show();
             throw;
         }
     }

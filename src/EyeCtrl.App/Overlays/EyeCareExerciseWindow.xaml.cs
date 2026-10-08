@@ -55,7 +55,11 @@ public partial class EyeCareExerciseWindow : OverlayWindow, IEyeCareExercise
             Canvas.SetTop(TargetDot, DpiHelper.PhysicalToLogicalY(target.Y) - TargetDot.Height / 2);
 
             var remain = Math.Max(0, _durationUs - elapsed);
-            Countdown.Text = $"00:{(int)(remain / 1_000_000):D2} / 00:{(int)(_durationUs / 1_000_000):D2}";
+            // Countdown numbers follow the eye-care surface's language (T02 fixup-01 F4 widened
+            // the specifier gate to every numeric specifier, :D2 included).
+            Countdown.Text = string.Create(
+                EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("eye-care"),
+                $"00:{(int)(remain / 1_000_000):D2} / 00:{(int)(_durationUs / 1_000_000):D2}");
             Progress.Value = 100.0 * elapsed / _durationUs;
         }, Dispatcher);
         _frameTimer.Start();
@@ -100,12 +104,21 @@ public partial class EyeCareExerciseWindow : OverlayWindow, IEyeCareExercise
     /// <summary>Shows the summary card with the computed metrics for ~3s, then hides the window.</summary>
     public Task ShowSummaryAsync(EyeCareExerciseOutcome outcome)
     {
+        // Every number follows the eye-care surface's language (T02): invariant while it is
+        // English, de-DE once its German is effective. Never CultureInfo.Current. The provider is
+        // inline at each site so the format scan sees the surface id at the call site.
         SummaryName.Text = $"{outcome.ExerciseName} complete";
-        SummaryAccuracy.Text = $"{outcome.AccuracyPercent:0}%";
-        SummarySteadiness.Text = $"{outcome.Steadiness0To5:0.0}";
+        SummaryAccuracy.Text = string.Create(
+            EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("eye-care"),
+            $"{outcome.AccuracyPercent:0}%");
+        SummarySteadiness.Text = string.Create(
+            EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("eye-care"),
+            $"{outcome.Steadiness0To5:0.0}");
         if (outcome.ReactionTimeMs is { } rt)
         {
-            SummaryReactionTime.Text = $"{rt:0}";
+            SummaryReactionTime.Text = string.Create(
+                EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("eye-care"),
+                $"{rt:0}");
             ReactionTimePanel.Visibility = Visibility.Visible;
         }
         else

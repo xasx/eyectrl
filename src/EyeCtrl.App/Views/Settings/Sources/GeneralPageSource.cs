@@ -1,6 +1,9 @@
 namespace EyeCtrl.App.Views.Settings;
 
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Enums;
+using EyeCtrl.Core.Localization;
+using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 
@@ -17,6 +20,25 @@ internal sealed class GeneralPageSource : ISettingsPageSource
         return
         [
             new PageSpec([
+                // T04/D9: the language row is the FIRST row on page 1. Its reach is pinned by
+                // LanguageRowReachTests — a recovery row behind rows the user cannot read is a
+                // row the user cannot reach.
+                new ComboBoxSpec("g_language",
+                    StringTable.Current.T("language-recovery.row.label"),
+                    [
+                        UiLanguageTokens.Endonym(UiLanguage.System),
+                        UiLanguageTokens.Endonym(UiLanguage.German),
+                        UiLanguageTokens.Endonym(UiLanguage.English),
+                    ],
+                    [
+                        UiLanguageTokens.ToJson(UiLanguage.System),
+                        UiLanguageTokens.ToJson(UiLanguage.German),
+                        UiLanguageTokens.ToJson(UiLanguage.English),
+                    ],
+                    () => UiLanguageTokens.ToJson(s.General.UiLanguage),
+                    OnLanguageChosen)
+                    { Description = StringTable.Current.T("language-recovery.row.description") },
+                .. PendingLanguageNote(),
                 new ComboBoxSpec("g_theme", "Theme (restart to apply)",
                     Core.Settings.ThemeSettings.ValidNames,
                     Core.Settings.ThemeSettings.ValidNames,
@@ -65,6 +87,66 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                     ButtonKind.Reset, Width: 300, Height: 100),
             ]),
         ];
+    }
+
+    /// <summary>
+    /// The bilingual "Wird nach Neustart wirksam / Takes effect after restart" note, present only
+    /// while the saved choice resolves differently from the language this process started with.
+    /// A conditional ROW rather than a row Description: a not-pending build draws nothing at all,
+    /// and the note's presence is re-evaluated on every rebuild (choosing rebuilds; cancelling the
+    /// prompt leaves the choice saved, so the note stays).
+    /// </summary>
+    private IEnumerable<SettingsRowSpec> PendingLanguageNote()
+    {
+        if (!LanguageChangePending(_ctx.Settings)) yield break;
+        yield return new LabelSpec(() => StringTable.Current.T("language-recovery.note.pending"));
+    }
+
+    /// <summary>
+    /// Whether the SAVED language would differ from the one this process runs. "Pending" is a
+    /// resolution question, not a selection one: picking "System" on a de-DE machine while German
+    /// runs is not a change, and picking it while English runs is. The process language is the
+    /// table's — loaded once at startup, never switched live.
+    /// </summary>
+    private static bool LanguageChangePending(EyeCtrlSettings settings) =>
+        StringTable.ResolveLanguage(settings.General.UiLanguage, StringTable.Current.Culture)
+        != StringTable.Current.Language;
+
+    /// <summary>
+    /// Saves a language choice, shows the pending note, and opens the restart prompt in the TARGET
+    /// language. The choice resolves to the language already running = nothing to apply, so no
+    /// prompt (and no note) is shown.
+    /// </summary>
+    /// <param name="code">The combo's code, a <see cref="UiLanguageTokens"/> JSON token.</param>
+    private void OnLanguageChosen(string code)
+    {
+        if (!UiLanguageTokens.TryFromJson(code, out var language)) return;
+
+        var settings = _ctx.Settings;
+        settings.General.UiLanguage = language;
+        _ctx.ApplyAndSave();
+        _ctx.RebuildContent();
+
+        if (!LanguageChangePending(settings)) return;
+
+        // The named-language lookup is gated by the manifest: until T11 a German target still
+        // shows English, so Step 0 shows no German. F2: resolve the TARGET first — "System"
+        // means "whatever System resolves to on this machine" (the ticket), while the lookup's
+        // own System means "this instance's language"; passing a raw System would render the
+        // prompt in the RUNNING language.
+        var table = StringTable.Current;
+        var target = StringTable.ResolveLanguage(language, table.Culture);
+        _ctx.ViewModel.ShowModal(
+            table.T(target, "language-recovery.prompt.message"),
+            [
+                new ModalChoice("language_restart",
+                    table.T(target, "language-recovery.prompt.restart"),
+                    ModalChoiceKind.Affirmative,
+                    () => _ctx.Messenger.Send(new RestartAppRequestedMessage())),
+                new ModalChoice("language_cancel",
+                    table.T(target, "language-recovery.prompt.cancel"),
+                    ModalChoiceKind.Negative, null),
+            ]);
     }
 
     /// <summary>

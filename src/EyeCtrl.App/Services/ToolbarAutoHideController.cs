@@ -414,7 +414,9 @@ public sealed class ToolbarAutoHideController
                         if (!_marginBandLogged && timestampUs - _marginBandSinceUs.Value >= 100_000)
                         {
                             _marginBandLogged = true;
-                            Diag($"raw gaze inside the summon margin band for 100+ ms (raw y={sample.Y:F0}, x={sample.X:F0}, margin={_offScreenMarginPx:F0}) — short of the summon threshold");
+                            Diag(string.Create(
+                                System.Globalization.CultureInfo.InvariantCulture,
+                                $"raw gaze inside the summon margin band for 100+ ms (raw y={sample.Y:F0}, x={sample.X:F0}, margin={_offScreenMarginPx:F0}) — short of the summon threshold"));
                         }
                     }
                     else if (_marginBandSinceUs is not null)
@@ -453,7 +455,9 @@ public sealed class ToolbarAutoHideController
                         // line would log at up to half the sample rate. (2cc6745c's commit message
                         // wrongly claimed this gate already covered the start line.)
                         _summonStartLogged = true;
-                        Diag($"summon run started (raw y={sample.Y:F0}, x={sample.X:F0}, margin={_offScreenMarginPx:F0})");
+                        Diag(string.Create(
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            $"summon run started (raw y={sample.Y:F0}, x={sample.X:F0}, margin={_offScreenMarginPx:F0})"));
                     }
                 }
                 else
@@ -469,7 +473,9 @@ public sealed class ToolbarAutoHideController
                     {
                         Volatile.Write(ref _summonRunUs, Unseeded);
                         if (timestampUs - runStart >= 100_000)
-                            Diag($"summon run reset after {(timestampUs - runStart) / 1000} ms (raw y={sample.Y:F0}, x={sample.X:F0})");
+                            Diag(string.Create(
+                                System.Globalization.CultureInfo.InvariantCulture,
+                                $"summon run reset after {(timestampUs - runStart) / 1000} ms (raw y={sample.Y:F0}, x={sample.X:F0})"));
                     }
                 }
                 break;

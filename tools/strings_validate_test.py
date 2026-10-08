@@ -13,6 +13,7 @@ error substring.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import shutil
 import subprocess
@@ -55,6 +56,18 @@ CASES: dict[str, tuple[int, list[str]]] = {
     "orphan-key": (1, ["does not exist in strings.json"]),
     "manifest-unknown-surface": (1, ["not a known surface id"]),
     "src-format": (1, ["src must be 8"]),
+    "format-specifier-plural": (0, []),
+    "format-specifier-at-index-one": (0, []),
+    "format-specifier-colon-escape": (0, []),
+    "alignment-padding": (1, ["alignment", "pads with spaces", "plural probe"]),
+    "alignment-negative": (1, ["alignment"]),
+    "empty-format": (1, ["empty format"]),
+    "unclosed-format": (1, ["unbalanced"]),
+    "specifier-parity-match": (0, []),
+    "specifier-parity-differs": (1, ["format specifier for placeholder 0 differs",
+                                     "German '{0:0.00}'", "English '{0:0.0}'"]),
+    "specifier-parity-missing": (1, ["format specifier for placeholder 0 differs",
+                                     "German '{0}'"]),
 }
 
 
@@ -181,6 +194,17 @@ class StringsValidateFixtureTests(unittest.TestCase):
             self.assertNotEqual(0, result.returncode)
             self.assertIn("entry is not an object", result.stdout + result.stderr)
             self.assertEqual(before, target.read_bytes())
+
+    def test_strip_markup_removes_a_format_specifier_whole(self) -> None:
+        # Direct, because this guards the word scans: "{0:0.0}" must vanish whole, leaving no
+        # "0.0" for the glossary or pronoun checks to see.
+        spec = importlib.util.spec_from_file_location("strings_validate", VALIDATOR)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        stripped = module.strip_markup("{0:0.0} unit")
+        self.assertNotIn("0.0", stripped)
+        self.assertIn("unit", stripped)
 
     def test_refresh_de_src_makes_a_stale_file_validate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -25,14 +25,17 @@ Reserved meta notes:
 English table shape:
   * required meta (text, who, where, fit, args) and closed enums (who, where, fit)
   * text is a string or both plural forms {one, other}
-  * placeholder parity: the `{n}` indices in every form are exactly 0..len(args)-1
-  * no unbalanced single `{` or `}` (doubled braces are literal)
+  * placeholder grammar: {n} and {n:format} (format non-empty, no braces; a colon inside
+    it is allowed, e.g. {0:hh\:mm}); the `{n}` indices in every form are exactly
+    0..len(args)-1; alignment ({n,w}) is rejected with its own message
+  * no unbalanced single `{` or `}`, no empty format, no malformed placeholder
   * keys sorted; every key's prefix equals its `where` surface id
   * `mirrors: <key>` names an existing key with the same `fit` and `args`
 
 German table:
   * keys must exist in the English table; entry shape is {text, src}
-  * German placeholder parity: every form's `{n}` set equals the English form's
+  * German placeholder parity: every form's index set equals the English form's, and
+    each index uses the same format specifier (number formatting is the provider's job)
   * no unbalanced single `{` or `}`
   * forbidden terms from the glossary's avoid[] (stem prefix, German values only,
     after stripping placeholders and U+00AD)
@@ -117,13 +120,22 @@ PRONOUN_WORDS = {
 }
 SOFT_HYPHEN = "\u00ad"
 
-PLACEHOLDER = re.compile(r"\{(\d+)\}")
+# The placeholder grammar, shared with the runtime's string.Format usage: {n} or {n:format},
+# where format is non-empty and free of braces (a colon inside it is allowed, e.g. {0:hh\:mm}).
+# Alignment ({n,w} / {n,w:format}) is rejected by its own rule; see placeholder_grammar_errors.
+PLACEHOLDER = re.compile(r"\{(\d+)(?::([^{}]*))?\}")
+ALIGNMENT = re.compile(r"\{(\d+),([^{}]*)\}")
+BRACED_TOKEN = re.compile(r"\{[^{}]*\}")
 
 
 def strip_markup(text: str) -> str:
-    """Removes placeholders (both doubled escapes and {n}) and U+00AD."""
+    """Removes doubled brace escapes, whole placeholders ({n} and {n:format}) and U+00AD.
+
+    Stripping the whole placeholder keeps a format such as "0.0" out of the glossary and
+    pronoun word scans.
+    """
     text = text.replace("{{", "").replace("}}", "")
-    text = PLACEHOLDER.sub(" ", text)
+    text = BRACED_TOKEN.sub(" ", text)
     return text.replace(SOFT_HYPHEN, "")
 
 
@@ -150,31 +162,91 @@ def contains_pronoun(text: str) -> str | None:
     return None
 
 
-def unbalanced_brace(form: str) -> str | None:
-    """Describes the first unbalanced `{` or `}`, or None when every brace is well formed.
+def scan_form(form: str) -> list[tuple[str, int | None, str, str]]:
+    """One pass over a template, yielding (kind, index, specifier, raw) per token.
 
-    Doubled `{{`/`}}` are literals; `{n}` is a placeholder; anything else is an error.
-    Kept as a scanner (not a regex) so a stray brace cannot hide behind a valid one.
+    kind is one of:
+      * "placeholder"  -- a valid {n} or {n:format}; index and specifier are set.
+      * "alignment"    -- {n,w} or {n,w:format}; rejected by placeholder_grammar_errors.
+      * "empty-format" -- {n:}; rejected.
+      * "invalid"      -- any other brace-delimited token; rejected.
+      * "unclosed"     -- a '{' with no closing '}'; reported by unbalanced_brace.
+      * "stray"        -- a '}' with no opener; reported by unbalanced_brace.
+    Doubled `{{`/`}}` are literals and produce no token.
     """
-    index = 0
-    while index < len(form):
-        char = form[index]
-        if char == "{" and index + 1 < len(form) and form[index + 1] == "{":
-            index += 2
+    tokens: list[tuple[str, int | None, str, str]] = []
+    position = 0
+    while position < len(form):
+        char = form[position]
+        if char == "{" and position + 1 < len(form) and form[position + 1] == "{":
+            position += 2
             continue
-        if char == "}" and index + 1 < len(form) and form[index + 1] == "}":
-            index += 2
+        if char == "}" and position + 1 < len(form) and form[position + 1] == "}":
+            position += 2
             continue
         if char == "{":
-            match = PLACEHOLDER.match(form, index)
-            if match:
-                index = match.end()
-                continue
-            return f"unbalanced '{{' at index {index}"
+            close = form.find("}", position + 1)
+            if close < 0:
+                tokens.append(("unclosed", None, "", form[position:]))
+                break
+            raw = form[position : close + 1]
+            alignment = ALIGNMENT.fullmatch(raw)
+            if alignment:
+                tokens.append(("alignment", int(alignment.group(1)), "", raw))
+            else:
+                placeholder = PLACEHOLDER.fullmatch(raw)
+                if placeholder is None:
+                    tokens.append(("invalid", None, "", raw))
+                elif placeholder.group(2) == "":
+                    tokens.append(("empty-format", int(placeholder.group(1)), "", raw))
+                else:
+                    tokens.append(
+                        ("placeholder", int(placeholder.group(1)), placeholder.group(2) or "", raw)
+                    )
+            position = close + 1
+            continue
         if char == "}":
-            return f"unbalanced '}}' at index {index}"
-        index += 1
+            tokens.append(("stray", None, "", char))
+            position += 1
+            continue
+        position += 1
+    return tokens
+
+
+def unbalanced_brace(form: str) -> str | None:
+    """Describes the first unmatched `{` or `}`, or None when every brace is paired.
+
+    A `{...}` token counts as paired whatever its body — whether it is a valid placeholder is
+    placeholder_grammar_errors' question, not this one's. Kept as a scanner (not a regex) so a
+    stray brace cannot hide behind a valid one.
+    """
+    for kind, _, _, _ in scan_form(form):
+        if kind == "unclosed":
+            return "unbalanced '{' with no closing '}'"
+        if kind == "stray":
+            return "unbalanced '}' with no opening '{'"
     return None
+
+
+def placeholder_grammar_errors(form: str) -> list[str]:
+    """Human-readable grammar errors for one template: alignment, empty or invalid placeholders."""
+    errors: list[str] = []
+    for kind, _, _, raw in scan_form(form):
+        if kind == "alignment":
+            errors.append(
+                f"alignment {raw!r} in {form!r}: alignment pads with spaces, which means "
+                "nothing in proportional UI text, and it would break the plural probe"
+            )
+        elif kind == "empty-format":
+            errors.append(f"empty format specifier in {raw!r}")
+        elif kind == "invalid":
+            errors.append(f"invalid placeholder {raw!r} in {form!r}")
+    return errors
+
+
+def placeholder_text(index: int, specifier: str) -> str:
+    """The source spelling of a placeholder, for error messages."""
+    return "{" + str(index) + (":" + specifier if specifier else "") + "}"
 
 
 def read_json(path: Path, errors: list[str]) -> object:
@@ -214,26 +286,17 @@ def text_forms(text: object) -> list[str]:
     return []
 
 
-def placeholders(form: str) -> list[int]:
-    """The {n} indices in a template, ignoring doubled escapes."""
-    index = 0
-    found = []
-    while index < len(form):
-        char = form[index]
-        if char == "{" and index + 1 < len(form) and form[index + 1] == "{":
-            index += 2
-            continue
-        if char == "}" and index + 1 < len(form) and form[index + 1] == "}":
-            index += 2
-            continue
-        if char == "{":
-            match = PLACEHOLDER.match(form, index)
-            if match:
-                found.append(int(match.group(1)))
-                index = match.end()
-                continue
-        index += 1
-    return found
+def placeholders(form: str) -> list[tuple[int, str]]:
+    """The (index, format specifier) pairs of a template's valid {n} / {n:format} placeholders.
+
+    Doubled braces are literal. Alignment and malformed tokens are not returned here —
+    placeholder_grammar_errors reports them — so parity sees only the real placeholders.
+    """
+    return [
+        (index, specifier)
+        for kind, index, specifier, _ in scan_form(form)
+        if kind == "placeholder"
+    ]
 
 
 def validate_english(english: dict, errors: list[str]) -> None:
@@ -285,7 +348,7 @@ def validate_english(english: dict, errors: list[str]) -> None:
 
         declared = set(range(len(args)))
         for form in forms:
-            found = set(placeholders(form))
+            found = {index for index, _ in placeholders(form)}
             if found != declared:
                 errors.append(
                     f"{key}: placeholder parity broken in {form!r}: found "
@@ -294,6 +357,8 @@ def validate_english(english: dict, errors: list[str]) -> None:
             brace = unbalanced_brace(form)
             if brace:
                 errors.append(f"{key}: {brace} in {form!r}")
+            for grammar in placeholder_grammar_errors(form):
+                errors.append(f"{key}: {grammar}")
 
         optional = entry.get("terms")
         if optional is not None and (
@@ -400,6 +465,8 @@ def validate_german(
             brace = unbalanced_brace(form)
             if brace:
                 errors.append(f"strings.de.json: {key}: {brace} in {form!r}")
+            for grammar in placeholder_grammar_errors(form):
+                errors.append(f"strings.de.json: {key}: {grammar}")
 
             plain = strip_markup(form)
             pronoun = contains_pronoun(plain)
@@ -411,13 +478,21 @@ def validate_german(
 
         if len(forms) == len(source_forms):
             for form, source_form in zip(forms, source_forms):
-                german_placeholders = set(placeholders(form))
-                source_placeholders = set(placeholders(source_form))
-                if german_placeholders != source_placeholders:
+                german_map = dict(placeholders(form))
+                source_map = dict(placeholders(source_form))
+                if set(german_map) != set(source_map):
                     errors.append(
                         f"strings.de.json: {key}: placeholder parity broken in {form!r}: found "
-                        f"{sorted(german_placeholders)}, English has {sorted(source_placeholders)}"
+                        f"{sorted(german_map)}, English has {sorted(source_map)}"
                     )
+                else:
+                    for index in sorted(german_map):
+                        if german_map[index] != source_map[index]:
+                            errors.append(
+                                f"strings.de.json: {key}: format specifier for placeholder {index} "
+                                f"differs: German {placeholder_text(index, german_map[index])!r}, "
+                                f"English {placeholder_text(index, source_map[index])!r}"
+                            )
                 if form == source_form and form not in allowlist:
                     errors.append(
                         f"strings.de.json: {key}: German is identical to English ({form!r}); "

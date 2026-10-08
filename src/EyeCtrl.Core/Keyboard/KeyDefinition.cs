@@ -19,4 +19,9 @@ public class KeyDefinition
     /// layout's language regardless of the UI language.
     /// </summary>
     public string? AccessibleName { get; set; }
+    /// <summary>
+    /// Optional second caption line, drawn small under <see cref="Label"/> (T14 round 2, B4:
+    /// "⌫" over "Wort"). Null for a single-line key. Static: it never changes with Shift or Caps.
+    /// </summary>
+    public string? SubLabel { get; set; }
 }

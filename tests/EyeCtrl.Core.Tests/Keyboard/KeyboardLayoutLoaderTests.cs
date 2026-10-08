@@ -79,6 +79,51 @@ public class KeyboardLayoutLoaderTests
     }
 
     [Fact]
+    public void SubLabel_RoundTrips_AndDefaultsToNull()
+    {
+        // T14 round 2, B4: an optional second caption line ("⌫" over "Wort"). It is layout data,
+        // so it must survive Save/Load; a key without one must load null, not empty.
+        var json = """
+        {
+            "name": "QWERTZ",
+            "defaultSubLayout": "letters",
+            "subLayouts": {
+                "letters": {
+                    "label": "ABC",
+                    "rows": [
+                        [
+                            { "label": "⌫", "subLabel": "Wort", "output": "", "width": 1.2, "specialAction": "deleteWord" },
+                            { "label": "⌫", "output": "", "width": 1.2, "specialAction": "backspace" }
+                        ]
+                    ]
+                }
+            }
+        }
+        """;
+
+        var tempPath = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempPath, json);
+            var layout = KeyboardLayoutLoader.Load(tempPath);
+            var keys = layout.SubLayouts["letters"].Rows.SelectMany(r => r).ToList();
+            Check.That(keys.Single(k => k.SpecialAction == "deleteWord").Label).IsEqualTo("\u232B");
+            Check.That(keys.Single(k => k.SpecialAction == "deleteWord").SubLabel).IsEqualTo("Wort");
+            Check.That(keys.Single(k => k.SpecialAction == "backspace").SubLabel).IsNull();
+
+            KeyboardLayoutLoader.Save(layout, tempPath);
+            var reloaded = KeyboardLayoutLoader.Load(tempPath);
+            var reloadedKeys = reloaded.SubLayouts["letters"].Rows.SelectMany(r => r).ToList();
+            Check.That(reloadedKeys.Single(k => k.SpecialAction == "deleteWord").SubLabel).IsEqualTo("Wort");
+            Check.That(reloadedKeys.Single(k => k.SpecialAction == "backspace").SubLabel).IsNull();
+        }
+        finally
+        {
+            File.Delete(tempPath);
+        }
+    }
+
+    [Fact]
     public void Load_ParsesModifierSpecialActions()
     {
         var json = """

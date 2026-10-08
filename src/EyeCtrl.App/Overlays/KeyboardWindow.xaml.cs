@@ -258,17 +258,50 @@ public partial class KeyboardWindow : OverlayWindow
                     // this glyph, and three others, at the bottom of the multiplier range. A
                     // minimum also has no business being theme-dependent.
                     //
-                    // A symbol caption (⇪ ⇧ ⌫ ⌫⌫ ⌴ ↵ ⇥ ✂ ↶ ↷ ← ↑ → ↓ 😀) takes the T14 rule
+                    // A symbol caption (⬆ ⇧ ⌫ ⌴ ↵ ⇥ ✂ ↶ ↷ ← ↑ → ↓ 😀) takes the T14 rule
                     // (user's pick, 2026-10-07): x1.4 in the theme's medium weight, fit-limited
                     // to the box. Resolve returns the base font untouched for every other key.
+                    // A sub-label (B4) adds a second line, and Resolve reserves its height.
                     FontSize = SymbolCaptionFonts.Resolve(
                         key,
                         Math.Max(_keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize),
-                        boxWidth),
+                        boxWidth,
+                        _keySize),
                     FontWeight = SymbolCaptionRule.IsSymbolCaption(key) ? Tokens.FontWeightMedium : FontWeights.Normal,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
                 };
+
+                // B4 (user's live-check pick, 2026-10-08): the word-backspace key reads the
+                // symbol over a small word, the modifier bar's icon-over-label pattern. The word
+                // is static text — Shift and Caps never touch it. Each line is exactly its font
+                // size high, so the stack's height is symbol + word by construction.
+                FrameworkElement captionContent = label;
+                if (key.SubLabel is not null)
+                {
+                    label.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
+                    label.LineHeight = label.FontSize;
+
+                    var wordLine = new TextBlock
+                    {
+                        Text = key.SubLabel,
+                        Foreground = Tokens.BrushTextPrimary,
+                        FontSize = SymbolCaptionFonts.SubLabelFont(
+                            Math.Max(_keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize)),
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        LineStackingStrategy = LineStackingStrategy.BlockLineHeight
+                    };
+                    wordLine.LineHeight = wordLine.FontSize;
+
+                    var captionStack = new StackPanel
+                    {
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+                    captionStack.Children.Add(label);
+                    captionStack.Children.Add(wordLine);
+                    captionContent = captionStack;
+                }
 
                 var keyBrush = new SolidColorBrush(GetKeyBaseColor(key));
                 var container = new Border
@@ -289,7 +322,7 @@ public partial class KeyboardWindow : OverlayWindow
                 if (key.AccessibleName is not null)
                     System.Windows.Automation.AutomationProperties.SetName(label, key.AccessibleName);
 
-                RegisterKeyVisual(id, key, container, label);
+                RegisterKeyVisual(id, key, container, label, captionContent);
                 rowPanel.Children.Add(container);
             }
 
@@ -911,10 +944,17 @@ public partial class KeyboardWindow : OverlayWindow
     /// call site; a funnel makes that silent omission structurally impossible to repeat.
     /// </summary>
     /// <param name="container">The target's border. Its <c>Child</c> must be unset: the outline
-    /// wraps <paramref name="label"/> and installs the wrapper as the Child.</param>
+    /// wraps the caption content and installs the wrapper as the Child.</param>
+    /// <param name="label">The target's label, kept for the automation name and the id.</param>
     private void RegisterKeyVisual(string id, KeyDefinition keyDef, Border container, TextBlock? label)
+        => RegisterKeyVisual(id, keyDef, container, label, label);
+
+    /// <param name="content">The element the outline wraps: the label itself, or the two-line
+    /// caption stack whose first line is <paramref name="label"/> (B4).</param>
+    private void RegisterKeyVisual(
+        string id, KeyDefinition keyDef, Border container, TextBlock? label, FrameworkElement? content)
     {
-        _keyOutlines[id] = DwellOutlineOverlay.Attach(container, label);
+        _keyOutlines[id] = DwellOutlineOverlay.Attach(container, content);
         _keyDefinitions[id] = keyDef;
         _keyVisuals[id] = (container, label);
     }

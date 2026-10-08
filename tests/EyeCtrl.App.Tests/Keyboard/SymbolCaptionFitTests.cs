@@ -73,10 +73,13 @@ public class SymbolCaptionFitTests
     private static readonly string[] AllowedFamilies =
         ["Segoe UI Variable", "Segoe UI", "Segoe UI Symbol", "Segoe UI Emoji"];
 
-    /// <summary>The final set's symbol captions (PHASE2-README.md section 1) — the labels the T14 rule must cover.</summary>
+    /// <summary>
+    /// The qwertz symbol captions after round 2 (A2: Caps ⬆; B4: word-backspace ⌫ over "Wort",
+    /// so ⌫⌫ is gone and ⌫ is shared by two actions) — the labels the T14 rule must cover.
+    /// </summary>
     private static readonly string[] ExpectedSymbolCaptions =
     [
-        "\u21EA", "\u21E7", "\u232B", "\u232B\u232B", "\u2334", "\u21B5", "\u21E5",
+        "\u2B06", "\u21E7", "\u232B", "\u2334", "\u21B5", "\u21E5",
         "\u2702", "\u21B6", "\u21B7", "\u2190", "\u2191", "\u2192", "\u2193", "\uD83D\uDE00",
     ];
 
@@ -118,6 +121,7 @@ public class SymbolCaptionFitTests
         var clippedExceptions = new HashSet<(string File, string Action, double Mult)>();
         var wrongBox = new List<string>();
         var notOneLine = new List<string>();
+        var verticalOverflow = new List<string>();
         var cases = new List<(double Side, string Where)>();
         var minAdvance = double.PositiveInfinity;
         try
@@ -138,7 +142,7 @@ public class SymbolCaptionFitTests
                     vm.SwitchSubLayout(sub);
                     Layout(window);
 
-                    foreach (var (id, key, container, label) in KeyVisuals(window, layout, sub))
+                    foreach (var (id, key, container, label, content) in KeyVisuals(window, layout, sub))
                     {
                         Check.WithCustomMessage($"{file} {sub}:{id} ('{label.Text}') was not arranged at {mult:0.0}x")
                              .That(container.ActualWidth).IsStrictlyGreaterThan(0.0);
@@ -155,8 +159,9 @@ public class SymbolCaptionFitTests
 
                         // Clipping is the ADVANCE (what the text needs) exceeding the box. Not
                         // DesiredSize: when a label overflows, layout clamps DesiredSize to the
-                        // available width, so the overflow is invisible there.
-                        var advance = Advance(label);
+                        // available width, so the overflow is invisible there. A two-line caption
+                        // (B4) is as wide as its WIDEST line, so both lines are checked.
+                        var advance = CaptionLines(content, label).Max(Advance);
                         minAdvance = Math.Min(minAdvance, advance);
                         var side = container.ActualWidth - advance;
                         cases.Add((side, $"{sub} '{label.Text}' ({id}) at {mult:0.0}x"));
@@ -170,12 +175,21 @@ public class SymbolCaptionFitTests
                                             + $"{advance:0.000} > box {container.ActualWidth:0.000}");
                         }
 
-                        // The ticket draws the line at "one line, no wrapping or trimming". Pinned
-                        // because the advance gate would still pass if a future edit enabled
-                        // wrapping: the unwrapped advance is what it measures.
-                        if (label.TextWrapping != TextWrapping.NoWrap || label.TextTrimming != TextTrimming.None)
-                            notOneLine.Add($"{file} {sub} '{label.Text}' ({id}) at {mult:0.0}x: "
-                                           + $"TextWrapping={label.TextWrapping}, TextTrimming={label.TextTrimming}");
+                        // The round-2 vertical gate: the caption (both lines for B4, each exactly
+                        // its font size high) must fit the key's height. The designer measured the
+                        // ⌫/Wort stack at 28.8 DIP in 35 at 0.5x.
+                        if (content.DesiredSize.Height > container.ActualHeight + 1e-6)
+                            verticalOverflow.Add($"{file} {sub} '{label.Text}' ({id}) at {mult:0.0}x: "
+                                                 + $"caption {content.DesiredSize.Height:0.###} > key "
+                                                 + $"{container.ActualHeight:0.###}");
+
+                        // The ticket draws the line at "one line, no wrapping or trimming" per
+                        // caption line. Pinned because the advance gate would still pass if a
+                        // future edit enabled wrapping: the unwrapped advance is what it measures.
+                        foreach (var line in CaptionLines(content, label))
+                            if (line.TextWrapping != TextWrapping.NoWrap || line.TextTrimming != TextTrimming.None)
+                                notOneLine.Add($"{file} {sub} '{label.Text}' ({id}) at {mult:0.0}x: "
+                                               + $"TextWrapping={line.TextWrapping}, TextTrimming={line.TextTrimming}");
                     }
                 }
             }
@@ -190,6 +204,10 @@ public class SymbolCaptionFitTests
                     "Captions overflow their key box (T14's binding gate): "
                     + string.Join("; ", clipped))
                  .That(clipped).IsEmpty();
+            Check.WithCustomMessage(
+                    "Captions overflow their key's height (the round-2 two-line gate): "
+                    + string.Join("; ", verticalOverflow))
+                 .That(verticalOverflow).IsEmpty();
 
             // Freshness: an exception that stopped clipping is protecting nothing and would
             // happily hide the same caption clipping again later. Fixing the English layouts must
@@ -235,7 +253,7 @@ public class SymbolCaptionFitTests
                     vm.SwitchSubLayout(sub);
                     Layout(window);
 
-                    foreach (var (id, key, container, label) in KeyVisuals(window, layout, sub))
+                    foreach (var (id, key, container, label, content) in KeyVisuals(window, layout, sub))
                     {
                         var symbol = IsSymbolCaptionOracle(key);
                         var baseFont = Math.Max(
@@ -244,6 +262,14 @@ public class SymbolCaptionFitTests
                         var expectedFont = symbol
                             ? OracleSymbolFont(label.Text, baseFont, container.ActualWidth)
                             : baseFont;
+                        if (symbol && key.SubLabel is not null)
+                        {
+                            // Round-2 B4: the symbol line is also capped so the two-line stack
+                            // fits the key's height.
+                            expectedFont = Math.Min(
+                                expectedFont,
+                                container.ActualHeight - 2 * 2.0 - OracleSubLabelFont(baseFont));
+                        }
                         var expectedWeight = symbol ? Tokens.FontWeightMedium : FontWeights.Normal;
 
                         if (Math.Abs(label.FontSize - expectedFont) > 1e-4)
@@ -255,6 +281,27 @@ public class SymbolCaptionFitTests
                                          + $"{label.FontWeight}, expected {expectedWeight}"
                                          + (symbol ? " (symbol caption)" : " (ordinary caption)"));
                         if (symbol) { symbolCases++; symbolLabels.Add(label.Text); }
+
+                        // B4's second line: the sub-label at max(0.75 x base, 12), Normal.
+                        if (key.SubLabel is null) continue;
+                        var wordLine = CaptionLines(content, label)
+                            .SingleOrDefault(t => !ReferenceEquals(t, label));
+                        if (wordLine is null)
+                        {
+                            problems.Add($"{sub} '{label.Text}' ({id}) at {mult:0.0}x: SubLabel "
+                                         + $"'{key.SubLabel}' has no second caption line");
+                            continue;
+                        }
+                        var expectedWordFont = OracleSubLabelFont(baseFont);
+                        if (wordLine.Text != key.SubLabel)
+                            problems.Add($"{sub} '{label.Text}' ({id}) at {mult:0.0}x: second line "
+                                         + $"'{wordLine.Text}', expected '{key.SubLabel}'");
+                        if (Math.Abs(wordLine.FontSize - expectedWordFont) > 1e-4)
+                            problems.Add($"{sub} '{label.Text}' ({id}) at {mult:0.0}x: sub-label FontSize "
+                                         + $"{wordLine.FontSize:0.###}, expected {expectedWordFont:0.###}");
+                        if (wordLine.FontWeight != FontWeights.Normal)
+                            problems.Add($"{sub} '{label.Text}' ({id}) at {mult:0.0}x: sub-label FontWeight "
+                                         + $"{wordLine.FontWeight}, expected Normal");
                     }
                 }
             }
@@ -296,21 +343,26 @@ public class SymbolCaptionFitTests
                 vm.SwitchSubLayout(sub);
                 Layout(window);
 
-                foreach (var (id, _, _, label) in KeyVisuals(window, layout, sub))
+                foreach (var (id, _, _, label, content) in KeyVisuals(window, layout, sub))
                 {
-                    var runs = Runs(label);
-                    if (runs.Count == 0)
+                    // A B4 key draws two lines; both are checked (the symbol face and the theme
+                    // face for "Wort").
+                    foreach (var line in CaptionLines(content, label))
                     {
-                        problems.Add($"{file} {sub} '{label.Text}' ({id}): no glyph runs");
-                        continue;
+                        var runs = Runs(line);
+                        if (runs.Count == 0)
+                        {
+                            problems.Add($"{file} {sub} '{line.Text}' ({id}): no glyph runs");
+                            continue;
+                        }
+                        runCount += runs.Count;
+                        if (runs.Any(r => r.Glyphs.Contains((ushort)0)))
+                            problems.Add($"{file} {sub} '{line.Text}' ({id}): TOFU (glyph index 0)");
+                        var bad = runs.Select(r => r.Family).Distinct()
+                            .Where(f => !AllowedFamilies.Contains(f)).ToList();
+                        if (bad.Count > 0)
+                            problems.Add($"{file} {sub} '{line.Text}' ({id}): face(s) {string.Join(", ", bad)}");
                     }
-                    runCount += runs.Count;
-                    if (runs.Any(r => r.Glyphs.Contains((ushort)0)))
-                        problems.Add($"{file} {sub} '{label.Text}' ({id}): TOFU (glyph index 0)");
-                    var bad = runs.Select(r => r.Family).Distinct()
-                        .Where(f => !AllowedFamilies.Contains(f)).ToList();
-                    if (bad.Count > 0)
-                        problems.Add($"{file} {sub} '{label.Text}' ({id}): face(s) {string.Join(", ", bad)}");
                 }
             }
 
@@ -342,7 +394,7 @@ public class SymbolCaptionFitTests
                 vm.SwitchSubLayout(sub);
                 Layout(window);
 
-                foreach (var (id, key, _, label) in KeyVisuals(window, layout, sub))
+                foreach (var (id, key, _, label, _) in KeyVisuals(window, layout, sub))
                 {
                     var automationId = AutomationProperties.GetAutomationId(label);
                     if (automationId != $"Keyboard_Key_{id}")
@@ -420,6 +472,92 @@ public class SymbolCaptionFitTests
         finally { window.Close(); }
     }
 
+    /// <summary>
+    /// B4's second line must survive every repaint. The window rebuilds captions on sub-layout
+    /// swaps and erases them with modifier repaints; a repaint that rebuilt the key's content from
+    /// the label alone would silently drop "Wort" while the dwell outline, the id and the name
+    /// stayed healthy. Caps and Shift are both exercised, twice so a repaint that drops the stack
+    /// on the way back is caught too.
+    /// </summary>
+    [StaFact]
+    public void ShippedQwertz_TwoLineCaption_SurvivesCapsAndShiftRepaints()
+    {
+        var layout = ShippedQwertz();
+        var (window, vm) = Open(layout, 1.5);
+        try
+        {
+            foreach (var modifier in new[] { ModifierKey.CapsLock, ModifierKey.Shift })
+            {
+                var before = TwoLine(window, layout);
+                Check.WithCustomMessage($"{modifier}: the word-backspace key is not a two-line caption to begin with")
+                     .That(before).IsNotNull();
+
+                vm.ToggleModifier(modifier);
+                Layout(window);
+                var on = TwoLine(window, layout);
+                Check.WithCustomMessage($"{modifier} on dropped the sub-label (content "
+                        + $"{ContentKind(window, layout)}): the two-line caption must survive every repaint.")
+                     .That(on).IsNotNull();
+                Check.That(on!.Value.Symbol.Text).IsEqualTo("⌫");
+                Check.That(on.Value.Symbol.FontSize).IsEqualTo(before!.Value.Symbol.FontSize);
+                Check.That(on.Value.Word.Text).IsEqualTo("Wort");
+                Check.That(on.Value.Word.FontSize).IsEqualTo(before.Value.Word.FontSize);
+
+                vm.ToggleModifier(modifier);
+                Layout(window);
+                Check.WithCustomMessage($"{modifier} off dropped the sub-label")
+                     .That(TwoLine(window, layout)).IsNotNull();
+            }
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// The B4 height cap, pinned where it actually binds. At the shipped sizes the cap never
+    /// engages (35 - 4 - 12 = 19 ≥ 16.8 at 0.5x), so a synthetic base font large enough for the
+    /// two lines to overrun a 35 DIP key is the only way to see it: dropping the cap returns the
+    /// uncapped x1.4 font here.
+    /// </summary>
+    [StaFact]
+    public void SymbolLine_IsHeightCappedSoTheTwoLineStackFitsTheKey()
+    {
+        const double keySize = 35.0;
+        const double baseFont = 40.0;
+        const double edgePadding = 2.0;
+        var key = new KeyDefinition
+        {
+            Label = "⌫", SubLabel = "Wort", SpecialAction = "deleteWord", Width = 1.2
+        };
+
+        var symbolFont = SymbolCaptionFonts.Resolve(key, baseFont, boxWidth: 42.8, keySize);
+        var wordFont = SymbolCaptionFonts.SubLabelFont(baseFont);
+
+        Check.WithCustomMessage(
+                $"symbol {symbolFont:0.###} + word {wordFont:0.###} must fit {keySize} - "
+                + $"2 x {edgePadding} = {keySize - 2 * edgePadding:0.###}")
+             .That(symbolFont + wordFont).IsLessOrEqualThan(keySize - 2 * edgePadding);
+        Check.WithCustomMessage(
+                "the cap did not bind, so this fixture no longer proves the cap exists — retune it "
+                + "(the uncapped x1.4 font must exceed the stack room)")
+             .That(baseFont * 1.4).IsStrictlyGreaterThan(keySize - 2 * edgePadding - wordFont);
+        Check.WithCustomMessage("the symbol line must be exactly the capped value")
+             .That(symbolFont).IsEqualTo(keySize - 2 * edgePadding - wordFont);
+    }
+
+    private static (TextBlock Symbol, TextBlock Word)? TwoLine(KeyboardWindow window, KeyboardLayout layout)
+    {
+        var visual = KeyVisuals(window, layout, "letters").Single(v => v.Key.SpecialAction == "deleteWord");
+        if (visual.Content is not StackPanel stack) return null;
+        var lines = stack.Children.OfType<TextBlock>().ToList();
+        return lines.Count == 2 ? (lines[0], lines[1]) : null;
+    }
+
+    private static string ContentKind(KeyboardWindow window, KeyboardLayout layout)
+    {
+        var visual = KeyVisuals(window, layout, "letters").Single(v => v.Key.SpecialAction == "deleteWord");
+        return visual.Content.GetType().Name;
+    }
+
     /// <summary>The name UIA would actually announce: the explicit name when set, else the live text.</summary>
     private static string PeerName(TextBlock label) => new TextBlockAutomationPeer(label).GetName();
 
@@ -448,10 +586,11 @@ public class SymbolCaptionFitTests
     /// The keys <c>RebuildKeys</c> registered for one sub-layout, with their definition: the id
     /// rule is SpecialAction else <c>key_{row}_{col}</c> (KeyboardWindow.xaml.cs). Read through the
     /// window's private <c>_keyVisuals</c> registry, which is the only way to reach the real
-    /// containers and labels.
+    /// containers and labels. <c>Content</c> is the element the dwell outline wraps — the label
+    /// itself, or the two-line caption stack whose first line is the label (B4).
     /// </summary>
-    private static List<(string Id, KeyDefinition Key, Border Container, TextBlock Label)> KeyVisuals(
-        KeyboardWindow window, KeyboardLayout layout, string sub)
+    private static List<(string Id, KeyDefinition Key, Border Container, TextBlock Label, FrameworkElement Content)>
+        KeyVisuals(KeyboardWindow window, KeyboardLayout layout, string sub)
     {
         var byId = new Dictionary<string, KeyDefinition>(StringComparer.Ordinal);
         var rows = layout.SubLayouts[sub].Rows;
@@ -465,17 +604,22 @@ public class SymbolCaptionFitTests
             "_keyVisuals", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var visuals = (IDictionary)field.GetValue(window)!;
 
-        var result = new List<(string, KeyDefinition, Border, TextBlock)>();
+        var result = new List<(string, KeyDefinition, Border, TextBlock, FrameworkElement)>();
         foreach (DictionaryEntry entry in visuals)
         {
             var value = entry.Value!;
             var container = (Border)value.GetType().GetField("Item1")!.GetValue(value)!;
             var label = (TextBlock)value.GetType().GetField("Item2")!.GetValue(value)!;
             var id = (string)entry.Key;
-            result.Add((id, byId[id], container, label));
+            var content = label.Parent is StackPanel stack ? (FrameworkElement)stack : label;
+            result.Add((id, byId[id], container, label, content));
         }
         return result;
     }
+
+    /// <summary>The TextBlocks a key draws — one for an ordinary caption, two for a B4 stack.</summary>
+    private static IEnumerable<TextBlock> CaptionLines(FrameworkElement content, TextBlock label) =>
+        content is StackPanel stack ? stack.Children.OfType<TextBlock>() : [label];
 
     /// <summary>The label's real advance in DIP, at the size and weight it is drawn with.</summary>
     private static double Advance(TextBlock label) =>
@@ -520,6 +664,13 @@ public class SymbolCaptionFitTests
         var room = boxWidth - 2 * 2.0;
         return advance > room ? font * room / advance : font;
     }
+
+    /// <summary>
+    /// The reference sub-label font (round-2 README, B4): max(0.75 x base, 12), Normal. The 0.75 is
+    /// restated here as the oracle, not read from the production constant.
+    /// </summary>
+    private static double OracleSubLabelFont(double baseFont) =>
+        Math.Max(baseFont * 0.75, Legibility.MinimumGlyphFontSize);
 
     private sealed record GlyphRunInfo(string Family, ushort[] Glyphs);
 

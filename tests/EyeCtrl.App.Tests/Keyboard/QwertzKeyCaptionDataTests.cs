@@ -27,50 +27,50 @@ public class QwertzKeyCaptionDataTests
     private static KeyboardLayout Qwertz() => KeyboardLayoutLoader.Load(Path.Combine(
         SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Resources", "Layouts", "qwertz.json"));
 
-    /// <summary>Every picked caption, keyed by specialAction: label and accessibleName (null = none).</summary>
-    private static readonly Dictionary<string, (string Label, string? Name)> FinalPicks = BuildPicks();
+    /// <summary>Every picked caption, keyed by specialAction: label, optional sub-label and accessibleName (null = none).</summary>
+    private static readonly Dictionary<string, (string Label, string? SubLabel, string? Name)> FinalPicks = BuildPicks();
 
-    private static Dictionary<string, (string Label, string? Name)> BuildPicks()
+    private static Dictionary<string, (string Label, string? SubLabel, string? Name)> BuildPicks()
     {
-        var picks = new Dictionary<string, (string, string?)>(StringComparer.Ordinal)
+        var picks = new Dictionary<string, (string, string?, string?)>(StringComparer.Ordinal)
         {
-            ["modifier:win"] = ("Win", null),
-            ["modifier:alt"] = ("Alt", null),
-            ["modifier:ctrl"] = ("Strg", null),
-            ["modifier:shift"] = ("\u21E7", "Umschalttaste"),          // ⇧
-            ["toggle:capslock"] = ("\u21EA", "Feststelltaste"),        // ⇪
-            ["backspace"] = ("\u232B", "R\u00FCcktaste"),              // ⌫  Rücktaste
-            ["deleteWord"] = ("\u232B\u232B", "Wort l\u00F6schen"),    // ⌫⌫ Wort löschen
-            ["space"] = ("\u2334", "Leertaste"),                       // ⌴
-            ["enter"] = ("\u21B5", "Eingabetaste"),                    // ↵
-            ["tab"] = ("\u21E5", "Tabulatortaste"),                    // ⇥
-            ["switchEmoji"] = ("\uD83D\uDE00", "Emoji"),               // 😀
-            ["switchSub:letters"] = ("ABC", null),
-            ["switchSub:numbers"] = ("123", null),
-            ["switchSub:symbols"] = ("#+=", null),
-            ["switchSub:function"] = ("Fn", null),
-            ["switchSub:accents"] = ("\u00E0\u00E9", null),            // àé
-            ["key:Escape"] = ("Esc", null),
-            ["key:PrintScreen"] = ("Druck", null),
-            ["key:Home"] = ("Pos1", null),
-            ["key:End"] = ("Ende", null),
-            ["key:PageUp"] = ("Bild\u2191", "Bild-auf-Taste"),         // Bild↑
-            ["key:PageDown"] = ("Bild\u2193", "Bild-ab-Taste"),        // Bild↓
-            ["key:Insert"] = ("Einfg", null),
-            ["key:Delete"] = ("Entf", null),
-            ["key:ArrowUp"] = ("\u2191", "Nach-oben-Taste"),           // ↑
-            ["key:ArrowDown"] = ("\u2193", "Nach-unten-Taste"),        // ↓
-            ["key:ArrowLeft"] = ("\u2190", "Nach-links-Taste"),        // ←
-            ["key:ArrowRight"] = ("\u2192", "Nach-rechts-Taste"),      // →
-            ["shortcut:Ctrl+C"] = ("Kopieren", null),
-            ["shortcut:Ctrl+V"] = ("Einf\u00FCgen", null),             // Einfügen
-            ["shortcut:Ctrl+X"] = ("\u2702", "Ausschneiden"),          // ✂
-            ["shortcut:Ctrl+Z"] = ("\u21B6", "R\u00FCckg\u00E4ngig"),  // ↶  Rückgängig
-            ["shortcut:Ctrl+Y"] = ("\u21B7", "Wiederholen"),           // ↷
-            ["shortcut:Ctrl+A"] = ("Alles mark.", null),
-            ["addWord"] = ("+ Wort", null),
+            ["modifier:win"] = ("Win", null, null),
+            ["modifier:alt"] = ("Alt", null, null),
+            ["modifier:ctrl"] = ("Strg", null, null),
+            ["modifier:shift"] = ("\u21E7", null, "Umschalttaste"),              // ⇧
+            ["toggle:capslock"] = ("\u2B06", null, "Feststelltaste"),           // ⬆ (A2, 2026-10-08)
+            ["backspace"] = ("\u232B", null, "R\u00FCcktaste"),                 // ⌫  Rücktaste
+            ["deleteWord"] = ("\u232B", "Wort", "Wort l\u00F6schen"),           // ⌫ over "Wort" (B4, 2026-10-08)
+            ["space"] = ("\u2334", null, "Leertaste"),                          // ⌴
+            ["enter"] = ("\u21B5", null, "Eingabetaste"),                       // ↵
+            ["tab"] = ("\u21E5", null, "Tabulatortaste"),                       // ⇥
+            ["switchEmoji"] = ("\uD83D\uDE00", null, "Emoji"),                  // 😀
+            ["switchSub:letters"] = ("ABC", null, null),
+            ["switchSub:numbers"] = ("123", null, null),
+            ["switchSub:symbols"] = ("#+=", null, null),
+            ["switchSub:function"] = ("Fn", null, null),
+            ["switchSub:accents"] = ("\u00E0\u00E9", null, null),               // àé
+            ["key:Escape"] = ("Esc", null, null),
+            ["key:PrintScreen"] = ("Druck", null, null),
+            ["key:Home"] = ("Pos1", null, null),
+            ["key:End"] = ("Ende", null, null),
+            ["key:PageUp"] = ("Bild\u2191", null, "Bild-auf-Taste"),            // Bild↑
+            ["key:PageDown"] = ("Bild\u2193", null, "Bild-ab-Taste"),           // Bild↓
+            ["key:Insert"] = ("Einfg", null, null),
+            ["key:Delete"] = ("Entf", null, null),
+            ["key:ArrowUp"] = ("\u2191", null, "Nach-oben-Taste"),              // ↑
+            ["key:ArrowDown"] = ("\u2193", null, "Nach-unten-Taste"),           // ↓
+            ["key:ArrowLeft"] = ("\u2190", null, "Nach-links-Taste"),           // ←
+            ["key:ArrowRight"] = ("\u2192", null, "Nach-rechts-Taste"),         // →
+            ["shortcut:Ctrl+C"] = ("Kopieren", null, null),
+            ["shortcut:Ctrl+V"] = ("Einf\u00FCgen", null, null),                // Einfügen
+            ["shortcut:Ctrl+X"] = ("\u2702", null, "Ausschneiden"),             // ✂
+            ["shortcut:Ctrl+Z"] = ("\u21B6", null, "R\u00FCckg\u00E4ngig"),     // ↶  Rückgängig
+            ["shortcut:Ctrl+Y"] = ("\u21B7", null, "Wiederholen"),              // ↷
+            ["shortcut:Ctrl+A"] = ("Alles mark.", null, null),
+            ["addWord"] = ("+ Wort", null, null),
         };
-        for (var i = 1; i <= 12; i++) picks[$"key:F{i}"] = ($"F{i}", null);
+        for (var i = 1; i <= 12; i++) picks[$"key:F{i}"] = ($"F{i}", null, null);
         return picks;
     }
 
@@ -128,10 +128,13 @@ public class QwertzKeyCaptionDataTests
                 Check.WithCustomMessage(
                         $"{subId}: action '{key.SpecialAction}' is not in the T14 pick table")
                      .That(FinalPicks.ContainsKey(key.SpecialAction)).IsTrue();
-                var (label, name) = FinalPicks[key.SpecialAction];
+                var (label, subLabel, name) = FinalPicks[key.SpecialAction];
                 Check.WithCustomMessage(
                         $"{subId}: '{key.SpecialAction}' captions '{key.Label}', expected '{label}'")
                      .That(key.Label).IsEqualTo(label);
+                Check.WithCustomMessage(
+                        $"{subId}: '{key.SpecialAction}' subLabel '{key.SubLabel}', expected '{subLabel}'")
+                     .That(key.SubLabel).IsEqualTo(subLabel);
                 Check.WithCustomMessage(
                         $"{subId}: '{key.SpecialAction}' accessibleName '{key.AccessibleName}', expected '{name}'")
                      .That(key.AccessibleName).IsEqualTo(name);

@@ -14,7 +14,8 @@ public class SymbolCaptionRuleTests
     private static KeyDefinition Special(string label) => new() { Label = label, SpecialAction = "test:action" };
 
     [Theory]
-    [InlineData("\u21EA")]        // ⇪ Caps
+    [InlineData("\u21EA")]        // ⇪ Caps (round 1; the qwertz label is ⬆ since round 2, but ⇪ is still a symbol)
+    [InlineData("\u2B06")]        // ⬆ Caps, the round-2 pick
     [InlineData("\u21E7")]        // ⇧ Shift
     [InlineData("\u232B")]        // ⌫ Bksp
     [InlineData("\u232B\u232B")]  // ⌫⌫ DelWd

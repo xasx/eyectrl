@@ -2237,7 +2237,22 @@
     },
     {
       "Path": "src/EyeCtrl.Supervisor/UI/SupervisorTrayIcon.cs",
+      "Literal": "\"Exit supervisor\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorTrayIcon.cs",
+      "Literal": "\"EyeCtrl Supervisor settings\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorTrayIcon.cs",
       "Literal": "\"EyeCtrl Supervisor\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorTrayIcon.cs",
+      "Literal": "\"Launch EyeCtrl now\"",
       "Count": 1
     },
     {

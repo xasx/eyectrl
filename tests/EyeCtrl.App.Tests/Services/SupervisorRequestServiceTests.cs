@@ -277,6 +277,27 @@ public sealed class SupervisorRequestServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task TheRestart_CannotStartBeforeTheClientHasReadTheAck()
+    {
+        // H2. The channel's buffers are zero-sized, so the App's ack write completes only once the
+        // client reads it — and the restart waits for that write. This client holds off reading
+        // for a second: under the right order no restart can begin meanwhile. A restart fired
+        // before the write (awaited or not) would start inside that second.
+        using var restartStarted = new ManualResetEventSlim(false);
+        CreateApp(initialStartOnBoot: false, requestRestart: restartStarted.Set);
+
+        await using var client = await ConnectAsync();
+        await WriteAsync(client, SettingRequest.SetUiLanguage(UiLanguage.German, restart: true));
+        var startedBeforeTheClientRead = restartStarted.Wait(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);
+        var ack = await ReadAckAsync(client).WaitAsync(Generous, TestContext.Current.CancellationToken);
+
+        Check.WithCustomMessage("the restart began before the client had read the acknowledgement")
+            .That(startedBeforeTheClientRead).IsFalse();
+        Check.That(ack!.Status).IsEqualTo(SettingRequestStatus.Saved);
+        Check.That(restartStarted.Wait(Generous, TestContext.Current.CancellationToken)).IsTrue();
+    }
+
+    [Fact]
     public async Task TheRestart_RunsOnTheDispatcher_AfterTheAck()
     {
         var ranOn = -1;

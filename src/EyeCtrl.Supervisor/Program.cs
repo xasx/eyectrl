@@ -427,8 +427,12 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         try
         {
             Log.Information("LaunchApp: starting {AppExePath}.", _appExePath);
-            // A language chosen while the App was down rides along as --ui-language (T05b).
-            _pc.Launch(_appExePath, paused: false, uiLanguage: _languageDelivery.Pending);
+            // A language chosen while the App was down rides along as --ui-language (T05b), at
+            // most once per choice: a later relaunch must not override a newer choice the user
+            // made in the App. Both deliveries retry on the launched App's first heartbeat.
+            _pc.Launch(_appExePath, paused: false, uiLanguage: _languageDelivery.LaunchArgument());
+            _languageDelivery.AppLaunched();
+            _startOnBootDelivery.AppLaunched();
             EnsurePipeStarted(); // adoption-mode pipe starts eagerly at startup; this is an idempotent no-op.
             return true;
         }
@@ -664,7 +668,9 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
             Log.Information("FallenBack dialog Retry: relaunching app with --paused and returning to IdleWatch.");
             try
             {
-                _pc.Launch(_appExePath, paused: true, uiLanguage: _languageDelivery.Pending);
+                _pc.Launch(_appExePath, paused: true, uiLanguage: _languageDelivery.LaunchArgument());
+                _languageDelivery.AppLaunched();
+                _startOnBootDelivery.AppLaunched();
                 WireProcessExited();
                 EnsurePipeStarted();
             }

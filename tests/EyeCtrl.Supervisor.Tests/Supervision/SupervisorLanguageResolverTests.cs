@@ -15,6 +15,7 @@ using Xunit;
 /// the Supervisor beside the App today (TODO installer), so each test lays out its own install
 /// folder and points the resolver at it.
 /// </summary>
+[Collection(AppExeEnvironmentCollection.Name)]
 public class SupervisorLanguageResolverTests : IDisposable
 {
     private readonly string _root = Path.Combine(

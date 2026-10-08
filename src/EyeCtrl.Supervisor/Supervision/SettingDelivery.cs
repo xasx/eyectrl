@@ -69,6 +69,10 @@ internal sealed class SettingDelivery<T> where T : struct
     /// <summary>The cap the retry backoff doubles up to.</summary>
     public static readonly TimeSpan MaxRetryDelay = TimeSpan.FromSeconds(60);
 
+    /// <summary>A silence between verified heartbeats longer than this means the App went away
+    /// and came back (the App publishes every few seconds while supervised).</summary>
+    public static readonly TimeSpan HeartbeatGap = TimeSpan.FromSeconds(10);
+
     private readonly string _name;
     private readonly Func<T, bool, SettingRequest> _build;
     private readonly Func<SettingRequest, Task<AppRequestResult>> _send;
@@ -88,6 +92,12 @@ internal sealed class SettingDelivery<T> where T : struct
     private T? _diskAtPark;
     private int _failedAttempts;
     private DateTime? _nextRetryAt;
+    // A freshly (re)started App: the next verified heartbeat retries a pending choice at once,
+    // ignoring the backoff, so the choice settles within one heartbeat instead of up to a minute.
+    private bool _retryOnNextHeartbeat;
+    private DateTime? _lastHeartbeatAt;
+    // The choice (by generation) whose value already rode on a launch as an argument.
+    private int _launchArgumentGeneration = -1;
 
     /// <param name="name">The setting's name, for the log.</param>
     /// <param name="build">Builds the request for a value; the flag is whether it may restart.</param>
@@ -167,8 +177,47 @@ internal sealed class SettingDelivery<T> where T : struct
         Send();
     }
 
-    /// <summary>A verified heartbeat arrived from a running App: retry a parked choice if due.</summary>
-    public void OnAppHeartbeat() => RetryIfDue();
+    /// <summary>A verified heartbeat arrived from a running App: retry a parked choice if due —
+    /// at once, ignoring the backoff, when it is the first heartbeat after a launch
+    /// (<see cref="AppLaunched"/>) or after a gap longer than <see cref="HeartbeatGap"/>.</summary>
+    public void OnAppHeartbeat()
+    {
+        var now = _utcNow();
+        if (_lastHeartbeatAt is not { } last || now - last > HeartbeatGap)
+            _retryOnNextHeartbeat = true;
+        _lastHeartbeatAt = now;
+
+        if (_wanted is null)
+        {
+            _retryOnNextHeartbeat = false;
+            return;
+        }
+        if (_retryOnNextHeartbeat && !_inFlight)
+        {
+            // Kept while a flight is open, so the next heartbeat still gets its immediate retry.
+            _retryOnNextHeartbeat = false;
+            _nextRetryAt = null;
+        }
+        RetryIfDue();
+    }
+
+    /// <summary>
+    /// The value to pass on the Supervisor's next launch of the App (T05b's <c>--ui-language</c>):
+    /// the pending choice, but at most once per choice. A later launch — the App's own supervised
+    /// restart, a crash relaunch — passes nothing, because by then the App may hold a NEWER choice
+    /// the user made in it, and a launch argument is applied without any check. The channel and the
+    /// guarded re-read deliver a choice that the first launch did not settle.
+    /// </summary>
+    public T? LaunchArgument() =>
+        _wanted is { } wanted && _launchArgumentGeneration != _choiceGeneration ? wanted : null;
+
+    /// <summary>The Supervisor launched the App: the current choice counts as passed (when it was),
+    /// and the App's first verified heartbeat retries at once.</summary>
+    public void AppLaunched()
+    {
+        if (_wanted is not null) _launchArgumentGeneration = _choiceGeneration;
+        _retryOnNextHeartbeat = true;
+    }
 
     /// <summary>The Supervisor's clock ticked: retry a parked choice if due. This is what delivers
     /// to an App running with supervision off, which publishes no heartbeats.</summary>
@@ -353,9 +402,24 @@ internal sealed class SettingDelivery<T> where T : struct
             Changed?.Invoke();
             return;
         }
-        // Acknowledged, but the re-read did not find it (contended, or changed again at once):
-        // keep the choice and let the guarded retry settle it, without a restart.
-        Park(disk, "acknowledged, but the re-read did not find it on disk");
+        if (disk is { } newer)
+        {
+            // Readable, and not our value: the App saved ours, then something newer was written —
+            // the user chose again in the App. The newer choice stays, as in the parked guard.
+            // (Parking with it as the reference would make the next retry send ours over it.)
+            Log.Warning(
+                "{Setting}={Value}: acknowledged, but the disk already holds the newer {Newer}; dropped.",
+                _name, sent, newer);
+            _wanted = null;
+            SupersededBy = newer;
+            ResetRetry();
+            State = SettingDeliveryState.Superseded;
+            Changed?.Invoke();
+            return;
+        }
+        // Acknowledged, but the re-read could not tell (contended): keep the choice and let the
+        // guarded retry settle it, without a restart.
+        Park(disk, "acknowledged, but the re-read could not confirm it");
     }
 
     /// <summary>Keeps the newest choice for a later retry, backing off. From here on it is no

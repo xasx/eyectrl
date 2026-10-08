@@ -281,7 +281,10 @@ public class SettingDeliveryTests
     [Fact]
     public void RetriesBeforeTheBackoffHasPassed_AreSkipped_ForTickAndHeartbeatAlike()
     {
+        // Steady heartbeats (a few seconds apart): the immediate retry after a launch or a gap
+        // (fixup-01 F1) does not apply, so the backoff alone gates the retries.
         var parkedAt = _now;
+        _delivery.OnAppHeartbeat();
         _delivery.Request(true);
         Reply(0, NotAvailable);
         Check.That(_delivery.NextRetryAt).IsEqualTo(parkedAt + TimeSpan.FromSeconds(5));
@@ -299,6 +302,9 @@ public class SettingDeliveryTests
         var secondParkAt = _now;
         Reply(1, Ack(SettingRequestStatus.Failed));
         Check.That(_delivery.NextRetryAt).IsEqualTo(secondParkAt + TimeSpan.FromSeconds(10));
+        _now = secondParkAt + TimeSpan.FromSeconds(4);
+        _delivery.OnAppHeartbeat();
+        Check.That(_sends).HasSize(2);
         _now = secondParkAt + TimeSpan.FromSeconds(9.9);
         _delivery.OnAppHeartbeat();
         Check.That(_sends).HasSize(2);

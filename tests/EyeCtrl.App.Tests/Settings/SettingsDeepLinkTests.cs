@@ -50,6 +50,75 @@ public class SettingsDeepLinkDecisionTests
     }
 }
 
+/// <summary>
+/// The dispatch plan and its execution: the whole effect of each action, as data plus two
+/// mechanical `if`s. Because the coordinator has no branch of its own, every mutation of an arm
+/// (None navigating, true/false swapped, a guard negated) lands here and is killed.
+/// </summary>
+public class SettingsDispatchPlanTests
+{
+    [Fact]
+    public void None_OpensNothing_AndNavigatesNothing()
+    {
+        Check.That(SettingsDispatchPlan.For(SettingsDeepLinkAction.None))
+            .IsEqualTo(new SettingsDispatchPlan(OpenWindow: false, Navigate: false));
+    }
+
+    [Fact]
+    public void OpenOnly_OpensTheWindow_AndDoesNotNavigate()
+    {
+        Check.That(SettingsDispatchPlan.For(SettingsDeepLinkAction.OpenOnly))
+            .IsEqualTo(new SettingsDispatchPlan(OpenWindow: true, Navigate: false));
+    }
+
+    [Fact]
+    public void OpenThenNavigate_OpensThenNavigates()
+    {
+        Check.That(SettingsDispatchPlan.For(SettingsDeepLinkAction.OpenThenNavigate))
+            .IsEqualTo(new SettingsDispatchPlan(OpenWindow: true, Navigate: true));
+    }
+
+    [Fact]
+    public void NavigateOpen_NavigatesOnly()
+    {
+        Check.That(SettingsDispatchPlan.For(SettingsDeepLinkAction.NavigateOpen))
+            .IsEqualTo(new SettingsDispatchPlan(OpenWindow: false, Navigate: true));
+    }
+
+    [Theory]
+    [InlineData((int)SettingsDeepLinkAction.None, false, false)]
+    [InlineData((int)SettingsDeepLinkAction.OpenOnly, true, false)]
+    [InlineData((int)SettingsDeepLinkAction.OpenThenNavigate, true, true)]
+    [InlineData((int)SettingsDeepLinkAction.NavigateOpen, false, true)]
+    public void Execute_RunsExactlyThePlan_InOrder(
+        int action, bool expectOpen, bool expectNavigate)
+    {
+        var calls = new List<string>();
+        SettingsDispatchPlan.Execute(
+            SettingsDispatchPlan.For((SettingsDeepLinkAction)action),
+            openWindow: () => calls.Add("open"),
+            navigate: () => calls.Add("navigate"));
+
+        var expected = new List<string>();
+        if (expectOpen) expected.Add("open");
+        if (expectNavigate) expected.Add("navigate");
+        Check.That(calls).ContainsExactly(expected);
+    }
+
+    [Fact]
+    public void Dispatch_ComposesDecisionAndPlan()
+    {
+        var calls = new List<string>();
+        SettingsDeepLink.Dispatch(
+            windowOpen: false,
+            target: SettingsTarget.GeneralPage1,
+            openWindow: () => calls.Add("open"),
+            navigate: () => calls.Add("navigate"));
+
+        Check.That(calls).ContainsExactly("open", "navigate");
+    }
+}
+
 /// <summary>One-slot pending navigation behind a modal (unchanged from the original fixup input).</summary>
 public class SettingsDeepLinkQueueTests
 {
@@ -102,27 +171,27 @@ public class SettingsDeepLinkWiringTests
         var body = source[start..source.IndexOf("\n    }", start, StringComparison.Ordinal)];
 
         Check.WithCustomMessage(
-                "ShowSettingsWindow no longer dispatches through SettingsDeepLink.Decide — the "
-                + "decision is unit-tested there; an ad-hoc condition here is how M5/M6 stayed "
-                + "alive. Repoint this check, do not delete it.")
-            .That(body).Contains("SettingsDeepLink.Decide(");
+                "ShowSettingsWindow no longer dispatches through SettingsDeepLink — the decision, "
+                + "plan and execution are unit-tested there; a branch here is how the arm mutations "
+                + "survive. Repoint this check, do not delete it.")
+            .That(body).Contains("SettingsDeepLink.Dispatch(");
         Check.WithCustomMessage(
                 "ShowSettingsWindow should contain no ad-hoc GeneralPage1 comparison any more; "
                 + "the whole decision belongs in SettingsDeepLink.Decide.")
             .That(body).Not.Contains("SettingsTarget.GeneralPage1");
+        Check.WithCustomMessage(
+                "The dispatch belongs to SettingsDeepLink (plan + Execute), so the coordinator has "
+                + "no per-action switch arm of its own to mutate (M5c/M6c/M6d).")
+            .That(body).Not.Contains("switch");
 
-        var openStart = source.IndexOf("private void OpenSettingsWindow(bool navigateToLanguageRow)", StringComparison.Ordinal);
+        // The fresh-window navigation must not sit inside the construction try (F7): it runs from
+        // Dispatch's Execute, after OpenSettingsWindow has returned.
+        var openStart = source.IndexOf("private void OpenSettingsWindow()", StringComparison.Ordinal);
         Check.That(openStart).IsStrictlyGreaterThan(-1);
         var openBody = source[openStart..source.IndexOf("\n    }", openStart, StringComparison.Ordinal)];
         Check.WithCustomMessage(
-                "The fresh-window arm must navigate for OpenThenNavigate and only for it (kills M6): "
-                + "a disabled guard here loses the tray's 0-dwell reach.")
-            .That(body).Contains("OpenSettingsWindow(navigateToLanguageRow: true);");
-        Check.That(body).Contains("OpenSettingsWindow(navigateToLanguageRow: false);");
-        Check.WithCustomMessage(
-                "The fresh-window navigation must run AFTER the construction try — the catch assumes "
-                + "the throw came before Show() (F7).")
-            .That(openBody).Contains("NavigateToLanguageRow()");
+                "OpenSettingsWindow must not navigate itself — Dispatch's Execute owns the ordering.")
+            .That(openBody).Not.Contains("NavigateToLanguageRow()");
     }
 
     [Fact]
@@ -155,6 +224,14 @@ public class SettingsDeepLinkWiringTests
             .That(rowBody).Contains("ShowTab(\"General\")");
         Check.That(rowBody).Contains("_viewModel.ActiveTabId = \"General\"");
         Check.That(rowBody).Contains("SwitchTabPage(");
+        // F6a: the sidebar page comes from General's OWN index in the real tab list, so moving
+        // General (or changing the tabs-per-page arithmetic) cannot strand the highlight on the
+        // wrong sidebar page.
+        Check.WithCustomMessage(
+                "The sidebar page must be computed from General's own _tabDefs index (F6a), not a "
+                + "constant page number.")
+            .That(rowBody).Contains("Array.FindIndex(_tabDefs, t => t.Id == \"General\")");
+        Check.That(rowBody).Contains("SettingsTabPagination.PageOf(index, _tabsPerPage)");
     }
 
     [Fact]

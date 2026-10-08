@@ -116,10 +116,10 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     }
 
     /// <summary>
-    /// Opens settings, or applies a deep link to the window that is already open. The decision
-    /// itself is <see cref="SettingsDeepLink.Decide"/> — pure, so all four states (open/closed ×
-    /// default/language) are unit-tested; this method only dispatches. The modal case is the
-    /// window's own queue: a navigate action is queued behind a modal and never discarded.
+    /// Opens settings, or applies a deep link to the window that is already open. There is no
+    /// branch here: <see cref="SettingsDeepLink.Dispatch"/> decides (pure, unit-tested), turns the
+    /// action into a plan and runs it — open first, then the fresh navigation, so the navigation
+    /// lands after construction without its own guard. The modal case is the window's own queue.
     /// </summary>
     /// <param name="target">Where the request should land; <see cref="SettingsTarget.Default"/>
     /// keeps the historical "open where it opens" behaviour and never touches an open window.</param>
@@ -127,31 +127,15 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     {
         if (Context is null) return;
 
-        var action = SettingsDeepLink.Decide(_settingsWindow is not null, target);
-        switch (action)
-        {
-            case SettingsDeepLinkAction.None:
-                return;
-            case SettingsDeepLinkAction.NavigateOpen:
-                _settingsWindow!.NavigateToLanguageRow();
-                return;
-            case SettingsDeepLinkAction.OpenOnly:
-                OpenSettingsWindow(navigateToLanguageRow: false);
-                return;
-            case SettingsDeepLinkAction.OpenThenNavigate:
-                OpenSettingsWindow(navigateToLanguageRow: true);
-                return;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(action), action, null);
-        }
+        SettingsDeepLink.Dispatch(
+            windowOpen: _settingsWindow is not null,
+            target: target,
+            openWindow: OpenSettingsWindow,
+            navigate: () => _settingsWindow?.NavigateToLanguageRow());
     }
 
-    /// <summary>
-    /// Constructs and shows a fresh settings window, then — outside the construction try —
-    /// optionally navigates it to the language row.
-    /// </summary>
-    /// <param name="navigateToLanguageRow">Whether the deep link asked for the language row.</param>
-    private void OpenSettingsWindow(bool navigateToLanguageRow)
+    /// <summary>Constructs and shows a fresh settings window. Never navigates; the caller does.</summary>
+    private void OpenSettingsWindow()
     {
         var context = Context!;
 
@@ -206,12 +190,6 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
                 context.OverlayManager.CursorCircle.Show();
             throw;
         }
-
-        // AFTER the try: the catch above assumes construction threw before Show(). Navigating a
-        // shown window's tab can throw from its rebuild, and that must not run the
-        // construction-failed cleanup against a window that is up (F7).
-        if (navigateToLanguageRow && _settingsWindow is { } opened)
-            opened.NavigateToLanguageRow();
     }
 
     private void OnSettingsChanged(EyeCtrlSettings s)

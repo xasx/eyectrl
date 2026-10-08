@@ -282,7 +282,7 @@ public partial class KeyboardWindow : OverlayWindow
                     label.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
                     label.LineHeight = label.FontSize;
 
-                    var wordLine = new TextBlock
+                    var wordLine = new DecorativeTextBlock
                     {
                         Text = key.SubLabel,
                         Foreground = Tokens.BrushTextPrimary,

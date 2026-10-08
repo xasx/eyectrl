@@ -120,7 +120,9 @@ public class SymbolCaptionFitTests
         var clipped = new List<string>();
         var clippedExceptions = new HashSet<(string File, string Action, double Mult)>();
         var wrongBox = new List<string>();
+        var wrongKeySize = new List<string>();
         var notOneLine = new List<string>();
+        var linePins = new List<string>();
         var verticalOverflow = new List<string>();
         var cases = new List<(double Side, string Where)>();
         var minAdvance = double.PositiveInfinity;
@@ -175,13 +177,46 @@ public class SymbolCaptionFitTests
                                             + $"{advance:0.000} > box {container.ActualWidth:0.000}");
                         }
 
-                        // The round-2 vertical gate: the caption (both lines for B4, each exactly
-                        // its font size high) must fit the key's height. The designer measured the
+                        // The round-2 vertical gate. Measured UNCONSTRAINED and against the key
+                        // height minus the rule's edge padding: inside the fixed-height Border WPF
+                        // clamps DesiredSize to the available height, so reading it there can never
+                        // fail (review-03 F1; mutant V1 survived that). Invalidate first — a clean
+                        // element ignores a new measure constraint. The designer measured the
                         // ⌫/Wort stack at 28.8 DIP in 35 at 0.5x.
-                        if (content.DesiredSize.Height > container.ActualHeight + 1e-6)
+                        content.InvalidateMeasure();
+                        content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                        var captionHeight = content.DesiredSize.Height;
+                        if (captionHeight > container.ActualHeight - 2 * 2.0 + 1e-6)
                             verticalOverflow.Add($"{file} {sub} '{label.Text}' ({id}) at {mult:0.0}x: "
-                                                 + $"caption {content.DesiredSize.Height:0.###} > key "
-                                                 + $"{container.ActualHeight:0.###}");
+                                                 + $"caption {captionHeight:0.###} > key "
+                                                 + $"{container.ActualHeight - 2 * 2.0:0.###} minus padding");
+
+                        // A two-line caption is exactly as tall as its two font sizes by
+                        // construction: each line is BlockLineHeight with LineHeight == FontSize
+                        // (V1 removes those and must fail), and the height cap guarantees their sum
+                        // keeps the edge padding. Pinned per line so a failure names the line.
+                        if (key.SubLabel is not null)
+                        {
+                            var lines = CaptionLines(content, label).ToList();
+                            foreach (var line in lines)
+                            {
+                                if (line.LineStackingStrategy != LineStackingStrategy.BlockLineHeight
+                                    || Math.Abs(line.LineHeight - line.FontSize) > 1e-9)
+                                    linePins.Add($"{file} {sub} '{line.Text}' ({id}) at {mult:0.0}x: "
+                                                 + $"LineStackingStrategy={line.LineStackingStrategy}, "
+                                                 + $"LineHeight={line.LineHeight:0.###}, FontSize={line.FontSize:0.###}");
+                            }
+                            var fontSum = lines.Sum(l => l.FontSize);
+                            if (fontSum > container.ActualHeight - 2 * 2.0 + 1e-6)
+                                linePins.Add($"{file} {sub} '{label.Text}' ({id}) at {mult:0.0}x: line fonts "
+                                             + $"{fontSum:0.###} > key {container.ActualHeight:0.###} minus padding");
+                        }
+
+                        // The key's own size is pinned too: this gate's arithmetic is stated in
+                        // keySize, and nothing else holds the hidden 70 DIP BaseKeySize (K1b).
+                        if (Math.Abs(container.ActualHeight - 70 * mult) > 1e-4)
+                            wrongKeySize.Add($"{file} {sub} '{label.Text}' ({id}) at {mult:0.0}x: key height "
+                                             + $"{container.ActualHeight:0.###}, expected {70 * mult:0.###}");
 
                         // The ticket draws the line at "one line, no wrapping or trimming" per
                         // caption line. Pinned because the advance gate would still pass if a
@@ -208,6 +243,14 @@ public class SymbolCaptionFitTests
                     "Captions overflow their key's height (the round-2 two-line gate): "
                     + string.Join("; ", verticalOverflow))
                  .That(verticalOverflow).IsEmpty();
+            Check.WithCustomMessage(
+                    "Two-line caption lines are not exactly their font size high: "
+                    + string.Join("; ", linePins))
+                 .That(linePins).IsEmpty();
+            Check.WithCustomMessage(
+                    "Key heights do not match BaseKeySize (70) x multiplier: "
+                    + string.Join("; ", wrongKeySize))
+                 .That(wrongKeySize).IsEmpty();
 
             // Freshness: an exception that stopped clipping is protecting nothing and would
             // happily hide the same caption clipping again later. Fixing the English layouts must
@@ -550,6 +593,42 @@ public class SymbolCaptionFitTests
         if (visual.Content is not StackPanel stack) return null;
         var lines = stack.Children.OfType<TextBlock>().ToList();
         return lines.Count == 2 ? (lines[0], lines[1]) : null;
+    }
+
+    /// <summary>
+    /// F2 (review-03): the B4 word line must not be a second UIA element. A screen reader on the
+    /// word-backspace key must hear its one name, "Wort löschen" with Keyboard_Key_deleteWord, and
+    /// not "Wort löschen, Wort". The key's peer tree is walked the way UIA would build it: create a
+    /// peer for every visual, keep the named ones. DecorativeTextBlock yields no peer at all.
+    /// </summary>
+    [StaFact]
+    public void ShippedQwertz_WordBackspaceKey_ExposesExactlyOneNamedUiaElement()
+    {
+        var layout = ShippedQwertz();
+        var (window, vm) = Open(layout, 1.5);
+        try
+        {
+            var key = KeyVisuals(window, layout, "letters").Single(v => v.Key.SpecialAction == "deleteWord");
+            var named = new List<(string Name, string Id)>();
+            void Walk(DependencyObject node)
+            {
+                if (node is UIElement element
+                    && UIElementAutomationPeer.CreatePeerForElement(element) is { } peer
+                    && !string.IsNullOrEmpty(peer.GetName()))
+                    named.Add((peer.GetName(), peer.GetAutomationId()));
+                for (var i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++)
+                    Walk(VisualTreeHelper.GetChild(node, i));
+            }
+            Walk(key.Container);
+
+            Check.WithCustomMessage(
+                    "UIA elements under the word-backspace key: "
+                    + string.Join("; ", named.Select(n => $"'{n.Name}' id='{n.Id}'")))
+                 .That(named).HasSize(1);
+            Check.That(named[0].Name).IsEqualTo("Wort löschen");
+            Check.That(named[0].Id).IsEqualTo("Keyboard_Key_deleteWord");
+        }
+        finally { window.Close(); }
     }
 
     private static string ContentKind(KeyboardWindow window, KeyboardLayout layout)

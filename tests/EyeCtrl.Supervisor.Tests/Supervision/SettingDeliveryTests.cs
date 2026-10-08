@@ -323,8 +323,11 @@ public class SettingDeliveryTests
         Check.That(_delivery.NextRetryAt).IsEqualTo(_now + TimeSpan.FromSeconds(5));
     }
 
+    // The observable property: a park after a save starts again at the first delay. Removing the
+    // reset on the save path alone cannot fail this — every later park follows a new choice, and
+    // Request resets too — so that reset is defensive, and this pins the behaviour, not the line.
     [Fact]
-    public void ASave_ResetsTheBackoff()
+    public void AParkAfterASave_StartsAgainAtTheFirstDelay()
     {
         _delivery.Request(true);
         Reply(0, NotAvailable);

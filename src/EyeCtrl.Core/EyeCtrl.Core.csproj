@@ -21,4 +21,16 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      English is compiled in so it can never go missing: the startup-error box and the Supervisor
+      render from it even when no loose file exists. The explicit LogicalName is what
+      StringTable.EmbeddedResourceName reads; the value itself stays empty until the English-move
+      tickets start filling it.
+    -->
+    <EmbeddedResource Include="Localization\strings.json">
+      <LogicalName>EyeCtrl.Core.Localization.strings.json</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
 </Project>

@@ -1,0 +1,9 @@
+{
+  "settings.sample": {
+    "text": "OK",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  }
+}

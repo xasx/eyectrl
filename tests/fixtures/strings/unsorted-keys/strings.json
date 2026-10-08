@@ -1,0 +1,16 @@
+{
+  "settings.beta": {
+    "text": "Beta",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.alpha": {
+    "text": "Alpha",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  }
+}

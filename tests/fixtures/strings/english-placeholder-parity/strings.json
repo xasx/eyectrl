@@ -1,0 +1,9 @@
+{
+  "settings.sample": {
+    "text": "{0} files",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  }
+}

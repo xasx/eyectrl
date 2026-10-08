@@ -1,0 +1,9 @@
+{
+  "settings.sample": {
+    "text": {
+      "one": "{0:0.0} Datei",
+      "other": "{0} Dateien"
+    },
+    "src": "684c7423"
+  }
+}

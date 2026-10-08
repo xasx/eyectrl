@@ -1,0 +1,110 @@
+namespace EyeCtrl.Supervisor.Tests.Supervision;
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using EyeCtrl.Core.Enums;
+using EyeCtrl.Core.Localization;
+using EyeCtrl.Supervisor.Supervision;
+using NFluent;
+using Xunit;
+
+/// <summary>
+/// The Supervisor's lazy lookup: the language comes from the settings file under the writer mutex,
+/// and the loose German files are searched beside the App exe it already resolves. Nothing places
+/// the Supervisor beside the App today (TODO installer), so each test lays out its own install
+/// folder and points the resolver at it.
+/// </summary>
+public class SupervisorLanguageResolverTests : IDisposable
+{
+    private readonly string _root = Path.Combine(
+        Path.GetTempPath(), "eyectrl-sup-lang-" + Guid.NewGuid().ToString("N"));
+    private readonly string _install;
+    private readonly string _settingsPath;
+    private readonly string _appExePath;
+    private readonly string _writerMutexName =
+        @"Local\EyeCtrl.Settings.Writer.Test." + Guid.NewGuid().ToString("N");
+
+    public SupervisorLanguageResolverTests()
+    {
+        _install = Path.Combine(_root, "install");
+        Directory.CreateDirectory(_install);
+        _settingsPath = Path.Combine(_root, "settings.json");
+        _appExePath = Path.Combine(_install, "EyeCtrl.App.exe");
+        File.WriteAllText(_appExePath, string.Empty);
+    }
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_root, recursive: true); } catch { }
+    }
+
+    private SupervisorLanguageResolver Resolver() =>
+        new(_settingsPath, appExePath: _appExePath, writerMutexName: _writerMutexName);
+
+    private void WriteLanguage(string token) =>
+        File.WriteAllText(_settingsPath, "{\"general\":{\"uiLanguage\":\"" + token + "\"}}");
+
+    [Fact]
+    public void ResolveLanguage_ReadsTheSettingsFile()
+    {
+        WriteLanguage("english");
+        Check.That(Resolver().ResolveLanguage()).IsEqualTo(UiLanguage.English);
+
+        WriteLanguage("german");
+        Check.That(Resolver().ResolveLanguage()).IsEqualTo(UiLanguage.German);
+    }
+
+    [Fact]
+    public void ResolveTable_FindsTheLooseFilesBesideTheResolvedAppExe()
+    {
+        WriteLanguage("german");
+        File.WriteAllText(Path.Combine(_install, StringTable.GermanFileName), "{}");
+        File.WriteAllText(Path.Combine(_install, StringTable.ManifestFileName), "[]");
+
+        var warnings = new List<string>();
+        var table = Resolver().ResolveTable(warnings.Add);
+
+        Check.That(table.Language).IsEqualTo(UiLanguage.German);
+        Check.That(warnings).IsEmpty();
+    }
+
+    [Fact]
+    public void ResolveTable_MissingLooseFiles_WarnsAboutTheInstallFolder()
+    {
+        WriteLanguage("german");
+
+        var warnings = new List<string>();
+        _ = Resolver().ResolveTable(warnings.Add);
+
+        Check.That(warnings).HasElementThatMatches(w => w.Contains(StringTable.GermanFileName, StringComparison.Ordinal));
+        Check.That(warnings).HasElementThatMatches(w => w.Contains(StringTable.ManifestFileName, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ResolverWithoutAnExplicitPath_UsesTheResolvedAppExe()
+    {
+        // The install folder is exposed through EYECTRL_APP_EXE, the same way the installer will
+        // supply the canonical path; the lookup must follow the resolved exe, not the Supervisor's
+        // own directory.
+        WriteLanguage("german");
+        File.WriteAllText(Path.Combine(_install, StringTable.GermanFileName), "{}");
+        File.WriteAllText(Path.Combine(_install, StringTable.ManifestFileName), "[]");
+
+        var original = Environment.GetEnvironmentVariable(AppExePathResolver.AppExeEnvVar);
+        try
+        {
+            Environment.SetEnvironmentVariable(AppExePathResolver.AppExeEnvVar, _appExePath);
+            var warnings = new List<string>();
+            var table = new SupervisorLanguageResolver(_settingsPath, writerMutexName: _writerMutexName)
+                .ResolveTable(warnings.Add);
+
+            Check.That(table.Language).IsEqualTo(UiLanguage.German);
+            Check.That(warnings).IsEmpty();
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(AppExePathResolver.AppExeEnvVar, original);
+        }
+    }
+}

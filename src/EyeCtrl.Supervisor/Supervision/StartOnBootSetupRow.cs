@@ -50,15 +50,19 @@ internal sealed class StartOnBootSetupRow : IDisposable
             : strings.T("supervisor.setup.logon.saved-off"),
         SettingDeliveryState.Parked => strings.T("supervisor.setup.logon.parked"),
         SettingDeliveryState.Refused => strings.T("supervisor.setup.logon.refused"),
+        SettingDeliveryState.Superseded => strings.T("supervisor.setup.logon.superseded"),
         _ => null,
     };
 
     private void OnDeliveryChanged()
     {
-        // An acknowledgement means the value is on disk now: the row keeps showing it after the
-        // pending choice clears, without a second disk read on the UI thread.
+        // A save means the value is on disk now, and a superseded park means the disk holds a
+        // newer choice: either way the row shows that value once the pending choice clears,
+        // without a second disk read on the UI thread.
         if (_delivery.State == SettingDeliveryState.Saved && _delivery.LastSaved is { } saved)
             _onDisk = saved;
+        else if (_delivery.State == SettingDeliveryState.Superseded && _delivery.SupersededBy is { } newer)
+            _onDisk = newer;
         Changed?.Invoke();
     }
 

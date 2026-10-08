@@ -83,7 +83,8 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
 
     // T05a: the App owns general.startOnBoot, so the setup window's logon toggle asks the App to
     // save it over the request channel. The delivery outlives the window: a choice parked while
-    // the App is down is retried on every verified heartbeat until the App acknowledges it.
+    // the App is down is retried — on verified heartbeats and on the clock tick, with backoff —
+    // until it is on disk. It lives in memory only, so this process exiting loses it.
     private SettingDelivery<bool> _startOnBootDelivery = null!;
     private StartOnBootTracker _startOnBootTracker = null!;
     private SupervisorLanguageResolver _languageResolver = null!;
@@ -177,7 +178,9 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
             "StartOnBoot",
             (startOnBoot, _) => SettingRequest.SetStartOnBoot(startOnBoot),
             appRequests.SendAsync,
-            work => Dispatcher.BeginInvoke(work));
+            work => Dispatcher.BeginInvoke(work),
+            // The stale-park guard's re-read: guarded, raw, off the UI thread (never Load()).
+            readDisk: () => StartOnBootReader.TryRead(settingsPath));
         _startOnBootTracker = new StartOnBootTracker(settingsPath, _settings.General.StartOnBoot);
         _languageResolver = new SupervisorLanguageResolver(settingsPath, _appExePath);
 
@@ -370,7 +373,13 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     /// _loopLock), so the tick itself does not need to lock, and it already runs on the UI thread
     /// alongside all other HandleInput callers.
     /// </summary>
-    private void OnClockTick() => SupervisionClock.Tick(DateTime.UtcNow, this);
+    private void OnClockTick()
+    {
+        SupervisionClock.Tick(DateTime.UtcNow, this);
+        // A parked StartOnBoot choice must reach an App running with supervision off too, which
+        // publishes no heartbeats. The delivery applies its own backoff and single-flight.
+        _startOnBootDelivery.OnRetryTick();
+    }
 
     SupervisionStateMachine ISupervisionClockHost.Machine => _sm;
     SupervisionSettings ISupervisionClockHost.Settings => _settings.Supervision;
@@ -696,6 +705,10 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     protected override void OnExit(ExitEventArgs e)
     {
         Log.Information("Supervisor exiting.");
+        if (_startOnBootDelivery?.Pending is { } undelivered)
+            Log.Warning(
+                "Supervisor exiting with StartOnBoot={Value} still parked; it was never saved and is lost (the park lives in memory).",
+                undelivered);
         _tickTimer?.Stop();
         _pipe?.Dispose();
         _tray?.Dispose();

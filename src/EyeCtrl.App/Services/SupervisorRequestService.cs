@@ -45,7 +45,7 @@ public sealed class SupervisorRequestService : IDisposable
     /// <param name="pipeName">Pipe to serve on; tests pass <see cref="DefaultPipeName"/> +
     /// <c>"_test_" + Guid</c>, because pipe names are machine-global.</param>
     /// <param name="isAuthorizedClient">Decides whether a connected client may send requests.
-    /// Defaults to <see cref="IsSupervisorClient"/>; tests whose client is the test host itself
+    /// Defaults to <see cref="IsSupervisorClient(NamedPipeServerStream)"/>; tests whose client is the test host itself
     /// pass their own.</param>
     public SupervisorRequestService(
         Func<SettingRequest, SettingRequestStatus> handle,
@@ -126,15 +126,23 @@ public sealed class SupervisorRequestService : IDisposable
     /// the Supervisor may run from a relocated copy, the same rule the heartbeat publisher applies
     /// to the Supervisor's server) in this Windows session. Fails closed.
     /// </summary>
-    public static bool IsSupervisorClient(NamedPipeServerStream pipe)
+    public static bool IsSupervisorClient(NamedPipeServerStream pipe) =>
+        IsSupervisorClient(pipe, SupervisorLauncher.ResolveExePath());
+
+    /// <summary>
+    /// The client check against an explicit Supervisor exe: the connected process runs in this
+    /// session and its exe has the same FILE NAME as <paramref name="expectedSupervisorExe"/> (any
+    /// directory). Null — no Supervisor installed — refuses. Fails closed.
+    /// </summary>
+    public static bool IsSupervisorClient(NamedPipeServerStream pipe, string? expectedSupervisorExe)
     {
         try
         {
+            if (expectedSupervisorExe is null) return false;
             if (!PipeClientIdentity.ClientIsSameSession(pipe)) return false;
             if (!PipeClientIdentity.TryGetClientExePath(pipe, out var exe) || exe is null) return false;
-            var expected = SupervisorLauncher.ResolveExePath();
-            return expected is not null && string.Equals(
-                Path.GetFileName(exe), Path.GetFileName(expected), StringComparison.OrdinalIgnoreCase);
+            return string.Equals(
+                Path.GetFileName(exe), Path.GetFileName(expectedSupervisorExe), StringComparison.OrdinalIgnoreCase);
         }
         catch
         {

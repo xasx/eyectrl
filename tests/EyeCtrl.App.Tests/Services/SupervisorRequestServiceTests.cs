@@ -119,6 +119,56 @@ public sealed class SupervisorRequestServiceTests : IDisposable
         Check.That(SupervisorRequestService.IsSupervisorClient(server)).IsFalse();
     }
 
+    // The positive side of the client check, through the expected-exe overload the production
+    // check delegates to. The connected client is this test host, so the test host's own exe
+    // plays the Supervisor.
+
+    [Fact]
+    public async Task TheClientCheck_AcceptsTheExpectedSupervisorExe()
+    {
+        var (server, client) = await ConnectedPairAsync();
+        using (server) using (client)
+            Check.That(SupervisorRequestService.IsSupervisorClient(server, Environment.ProcessPath)).IsTrue();
+    }
+
+    [Fact]
+    public async Task TheClientCheck_MatchesByFileName_InAnyDirectory()
+    {
+        // A Supervisor run from a relocated copy is still the Supervisor (the heartbeat rule).
+        var relocated = Path.Combine(@"C:\Elsewhere\Install", Path.GetFileName(Environment.ProcessPath!).ToUpperInvariant());
+        var (server, client) = await ConnectedPairAsync();
+        using (server) using (client)
+            Check.That(SupervisorRequestService.IsSupervisorClient(server, relocated)).IsTrue();
+    }
+
+    [Fact]
+    public async Task TheClientCheck_RefusesAnotherFileName()
+    {
+        var other = Path.Combine(Path.GetDirectoryName(Environment.ProcessPath!)!, "EyeCtrl.Supervisor.exe");
+        var (server, client) = await ConnectedPairAsync();
+        using (server) using (client)
+            Check.That(SupervisorRequestService.IsSupervisorClient(server, other)).IsFalse();
+    }
+
+    [Fact]
+    public async Task TheClientCheck_RefusesWhenNoSupervisorIsInstalled()
+    {
+        var (server, client) = await ConnectedPairAsync();
+        using (server) using (client)
+            Check.That(SupervisorRequestService.IsSupervisorClient(server, null)).IsFalse();
+    }
+
+    private async Task<(NamedPipeServerStream Server, NamedPipeClientStream Client)> ConnectedPairAsync()
+    {
+        var server = new NamedPipeServerStream(_pipeName, PipeDirection.InOut, 1,
+            PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+        var client = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        var accepting = server.WaitForConnectionAsync(TestContext.Current.CancellationToken);
+        await client.ConnectAsync(5000, TestContext.Current.CancellationToken);
+        await accepting.WaitAsync(Generous, TestContext.Current.CancellationToken);
+        return (server, client);
+    }
+
     // ── Bad requests and failed saves ───────────────────────────────────────────────────────
 
     [Fact]

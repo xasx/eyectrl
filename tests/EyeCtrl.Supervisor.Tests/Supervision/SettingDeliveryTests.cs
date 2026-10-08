@@ -13,6 +13,7 @@ public class SettingDeliveryTests
 {
     private readonly List<(SettingRequest Request, bool Value, TaskCompletionSource<AppRequestResult> Reply)> _sends = new();
     private readonly SettingDelivery<bool> _delivery;
+    private DateTime _now = new(2026, 10, 8, 12, 0, 0, DateTimeKind.Utc);
 
     public SettingDeliveryTests()
     {
@@ -27,7 +28,15 @@ public class SettingDeliveryTests
                 _sends.Add((request, request.Value.GetBoolean(), reply));
                 return reply.Task;
             },
-            work => work());
+            work => work(),
+            utcNow: () => _now);
+    }
+
+    /// <summary>Moves the clock to the delivery's next retry time, then delivers a heartbeat.</summary>
+    private void RetryWhenDue()
+    {
+        if (_delivery.NextRetryAt is { } due && due > _now) _now = due;
+        _delivery.OnAppHeartbeat();
     }
 
     private static AppRequestResult Ack(SettingRequestStatus status) => new(status, "test");
@@ -77,7 +86,7 @@ public class SettingDeliveryTests
         _delivery.Request(true);
         Reply(0, NotAvailable);
 
-        _delivery.OnAppHeartbeat();
+        RetryWhenDue();
         Check.That(_sends).HasSize(2);
         Check.That(_sends[1].Value).IsTrue();
         Check.That(_delivery.Pending).IsEqualTo(true);   // still pending while in flight
@@ -96,7 +105,7 @@ public class SettingDeliveryTests
         Check.That(_delivery.State).IsEqualTo(SettingDeliveryState.Parked);
         Check.That(_delivery.Pending).IsEqualTo(true);
 
-        _delivery.OnAppHeartbeat();
+        RetryWhenDue();
         Check.That(_sends).HasSize(2);
     }
 
@@ -108,7 +117,7 @@ public class SettingDeliveryTests
 
         Check.That(_delivery.State).IsEqualTo(SettingDeliveryState.Refused);
         Check.That(_delivery.Pending).IsNull();
-        _delivery.OnAppHeartbeat();
+        RetryWhenDue();
         Check.That(_sends).HasSize(1);
     }
 
@@ -118,9 +127,9 @@ public class SettingDeliveryTests
         _delivery.Request(true);
         Reply(0, NotAvailable);
 
-        _delivery.OnAppHeartbeat();               // starts the retry
+        RetryWhenDue();               // starts the retry
         for (var i = 0; i < 5; i++)
-            _delivery.OnAppHeartbeat();           // heartbeats faster than the acknowledgement bound
+            RetryWhenDue();           // heartbeats faster than the acknowledgement bound
 
         Check.That(_sends).HasSize(2);
         Check.That(_delivery.IsInFlight).IsTrue();
@@ -129,10 +138,10 @@ public class SettingDeliveryTests
     [Fact]
     public void AHeartbeatWithNothingParked_SendsNothing()
     {
-        _delivery.OnAppHeartbeat();
+        RetryWhenDue();
         _delivery.Request(false);
         Reply(0, Ack(SettingRequestStatus.Saved));
-        _delivery.OnAppHeartbeat();
+        RetryWhenDue();
 
         Check.That(_sends).HasSize(1);
     }
@@ -146,7 +155,7 @@ public class SettingDeliveryTests
         Reply(1, NotAvailable);
 
         Check.That(_delivery.Pending).IsEqualTo(false);
-        _delivery.OnAppHeartbeat();
+        RetryWhenDue();
         Check.That(_sends[2].Value).IsFalse();
     }
 
@@ -188,7 +197,7 @@ public class SettingDeliveryTests
         Check.That(_sends[0].Request.Restart).IsTrue();   // the user just chose it
 
         Reply(0, NotAvailable);
-        _delivery.OnAppHeartbeat();
+        RetryWhenDue();
         Check.That(_sends[1].Request.Restart).IsFalse();  // delivered later: saved only
     }
 
@@ -216,11 +225,254 @@ public class SettingDeliveryTests
 
         _delivery.Request(true);
         Reply(0, NotAvailable);
-        _delivery.OnAppHeartbeat();
+        RetryWhenDue();
         Reply(1, Ack(SettingRequestStatus.Saved));
 
         Check.That(states).ContainsExactly(
             SettingDeliveryState.Sending, SettingDeliveryState.Parked,
             SettingDeliveryState.Sending, SettingDeliveryState.Saved);
+    }
+
+    // ── F1: the timer retry ────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void AClockTick_RetriesAParkedChoice_WithNoHeartbeatAtAll()
+    {
+        // Supervision off: the App runs but publishes no heartbeats. The tick alone delivers.
+        _delivery.Request(true);
+        Reply(0, NotAvailable);
+
+        _now = _delivery.NextRetryAt!.Value;
+        _delivery.OnRetryTick();
+
+        Check.That(_sends).HasSize(2);
+        Check.That(_sends[1].Request.Restart).IsFalse();
+        Reply(1, Ack(SettingRequestStatus.Saved));
+        Check.That(_delivery.Pending).IsNull();
+    }
+
+    [Fact]
+    public void AClockTick_WhileARequestIsInFlight_IsSkipped()
+    {
+        _delivery.Request(true);
+        Reply(0, NotAvailable);
+        _now = _delivery.NextRetryAt!.Value;
+
+        _delivery.OnRetryTick();
+        _delivery.OnRetryTick();
+        _delivery.OnAppHeartbeat();
+
+        Check.That(_sends).HasSize(2);
+    }
+
+    // ── F3: backoff ─────────────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void TheBackoff_DoublesFromFiveSeconds_UpToTheSixtySecondCap()
+    {
+        var delays = Enumerable.Range(1, 7).Select(SettingDelivery<bool>.RetryDelayAfter).ToList();
+
+        Check.That(delays).ContainsExactly(
+            TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(20),
+            TimeSpan.FromSeconds(40), TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60),
+            TimeSpan.FromSeconds(60));
+    }
+
+    [Fact]
+    public void RetriesBeforeTheBackoffHasPassed_AreSkipped_ForTickAndHeartbeatAlike()
+    {
+        var parkedAt = _now;
+        _delivery.Request(true);
+        Reply(0, NotAvailable);
+        Check.That(_delivery.NextRetryAt).IsEqualTo(parkedAt + TimeSpan.FromSeconds(5));
+
+        _now = parkedAt + TimeSpan.FromSeconds(4.9);
+        _delivery.OnRetryTick();
+        _delivery.OnAppHeartbeat();
+        Check.That(_sends).HasSize(1);
+
+        _now = parkedAt + TimeSpan.FromSeconds(5);
+        _delivery.OnRetryTick();
+        Check.That(_sends).HasSize(2);
+
+        // The second failure doubles the wait.
+        var secondParkAt = _now;
+        Reply(1, Ack(SettingRequestStatus.Failed));
+        Check.That(_delivery.NextRetryAt).IsEqualTo(secondParkAt + TimeSpan.FromSeconds(10));
+        _now = secondParkAt + TimeSpan.FromSeconds(9.9);
+        _delivery.OnAppHeartbeat();
+        Check.That(_sends).HasSize(2);
+        _now = secondParkAt + TimeSpan.FromSeconds(10);
+        _delivery.OnAppHeartbeat();
+        Check.That(_sends).HasSize(3);
+    }
+
+    [Fact]
+    public void ANewChoice_IsSentAtOnce_AndResetsTheBackoff()
+    {
+        _delivery.Request(true);
+        Reply(0, NotAvailable);
+        RetryWhenDue();
+        Reply(1, NotAvailable);                 // second failure: 10 s
+        Check.That(_delivery.NextRetryAt).IsEqualTo(_now + TimeSpan.FromSeconds(10));
+
+        _delivery.Request(false);               // no waiting for the backoff
+        Check.That(_sends).HasSize(3);
+        Reply(2, NotAvailable);
+
+        Check.That(_delivery.NextRetryAt).IsEqualTo(_now + TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public void ASave_ResetsTheBackoff()
+    {
+        _delivery.Request(true);
+        Reply(0, NotAvailable);
+        RetryWhenDue();
+        Reply(1, NotAvailable);
+        RetryWhenDue();
+        Reply(2, Ack(SettingRequestStatus.Saved));
+
+        _delivery.Request(false);
+        Reply(3, NotAvailable);
+
+        Check.That(_delivery.NextRetryAt).IsEqualTo(_now + TimeSpan.FromSeconds(5));
+    }
+
+    // ── F1: the stale-park guard (T05b's "clear only after a re-read") ──────────────────────
+
+    /// <summary>A three-valued setting, because a stale park that differs from both the park-time
+    /// disk value and the newer disk value needs three values to exist (T05b's language has three).
+    /// The background runner is a queue the test drains, so "off the UI thread" is observable.</summary>
+    private sealed class GuardedDelivery
+    {
+        public readonly List<(SettingRequest Request, int Value, TaskCompletionSource<AppRequestResult> Reply)> Sends = new();
+        public readonly Queue<Action> Background = new();
+        public int? Disk;
+        public DateTime Now = new(2026, 10, 8, 12, 0, 0, DateTimeKind.Utc);
+        public readonly SettingDelivery<int> Delivery;
+
+        public GuardedDelivery(int? disk)
+        {
+            Disk = disk;
+            Delivery = new SettingDelivery<int>(
+                "ThreeWay",
+                (value, restart) => new SettingRequest(
+                    SettingRequest.NewId(), "setThreeWay",
+                    System.Text.Json.JsonSerializer.SerializeToElement(value), restart),
+                request =>
+                {
+                    var reply = new TaskCompletionSource<AppRequestResult>();
+                    Sends.Add((request, request.Value.GetInt32(), reply));
+                    return reply.Task;
+                },
+                work => work(),
+                readDisk: () => Disk,
+                runInBackground: Background.Enqueue,
+                utcNow: () => Now);
+        }
+
+        /// <summary>Lets the clock reach the retry, triggers it and runs the background re-read.</summary>
+        public void RetryNow()
+        {
+            if (Delivery.NextRetryAt is { } due && due > Now) Now = due;
+            Delivery.OnRetryTick();
+            while (Background.Count > 0) Background.Dequeue()();
+        }
+    }
+
+    [Fact]
+    public void AParkedChoiceTheDiskAlreadyHolds_IsClearedWithoutASend()
+    {
+        var g = new GuardedDelivery(disk: 0);
+        g.Delivery.Request(2);
+        g.Sends[0].Reply.SetResult(NotAvailable);
+
+        g.Disk = 2;                               // the App saved it some other way
+        g.RetryNow();
+
+        Check.That(g.Sends).HasSize(1);
+        Check.That(g.Delivery.Pending).IsNull();
+        Check.That(g.Delivery.State).IsEqualTo(SettingDeliveryState.Saved);
+        Check.That(g.Delivery.LastSaved).IsEqualTo(2);
+    }
+
+    [Fact]
+    public void AParkedChoice_IsDropped_WhenTheDiskChangedSinceItParked()
+    {
+        var g = new GuardedDelivery(disk: 0);
+        g.Delivery.Request(2);
+        g.Sends[0].Reply.SetResult(NotAvailable);   // parks with the disk at 0
+
+        g.Disk = 1;                               // someone chose 1 in the App since
+        g.RetryNow();
+
+        Check.That(g.Sends).HasSize(1);           // the stale 2 is never sent over the newer 1
+        Check.That(g.Delivery.Pending).IsNull();
+        Check.That(g.Delivery.State).IsEqualTo(SettingDeliveryState.Superseded);
+        Check.That(g.Delivery.SupersededBy).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void AParkedChoice_IsSent_WhenTheDiskIsUnchanged()
+    {
+        var g = new GuardedDelivery(disk: 0);
+        g.Delivery.Request(2);
+        g.Sends[0].Reply.SetResult(NotAvailable);
+
+        g.RetryNow();
+
+        Check.That(g.Sends).HasSize(2);
+        Check.That(g.Sends[1].Value).IsEqualTo(2);
+        Check.That(g.Sends[1].Request.Restart).IsFalse();
+    }
+
+    [Fact]
+    public void AParkedChoice_IsSent_WhenTheDiskCannotBeRead()
+    {
+        var g = new GuardedDelivery(disk: 0);
+        g.Delivery.Request(2);
+        g.Sends[0].Reply.SetResult(NotAvailable);
+
+        g.Disk = null;                            // contended or damaged: cannot tell
+        g.RetryNow();
+
+        Check.That(g.Sends).HasSize(2);
+    }
+
+    [Fact]
+    public void TheGuardsReReadRunsOffTheUiThread_AndHoldsTheFlight()
+    {
+        var g = new GuardedDelivery(disk: 0);
+        g.Delivery.Request(2);
+        g.Sends[0].Reply.SetResult(NotAvailable);
+        if (g.Delivery.NextRetryAt is { } due) g.Now = due;
+
+        g.Delivery.OnRetryTick();                 // queues the re-read; nothing ran inline
+        Check.That(g.Background).HasSize(1);
+        Check.That(g.Delivery.IsInFlight).IsTrue();
+        g.Delivery.OnRetryTick();
+        g.Delivery.OnAppHeartbeat();
+        Check.That(g.Background).HasSize(1);      // single-flight across the re-read
+
+        g.Background.Dequeue()();
+        Check.That(g.Sends).HasSize(2);
+    }
+
+    [Fact]
+    public void ANewChoiceMadeDuringTheReRead_IsSentLive()
+    {
+        var g = new GuardedDelivery(disk: 0);
+        g.Delivery.Request(2);
+        g.Sends[0].Reply.SetResult(NotAvailable);
+        if (g.Delivery.NextRetryAt is { } due) g.Now = due;
+        g.Delivery.OnRetryTick();
+
+        g.Delivery.Request(1);                    // during the re-read
+        g.Background.Dequeue()();
+
+        Check.That(g.Sends).HasSize(2);
+        Check.That(g.Sends[1].Value).IsEqualTo(1);
+        Check.That(g.Sends[1].Request.Restart).IsTrue();
     }
 }

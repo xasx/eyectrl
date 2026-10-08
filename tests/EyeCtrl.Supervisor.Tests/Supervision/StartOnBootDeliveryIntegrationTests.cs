@@ -19,6 +19,10 @@ public sealed class StartOnBootDeliveryIntegrationTests : IDisposable
     private readonly DispatcherThread _ui = new();
     private readonly List<IDisposable> _disposables = new();
 
+    // The backoff's clock. Real time drives the pipe bounds; this one only decides when a parked
+    // choice is due, so a test can skip the 5 s first retry delay instead of sleeping through it.
+    private DateTime _backoffNow = DateTime.UtcNow;
+
     public void Dispose()
     {
         foreach (var d in _disposables) d.Dispose();
@@ -40,7 +44,16 @@ public sealed class StartOnBootDeliveryIntegrationTests : IDisposable
             "StartOnBoot",
             (startOnBoot, _) => SettingRequest.SetStartOnBoot(startOnBoot),
             client.SendAsync,
-            work => _ui.Dispatcher.BeginInvoke(work)));
+            work => _ui.Dispatcher.BeginInvoke(work),
+            utcNow: () => _backoffNow));
+    }
+
+    /// <summary>A heartbeat once the parked choice's backoff has passed.</summary>
+    private void HeartbeatWhenDue(SettingDelivery<bool> delivery)
+    {
+        var due = _ui.Dispatcher.Invoke(() => delivery.NextRetryAt);
+        if (due is { } at && at > _backoffNow) _backoffNow = at;
+        _ui.Dispatcher.Invoke(delivery.OnAppHeartbeat);
     }
 
     private TimeSpan TimeOnUi(Action action)
@@ -64,8 +77,12 @@ public sealed class StartOnBootDeliveryIntegrationTests : IDisposable
     [Fact]
     public async Task AHungApp_NeverBlocksTheUiThread_AndTheChoiceParksWithinTheBound()
     {
+        // The App hangs for the whole 2 s acknowledgement bound. A UI thread that waited on it would
+        // take at least that long; one that never waits takes a small fraction of it. Asserting
+        // "under half the bound" keeps that distinction on a loaded host.
+        var ackBound = TimeSpan.FromSeconds(2);
         var server = Serve(FakeAppPipe.Behaviour.Hang);
-        var delivery = CreateDelivery(connect: TimeSpan.FromSeconds(2), ack: TimeSpan.FromMilliseconds(800));
+        var delivery = CreateDelivery(connect: TimeSpan.FromSeconds(2), ack: ackBound);
 
         var started = Stopwatch.StartNew();
         var requestTook = TimeOnUi(() => delivery.Request(true));
@@ -78,9 +95,9 @@ public sealed class StartOnBootDeliveryIntegrationTests : IDisposable
         await WaitForStateAsync(delivery, SettingDeliveryState.Parked);
         started.Stop();
 
-        Check.That(requestTook).IsLessThan(TimeSpan.FromMilliseconds(300));
-        Check.That(pumpTook).IsLessThan(TimeSpan.FromMilliseconds(300));
-        Check.That(started.Elapsed).IsLessThan(TimeSpan.FromSeconds(5));
+        Check.That(requestTook).IsLessThan(ackBound / 2);
+        Check.That(pumpTook).IsLessThan(ackBound / 2);
+        Check.That(started.Elapsed).IsLessThan(Settle);
         Check.That(_ui.Dispatcher.Invoke(() => delivery.Pending)).IsEqualTo(true);
     }
 
@@ -108,7 +125,7 @@ public sealed class StartOnBootDeliveryIntegrationTests : IDisposable
         Check.That(_ui.Dispatcher.Invoke(() => delivery.Pending)).IsEqualTo(true);
 
         var app = Serve(FakeAppPipe.Behaviour.Answer);   // the App comes up and sends heartbeats
-        _ui.Dispatcher.Invoke(delivery.OnAppHeartbeat);
+        HeartbeatWhenDue(delivery);
         await WaitForStateAsync(delivery, SettingDeliveryState.Saved);
 
         Check.That(_ui.Dispatcher.Invoke(() => delivery.Pending)).IsNull();
@@ -134,7 +151,7 @@ public sealed class StartOnBootDeliveryIntegrationTests : IDisposable
 
         exiting.Dispose();
         var restarted = Serve(FakeAppPipe.Behaviour.Answer);
-        _ui.Dispatcher.Invoke(delivery.OnAppHeartbeat);
+        HeartbeatWhenDue(delivery);
         await WaitForStateAsync(delivery, SettingDeliveryState.Saved);
 
         Check.That(_ui.Dispatcher.Invoke(() => delivery.Pending)).IsNull();

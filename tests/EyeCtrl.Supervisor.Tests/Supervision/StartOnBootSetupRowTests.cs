@@ -21,6 +21,7 @@ public sealed class StartOnBootSetupRowTests : IDisposable
     private readonly List<TaskCompletionSource<AppRequestResult>> _replies = new();
     private readonly SettingDelivery<bool> _delivery;
     private readonly StringTable _strings = StringTable.EmbeddedEnglish;
+    private DateTime _now = new(2026, 10, 8, 12, 0, 0, DateTimeKind.Utc);
 
     public StartOnBootSetupRowTests()
     {
@@ -33,7 +34,11 @@ public sealed class StartOnBootSetupRowTests : IDisposable
                 _replies.Add(reply);
                 return reply.Task;
             },
-            work => work());
+            work => work(),
+            // As production wires it: the guarded raw read of this file, here run inline.
+            readDisk: () => StartOnBootReader.TryRead(_path, _writerMutexName),
+            runInBackground: work => work(),
+            utcNow: () => _now);
     }
 
     public void Dispose()
@@ -73,8 +78,8 @@ public sealed class StartOnBootSetupRowTests : IDisposable
 
         Check.That(row.Value).IsTrue();
         Check.That(row.IsParked).IsTrue();
-        Check.That(row.Note(_strings)).IsEqualTo("Applies when EyeCtrl next runs");
-        Check.That(row.StatusText(_strings)).IsEqualTo("Applies when EyeCtrl next runs");
+        Check.That(row.Note(_strings)).IsEqualTo("Not saved yet. Applies when EyeCtrl next runs, unless the PC or the Supervisor restarts first.");
+        Check.That(row.StatusText(_strings)).IsEqualTo("Not saved yet. Applies when EyeCtrl next runs, unless the PC or the Supervisor restarts first.");
     }
 
     [Fact]
@@ -91,7 +96,7 @@ public sealed class StartOnBootSetupRowTests : IDisposable
         using var reopened = Open(tracker);
 
         Check.That(reopened.Value).IsTrue();
-        Check.That(reopened.Note(_strings)).IsEqualTo("Applies when EyeCtrl next runs");
+        Check.That(reopened.Note(_strings)).IsEqualTo("Not saved yet. Applies when EyeCtrl next runs, unless the PC or the Supervisor restarts first.");
     }
 
     [Fact]
@@ -166,5 +171,46 @@ public sealed class StartOnBootSetupRowTests : IDisposable
 
         Check.That(snapshot.General.StartOnBoot).IsFalse();
         Check.That(File.ReadAllText(_path)).IsEqualTo("""{"general":{"startOnBoot":false}}""");
+    }
+
+    [Fact]
+    public void AParkedChoiceOvertakenInTheApp_IsDropped_AndTheRowShowsTheNewerValue()
+    {
+        // on -> off -> on in quick succession while the App is down parks "on" with the disk at
+        // "on". The user then turns it off in EyeCtrl's own Settings: the stale "on" must not be
+        // delivered over that newer choice.
+        File.WriteAllText(_path, """{"general":{"startOnBoot":true}}""");
+        using var row = Open(Tracker(loadedAtStartup: true));
+        row.Choose(false);
+        row.Choose(true);                                      // while the first is in flight
+        _replies[0].SetResult(AppRequestResult.NotAvailable("test: no App"));
+        Check.That(row.IsParked).IsTrue();
+
+        File.WriteAllText(_path, """{"general":{"startOnBoot":false}}""");
+        _now = _delivery.NextRetryAt!.Value;
+        _delivery.OnRetryTick();
+
+        Check.That(_replies).HasSize(1);                       // nothing was sent
+        Check.That(row.IsParked).IsFalse();
+        Check.That(row.Value).IsFalse();
+        Check.That(row.StatusText(_strings)).IsEqualTo("Changed in EyeCtrl meanwhile. That newer setting stays.");
+    }
+
+    [Fact]
+    public void AParkedChoiceTheAppSavedAnotherWay_IsClearedAndShownSaved()
+    {
+        File.WriteAllText(_path, """{"general":{"startOnBoot":false}}""");
+        using var row = Open(Tracker(loadedAtStartup: false));
+        row.Choose(true);
+        _replies[0].SetResult(AppRequestResult.NotAvailable("test: no App"));
+
+        File.WriteAllText(_path, """{"general":{"startOnBoot":true}}""");
+        _now = _delivery.NextRetryAt!.Value;
+        _delivery.OnRetryTick();
+
+        Check.That(_replies).HasSize(1);
+        Check.That(row.Value).IsTrue();
+        Check.That(row.Note(_strings)).IsNull();
+        Check.That(row.StatusText(_strings)).IsEqualTo("Saved: EyeCtrl will start at logon.");
     }
 }

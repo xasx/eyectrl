@@ -60,8 +60,11 @@ public sealed class AppRequestClientTests : IDisposable
     [Fact]
     public async Task AHungApp_AcceptsAndNeverAnswers_TimesOutWithinTheAckBound()
     {
+        // Bounds relative to the hang: a caller that waited would take the whole 2 s bound; one
+        // that never waits gets its task back in a small fraction of it, even on a loaded host.
+        var ackBound = TimeSpan.FromSeconds(2);
         var server = Serve(FakeAppPipe.Behaviour.Hang);
-        var client = Client(ack: TimeSpan.FromMilliseconds(400));
+        var client = Client(ack: ackBound);
 
         var call = Stopwatch.StartNew();
         var sending = client.SendAsync(SettingRequest.SetStartOnBoot(true));
@@ -72,9 +75,9 @@ public sealed class AppRequestClientTests : IDisposable
         Check.That(await server.WaitForRequestAsync(TimeSpan.Zero)).IsTrue();   // it really was accepted
         Check.That(result.Status).IsNull();
         Check.That(result.Detail).Contains("no acknowledgement");
-        Check.That(returnedAfter).IsLessThan(TimeSpan.FromMilliseconds(250));
-        Check.That(call.Elapsed > TimeSpan.FromMilliseconds(350)).IsTrue();   // it did wait the bound out
-        Check.That(call.Elapsed).IsLessThan(TimeSpan.FromSeconds(3));
+        Check.That(returnedAfter).IsLessThan(ackBound / 2);
+        Check.That(call.Elapsed > ackBound * 0.9).IsTrue();   // it did wait the bound out
+        Check.That(call.Elapsed).IsLessThan(ackBound * 4);
     }
 
     [Fact]

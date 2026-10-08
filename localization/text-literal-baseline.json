@@ -66,6 +66,11 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Overlays/CalibrationWindow.xaml.cs",
+      "Literal": "$\"Look at the dot \\u00B7 {idx + 1} / {total}\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml",
       "Literal": "\"Caregiver attention needed\"",
       "Count": 1
@@ -126,8 +131,23 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml.cs",
+      "Literal": "$\"{outcome.ExerciseName} complete\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Overlays/GlassBackdropWindow.xaml",
       "Literal": "\"Press Esc to exit\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/GlassBackdropWindow.xaml.cs",
+      "Literal": "\"Close\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs",
+      "Literal": "\"PINNED NOTE\"",
       "Count": 1
     },
     {
@@ -181,6 +201,56 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Services/ActionMenuEdgeButtons.cs",
+      "Literal": "\"Close\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ActionMenuEdgeButtons.cs",
+      "Literal": "\"Help\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/Coordinators/DragCoordinator.cs",
+      "Literal": "\"Back\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/Coordinators/DragCoordinator.cs",
+      "Literal": "\"Cancel drag\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/Coordinators/RepeatModeController.cs",
+      "Literal": "\"Stop repeat\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/KeyboardEdgeButtons.cs",
+      "Literal": "\"Close\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/KeyboardEdgeButtons.cs",
+      "Literal": "\"Flip\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ManualSelectionEdgeButtons.cs",
+      "Literal": "\"Close\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ManualSelectionEdgeButtons.cs",
+      "Literal": "\"Recapture\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ScrollModeController.cs",
+      "Literal": "\"Stop scrolling\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/SelfRestartStrategy.cs",
       "Literal": "\"EyeCtrl is still running.\"",
       "Count": 4
@@ -218,6 +288,11 @@
     {
       "Path": "src/EyeCtrl.App/Services/TrayIconManager.cs",
       "Literal": "\"Exit\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/TrayIconManager.cs",
+      "Literal": "\"EyeCtrl\"",
       "Count": 1
     },
     {
@@ -262,6 +337,11 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/ActionMenuPageSource.cs",
+      "Literal": "\"View ring preview\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/ActionMenuPageSource.cs",
       "Literal": "$\"The first layer holds {Core.Settings.ActionMenuSettings.MaxPrimaryActions} actions. \"",
       "Count": 1
     },
@@ -292,6 +372,11 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
+      "Literal": "\"Adapt how strongly raw gaze is smoothed.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
       "Literal": "\"Balanced\"",
       "Count": 1
     },
@@ -303,6 +388,11 @@
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
       "Literal": "\"Caregiver Alerts\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
+      "Literal": "\"Clear what the app has learned about your needs; it re-learns as you use it.\"",
       "Count": 1
     },
     {
@@ -322,7 +412,32 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
+      "Literal": "\"Ease dwell and targeting automatically while you struggle.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
       "Literal": "\"Enable Adaptation\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
+      "Literal": "\"Grow or shrink targets when targeting is hard.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
+      "Literal": "\"How readily adaptation responds to struggle.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
+      "Literal": "\"Keep the cue and toasts hidden while you type passwords.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
+      "Literal": "\"Loosen or tighten how steadily you must rest on a target.\"",
       "Count": 1
     },
     {
@@ -362,7 +477,27 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
+      "Literal": "\"Shorten or lengthen dwell times as you struggle or cruise.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
       "Literal": "\"Show Adaptation Cue\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
+      "Literal": "\"Show a prominent alert for a caregiver while struggle or poor tracking persists.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
+      "Literal": "\"Show a small cue while a setting is being adapted.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
+      "Literal": "\"Show the adaptation log file in Explorer.\"",
       "Count": 1
     },
     {
@@ -387,6 +522,41 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
+      "Literal": "\"The least time between two caregiver alerts, in minutes.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
+      "Literal": "\"The most a dwell may be lengthened, as a share of its baseline.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
+      "Literal": "\"The most a dwell may be shortened, as a share of its baseline.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
+      "Literal": "\"The most a target may be grown, as a share of its baseline.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
+      "Literal": "\"The most a target's hit area may grow when adapted, in screen pixels.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
+      "Literal": "\"The most smoothing may be increased, as a share of its baseline.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
+      "Literal": "\"The most tolerance may be loosened, as a share of its baseline.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdaptationPageSource.cs",
       "Literal": "\"Tolerance — Looser Limit\"",
       "Count": 1
     },
@@ -403,6 +573,16 @@
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
       "Literal": "\"Backdrop Type\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
+      "Literal": "\"Color of the trail drawn while dragging.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
+      "Literal": "\"Dim what's behind the keyboard and other overlays.\"",
       "Count": 1
     },
     {
@@ -427,6 +607,11 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
+      "Literal": "\"Dwell length applied when an external app registers a target.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
       "Literal": "\"Enable Backdrop\"",
       "Count": 1
     },
@@ -447,7 +632,47 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
+      "Literal": "\"How dark the backdrop is — only Solid Darken uses this; applies from the next open.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
+      "Literal": "\"How far gaze may drift while settling into a drag. Applies after a restart.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
+      "Literal": "\"How fast gaze scrolling moves through documents.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
+      "Literal": "\"How long gaze must hold still before a drag starts. Applies after a restart.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
+      "Literal": "\"How long to hold your gaze on a target before the locked action fires there.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
+      "Literal": "\"How visible the drag trail is.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
+      "Literal": "\"Let other apps trigger dwell through EyeCtrl's pipe.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
       "Literal": "\"Mica\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
+      "Literal": "\"Minimum wait between external dwell activations.\"",
       "Count": 1
     },
     {
@@ -476,6 +701,11 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/AdvancedPageSource.cs",
+      "Literal": "\"The dimming material; Acrylic and Mica blur, Solid Darken only tints.\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/CalibrationPageSource.cs",
       "Literal": "\"Calibrate Now\"",
       "Count": 1
@@ -497,7 +727,32 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/CalibrationPageSource.cs",
+      "Literal": "\"Color of the calibration target. Applies after a restart.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/CalibrationPageSource.cs",
+      "Literal": "\"Each target stays on screen at least this long.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/CalibrationPageSource.cs",
+      "Literal": "\"Gaze samples gathered at each calibration point.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/CalibrationPageSource.cs",
+      "Literal": "\"How many points the calibration run visits.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/CalibrationPageSource.cs",
       "Literal": "\"It changes nothing and always ends with \\u201Crecorded\\u201D; run it when you are rested.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/CalibrationPageSource.cs",
+      "Literal": "\"Last calibration: none\"",
       "Count": 1
     },
     {
@@ -531,6 +786,21 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/CalibrationPageSource.cs",
+      "Literal": "\"Time at a target before its samples start counting.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/CalibrationPageSource.cs",
+      "Literal": "$\"Last calibration: {data.CalibratedAt.LocalDateTime:g}  \\u00B7  {data.ComputeMeanErrorPixels():F1} px ({data.ComputeQualityPercent():F1}%)\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/CalibrationPageSource.cs",
+      "Literal": "$\"Last calibration: {rejection}\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/CursorPageSource.cs",
       "Literal": "\"Achromatic reticle\"",
       "Count": 1
@@ -538,6 +808,11 @@
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/CursorPageSource.cs",
       "Literal": "\"Bi-tonal segments\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/CursorPageSource.cs",
+      "Literal": "\"Bridge short tracker dropouts up to this long.\"",
       "Count": 1
     },
     {
@@ -572,7 +847,17 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/CursorPageSource.cs",
+      "Literal": "\"Diameter of the cursor circle.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/CursorPageSource.cs",
       "Literal": "\"Direct\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/CursorPageSource.cs",
+      "Literal": "\"Extra responsiveness per screen diagonal per second of gaze movement.\"",
       "Count": 1
     },
     {
@@ -582,7 +867,37 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/CursorPageSource.cs",
+      "Literal": "\"Filtering applied to raw gaze samples.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/CursorPageSource.cs",
       "Literal": "\"Gap Interpolation (ms)\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/CursorPageSource.cs",
+      "Literal": "\"Higher is more responsive; lower is smoother.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/CursorPageSource.cs",
+      "Literal": "\"How the position indicator is drawn; applies from the next action-menu open.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/CursorPageSource.cs",
+      "Literal": "\"How the ring stays visible on light and dark backgrounds.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/CursorPageSource.cs",
+      "Literal": "\"Lower is smoother and slower; higher follows fast motion. Above about a third of the tracker's sample rate (~10 Hz here) there is no further effect.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/CursorPageSource.cs",
+      "Literal": "\"Lowering this dims the colored half of the ring's edge, which is what keeps it visible.\"",
       "Count": 1
     },
     {
@@ -627,6 +942,11 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/CursorPageSource.cs",
+      "Literal": "\"Ring stroke width, in pixels.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/CursorPageSource.cs",
       "Literal": "\"Smoothed (Legacy)\"",
       "Count": 1
     },
@@ -638,6 +958,11 @@
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/CursorPageSource.cs",
       "Literal": "\"Smoothing Factor\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/CursorPageSource.cs",
+      "Literal": "\"The cursor ring’s color; every preset stays clearly visible.\"",
       "Count": 1
     },
     {
@@ -672,6 +997,21 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/DiagnosticsPageSource.cs",
+      "Literal": "\"Save every gaze sample to a file for analysis. Off by default; turn it back off when you are done.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/DiagnosticsPageSource.cs",
+      "Literal": "\"Show gaze-recording.csv and its ground-truth file in Explorer.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/DiagnosticsPageSource.cs",
+      "Literal": "\"Time how gaze reaches the screen. Records no gaze positions; writes only summary lines to the log.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/DiagnosticsPageSource.cs",
       "Literal": "\"Turn both diagnostics off?\"",
       "Count": 1
     },
@@ -702,6 +1042,21 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/DwellPageSource.cs",
+      "Literal": "\"Dwell for the action ring inside manual selection.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/DwellPageSource.cs",
+      "Literal": "\"Dwell for the button that appears at your gaze.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/DwellPageSource.cs",
+      "Literal": "\"Dwell for the word suggestions above the keyboard.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/DwellPageSource.cs",
       "Literal": "\"Fixation Detection (ms)\"",
       "Count": 1
     },
@@ -712,12 +1067,47 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/DwellPageSource.cs",
+      "Literal": "\"How far your gaze may drift within a fixation.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/DwellPageSource.cs",
+      "Literal": "\"How long a new dwell must wait after an activation.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/DwellPageSource.cs",
+      "Literal": "\"How long to rest on EyeCtrl's own buttons.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/DwellPageSource.cs",
+      "Literal": "\"How long to rest on a key before it fires. Keys that can leave the app or destroy work use 600 ms.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/DwellPageSource.cs",
+      "Literal": "\"How long to rest on an action in the ring.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/DwellPageSource.cs",
+      "Literal": "\"How long your gaze must hold steady before a dwell can start.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/DwellPageSource.cs",
       "Literal": "\"Keyboard Key (ms)\"",
       "Count": 1
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/DwellPageSource.cs",
       "Literal": "\"Manual Selection Action Menu (ms)\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/DwellPageSource.cs",
+      "Literal": "\"Plays a soft tone when a dwell activates on any EyeCtrl surface — buttons, menus, settings. Keys keep their own click sound.\"",
       "Count": 1
     },
     {
@@ -772,7 +1162,42 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/EyeCarePageSource.cs",
+      "Literal": "\"How long an ignored banner waits before hiding itself. Applies after a restart.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/EyeCarePageSource.cs",
+      "Literal": "\"How long breaks are postponed when you snooze a banner.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/EyeCarePageSource.cs",
+      "Literal": "\"How long each guided gaze exercise runs.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/EyeCarePageSource.cs",
+      "Literal": "\"How often a break is offered when you haven't rested.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/EyeCarePageSource.cs",
+      "Literal": "\"Let rising fatigue bring breaks on early. Experimental.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/EyeCarePageSource.cs",
+      "Literal": "\"Looking away this long counts as a natural break.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/EyeCarePageSource.cs",
       "Literal": "\"Natural Break Length (s)\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/EyeCarePageSource.cs",
+      "Literal": "\"Periodic break reminders and gaze exercises while you use EyeCtrl.\"",
       "Count": 1
     },
     {
@@ -791,13 +1216,28 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/EyeCarePageSource.cs",
+      "Literal": "\"The fatigue score at which an early break fires.\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
       "Literal": "\"A changed theme applies after a restart.\"",
       "Count": 1
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
+      "Literal": "\"A corner box showing live eye-tracker status.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
       "Literal": "\"A supervisor is installed. It restarts EyeCtrl if it ever fails, and can recover \"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
+      "Literal": "\"All three are dark; Contrast is the boldest.\"",
       "Count": 1
     },
     {
@@ -808,6 +1248,16 @@
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
       "Literal": "\"Automatic Crash Recovery\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
+      "Literal": "\"If EyeCtrl stops responding or crashes, it restarts automatically; \"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
+      "Literal": "\"Opens EyeCtrl automatically when you sign in.\"",
       "Count": 1
     },
     {
@@ -848,6 +1298,11 @@
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
       "Literal": "\"Start on Windows Boot\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
+      "Literal": "\"Starts with tracking paused until you switch it on.\"",
       "Count": 1
     },
     {
@@ -957,7 +1412,17 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/KeyboardPageSource.cs",
+      "Literal": "\"How many suggestions fill the bar. Fewer are easier to aim; takes effect as you type.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/KeyboardPageSource.cs",
       "Literal": "\"Key Size Multiplier\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/KeyboardPageSource.cs",
+      "Literal": "\"Key arrangement; QWERTZ suits German, AZERTY suits French.\"",
       "Count": 1
     },
     {
@@ -968,6 +1433,11 @@
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/KeyboardPageSource.cs",
       "Literal": "\"No learned words yet. They collect as you type; the Add Word key (Fn row) adds one on the spot.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/KeyboardPageSource.cs",
+      "Literal": "\"Plays a click each time a key activates.\"",
       "Count": 1
     },
     {
@@ -993,7 +1463,7 @@
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/KeyboardPageSource.cs",
       "Literal": "\"Removed for this session, but the dictionary file could not be updated.\"",
-      "Count": 1
+      "Count": 2
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/KeyboardPageSource.cs",
@@ -1007,7 +1477,17 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/KeyboardPageSource.cs",
+      "Literal": "\"Scales every key; bigger keys are easier to hit.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/KeyboardPageSource.cs",
       "Literal": "\"Screen Edge\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/KeyboardPageSource.cs",
+      "Literal": "\"Shows suggested words above the keyboard while you type.\"",
       "Count": 1
     },
     {
@@ -1017,7 +1497,17 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/KeyboardPageSource.cs",
+      "Literal": "\"The screen edge the keyboard docks to.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/KeyboardPageSource.cs",
       "Literal": "\"Top\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/KeyboardPageSource.cs",
+      "Literal": "\"Which language the word suggestions draw from.\"",
       "Count": 1
     },
     {
@@ -1043,7 +1533,7 @@
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/KeyboardPageSource.cs",
       "Literal": "$\"Removed “{captured}” for this session, but the dictionary file could not be updated.\"",
-      "Count": 1
+      "Count": 2
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/LayoutPageSource.cs",
@@ -1071,9 +1561,19 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/LayoutPageSource.cs",
+      "Literal": "\"The action menu and magnifier: at your gaze, or centered.\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/ModelsPageSource.cs",
       "Literal": "\"Active Model\"",
       "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/ModelsPageSource.cs",
+      "Literal": "\"Another download is already in progress.\"",
+      "Count": 3
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/ModelsPageSource.cs",
@@ -1082,8 +1582,13 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/ModelsPageSource.cs",
-      "Literal": "\"Download failed.\"",
+      "Literal": "\"Copy a valid HTTPS model URL to clipboard first, then dwell this button.\"",
       "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/ModelsPageSource.cs",
+      "Literal": "\"Download failed.\"",
+      "Count": 3
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/ModelsPageSource.cs",
@@ -1098,6 +1603,11 @@
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/ModelsPageSource.cs",
       "Literal": "\"Off\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/ModelsPageSource.cs",
+      "Literal": "\"Which model powers predictions; Off keeps dictionary words.\"",
       "Count": 1
     },
     {
@@ -1123,7 +1633,7 @@
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/ModelsPageSource.cs",
       "Literal": "$\"Download failed: {ex.Message}\"",
-      "Count": 1
+      "Count": 3
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/ModelsPageSource.cs",
@@ -1257,6 +1767,26 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/SelectionPageSource.cs",
+      "Literal": "\"Color of the box around an auto-selected control.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/SelectionPageSource.cs",
+      "Literal": "\"Diameter of the dot at the center of the gaze ring; applies after a restart.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/SelectionPageSource.cs",
+      "Literal": "\"Diameter of the ring shown at your gaze; applies from the next selection.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/SelectionPageSource.cs",
+      "Literal": "\"Dwell waits this long after manual selection opens.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/SelectionPageSource.cs",
       "Literal": "\"Gaze Ring Diameter (px)\"",
       "Count": 1
     },
@@ -1282,6 +1812,36 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/SelectionPageSource.cs",
+      "Literal": "\"How far from your gaze Auto Selection searches for a control.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/SelectionPageSource.cs",
+      "Literal": "\"How far your gaze may drift from the held point before the selection restarts. Larger is more forgiving.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/SelectionPageSource.cs",
+      "Literal": "\"How long the gaze ring takes to fade after a selection; applies after a restart.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/SelectionPageSource.cs",
+      "Literal": "\"How strongly the zoom circle magnifies.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/SelectionPageSource.cs",
+      "Literal": "\"How visible the gaze ring is; applies after a restart.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/SelectionPageSource.cs",
+      "Literal": "\"Line weight of that auto-selection box.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/SelectionPageSource.cs",
       "Literal": "\"Magnification Level\"",
       "Count": 1
     },
@@ -1292,7 +1852,17 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/SelectionPageSource.cs",
+      "Literal": "\"None clicks your gaze point; Manual zooms; Auto snaps.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/SelectionPageSource.cs",
       "Literal": "\"None\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/SelectionPageSource.cs",
+      "Literal": "\"Radius of the magnifier's zoom circle.\"",
       "Count": 1
     },
     {
@@ -1321,6 +1891,11 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/SelectionPageSource.cs",
+      "Literal": "\"Thickness of the gaze ring's outline; applies after a restart.\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/ToolbarPageSource.cs",
       "Literal": "\"Bottom\"",
       "Count": 1
@@ -1338,6 +1913,11 @@
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/ToolbarPageSource.cs",
       "Literal": "\"Docked Edge\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/ToolbarPageSource.cs",
+      "Literal": "\"Docks the toolbar to an edge; with an eye tracker it auto-hides.\"",
       "Count": 1
     },
     {
@@ -1362,7 +1942,17 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/ToolbarPageSource.cs",
+      "Literal": "\"Size of each button; bigger ones are easier to aim at.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/ToolbarPageSource.cs",
       "Literal": "\"Top\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/ToolbarPageSource.cs",
+      "Literal": "\"Which screen edge the toolbar attaches to.\"",
       "Count": 1
     },
     {
@@ -1397,6 +1987,16 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
+      "Literal": "\"Off\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
+      "Literal": "\"On\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
       "Literal": "\"Restarting EyeCtrl…\\n\"",
       "Count": 1
     },
@@ -1414,6 +2014,11 @@
       "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
       "Literal": "\"restart_progress_hide\"",
       "Count": 2
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
+      "Literal": "\"⚠ {0} (not available)\"",
+      "Count": 1
     },
     {
       "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
@@ -1556,6 +2161,16 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.Supervisor/UI/FallenBackDialog.xaml.cs",
+      "Literal": "\"Dismiss (keep fallback)\"",
+      "Count": 2
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/UI/FallenBackDialog.xaml.cs",
+      "Literal": "\"Retry EyeCtrl (once)\"",
+      "Count": 2
+    },
+    {
       "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml",
       "Literal": "\"(Reordering is out of scope for this build; the default order above is shown.)\"",
       "Count": 1
@@ -1607,6 +2222,46 @@
     },
     {
       "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
+      "Literal": "\"Enable supervision\"",
+      "Count": 2
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
+      "Literal": "\"Launch EyeCtrl now\"",
+      "Count": 2
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
+      "Literal": "\"Launch requested.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
+      "Literal": "\"Off\"",
+      "Count": 4
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
+      "Literal": "\"On\"",
+      "Count": 4
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
+      "Literal": "\"Save\"",
+      "Count": 2
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
+      "Literal": "\"Saved (supervision settings).\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
+      "Literal": "\"Start EyeCtrl at logon\"",
+      "Count": 2
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
       "Literal": "\"Supervision disabled.\"",
       "Count": 1
     },
@@ -1621,6 +2276,11 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
+      "Literal": "$\"Save failed: {ex.Message}\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.Supervisor/UI/SupervisorTrayIcon.cs",
       "Literal": "\"Exit supervisor\"",
       "Count": 1
@@ -1628,6 +2288,11 @@
     {
       "Path": "src/EyeCtrl.Supervisor/UI/SupervisorTrayIcon.cs",
       "Literal": "\"EyeCtrl Supervisor settings\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorTrayIcon.cs",
+      "Literal": "\"EyeCtrl Supervisor\"",
       "Count": 1
     },
     {

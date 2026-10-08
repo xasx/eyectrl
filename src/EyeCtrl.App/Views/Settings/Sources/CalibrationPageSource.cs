@@ -59,10 +59,11 @@ internal sealed class CalibrationPageSource : ISettingsPageSource
         var data = _ctx.Calibration.CurrentData;
         if (data != null)
         {
-            // The date and both numbers follow the calibration surface's language (T02):
-            // invariant while it is English, de-DE once its German is effective.
+            // The date and both numbers follow the SURFACE they are drawn on — the Settings
+            // window's Calibration tab — not the calibration overlay (T02 fixup-01 F2): T07 keys
+            // this sentence as a settings.* key.
             return string.Create(
-                EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("calibration"),
+                EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("settings"),
                 $"Last calibration: {data.CalibratedAt.LocalDateTime:g}  \u00B7  {data.ComputeMeanErrorPixels():F1} px ({data.ComputeQualityPercent():F1}%)");
         }
         // A calibration that exists on disk but was refused at startup is otherwise indistinguishable

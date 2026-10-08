@@ -147,6 +147,26 @@ public class DwellToggleVisualTests
             .IsEqualTo("Label: Aktiv");
     }
 
+    /// <summary>
+    /// A null state word would otherwise surface late as blank switch text; the host contract is
+    /// fail-fast (T02 fixup-01, uneven null guards).
+    /// </summary>
+    [StaFact]
+    public void Constructor_NullStateWords_ThrowArgumentNullException()
+    {
+        var state = false;
+
+        Check.ThatCode(() => new DwellToggle(
+                new FakeDwellRegistrar(), "id", "Label", null!, "Off",
+                () => state, v => state = v, DwellCategory.Control, Radius, 800))
+            .Throws<ArgumentNullException>();
+
+        Check.ThatCode(() => new DwellToggle(
+                new FakeDwellRegistrar(), "id", "Label", "On", null!,
+                () => state, v => state = v, DwellCategory.Control, Radius, 800))
+            .Throws<ArgumentNullException>();
+    }
+
     [StaFact]
     public void TheKnobMovesSide_SoPositionCarriesStateToo()
     {

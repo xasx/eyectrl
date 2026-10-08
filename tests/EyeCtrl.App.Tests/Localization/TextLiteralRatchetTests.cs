@@ -161,6 +161,55 @@ public class TextLiteralRatchetTests
             "DistanceText.Text = string.Create(provider, $\"{mm:F0} mm\");",
             "$\"{mm:F0} mm\"");
 
+    /// <summary>
+    /// The commonest shapes, all three of which the pre-fixup `\s*` regex swallowed (F1). Each
+    /// must be found with the value starting immediately after the `=`/`:`.
+    /// </summary>
+    [Fact]
+    public void TheScan_CatchesABareTextAssignment() =>
+        CheckCatches(
+            "StatusLabel.Text = \"Launch requested.\";",
+            "\"Launch requested.\"");
+
+    [Fact]
+    public void TheScan_CatchesABareDescription() =>
+        CheckCatches(
+            "new SliderSpec(\"id\", \"Label\", 1, 2, 1, 0, Get, Set) { Description = \"R6 description.\" };",
+            "\"R6 description.\"");
+
+    [Fact]
+    public void TheScan_CatchesANamedLabel() =>
+        CheckCatches(
+            "var s = new DwellSlider(registrar, \"sl\", label: \"Smoothing\");",
+            "\"Smoothing\"");
+
+    [Fact]
+    public void TheScan_CatchesTheHostSwatchNamesField() =>
+        CheckCatches(
+            "internal static readonly string[] ColorSwatchNames = [\"Accent\", \"Green\"];",
+            "\"Accent\"");
+
+    /// <summary>
+    /// The changed controls' positional text arguments (F3): the settings host passes them
+    /// positionally, so R5's `"R5 On"` must be visible to the ratchet.
+    /// </summary>
+    [Fact]
+    public void TheScan_CatchesPositionalControlText() =>
+        CheckCatches(
+            "var t = new DwellToggle(registrar, \"id\", \"Label\", \"On\", \"Off\", get, set, cat, r, ms);",
+            "\"On\"");
+
+    [Fact]
+    public void TheScan_CatchesShowErrorAndRingJumpSpec()
+    {
+        CheckCatches(
+            "_ctx.ShowError(\"Another download is already in progress.\");",
+            "\"Another download is already in progress.\"");
+        CheckCatches(
+            "new RingJumpSpec(\"am_preview\", \"View ring preview\", Go, ButtonKind.Default, 300, 100);",
+            "\"View ring preview\"");
+    }
+
     [Fact]
     public void TheScan_CatchesASpecLabel() =>
         CheckCatches(

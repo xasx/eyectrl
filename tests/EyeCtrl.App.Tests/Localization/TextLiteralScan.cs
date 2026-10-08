@@ -395,6 +395,7 @@ internal static class TextLiteralScan
     [
         ("src/EyeCtrl.App/Services/SelfRestartStrategy.cs", "Describe"),
         ("src/EyeCtrl.App/Overlays/TrackStatusWindow.xaml.cs", "QualityWord"),
+        ("src/EyeCtrl.App/Views/Settings/Sources/CalibrationPageSource.cs", "StatusText"),
     ];
 
     /// <summary>
@@ -402,31 +403,44 @@ internal static class TextLiteralScan
     /// with literals masked out, so a literal's content can never look like a call.
     /// </summary>
     private static readonly Regex SinkCall = new(
-        @"(?<![A-Za-z0-9_])(?<name>ShowModal|new\s+ModalChoice|new\s+ToolStripMenuItem|MessageBox\.Show|AutomationProperties\.SetName|new\s+(?:SliderSpec|ToggleSpec|ComboBoxSpec|ColorPickerSpec|ButtonSpec|LabelSpec|RingPreviewSpec)|new\s+QuickActionPreset)\s*\(",
+        @"(?<![A-Za-z0-9_])(?<name>ShowModal|ShowError|new\s+ModalChoice|new\s+ToolStripMenuItem|MessageBox\.Show|AutomationProperties\.SetName|new\s+(?:SliderSpec|ToggleSpec|ComboBoxSpec|ColorPickerSpec|ButtonSpec|LabelSpec|RingPreviewSpec|RingJumpSpec)|new\s+QuickActionPreset|new\s+(?:DwellToggle|DwellComboBox|DwellColorPicker|DwellButton))\s*\(",
         RegexOptions.Compiled);
 
     /// <summary>Member assignments that take text directly.</summary>
     private static readonly Regex DottedAssign = new(
-        @"\.(?<member>Text|Content|Header|Title|ToolTipText|ToolTip|Label|Description|ErrorText|AutomationProperties\.Name)\s*=(?!=)\s*",
+        @"\.(?<member>Text|Content|Header|Title|ToolTipText|ToolTip|Label|Description|ErrorText|AutomationProperties\.Name)\s*=(?!=)",
         RegexOptions.Compiled);
 
-    /// <summary>Bare (initializer / named-parameter) assignments that take text directly.</summary>
+    /// <summary>
+    /// Bare (initializer / named-parameter) assignments that take text directly.
+    /// <c>ColorSwatchNames</c> is the one host-side field: the settings window declares the
+    /// swatch names there (T02 fixup-01) so the count can be pinned against the palette, and the
+    /// names are host text like any other.
+    /// </summary>
     private static readonly Regex BareAssign = new(
-        @"(?<![A-Za-z0-9_.])(?<member>Text|Content|Header|Title|ToolTip|Description|Label|onText|offText|swatchNames|notAvailableFormat|accessibleName|AccessibleName)\s*=(?!=)\s*",
+        @"(?<![A-Za-z0-9_.])(?<member>Text|Content|Header|Title|ToolTip|Description|Label|onText|offText|swatchNames|notAvailableFormat|accessibleName|AccessibleName|ColorSwatchNames)\s*=(?!=)",
         RegexOptions.Compiled);
 
     /// <summary>Named arguments that take text.</summary>
     private static readonly Regex NamedArgument = new(
-        @"(?<![A-Za-z0-9_-])(?<name>accessibleName|AccessibleName|onText|offText|swatchNames|notAvailableFormat|Display|label)\s*:\s*",
+        @"(?<![A-Za-z0-9_-])(?<name>accessibleName|AccessibleName|onText|offText|swatchNames|notAvailableFormat|Display|label)\s*:",
+
         RegexOptions.Compiled);
 
-    /// <summary>Which spec constructor arguments carry text, by argument index.</summary>
+    /// <summary>Which constructor arguments carry text, by argument index.</summary>
     private static int[] TextArgumentIndexes(string sinkName) => sinkName switch
     {
         "LabelSpec" => [0],
         "ComboBoxSpec" => [1, 2],          // label + Display array
         "RingPreviewSpec" => [2, 3],       // the two captions
-        _ => [1],                          // SliderSpec/ToggleSpec/ColorPickerSpec/ButtonSpec label
+        // The controls' text arguments. DwellComboBox lists both overloads' marker positions
+        // (9 convenience / 10 main); the extra index is an int on the other overload, so it can
+        // never contribute a literal.
+        "DwellToggle" => [2, 3, 4],        // label, onText, offText
+        "DwellComboBox" => [2, 3, 9, 10],  // label, displayOptions, notAvailableFormat
+        "DwellColorPicker" => [2, 8],      // label, swatchNames (presets are hex data)
+        "DwellButton" => [2],              // label
+        _ => [1],                          // spec labels
     };
 
     /// <summary>Whether <paramref name="relative"/> is on the ratchet's scan surface.</summary>
@@ -510,7 +524,8 @@ internal static class TextLiteralScan
                 continue;
             }
 
-            if (name.EndsWith("Spec", StringComparison.Ordinal))
+            if (name.EndsWith("Spec", StringComparison.Ordinal)
+                || name.StartsWith("Dwell", StringComparison.Ordinal))
             {
                 var args = CSharpSourceText.SplitArguments(text, openParen);
                 foreach (var index in TextArgumentIndexes(name))

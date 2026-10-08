@@ -55,7 +55,11 @@ public partial class EyeCareExerciseWindow : OverlayWindow, IEyeCareExercise
             Canvas.SetTop(TargetDot, DpiHelper.PhysicalToLogicalY(target.Y) - TargetDot.Height / 2);
 
             var remain = Math.Max(0, _durationUs - elapsed);
-            Countdown.Text = $"00:{(int)(remain / 1_000_000):D2} / 00:{(int)(_durationUs / 1_000_000):D2}";
+            // Countdown numbers follow the eye-care surface's language (T02 fixup-01 F4 widened
+            // the specifier gate to every numeric specifier, :D2 included).
+            Countdown.Text = string.Create(
+                EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("eye-care"),
+                $"00:{(int)(remain / 1_000_000):D2} / 00:{(int)(_durationUs / 1_000_000):D2}");
             Progress.Value = 100.0 * elapsed / _durationUs;
         }, Dispatcher);
         _frameTimer.Start();

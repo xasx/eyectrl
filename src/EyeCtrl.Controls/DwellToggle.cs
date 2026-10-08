@@ -223,6 +223,8 @@ public class DwellToggle : IDwellComposite
         int dwellMs,
         bool showLabel = true)
     {
+        ArgumentNullException.ThrowIfNull(onText);
+        ArgumentNullException.ThrowIfNull(offText);
         _get = get;
         _set = set;
         _onText = onText;

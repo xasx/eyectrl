@@ -34,6 +34,15 @@ public partial class SettingsWindow : OverlayWindow
     // standard control radius (100 px hit circle) fits without overlapping neighbours — see SwatchTargetGeometryTests.
     internal const double ColorSwatchRadius = ControlBtnRadius;
 
+    /// <summary>
+    /// The names the settings host gives its colour swatches, one per
+    /// <see cref="DwellColorPicker.PresetsFor"/> entry (T02). Host-supplied so the control owns no
+    /// English; T07 replaces each with a settings key. Kept as a field so the count can be pinned
+    /// headlessly against every palette (<c>ColorSwatchNamesTests</c>) — the coupling is otherwise
+    /// only a run-time throw.
+    /// </summary>
+    internal static readonly string[] ColorSwatchNames = ["Accent", "Green", "Amber", "Light"];
+
     // ── The labelled-row geometry (name on the left, control on the right) ──
 
     /// <summary>
@@ -1378,7 +1387,7 @@ public partial class SettingsWindow : OverlayWindow
                 return LabelledRow(cp, availableWidth, new DwellColorPicker(registrar, cp.Id,
                     cp.Label, cp.Get, cp.Set, cat,
                     DpiHelper.LogicalToPhysicalX(cp.RadiusLogical), dwellMs,
-                    swatchNames: ["Accent", "Green", "Amber", "Light"], showLabel: false));
+                    swatchNames: ColorSwatchNames, showLabel: false));
             case ButtonSpec b:
                 return ButtonRow(registrar, b.Id, b.Label, b.OnActivate, b.Kind, b.Width, b.Height,
                     radiusPhysical, dwellMs, cat);

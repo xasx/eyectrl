@@ -41,7 +41,15 @@ public class DwellColorPicker : IDwellComposite
     /// AccentDanger (#FF5C7A) is deliberately absent: it fails that bar at 6.62:1,
     /// and is reserved for destructive actions rather than cursor decoration.
     /// </summary>
-    private static string Hex(Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+    /// <summary>
+    /// A colour as the settings' stored hex string. Explicitly invariant, built without a format
+    /// hole: a hex code is data, never a localized number (T02 fixup-01 F4 — the widened
+    /// specifier gate flags X2 like any other numeric specifier).
+    /// </summary>
+    private static string Hex(Color c) =>
+        "#" + c.R.ToString("X2", System.Globalization.CultureInfo.InvariantCulture)
+            + c.G.ToString("X2", System.Globalization.CultureInfo.InvariantCulture)
+            + c.B.ToString("X2", System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>
     /// The swatch colours offered for <paramref name="theme"/>: its accent first (the

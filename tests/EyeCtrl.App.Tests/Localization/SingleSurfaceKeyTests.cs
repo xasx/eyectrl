@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Tests.Localization;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using EyeCtrl.App.Tests.Localization;
 using NFluent;
 using Xunit;
@@ -11,6 +12,13 @@ using Xunit;
 /// Single-surface keys (critique-01 #2): a source file may only reference keys of the surfaces it
 /// belongs to. Whole-surface gating is only as good as this rule — one key reused across two
 /// surfaces is exactly the half-German screen the manifest exists to prevent.
+///
+/// <para>
+/// A <c>FormatProviderFor("x")</c> literal is a reference to surface <c>x</c> too (T02 fixup-01):
+/// a file that formats its numbers with another surface's provider shows German text with English
+/// decimals from Step 2 until that other surface switches, and the wrong surface id is otherwise
+/// invisible — a provider has no key to lint.
+/// </para>
 /// </summary>
 /// <remarks>
 /// Globs are used only where a folder really holds one surface. <c>App/Overlays/</c>,
@@ -36,16 +44,32 @@ public class SingleSurfaceKeyTests
         ("src/EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml.cs", ["caregiver-alert"]),
         ("src/EyeCtrl.App/Overlays/CalibrationWindow.xaml", ["calibration"]),
         ("src/EyeCtrl.App/Overlays/CalibrationWindow.xaml.cs", ["calibration"]),
+        ("src/EyeCtrl.App/Overlays/CalibrationCompletion.cs", ["calibration"]),
+        ("src/EyeCtrl.App/Overlays/TrackStatusWindow.xaml.cs", ["track-status"]),
+        ("src/EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml.cs", ["eye-care"]),
+        ("src/EyeCtrl.ViewModels/CalibrationFailureText.cs", ["calibration"]),
         ("src/EyeCtrl.App/Services/TrayIconManager.cs", ["app-tray"]),
         ("src/EyeCtrl.App/Services/SupervisionToggleService.cs", ["supervisor"])
     ];
+
+    /// <summary>
+    /// A provider call's literal surface id. The literal is the whole reference: surface ids carry
+    /// no dots, so the ordinary first-segment split below works unchanged.
+    /// </summary>
+    private static readonly Regex ProviderSurfaceReference = new(
+        @"(?<![A-Za-z0-9_])FormatProviderFor\s*\(\s*""(?<surface>[^""]+)""",
+        RegexOptions.Compiled);
 
     private static List<string> FindViolations(IEnumerable<(string Relative, string Text)> files)
     {
         var violations = new List<string>();
         foreach (var (relative, text) in files)
         {
-            var references = StringKeyReferences.Extract(text);
+            var references = StringKeyReferences.Extract(text)
+                .Select(reference => (Key: reference.Key, Kind: reference.Kind))
+                .Concat(ProviderSurfaceReference.Matches(text)
+                    .Select(match => (Key: match.Groups["surface"].Value, Kind: "FormatProviderFor surface")))
+                .ToList();
             if (references.Count == 0) continue;
 
             var allowed = AllowedSurfaces(SurfaceMap, relative);
@@ -124,6 +148,39 @@ public class SingleSurfaceKeyTests
             [("src/EyeCtrl.App/Views/Settings/AlphaPageSource.cs", """var t = T("overlays.ring.back");""")]);
         Check.That(violations).HasSize(1);
         Check.That(violations[0]).Contains("overlays.ring.back");
+    }
+
+    /// <summary>
+    /// A provider call is a surface reference too (T02 fixup-01 F2): the F2 defect was exactly a
+    /// Settings file formatting with the calibration provider, which no key lint would have seen.
+    /// </summary>
+    [Fact]
+    public void AProviderSurfaceReference_ObeysTheSameSurfaceRule()
+    {
+        Check.That(FindViolations(
+            [("src/EyeCtrl.App/Views/Settings/AlphaPageSource.cs",
+              """var p = StringTable.Current.FormatProviderFor("settings");""")]))
+            .IsEmpty();
+
+        var violations = FindViolations(
+            [("src/EyeCtrl.App/Views/Settings/AlphaPageSource.cs",
+              """var p = StringTable.Current.FormatProviderFor("calibration");""")]);
+        Check.That(violations).HasSize(1);
+        Check.That(violations[0]).Contains("calibration");
+    }
+
+    /// <summary>F2's original defect, as a real-tree probe (not a fixture): the Settings tab's
+    /// calibration sentence formatted with the calibration surface's provider.</summary>
+    [Fact]
+    public void TheSettingsCalibrationTab_FormatsWithTheSettingsSurface()
+    {
+        var text = LocalizationTestData.SourceFiles()
+            .Single(f => f.Relative == "src/EyeCtrl.App/Views/Settings/Sources/CalibrationPageSource.cs")
+            .Text;
+        Check.WithCustomMessage(
+                "CalibrationPageSource is a Settings-screen source; its provider must be the "
+                + "settings surface's (F2).")
+            .That(text.Contains("FormatProviderFor(\"settings\")", StringComparison.Ordinal)).IsTrue();
     }
 
     [Fact]

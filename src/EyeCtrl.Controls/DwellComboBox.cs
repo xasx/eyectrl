@@ -156,6 +156,7 @@ public class DwellComboBox : IDwellComposite
         string notAvailableFormat,
         bool showLabel = true)
     {
+        ArgumentNullException.ThrowIfNull(notAvailableFormat);
         if (displayOptions.Length != codeOptions.Length)
         {
             throw new ArgumentException(

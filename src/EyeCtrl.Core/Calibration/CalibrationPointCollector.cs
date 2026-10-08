@@ -223,21 +223,20 @@ public class CalibrationPointCollector
 
     /// <summary>Ends collection and computes a <see cref="CalibrationPoint"/> with mean, standard deviation, and sample counts.</summary>
     /// <returns>The <see cref="CalibrationPoint"/> representing the collected data for this target.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when no in-band samples were collected.</exception>
+    /// <exception cref="CalibrationFailedException">Thrown when no in-band samples were collected, carrying the typed failure.</exception>
     public CalibrationPoint End()
     {
         _ended = true;
         var samples = _samples.ToArray();
         if (samples.Length == 0)
         {
-            // The message names the distinction, because the two causes need opposite responses: a
-            // target that was never reached is a pacing/aim problem, one that was reached but never
-            // held is a stillness problem, and "no samples collected" said neither.
-            throw new InvalidOperationException(
+            // Typed, not textual: the two causes need opposite responses — a target never reached is a
+            // pacing/aim problem, one reached but never held is a stillness problem — and the
+            // calibration window renders each from its code. "No samples collected" said neither.
+            throw new CalibrationFailedException(
                 HasArrived
-                    ? $"Gaze reached the target but never stayed within {_bandRadiusPx:0}px of it long enough "
-                      + $"to collect a sample ({AttemptedSamples} samples seen, all out of band)."
-                    : "Gaze never reached the target.");
+                    ? new CalibrationFailure(CalibrationFailureCode.TargetNeverHeld, _bandRadiusPx, AttemptedSamples)
+                    : new CalibrationFailure(CalibrationFailureCode.TargetNeverReached));
         }
 
         var n = samples.Length;

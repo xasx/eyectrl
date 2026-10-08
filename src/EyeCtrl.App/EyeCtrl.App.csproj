@@ -58,6 +58,24 @@
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
       <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
     </Content>
+    <!--
+      The loose German table and its surface manifest. Link puts them at the output root, "beside
+      the App exe" where StringTable/AppExePathResolver look for them, rather than under
+      Localization/. ExcludeFromSingleFile is required: a single-file bundle must not swallow them,
+      because the German surface set is meant to change per manifest PR without a rebuild.
+    -->
+    <Content Include="Localization\strings.de.json">
+      <Link>strings.de.json</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </Content>
+    <Content Include="Localization\strings.de.manifest.json">
+      <Link>strings.de.manifest.json</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </Content>
     <Resource Include="Assets\eyectrl.ico" />
   </ItemGroup>
 

@@ -516,7 +516,8 @@ public class SettingsRowLayoutTests
             () => RingPlan.Create(
                 new[] { InteractionAction.LeftClick, InteractionAction.Keyboard },
                 new[] { InteractionAction.LeftClick },
-                circleSize: 250),
+                circleSize: 250,
+                labels: RingLabelSource.English),
             "preview, not a control",
             "runtime shows labels only while you dwell");
 

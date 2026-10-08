@@ -112,7 +112,24 @@ public class AppBootstrapper
         services.AddSingleton<IQuickActionsStore>(sp =>
         {
             var path = Path.Combine(appDataDir, "actions.json");
-            return new QuickActionsStore(path);
+            var store = new QuickActionsStore(path);
+
+            // The one-time preset match (D2) runs here, at startup, before any surface reads the
+            // file — a keyed grid must not wait for the Settings window to be opened once. It
+            // fills only missing ids, keeps file order, writes only when something changed, and
+            // a corrupt file loads as empty so nothing is written over it. A failed write must
+            // not take startup down: the tiles then simply stay unmatched.
+            try
+            {
+                var actions = store.LoadAll();
+                if (QuickActionPresets.AssignMissingPresetIds(actions)) store.Save(actions);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Quick-action preset match failed at startup; tiles stay unmatched.");
+            }
+
+            return store;
         });
         services.AddSingleton<IWindowsAppLauncher, WindowsAppLauncher>();
         services.AddSingleton<IInstalledAppProvider, Win32InstalledAppProvider>();

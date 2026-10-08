@@ -1,0 +1,13 @@
+{
+  "settings.count": {
+    "text": {
+      "one": "{0} Datei",
+      "other": "{0} Dateien"
+    },
+    "src": "8eda4482"
+  },
+  "settings.sample": {
+    "text": "Beispiel",
+    "src": "b332a8ce"
+  }
+}

@@ -9,3 +9,8 @@ using EyeCtrl.Tests.TestSupport;
 
 // The effect half; see DpiHelperScaleObserverAttribute.
 [assembly: DpiHelperScaleObserver]
+
+// Same hook/observer rule for the process-global string table. See StringTableIsolationTests in
+// EyeCtrl.App.Tests for the pinning meta-test.
+[assembly: StringTableRestore]
+[assembly: StringTableObserver]

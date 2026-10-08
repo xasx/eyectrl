@@ -239,6 +239,111 @@ public class CalibrationViewModelTests
         Check.That(vm.State).IsEqualTo(CalibrationState.Failed);
     }
 
+    [Fact]
+    public async Task AQualityGateRefusal_ReachesTheScreen_FromTheTypedFailure()
+    {
+        // The completion path: every fit refusal lands in CompleteSession's catch, and the per-target
+        // advice is the whole reason the gate names targets. The screen must show the renderer's
+        // sentence for the typed code — not the code, and not raw exception text.
+        _settings.SettleWindowMs = 0;
+        _settings.SamplesPerPoint = 10;
+
+        var failure = new TaskCompletionSource<CalibrationCompletedMessage>();
+        _messenger.Register<CalibrationCompletedMessage>(this, (_, m) =>
+        {
+            if (!m.Success) failure.TrySetResult(m);
+        });
+
+        // Off any test SynchronizationContext so per-target advances run inline on the firing thread.
+        var vm = await Task.Run(CreateVm);
+        using var stop = new CancellationTokenSource();
+        var firing = Task.Run(async () =>
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                var target = vm.CurrentTargetPosition;
+                // Alternating corners of an 80 px box around the target: always inside the 120 px
+                // band, so collection and the fit succeed, while each target's spread of 80 px on
+                // both axes (113 px radial) trips the scatter gate.
+                _provider.FireGaze(new GazePoint(target.X + 80, target.Y + 80, 0, true));
+                _provider.FireGaze(new GazePoint(target.X - 80, target.Y - 80, 0, true));
+                await Task.Delay(2, TestContext.Current.CancellationToken);
+            }
+        }, TestContext.Current.CancellationToken);
+
+        _messenger.Send(new CalibrationRequestedMessage());
+        await failure.Task.WaitAsync(TimeSpan.FromSeconds(20), TestContext.Current.CancellationToken);
+        stop.Cancel();
+        try { await firing; } catch (OperationCanceledException) { }
+
+        Check.That(vm.State).IsEqualTo(CalibrationState.Failed);
+        Check.That(vm.Failure).IsNotNull();
+        Check.That(vm.Failure!.Code).IsEqualTo(CalibrationFailureCode.Quality);
+        // The words come from the one renderer over the typed failure.
+        Check.That(vm.ErrorText).IsEqualTo(CalibrationFailureText.Describe(vm.Failure));
+        Check.That(vm.ErrorText!).Contains("Calibration not accepted");
+    }
+
+    [Fact]
+    public async Task ASaveFault_ReachesTheScreen_AsTheGenericUnexpectedSentence()
+    {
+        // A fault after the fit is not one of the typed calibration failures — here the calibration
+        // path is a directory, so the atomic rename throws. It must reach the screen as the renderer's
+        // generic sentence, never as a raw exception message (which for a file fault carries a path).
+        _settings.SettleWindowMs = 0;
+        _settings.SamplesPerPoint = 10;
+
+        var directoryAsPath = System.IO.Path.Combine(CalibrationDir, "fault-" + Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(directoryAsPath);
+
+        var failure = new TaskCompletionSource<CalibrationCompletedMessage>();
+        _messenger.Register<CalibrationCompletedMessage>(this, (_, m) =>
+        {
+            if (!m.Success) failure.TrySetResult(m);
+        });
+
+        var vm = await Task.Run(() => new CalibrationViewModel(
+            _settings, _calibrationService, _messenger, _provider,
+            new PhysicalPoint(1920, 1080), "test-monitor", directoryAsPath));
+
+        using var stop = new CancellationTokenSource();
+        var firing = Task.Run(async () =>
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                var target = vm.CurrentTargetPosition;
+                _provider.FireGaze(new GazePoint(target.X + 10, target.Y - 5, 0, true));
+                await Task.Delay(2, TestContext.Current.CancellationToken);
+            }
+        }, TestContext.Current.CancellationToken);
+
+        _messenger.Send(new CalibrationRequestedMessage());
+        await failure.Task.WaitAsync(TimeSpan.FromSeconds(20), TestContext.Current.CancellationToken);
+        stop.Cancel();
+        try { await firing; } catch (OperationCanceledException) { }
+
+        Check.That(vm.State).IsEqualTo(CalibrationState.Failed);
+        Check.That(vm.Failure).IsNotNull();
+        Check.That(vm.Failure!.Code).IsEqualTo(CalibrationFailureCode.Unexpected);
+        Check.That(vm.ErrorText).IsEqualTo("Something went wrong while calibrating. Please try again.");
+    }
+
+    [Fact]
+    public void Failure_Changing_RaisesPropertyChangedForItselfAndForTheComputedErrorText()
+    {
+        // ErrorText is computed from Failure, so a view that binds it (T08 may) only updates if the
+        // setter notifies for it. The window currently pulls it on a state change, which hides this.
+        var vm = CreateVm();
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.Failure = CalibrationFailure.Unexpected;
+
+        Check.That(raised).HasElementThatMatches(p => p == nameof(CalibrationViewModel.Failure));
+        Check.That(raised).HasElementThatMatches(p => p == nameof(CalibrationViewModel.ErrorText));
+        Check.That(vm.ErrorText).IsEqualTo("Something went wrong while calibrating. Please try again.");
+    }
+
     // The 2026-08-17 field report: "calibration is not usable — the points should move at the
     // user's pace." Under the old fixed timer a target advanced after TargetHoldMs whether or
     // not the user had found it, averaging samples from wherever gaze happened to be. Now: no

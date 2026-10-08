@@ -125,8 +125,13 @@ public class CalibrationAcceptanceGateTests
         var failures = CalibrationValidator.FindQualityFailures(Identity(), points, Screen);
 
         Check.That(failures).HasSize(1);
-        Check.That(failures[0].Reason).Contains("misses it by 400px");
-        Check.That(failures[0].Where).IsEqualTo("the top-left point");
+        var failure = failures[0];
+        Check.That(failure.TargetIndex).IsEqualTo(0);
+        Check.That(failure.Region).IsEqualTo(CalibrationTargetRegion.TopLeft);
+        Check.That(failure.Reason).IsEqualTo(CalibrationQualityReason.ResidualTooLarge);
+        Check.That(failure.Value).IsCloseTo(400.0, 1e-6);
+        // The new budget: 5 % of this screen's 4528 px diagonal. The old one was 906 px.
+        Check.That(failure.Limit).IsCloseTo(226.4, 0.1);
     }
 
     [Fact]
@@ -146,8 +151,12 @@ public class CalibrationAcceptanceGateTests
         var failures = CalibrationValidator.FindQualityFailures(Identity(), points, Screen);
 
         Check.That(failures).HasSize(1);
-        Check.That(failures[0].Reason).Contains("scattered");
-        Check.That(failures[0].Where).IsEqualTo("the top-left point");
+        var failure = failures[0];
+        Check.That(failure.Region).IsEqualTo(CalibrationTargetRegion.TopLeft);
+        Check.That(failure.Reason).IsEqualTo(CalibrationQualityReason.ExcessScatter);
+        // Radial σ combines both axes: the point's per-axis 220 px becomes 220 * sqrt(2) ≈ 311 px.
+        Check.That(failure.Value).IsCloseTo(311.127, 1e-3);
+        Check.That(failure.Limit).IsEqualTo(CalibrationValidator.MaxTargetSigmaRadialPixels);
     }
 
     [Fact]
@@ -166,7 +175,11 @@ public class CalibrationAcceptanceGateTests
         var failures = CalibrationValidator.FindQualityFailures(Identity(), points, Screen);
 
         Check.That(failures).HasSize(1);
-        Check.That(failures[0].Reason).Contains("1% of the time");
+        var failure = failures[0];
+        Check.That(failure.Region).IsEqualTo(CalibrationTargetRegion.TopLeft);
+        Check.That(failure.Reason).IsEqualTo(CalibrationQualityReason.LowCoverage);
+        Check.That(failure.Value).IsCloseTo(1.0, 1e-6);    // 3 of 300 samples = 1 %
+        Check.That(failure.Limit).IsCloseTo(50.0, 1e-6);   // the minimum coverage, as a percent
     }
 
     [Fact]
@@ -183,14 +196,15 @@ public class CalibrationAcceptanceGateTests
         Check.That(CalibrationValidator.FindQualityFailures(Identity(), points, Screen)).IsEmpty();
     }
 
-    // ── The message ───────────────────────────────────────────────────────────
+    // ── The failure list names each target ────────────────────────────────────
 
     [Fact]
-    public void TheFailureMessage_NamesTheTargets_TheMetric_AndWhatToDo()
+    public void TheFailures_NameEachTarget_WithItsMetric()
     {
-        // The old message was "Calibration accuracy is too poor (NNNpx off target). Please recalibrate."
-        // — true, and useless: it named no point, so the retry repeated whatever went wrong. For a user
-        // whose only input is gaze, an unaimed retry is expensive.
+        // Every failing target carries its own index, its screen region and the metric it failed — the
+        // pieces the calibration window's renderer turns into "the top-left point — the fit misses it
+        // by ...". A list stripped of the per-target detail would send the user back to repeat the
+        // whole session blind, which is the failure the old single-message gate was replaced to fix.
         var points = new[]
         {
             Point(768, 480, 1679, 480, sigma: 2),                              // residual
@@ -198,16 +212,18 @@ public class CalibrationAcceptanceGateTests
             Point(3072, 1920, 3072, 1920, sigma: 2, inBand: 5, attempted: 90), // coverage
         };
 
-        var message = CalibrationValidator.DescribeFailures(
-            CalibrationValidator.FindQualityFailures(Identity(), points, Screen));
+        var failures = CalibrationValidator.FindQualityFailures(Identity(), points, Screen);
 
-        Check.That(message).Contains("the top-left point");
-        Check.That(message).Contains("the center point");
-        Check.That(message).Contains("the bottom-right point");
-        Check.That(message).Contains("misses it by");
-        Check.That(message).Contains("scattered");
-        Check.That(message).Contains("of the time");
-        Check.That(message).Contains("short looks add up");   // the actionable half
+        Check.That(failures).HasSize(3);
+        Check.That(failures[0].TargetIndex).IsEqualTo(0);
+        Check.That(failures[0].Region).IsEqualTo(CalibrationTargetRegion.TopLeft);
+        Check.That(failures[0].Reason).IsEqualTo(CalibrationQualityReason.ResidualTooLarge);
+        Check.That(failures[1].TargetIndex).IsEqualTo(1);
+        Check.That(failures[1].Region).IsEqualTo(CalibrationTargetRegion.Center);
+        Check.That(failures[1].Reason).IsEqualTo(CalibrationQualityReason.ExcessScatter);
+        Check.That(failures[2].TargetIndex).IsEqualTo(2);
+        Check.That(failures[2].Region).IsEqualTo(CalibrationTargetRegion.BottomRight);
+        Check.That(failures[2].Reason).IsEqualTo(CalibrationQualityReason.LowCoverage);
     }
 
     [Fact]
@@ -224,10 +240,81 @@ public class CalibrationAcceptanceGateTests
     }
 
     [Fact]
-    public void AnAcceptedCalibration_ProducesNoMessage()
+    public void AnUnknownScreenSize_StillNamesTheFailure_WithoutInventingAPosition()
     {
-        Check.That(CalibrationValidator.DescribeFailures(Array.Empty<CalibrationValidator.QualityFailure>()))
-             .IsEqualTo(string.Empty);
+        // A session can reach this with a non-positive screen size (no display metrics yet). The
+        // region falls back to Unknown rather than guessing a corner, and the renderer turns that
+        // into "a point".
+        var points = new[]
+        {
+            Point(768, 480, 900, 480, sigma: 2),
+        };
+
+        var failures = CalibrationValidator.FindQualityFailures(Identity(), points, new PhysicalPoint(0, 0));
+
+        Check.That(failures).HasSize(1);
+        Check.That(failures[0].Region).IsEqualTo(CalibrationTargetRegion.Unknown);
+        Check.That(failures[0].Reason).IsEqualTo(CalibrationQualityReason.ResidualTooLarge);
+    }
+
+    [Theory]
+    [InlineData(0, 0, CalibrationTargetRegion.TopLeft)]
+    [InlineData(1, 0, CalibrationTargetRegion.TopCenter)]
+    [InlineData(2, 0, CalibrationTargetRegion.TopRight)]
+    [InlineData(0, 1, CalibrationTargetRegion.MiddleLeft)]
+    [InlineData(1, 1, CalibrationTargetRegion.Center)]
+    [InlineData(2, 1, CalibrationTargetRegion.MiddleRight)]
+    [InlineData(0, 2, CalibrationTargetRegion.BottomLeft)]
+    [InlineData(1, 2, CalibrationTargetRegion.BottomCenter)]
+    [InlineData(2, 2, CalibrationTargetRegion.BottomRight)]
+    public void EveryScreenCell_ResolvesToItsOwnRegion(int col, int row, CalibrationTargetRegion expected)
+    {
+        // All nine arms of the geometry-to-region map. The cell's centre is used deliberately (1/6,
+        // 1/2, 5/6 of each axis): the 1/3 and 2/3 boundaries are inclusive on the left/top and
+        // exclusive on the right/bottom, so a point placed exactly on one would not test the arm it
+        // names. Gaze sits 500 px off the target so the residual gate fires and the failure carries
+        // the region.
+        var target = new PhysicalPoint(
+            Screen.X * (col + 0.5) / 3.0,
+            Screen.Y * (row + 0.5) / 3.0);
+        var points = new[]
+        {
+            new CalibrationPoint(target, new PhysicalPoint(target.X + 500, target.Y), 2, 2, 30),
+        };
+
+        var failures = CalibrationValidator.FindQualityFailures(Identity(), points, Screen);
+
+        Check.That(failures).HasSize(1);
+        Check.That(failures[0].Region).IsEqualTo(expected);
+        Check.That(failures[0].Reason).IsEqualTo(CalibrationQualityReason.ResidualTooLarge);
+    }
+
+    [Fact]
+    public void TheQualityFailureLogMessage_CarriesEachTargetsRegionReasonAndNumbers()
+    {
+        // The completion panel renders the user's sentence on the window side, so the exception's
+        // message is the only place the per-target numbers survive for the log. "Calibration failed:
+        // Quality." alone would drop exactly the diagnostics a failed session is read for.
+        var failures = new CalibrationQualityFailure[]
+        {
+            new(0, CalibrationTargetRegion.TopLeft, CalibrationQualityReason.ExcessScatter, 311, 100),
+            new(2, CalibrationTargetRegion.BottomRight, CalibrationQualityReason.LowCoverage, 1, 50),
+        };
+
+        var exception = new CalibrationFailedException(
+            new CalibrationFailure(CalibrationFailureCode.Quality, failures));
+
+        Check.That(exception.Message).Contains("TopLeft");
+        Check.That(exception.Message).Contains("ExcessScatter");
+        Check.That(exception.Message).Contains("311");
+        Check.That(exception.Message).Contains("100");
+        Check.That(exception.Message).Contains("BottomRight");
+        Check.That(exception.Message).Contains("LowCoverage");
+        Check.That(exception.Message).Contains("target 2");
+
+        // Every other code keeps the one-line message; only the quality gate has per-target detail.
+        Check.That(new CalibrationFailedException(CalibrationFailure.Unexpected).Message)
+             .IsEqualTo("Calibration failed: Unexpected.");
     }
 
     // ── The gate is actually WIRED ────────────────────────────────────────────
@@ -277,8 +364,12 @@ public class CalibrationAcceptanceGateTests
         var service = RunSession(Screen, (t, j) => new PhysicalPoint(
             t.X + (j % 2 == 0 ? 180 : -180), t.Y));
 
-        Check.ThatCode(() => service.CompleteSession(Screen, "DISPLAY1"))
-             .Throws<InvalidOperationException>();
+        var thrown = Check.ThatCode(() => service.CompleteSession(Screen, "DISPLAY1"))
+                           .Throws<CalibrationFailedException>().Value;
+
+        Check.That(thrown.Failure.Code).IsEqualTo(CalibrationFailureCode.Quality);
+        Check.That(thrown.Failure.Arguments).HasSize(1);
+        Check.That((IReadOnlyList<CalibrationQualityFailure>)thrown.Failure.Arguments[0]!).HasSize(5);
 
         // No silent fallback: nothing applied, nothing persisted in memory.
         Check.That(service.CurrentTransform).IsNull();
@@ -288,16 +379,25 @@ public class CalibrationAcceptanceGateTests
     [Fact]
     public void CompleteSession_NamesTheFailingTargets_NotJustTheFailure()
     {
-        // The message reaches the user through this path — the view model surfaces the exception text
-        // verbatim — so the naming has to survive the trip, not merely exist in the validator.
+        // The typed failure carries every failing target, not just a boolean: the calibration window
+        // renders each from its region and its metric, and an unaimed retry is expensive for a user
+        // whose only input is gaze. The wording itself is pinned by CalibrationFailureTextTests.
         var service = RunSession(Screen, (t, j) => new PhysicalPoint(
             t.X + (j % 2 == 0 ? 180 : -180), t.Y));
 
         var thrown = Check.ThatCode(() => service.CompleteSession(Screen, "DISPLAY1"))
-                          .Throws<InvalidOperationException>().Value;
+                           .Throws<CalibrationFailedException>().Value;
 
-        Check.That(thrown.Message).Contains("point");
-        Check.That(thrown.Message).Contains("short looks add up");
+        var failure = thrown.Failure;
+        Check.That(failure.Code).IsEqualTo(CalibrationFailureCode.Quality);
+
+        var targets = (IReadOnlyList<CalibrationQualityFailure>)failure.Arguments[0]!;
+        Check.That(targets).HasSize(5);
+        for (int i = 0; i < targets.Count; i++)
+        {
+            Check.That(targets[i].TargetIndex).IsEqualTo(i);
+            Check.That(targets[i].Reason).IsEqualTo(CalibrationQualityReason.ExcessScatter);
+        }
     }
 
     [Fact]

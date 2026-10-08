@@ -1,0 +1,11 @@
+{
+  "settings.sample": {
+    "text": "{0:0.0} ({0:F0})",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": [
+      "count"
+    ]
+  }
+}

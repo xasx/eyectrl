@@ -26,7 +26,8 @@ using Xunit;
 public class ActionMenuSettingsPrimaryTests
 {
     private static RingPlan PlanFor(ActionMenuSettings settings) =>
-        RingPlan.Create(settings.VisibleActions, settings.PrimaryActions, new CursorSettings().CircleSize);
+        RingPlan.Create(settings.VisibleActions, settings.PrimaryActions, new CursorSettings().CircleSize,
+            RingLabelSource.English);
 
     [Fact]
     public void AFreshSettings_HasFourPrimaryActions()

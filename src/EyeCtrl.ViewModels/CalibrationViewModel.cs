@@ -104,7 +104,6 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     [ObservableProperty] private int _totalTargets;
     [ObservableProperty] private double _progressPercent;
     [ObservableProperty] private PhysicalPoint _currentTargetPosition;
-    [ObservableProperty] private string? _errorText;
     [ObservableProperty] private double? _meanErrorPixels;
     [ObservableProperty] private double? _qualityPercent;
     // Default mirrors Tokens.Accent / SettingsDefaults.Accent (#A5F3FC); overwritten from
@@ -166,6 +165,25 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     /// </para>
     /// </remarks>
     [ObservableProperty] private IReadOnlyList<PhysicalPoint> _targetPositions = Array.Empty<PhysicalPoint>();
+
+    /// <summary>
+    /// The typed failure that ended the last session, or null when none did. Kept typed so the words
+    /// the overlay shows come from one renderer (<see cref="CalibrationFailureText"/>) and a test can
+    /// assert the code and its arguments rather than the sentence.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ErrorText"/> is computed from this, so a change here also notifies for it: a view
+    /// that binds <c>ErrorText</c> directly must update the moment a session fails.
+    /// </remarks>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ErrorText))]
+    private CalibrationFailure? _failure;
+
+    /// <summary>
+    /// The failure rendered as the sentence the completion panel shows, or null when no failure ended
+    /// the session. Computed from <see cref="Failure"/> so the typed value and the words cannot drift.
+    /// </summary>
+    public string? ErrorText => Failure is null ? null : CalibrationFailureText.Describe(Failure);
 
     /// <summary>
     /// What the target at <paramref name="index"/> is doing, derived from <see cref="CurrentTargetIndex"/>.
@@ -263,7 +281,7 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         BandRadiusPixels = CalibrationGeometry.BandRadiusPx(_screenSize);
         TargetProgress = 0;
         IsOnTarget = false;
-        ErrorText = null;
+        Failure = null;
         MeanErrorPixels = null;
         State = CalibrationState.Collecting;
 
@@ -407,7 +425,11 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
             // show a stale "calibrating" state for the ordinary case.
             _calibrationService.CancelSession();
             _groundTruth?.AbandonSession();
-            ErrorText = ex.Message;
+            // The typed failure, not the exception text: the renderer owns the words (they must be
+            // translatable, and raw exception text never is), and the technical message stays in the
+            // log. An exception outside the typed set (a defect) still gets a renderable code.
+            _logger?.LogWarning(ex, "Calibration failed at target {TargetIndex}", expectedIndex);
+            Failure = (ex as CalibrationFailedException)?.Failure ?? CalibrationFailure.Unexpected;
             State = CalibrationState.Failed;
             Messenger.Send(new CalibrationStateChangedMessage(State, 100));
             Messenger.Send(new CalibrationCompletedMessage(false, null));
@@ -544,7 +566,11 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         {
             _calibrationService.CancelSession();
             _groundTruth?.AbandonSession();
-            ErrorText = ex.Message;
+            // Same typed hand-off as the per-target path above: the renderer owns the user's words,
+            // the technical message goes to the log. A fault thrown after the fit succeeds (e.g. the
+            // save) is outside the typed set and becomes Unexpected.
+            _logger?.LogWarning(ex, "Calibration failed while completing the session");
+            Failure = (ex as CalibrationFailedException)?.Failure ?? CalibrationFailure.Unexpected;
             State = CalibrationState.Failed;
             Messenger.Send(new CalibrationStateChangedMessage(State, 100));
             Messenger.Send(new CalibrationCompletedMessage(false, null));

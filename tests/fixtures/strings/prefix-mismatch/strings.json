@@ -1,0 +1,9 @@
+{
+  "settings.sample": {
+    "text": "Sample",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  }
+}

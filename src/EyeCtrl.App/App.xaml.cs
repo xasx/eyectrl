@@ -1,6 +1,7 @@
 namespace EyeCtrl.App;
 
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -10,6 +11,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Diagnostics;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Services;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
@@ -123,6 +125,17 @@ public partial class App : Application
         try
         {
             var (settings, settingsFilePath) = InitializeSettingsAndLogging();
+
+            // ── String table ──
+            // After logging exists (the load path logs, never fails) and before the theme and the
+            // splash, because everything downstream reads StringTable.Current the moment it is
+            // constructed. English is compiled into Core; this activates the persisted selection,
+            // with System resolved against the Windows UI culture the process already runs under.
+            StringTable.Activate(StringTable.Load(
+                settings.General.UiLanguage,
+                CultureInfo.CurrentUICulture,
+                AppDomain.CurrentDomain.BaseDirectory,
+                message => Log.Warning("String table: {Message}", message)));
 
             // ── Theme ──
             // Before the DI container, because everything downstream — overlays, dwell

@@ -19,4 +19,14 @@
   <!-- Mirror TOBII_AVAILABLE from the Platform project via the shared probe. -->
   <Import Project="..\..\src\Tobii.props" />
 
+  <ItemGroup>
+    <!-- Linked, not copied: the hook is one rule, and a second copy is a second rule. Every
+         Core-referencing test project installs both; see AssemblyInfo.cs in this project and
+         StringTableIsolationTests in EyeCtrl.App.Tests. -->
+    <Compile Include="..\TestSupport\StringTableRestoreAttribute.cs"
+             Link="TestSupport\StringTableRestoreAttribute.cs" />
+    <Compile Include="..\TestSupport\StringTableObserverAttribute.cs"
+             Link="TestSupport\StringTableObserverAttribute.cs" />
+  </ItemGroup>
+
 </Project>

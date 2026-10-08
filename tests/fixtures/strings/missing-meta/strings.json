@@ -1,0 +1,8 @@
+{
+  "settings.sample": {
+    "text": "Sample",
+    "who": "user",
+    "where": "settings",
+    "args": []
+  }
+}

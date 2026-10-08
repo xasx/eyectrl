@@ -1,0 +1,17 @@
+{
+  "settings.sample": {
+    "text": "Sample",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": [],
+    "mirrors": "settings.other"
+  },
+  "settings.other": {
+    "text": "Other",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  }
+}

@@ -23,7 +23,7 @@ public partial class TrackStatusViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _userPresent;
     [ObservableProperty] private double _headDistanceMm;
     [ObservableProperty] private bool _headDistanceValid;
-    [ObservableProperty] private string _distanceQuality = "Unknown";
+    [ObservableProperty] private DistanceQuality _distanceQuality = DistanceQuality.Unknown;
     [ObservableProperty] private bool _isVisible;
 
     public TrackStatusViewModel(IGazeProvider gazeProvider)
@@ -75,7 +75,7 @@ public partial class TrackStatusViewModel : ObservableObject, IDisposable
         RightEyeValid = false;
         HeadDistanceValid = false;
         UserPresent = false;
-        DistanceQuality = "Unknown";
+        DistanceQuality = DistanceQuality.Unknown;
     }
 
     private void UpdateFromSample(TrackStatusSample sample)
@@ -93,15 +93,17 @@ public partial class TrackStatusViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Maps head distance (mm) to a quality label.
+    /// Maps head distance (mm) to a quality. The enum is the comparison key the overlay
+    /// colours from; the English word is supplied separately by the window, so translating
+    /// the word cannot change the colour.
     /// PCEye 5 optimal range ~450–750 mm. Thresholds TBD against real data at impl time.
     /// </summary>
-    private static string ComputeDistanceQuality(double distanceMm, bool valid)
+    private static DistanceQuality ComputeDistanceQuality(double distanceMm, bool valid)
     {
-        if (!valid) return "Unknown";
-        if (distanceMm >= 450 && distanceMm <= 750) return "Good";
-        if (distanceMm >= 350 && distanceMm <= 900) return "Fair";
-        return "Poor";
+        if (!valid) return DistanceQuality.Unknown;
+        if (distanceMm >= 450 && distanceMm <= 750) return DistanceQuality.Good;
+        if (distanceMm >= 350 && distanceMm <= 900) return DistanceQuality.Fair;
+        return DistanceQuality.Poor;
     }
 
     public void Dispose()

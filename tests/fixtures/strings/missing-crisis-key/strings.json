@@ -1,0 +1,10 @@
+{
+  "settings.crisis": {
+    "text": "Danger",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  }
+}

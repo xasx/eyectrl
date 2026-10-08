@@ -81,6 +81,13 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     private EyeCtrlSettings _settings = null!;
     private string _appExePath = null!;
 
+    // T05a: the App owns general.startOnBoot, so the setup window's logon toggle asks the App to
+    // save it over the request channel. The delivery outlives the window: a choice parked while
+    // the App is down is retried on every verified heartbeat until the App acknowledges it.
+    private SettingDelivery<bool> _startOnBootDelivery = null!;
+    private StartOnBootTracker _startOnBootTracker = null!;
+    private SupervisorLanguageResolver _languageResolver = null!;
+
     // Ticket 06-B: last disk-read supervision.enabled, kept by the tracker so a damaged file falls
     // back to the last DISK value — never to the in-memory settings object the setup window edits.
     private SupervisionEnabledTracker _enabledTracker = null!;
@@ -162,6 +169,17 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         // Resolve the app exe path (env override > sibling-of-supervisor-exe default).
         _appExePath = AppExePathResolver.Resolve();
         Log.Information("App exe path resolved to {AppExePath}.", _appExePath);
+
+        // 2b. The request channel's client side: every send runs off the UI thread with bounded
+        // connect and acknowledgement timeouts; completions come back through the dispatcher.
+        var appRequests = AppRequestClient.ForApp(_appExePath);
+        _startOnBootDelivery = new SettingDelivery<bool>(
+            "StartOnBoot",
+            (startOnBoot, _) => SettingRequest.SetStartOnBoot(startOnBoot),
+            appRequests.SendAsync,
+            work => Dispatcher.BeginInvoke(work));
+        _startOnBootTracker = new StartOnBootTracker(settingsPath, _settings.General.StartOnBoot);
+        _languageResolver = new SupervisorLanguageResolver(settingsPath, _appExePath);
 
         // 3. Construct the supervision components. Ticket 04 re-check 2 R2-1: the enabled predicate
         // (tracker-backed: disk, never the in-memory snapshot) and the startup decision live in the
@@ -283,6 +301,12 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
                 // drive the state machine). See spec "Clean exit must come from the verified process."
                 return;
             }
+
+            // A verified heartbeat proves a running App: retry a parked StartOnBoot choice. The
+            // delivery is single-flight and never waits here. Not on the final payload — that App
+            // is exiting, and its successor's first heartbeat retries instead.
+            if (!hb.ShuttingDown)
+                _startOnBootDelivery.OnAppHeartbeat();
 
             var now = DateTime.UtcNow;
 
@@ -645,7 +669,8 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
                 //    stale-heartbeat check already reads it live each tick).
                 // Enabled also takes effect live (ticket 06-B): the machine re-reads it at every
                 // recovery decision, adoption re-checks it, and a due Recovering relaunch re-checks it.
-                // StartOnBoot lives in GeneralSettings (App-owned) and is NOT persisted by the supervisor.
+                // StartOnBoot lives in GeneralSettings (App-owned): its toggle asks the App to save
+                // it over the request channel (StartOnBootSetupRow), never through this callback.
                 var s = _settings.Supervision;
                 _sm.UpdatePolicy(s.MaxRetries, s.CrashWindowSeconds);
                 _freshness = new HeartbeatFreshnessEvaluator(s.HangThresholdSeconds);
@@ -654,6 +679,8 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
                     s.MaxRetries, s.CrashWindowSeconds, s.HangThresholdSeconds);
             },
             launchAppNow: () => HandleInput(new LaunchRequest(DateTime.UtcNow)),
+            startOnBoot: new StartOnBootSetupRow(_startOnBootDelivery, () => _startOnBootTracker.Current),
+            strings: _languageResolver.ResolveTable(warning => Log.Debug("Supervisor strings: {Warning}", warning)),
             statusText: "Supervisor state: " + SupervisorStateText.Describe(_sm.State));
         window.Show();
     }

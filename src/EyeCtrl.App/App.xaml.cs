@@ -46,6 +46,7 @@ public partial class App : Application
     private EventCoordinator _eventCoordinator = null!;
     private SingleInstanceGuard? _singleInstance;
     private HeartbeatPublisher? _heartbeatPublisher;
+    private SupervisorRequestService? _supervisorRequests;
     private AppRestartCoordinator? _restartCoordinator;
     private DisplayGeometryWatcher? _displayGeometryWatcher;
     private string _appDataDir = null!;
@@ -183,12 +184,8 @@ public partial class App : Application
                 settings, startupRegistrar);
             reconcileRunKey();
 
-            // Live-toggle: if the user changes StartOnBoot in settings, apply immediately.
-            settings.General.PropertyChanged += (_, e) =>
-            {
-                if (e.PropertyName == nameof(settings.General.StartOnBoot))
-                    reconcileRunKey();
-            };
+            // Live-toggle: if StartOnBoot changes (Settings row or Supervisor request), apply immediately.
+            SupervisionComposition.ReconcileRunKeyOnStartOnBootChange(settings, reconcileRunKey);
 
             var activeProviderType = GazeProviderFactory.GetProviderType(gazeProvider);
             ActiveProviderType = activeProviderType;
@@ -405,6 +402,15 @@ public partial class App : Application
             // External dwell pipe server (cooperating-app control activation).
             _serviceProvider.GetRequiredService<ExternalDwellService>().Start();
 
+            // Supervisor → App request channel: the Supervisor asks, the App saves (single writer).
+            _supervisorRequests = new SupervisorRequestService(
+                new SupervisorRequestHandler(
+                    settings, settingsService.Save,
+                    _serviceProvider.GetRequiredService<ILogger<SupervisorRequestHandler>>()).Handle,
+                runOnUi: work => Dispatcher.InvokeAsync(work).Task,
+                _serviceProvider.GetRequiredService<ILogger<SupervisorRequestService>>());
+            _supervisorRequests.Start();
+
             // Eye-care break reminder: subscribe to raw gaze samples for scheduler + fatigue monitor.
             // Resolving IEyeCareService constructs the singleton and its EyeCareHooks,
             // which registers for GazeCursorMovedMessage to feed gaze into overlays.
@@ -547,6 +553,10 @@ public partial class App : Application
         // Stop ticking before the publisher goes away: a tick racing Dispose would call Stamp on
         // a disposed publisher from the dispatcher.
         Step("stop heartbeat timer", () => _heartbeatTimer?.Stop());
+
+        // Stop taking Supervisor requests before the exit save: a request mid-flight now sees the
+        // pipe close, and the Supervisor parks it and re-sends to the next App.
+        Step("dispose supervisor request service", () => _supervisorRequests?.Dispose());
 
         // Before the coordinators: SystemEvents holds a static reference to the handler, so an
         // un-unsubscribed watcher outlives the app object and would fire into disposed services.

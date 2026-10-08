@@ -131,5 +131,45 @@
     "fit": "row",
     "args": [],
     "crisis": true
+  },
+  "supervisor.setup.logon.parked": {
+    "text": "Applies when EyeCtrl next runs",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.logon.refused": {
+    "text": "EyeCtrl refused the logon setting. It was not saved.",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.logon.saved-off": {
+    "text": "Saved: EyeCtrl will not start at logon.",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.logon.saved-on": {
+    "text": "Saved: EyeCtrl will start at logon.",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.logon.sending": {
+    "text": "Asking EyeCtrl to save the logon setting…",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
   }
 }

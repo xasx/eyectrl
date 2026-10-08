@@ -130,17 +130,21 @@ internal sealed class GeneralPageSource : ISettingsPageSource
         if (!LanguageChangePending(settings)) return;
 
         // The named-language lookup is gated by the manifest: until T11 a German target still
-        // shows English, so Step 0 shows no German. "System" resolves through this table.
+        // shows English, so Step 0 shows no German. F2: resolve the TARGET first — "System"
+        // means "whatever System resolves to on this machine" (the ticket), while the lookup's
+        // own System means "this instance's language"; passing a raw System would render the
+        // prompt in the RUNNING language.
         var table = StringTable.Current;
+        var target = StringTable.ResolveLanguage(language, table.Culture);
         _ctx.ViewModel.ShowModal(
-            table.T(language, "language-recovery.prompt.message"),
+            table.T(target, "language-recovery.prompt.message"),
             [
                 new ModalChoice("language_restart",
-                    table.T(language, "language-recovery.prompt.restart"),
+                    table.T(target, "language-recovery.prompt.restart"),
                     ModalChoiceKind.Affirmative,
                     () => _ctx.Messenger.Send(new RestartAppRequestedMessage())),
                 new ModalChoice("language_cancel",
-                    table.T(language, "language-recovery.prompt.cancel"),
+                    table.T(target, "language-recovery.prompt.cancel"),
                     ModalChoiceKind.Negative, null),
             ]);
     }

@@ -1,11 +1,15 @@
 namespace EyeCtrl.App.Tests.Localization;
 
+using System;
+using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using EyeCtrl.App.Tests.Settings;
 using EyeCtrl.App.Tests.Settings.Pages;
 using EyeCtrl.App.Views;
 using EyeCtrl.App.Views.Settings;
+using EyeCtrl.ViewModels.Messages;
 using NFluent;
 using Xunit;
 
@@ -22,6 +26,13 @@ using Xunit;
 /// activation (the choice and the restart prompt are two more dwells). General is tab 12 of 15 and
 /// the sidebar paginates, so the count is not 1 — the number is the point of this file.
 /// </para>
+///
+/// <para>
+/// The tab index and count are read from the REAL <c>_tabDefs</c> literal (F8) — moving General
+/// changes the computed dwell count and fails the pin instead of leaving it green — and the
+/// sidebar budget goes through production's <see cref="SettingsWindow.SidebarTabBudgetFor"/>
+/// rather than a formula restated here.
+/// </para>
 /// </summary>
 public class LanguageRowReachTests
 {
@@ -31,35 +42,56 @@ public class LanguageRowReachTests
     /// <inheritdoc cref="DisplayWidthDip"/>
     private const double DisplayHeightDip = 1200;
 
-    /// <summary>General's 0-based index in <c>SettingsWindow._tabDefs</c> (tab 12 of 15).</summary>
-    private const int GeneralTabIndex = 11;
-
-    private const int TabCount = 15;
-
     /// <summary>1 = toolbar Settings; 1 = sidebar next-page; 1 = the General tab.</summary>
     private const int PinnedToolbarToLanguageRowDwells = 3;
-
-    /// <summary>The deep link opens on the row's page; nothing further to reach it.</summary>
-    private const int PinnedTrayToLanguageRowDwells = 0;
 
     private const int DwellMs = 800;
 
     /// <summary>
-    /// The sidebar's tab-list budget in DIP at this display — every term of
-    /// <c>SettingsWindow.SidebarTabBudget</c> read off the live XAML and production's consts.
+    /// General's 0-based index and the tab count, read from <c>SettingsWindow._tabDefs</c> — the
+    /// real list, so a tab moved in front of General re-measures the reach (F8).
+    /// </summary>
+    private static (int GeneralIndex, int TabCount) TabDefsFromSource()
+    {
+        var source = File.ReadAllText(Path.Combine(
+                SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs"))
+            .Replace("\r\n", "\n");
+        var start = source.IndexOf("_tabDefs =\n", StringComparison.Ordinal);
+        var open = source.IndexOf('[', start);
+        var close = source.IndexOf("];", open, StringComparison.Ordinal);
+        var ids = Regex.Matches(source[open..close], "\\(\\s*\"([A-Za-z]+)\"\\s*,")
+            .Select(match => match.Groups[1].Value)
+            .ToList();
+        return (ids.IndexOf("General"), ids.Count);
+    }
+
+    /// <summary>
+    /// The sidebar's tab-list budget in DIP, through production's own formula and every term read
+    /// off the live XAML element it belongs to.
     /// </summary>
     private static double SidebarTabBudget(XElement root)
     {
-        var windowHeight = SettingsContentFitTests.WindowHeightFor(DisplayHeightDip);
         var close = SettingsContentFitTests.Margin(root, "CloseButton");
         var pager = SettingsContentFitTests.Margin(root, "TabPagerPanel");
         var tabs = SettingsContentFitTests.Margin(root, "TabButtonPanel");
 
-        return windowHeight
-            - SettingsContentFitTests.FixedHeight(root, "CloseButton")
-            - close.Top - close.Bottom
-            - SettingsWindow.TabPagerStackReserve(pager.Top, pager.Bottom)
-            - tabs.Top - tabs.Bottom;
+        return SettingsWindow.SidebarTabBudgetFor(
+            SettingsContentFitTests.WindowHeightFor(DisplayHeightDip),
+            SettingsContentFitTests.FixedHeight(root, "CloseButton") + close.Top + close.Bottom,
+            SettingsWindow.TabPagerStackReserve(pager.Top, pager.Bottom),
+            tabs.Top + tabs.Bottom);
+    }
+
+    private static string FirstRenderedRowId()
+    {
+        var root = SettingsContentFitTests.Xml();
+        var budget = HandChunkedPageFitTests.ContentHeightBudget(root, DisplayHeightDip);
+        var columnWidth = HandChunkedPageFitTests.ContentColumnWidth(root, DisplayWidthDip);
+        var rows = new GeneralPageSource(TestSettingsPageContext.Build()).Build()
+            .SelectMany(p => p.Rows).ToList();
+        var rendered = SettingsAutoPagination.Repaginate(
+            rows, columnWidth, budget, SettingsWindow.ControlBtnRadius * 2, DwellMs);
+        return ((ComboBoxSpec)rendered[0].Rows[0]).Id;
     }
 
     [Fact]
@@ -69,12 +101,21 @@ public class LanguageRowReachTests
         var budget = SidebarTabBudget(root);
         var slot = SettingsWindow.TabContainerHeight + 2 * SettingsWindow.TabButtonMargin;
         var perPage = SettingsTabPagination.TabsPerPage(budget, slot);
-        var generalPage = SettingsTabPagination.PageOf(GeneralTabIndex, perPage);
+        var (generalIndex, tabCount) = TabDefsFromSource();
+
+        // Tripwires: a scan that found nothing must not compute a vacuous pass.
+        Check.WithCustomMessage(
+                "The _tabDefs scan found no tab ids — the SettingsWindow source shape moved; "
+                + "repoint the scan rather than letting the reach be computed from nothing.")
+            .That(tabCount).IsStrictlyGreaterThan(5);
+        Check.That(generalIndex).IsStrictlyGreaterThan(-1);
+
+        var generalPage = SettingsTabPagination.PageOf(generalIndex, perPage);
         var dwells = 1 + generalPage + 1;
 
         Check.WithCustomMessage(
                 $"At {DisplayWidthDip}x{DisplayHeightDip} DIP the sidebar budget is {budget} DIP, "
-                + $"so {perPage} of {TabCount} tabs fit per page and General (index {GeneralTabIndex}) "
+                + $"so {perPage} of {tabCount} tabs fit per page and General (index {generalIndex}) "
                 + $"is on page {generalPage}. If this moved, re-measure the reach and update the pin "
                 + "deliberately — a longer recovery path is a UX decision, not a test failure to "
                 + "paper over.")
@@ -86,11 +127,20 @@ public class LanguageRowReachTests
     [StaFact]
     public void FromTheTrayLanguageItem_TheLanguageRow_IsZeroDwellsAway()
     {
-        // The deep link's landing is pinned by the row-on-page-one check below; the tray item's
-        // target is pinned by SettingsDeepLinkWiringTests. Together: the row is in view when the
-        // window opens, so reaching it costs no further dwell.
-        Check.That(PinnedTrayToLanguageRowDwells).IsEqualTo(0);
-        Check.That(FirstRenderedRowId()).IsEqualTo("g_language");
+        // Measured, not restated: the deep link DECIDES to open-then-navigate, and the language
+        // row is the first row of the page production renders — so the dwell count is 0 by
+        // computation.
+        var action = SettingsDeepLink.Decide(windowOpen: false, SettingsTarget.GeneralPage1);
+        var rowIsFirst = FirstRenderedRowId() == "g_language";
+        var dwells = action == SettingsDeepLinkAction.OpenThenNavigate && rowIsFirst
+            ? 0
+            : int.MaxValue;
+
+        Check.WithCustomMessage(
+                "The tray item is no longer 0 dwells from the language row: the deep link must "
+                + "decide OpenThenNavigate (SettingsDeepLink) and the row must be the first row "
+                + "of rendered General page 1.")
+            .That(dwells).IsEqualTo(0);
     }
 
     [StaFact]
@@ -109,17 +159,5 @@ public class LanguageRowReachTests
 
         Check.That(rendered[0].Rows[0]).IsInstanceOf<ComboBoxSpec>();
         Check.That(((ComboBoxSpec)rendered[0].Rows[0]).Id).IsEqualTo("g_language");
-    }
-
-    private static string FirstRenderedRowId()
-    {
-        var root = SettingsContentFitTests.Xml();
-        var budget = HandChunkedPageFitTests.ContentHeightBudget(root, DisplayHeightDip);
-        var columnWidth = HandChunkedPageFitTests.ContentColumnWidth(root, DisplayWidthDip);
-        var rows = new GeneralPageSource(TestSettingsPageContext.Build()).Build()
-            .SelectMany(p => p.Rows).ToList();
-        var rendered = SettingsAutoPagination.Repaginate(
-            rows, columnWidth, budget, SettingsWindow.ControlBtnRadius * 2, DwellMs);
-        return ((ComboBoxSpec)rendered[0].Rows[0]).Id;
     }
 }

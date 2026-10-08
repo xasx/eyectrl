@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
 using EyeCtrl.Core.ActionMenu;
 using EyeCtrl.Core.Calibration;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
@@ -404,12 +405,15 @@ public partial class SettingsWindow : OverlayWindow
         // already be running, and it must exist: a modal with no dwell target would trap a
         // gaze-only user if the outcome never arrived.
         //
-        // The notice's text belongs to the `language-recovery` surface (D5, T04): the restart flow
-        // is what a wrong-language user must be able to read, so it switches together with the
-        // prompt. RestartNotices owns the keys so the English text is headlessly pinned.
+        // The notice's text belongs to the `language-recovery` surface (D5, T04) and resolves in
+        // the TARGET language — the saved selection resolved against the machine culture, i.e.
+        // what the replacement will run (F1). An ordinary restart resolves to the running
+        // language, unchanged. RestartNotices owns the keys so the English text is headlessly
+        // pinned.
         _messenger.Register<RestartInProgressMessage>(this, (_, _) =>
             Dispatcher.Invoke(() => _viewModel.ShowModal(
-                RestartNotices.InProgressMessage(), RestartNotices.InProgressChoices())));
+                RestartNotices.InProgressMessage(TargetLanguage()),
+                RestartNotices.InProgressChoices(TargetLanguage()))));
 
         // A refused restart must be visible: the user just completed a dwell, and
         // silence reads as the dwell not registering.
@@ -419,10 +423,10 @@ public partial class SettingsWindow : OverlayWindow
         // user every extra target is another chance to mis-dwell on a message that only
         // needs dismissing. The multi-choice modal makes a single button expressible;
         // before it existed this had to borrow the Yes/No form. The reason text already
-        // arrives localized from the coordinator (language-recovery surface).
+        // arrives localized in the same target from the coordinator.
         _messenger.Register<RestartUnavailableMessage>(this, (_, m) =>
             Dispatcher.Invoke(() => _viewModel.ShowModal(
-                m.Reason, RestartNotices.RefusedChoices())));
+                m.Reason, RestartNotices.RefusedChoices(TargetLanguage()))));
 
         // Initialize tab definitions
         _tabDefs =
@@ -585,7 +589,7 @@ public partial class SettingsWindow : OverlayWindow
                     // The deep link that arrived while this modal was up runs now. A modal is
                     // never discarded to satisfy the link (T04's three window states).
                     if (_languageRowDeepLink.TryApply(_viewModel.IsModalVisible))
-                        ShowTab("General");
+                        ShowLanguageRow();
                     break;
             }
         });
@@ -908,10 +912,35 @@ public partial class SettingsWindow : OverlayWindow
     /// </summary>
     internal void NavigateToLanguageRow()
     {
-        Activate();
+        // WS_EX_NOACTIVATE (OverlayWindow): Activate() is either blocked or it steals the
+        // foreground from the user's app. RaiseToTop reasserts HWND_TOPMOST with SWP_NOACTIVATE.
+        RaiseToTop();
         if (_languageRowDeepLink.Request(_viewModel.IsModalVisible))
-            ShowTab("General");
+            ShowLanguageRow();
     }
+
+    /// <summary>
+    /// Lands the whole window on the language row: content tab, sidebar highlight AND the sidebar
+    /// page holding General (F6). The dwell path sets <see cref="SettingsWindowViewModel.ActiveTabId"/>
+    /// too — without it the sidebar keeps highlighting the previous tab, which for a wrong-language
+    /// user is a sidebar that contradicts the content.
+    /// </summary>
+    private void ShowLanguageRow()
+    {
+        ShowTab("General");
+        _viewModel.ActiveTabId = "General";
+        var index = Array.FindIndex(_tabDefs, t => t.Id == "General");
+        if (index >= 0)
+            SwitchTabPage(SettingsTabPagination.PageOf(index, _tabsPerPage));
+    }
+
+    /// <summary>
+    /// The language the restart flow speaks (F1, D5): the SAVED selection resolved against the
+    /// machine culture — the language the replacement will actually run. An ordinary restart (no
+    /// pending change) resolves to the running language, so its notices are unchanged.
+    /// </summary>
+    private UiLanguage TargetLanguage() =>
+        StringTable.ResolveLanguage(_settings.General.UiLanguage, StringTable.Current.Culture);
 
     // ────── Live apply + debounced save ──────
 
@@ -1302,10 +1331,28 @@ public partial class SettingsWindow : OverlayWindow
     /// decides it; the chunker clamps degenerate values to one tab per page.
     /// </summary>
     private double SidebarTabBudget =>
-        Height
-        - CloseButton.Height - CloseButton.Margin.Top - CloseButton.Margin.Bottom
-        - TabPagerReserveHeight
-        - TabButtonPanel.Margin.Top - TabButtonPanel.Margin.Bottom;
+        SidebarTabBudgetFor(
+            Height,
+            CloseButton.Height + CloseButton.Margin.Top + CloseButton.Margin.Bottom,
+            TabPagerReserveHeight,
+            TabButtonPanel.Margin.Top + TabButtonPanel.Margin.Bottom);
+
+    /// <summary>
+    /// <see cref="SidebarTabBudget"/>'s arithmetic, as one shared derivation: the window height
+    /// minus the close button's block, the tab-pager stack's reserve and the tab list's own
+    /// margins. <c>internal static</c> so <c>LanguageRowReachTests</c> measures the reach with
+    /// THIS formula rather than restating it (F8) — a restated formula in a test pins nothing
+    /// (the same lesson as <c>TabPagerStackReserve</c>). The caller reads every term off the live
+    /// element it belongs to.
+    /// </summary>
+    /// <param name="windowHeight"><c>Height</c>.</param>
+    /// <param name="closeButtonBlock">The close button's height plus its vertical margins.</param>
+    /// <param name="tabPagerReserve">The two-button tab pager stack plus its panel margins.</param>
+    /// <param name="tabPanelBlock">The tab list panel's vertical margins.</param>
+    /// <returns>The sidebar's tab-list budget in DIP.</returns>
+    internal static double SidebarTabBudgetFor(
+        double windowHeight, double closeButtonBlock, double tabPagerReserve, double tabPanelBlock) =>
+        windowHeight - closeButtonBlock - tabPagerReserve - tabPanelBlock;
 
     /// <summary>
     /// Caps <paramref name="root"/> so it cannot be drawn wider than the content column can show.

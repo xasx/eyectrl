@@ -13,11 +13,44 @@ using Xunit;
 
 /// <summary>
 /// T04's deep link (D9): the App tray's one flat "Sprache / Language" item opens Settings on
-/// General page 1 with the language row in view. Its three window states — closed, open on
-/// another tab, a modal already up — live in <see cref="SettingsDeepLinkQueue"/> (headlessly
-/// pinned here) plus the wire-up inside <c>SettingsWindow</c> and <c>SettingsUiCoordinator</c>
-/// (source-pinned, because both need a display and their full dependency graphs to construct).
+/// General page 1 with the language row in view. The decision is
+/// <see cref="SettingsDeepLink.Decide"/> — pure and unit-tested here; the queue and the wire-up
+/// are pinned below.
 /// </summary>
+public class SettingsDeepLinkDecisionTests
+{
+    [Fact]
+    public void ClosedWindow_DefaultRequest_JustOpens()
+    {
+        Check.That(SettingsDeepLink.Decide(windowOpen: false, SettingsTarget.Default))
+            .IsEqualTo(SettingsDeepLinkAction.OpenOnly);
+    }
+
+    [Fact]
+    public void ClosedWindow_GeneralPage1Request_OpensThenNavigates()
+    {
+        // The tray's 0-dwell reach depends on this arm (kills M6).
+        Check.That(SettingsDeepLink.Decide(windowOpen: false, SettingsTarget.GeneralPage1))
+            .IsEqualTo(SettingsDeepLinkAction.OpenThenNavigate);
+    }
+
+    [Fact]
+    public void OpenWindow_DefaultRequest_DoesNothing()
+    {
+        // The toolbar's Settings button must never yank an open window anywhere (kills M5).
+        Check.That(SettingsDeepLink.Decide(windowOpen: true, SettingsTarget.Default))
+            .IsEqualTo(SettingsDeepLinkAction.None);
+    }
+
+    [Fact]
+    public void OpenWindow_GeneralPage1Request_Navigates()
+    {
+        Check.That(SettingsDeepLink.Decide(windowOpen: true, SettingsTarget.GeneralPage1))
+            .IsEqualTo(SettingsDeepLinkAction.NavigateOpen);
+    }
+}
+
+/// <summary>One-slot pending navigation behind a modal (unchanged from the original fixup input).</summary>
 public class SettingsDeepLinkQueueTests
 {
     [Fact]
@@ -46,10 +79,10 @@ public class SettingsDeepLinkQueueTests
 }
 
 /// <summary>
-/// The wire-up the queue test above cannot reach: the coordinator navigates for an already-open
-/// window AND for a freshly opened one, the window routes through the queue and forward-brings,
-/// and the tray item sends the target. Source-pinned in the same spirit as the settings
-/// chunker's wiring guards.
+/// The wire-up the pure decision cannot reach: the coordinator dispatches through it, the window
+/// queues and lands the whole row, the notices resolve in the target language, and the tray item
+/// carries the label and the target. Source pins, in the same spirit as the settings chunker's
+/// wiring guards — the real window needs a display and the coordinator its full context.
 /// </summary>
 public class SettingsDeepLinkWiringTests
 {
@@ -57,11 +90,11 @@ public class SettingsDeepLinkWiringTests
     {
         var parts = new List<string> { SourceScanner.RepoRoot().FullName };
         parts.AddRange(relative);
-        return File.ReadAllText(Path.Combine(parts.ToArray()));
+        return File.ReadAllText(Path.Combine(parts.ToArray())).Replace("\r\n", "\n");
     }
 
     [Fact]
-    public void TheCoordinator_AppliesTheDeepLink_ToBothAFreshAndAnOpenWindow()
+    public void TheCoordinator_DispatchesThroughTheExtractedDecision()
     {
         var source = ReadSource("src", "EyeCtrl.App", "Services", "Coordinators", "SettingsUiCoordinator.cs");
         var start = source.IndexOf("private void ShowSettingsWindow(SettingsTarget target", StringComparison.Ordinal);
@@ -69,35 +102,83 @@ public class SettingsDeepLinkWiringTests
         var body = source[start..source.IndexOf("\n    }", start, StringComparison.Ordinal)];
 
         Check.WithCustomMessage(
-                "ShowSettingsWindow no longer routes a deep-link request through the window. An "
-                + "already-open window must not silently swallow the request (its old early return "
-                + "did), and a fresh window must navigate after Show. Repoint this check, do not "
-                + "delete it.")
-            .That(Occurrences(body, "NavigateToLanguageRow()")).IsEqualTo(2);
-
+                "ShowSettingsWindow no longer dispatches through SettingsDeepLink.Decide — the "
+                + "decision is unit-tested there; an ad-hoc condition here is how M5/M6 stayed "
+                + "alive. Repoint this check, do not delete it.")
+            .That(body).Contains("SettingsDeepLink.Decide(");
         Check.WithCustomMessage(
-                "The open-window branch must still leave the default request a no-op — only a "
-                + "General-page deep link touches an open window.")
-            .That(body).Contains("SettingsTarget.GeneralPage1");
+                "ShowSettingsWindow should contain no ad-hoc GeneralPage1 comparison any more; "
+                + "the whole decision belongs in SettingsDeepLink.Decide.")
+            .That(body).Not.Contains("SettingsTarget.GeneralPage1");
+
+        var openStart = source.IndexOf("private void OpenSettingsWindow(bool navigateToLanguageRow)", StringComparison.Ordinal);
+        Check.That(openStart).IsStrictlyGreaterThan(-1);
+        var openBody = source[openStart..source.IndexOf("\n    }", openStart, StringComparison.Ordinal)];
+        Check.WithCustomMessage(
+                "The fresh-window arm must navigate for OpenThenNavigate and only for it (kills M6): "
+                + "a disabled guard here loses the tray's 0-dwell reach.")
+            .That(body).Contains("OpenSettingsWindow(navigateToLanguageRow: true);");
+        Check.That(body).Contains("OpenSettingsWindow(navigateToLanguageRow: false);");
+        Check.WithCustomMessage(
+                "The fresh-window navigation must run AFTER the construction try — the catch assumes "
+                + "the throw came before Show() (F7).")
+            .That(openBody).Contains("NavigateToLanguageRow()");
     }
 
     [Fact]
-    public void TheWindow_NavigatesThroughTheQueue_AndForwardBrings()
+    public void TheWindow_RaisesAndLandsTheWholeRow()
     {
         var source = ReadSource("src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs");
         var start = source.IndexOf("internal void NavigateToLanguageRow()", StringComparison.Ordinal);
         Check.That(start).IsStrictlyGreaterThan(-1);
         var body = source[start..source.IndexOf("\n    }", start, StringComparison.Ordinal)];
 
-        Check.That(body).Contains("Activate()");
+        Check.WithCustomMessage(
+                "NavigateToLanguageRow must use RaiseToTop, not Activate(): the overlay is "
+                + "WS_EX_NOACTIVATE (F5).")
+            .That(body).Contains("RaiseToTop()");
+        Check.That(body).Not.Contains("Activate();");
         Check.That(body).Contains("_languageRowDeepLink.Request(_viewModel.IsModalVisible)");
-        Check.That(body).Contains("ShowTab(\"General\")");
+        Check.That(body).Contains("ShowLanguageRow()");
 
-        // And the queued request runs when the modal closes: the IsModalVisible handler applies it.
+        // The queued request runs when the modal closes.
         Check.WithCustomMessage(
                 "The IsModalVisible handler no longer consumes the queued deep link, so a request "
                 + "that arrived behind a modal would never run.")
             .That(source).Contains("_languageRowDeepLink.TryApply(_viewModel.IsModalVisible)");
+
+        var rowStart = source.IndexOf("private void ShowLanguageRow()", StringComparison.Ordinal);
+        Check.That(rowStart).IsStrictlyGreaterThan(-1);
+        var rowBody = source[rowStart..source.IndexOf("\n    }", rowStart, StringComparison.Ordinal)];
+        Check.WithCustomMessage(
+                "The deep link must land content, sidebar highlight AND sidebar page (F6).")
+            .That(rowBody).Contains("ShowTab(\"General\")");
+        Check.That(rowBody).Contains("_viewModel.ActiveTabId = \"General\"");
+        Check.That(rowBody).Contains("SwitchTabPage(");
+    }
+
+    [Fact]
+    public void TheWindow_ResolvesTheRestartNoticesInTheTargetLanguage()
+    {
+        // F1's call-site half: the notices take the TARGET (the saved selection resolved against
+        // the machine culture), not the running table's language. The resolution rule itself is
+        // pinned by StringTableResolveLanguageTests.
+        var source = ReadSource("src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs");
+
+        Check.WithCustomMessage(
+                "The restart notices must resolve through TargetLanguage(), not through the running "
+                + "table (F1).")
+            .That(source).Contains("RestartNotices.InProgressMessage(TargetLanguage())");
+        Check.That(source).Contains("RestartNotices.InProgressChoices(TargetLanguage())");
+        Check.That(source).Contains("RestartNotices.RefusedChoices(TargetLanguage())");
+
+        var start = source.IndexOf("private UiLanguage TargetLanguage()", StringComparison.Ordinal);
+        Check.That(start).IsStrictlyGreaterThan(-1);
+        var body = source[start..source.IndexOf(";", start, StringComparison.Ordinal)];
+        Check.WithCustomMessage(
+                "TargetLanguage must resolve the SAVED selection against the table's culture.")
+            .That(body).Contains(
+                "StringTable.ResolveLanguage(_settings.General.UiLanguage, StringTable.Current.Culture)");
     }
 
     [StaFact]
@@ -119,17 +200,5 @@ public class SettingsDeepLinkWiringTests
 
         Check.That(received).IsNotNull();
         Check.That(received!.Target).IsEqualTo(SettingsTarget.GeneralPage1);
-    }
-
-    private static int Occurrences(string text, string needle)
-    {
-        var count = 0;
-        var index = 0;
-        while ((index = text.IndexOf(needle, index, StringComparison.Ordinal)) >= 0)
-        {
-            count++;
-            index += needle.Length;
-        }
-        return count;
     }
 }

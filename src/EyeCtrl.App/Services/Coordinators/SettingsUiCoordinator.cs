@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Views;
+using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
@@ -115,10 +116,10 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     }
 
     /// <summary>
-    /// Opens settings, or applies a deep link to the window that is already open. The three
-    /// window states of T04's tray language item: closed (open, then navigate), open on another
-    /// tab (bring forward and navigate), and a modal already up (bring forward; the window queues
-    /// the navigation until the modal closes — never discards it).
+    /// Opens settings, or applies a deep link to the window that is already open. The decision
+    /// itself is <see cref="SettingsDeepLink.Decide"/> — pure, so all four states (open/closed ×
+    /// default/language) are unit-tested; this method only dispatches. The modal case is the
+    /// window's own queue: a navigate action is queued behind a modal and never discarded.
     /// </summary>
     /// <param name="target">Where the request should land; <see cref="SettingsTarget.Default"/>
     /// keeps the historical "open where it opens" behaviour and never touches an open window.</param>
@@ -126,58 +127,72 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     {
         if (Context is null) return;
 
-        if (_settingsWindow is { } openWindow)
+        var action = SettingsDeepLink.Decide(_settingsWindow is not null, target);
+        switch (action)
         {
-            // The default request has always been a no-op for an already-open window; a deep
-            // link must not be dropped on the floor just because the window happens to exist.
-            if (target == SettingsTarget.GeneralPage1)
-                openWindow.NavigateToLanguageRow();
-            return;
+            case SettingsDeepLinkAction.None:
+                return;
+            case SettingsDeepLinkAction.NavigateOpen:
+                _settingsWindow!.NavigateToLanguageRow();
+                return;
+            case SettingsDeepLinkAction.OpenOnly:
+                OpenSettingsWindow(navigateToLanguageRow: false);
+                return;
+            case SettingsDeepLinkAction.OpenThenNavigate:
+                OpenSettingsWindow(navigateToLanguageRow: true);
+                return;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(action), action, null);
         }
+    }
+
+    /// <summary>
+    /// Constructs and shows a fresh settings window, then — outside the construction try —
+    /// optionally navigates it to the language row.
+    /// </summary>
+    /// <param name="navigateToLanguageRow">Whether the deep link asked for the language row.</param>
+    private void OpenSettingsWindow(bool navigateToLanguageRow)
+    {
+        var context = Context!;
 
         _modal.SettingsOpen = true;
         _modal.SettingsOpenChanged?.Invoke(true);
         _toolbar.SetAutoHideSuspended(true);
         _quickActions.SetSummonSuspended(true);
-        Context.OverlayManager.CursorCircle.Hide();
+        context.OverlayManager.CursorCircle.Hide();
 
         try
         {
             // Create SettingsViewModels
-            var settingsVM = new SettingsViewModel(Context.Settings);
+            var settingsVM = new SettingsViewModel(context.Settings);
 
             var quickActionsEditor = new SettingsQuickActionsEditorViewModel(
-                Context.QuickActionsStore, Context.InstalledAppProvider);
+                context.QuickActionsStore, context.InstalledAppProvider);
             quickActionsEditor.Load();
 
             var settingsWindowVM = new SettingsWindowViewModel(
                 settingsVM,
                 quickActionsEditor,
-                Context.Messenger,
-                Context.Settings.Dwell);
+                context.Messenger,
+                context.Settings.Dwell);
 
             _settingsWindow = new SettingsWindow(
                 settingsWindowVM,
-                Context.Settings,
-                Context.SettingsService,
+                context.Settings,
+                context.SettingsService,
                 _modelRegistry ?? throw new InvalidOperationException("Model services not initialized. Call SetModelServices() before ShowSettingsWindow()."),
                 _modelManagementService ?? throw new InvalidOperationException("Model services not initialized. Call SetModelServices() before ShowSettingsWindow()."),
-                Context.Messenger,
-                Context.CalibrationService,
+                context.Messenger,
+                context.CalibrationService,
                 _restartCoordinator ?? throw new InvalidOperationException(
                     "Restart coordinator not set; SetRestartCoordinator must be called at startup."),
                 _supervisionToggle ?? throw new InvalidOperationException(
                     "Supervision toggle not set; SetSupervisionToggle must be called at startup."),
-                Context.UserDictionary);
+                context.UserDictionary);
 
             _settingsWindow.SettingsChanged += OnSettingsChanged;
             _settingsWindow.Closed += OnSettingsWindowClosed;
             _settingsWindow.Show();
-
-            // A deep link on a fresh window lands AFTER Show: the constructor has already built
-            // the default tab, and navigating re-renders the requested one.
-            if (target == SettingsTarget.GeneralPage1)
-                _settingsWindow.NavigateToLanguageRow();
         }
         catch
         {
@@ -187,10 +202,16 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
             // undo the suspend we set alongside _modal.SettingsOpen = true above.
             _toolbar.SetAutoHideSuspended(false);
             _quickActions.SetSummonSuspended(false);
-            if (Context.CursorVM.IsVisible)
-                Context.OverlayManager.CursorCircle.Show();
+            if (context.CursorVM.IsVisible)
+                context.OverlayManager.CursorCircle.Show();
             throw;
         }
+
+        // AFTER the try: the catch above assumes construction threw before Show(). Navigating a
+        // shown window's tab can throw from its rebuild, and that must not run the
+        // construction-failed cleanup against a window that is up (F7).
+        if (navigateToLanguageRow && _settingsWindow is { } opened)
+            opened.NavigateToLanguageRow();
     }
 
     private void OnSettingsChanged(EyeCtrlSettings s)

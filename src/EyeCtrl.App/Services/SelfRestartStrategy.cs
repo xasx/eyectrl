@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Services;
 
 using System;
 using System.Diagnostics;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Localization;
 
 /// <summary>The child process a restart launched, narrowed to what the parent needs.</summary>
@@ -154,26 +155,28 @@ public sealed class SelfRestartStrategy
     }
 
     /// <summary>
-    /// A user-facing explanation for a failed restart, resolved through the process string table
-    /// (<c>language-recovery</c>, D5 — the refusal notice switches language with the prompt).
-    /// Always states the app is still running.
+    /// A user-facing explanation for a failed restart, resolved in <paramref name="target"/> —
+    /// the language the whole restart flow speaks (D5; the saved selection resolved against the
+    /// machine culture). Always states the app is still running.
     /// </summary>
     /// <param name="outcome">The outcome to describe.</param>
+    /// <param name="target">The language the restart flow speaks; pass the resolved language,
+    /// not a raw selection (<see cref="UiLanguage.System"/> would mean "this instance's").</param>
     /// <returns>Text suitable for a modal.</returns>
-    public static string Describe(RestartOutcome outcome) => outcome switch
+    public static string Describe(RestartOutcome outcome, UiLanguage target) => outcome switch
     {
         // Not user-visible: production only calls Describe on the failure path below; the
         // success acknowledgement is RestartNotices.InProgressMessage.
         RestartOutcome.Started => "Restarting EyeCtrl…",
         RestartOutcome.NoExePath =>
-            StringTable.Current.T("language-recovery.restart.failed.no_exe_path"),
+            StringTable.Current.T(target, "language-recovery.restart.failed.no_exe_path"),
         RestartOutcome.LaunchFailed =>
-            StringTable.Current.T("language-recovery.restart.failed.launch_failed"),
+            StringTable.Current.T(target, "language-recovery.restart.failed.launch_failed"),
         RestartOutcome.ChildExitedEarly =>
-            StringTable.Current.T("language-recovery.restart.failed.child_exited_early"),
+            StringTable.Current.T(target, "language-recovery.restart.failed.child_exited_early"),
         RestartOutcome.ChildNotReady =>
-            StringTable.Current.T("language-recovery.restart.failed.child_not_ready"),
-        _ => StringTable.Current.T("language-recovery.restart.failed.generic"),
+            StringTable.Current.T(target, "language-recovery.restart.failed.child_not_ready"),
+        _ => StringTable.Current.T(target, "language-recovery.restart.failed.generic"),
     };
 
     private sealed class ProcessRestartChild(Process process) : IRestartChild

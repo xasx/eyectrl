@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Tests.Localization;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Views;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using NFluent;
@@ -19,12 +20,12 @@ public class RestartNoticeTests
     [Fact]
     public void TheInProgressNotice_ReadsItsEnglishLiterals()
     {
-        Check.That(RestartNotices.InProgressMessage()).IsEqualTo(
+        Check.That(RestartNotices.InProgressMessage(UiLanguage.English)).IsEqualTo(
             "Restarting EyeCtrl…\n"
             + "Waiting for the new EyeCtrl to start. If it cannot, this one keeps running.\n"
             + "Hiding this notice does not stop the restart.");
 
-        var choices = RestartNotices.InProgressChoices();
+        var choices = RestartNotices.InProgressChoices(UiLanguage.English);
         Check.That(choices).HasSize(1);
         Check.That(choices[0].Id).IsEqualTo("restart_progress_hide");
         Check.That(choices[0].Label).IsEqualTo("✕ Hide");
@@ -35,7 +36,7 @@ public class RestartNoticeTests
     [Fact]
     public void TheRefusalNotice_ReadsItsEnglishLiteral()
     {
-        var choices = RestartNotices.RefusedChoices();
+        var choices = RestartNotices.RefusedChoices(UiLanguage.English);
         Check.That(choices).HasSize(1);
         Check.That(choices[0].Id).IsEqualTo("restart_failed_ok");
         Check.That(choices[0].Label).IsEqualTo("✓ OK");
@@ -54,7 +55,7 @@ public class RestartNoticeTests
         "Restart failed: the new EyeCtrl did not start in time. EyeCtrl is still running.")]
     public void EveryFailureExplanation_ReadsItsEnglishLiteral(RestartOutcome outcome, string expected)
     {
-        Check.That(SelfRestartStrategy.Describe(outcome)).IsEqualTo(expected);
+        Check.That(SelfRestartStrategy.Describe(outcome, UiLanguage.English)).IsEqualTo(expected);
     }
 
     [Fact]

@@ -596,6 +596,80 @@ public class SymbolCaptionFitTests
         Check.That(shrunk.Width).IsLessOrEqualThan(midRoom + 2e-6);   // the fit's own 1e-6 epsilon + slack
     }
 
+    /// <summary>
+    /// F1 (review-05): the erase frame's SHAPE, pinned from the designer's own D3 report
+    /// (C:\t\keys\round3b-measurements.txt, D3 "Aa"): the unsqueezed arrow is 53.7 x 34.0 at
+    /// 1.5x/1.2u and 26.7 x 16.9 at 0.5x, the text 24.15 / 12 px, the inner gap 0.32. Read through
+    /// the real window at both sizes, with the canvas centred on its key. Six geometry mutations
+    /// (G1..G6) survived the suite before this test; each must fail it.
+    /// </summary>
+    [StaFact]
+    public void ShippedQwertz_EraseFrame_MatchesTheDesignersGoldenGeometry()
+    {
+        var layout = ShippedQwertz();
+        var (window, vm) = Open(layout, 1.5);
+        try
+        {
+            foreach (var (mult, expectedW, expectedH, expectedFont) in new[]
+                     {
+                         (1.5, 53.7, 34.0, 24.15),
+                         (0.5, 26.7, 16.9, 12.0),
+                     })
+            {
+                window.LoadLayout(layout, mult, KeyDwellMs, PredictionDwellMs, CooldownMs);
+                vm.SwitchSubLayout("letters");
+                Layout(window);
+
+                var visual = KeyVisuals(window, layout, "letters")
+                    .Single(v => v.Key.SpecialAction == "deleteWord");
+                var (canvas, arrow, text) = EraseFrameParts(visual.Content);
+                var frame = EraseLabelFrame.Measure(visual.Key.Label, visual.Label.FontSize,
+                    visual.Container.ActualHeight, visual.Container.ActualWidth);
+
+                Check.WithCustomMessage(
+                        $"{mult:0.0}x: arrow {canvas.Width:0.0}x{canvas.Height:0.0} in key "
+                        + $"{visual.Container.ActualWidth:0.0}x{visual.Container.ActualHeight:0.0}; the "
+                        + $"designer's D3 is {expectedW}x{expectedH} (tolerance 0.05)")
+                     .That(canvas.Width).IsCloseTo(expectedW, 0.05);
+                Check.That(canvas.Height).IsCloseTo(expectedH, 0.05);
+                Check.WithCustomMessage(
+                        $"{mult:0.0}x: drawn font {frame.Font:0.00}, the designer's D3 is {expectedFont}")
+                     .That(frame.Font).IsCloseTo(expectedFont, 0.05);
+                Check.WithCustomMessage($"{mult:0.0}x: inner gap {frame.Gap:0.000}, expected 0.32")
+                     .That(frame.Gap).IsCloseTo(0.32, 0.001);
+
+                // The build emits the measured frame, drawn in the label's own foreground ...
+                Check.That(canvas.Width).IsEqualTo(frame.Width);
+                Check.That(canvas.Height).IsEqualTo(frame.Height);
+                Check.That(arrow.Stroke).IsSameReferenceAs(visual.Label.Foreground);
+                Check.That(text.Fill).IsSameReferenceAs(visual.Label.Foreground);
+
+                // ... centred on the key, not aligned to an edge (G6).
+                var centre = canvas.TranslatePoint(
+                    new Point(canvas.Width / 2, canvas.Height / 2), visual.Container);
+                Check.WithCustomMessage(
+                        $"{mult:0.0}x: canvas centre {centre.X:0.##},{centre.Y:0.##} must be the key "
+                        + $"centre {visual.Container.ActualWidth / 2:0.##},{visual.Container.ActualHeight / 2:0.##}")
+                     .That(centre.X).IsCloseTo(visual.Container.ActualWidth / 2, 0.01);
+                Check.That(centre.Y).IsCloseTo(visual.Container.ActualHeight / 2, 0.01);
+            }
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// The erase arrow's calibration constants, measured from the real ⌫ glyph and named in the
+    /// designer's rounding (review-05 F1: tip 0.948, stroke 0.0863, gap 0.32). Pinned so a style
+    /// change to any of the three fails a named test even where the golden fixture is blind.
+    /// </summary>
+    [Fact]
+    public void EraseFrame_CalibrationConstants_AreTheMeasuredOnes()
+    {
+        Check.That(EraseLabelFrame.TipRatio).IsCloseTo(0.948, 0.001);
+        Check.That(EraseLabelFrame.StrokeRatio).IsCloseTo(0.0863, 0.001);
+        Check.That(EraseLabelFrame.GapRatio).IsCloseTo(0.32, 0.001);
+    }
+
     private static (TextBlock Label, Canvas Canvas, Path Arrow, Path Text)? EraseFrame(
         KeyboardWindow window, KeyboardLayout layout)
     {
@@ -614,10 +688,11 @@ public class SymbolCaptionFitTests
     }
 
     /// <summary>
-    /// F2 (review-03): the B4 word line must not be a second UIA element. A screen reader on the
+    /// F2 (review-03): the framed caption must not be a second UIA element. A screen reader on the
     /// word-backspace key must hear its one name, "Wort löschen" with Keyboard_Key_deleteWord, and
-    /// not "Wort löschen, Wort". The key's peer tree is walked the way UIA would build it: create a
-    /// peer for every visual, keep the named ones. DecorativeTextBlock yields no peer at all.
+    /// not "Wort löschen, Aa". The key's peer tree is walked the way UIA would build it: create a
+    /// peer for every visual, keep the named ones. The drawing is Paths (no peers) around the
+    /// caption label, which stays in the tree as the label's Opacity-0 automation anchor.
     /// </summary>
     [StaFact]
     public void ShippedQwertz_WordBackspaceKey_ExposesExactlyOneNamedUiaElement()

@@ -74,10 +74,13 @@ internal static class EraseLabelFrame
     }
 
     /// <summary>
-    /// The frame's geometry for a caption at <paramref name="baseFont"/>: the text stays at the key
-    /// font while it fits; if the frame would overrun the key minus 2 × EdgePadding, the text
-    /// shrinks (never below <see cref="Legibility.MinimumGlyphFontSize"/>) and only at that floor
-    /// does the inner gap give way.
+    /// The frame's geometry for a caption at <paramref name="baseFont"/>, fitted in the reference
+    /// code's order: the text starts at the key font, shrinks toward
+    /// <see cref="Legibility.MinimumGlyphFontSize"/> while the frame overruns the key minus
+    /// 2 × EdgePadding, and only at that floor does the inner gap give way. (The round-3 README's
+    /// prose says "reduce the gap" first; the reference <c>Build()</c> — and this code — shrink the
+    /// font first. With the shipped "Aa" no size squeezes at all, so the order is unobservable
+    /// there and the golden test pins the unsqueezed shape instead.)
     /// </summary>
     /// <param name="text">The caption drawn inside the arrow.</param>
     /// <param name="baseFont">The key font (<c>label.FontSize</c>).</param>

@@ -25,17 +25,18 @@ Reserved meta notes:
 English table shape:
   * required meta (text, who, where, fit, args) and closed enums (who, where, fit)
   * text is a string or both plural forms {one, other}
-  * placeholder grammar: {n} and {n:format} (format non-empty, no braces; a colon inside
-    it is allowed, e.g. {0:hh\:mm}); the `{n}` indices in every form are exactly
-    0..len(args)-1; alignment ({n,w}) is rejected with its own message
+  * placeholder grammar: {n} and {n:format} (ASCII digits; format non-empty, no braces; a
+    colon inside it is allowed, e.g. {0:hh\:mm}); the indices in every form are exactly
+    0..len(args)-1; a plural's one and other must agree on every placeholder and specifier;
+    alignment ({n,w}) is rejected with its own message
   * no unbalanced single `{` or `}`, no empty format, no malformed placeholder
   * keys sorted; every key's prefix equals its `where` surface id
   * `mirrors: <key>` names an existing key with the same `fit` and `args`
 
 German table:
   * keys must exist in the English table; entry shape is {text, src}
-  * German placeholder parity: every form's index set equals the English form's, and
-    each index uses the same format specifier (number formatting is the provider's job)
+  * German placeholder parity: every form's (index, specifier) multiset equals the English
+    form's, repeated indices included; the one and other forms must agree like English's
   * no unbalanced single `{` or `}`
   * forbidden terms from the glossary's avoid[] (stem prefix, German values only,
     after stripping placeholders and U+00AD)
@@ -123,8 +124,9 @@ SOFT_HYPHEN = "\u00ad"
 # The placeholder grammar, shared with the runtime's string.Format usage: {n} or {n:format},
 # where format is non-empty and free of braces (a colon inside it is allowed, e.g. {0:hh\:mm}).
 # Alignment ({n,w} / {n,w:format}) is rejected by its own rule; see placeholder_grammar_errors.
-PLACEHOLDER = re.compile(r"\{(\d+)(?::([^{}]*))?\}")
-ALIGNMENT = re.compile(r"\{(\d+),([^{}]*)\}")
+# ASCII digits only ([0-9], not \d): .NET rejects {٣}, so the validator must too.
+PLACEHOLDER = re.compile(r"\{([0-9]+)(?::([^{}]*))?\}")
+ALIGNMENT = re.compile(r"\{([0-9]+),([^{}]*)\}")
 BRACED_TOKEN = re.compile(r"\{[^{}]*\}")
 
 
@@ -249,6 +251,26 @@ def placeholder_text(index: int, specifier: str) -> str:
     return "{" + str(index) + (":" + specifier if specifier else "") + "}"
 
 
+def one_other_mismatch(text: object) -> str | None:
+    """Describes a one/other placeholder or specifier disagreement, or None.
+
+    The runtime probes the count with the specifier from the one form, so both forms must agree
+    on every index and specifier; otherwise "{0:0.0} unit" / "{0} units" renders "1 units".
+    """
+    if not isinstance(text, dict):
+        return None
+    one = text.get("one")
+    other = text.get("other")
+    if not isinstance(one, str) or not isinstance(other, str):
+        return None
+    if sorted(placeholders(one)) != sorted(placeholders(other)):
+        return (
+            f"plural forms use different placeholders or specifiers ({one!r} vs {other!r}); "
+            "the runtime probes the count with the one form's specifier"
+        )
+    return None
+
+
 def read_json(path: Path, errors: list[str]) -> object:
     try:
         with path.open(encoding="utf-8") as handle:
@@ -359,6 +381,10 @@ def validate_english(english: dict, errors: list[str]) -> None:
                 errors.append(f"{key}: {brace} in {form!r}")
             for grammar in placeholder_grammar_errors(form):
                 errors.append(f"{key}: {grammar}")
+
+        mismatch = one_other_mismatch(entry["text"])
+        if mismatch:
+            errors.append(f"{key}: {mismatch}")
 
         optional = entry.get("terms")
         if optional is not None and (
@@ -476,23 +502,36 @@ def validate_german(
                 if word_starts_with(plain, term):
                     errors.append(f"strings.de.json: {key}: forbidden glossary term {term!r} in {form!r}")
 
+        mismatch = one_other_mismatch(entry["text"])
+        if mismatch:
+            errors.append(f"strings.de.json: {key}: {mismatch}")
+
         if len(forms) == len(source_forms):
             for form, source_form in zip(forms, source_forms):
-                german_map = dict(placeholders(form))
-                source_map = dict(placeholders(source_form))
-                if set(german_map) != set(source_map):
+                # Multisets, not dicts: a repeated index must keep every occurrence's specifier.
+                german_pairs = sorted(placeholders(form))
+                source_pairs = sorted(placeholders(source_form))
+                german_indices = {index for index, _ in german_pairs}
+                source_indices = {index for index, _ in source_pairs}
+                if german_indices != source_indices:
                     errors.append(
                         f"strings.de.json: {key}: placeholder parity broken in {form!r}: found "
-                        f"{sorted(german_map)}, English has {sorted(source_map)}"
+                        f"{sorted(german_indices)}, English has {sorted(source_indices)}"
                     )
-                else:
-                    for index in sorted(german_map):
-                        if german_map[index] != source_map[index]:
+                elif len(german_pairs) != len(source_pairs):
+                    errors.append(
+                        f"strings.de.json: {key}: placeholder count differs in {form!r}: "
+                        f"German has {len(german_pairs)}, English has {len(source_pairs)}"
+                    )
+                elif german_pairs != source_pairs:
+                    for (index, german_spec), (_, source_spec) in zip(german_pairs, source_pairs):
+                        if german_spec != source_spec:
                             errors.append(
                                 f"strings.de.json: {key}: format specifier for placeholder {index} "
-                                f"differs: German {placeholder_text(index, german_map[index])!r}, "
-                                f"English {placeholder_text(index, source_map[index])!r}"
+                                f"differs: German {placeholder_text(index, german_spec)!r}, "
+                                f"English {placeholder_text(index, source_spec)!r}"
                             )
+                            break
                 if form == source_form and form not in allowlist:
                     errors.append(
                         f"strings.de.json: {key}: German is identical to English ({form!r}); "
@@ -595,6 +634,11 @@ def refresh_de_src(german_path: Path, english: dict, errors: list[str]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # A diagnostic must never crash the validator on a console whose encoding cannot hold a
+    # character from a table (an exotic placeholder digit, say): replace what cannot be encoded.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
+
     parser = argparse.ArgumentParser(description="Validate EyeCtrl's string tables.")
     parser.add_argument("--english", type=Path,
                         default=REPO_ROOT / "src/EyeCtrl.Core/Localization/strings.json")

@@ -68,6 +68,14 @@ CASES: dict[str, tuple[int, list[str]]] = {
                                      "German '{0:0.00}'", "English '{0:0.0}'"]),
     "specifier-parity-missing": (1, ["format specifier for placeholder 0 differs",
                                      "German '{0}'"]),
+    "specifier-parity-repeated-differs": (1, ["format specifier for placeholder 0 differs",
+                                             "German '{0:F0}'", "English '{0:0.0}'"]),
+    "specifier-parity-repeated-dropped": (1, ["placeholder count differs"]),
+    "unicode-digit-placeholder": (1, ["invalid placeholder"]),
+    "plural-specifier-mismatch-en": (1, ["different placeholders or specifiers"]),
+    "plural-specifier-mismatch-de": (1, ["different placeholders or specifiers"]),
+    "stray-close-brace": (1, ["unbalanced '}'"]),
+    "invalid-token": (1, ["invalid placeholder"]),
 }
 
 

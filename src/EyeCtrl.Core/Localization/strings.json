@@ -124,6 +124,62 @@
     "args": [],
     "crisis": true
   },
+  "language-recovery.supervisor.pending": {
+    "text": "Not saved yet. Applies when EyeCtrl next starts, unless the PC or the Supervisor restarts first.",
+    "who": "caretaker",
+    "where": "language-recovery",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "language-recovery.supervisor.refused": {
+    "text": "EyeCtrl refused the language. It was not saved.",
+    "who": "caretaker",
+    "where": "language-recovery",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "language-recovery.supervisor.saved": {
+    "text": "Language saved.",
+    "who": "caretaker",
+    "where": "language-recovery",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "language-recovery.supervisor.saved-restarting": {
+    "text": "Language saved. EyeCtrl is already restarting.",
+    "who": "caretaker",
+    "where": "language-recovery",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "language-recovery.supervisor.sending": {
+    "text": "Asking EyeCtrl to change the language…",
+    "who": "caretaker",
+    "where": "language-recovery",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "language-recovery.supervisor.superseded": {
+    "text": "The language was changed in EyeCtrl meanwhile. That newer choice stays.",
+    "who": "caretaker",
+    "where": "language-recovery",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "language-recovery.supervisor.waiting": {
+    "text": "The language is waiting for EyeCtrl.",
+    "who": "caretaker",
+    "where": "language-recovery",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
   "language-recovery.tray.item": {
     "text": "Sprache / Language",
     "who": "user",

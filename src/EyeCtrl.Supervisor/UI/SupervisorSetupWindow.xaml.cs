@@ -5,6 +5,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using EyeCtrl.Controls;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
@@ -38,7 +39,18 @@ public partial class SupervisorSetupWindow : Window
     private readonly Action<EyeCtrlSettings> _saveChanges;
     private readonly Action _launchAppNow;
     private readonly StartOnBootSetupRow _startOnBoot;
+    private readonly LanguageSetupRow _language;
     private readonly StringTable _strings;
+    private readonly StackPanel _languageChoices = new() { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
+    private readonly TextBlock _languageNote = new()
+    {
+        Foreground = new Media.SolidColorBrush(Media.Color.FromRgb(0xF4, 0xD0, 0x3F)),
+        FontSize = 13,
+        TextWrapping = TextWrapping.Wrap,
+        Margin = new Thickness(0, 0, 0, 16),
+    };
+    private DwellButton[] _languageButtons = [];
+    private DwellToggle? _startOnLogonToggle;
     private readonly TextBlock _startOnBootNote = new()
     {
         Foreground = new Media.SolidColorBrush(Media.Color.FromRgb(0xF4, 0xD0, 0x3F)),
@@ -63,6 +75,8 @@ public partial class SupervisorSetupWindow : Window
     /// <param name="launchAppNow">Invoked by the "Launch EyeCtrl now" diagnostics button.</param>
     /// <param name="startOnBoot">The logon row's state over the Supervisor's StartOnBoot delivery;
     /// the window disposes it when it closes.</param>
+    /// <param name="language">The language row's state over the Supervisor's language delivery
+    /// (T05b); the window disposes it when it closes.</param>
     /// <param name="strings">The Supervisor's string table for this window.</param>
     /// <param name="statusText">Initial diagnostics status text (e.g. current supervisor state).</param>
     internal SupervisorSetupWindow(
@@ -71,6 +85,7 @@ public partial class SupervisorSetupWindow : Window
         Action<EyeCtrlSettings> saveChanges,
         Action launchAppNow,
         StartOnBootSetupRow startOnBoot,
+        LanguageSetupRow language,
         StringTable strings,
         string statusText = "")
     {
@@ -79,6 +94,7 @@ public partial class SupervisorSetupWindow : Window
         _saveChanges = saveChanges;
         _launchAppNow = launchAppNow;
         _startOnBoot = startOnBoot;
+        _language = language;
         _strings = strings;
 
         // The window opens on the CURRENT on-disk value, not the supervisor's startup snapshot:
@@ -95,10 +111,13 @@ public partial class SupervisorSetupWindow : Window
         BuildDiagnostics();
 
         _startOnBoot.Changed += OnStartOnBootChanged;
+        _language.Changed += OnLanguageChanged;
         Closed += (_, _) =>
         {
             _startOnBoot.Changed -= OnStartOnBootChanged;
             _startOnBoot.Dispose();
+            _language.Changed -= OnLanguageChanged;
+            _language.Dispose();
         };
     }
 
@@ -119,6 +138,10 @@ public partial class SupervisorSetupWindow : Window
 
     private void BuildToggles()
     {
+        // The language row first (T05b): the label reads in both languages, the choices are
+        // endonyms, so a caretaker finds it whatever the window is shown in.
+        BuildLanguageRow();
+
         // Enable supervision — owned by the supervisor (Supervision section).
         var enableToggle = new DwellToggle(
             registrar: _registrar,
@@ -143,7 +166,7 @@ public partial class SupervisorSetupWindow : Window
 
         // Start on logon — App-owned (GeneralSettings), so the toggle asks the App to save it and
         // shows the value on disk or the parked choice; it never writes the snapshot.
-        var startOnLogonToggle = new DwellToggle(
+        _startOnLogonToggle = new DwellToggle(
             registrar: _registrar,
             id: "setup_start_on_logon",
             label: "Start EyeCtrl at logon",
@@ -156,17 +179,82 @@ public partial class SupervisorSetupWindow : Window
             dwellMs: 600);
 
         enableToggle.Attach(ToggleHost);
-        startOnLogonToggle.Attach(ToggleHost);
+        _startOnLogonToggle.Attach(ToggleHost);
         ToggleHost.Children.Add(_startOnBootNote);
         RefreshStartOnBootNote();
     }
 
     private void OnStartOnBootChanged()
     {
+        // The value can change without a dwell (superseded, refused): repaint the switch, or its
+        // face shows the dropped choice and the next dwell sends the inverse of the hidden value.
+        _startOnLogonToggle?.Refresh();
         RefreshStartOnBootNote();
         if (_startOnBoot.StatusText(_strings) is { } status)
             StatusLabel.Text = status;
     }
+
+    private void BuildLanguageRow()
+    {
+        ToggleHost.Children.Add(new TextBlock
+        {
+            Text = LanguageSetupRow.Label(_strings),
+            Foreground = Media.Brushes.White,
+            FontSize = 18,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 0, 0, 6),
+        });
+        ToggleHost.Children.Add(_languageChoices);
+        ToggleHost.Children.Add(_languageNote);
+        RefreshLanguageRow();
+    }
+
+    /// <summary>Rebuilds the three choice buttons (their captions mark the selection) and the
+    /// note. User-rate, not gaze-rate: it runs on a choice and on a delivery outcome.</summary>
+    private void RefreshLanguageRow()
+    {
+        foreach (var button in _languageButtons)
+            button.Detach(_languageChoices);
+
+        _languageButtons = new DwellButton[LanguageSetupRow.Choices.Length];
+        for (var index = 0; index < LanguageSetupRow.Choices.Length; index++)
+        {
+            var choice = LanguageSetupRow.Choices[index];
+            var selected = choice == _language.Selected;
+            var button = new DwellButton(
+                registrar: _registrar,
+                id: "setup_language_" + UiLanguageTokens.ToJson(choice),
+                label: _language.Caption(choice),
+                action: () => _language.Choose(choice),
+                // Selected: the window's Launch blue, already gated for the dwell bar's contrast
+                // (DwellButtonProgressBarContrastTests); otherwise the theme's plain-button fill.
+                baseColor: selected ? Media.Color.FromRgb(45, 90, 137) : EyeCtrl.Controls.Theme.Tokens.SurfaceMedium,
+                category: DwellCategory.Control,
+                radiusPhysical: 200,
+                dwellMs: 600,
+                width: 160,
+                height: 70);
+            button.Attach(_languageChoices);
+            _languageButtons[index] = button;
+        }
+
+        var note = _language.Note(_strings);
+        _languageNote.Text = note ?? "";
+        _languageNote.Visibility = note is null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void OnLanguageChanged()
+    {
+        RefreshLanguageRow();
+        if (_language.StatusText(_strings) is { } status)
+            StatusLabel.Text = status;
+    }
+
+    /// <summary>The language row's choice buttons, in display order (headless tests).</summary>
+    internal System.Collections.Generic.IReadOnlyList<DwellButton> LanguageButtons => _languageButtons;
+
+    /// <summary>The language row's note (headless tests).</summary>
+    internal TextBlock LanguageNote => _languageNote;
 
     private void RefreshStartOnBootNote()
     {

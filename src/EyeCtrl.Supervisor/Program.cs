@@ -5,6 +5,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Threading;
 using EyeCtrl.Core.Diagnostics;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
@@ -88,6 +89,13 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     private SettingDelivery<bool> _startOnBootDelivery = null!;
     private StartOnBootTracker _startOnBootTracker = null!;
     private SupervisorLanguageResolver _languageResolver = null!;
+
+    // T05b: the caretaker's language choice from the setup row. Delivered live while the App
+    // answers (it may restart into the new language); otherwise pending — passed as --ui-language
+    // on the next launch and retried, saved only, until a guarded re-read finds it on disk. The
+    // Supervisor's own screens resolve it before the setting. Memory only, like the logon park.
+    private SettingDelivery<UiLanguage> _languageDelivery = null!;
+    private SupervisorLanguageTracker _uiLanguageTracker = null!;
 
     // Ticket 06-B: last disk-read supervision.enabled, kept by the tracker so a damaged file falls
     // back to the last DISK value — never to the in-memory settings object the setup window edits.
@@ -182,7 +190,18 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
             // The stale-park guard's re-read: guarded, raw, off the UI thread (never Load()).
             readDisk: () => StartOnBootReader.TryRead(settingsPath));
         _startOnBootTracker = new StartOnBootTracker(settingsPath, _settings.General.StartOnBoot);
-        _languageResolver = new SupervisorLanguageResolver(settingsPath, _appExePath);
+        _languageDelivery = new SettingDelivery<UiLanguage>(
+            "UiLanguage",
+            (language, restart) => SettingRequest.SetUiLanguage(language, restart),
+            appRequests.SendAsync,
+            work => Dispatcher.BeginInvoke(work),
+            readDisk: () => UiLanguageReader.TryRead(settingsPath),
+            // T05b's clearing rule: an acknowledgement alone does not clear the choice; the
+            // guarded re-read must find it saved (a flagged launch can lose the App's guard).
+            confirmSaveByReRead: true);
+        _uiLanguageTracker = new SupervisorLanguageTracker(settingsPath);
+        _languageResolver = new SupervisorLanguageResolver(
+            settingsPath, _appExePath, pending: () => _languageDelivery.Pending);
 
         // 3. Construct the supervision components. Ticket 04 re-check 2 R2-1: the enabled predicate
         // (tracker-backed: disk, never the in-memory snapshot) and the startup decision live in the
@@ -204,7 +223,9 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         _tray = new SupervisorTrayIcon(
             openSettings: OpenSettings,
             launchAppNow: () => HandleInput(new LaunchRequest(DateTime.UtcNow)),
-            exit: Shutdown);
+            exit: Shutdown,
+            // Asked on every menu open, so the items follow a language change (T05b).
+            texts: () => SupervisorTrayTexts.For(_languageResolver.ResolveTable()));
 
         // 3b. Periodic clock tick — runs on the UI thread; drives stale/window/deadline checks.
         _tickTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TickInterval };
@@ -309,7 +330,10 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
             // delivery is single-flight and never waits here. Not on the final payload — that App
             // is exiting, and its successor's first heartbeat retries instead.
             if (!hb.ShuttingDown)
+            {
                 _startOnBootDelivery.OnAppHeartbeat();
+                _languageDelivery.OnAppHeartbeat();
+            }
 
             var now = DateTime.UtcNow;
 
@@ -379,6 +403,7 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         // A parked StartOnBoot choice must reach an App running with supervision off too, which
         // publishes no heartbeats. The delivery applies its own backoff and single-flight.
         _startOnBootDelivery.OnRetryTick();
+        _languageDelivery.OnRetryTick();
     }
 
     SupervisionStateMachine ISupervisionClockHost.Machine => _sm;
@@ -402,7 +427,8 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         try
         {
             Log.Information("LaunchApp: starting {AppExePath}.", _appExePath);
-            _pc.Launch(_appExePath, paused: false);
+            // A language chosen while the App was down rides along as --ui-language (T05b).
+            _pc.Launch(_appExePath, paused: false, uiLanguage: _languageDelivery.Pending);
             EnsurePipeStarted(); // adoption-mode pipe starts eagerly at startup; this is an idempotent no-op.
             return true;
         }
@@ -626,7 +652,8 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         }
 
         // Show the recovery dialog (non-modal + topmost — see FallenBackDialog remarks).
-        var dialog = new FallenBackDialog();
+        var dialog = new FallenBackDialog(_languageResolver.ResolveTable(
+            warning => Log.Debug("Supervisor strings: {Warning}", warning)));
         dialog.RetryRequested += () =>
         {
             // Paused-retry handoff: relaunch with --paused so the retried instance is inert (no
@@ -637,7 +664,7 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
             Log.Information("FallenBack dialog Retry: relaunching app with --paused and returning to IdleWatch.");
             try
             {
-                _pc.Launch(_appExePath, paused: true);
+                _pc.Launch(_appExePath, paused: true, uiLanguage: _languageDelivery.Pending);
                 WireProcessExited();
                 EnsurePipeStarted();
             }
@@ -689,6 +716,7 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
             },
             launchAppNow: () => HandleInput(new LaunchRequest(DateTime.UtcNow)),
             startOnBoot: new StartOnBootSetupRow(_startOnBootDelivery, () => _startOnBootTracker.Current),
+            language: new LanguageSetupRow(_languageDelivery, () => _uiLanguageTracker.Current),
             strings: _languageResolver.ResolveTable(warning => Log.Debug("Supervisor strings: {Warning}", warning)),
             statusText: "Supervisor state: " + SupervisorStateText.Describe(_sm.State));
         window.Show();
@@ -709,6 +737,10 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
             Log.Warning(
                 "Supervisor exiting with StartOnBoot={Value} still parked; it was never saved and is lost (the park lives in memory).",
                 undelivered);
+        if (_languageDelivery?.Pending is { } undeliveredLanguage)
+            Log.Warning(
+                "Supervisor exiting with UiLanguage={Value} still pending; it was never saved and is lost (the choice lives in memory).",
+                undeliveredLanguage);
         _tickTimer?.Stop();
         _pipe?.Dispose();
         _tray?.Dispose();

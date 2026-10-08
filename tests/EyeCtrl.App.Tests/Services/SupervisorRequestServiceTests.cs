@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using EyeCtrl.App.Services;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Interfaces;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
@@ -213,8 +214,8 @@ public sealed class SupervisorRequestServiceTests : IDisposable
     public async Task AThrowingDispatcher_IsAcknowledgedAsFailed()
     {
         var server = new SupervisorRequestService(
-            _ => SettingRequestStatus.Saved,
-            runOnUi: _ => Task.FromException<SettingRequestStatus>(new InvalidOperationException("dispatcher shut down")),
+            _ => new SettingRequestOutcome(SettingRequestStatus.Saved),
+            runOnUi: _ => Task.FromException<SettingRequestOutcome>(new InvalidOperationException("dispatcher shut down")),
             NullLogger.Instance, _pipeName, isAuthorizedClient: _ => true);
         _disposables.Add(server);
         server.Start();
@@ -249,6 +250,167 @@ public sealed class SupervisorRequestServiceTests : IDisposable
         Check.That(watch.Elapsed).IsLessThan(TimeSpan.FromSeconds(2));
     }
 
+    // ── T05b: SetUiLanguage ─────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task ALiveLanguageChoice_IsSaved_Acknowledged_AndOnlyThenRestarts()
+    {
+        // Hook (b). The restart blocks until the test lets it go: had it run BEFORE the
+        // acknowledgement (inside the handler, or ahead of the write), the ack would be stuck
+        // behind it and never arrive.
+        using var restartMayFinish = new ManualResetEventSlim(false);
+        var restarts = 0;
+        var app = CreateApp(initialStartOnBoot: false, requestRestart: () =>
+        {
+            Interlocked.Increment(ref restarts);
+            restartMayFinish.Wait(Generous);
+        });
+
+        var ack = await SendAsync(SettingRequest.SetUiLanguage(UiLanguage.German, restart: true));
+
+        Check.That(ack!.Status).IsEqualTo(SettingRequestStatus.Saved);
+        Check.That(ReadUiLanguageFromDisk()).IsEqualTo("german");
+        Check.That(app.Settings.General.UiLanguage).IsEqualTo(UiLanguage.German);
+        restartMayFinish.Set();
+        await WaitUntilAsync(() => Volatile.Read(ref restarts) == 1);
+        Check.That(Volatile.Read(ref restarts)).IsEqualTo(1);
+    }
+
+    [Fact]
+    public async Task TheRestart_RunsOnTheDispatcher_AfterTheAck()
+    {
+        var ranOn = -1;
+        CreateApp(initialStartOnBoot: false, requestRestart: () => ranOn = Environment.CurrentManagedThreadId);
+
+        _ = await SendAsync(SettingRequest.SetUiLanguage(UiLanguage.German, restart: true));
+        await WaitUntilAsync(() => Volatile.Read(ref ranOn) != -1);
+
+        Check.That(ranOn).IsEqualTo(_ui.ManagedThreadId);
+    }
+
+    [Fact]
+    public async Task TheRestart_StillRuns_WhenTheAcknowledgementCannotBeWritten()
+    {
+        // The Supervisor gave up (or went away) before the ack: the change it asked for still
+        // takes effect — a dead pipe must not cost the restart.
+        using var saveMayFinish = new ManualResetEventSlim(false);
+        var restarts = 0;
+        CreateApp(
+            initialStartOnBoot: false,
+            beforeSave: () => saveMayFinish.Wait(Generous),
+            requestRestart: () => Interlocked.Increment(ref restarts));
+
+        var client = await ConnectAsync();
+        await WriteAsync(client, SettingRequest.SetUiLanguage(UiLanguage.German, restart: true));
+        await client.DisposeAsync();             // gone before the save completes
+        saveMayFinish.Set();
+
+        await WaitUntilAsync(() => Volatile.Read(ref restarts) == 1);
+        Check.That(Volatile.Read(ref restarts)).IsEqualTo(1);
+    }
+
+    [Fact]
+    public async Task AParkedOrPendingDelivery_IsSavedOnly_AndNeverRestarts()
+    {
+        // restart:false — what a parked retry and a flagged launch that lost the guard send.
+        var restarts = 0;
+        CreateApp(initialStartOnBoot: false, requestRestart: () => Interlocked.Increment(ref restarts));
+
+        var ack = await SendAsync(SettingRequest.SetUiLanguage(UiLanguage.German, restart: false));
+        await Task.Delay(200, TestContext.Current.CancellationToken);
+
+        Check.That(ack!.Status).IsEqualTo(SettingRequestStatus.Saved);
+        Check.That(ReadUiLanguageFromDisk()).IsEqualTo("german");
+        Check.That(Volatile.Read(ref restarts)).IsEqualTo(0);
+    }
+
+    [Fact]
+    public async Task ALiveChoiceThatShowsNoOtherLanguage_IsSavedWithoutARestart()
+    {
+        // A live "System" on de-DE while German already runs changes nothing on screen (T04's
+        // pending rule), so it saves and does not restart. The ack is still "saved".
+        var restarts = 0;
+        CreateApp(
+            initialStartOnBoot: false,
+            requestRestart: () => Interlocked.Increment(ref restarts),
+            changesShownLanguage: language => SupervisorRequestHandler.ChangesShownLanguage(
+                language, System.Globalization.CultureInfo.GetCultureInfo("de-DE"), UiLanguage.German));
+
+        var ack = await SendAsync(SettingRequest.SetUiLanguage(UiLanguage.System, restart: true));
+        await Task.Delay(200, TestContext.Current.CancellationToken);
+
+        Check.That(ack!.Status).IsEqualTo(SettingRequestStatus.Saved);
+        Check.That(ReadUiLanguageFromDisk()).IsEqualTo("system");
+        Check.That(Volatile.Read(ref restarts)).IsEqualTo(0);
+    }
+
+    [Theory]
+    [InlineData(UiLanguage.System, "de-DE", UiLanguage.German, false)]
+    [InlineData(UiLanguage.German, "de-DE", UiLanguage.German, false)]
+    [InlineData(UiLanguage.English, "de-DE", UiLanguage.German, true)]
+    [InlineData(UiLanguage.System, "en-US", UiLanguage.German, true)]
+    [InlineData(UiLanguage.German, "en-US", UiLanguage.English, true)]
+    public void ChangesShownLanguage_ResolvesTheSelectionAgainstWindows(
+        UiLanguage selection, string culture, UiLanguage running, bool expected)
+    {
+        Check.That(SupervisorRequestHandler.ChangesShownLanguage(
+            selection, System.Globalization.CultureInfo.GetCultureInfo(culture), running)).IsEqualTo(expected);
+    }
+
+    [Fact]
+    public async Task ALiveChoiceDuringARunningRestart_IsSaved_AndAnsweredRestartInProgress()
+    {
+        var restarts = 0;
+        CreateApp(
+            initialStartOnBoot: false,
+            requestRestart: () => Interlocked.Increment(ref restarts),
+            isRestartInProgress: () => true);
+
+        var ack = await SendAsync(SettingRequest.SetUiLanguage(UiLanguage.German, restart: true));
+        await Task.Delay(200, TestContext.Current.CancellationToken);
+
+        Check.That(ack!.Status).IsEqualTo(SettingRequestStatus.RestartInProgress);
+        Check.That(ReadUiLanguageFromDisk()).IsEqualTo("german");
+        Check.That(Volatile.Read(ref restarts)).IsEqualTo(0);
+    }
+
+    [Theory]
+    [InlineData("\"deutsch\"")]
+    [InlineData("1")]
+    [InlineData("true")]
+    public async Task ALanguageValueThatIsNotAToken_IsRejected_AndNothingIsSaved(string valueJson)
+    {
+        var restarts = 0;
+        var app = CreateApp(initialStartOnBoot: false, requestRestart: () => Interlocked.Increment(ref restarts));
+        var request = new SettingRequest(
+            "id-l", SettingRequestKinds.SetUiLanguage, JsonDocument.Parse(valueJson).RootElement.Clone(), true);
+
+        var ack = await SendAsync(request);
+
+        Check.That(ack!.Status).IsEqualTo(SettingRequestStatus.Rejected);
+        Check.That(app.SaveCount).IsEqualTo(0);
+        Check.That(Volatile.Read(ref restarts)).IsEqualTo(0);
+    }
+
+    [Fact]
+    public async Task AThrowingAfterAckAction_IsContained()
+    {
+        CreateApp(initialStartOnBoot: false, requestRestart: () => throw new InvalidOperationException("restart blew up"));
+
+        var first = await SendAsync(SettingRequest.SetUiLanguage(UiLanguage.German, restart: true));
+        var second = await SendAsync(SettingRequest.SetStartOnBoot(true));   // the channel still serves
+
+        Check.That(first!.Status).IsEqualTo(SettingRequestStatus.Saved);
+        Check.That(second!.Status).IsEqualTo(SettingRequestStatus.Saved);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        var deadline = Stopwatch.StartNew();
+        while (!condition() && deadline.Elapsed < Generous)
+            await Task.Delay(20, TestContext.Current.CancellationToken);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────────────────────
 
     private sealed record TestApp(
@@ -264,7 +426,10 @@ public sealed class SupervisorRequestServiceTests : IDisposable
     private TestApp CreateApp(
         bool initialStartOnBoot,
         Action? beforeSave = null,
-        bool productionClientCheck = false)
+        bool productionClientCheck = false,
+        Action? requestRestart = null,
+        Func<bool>? isRestartInProgress = null,
+        Func<UiLanguage, bool>? changesShownLanguage = null)
     {
         var service = new SettingsService(_settingsPath, SettingsWriter.App, _mutexName);
         var settings = new EyeCtrlSettings();
@@ -285,7 +450,10 @@ public sealed class SupervisorRequestServiceTests : IDisposable
                 service.Save(s);
                 Interlocked.Increment(ref saves);
             },
-            NullLogger.Instance);
+            NullLogger.Instance,
+            isRestartInProgress,
+            requestRestart,
+            changesShownLanguage ?? (_ => true));
 
         var handledOn = new List<int>();
         var server = new SupervisorRequestService(
@@ -302,6 +470,12 @@ public sealed class SupervisorRequestServiceTests : IDisposable
         _disposables.Add(server);
         server.Start();
         return new TestApp(settings, registrar, server, handledOn, () => Volatile.Read(ref saves));
+    }
+
+    private string ReadUiLanguageFromDisk()
+    {
+        var root = JsonNode.Parse(File.ReadAllText(_settingsPath))!;
+        return root["general"]!["uiLanguage"]!.GetValue<string>();
     }
 
     private bool ReadStartOnBootFromDisk()

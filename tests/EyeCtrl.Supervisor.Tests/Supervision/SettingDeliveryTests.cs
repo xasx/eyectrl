@@ -561,4 +561,24 @@ public class SettingDeliveryTests
         Check.That(reads).IsEqualTo(1);
         Check.That(delivery.State).IsEqualTo(SettingDeliveryState.Parked);
     }
+
+    // ── T05b: choices are told apart by when they were made, not by their value ───────────
+
+    [Fact]
+    public void ALiveRePickOfTheValueInFlight_IsSentAgainLive_AfterTheAck()
+    {
+        // A parked retry (restart:false) is in flight when the user re-picks the same value live.
+        // Its acknowledgement must not swallow the live choice; it goes out again, live.
+        _delivery.Request(true);
+        Reply(0, NotAvailable);
+        RetryWhenDue();
+        Check.That(_sends[1].Request.Restart).IsFalse();
+
+        _delivery.Request(true);
+        Reply(1, Ack(SettingRequestStatus.Saved));
+
+        Check.That(_sends).HasSize(3);
+        Check.That(_sends[2].Request.Restart).IsTrue();
+    }
 }
+

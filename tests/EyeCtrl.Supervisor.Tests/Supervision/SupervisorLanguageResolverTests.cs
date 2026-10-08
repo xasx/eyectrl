@@ -107,4 +107,36 @@ public class SupervisorLanguageResolverTests : IDisposable
             Environment.SetEnvironmentVariable(AppExePathResolver.AppExeEnvVar, original);
         }
     }
+
+    // ── T05b: the pending choice first, then the setting ────────────────────────────────────
+
+    [Fact]
+    public void APendingChoice_WinsOverTheSetting()
+    {
+        WriteLanguage("english");
+        UiLanguage? pending = UiLanguage.German;
+        var resolver = new SupervisorLanguageResolver(
+            _settingsPath, appExePath: _appExePath, writerMutexName: _writerMutexName, pending: () => pending);
+
+        Check.That(resolver.ResolveLanguage()).IsEqualTo(UiLanguage.German);
+
+        pending = null;                          // cleared once the re-read found it saved
+        Check.That(resolver.ResolveLanguage()).IsEqualTo(UiLanguage.English);
+    }
+
+    [Fact]
+    public void TheNextWindow_FollowsAnAppSideChange_WithoutARestart()
+    {
+        // The setup and FallenBack windows resolve their table when they open. A change made in
+        // EyeCtrl itself reaches the next window through the guarded disk read.
+        WriteLanguage("english");
+        File.WriteAllText(Path.Combine(_install, StringTable.GermanFileName), "{}");
+        File.WriteAllText(Path.Combine(_install, StringTable.ManifestFileName), "[]");
+        var resolver = Resolver();
+        Check.That(resolver.ResolveTable().Language).IsEqualTo(UiLanguage.English);
+
+        WriteLanguage("german");                 // the App's own language row saved German
+
+        Check.That(resolver.ResolveTable().Language).IsEqualTo(UiLanguage.German);
+    }
 }

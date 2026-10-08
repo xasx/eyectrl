@@ -251,8 +251,12 @@ public class CalibrationPacingAndToleranceTests
 
         Check.That(result.Success).IsFalse();
         Check.That(vm.State).IsEqualTo(CalibrationState.Failed);
-        // And it says which point, not just "accuracy too poor".
-        Check.That(vm.ErrorText).Contains("never reached the target");
+        // The typed failure, not the sentence: the code and its arguments are what the window renders
+        // from, and what later translation keys are built on. The wording is pinned in
+        // CalibrationFailureTextTests.
+        Check.That(vm.Failure).IsNotNull();
+        Check.That(vm.Failure!.Code).IsEqualTo(CalibrationFailureCode.TargetNeverReached);
+        Check.That(vm.Failure.Arguments).IsEmpty();
     }
 
     // ── Shipped defaults suit a jittery user ──────────────────────────────────

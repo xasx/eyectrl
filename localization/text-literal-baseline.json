@@ -252,36 +252,6 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/SelfRestartStrategy.cs",
-      "Literal": "\"EyeCtrl is still running.\"",
-      "Count": 4
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/SelfRestartStrategy.cs",
-      "Literal": "\"Restart failed. EyeCtrl is still running.\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/SelfRestartStrategy.cs",
-      "Literal": "\"Restart failed: EyeCtrl could not determine its own program path. \"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/SelfRestartStrategy.cs",
-      "Literal": "\"Restart failed: the new EyeCtrl closed immediately. \"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/SelfRestartStrategy.cs",
-      "Literal": "\"Restart failed: the new EyeCtrl could not be started. \"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/SelfRestartStrategy.cs",
-      "Literal": "\"Restart failed: the new EyeCtrl did not start in time. \"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/SelfRestartStrategy.cs",
       "Literal": "\"Restarting EyeCtrl…\"",
       "Count": 1
     },
@@ -318,6 +288,16 @@
     {
       "Path": "src/EyeCtrl.App/Services/TrayIconManager.cs",
       "Literal": "\"Show toolbar\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/RestartNotices.cs",
+      "Literal": "\"restart_failed_ok\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/RestartNotices.cs",
+      "Literal": "\"restart_progress_hide\"",
       "Count": 1
     },
     {
@@ -1332,6 +1312,16 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
+      "Literal": "\"language_cancel\"",
+      "Count": 2
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
+      "Literal": "\"language_restart\"",
+      "Count": 2
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
       "Literal": "\"restart_cancel\"",
       "Count": 2
     },
@@ -1977,11 +1967,6 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
-      "Literal": "\"Hiding this notice does not stop the restart.\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
       "Literal": "\"Light\"",
       "Count": 1
     },
@@ -1997,38 +1982,8 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
-      "Literal": "\"Restarting EyeCtrl…\\n\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
-      "Literal": "\"Waiting for the new EyeCtrl to start. If it cannot, this one keeps running.\\n\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
-      "Literal": "\"restart_failed_ok\"",
-      "Count": 2
-    },
-    {
-      "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
-      "Literal": "\"restart_progress_hide\"",
-      "Count": 2
-    },
-    {
-      "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
       "Literal": "\"⚠ {0} (not available)\"",
       "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
-      "Literal": "\"✓ OK\"",
-      "Count": 2
-    },
-    {
-      "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
-      "Literal": "\"✕ Hide\"",
-      "Count": 2
     },
     {
       "Path": "src/EyeCtrl.Core/Models/RingLabelMap.cs",

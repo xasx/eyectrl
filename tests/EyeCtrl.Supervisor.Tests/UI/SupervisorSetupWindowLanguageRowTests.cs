@@ -58,6 +58,7 @@ public sealed class SupervisorSetupWindowLanguageRowTests : IDisposable
     private sealed class Fixture
     {
         public readonly List<TaskCompletionSource<AppRequestResult>> Replies = new();
+        public readonly List<TaskCompletionSource<AppRequestResult>> LogonReplies = new();
         public UiLanguage? Disk = UiLanguage.System;
         public DateTime Now = new(2026, 10, 9, 12, 0, 0, DateTimeKind.Utc);
         public readonly SettingDelivery<UiLanguage> Language;
@@ -81,7 +82,13 @@ public sealed class SupervisorSetupWindowLanguageRowTests : IDisposable
                 confirmSaveByReRead: true);
             StartOnBoot = new SettingDelivery<bool>(
                 "StartOnBoot", (value, _) => SettingRequest.SetStartOnBoot(value),
-                _ => new TaskCompletionSource<AppRequestResult>().Task, work => work());
+                _ =>
+                {
+                    var reply = new TaskCompletionSource<AppRequestResult>();
+                    LogonReplies.Add(reply);
+                    return reply.Task;
+                },
+                work => work());
         }
 
         public void Drive(RowState state)
@@ -255,6 +262,38 @@ public sealed class SupervisorSetupWindowLanguageRowTests : IDisposable
             Check.That(fixture.Language.Pending).IsEqualTo(UiLanguage.German);
             Check.That(((TextBlock)window.LanguageButtons[1].Content!).Text).IsEqualTo("\u2713 Deutsch");
         });
+    }
+
+    [Fact]
+    public void TheLogonSwitch_IsRepainted_WhenItsValueChangesWithoutADwell()
+    {
+        // T05a review-02 R2-3: a refused (or superseded) logon choice falls back to the disk value;
+        // the switch's face must follow, or the next dwell sends the inverse of the hidden value.
+        RunSta(() =>
+        {
+            var fixture = new Fixture();
+            var window = BuildWindow(fixture);
+            string Face() => FindByAutomationId(window.Content as DependencyObject ?? window, "Settings_Toggle_setup_start_on_logon")!.Text;
+            Check.That(Face()).IsEqualTo("Off");
+
+            fixture.StartOnBoot.Request(true);   // what the switch's setter does
+            Check.That(Face()).IsEqualTo("On");
+
+            fixture.LogonReplies[0].SetResult(new AppRequestResult(SettingRequestStatus.Rejected, "refused"));
+            Check.That(Face()).IsEqualTo("Off");
+        });
+    }
+
+    private static TextBlock? FindByAutomationId(DependencyObject node, string id)
+    {
+        if (node is TextBlock text && System.Windows.Automation.AutomationProperties.GetAutomationId(text) == id)
+            return text;
+        foreach (var child in LogicalTreeHelper.GetChildren(node).OfType<DependencyObject>())
+        {
+            if (FindByAutomationId(child, id) is { } found)
+                return found;
+        }
+        return null;
     }
 
     /// <summary>Writes the review sheet for the user (opt-in; not part of the gate).</summary>

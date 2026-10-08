@@ -35,7 +35,7 @@ public partial class ModesMenuViewModel : DwellOverlayViewModelBase,
     /// <summary>
     /// The rows: one icon-only button per mouse click. The labels are gone (user decision
     /// 2026-10-06 — "drop the labels and just have good icons"); the ring's own action names
-    /// (<c>RingLabelMap</c>) are what the window exposes to UIA instead.
+    /// (<c>RingLabelSource</c>) are what the window exposes to UIA instead.
     /// </summary>
     private static readonly (string Id, InteractionAction Action)[] Rows =
     {

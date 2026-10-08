@@ -12,6 +12,7 @@ using EyeCtrl.App.Tests.TestSupport;
 using EyeCtrl.Controls;
 using EyeCtrl.Controls.Icons;
 using EyeCtrl.Controls.Theme;
+using EyeCtrl.Core.ActionMenu;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
@@ -139,14 +140,15 @@ public class ModesMenuFitTests : IDisposable
     }
 
     /// <summary>
-    /// The accessibility half of dropping the labels: every icon-only button still exposes the
-    /// ring's action name to UIA ("Left click", ...), through the invisible automation anchor on
-    /// the built button.
+    /// The accessibility half of dropping the labels: every icon-only button exposes the HOST's
+    /// name to UIA through the invisible automation anchor on the built button — a custom source
+    /// here, so a window that read the English map directly fails.
     /// </summary>
     [StaFact]
-    public void EveryButton_ExposesItsActionNameToUia()
+    public void EveryButton_ExposesTheHostsActionNameToUia()
     {
-        var (window, _) = Build(112);
+        var labels = new RingLabelSource(action => $"modes:{action}", BackLabel: "Back", MoreLabel: "More");
+        var (window, _) = Build(112, labels);
         Layout(window);
 
         var expected = new[]
@@ -163,9 +165,9 @@ public class ModesMenuFitTests : IDisposable
 
             Check.WithCustomMessage($"{id}: an icon-only button needs an automation anchor for UIA.")
                  .That(button.AutomationAnchor).IsNotNull();
-            Check.WithCustomMessage($"{id}: the anchor must publish the ring's action name.")
+            Check.WithCustomMessage($"{id}: the anchor must publish the host's action name.")
                  .That(AutomationProperties.GetName(button.AutomationAnchor!))
-                 .IsEqualTo(RingLabelMap.For(action));
+                 .IsEqualTo($"modes:{action}");
             Check.WithCustomMessage($"{id}: the anchor must be sized to the disc so its UIA rect is "
                     + "the button's, not a text sliver.")
                  .That(button.AutomationAnchor!.Width).IsEqualTo(button.Background.Width);
@@ -228,12 +230,15 @@ public class ModesMenuFitTests : IDisposable
     /// Builds the real window through the production seam and publishes the row targets the way
     /// <c>ShowAtTopCentre</c> does after <c>Show()</c>. The window is never shown.
     /// </summary>
-    private static (ModesMenuWindow Window, ModesMenuViewModel Vm) Build(double sizeLogical)
+    private static (ModesMenuWindow Window, ModesMenuViewModel Vm) Build(
+        double sizeLogical, RingLabelSource? labels = null)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
 
         var vm = new ModesMenuViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
         var window = new ModesMenuWindow();
+        if (labels is not null)
+            window.Labels = labels;
         window.Configure(vm, sizeLogical);
         vm.SetRowScreenPositions(window.BuildButtonsAt(sizeLogical, WindowLeft, WindowTop));
         return (window, vm);

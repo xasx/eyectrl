@@ -28,6 +28,13 @@ public partial class QuickActionsGridViewModel : DwellOverlayViewModelBase,
 
     public ObservableCollection<QuickActionTileViewModel> Tiles { get; } = new();
 
+    /// <summary>
+    /// The host's preset-label function for the tiles. English by default; the App shell will
+    /// set its own overlay-keyed function at composition (T08), the same way it sets
+    /// <see cref="EffectiveSummonEdge"/>.
+    /// </summary>
+    public Func<string, string?> PresetLabelFor { get; set; } = QuickActionPresets.EnglishLabelFor;
+
     public int GridColumns => _settings.QuickActions.GridColumns;
     public int RowCount => Tiles.Count == 0 ? 0 : (int)Math.Ceiling((double)Tiles.Count / _settings.QuickActions.GridColumns);
     public string SummonEdge => _settings.QuickActions.SummonEdge;
@@ -98,7 +105,7 @@ public partial class QuickActionsGridViewModel : DwellOverlayViewModelBase,
         var actions = _store.LoadAll().Where(a => a.Enabled).ToList();
         foreach (var action in actions)
         {
-            Tiles.Add(new QuickActionTileViewModel(action));
+            Tiles.Add(new QuickActionTileViewModel(action, PresetLabelFor));
         }
     }
 

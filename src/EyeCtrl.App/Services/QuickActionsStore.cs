@@ -16,7 +16,7 @@ public class QuickActionsStore : IQuickActionsStore
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
-        WriteIndented = true
+        WriteIndented = true,
     };
 
     /// <summary>Wraps the serialized action list so the on-disk JSON is a single named property.</summary>
@@ -79,7 +79,8 @@ public class QuickActionsStore : IQuickActionsStore
             Type = action.Type,
             Label = action.Label,
             Payload = action.Payload,
-            Enabled = action.Enabled
+            Enabled = action.Enabled,
+            PresetId = action.PresetId
         };
     }
 

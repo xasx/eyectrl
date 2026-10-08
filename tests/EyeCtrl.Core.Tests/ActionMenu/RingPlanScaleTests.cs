@@ -28,7 +28,8 @@ public class RingPlanScaleTests
     private static RingPlan DefaultPlan() => RingPlan.Create(
         new List<InteractionAction> { InteractionAction.LeftClick },
         new List<InteractionAction> { InteractionAction.LeftClick },
-        new CursorSettings().CircleSize);
+        new CursorSettings().CircleSize,
+        RingLabelSource.English);
 
     [Fact]
     public void WindowSize_AtTheDefaultCircleSize_IsPinned()
@@ -110,11 +111,11 @@ public class RingPlanScaleTests
     {
         // WindowSize = CircleSize + 420, so the true ring fits 688 DIP up to CircleSize 268 —
         // the boundary the final synthesis records; beyond it the preview shrinks.
-        var at268 = RingPlan.Create(null, null, 268.0);
+        var at268 = RingPlan.Create(null, null, 268.0, RingLabelSource.English);
         Check.That(at268.WindowSize).IsEqualTo(688.0);
         Check.That(at268.ScaleFor(UnboundedWidth, Budget1080p)).IsEqualTo(1.0);
 
-        var beyond = RingPlan.Create(null, null, 300.0);
+        var beyond = RingPlan.Create(null, null, 300.0, RingLabelSource.English);
         Check.That(beyond.WindowSize).IsEqualTo(720.0);
         Check.That(beyond.ScaleFor(UnboundedWidth, Budget1080p)).IsCloseTo(688.0 / 720.0, 1e-12);
         Check.That(RingPlan.IsLegibleAt(beyond.ScaleFor(UnboundedWidth, Budget1080p))).IsTrue();

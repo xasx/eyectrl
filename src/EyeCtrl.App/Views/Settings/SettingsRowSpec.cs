@@ -91,12 +91,17 @@ public sealed record RingJumpSpec(
 /// The uniform fit scalar from <see cref="RingPlan.ScaleFor"/>, stamped by the shell before
 /// measure. The default is true size for consumers that never stamp (tests, gates).
 /// </param>
+/// <param name="MoreAnnotationFormat">
+/// The host's "<c>{label} +{count}</c>" composer for the More slot; null means the English
+/// format. The shell passes it through to the painter, which owns no text of its own.
+/// </param>
 public sealed record RingPreviewSpec(
     string Id,
     Func<RingPlan> Plan,
     string CaptionNotAControl,
     string CaptionLabels,
-    double Scale = 1.0) : SettingsRowSpec(Id, Label: "");
+    double Scale = 1.0,
+    Func<string, int, string>? MoreAnnotationFormat = null) : SettingsRowSpec(Id, Label: "");
 
 /// <param name="Text">Deferred so dynamic labels (calibration status) re-evaluate on each rebuild.</param>
 /// <param name="Wrap">

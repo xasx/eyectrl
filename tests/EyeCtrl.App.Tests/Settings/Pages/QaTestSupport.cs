@@ -16,13 +16,13 @@ using CommunityToolkit.Mvvm.Messaging;
 /// </summary>
 internal static class QaTestSupport
 {
-    public static SettingsWindowViewModel MakeViewModel()
+    public static SettingsWindowViewModel MakeViewModel(IQuickActionsStore? store = null)
     {
         var settings = new EyeCtrlSettings();
         var messenger = new WeakReferenceMessenger();
         var settingsVM = new SettingsViewModel(settings);
         var editor = new SettingsQuickActionsEditorViewModel(
-            new FakeQuickActionsStore(), new FakeInstalledAppProvider());
+            store ?? new FakeQuickActionsStore(), new FakeInstalledAppProvider());
         var vm = new SettingsWindowViewModel(settingsVM, editor, messenger, settings.Dwell);
         editor.Load();   // production calls Load() right after constructing the editor
         return vm;

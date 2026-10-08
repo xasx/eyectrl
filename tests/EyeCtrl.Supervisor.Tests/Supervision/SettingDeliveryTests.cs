@@ -375,12 +375,24 @@ public class SettingDeliveryTests
                 utcNow: () => Now);
         }
 
+        /// <summary>Answers a send and runs the background work it queued (the park-time read).</summary>
+        public void Reply(int send, AppRequestResult result)
+        {
+            Sends[send].Reply.SetResult(result);
+            Drain();
+        }
+
+        public void Drain()
+        {
+            while (Background.Count > 0) Background.Dequeue()();
+        }
+
         /// <summary>Lets the clock reach the retry, triggers it and runs the background re-read.</summary>
         public void RetryNow()
         {
             if (Delivery.NextRetryAt is { } due && due > Now) Now = due;
             Delivery.OnRetryTick();
-            while (Background.Count > 0) Background.Dequeue()();
+            Drain();
         }
     }
 
@@ -389,7 +401,7 @@ public class SettingDeliveryTests
     {
         var g = new GuardedDelivery(disk: 0);
         g.Delivery.Request(2);
-        g.Sends[0].Reply.SetResult(NotAvailable);
+        g.Reply(0, NotAvailable);
 
         g.Disk = 2;                               // the App saved it some other way
         g.RetryNow();
@@ -405,7 +417,7 @@ public class SettingDeliveryTests
     {
         var g = new GuardedDelivery(disk: 0);
         g.Delivery.Request(2);
-        g.Sends[0].Reply.SetResult(NotAvailable);   // parks with the disk at 0
+        g.Reply(0, NotAvailable);   // parks with the disk at 0
 
         g.Disk = 1;                               // someone chose 1 in the App since
         g.RetryNow();
@@ -421,7 +433,7 @@ public class SettingDeliveryTests
     {
         var g = new GuardedDelivery(disk: 0);
         g.Delivery.Request(2);
-        g.Sends[0].Reply.SetResult(NotAvailable);
+        g.Reply(0, NotAvailable);
 
         g.RetryNow();
 
@@ -435,7 +447,7 @@ public class SettingDeliveryTests
     {
         var g = new GuardedDelivery(disk: 0);
         g.Delivery.Request(2);
-        g.Sends[0].Reply.SetResult(NotAvailable);
+        g.Reply(0, NotAvailable);
 
         g.Disk = null;                            // contended or damaged: cannot tell
         g.RetryNow();
@@ -448,7 +460,7 @@ public class SettingDeliveryTests
     {
         var g = new GuardedDelivery(disk: 0);
         g.Delivery.Request(2);
-        g.Sends[0].Reply.SetResult(NotAvailable);
+        g.Reply(0, NotAvailable);
         if (g.Delivery.NextRetryAt is { } due) g.Now = due;
 
         g.Delivery.OnRetryTick();                 // queues the re-read; nothing ran inline
@@ -467,7 +479,7 @@ public class SettingDeliveryTests
     {
         var g = new GuardedDelivery(disk: 0);
         g.Delivery.Request(2);
-        g.Sends[0].Reply.SetResult(NotAvailable);
+        g.Reply(0, NotAvailable);
         if (g.Delivery.NextRetryAt is { } due) g.Now = due;
         g.Delivery.OnRetryTick();
 
@@ -477,5 +489,76 @@ public class SettingDeliveryTests
         Check.That(g.Sends).HasSize(2);
         Check.That(g.Sends[1].Value).IsEqualTo(1);
         Check.That(g.Sends[1].Request.Restart).IsTrue();
+    }
+
+    // ── R2-1 / R2-2: the guard's reference value ───────────────────────────────────────────
+
+    [Fact]
+    public void ANewChoice_StartsAFreshParkReference_SoItIsNeverSupersededByTheOldOne()
+    {
+        // G4: without the reset in Request, the old reference (0) would make the guard drop the
+        // caretaker's NEWEST choice as superseded once the disk moved on to 1.
+        var g = new GuardedDelivery(disk: 0);
+        g.Delivery.Request(2);
+        g.Reply(0, NotAvailable);                 // parks 2 with the disk at 0
+        g.Disk = 1;                               // the user changes it in the App
+
+        g.Delivery.Request(0);                    // the caretaker chooses again, live
+        g.Reply(1, NotAvailable);                 // parks 0 with the disk at 1
+        g.RetryNow();
+
+        Check.That(g.Delivery.State).IsNotEqualTo(SettingDeliveryState.Superseded);
+        Check.That(g.Sends).HasSize(3);
+        Check.That(g.Sends[2].Value).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void TheParkReference_IsRecordedOnce_NotOverwrittenByAFailedRetry()
+    {
+        // G3: a disk change during a failed retry's send must still be seen as a change. A
+        // reference re-recorded at every park would re-baseline to the newer value and send the
+        // stale choice over it.
+        var g = new GuardedDelivery(disk: 0);
+        g.Delivery.Request(2);
+        g.Reply(0, NotAvailable);                 // parks 2 with the disk at 0
+        g.RetryNow();                             // the retry is sent...
+        Check.That(g.Sends).HasSize(2);
+
+        g.Disk = 1;                               // ...the user changes it while it is in flight
+        g.Reply(1, NotAvailable);                 // ...and the retry fails
+        g.RetryNow();
+
+        Check.That(g.Delivery.State).IsEqualTo(SettingDeliveryState.Superseded);
+        Check.That(g.Delivery.SupersededBy).IsEqualTo(1);
+        Check.That(g.Sends).HasSize(2);
+    }
+
+    [Fact]
+    public void ThePark_TimeDiskRead_RunsOffTheUiThread_EvenWhenTheSendCompletedInline()
+    {
+        // R2-2: a throwing send completes synchronously, so the continuation runs on the caller —
+        // the UI thread. The disk read it does must still go through the background runner.
+        var background = new Queue<Action>();
+        var reads = 0;
+        var delivery = new SettingDelivery<int>(
+            "ThreeWay",
+            (value, restart) => new SettingRequest(
+                SettingRequest.NewId(), "setThreeWay",
+                System.Text.Json.JsonSerializer.SerializeToElement(value), restart),
+            _ => throw new InvalidOperationException("send threw"),
+            work => work(),
+            readDisk: () => { reads++; return 0; },
+            runInBackground: background.Enqueue,
+            utcNow: () => _now);
+
+        delivery.Request(2);
+
+        Check.That(reads).IsEqualTo(0);           // nothing read inline
+        Check.That(background).HasSize(1);
+        Check.That(delivery.State).IsEqualTo(SettingDeliveryState.Sending);
+
+        background.Dequeue()();
+        Check.That(reads).IsEqualTo(1);
+        Check.That(delivery.State).IsEqualTo(SettingDeliveryState.Parked);
     }
 }

@@ -133,7 +133,7 @@
     "crisis": true
   },
   "supervisor.setup.logon.parked": {
-    "text": "Not saved yet. Applies when EyeCtrl next runs, unless the PC or the Supervisor restarts first.",
+    "text": "Not saved yet. It is saved the next time EyeCtrl runs, unless the PC or the Supervisor restarts first.",
     "who": "caretaker",
     "where": "supervisor",
     "fit": "prose",
@@ -173,7 +173,15 @@
     "crisis": true
   },
   "supervisor.setup.logon.superseded": {
-    "text": "Changed in EyeCtrl meanwhile. That newer setting stays.",
+    "text": "The logon setting was changed in EyeCtrl meanwhile. That newer value stays.",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.logon.waiting": {
+    "text": "The logon setting is waiting for EyeCtrl.",
     "who": "caretaker",
     "where": "supervisor",
     "fit": "prose",

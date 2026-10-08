@@ -1,7 +1,6 @@
 namespace EyeCtrl.Supervisor.Ipc;
 
 using System;
-using System.Globalization;
 using System.IO;
 using System.IO.Pipes;
 using System.Text;
@@ -109,8 +108,8 @@ internal sealed class AppRequestClient
             {
                 cts.Cancel();
                 Observe(connectTask);
-                return AppRequestResult.NotAvailable(string.Create(
-                    CultureInfo.InvariantCulture, $"no server within {ConnectTimeout.TotalSeconds:0.#}s"));
+                // Whole milliseconds: a diagnostic with no culture-variable number format.
+                return AppRequestResult.NotAvailable($"no server within {(long)ConnectTimeout.TotalMilliseconds} ms");
             }
             await connectTask.ConfigureAwait(false);
 
@@ -122,8 +121,7 @@ internal sealed class AppRequestClient
             {
                 cts.Cancel();
                 Observe(exchange);
-                return AppRequestResult.NotAvailable(string.Create(
-                    CultureInfo.InvariantCulture, $"no acknowledgement within {AckTimeout.TotalSeconds:0.#}s"));
+                return AppRequestResult.NotAvailable($"no acknowledgement within {(long)AckTimeout.TotalMilliseconds} ms");
             }
             return await exchange.ConfigureAwait(false);
         }

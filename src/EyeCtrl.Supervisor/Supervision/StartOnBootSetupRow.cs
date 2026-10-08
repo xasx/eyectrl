@@ -48,7 +48,9 @@ internal sealed class StartOnBootSetupRow : IDisposable
         SettingDeliveryState.Saved => _onDisk
             ? strings.T("supervisor.setup.logon.saved-on")
             : strings.T("supervisor.setup.logon.saved-off"),
-        SettingDeliveryState.Parked => strings.T("supervisor.setup.logon.parked"),
+        // The note under the row carries the parked explanation; the status line only says that
+        // the setting is waiting, so the caretaker does not read the same sentence twice.
+        SettingDeliveryState.Parked => strings.T("supervisor.setup.logon.waiting"),
         SettingDeliveryState.Refused => strings.T("supervisor.setup.logon.refused"),
         SettingDeliveryState.Superseded => strings.T("supervisor.setup.logon.superseded"),
         _ => null,

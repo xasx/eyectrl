@@ -239,13 +239,24 @@ internal sealed class SettingDelivery<T> where T : struct
                 var result = t.IsCompletedSuccessfully
                     ? t.Result
                     : AppRequestResult.NotAvailable($"send faulted: {t.Exception?.GetBaseException().Message}");
-                // A choice that is about to park records the disk as it is now, still off the UI
-                // thread: the stale-park guard compares later re-reads against it.
-                T? disk = result.IsSaved || result.Status == SettingRequestStatus.Rejected ? null : ReadDiskSafely();
-                _postToUi(() => Complete(value, request, result, disk));
+                if (result.IsSaved || result.Status == SettingRequestStatus.Rejected || _readDisk is null)
+                {
+                    _postToUi(() => Complete(value, request, result, null));
+                    return;
+                }
+
+                // A choice that is about to park records the disk as it is now; the stale-park
+                // guard compares later re-reads against it. The read goes through the background
+                // runner, never inline: this continuation can run on the UI thread when the send
+                // completed synchronously (a throwing send's Task.FromResult).
+                _runInBackground(() =>
+                {
+                    var disk = ReadDiskSafely();
+                    _postToUi(() => Complete(value, request, result, disk));
+                });
             },
             CancellationToken.None,
-            // Only posts to the UI thread, so it may run on whichever thread completed the send.
+            // Only posts or hands off, so it may run on whichever thread completed the send.
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
     }

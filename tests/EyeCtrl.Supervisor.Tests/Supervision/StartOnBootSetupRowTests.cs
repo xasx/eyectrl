@@ -78,8 +78,8 @@ public sealed class StartOnBootSetupRowTests : IDisposable
 
         Check.That(row.Value).IsTrue();
         Check.That(row.IsParked).IsTrue();
-        Check.That(row.Note(_strings)).IsEqualTo("Not saved yet. Applies when EyeCtrl next runs, unless the PC or the Supervisor restarts first.");
-        Check.That(row.StatusText(_strings)).IsEqualTo("Not saved yet. Applies when EyeCtrl next runs, unless the PC or the Supervisor restarts first.");
+        Check.That(row.Note(_strings)).IsEqualTo("Not saved yet. It is saved the next time EyeCtrl runs, unless the PC or the Supervisor restarts first.");
+        Check.That(row.StatusText(_strings)).IsEqualTo("The logon setting is waiting for EyeCtrl.");
     }
 
     [Fact]
@@ -96,7 +96,7 @@ public sealed class StartOnBootSetupRowTests : IDisposable
         using var reopened = Open(tracker);
 
         Check.That(reopened.Value).IsTrue();
-        Check.That(reopened.Note(_strings)).IsEqualTo("Not saved yet. Applies when EyeCtrl next runs, unless the PC or the Supervisor restarts first.");
+        Check.That(reopened.Note(_strings)).IsEqualTo("Not saved yet. It is saved the next time EyeCtrl runs, unless the PC or the Supervisor restarts first.");
     }
 
     [Fact]
@@ -193,7 +193,7 @@ public sealed class StartOnBootSetupRowTests : IDisposable
         Check.That(_replies).HasSize(1);                       // nothing was sent
         Check.That(row.IsParked).IsFalse();
         Check.That(row.Value).IsFalse();
-        Check.That(row.StatusText(_strings)).IsEqualTo("Changed in EyeCtrl meanwhile. That newer setting stays.");
+        Check.That(row.StatusText(_strings)).IsEqualTo("The logon setting was changed in EyeCtrl meanwhile. That newer value stays.");
     }
 
     [Fact]

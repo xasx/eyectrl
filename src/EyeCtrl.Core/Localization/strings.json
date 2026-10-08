@@ -1,5 +1,135 @@
 {
   "_meta": {
     "pluralRules": "A plural key's count is the first numeric argument. The 'one' form is chosen only when that count, formatted with the placeholder's own specifier and the provider of the language actually rendered, reads as the integer 1: 1.0 under {0} is one; 1.0 under {0:0.0} is other. Keys starting with an underscore are reserved meta notes and are never resolved."
+  },
+  "language-recovery.note.pending": {
+    "text": "Wird nach Neustart wirksam / Takes effect after restart",
+    "who": "user",
+    "where": "language-recovery",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "language-recovery.prompt.cancel": {
+    "text": "Cancel",
+    "who": "user",
+    "where": "language-recovery",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "language-recovery.prompt.message": {
+    "text": "The new language takes effect after a restart.",
+    "who": "user",
+    "where": "language-recovery",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "language-recovery.prompt.restart": {
+    "text": "Restart now",
+    "who": "user",
+    "where": "language-recovery",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "language-recovery.restart.failed.child_exited_early": {
+    "text": "Restart failed: the new EyeCtrl closed immediately. EyeCtrl is still running.",
+    "who": "user",
+    "where": "language-recovery",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "language-recovery.restart.failed.child_not_ready": {
+    "text": "Restart failed: the new EyeCtrl did not start in time. EyeCtrl is still running.",
+    "who": "user",
+    "where": "language-recovery",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "language-recovery.restart.failed.frame": {
+    "text": "Restart failed: {0} EyeCtrl is still running.",
+    "who": "user",
+    "where": "language-recovery",
+    "fit": "prose",
+    "args": [
+      "detail"
+    ],
+    "crisis": true
+  },
+  "language-recovery.restart.failed.generic": {
+    "text": "Restart failed. EyeCtrl is still running.",
+    "who": "user",
+    "where": "language-recovery",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "language-recovery.restart.failed.launch_failed": {
+    "text": "Restart failed: the new EyeCtrl could not be started. EyeCtrl is still running.",
+    "who": "user",
+    "where": "language-recovery",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "language-recovery.restart.failed.no_exe_path": {
+    "text": "Restart failed: EyeCtrl could not determine its own program path. EyeCtrl is still running.",
+    "who": "user",
+    "where": "language-recovery",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "language-recovery.restart.in_progress.hide": {
+    "text": "✕ Hide",
+    "who": "user",
+    "where": "language-recovery",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "language-recovery.restart.in_progress.message": {
+    "text": "Restarting EyeCtrl…\nWaiting for the new EyeCtrl to start. If it cannot, this one keeps running.\nHiding this notice does not stop the restart.",
+    "who": "user",
+    "where": "language-recovery",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "language-recovery.restart.refused.ok": {
+    "text": "✓ OK",
+    "who": "user",
+    "where": "language-recovery",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "language-recovery.row.description": {
+    "text": "Changes the language EyeCtrl's own screens are shown in.",
+    "who": "user",
+    "where": "language-recovery",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "language-recovery.row.label": {
+    "text": "Sprache / Language",
+    "who": "user",
+    "where": "language-recovery",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "language-recovery.tray.item": {
+    "text": "Sprache / Language",
+    "who": "user",
+    "where": "language-recovery",
+    "fit": "row",
+    "args": [],
+    "crisis": true
   }
 }

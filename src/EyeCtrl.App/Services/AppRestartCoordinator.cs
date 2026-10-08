@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Services;
 using System;
 using System.Threading;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
@@ -218,10 +219,12 @@ public sealed class AppRestartCoordinator
             }
             catch (Exception ex)
             {
-                // Never leave the button latched — see Task 8.
+                // Never leave the button latched — see Task 8. The frame is language-recovery
+                // (D5); the raw exception message inside it stays English (or the OS language),
+                // which the translation model must not translate.
                 Volatile.Write(ref _restartInFlight, 0);
                 _postToUi(() => _reportUnavailable(
-                    "Restart failed: " + ex.Message + " EyeCtrl is still running."));
+                    StringTable.Current.T("language-recovery.restart.failed.frame", ex.Message)));
             }
         });
     }

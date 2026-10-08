@@ -40,6 +40,13 @@ public class SingleSurfaceKeyTests
         // Mixed folders: explicit files only.
         ("src/EyeCtrl.App/Views/SettingsWindow.xaml", ["settings", "language-recovery"]),
         ("src/EyeCtrl.App/Views/SettingsWindow.xaml.cs", ["settings", "language-recovery"]),
+        // T04: the General page holds the language row (language-recovery) among settings rows.
+        ("src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs", ["settings", "language-recovery"]),
+        // T04: the restart flow is language-recovery (D5) — its notices, its failure reasons,
+        // and the failure frame the coordinator wraps around a raw exception message.
+        ("src/EyeCtrl.App/Views/RestartNotices.cs", ["language-recovery"]),
+        ("src/EyeCtrl.App/Services/SelfRestartStrategy.cs", ["language-recovery"]),
+        ("src/EyeCtrl.App/Services/AppRestartCoordinator.cs", ["language-recovery"]),
         ("src/EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml", ["caregiver-alert"]),
         ("src/EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml.cs", ["caregiver-alert"]),
         ("src/EyeCtrl.App/Overlays/CalibrationWindow.xaml", ["calibration"]),
@@ -48,7 +55,9 @@ public class SingleSurfaceKeyTests
         ("src/EyeCtrl.App/Overlays/TrackStatusWindow.xaml.cs", ["track-status"]),
         ("src/EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml.cs", ["eye-care"]),
         ("src/EyeCtrl.ViewModels/CalibrationFailureText.cs", ["calibration"]),
-        ("src/EyeCtrl.App/Services/TrayIconManager.cs", ["app-tray"]),
+        // T04: the tray's own items are app-tray, but the one language item is the recovery
+        // path's entry point (D9) and takes its key from language-recovery (T06 expects this).
+        ("src/EyeCtrl.App/Services/TrayIconManager.cs", ["app-tray", "language-recovery"]),
         ("src/EyeCtrl.App/Services/SupervisionToggleService.cs", ["supervisor"])
     ];
 

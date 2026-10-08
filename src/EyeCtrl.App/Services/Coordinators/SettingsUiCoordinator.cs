@@ -53,8 +53,8 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         var messenger = context.Messenger;
 
         // Settings window
-        messenger.Register<SettingsUiCoordinator, SettingsRequestedMessage>(this, (_, _) =>
-            context.Dispatcher.BeginInvoke(() => ShowSettingsWindow()));
+        messenger.Register<SettingsUiCoordinator, SettingsRequestedMessage>(this, (_, m) =>
+            context.Dispatcher.BeginInvoke(() => ShowSettingsWindow(m.Target)));
 
         // CloseSettings -> close settings window
         messenger.Register<SettingsUiCoordinator, CloseSettingsMessage>(this, (_, _) =>
@@ -114,9 +114,26 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
             trackStatusWindow.StopTracking();
     }
 
-    private void ShowSettingsWindow()
+    /// <summary>
+    /// Opens settings, or applies a deep link to the window that is already open. The three
+    /// window states of T04's tray language item: closed (open, then navigate), open on another
+    /// tab (bring forward and navigate), and a modal already up (bring forward; the window queues
+    /// the navigation until the modal closes — never discards it).
+    /// </summary>
+    /// <param name="target">Where the request should land; <see cref="SettingsTarget.Default"/>
+    /// keeps the historical "open where it opens" behaviour and never touches an open window.</param>
+    private void ShowSettingsWindow(SettingsTarget target = SettingsTarget.Default)
     {
-        if (Context is null || _settingsWindow != null) return;
+        if (Context is null) return;
+
+        if (_settingsWindow is { } openWindow)
+        {
+            // The default request has always been a no-op for an already-open window; a deep
+            // link must not be dropped on the floor just because the window happens to exist.
+            if (target == SettingsTarget.GeneralPage1)
+                openWindow.NavigateToLanguageRow();
+            return;
+        }
 
         _modal.SettingsOpen = true;
         _modal.SettingsOpenChanged?.Invoke(true);
@@ -156,6 +173,11 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
             _settingsWindow.SettingsChanged += OnSettingsChanged;
             _settingsWindow.Closed += OnSettingsWindowClosed;
             _settingsWindow.Show();
+
+            // A deep link on a fresh window lands AFTER Show: the constructor has already built
+            // the default tab, and navigating re-renders the requested one.
+            if (target == SettingsTarget.GeneralPage1)
+                _settingsWindow.NavigateToLanguageRow();
         }
         catch
         {

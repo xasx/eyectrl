@@ -124,7 +124,7 @@ public partial class App : Application
         SplashWindow? splash = null;
         try
         {
-            var (settings, settingsFilePath) = InitializeSettingsAndLogging();
+            var (settings, settingsFilePath) = InitializeSettingsAndLogging(e.Args);
 
             // ── String table ──
             // After logging exists (the load path logs, never fails) and before the theme and the
@@ -697,10 +697,11 @@ public partial class App : Application
 
     /// <summary>
     /// Resolves the app data directory (stored in <see cref="_appDataDir"/>), loads settings
-    /// while migrating newly-introduced defaults, initializes Serilog, and registers the global
-    /// (AppDomain + dispatcher) exception handlers.
+    /// while migrating newly-introduced defaults, applies the <c>--ui-language</c> flag,
+    /// initializes Serilog, and registers the global (AppDomain + dispatcher) exception handlers.
     /// </summary>
-    private (EyeCtrlSettings Settings, string SettingsFilePath) InitializeSettingsAndLogging()
+    /// <param name="args">The process arguments; <c>--ui-language</c> is read from them.</param>
+    private (EyeCtrlSettings Settings, string SettingsFilePath) InitializeSettingsAndLogging(string[] args)
     {
         _appDataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl");
@@ -726,6 +727,19 @@ public partial class App : Application
 
         var logsDir = Path.Combine(_appDataDir, "logs");
         LoggingInitializer.Initialize(logsDir);
+
+        // ── --ui-language ──
+        // A persisting setter: the choice is saved through this method's App writer, then the
+        // string table below loads from the mutated settings, so the launch the flag arrives on
+        // already shows the requested language. Deliberately HERE, inside the method OnStartup
+        // calls only after the single-instance guard: a duplicate that loses the mutex exits
+        // before this point and therefore never writes (T04). Logging must already exist, or an
+        // ignored value's warning would be discarded. Never throws; a failed save is a log line.
+        if (UiLanguageArgument.Apply(
+                args, settings, () => tempSettingsService.Save(settings)) is { } uiLanguageOutcome)
+        {
+            Log.Information("--ui-language: {Outcome}", uiLanguageOutcome);
+        }
 
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {

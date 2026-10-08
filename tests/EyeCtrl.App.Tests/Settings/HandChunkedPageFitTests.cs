@@ -155,14 +155,21 @@ public class HandChunkedPageFitTests
     /// </summary>
     /// <param name="root">The parsed SettingsWindow.xaml root.</param>
     /// <returns>The height budget in DIP.</returns>
-    private static double ContentHeightBudget(XElement root)
+    internal static double ContentHeightBudget(XElement root) =>
+        ContentHeightBudget(root, DisplayHeightDip);
+
+    /// <inheritdoc cref="ContentHeightBudget(XElement)" />
+    /// <param name="root">The parsed SettingsWindow.xaml root.</param>
+    /// <param name="displayHeightDip">The primary display's height in DIP.</param>
+    /// <returns>The height budget in DIP.</returns>
+    internal static double ContentHeightBudget(XElement root, double displayHeightDip)
     {
         var header = SettingsContentFitTests.Margin(root, "HeaderPanel");
         var contentArea = SettingsContentFitTests.Margin(root, "ContentArea");
         var cardPadding = SettingsContentFitTests.Padding(root, "ContentCard");
         var pagination = SettingsContentFitTests.Margin(root, "PaginationPanel");
 
-        return SettingsContentFitTests.WindowHeightFor(DisplayHeightDip)
+        return SettingsContentFitTests.WindowHeightFor(displayHeightDip)
             - SettingsContentFitTests.FixedHeight(root, "HeaderPanel")
             - header.Top - header.Bottom
             - contentArea.Top - contentArea.Bottom
@@ -176,11 +183,18 @@ public class HandChunkedPageFitTests
     /// <summary>The content column's width in DIP, the same derivation the width guards use.</summary>
     /// <param name="root">The parsed SettingsWindow.xaml root.</param>
     /// <returns>The column width in DIP.</returns>
-    private static double ContentColumnWidth(XElement root)
+    internal static double ContentColumnWidth(XElement root) =>
+        ContentColumnWidth(root, DisplayWidthDip);
+
+    /// <inheritdoc cref="ContentColumnWidth(XElement)" />
+    /// <param name="root">The parsed SettingsWindow.xaml root.</param>
+    /// <param name="displayWidthDip">The primary display's width in DIP.</param>
+    /// <returns>The column width in DIP.</returns>
+    internal static double ContentColumnWidth(XElement root, double displayWidthDip)
     {
         var contentArea = SettingsContentFitTests.Margin(root, "ContentArea");
         var cardPadding = SettingsContentFitTests.Padding(root, "ContentCard");
-        return SettingsContentFitTests.WindowWidthFor(DisplayWidthDip)
+        return SettingsContentFitTests.WindowWidthFor(displayWidthDip)
             - SettingsContentFitTests.SidebarWidth(root)
             - contentArea.Left - contentArea.Right
             - cardPadding.Left - cardPadding.Right;

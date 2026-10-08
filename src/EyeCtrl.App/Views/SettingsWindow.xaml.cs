@@ -276,6 +276,9 @@ public partial class SettingsWindow : OverlayWindow
     private readonly int _dwellMs;
     private readonly SettingsPagerRearmGuard _pagerRearmGuard;
 
+    /// <summary>The tray item's deep link, queued while a modal is up (T04's open-modal case).</summary>
+    private readonly SettingsDeepLinkQueue _languageRowDeepLink = new();
+
     // Last LAID-OUT screen centre per pager target, recorded by the position pass. The jump's
     // own re-render replaces the pager Border BEFORE GuardJumpedPager reads it, and a freshly
     // added border has had no layout pass — its PointToScreen returns the panel origin, ~70
@@ -400,12 +403,13 @@ public partial class SettingsWindow : OverlayWindow
         // The one button only HIDES the notice — it cannot cancel a restart whose child may
         // already be running, and it must exist: a modal with no dwell target would trap a
         // gaze-only user if the outcome never arrived.
+        //
+        // The notice's text belongs to the `language-recovery` surface (D5, T04): the restart flow
+        // is what a wrong-language user must be able to read, so it switches together with the
+        // prompt. RestartNotices owns the keys so the English text is headlessly pinned.
         _messenger.Register<RestartInProgressMessage>(this, (_, _) =>
             Dispatcher.Invoke(() => _viewModel.ShowModal(
-                "Restarting EyeCtrl…\n"
-                + "Waiting for the new EyeCtrl to start. If it cannot, this one keeps running.\n"
-                + "Hiding this notice does not stop the restart.",
-                [new ModalChoice("restart_progress_hide", "✕ Hide", ModalChoiceKind.Neutral, null)])));
+                RestartNotices.InProgressMessage(), RestartNotices.InProgressChoices())));
 
         // A refused restart must be visible: the user just completed a dwell, and
         // silence reads as the dwell not registering.
@@ -414,11 +418,11 @@ public partial class SettingsWindow : OverlayWindow
         // "✕ No" to "the new EyeCtrl did not start in time" means nothing, and for a gaze
         // user every extra target is another chance to mis-dwell on a message that only
         // needs dismissing. The multi-choice modal makes a single button expressible;
-        // before it existed this had to borrow the Yes/No form.
+        // before it existed this had to borrow the Yes/No form. The reason text already
+        // arrives localized from the coordinator (language-recovery surface).
         _messenger.Register<RestartUnavailableMessage>(this, (_, m) =>
             Dispatcher.Invoke(() => _viewModel.ShowModal(
-                m.Reason,
-                [new ModalChoice("restart_failed_ok", "✓ OK", ModalChoiceKind.Affirmative, null)])));
+                m.Reason, RestartNotices.RefusedChoices())));
 
         // Initialize tab definitions
         _tabDefs =
@@ -578,6 +582,10 @@ public partial class SettingsWindow : OverlayWindow
                     break;
                 case nameof(SettingsWindowViewModel.IsModalVisible):
                     UpdateModalVisibility();
+                    // The deep link that arrived while this modal was up runs now. A modal is
+                    // never discarded to satisfy the link (T04's three window states).
+                    if (_languageRowDeepLink.TryApply(_viewModel.IsModalVisible))
+                        ShowTab("General");
                     break;
             }
         });
@@ -891,6 +899,18 @@ public partial class SettingsWindow : OverlayWindow
     {
         // Update ViewModel's tab state - property changed handler will rebuild content
         _viewModel.Settings.ShowTab(tabId);
+    }
+
+    /// <summary>
+    /// D9's deep link: bring this window forward and land on General page 1, where the language
+    /// row is the first row. A modal already up is never discarded to satisfy the link — the
+    /// navigation queues behind it and runs when it closes.
+    /// </summary>
+    internal void NavigateToLanguageRow()
+    {
+        Activate();
+        if (_languageRowDeepLink.Request(_viewModel.IsModalVisible))
+            ShowTab("General");
     }
 
     // ────── Live apply + debounced save ──────

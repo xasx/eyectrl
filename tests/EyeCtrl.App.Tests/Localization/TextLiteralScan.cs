@@ -403,7 +403,7 @@ internal static class TextLiteralScan
     /// with literals masked out, so a literal's content can never look like a call.
     /// </summary>
     private static readonly Regex SinkCall = new(
-        @"(?<![A-Za-z0-9_])(?<name>ShowModal|ShowError|new\s+ModalChoice|new\s+ToolStripMenuItem|MessageBox\.Show|AutomationProperties\.SetName|new\s+(?:SliderSpec|ToggleSpec|ComboBoxSpec|ColorPickerSpec|ButtonSpec|LabelSpec|RingPreviewSpec|RingJumpSpec)|new\s+QuickActionPreset|new\s+(?:DwellToggle|DwellComboBox|DwellColorPicker|DwellButton))\s*\(",
+        @"(?<![A-Za-z0-9_])(?<name>ShowModal|ShowError|new\s+ModalChoice|new\s+ToolStripMenuItem|MessageBox\.Show|AutomationProperties\.SetName|new\s+(?:SliderSpec|ToggleSpec|ComboBoxSpec|ColorPickerSpec|ButtonSpec|LabelSpec|RingPreviewSpec|RingJumpSpec)|new\s+QuickActionPreset|new\s+(?:DwellToggle|DwellComboBox|DwellColorPicker|DwellButton|DwellSlider))\s*\(",
         RegexOptions.Compiled);
 
     /// <summary>Member assignments that take text directly.</summary>
@@ -440,6 +440,7 @@ internal static class TextLiteralScan
         "DwellComboBox" => [2, 3, 9, 10],  // label, displayOptions, notAvailableFormat
         "DwellColorPicker" => [2, 8],      // label, swatchNames (presets are hex data)
         "DwellButton" => [2],              // label
+        "DwellSlider" => [2],              // label (fixup-02 N1: positional literals too)
         _ => [1],                          // spec labels
     };
 

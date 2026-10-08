@@ -792,7 +792,7 @@
     },
     {
       "Path": "src/EyeCtrl.App/Views/Settings/Sources/CalibrationPageSource.cs",
-      "Literal": "$\"Last calibration: {data.CalibratedAt.LocalDateTime:g}  \\u00B7  {data.ComputeMeanErrorPixels():F1} px ({data.ComputeQualityPercent():F1}%)\"",
+      "Literal": "$\"Last calibration: {date}  \\u00B7  {data.ComputeMeanErrorPixels():F1} px ({data.ComputeQualityPercent():F1}%)\"",
       "Count": 1
     },
     {

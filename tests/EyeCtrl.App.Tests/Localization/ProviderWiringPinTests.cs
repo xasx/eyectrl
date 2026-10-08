@@ -30,6 +30,15 @@ public class ProviderWiringPinTests
         @"\$""[^""]*(?:MaxRetries|HangThresholdSeconds)",
         RegexOptions.Compiled);
 
+    /// <summary>
+    /// The only accepted slider provider argument (fixup-02 S1b): the surface provider with a
+    /// literal id. Presence alone would pass <c>formatProvider: CultureInfo.CurrentCulture</c>,
+    /// which is exactly the ambient-culture wiring the guard exists to forbid.
+    /// </summary>
+    private static readonly Regex ProviderArgument = new(
+        @"formatProvider\s*:\s*StringTable\s*\.\s*Current\s*\.\s*FormatProviderFor\s*\(\s*""[^""]+""\s*\)",
+        RegexOptions.Compiled);
+
     [Fact]
     public void EveryDwellSlider_InSource_PassesTheHostProvider()
     {
@@ -44,15 +53,18 @@ public class ProviderWiringPinTests
                 var openParen = match.Index + match.Length - 1;
                 var closeParen = CSharpSourceText.FindCloseParen(text, openParen);
                 if (closeParen < 0) continue;
-                if (!text[openParen..closeParen].Contains("formatProvider:", StringComparison.Ordinal))
-                    offenders.Add($"{relative}: new DwellSlider(…) does not pass formatProvider:");
+                if (!ProviderArgument.IsMatch(text[openParen..closeParen]))
+                    offenders.Add(
+                        $"{relative}: new DwellSlider(…) does not pass "
+                        + "formatProvider: StringTable.Current.FormatProviderFor(\"…\")");
             }
         }
 
         Check.WithCustomMessage(
-                "Every DwellSlider in src/ must take its provider from the host. Without it the "
-                + "control silently falls back to invariant, and the plate shows English decimals "
-                + "on a German surface once Step 2+ switches on.\n  " + string.Join("\n  ", offenders))
+                "Every DwellSlider in src/ must take its provider from the host — a surface "
+                + "provider with a literal id. Without it (or with the ambient culture) the plate "
+                + "silently shows English decimals on a German surface once Step 2+ switches on.\n  "
+                + string.Join("\n  ", offenders))
             .That(offenders).IsEmpty();
     }
 

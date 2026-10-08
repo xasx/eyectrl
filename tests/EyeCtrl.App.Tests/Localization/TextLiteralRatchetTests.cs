@@ -199,6 +199,13 @@ public class TextLiteralRatchetTests
             "var t = new DwellToggle(registrar, \"id\", \"Label\", \"On\", \"Off\", get, set, cat, r, ms);",
             "\"On\"");
 
+    /// <summary>The slider is a sink too (fixup-02 N1): its label is text when passed positionally.</summary>
+    [Fact]
+    public void TheScan_CatchesAPositionalSliderLabel() =>
+        CheckCatches(
+            "var s = new DwellSlider(registrar, \"sl\", \"Smoothing Factor\", 0, 1, 0.1, 1, get, set, cat, r, ms);",
+            "\"Smoothing Factor\"");
+
     [Fact]
     public void TheScan_CatchesShowErrorAndRingJumpSpec()
     {

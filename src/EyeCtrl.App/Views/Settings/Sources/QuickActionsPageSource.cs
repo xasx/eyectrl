@@ -177,7 +177,9 @@ internal sealed class QuickActionsPageSource : ISettingsPageSource
         {
             new ButtonSpec("qa_add", "\uFF0B  Add action", () => GoTo(QaView.PickType), ButtonKind.Default, Width: 360, Height: 100),
             new ToggleSpec("qa_enabled", "Enable Quick Actions", () => qa.Enabled, v => { qa.Enabled = v; _ctx.ApplyAndSave(); }),
-            new ComboBoxSpec("qa_edge", "Summon Edge", new[] { "Left", "Right", "Top", "Bottom" }, null, () => qa.SummonEdge, v => { qa.SummonEdge = v; _ctx.ApplyAndSave(); }),
+            new ComboBoxSpec("qa_edge", "Summon Edge",
+                new[] { "Left", "Right", "Top", "Bottom" }, new[] { "Left", "Right", "Top", "Bottom" },
+                () => qa.SummonEdge, v => { qa.SummonEdge = v; _ctx.ApplyAndSave(); }),
             new SliderSpec("qa_summon", "Summon Threshold (ms)", 200, 2000, 50, 0, () => qa.SummonThresholdMs, v => { qa.SummonThresholdMs = (int)v; _ctx.ApplyAndSave(); }),
             new SliderSpec("qa_dismiss", "Dismiss Timeout (ms)", 1000, 15000, 500, 0, () => qa.DismissTimeoutMs, v => { qa.DismissTimeoutMs = (int)v; _ctx.ApplyAndSave(); }),
             new SliderSpec("qa_columns", "Grid Columns", 2, 5, 1, 0, () => qa.GridColumns, v => { qa.GridColumns = (int)v; _ctx.ApplyAndSave(); }),

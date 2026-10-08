@@ -16,7 +16,8 @@ internal sealed class LayoutPageSource : ISettingsPageSource
         [
             new PageSpec([
                 new ComboBoxSpec("lay_pos", "Position",
-                    new[] { "At Gaze", "At Center" }, null,
+                    new[] { "At Gaze", "At Center" },
+                    new[] { "At Gaze", "At Center" },
                     () => s.ViewPosition == ViewPosition.AtGaze ? "At Gaze" : "At Center",
                     v => { s.ViewPosition = v == "At Gaze" ? ViewPosition.AtGaze : ViewPosition.AtCenter; _ctx.ApplyAndSave(); })
                     { Description = "The action menu and magnifier: at your gaze, or centered." },

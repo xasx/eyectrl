@@ -33,7 +33,10 @@ public sealed record SliderSpec(
 public sealed record ToggleSpec(
     string Id, string Label, Func<bool> Get, Action<bool> Set) : SettingsRowSpec(Id, Label);
 
-/// <param name="Code">Value codes; <c>null</c> means the display strings are also the codes.</param>
+/// <param name="Code">Value codes; <c>null</c> means the display strings are also the codes.
+/// The code is the value persisted in settings JSON and is never translated — a combo passes an
+/// explicit array even when it currently equals <paramref name="Display"/>, so that translating
+/// the display later cannot change what is saved. Pinned by <c>ComboCodeIdentityTests</c>.</param>
 public sealed record ComboBoxSpec(
     string Id, string Label, string[] Display, string[]? Code,
     Func<string> Get, Action<string> Set) : SettingsRowSpec(Id, Label);

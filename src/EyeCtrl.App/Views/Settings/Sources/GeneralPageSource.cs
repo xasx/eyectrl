@@ -18,7 +18,8 @@ internal sealed class GeneralPageSource : ISettingsPageSource
         [
             new PageSpec([
                 new ComboBoxSpec("g_theme", "Theme (restart to apply)",
-                    Core.Settings.ThemeSettings.ValidNames, null,
+                    Core.Settings.ThemeSettings.ValidNames,
+                    Core.Settings.ThemeSettings.ValidNames,
                     () => s.Theme.Name, v => { s.Theme.Name = v; _ctx.ApplyAndSave(); })
                     { Description = "All three are dark; Contrast is the boldest." },
                 new ToggleSpec("g_boot", "Start on Windows Boot",

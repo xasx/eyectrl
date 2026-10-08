@@ -58,11 +58,13 @@ public class DwellSelectionKeyboardToolbarPageSourceTests
     }
 
     [Fact]
-    public void Toolbar_DockedEdgeComboHasNullCode()
+    public void Toolbar_DockedEdgeComboHasCodeMapping()
     {
+        // T03a: the saved values are the display strings, now pinned as explicit codes so T07 can
+        // translate the display without changing what is persisted.
         var edge = new ToolbarPageSource(TestSettingsPageContext.Build()).Build().SelectMany(p => p.Rows)
             .OfType<ComboBoxSpec>().Single(c => c.Id == "t_edge");
-        Check.That(edge.Code).IsNull();
+        Check.That(edge.Code).ContainsExactly("Top", "Bottom", "Left", "Right");
     }
 
     // Range-vs-guard: a dwell slider offering a value the Core setter rejects crashes on the UI

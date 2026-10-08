@@ -14,6 +14,13 @@
          test projects can link the same fixture instead of a copy inside this project. -->
     <Compile Include="..\TestSupport\TestTokenizerJson.cs"
              Link="TestSupport\TestTokenizerJson.cs" />
+    <!-- Linked, not copied: the hook is one rule, and a second copy is a second rule. Every
+         Core-referencing test project installs both; see AssemblyInfo.cs in this project and
+         StringTableIsolationTests in EyeCtrl.App.Tests. -->
+    <Compile Include="..\TestSupport\StringTableRestoreAttribute.cs"
+             Link="TestSupport\StringTableRestoreAttribute.cs" />
+    <Compile Include="..\TestSupport\StringTableObserverAttribute.cs"
+             Link="TestSupport\StringTableObserverAttribute.cs" />
   </ItemGroup>
 
 </Project>

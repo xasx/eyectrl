@@ -17,14 +17,28 @@ public partial class QuickActionTileViewModel : ObservableObject
     public QuickAction Action { get; }
 
     /// <summary>
+    /// The label shown on the tile: the host's label for the preset this action was created
+    /// from, or the action's stored label for a user-named tile. Resolved once at construction
+    /// through <see cref="QuickActionPresets.DisplayLabel(QuickAction, System.Func{string,string})"/>,
+    /// so a host can key preset labels without touching stored data.
+    /// </summary>
+    public string Label { get; }
+
+    /// <summary>
     /// Display glyph for the tile, computed from the action type (and payload for media controls).
     /// Uses Unicode symbols; WPF default font may not render some emoji, hence the ASCII fallbacks.
     /// </summary>
     public string Icon { get; }
 
-    public QuickActionTileViewModel(QuickAction action)
+    /// <param name="action">The stored action this tile shows.</param>
+    /// <param name="presetLabelFor">
+    /// The host's preset-id → label function; null means the English preset labels
+    /// (<see cref="QuickActionPresets.EnglishLabelFor"/>).
+    /// </param>
+    public QuickActionTileViewModel(QuickAction action, Func<string, string?>? presetLabelFor = null)
     {
         Action = action;
+        Label = QuickActionPresets.DisplayLabel(action, presetLabelFor ?? QuickActionPresets.EnglishLabelFor);
         Icon = action.Type switch
         {
             QuickActionType.KeyboardShortcut => "\u2328",   // ⌨

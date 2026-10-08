@@ -17,7 +17,8 @@ internal sealed class ToolbarPageSource : ISettingsPageSource
                     () => t.IsDocked, v => { t.IsDocked = v; _ctx.ApplyAndSave(); })
                     { Description = "Docks the toolbar to an edge; with an eye tracker it auto-hides." },
                 new ComboBoxSpec("t_edge", "Docked Edge",
-                    new[] { "Top", "Bottom", "Left", "Right" }, null,
+                    new[] { "Top", "Bottom", "Left", "Right" },
+                    new[] { "Top", "Bottom", "Left", "Right" },
                     () => t.DockedEdge, v => { t.DockedEdge = v; _ctx.ApplyAndSave(); })
                     { Description = "Which screen edge the toolbar attaches to." },
                 new SliderSpec("t_size", "Button Size", 40, 120, 4, 0,

@@ -9,6 +9,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
+using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Controls;
 using EyeCtrl.Controls.Icons;
 using EyeCtrl.Controls.Theme;
@@ -229,7 +230,8 @@ public class ActionMenuRingPainterTests : IDisposable
                 InteractionAction.Keyboard,
             },
             new List<InteractionAction> { InteractionAction.LeftClick, InteractionAction.RightClick },
-            circleSize: 250);
+            circleSize: 250,
+            labels: RingLabelSource.English);
         var layer = plan.BuildLayer(RingLayer.Primary, showBack: false);
 
         var canvasCenter = new Point(plan.WindowSize / 2, plan.WindowSize / 2);
@@ -317,7 +319,8 @@ public class ActionMenuRingPainterTests : IDisposable
         var plan = RingPlan.Create(
             new List<InteractionAction> { InteractionAction.LeftClick, InteractionAction.Keyboard },
             new List<InteractionAction> { InteractionAction.LeftClick },
-            circleSize: 250);
+            circleSize: 250,
+            labels: RingLabelSource.English);
 
         var previewLayer = plan.BuildLayer(RingLayer.Primary, showBack: false);
         Check.That(previewLayer.Slots.Any(slot => slot.Kind == ActionMenuItemKind.ExitMenu)).IsFalse();
@@ -415,5 +418,86 @@ public class ActionMenuRingPainterTests : IDisposable
                 + "register when attached, so a preview painted through this file could become a "
                 + "live target. The painter draws DwellArcButtons only.")
              .That(DwellControlConstruction.IsMatch(source)).IsFalse();
+    }
+
+    private static RingPaintSlot MoreSlot() =>
+        new("More", new Point(0, 0), ActionIcon.More, "More", ActionMenuItemKind.OpenMore);
+
+    /// <summary>
+    /// The More slot's "+N" annotation is host-composed (D3, one key per surface): the preview
+    /// options must call the supplied composer, and the default stays the English format.
+    /// </summary>
+    [Fact]
+    public void PreviewMoreAnnotation_ComesFromTheHost_WithAnEnglishDefault()
+    {
+        var hostFormat = RingPaintOptions.Preview(0.5, secondaryActionCount: 3,
+            (label, count) => $"{label} ({count})");
+        Check.That(hostFormat.LabelFor(MoreSlot())).IsEqualTo("More (3)");
+
+        var defaultFormat = RingPaintOptions.Preview(0.5, secondaryActionCount: 3);
+        Check.That(defaultFormat.LabelFor(MoreSlot())).IsEqualTo("More +3");
+    }
+
+    /// <summary>
+    /// The runtime never annotates: no count means the format is never called, and only the More
+    /// slot is ever annotated in preview mode.
+    /// </summary>
+    [Fact]
+    public void MoreAnnotation_IsOnlyEverAppliedToTheMoreSlot()
+    {
+        var runtime = new RingPaintOptions
+        {
+            ShowLabels = true,
+            MoreAnnotationFormat = (_, _) => throw new InvalidOperationException("runtime must never annotate"),
+        };
+        var actionSlot = new RingPaintSlot(
+            "LeftClick", new Point(0, 0), ActionIcon.LeftClick, "Left click", ActionMenuItemKind.Action);
+        Check.That(runtime.LabelFor(actionSlot)).IsEqualTo("Left click");
+
+        var preview = RingPaintOptions.Preview(0.5, secondaryActionCount: 3,
+            (_, _) => throw new InvalidOperationException("only the More slot may be annotated"));
+        Check.That(preview.LabelFor(actionSlot)).IsEqualTo("Left click");
+    }
+
+    /// <summary>
+    /// F3 (T03d review 01): the shell renders a spec through <see cref="RingPaintOptions.ForPreview"/>,
+    /// and that hand-off must copy the spec's More format — a dropped format would silently fall
+    /// back to English once the preview's "+N" is keyed.
+    /// </summary>
+    [Fact]
+    public void PreviewHandoff_CarriesTheSpecsMoreFormat()
+    {
+        var spec = new RingPreviewSpec(
+            "am_preview",
+            () => throw new InvalidOperationException("this test never builds the plan"),
+            CaptionNotAControl: "preview, not a control",
+            CaptionLabels: "runtime shows labels only while you dwell",
+            Scale: 0.5,
+            MoreAnnotationFormat: (label, count) => $"{label} ({count})");
+
+        var options = RingPaintOptions.ForPreview(spec, secondaryActionCount: 4);
+
+        Check.That(options.Scale).IsEqualTo(0.5);
+        Check.That(options.LabelFor(MoreSlot())).IsEqualTo("More (4)");
+    }
+
+    /// <summary>
+    /// R3 (T03d review 02): the shell renders the preview through <see cref="RingPaintOptions.ForPreview"/>,
+    /// the one hand-off that copies the spec's More format. Calling <c>Preview</c> directly at the
+    /// shell would drop the spec's format back to the English default with nothing failing.
+    /// </summary>
+    [Fact]
+    public void SettingsShell_RendersThePreviewThroughForPreview()
+    {
+        var source = SourceScanner.ScannedFiles()
+            .Single(f => f.Relative == "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs").Text;
+
+        Check.WithCustomMessage(
+                "The Settings shell must render the preview through RingPaintOptions.ForPreview, "
+                + "whose hand-off copies the spec's More format.")
+             .That(source).Contains("RingPaintOptions.ForPreview(");
+        Check.WithCustomMessage(
+                "RingPaintOptions.Preview at the shell would silently drop the spec's More format.")
+             .That(source).Not.Contains("RingPaintOptions.Preview(");
     }
 }

@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Overlays;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Controls;
 using EyeCtrl.Controls.Icons;
 using EyeCtrl.Controls.Theme;
@@ -185,7 +186,7 @@ internal static class ActionMenuRingPainter
 /// <param name="Id">The dwell-target id, used to key the returned button map.</param>
 /// <param name="Center">The button's centre in the target canvas's coordinates.</param>
 /// <param name="Icon">Which drawn icon the slot shows.</param>
-/// <param name="Label">The ring name (see <see cref="RingLabelMap"/>).</param>
+/// <param name="Label">The slot's text, resolved by the plan from its host's <see cref="RingLabelSource"/>.</param>
 /// <param name="Kind">What a dwell on the slot would do; the More slot is annotated in preview mode.</param>
 /// <param name="IsDisabled">
 /// Drawn dimmed at <see cref="ActionMenuRingPainter.DisabledOpacity"/> — a latched modifier's
@@ -226,6 +227,16 @@ internal sealed record RingPaintOptions
     /// </summary>
     public int? MoreAnnotationCount { get; init; }
 
+    /// <summary>
+    /// Composes the More slot's "<c>{label} +{count}</c>" annotation. The surface supplies it so
+    /// the format can be keyed; the default is the English format.
+    /// </summary>
+    public Func<string, int, string> MoreAnnotationFormat { get; init; } = EnglishMoreAnnotation;
+
+    /// <summary>The English "<c>{label} +{count}</c>" format every current surface passes.</summary>
+    internal static readonly Func<string, int, string> EnglishMoreAnnotation =
+        static (label, count) => $"{label} +{count}";
+
     /// <summary>True when the painting must be scaled — the preview label mode.</summary>
     public bool PaintsScaled => Scale < 1.0;
 
@@ -241,13 +252,29 @@ internal sealed record RingPaintOptions
     /// </summary>
     /// <param name="scale">The uniform scale from <see cref="RingPlan.ScaleFor"/>.</param>
     /// <param name="secondaryActionCount">How many actions sit behind More.</param>
+    /// <param name="moreAnnotationFormat">
+    /// The host's "<c>{label} +{count}</c>" composer, or null for the English default.
+    /// </param>
     /// <returns>Options for the miniature.</returns>
-    internal static RingPaintOptions Preview(double scale, int secondaryActionCount) => new()
+    internal static RingPaintOptions Preview(double scale, int secondaryActionCount,
+        Func<string, int, string>? moreAnnotationFormat = null) => new()
     {
         Scale = scale,
         ShowLabels = true,
         MoreAnnotationCount = secondaryActionCount,
+        MoreAnnotationFormat = moreAnnotationFormat ?? EnglishMoreAnnotation,
     };
+
+    /// <summary>
+    /// The preview options for one spec — the shell's single hand-off between a
+    /// <see cref="RingPreviewSpec"/> and this painter. The spec's More format is copied through
+    /// unconditionally, so the shell cannot silently drop it and fall back to English.
+    /// </summary>
+    /// <param name="spec">The preview spec being rendered.</param>
+    /// <param name="secondaryActionCount">How many actions sit behind More.</param>
+    /// <returns>Options for the miniature.</returns>
+    internal static RingPaintOptions ForPreview(RingPreviewSpec spec, int secondaryActionCount)
+        => Preview(spec.Scale, secondaryActionCount, spec.MoreAnnotationFormat);
 
     /// <summary>
     /// The text this slot's label shows under these options: the slot's ring name, plus the
@@ -257,6 +284,6 @@ internal sealed record RingPaintOptions
     /// <returns>The label text.</returns>
     internal string LabelFor(RingPaintSlot slot) =>
         MoreAnnotationCount is int count and > 0 && slot.Kind == ActionMenuItemKind.OpenMore
-            ? $"{slot.Label} +{count}"
+            ? MoreAnnotationFormat(slot.Label, count)
             : slot.Label;
 }

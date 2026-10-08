@@ -55,7 +55,9 @@
                                         <TextBlock Text="{Binding Icon}"
                                                    FontSize="{x:Static overlays:QuickActionsGridWindow.TileIconSize}" HorizontalAlignment="Center"
                                                    Foreground="{StaticResource BrushTextPrimary}" Margin="0,0,0,4"/>
-                                        <TextBlock Text="{Binding Action.Label}"
+                                        <!-- Label comes from the tile VM, which resolves a preset tile through
+                                             the host's label function (QuickActionTileViewModel.Label). -->
+                                        <TextBlock Text="{Binding Label}"
                                                    FontSize="{StaticResource FontSizeBodyLarge}" Foreground="{StaticResource BrushTextPrimary}"
                                                    TextWrapping="Wrap" TextAlignment="Center"
                                                    Margin="6"/>

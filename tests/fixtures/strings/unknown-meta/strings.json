@@ -1,0 +1,10 @@
+{
+  "settings.sample": {
+    "text": "Sample",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": [],
+    "fot": "typo"
+  }
+}

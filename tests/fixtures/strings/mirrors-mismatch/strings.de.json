@@ -1,0 +1,10 @@
+{
+  "settings.sample": {
+    "text": "Beispiel",
+    "src": "00000000"
+  },
+  "settings.other": {
+    "text": "Andere",
+    "src": "00000000"
+  }
+}

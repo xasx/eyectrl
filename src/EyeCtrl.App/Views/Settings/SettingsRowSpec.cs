@@ -33,7 +33,10 @@ public sealed record SliderSpec(
 public sealed record ToggleSpec(
     string Id, string Label, Func<bool> Get, Action<bool> Set) : SettingsRowSpec(Id, Label);
 
-/// <param name="Code">Value codes; <c>null</c> means the display strings are also the codes.</param>
+/// <param name="Code">Value codes; <c>null</c> means the display strings are also the codes.
+/// The code is the value persisted in settings JSON and is never translated — a combo passes an
+/// explicit array even when it currently equals <paramref name="Display"/>, so that translating
+/// the display later cannot change what is saved. Pinned by <c>ComboCodeIdentityTests</c>.</param>
 public sealed record ComboBoxSpec(
     string Id, string Label, string[] Display, string[]? Code,
     Func<string> Get, Action<string> Set) : SettingsRowSpec(Id, Label);
@@ -88,12 +91,17 @@ public sealed record RingJumpSpec(
 /// The uniform fit scalar from <see cref="RingPlan.ScaleFor"/>, stamped by the shell before
 /// measure. The default is true size for consumers that never stamp (tests, gates).
 /// </param>
+/// <param name="MoreAnnotationFormat">
+/// The host's "<c>{label} +{count}</c>" composer for the More slot; null means the English
+/// format. The shell passes it through to the painter, which owns no text of its own.
+/// </param>
 public sealed record RingPreviewSpec(
     string Id,
     Func<RingPlan> Plan,
     string CaptionNotAControl,
     string CaptionLabels,
-    double Scale = 1.0) : SettingsRowSpec(Id, Label: "");
+    double Scale = 1.0,
+    Func<string, int, string>? MoreAnnotationFormat = null) : SettingsRowSpec(Id, Label: "");
 
 /// <param name="Text">Deferred so dynamic labels (calibration status) re-evaluate on each rebuild.</param>
 /// <param name="Wrap">

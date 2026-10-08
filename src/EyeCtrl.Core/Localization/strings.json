@@ -1,0 +1,5 @@
+{
+  "_meta": {
+    "pluralRules": "A plural key's count is the first numeric argument. The 'one' form is chosen only when that count, formatted with the placeholder's own specifier and the provider of the language actually rendered, reads as the integer 1: 1.0 under {0} is one; 1.0 under {0:0.0} is other. Keys starting with an underscore are reserved meta notes and are never resolved."
+  }
+}

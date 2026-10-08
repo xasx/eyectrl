@@ -1,0 +1,24 @@
+{
+  "_meta": {
+    "note": "reserved meta note; ignored by the validator and never counted as unused"
+  },
+  "settings.count": {
+    "text": {
+      "one": "{0} file",
+      "other": "{0} files"
+    },
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": [
+      "count"
+    ]
+  },
+  "settings.sample": {
+    "text": "Sample",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  }
+}

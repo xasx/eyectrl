@@ -1742,7 +1742,7 @@ public partial class SettingsWindow : OverlayWindow
             }
 
             ActionMenuRingPainter.Paint(
-                canvas, slots, RingPaintOptions.Preview(spec.Scale, plan.SecondaryActions.Count));
+                canvas, slots, RingPaintOptions.ForPreview(spec, plan.SecondaryActions.Count));
 
             var captions = new StackPanel
             {

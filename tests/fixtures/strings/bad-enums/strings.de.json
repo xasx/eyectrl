@@ -1,0 +1,14 @@
+{
+  "settings.badfit": {
+    "text": "B-de",
+    "src": "00000000"
+  },
+  "settings.badwhere": {
+    "text": "C-de",
+    "src": "00000000"
+  },
+  "settings.badwho": {
+    "text": "A-de",
+    "src": "00000000"
+  }
+}

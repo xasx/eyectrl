@@ -21,9 +21,9 @@ public class QuickActionPresetsTests
         // char via CharToVirtualKey, else KeyNameMapper). Accumulate any that fail so the empty-
         // list assertion names them — the suite does not use NFluent's per-item .As(...).
         var unresolved = new List<string>();
-        foreach (var (label, chord) in QuickActionPresets.KeyboardShortcuts)
+        foreach (var preset in QuickActionPresets.KeyboardShortcuts)
         {
-            var key = chord.Split('+')[^1].Trim();
+            var key = preset.Payload.Split('+')[^1].Trim();
 
             ushort vk = 0;
             if (key.Length == 1)
@@ -35,7 +35,7 @@ public class QuickActionPresetsTests
                 vk = mappedVk;
 
             if (vk == 0)
-                unresolved.Add($"{label} ('{chord}')");
+                unresolved.Add($"{preset.Label} ('{preset.Payload}')");
         }
 
         Check.That(unresolved).IsEmpty();
@@ -47,8 +47,23 @@ public class QuickActionPresetsTests
         // Guards the preset table against a typo; the executor-side dispatch is checked in
         // EventCoordinatorTests (ExecuteMediaControl is private to the App layer).
         var expected = new[] { "PlayPause", "Stop", "NextTrack", "PreviousTrack", "VolumeUp", "VolumeDown", "VolumeMute" };
-        var actual = QuickActionPresets.MediaControls.Select(m => m.Command).ToList();
+        var actual = QuickActionPresets.MediaControls.Select(m => m.Payload).ToList();
         Check.That(actual).ContainsExactly(expected);
+    }
+
+    [Fact]
+    public void AllPresets_HaveUniqueStableIds()
+    {
+        // The id is what a saved action carries (QuickAction.PresetId) and what every display
+        // site resolves a label from: a duplicate would make two presets indistinguishable.
+        var ids = QuickActionPresets.KeyboardShortcuts.Select(p => p.Id)
+            .Concat(QuickActionPresets.MediaControls.Select(p => p.Id))
+            .Concat(QuickActionPresets.WindowActions.Select(p => p.Id))
+            .ToList();
+
+        Check.That(ids).Not.IsEmpty();
+        Check.That(ids.Distinct().Count()).IsEqualTo(ids.Count);
+        Check.That(ids).ContainsOnlyElementsThatMatch(id => !string.IsNullOrWhiteSpace(id));
     }
 
     // Every WindowActions payload must round-trip to a WindowAction enum member, because
@@ -59,8 +74,8 @@ public class QuickActionPresetsTests
     {
         Check.That(QuickActionPresets.WindowActions).Not.IsEmpty();
 
-        foreach (var (_, payload) in QuickActionPresets.WindowActions)
-            Check.That(Enum.TryParse<WindowAction>(payload, out _)).IsTrue();
+        foreach (var preset in QuickActionPresets.WindowActions)
+            Check.That(Enum.TryParse<WindowAction>(preset.Payload, out _)).IsTrue();
     }
 
     [Fact]

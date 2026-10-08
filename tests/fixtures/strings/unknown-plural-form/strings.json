@@ -1,0 +1,13 @@
+{
+  "settings.sample": {
+    "text": {
+      "one": "A",
+      "other": "B",
+      "few": "C"
+    },
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  }
+}

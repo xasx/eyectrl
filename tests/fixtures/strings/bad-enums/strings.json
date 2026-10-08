@@ -1,0 +1,23 @@
+{
+  "settings.badfit": {
+    "text": "B",
+    "who": "user",
+    "where": "settings",
+    "fit": "X9",
+    "args": []
+  },
+  "settings.badwhere": {
+    "text": "C",
+    "who": "user",
+    "where": "nonsense",
+    "fit": "row",
+    "args": []
+  },
+  "settings.badwho": {
+    "text": "A",
+    "who": "invented",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  }
+}

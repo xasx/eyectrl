@@ -59,16 +59,16 @@ public class QuickActionDispatcherTests
     public void ExecuteMediaControl_EveryPreset_ProducesAnExtendedKeyPress()
     {
         var failures = new List<string>();
-        foreach (var (label, command) in EyeCtrl.Core.Models.QuickActionPresets.MediaControls)
+        foreach (var preset in EyeCtrl.Core.Models.QuickActionPresets.MediaControls)
         {
             var input = new TestFakes.FakeInputSimulator();
             var d = new QuickActionDispatcher();
             d.Initialize(TestFakes.MakeContext(input));
 
-            d.ExecuteMediaControl(command);
+            d.ExecuteMediaControl(preset.Payload);
 
             if (input.LastKeyPress is not { } kp || kp.Vk == 0 || !kp.Extended)
-                failures.Add($"{label} ({command})");
+                failures.Add($"{preset.Label} ({preset.Payload})");
         }
 
         Check.That(failures).IsEmpty();

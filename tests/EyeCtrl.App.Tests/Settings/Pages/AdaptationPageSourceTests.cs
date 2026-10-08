@@ -26,6 +26,9 @@ public class AdaptationPageSourceTests
             .SelectMany(p => p.Rows).OfType<ComboBoxSpec>().Single();
         Check.That(combo.Id).IsEqualTo("ad_posture");
         Check.That(combo.Display).ContainsExactly("Conservative", "Balanced", "Responsive");
+        // T03a: the enum member names are now the explicit codes, so T07 can translate the
+        // display without changing the saved value.
+        Check.That(combo.Code).ContainsExactly("Conservative", "Balanced", "Responsive");
     }
 
     [Fact]

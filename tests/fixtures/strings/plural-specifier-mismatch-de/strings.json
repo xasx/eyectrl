@@ -1,0 +1,14 @@
+{
+  "settings.sample": {
+    "text": {
+      "one": "{0:0.0} file",
+      "other": "{0:0.0} files"
+    },
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": [
+      "count"
+    ]
+  }
+}

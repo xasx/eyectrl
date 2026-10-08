@@ -195,12 +195,15 @@ public class SymbolCaptionFitTests
                         // construction: each line is BlockLineHeight with LineHeight == FontSize
                         // (V1 removes those and must fail), and the height cap guarantees their sum
                         // keeps the edge padding. Pinned per line so a failure names the line.
+                        // NaN-safe: an unset LineHeight is NaN, and NaN comparisons are false, so
+                        // the bare difference test was vacuous (review-04 N1; V6 survived it).
                         if (key.SubLabel is not null)
                         {
                             var lines = CaptionLines(content, label).ToList();
                             foreach (var line in lines)
                             {
                                 if (line.LineStackingStrategy != LineStackingStrategy.BlockLineHeight
+                                    || double.IsNaN(line.LineHeight)
                                     || Math.Abs(line.LineHeight - line.FontSize) > 1e-9)
                                     linePins.Add($"{file} {sub} '{line.Text}' ({id}) at {mult:0.0}x: "
                                                  + $"LineStackingStrategy={line.LineStackingStrategy}, "

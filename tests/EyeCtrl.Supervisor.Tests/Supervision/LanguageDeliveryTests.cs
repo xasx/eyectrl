@@ -289,6 +289,8 @@ public class LanguageDeliveryTests
     public void TheFirstHeartbeatAfterALaunch_RetriesAtOnce_IgnoringTheBackoff()
     {
         // Part 1 on its own: the retry is 5 s away when the launched App's first heartbeat comes.
+        // An App was heartbeating a second ago (no gap), so only the launch makes this immediate.
+        _delivery.OnAppHeartbeat();
         _delivery.Request(UiLanguage.German);
         Reply(0, NotAvailable);
         Check.That(_delivery.NextRetryAt).IsEqualTo(_now + TimeSpan.FromSeconds(5));
@@ -296,7 +298,8 @@ public class LanguageDeliveryTests
         Launch(controller);
         _disk = UiLanguage.German;
 
-        _delivery.OnAppHeartbeat();               // same instant: the backoff has not passed
+        _now += TimeSpan.FromSeconds(1);          // the backoff has not passed
+        _delivery.OnAppHeartbeat();
         Drain();
 
         Check.That(_delivery.Pending).IsNull();
@@ -325,6 +328,27 @@ public class LanguageDeliveryTests
 
         Check.That(_sends).HasSize(3);
         Check.That(_sends[2].Request.Restart).IsFalse();
+    }
+
+    [Fact]
+    public void TheImmediateRetry_SurvivesAHeartbeatThatArrivesWhileASendIsInFlight()
+    {
+        _delivery.OnAppHeartbeat();
+        _delivery.Request(UiLanguage.German);     // live send in flight
+        var (controller, _) = Launcher();
+        Launch(controller);
+
+        _now += TimeSpan.FromSeconds(1);
+        _delivery.OnAppHeartbeat();               // first heartbeat after the launch: in flight, skipped
+        Check.That(_sends).HasSize(1);
+        Reply(0, NotAvailable);                   // parks, retry due in 5 s
+
+        _now += TimeSpan.FromSeconds(1);
+        _delivery.OnAppHeartbeat();               // the next heartbeat still retries at once
+        Drain();
+
+        Check.That(_sends).HasSize(2);
+        Check.That(_sends[1].Request.Restart).IsFalse();
     }
 
     // ── T05b fixup-01 F3 / F4 ──────────────────────────────────────────────────────────────

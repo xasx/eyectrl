@@ -524,13 +524,26 @@ def validate_german(
                         f"German has {len(german_pairs)}, English has {len(source_pairs)}"
                     )
                 elif german_pairs != source_pairs:
-                    for (index, german_spec), (_, source_spec) in zip(german_pairs, source_pairs):
-                        if german_spec != source_spec:
-                            errors.append(
-                                f"strings.de.json: {key}: format specifier for placeholder {index} "
-                                f"differs: German {placeholder_text(index, german_spec)!r}, "
-                                f"English {placeholder_text(index, source_spec)!r}"
-                            )
+                    # The multisets differ, so one position must: report that position — with a
+                    # specifier message when the specifiers differ, and a multiplicity message when
+                    # only the index shifted (a repeated placeholder used a different number of
+                    # times). The branch always appends exactly one error.
+                    for german_pair, source_pair in zip(german_pairs, source_pairs):
+                        index, german_spec = german_pair
+                        _, source_spec = source_pair
+                        if german_pair != source_pair:
+                            if german_spec != source_spec:
+                                errors.append(
+                                    f"strings.de.json: {key}: format specifier for placeholder {index} "
+                                    f"differs: German {placeholder_text(index, german_spec)!r}, "
+                                    f"English {placeholder_text(index, source_spec)!r}"
+                                )
+                            else:
+                                errors.append(
+                                    f"strings.de.json: {key}: placeholder {index} appears "
+                                    f"{sum(1 for i, _ in german_pairs if i == index)} time(s) in German, "
+                                    f"{sum(1 for i, _ in source_pairs if i == index)} time(s) in English"
+                                )
                             break
                 if form == source_form and form not in allowlist:
                     errors.append(

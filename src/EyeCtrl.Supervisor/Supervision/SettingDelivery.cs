@@ -59,6 +59,11 @@ internal enum SettingDeliveryState
 /// working, so every retry is sent with <c>restart: false</c> — saved only.</para>
 /// <para><b>Memory only.</b> A parked choice lives in this object, so a Supervisor exit or a reboot
 /// loses it; the row's note says so.</para>
+/// <para><b>The launch argument</b> (<see cref="LaunchArgument"/>) rides on one launch per choice, and
+/// the launched App's first heartbeat retries at once. The remainder is inherent: a user who
+/// reverts in the App within its startup plus about one heartbeat (~3 s), before that first
+/// heartbeat, makes en → de → en indistinguishable from "the flagged launch lost the
+/// single-instance guard", so the channel re-sends the choice (saved only, never a restart).</para>
 /// </remarks>
 /// <typeparam name="T">The setting's value type.</typeparam>
 internal sealed class SettingDelivery<T> where T : struct

@@ -387,4 +387,20 @@ public class LanguageDeliveryTests
         RetryWhenDue();
         Check.That(_sends).HasSize(1);
     }
+
+    [Fact]
+    public void TheFirstHeartbeatEver_RetriesAtOnce_IgnoringTheBackoff()
+    {
+        // An App the Supervisor has never heard from (it was already running, or started by hand)
+        // counts as freshly come up: its first heartbeat retries a pending choice at once.
+        _delivery.Request(UiLanguage.German);
+        Reply(0, NotAvailable);                   // retry due in 5 s; no heartbeat seen yet, no launch
+        _disk = UiLanguage.German;
+
+        _delivery.OnAppHeartbeat();               // same instant
+        Drain();
+
+        Check.That(_delivery.Pending).IsNull();
+        Check.That(_delivery.State).IsEqualTo(SettingDeliveryState.Saved);
+    }
 }

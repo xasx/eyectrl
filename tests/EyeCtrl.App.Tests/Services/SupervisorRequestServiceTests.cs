@@ -22,6 +22,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 /// pipe or mutex on this box. The client is a minimal one written against the Core wire records —
 /// the same records the Supervisor's client uses.
 /// </summary>
+[Collection(SupervisorExeEnvironmentCollection.Name)]
 public sealed class SupervisorRequestServiceTests : IDisposable
 {
     private static readonly TimeSpan Generous = TimeSpan.FromSeconds(10);

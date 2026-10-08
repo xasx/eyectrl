@@ -15,6 +15,7 @@ using Xunit;
 /// `ResolveAppExePath`, a missing sibling yields null rather than a hopeful path, because
 /// `IsInstalled` gates whether Task 13 offers the user a supervisor at all.
 /// </summary>
+[Collection(SupervisorExeEnvironmentCollection.Name)]
 public class SupervisorLauncherTests : IDisposable
 {
     private readonly string _dir = Directory.CreateTempSubdirectory("eyectrl-sup").FullName;

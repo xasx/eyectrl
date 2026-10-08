@@ -127,12 +127,12 @@ public class HaloContrastTests
     {
         // CursorSettings.CircleColor is user-selectable, so the guarantee must
         // survive any preset — not just the default.
-        foreach (var preset in EyeCtrl.Controls.DwellColorPicker.PresetsFor(theme))
+        foreach (var hex in EyeCtrl.Controls.DwellColorPicker.PresetsFor(theme))
         {
-            var mark = Parse(preset.Hex);
+            var mark = Parse(hex);
             foreach (var b in Backdrops)
                 Check.WithCustomMessage(
-                        $"{theme.Name}: preset '{preset.Name}' ({preset.Hex}) breaks the "
+                        $"{theme.Name}: preset '{hex}' breaks the "
                         + $"halo guarantee over {b}.")
                     .That(StrongestVisibleEdge(mark, theme.StrokeHalo, Parse(b)))
                     .IsStrictlyGreaterThan(EdgeFloor);

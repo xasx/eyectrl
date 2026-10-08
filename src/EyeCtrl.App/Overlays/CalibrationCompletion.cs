@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Overlays;
 
+using EyeCtrl.Core.Localization;
+
 /// <summary>Whether the completion panel is a success or a warning, as a tone the overlay maps to a brush.</summary>
 internal enum CompletionTone
 {
@@ -64,7 +66,9 @@ internal static class CalibrationCompletion
         if (goodResult && isGood)
         {
             return new("\u2713", CompletionTone.Success, "Calibration complete",
-                $"Mean error: {errorPx:F1} px ({qualityPercent:F1}%)",
+                string.Create(
+                    StringTable.Current.FormatProviderFor("calibration"),
+                    $"Mean error: {errorPx:F1} px ({qualityPercent:F1}%)"),
                 RetryVisible: false, HintVisible: true, AutoDismissMs: GoodAutoDismissMs,
                 CancelHintVisible: true);
         }
@@ -72,7 +76,9 @@ internal static class CalibrationCompletion
         return new("\u26A0", CompletionTone.Warning,
             goodResult ? "Calibration complete" : "Calibration failed",
             goodResult
-                ? $"Mean error: {errorPx:F1} px ({qualityPercent:F1}%) \u2014 poor quality"
+                ? string.Create(
+                    StringTable.Current.FormatProviderFor("calibration"),
+                    $"Mean error: {errorPx:F1} px ({qualityPercent:F1}%) \u2014 poor quality")
                 : errorText ?? "",
             // A failed session cannot be retried from here (the user must look at the dot again), so
             // only the poor-quality case offers Retry; both linger long enough to be read.

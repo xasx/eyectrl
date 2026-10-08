@@ -59,8 +59,11 @@ internal sealed class CalibrationPageSource : ISettingsPageSource
         var data = _ctx.Calibration.CurrentData;
         if (data != null)
         {
-            return $"Last calibration: {data.CalibratedAt.LocalDateTime:g}  \u00B7  "
-                + $"{data.ComputeMeanErrorPixels():F1} px ({data.ComputeQualityPercent():F1}%)";
+            // The date and both numbers follow the calibration surface's language (T02):
+            // invariant while it is English, de-DE once its German is effective.
+            return string.Create(
+                EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("calibration"),
+                $"Last calibration: {data.CalibratedAt.LocalDateTime:g}  \u00B7  {data.ComputeMeanErrorPixels():F1} px ({data.ComputeQualityPercent():F1}%)");
         }
         // A calibration that exists on disk but was refused at startup is otherwise indistinguishable
         // from never having calibrated — both leave CurrentData null and gaze running raw. Surface the

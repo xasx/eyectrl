@@ -183,8 +183,9 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
             Serilog.Log.Information(
                 "Activation chrome zones: {Count} {Zones}",
                 zones.Length,
-                string.Join("; ", zones.Select(z =>
-                    $"[{z.X:F0},{z.Y:F0} {z.Width:F0}×{z.Height:F0}]")));
+                string.Join("; ", zones.Select(z => string.Create(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    $"[{z.X:F0},{z.Y:F0} {z.Width:F0}×{z.Height:F0}]"))));
             Context.InteractionManager.SetActivationChromeZones(zones);
         });
     }

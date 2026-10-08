@@ -117,10 +117,10 @@ public class CursorRingStyleContrastTests
     {
         foreach (var style in Enum.GetValues<CursorRingStyle>())
         {
-            foreach (var preset in DwellColorPicker.PresetsFor(theme))
+            foreach (var hex in DwellColorPicker.PresetsFor(theme))
             {
                 var stack = CursorRingStacks.For(
-                    style, 250, 3, 1.0, preset.Hex, Hex(theme.StrokeHalo), Hex(theme.TextPrimary));
+                    style, 250, 3, 1.0, hex, Hex(theme.StrokeHalo), Hex(theme.TextPrimary));
 
                 var outer = Parse(stack.Outer.Hex);
                 var core = Parse(stack.Core.Hex);
@@ -129,7 +129,7 @@ public class CursorRingStyleContrastTests
                 {
                     var edge = StrongestVisibleEdge(core, outer, Parse(b));
                     Check.WithCustomMessage(
-                            $"{theme.Name}/{style}: preset '{preset.Name}' ({preset.Hex}) reaches "
+                            $"{theme.Name}/{style}: preset '{hex}' ({hex}) reaches "
                             + $"only {edge:F2}:1 over {b}; §4.1.3 requires >= {EdgeFloor}.")
                         .That(edge).IsStrictlyGreaterThan(EdgeFloor);
                 }
@@ -164,11 +164,11 @@ public class CursorRingStyleContrastTests
     [MemberData(nameof(AllThemes))]
     public void BiTonalSegments_OneFamilyClearsThePerceptibilityFloorOnEveryBackdrop(ITheme theme)
     {
-        foreach (var preset in DwellColorPicker.PresetsFor(theme))
+        foreach (var hex in DwellColorPicker.PresetsFor(theme))
         {
             var stack = CursorRingStacks.For(
                 CursorRingStyle.BiTonalSegments, 250, 3, 1.0,
-                preset.Hex, Hex(theme.StrokeHalo), Hex(theme.TextPrimary));
+                hex, Hex(theme.StrokeHalo), Hex(theme.TextPrimary));
 
             var mark = Parse(stack.Core.Hex);
             var halo = Parse(stack.Outer.Hex);
@@ -181,7 +181,7 @@ public class CursorRingStyleContrastTests
                 var strongestFamily = Math.Max(markContrast, haloContrast);
 
                 Check.WithCustomMessage(
-                        $"{theme.Name}/BiTonalSegments: preset '{preset.Name}' ({preset.Hex}) over {b} — "
+                        $"{theme.Name}/BiTonalSegments: preset '{hex}' ({hex}) over {b} — "
                         + $"mark {markContrast:F2}:1, halo {haloContrast:F2}:1; neither family reaches "
                         + $"the {PerceptibilityFloor}:1 perceptibility floor.")
                     .That(strongestFamily).IsGreaterOrEqualThan(PerceptibilityFloor);
@@ -275,13 +275,13 @@ public class CursorRingStyleContrastTests
         {
             foreach (var style in Enum.GetValues<CursorRingStyle>())
             {
-                foreach (var preset in DwellColorPicker.PresetsFor(theme))
+                foreach (var hex in DwellColorPicker.PresetsFor(theme))
                 {
-                    var threshold = LowestSafeOpacity(style, theme, preset.Hex);
+                    var threshold = LowestSafeOpacity(style, theme, hex);
                     if (threshold > worst)
                     {
                         worst = threshold;
-                        worstLabel = $"{theme.Name}/{style}: preset '{preset.Name}' ({preset.Hex})";
+                        worstLabel = $"{theme.Name}/{style}: preset '{hex}' ({hex})";
                     }
                 }
             }

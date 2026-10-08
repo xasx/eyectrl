@@ -79,8 +79,13 @@ public partial class TrackStatusWindow : OverlayWindow, ITrackStatusOverlay
                 break;
             case nameof(_viewModel.HeadDistanceMm):
             case nameof(_viewModel.HeadDistanceValid):
+                // The provider follows the surface's language (T02): invariant while this
+                // surface is English, de-DE once its German is effective. CultureInfo.Current
+                // is never read, so a de-DE machine shows "600 mm" in the English UI.
                 DistanceText.Text = _viewModel.HeadDistanceValid
-                    ? $"{_viewModel.HeadDistanceMm:F0} mm"
+                    ? string.Create(
+                        EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("track-status"),
+                        $"{_viewModel.HeadDistanceMm:F0} mm")
                     : "—";
                 break;
             case nameof(_viewModel.DistanceQuality):

@@ -44,7 +44,7 @@ public class DwellColorPicker : IDwellComposite
     private static string Hex(Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
 
     /// <summary>
-    /// The swatches offered for <paramref name="theme"/>: its accent first (the
+    /// The swatch colours offered for <paramref name="theme"/>: its accent first (the
     /// default dwell colour), then success, warning and body text.
     ///
     /// Derived rather than listed, so each theme offers colours from its own
@@ -53,19 +53,24 @@ public class DwellColorPicker : IDwellComposite
     /// its own theme's StrokeHalo by ColorPickerPresetTests — worst case across all
     /// three themes is 9.13:1 — because a dark preset would collapse the §4.1.3
     /// halo guarantee on the cursor ring.
+    ///
+    /// <para>
+    /// Colours only, no names: the caption and tooltip for each swatch are the host's
+    /// (<c>swatchNames</c>), so the library owns no English word (T02).
+    /// </para>
     /// </summary>
     /// <param name="theme">The theme whose palette the swatches come from.</param>
-    /// <returns>Hex/name pairs, accent first.</returns>
-    public static (string Hex, string Name)[] PresetsFor(ITheme theme) =>
+    /// <returns>Hex values, accent first.</returns>
+    public static string[] PresetsFor(ITheme theme) =>
     [
-        (Hex(theme.Accent), "Accent"),
-        (Hex(theme.AccentSuccess), "Green"),
-        (Hex(theme.AccentWarning), "Amber"),
-        (Hex(theme.TextPrimary), "Light"),
+        Hex(theme.Accent),
+        Hex(theme.AccentSuccess),
+        Hex(theme.AccentWarning),
+        Hex(theme.TextPrimary),
     ];
 
     /// <summary>Swatches for the active theme. Used when no explicit preset list is passed.</summary>
-    public static (string Hex, string Name)[] DefaultPresets => PresetsFor(Tokens.Current);
+    public static string[] DefaultPresets => PresetsFor(Tokens.Current);
 
     /// <summary>Rendered swatch cell width in logical DIPs. See <see cref="SwatchHeight"/>.</summary>
     public const double SwatchWidth = 120;
@@ -124,14 +129,22 @@ public class DwellColorPicker : IDwellComposite
     /// <param name="radiusPhysical">Hit-test radius in physical screen pixels.</param>
     /// <param name="dwellMs">Dwell duration in milliseconds.</param>
     /// <param name="presets">
-    /// Custom colour presets. Each entry is a (hex, name) pair.
+    /// Custom swatch colours, one hex string per swatch (e.g. <c>"#FF0000"</c>).
     /// Defaults to <see cref="DefaultPresets"/> when <see langword="null"/>.
+    /// </param>
+    /// <param name="swatchNames">
+    /// The caption and tooltip for each swatch, host-supplied so the library owns no English
+    /// word (T02); must have the same length as the presets. Today the settings host passes
+    /// today's English words; T07 replaces them with keys.
     /// </param>
     /// <param name="showLabel">
     /// Whether this composite draws its own heading above its controls. False when the host
     /// lays the name out itself — the settings window's two-column rows put the name in their
     /// left column, and a second copy inside the composite would duplicate it.
     /// </param>
+    /// <exception cref="ArgumentException">
+    /// Thrown when <paramref name="swatchNames"/> and the presets have different lengths.
+    /// </exception>
     public DwellColorPicker(
         IDwellRegistrar registrar,
         string idPrefix,
@@ -141,13 +154,20 @@ public class DwellColorPicker : IDwellComposite
         DwellCategory category,
         double radiusPhysical,
         int dwellMs,
-        (string Hex, string Name)[]? presets = null,
+        string[] swatchNames,
+        string[]? presets = null,
         bool showLabel = true)
     {
+        ArgumentNullException.ThrowIfNull(swatchNames);
         _get = get;
         _set = set;
         _showLabel = showLabel;
         presets ??= DefaultPresets;
+        if (presets.Length != swatchNames.Length)
+        {
+            throw new ArgumentException(
+                "presets and swatchNames must contain the same number of elements.");
+        }
 
         _label = new DwellLabel(label);
 
@@ -168,7 +188,8 @@ public class DwellColorPicker : IDwellComposite
 
         for (int i = 0; i < presets.Length; i++)
         {
-            var (hex, name) = presets[i];
+            var hex = presets[i];
+            var name = swatchNames[i];
             var swatchId = $"{idPrefix}_{i}";
             var color = (Color)ColorConverter.ConvertFromString(hex);
             var capturedHex = hex;

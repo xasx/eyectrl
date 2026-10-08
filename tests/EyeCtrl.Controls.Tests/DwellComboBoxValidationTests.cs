@@ -22,7 +22,8 @@ public class DwellComboBoxValidationTests
                 _ => { },
                 DwellCategory.Control,
                 40,
-                800))
+                800,
+                "⚠ {0} (not available)"))
             .Throws<ArgumentException>();
     }
 
@@ -39,7 +40,8 @@ public class DwellComboBoxValidationTests
             _ => { },
             DwellCategory.Control,
             40,
-            800);
+            800,
+            "⚠ {0} (not available)");
 
         Check.That(combo).IsNotNull();
     }

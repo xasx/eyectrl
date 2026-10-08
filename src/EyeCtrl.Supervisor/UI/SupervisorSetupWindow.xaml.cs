@@ -86,8 +86,11 @@ public partial class SupervisorSetupWindow : Window
 
     private void PopulateAdvancedFields()
     {
-        MaxRetriesBox.Text = _settings.Supervision.MaxRetries.ToString();
-        HangThresholdBox.Text = _settings.Supervision.HangThresholdSeconds.ToString();
+        // The supervisor surface's provider (T02): invariant while the surface is English, de-DE
+        // once its German is effective. The same provider reads the boxes back in OnSave.
+        var provider = EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("supervisor");
+        MaxRetriesBox.Text = SupervisorNumericField.Format(_settings.Supervision.MaxRetries, provider);
+        HangThresholdBox.Text = SupervisorNumericField.Format(_settings.Supervision.HangThresholdSeconds, provider);
     }
 
     private void BuildToggles()
@@ -97,6 +100,9 @@ public partial class SupervisorSetupWindow : Window
             registrar: _registrar,
             id: "setup_enable_supervision",
             label: "Enable supervision",
+            // Host-supplied state words (T02); T06 passes supervisor keys.
+            onText: "On",
+            offText: "Off",
             get: () => _settings.Supervision.Enabled,
             set: value =>
             {
@@ -117,6 +123,8 @@ public partial class SupervisorSetupWindow : Window
             registrar: _registrar,
             id: "setup_start_on_logon",
             label: "Start EyeCtrl at logon",
+            onText: "On",
+            offText: "Off",
             get: () => _settings.General.StartOnBoot,
             set: value => _settings.General.StartOnBoot = value,
             category: DwellCategory.Control,
@@ -163,10 +171,12 @@ public partial class SupervisorSetupWindow : Window
 
     private void OnSave()
     {
-        // Pull advanced numeric fields into the snapshot before persisting.
-        if (int.TryParse(MaxRetriesBox.Text, out var maxRetries))
+        // Pull advanced numeric fields into the snapshot before persisting. Same provider as
+        // PopulateAdvancedFields, so what this window writes it can read back.
+        var provider = EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("supervisor");
+        if (SupervisorNumericField.TryParse(MaxRetriesBox.Text, provider, out var maxRetries))
             _settings.Supervision.MaxRetries = maxRetries;
-        if (int.TryParse(HangThresholdBox.Text, out var hangThreshold))
+        if (SupervisorNumericField.TryParse(HangThresholdBox.Text, provider, out var hangThreshold))
             _settings.Supervision.HangThresholdSeconds = hangThreshold;
 
         // enabled is the one key the App may also write (its sanctioned exception). Re-read disk

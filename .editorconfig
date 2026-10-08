@@ -1,0 +1,24 @@
+root = true
+
+# T02: every UI number is formatted through the UI language's provider.
+#
+# CA1305 ("Specify IFormatProvider") is an error for the five UI projects, so a
+# provider-less ToString() cannot be introduced again. It does NOT see an interpolated
+# string's format hole (.NET's DefaultInterpolatedStringHandler is culture-bound but the
+# analyzer inspects no handler argument), so NumberFormatScanTests covers `$"{x:F1}"`
+# and its siblings at the source level. The projects named here are exactly the ones the
+# string-table surface scan covers.
+[src/EyeCtrl.App/**/*.cs]
+dotnet_diagnostic.CA1305.severity = error
+
+[src/EyeCtrl.ViewModels/**/*.cs]
+dotnet_diagnostic.CA1305.severity = error
+
+[src/EyeCtrl.Controls/**/*.cs]
+dotnet_diagnostic.CA1305.severity = error
+
+[src/EyeCtrl.EyeCare/**/*.cs]
+dotnet_diagnostic.CA1305.severity = error
+
+[src/EyeCtrl.Supervisor/**/*.cs]
+dotnet_diagnostic.CA1305.severity = error

@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
 using EyeCtrl.Core.ActionMenu;
 using EyeCtrl.Core.Calibration;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Prediction;
@@ -1361,18 +1362,23 @@ public partial class SettingsWindow : OverlayWindow
             case SliderSpec s:
                 return LabelledRow(s, availableWidth, new DwellSlider(registrar, s.Id, s.Label,
                     s.Min, s.Max, s.Step, s.Decimals, s.Get, s.Set, cat, radiusPhysical, dwellMs,
-                    showLabel: false));
+                    showLabel: false,
+                    formatProvider: StringTable.Current.FormatProviderFor("settings")));
             case ToggleSpec t:
+                // Host-supplied state words (T02): today's English, replaced by settings keys in T07.
                 return LabelledRow(t, availableWidth, new DwellToggle(registrar, t.Id, t.Label,
-                    t.Get, t.Set, cat, radiusPhysical, dwellMs, showLabel: false));
+                    "On", "Off", t.Get, t.Set, cat, radiusPhysical, dwellMs, showLabel: false));
             case ComboBoxSpec c:
+                // Host-supplied marker format (T02); T07 passes a key carrying the same shape.
                 return LabelledRow(c, availableWidth, new DwellComboBox(registrar, c.Id, c.Label,
                     c.Display, c.Code ?? c.Display, c.Get, c.Set, cat, radiusPhysical, dwellMs,
-                    showLabel: false));
+                    "⚠ {0} (not available)", showLabel: false));
             case ColorPickerSpec cp:
+                // Host-supplied swatch names (T02); T07 passes settings keys.
                 return LabelledRow(cp, availableWidth, new DwellColorPicker(registrar, cp.Id,
                     cp.Label, cp.Get, cp.Set, cat,
-                    DpiHelper.LogicalToPhysicalX(cp.RadiusLogical), dwellMs, showLabel: false));
+                    DpiHelper.LogicalToPhysicalX(cp.RadiusLogical), dwellMs,
+                    swatchNames: ["Accent", "Green", "Amber", "Light"], showLabel: false));
             case ButtonSpec b:
                 return ButtonRow(registrar, b.Id, b.Label, b.OnActivate, b.Kind, b.Width, b.Height,
                     radiusPhysical, dwellMs, cat);

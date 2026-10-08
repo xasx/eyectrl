@@ -88,9 +88,9 @@ public class DwellButtonProgressBarContrastTests
         // to be rediscovered. They are NOT the colour-swatch coverage that matters, however —
         // ColorPickerPresetTests gates every preset at 7:1 against StrokeHalo for the cursor
         // ring, and that one is load-bearing.
-        foreach (var (hex, name) in DwellColorPicker.PresetsFor(theme))
+        foreach (var hex in DwellColorPicker.PresetsFor(theme))
             yield return (
-                $"swatch preset '{name}' (no bar drawn on it today — see above)",
+                $"swatch preset '{hex}' (no bar drawn on it today — see above)",
                 (Color)ColorConverter.ConvertFromString(hex)!);
 
         yield return ("Supervisor Retry/Save (#1E641E)", Color.FromRgb(0x1E, 0x64, 0x1E));

@@ -33,7 +33,7 @@ public class DwellColorPickerProgressTests
         var picker = new DwellColorPicker(
             registrar, "cp", "Colour", () => hex, v => hex = v,
             DwellCategory.Control, 50, 800,
-            presets: new[] { (hex, "Test") });
+            swatchNames: ["Test"], presets: [hex]);
 
         var swatch = picker.Children.First();
         // DwellColorPicker does assign Root.Background itself (the card surface), but it assigns
@@ -63,7 +63,7 @@ public class DwellColorPickerProgressTests
         var picker = new DwellColorPicker(
             registrar, "cp", "Colour", () => hex, v => hex = v,
             DwellCategory.Control, 50, 800,
-            presets: new[] { (hex, "Test") });
+            swatchNames: ["Test"], presets: [hex]);
 
         var swatch = picker.Children.First();
         var expected = (Color)ColorConverter.ConvertFromString(hex);

@@ -31,7 +31,7 @@ public class DwellComboBoxProgressTests
             registrar, "cb", "Mode",
             ["Alpha", "Beta"], ["a", "b"],
             () => captured, v => captured = v,
-            DwellCategory.Control, 50, 800);
+            DwellCategory.Control, 50, 800, "⚠ {0} (not available)");
     }
 
     [StaFact]

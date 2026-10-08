@@ -717,7 +717,7 @@ public class SettingsContentFitTests
             var scratch = new StackPanel { Width = available };
             TextElement.SetFontFamily(scratch, Tokens.FontStandard);
             var toggle = new DwellToggle(
-                new NullRegistrar(), "fit_probe", label, () => true, _ => { },
+                new NullRegistrar(), "fit_probe", label, "On", "Off", () => true, _ => { },
                 DwellCategory.Control, 50, 800);
             toggle.Attach(scratch);
             scratch.Measure(new Size(available, double.PositiveInfinity));
@@ -797,7 +797,7 @@ public class SettingsContentFitTests
         var scratch = new StackPanel { Width = available };
         TextElement.SetFontFamily(scratch, Tokens.FontStandard);
         var toggle = new DwellToggle(
-            new NullRegistrar(), "fit_probe", label, () => true, _ => { },
+            new NullRegistrar(), "fit_probe", label, "On", "Off", () => true, _ => { },
             DwellCategory.Control, 50, 800);
         toggle.Attach(scratch);
         scratch.Measure(new Size(available, double.PositiveInfinity));

@@ -11,7 +11,7 @@
         Width="160" Height="116">
     <Border Background="{StaticResource BrushSurfaceDark}" CornerRadius="{StaticResource StandardCornerRadius}" Padding="8">
         <StackPanel>
-            <TextBlock Text="{loc:T 'track-status.title'}" Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeBody}" FontWeight="{StaticResource FontWeightStrong}" Margin="0,0,0,4"/>
+            <TextBlock x:Name="TitleLabel" Text="{loc:T 'track-status.title'}" Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeBody}" FontWeight="{StaticResource FontWeightStrong}" Margin="0,0,0,4"/>
             <!-- Track box with eye dots -->
             <Canvas Width="60" Height="40" HorizontalAlignment="Left" Margin="0,0,8,0">
                 <Border Width="60" Height="40" BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="{StaticResource StandardBorderThickness}" Background="{StaticResource BrushSurfaceMedium}"/>
@@ -19,11 +19,11 @@
                 <Ellipse x:Name="RightEyeDot" Width="6" Height="6" Fill="{StaticResource BrushAccentSuccess}"/>
             </Canvas>
             <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                <TextBlock Text="{loc:T 'track-status.distance'}" Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeBody}"/>
+                <TextBlock x:Name="DistanceLabel" Text="{loc:T 'track-status.distance'}" Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeBody}"/>
                 <TextBlock x:Name="DistanceText" Text="—" Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeBody}"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal">
-                <TextBlock Text="{loc:T 'track-status.quality'}" Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeBody}"/>
+                <TextBlock x:Name="QualityLabel" Text="{loc:T 'track-status.quality'}" Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeBody}"/>
                 <TextBlock x:Name="QualityText" Text="{loc:T 'track-status.quality.unknown'}" Foreground="{StaticResource BrushAccentWarning}" FontSize="{StaticResource FontSizeBody}"/>
             </StackPanel>
         </StackPanel>

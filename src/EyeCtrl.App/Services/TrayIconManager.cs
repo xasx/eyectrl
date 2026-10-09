@@ -12,6 +12,38 @@ using EyeCtrl.Core.Processing;
 using EyeCtrl.ViewModels.Messages;
 using Serilog;
 
+/// <summary>The App tray menu's item texts, resolved once at construction — the App tray follows a
+/// language change by restart, so per-open re-resolution (the Supervisor's pattern) is not needed.
+/// A record rather than inline constructor calls so the English is pinnable headlessly: a real
+/// <see cref="NotifyIcon"/> needs a shell tray.</summary>
+/// <param name="Pause">The pause item's face while running.</param>
+/// <param name="Resume">The pause item's face while paused.</param>
+/// <param name="Settings">The "open Settings" item.</param>
+/// <param name="ResetAdaptation">The "reset adaptation" item.</param>
+/// <param name="Exit">The "exit EyeCtrl" item.</param>
+/// <param name="ShowToolbar">The "show toolbar" item, present only when the toolbar auto-hides.</param>
+internal sealed record AppTrayTexts(
+    string Pause, string Resume, string Settings, string ResetAdaptation, string Exit, string ShowToolbar)
+{
+    /// <summary>The texts for the process's current table.</summary>
+    /// <param name="strings">The table to resolve from.</param>
+    /// <returns>The resolved texts.</returns>
+    public static AppTrayTexts For(StringTable strings) => new(
+        strings.T("app-tray.pause"),
+        strings.T("app-tray.resume"),
+        strings.T("app-tray.settings"),
+        strings.T("app-tray.reset-adaptation"),
+        strings.T("app-tray.exit"),
+        strings.T("app-tray.show-toolbar"));
+
+    /// <summary>The pause item's face for <paramref name="state"/>: "Resume" while paused,
+    /// "Pause" for every other state. Written at three sites, so the pair lives in one place.</summary>
+    /// <param name="state">The interaction state the face describes.</param>
+    /// <returns>The item text.</returns>
+    public string PauseItemText(InteractionState state) =>
+        state == InteractionState.Paused ? Resume : Pause;
+}
+
 /// <summary>
 /// Manages the system tray icon and its menu.
 /// Extracted from App.xaml.cs to improve Single Responsibility Principle compliance.
@@ -25,6 +57,7 @@ public class TrayIconManager : IDisposable
     private readonly Dispatcher _dispatcher;
     private readonly InteractionManager _interactionManager;
     private readonly IMessenger _messenger;
+    private readonly AppTrayTexts _texts;
     private bool _disposed;
 
     public TrayIconManager(InteractionManager interactionManager, Dispatcher dispatcher, IMessenger messenger,
@@ -33,23 +66,24 @@ public class TrayIconManager : IDisposable
         _dispatcher = dispatcher;
         _interactionManager = interactionManager;
         _messenger = messenger;
+        _texts = AppTrayTexts.For(StringTable.Current);
 
-        _pauseMenuItem = new ToolStripMenuItem(StringTable.Current.T("app-tray.pause"));
+        _pauseMenuItem = new ToolStripMenuItem(_texts.Pause);
         _pauseMenuItem.Click += (_, _) =>
         {
             interactionManager.TogglePause();
-            _pauseMenuItem.Text = PauseItemText(interactionManager.CurrentState);
+            _pauseMenuItem.Text = _texts.PauseItemText(interactionManager.CurrentState);
         };
 
-        var settingsItem = new ToolStripMenuItem(StringTable.Current.T("app-tray.settings"));
+        var settingsItem = new ToolStripMenuItem(_texts.Settings);
         settingsItem.Click += (_, _) => dispatcher.BeginInvoke(() =>
             _messenger.Send(new SettingsRequestedMessage()));
 
-        var resetAdaptationItem = new ToolStripMenuItem(StringTable.Current.T("app-tray.reset-adaptation"));
+        var resetAdaptationItem = new ToolStripMenuItem(_texts.ResetAdaptation);
         resetAdaptationItem.Click += (_, _) => dispatcher.BeginInvoke(() =>
             _messenger.Send(new ResetAdaptationMessage()));
 
-        var exitItem = new ToolStripMenuItem(StringTable.Current.T("app-tray.exit"));
+        var exitItem = new ToolStripMenuItem(_texts.Exit);
         exitItem.Click += (_, _) => dispatcher.BeginInvoke(shutdownCallback);
 
         var menu = new ContextMenuStrip();
@@ -62,7 +96,7 @@ public class TrayIconManager : IDisposable
         menu.Items.Add(resetAdaptationItem);
         if (showToolbarCallback != null)
         {
-            _showToolbarMenuItem = new ToolStripMenuItem(StringTable.Current.T("app-tray.show-toolbar"));
+            _showToolbarMenuItem = new ToolStripMenuItem(_texts.ShowToolbar);
             _showToolbarMenuItem.Click += (_, _) => dispatcher.BeginInvoke(showToolbarCallback);
             menu.Items.Add(_showToolbarMenuItem);
             menu.Items.Add(new ToolStripSeparator());
@@ -154,18 +188,11 @@ public class TrayIconManager : IDisposable
         _disposed = true;
     }
 
-    /// <summary>The pause item's face for a state: "Resume" while paused, "Pause" otherwise. The
-    /// pair is written at three sites (constructor, click, state change), so it lives in one place.</summary>
-    /// <param name="state">The interaction state the face describes.</param>
-    /// <returns>The item text.</returns>
-    private static string PauseItemText(InteractionState state) =>
-        StringTable.Current.T(state == InteractionState.Paused ? "app-tray.resume" : "app-tray.pause");
-
     private void OnStateChanged(InteractionState state)
     {
         _dispatcher.BeginInvoke(() =>
         {
-            _pauseMenuItem.Text = PauseItemText(state);
+            _pauseMenuItem.Text = _texts.PauseItemText(state);
         });
     }
 }

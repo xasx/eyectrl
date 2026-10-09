@@ -37,11 +37,18 @@ internal sealed record SupervisorTrayTexts(string Settings, string LaunchNow, st
 /// </remarks>
 internal sealed class SupervisorTrayIcon : IDisposable
 {
+    /// <summary>The hover refresh interval: <see cref="NotifyIcon.MouseMove"/> repeats while the
+    /// pointer moves, and each refresh re-resolves the table, so a burst costs one read.</summary>
+    private static readonly TimeSpan HoverRefreshInterval = TimeSpan.FromSeconds(2);
+
     private readonly NotifyIcon _trayIcon;
     private readonly ToolStripMenuItem _settingsItem;
     private readonly ToolStripMenuItem _launchItem;
     private readonly ToolStripMenuItem _exitItem;
     private readonly Func<SupervisorTrayTexts> _texts;
+    private readonly Func<string?>? _refreshStatus;
+    private readonly Func<DateTime> _utcNow;
+    private DateTime _lastHoverRefreshUtc = DateTime.MinValue;
     private bool _disposed;
 
     /// <summary>
@@ -53,10 +60,18 @@ internal sealed class SupervisorTrayIcon : IDisposable
     /// <param name="texts">The item texts, asked again every time the menu opens, so they follow a
     /// language change without a Supervisor restart (T05b).</param>
     /// <param name="visible">Whether the icon shows in the tray; tests pass false.</param>
+    /// <param name="refreshStatus">Re-resolves the tooltip line at its display moments — hover
+    /// (throttled) and menu open; null when the host does not manage a status tooltip. Never
+    /// called from the supervision loop (T06 review-01 F2).</param>
+    /// <param name="utcNow">The clock the hover throttle reads; injectable so tests advance time
+    /// without waiting. Null uses <see cref="DateTime.UtcNow"/>.</param>
     public SupervisorTrayIcon(
-        Action openSettings, Action launchAppNow, Action exit, Func<SupervisorTrayTexts> texts, bool visible = true)
+        Action openSettings, Action launchAppNow, Action exit, Func<SupervisorTrayTexts> texts,
+        bool visible = true, Func<string?>? refreshStatus = null, Func<DateTime>? utcNow = null)
     {
         _texts = texts;
+        _refreshStatus = refreshStatus;
+        _utcNow = utcNow ?? (() => DateTime.UtcNow);
         _settingsItem = new ToolStripMenuItem();
         _settingsItem.Click += (_, _) => openSettings();
 
@@ -73,7 +88,13 @@ internal sealed class SupervisorTrayIcon : IDisposable
         menu.Items.Add(_exitItem);
         Menu = menu;
         RefreshTexts();
-        menu.Opening += (_, _) => RefreshTexts();
+        menu.Opening += (_, _) =>
+        {
+            RefreshTexts();
+            // The menu is the tooltip's other display moment; unlike the hover it is not
+            // throttled, because opening the menu is one deliberate act.
+            ApplyStatusRefresh();
+        };
 
         // The supervisor ships no pack-URI icon assets (no ApplicationDefinition / App.xaml),
         // so use the system default rather than attempting TrayIconManager's pack-URI load.
@@ -84,6 +105,9 @@ internal sealed class SupervisorTrayIcon : IDisposable
             Visible = visible,
             ContextMenuStrip = menu
         };
+
+        if (_refreshStatus is not null)
+            _trayIcon.MouseMove += (_, _) => ApplyHoverRefresh();
 
         // Double-click is the conventional shortcut to the primary action (settings).
         _trayIcon.DoubleClick += (_, _) => openSettings();
@@ -96,6 +120,45 @@ internal sealed class SupervisorTrayIcon : IDisposable
     /// <summary>The menu's current item texts, top to bottom (for tests).</summary>
     internal (string Settings, string LaunchNow, string Exit) ItemTexts =>
         (_settingsItem.Text ?? "", _launchItem.Text ?? "", _exitItem.Text ?? "");
+
+    /// <summary>The tooltip currently shown (for tests); <see cref="SetStatusText"/> already
+    /// applied the shell's cap.</summary>
+    internal string StatusText => _trayIcon.Text ?? "";
+
+    /// <summary>The hover refresh, throttled to one resolve per
+    /// <see cref="HoverRefreshInterval"/> (for tests and the icon's MouseMove).</summary>
+    /// <returns>The applied line, or null when the throttle swallowed the call or the provider
+    /// abstained/failed.</returns>
+    internal string? ApplyHoverRefresh()
+    {
+        if (_refreshStatus is null) return null;
+
+        var now = _utcNow();
+        if (now - _lastHoverRefreshUtc < HoverRefreshInterval) return null;
+        _lastHoverRefreshUtc = now;
+        return ApplyStatusRefresh();
+    }
+
+    /// <summary>The unthrottled status refresh (the menu's Opening).</summary>
+    /// <returns>The applied line, or null when there is no provider or it abstained/failed.</returns>
+    internal string? ApplyStatusRefresh()
+    {
+        if (_refreshStatus is null) return null;
+
+        string? text;
+        try
+        {
+            text = _refreshStatus();
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "Tray status text could not be resolved; keeping the current one.");
+            return null;
+        }
+
+        if (text is not null) SetStatusText(text);
+        return text;
+    }
 
     /// <summary>Re-reads the item texts. Runs when the menu opens; a failing provider keeps the
     /// texts the menu already shows rather than costing the menu.</summary>

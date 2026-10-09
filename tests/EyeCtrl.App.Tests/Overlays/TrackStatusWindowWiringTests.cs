@@ -48,6 +48,14 @@ public class TrackStatusWindowWiringTests
             Check.WithCustomMessage("TrackStatusWindow no longer has a TextBlock named DistanceText.")
                 .That(distanceText).IsNotNull();
 
+            // T06 fixup-01 F1: the static labels' keyed English, pinned literally.
+            var titleLabel = window.FindName("TitleLabel") as TextBlock;
+            var distanceLabel = window.FindName("DistanceLabel") as TextBlock;
+            var qualityLabel = window.FindName("QualityLabel") as TextBlock;
+            Check.That(titleLabel!.Text).IsEqualTo("Track Status");
+            Check.That(distanceLabel!.Text).IsEqualTo("Distance: ");
+            Check.That(qualityLabel!.Text).IsEqualTo("Quality: ");
+
             void Poll(double distanceMm, bool valid, bool hasData = true)
             {
                 provider.HasData = hasData;

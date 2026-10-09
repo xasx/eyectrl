@@ -15,7 +15,8 @@
                 BorderThickness="{StaticResource StandardBorderThickness}"
                 CornerRadius="{StaticResource StandardCornerRadius}" Padding="24,14" Opacity="0">
             <StackPanel>
-                <TextBlock Text="{loc:T 'caregiver-alert.title'}"
+                <TextBlock x:Name="TitleText"
+                           Text="{loc:T 'caregiver-alert.title'}"
                            Foreground="{StaticResource BrushTextPrimary}"
                            FontSize="{StaticResource FontSizeTitle}" FontWeight="{StaticResource FontWeightStrong}" TextAlignment="Center"/>
                 <TextBlock x:Name="Message"

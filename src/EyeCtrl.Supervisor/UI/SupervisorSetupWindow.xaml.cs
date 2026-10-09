@@ -53,10 +53,13 @@ public partial class SupervisorSetupWindow : Window
     };
     private DwellButton[] _languageButtons = [];
     private DwellToggle? _startOnLogonToggle;
+    private DwellToggle? _enableToggle;
     private readonly TextBlock _startOnBootNote = new()
     {
         Foreground = new Media.SolidColorBrush(Media.Color.FromRgb(0xF4, 0xD0, 0x3F)),
-        FontSize = 13,
+        // Matching the language note at 15 DIP (fixup-01): the pair is the same class of caretaker
+        // hint, and at 13 DIP they were the smallest text in the window.
+        FontSize = 15,
         TextWrapping = TextWrapping.Wrap,
         Margin = new Thickness(0, -16, 0, 16),
     };
@@ -203,6 +206,7 @@ public partial class SupervisorSetupWindow : Window
             category: DwellCategory.Control,
             radiusPhysical: 200,
             dwellMs: 600);
+        _enableToggle = enableToggle;
 
         // Start on logon — App-owned (GeneralSettings), so the toggle asks the App to save it and
         // shows the value on disk or the parked choice; it never writes the snapshot.
@@ -295,6 +299,13 @@ public partial class SupervisorSetupWindow : Window
 
     /// <summary>The language row's note (headless tests).</summary>
     internal TextBlock LanguageNote => _languageNote;
+
+    /// <summary>The supervision switch (headless tests): driving it exercises the setter that
+    /// writes the status line.</summary>
+    internal DwellToggle EnableToggle => _enableToggle!;
+
+    /// <summary>The logon row's note (headless tests): pinned to the language note's size.</summary>
+    internal TextBlock StartOnBootNote => _startOnBootNote;
 
     private void RefreshStartOnBootNote()
     {

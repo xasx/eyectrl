@@ -34,9 +34,7 @@ public partial class CaregiverAlertWindow : OverlayWindow, ICaregiverAlertPresen
     /// <inheritdoc />
     public void ShowCaregiverAlert(CaregiverAlertCondition condition)
     {
-        Message.Text = condition == CaregiverAlertCondition.SustainedPoorTracking
-            ? StringTable.Current.T("caregiver-alert.poor-tracking")
-            : StringTable.Current.T("caregiver-alert.struggling");
+        Message.Text = MessageFor(StringTable.Current, condition);
         EnsurePositioned();
         // Cancel any in-flight fade and re-show at full opacity (the drift banner's re-show discipline:
         // a fade is started only by FadeOutCaregiverAlert, and removing a clock via BeginAnimation(dp, null)
@@ -57,6 +55,17 @@ public partial class CaregiverAlertWindow : OverlayWindow, ICaregiverAlertPresen
             Log.Warning(ex, "Caregiver alert chime failed; the visual alert was shown.");
         }
     }
+
+    /// <summary>The message shown for a reason, resolved from the given table. A table parameter
+    /// rather than the process global so the mapping is pinnable without activating one (T06
+    /// fixup-01 F1), like <see cref="TrackStatusWindow.QualityWord"/>.</summary>
+    /// <param name="strings">The table to resolve from.</param>
+    /// <param name="condition">The alert reason.</param>
+    /// <returns>The banner message.</returns>
+    internal static string MessageFor(StringTable strings, CaregiverAlertCondition condition) =>
+        condition == CaregiverAlertCondition.SustainedPoorTracking
+            ? strings.T("caregiver-alert.poor-tracking")
+            : strings.T("caregiver-alert.struggling");
 
     /// <inheritdoc />
     public void FadeOutCaregiverAlert()

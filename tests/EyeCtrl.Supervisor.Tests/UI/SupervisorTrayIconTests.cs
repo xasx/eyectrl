@@ -56,4 +56,72 @@ public class SupervisorTrayIconTests
         Check.That(SupervisorTrayTexts.For(EyeCtrl.Core.Localization.StringTable.EmbeddedEnglish))
             .IsEqualTo(new SupervisorTrayTexts("EyeCtrl Supervisor settings", "Launch EyeCtrl now", "Exit supervisor"));
     }
+
+    // ── T06 fixup-01 F2: the tooltip refreshes at hover (throttled) and menu open, never ──────
+    // ── from the supervision loop ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void HoverRefresh_IsThrottled_AndShowsTheNewText()
+    {
+        var now = new DateTime(2026, 10, 9, 12, 0, 0, DateTimeKind.Utc);
+        var calls = 0;
+        string? status = "one";
+        using var tray = new SupervisorTrayIcon(
+            () => { }, () => { }, () => { },
+            () => new SupervisorTrayTexts("a", "b", "c"),
+            visible: false,
+            refreshStatus: () => { calls++; return status; },
+            utcNow: () => now);
+
+        Check.That(tray.ApplyHoverRefresh()).IsEqualTo("one");
+        Check.That(calls).IsEqualTo(1);
+        Check.That(tray.StatusText).IsEqualTo("one");
+
+        // MouseMove repeats while the pointer moves: within 2 s the throttle swallows it.
+        now = now.AddSeconds(1);
+        Check.That(tray.ApplyHoverRefresh()).IsNull();
+        Check.That(calls).IsEqualTo(1);
+
+        // The language changed on disk (the provider now answers "two"); the next hover past the
+        // throttle shows it, without any state change.
+        status = "two";
+        now = now.AddSeconds(1);
+        Check.That(tray.ApplyHoverRefresh()).IsEqualTo("two");
+        Check.That(calls).IsEqualTo(2);
+        Check.That(tray.StatusText).IsEqualTo("two");
+    }
+
+    [Fact]
+    public void MenuOpening_RefreshesTheStatus_Unthrottled()
+    {
+        var now = new DateTime(2026, 10, 9, 12, 0, 0, DateTimeKind.Utc);
+        var calls = 0;
+        using var tray = new SupervisorTrayIcon(
+            () => { }, () => { }, () => { },
+            () => new SupervisorTrayTexts("a", "b", "c"),
+            visible: false,
+            refreshStatus: () => { calls++; return "status " + calls; },
+            utcNow: () => now);
+
+        tray.ApplyHoverRefresh();
+        Check.That(calls).IsEqualTo(1);
+
+        RaiseOpening(tray);   // the menu is a display moment; not swallowed by the hover throttle
+        Check.That(calls).IsEqualTo(2);
+        Check.That(tray.StatusText).IsEqualTo("status 2");
+    }
+
+    [Fact]
+    public void AFailingStatusProvider_KeepsTheCurrentTooltip()
+    {
+        using var tray = new SupervisorTrayIcon(
+            () => { }, () => { }, () => { },
+            () => new SupervisorTrayTexts("a", "b", "c"),
+            visible: false,
+            refreshStatus: () => throw new InvalidOperationException("table unreadable"),
+            utcNow: () => DateTime.UtcNow);
+
+        Check.That(tray.ApplyStatusRefresh()).IsNull();
+        Check.That(tray.StatusText).IsEqualTo("EyeCtrl Supervisor");   // the pre-status default
+    }
 }

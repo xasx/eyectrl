@@ -34,11 +34,13 @@ public partial class FallenBackDialog : Window
 
     /// <param name="strings">The Supervisor's table, resolved when the dialog opens — the pending
     /// language choice first, then the setting (T05b) — so a dialog opened after a language change
-    /// shows the new language. T06 moves the dialog's texts onto it.</param>
+    /// shows the new language.</param>
     public FallenBackDialog(StringTable strings)
     {
         Strings = strings;
         InitializeComponent();
+        HeadlineText.Text = strings.T("supervisor.fallback.title");
+        BodyText.Text = strings.T("supervisor.fallback.body");
         BuildButtons();
     }
 
@@ -49,7 +51,7 @@ public partial class FallenBackDialog : Window
         var retry = new DwellButton(
             registrar: _registrar,
             id: "fb_retry",
-            label: "Retry EyeCtrl (once)",
+            label: Strings.T("supervisor.fallback.retry"),
             action: OnRetry,
             baseColor: Media.Color.FromRgb(30, 100, 30),
             category: DwellCategory.Modal,
@@ -61,7 +63,7 @@ public partial class FallenBackDialog : Window
         var dismiss = new DwellButton(
             registrar: _registrar,
             id: "fb_dismiss",
-            label: "Dismiss (keep fallback)",
+            label: Strings.T("supervisor.fallback.dismiss"),
             action: OnDismiss,
             baseColor: Media.Color.FromRgb(80, 40, 40),
             category: DwellCategory.Modal,

@@ -24,6 +24,13 @@ using EyeCtrl.Supervisor.UI;
 /// one line in every state, and that the row reflects the delivery. With
 /// <c>EYECTRL_WRITE_T05B_SHEET=1</c> it also writes the review sheet to
 /// <c>C:\t\keys\t05b-supervisor-language-row.png</c>.
+///
+/// <para>
+/// T06 fixup-01 F1 adds the window's keyed-English literal pins here, reusing this harness: every
+/// <c>ApplyStrings</c> text, the toggle labels and state words, the diagnostic buttons, the status
+/// lines, the fallback display names and the notes' size. Key coverage cannot see a key used in
+/// the wrong slot, and a swap is exactly what these pins catch.
+/// </para>
 /// </summary>
 public sealed class SupervisorSetupWindowLanguageRowTests : IDisposable
 {
@@ -119,18 +126,21 @@ public sealed class SupervisorSetupWindowLanguageRowTests : IDisposable
         }
     }
 
-    private SupervisorSetupWindow BuildWindow(Fixture fixture)
+    private SupervisorSetupWindow BuildWindow(
+        Fixture fixture,
+        string statusText = "Supervisor state: Supervising",
+        SettingsService? settingsService = null)
     {
         var settingsPath = Path.Combine(_root, "settings.json");
         var window = new SupervisorSetupWindow(
             new EyeCtrlSettings(),
-            new SettingsService(settingsPath, SettingsWriter.Supervisor),
+            settingsService ?? new SettingsService(settingsPath, SettingsWriter.Supervisor),
             _ => { },
             () => { },
             new StartOnBootSetupRow(fixture.StartOnBoot, () => false),
             new LanguageSetupRow(fixture.Language, () => fixture.Disk ?? UiLanguage.System, CultureInfo.GetCultureInfo("de-DE")),
             StringTable.EmbeddedEnglish,
-            "Supervisor state: Supervising");
+            statusText);
         return window;
     }
 
@@ -282,6 +292,150 @@ public sealed class SupervisorSetupWindowLanguageRowTests : IDisposable
             fixture.LogonReplies[0].SetResult(new AppRequestResult(SettingRequestStatus.Rejected, "refused"));
             Check.That(Face()).IsEqualTo("Off");
         });
+    }
+
+    // ── T06 fixup-01 F1: the window's keyed English, pinned literally at its site ─────────────
+
+    [Fact]
+    public void TheWindowTexts_ResolveTheEnglishFromTheTable()
+    {
+        RunSta(() =>
+        {
+            var window = BuildWindow(new Fixture(), statusText: "");
+
+            Check.That(window.Title).IsEqualTo("EyeCtrl Supervisor - Setup");
+            Check.That(window.SubtitleText.Text).IsEqualTo(
+                "Watchdog that keeps EyeCtrl running and falls back to another eye-control app if it crashes.");
+            Check.That(window.FallbackHeadingText.Text).IsEqualTo("Fallback assistive-technology priority");
+            Check.That(window.FallbackDescriptionText.Text).IsEqualTo(
+                "When EyeCtrl crashes repeatedly, the supervisor launches the first installed app in this list.");
+            Check.That(window.ReorderingNoteText.Text).IsEqualTo(
+                "(Reordering is out of scope for this build; the default order above is shown.)");
+            Check.That(window.AdvancedExpander.Header).IsEqualTo("Advanced");
+            Check.That(window.MaxRetriesLabel.Text).IsEqualTo("Max retries:  ");
+            Check.That(window.MaxRetriesRange.Text).IsEqualTo("(1-20)");
+            Check.That(window.HangThresholdLabel.Text).IsEqualTo("Hang threshold (s):  ");
+            Check.That(window.HangThresholdRange.Text).IsEqualTo("(5-300)");
+            Check.That(window.DiagnosticsHeadingText.Text).IsEqualTo("Diagnostics");
+            Check.That(window.StatusLabel.Text).IsEqualTo("Supervisor idle.");
+
+            var toggles = TextsUnder(window.ToggleHost);
+            Check.That(toggles).Contains("Enable supervision");
+            Check.That(toggles).Contains("Start EyeCtrl at logon");
+            // Both switches are off at rest; the on-word is pinned by the toggle test below.
+            Check.That(toggles).Contains("Off");
+
+            var diagnostics = TextsUnder(window.DiagnosticsHost);
+            Check.That(diagnostics).Contains("Launch EyeCtrl now");
+            Check.That(diagnostics).Contains("Save");
+
+            var names = ((IEnumerable<string>)window.FallbackList.ItemsSource!).ToList();
+            Check.That(names).ContainsExactly("TD Control", "Snap Core First", "Windows Eye Control");
+        });
+    }
+
+    [Fact]
+    public void TheEnableToggle_DrivesTheEnglishStatusLines()
+    {
+        RunSta(() =>
+        {
+            var window = BuildWindow(new Fixture(), statusText: "");
+
+            Click(window.EnableToggle);
+            Check.That(window.StatusLabel.Text).IsEqualTo(
+                "Supervision enabled. (Scheduled Task install is a separate step.)");
+            Check.That(TextsUnder(window.ToggleHost)).Contains("On");
+
+            Click(window.EnableToggle);
+            Check.That(window.StatusLabel.Text).IsEqualTo("Supervision disabled.");
+            Check.That(TextsUnder(window.ToggleHost)).Contains("Off");
+        });
+    }
+
+    [Fact]
+    public void TheSaveButton_ShowsTheEnglishSavedAndFailedLines()
+    {
+        RunSta(() =>
+        {
+            var window = BuildWindow(new Fixture(), statusText: "");
+            ClickButtonWithLabel(window.DiagnosticsHost, "Save");
+            Check.That(window.StatusLabel.Text).IsEqualTo("Saved (supervision settings).");
+
+            // A save that cannot land shows the keyed frame; the raw detail after it stays as-is.
+            var blocked = Path.Combine(_root, "blocked");
+            File.WriteAllText(blocked, "not a directory");
+            var broken = BuildWindow(
+                new Fixture(),
+                statusText: "",
+                settingsService: new SettingsService(
+                    Path.Combine(blocked, "settings.json"), SettingsWriter.Supervisor));
+            ClickButtonWithLabel(broken.DiagnosticsHost, "Save");
+            Check.WithCustomMessage($"'{broken.StatusLabel.Text}' does not carry the keyed failure frame.")
+                .That(broken.StatusLabel.Text.StartsWith("Save failed: ", StringComparison.Ordinal)).IsTrue();
+        });
+    }
+
+    [Fact]
+    public void BothNotes_Are15Dip()
+    {
+        // fixup-01: T05a's logon note matches the language note at 15 DIP.
+        RunSta(() =>
+        {
+            var window = BuildWindow(new Fixture());
+
+            Check.That(window.LanguageNote.FontSize).IsEqualTo(15);
+            Check.That(window.StartOnBootNote.FontSize).IsEqualTo(15);
+        });
+    }
+
+    /// <summary>Every non-empty TextBlock text under <paramref name="node"/>, for the sites whose
+    /// control has no public text accessor (a DwellToggle's label and state word, a button's
+    /// caption).</summary>
+    private static List<string> TextsUnder(DependencyObject node)
+    {
+        var found = new List<string>();
+
+        void Walk(DependencyObject current)
+        {
+            if (current is TextBlock text && !string.IsNullOrEmpty(text.Text))
+                found.Add(text.Text);
+            foreach (var child in LogicalTreeHelper.GetChildren(current).OfType<DependencyObject>())
+                Walk(child);
+        }
+
+        Walk(node);
+        return found;
+    }
+
+    /// <summary>Clicks a DwellToggle's switch, running the same action a dwell would (and the
+    /// setter under test).</summary>
+    private static void Click(DwellToggle toggle)
+    {
+        var switchRoot = toggle.Children.OfType<DwellButton>().Single().Root;
+        switchRoot.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(
+            System.Windows.Input.Mouse.PrimaryDevice, 0, System.Windows.Input.MouseButton.Left)
+        {
+            RoutedEvent = UIElement.MouseLeftButtonDownEvent,
+        });
+    }
+
+    /// <summary>Clicks the DwellButton under <paramref name="host"/> whose caption is
+    /// <paramref name="label"/>.</summary>
+    private static void ClickButtonWithLabel(DependencyObject host, string label)
+    {
+        foreach (var child in LogicalTreeHelper.GetChildren(host).OfType<FrameworkElement>())
+        {
+            if (!TextsUnder(child).Contains(label)) continue;
+
+            child.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(
+                System.Windows.Input.Mouse.PrimaryDevice, 0, System.Windows.Input.MouseButton.Left)
+            {
+                RoutedEvent = UIElement.MouseLeftButtonDownEvent,
+            });
+            return;
+        }
+
+        throw new InvalidOperationException($"No button labelled '{label}' under {host}.");
     }
 
     private static TextBlock? FindByAutomationId(DependencyObject node, string id)

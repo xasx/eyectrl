@@ -2,6 +2,86 @@
   "_meta": {
     "pluralRules": "A plural key's count is the first numeric argument. The 'one' form is chosen only when that count, formatted with the placeholder's own specifier and the provider of the language actually rendered, reads as the integer 1: 1.0 under {0} is one; 1.0 under {0:0.0} is other. Keys starting with an underscore are reserved meta notes and are never resolved."
   },
+  "app-tray.exit": {
+    "text": "Exit",
+    "who": "user",
+    "where": "app-tray",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "app-tray.pause": {
+    "text": "Pause",
+    "who": "user",
+    "where": "app-tray",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "app-tray.reset-adaptation": {
+    "text": "Reset adaptation",
+    "who": "user",
+    "where": "app-tray",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "app-tray.resume": {
+    "text": "Resume",
+    "who": "user",
+    "where": "app-tray",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "app-tray.settings": {
+    "text": "Settings",
+    "who": "user",
+    "where": "app-tray",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "app-tray.show-toolbar": {
+    "text": "Show toolbar",
+    "who": "user",
+    "where": "app-tray",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "caregiver-alert.poor-tracking": {
+    "text": "Eye tracking has been unreliable for the last minute — consider repositioning, or recalibrating in Tobii.",
+    "who": "caretaker",
+    "where": "caregiver-alert",
+    "fit": "C-alert",
+    "args": [],
+    "crisis": true
+  },
+  "caregiver-alert.struggling": {
+    "text": "The user has been struggling continuously — consider checking in.",
+    "who": "caretaker",
+    "where": "caregiver-alert",
+    "fit": "C-alert",
+    "args": [],
+    "crisis": true
+  },
+  "caregiver-alert.title": {
+    "text": "Caregiver attention needed",
+    "who": "caretaker",
+    "where": "caregiver-alert",
+    "fit": "C-alert",
+    "args": [],
+    "crisis": true
+  },
+  "drift-notice.message": {
+    "text": "Tracking may have drifted — consider recalibrating in Tobii",
+    "who": "user",
+    "where": "drift-notice",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
   "language-recovery.note.pending": {
     "text": "Wird nach Neustart wirksam / Takes effect after restart",
     "who": "user",
@@ -188,6 +268,163 @@
     "args": [],
     "crisis": true
   },
+  "startup-error.message": {
+    "text": "EyeCtrl failed to start:\nTechnical details: {0}",
+    "who": "user",
+    "where": "startup-error",
+    "fit": "prose",
+    "args": [
+      "detail"
+    ],
+    "crisis": true
+  },
+  "startup-error.title": {
+    "text": "EyeCtrl — Startup Error",
+    "who": "user",
+    "where": "startup-error",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.fallback.body": {
+    "text": "A fallback eye-control app has been launched. Use it (or a mouse) to choose an option below.",
+    "who": "user",
+    "where": "supervisor",
+    "fit": "C-fallback",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.fallback.dismiss": {
+    "text": "Dismiss (keep fallback)",
+    "who": "user",
+    "where": "supervisor",
+    "fit": "B260x3",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.fallback.retry": {
+    "text": "Retry EyeCtrl (once)",
+    "who": "user",
+    "where": "supervisor",
+    "fit": "B260x3",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.fallback.title": {
+    "text": "EyeCtrl couldn't stay running",
+    "who": "user",
+    "where": "supervisor",
+    "fit": "C-fallback",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.launch-now": {
+    "text": "Launch EyeCtrl now",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.advanced": {
+    "text": "Advanced",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.diagnostics": {
+    "text": "Diagnostics",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.enable-supervision": {
+    "text": "Enable supervision",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.fallback-app.snap-core-first": {
+    "text": "Snap Core First",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.fallback-app.td-control": {
+    "text": "TD Control",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.fallback-app.windows-eye-control": {
+    "text": "Windows Eye Control",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.fallback.description": {
+    "text": "When EyeCtrl crashes repeatedly, the supervisor launches the first installed app in this list.",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.fallback.heading": {
+    "text": "Fallback assistive-technology priority",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.fallback.reordering-note": {
+    "text": "(Reordering is out of scope for this build; the default order above is shown.)",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.hang-threshold": {
+    "text": "Hang threshold (s):  ",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.hang-threshold.range": {
+    "text": "({0}-{1})",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "row",
+    "args": [
+      "min",
+      "max"
+    ],
+    "crisis": true
+  },
+  "supervisor.setup.launch-requested": {
+    "text": "Launch requested.",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
   "supervisor.setup.logon.parked": {
     "text": "Not saved yet. It is saved the next time EyeCtrl runs, unless the PC or the Supervisor restarts first.",
     "who": "caretaker",
@@ -241,6 +478,263 @@
     "who": "caretaker",
     "where": "supervisor",
     "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.max-retries": {
+    "text": "Max retries:  ",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.max-retries.range": {
+    "text": "({0}-{1})",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "row",
+    "args": [
+      "min",
+      "max"
+    ],
+    "crisis": true
+  },
+  "supervisor.setup.save": {
+    "text": "Save",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.save-failed": {
+    "text": "Save failed: {0}",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "prose",
+    "args": [
+      "detail"
+    ],
+    "crisis": true
+  },
+  "supervisor.setup.saved": {
+    "text": "Saved (supervision settings).",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.start-on-logon": {
+    "text": "Start EyeCtrl at logon",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.status": {
+    "text": "Supervisor state: {0}",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "prose",
+    "args": [
+      "state"
+    ],
+    "crisis": true
+  },
+  "supervisor.setup.status.idle": {
+    "text": "Supervisor idle.",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.subtitle": {
+    "text": "Watchdog that keeps EyeCtrl running and falls back to another eye-control app if it crashes.",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.supervision-disabled": {
+    "text": "Supervision disabled.",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.supervision-enabled": {
+    "text": "Supervision enabled. (Scheduled Task install is a separate step.)",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "prose",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.toggle.off": {
+    "text": "Off",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.toggle.on": {
+    "text": "On",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.setup.window-title": {
+    "text": "EyeCtrl Supervisor - Setup",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.state.closing": {
+    "text": "EyeCtrl is closing",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "tray63",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.state.fallen-back": {
+    "text": "EyeCtrl stopped — backup program running",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "tray63",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.state.idle": {
+    "text": "idle",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "tray63",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.state.restarting": {
+    "text": "restarting EyeCtrl",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "tray63",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.state.starting": {
+    "text": "starting EyeCtrl",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "tray63",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.state.watching": {
+    "text": "watching EyeCtrl",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "tray63",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.tray.exit": {
+    "text": "Exit supervisor",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.tray.prefix": {
+    "text": "EyeCtrl Supervisor: ",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "tray63",
+    "args": [],
+    "crisis": true
+  },
+  "supervisor.tray.settings": {
+    "text": "EyeCtrl Supervisor settings",
+    "who": "caretaker",
+    "where": "supervisor",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "track-status.distance": {
+    "text": "Distance: ",
+    "who": "user",
+    "where": "track-status",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "track-status.distance.mm": {
+    "text": "{0:F0} mm",
+    "who": "user",
+    "where": "track-status",
+    "fit": "row",
+    "args": [
+      "distance"
+    ],
+    "crisis": true
+  },
+  "track-status.quality": {
+    "text": "Quality: ",
+    "who": "user",
+    "where": "track-status",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "track-status.quality.fair": {
+    "text": "Fair",
+    "who": "user",
+    "where": "track-status",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "track-status.quality.good": {
+    "text": "Good",
+    "who": "user",
+    "where": "track-status",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "track-status.quality.poor": {
+    "text": "Poor",
+    "who": "user",
+    "where": "track-status",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "track-status.quality.unknown": {
+    "text": "Unknown",
+    "who": "user",
+    "where": "track-status",
+    "fit": "row",
+    "args": [],
+    "crisis": true
+  },
+  "track-status.title": {
+    "text": "Track Status",
+    "who": "user",
+    "where": "track-status",
+    "fit": "row",
     "args": [],
     "crisis": true
   }

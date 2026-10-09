@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using EyeCtrl.Controls.Theme;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.ViewModels;
 
 public partial class TrackStatusWindow : OverlayWindow, ITrackStatusOverlay
@@ -79,17 +80,17 @@ public partial class TrackStatusWindow : OverlayWindow, ITrackStatusOverlay
                 break;
             case nameof(_viewModel.HeadDistanceMm):
             case nameof(_viewModel.HeadDistanceValid):
-                // The provider follows the surface's language (T02): invariant while this
-                // surface is English, de-DE once its German is effective. CultureInfo.Current
-                // is never read, so a de-DE machine shows "600 mm" in the English UI.
+                // The number and its unit are one keyed template (T06), formatted with the
+                // surface's provider: "{0:F0} mm" is identical in both languages, and the
+                // provider keeps a future format specifier's separators following the language.
+                // CultureInfo.Current is never read, so a de-DE machine shows "600 mm" in the
+                // English UI.
                 DistanceText.Text = _viewModel.HeadDistanceValid
-                    ? string.Create(
-                        EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("track-status"),
-                        $"{_viewModel.HeadDistanceMm:F0} mm")
+                    ? StringTable.Current.T("track-status.distance.mm", _viewModel.HeadDistanceMm)
                     : "—";
                 break;
             case nameof(_viewModel.DistanceQuality):
-                QualityText.Text = QualityWord(_viewModel.DistanceQuality);
+                QualityText.Text = QualityWord(StringTable.Current, _viewModel.DistanceQuality);
                 // Quality is a semantic triad: success/warning/danger, carried by the palette
                 // tokens rather than raw Brushes. Picked from the enum, never from the word.
                 QualityText.Foreground = QualityBrush(_viewModel.DistanceQuality);
@@ -112,18 +113,20 @@ public partial class TrackStatusWindow : OverlayWindow, ITrackStatusOverlay
     }
 
     /// <summary>
-    /// The English word shown for a quality. Deliberately separate from
+    /// The word shown for a quality, resolved from the given table. Deliberately separate from
     /// <see cref="QualityBrush"/>: this is the single place the quality's display text comes
-    /// from, so translating the word cannot change the colour.
+    /// from, so translating the word cannot change the colour. The table is a parameter rather
+    /// than the process global so the mapping is testable without activating one.
     /// </summary>
+    /// <param name="strings">The table to resolve the word from.</param>
     /// <param name="quality">The quality to name.</param>
     /// <returns>The word shown beside "Quality:".</returns>
-    internal static string QualityWord(DistanceQuality quality) => quality switch
+    internal static string QualityWord(StringTable strings, DistanceQuality quality) => quality switch
     {
-        DistanceQuality.Good => "Good",
-        DistanceQuality.Fair => "Fair",
-        DistanceQuality.Poor => "Poor",
-        _ => "Unknown"
+        DistanceQuality.Good => strings.T("track-status.quality.good"),
+        DistanceQuality.Fair => strings.T("track-status.quality.fair"),
+        DistanceQuality.Poor => strings.T("track-status.quality.poor"),
+        _ => strings.T("track-status.quality.unknown")
     };
 
     /// <summary>

@@ -1,6 +1,7 @@
 namespace EyeCtrl.Core.Calibration;
 
 using System.Text.Json;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using Microsoft.Extensions.Logging;
 
@@ -358,7 +359,7 @@ public class CalibrationService
             {
                 _logger?.LogWarning(
                     "Calibration data from {FilePath} deserialized to null; ignoring", filePath);
-                LastLoadRejection = "Not applied — the saved calibration file is empty. Recalibrate to fix.";
+                LastLoadRejection = StringTable.Current.T("settings.calibration.rejected.empty");
                 return;
             }
 
@@ -376,9 +377,9 @@ public class CalibrationService
                     + "at {CalibratedAt:u}",
                     filePath, data.ScreenWidth, data.ScreenHeight, currentWidth, currentHeight,
                     Describe(data.MonitorDeviceName), Describe(data.MonitorHardwareId), data.CalibratedAt);
-                LastLoadRejection =
-                    $"Not applied — saved for a {data.ScreenWidth}×{data.ScreenHeight} screen, "
-                    + $"current is {currentWidth}×{currentHeight}. Recalibrate to fix.";
+                LastLoadRejection = StringTable.Current.T(
+                    "settings.calibration.rejected.screen",
+                    data.ScreenWidth, data.ScreenHeight, currentWidth, currentHeight);
                 return;
             }
 
@@ -408,17 +409,17 @@ public class CalibrationService
                 LastLoadRejection = (savedHasHardwareId, currentHasHardwareId) switch
                 {
                     (true, true) =>
-                        $"Not applied — saved on a different monitor ({savedMonitor}, {data.MonitorHardwareId}), "
-                        + $"current is {currentMonitor}, {currentMonitorHardwareId}. Recalibrate to fix.",
+                        StringTable.Current.T("settings.calibration.rejected.monitor.both_ids",
+                            savedMonitor, data.MonitorHardwareId, currentMonitor, currentMonitorHardwareId),
                     (true, false) =>
-                        $"Not applied — saved on a different monitor ({savedMonitor}, {data.MonitorHardwareId}), "
-                        + $"current is {currentMonitor}. Recalibrate to fix.",
+                        StringTable.Current.T("settings.calibration.rejected.monitor.saved_id",
+                            savedMonitor, data.MonitorHardwareId, currentMonitor),
                     (false, true) =>
-                        $"Not applied — saved on a different monitor ({savedMonitor}), "
-                        + $"current is {currentMonitor}, {currentMonitorHardwareId}. Recalibrate to fix.",
+                        StringTable.Current.T("settings.calibration.rejected.monitor.current_id",
+                            savedMonitor, currentMonitor, currentMonitorHardwareId),
                     (false, false) =>
-                        $"Not applied — saved on a different monitor ({savedMonitor}), "
-                        + $"current is {currentMonitor}. Recalibrate to fix.",
+                        StringTable.Current.T("settings.calibration.rejected.monitor.names_only",
+                            savedMonitor, currentMonitor),
                 };
                 return;
             }
@@ -428,7 +429,7 @@ public class CalibrationService
                 _logger?.LogWarning(
                     "Calibration data from {FilePath} has invalid transform parameters (expected 6); ignoring",
                     filePath);
-                LastLoadRejection = "Not applied — the saved calibration is malformed. Recalibrate to fix.";
+                LastLoadRejection = StringTable.Current.T("settings.calibration.rejected.malformed");
                 return;
             }
 
@@ -444,7 +445,7 @@ public class CalibrationService
                     "Calibration data from {FilePath} maps gaze off-screen (degenerate transform); ignoring",
                     filePath);
                 LastLoadRejection =
-                    "Not applied — the saved calibration maps gaze off-screen (bad fit). Recalibrate to fix.";
+                    StringTable.Current.T("settings.calibration.rejected.off_screen");
                 return;
             }
 
@@ -459,7 +460,7 @@ public class CalibrationService
                     "Calibration data from {FilePath} deviates too far from identity (degenerate fit); ignoring",
                     filePath);
                 LastLoadRejection =
-                    "Not applied — the saved calibration flips or amplifies gaze (bad fit). Recalibrate to fix.";
+                    StringTable.Current.T("settings.calibration.rejected.flips");
                 return;
             }
 
@@ -475,7 +476,7 @@ public class CalibrationService
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
         {
             _logger?.LogWarning(ex, "Failed to load calibration data from {FilePath}; ignoring", filePath);
-            LastLoadRejection = "Not applied — the saved calibration could not be read. Recalibrate to fix.";
+            LastLoadRejection = StringTable.Current.T("settings.calibration.rejected.unreadable");
         }
     }
 
@@ -556,7 +557,8 @@ public class CalibrationService
         }
     }
 
-    private static string Describe(string? value) => string.IsNullOrEmpty(value) ? "(none)" : value;
+    private static string Describe(string? value) =>
+        string.IsNullOrEmpty(value) ? StringTable.Current.T("settings.calibration.none") : value;
 
     /// <summary>
     /// Persists calibration data to disk as JSON, atomically (temp file + rename), mirroring

@@ -67,7 +67,16 @@ public class SingleSurfaceKeyTests
         // T04: the tray's own items are app-tray, but the one language item is the recovery
         // path's entry point (D9) and takes its key from language-recovery (T06 expects this).
         ("src/EyeCtrl.App/Services/TrayIconManager.cs", ["app-tray", "language-recovery"]),
-        ("src/EyeCtrl.App/Services/SupervisionToggleService.cs", ["supervisor"])
+        // T07 fixup-01 C: the row's status and failure lines are Settings rows, so the service
+        // speaks the settings surface (T06 review N1) — corrected from `supervisor`.
+        ("src/EyeCtrl.App/Services/SupervisionToggleService.cs", ["settings"]),
+        // T07: the Models page's download failures and the busy line render on the Settings
+        // surface, so these App services speak `settings`.
+        ("src/EyeCtrl.App/Services/ModelManagementService.cs", ["settings"]),
+        // T07: the load-time calibration rejection sentences are shown only by the Settings
+        // Calibration page (`LastLoadRejection`); the calibration window renders typed failures
+        // instead. The settings surface owns them.
+        ("src/EyeCtrl.Core/Calibration/CalibrationService.cs", ["settings"])
     ];
 
     /// <summary>

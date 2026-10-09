@@ -14,6 +14,7 @@ using EyeCtrl.App.Views;
 using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Controls;
 using EyeCtrl.Controls.Theme;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using NFluent;
@@ -1292,9 +1293,12 @@ public class SettingsContentFitTests
         // clips the third line — the one whose tail carries the "dwell to re-download"
         // instruction. 106 gives the label its full 100. Controller decision 2026-09-23 when
         // the brief's verbatim Height: 100 failed this very assertion by 1.27 DIP.
+        //
+        // The label is the REAL string since T07: the key's template with the model name the
+        // fixture registry carries, so editing the label in strings.json re-measures here.
         const double repairButtonHeight = 106;
-        const string repairLabel = "⚠ Qwen2.5 1.5B (q4f16) — model unusable · predictions fall " +
-            "back to dictionary · dwell to re-download";
+        var repairLabel = StringTable.EmbeddedEnglish.T(
+            "settings.models.repair.label", "Qwen2.5 1.5B (q4f16)");
         var control = (DwellControl)SettingsWindow.CreateControl(
             new ButtonSpec("md_fix_fit", repairLabel, () => { },
                 ButtonKind.Danger, Width: 544, Height: repairButtonHeight),

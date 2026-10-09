@@ -398,6 +398,14 @@ internal static class TextLiteralScan
         ("src/EyeCtrl.App/Views/Settings/Sources/CalibrationPageSource.cs", "StatusText"),
         // T05b: the Supervisor tray's item texts, re-read at every menu open; still English until T06.
         ("src/EyeCtrl.Supervisor/UI/SupervisorTrayIcon.cs", "For"),
+        // T07: the Settings supervision row's status and failure lines. `StatusText` is a
+        // PROPERTY — the scan gained property bodies for this entry — and the three request
+        // methods carry the failure sentences; the ratchet must see all of them until T07 keys
+        // them away (T06 review N1).
+        ("src/EyeCtrl.App/Services/SupervisionToggleService.cs", "StatusText"),
+        ("src/EyeCtrl.App/Services/SupervisionToggleService.cs", "RequestEnable"),
+        ("src/EyeCtrl.App/Services/SupervisionToggleService.cs", "RequestDisable"),
+        ("src/EyeCtrl.App/Services/SupervisionToggleService.cs", "RequestEnsure"),
     ];
 
     /// <summary>
@@ -599,8 +607,11 @@ internal static class TextLiteralScan
 
     /// <summary>
     /// Spans whose literals are never UI text: exception-constructor messages (the ticket's
-    /// exclusion), <c>FormatProviderFor("…")</c> surface ids, and <c>T("…")</c> string keys —
-    /// ids and keys are the machinery, not the text.
+    /// exclusion), <c>FormatProviderFor("…")</c> surface ids, <c>T("…")</c> string keys, and log
+    /// calls. Log and diagnostic strings are excluded by SINK in ordinary files; inside a
+    /// whole-file or whole-member producer span nothing else would exclude them, so the patterns
+    /// are here too. The method-name form is deliberate — a bare <c>Log\w+(</c> would also
+    /// swallow <c>DpiHelper.LogicalToPhysicalX(…)</c>.
     /// </summary>
     private static List<(int Start, int End)> ExcludedSpans(string text, string masked)
     {
@@ -610,6 +621,8 @@ internal static class TextLiteralScan
             @"new\s+\w*Exception\s*\(",
             @"(?<![A-Za-z0-9_])FormatProviderFor\s*\(",
             @"(?<![A-Za-z0-9_])T\s*\(",
+            @"(?<![A-Za-z0-9_])Log\s*\.",
+            @"(?<![A-Za-z0-9_])Log(?:Warning|Error|Information|Debug|Fatal|Verbose|Trace)\s*\(",
         };
 
         foreach (var pattern in patterns)
@@ -655,13 +668,27 @@ internal static class TextLiteralScan
     /// <summary>
     /// The span of <paramref name="member"/>'s body in <paramref name="text"/>: everything after
     /// <c>=&gt;</c> to the matching <c>;</c>, or the balanced <c>{ … }</c> block after the
-    /// parameter list. Null when the member is absent.
+    /// parameter list. A PROPERTY (no parameter list — <c>string StatusText { get { … } }</c> or
+    /// <c>=&gt; expr;</c>) is handled too: T07's supervision status lines live in one. Null when
+    /// the member is absent.
     /// </summary>
     private static (int Start, int End)? FindMemberBody(string text, string member)
     {
         var masked = Mask(text, CSharpSourceText.FindLiterals(text));
         var declaration = Regex.Match(masked, $@"(?<![A-Za-z0-9_]){Regex.Escape(member)}\s*\(");
-        if (!declaration.Success) return null;
+        if (!declaration.Success)
+        {
+            // A property has no parameter list, so the method form above never matches it.
+            var property = Regex.Match(masked,
+                $@"(?<![A-Za-z0-9_]){Regex.Escape(member)}\s*(?:=>|\{{)");
+            if (!property.Success) return null;
+
+            var markerIndex = property.Index + property.Length - 1;
+            if (masked[markerIndex] == '{') return ScanBracedBlock(text, markerIndex);
+
+            var expressionStart = property.Index + property.Length;
+            return (expressionStart, ExpressionEnd(text, expressionStart));
+        }
 
         var openParen = masked.IndexOf('(', declaration.Index);
         var closeParen = CSharpSourceText.FindCloseParen(text, openParen);
@@ -680,25 +707,37 @@ internal static class TextLiteralScan
 
         if (trimmed.StartsWith("{", StringComparison.Ordinal))
         {
-            var depth = 0;
-            var i = offset;
-            while (i < text.Length)
+            return ScanBracedBlock(text, offset);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The balanced <c>{ … }</c> block starting at <paramref name="braceIndex"/>, as a span that
+    /// includes both braces; null when unbalanced. String literals are skipped so a brace inside
+    /// one cannot move the depth.
+    /// </summary>
+    private static (int Start, int End)? ScanBracedBlock(string text, int braceIndex)
+    {
+        var depth = 0;
+        var i = braceIndex;
+        while (i < text.Length)
+        {
+            if (CSharpSourceText.TryReadLiteral(text, i, out var literal))
             {
-                if (CSharpSourceText.TryReadLiteral(text, i, out var literal))
-                {
-                    i = literal.End;
-                    continue;
-                }
-
-                if (text[i] == '{') depth++;
-                else if (text[i] == '}')
-                {
-                    depth--;
-                    if (depth == 0) return (offset, i + 1);
-                }
-
-                i++;
+                i = literal.End;
+                continue;
             }
+
+            if (text[i] == '{') depth++;
+            else if (text[i] == '}')
+            {
+                depth--;
+                if (depth == 0) return (braceIndex, i + 1);
+            }
+
+            i++;
         }
 
         return null;

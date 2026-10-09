@@ -43,7 +43,7 @@ public class QwertzKeyCaptionDataTests
             ["deleteWord"] = ("Aa", "eraseLeft", "Wort l\u00F6schen"),          // Aa inside the erase arrow (C3+D3, 2026-10-08)
             ["space"] = ("\u2334", null, "Leertaste"),                          // ⌴
             ["enter"] = ("\u21B5", "enterArrow", "Eingabetaste"),               // ↵ drawn the same way (G4+)
-            ["tab"] = ("\u21E5", null, "Tabulatortaste"),                       // ⇥
+            ["tab"] = ("\u21E5", "tabArrow", "Tabulatortaste"),                 // ⇥ drawn as →|
             ["switchEmoji"] = ("\uD83D\uDE00", null, "Emoji"),                  // 😀
             ["switchSub:letters"] = ("ABC", null, null),
             ["switchSub:numbers"] = ("123", null, null),

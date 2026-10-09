@@ -22,6 +22,8 @@ internal static class ArrowLabelFrame
     public const string ShiftArrow = "shiftArrow";
     /// <summary>Enter: a stem down the right with a filled head pointing left.</summary>
     public const string EnterArrow = "enterArrow";
+    /// <summary>Tab: a shaft into a filled head pointing right, stopped by a full-height bar.</summary>
+    public const string TabArrow = "tabArrow";
 
     /// <summary>The arrow's height, as a multiple of its ink width.</summary>
     internal const double Aspect = 1.1;
@@ -41,12 +43,15 @@ internal static class ArrowLabelFrame
     /// <summary>Enter's head half-height, as a multiple of the ink width.</summary>
     internal const double EnterHeadHalf = 0.24;
 
+    /// <summary>Tab's height, as a multiple of the ink width.</summary>
+    internal const double TabAspect = 0.66;
+
     /// <summary>The drawn arrow: ink size in DIP, stroke thickness, and the geometry.</summary>
     internal sealed record Frame(double Width, double Height, double Stroke, bool Filled, Geometry Path);
 
-    /// <summary>True when <paramref name="labelFrame"/> names one of the three drawn arrows.</summary>
+    /// <summary>True when <paramref name="labelFrame"/> names one of the four drawn arrows.</summary>
     public static bool IsArrow(string? labelFrame) =>
-        labelFrame is CapsArrow or ShiftArrow or EnterArrow;
+        labelFrame is CapsArrow or ShiftArrow or EnterArrow or TabArrow;
 
     /// <summary>
     /// The user's target ink width: one third of a 1.2-unit key's box at this key size. The same
@@ -127,6 +132,22 @@ internal static class ArrowLabelFrame
             return new Frame(width, height, stroke, Filled: true, geometry);
         }
 
+        if (frameId == TabArrow)
+        {
+            // ⇥ as →|: the shaft runs into Enter's head, one stroke of air before the stop bar.
+            var height = width * TabAspect;
+            var headLength = EnterHeadLength * width;
+            var headHalf = EnterHeadHalf * width;
+            var centreY = height / 2;
+            var o = stroke / 2;
+            var tipX = width - 2 * stroke - o;   // tip ink at w − 2t: one stroke clear of the bar's ink
+            var geometry = new PathGeometry();
+            geometry.Figures.Add(LineFigure(new Point(o, centreY), new Point(tipX - headLength, centreY)));
+            geometry.Figures.Add(HeadFigure(new Point(tipX, centreY), tipX - headLength, centreY, headHalf, o));
+            geometry.Figures.Add(LineFigure(new Point(width - o, o), new Point(width - o, height - o)));
+            return new Frame(width, height, stroke, Filled: true, geometry);
+        }
+
         var filledFrame = frameId == CapsArrow;
         var arrowHeight = width * Aspect;
         var group = new GeometryGroup();
@@ -144,6 +165,25 @@ internal static class ArrowLabelFrame
             totalHeight = barY + barHeight;
         }
         return new Frame(width, totalHeight, stroke, filledFrame, group);
+    }
+
+    /// <summary>An unfilled straight line figure, drawn with the frame's round caps.</summary>
+    private static PathFigure LineFigure(Point from, Point to)
+    {
+        var figure = new PathFigure { StartPoint = from, IsClosed = false, IsFilled = false };
+        figure.Segments.Add(new LineSegment(to, true));
+        return figure;
+    }
+
+    /// <summary>A filled triangular head: <paramref name="tip"/> to a base at
+    /// <paramref name="baseX"/>, its corners inset by <paramref name="o"/> so the stroke's ink
+    /// lands on the nominal triangle.</summary>
+    private static PathFigure HeadFigure(Point tip, double baseX, double centreY, double half, double o)
+    {
+        var figure = new PathFigure { StartPoint = tip, IsClosed = true, IsFilled = true };
+        figure.Segments.Add(new PolyLineSegment(
+            [new Point(baseX, centreY - half + o), new Point(baseX, centreY + half - o)], true));
+        return figure;
     }
 
     /// <summary>The seven-point up-arrow outline, inset by half the stroke so the round-joined

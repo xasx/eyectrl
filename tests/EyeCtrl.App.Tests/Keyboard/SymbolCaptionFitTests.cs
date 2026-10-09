@@ -704,12 +704,14 @@ public class SymbolCaptionFitTests
                              ("toggle:capslock", 42.0, 57.5, 1 / 3.0),
                              ("modifier:shift", 42.0, 46.5, 1 / 3.0),
                              ("enter", 42.0, 32.0, 0.2667),
+                             ("tab", 42.5, 28.0, 0.41),
                          }),
                          (0.5, new (string Action, double W, double H, double Frac)[]
                          {
                              ("toggle:capslock", 0, 0, 1 / 3.0),
                              ("modifier:shift", 0, 0, 1 / 3.0),
                              ("enter", 0, 0, 0.2667),
+                             ("tab", 0, 0, 0.41),
                          }),
                      })
             {
@@ -779,6 +781,24 @@ public class SymbolCaptionFitTests
                                 + $"{canvas.Width / 2:0.###}")
                              .That(bar.Left + bar.Width / 2).IsCloseTo(canvas.Width / 2, 0.01);
                     }
+                    if (action == "tab")
+                    {
+                        // →|: the head points right, and the stop bar sits at w − t/2.
+                        var figures = ((PathGeometry)path.Data).Figures;
+                        var head = figures[1];
+                        var baseX = ((PolyLineSegment)head.Segments[0]).Points[0].X;
+                        Check.WithCustomMessage(
+                                $"{action} at {mult:0.0}x: the head must point right (tip {head.StartPoint.X:0.###} "
+                                + $"must be right of its base {baseX:0.###})")
+                             .That(head.StartPoint.X).IsStrictlyGreaterThan(baseX);
+                        var bar = figures[2];
+                        var barX = ((LineSegment)bar.Segments[0]).Point.X;
+                        Check.WithCustomMessage(
+                                $"{action} at {mult:0.0}x: the stop bar must sit at w - t/2 = "
+                                + $"{canvas.Width - path.StrokeThickness / 2:0.###}, not {barX:0.###}")
+                             .That(barX).IsCloseTo(canvas.Width - path.StrokeThickness / 2, 1e-9);
+                        Check.That(bar.StartPoint.X).IsCloseTo(canvas.Width - path.StrokeThickness / 2, 1e-9);
+                    }
                 }
             }
         }
@@ -802,11 +822,13 @@ public class SymbolCaptionFitTests
         Check.That(ArrowLabelFrame.EnterAspect).IsEqualTo(0.75);
         Check.That(ArrowLabelFrame.EnterHeadLength).IsEqualTo(0.32);
         Check.That(ArrowLabelFrame.EnterHeadHalf).IsEqualTo(0.24);
+        Check.That(ArrowLabelFrame.TabAspect).IsEqualTo(0.66);
         Check.WithCustomMessage("the target is one third of a 1.2-unit box: 42.267 DIP at 1.5x")
              .That(ArrowLabelFrame.TargetWidth(105)).IsCloseTo((105 * 1.2 + 0.8) / 3, 1e-9);
         Check.That(ArrowLabelFrame.IsArrow(ArrowLabelFrame.CapsArrow)).IsTrue();
         Check.That(ArrowLabelFrame.IsArrow(ArrowLabelFrame.ShiftArrow)).IsTrue();
         Check.That(ArrowLabelFrame.IsArrow(ArrowLabelFrame.EnterArrow)).IsTrue();
+        Check.That(ArrowLabelFrame.IsArrow(ArrowLabelFrame.TabArrow)).IsTrue();
         Check.That(ArrowLabelFrame.IsArrow(EraseLabelFrame.EraseLeft)).IsFalse();
         Check.That(ArrowLabelFrame.IsArrow(null)).IsFalse();
     }
@@ -826,7 +848,7 @@ public class SymbolCaptionFitTests
         {
             foreach (var modifier in new[] { ModifierKey.CapsLock, ModifierKey.Shift })
             {
-                foreach (var action in new[] { "toggle:capslock", "modifier:shift", "enter" })
+                foreach (var action in new[] { "toggle:capslock", "modifier:shift", "enter", "tab" })
                 {
                     var before = ArrowFrame(window, layout, action);
                     Check.WithCustomMessage($"{modifier}: the '{action}' key has no drawn arrow to begin with")
@@ -869,6 +891,7 @@ public class SymbolCaptionFitTests
                          ("toggle:capslock", "Feststelltaste"),
                          ("modifier:shift", "Umschalttaste"),
                          ("enter", "Eingabetaste"),
+                         ("tab", "Tabulatortaste"),
                      })
             {
                 var visual = KeyVisuals(window, layout, "letters")

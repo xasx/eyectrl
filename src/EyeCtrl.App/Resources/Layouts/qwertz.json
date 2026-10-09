@@ -56,7 +56,7 @@
           { "label": "Fn", "output": "", "width": 1.0, "specialAction": "switchSub:function" },
           { "label": "⌴", "output": " ", "width": 2.0, "specialAction": "space", "accessibleName": "Leertaste" },
           { "label": "↵", "labelFrame": "enterArrow", "output": "", "width": 1.5, "specialAction": "enter", "accessibleName": "Eingabetaste" },
-          { "label": "⇥", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" }
+          { "label": "⇥", "labelFrame": "tabArrow", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" }
         ]
       ]
     },
@@ -110,7 +110,7 @@
           { "label": "Fn", "output": "", "width": 1.0, "specialAction": "switchSub:function" },
           { "label": "⌴", "output": " ", "width": 3.0, "specialAction": "space", "accessibleName": "Leertaste" },
           { "label": "↵", "labelFrame": "enterArrow", "output": "", "width": 1.5, "specialAction": "enter", "accessibleName": "Eingabetaste" },
-          { "label": "⇥", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" }
+          { "label": "⇥", "labelFrame": "tabArrow", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" }
         ]
       ]
     },
@@ -163,7 +163,7 @@
           { "label": "Fn", "output": "", "width": 1.0, "specialAction": "switchSub:function" },
           { "label": "⌴", "output": " ", "width": 3.0, "specialAction": "space", "accessibleName": "Leertaste" },
           { "label": "↵", "labelFrame": "enterArrow", "output": "", "width": 1.5, "specialAction": "enter", "accessibleName": "Eingabetaste" },
-          { "label": "⇥", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" }
+          { "label": "⇥", "labelFrame": "tabArrow", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" }
         ]
       ]
     },
@@ -215,7 +215,7 @@
           { "label": "Fn", "output": "", "width": 1.0, "specialAction": "switchSub:function" },
           { "label": "⌴", "output": " ", "width": 2.0, "specialAction": "space", "accessibleName": "Leertaste" },
           { "label": "↵", "labelFrame": "enterArrow", "output": "", "width": 1.5, "specialAction": "enter", "accessibleName": "Eingabetaste" },
-          { "label": "⇥", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" }
+          { "label": "⇥", "labelFrame": "tabArrow", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" }
         ]
       ]
     },
@@ -260,7 +260,7 @@
           { "label": "↑", "output": "", "width": 1.5, "specialAction": "key:ArrowUp", "accessibleName": "Nach-oben-Taste" },
           { "label": "⌴", "output": " ", "width": 4.0, "specialAction": "space", "accessibleName": "Leertaste" },
           { "label": "↵", "labelFrame": "enterArrow", "output": "", "width": 1.5, "specialAction": "enter", "accessibleName": "Eingabetaste" },
-          { "label": "⇥", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" }
+          { "label": "⇥", "labelFrame": "tabArrow", "output": "", "width": 1.0, "specialAction": "tab", "accessibleName": "Tabulatortaste" }
         ],
         [
           { "label": "123", "output": "", "width": 1.5, "specialAction": "switchSub:numbers" },

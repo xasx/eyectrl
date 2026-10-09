@@ -41,7 +41,7 @@ public class QwertzKeyCaptionDataTests
             ["toggle:capslock"] = ("\u2B06", "capsArrow", "Feststelltaste"),    // ⬆ wide filled arrow + lock bar
             ["backspace"] = ("\u232B", null, "R\u00FCcktaste"),                 // ⌫  Rücktaste
             ["deleteWord"] = ("Aa", "eraseLeft", "Wort l\u00F6schen"),          // Aa inside the erase arrow (C3+D3, 2026-10-08)
-            ["space"] = ("\u2334", null, "Leertaste"),                          // ⌴
+            ["space"] = ("\u2334", "spaceBracket", "Leertaste"),                // ⌴ open bracket
             ["enter"] = ("\u21B5", "enterArrow", "Eingabetaste"),               // ↵ drawn the same way (G4+)
             ["tab"] = ("\u21E5", "tabArrow", "Tabulatortaste"),                 // ⇥ drawn as →|
             ["switchEmoji"] = ("\uD83D\uDE00", null, "Emoji"),                  // 😀
@@ -58,10 +58,10 @@ public class QwertzKeyCaptionDataTests
             ["key:PageDown"] = ("Bild\u2193", null, "Bild-ab-Taste"),           // Bild↓
             ["key:Insert"] = ("Einfg", null, null),
             ["key:Delete"] = ("Entf", null, null),
-            ["key:ArrowUp"] = ("\u2191", null, "Nach-oben-Taste"),              // ↑
-            ["key:ArrowDown"] = ("\u2193", null, "Nach-unten-Taste"),           // ↓
-            ["key:ArrowLeft"] = ("\u2190", null, "Nach-links-Taste"),           // ←
-            ["key:ArrowRight"] = ("\u2192", null, "Nach-rechts-Taste"),         // →
+            ["key:ArrowUp"] = ("\u2191", "arrowUp", "Nach-oben-Taste"),         // ↑ drawn line arrow
+            ["key:ArrowDown"] = ("\u2193", "arrowDown", "Nach-unten-Taste"),    // ↓
+            ["key:ArrowLeft"] = ("\u2190", "arrowLeft", "Nach-links-Taste"),    // ←
+            ["key:ArrowRight"] = ("\u2192", "arrowRight", "Nach-rechts-Taste"), // →
             ["shortcut:Ctrl+C"] = ("Kopieren", null, null),
             ["shortcut:Ctrl+V"] = ("Einf\u00FCgen", null, null),                // Einfügen
             ["shortcut:Ctrl+X"] = ("\u2702", null, "Ausschneiden"),             // ✂

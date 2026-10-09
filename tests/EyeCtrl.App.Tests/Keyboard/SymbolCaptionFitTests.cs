@@ -705,6 +705,7 @@ public class SymbolCaptionFitTests
                              ("modifier:shift", 42.0, 46.5, 1 / 3.0),
                              ("enter", 42.0, 32.0, 0.2667),
                              ("tab", 42.5, 28.0, 0.41),
+                             ("space", 42.5, 13.5, 0.199),
                          }),
                          (0.5, new (string Action, double W, double H, double Frac)[]
                          {
@@ -712,6 +713,7 @@ public class SymbolCaptionFitTests
                              ("modifier:shift", 0, 0, 1 / 3.0),
                              ("enter", 0, 0, 0.2667),
                              ("tab", 0, 0, 0.41),
+                             ("space", 0, 0, 0.196),
                          }),
                      })
             {
@@ -747,9 +749,9 @@ public class SymbolCaptionFitTests
                          .That(ink.Width / visual.Container.ActualWidth).IsCloseTo(expectedFraction, 0.01);
 
                     // The frame is the drawn geometry in the label's own brush; Caps and the Enter
-                    // head are filled, the Shift outline is not.
+                    // head are filled, the Shift outline and the Space bracket are not.
                     Check.That(path.Stroke).IsSameReferenceAs(visual.Label.Foreground);
-                    if (action == "modifier:shift")
+                    if (action is "modifier:shift" or "space")
                         Check.That(path.Fill).IsNull();
                     else
                         Check.That(path.Fill).IsSameReferenceAs(visual.Label.Foreground);
@@ -869,6 +871,152 @@ public class SymbolCaptionFitTests
                              .That(stemEnd.X).IsCloseTo(baseX, 1e-9);
                         Check.That(stemEnd.Y).IsCloseTo(tip.Y, 1e-9);
                     }
+                    if (action == "space")
+                    {
+                        // ⌴: an open polyline whose legs and base are stroke-inked onto the
+                        // w × 0.32w box; pin every vertex, not just the box (review-08's lesson).
+                        var figures = ((PathGeometry)path.Data).Figures;
+                        var t = path.StrokeThickness;
+                        var o = t / 2;
+                        var points = FigurePoints(figures[0]);
+                        Check.WithCustomMessage(
+                                $"{action} at {mult:0.0}x: the bracket must have the four leg/base vertices, got "
+                                + $"{points.Count}")
+                             .That(points).HasSize(4);
+                        Check.That(points[0].X).IsCloseTo(o, 1e-9);
+                        Check.That(points[0].Y).IsCloseTo(o, 1e-9);
+                        Check.That(points[1].X).IsCloseTo(o, 1e-9);
+                        Check.That(points[1].Y).IsCloseTo(canvas.Height - o, 1e-9);
+                        Check.That(points[2].X).IsCloseTo(canvas.Width - o, 1e-9);
+                        Check.That(points[2].Y).IsCloseTo(canvas.Height - o, 1e-9);
+                        Check.That(points[3].X).IsCloseTo(canvas.Width - o, 1e-9);
+                        Check.That(points[3].Y).IsCloseTo(o, 1e-9);
+                        Check.That(canvas.Height).IsCloseTo(ArrowLabelFrame.SpaceLeg * canvas.Width, 1e-9);
+                    }
+                }
+            }
+
+            // ⌴ is the same TargetWidth bracket on all five pages; its fraction follows the key
+            // width (2/3/4 u). The letters 2u case ran above.
+            foreach (var (sub, mult, fraction) in new[]
+                     {
+                         ("numbers", 1.5, 0.132), ("numbers", 0.5, 0.128),   // 3 u
+                         ("symbols", 1.5, 0.132), ("symbols", 0.5, 0.128),   // 3 u
+                         ("accents", 1.5, 0.199), ("accents", 0.5, 0.196),   // 2 u
+                         ("function", 1.5, 0.098), ("function", 0.5, 0.095), // 4 u
+                     })
+            {
+                window.LoadLayout(layout, mult, KeyDwellMs, PredictionDwellMs, CooldownMs);
+                vm.SwitchSubLayout(sub);
+                Layout(window);
+                var visual = KeyVisuals(window, layout, sub).Single(v => v.Key.SpecialAction == "space");
+                var ink = MeasureInk(visual.Container, (FrameworkElement)window.Content);
+                Check.WithCustomMessage(
+                        $"{sub} at {mult:0.0}x: the space bracket ink {ink.Width:0.0} is "
+                        + $"{ink.Width / visual.Container.ActualWidth:P1} of the key, the designer's S1 is {fraction:P1}")
+                     .That(ink.Width / visual.Container.ActualWidth).IsCloseTo(fraction, 0.01);
+            }
+
+            // The cursor arrows live on the function page; the letters pass cannot see them.
+            foreach (var mult in new[] { 1.5, 0.5 })
+            {
+                window.LoadLayout(layout, mult, KeyDwellMs, PredictionDwellMs, CooldownMs);
+                vm.SwitchSubLayout("function");
+                Layout(window);
+                var root = (FrameworkElement)window.Content;
+
+                foreach (var (action, expectedW, expectedH, frac15, frac05) in new[]
+                         {
+                             ("key:ArrowUp", 20.0, 42.0, 0.125, 0.128),
+                             ("key:ArrowDown", 20.0, 42.0, 0.125, 0.128),
+                             ("key:ArrowLeft", 42.0, 20.0, 0.263, 0.257),
+                             ("key:ArrowRight", 42.0, 20.0, 0.263, 0.257),
+                         })
+                {
+                    var visual = KeyVisuals(window, layout, "function")
+                        .Single(v => v.Key.SpecialAction == action);
+                    Check.WithCustomMessage(
+                            $"{action} on the function page: expected a drawn frame, found {visual.Content.GetType().Name}")
+                         .That(visual.Content is Grid).IsTrue();
+                    var canvas = FrameCanvas(visual.Content);
+                    var path = FramePaths(canvas).Single();
+                    var ink = MeasureInk(visual.Container, root);
+                    var vertical = action is "key:ArrowUp" or "key:ArrowDown";
+                    var expectedFraction = mult == 1.5 ? frac15 : frac05;
+
+                    if (mult == 1.5)
+                    {
+                        Check.WithCustomMessage(
+                                $"{action} at 1.5x: ink {ink.Width:0.0}x{ink.Height:0.0}, the designer's "
+                                + $"A1 is {expectedW}x{expectedH} (tolerance 0.05)")
+                             .That(ink.Width).IsCloseTo(expectedW, 0.05);
+                        Check.That(ink.Height).IsCloseTo(expectedH, 0.05);
+                    }
+                    Check.WithCustomMessage(
+                            $"{action} at {mult:0.0}x: ink width {ink.Width:0.0} is "
+                            + $"{ink.Width / visual.Container.ActualWidth:P1} of the key, the designer's A1 is "
+                            + $"{expectedFraction:P1}")
+                         .That(ink.Width / visual.Container.ActualWidth).IsCloseTo(expectedFraction, 0.01);
+
+                    // The line-and-head figures, per direction (review-08's lesson): one shaft into
+                    // Enter's head, the whole mark mapped from the right-pointing original.
+                    var figures = ((PathGeometry)path.Data).Figures;
+                    var t = path.StrokeThickness;
+                    var length = ArrowLabelFrame.TargetWidth(visual.Container.ActualHeight);
+                    var across = 2 * ArrowLabelFrame.EnterHeadHalf * length;
+                    var headLength = ArrowLabelFrame.EnterHeadLength * length;
+                    var headHalf = ArrowLabelFrame.EnterHeadHalf * length;
+                    var o = t / 2;
+                    Point Map(Point p) => action switch
+                    {
+                        "key:ArrowLeft" => new Point(length - p.X, p.Y),
+                        "key:ArrowUp" => new Point(p.Y, length - p.X),
+                        "key:ArrowDown" => new Point(across - p.Y, p.X),
+                        _ => p,
+                    };
+                    var tip = Map(new Point(length - o, headHalf));
+                    var baseA = Map(new Point(length - o - headLength, o));
+                    var baseB = Map(new Point(length - o - headLength, 2 * headHalf - o));
+                    var shaftStart = Map(new Point(o, headHalf));
+                    var shaftEnd = Map(new Point(length - o - headLength, headHalf));
+
+                    var head = FigurePoints(figures[1]);
+                    Check.WithCustomMessage(
+                            $"{action} at {mult:0.0}x: head tip {head[0].X:0.###},{head[0].Y:0.###} "
+                            + $"must be ({tip.X:0.###},{tip.Y:0.###})")
+                         .That(head[0].X).IsCloseTo(tip.X, 1e-9);
+                    Check.That(head[0].Y).IsCloseTo(tip.Y, 1e-9);
+                    Check.WithCustomMessage($"{action} at {mult:0.0}x: the head's first base vertex")
+                         .That(head[1].X).IsCloseTo(baseA.X, 1e-9);
+                    Check.That(head[1].Y).IsCloseTo(baseA.Y, 1e-9);
+                    Check.WithCustomMessage($"{action} at {mult:0.0}x: the head's second base vertex")
+                         .That(head[2].X).IsCloseTo(baseB.X, 1e-9);
+                    Check.That(head[2].Y).IsCloseTo(baseB.Y, 1e-9);
+                    var shaftPoints = FigurePoints(figures[0]);
+                    Check.WithCustomMessage($"{action} at {mult:0.0}x: the shaft must run into the head's base")
+                         .That(shaftPoints[0].X).IsCloseTo(shaftStart.X, 1e-9);
+                    Check.That(shaftPoints[0].Y).IsCloseTo(shaftStart.Y, 1e-9);
+                    Check.That(shaftPoints[1].X).IsCloseTo(shaftEnd.X, 1e-9);
+                    Check.That(shaftPoints[1].Y).IsCloseTo(shaftEnd.Y, 1e-9);
+
+                    Check.That(canvas.Width).IsCloseTo(vertical ? across : length, 1e-9);
+                    Check.That(canvas.Height).IsCloseTo(vertical ? length : across, 1e-9);
+                    Check.That(path.Stroke).IsSameReferenceAs(visual.Label.Foreground);
+                    Check.That(path.Fill).IsSameReferenceAs(visual.Label.Foreground);
+                    Check.That(visual.Label.Opacity).IsEqualTo(0.0);
+                    Check.WithCustomMessage(
+                            $"{action} at {mult:0.0}x: stroke {path.StrokeThickness:0.###} must be "
+                            + $"EraseLabelFrame.StrokeRatio x the label font = "
+                            + $"{EraseLabelFrame.StrokeRatio * visual.Label.FontSize:0.###}")
+                         .That(path.StrokeThickness)
+                         .IsCloseTo(EraseLabelFrame.StrokeRatio * visual.Label.FontSize, 1e-9);
+                    var centre = canvas.TranslatePoint(
+                        new Point(canvas.Width / 2, canvas.Height / 2), visual.Container);
+                    Check.WithCustomMessage(
+                            $"{action} at {mult:0.0}x: canvas centre {centre.X:0.##},{centre.Y:0.##} must be the "
+                            + $"key centre {visual.Container.ActualWidth / 2:0.##},{visual.Container.ActualHeight / 2:0.##}")
+                         .That(centre.X).IsCloseTo(visual.Container.ActualWidth / 2, 0.01);
+                    Check.That(centre.Y).IsCloseTo(visual.Container.ActualHeight / 2, 0.01);
                 }
             }
         }
@@ -893,12 +1041,18 @@ public class SymbolCaptionFitTests
         Check.That(ArrowLabelFrame.EnterHeadLength).IsEqualTo(0.32);
         Check.That(ArrowLabelFrame.EnterHeadHalf).IsEqualTo(0.24);
         Check.That(ArrowLabelFrame.TabAspect).IsEqualTo(0.66);
+        Check.That(ArrowLabelFrame.SpaceLeg).IsEqualTo(0.32);
         Check.WithCustomMessage("the target is one third of a 1.2-unit box: 42.267 DIP at 1.5x")
              .That(ArrowLabelFrame.TargetWidth(105)).IsCloseTo((105 * 1.2 + 0.8) / 3, 1e-9);
         Check.That(ArrowLabelFrame.IsArrow(ArrowLabelFrame.CapsArrow)).IsTrue();
         Check.That(ArrowLabelFrame.IsArrow(ArrowLabelFrame.ShiftArrow)).IsTrue();
         Check.That(ArrowLabelFrame.IsArrow(ArrowLabelFrame.EnterArrow)).IsTrue();
         Check.That(ArrowLabelFrame.IsArrow(ArrowLabelFrame.TabArrow)).IsTrue();
+        Check.That(ArrowLabelFrame.IsArrow(ArrowLabelFrame.SpaceBracket)).IsTrue();
+        Check.That(ArrowLabelFrame.IsArrow(ArrowLabelFrame.CursorUp)).IsTrue();
+        Check.That(ArrowLabelFrame.IsArrow(ArrowLabelFrame.CursorDown)).IsTrue();
+        Check.That(ArrowLabelFrame.IsArrow(ArrowLabelFrame.CursorLeft)).IsTrue();
+        Check.That(ArrowLabelFrame.IsArrow(ArrowLabelFrame.CursorRight)).IsTrue();
         Check.That(ArrowLabelFrame.IsArrow(EraseLabelFrame.EraseLeft)).IsFalse();
         Check.That(ArrowLabelFrame.IsArrow(null)).IsFalse();
     }
@@ -916,31 +1070,42 @@ public class SymbolCaptionFitTests
         var (window, vm) = Open(layout, 1.5);
         try
         {
-            foreach (var modifier in new[] { ModifierKey.CapsLock, ModifierKey.Shift })
+            // The cursor arrows live on the function page, so a repaint check for them must run
+            // there too (review: the letters-only pass cannot see them).
+            foreach (var (sub, actions) in new (string Sub, string[] Actions)[]
+                     {
+                         ("letters", ["toggle:capslock", "modifier:shift", "enter", "tab", "space"]),
+                         ("function", ["key:ArrowUp", "key:ArrowDown", "key:ArrowLeft", "key:ArrowRight"]),
+                     })
             {
-                foreach (var action in new[] { "toggle:capslock", "modifier:shift", "enter", "tab" })
+                vm.SwitchSubLayout(sub);
+                Layout(window);
+                foreach (var modifier in new[] { ModifierKey.CapsLock, ModifierKey.Shift })
                 {
-                    var before = ArrowFrame(window, layout, action);
-                    Check.WithCustomMessage($"{modifier}: the '{action}' key has no drawn arrow to begin with")
-                         .That(before).IsNotNull();
+                    foreach (var action in actions)
+                    {
+                        var before = ArrowFrame(window, layout, sub, action);
+                        Check.WithCustomMessage($"{modifier}: the '{action}' key has no drawn arrow to begin with")
+                             .That(before).IsNotNull();
 
-                    vm.ToggleModifier(modifier);
-                    Layout(window);
-                    var on = ArrowFrame(window, layout, action);
-                    Check.WithCustomMessage(
-                            $"{modifier} on dropped the arrow (content {ContentKind(window, layout, action)}): "
-                            + "the frame must survive every repaint.")
-                         .That(on).IsNotNull();
-                    Check.That(on!.Value.Canvas.Width).IsEqualTo(before!.Value.Canvas.Width);
-                    Check.That(on.Value.Canvas.Height).IsEqualTo(before.Value.Canvas.Height);
-                    Check.That(on.Value.Arrow.Data.Bounds).IsEqualTo(before.Value.Arrow.Data.Bounds);
-                    Check.That(on.Value.Arrow.Stroke).IsSameReferenceAs(on.Value.Label.Foreground);
-                    Check.That(on.Value.Label.Opacity).IsEqualTo(0.0);
+                        vm.ToggleModifier(modifier);
+                        Layout(window);
+                        var on = ArrowFrame(window, layout, sub, action);
+                        Check.WithCustomMessage(
+                                $"{modifier} on dropped the arrow (content {ContentKind(window, layout, sub, action)}): "
+                                + "the frame must survive every repaint.")
+                             .That(on).IsNotNull();
+                        Check.That(on!.Value.Canvas.Width).IsEqualTo(before!.Value.Canvas.Width);
+                        Check.That(on.Value.Canvas.Height).IsEqualTo(before.Value.Canvas.Height);
+                        Check.That(on.Value.Arrow.Data.Bounds).IsEqualTo(before.Value.Arrow.Data.Bounds);
+                        Check.That(on.Value.Arrow.Stroke).IsSameReferenceAs(on.Value.Label.Foreground);
+                        Check.That(on.Value.Label.Opacity).IsEqualTo(0.0);
 
-                    vm.ToggleModifier(modifier);
-                    Layout(window);
-                    Check.WithCustomMessage($"{modifier} off dropped the arrow on '{action}'")
-                         .That(ArrowFrame(window, layout, action)).IsNotNull();
+                        vm.ToggleModifier(modifier);
+                        Layout(window);
+                        Check.WithCustomMessage($"{modifier} off dropped the arrow on '{action}'")
+                             .That(ArrowFrame(window, layout, sub, action)).IsNotNull();
+                    }
                 }
             }
         }
@@ -956,32 +1121,48 @@ public class SymbolCaptionFitTests
         var (window, vm) = Open(layout, 1.5);
         try
         {
-            foreach (var (action, name) in new[]
+            foreach (var (sub, entries) in new (string Sub, (string Action, string Name)[] Entries)[]
                      {
-                         ("toggle:capslock", "Feststelltaste"),
-                         ("modifier:shift", "Umschalttaste"),
-                         ("enter", "Eingabetaste"),
-                         ("tab", "Tabulatortaste"),
+                         ("letters",
+                         [
+                             ("toggle:capslock", "Feststelltaste"),
+                             ("modifier:shift", "Umschalttaste"),
+                             ("enter", "Eingabetaste"),
+                             ("tab", "Tabulatortaste"),
+                             ("space", "Leertaste"),
+                         ]),
+                         ("function",
+                         [
+                             ("key:ArrowUp", "Nach-oben-Taste"),
+                             ("key:ArrowDown", "Nach-unten-Taste"),
+                             ("key:ArrowLeft", "Nach-links-Taste"),
+                             ("key:ArrowRight", "Nach-rechts-Taste"),
+                         ]),
                      })
             {
-                var visual = KeyVisuals(window, layout, "letters")
-                    .Single(v => v.Key.SpecialAction == action);
-                var named = NamedUiaElements(visual.Container);
-                Check.WithCustomMessage(
-                        $"{action}: UIA elements under the key: "
-                        + string.Join("; ", named.Select(n => $"'{n.Name}' id='{n.Id}'")))
-                     .That(named).HasSize(1);
-                Check.That(named[0].Name).IsEqualTo(name);
-                Check.That(named[0].Id).IsEqualTo($"Keyboard_Key_{action}");
+                vm.SwitchSubLayout(sub);
+                Layout(window);
+                foreach (var (action, name) in entries)
+                {
+                    var visual = KeyVisuals(window, layout, sub)
+                        .Single(v => v.Key.SpecialAction == action);
+                    var named = NamedUiaElements(visual.Container);
+                    Check.WithCustomMessage(
+                            $"{sub} {action}: UIA elements under the key: "
+                            + string.Join("; ", named.Select(n => $"'{n.Name}' id='{n.Id}'")))
+                         .That(named).HasSize(1);
+                    Check.That(named[0].Name).IsEqualTo(name);
+                    Check.That(named[0].Id).IsEqualTo($"Keyboard_Key_{action}");
+                }
             }
         }
         finally { window.Close(); }
     }
 
     private static (TextBlock Label, Canvas Canvas, Path Arrow)? ArrowFrame(
-        KeyboardWindow window, KeyboardLayout layout, string action)
+        KeyboardWindow window, KeyboardLayout layout, string sub, string action)
     {
-        var visual = KeyVisuals(window, layout, "letters").Single(v => v.Key.SpecialAction == action);
+        var visual = KeyVisuals(window, layout, sub).Single(v => v.Key.SpecialAction == action);
         if (visual.Content is not Grid holder) return null;
         var canvas = holder.Children.OfType<Canvas>().SingleOrDefault();
         var paths = canvas is null ? [] : FramePaths(canvas);
@@ -1058,6 +1239,25 @@ public class SymbolCaptionFitTests
     /// <summary>The Paths inside a frame Canvas: [arrow, text] for eraseLeft, [arrow] for the arrows.</summary>
     private static List<Path> FramePaths(Canvas canvas) => canvas.Children.OfType<Path>().ToList();
 
+    /// <summary>A figure's points in draw order: the start point, then every segment's points.</summary>
+    private static List<Point> FigurePoints(PathFigure figure)
+    {
+        var points = new List<Point> { figure.StartPoint };
+        foreach (var segment in figure.Segments)
+            switch (segment)
+            {
+                case LineSegment line:
+                    points.Add(line.Point);
+                    break;
+                case PolyLineSegment poly:
+                    points.AddRange(poly.Points);
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unexpected segment {segment.GetType().Name}");
+            }
+        return points;
+    }
+
     /// <summary>
     /// F2 (review-03): the framed caption must not be a second UIA element. A screen reader on the
     /// word-backspace key must hear its one name, "Wort löschen" with Keyboard_Key_deleteWord, and
@@ -1095,9 +1295,10 @@ public class SymbolCaptionFitTests
         finally { window.Close(); }
     }
 
-    private static string ContentKind(KeyboardWindow window, KeyboardLayout layout, string action = "deleteWord")
+    private static string ContentKind(
+        KeyboardWindow window, KeyboardLayout layout, string sub = "letters", string action = "deleteWord")
     {
-        var visual = KeyVisuals(window, layout, "letters").Single(v => v.Key.SpecialAction == action);
+        var visual = KeyVisuals(window, layout, sub).Single(v => v.Key.SpecialAction == action);
         return visual.Content.GetType().Name;
     }
 

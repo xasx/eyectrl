@@ -24,6 +24,16 @@ internal static class ArrowLabelFrame
     public const string EnterArrow = "enterArrow";
     /// <summary>Tab: a shaft into a filled head pointing right, stopped by a full-height bar.</summary>
     public const string TabArrow = "tabArrow";
+    /// <summary>Space: an open bracket under the caption.</summary>
+    public const string SpaceBracket = "spaceBracket";
+    /// <summary>Cursor arrows: one right-pointing shaft-and-head, mapped per direction.</summary>
+    public const string CursorLeft = "arrowLeft";
+    /// <inheritdoc cref="CursorLeft"/>
+    public const string CursorUp = "arrowUp";
+    /// <inheritdoc cref="CursorLeft"/>
+    public const string CursorRight = "arrowRight";
+    /// <inheritdoc cref="CursorLeft"/>
+    public const string CursorDown = "arrowDown";
 
     /// <summary>The arrow's height, as a multiple of its ink width.</summary>
     internal const double Aspect = 1.1;
@@ -46,12 +56,16 @@ internal static class ArrowLabelFrame
     /// <summary>Tab's height, as a multiple of the ink width.</summary>
     internal const double TabAspect = 0.66;
 
+    /// <summary>Space's bracket leg height, as a multiple of the ink width.</summary>
+    internal const double SpaceLeg = 0.32;
+
     /// <summary>The drawn arrow: ink size in DIP, stroke thickness, and the geometry.</summary>
     internal sealed record Frame(double Width, double Height, double Stroke, bool Filled, Geometry Path);
 
-    /// <summary>True when <paramref name="labelFrame"/> names one of the four drawn arrows.</summary>
+    /// <summary>True when <paramref name="labelFrame"/> names one of the drawn arrows or the bracket.</summary>
     public static bool IsArrow(string? labelFrame) =>
-        labelFrame is CapsArrow or ShiftArrow or EnterArrow or TabArrow;
+        labelFrame is CapsArrow or ShiftArrow or EnterArrow or TabArrow
+            or SpaceBracket or CursorLeft or CursorUp or CursorRight or CursorDown;
 
     /// <summary>
     /// The user's target ink width: one third of a 1.2-unit key's box at this key size. The same
@@ -148,6 +162,46 @@ internal static class ArrowLabelFrame
             return new Frame(width, height, stroke, Filled: true, geometry);
         }
 
+        if (frameId == SpaceBracket)
+        {
+            // ⌴ as an open bracket: two legs and a base, stroke-inked onto the w × 0.32w box.
+            var height = width * SpaceLeg;
+            var o = stroke / 2;
+            var geometry = new PathGeometry();
+            geometry.Figures.Add(PolyFigure(false, false,
+                new Point(o, o), new Point(o, height - o),
+                new Point(width - o, height - o), new Point(width - o, o)));
+            return new Frame(width, height, stroke, Filled: false, geometry);
+        }
+
+        if (frameId is CursorLeft or CursorUp or CursorRight or CursorDown)
+        {
+            // One right-pointing line arrow, mapped per direction (round-8 A1): a shaft into
+            // Enter's filled head, the ink length the same w as the other arrows.
+            var across = 2 * EnterHeadHalf * width;
+            var headLength = EnterHeadLength * width;
+            var headHalf = EnterHeadHalf * width;
+            var o = stroke / 2;
+            var tipX = width - o;
+            var centreY = headHalf;
+            Func<Point, Point> map = frameId switch
+            {
+                CursorLeft => p => new Point(width - p.X, p.Y),
+                CursorUp => p => new Point(p.Y, width - p.X),
+                CursorDown => p => new Point(across - p.Y, p.X),
+                _ => p => p,
+            };
+            var geometry = new PathGeometry();
+            geometry.Figures.Add(PolyFigure(false, false,
+                map(new Point(o, centreY)), map(new Point(tipX - headLength, centreY))));
+            geometry.Figures.Add(PolyFigure(true, true,
+                map(new Point(tipX, centreY)),
+                map(new Point(tipX - headLength, centreY - headHalf + o)),
+                map(new Point(tipX - headLength, centreY + headHalf - o))));
+            var vertical = frameId is CursorUp or CursorDown;
+            return new Frame(vertical ? across : width, vertical ? width : across, stroke, Filled: true, geometry);
+        }
+
         var filledFrame = frameId == CapsArrow;
         var arrowHeight = width * Aspect;
         var group = new GeometryGroup();
@@ -165,6 +219,14 @@ internal static class ArrowLabelFrame
             totalHeight = barY + barHeight;
         }
         return new Frame(width, totalHeight, stroke, filledFrame, group);
+    }
+
+    /// <summary>A figure through the given points, optionally closed and filled.</summary>
+    private static PathFigure PolyFigure(bool closed, bool filled, params Point[] points)
+    {
+        var figure = new PathFigure { StartPoint = points[0], IsClosed = closed, IsFilled = filled };
+        figure.Segments.Add(new PolyLineSegment(points.Skip(1), true));
+        return figure;
     }
 
     /// <summary>An unfilled straight line figure, drawn with the frame's round caps.</summary>

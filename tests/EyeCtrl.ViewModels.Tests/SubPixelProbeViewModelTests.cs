@@ -205,11 +205,23 @@ public class SubPixelProbeViewModelTests
         f.Vm.Register(SubPixelProbeViewModel.AnswerOneTargetId, DwellCategory.Control, 75, 700, () => f.AnswerClicks++);
         f.Vm.UpdatePosition(SubPixelProbeViewModel.AnswerOneTargetId, DwellCategory.Control, ButtonOne);
 
-        // Gaze rests on the button from the first demo sample and is held across the boundary.
-        bool reached = f.DriveUntil(() => f.Vm.Phase == SubPixelProbePhase.Answer, at: ButtonOne);
-        Check.That(reached).IsTrue();
+        bool atTrial = f.DriveUntil(() => f.Vm.Phase == SubPixelProbePhase.Interval1 && !f.Vm.IsDemo);
+        Check.That(atTrial).IsTrue();
+        bool atInterval2 = f.DriveUntil(() => f.Vm.Phase == SubPixelProbePhase.Interval2, at: Neutral);
+        Check.That(atInterval2).IsTrue();
+
+        // Enter the button 600 ms before the answer screen: on the boundary the detector holds a
+        // live, unactivated 600 ms accumulation with no cooldown in flight — the state the onset
+        // reset must discard. (Holding from the start would let the detector's own cooldown null
+        // the state and mask a missing reset.)
+        f.Drive(2400, at: Neutral);
+        f.Drive(600, at: ButtonOne);
+
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Answer);
         Check.That(f.Vm.ScoredInCurrentBlock).IsEqualTo(0);
 
+        // Without the reset the first answer-phase samples inherit the 600 ms and answer ~120 ms
+        // in; with it, the fresh dwell needs its full 700 ms.
         f.Drive(660, at: ButtonOne);
         Check.That(f.Vm.ScoredInCurrentBlock).IsEqualTo(0);
 

@@ -100,12 +100,16 @@ internal static class ActionMenuRingPainter
         {
             foreach (var slot in slots)
             {
+                // The accessible name rides every button, label or not: with the Help toggle off
+                // the icon-only disc is otherwise invisible to UIA (D11), and with labels on the
+                // name lands on the label TextBlock, which already says exactly this.
                 var button = DwellArcButton.Create(
                     slot.Center,
                     ActionMenuGeometry.ButtonRadius,
                     symbol: null,
                     icon: ActionIcons.For(slot.Icon),
-                    label: options.ShowLabels ? options.LabelFor(slot) : null);
+                    label: options.ShowLabels ? options.LabelFor(slot) : null,
+                    accessibleName: options.LabelFor(slot));
                 AddButton(canvas, button, slot.IsDisabled);
                 buttons[slot.Id] = button;
             }
@@ -137,7 +141,8 @@ internal static class ActionMenuRingPainter
                 slot.Center,
                 ActionMenuGeometry.ButtonRadius,
                 symbol: null,
-                icon: ActionIcons.For(slot.Icon));
+                icon: ActionIcons.For(slot.Icon),
+                accessibleName: options.LabelFor(slot));
             button.AddTo(painting);
             buttons[slot.Id] = button;
 

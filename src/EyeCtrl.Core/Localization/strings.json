@@ -263,14 +263,14 @@
     "text": "snooze",
     "who": "user",
     "where": "eye-care",
-    "fit": "B94x2",
+    "fit": "A56",
     "args": []
   },
   "eye-care.banner.start": {
     "text": "start",
     "who": "user",
     "where": "eye-care",
-    "fit": "B94x2",
+    "fit": "A56",
     "args": []
   },
   "eye-care.banner.subtext": {
@@ -340,7 +340,7 @@
     "text": "Skip ✕",
     "who": "user",
     "where": "eye-care",
-    "fit": "B94x2",
+    "fit": "A56",
     "args": []
   },
   "eye-care.exercise.smoothPursuit.encouragement": {
@@ -700,7 +700,7 @@
     "args": []
   },
   "overlays.pause.title": {
-    "text": "PauseIndicator",
+    "text": "EyeCtrl paused",
     "who": "user",
     "where": "overlays",
     "fit": "row",
@@ -710,168 +710,168 @@
     "text": "Copy",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.kbd.cut": {
     "text": "Cut",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.kbd.file_explorer": {
     "text": "File Explorer",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.kbd.find": {
     "text": "Find",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.kbd.lock": {
     "text": "Lock",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.kbd.new": {
     "text": "New",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.kbd.paste": {
     "text": "Paste",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.kbd.print": {
     "text": "Print",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.kbd.redo": {
     "text": "Redo",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.kbd.save": {
     "text": "Save",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.kbd.select_all": {
     "text": "Select All",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.kbd.show_desktop": {
     "text": "Show Desktop",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.kbd.switch_app": {
     "text": "Switch App",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.kbd.undo": {
     "text": "Undo",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.media.mute": {
     "text": "Mute",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.media.next": {
     "text": "Next",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.media.play_pause": {
     "text": "Play / Pause",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.media.previous": {
     "text": "Previous",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.media.stop": {
     "text": "Stop",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.media.volume_down": {
     "text": "Volume Down",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.media.volume_up": {
     "text": "Volume Up",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.window.close": {
     "text": "Close Window",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.window.maximize_restore": {
     "text": "Maximize / Restore",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.preset.window.minimize": {
     "text": "Minimize Window",
     "who": "user",
     "where": "overlays",
-    "fit": "B94x2",
+    "fit": "B114",
     "args": []
   },
   "overlays.ring.back": {
@@ -1009,6 +1009,13 @@
   },
   "overlays.toolbar.resetAdaptation": {
     "text": "Reset adaptation",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.toolbar.resume": {
+    "text": "Resume",
     "who": "user",
     "where": "overlays",
     "fit": "row",

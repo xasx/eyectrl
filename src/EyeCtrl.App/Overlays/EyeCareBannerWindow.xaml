@@ -32,14 +32,14 @@
                         <Ellipse x:Name="SnoozeRing" Stroke="{StaticResource BrushTextDim}" StrokeThickness="2" StrokeDashArray="3 3"/>
                         <TextBlock x:Name="SnoozeGlyph" Text="✕" Foreground="{StaticResource BrushTextSecondary}"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        <TextBlock Text="{loc:T 'eye-care.banner.snooze'}" Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}"
+                        <TextBlock x:Name="SnoozeLabel" Text="{loc:T 'eye-care.banner.snooze'}" Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}"
                                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,-16"/>
                     </Grid>
                     <Grid Width="64" Height="64">
                         <Ellipse x:Name="StartRing" Stroke="{StaticResource BrushAccent}" StrokeThickness="2" StrokeDashArray="3 3"/>
                         <TextBlock x:Name="StartGlyph" Text="▶" Foreground="{StaticResource BrushAccent}"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        <TextBlock Text="{loc:T 'eye-care.banner.start'}" Foreground="{StaticResource BrushAccent}" FontSize="{StaticResource FontSizeBody}"
+                        <TextBlock x:Name="StartLabel" Text="{loc:T 'eye-care.banner.start'}" Foreground="{StaticResource BrushAccent}" FontSize="{StaticResource FontSizeBody}"
                                    HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,-16"/>
                     </Grid>
                 </StackPanel>

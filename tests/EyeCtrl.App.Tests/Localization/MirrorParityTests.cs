@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using EyeCtrl.Core.Localization;
 using NFluent;
 using Xunit;
 
@@ -25,15 +26,33 @@ public class MirrorParityTests
     public void EveryMirroredKey_CarriesThePartnersGerman()
     {
         using var english = LocalizationTestData.EnglishDocument();
-        var german = ReadGermanTable();
+        var errors = new List<string>();
+        var german = ReadGermanTable(GermanPath(), errors);
 
-        var violations = FindViolations(english.RootElement, german);
+        var violations = new List<string>(FindViolations(english.RootElement, german));
+        violations.AddRange(errors);
 
         Check.WithCustomMessage(
                 "A mirrored key's German differs from its partner's. The pair exists so the two "
                 + "surfaces read the same German; give both keys the same text.\n  "
                 + string.Join("\n  ", violations))
              .That(violations).IsEmpty();
+    }
+
+    /// <summary>
+    /// R4: a moved or renamed German file must redden this gate, not turn it vacuously green —
+    /// which is what "no German yet" looks like. The reader reports the absence as an error.
+    /// </summary>
+    [Fact]
+    public void TheGate_FailsWhenTheGermanFileIsAbsent()
+    {
+        var errors = new List<string>();
+        var german = ReadGermanTable(
+            Path.Combine(Path.GetTempPath(), $"no-such-{Guid.NewGuid():N}.json"), errors);
+
+        Check.That(german).IsEmpty();
+        Check.That(errors).HasSize(1);
+        Check.That(errors[0]).Contains(StringTable.GermanFileName);
     }
 
     // ────── the comparator's falsification pins (the mutation check, on a fixture table) ──────
@@ -120,14 +139,27 @@ public class MirrorParityTests
 
     // ────── the readers ──────
 
-    /// <summary>The shipped German table, when present; an absent file reads as no German at all.</summary>
-    private static IReadOnlyDictionary<string, string?> ReadGermanTable()
+    /// <summary>
+    /// The shipped German table's source path. The file name comes from
+    /// <see cref="StringTable.GermanFileName"/> so a rename moves both in one step; the gate fails
+    /// loudly when the file is not there.
+    /// </summary>
+    private static string GermanPath() => Path.Combine(
+        SourceScanner.RepoRoot().FullName,
+        "src", "EyeCtrl.App", "Localization", StringTable.GermanFileName);
+
+    /// <summary>
+    /// The German table at <paramref name="path"/>. An absent file appends an error and reads as
+    /// no German: a silently missing table must never look like "German not written yet".
+    /// </summary>
+    private static IReadOnlyDictionary<string, string?> ReadGermanTable(string path, List<string> errors)
     {
-        var path = Path.Combine(
-            SourceScanner.RepoRoot().FullName,
-            "src", "EyeCtrl.App", "Localization", "strings.de.json");
         if (!File.Exists(path))
+        {
+            errors.Add(
+                $"'{StringTable.GermanFileName}' is absent at {path}; the mirror-parity gate cannot run");
             return new Dictionary<string, string?>(StringComparer.Ordinal);
+        }
 
         using var document = JsonDocument.Parse(File.ReadAllText(path));
         var result = new Dictionary<string, string?>(StringComparer.Ordinal);

@@ -46,15 +46,15 @@
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,12">
                     <StackPanel Margin="0,0,18,0">
                         <TextBlock x:Name="SummaryAccuracy" Foreground="{StaticResource BrushAccent}" FontSize="{StaticResource FontSizeTitle}" FontWeight="{StaticResource FontWeightStrong}" HorizontalAlignment="Center"/>
-                        <TextBlock Text="{loc:T 'eye-care.summary.accuracy'}" Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}" HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="AccuracyLabel" Text="{loc:T 'eye-care.summary.accuracy'}" Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}" HorizontalAlignment="Center"/>
                     </StackPanel>
                     <StackPanel Margin="0,0,18,0">
                         <TextBlock x:Name="SummarySteadiness" Foreground="{StaticResource BrushAccent}" FontSize="{StaticResource FontSizeTitle}" FontWeight="{StaticResource FontWeightStrong}" HorizontalAlignment="Center"/>
-                        <TextBlock Text="{loc:T 'eye-care.summary.steadiness'}" Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}" HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="SteadinessLabel" Text="{loc:T 'eye-care.summary.steadiness'}" Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}" HorizontalAlignment="Center"/>
                     </StackPanel>
                     <StackPanel x:Name="ReactionTimePanel" Visibility="Collapsed">
                         <TextBlock x:Name="SummaryReactionTime" Foreground="{StaticResource BrushAccent}" FontSize="{StaticResource FontSizeTitle}" FontWeight="{StaticResource FontWeightStrong}" HorizontalAlignment="Center"/>
-                        <TextBlock Text="{loc:T 'eye-care.summary.reactionMs'}" Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}" HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="ReactionMsLabel" Text="{loc:T 'eye-care.summary.reactionMs'}" Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}" HorizontalAlignment="Center"/>
                     </StackPanel>
                 </StackPanel>
                 <TextBlock x:Name="SummaryEncourage" Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}" HorizontalAlignment="Center"/>

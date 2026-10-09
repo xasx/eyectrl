@@ -45,7 +45,7 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
         </ScrollViewer>
-        <TextBlock Grid.Row="1" Text="{loc:T 'overlays.taskSwitcher.hint'}"
+        <TextBlock x:Name="HintText" Grid.Row="1" Text="{loc:T 'overlays.taskSwitcher.hint'}"
                    Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeBodyLarge}" HorizontalAlignment="Center" Margin="0,12"/>
     </Grid>
 </overlays:OverlayWindow>

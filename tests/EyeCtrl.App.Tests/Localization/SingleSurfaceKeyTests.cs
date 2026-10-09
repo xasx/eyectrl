@@ -74,6 +74,7 @@ public class SingleSurfaceKeyTests
         ("src/EyeCtrl.App/Localization/OverlayTextSources.cs", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/ToolbarBand.cs", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs", ["overlays"]),
+        ("src/EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/GlassBackdropWindow.xaml", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/GlassBackdropWindow.xaml.cs", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/PauseIndicatorWindow.xaml", ["overlays"]),

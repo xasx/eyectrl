@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
 using CommunityToolkit.Mvvm.Messaging;
@@ -191,11 +192,27 @@ public class ActionMenuRingPainterTests : IDisposable
             Check.WithCustomMessage($"{id} drew a label while the Help toggle is off")
                  .That(withoutLabels[id].Label).IsNull();
 
+        // T08 fixup R3 (D11): with the Help toggle off the discs are icon-only Shapes with no
+        // automation peer, so the painter must give each one an anchor carrying its name —
+        // otherwise the live ring exposes no UIA element at all.
+        foreach (var slot in slots)
+        {
+            Check.WithCustomMessage($"{slot.Id}: an icon-only ring slot needs an automation anchor")
+                 .That(withoutLabels[slot.Id].AutomationAnchor).IsNotNull();
+            Check.WithCustomMessage($"{slot.Id}: the anchor must publish the slot's name, not be absent")
+                 .That(AutomationProperties.GetName(withoutLabels[slot.Id].AutomationAnchor!))
+                 .IsEqualTo(slot.Label);
+        }
+
         var withLabels = ActionMenuRingPainter.Paint(
             new Canvas(), slots, RingPaintOptions.Runtime(showLabels: true));
         foreach (var slot in slots)
+        {
             Check.WithCustomMessage($"{slot.Id} lost its label while the Help toggle is on")
                  .That(withLabels[slot.Id].Label!.Text).IsEqualTo(slot.Label);
+            Check.WithCustomMessage($"{slot.Id}: the labelled button publishes the same name")
+                 .That(AutomationProperties.GetName(withLabels[slot.Id].Label!)).IsEqualTo(slot.Label);
+        }
 
         Check.WithCustomMessage("The runtime More slot was annotated; '+N' belongs to the preview.")
              .That(withLabels["More"].Label!.Text).IsEqualTo("More");

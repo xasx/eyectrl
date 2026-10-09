@@ -148,6 +148,29 @@ public class ToolbarButtonVisualTests
     }
 
     /// <summary>
+    /// T08 fixup R3 (low): the Pause disc shows Play while paused, so its UIA name must follow the
+    /// face — a screen reader announcing "Pause" for the resume action would mislead exactly the
+    /// user who cannot see which glyph is drawn. The swap rebuilds the anchor; the name is read
+    /// from the freshly drawn one.
+    /// </summary>
+    [StaFact]
+    public void ThePauseButton_NamesItsCurrentFace()
+    {
+        var window = NewInitialisedToolbar();
+        var canvas = ButtonCanvas(window);
+
+        string NameOfPause() => AutomationProperties.GetName(
+            canvas.Children.OfType<TextBlock>()
+                .Single(t => AutomationProperties.GetAutomationId(t) == "Toolbar_Button_Pause"));
+
+        Check.That(NameOfPause()).IsEqualTo("Pause");
+        window.SetPausedState(true);
+        Check.That(NameOfPause()).IsEqualTo("Resume");
+        window.SetPausedState(false);
+        Check.That(NameOfPause()).IsEqualTo("Pause");
+    }
+
+    /// <summary>
     /// The anchor's box must be the disc's box, because the anchor is what publishes the button's
     /// BoundingRectangle to UIA and dwell simulation aims at that rectangle's centre
     /// (AppFixture.SimulateDwellOn, AppFixture.cs:259-265). An unsized TextBlock in a Canvas

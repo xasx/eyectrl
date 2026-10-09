@@ -37,12 +37,12 @@ public class QwertzKeyCaptionDataTests
             ["modifier:win"] = ("Win", null, null),
             ["modifier:alt"] = ("Alt", null, null),
             ["modifier:ctrl"] = ("Strg", null, null),
-            ["modifier:shift"] = ("\u21E7", null, "Umschalttaste"),              // ⇧
-            ["toggle:capslock"] = ("\u2B06", null, "Feststelltaste"),           // ⬆ (A2, 2026-10-08)
+            ["modifier:shift"] = ("\u21E7", "shiftArrow", "Umschalttaste"),       // ⇧ wide drawn outline arrow
+            ["toggle:capslock"] = ("\u2B06", "capsArrow", "Feststelltaste"),    // ⬆ wide filled arrow + lock bar
             ["backspace"] = ("\u232B", null, "R\u00FCcktaste"),                 // ⌫  Rücktaste
             ["deleteWord"] = ("Aa", "eraseLeft", "Wort l\u00F6schen"),          // Aa inside the erase arrow (C3+D3, 2026-10-08)
             ["space"] = ("\u2334", null, "Leertaste"),                          // ⌴
-            ["enter"] = ("\u21B5", null, "Eingabetaste"),                       // ↵
+            ["enter"] = ("\u21B5", "enterArrow", "Eingabetaste"),               // ↵ drawn the same way (G4+)
             ["tab"] = ("\u21E5", null, "Tabulatortaste"),                       // ⇥
             ["switchEmoji"] = ("\uD83D\uDE00", null, "Emoji"),                  // 😀
             ["switchSub:letters"] = ("ABC", null, null),

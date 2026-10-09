@@ -12,6 +12,7 @@ using System.Windows.Automation;
 using System.Windows.Automation.Peers;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using Path = System.Windows.Shapes.Path;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
@@ -166,14 +167,17 @@ public class SymbolCaptionFitTests
                         // invisible there. An ordinary caption's advance is its widest line; a
                         // framed caption's is the drawn arrow's extent, stroke included.
                         double advance, captionHeight;
-                        if (key.LabelFrame == EraseLabelFrame.EraseLeft)
+                        if (key.LabelFrame is not null)
                         {
-                            var (canvas, arrow, text) = EraseFrameParts(content);
+                            // The frame's nominal ink box IS the canvas size in every frame style
+                            // (the geometry is inset by half the stroke), so it is the advance and
+                            // the height the fit gates measure.
+                            var canvas = FrameCanvas(content);
                             advance = canvas.Width;
                             captionHeight = canvas.Height;
 
-                            // The frame must stay inside the key minus the rule's edge padding
-                            // (round-3 gate), and the label must stay the invisible UIA anchor.
+                            // The frame must stay inside the key minus the rule's edge padding, and
+                            // the label must stay the invisible UIA anchor.
                             if (advance > container.ActualWidth - 2 * 2.0 + 1e-6)
                                 clipped.Add($"{file} {sub} '{label.Text}' ({id}) at {mult:0.0}x: frame "
                                             + $"{advance:0.000} > box {container.ActualWidth:0.###} minus padding");
@@ -184,19 +188,24 @@ public class SymbolCaptionFitTests
                                 captionPins.Add($"{file} {sub} '{label.Text}' ({id}) at {mult:0.0}x: the frame's "
                                                 + $"label is visible (Opacity {label.Opacity})");
 
-                            // The filled text is drawn at a font in [12, label.FontSize]; a fixed
-                            // size below the floor (or above the key font) leaves that band. The
-                            // 1e-3 slack absorbs Geometry.Bounds' outline-approximation noise
-                            // (measured ~1.3e-6); the mutation it guards moves the glyphs by DIP.
-                            var drawnText = text.Data.Bounds;
-                            var atKeyFont = TextGeometry(label.Text, label.FontSize).Bounds;
-                            var atFloor = TextGeometry(label.Text, Legibility.MinimumGlyphFontSize).Bounds;
-                            if (drawnText.Width > atKeyFont.Width + 1e-3 || drawnText.Width < atFloor.Width - 1e-3
-                                || drawnText.Height > atKeyFont.Height + 1e-3 || drawnText.Height < atFloor.Height - 1e-3)
-                                captionPins.Add($"{file} {sub} '{label.Text}' ({id}) at {mult:0.0}x: drawn text "
-                                                + $"{drawnText.Width:0.###}x{drawnText.Height:0.###} is outside the "
-                                                + $"key-font..floor band {atFloor.Width:0.###}x{atFloor.Height:0.###}"
-                                                + $"..{atKeyFont.Width:0.###}x{atKeyFont.Height:0.###}");
+                            // The erase frame's fill is text geometry; it must be drawn at a font in
+                            // [12, label.FontSize]. The arrows draw no text, so only the erase frame
+                            // takes this pin. The 1e-3 slack absorbs Geometry.Bounds'
+                            // outline-approximation noise (measured ~1.3e-6); the mutation it guards
+                            // moves the glyphs by DIP.
+                            if (key.LabelFrame == EraseLabelFrame.EraseLeft)
+                            {
+                                var text = FramePaths(canvas)[1];
+                                var drawnText = text.Data.Bounds;
+                                var atKeyFont = TextGeometry(label.Text, label.FontSize).Bounds;
+                                var atFloor = TextGeometry(label.Text, Legibility.MinimumGlyphFontSize).Bounds;
+                                if (drawnText.Width > atKeyFont.Width + 1e-3 || drawnText.Width < atFloor.Width - 1e-3
+                                    || drawnText.Height > atKeyFont.Height + 1e-3 || drawnText.Height < atFloor.Height - 1e-3)
+                                    captionPins.Add($"{file} {sub} '{label.Text}' ({id}) at {mult:0.0}x: drawn text "
+                                                    + $"{drawnText.Width:0.###}x{drawnText.Height:0.###} is outside the "
+                                                    + $"key-font..floor band {atFloor.Width:0.###}x{atFloor.Height:0.###}"
+                                                    + $"..{atKeyFont.Width:0.###}x{atKeyFont.Height:0.###}");
+                            }
                         }
                         else
                         {
@@ -622,7 +631,10 @@ public class SymbolCaptionFitTests
 
                 var visual = KeyVisuals(window, layout, "letters")
                     .Single(v => v.Key.SpecialAction == "deleteWord");
-                var (canvas, arrow, text) = EraseFrameParts(visual.Content);
+                var canvas = FrameCanvas(visual.Content);
+                var paths = FramePaths(canvas);
+                var arrow = paths[0];
+                var text = paths[1];
                 var frame = EraseLabelFrame.Measure(visual.Key.Label, visual.Label.FontSize,
                     visual.Container.ActualHeight, visual.Container.ActualWidth);
 
@@ -670,22 +682,261 @@ public class SymbolCaptionFitTests
         Check.That(EraseLabelFrame.GapRatio).IsCloseTo(0.32, 0.001);
     }
 
+    /// <summary>
+    /// The round-6 wide arrows (G4+, 2026-10-09), pinned from the designer's own G4+ report
+    /// (C:\t\keys\round6-measurements.txt): at 1.5x/letters the drawn ink is Caps 42.0 x 57.5,
+    /// Shift 42.0 x 46.5, Enter 42.0 x 32.0 (tolerance 0.05, ink measured the designer's way at
+    /// 192 dpi); at 0.5x the ink stays one third of the key for Caps and Shift and 0.267 of its
+    /// 1.5-unit key for Enter. Caps' fill and the Shift outline are pinned, so "Caps not filled"
+    /// dies here too.
+    /// </summary>
+    [StaFact]
+    public void ShippedQwertz_ArrowFrames_MatchTheDesignersGoldenGeometry()
+    {
+        var layout = ShippedQwertz();
+        var (window, vm) = Open(layout, 1.5);
+        try
+        {
+            foreach (var (mult, golden) in new[]
+                     {
+                         (1.5, new (string Action, double W, double H, double Frac)[]
+                         {
+                             ("toggle:capslock", 42.0, 57.5, 1 / 3.0),
+                             ("modifier:shift", 42.0, 46.5, 1 / 3.0),
+                             ("enter", 42.0, 32.0, 0.2667),
+                         }),
+                         (0.5, new (string Action, double W, double H, double Frac)[]
+                         {
+                             ("toggle:capslock", 0, 0, 1 / 3.0),
+                             ("modifier:shift", 0, 0, 1 / 3.0),
+                             ("enter", 0, 0, 0.2667),
+                         }),
+                     })
+            {
+                window.LoadLayout(layout, mult, KeyDwellMs, PredictionDwellMs, CooldownMs);
+                vm.SwitchSubLayout("letters");
+                Layout(window);
+                var root = (FrameworkElement)window.Content;
+
+                foreach (var (action, expectedW, expectedH, expectedFraction) in golden)
+                {
+                    var visual = KeyVisuals(window, layout, "letters")
+                        .Single(v => v.Key.SpecialAction == action);
+                    var canvas = FrameCanvas(visual.Content);
+                    var path = FramePaths(canvas).Single();
+                    var ink = MeasureInk(visual.Container, root);
+
+                    if (mult == 1.5)
+                    {
+                        Check.WithCustomMessage(
+                                $"{action} at 1.5x: ink {ink.Width:0.0}x{ink.Height:0.0}, the designer's "
+                                + $"G4+ is {expectedW}x{expectedH} (tolerance 0.05)")
+                             .That(ink.Width).IsCloseTo(expectedW, 0.05);
+                        Check.That(ink.Height).IsCloseTo(expectedH, 0.05);
+                        // The canvas is the nominal target (one third of the box), 0.267 more than
+                        // the 192-dpi ink measurement's rounded width.
+                        Check.That(canvas.Width)
+                             .IsCloseTo(ArrowLabelFrame.TargetWidth(visual.Container.ActualHeight), 1e-9);
+                    }
+                    Check.WithCustomMessage(
+                            $"{action} at {mult:0.0}x: ink {ink.Width:0.0} is "
+                            + $"{ink.Width / visual.Container.ActualWidth:P1} of the key, the designer's G4+ is "
+                            + $"{expectedFraction:P1}")
+                         .That(ink.Width / visual.Container.ActualWidth).IsCloseTo(expectedFraction, 0.01);
+
+                    // The frame is the drawn geometry in the label's own brush; Caps and the Enter
+                    // head are filled, the Shift outline is not.
+                    Check.That(path.Stroke).IsSameReferenceAs(visual.Label.Foreground);
+                    if (action == "modifier:shift")
+                        Check.That(path.Fill).IsNull();
+                    else
+                        Check.That(path.Fill).IsSameReferenceAs(visual.Label.Foreground);
+                    Check.That(visual.Label.Opacity).IsEqualTo(0.0);
+                }
+            }
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// The wide arrows' proportions, as the round-6 spec states them: aspect 1.1, head 55 % of the
+    /// inset height, shaft 48 % of the inset width, the Caps bar 0.16w tall and 0.10w below at the
+    /// shaft's ink width, and Enter 0.75w tall with a 0.32w head of half-height 0.24w. Pinned so a
+    /// proportion change fails a named test.
+    /// </summary>
+    [Fact]
+    public void ArrowFrames_CalibrationConstants_AreTheMeasuredOnes()
+    {
+        Check.That(ArrowLabelFrame.Aspect).IsEqualTo(1.1);
+        Check.That(ArrowLabelFrame.HeadRatio).IsEqualTo(0.55);
+        Check.That(ArrowLabelFrame.ShaftRatio).IsEqualTo(0.48);
+        Check.That(ArrowLabelFrame.BarRatio).IsEqualTo(0.16);
+        Check.That(ArrowLabelFrame.BarGapRatio).IsEqualTo(0.10);
+        Check.That(ArrowLabelFrame.EnterAspect).IsEqualTo(0.75);
+        Check.That(ArrowLabelFrame.EnterHeadLength).IsEqualTo(0.32);
+        Check.That(ArrowLabelFrame.EnterHeadHalf).IsEqualTo(0.24);
+        Check.WithCustomMessage("the target is one third of a 1.2-unit box: 42.267 DIP at 1.5x")
+             .That(ArrowLabelFrame.TargetWidth(105)).IsCloseTo((105 * 1.2 + 0.8) / 3, 1e-9);
+        Check.That(ArrowLabelFrame.IsArrow(ArrowLabelFrame.CapsArrow)).IsTrue();
+        Check.That(ArrowLabelFrame.IsArrow(ArrowLabelFrame.ShiftArrow)).IsTrue();
+        Check.That(ArrowLabelFrame.IsArrow(ArrowLabelFrame.EnterArrow)).IsTrue();
+        Check.That(ArrowLabelFrame.IsArrow(EraseLabelFrame.EraseLeft)).IsFalse();
+        Check.That(ArrowLabelFrame.IsArrow(null)).IsFalse();
+    }
+
+    /// <summary>
+    /// The wide arrows must survive every repaint (Caps on/off, Shift on/off), keep their geometry
+    /// and brush, and never leave the hidden label visible. A repaint that rebuilt the key's
+    /// content from the label alone would drop the arrow while the dwell outline, the id and the
+    /// name stayed healthy.
+    /// </summary>
+    [StaFact]
+    public void ShippedQwertz_ArrowFrames_SurviveCapsAndShiftRepaints()
+    {
+        var layout = ShippedQwertz();
+        var (window, vm) = Open(layout, 1.5);
+        try
+        {
+            foreach (var modifier in new[] { ModifierKey.CapsLock, ModifierKey.Shift })
+            {
+                foreach (var action in new[] { "toggle:capslock", "modifier:shift", "enter" })
+                {
+                    var before = ArrowFrame(window, layout, action);
+                    Check.WithCustomMessage($"{modifier}: the '{action}' key has no drawn arrow to begin with")
+                         .That(before).IsNotNull();
+
+                    vm.ToggleModifier(modifier);
+                    Layout(window);
+                    var on = ArrowFrame(window, layout, action);
+                    Check.WithCustomMessage(
+                            $"{modifier} on dropped the arrow (content {ContentKind(window, layout, action)}): "
+                            + "the frame must survive every repaint.")
+                         .That(on).IsNotNull();
+                    Check.That(on!.Value.Canvas.Width).IsEqualTo(before!.Value.Canvas.Width);
+                    Check.That(on.Value.Canvas.Height).IsEqualTo(before.Value.Canvas.Height);
+                    Check.That(on.Value.Arrow.Data.Bounds).IsEqualTo(before.Value.Arrow.Data.Bounds);
+                    Check.That(on.Value.Arrow.Stroke).IsSameReferenceAs(on.Value.Label.Foreground);
+                    Check.That(on.Value.Label.Opacity).IsEqualTo(0.0);
+
+                    vm.ToggleModifier(modifier);
+                    Layout(window);
+                    Check.WithCustomMessage($"{modifier} off dropped the arrow on '{action}'")
+                         .That(ArrowFrame(window, layout, action)).IsNotNull();
+                }
+            }
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>Each drawn-arrow key exposes exactly one named automation element — its hidden
+    /// label — with the layout's German name and the unchanged AutomationId.</summary>
+    [StaFact]
+    public void ShippedQwertz_ArrowKeys_ExposeExactlyOneNamedUiaElement()
+    {
+        var layout = ShippedQwertz();
+        var (window, vm) = Open(layout, 1.5);
+        try
+        {
+            foreach (var (action, name) in new[]
+                     {
+                         ("toggle:capslock", "Feststelltaste"),
+                         ("modifier:shift", "Umschalttaste"),
+                         ("enter", "Eingabetaste"),
+                     })
+            {
+                var visual = KeyVisuals(window, layout, "letters")
+                    .Single(v => v.Key.SpecialAction == action);
+                var named = NamedUiaElements(visual.Container);
+                Check.WithCustomMessage(
+                        $"{action}: UIA elements under the key: "
+                        + string.Join("; ", named.Select(n => $"'{n.Name}' id='{n.Id}'")))
+                     .That(named).HasSize(1);
+                Check.That(named[0].Name).IsEqualTo(name);
+                Check.That(named[0].Id).IsEqualTo($"Keyboard_Key_{action}");
+            }
+        }
+        finally { window.Close(); }
+    }
+
+    private static (TextBlock Label, Canvas Canvas, Path Arrow)? ArrowFrame(
+        KeyboardWindow window, KeyboardLayout layout, string action)
+    {
+        var visual = KeyVisuals(window, layout, "letters").Single(v => v.Key.SpecialAction == action);
+        if (visual.Content is not Grid holder) return null;
+        var canvas = holder.Children.OfType<Canvas>().SingleOrDefault();
+        var paths = canvas is null ? [] : FramePaths(canvas);
+        return paths.Count == 1 ? (visual.Label, canvas!, paths[0]) : null;
+    }
+
+    /// <summary>The named peers under an element, as UIA would build the tree.</summary>
+    private static List<(string Name, string Id)> NamedUiaElements(DependencyObject node)
+    {
+        var named = new List<(string, string)>();
+        void Walk(DependencyObject d)
+        {
+            if (d is UIElement element
+                && UIElementAutomationPeer.CreatePeerForElement(element) is { } peer
+                && !string.IsNullOrEmpty(peer.GetName()))
+                named.Add((peer.GetName(), peer.GetAutomationId()));
+            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(d); i++)
+                Walk(VisualTreeHelper.GetChild(d, i));
+        }
+        Walk(node);
+        return named;
+    }
+
+    /// <summary>The drawn ink of one key at 192 dpi, the designer's method: the bounding box of the
+    /// pixels at least halfway from the key's own fill to the caption colour (±0.5 DIP).</summary>
+    private static Rect MeasureInk(Border container, FrameworkElement root)
+    {
+        var bounds = container.TransformToAncestor(root).TransformBounds(new Rect(container.RenderSize));
+        int x = (int)Math.Round(bounds.X * 2), y = (int)Math.Round(bounds.Y * 2);
+        int w = (int)Math.Round(bounds.Width * 2), h = (int)Math.Round(bounds.Height * 2);
+        var bmp = new RenderTargetBitmap(
+            (int)Math.Ceiling(root.ActualWidth * 2), (int)Math.Ceiling(root.ActualHeight * 2),
+            192, 192, PixelFormats.Pbgra32);
+        bmp.Render(root);
+        var px = new byte[w * h * 4];
+        bmp.CopyPixels(new Int32Rect(x, y, w, h), px, w * 4, 0);
+
+        var fill = ((SolidColorBrush)container.Background).Color;
+        var text = ((SolidColorBrush)Tokens.BrushTextPrimary).Color;
+        double dr = text.R - fill.R, dg = text.G - fill.G, db = text.B - fill.B;
+        var dd = dr * dr + dg * dg + db * db;
+        int minX = int.MaxValue, maxX = -1, minY = int.MaxValue, maxY = -1;
+        for (var yy = 0; yy < h; yy++)
+            for (var xx = 0; xx < w; xx++)
+            {
+                var i = (yy * w + xx) * 4;
+                var a = px[i + 3];
+                if (a == 0) continue;
+                double B = px[i] * 255.0 / a, G = px[i + 1] * 255.0 / a, R = px[i + 2] * 255.0 / a;
+                var proj = ((R - fill.R) * dr + (G - fill.G) * dg + (B - fill.B) * db) / dd;
+                if (proj < 0.5) continue;
+                minX = Math.Min(minX, xx); maxX = Math.Max(maxX, xx);
+                minY = Math.Min(minY, yy); maxY = Math.Max(maxY, yy);
+            }
+        return maxX < 0
+            ? Rect.Empty
+            : new Rect(minX / 2.0, minY / 2.0, (maxX - minX + 1) / 2.0, (maxY - minY + 1) / 2.0);
+    }
+
     private static (TextBlock Label, Canvas Canvas, Path Arrow, Path Text)? EraseFrame(
         KeyboardWindow window, KeyboardLayout layout)
     {
         var visual = KeyVisuals(window, layout, "letters").Single(v => v.Key.SpecialAction == "deleteWord");
         if (visual.Content is not Grid holder) return null;
         var canvas = holder.Children.OfType<Canvas>().SingleOrDefault();
-        var paths = canvas?.Children.OfType<Path>().ToList();
-        return paths is { Count: 2 } ? (visual.Label, canvas!, paths[0], paths[1]) : null;
+        var paths = canvas is null ? [] : FramePaths(canvas);
+        return paths.Count == 2 ? (visual.Label, canvas!, paths[0], paths[1]) : null;
     }
 
-    private static (Canvas Canvas, Path Arrow, Path Text) EraseFrameParts(FrameworkElement content)
-    {
-        var canvas = ((Grid)content).Children.OfType<Canvas>().Single();
-        var paths = canvas.Children.OfType<Path>().ToList();
-        return (canvas, paths[0], paths[1]);
-    }
+    /// <summary>The frame holder's Canvas: the drawn erase arrow or Caps/Shift/Enter arrow.</summary>
+    private static Canvas FrameCanvas(FrameworkElement content) =>
+        ((Grid)content).Children.OfType<Canvas>().Single();
+
+    /// <summary>The Paths inside a frame Canvas: [arrow, text] for eraseLeft, [arrow] for the arrows.</summary>
+    private static List<Path> FramePaths(Canvas canvas) => canvas.Children.OfType<Path>().ToList();
 
     /// <summary>
     /// F2 (review-03): the framed caption must not be a second UIA element. A screen reader on the
@@ -724,9 +975,9 @@ public class SymbolCaptionFitTests
         finally { window.Close(); }
     }
 
-    private static string ContentKind(KeyboardWindow window, KeyboardLayout layout)
+    private static string ContentKind(KeyboardWindow window, KeyboardLayout layout, string action = "deleteWord")
     {
-        var visual = KeyVisuals(window, layout, "letters").Single(v => v.Key.SpecialAction == "deleteWord");
+        var visual = KeyVisuals(window, layout, "letters").Single(v => v.Key.SpecialAction == action);
         return visual.Content.GetType().Name;
     }
 

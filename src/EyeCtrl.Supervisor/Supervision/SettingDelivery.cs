@@ -59,6 +59,11 @@ internal enum SettingDeliveryState
 /// working, so every retry is sent with <c>restart: false</c> — saved only.</para>
 /// <para><b>Memory only.</b> A parked choice lives in this object, so a Supervisor exit or a reboot
 /// loses it; the row's note says so.</para>
+/// <para><b>The launch argument</b> (<see cref="LaunchArgument"/>) rides on one launch per choice, and
+/// the launched App's first heartbeat retries at once. The remainder is inherent: a user who
+/// reverts in the App within its startup plus about one heartbeat (~3 s), before that first
+/// heartbeat, makes en → de → en indistinguishable from "the flagged launch lost the
+/// single-instance guard", so the channel re-sends the choice (saved only, never a restart).</para>
 /// </remarks>
 /// <typeparam name="T">The setting's value type.</typeparam>
 internal sealed class SettingDelivery<T> where T : struct
@@ -69,6 +74,10 @@ internal sealed class SettingDelivery<T> where T : struct
     /// <summary>The cap the retry backoff doubles up to.</summary>
     public static readonly TimeSpan MaxRetryDelay = TimeSpan.FromSeconds(60);
 
+    /// <summary>A silence between verified heartbeats longer than this means the App went away
+    /// and came back (the App publishes every few seconds while supervised).</summary>
+    public static readonly TimeSpan HeartbeatGap = TimeSpan.FromSeconds(10);
+
     private readonly string _name;
     private readonly Func<T, bool, SettingRequest> _build;
     private readonly Func<SettingRequest, Task<AppRequestResult>> _send;
@@ -76,13 +85,24 @@ internal sealed class SettingDelivery<T> where T : struct
     private readonly Func<T?>? _readDisk;
     private readonly Action<Action> _runInBackground;
     private readonly Func<DateTime> _utcNow;
+    private readonly bool _confirmSaveByReRead;
 
     private T? _wanted;
+    // Counts the user's choices. A choice made while a send or a re-read is in flight is told
+    // apart by this, never by its value: a live choice equal to the value in flight still has to
+    // go out as live (T05b's restart), so value equality must not swallow it.
+    private int _choiceGeneration;
     private bool _wantedIsLive;
     private bool _inFlight;
     private T? _diskAtPark;
     private int _failedAttempts;
     private DateTime? _nextRetryAt;
+    // A freshly (re)started App: the next verified heartbeat retries a pending choice at once,
+    // ignoring the backoff, so the choice settles within one heartbeat instead of up to a minute.
+    private bool _retryOnNextHeartbeat;
+    private DateTime? _lastHeartbeatAt;
+    // The choice (by generation) whose value already rode on a launch as an argument.
+    private int _launchArgumentGeneration = -1;
 
     /// <param name="name">The setting's name, for the log.</param>
     /// <param name="build">Builds the request for a value; the flag is whether it may restart.</param>
@@ -94,6 +114,10 @@ internal sealed class SettingDelivery<T> where T : struct
     /// <param name="runInBackground">Runs the pre-retry re-read off the UI thread; default
     /// <c>Task.Run</c>.</param>
     /// <param name="utcNow">The clock the backoff reads; default <see cref="DateTime.UtcNow"/>.</param>
+    /// <param name="confirmSaveByReRead">The stricter clearing policy (T05b): a saved
+    /// acknowledgement does not clear the choice by itself; a guarded re-read must find it on disk
+    /// first. Off by default: StartOnBoot (T05a) clears on the acknowledgement. Needs
+    /// <paramref name="readDisk"/>.</param>
     public SettingDelivery(
         string name,
         Func<T, bool, SettingRequest> build,
@@ -101,7 +125,8 @@ internal sealed class SettingDelivery<T> where T : struct
         Action<Action> postToUi,
         Func<T?>? readDisk = null,
         Action<Action>? runInBackground = null,
-        Func<DateTime>? utcNow = null)
+        Func<DateTime>? utcNow = null,
+        bool confirmSaveByReRead = false)
     {
         _name = name;
         _build = build;
@@ -110,6 +135,7 @@ internal sealed class SettingDelivery<T> where T : struct
         _readDisk = readDisk;
         _runInBackground = runInBackground ?? (work => Task.Run(work));
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
+        _confirmSaveByReRead = confirmSaveByReRead && readDisk is not null;
     }
 
     /// <summary>The choice not yet known to be saved; null when there is none.</summary>
@@ -123,6 +149,10 @@ internal sealed class SettingDelivery<T> where T : struct
 
     /// <summary>The value last known to be saved in this session (acknowledged or re-read).</summary>
     public T? LastSaved { get; private set; }
+
+    /// <summary>The status of the last saved acknowledgement (<see cref="SettingRequestStatus.Saved"/>
+    /// or <see cref="SettingRequestStatus.RestartInProgress"/>); null before the first.</summary>
+    public SettingRequestStatus? LastSavedStatus { get; private set; }
 
     /// <summary>After <see cref="SettingDeliveryState.Superseded"/>: the newer value found on disk.</summary>
     public T? SupersededBy { get; private set; }
@@ -140,6 +170,7 @@ internal sealed class SettingDelivery<T> where T : struct
     {
         _wanted = value;
         _wantedIsLive = true;
+        _choiceGeneration++;
         ResetRetry();
         _diskAtPark = null;
         if (_inFlight)
@@ -151,8 +182,47 @@ internal sealed class SettingDelivery<T> where T : struct
         Send();
     }
 
-    /// <summary>A verified heartbeat arrived from a running App: retry a parked choice if due.</summary>
-    public void OnAppHeartbeat() => RetryIfDue();
+    /// <summary>A verified heartbeat arrived from a running App: retry a parked choice if due —
+    /// at once, ignoring the backoff, when it is the first heartbeat after a launch
+    /// (<see cref="AppLaunched"/>) or after a gap longer than <see cref="HeartbeatGap"/>.</summary>
+    public void OnAppHeartbeat()
+    {
+        var now = _utcNow();
+        if (_lastHeartbeatAt is not { } last || now - last > HeartbeatGap)
+            _retryOnNextHeartbeat = true;
+        _lastHeartbeatAt = now;
+
+        if (_wanted is null)
+        {
+            _retryOnNextHeartbeat = false;
+            return;
+        }
+        if (_retryOnNextHeartbeat && !_inFlight)
+        {
+            // Kept while a flight is open, so the next heartbeat still gets its immediate retry.
+            _retryOnNextHeartbeat = false;
+            _nextRetryAt = null;
+        }
+        RetryIfDue();
+    }
+
+    /// <summary>
+    /// The value to pass on the Supervisor's next launch of the App (T05b's <c>--ui-language</c>):
+    /// the pending choice, but at most once per choice. A later launch — the App's own supervised
+    /// restart, a crash relaunch — passes nothing, because by then the App may hold a NEWER choice
+    /// the user made in it, and a launch argument is applied without any check. The channel and the
+    /// guarded re-read deliver a choice that the first launch did not settle.
+    /// </summary>
+    public T? LaunchArgument() =>
+        _wanted is { } wanted && _launchArgumentGeneration != _choiceGeneration ? wanted : null;
+
+    /// <summary>The Supervisor launched the App: the current choice counts as passed (when it was),
+    /// and the App's first verified heartbeat retries at once.</summary>
+    public void AppLaunched()
+    {
+        if (_wanted is not null) _launchArgumentGeneration = _choiceGeneration;
+        _retryOnNextHeartbeat = true;
+    }
 
     /// <summary>The Supervisor's clock ticked: retry a parked choice if due. This is what delivers
     /// to an App running with supervision off, which publishes no heartbeats.</summary>
@@ -160,7 +230,7 @@ internal sealed class SettingDelivery<T> where T : struct
 
     private void RetryIfDue()
     {
-        if (_wanted is not { } wanted || _inFlight) return;
+        if (_wanted is null || _inFlight) return;
         if (_nextRetryAt is { } due && _utcNow() < due) return;
         if (_readDisk is null)
         {
@@ -171,20 +241,21 @@ internal sealed class SettingDelivery<T> where T : struct
         // The stale-park guard re-reads the disk first, off the UI thread; it holds the flight so
         // no second retry starts meanwhile.
         _inFlight = true;
+        var generation = _choiceGeneration;
         _runInBackground(() =>
         {
             var disk = ReadDiskSafely();
-            _postToUi(() => GuardThenSend(wanted, disk));
+            _postToUi(() => GuardThenSend(generation, disk));
         });
     }
 
-    private void GuardThenSend(T guarded, T? disk)
+    private void GuardThenSend(int generation, T? disk)
     {
         _inFlight = false;
         if (_wanted is not { } wanted) return;
-        if (!Same(wanted, guarded))
+        if (generation != _choiceGeneration)
         {
-            Send();   // a new choice arrived during the re-read: it is live, send it now
+            Send();   // the user chose during the re-read: that choice is live, send it now
             return;
         }
 
@@ -219,6 +290,7 @@ internal sealed class SettingDelivery<T> where T : struct
     {
         var value = _wanted!.Value;
         var request = _build(value, _wantedIsLive);
+        var generation = _choiceGeneration;
         _inFlight = true;
         State = SettingDeliveryState.Sending;
         Changed?.Invoke();
@@ -241,7 +313,7 @@ internal sealed class SettingDelivery<T> where T : struct
                     : AppRequestResult.NotAvailable($"send faulted: {t.Exception?.GetBaseException().Message}");
                 if (result.IsSaved || result.Status == SettingRequestStatus.Rejected || _readDisk is null)
                 {
-                    _postToUi(() => Complete(value, request, result, null));
+                    _postToUi(() => Complete(generation, value, request, result, null));
                     return;
                 }
 
@@ -252,7 +324,7 @@ internal sealed class SettingDelivery<T> where T : struct
                 _runInBackground(() =>
                 {
                     var disk = ReadDiskSafely();
-                    _postToUi(() => Complete(value, request, result, disk));
+                    _postToUi(() => Complete(generation, value, request, result, disk));
                 });
             },
             CancellationToken.None,
@@ -261,24 +333,40 @@ internal sealed class SettingDelivery<T> where T : struct
             TaskScheduler.Default);
     }
 
-    private void Complete(T sent, SettingRequest request, AppRequestResult result, T? diskAfter)
+    private void Complete(int generation, T sent, SettingRequest request, AppRequestResult result, T? diskAfter)
     {
         _inFlight = false;
-        var stillWanted = _wanted is { } wanted && Same(wanted, sent);
+        // "Still wanted" means no choice was made since this send started, not "the same value":
+        // a live re-pick of the value in flight must still go out live.
+        var stillWanted = generation == _choiceGeneration;
 
         if (result.IsSaved)
         {
-            LastSaved = sent;
+            LastSavedStatus = result.Status;
             ResetRetry();
             Log.Information("{Setting}={Value}: the App saved it ({Id}).", _name, sent, request.Id);
-            if (stillWanted)
+            if (!stillWanted)
             {
-                _wanted = null;
-                State = SettingDeliveryState.Saved;
-                Changed?.Invoke();
+                LastSaved = sent;
+                Send();   // a newer choice arrived meanwhile, and the App is answering: send it now
                 return;
             }
-            Send();   // a newer choice arrived meanwhile, and the App is answering: send it now
+            if (_confirmSaveByReRead)
+            {
+                // Hook (a), the stricter policy: the acknowledgement is not enough; the choice
+                // clears only when a guarded re-read finds it. The read holds the flight.
+                _inFlight = true;
+                _runInBackground(() =>
+                {
+                    var disk = ReadDiskSafely();
+                    _postToUi(() => ConfirmSaved(generation, sent, disk));
+                });
+                return;
+            }
+            LastSaved = sent;
+            _wanted = null;
+            State = SettingDeliveryState.Saved;
+            Changed?.Invoke();
             return;
         }
 
@@ -297,17 +385,61 @@ internal sealed class SettingDelivery<T> where T : struct
             return;
         }
 
-        // Not available, or the App's save failed: keep the newest choice and retry it later,
-        // backing off. From here on it is no longer live: a later delivery must never restart the
-        // App. The disk as it was when the choice first parked is the guard's reference.
-        _diskAtPark ??= diskAfter;
+        // Not available, or the App's save failed: keep the newest choice and retry it later.
+        Park(diskAfter, result.Detail);
+    }
+
+    /// <summary>The confirming re-read after a saved acknowledgement (hook (a)).</summary>
+    private void ConfirmSaved(int generation, T sent, T? disk)
+    {
+        _inFlight = false;
+        if (generation != _choiceGeneration)
+        {
+            Send();   // the user chose during the re-read: send that choice, live
+            return;
+        }
+        if (disk is { } onDisk && Same(onDisk, sent))
+        {
+            Log.Information("{Setting}={Value}: the re-read found it on disk; cleared.", _name, sent);
+            LastSaved = sent;
+            _wanted = null;
+            State = SettingDeliveryState.Saved;
+            Changed?.Invoke();
+            return;
+        }
+        if (disk is { } newer)
+        {
+            // Readable, and not our value: the App saved ours, then something newer was written —
+            // the user chose again in the App. The newer choice stays, as in the parked guard.
+            // (Parking with it as the reference would make the next retry send ours over it.)
+            Log.Warning(
+                "{Setting}={Value}: acknowledged, but the disk already holds the newer {Newer}; dropped.",
+                _name, sent, newer);
+            _wanted = null;
+            SupersededBy = newer;
+            ResetRetry();
+            State = SettingDeliveryState.Superseded;
+            Changed?.Invoke();
+            return;
+        }
+        // Acknowledged, but the re-read could not tell (contended): keep the choice and let the
+        // guarded retry settle it, without a restart.
+        Park(disk, "acknowledged, but the re-read could not confirm it");
+    }
+
+    /// <summary>Keeps the newest choice for a later retry, backing off. From here on it is no
+    /// longer live: a later delivery must never restart the App. The disk as it was when the
+    /// choice first parked is the stale-park guard's reference.</summary>
+    private void Park(T? diskNow, string detail)
+    {
+        _diskAtPark ??= diskNow;
         _wantedIsLive = false;
         _failedAttempts++;
         var delay = RetryDelayAfter(_failedAttempts);
         _nextRetryAt = _utcNow() + delay;
         Log.Information(
             "{Setting}={Value}: parked; next try in {Delay:0}s ({Detail}).",
-            _name, _wanted, delay.TotalSeconds, result.Detail);
+            _name, _wanted, delay.TotalSeconds, detail);
         State = SettingDeliveryState.Parked;
         Changed?.Invoke();
     }

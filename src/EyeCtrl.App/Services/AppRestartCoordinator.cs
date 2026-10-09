@@ -112,6 +112,11 @@ public sealed class AppRestartCoordinator
     /// </summary>
     public bool SupervisorRelaunchRequested { get; private set; }
 
+    /// <summary>Whether a restart attempt holds the in-flight latch, so a new
+    /// <see cref="HandleRestart"/> would be dropped. The Supervisor's language request reads it to
+    /// answer "restart already in progress" instead of a silent drop.</summary>
+    public bool IsRestartInProgress => Volatile.Read(ref _restartInFlight) != 0;
+
     /// <summary>
     /// Whether the settings surface should offer to start a supervisor before restarting.
     /// True only when one is installed and none is currently answering — offering what is

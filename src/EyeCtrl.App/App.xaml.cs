@@ -406,7 +406,11 @@ public partial class App : Application
             _supervisorRequests = new SupervisorRequestService(
                 new SupervisorRequestHandler(
                     settings, settingsService.Save,
-                    _serviceProvider.GetRequiredService<ILogger<SupervisorRequestHandler>>()).Handle,
+                    _serviceProvider.GetRequiredService<ILogger<SupervisorRequestHandler>>(),
+                    // A live SetUiLanguage restarts through the same coordinator as the App's own
+                    // language row, after its acknowledgement is out (hook (b)).
+                    isRestartInProgress: () => _restartCoordinator?.IsRestartInProgress ?? false,
+                    requestRestart: () => _restartCoordinator?.HandleRestart(startSupervisor: false)).Handle,
                 runOnUi: work => Dispatcher.InvokeAsync(work).Task,
                 _serviceProvider.GetRequiredService<ILogger<SupervisorRequestService>>());
             _supervisorRequests.Start();

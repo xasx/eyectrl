@@ -503,4 +503,28 @@ public class AppRestartCoordinatorTests
         Check.That(h.SelfAttempts).IsEqualTo(1);
         Check.That(h.Log).ContainsExactly("shutdown");
     }
+
+    // ── T05b: what the Supervisor's language request reads ─────────────────────────────────
+
+    [Fact]
+    public void IsRestartInProgress_IsFalseUntilARestartIsAccepted_AndStaysTrueWhileItRuns()
+    {
+        var h = new Harness(supervisionEnabled: false);
+        Check.That(h.Coordinator.IsRestartInProgress).IsFalse();
+
+        h.Request();                               // accepted; shutdown is under way
+
+        Check.That(h.Coordinator.IsRestartInProgress).IsTrue();
+    }
+
+    [Fact]
+    public void IsRestartInProgress_IsFalseAgain_AfterARefusalReArms()
+    {
+        var h = new Harness(supervisionEnabled: false) { SelfOutcome = RestartOutcome.LaunchFailed };
+
+        h.Request();
+
+        Check.That(h.Coordinator.IsRestartInProgress).IsFalse();
+    }
 }
+

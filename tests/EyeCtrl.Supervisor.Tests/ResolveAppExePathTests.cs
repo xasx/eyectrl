@@ -5,9 +5,15 @@ using EyeCtrl.Supervisor;
 using NFluent;
 using Xunit;
 
-public class ResolveAppExePathTests
+[Collection(AppExeEnvironmentCollection.Name)]
+public class ResolveAppExePathTests : IDisposable
 {
     private const string EnvVar = AppExePathResolver.AppExeEnvVar;
+
+    // Restored after every test, whatever the test set: the variable is process-wide.
+    private readonly string? _original = Environment.GetEnvironmentVariable(EnvVar);
+
+    public void Dispose() => Environment.SetEnvironmentVariable(EnvVar, _original);
 
     [Fact]
     public void Resolve_EnvVarSetToExistingFile_ReturnsEnvVarPath()

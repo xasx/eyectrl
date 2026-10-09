@@ -142,6 +142,41 @@ public class SettingsPagerChromeTests
             .Throws<ArgumentOutOfRangeException>();
     }
 
+    /// <summary>
+    /// The glyph and the name must agree about "jump vs step" in all eight states (review 01 R3,
+    /// mutant M3): a button drawing ⏭ while UIA reads "Previous tab page" tells a screen-reader
+    /// user the opposite of what the sighted user sees.
+    /// </summary>
+    [Fact]
+    public void AccessibleNameKey_SaysJumpExactlyWhenTheGlyphIsADoubleArrow()
+    {
+        foreach (var id in new[] { "pag_prev", "pag_next", "tab_prev", "tab_next" })
+        {
+            foreach (var boundary in new[] { false, true })
+            {
+                var glyph = SettingsPagerChrome.GlyphFor(id, boundary);
+                var isJump = glyph is SettingsPagerChrome.JumpToEndGlyph
+                    or SettingsPagerChrome.JumpToStartGlyph;
+                Check.WithCustomMessage(
+                        $"{id} at boundary={boundary}: glyph \"{glyph}\" and name "
+                        + $"\"{EnglishName(id, boundary)}\" disagree about whether this is a jump.")
+                    .That(EnglishName(id, boundary).Contains("Jump", StringComparison.Ordinal))
+                    .IsEqualTo(isJump);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The page indicator's English, pinned as a literal (review 01 R2, mutant M2): the format is
+    /// in the table now, and nothing else asserts it.
+    /// </summary>
+    [Fact]
+    public void PageOf_FormatsTheTwoPageNumbers()
+    {
+        Check.That(StringTable.EmbeddedEnglish.T("settings.pager.page_of", 2, 5))
+            .IsEqualTo("2 / 5");
+    }
+
     // ────── Dwell times ──────
 
     [Fact]
@@ -852,11 +887,12 @@ public class SettingsPagerWiringTests
     public void PagerGlyphsAndActions_ComeFromTheBoundaryHelper()
     {
         // A glyph or an action hand-rolled at the call site would drift from the helper the
-        // behavioural tests pin. Both pagers' glyphs come from GlyphFor, and all four
-        // action sites (mouse + dwell, content + tab) from ActionFor.
-        Check.That(ExtractMethod(WindowSource(), "private Border MakePagButton("))
-            .Contains("SettingsPagerChrome.GlyphFor(");
-        Check.That(ExtractMethod(WindowSource(), "private void UpdateTabPagerButton("))
+        // behavioural tests pin. The glyph comes through ApplyPagerFace, which takes it from
+        // GlyphFor (review 01 R3 moved the glyph and the name into that one face helper); all
+        // four action sites (mouse + dwell, content + tab) come from ActionFor.
+        Check.WithCustomMessage(
+                "ApplyPagerFace no longer takes the glyph from SettingsPagerChrome.GlyphFor.")
+            .That(ExtractMethod(WindowSource(), "private static void ApplyPagerFace("))
             .Contains("SettingsPagerChrome.GlyphFor(");
 
         foreach (var signature in new[]
@@ -878,9 +914,10 @@ public class SettingsPagerWiringTests
     public void PagerButtons_CarryTheAccessibleNameFromTheHelper()
     {
         // D11: a glyph-only button exposes its arrow as the UIA name unless the view sets one.
-        // Both builders must name through the helper, the tab pager must re-name when the
-        // boundary flips (a wrap-jump button becomes a step button), and the close button's name
-        // is set in the XAML next to its glyph.
+        // Both builders must paint through the ONE face helper (review 01 R3: the glyph and the
+        // name come from a single boundary value, so they cannot disagree), the tab pager must
+        // re-paint when the boundary flips, and the close button's name is set in the XAML next
+        // to its glyph.
         foreach (var signature in new[]
                  {
                      "private Border MakePagButton(",
@@ -889,17 +926,24 @@ public class SettingsPagerWiringTests
                  })
         {
             Check.WithCustomMessage(
-                    $"{signature} no longer applies the pager's accessible name. The button is "
-                    + "glyph-only, so its UIA name would be the arrow itself (D11).")
-                .That(ExtractMethod(WindowSource(), signature)).Contains("SetPagerAccessibleName(");
+                    $"{signature} no longer paints the pager face through "
+                    + "ApplyPagerFace(btn, id, boundary). The button is glyph-only, so its UIA "
+                    + "name would be the arrow itself (D11); a `!boundary` (or a separate glyph "
+                    + "statement) could disagree with the name (R3).")
+                .That(ExtractMethod(WindowSource(), signature))
+                .Contains("ApplyPagerFace(btn, id, boundary)");
         }
 
+        var face = ExtractMethod(WindowSource(), "private static void ApplyPagerFace(");
         Check.WithCustomMessage(
-                "SetPagerAccessibleName no longer takes the name from "
+                "ApplyPagerFace no longer takes the glyph from SettingsPagerChrome.GlyphFor — the "
+                + "boundary-aware glyph mapping must live in the one testable helper.")
+            .That(face).Contains("SettingsPagerChrome.GlyphFor(");
+        Check.WithCustomMessage(
+                "ApplyPagerFace no longer takes the name from "
                 + "SettingsPagerChrome.AccessibleNameKey — the boundary-aware mapping must live "
                 + "in the one testable helper.")
-            .That(ExtractMethod(WindowSource(), "private static void SetPagerAccessibleName("))
-            .Contains("SettingsPagerChrome.AccessibleNameKey(");
+            .That(face).Contains("SettingsPagerChrome.AccessibleNameKey(");
 
         var xaml = File.ReadAllText(Path.Combine(
             SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Views", "SettingsWindow.xaml"));
@@ -908,6 +952,18 @@ public class SettingsPagerWiringTests
                 + "AutomationProperties.Name=\"{loc:T 'settings.chrome.close'}\". The glyph-only "
                 + "close button would expose \"✕\" as its accessible name (D11).")
             .That(xaml).Contains("AutomationProperties.Name=\"{loc:T 'settings.chrome.close'}\"");
+    }
+
+    [Fact]
+    public void ThePageIndicator_UsesTheSettingsPageOfKey()
+    {
+        // The value pin above guards the table; this pins the call site, so swapping the key for
+        // an inline format (or dropping the key) fails even if the table is fine (review 01 R2).
+        var body = ExtractMethod(WindowSource(), "private void RenderPagination(");
+        Check.WithCustomMessage(
+                "RenderPagination no longer builds the page indicator from "
+                + "\"settings.pager.page_of\"; the raw format would show unpinned English.")
+            .That(body).Contains("\"settings.pager.page_of\"");
     }
 
     [Fact]

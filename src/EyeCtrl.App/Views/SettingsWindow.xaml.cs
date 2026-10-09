@@ -855,7 +855,7 @@ public partial class SettingsWindow : OverlayWindow
     {
         var boundary = SettingsPagerChrome.IsBoundary(_tabPageIndex, _tabPageCount, direction);
         var btn = MakeChromeButton(
-            id, SettingsPagerChrome.GlyphFor(id, boundary),
+            id, string.Empty,
             PaginationButtonWidth, PaginationButtonHeight,
             // One margin story (review r2 M1): every pin of the pager's clearance geometry
             // derives from this same thickness. The vertical margin is what keeps the two
@@ -866,7 +866,7 @@ public partial class SettingsWindow : OverlayWindow
             () => ActivateTabPager(id, direction),
             _tabPagerButtons, _tabPagerBrushes);
         ((TextBlock)btn.Child).FontSize = PaginationButtonHeight * ContainerRatio.Large;
-        SetPagerAccessibleName(btn, id, boundary);
+        ApplyPagerFace(btn, id, boundary);
         return btn;
     }
 
@@ -887,23 +887,29 @@ public partial class SettingsWindow : OverlayWindow
     {
         var boundary = SettingsPagerChrome.IsBoundary(_tabPageIndex, _tabPageCount, direction);
         var btn = _tabPagerButtons[id];
-        ((TextBlock)btn.Child).Text = SettingsPagerChrome.GlyphFor(id, boundary);
-        SetPagerAccessibleName(btn, id, boundary);
+        ApplyPagerFace(btn, id, boundary);
         RegisterTabPagerTarget(id, direction);
     }
 
     /// <summary>
-    /// Names a pager button for UIA (D11): the glyph-only button would otherwise expose its arrow
-    /// as the name. The TextBlock is the node WPF exposes from a transparent overlay window — the
-    /// Border itself is collapsed in the UIA control view — so the name goes there, alongside the
-    /// glyph. Re-applied whenever the boundary flips, because a wrap-jump button is a step button
-    /// once it has jumped.
+    /// Draws a pager button's whole face from ONE boundary value: the glyph and the accessible
+    /// name. They must never disagree — a wrap-jump wears the double arrow and says "Jump to…",
+    /// a step button wears the single arrow and says "Previous/Next…" — so both come from this
+    /// helper rather than from two statements at each call site (review 01 R3).
+    ///
+    /// <para>
+    /// The name goes on the TextBlock, the node WPF exposes from a transparent overlay window
+    /// (the Border itself is collapsed in the UIA control view), alongside the glyph. Re-applied
+    /// whenever the boundary flips, because a wrap-jump button is a step button once it has
+    /// jumped.
+    /// </para>
     /// </summary>
-    private static void SetPagerAccessibleName(Border btn, string id, bool boundary)
+    private static void ApplyPagerFace(Border btn, string id, bool boundary)
     {
+        var text = (TextBlock)btn.Child;
+        text.Text = SettingsPagerChrome.GlyphFor(id, boundary);
         System.Windows.Automation.AutomationProperties.SetName(
-            (TextBlock)btn.Child,
-            StringTable.Current.T(SettingsPagerChrome.AccessibleNameKey(id, boundary)));
+            text, StringTable.Current.T(SettingsPagerChrome.AccessibleNameKey(id, boundary)));
     }
 
     private void ActivateTabPager(string id, int direction) =>
@@ -1166,13 +1172,13 @@ public partial class SettingsWindow : OverlayWindow
         var boundary = SettingsPagerChrome.IsBoundary(
             _viewModel.Settings.CurrentPage, _viewModel.Settings.TotalPages, direction);
         var btn = MakeChromeButton(
-            id, SettingsPagerChrome.GlyphFor(id, boundary),
+            id, string.Empty,
             PaginationButtonWidth, PaginationButtonHeight, new Thickness(PaginationButtonMargin),
             BtnBase, Tokens.BrushTextPrimary,
             () => ActivateContentPager(id, direction),
             _pagButtons, _pagBrushes);
         ((TextBlock)btn.Child).FontSize = PaginationButtonHeight * ContainerRatio.Large;
-        SetPagerAccessibleName(btn, id, boundary);
+        ApplyPagerFace(btn, id, boundary);
         RegisterContentPagerTarget(id, direction);
         return btn;
     }

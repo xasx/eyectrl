@@ -168,6 +168,82 @@ public class SettingsTabDriftTests
         RenderedTabDefs().Select(tab => (tab.Label, tab.Description)).ToList();
 
     /// <summary>
+    /// Every tab's tuple points at ITS OWN label and description keys (review 01 R2, mutant M10).
+    /// A wrong-but-existing key — the Cursor tuple naming Dwell's — passes every other gate: the
+    /// text resolves, the fit measures, the coverage sees a valid key; only the user sees two
+    /// tabs with the same title. The naming rule is mechanical, so it is pinned mechanically.
+    /// </summary>
+    [Fact]
+    public void EveryTabTuple_NamesItsOwnLabelAndDescriptionKeys()
+    {
+        var region = Region(
+            ReadRepoFile(WindowRelativePath), "_tabDefs =", "[", "];", "the _tabDefs initializer");
+
+        var entries = TabDefFull.Matches(region);
+        Check.WithCustomMessage(
+                "Parsed no tabs out of `_tabDefs`; repoint the reader rather than deleting this pin.")
+            .That(entries.Count).IsStrictlyGreaterThan(5);
+
+        foreach (Match match in entries)
+        {
+            var id = match.Groups["id"].Value;
+            var expected = "settings.tab." + id.ToLowerInvariant();
+            Check.WithCustomMessage(
+                    $"The \"{id}\" tab points at \"{match.Groups["labelKey"].Value}\" instead of "
+                    + $"its own \"{expected}.label\". A wrong-but-existing key shows another tab's "
+                    + "title with every other gate green (review 01 R2/M10).")
+                .That(match.Groups["labelKey"].Value).IsEqualTo(expected + ".label");
+            Check.WithCustomMessage(
+                    $"The \"{id}\" tab's description key is not \"{expected}.description\".")
+                .That(match.Groups["descriptionKey"].Value).IsEqualTo(expected + ".description");
+        }
+    }
+
+    /// <summary>
+    /// M5/M6 (review 01 R5): the eight-dependency window cannot be constructed headless, so the
+    /// two construction sites are source-pinned. The sidebar must pass its key through
+    /// <c>T()</c> — a raw key would draw "settings.tab.cursor.label" — and the header must
+    /// resolve the title and the description from their OWN tuple fields; swapping them draws
+    /// the prose as the title.
+    /// </summary>
+    [Fact]
+    public void TheSidebarAndHeader_RenderResolvedText_NotRawKeys()
+    {
+        var source = ReadRepoFile(WindowRelativePath);
+
+        Check.WithCustomMessage(
+                "BuildTabButtons no longer renders `StringTable.Current.T(labelKey)`; the sidebar "
+                + "would show the raw key (M5).")
+            .That(MethodBody(source, "private void BuildTabButtons("))
+            .Contains("StringTable.Current.T(labelKey)");
+
+        var header = MethodBody(source, "private void UpdateHeader(");
+        Check.WithCustomMessage(
+                "UpdateHeader no longer resolves the title from def.LabelKey (M6).")
+            .That(header).Contains("HeaderTitle.Text = ResolveTabText(def.LabelKey)");
+        Check.WithCustomMessage(
+                "UpdateHeader no longer resolves the description from def.DescriptionKey (M6: "
+                + "the title and the description swapped).")
+            .That(header).Contains("HeaderDescription.Text = ResolveTabText(def.DescriptionKey)");
+    }
+
+    /// <summary>The body of one method, from its signature line to its closing brace.</summary>
+    /// <param name="source">SettingsWindow.xaml.cs text.</param>
+    /// <param name="signature">The exact method signature to find.</param>
+    /// <returns>The method's text.</returns>
+    private static string MethodBody(string source, string signature)
+    {
+        var start = source.IndexOf(signature, StringComparison.Ordinal);
+        Check.WithCustomMessage(
+                $"SettingsWindow.xaml.cs no longer declares `{signature}`; repoint this pin rather "
+                + "than deleting it.")
+            .That(start).IsStrictlyGreaterThan(-1);
+        var end = source.IndexOf("\n    }", start, StringComparison.Ordinal);
+        Check.That(end).IsStrictlyGreaterThan(start);
+        return source[start..end];
+    }
+
+    /// <summary>
     /// Every tab carries a header label AND a description. The header is the only place a tab
     /// says what it is for — the sidebar glyphs alone are ambiguous — so a twelfth tab added
     /// without a description would ship a blank second line with nothing failing.

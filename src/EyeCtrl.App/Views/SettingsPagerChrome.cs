@@ -73,6 +73,28 @@ internal static class SettingsPagerChrome
     };
 
     /// <summary>
+    /// The <c>settings</c> key for a pager button's accessible name (D11).
+    ///
+    /// <para>
+    /// The buttons are glyph-only, so WPF would expose the arrow itself — "◀" or "⏭" — as the
+    /// accessible name, which tells a screen reader nothing. Boundary buttons name the far end
+    /// they jump to; step buttons name the one-page step. The view resolves the key through
+    /// <c>StringTable.Current</c> and sets it on the button's TextBlock (the node UIA exposes in
+    /// a transparent overlay window).
+    /// </para>
+    /// </summary>
+    /// <param name="id">One of the four pager ids; anything else throws rather than naming nothing.</param>
+    /// <param name="boundary">True when the button wraps at this page.</param>
+    internal static string AccessibleNameKey(string id, bool boundary) => id switch
+    {
+        "pag_prev" => boundary ? "settings.pager.jump_to_last_page" : "settings.pager.previous_page",
+        "pag_next" => boundary ? "settings.pager.jump_to_first_page" : "settings.pager.next_page",
+        "tab_prev" => boundary ? "settings.pager.jump_to_last_tabs" : "settings.pager.previous_tabs",
+        "tab_next" => boundary ? "settings.pager.jump_to_first_tabs" : "settings.pager.next_tabs",
+        _ => throw new ArgumentOutOfRangeException(nameof(id), id, "Not a settings pager id."),
+    };
+
+    /// <summary>
     /// The dwell time a pager button registers with: the jump (toolbar) time at a boundary,
     /// <see cref="StepPagerDwellMs"/> otherwise. <paramref name="jumpDwellMs"/> is the window's
     /// <c>_dwellMs</c> (ToolbarButtonDwellMs), so jumps follow the user's tuning while steps stay

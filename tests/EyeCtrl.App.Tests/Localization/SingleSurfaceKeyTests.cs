@@ -44,6 +44,11 @@ public class SingleSurfaceKeyTests
         // Mixed folders: explicit files only.
         ("src/EyeCtrl.App/Views/SettingsWindow.xaml", ["settings", "language-recovery"]),
         ("src/EyeCtrl.App/Views/SettingsWindow.xaml.cs", ["settings", "language-recovery"]),
+        // T07: the pager chrome's glyph/step/jump decisions include the D11 accessible-name keys;
+        // the window resolves them. Settings chrome, so the settings surface.
+        ("src/EyeCtrl.App/Views/SettingsPagerChrome.cs", ["settings"]),
+        // T07: the Settings window's modal Yes/No labels live in the window's view model.
+        ("src/EyeCtrl.ViewModels/SettingsWindowViewModel.cs", ["settings"]),
         // T04: the General page holds the language row (language-recovery) among settings rows.
         ("src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs", ["settings", "language-recovery"]),
         // T04: the restart flow is language-recovery (D5) — its notices, its failure reasons,

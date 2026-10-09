@@ -8,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Interop;
 using EyeCtrl.App.Tests.Settings.Pages;
 using EyeCtrl.App.Views;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.ViewModels;
@@ -85,6 +86,59 @@ public class SettingsPagerChromeTests
     public void GlyphFor_AnUnknownId_Throws()
     {
         Check.ThatCode(() => SettingsPagerChrome.GlyphFor("tab_sideways", boundary: false))
+            .Throws<ArgumentOutOfRangeException>();
+    }
+
+    // ────── Accessible names (D11) ──────
+
+    /// <summary>The English a screen reader would read for a pager button's accessible name.</summary>
+    private static string EnglishName(string id, bool boundary) =>
+        StringTable.EmbeddedEnglish.T(SettingsPagerChrome.AccessibleNameKey(id, boundary));
+
+    [Fact]
+    public void AccessibleNameKey_NamesTheStepAndTheJumpApart()
+    {
+        // The glyph-only buttons would expose their arrow ("◀" vs "⏭") as the UIA name, which
+        // says nothing. The name must say what the button DOES at this boundary state.
+        foreach (var id in new[] { "pag_prev", "pag_next", "tab_prev", "tab_next" })
+        {
+            var step = EnglishName(id, boundary: false);
+            var jump = EnglishName(id, boundary: true);
+
+            Check.WithCustomMessage(
+                    $"{id}'s accessible name resolves to \"{step}\" — a raw key or an empty "
+                    + "string, so the screen reader gets nothing.")
+                .That(step).Not.Contains("settings.");
+            Check.WithCustomMessage(
+                    $"{id}'s jump accessible name resolves to \"{jump}\" — a raw key or an "
+                    + "empty string, so the screen reader gets nothing.")
+                .That(jump).Not.Contains("settings.");
+            Check.WithCustomMessage(
+                    $"{id}: the step and the wrap-jump name are identical (\"{step}\"). One of "
+                    + "the two mappings is wrong.")
+                .That(step).Not.IsEqualTo(jump);
+        }
+    }
+
+    [Fact]
+    public void AccessibleNameKey_SaysWhichFarEndAJumpReaches()
+    {
+        Check.That(EnglishName("pag_prev", boundary: false)).Contains("Previous");
+        Check.That(EnglishName("pag_prev", boundary: true)).Contains("last");
+        Check.That(EnglishName("pag_next", boundary: false)).Contains("Next");
+        Check.That(EnglishName("pag_next", boundary: true)).Contains("first");
+
+        // The tab pager wraps the tab-list pages, so its names say "tab page" and not "page".
+        Check.That(EnglishName("tab_prev", boundary: false)).Contains("tab");
+        Check.That(EnglishName("tab_prev", boundary: true)).Contains("last");
+        Check.That(EnglishName("tab_next", boundary: false)).Contains("tab");
+        Check.That(EnglishName("tab_next", boundary: true)).Contains("first");
+    }
+
+    [Fact]
+    public void AccessibleNameKey_AnUnknownId_Throws()
+    {
+        Check.ThatCode(() => SettingsPagerChrome.AccessibleNameKey("tab_sideways", boundary: false))
             .Throws<ArgumentOutOfRangeException>();
     }
 
@@ -818,6 +872,42 @@ public class SettingsPagerWiringTests
                     + "in one place.")
                 .That(ExtractMethod(WindowSource(), signature)).Contains("SettingsPagerChrome.ActionFor(");
         }
+    }
+
+    [Fact]
+    public void PagerButtons_CarryTheAccessibleNameFromTheHelper()
+    {
+        // D11: a glyph-only button exposes its arrow as the UIA name unless the view sets one.
+        // Both builders must name through the helper, the tab pager must re-name when the
+        // boundary flips (a wrap-jump button becomes a step button), and the close button's name
+        // is set in the XAML next to its glyph.
+        foreach (var signature in new[]
+                 {
+                     "private Border MakePagButton(",
+                     "private Border MakeTabPagerButton(",
+                     "private void UpdateTabPagerButton(",
+                 })
+        {
+            Check.WithCustomMessage(
+                    $"{signature} no longer applies the pager's accessible name. The button is "
+                    + "glyph-only, so its UIA name would be the arrow itself (D11).")
+                .That(ExtractMethod(WindowSource(), signature)).Contains("SetPagerAccessibleName(");
+        }
+
+        Check.WithCustomMessage(
+                "SetPagerAccessibleName no longer takes the name from "
+                + "SettingsPagerChrome.AccessibleNameKey — the boundary-aware mapping must live "
+                + "in the one testable helper.")
+            .That(ExtractMethod(WindowSource(), "private static void SetPagerAccessibleName("))
+            .Contains("SettingsPagerChrome.AccessibleNameKey(");
+
+        var xaml = File.ReadAllText(Path.Combine(
+            SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Views", "SettingsWindow.xaml"));
+        Check.WithCustomMessage(
+                "SettingsWindow.xaml's close button no longer carries "
+                + "AutomationProperties.Name=\"{loc:T 'settings.chrome.close'}\". The glyph-only "
+                + "close button would expose \"✕\" as its accessible name (D11).")
+            .That(xaml).Contains("AutomationProperties.Name=\"{loc:T 'settings.chrome.close'}\"");
     }
 
     [Fact]

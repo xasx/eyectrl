@@ -188,6 +188,310 @@
     "args": [],
     "crisis": true
   },
+  "settings.chrome.close": {
+    "text": "Close settings",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.modal.no": {
+    "text": "✕ No",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.modal.yes": {
+    "text": "✓ Yes",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.pager.jump_to_first_page": {
+    "text": "Jump to first page",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.pager.jump_to_first_tabs": {
+    "text": "Jump to first tab page",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.pager.jump_to_last_page": {
+    "text": "Jump to last page",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.pager.jump_to_last_tabs": {
+    "text": "Jump to last tab page",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.pager.next_page": {
+    "text": "Next page",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.pager.next_tabs": {
+    "text": "Next tab page",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.pager.page_of": {
+    "text": "{0} / {1}",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": [
+      "current",
+      "total"
+    ]
+  },
+  "settings.pager.previous_page": {
+    "text": "Previous page",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.pager.previous_tabs": {
+    "text": "Previous tab page",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.tab.actions.description": {
+    "text": "Which actions appear in the ring that opens after an activation.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.tab.actions.label": {
+    "text": "Action Menu",
+    "who": "user",
+    "where": "settings",
+    "fit": "tab156",
+    "args": []
+  },
+  "settings.tab.adaptation.description": {
+    "text": "Auto-tuning of dwell and targeting when you struggle.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.tab.adaptation.label": {
+    "text": "Adaptation",
+    "who": "user",
+    "where": "settings",
+    "fit": "tab156",
+    "args": []
+  },
+  "settings.tab.advanced.description": {
+    "text": "Expert tuning: backdrop, drag, scroll and external dwell.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.tab.advanced.label": {
+    "text": "Advanced",
+    "who": "user",
+    "where": "settings",
+    "fit": "tab156",
+    "args": []
+  },
+  "settings.tab.calibration.description": {
+    "text": "Correcting the offset between your gaze and the cursor.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.tab.calibration.label": {
+    "text": "Calibration",
+    "who": "user",
+    "where": "settings",
+    "fit": "tab156",
+    "args": []
+  },
+  "settings.tab.cursor.description": {
+    "text": "How raw gaze is filtered, and how the cursor ring is drawn.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.tab.cursor.label": {
+    "text": "Cursor",
+    "who": "user",
+    "where": "settings",
+    "fit": "tab156",
+    "args": []
+  },
+  "settings.tab.diagnostics.description": {
+    "text": "Measurement instruments: raw-gaze recording and UI timing. Both off by default.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.tab.diagnostics.label": {
+    "text": "Diagnostics",
+    "who": "user",
+    "where": "settings",
+    "fit": "tab156",
+    "args": []
+  },
+  "settings.tab.dwell.description": {
+    "text": "How long gaze must rest on a target before it activates.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.tab.dwell.label": {
+    "text": "Dwell Times",
+    "who": "user",
+    "where": "settings",
+    "fit": "tab156",
+    "args": []
+  },
+  "settings.tab.eyecare.description": {
+    "text": "Break reminders, gaze exercises and fatigue escalation.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.tab.eyecare.label": {
+    "text": "Eye Care",
+    "who": "user",
+    "where": "settings",
+    "fit": "tab156",
+    "args": []
+  },
+  "settings.tab.general.description": {
+    "text": "Startup, theme, restart, and resetting settings.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.tab.general.label": {
+    "text": "General",
+    "who": "user",
+    "where": "settings",
+    "fit": "tab156",
+    "args": []
+  },
+  "settings.tab.keyboard.description": {
+    "text": "On-screen keyboard size, layout and word prediction.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.tab.keyboard.label": {
+    "text": "Keyboard",
+    "who": "user",
+    "where": "settings",
+    "fit": "tab156",
+    "args": []
+  },
+  "settings.tab.layout.description": {
+    "text": "Where the action menu and magnifier open: at your gaze, or at the screen center.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.tab.layout.label": {
+    "text": "Layout",
+    "who": "user",
+    "where": "settings",
+    "fit": "tab156",
+    "args": []
+  },
+  "settings.tab.models.description": {
+    "text": "Language models used for word prediction.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.tab.models.label": {
+    "text": "Models",
+    "who": "user",
+    "where": "settings",
+    "fit": "tab156",
+    "args": []
+  },
+  "settings.tab.quickactions.description": {
+    "text": "The pop-up grid of one-dwell shortcuts, and how it is summoned.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.tab.quickactions.label": {
+    "text": "Quick Actions",
+    "who": "user",
+    "where": "settings",
+    "fit": "tab156",
+    "args": []
+  },
+  "settings.tab.selection.description": {
+    "text": "Picking the exact target: mode, magnifier, highlight and snapping.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.tab.selection.label": {
+    "text": "Selection",
+    "who": "user",
+    "where": "settings",
+    "fit": "tab156",
+    "args": []
+  },
+  "settings.tab.toolbar.description": {
+    "text": "Where the utility bar docks, and how big its buttons are.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.tab.toolbar.label": {
+    "text": "Toolbar",
+    "who": "user",
+    "where": "settings",
+    "fit": "tab156",
+    "args": []
+  },
+  "settings.window.title": {
+    "text": "EyeCtrl Settings",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
   "supervisor.setup.logon.parked": {
     "text": "Not saved yet. It is saved the next time EyeCtrl runs, unless the PC or the Supervisor restarts first.",
     "who": "caretaker",

@@ -345,15 +345,18 @@ public partial class SettingsWindow : OverlayWindow
     public event Action<EyeCtrlSettings>? SettingsChanged;
 
     /// <summary>
-    /// The sidebar's tabs: id, sidebar glyph, human label, and the one-line description the page
-    /// header shows under that label. <c>Description</c> is not decoration — the header is the
-    /// only place a tab says what it is for, and the tab glyphs alone are ambiguous.
+    /// The sidebar's tabs: id, sidebar glyph, and the literal <c>settings</c> keys for the human
+    /// label and the one-line description the page header shows under that label.
+    /// <c>DescriptionKey</c> is not decoration — the header is the only place a tab says what it
+    /// is for, and the tab glyphs alone are ambiguous. The keys are resolved with
+    /// <see cref="StringTable.Current"/> where the tab buttons and the header are built, and are
+    /// written literally here because the key-coverage and unused-key gates read the literal.
     /// </summary>
     // INTENTIONALLY NOT EXPOSED in the settings UI (audit this list when adding settings):
     //  - ManualSelection.Enabled (driven by SelectionMode; the Selection tab owns the mode)
     //  - Keyboard ML/model settings (CustomModels etc. — managed by the model registry; Models tab)
     // Everything else in EyeCtrlSettings.EnumerateSubSettings() should have a tab/control here.
-    private readonly (string Id, string Icon, string Label, string Description)[] _tabDefs;
+    private readonly (string Id, string Icon, string LabelKey, string DescriptionKey)[] _tabDefs;
     private readonly Dictionary<string, ISettingsPageSource> _sources = new();
 
     public SettingsWindow(
@@ -432,37 +435,40 @@ public partial class SettingsWindow : OverlayWindow
         _tabDefs =
         [
             // Descriptions describe what each tab ACTUALLY holds, read off the page sources in
-            // src/EyeCtrl.App/Views/Settings/Sources — not what the tab's name suggests.
-            ("Cursor",   "◎", "Cursor",
-                "How raw gaze is filtered, and how the cursor ring is drawn."),
-            ("Dwell",    "⏱", "Dwell Times",
-                "How long gaze must rest on a target before it activates."),
-            ("Selection", "⊕", "Selection",
-                "Picking the exact target: mode, magnifier, highlight and snapping."),
-            ("Actions",  "⊙", "Action Menu",
-                "Which actions appear in the ring that opens after an activation."),
-            ("Layout",   "⊞", "Layout",
-                "Where the action menu and magnifier open: at your gaze, or at the screen center."),
-            ("Keyboard", "⌨", "Keyboard",
-                "On-screen keyboard size, layout and word prediction."),
-            ("Models",    "⬡", "Models",
-                "Language models used for word prediction."),
-            ("Toolbar",  "▣", "Toolbar",
-                "Where the utility bar docks, and how big its buttons are."),
-            ("Calibration", "⌖", "Calibration",
-                "Correcting the offset between your gaze and the cursor."),
-            ("EyeCare", "◑", "Eye Care",
-                "Break reminders, gaze exercises and fatigue escalation."),
-            ("Adaptation", "⇄", "Adaptation",
-                "Auto-tuning of dwell and targeting when you struggle."),
-            ("General",  "⚙", "General",
-                "Startup, theme, restart, and resetting settings."),
-            ("QuickActions", "⚡", "Quick Actions",
-                "The pop-up grid of one-dwell shortcuts, and how it is summoned."),
-            ("Advanced", "⚒", "Advanced",
-                "Expert tuning: backdrop, drag, scroll and external dwell."),
-            ("Diagnostics", "◷", "Diagnostics",
-                "Measurement instruments: raw-gaze recording and UI timing. Both off by default.")
+            // src/EyeCtrl.App/Views/Settings/Sources — not what the tab's name suggests. The
+            // labels and descriptions are `settings` keys now; the English text lives in
+            // strings.json, and SettingsTabDriftTests/SettingsTabLabelFitTests resolve it from
+            // there rather than parsing it out of this file.
+            ("Cursor",   "◎", "settings.tab.cursor.label",
+                "settings.tab.cursor.description"),
+            ("Dwell",    "⏱", "settings.tab.dwell.label",
+                "settings.tab.dwell.description"),
+            ("Selection", "⊕", "settings.tab.selection.label",
+                "settings.tab.selection.description"),
+            ("Actions",  "⊙", "settings.tab.actions.label",
+                "settings.tab.actions.description"),
+            ("Layout",   "⊞", "settings.tab.layout.label",
+                "settings.tab.layout.description"),
+            ("Keyboard", "⌨", "settings.tab.keyboard.label",
+                "settings.tab.keyboard.description"),
+            ("Models",    "⬡", "settings.tab.models.label",
+                "settings.tab.models.description"),
+            ("Toolbar",  "▣", "settings.tab.toolbar.label",
+                "settings.tab.toolbar.description"),
+            ("Calibration", "⌖", "settings.tab.calibration.label",
+                "settings.tab.calibration.description"),
+            ("EyeCare", "◑", "settings.tab.eyecare.label",
+                "settings.tab.eyecare.description"),
+            ("Adaptation", "⇄", "settings.tab.adaptation.label",
+                "settings.tab.adaptation.description"),
+            ("General",  "⚙", "settings.tab.general.label",
+                "settings.tab.general.description"),
+            ("QuickActions", "⚡", "settings.tab.quickactions.label",
+                "settings.tab.quickactions.description"),
+            ("Advanced", "⚒", "settings.tab.advanced.label",
+                "settings.tab.advanced.description"),
+            ("Diagnostics", "◷", "settings.tab.diagnostics.label",
+                "settings.tab.diagnostics.description")
         ];
 
         // Set DataContext for data binding
@@ -624,7 +630,7 @@ public partial class SettingsWindow : OverlayWindow
 
     private void BuildTabButtons()
     {
-        foreach (var (id, icon, label, _) in _tabDefs)
+        foreach (var (id, icon, labelKey, _) in _tabDefs)
         {
             // Set AutomationId on the label TextBlock — WPF's UIA control view only exposes
             // TextBlock nodes from transparent overlay windows; Border containers are collapsed.
@@ -656,7 +662,7 @@ public partial class SettingsWindow : OverlayWindow
                         iconText,
                         new TextBlock
                         {
-                            Text = label,
+                            Text = StringTable.Current.T(labelKey),
                             Foreground = Tokens.BrushTextPrimary,
                             FontSize = Tokens.FontSizeTitle,
                             FontWeight = Tokens.FontWeightMedium,
@@ -848,6 +854,7 @@ public partial class SettingsWindow : OverlayWindow
             () => ActivateTabPager(id, direction),
             _tabPagerButtons, _tabPagerBrushes);
         ((TextBlock)btn.Child).FontSize = PaginationButtonHeight * ContainerRatio.Large;
+        SetPagerAccessibleName(btn, id, boundary);
         return btn;
     }
 
@@ -867,8 +874,24 @@ public partial class SettingsWindow : OverlayWindow
     private void UpdateTabPagerButton(string id, int direction)
     {
         var boundary = SettingsPagerChrome.IsBoundary(_tabPageIndex, _tabPageCount, direction);
-        ((TextBlock)_tabPagerButtons[id].Child).Text = SettingsPagerChrome.GlyphFor(id, boundary);
+        var btn = _tabPagerButtons[id];
+        ((TextBlock)btn.Child).Text = SettingsPagerChrome.GlyphFor(id, boundary);
+        SetPagerAccessibleName(btn, id, boundary);
         RegisterTabPagerTarget(id, direction);
+    }
+
+    /// <summary>
+    /// Names a pager button for UIA (D11): the glyph-only button would otherwise expose its arrow
+    /// as the name. The TextBlock is the node WPF exposes from a transparent overlay window — the
+    /// Border itself is collapsed in the UIA control view — so the name goes there, alongside the
+    /// glyph. Re-applied whenever the boundary flips, because a wrap-jump button is a step button
+    /// once it has jumped.
+    /// </summary>
+    private static void SetPagerAccessibleName(Border btn, string id, bool boundary)
+    {
+        System.Windows.Automation.AutomationProperties.SetName(
+            (TextBlock)btn.Child,
+            StringTable.Current.T(SettingsPagerChrome.AccessibleNameKey(id, boundary)));
     }
 
     private void ActivateTabPager(string id, int direction) =>
@@ -1017,21 +1040,26 @@ public partial class SettingsWindow : OverlayWindow
     }
 
     /// <summary>
-    /// Points the page header at the active tab. Silent if the id is unknown — the header is
-    /// chrome, and a missing description must never stop the page rendering.
+    /// Points the page header at the active tab, resolving its two <c>settings</c> keys in the
+    /// running language. Silent if the id is unknown — the header is chrome, and a missing
+    /// description must never stop the page rendering.
     ///
     /// <c>Array.Find</c> over a value-tuple array returns a DEFAULT tuple when nothing matches,
-    /// not null, so both string fields come back null and the <c>??</c> is what keeps the two
-    /// TextBlocks off a null Text. Reads <c>Settings.CurrentTabName</c> — the same property
+    /// not null, so both key fields come back null and the <c>?? string.Empty</c> plus the
+    /// length check is what keeps the two TextBlocks off a null Text and off a raw empty-key
+    /// lookup. Reads <c>Settings.CurrentTabName</c> — the same property
     /// <see cref="BuildPages"/> and <see cref="MaybeRepaginateByHeight"/> select on, so the
     /// header can never name a different tab than the one being built.
     /// </summary>
     private void UpdateHeader()
     {
         var def = Array.Find(_tabDefs, t => t.Id == _viewModel.Settings.CurrentTabName);
-        HeaderTitle.Text = def.Label ?? string.Empty;
-        HeaderDescription.Text = def.Description ?? string.Empty;
+        HeaderTitle.Text = ResolveTabText(def.LabelKey);
+        HeaderDescription.Text = ResolveTabText(def.DescriptionKey);
     }
+
+    private static string ResolveTabText(string? key) =>
+        string.IsNullOrEmpty(key) ? string.Empty : StringTable.Current.T(key);
 
     /// <summary>
     /// Re-splits the current tab's rows into height-fitting pages when the tab's source
@@ -1100,7 +1128,9 @@ public partial class SettingsWindow : OverlayWindow
         var prev = MakePagButton("pag_prev", -1);
         var indicator = new TextBlock
         {
-            Text = $"{_viewModel.Settings.CurrentPage + 1} / {_viewModel.Settings.TotalPages}",
+            Text = StringTable.Current.T(
+                "settings.pager.page_of",
+                _viewModel.Settings.CurrentPage + 1, _viewModel.Settings.TotalPages),
             Foreground = Tokens.BrushTextPrimary,
             FontSize = Tokens.FontSizeTitle,
             FontWeight = Tokens.FontWeightMedium,
@@ -1130,6 +1160,7 @@ public partial class SettingsWindow : OverlayWindow
             () => ActivateContentPager(id, direction),
             _pagButtons, _pagBrushes);
         ((TextBlock)btn.Child).FontSize = PaginationButtonHeight * ContainerRatio.Large;
+        SetPagerAccessibleName(btn, id, boundary);
         RegisterContentPagerTarget(id, direction);
         return btn;
     }

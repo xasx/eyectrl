@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
@@ -353,8 +354,8 @@ public partial class SettingsWindowViewModel : MessengerViewModelBase,
     public void ShowModal(string message, Action onYes) =>
         ShowModal(message,
         [
-            new ModalChoice("modal_yes", "✓ Yes", ModalChoiceKind.Affirmative, onYes),
-            new ModalChoice("modal_no", "✕ No", ModalChoiceKind.Negative, null),
+            new ModalChoice("modal_yes", StringTable.Current.T("settings.modal.yes"), ModalChoiceKind.Affirmative, onYes),
+            new ModalChoice("modal_no", StringTable.Current.T("settings.modal.no"), ModalChoiceKind.Negative, null),
         ]);
 
     /// <summary>

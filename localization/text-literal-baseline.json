@@ -1946,11 +1946,6 @@
       "Count": 1
     },
     {
-      "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml",
-      "Literal": "\"EyeCtrl Settings\"",
-      "Count": 1
-    },
-    {
       "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
       "Literal": "\"Accent\"",
       "Count": 1
@@ -2373,16 +2368,6 @@
     {
       "Path": "src/EyeCtrl.ViewModels/SettingsWindowViewModel.cs",
       "Literal": "\"modal_yes\"",
-      "Count": 2
-    },
-    {
-      "Path": "src/EyeCtrl.ViewModels/SettingsWindowViewModel.cs",
-      "Literal": "\"✓ Yes\"",
-      "Count": 2
-    },
-    {
-      "Path": "src/EyeCtrl.ViewModels/SettingsWindowViewModel.cs",
-      "Literal": "\"✕ No\"",
       "Count": 2
     }
   ]

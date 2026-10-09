@@ -18,4 +18,7 @@ public enum FixationSuppressor
 
     /// <summary>External dwell, while a cooperating app's target is active.</summary>
     ExternalDwell,
+
+    /// <summary>The sub-pixel visibility probe, while its full-screen window is up.</summary>
+    SubPixelProbe,
 }

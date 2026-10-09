@@ -752,6 +752,33 @@ public class SymbolCaptionFitTests
                     else
                         Check.That(path.Fill).IsSameReferenceAs(visual.Label.Foreground);
                     Check.That(visual.Label.Opacity).IsEqualTo(0.0);
+
+                    // The stroke is the ⌫ key's own: the measured ratio times the label's symbol
+                    // font (2.916 DIP at 1.5x) — S5.
+                    Check.WithCustomMessage(
+                            $"{action} at {mult:0.0}x: stroke {path.StrokeThickness:0.###} must be "
+                            + $"EraseLabelFrame.StrokeRatio x the label font = "
+                            + $"{EraseLabelFrame.StrokeRatio * visual.Label.FontSize:0.###}")
+                         .That(path.StrokeThickness)
+                         .IsCloseTo(EraseLabelFrame.StrokeRatio * visual.Label.FontSize, 1e-9);
+
+                    // The canvas is centred on the key (S3), and the Caps bar on the canvas (S2).
+                    var centre = canvas.TranslatePoint(
+                        new Point(canvas.Width / 2, canvas.Height / 2), visual.Container);
+                    Check.WithCustomMessage(
+                            $"{action} at {mult:0.0}x: canvas centre {centre.X:0.##},{centre.Y:0.##} must be the "
+                            + $"key centre {visual.Container.ActualWidth / 2:0.##},{visual.Container.ActualHeight / 2:0.##}")
+                         .That(centre.X).IsCloseTo(visual.Container.ActualWidth / 2, 0.01);
+                    Check.That(centre.Y).IsCloseTo(visual.Container.ActualHeight / 2, 0.01);
+                    if (action == "toggle:capslock")
+                    {
+                        var bar = ((GeometryGroup)path.Data).Children[1].Bounds;
+                        Check.WithCustomMessage(
+                                $"{action} at {mult:0.0}x: the lock bar centre "
+                                + $"{bar.Left + bar.Width / 2:0.###} must be the canvas centre "
+                                + $"{canvas.Width / 2:0.###}")
+                             .That(bar.Left + bar.Width / 2).IsCloseTo(canvas.Width / 2, 0.01);
+                    }
                 }
             }
         }

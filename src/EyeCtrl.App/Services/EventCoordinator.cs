@@ -101,6 +101,12 @@ public class EventCoordinator : IEventCoordinator
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
 
+        // The probe's note gate (build plan C15): note targets are gaze-only surfaces under no
+        // window, so the probe must be able to suspend them while its own window covers the screen.
+        // The predicate reads the shared flag per sample; with ProbeOpen never set in this ticket
+        // it is a constant-false no-op.
+        context.NoteManager.SetSuspendPredicate(() => _modal.ProbeOpen);
+
         _scrollModeController = new ScrollModeController(context);
 
         // SetupMessageHandlers is gone — every messenger registration now lives in the coordinator
@@ -115,7 +121,7 @@ public class EventCoordinator : IEventCoordinator
         _overlayVm.Initialize(context);
         _overlayMessage = new OverlayMessageCoordinator(_toolbar, _overlayVm);
         _overlayMessage.Initialize(context);
-        _quickActions = new QuickActionsCoordinator();
+        _quickActions = new QuickActionsCoordinator(_modal);
         _quickActions.Initialize(context);
         _keyboard = new KeyboardCoordinator(_modal, _quickActions, _toolbar);
         _keyboard.Initialize(context);

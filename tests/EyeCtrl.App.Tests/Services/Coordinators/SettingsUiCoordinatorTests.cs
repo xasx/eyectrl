@@ -16,10 +16,10 @@ public class SettingsUiCoordinatorTests
     {
         var modal = new ModalInteractionState();
         return new(modal,
-            new QuickActionsCoordinator(),
+            new QuickActionsCoordinator(modal),
             new ToolbarLifecycleCoordinator(modal),
             new KeyboardCoordinator(modal,
-                new QuickActionsCoordinator(),
+                new QuickActionsCoordinator(modal),
                 new ToolbarLifecycleCoordinator(modal)));
     }
 
@@ -50,7 +50,7 @@ public class SettingsUiCoordinatorTests
     public void Ctor_RejectsNullCollaborators()
     {
         var modal = new ModalInteractionState();
-        var quickActions = new QuickActionsCoordinator();
+        var quickActions = new QuickActionsCoordinator(modal);
         var toolbar = new ToolbarLifecycleCoordinator(modal);
         var keyboard = new KeyboardCoordinator(modal, quickActions, toolbar);
 

@@ -43,30 +43,95 @@ public class ToolbarLifecycleCoordinatorTests
     public void ShouldFeedKeyboardSample_IsFalse_WhilePaused()
     {
         Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
-            paused: true, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: false)).IsFalse();
+            paused: true, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: false, probeOpen: false)).IsFalse();
     }
 
     [Fact]
     public void ShouldFeedKeyboardSample_IsFalse_WhenModalStateOrWindowClosed()
     {
         Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
-            paused: false, modalKeyboardVisible: false, keyboardIsVisible: true, isInGap: false)).IsFalse();
+            paused: false, modalKeyboardVisible: false, keyboardIsVisible: true, isInGap: false, probeOpen: false)).IsFalse();
         Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
-            paused: false, modalKeyboardVisible: true, keyboardIsVisible: false, isInGap: false)).IsFalse();
+            paused: false, modalKeyboardVisible: true, keyboardIsVisible: false, isInGap: false, probeOpen: false)).IsFalse();
     }
 
     [Fact]
     public void ShouldFeedKeyboardSample_IsFalse_ForGapHeldSamples()
     {
         Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
-            paused: false, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: true)).IsFalse();
+            paused: false, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: true, probeOpen: false)).IsFalse();
     }
 
     [Fact]
     public void ShouldFeedKeyboardSample_IsTrue_OnlyWhenEveryGateIsOpen()
     {
         Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
-            paused: false, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: false)).IsTrue();
+            paused: false, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: false, probeOpen: false)).IsTrue();
+    }
+
+    // W5(a) (build plan): the probe term in isolation. With every other gate open, an open probe
+    // must withhold the sample — the keyboard is OS text injection, and a sample fed from under the
+    // probe's opaque window would type into whatever the user cannot see. Mutation: drop the
+    // `!probeOpen` term → the first assertion goes red.
+    [Fact]
+    public void ShouldFeedKeyboardSample_IsFalse_WhileProbeOpen()
+    {
+        Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
+            paused: false, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: false, probeOpen: true)).IsFalse();
+        // Negative control: the probe term is the only difference, so the gate is open without it.
+        Check.That(ToolbarLifecycleCoordinator.ShouldFeedKeyboardSample(
+            paused: false, modalKeyboardVisible: true, keyboardIsVisible: true, isInGap: false, probeOpen: false)).IsTrue();
+    }
+
+    // W4 (build plan): the REAL auto-hide controller driven through the production gate. While the
+    // probe is open, > 5 s off the toolbar and then ≥ 400 ms past the docked edge do nothing; once it
+    // closes, the same streams hide and re-summon, so the gate — not a dead controller — is what
+    // suppressed. Mutation: drop the `probeOpen` term from AutoHideGateClosed → the off-toolbar run
+    // hides → red. Accepted residual (plan; review 03 N5a): the production construction site's wiring
+    // that passes _modal.ProbeOpen is checked by review, not by this test.
+    [Fact]
+    public void AutoHide_IsGated_WhileTheProbeIsOpen()
+    {
+        var modal = new ModalInteractionState { ProbeOpen = true };
+        var visibility = new RecordingToolbarVisibility();
+        var controller = new ToolbarAutoHideController(
+            enabled: true, edge: "bottom", screenW: 1920, screenH: 1080,
+            toolbarRect: new PhysicalRect(0, 1040, 1920, 40),
+            hideDelayMs: 5000, summonDelayMs: 400, offScreenMarginPx: 50,
+            calibrationActive: () => ToolbarLifecycleCoordinator.AutoHideGateClosed(
+                modal.ProbeOpen, calibrationActive: false));
+        controller.Attach(visibility);
+        // Attach positions the pause indicator (wiring, not a hide/summon) — start the record clean.
+        visibility.Calls.Clear();
+
+        var offToolbar = new GazePoint(500, 500, 0, true);
+        for (long t = 0; t <= 6_000_000; t += 33_000)
+            controller.Feed(offToolbar, t);
+        Check.WithCustomMessage("while the probe is open an off-toolbar run must not hide the toolbar")
+            .That(visibility.Calls).IsEmpty();
+
+        // The state machine is forced Hidden directly, so a probe-time past-edge sample can also be
+        // shown to not summon a band that would come up underneath the probe window.
+        controller.HideForTest(visibility);
+        visibility.Calls.Clear();
+        var pastEdge = new GazePoint(500, 1200, 0, true);
+        for (long t = 7_000_000; t <= 7_500_000; t += 33_000)
+            controller.Feed(pastEdge, t);
+        Check.WithCustomMessage("while the probe is open a past-edge run must not summon the toolbar")
+            .That(visibility.Calls).IsEmpty();
+
+        // Negative control: with the probe closed the same streams act.
+        modal.ProbeOpen = false;
+        controller.ResetToVisible();
+        for (long t = 8_000_000; t <= 14_000_000; t += 33_000)
+            controller.Feed(offToolbar, t);
+        Check.WithCustomMessage("once the probe is closed the off-toolbar run must hide the toolbar")
+            .That(visibility.HideCount).IsEqualTo(1);
+
+        for (long t = 15_000_000; t <= 15_500_000; t += 33_000)
+            controller.Feed(pastEdge, t);
+        Check.WithCustomMessage("once the probe is closed a past-edge run must summon the toolbar")
+            .That(visibility.ShowCount).IsEqualTo(1);
     }
 
     [Fact]
@@ -175,4 +240,19 @@ public class ToolbarLifecycleCoordinatorTests
         enabled: true, edge: "bottom", screenW: 1920, screenH: 1080,
         toolbarRect: new PhysicalRect(0, 1040, 1920, 40),
         hideDelayMs: 5000, summonDelayMs: 400, offScreenMarginPx: 50);
+
+    /// <summary>Records toolbar-visibility calls for W4's real-controller drive.</summary>
+    private sealed class RecordingToolbarVisibility : IToolbarVisibility
+    {
+        public List<string> Calls { get; } = new();
+        public int HideCount => Calls.Count(c => c == "HideToolbar");
+        public int ShowCount => Calls.Count(c => c == "ShowToolbar");
+
+        public void ShowToolbar() => Calls.Add("ShowToolbar");
+        public void HideToolbar(bool paused) => Calls.Add("HideToolbar");
+        public void ForceShow() => Calls.Add("ForceShow");
+        public void SetPauseIndicator(bool visible) => Calls.Add("SetPauseIndicator");
+        public void PositionIndicator(string edge) => Calls.Add("PositionIndicator");
+        public void SetActive(bool active) => Calls.Add("SetActive");
+    }
 }

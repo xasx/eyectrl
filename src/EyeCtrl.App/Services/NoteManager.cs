@@ -18,6 +18,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
     private readonly IDwellDetectorRegistry? _dwellRegistry;
     private PhysicalPoint _lastGazePoint;
     private bool _disposed;
+    private Func<bool>? _suspendPredicate;
+    // True once a sample was dropped by _suspendPredicate. The first sample after the gate opens
+    // resets the detector (see Receive).
+    private bool _suspendedByPredicate;
     private const int MaxNotes = 8;
     private const int DwellTimeMs = 600;
 
@@ -195,7 +199,43 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         // Held (blink) samples repeat the frozen last valid position: they must not advance a note's
         // close/edit/move dwell, and a note being placed simply stays put until the eyes reopen.
         if (message.IsInGap) return;
+
+        // The probe's gate (build plan C15): while it is open every sample is dropped, so no note
+        // target under the probe's opaque window accumulates dwell. On resume the detector is reset
+        // — its clock is timestamp-based, so without the reset the first post-probe sample on the
+        // same target it left would be credited time it did not spend there, and a note's close is
+        // destructive and no-confirm (review 03 F5).
+        if (_suspendPredicate?.Invoke() == true)
+        {
+            _suspendedByPredicate = true;
+            return;
+        }
+        if (_suspendedByPredicate)
+        {
+            _suspendedByPredicate = false;
+            _dwellDetector.ResetAllState();
+        }
+
         OnGazeMoved(message.Position, message.TimestampMicroseconds);
+    }
+
+    /// <summary>The probe's suspend seam (build plan C15), configured once from EventCoordinator.
+    /// The predicate is evaluated per delivered sample; nothing else changes while it holds.</summary>
+    public void SetSuspendPredicate(Func<bool> predicate) =>
+        _suspendPredicate = predicate ?? throw new ArgumentNullException(nameof(predicate));
+
+    /// <summary>
+    /// Test seam (review 03 F5): registers a Display note's dwell targets without constructing a
+    /// <see cref="NoteWindow"/> — <see cref="CreateNoteAt"/> shows and focuses a real window, which
+    /// W5(d) must not do. Returns the generated note id.
+    /// </summary>
+    internal string AddNoteTargetsForTest(PhysicalPoint position)
+    {
+        var data = new NoteData { Position = position, State = NoteState.Display };
+        _notes.Add(data);
+        RegisterDwellTargets(data.Id);
+        _dwellDetector.ResetAllState();
+        return data.Id;
     }
 
     /// <summary>

@@ -50,8 +50,8 @@ public partial class ModesMenuWindow : OverlayWindow, IModesMenuOverlay
     }
 
     /// <summary>
-    /// The host's names for the mode buttons' UIA accessible names. English by default; the App
-    /// shell will set its own overlay-keyed source at composition (T08), the same seam the ring
+    /// The host's names for the mode buttons' UIA accessible names. Embedded English by default;
+    /// the App shell sets the overlays-keyed source at composition (T08), the same seam the ring
     /// uses. Read on every rebuild, so a source set before the next show is honoured.
     /// </summary>
     public RingLabelSource Labels { get; set; } = RingLabelSource.English;

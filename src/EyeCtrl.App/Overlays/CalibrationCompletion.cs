@@ -33,12 +33,13 @@ internal readonly record struct CalibrationCompletionPresentation(
 /// seize the user's only input surface; the text choice is the part worth pinning, and it needs none
 /// of that.
 /// </para>
+/// <para>
+/// The copy comes from the calibration surface's keys; the numbers keep their <c>:F1</c> specifiers
+/// and go through <c>T(key, args)</c>, so they format in the language of the sentence around them.
+/// </para>
 /// </summary>
 internal static class CalibrationCompletion
 {
-    /// <summary>The neutral title a measure-only probe ends with — never "failed", never "recalibrate".</summary>
-    public const string MeasureOnlyTitle = "Gaze offset recorded";
-
     /// <summary>Shipped quality bar: below this (2 % of the screen diagonal) a successful fit is "good".</summary>
     public const double GoodQualityPercent = 2.0;
 
@@ -57,32 +58,33 @@ internal static class CalibrationCompletion
             // no retry. Auto-dismiss is the only way out for a user who cannot actuate Accept.
             // No "Press Esc to cancel" either: the probe is over and there is nothing left to cancel \u2014
             // the line only told an observer something false for the panel's 3 s (holistic review N1).
-            return new("\u25CF", CompletionTone.Success, MeasureOnlyTitle, "",
+            return new("\u25CF", CompletionTone.Success, T("calibration.window.title.recorded"), "",
                 RetryVisible: false, HintVisible: false, AutoDismissMs: GoodAutoDismissMs,
                 CancelHintVisible: false);
         }
 
         bool isGood = qualityPercent < GoodQualityPercent;
+        string title = goodResult
+            ? T("calibration.window.title.complete")
+            : T("calibration.window.title.failed");
+
         if (goodResult && isGood)
         {
-            return new("\u2713", CompletionTone.Success, "Calibration complete",
-                string.Create(
-                    StringTable.Current.FormatProviderFor("calibration"),
-                    $"Mean error: {errorPx:F1} px ({qualityPercent:F1}%)"),
+            return new("\u2713", CompletionTone.Success, title,
+                T("calibration.completion.detail", errorPx, qualityPercent),
                 RetryVisible: false, HintVisible: true, AutoDismissMs: GoodAutoDismissMs,
                 CancelHintVisible: true);
         }
 
-        return new("\u26A0", CompletionTone.Warning,
-            goodResult ? "Calibration complete" : "Calibration failed",
+        return new("\u26A0", CompletionTone.Warning, title,
             goodResult
-                ? string.Create(
-                    StringTable.Current.FormatProviderFor("calibration"),
-                    $"Mean error: {errorPx:F1} px ({qualityPercent:F1}%) \u2014 poor quality")
+                ? T("calibration.completion.detail.poor", errorPx, qualityPercent)
                 : errorText ?? "",
             // A failed session cannot be retried from here (the user must look at the dot again), so
             // only the poor-quality case offers Retry; both linger long enough to be read.
             RetryVisible: goodResult, HintVisible: false, AutoDismissMs: PoorAutoDismissMs,
             CancelHintVisible: true);
     }
+
+    private static string T(string key, params object?[] args) => StringTable.Current.T(key, args);
 }

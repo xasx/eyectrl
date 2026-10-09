@@ -377,10 +377,11 @@ internal static class TextLiteralScan
     /// <summary>
     /// Producer files scanned in full: their returned literals are UI text. Exception-constructor
     /// literals and surface-id/key arguments are excluded everywhere by <see cref="IsExcludedSink"/>.
+    /// <c>RingLabelMap</c> left this list in T08: it now returns the <c>overlays</c> keys, not text,
+    /// so its literals are the machinery the <c>T(…)</c> exclusion exists for.
     /// </summary>
     public static readonly string[] ProducerFiles =
     [
-        "src/EyeCtrl.Core/Models/RingLabelMap.cs",
         "src/EyeCtrl.Core/Settings/ThemeSettings.cs",
         "src/EyeCtrl.Supervisor/Supervision/SupervisorStateText.cs",
         "src/EyeCtrl.App/Overlays/CalibrationCompletion.cs",

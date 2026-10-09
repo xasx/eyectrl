@@ -1,6 +1,7 @@
 namespace EyeCtrl.EyeCare;
 
 using EyeCtrl.Core.Interfaces;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.EyeCare.Exercises;
 using EyeCtrl.EyeCare.Scoring;
@@ -110,7 +111,7 @@ public sealed class EyeCareService : IEyeCareService, IDisposable
         _busy = true;
         try
         {
-            var accepted = await _hooks.ShowBannerAsync("Time for an eye break");
+            var accepted = await _hooks.ShowBannerAsync(StringTable.Current.T("eye-care.banner.message"));
             if (!accepted)
             {
                 _scheduler.Snooze();

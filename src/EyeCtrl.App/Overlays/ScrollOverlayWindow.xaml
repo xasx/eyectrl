@@ -2,7 +2,8 @@
                         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                         xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
-                        Title="Scroll Overlay"
+                        xmlns:loc="clr-namespace:EyeCtrl.Controls.Localization;assembly=EyeCtrl.Controls"
+                        Title="{loc:T 'overlays.scroll.title'}"
                         Topmost="True"
                         ShowInTaskbar="False"
                         WindowStyle="None"
@@ -33,6 +34,6 @@
         <TextBlock x:Name="EscapeHint" Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}"
                    HorizontalAlignment="Right" VerticalAlignment="Bottom"
                    Margin="0,0,20,20"
-                   Text="Press Esc to stop scrolling"/>
+                   Text="{loc:T 'overlays.hint.pressEscToStopScrolling'}"/>
     </Grid>
 </overlays:OverlayWindow>

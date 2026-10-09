@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Services;
 
 using System.Collections.Generic;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
@@ -44,14 +45,14 @@ internal static class KeyboardEdgeButtons
                 VerticalOffset: -offset,
                 RadiusLogical: UIConstants.ButtonRadius,
                 Icon: ActionIcon.Close,
-                AccessibleName: "Close"),
+                AccessibleName: StringTable.Current.T("overlays.edge.close")),
             new EdgeButtonDefinition(
                 FlipId, Symbol: string.Empty, dwellMs,
                 m => m.Send(new ViewModels.Messages.KeyboardEdgeToggledMessage()),
                 VerticalOffset: offset,
                 RadiusLogical: UIConstants.ButtonRadius,
                 Icon: ActionIcon.KeyboardEdge,
-                AccessibleName: "Flip"),
+                AccessibleName: StringTable.Current.T("overlays.edge.flip")),
         };
     }
 }

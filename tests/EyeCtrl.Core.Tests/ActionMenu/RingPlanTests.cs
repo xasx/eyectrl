@@ -27,8 +27,31 @@ public class RingPlanTests
     private sealed record ExpectedSlot(
         InteractionAction? Action, ActionMenuItemKind Kind, string Id, ActionIcon Icon, string Label);
 
+    /// <summary>
+    /// The ring's resolved English, as literals: <c>RingLabelMap</c> returns overlays keys since
+    /// T08, and the plan's input is <c>RingLabelSource.English</c>, so this dictionary pins the
+    /// whole map → table → slot-label chain against the words rather than against a computed key.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<InteractionAction, string> EnglishRingLabels =
+        new Dictionary<InteractionAction, string>
+        {
+            [InteractionAction.LeftClick] = "Left click",
+            [InteractionAction.RightClick] = "Right click",
+            [InteractionAction.DoubleClick] = "Double click",
+            [InteractionAction.MiddleClick] = "Middle click",
+            [InteractionAction.Drag] = "Drag",
+            [InteractionAction.ScrollUp] = "Scroll up",
+            [InteractionAction.ScrollDown] = "Scroll down",
+            [InteractionAction.ScrollLeft] = "Scroll left",
+            [InteractionAction.ScrollRight] = "Scroll right",
+            [InteractionAction.ScrollMode] = "Scroll",
+            [InteractionAction.PinNote] = "Pin note",
+            [InteractionAction.Keyboard] = "Keyboard",
+        };
+
     private static ExpectedSlot ActionSlot(InteractionAction action) => new(
-        action, ActionMenuItemKind.Action, action.ToString(), ActionIconMap.For(action), RingLabelMap.For(action));
+        action, ActionMenuItemKind.Action, action.ToString(), ActionIconMap.For(action),
+        EnglishRingLabels[action]);
 
     private static readonly ExpectedSlot MoreSlot =
         new(null, ActionMenuItemKind.OpenMore, "More", ActionIcon.More, "More");

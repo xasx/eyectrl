@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Services;
 using System;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.ViewModels;
@@ -34,7 +35,7 @@ public class ScrollModeController : IDisposable
             Activate: m => m.Send(new ExitScrollModeMessage()),
             VerticalOffset: verticalOffset,
             RadiusLogical: UIConstants.ButtonRadius,
-            AccessibleName: "Stop scrolling");
+            AccessibleName: StringTable.Current.T("overlays.edge.stopScrolling"));
 
     private readonly EventCoordinationContext _context;
     private readonly Func<IScrollOverlaySurface> _createOverlayWindow;

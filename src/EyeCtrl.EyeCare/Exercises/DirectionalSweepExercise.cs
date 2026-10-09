@@ -1,6 +1,7 @@
 namespace EyeCtrl.EyeCare.Exercises;
 
 using EyeCtrl.Core;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.EyeCare.Scoring;
 
@@ -23,9 +24,10 @@ public sealed class DirectionalSweepExercise : ExerciseBase
         OnTargetRadiusPixels = onTargetRadiusPixels;
     }
 
-    public override string Name => "Directional Sweeps";
+    public override string Name => StringTable.Current.T("eye-care.exercise.directionalSweep.name");
     public override double OnTargetRadiusPixels { get; }
-    protected override string EncouragementLine => "Full range of motion!";
+    protected override string EncouragementLine =>
+        StringTable.Current.T("eye-care.exercise.directionalSweep.encouragement");
 
     public override PhysicalPoint GetTargetAt(long timestampMicroseconds)
     {

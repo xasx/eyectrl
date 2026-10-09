@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Services;
 
 using System.Collections.Generic;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
@@ -45,14 +46,14 @@ internal static class ManualSelectionEdgeButtons
                 VerticalOffset: -offset,
                 RadiusLogical: radius,
                 Icon: ActionIcon.Close,
-                AccessibleName: "Close"),
+                AccessibleName: StringTable.Current.T("overlays.edge.close")),
             new EdgeButtonDefinition(
                 RecaptureId, Symbol: string.Empty, dwellMs,
                 m => m.Send(new ManualSelectionRecaptureMessage()),
                 VerticalOffset: offset,
                 RadiusLogical: radius,
                 Icon: ActionIcon.Recapture,
-                AccessibleName: "Recapture"),
+                AccessibleName: StringTable.Current.T("overlays.edge.recapture")),
         };
     }
 }

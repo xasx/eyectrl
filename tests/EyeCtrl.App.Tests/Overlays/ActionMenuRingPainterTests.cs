@@ -322,6 +322,13 @@ public class ActionMenuRingPainterTests : IDisposable
         var more = slots.Single(slot => slot.Kind == ActionMenuItemKind.OpenMore);
         Check.That(labels[slots.IndexOf(more)].Text)
              .IsEqualTo($"More +{plan.SecondaryActions.Count}");
+
+        // T08 review-02 N2: the preview's slots are named by their visible label TextBlocks, so
+        // the miniature discs must NOT also carry automation anchors — each slot would announce
+        // twice in the Settings window.
+        foreach (var slot in slots)
+            Check.WithCustomMessage($"{slot.Id}: the preview disc must not duplicate the label's name")
+                 .That(buttons[slot.Id].AutomationAnchor).IsNull();
     }
 
     /// <summary>

@@ -137,12 +137,15 @@ internal static class ActionMenuRingPainter
 
         foreach (var slot in slots)
         {
+            // No accessible name on the miniature's disc: the preview draws its own unscaled label
+            // TextBlock below, which already exposes the slot's text, so an anchor here would make
+            // every preview slot announce twice (T08 review-02 N2). The runtime path, whose discs
+            // can be icon-only, keeps its anchor.
             var button = DwellArcButton.Create(
                 slot.Center,
                 ActionMenuGeometry.ButtonRadius,
                 symbol: null,
-                icon: ActionIcons.For(slot.Icon),
-                accessibleName: options.LabelFor(slot));
+                icon: ActionIcons.For(slot.Icon));
             button.AddTo(painting);
             buttons[slot.Id] = button;
 

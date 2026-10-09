@@ -126,4 +126,29 @@ public class EventCoordinatorTests
         Check.WithCustomMessage("EventCoordinator.Dispose no longer disposes the lost-gaze exit.")
             .That(source.Contains("_lostGazeExit?.Dispose();")).IsTrue();
     }
+
+    [Fact]
+    public void Initialize_WiresTheProbeGates()
+    {
+        // Source pin over comment-stripped, whitespace-collapsed code (same precedent as
+        // Initialize_WiresTheLostGazeExit): no test runs EventCoordinator.Initialize — the context
+        // needs the whole window/VM graph — so these hookups would silently regress. The C15
+        // predicate must read the shared ProbeOpen flag (review 01 F1; mutant R9, `() => false`,
+        // survived the full suite), and QuickActionsCoordinator must receive the SHARED modal state
+        // (mutant R13, a private `new ModalInteractionState()`, survived too). If the C15 line
+        // regresses, every note target stays live under the probe's opaque window — a note's close
+        // is destructive and asks for no confirmation.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Services", "EventCoordinator.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage(
+                "EventCoordinator.Initialize no longer wires the note suspend gate to the shared ProbeOpen flag.")
+            .That(source.Contains("context.NoteManager.SetSuspendPredicate(()=>_modal.ProbeOpen);")).IsTrue();
+        Check.WithCustomMessage(
+                "EventCoordinator.Initialize no longer hands QuickActionsCoordinator the shared ModalInteractionState.")
+            .That(source.Contains("_quickActions=newQuickActionsCoordinator(_modal);")).IsTrue();
+    }
 }

@@ -50,6 +50,11 @@ internal sealed class ModalInteractionState
     /// try/catch: one coordinator's recompute throwing must not stop the remaining gates from
     /// observing the flip — half-armed gates with the probe down is the failure this exists to
     /// prevent.
+    /// <para>
+    /// Subscribers must read <see cref="ProbeOpen"/>, not the event argument: a re-entrant flip
+    /// inside this raise (a subscriber that clears the flag, e.g. via an EndTest path) delivers a
+    /// stale value to the subscribers after it.
+    /// </para>
     /// </summary>
     public event Action<bool>? ProbeOpenChanged;
 

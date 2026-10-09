@@ -236,6 +236,29 @@ public class ToolbarLifecycleCoordinatorTests
             .That(Regex.IsMatch(text, @"offScreenMarginPx:\s*50\b")).IsTrue();
     }
 
+    [Fact]
+    public void ProbeGateWiring_IsPinnedAtTheSource()
+    {
+        // Review 01 (optional part): neither probe term in this file is reachable by the tests that
+        // build the real objects — SetupToolbarAutoHide needs the live window/geometry path — so
+        // mutants that revert either wiring survived the full suite (R10: the calibrationActive
+        // lambda drops the AutoHideGateClosed call; R12: the ShouldFeedKeyboardSample call site
+        // passes false for probeOpen). Comment-stripped, whitespace-collapsed source, the same
+        // discipline as the pins above.
+        var source = Regex.Replace(
+            SourceScanner.StripComments(File.ReadAllText(Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Services", "Coordinators", "ToolbarLifecycleCoordinator.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage("The auto-hide controller no longer reads _modal.ProbeOpen through AutoHideGateClosed.")
+            .That(source.Contains(
+                "calibrationActive:()=>AutoHideGateClosed(_modal.ProbeOpen,Context.CalibrationService.IsSessionActive),")).IsTrue();
+        Check.WithCustomMessage("SetupGazeRouting no longer passes _modal.ProbeOpen into ShouldFeedKeyboardSample.")
+            .That(source.Contains(
+                "ShouldFeedKeyboardSample(keyboardGated,_modal.KeyboardVisible,keyboard.IsVisible,frame.IsInGap,_modal.ProbeOpen)")).IsTrue();
+    }
+
     private static ToolbarAutoHideController NewAutoHide() => new(
         enabled: true, edge: "bottom", screenW: 1920, screenH: 1080,
         toolbarRect: new PhysicalRect(0, 1040, 1920, 40),

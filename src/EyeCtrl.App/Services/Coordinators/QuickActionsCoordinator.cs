@@ -42,10 +42,11 @@ internal sealed class QuickActionsCoordinator : CoordinatorBase
     /// <summary>
     /// The summon controller's gaze gate (build plan C9): while the probe is open, no hot-edge
     /// summon may fire — the probe owns the screen and a summoned grid would come up under its
-    /// opaque window, invisible and undismissable. <c>probeOpen</c> is first for the same reason as
-    /// <see cref="ToolbarLifecycleCoordinator.AutoHideGateClosed"/>. Extracted so W5(b) drives the
-    /// REAL controller through it. Accepted residual (review 03 N5b): the wiring that passes
-    /// <c>_modal.ProbeOpen</c> at the construction site is checked by review, not by W5.
+    /// opaque window, invisible and undismissable. Pure-static, like
+    /// <see cref="ToolbarLifecycleCoordinator.AutoHideGateClosed"/>, so W5(b) drives the REAL
+    /// controller with literals and never touches <c>Context</c>; there is no short-circuit — both
+    /// booleans are evaluated eagerly at the construction site, whose <c>_modal.ProbeOpen</c> wiring
+    /// is pinned at source in QuickActionsCoordinatorTests.ProbeGateWiring_IsPinnedAtTheSource.
     /// </summary>
     internal static bool SummonGateClosed(bool probeOpen, bool calibrationActive) =>
         probeOpen || calibrationActive;

@@ -109,4 +109,23 @@ public class QuickActionsCoordinatorTests
             .That(controller.State).IsEqualTo(QuickActionsSummonController.SummonState.Summoned);
         Check.That(summons).IsEqualTo(1);
     }
+
+    [Fact]
+    public void ProbeGateWiring_IsPinnedAtTheSource()
+    {
+        // Review 01 (optional part): the production construction site is not reachable by any test
+        // that injects its own controller, so mutant R11 (revert the gate to the bare calibration
+        // lambda) survived the full suite. The gate must read the SHARED ProbeOpen flag through
+        // SummonGateClosed. Comment-stripped, whitespace-collapsed source, the EventCoordinatorTests
+        // pin precedent.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Services", "Coordinators", "QuickActionsCoordinator.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage("The summon controller no longer reads _modal.ProbeOpen through SummonGateClosed.")
+            .That(source.Contains(
+                "calibrationActive:()=>SummonGateClosed(_modal.ProbeOpen,Context.CalibrationService.IsSessionActive));")).IsTrue();
+    }
 }

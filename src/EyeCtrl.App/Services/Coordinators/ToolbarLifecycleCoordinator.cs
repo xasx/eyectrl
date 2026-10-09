@@ -165,11 +165,11 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
     /// The auto-hide controller's gaze gate (build plan C9): while the probe is open no auto-hide or
     /// summon sample may act — the probe window covers the toolbar, so an off-toolbar "hide" would
     /// blank a band the user cannot see, and a past-edge summon would re-arm it under the probe.
-    /// <c>probeOpen</c> is first so a caller short-circuits before the calibration term, which
-    /// dereferences <c>Context</c> (null in an uninitialised coordinator). Extracted, like
-    /// <see cref="ShouldFeedKeyboardSample"/>, so W4 drives the REAL controller through it. Accepted
-    /// residual: the wiring that passes <c>_modal.ProbeOpen</c> at the controller-construction site
-    /// is checked by review, not by W4.
+    /// Pure-static, like <see cref="ShouldFeedKeyboardSample"/>, so W4 drives the REAL controller
+    /// with literals and never touches <c>Context</c> — which is the review 03 N5a concern; there is
+    /// no short-circuit, both booleans are evaluated eagerly at the construction site. The wiring
+    /// that passes <c>_modal.ProbeOpen</c> there is pinned at source in
+    /// ToolbarLifecycleCoordinatorTests.ProbeGateWiring_IsPinnedAtTheSource.
     /// </summary>
     internal static bool AutoHideGateClosed(bool probeOpen, bool calibrationActive) =>
         probeOpen || calibrationActive;

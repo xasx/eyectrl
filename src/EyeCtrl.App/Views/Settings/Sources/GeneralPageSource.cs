@@ -39,27 +39,37 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                     OnLanguageChosen)
                     { Description = StringTable.Current.T("language-recovery.row.description") },
                 .. PendingLanguageNote(),
-                new ComboBoxSpec("g_theme", "Theme (restart to apply)",
-                    Core.Settings.ThemeSettings.ValidNames,
+                new ComboBoxSpec("g_theme",
+                    StringTable.Current.T("settings.general.theme.label"),
+                    [
+                        StringTable.Current.T("settings.general.theme.option.midnight"),
+                        StringTable.Current.T("settings.general.theme.option.ember"),
+                        StringTable.Current.T("settings.general.theme.option.contrast"),
+                    ],
                     Core.Settings.ThemeSettings.ValidNames,
                     () => s.Theme.Name, v => { s.Theme.Name = v; _ctx.ApplyAndSave(); })
-                    { Description = "All three are dark; Contrast is the boldest." },
-                new ToggleSpec("g_boot", "Start on Windows Boot",
+                    { Description = StringTable.Current.T("settings.general.theme.description") },
+                new ToggleSpec("g_boot",
+                    StringTable.Current.T("settings.general.boot.label"),
                     () => s.General.StartOnBoot, v => { s.General.StartOnBoot = v; _ctx.ApplyAndSave(); })
-                    { Description = "Opens EyeCtrl automatically when you sign in." },
-                new ToggleSpec("g_pause", "Start Paused",
+                    { Description = StringTable.Current.T("settings.general.boot.description") },
+                new ToggleSpec("g_pause",
+                    StringTable.Current.T("settings.general.pause.label"),
                     () => s.General.StartPaused, v => { s.General.StartPaused = v; _ctx.ApplyAndSave(); })
-                    { Description = "Starts with tracking paused until you switch it on." },
-                new ToggleSpec("g_track", "Show Track Status",
+                    { Description = StringTable.Current.T("settings.general.pause.description") },
+                new ToggleSpec("g_track",
+                    StringTable.Current.T("settings.general.track.label"),
                     () => s.TrackStatus.Enabled, v => { s.TrackStatus.Enabled = v; _ctx.ApplyAndSave(); })
-                    { Description = "A corner box showing live eye-tracker status." },
+                    { Description = StringTable.Current.T("settings.general.track.description") },
                 .. SupervisionRows(),
-                new ButtonSpec("g_restart", "↻ Restart Now", OnRestart, ButtonKind.Reset, Width: 300, Height: 100),
-                new ButtonSpec("g_reset", "Reset General Settings",
+                new ButtonSpec("g_restart",
+                    StringTable.Current.T("settings.general.restart.label"),
+                    OnRestart, ButtonKind.Reset, Width: 300, Height: 100),
+                new ButtonSpec("g_reset",
+                    StringTable.Current.T("settings.general.reset.label"),
                     // N4 (round-1 review): the reset now includes the theme, which only
                     // applies after a restart — the modal says so, like the theme row itself.
-                    () => _ctx.ShowModal("Reset General settings to defaults?\n"
-                        + "A changed theme applies after a restart.", () =>
+                    () => _ctx.ShowModal(StringTable.Current.T("settings.general.reset.message"), () =>
                     {
                         // Resets every settings row the page renders, not one section (issue
                         // #164): the rows bind three different sub-settings objects, and the
@@ -77,8 +87,9 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                         _ctx.RebuildContent();
                     }),
                     ButtonKind.Reset, Width: 300, Height: 100),
-                new ButtonSpec("g_resetall", "\u26A0 Reset ALL Settings",
-                    () => _ctx.ShowModal("Reset ALL settings to defaults?\nThis cannot be undone.", () =>
+                new ButtonSpec("g_resetall",
+                    StringTable.Current.T("settings.general.resetall.label"),
+                    () => _ctx.ShowModal(StringTable.Current.T("settings.general.resetall.message"), () =>
                     {
                         _ctx.ViewModel.Settings.ResetAllSettings();
                         _ctx.ApplyAndSave();
@@ -163,27 +174,28 @@ internal sealed class GeneralPageSource : ISettingsPageSource
 
         if (!supervision.IsAvailable)
         {
-            yield return new LabelSpec(() => "Automatic Crash Recovery is unavailable: "
-                + "the EyeCtrl Supervisor is not installed on this PC.");
+            yield return new LabelSpec(
+                () => StringTable.Current.T("settings.general.supervision.unavailable"));
             yield break;
         }
 
-        yield return new ToggleSpec("g_supervision", "Automatic Crash Recovery",
+        yield return new ToggleSpec("g_supervision",
+            StringTable.Current.T("settings.general.supervision.label"),
             () => supervision.Enabled,
             v =>
             {
                 if (v) supervision.RequestEnable();
                 else supervision.RequestDisable();
             })
-            { Description = "If EyeCtrl stops responding or crashes, it restarts automatically; "
-                + "if it keeps failing, TD Control opens instead." };
+            { Description = StringTable.Current.T("settings.general.supervision.description") };
 
         // Ticket 07: enabled but no Supervisor answering (e.g. after a reboot, before the startup
         // ensure lands, or after a Supervisor exit) — offer the retry, sized like the Restart
         // button for aimability, and keep the toggle On (the row never flips the disk flag itself).
         if (supervision.Enabled && !supervision.IsSupervisorConnected)
         {
-            yield return new ButtonSpec("g_supervision_retry", "\u21BB Start Supervisor",
+            yield return new ButtonSpec("g_supervision_retry",
+                StringTable.Current.T("settings.general.supervision_retry.label"),
                 () => supervision.RequestEnsure(), ButtonKind.Default, Width: 300, Height: 100);
         }
 
@@ -197,23 +209,24 @@ internal sealed class GeneralPageSource : ISettingsPageSource
         if (_ctx.Restart.ShouldOfferSupervisor())
         {
             _ctx.ViewModel.ShowModal(
-                "Restart EyeCtrl now?\n"
-                + "A supervisor is installed. It restarts EyeCtrl if it ever fails, and can recover "
-                + "a restart that goes wrong.\nStarting it turns supervision on and leaves it on.",
+                StringTable.Current.T("settings.general.restart.supervised.message"),
                 [
-                    new ModalChoice("restart_supervised", "↻ Restart with supervisor",
+                    new ModalChoice("restart_supervised",
+                        StringTable.Current.T("settings.general.restart.supervised.option"),
                         ModalChoiceKind.Affirmative,
                         () => _ctx.Messenger.Send(new RestartAppRequestedMessage(StartSupervisor: true))),
-                    new ModalChoice("restart_plain", "↻ Restart without",
+                    new ModalChoice("restart_plain",
+                        StringTable.Current.T("settings.general.restart.plain.option"),
                         ModalChoiceKind.Neutral,
                         () => _ctx.Messenger.Send(new RestartAppRequestedMessage())),
-                    new ModalChoice("restart_cancel", "✕ Cancel",
+                    new ModalChoice("restart_cancel",
+                        StringTable.Current.T("settings.general.restart.cancel.option"),
                         ModalChoiceKind.Negative, null),
                 ]);
         }
         else
         {
-            _ctx.ShowModal("Restart EyeCtrl now?",
+            _ctx.ShowModal(StringTable.Current.T("settings.general.restart.message"),
                 () => _ctx.Messenger.Send(new RestartAppRequestedMessage()));
         }
     }

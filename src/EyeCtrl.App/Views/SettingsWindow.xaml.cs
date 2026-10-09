@@ -36,13 +36,25 @@ public partial class SettingsWindow : OverlayWindow
     internal const double ColorSwatchRadius = ControlBtnRadius;
 
     /// <summary>
-    /// The names the settings host gives its colour swatches, one per
-    /// <see cref="DwellColorPicker.PresetsFor"/> entry (T02). Host-supplied so the control owns no
-    /// English; T07 replaces each with a settings key. Kept as a field so the count can be pinned
-    /// headlessly against every palette (<c>ColorSwatchNamesTests</c>) — the coupling is otherwise
-    /// only a run-time throw.
+    /// The literal <c>settings</c> keys for the names the settings host gives its colour swatches,
+    /// one per <see cref="DwellColorPicker.PresetsFor"/> entry (T02). Host-supplied so the control
+    /// owns no English; since T07 each entry is a key and <c>CreateControl</c> resolves it through
+    /// <see cref="StringTable.Current"/>. Kept as a field so the count can be pinned headlessly
+    /// against every palette (<c>ColorSwatchNamesTests</c>) — the coupling is otherwise only a
+    /// run-time throw.
     /// </summary>
-    internal static readonly string[] ColorSwatchNames = ["Accent", "Green", "Amber", "Light"];
+    internal static readonly string[] ColorSwatchNames = SwatchNameKeys();
+
+    // A method, not an array initializer at the field: the field is a literal-ratchet sink
+    // (TextLiteralScan.BareAssign), and key strings are machinery, not UI text. The keys are still
+    // literals in the source, so the key-coverage and unused-key gates see them either way.
+    private static string[] SwatchNameKeys() =>
+    [
+        "settings.control.swatch.accent",
+        "settings.control.swatch.green",
+        "settings.control.swatch.amber",
+        "settings.control.swatch.light",
+    ];
 
     // ── The labelled-row geometry (name on the left, control on the right) ──
 
@@ -1472,20 +1484,23 @@ public partial class SettingsWindow : OverlayWindow
                     showLabel: false,
                     formatProvider: StringTable.Current.FormatProviderFor("settings")));
             case ToggleSpec t:
-                // Host-supplied state words (T02): today's English, replaced by settings keys in T07.
+                // Host-supplied state words (T02), resolved from settings keys (T07).
                 return LabelledRow(t, availableWidth, new DwellToggle(registrar, t.Id, t.Label,
-                    "On", "Off", t.Get, t.Set, cat, radiusPhysical, dwellMs, showLabel: false));
+                    StringTable.Current.T("settings.control.toggle.on"),
+                    StringTable.Current.T("settings.control.toggle.off"),
+                    t.Get, t.Set, cat, radiusPhysical, dwellMs, showLabel: false));
             case ComboBoxSpec c:
-                // Host-supplied marker format (T02); T07 passes a key carrying the same shape.
+                // Host-supplied marker format (T02), resolved from a settings key (T07).
                 return LabelledRow(c, availableWidth, new DwellComboBox(registrar, c.Id, c.Label,
                     c.Display, c.Code ?? c.Display, c.Get, c.Set, cat, radiusPhysical, dwellMs,
-                    "⚠ {0} (not available)", showLabel: false));
+                    StringTable.Current.T("settings.control.combo.not_available"), showLabel: false));
             case ColorPickerSpec cp:
-                // Host-supplied swatch names (T02); T07 passes settings keys.
+                // Host-supplied swatch names (T02), resolved from settings keys (T07).
                 return LabelledRow(cp, availableWidth, new DwellColorPicker(registrar, cp.Id,
                     cp.Label, cp.Get, cp.Set, cat,
                     DpiHelper.LogicalToPhysicalX(cp.RadiusLogical), dwellMs,
-                    swatchNames: ColorSwatchNames, showLabel: false));
+                    swatchNames: ColorSwatchNames.Select(StringTable.Current.T).ToArray(),
+                    showLabel: false));
             case ButtonSpec b:
                 return ButtonRow(registrar, b.Id, b.Label, b.OnActivate, b.Kind, b.Width, b.Height,
                     radiusPhysical, dwellMs, cat);

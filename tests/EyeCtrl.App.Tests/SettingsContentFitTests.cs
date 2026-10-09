@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Xml.Linq;
+using EyeCtrl.App.Tests.Localization;
 using EyeCtrl.App.Views;
 using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Controls;
@@ -624,7 +625,8 @@ public class SettingsContentFitTests
     ///
     /// <para>Three sources, because the app has three:</para>
     /// <list type="bullet">
-    /// <item>the literal <c>ToggleSpec</c> labels in <c>Views/Settings/Sources</c>;</item>
+    /// <item>the <c>ToggleSpec</c> labels in <c>Views/Settings/Sources</c>, whether still written
+    /// literally or already a <c>StringTable.Current.T("settings.…")</c> key (T07);</item>
     /// <item><c>ActionMenuPageSource.FriendlyName</c>'s arms, which that page builds one toggle
     /// per <c>InteractionAction</c> from;</item>
     /// <item><c>QuickActionsPageSource</c>'s glyph-plus-label caption, whose label is DATA. The
@@ -641,12 +643,20 @@ public class SettingsContentFitTests
             "src", "EyeCtrl.App", "Views", "Settings", "Sources");
         var labels = new List<string>();
 
+        // Both label shapes: the literal still awaiting its key, and the keyed call T07 introduces.
+        // A keyed label resolves to the same English the raw key's entry carries; a key the table
+        // does not define fails loudly here rather than being measured as its own key string.
         foreach (var file in Directory.EnumerateFiles(sources, "*.cs", SearchOption.AllDirectories))
         {
             var text = File.ReadAllText(file);
             foreach (Match m in Regex.Matches(
-                         text, @"new ToggleSpec\(\s*""[^""]*""\s*,\s*""([^""]*)"""))
-                labels.Add(m.Groups[1].Value);
+                         text,
+                         "new ToggleSpec\\(\\s*\"[^\"]*\"\\s*,\\s*(?:StringTable\\.Current\\.T\\(\\s*\"(?<key>[^\"]*)\"\\s*\\)|\"(?<literal>[^\"]*)\")"))
+            {
+                labels.Add(m.Groups["literal"].Success
+                    ? m.Groups["literal"].Value
+                    : EnglishText(m.Groups["key"].Value));
+            }
         }
 
         var actionMenu = File.ReadAllText(Path.Combine(sources, "ActionMenuPageSource.cs"));
@@ -662,7 +672,39 @@ public class SettingsContentFitTests
         foreach (var preset in presets)
             labels.Add("▦  " + preset);
 
+        // The count floor the holistic review asked for (T07, N1's neighbour): `Not.IsEmpty` let a
+        // reader that stopped understanding the keyed shape measure a shrunken set without
+        // failing. The tree produces 71 labels today — 23 toggle specs (keyed or literal), 24
+        // Action-Menu arms and 24 preset captions — so anything at or below 66 is a reader that
+        // has gone partly blind, not a codebase with fewer toggles.
+        Check.WithCustomMessage(
+                $"RealToggleLabels collected only {labels.Count} labels. The tree produces 71 (23 "
+                + "toggle specs + 24 Action-Menu arms + 24 preset captions); a lower count means the "
+                + "reader no longer understands a ToggleSpec label shape and is measuring a subset. "
+                + "Repoint the pattern rather than lowering this floor.")
+            .That(labels.Count).IsStrictlyGreaterThan(66);
+
         return labels;
+    }
+
+    /// <summary>
+    /// Resolves one literal <c>settings</c> key to its English text from the embedded table. A
+    /// missing key fails loudly: since T07 the label text lives in strings.json, and measuring the
+    /// raw key as if it were a label would be a silent regression.
+    /// </summary>
+    /// <param name="key">The literal key a page source passes to <c>T</c>.</param>
+    /// <returns>The key's English text.</returns>
+    private static string EnglishText(string key)
+    {
+        var content = LocalizationTestData.EnglishContent();
+        Check.WithCustomMessage(
+                $"A settings control label references \"{key}\", which strings.json does not "
+                + "define. Add the key or fix the reference.")
+            .That(content.ContainsKey(key)).IsTrue();
+
+        return content.Texts[key].Value
+            ?? throw new InvalidOperationException(
+                $"The settings label key \"{key}\" is a plural entry; labels are single strings.");
     }
 
     /// <summary>The row's label <see cref="TextBlock"/>, found by the text it was built with.</summary>

@@ -195,6 +195,666 @@
     "fit": "row",
     "args": []
   },
+  "settings.control.combo.not_available": {
+    "text": "⚠ {0} (not available)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": [
+      "value"
+    ]
+  },
+  "settings.control.swatch.accent": {
+    "text": "Accent",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.control.swatch.amber": {
+    "text": "Amber",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.control.swatch.green": {
+    "text": "Green",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.control.swatch.light": {
+    "text": "Light",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.control.toggle.off": {
+    "text": "Off",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.control.toggle.on": {
+    "text": "On",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.cursor.color.description": {
+    "text": "The cursor ring’s color; every preset stays clearly visible.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.cursor.color.label": {
+    "text": "Circle Color",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.cursor.color_unavailable": {
+    "text": "Circle Color is not used by the Achromatic reticle ring style.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.cursor.filter.description": {
+    "text": "Filtering applied to raw gaze samples.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.cursor.filter.label": {
+    "text": "Filter Mode",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.cursor.filter.option.direct": {
+    "text": "Direct",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.cursor.filter.option.one_euro": {
+    "text": "One Euro",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.cursor.filter.option.smoothed": {
+    "text": "Smoothed",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.cursor.filter.option.smoothed_legacy": {
+    "text": "Smoothed (Legacy)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.cursor.gap.description": {
+    "text": "Bridge short tracker dropouts up to this long.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.cursor.gap.label": {
+    "text": "Gap Interpolation (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.cursor.one_euro_beta.description": {
+    "text": "Extra responsiveness per screen diagonal per second of gaze movement.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.cursor.one_euro_beta.label": {
+    "text": "One Euro Beta",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.cursor.one_euro_cutoff.description": {
+    "text": "Lower is smoother and slower; higher follows fast motion. Above about a third of the tracker's sample rate (~10 Hz here) there is no further effect.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.cursor.one_euro_cutoff.label": {
+    "text": "One Euro Min Cutoff",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.cursor.opacity.description": {
+    "text": "Lowering this dims the colored half of the ring's edge, which is what keeps it visible.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.cursor.opacity.label": {
+    "text": "Circle Opacity",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.cursor.position_indicator.description": {
+    "text": "How the position indicator is drawn; applies from the next action-menu open.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.cursor.position_indicator.label": {
+    "text": "Position Indicator",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.cursor.position_indicator.option.crosshair": {
+    "text": "Crosshair",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.cursor.position_indicator.option.pin": {
+    "text": "Pin",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.cursor.reset.label": {
+    "text": "Reset Cursor Settings",
+    "who": "user",
+    "where": "settings",
+    "fit": "B260x2",
+    "args": []
+  },
+  "settings.cursor.reset.message": {
+    "text": "Reset Cursor settings to defaults?",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.cursor.ring_style.description": {
+    "text": "How the ring stays visible on light and dark backgrounds.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.cursor.ring_style.label": {
+    "text": "Ring Style",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.cursor.ring_style.option.achromatic_reticle": {
+    "text": "Achromatic reticle",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.cursor.ring_style.option.bitonal_segments": {
+    "text": "Bi-tonal segments",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.cursor.ring_style.option.weighted_sandwich": {
+    "text": "Weighted sandwich",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.cursor.size.description": {
+    "text": "Diameter of the cursor circle.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.cursor.size.label": {
+    "text": "Circle Size (px)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.cursor.smoothing.description": {
+    "text": "Higher is more responsive; lower is smoother.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.cursor.smoothing.label": {
+    "text": "Smoothing Factor",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.cursor.thickness.description": {
+    "text": "Ring stroke width, in pixels.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.cursor.thickness.label": {
+    "text": "Circle Thickness",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.dwell.action_menu.description": {
+    "text": "How long to rest on an action in the ring.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.action_menu.label": {
+    "text": "Action Menu (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.dwell.activation.description": {
+    "text": "Dwell for the button that appears at your gaze.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.activation.label": {
+    "text": "Activation Button (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.dwell.cooldown.description": {
+    "text": "How long a new dwell must wait after an activation.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.cooldown.label": {
+    "text": "Dwell Cooldown (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.dwell.cue_sound.description": {
+    "text": "Plays a soft tone when a dwell activates on any EyeCtrl surface — buttons, menus, settings. Keys keep their own click sound.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.cue_sound.label": {
+    "text": "Dwell Completion Sound",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.dwell.fixation.description": {
+    "text": "How long your gaze must hold steady before a dwell can start.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.fixation.label": {
+    "text": "Fixation Detection (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.dwell.fixation_radius.description": {
+    "text": "How far your gaze may drift within a fixation.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.fixation_radius.label": {
+    "text": "Fixation Radius (px)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.dwell.keyboard_key.description": {
+    "text": "How long to rest on a key before it fires. Keys that can leave the app or destroy work use 600 ms.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.keyboard_key.label": {
+    "text": "Keyboard Key (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.dwell.manual_selection.description": {
+    "text": "Dwell for the action ring inside manual selection.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.manual_selection.label": {
+    "text": "Manual Selection Action Menu (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.dwell.prediction.description": {
+    "text": "Dwell for the word suggestions above the keyboard.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.prediction.label": {
+    "text": "Prediction (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.dwell.reset.label": {
+    "text": "Reset Dwell Settings",
+    "who": "user",
+    "where": "settings",
+    "fit": "B260x2",
+    "args": []
+  },
+  "settings.dwell.reset.message": {
+    "text": "Reset Dwell settings to defaults?",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.toolbar.description": {
+    "text": "How long to rest on EyeCtrl's own buttons.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.dwell.toolbar.label": {
+    "text": "Toolbar / Settings (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.general.boot.description": {
+    "text": "Opens EyeCtrl automatically when you sign in.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.general.boot.label": {
+    "text": "Start on Windows Boot",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.general.pause.description": {
+    "text": "Starts with tracking paused until you switch it on.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.general.pause.label": {
+    "text": "Start Paused",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.general.reset.label": {
+    "text": "Reset General Settings",
+    "who": "user",
+    "where": "settings",
+    "fit": "B260x2",
+    "args": []
+  },
+  "settings.general.reset.message": {
+    "text": "Reset General settings to defaults?\nA changed theme applies after a restart.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.general.resetall.label": {
+    "text": "⚠ Reset ALL Settings",
+    "who": "user",
+    "where": "settings",
+    "fit": "B260x2",
+    "args": []
+  },
+  "settings.general.resetall.message": {
+    "text": "Reset ALL settings to defaults?\nThis cannot be undone.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.general.restart.cancel.option": {
+    "text": "✕ Cancel",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.general.restart.label": {
+    "text": "↻ Restart Now",
+    "who": "user",
+    "where": "settings",
+    "fit": "B260x2",
+    "args": []
+  },
+  "settings.general.restart.message": {
+    "text": "Restart EyeCtrl now?",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.general.restart.plain.option": {
+    "text": "↻ Restart without",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.general.restart.supervised.message": {
+    "text": "Restart EyeCtrl now?\nA supervisor is installed. It restarts EyeCtrl if it ever fails, and can recover a restart that goes wrong.\nStarting it turns supervision on and leaves it on.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.general.restart.supervised.option": {
+    "text": "↻ Restart with supervisor",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.general.supervision.description": {
+    "text": "If EyeCtrl stops responding or crashes, it restarts automatically; if it keeps failing, TD Control opens instead.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.general.supervision.label": {
+    "text": "Automatic Crash Recovery",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.general.supervision.unavailable": {
+    "text": "Automatic Crash Recovery is unavailable: the EyeCtrl Supervisor is not installed on this PC.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.general.supervision_retry.label": {
+    "text": "↻ Start Supervisor",
+    "who": "user",
+    "where": "settings",
+    "fit": "B260x2",
+    "args": []
+  },
+  "settings.general.theme.description": {
+    "text": "All three are dark; Contrast is the boldest.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.general.theme.label": {
+    "text": "Theme (restart to apply)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.general.theme.option.contrast": {
+    "text": "Contrast",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.general.theme.option.ember": {
+    "text": "Ember",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.general.theme.option.midnight": {
+    "text": "Midnight",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.general.track.description": {
+    "text": "A corner box showing live eye-tracker status.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.general.track.label": {
+    "text": "Show Track Status",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.layout.position.description": {
+    "text": "The action menu and magnifier: at your gaze, or centered.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.layout.position.label": {
+    "text": "Position",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.layout.position.option.at_center": {
+    "text": "At Center",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.layout.position.option.at_gaze": {
+    "text": "At Gaze",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.layout.reset.label": {
+    "text": "Reset Layout Settings",
+    "who": "user",
+    "where": "settings",
+    "fit": "B260x2",
+    "args": []
+  },
+  "settings.layout.reset.message": {
+    "text": "Reset Layout settings to defaults?",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
   "settings.modal.no": {
     "text": "✕ No",
     "who": "user",
@@ -270,6 +930,209 @@
   },
   "settings.pager.previous_tabs": {
     "text": "Previous tab page",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.selection.center_dot.description": {
+    "text": "Diameter of the dot at the center of the gaze ring; applies after a restart.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.selection.center_dot.label": {
+    "text": "Center Dot (px)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.selection.circle_radius.description": {
+    "text": "Radius of the magnifier's zoom circle.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.selection.circle_radius.label": {
+    "text": "Circle Radius (px)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.selection.gaze_ring.description": {
+    "text": "Diameter of the ring shown at your gaze; applies from the next selection.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.selection.gaze_ring.label": {
+    "text": "Gaze Ring Diameter (px)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.selection.grace.description": {
+    "text": "Dwell waits this long after manual selection opens.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.selection.grace.label": {
+    "text": "Grace Period (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.selection.highlight.description": {
+    "text": "Color of the box around an auto-selected control.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.selection.highlight.label": {
+    "text": "Highlight Color",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.selection.highlight_thickness.description": {
+    "text": "Line weight of that auto-selection box.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.selection.highlight_thickness.label": {
+    "text": "Highlight Thickness",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.selection.hold.description": {
+    "text": "How far your gaze may drift from the held point before the selection restarts. Larger is more forgiving.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.selection.hold.label": {
+    "text": "Hold Tolerance (px)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.selection.magnification.description": {
+    "text": "How strongly the zoom circle magnifies.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.selection.magnification.label": {
+    "text": "Magnification Level",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.selection.mode.description": {
+    "text": "None clicks your gaze point; Manual zooms; Auto snaps.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.selection.mode.label": {
+    "text": "Selection Mode",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.selection.mode.option.auto": {
+    "text": "Auto Selection",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.selection.mode.option.manual": {
+    "text": "Manual Selection",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.selection.mode.option.none": {
+    "text": "None",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.selection.reset_animation.description": {
+    "text": "How long the gaze ring takes to fade after a selection; applies after a restart.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.selection.reset_animation.label": {
+    "text": "Reset Animation (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.selection.ring_opacity.description": {
+    "text": "How visible the gaze ring is; applies after a restart.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.selection.ring_opacity.label": {
+    "text": "Ring Opacity",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.selection.ring_stroke.description": {
+    "text": "Thickness of the gaze ring's outline; applies after a restart.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.selection.ring_stroke.label": {
+    "text": "Ring Stroke (px)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.selection.snap_radius.description": {
+    "text": "How far from your gaze Auto Selection searches for a control.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.selection.snap_radius.label": {
+    "text": "Snap Search Radius (px)",
     "who": "user",
     "where": "settings",
     "fit": "row",
@@ -483,6 +1346,90 @@
     "who": "user",
     "where": "settings",
     "fit": "tab156",
+    "args": []
+  },
+  "settings.toolbar.dock.description": {
+    "text": "Docks the toolbar to an edge; with an eye tracker it auto-hides.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.toolbar.dock.label": {
+    "text": "Dock to Screen Edge",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.toolbar.edge.description": {
+    "text": "Which screen edge the toolbar attaches to.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.toolbar.edge.label": {
+    "text": "Docked Edge",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.toolbar.edge.option.bottom": {
+    "text": "Bottom",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.toolbar.edge.option.left": {
+    "text": "Left",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.toolbar.edge.option.right": {
+    "text": "Right",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.toolbar.edge.option.top": {
+    "text": "Top",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.toolbar.reset.label": {
+    "text": "Reset Toolbar Settings",
+    "who": "user",
+    "where": "settings",
+    "fit": "B260x2",
+    "args": []
+  },
+  "settings.toolbar.reset.message": {
+    "text": "Reset Toolbar settings to defaults?",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.toolbar.size.description": {
+    "text": "Size of each button; bigger ones are easier to aim at.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.toolbar.size.label": {
+    "text": "Button Size",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
     "args": []
   },
   "settings.window.title": {

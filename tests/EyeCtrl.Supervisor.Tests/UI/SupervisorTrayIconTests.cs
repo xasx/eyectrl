@@ -63,7 +63,7 @@ public class SupervisorTrayIconTests
     [Fact]
     public void HoverRefresh_IsThrottled_AndShowsTheNewText()
     {
-        var now = new DateTime(2026, 10, 9, 12, 0, 0, DateTimeKind.Utc);
+        var ticks = 1000L;
         var calls = 0;
         string? status = "one";
         using var tray = new SupervisorTrayIcon(
@@ -71,22 +71,49 @@ public class SupervisorTrayIconTests
             () => new SupervisorTrayTexts("a", "b", "c"),
             visible: false,
             refreshStatus: () => { calls++; return status; },
-            utcNow: () => now);
+            tickCount: () => ticks);
 
         Check.That(tray.ApplyHoverRefresh()).IsEqualTo("one");
         Check.That(calls).IsEqualTo(1);
         Check.That(tray.StatusText).IsEqualTo("one");
 
         // MouseMove repeats while the pointer moves: within 2 s the throttle swallows it.
-        now = now.AddSeconds(1);
+        ticks += 1000;
         Check.That(tray.ApplyHoverRefresh()).IsNull();
         Check.That(calls).IsEqualTo(1);
 
         // The language changed on disk (the provider now answers "two"); the next hover past the
         // throttle shows it, without any state change.
         status = "two";
-        now = now.AddSeconds(1);
+        ticks += 1000;
         Check.That(tray.ApplyHoverRefresh()).IsEqualTo("two");
+        Check.That(calls).IsEqualTo(2);
+        Check.That(tray.StatusText).IsEqualTo("two");
+    }
+
+    [Fact]
+    public void TheMouseMoveSubscription_RefreshesTheTooltip()
+    {
+        // The subscription is the only path that brings an App-side language change into the
+        // tooltip while the state is steady and nobody opens the menu (T06 review-02 R1): raise
+        // the icon's hover event the way the shell does, through its protected OnMouseMove.
+        var ticks = 1000L;
+        var calls = 0;
+        string? status = "one";
+        using var tray = new SupervisorTrayIcon(
+            () => { }, () => { }, () => { },
+            () => new SupervisorTrayTexts("a", "b", "c"),
+            visible: false,
+            refreshStatus: () => { calls++; return status; },
+            tickCount: () => ticks);
+
+        RaiseMouseMove(tray);
+        Check.That(calls).IsEqualTo(1);
+        Check.That(tray.StatusText).IsEqualTo("one");
+
+        status = "two";
+        ticks += 2000;
+        RaiseMouseMove(tray);
         Check.That(calls).IsEqualTo(2);
         Check.That(tray.StatusText).IsEqualTo("two");
     }
@@ -94,14 +121,14 @@ public class SupervisorTrayIconTests
     [Fact]
     public void MenuOpening_RefreshesTheStatus_Unthrottled()
     {
-        var now = new DateTime(2026, 10, 9, 12, 0, 0, DateTimeKind.Utc);
+        var ticks = 1000L;
         var calls = 0;
         using var tray = new SupervisorTrayIcon(
             () => { }, () => { }, () => { },
             () => new SupervisorTrayTexts("a", "b", "c"),
             visible: false,
             refreshStatus: () => { calls++; return "status " + calls; },
-            utcNow: () => now);
+            tickCount: () => ticks);
 
         tray.ApplyHoverRefresh();
         Check.That(calls).IsEqualTo(1);
@@ -119,9 +146,20 @@ public class SupervisorTrayIconTests
             () => new SupervisorTrayTexts("a", "b", "c"),
             visible: false,
             refreshStatus: () => throw new InvalidOperationException("table unreadable"),
-            utcNow: () => DateTime.UtcNow);
+            tickCount: () => 1000L);
 
         Check.That(tray.ApplyStatusRefresh()).IsNull();
         Check.That(tray.StatusText).IsEqualTo("EyeCtrl Supervisor");   // the pre-status default
+    }
+
+    /// <summary>Raises the icon's hover event through its protected
+    /// <c>OnMouseMove(MouseEventArgs)</c>, the way the shell does (the <c>OnOpening</c> precedent).</summary>
+    private static void RaiseMouseMove(SupervisorTrayIcon tray)
+    {
+        var onMouseMove = typeof(System.Windows.Forms.NotifyIcon).GetMethod(
+            "OnMouseMove", BindingFlags.Instance | BindingFlags.NonPublic,
+            [typeof(System.Windows.Forms.MouseEventArgs)])!;
+        onMouseMove.Invoke(tray.TrayIcon,
+            [new System.Windows.Forms.MouseEventArgs(System.Windows.Forms.MouseButtons.None, 0, 0, 0, 0)]);
     }
 }

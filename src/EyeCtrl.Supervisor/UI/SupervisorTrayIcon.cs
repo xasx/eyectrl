@@ -39,7 +39,7 @@ internal sealed class SupervisorTrayIcon : IDisposable
 {
     /// <summary>The hover refresh interval: <see cref="NotifyIcon.MouseMove"/> repeats while the
     /// pointer moves, and each refresh re-resolves the table, so a burst costs one read.</summary>
-    private static readonly TimeSpan HoverRefreshInterval = TimeSpan.FromSeconds(2);
+    private const long HoverRefreshIntervalMs = 2000;
 
     private readonly NotifyIcon _trayIcon;
     private readonly ToolStripMenuItem _settingsItem;
@@ -47,8 +47,8 @@ internal sealed class SupervisorTrayIcon : IDisposable
     private readonly ToolStripMenuItem _exitItem;
     private readonly Func<SupervisorTrayTexts> _texts;
     private readonly Func<string?>? _refreshStatus;
-    private readonly Func<DateTime> _utcNow;
-    private DateTime _lastHoverRefreshUtc = DateTime.MinValue;
+    private readonly Func<long> _tickCount;
+    private long _lastHoverRefreshTick;
     private bool _disposed;
 
     /// <summary>
@@ -63,15 +63,19 @@ internal sealed class SupervisorTrayIcon : IDisposable
     /// <param name="refreshStatus">Re-resolves the tooltip line at its display moments — hover
     /// (throttled) and menu open; null when the host does not manage a status tooltip. Never
     /// called from the supervision loop (T06 review-01 F2).</param>
-    /// <param name="utcNow">The clock the hover throttle reads; injectable so tests advance time
-    /// without waiting. Null uses <see cref="DateTime.UtcNow"/>.</param>
+    /// <param name="tickCount">The MONOTONIC milliseconds clock the hover throttle reads; a
+    /// backward wall-clock step cannot swallow hovers, and tests advance it without waiting.
+    /// Null uses <see cref="Environment.TickCount64"/>.</param>
     public SupervisorTrayIcon(
         Action openSettings, Action launchAppNow, Action exit, Func<SupervisorTrayTexts> texts,
-        bool visible = true, Func<string?>? refreshStatus = null, Func<DateTime>? utcNow = null)
+        bool visible = true, Func<string?>? refreshStatus = null, Func<long>? tickCount = null)
     {
         _texts = texts;
         _refreshStatus = refreshStatus;
-        _utcNow = utcNow ?? (() => DateTime.UtcNow);
+        _tickCount = tickCount ?? (() => Environment.TickCount64);
+        // Seed the throttle so the FIRST hover passes: subtracting the interval (rather than
+        // starting at 0/MinValue) keeps the comparison overflow-free on a monotonic clock.
+        _lastHoverRefreshTick = _tickCount() - HoverRefreshIntervalMs;
         _settingsItem = new ToolStripMenuItem();
         _settingsItem.Click += (_, _) => openSettings();
 
@@ -125,17 +129,21 @@ internal sealed class SupervisorTrayIcon : IDisposable
     /// applied the shell's cap.</summary>
     internal string StatusText => _trayIcon.Text ?? "";
 
+    /// <summary>The icon component, so tests can raise its hover event by reflection the way the
+    /// shell does (the <see cref="Menu"/> precedent).</summary>
+    internal NotifyIcon TrayIcon => _trayIcon;
+
     /// <summary>The hover refresh, throttled to one resolve per
-    /// <see cref="HoverRefreshInterval"/> (for tests and the icon's MouseMove).</summary>
+    /// <see cref="HoverRefreshIntervalMs"/> (for tests and the icon's MouseMove).</summary>
     /// <returns>The applied line, or null when the throttle swallowed the call or the provider
     /// abstained/failed.</returns>
     internal string? ApplyHoverRefresh()
     {
         if (_refreshStatus is null) return null;
 
-        var now = _utcNow();
-        if (now - _lastHoverRefreshUtc < HoverRefreshInterval) return null;
-        _lastHoverRefreshUtc = now;
+        var now = _tickCount();
+        if (now - _lastHoverRefreshTick < HoverRefreshIntervalMs) return null;
+        _lastHoverRefreshTick = now;
         return ApplyStatusRefresh();
     }
 

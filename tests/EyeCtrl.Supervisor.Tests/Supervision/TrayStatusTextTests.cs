@@ -91,4 +91,26 @@ public class TrayStatusTextTests
 
         Check.That(status.Refresh()).IsNull();
     }
+
+    [Fact]
+    public void AThrowingResolve_DoesNotCacheTheOldLineUnderTheNewState()
+    {
+        // T06 review-02 R2: the new state must be recorded only once its line composed. With the
+        // old order, the failed resolve left "watching" mapped to the idle line, and every
+        // same-state heartbeat served that — until a hover.
+        var calls = 0;
+        var status = new TrayStatusText(() =>
+        {
+            calls++;
+            if (calls == 2) throw new InvalidOperationException("resolve failed");
+            return StringTable.EmbeddedEnglish;
+        });
+
+        Check.That(status.Update(SupervisorState.IdleWatch)).IsEqualTo("EyeCtrl Supervisor: idle");
+        Check.ThatCode(() => status.Update(SupervisorState.Supervising)).Throws<InvalidOperationException>();
+
+        Check.That(status.Update(SupervisorState.Supervising))
+            .IsEqualTo("EyeCtrl Supervisor: watching EyeCtrl");
+        Check.That(calls).IsEqualTo(3);
+    }
 }

@@ -36,8 +36,11 @@ internal sealed class TrayStatusText
     {
         if (_state != state || _text is null)
         {
-            _state = state;
+            // Compose first, then record the state: if the resolve ever threw, the new state must
+            // not be cached against the previous state's line (T06 review-02 R2) — the next call
+            // retries the new state instead of serving stale text until a hover.
             _text = Compose(_resolve(), state);
+            _state = state;
         }
 
         return _text;

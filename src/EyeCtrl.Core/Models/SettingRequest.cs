@@ -2,6 +2,8 @@ namespace EyeCtrl.Core.Models;
 
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using EyeCtrl.Core.Enums;
+using EyeCtrl.Core.Localization;
 
 /// <summary>
 /// The Supervisor → App request channel (<c>eyectrl_request</c>). The App is the only process
@@ -53,6 +55,11 @@ public static class SettingRequestKinds
 {
     /// <summary>Sets <c>general.startOnBoot</c>; <c>value</c> is a JSON boolean.</summary>
     public const string SetStartOnBoot = "setStartOnBoot";
+
+    /// <summary>Sets <c>general.uiLanguage</c>; <c>value</c> is the settings-JSON token
+    /// (<see cref="UiLanguageTokens.ToJson"/>). With <c>restart: true</c> the App restarts into it
+    /// when that changes the language it shows.</summary>
+    public const string SetUiLanguage = "setUiLanguage";
 }
 
 /// <summary>
@@ -71,6 +78,13 @@ public sealed record SettingRequest(string Id, string Kind, JsonElement Value, b
     /// <summary>A <see cref="SettingRequestKinds.SetStartOnBoot"/> request. It never restarts.</summary>
     public static SettingRequest SetStartOnBoot(bool startOnBoot) =>
         new(NewId(), SettingRequestKinds.SetStartOnBoot, JsonSerializer.SerializeToElement(startOnBoot), Restart: false);
+
+    /// <summary>A <see cref="SettingRequestKinds.SetUiLanguage"/> request.</summary>
+    /// <param name="language">The language to save.</param>
+    /// <param name="restart">True only for a live choice the user just made in the Supervisor.</param>
+    public static SettingRequest SetUiLanguage(UiLanguage language, bool restart) =>
+        new(NewId(), SettingRequestKinds.SetUiLanguage,
+            JsonSerializer.SerializeToElement(UiLanguageTokens.ToJson(language)), restart);
 
     /// <summary>A fresh correlation id.</summary>
     public static string NewId() => Guid.NewGuid().ToString("N");

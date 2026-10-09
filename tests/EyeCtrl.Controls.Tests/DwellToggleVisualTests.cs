@@ -112,6 +112,29 @@ public class DwellToggleVisualTests
     }
 
     /// <summary>
+    /// Refresh repaints from the getter when the value changed without a dwell (T05b: the
+    /// Supervisor's logon row after a superseded or refused choice). Without it the face keeps the
+    /// old state, and the next dwell sends the inverse of the hidden value.
+    /// </summary>
+    [StaFact]
+    public void Refresh_RepaintsAValueThatChangedWithoutADwell()
+    {
+        var state = false;
+        var toggle = new DwellToggle(
+            new FakeDwellRegistrar(), "id", "Label", "On", "Off", () => state, v => state = v,
+            DwellCategory.Control, Radius, 800);
+        Check.That(toggle.StateText.Text).IsEqualTo("Off");
+
+        state = true;                              // changed by the host, not by the switch
+        Check.That(toggle.StateText.Text).IsEqualTo("Off");
+
+        toggle.Refresh();
+
+        Check.That(toggle.StateText.Text).IsEqualTo("On");
+        Check.That(toggle.Knob.HorizontalAlignment).IsEqualTo(HorizontalAlignment.Right);
+    }
+
+    /// <summary>
     /// State must survive a colour-vision deficiency and a monochrome screen alike, so the word
     /// is the primary carrier and the knob's side and the track's fill back it up.
     /// </summary>

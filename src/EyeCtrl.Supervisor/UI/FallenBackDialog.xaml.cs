@@ -3,6 +3,7 @@ namespace EyeCtrl.Supervisor.UI;
 using System;
 using System.Windows;
 using EyeCtrl.Controls;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Processing;
 using Media = System.Windows.Media;
 
@@ -28,8 +29,15 @@ public partial class FallenBackDialog : Window
     /// <summary>Raised when the user picks "Dismiss". The dialog closes and supervision stays paused for the session.</summary>
     public event Action? Dismissed;
 
-    public FallenBackDialog()
+    /// <summary>The table this dialog was opened with.</summary>
+    internal StringTable Strings { get; }
+
+    /// <param name="strings">The Supervisor's table, resolved when the dialog opens — the pending
+    /// language choice first, then the setting (T05b) — so a dialog opened after a language change
+    /// shows the new language. T06 moves the dialog's texts onto it.</param>
+    public FallenBackDialog(StringTable strings)
     {
+        Strings = strings;
         InitializeComponent();
         BuildButtons();
     }

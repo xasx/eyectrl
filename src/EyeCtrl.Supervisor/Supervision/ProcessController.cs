@@ -2,6 +2,8 @@ namespace EyeCtrl.Supervisor.Supervision;
 
 using System;
 using System.Diagnostics;
+using EyeCtrl.Core.Enums;
+using EyeCtrl.Core.Localization;
 
 public sealed class ProcessController
 {
@@ -51,7 +53,14 @@ public sealed class ProcessController
         _adoptFactory = adoptFactory;
     }
 
-    public void Launch(string exePath, bool paused)
+    /// <summary>Starts the App and binds it.</summary>
+    /// <param name="exePath">The App exe.</param>
+    /// <param name="paused">Adds <c>--paused</c> (the FallenBack retry).</param>
+    /// <param name="uiLanguage">A language the caretaker chose while the App was down (T05b): adds
+    /// <c>--ui-language &lt;token&gt;</c>, which the App saves at startup. A launch that loses the
+    /// App's single-instance guard exits before it reads the flag, so the caller keeps the choice
+    /// pending until a re-read finds it saved.</param>
+    public void Launch(string exePath, bool paused, UiLanguage? uiLanguage = null)
     {
         ReleasePrevious();
         KillInitiated = false;
@@ -60,6 +69,12 @@ public sealed class ProcessController
         ExePath = exePath;
         var psi = new ProcessStartInfo(exePath) { UseShellExecute = false };
         if (paused) psi.ArgumentList.Add("--paused");
+        if (uiLanguage is { } language)
+        {
+            // T01's single token mapping; the App parses it with the same table.
+            psi.ArgumentList.Add("--ui-language");
+            psi.ArgumentList.Add(UiLanguageTokens.ToCommandLine(language));
+        }
         Bind(_processFactory(psi));
         StartTimeUtc = _process?.StartTime;
     }

@@ -33,13 +33,14 @@ public sealed class SupervisorRequestService : IDisposable
     /// <summary>The production pipe name, shared with the Supervisor's client.</summary>
     public const string DefaultPipeName = SettingRequestChannel.PipeName;
 
-    private readonly Func<SettingRequest, SettingRequestStatus> _handle;
-    private readonly Func<Func<SettingRequestStatus>, Task<SettingRequestStatus>> _runOnUi;
+    private readonly Func<SettingRequest, SettingRequestOutcome> _handle;
+    private readonly Func<Func<SettingRequestOutcome>, Task<SettingRequestOutcome>> _runOnUi;
     private readonly ILogger _logger;
     private readonly NewlineJsonPipeServer<Connection> _pipeServer;
 
-    /// <param name="handle">Applies and saves one request; runs on the UI thread.</param>
-    /// <param name="runOnUi">Runs the handler on the dispatcher (production:
+    /// <param name="handle">Applies and saves one request; runs on the UI thread. Its outcome's
+    /// <see cref="SettingRequestOutcome.AfterAck"/> runs once the acknowledgement is out.</param>
+    /// <param name="runOnUi">Runs work on the dispatcher (production:
     /// <c>work =&gt; Dispatcher.InvokeAsync(work).Task</c>).</param>
     /// <param name="logger">Where refusals, bad lines and write failures are logged.</param>
     /// <param name="pipeName">Pipe to serve on; tests pass <see cref="DefaultPipeName"/> +
@@ -48,8 +49,8 @@ public sealed class SupervisorRequestService : IDisposable
     /// Defaults to <see cref="IsSupervisorClient(NamedPipeServerStream)"/>; tests whose client is the test host itself
     /// pass their own.</param>
     public SupervisorRequestService(
-        Func<SettingRequest, SettingRequestStatus> handle,
-        Func<Func<SettingRequestStatus>, Task<SettingRequestStatus>> runOnUi,
+        Func<SettingRequest, SettingRequestOutcome> handle,
+        Func<Func<SettingRequestOutcome>, Task<SettingRequestOutcome>> runOnUi,
         ILogger logger,
         string? pipeName = null,
         Func<NamedPipeServerStream, bool>? isAuthorizedClient = null)
@@ -97,16 +98,18 @@ public sealed class SupervisorRequestService : IDisposable
 
     private async Task ProcessAsync(SettingRequest request, Connection connection)
     {
-        SettingRequestStatus status;
+        SettingRequestOutcome outcome;
         try
         {
-            status = await _runOnUi(() => _handle(request)).ConfigureAwait(false);
+            outcome = await _runOnUi(() => _handle(request)).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Supervisor request {Id}: handler threw.", request.Id);
-            status = SettingRequestStatus.Failed;
+            outcome = new SettingRequestOutcome(SettingRequestStatus.Failed);
         }
+
+        var status = outcome.Status;
 
         try
         {
@@ -118,6 +121,26 @@ public sealed class SupervisorRequestService : IDisposable
             // The Supervisor gave up waiting or went away. If the save succeeded, its parked
             // copy is re-sent and saved again — requests are idempotent.
             _logger.LogInformation(ex, "Supervisor request {Id}: acknowledgement ({Status}) not delivered.", request.Id, status);
+        }
+
+        // Hook (b): what must not happen before the acknowledgement is out — a restart would
+        // otherwise dispose this channel (OnExit) before the ack leaves, and the Supervisor would
+        // park a change that just worked. It runs whether or not the write succeeded, so a dead
+        // pipe never costs the action itself.
+        if (outcome.AfterAck is { } afterAck)
+        {
+            try
+            {
+                await _runOnUi(() =>
+                {
+                    afterAck();
+                    return outcome;
+                }).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Supervisor request {Id}: the after-acknowledgement action threw.", request.Id);
+            }
         }
     }
 

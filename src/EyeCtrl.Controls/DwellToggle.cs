@@ -500,6 +500,13 @@ public class DwellToggle : IDwellComposite
     }
 
     /// <summary>
+    /// Repaints the switch from the getter, for a host whose value changed without a dwell — for
+    /// example the Supervisor's logon row after a parked choice was superseded or refused. Without
+    /// it the face keeps the old state, and the next dwell sends the inverse of the hidden value.
+    /// </summary>
+    public void Refresh() => RefreshVisual();
+
+    /// <summary>
     /// Re-reads the setting and repaints the switch. User-rate, not gaze-rate: the two brushes are
     /// mutated in place rather than replaced.
     /// </summary>

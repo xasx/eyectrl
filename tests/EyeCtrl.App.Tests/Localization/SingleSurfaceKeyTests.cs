@@ -37,6 +37,10 @@ public class SingleSurfaceKeyTests
         // explicitly by T05b — a glob must not grant both surfaces to every file.
         ("src/EyeCtrl.Supervisor/**", ["supervisor"]),
 
+        // T05b: the Supervisor setup window's language row model holds the recovery strings (D5);
+        // the window and every other Supervisor file stay on the supervisor surface alone.
+        ("src/EyeCtrl.Supervisor/Supervision/LanguageSetupRow.cs", ["language-recovery"]),
+
         // Mixed folders: explicit files only.
         ("src/EyeCtrl.App/Views/SettingsWindow.xaml", ["settings", "language-recovery"]),
         ("src/EyeCtrl.App/Views/SettingsWindow.xaml.cs", ["settings", "language-recovery"]),

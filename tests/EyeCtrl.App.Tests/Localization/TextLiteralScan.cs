@@ -396,6 +396,8 @@ internal static class TextLiteralScan
         ("src/EyeCtrl.App/Services/SelfRestartStrategy.cs", "Describe"),
         ("src/EyeCtrl.App/Overlays/TrackStatusWindow.xaml.cs", "QualityWord"),
         ("src/EyeCtrl.App/Views/Settings/Sources/CalibrationPageSource.cs", "StatusText"),
+        // T05b: the Supervisor tray's item texts, re-read at every menu open; still English until T06.
+        ("src/EyeCtrl.Supervisor/UI/SupervisorTrayIcon.cs", "For"),
     ];
 
     /// <summary>

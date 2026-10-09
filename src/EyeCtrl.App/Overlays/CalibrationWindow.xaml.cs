@@ -11,6 +11,7 @@ using System.Windows.Shapes;
 using System.Windows.Threading;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Calibration;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels;
 
@@ -385,7 +386,7 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
                 Activate();
                 var idx = _viewModel?.CurrentTargetIndex ?? 0;
                 var total = _viewModel?.TotalTargets ?? 0;
-                ProgressText.Text = $"Look at the dot \u00B7 {idx + 1} / {total}";
+                ProgressText.Text = StringTable.Current.T("calibration.progress.lookAtDot", idx + 1, total);
                 StartPulse();
                 break;
 
@@ -393,7 +394,9 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
                 TargetCanvas.Visibility = Visibility.Collapsed;
                 CancelHint.Visibility = Visibility.Collapsed;
                 StopPulse();
-                ProgressText.Text = _viewModel?.IsMeasureOnly == true ? "Recording..." : "Computing...";
+                ProgressText.Text = _viewModel?.IsMeasureOnly == true
+                    ? StringTable.Current.T("calibration.progress.recording")
+                    : StringTable.Current.T("calibration.progress.computing");
                 break;
 
             case CalibrationState.Active:

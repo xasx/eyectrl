@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Services;
 
 using System.Windows.Threading;
+using EyeCtrl.App.Localization;
 using EyeCtrl.App.Overlays;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
@@ -652,6 +653,13 @@ public class AppBootstrapper
         var manualSelectionIndicatorVm = sp.GetRequiredService<ManualSelectionGazeIndicatorViewModel>();
         manualSelectionIndicatorVm.Configure(settings);
 
+        // T08 (N2): the live grid shows preset labels from the overlays surface's keys (D3). The
+        // Settings picker keeps its own settings-keyed function, so one key never serves two
+        // surfaces. Set here — the single composition point both the App and the bootstrap tests
+        // run — so no later reload can read the English default.
+        var quickActionsGridVm = sp.GetRequiredService<QuickActionsGridViewModel>();
+        quickActionsGridVm.PresetLabelFor = OverlayTextSources.PresetLabelFor;
+
         return new OverlayViewModels(
             CursorCircle: sp.GetRequiredService<CursorCircleViewModel>(),
             ActivationButton: sp.GetRequiredService<ActivationButtonViewModel>(),
@@ -666,7 +674,7 @@ public class AppBootstrapper
             ActionMenuModBar: sp.GetRequiredKeyedService<EdgeButtonBarViewModel>("actionMenuModBar"),
             TrackStatus: sp.GetRequiredService<TrackStatusViewModel>(),
             TaskSwitcher: sp.GetRequiredService<TaskSwitcherViewModel>(),
-            QuickActionsGrid: sp.GetRequiredService<QuickActionsGridViewModel>(),
+            QuickActionsGrid: quickActionsGridVm,
             ModesMenu: sp.GetRequiredService<ModesMenuViewModel>(),
             RepeatCursor: sp.GetRequiredService<RepeatCursorViewModel>());
     }

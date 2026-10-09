@@ -7,16 +7,18 @@ using EyeCtrl.Core.Localization;
 /// Renders a <see cref="CalibrationFailure"/> as the sentence the calibration window shows.
 /// <para>
 /// The one place the calibration surface's failure text lives. Core raises codes plus arguments
-/// (see <see cref="CalibrationFailure"/>), and this renderer turns them into today's English; the
-/// localization work replaces these literals with <c>calibration</c> keys, which is why they sit here
-/// rather than in a Core producer the Settings page also serves.
+/// (see <see cref="CalibrationFailure"/>), and this renderer turns them into the calibration
+/// surface's keys. Every key is written literally at its call site; the templates keep the
+/// numbers' <c>:F0</c> specifiers, and the target-never-held sentence is a <c>{one, other}</c>
+/// plural whose count is the FIRST argument so the table's visible-digits rule reads it
+/// (see <c>StringTable</c>).
 /// </para>
 /// </summary>
 public static class CalibrationFailureText
 {
     /// <summary>Renders the failure for the user.</summary>
     /// <param name="failure">The typed failure to describe.</param>
-    /// <returns>The English sentence the calibration window shows.</returns>
+    /// <returns>The sentence the calibration window shows.</returns>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="failure"/> is null.</exception>
     public static string Describe(CalibrationFailure failure)
     {
@@ -24,16 +26,13 @@ public static class CalibrationFailureText
 
         return failure.Code switch
         {
-            CalibrationFailureCode.GazeVariation =>
-                "Gaze barely changed across calibration targets — the eye tracker may not be tracking. Please recalibrate.",
-            CalibrationFailureCode.UnusableTransform =>
-                "Calibration produced an unusable transform — gaze would map off-screen. Please recalibrate.",
-            CalibrationFailureCode.DistortedTransform =>
-                "Calibration produced a distorted transform (gaze would be flipped or amplified). Please recalibrate.",
+            CalibrationFailureCode.GazeVariation => T("calibration.failure.gazeVariation"),
+            CalibrationFailureCode.UnusableTransform => T("calibration.failure.unusableTransform"),
+            CalibrationFailureCode.DistortedTransform => T("calibration.failure.distortedTransform"),
             CalibrationFailureCode.Quality => DescribeQuality(failure.Arguments),
-            CalibrationFailureCode.TargetNeverReached => "Gaze never reached the target.",
+            CalibrationFailureCode.TargetNeverReached => T("calibration.failure.targetNeverReached"),
             CalibrationFailureCode.TargetNeverHeld => DescribeTargetNeverHeld(failure.Arguments),
-            CalibrationFailureCode.Unexpected => "Something went wrong while calibrating. Please try again.",
+            CalibrationFailureCode.Unexpected => T("calibration.failure.unexpected"),
             _ => throw new ArgumentOutOfRangeException(nameof(failure), failure.Code, "Unknown calibration failure code."),
         };
     }
@@ -45,56 +44,44 @@ public static class CalibrationFailureText
 
         var detail = string.Join("; ", failures.Select(f => $"{DescribeRegion(f.Region)} — {DescribeReason(f)}"));
 
-        // The advice is the same in every case because the cause almost always is: the user moved
-        // during collection. Naming the points is what makes it actionable — they are told WHICH ones
-        // to spend longer on, rather than being sent back to repeat all of them blind.
-        return $"Calibration not accepted. {detail}. "
-             + "Try again and rest on each point until its ring fills — looking away resets nothing, "
-             + "so short looks add up.";
+        return T("calibration.failure.quality", detail);
     }
 
     private static string DescribeTargetNeverHeld(IReadOnlyList<object?> arguments)
     {
         var bandRadiusPx = (double)arguments[0]!;
         var attemptedSamples = (int)arguments[1]!;
-        // The number follows the calibration surface's language (T02): invariant while English,
-        // de-DE once its German is effective. Never CultureInfo.Current.
-        return string.Create(
-            StringTable.Current.FormatProviderFor("calibration"),
-            $"Gaze reached the target but never stayed within {bandRadiusPx:0}px of it long enough to collect a sample ({attemptedSamples} samples seen, all out of band).");
+        // The sample count comes FIRST so the plural probe reads it; the band radius keeps its
+        // {1:0} specifier. "1 samples" reads as its "one" form: "1 sample".
+        return T("calibration.failure.targetNeverHeld", attemptedSamples, bandRadiusPx);
     }
 
     private static string DescribeRegion(CalibrationTargetRegion region) => region switch
     {
-        CalibrationTargetRegion.Unknown => "a point",
-        CalibrationTargetRegion.TopLeft => "the top-left point",
-        CalibrationTargetRegion.TopCenter => "the top point",
-        CalibrationTargetRegion.TopRight => "the top-right point",
-        CalibrationTargetRegion.MiddleLeft => "the left point",
-        CalibrationTargetRegion.Center => "the center point",
-        CalibrationTargetRegion.MiddleRight => "the right point",
-        CalibrationTargetRegion.BottomLeft => "the bottom-left point",
-        CalibrationTargetRegion.BottomCenter => "the bottom point",
-        CalibrationTargetRegion.BottomRight => "the bottom-right point",
+        CalibrationTargetRegion.Unknown => T("calibration.failure.region.unknown"),
+        CalibrationTargetRegion.TopLeft => T("calibration.failure.region.topLeft"),
+        CalibrationTargetRegion.TopCenter => T("calibration.failure.region.topCenter"),
+        CalibrationTargetRegion.TopRight => T("calibration.failure.region.topRight"),
+        CalibrationTargetRegion.MiddleLeft => T("calibration.failure.region.middleLeft"),
+        CalibrationTargetRegion.Center => T("calibration.failure.region.center"),
+        CalibrationTargetRegion.MiddleRight => T("calibration.failure.region.middleRight"),
+        CalibrationTargetRegion.BottomLeft => T("calibration.failure.region.bottomLeft"),
+        CalibrationTargetRegion.BottomCenter => T("calibration.failure.region.bottomCenter"),
+        CalibrationTargetRegion.BottomRight => T("calibration.failure.region.bottomRight"),
         _ => throw new ArgumentOutOfRangeException(nameof(region), region, "Unknown calibration target region."),
     };
 
     private static string DescribeReason(CalibrationQualityFailure failure) => failure.Reason switch
     {
-        // The provider is inline at each site (not a local) so the format scan can see the
-        // surface id at the call site, as T01's own scan does.
         CalibrationQualityReason.ResidualTooLarge =>
-            string.Create(
-                StringTable.Current.FormatProviderFor("calibration"),
-                $"the fit misses it by {failure.Value:F0}px (limit {failure.Limit:F0}px)"),
+            T("calibration.failure.reason.residualTooLarge", failure.Value, failure.Limit),
         CalibrationQualityReason.ExcessScatter =>
-            string.Create(
-                StringTable.Current.FormatProviderFor("calibration"),
-                $"gaze was too scattered on it (spread {failure.Value:F0}px, limit {failure.Limit:F0}px)"),
+            T("calibration.failure.reason.excessScatter", failure.Value, failure.Limit),
         CalibrationQualityReason.LowCoverage =>
-            string.Create(
-                StringTable.Current.FormatProviderFor("calibration"),
-                $"gaze was on it only {failure.Value:F0}% of the time (needs {failure.Limit:F0}%)"),
+            T("calibration.failure.reason.lowCoverage", failure.Value, failure.Limit),
         _ => throw new ArgumentOutOfRangeException(nameof(failure), failure.Reason, "Unknown calibration quality reason."),
     };
+
+    /// <summary>Resolves a calibration key; keys stay literal at their call sites.</summary>
+    private static string T(string key, params object?[] args) => StringTable.Current.T(key, args);
 }

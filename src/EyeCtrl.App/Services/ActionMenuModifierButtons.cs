@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Services;
 
 using System.Collections.Generic;
 using EyeCtrl.Core.Keyboard;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
@@ -61,6 +62,18 @@ internal static class ActionMenuModifierButtons
             VerticalOffset: verticalOffset,
             RadiusLogical: UIConstants.ButtonRadius,
             Icon: latched.Contains(modifier) ? latchedIcon : icon,
-            Label: id.EndsWith("Shift") ? "Shift" : id.EndsWith("Ctrl") ? "Ctrl" : "Alt",
+            Label: LabelFor(id),
             RearmOnGazeExit: true);
+
+    /// <summary>
+    /// The visible label for one modifier button. Keyed per the D8 pick (B4): the English stays
+    /// "Shift"/"Ctrl"/"Alt"; the German UI's "Strg" arrives with T10's translations of these keys.
+    /// </summary>
+    private static string LabelFor(string id) => id switch
+    {
+        ShiftId => StringTable.Current.T("overlays.modifier.shift"),
+        CtrlId => StringTable.Current.T("overlays.modifier.ctrl"),
+        AltId => StringTable.Current.T("overlays.modifier.alt"),
+        _ => throw new ArgumentOutOfRangeException(nameof(id), id, "The mod bar offers Shift/Ctrl/Alt only."),
+    };
 }

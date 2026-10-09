@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Services.Coordinators;
 
 using System.ComponentModel;
 using EyeCtrl.App.Overlays;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
@@ -105,7 +106,7 @@ internal sealed class DragCoordinator : CoordinatorBase
             "Drag_cancel", "\u2715", dwellMs,
             m => m.Send(new DragCancelMessage()),
             VerticalOffset: DpiHelper.LogicalToPhysicalY(30),
-            AccessibleName: "Cancel drag");
+            AccessibleName: StringTable.Current.T("overlays.edge.cancelDrag"));
 
     /// <summary>
     /// Builds the post-drop back button (below the anchor). Static and internal for the same
@@ -116,7 +117,7 @@ internal sealed class DragCoordinator : CoordinatorBase
             "Drag_back", "\u21A9", dwellMs,
             m => m.Send(new DragDismissManualSelectionMessage()),
             VerticalOffset: -DpiHelper.LogicalToPhysicalY(30),
-            AccessibleName: "Back");
+            AccessibleName: StringTable.Current.T("overlays.edge.back"));
 
     internal void OnDragStarted(PhysicalPoint grabOrigin)
     {

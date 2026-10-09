@@ -11,6 +11,7 @@ using System.Windows.Threading;
 using EyeCtrl.Controls;
 using EyeCtrl.Controls.Icons;
 using EyeCtrl.Controls.Theme;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.ViewModels;
 using SelectionMode = EyeCtrl.Core.Models.SelectionMode;
 
@@ -239,7 +240,7 @@ internal sealed class ToolbarBand
             Height = _buttonSize,
         };
         AutomationProperties.SetAutomationId(anchor, $"Toolbar_Button_{id}");
-        AutomationProperties.SetName(anchor, id);
+        AutomationProperties.SetName(anchor, AccessibleNameFor(id));
         Canvas.SetLeft(anchor, center.X - _buttonSize / 2);
         Canvas.SetTop(anchor, center.Y - _buttonSize / 2);
         _canvas.Children.Add(anchor);
@@ -294,6 +295,24 @@ internal sealed class ToolbarBand
 
     /// <summary>Parses a key name. An unknown key is a coding error, not user input.</summary>
     private static ToolbarIconKey ParseIconKey(string key) => Enum.Parse<ToolbarIconKey>(key);
+
+    /// <summary>
+    /// The button's UIA name (D11). The id also names the automation id the test fixture finds, but
+    /// an id is not text: the NAME is the overlays surface's word for the button, so "TaskSwitcher"
+    /// announces as "Task switcher" and can be translated. An id without a key keeps itself, the
+    /// same fallback the ring uses for an unmapped action.
+    /// </summary>
+    private static string AccessibleNameFor(string id) => id switch
+    {
+        "Pause" => StringTable.Current.T("overlays.toolbar.pause"),
+        SelectionModeId => StringTable.Current.T("overlays.toolbar.selectionMode"),
+        "Keyboard" => StringTable.Current.T("overlays.toolbar.keyboard"),
+        "Settings" => StringTable.Current.T("overlays.toolbar.settings"),
+        "TaskSwitcher" => StringTable.Current.T("overlays.toolbar.taskSwitcher"),
+        "Modes" => StringTable.Current.T("overlays.toolbar.modes"),
+        ResetId => StringTable.Current.T("overlays.toolbar.resetAdaptation"),
+        _ => id,
+    };
 
     /// <summary>The at-rest rim. Only Reset differs.</summary>
     private static Brush RimFor(string id) =>

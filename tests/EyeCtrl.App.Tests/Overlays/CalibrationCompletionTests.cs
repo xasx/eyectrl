@@ -19,7 +19,7 @@ public class CalibrationCompletionTests
             var presentation = CalibrationCompletion.Describe(
                 measureOnly: true, goodResult, errorPx: 12.3, quality, errorText: "Calibration failed");
 
-            Check.That(presentation.Title).IsEqualTo(CalibrationCompletion.MeasureOnlyTitle);
+            // T08: the title text lives in strings.json under calibration.window.title.recorded.
             Check.That(presentation.Title).IsEqualTo("Gaze offset recorded");
             Check.That(presentation.Detail).IsEqualTo("");
             Check.That(presentation.RetryVisible).IsFalse();

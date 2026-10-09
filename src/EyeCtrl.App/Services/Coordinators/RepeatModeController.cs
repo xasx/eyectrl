@@ -4,6 +4,7 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
@@ -49,7 +50,7 @@ internal sealed class RepeatModeController : CoordinatorBase
             Activate: m => m.Send(new ExitRepeatModeMessage()),
             VerticalOffset: verticalOffset,
             RadiusLogical: UIConstants.ButtonRadius,
-            AccessibleName: "Stop repeat");
+            AccessibleName: StringTable.Current.T("overlays.edge.stopRepeat"));
 
     private bool _active;
     private PhysicalPoint _stopCenterPhysical;

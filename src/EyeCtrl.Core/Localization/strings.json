@@ -2,6 +2,398 @@
   "_meta": {
     "pluralRules": "A plural key's count is the first numeric argument. The 'one' form is chosen only when that count, formatted with the placeholder's own specifier and the provider of the language actually rendered, reads as the integer 1: 1.0 under {0} is one; 1.0 under {0:0.0} is other. Keys starting with an underscore are reserved meta notes and are never resolved."
   },
+  "calibration.completion.detail": {
+    "text": "Mean error: {0:F1} px ({1:F1}%)",
+    "who": "user",
+    "where": "calibration",
+    "fit": "prose",
+    "args": [
+      "error",
+      "quality"
+    ]
+  },
+  "calibration.completion.detail.poor": {
+    "text": "Mean error: {0:F1} px ({1:F1}%) — poor quality",
+    "who": "user",
+    "where": "calibration",
+    "fit": "prose",
+    "args": [
+      "error",
+      "quality"
+    ]
+  },
+  "calibration.failure.distortedTransform": {
+    "text": "Calibration produced a distorted transform (gaze would be flipped or amplified). Please recalibrate.",
+    "who": "user",
+    "where": "calibration",
+    "fit": "prose",
+    "args": []
+  },
+  "calibration.failure.gazeVariation": {
+    "text": "Gaze barely changed across calibration targets — the eye tracker may not be tracking. Please recalibrate.",
+    "who": "user",
+    "where": "calibration",
+    "fit": "prose",
+    "args": []
+  },
+  "calibration.failure.quality": {
+    "text": "Calibration not accepted. {0}. Try again and rest on each point until its ring fills — looking away resets nothing, so short looks add up.",
+    "who": "user",
+    "where": "calibration",
+    "fit": "prose",
+    "args": [
+      "detail"
+    ]
+  },
+  "calibration.failure.reason.excessScatter": {
+    "text": "gaze was too scattered on it (spread {0:F0}px, limit {1:F0}px)",
+    "who": "user",
+    "where": "calibration",
+    "fit": "prose",
+    "args": [
+      "value",
+      "limit"
+    ]
+  },
+  "calibration.failure.reason.lowCoverage": {
+    "text": "gaze was on it only {0:F0}% of the time (needs {1:F0}%)",
+    "who": "user",
+    "where": "calibration",
+    "fit": "prose",
+    "args": [
+      "value",
+      "limit"
+    ]
+  },
+  "calibration.failure.reason.residualTooLarge": {
+    "text": "the fit misses it by {0:F0}px (limit {1:F0}px)",
+    "who": "user",
+    "where": "calibration",
+    "fit": "prose",
+    "args": [
+      "value",
+      "limit"
+    ]
+  },
+  "calibration.failure.region.bottomCenter": {
+    "text": "the bottom point",
+    "who": "user",
+    "where": "calibration",
+    "fit": "row",
+    "args": []
+  },
+  "calibration.failure.region.bottomLeft": {
+    "text": "the bottom-left point",
+    "who": "user",
+    "where": "calibration",
+    "fit": "row",
+    "args": []
+  },
+  "calibration.failure.region.bottomRight": {
+    "text": "the bottom-right point",
+    "who": "user",
+    "where": "calibration",
+    "fit": "row",
+    "args": []
+  },
+  "calibration.failure.region.center": {
+    "text": "the center point",
+    "who": "user",
+    "where": "calibration",
+    "fit": "row",
+    "args": []
+  },
+  "calibration.failure.region.middleLeft": {
+    "text": "the left point",
+    "who": "user",
+    "where": "calibration",
+    "fit": "row",
+    "args": []
+  },
+  "calibration.failure.region.middleRight": {
+    "text": "the right point",
+    "who": "user",
+    "where": "calibration",
+    "fit": "row",
+    "args": []
+  },
+  "calibration.failure.region.topCenter": {
+    "text": "the top point",
+    "who": "user",
+    "where": "calibration",
+    "fit": "row",
+    "args": []
+  },
+  "calibration.failure.region.topLeft": {
+    "text": "the top-left point",
+    "who": "user",
+    "where": "calibration",
+    "fit": "row",
+    "args": []
+  },
+  "calibration.failure.region.topRight": {
+    "text": "the top-right point",
+    "who": "user",
+    "where": "calibration",
+    "fit": "row",
+    "args": []
+  },
+  "calibration.failure.region.unknown": {
+    "text": "a point",
+    "who": "user",
+    "where": "calibration",
+    "fit": "row",
+    "args": []
+  },
+  "calibration.failure.targetNeverHeld": {
+    "text": {
+      "one": "Gaze reached the target but never stayed within {1:0}px of it long enough to collect a sample ({0} sample seen, all out of band).",
+      "other": "Gaze reached the target but never stayed within {1:0}px of it long enough to collect a sample ({0} samples seen, all out of band)."
+    },
+    "who": "user",
+    "where": "calibration",
+    "fit": "prose",
+    "args": [
+      "samples",
+      "bandRadius"
+    ]
+  },
+  "calibration.failure.targetNeverReached": {
+    "text": "Gaze never reached the target.",
+    "who": "user",
+    "where": "calibration",
+    "fit": "prose",
+    "args": []
+  },
+  "calibration.failure.unexpected": {
+    "text": "Something went wrong while calibrating. Please try again.",
+    "who": "user",
+    "where": "calibration",
+    "fit": "prose",
+    "args": []
+  },
+  "calibration.failure.unusableTransform": {
+    "text": "Calibration produced an unusable transform — gaze would map off-screen. Please recalibrate.",
+    "who": "user",
+    "where": "calibration",
+    "fit": "prose",
+    "args": []
+  },
+  "calibration.progress.computing": {
+    "text": "Computing...",
+    "who": "user",
+    "where": "calibration",
+    "fit": "row",
+    "args": []
+  },
+  "calibration.progress.lookAtDot": {
+    "text": "Look at the dot · {0} / {1}",
+    "who": "user",
+    "where": "calibration",
+    "fit": "row",
+    "args": [
+      "current",
+      "total"
+    ]
+  },
+  "calibration.progress.recording": {
+    "text": "Recording...",
+    "who": "user",
+    "where": "calibration",
+    "fit": "row",
+    "args": []
+  },
+  "calibration.window.accept": {
+    "text": "Accept anyway",
+    "who": "user",
+    "where": "calibration",
+    "fit": "row",
+    "args": []
+  },
+  "calibration.window.cancelHint": {
+    "text": "Press Esc to cancel",
+    "who": "user",
+    "where": "calibration",
+    "fit": "prose",
+    "args": []
+  },
+  "calibration.window.dismissHint": {
+    "text": "Auto-dismissing in 3s...",
+    "who": "user",
+    "where": "calibration",
+    "fit": "prose",
+    "args": []
+  },
+  "calibration.window.retry": {
+    "text": "Retry",
+    "who": "user",
+    "where": "calibration",
+    "fit": "row",
+    "args": []
+  },
+  "calibration.window.title.complete": {
+    "text": "Calibration complete",
+    "who": "user",
+    "where": "calibration",
+    "fit": "row",
+    "args": []
+  },
+  "calibration.window.title.failed": {
+    "text": "Calibration failed",
+    "who": "user",
+    "where": "calibration",
+    "fit": "row",
+    "args": []
+  },
+  "calibration.window.title.recorded": {
+    "text": "Gaze offset recorded",
+    "who": "user",
+    "where": "calibration",
+    "fit": "row",
+    "args": []
+  },
+  "eye-care.banner.message": {
+    "text": "Time for an eye break",
+    "who": "user",
+    "where": "eye-care",
+    "fit": "prose",
+    "args": []
+  },
+  "eye-care.banner.snooze": {
+    "text": "snooze",
+    "who": "user",
+    "where": "eye-care",
+    "fit": "B94x2",
+    "args": []
+  },
+  "eye-care.banner.start": {
+    "text": "start",
+    "who": "user",
+    "where": "eye-care",
+    "fit": "B94x2",
+    "args": []
+  },
+  "eye-care.banner.subtext": {
+    "text": "You've been fixating for a while",
+    "who": "user",
+    "where": "eye-care",
+    "fit": "prose",
+    "args": []
+  },
+  "eye-care.exercise.calibration202020.encouragement": {
+    "text": "Eyes relaxed!",
+    "who": "user",
+    "where": "eye-care",
+    "fit": "prose",
+    "args": []
+  },
+  "eye-care.exercise.calibration202020.name": {
+    "text": "20-20-20",
+    "who": "user",
+    "where": "eye-care",
+    "fit": "row",
+    "args": []
+  },
+  "eye-care.exercise.directionalSweep.encouragement": {
+    "text": "Full range of motion!",
+    "who": "user",
+    "where": "eye-care",
+    "fit": "prose",
+    "args": []
+  },
+  "eye-care.exercise.directionalSweep.name": {
+    "text": "Directional Sweeps",
+    "who": "user",
+    "where": "eye-care",
+    "fit": "row",
+    "args": []
+  },
+  "eye-care.exercise.nearFarFocus.encouragement": {
+    "text": "Great focus switching!",
+    "who": "user",
+    "where": "eye-care",
+    "fit": "prose",
+    "args": []
+  },
+  "eye-care.exercise.nearFarFocus.name": {
+    "text": "Near-Far Focus",
+    "who": "user",
+    "where": "eye-care",
+    "fit": "row",
+    "args": []
+  },
+  "eye-care.exercise.saccade.encouragement": {
+    "text": "Quick eyes!",
+    "who": "user",
+    "where": "eye-care",
+    "fit": "prose",
+    "args": []
+  },
+  "eye-care.exercise.saccade.name": {
+    "text": "Saccade Jumps",
+    "who": "user",
+    "where": "eye-care",
+    "fit": "row",
+    "args": []
+  },
+  "eye-care.exercise.skip": {
+    "text": "Skip ✕",
+    "who": "user",
+    "where": "eye-care",
+    "fit": "B94x2",
+    "args": []
+  },
+  "eye-care.exercise.smoothPursuit.encouragement": {
+    "text": "Smooth tracking!",
+    "who": "user",
+    "where": "eye-care",
+    "fit": "prose",
+    "args": []
+  },
+  "eye-care.exercise.smoothPursuit.name": {
+    "text": "Smooth Pursuit",
+    "who": "user",
+    "where": "eye-care",
+    "fit": "row",
+    "args": []
+  },
+  "eye-care.summary.accuracy": {
+    "text": "accuracy",
+    "who": "user",
+    "where": "eye-care",
+    "fit": "A56",
+    "args": []
+  },
+  "eye-care.summary.complete": {
+    "text": "{0} complete",
+    "who": "user",
+    "where": "eye-care",
+    "fit": "row",
+    "args": [
+      "exercise"
+    ]
+  },
+  "eye-care.summary.reactionMs": {
+    "text": "reaction ms",
+    "who": "user",
+    "where": "eye-care",
+    "fit": "A56",
+    "args": []
+  },
+  "eye-care.summary.steadiness": {
+    "text": "steadiness",
+    "who": "user",
+    "where": "eye-care",
+    "fit": "A56",
+    "args": []
+  },
+  "eye-care.summary.title": {
+    "text": "✓ Nice work",
+    "who": "user",
+    "where": "eye-care",
+    "fit": "A56",
+    "args": []
+  },
   "language-recovery.note.pending": {
     "text": "Wird nach Neustart wirksam / Takes effect after restart",
     "who": "user",
@@ -187,6 +579,461 @@
     "fit": "row",
     "args": [],
     "crisis": true
+  },
+  "overlays.edge.back": {
+    "text": "Back",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.edge.cancelDrag": {
+    "text": "Cancel drag",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.edge.close": {
+    "text": "Close",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.edge.flip": {
+    "text": "Flip",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.edge.help": {
+    "text": "Help",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.edge.recapture": {
+    "text": "Recapture",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.edge.stopRepeat": {
+    "text": "Stop repeat",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.edge.stopScrolling": {
+    "text": "Stop scrolling",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.hint.pressEscToExit": {
+    "text": "Press Esc to exit",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.hint.pressEscToStopScrolling": {
+    "text": "Press Esc to stop scrolling",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.modifier.alt": {
+    "text": "Alt",
+    "who": "user",
+    "where": "overlays",
+    "fit": "A68",
+    "args": []
+  },
+  "overlays.modifier.ctrl": {
+    "text": "Ctrl",
+    "who": "user",
+    "where": "overlays",
+    "fit": "A68",
+    "args": []
+  },
+  "overlays.modifier.shift": {
+    "text": "Shift",
+    "who": "user",
+    "where": "overlays",
+    "fit": "A68",
+    "args": []
+  },
+  "overlays.note.close": {
+    "text": "Close note",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.note.edit": {
+    "text": "Edit note",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.note.move": {
+    "text": "Move note",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.note.title": {
+    "text": "PINNED NOTE",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.pause.title": {
+    "text": "PauseIndicator",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.preset.kbd.copy": {
+    "text": "Copy",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.kbd.cut": {
+    "text": "Cut",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.kbd.file_explorer": {
+    "text": "File Explorer",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.kbd.find": {
+    "text": "Find",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.kbd.lock": {
+    "text": "Lock",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.kbd.new": {
+    "text": "New",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.kbd.paste": {
+    "text": "Paste",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.kbd.print": {
+    "text": "Print",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.kbd.redo": {
+    "text": "Redo",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.kbd.save": {
+    "text": "Save",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.kbd.select_all": {
+    "text": "Select All",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.kbd.show_desktop": {
+    "text": "Show Desktop",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.kbd.switch_app": {
+    "text": "Switch App",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.kbd.undo": {
+    "text": "Undo",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.media.mute": {
+    "text": "Mute",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.media.next": {
+    "text": "Next",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.media.play_pause": {
+    "text": "Play / Pause",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.media.previous": {
+    "text": "Previous",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.media.stop": {
+    "text": "Stop",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.media.volume_down": {
+    "text": "Volume Down",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.media.volume_up": {
+    "text": "Volume Up",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.window.close": {
+    "text": "Close Window",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.window.maximize_restore": {
+    "text": "Maximize / Restore",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.preset.window.minimize": {
+    "text": "Minimize Window",
+    "who": "user",
+    "where": "overlays",
+    "fit": "B94x2",
+    "args": []
+  },
+  "overlays.ring.back": {
+    "text": "Back",
+    "who": "user",
+    "where": "overlays",
+    "fit": "A105",
+    "args": []
+  },
+  "overlays.ring.doubleClick": {
+    "text": "Double click",
+    "who": "user",
+    "where": "overlays",
+    "fit": "A105",
+    "args": []
+  },
+  "overlays.ring.drag": {
+    "text": "Drag",
+    "who": "user",
+    "where": "overlays",
+    "fit": "A105",
+    "args": []
+  },
+  "overlays.ring.keyboard": {
+    "text": "Keyboard",
+    "who": "user",
+    "where": "overlays",
+    "fit": "A105",
+    "args": []
+  },
+  "overlays.ring.leftClick": {
+    "text": "Left click",
+    "who": "user",
+    "where": "overlays",
+    "fit": "A105",
+    "args": []
+  },
+  "overlays.ring.middleClick": {
+    "text": "Middle click",
+    "who": "user",
+    "where": "overlays",
+    "fit": "A105",
+    "args": []
+  },
+  "overlays.ring.more": {
+    "text": "More",
+    "who": "user",
+    "where": "overlays",
+    "fit": "A105",
+    "args": []
+  },
+  "overlays.ring.pinNote": {
+    "text": "Pin note",
+    "who": "user",
+    "where": "overlays",
+    "fit": "A105",
+    "args": []
+  },
+  "overlays.ring.rightClick": {
+    "text": "Right click",
+    "who": "user",
+    "where": "overlays",
+    "fit": "A105",
+    "args": []
+  },
+  "overlays.ring.scrollDown": {
+    "text": "Scroll down",
+    "who": "user",
+    "where": "overlays",
+    "fit": "A105",
+    "args": []
+  },
+  "overlays.ring.scrollLeft": {
+    "text": "Scroll left",
+    "who": "user",
+    "where": "overlays",
+    "fit": "A105",
+    "args": []
+  },
+  "overlays.ring.scrollMode": {
+    "text": "Scroll",
+    "who": "user",
+    "where": "overlays",
+    "fit": "A105",
+    "args": []
+  },
+  "overlays.ring.scrollRight": {
+    "text": "Scroll right",
+    "who": "user",
+    "where": "overlays",
+    "fit": "A105",
+    "args": []
+  },
+  "overlays.ring.scrollUp": {
+    "text": "Scroll up",
+    "who": "user",
+    "where": "overlays",
+    "fit": "A105",
+    "args": []
+  },
+  "overlays.scroll.title": {
+    "text": "Scroll Overlay",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.taskSwitcher.hint": {
+    "text": "Select a window — or look away to cancel",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.toolbar.keyboard": {
+    "text": "Keyboard",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.toolbar.modes": {
+    "text": "Modes",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.toolbar.pause": {
+    "text": "Pause",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.toolbar.resetAdaptation": {
+    "text": "Reset adaptation",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.toolbar.selectionMode": {
+    "text": "Selection mode",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.toolbar.settings": {
+    "text": "Settings",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.toolbar.taskSwitcher": {
+    "text": "Task switcher",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
   },
   "supervisor.setup.logon.parked": {
     "text": "Not saved yet. It is saved the next time EyeCtrl runs, unless the PC or the Supervisor restarts first.",

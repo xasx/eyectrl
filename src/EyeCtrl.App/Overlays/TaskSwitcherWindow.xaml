@@ -2,6 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
+        xmlns:loc="clr-namespace:EyeCtrl.Controls.Localization;assembly=EyeCtrl.Controls"
         WindowStyle="None" AllowsTransparency="True" Background="{StaticResource BrushSurfaceDark}"
         Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize"
         IsClickThrough="False">
@@ -44,7 +45,7 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
         </ScrollViewer>
-        <TextBlock Grid.Row="1" Text="Select a window — or look away to cancel"
+        <TextBlock Grid.Row="1" Text="{loc:T 'overlays.taskSwitcher.hint'}"
                    Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeBodyLarge}" HorizontalAlignment="Center" Margin="0,12"/>
     </Grid>
 </overlays:OverlayWindow>

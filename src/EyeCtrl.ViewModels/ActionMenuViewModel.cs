@@ -106,7 +106,7 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
         // PrimaryActions order.
         var plan = RingPlan.Create(
             message.Actions, _settings.ActionMenu.PrimaryActions, message.CircleSize,
-            RingLabelSource.English); // the live ring's host passes its own keyed source here
+            RingLabelSource.Overlays); // the live ring's host passes its own keyed source
         var layer = plan.BuildLayer(
             _onSecondaryLayer ? RingLayer.Secondary : RingLayer.Primary, message.ShowBack);
         if (layer.Slots.Count == 0) return;

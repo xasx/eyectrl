@@ -126,6 +126,51 @@ public class ToolbarButtonVisualTests
     }
 
     /// <summary>
+    /// D11 (T08): the id is only the AutomationId AppFixture aims at — the NAME is what a screen
+    /// reader announces, and ids like "TaskSwitcher" and "ResetAdaptation" are not words. Every
+    /// anchor publishes the overlays surface's real name for its button.
+    /// </summary>
+    [StaFact]
+    public void EveryButton_PublishesARealUiaName_NotItsId()
+    {
+        var names = ButtonCanvas(NewInitialisedToolbar()).Children.OfType<TextBlock>()
+            .Where(t => !string.IsNullOrEmpty(AutomationProperties.GetAutomationId(t)))
+            .ToDictionary(AutomationProperties.GetAutomationId, AutomationProperties.GetName);
+
+        Check.That(names).HasSize(7);
+        Check.That(names["Toolbar_Button_Pause"]).IsEqualTo("Pause");
+        Check.That(names["Toolbar_Button_SelectionMode"]).IsEqualTo("Selection mode");
+        Check.That(names["Toolbar_Button_Keyboard"]).IsEqualTo("Keyboard");
+        Check.That(names["Toolbar_Button_Settings"]).IsEqualTo("Settings");
+        Check.That(names["Toolbar_Button_TaskSwitcher"]).IsEqualTo("Task switcher");
+        Check.That(names["Toolbar_Button_Modes"]).IsEqualTo("Modes");
+        Check.That(names["Toolbar_Button_ResetAdaptation"]).IsEqualTo("Reset adaptation");
+    }
+
+    /// <summary>
+    /// T08 fixup R3 (low): the Pause disc shows Play while paused, so its UIA name must follow the
+    /// face — a screen reader announcing "Pause" for the resume action would mislead exactly the
+    /// user who cannot see which glyph is drawn. The swap rebuilds the anchor; the name is read
+    /// from the freshly drawn one.
+    /// </summary>
+    [StaFact]
+    public void ThePauseButton_NamesItsCurrentFace()
+    {
+        var window = NewInitialisedToolbar();
+        var canvas = ButtonCanvas(window);
+
+        string NameOfPause() => AutomationProperties.GetName(
+            canvas.Children.OfType<TextBlock>()
+                .Single(t => AutomationProperties.GetAutomationId(t) == "Toolbar_Button_Pause"));
+
+        Check.That(NameOfPause()).IsEqualTo("Pause");
+        window.SetPausedState(true);
+        Check.That(NameOfPause()).IsEqualTo("Resume");
+        window.SetPausedState(false);
+        Check.That(NameOfPause()).IsEqualTo("Pause");
+    }
+
+    /// <summary>
     /// The anchor's box must be the disc's box, because the anchor is what publishes the button's
     /// BoundingRectangle to UIA and dwell simulation aims at that rectangle's centre
     /// (AppFixture.SimulateDwellOn, AppFixture.cs:259-265). An unsized TextBlock in a Canvas

@@ -34,6 +34,21 @@ public class CalibrationFailureTextTests
                       + "to collect a sample (12 samples seen, all out of band).");
     }
 
+    /// <summary>
+    /// T08's plural: the sentence's count is the FIRST argument, so the table's visible-digits
+    /// rule reads it and a single attempt renders "1 sample seen", not "1 samples". The band
+    /// radius keeps its {1:0} specifier and is still quoted.
+    /// </summary>
+    [Fact]
+    public void TargetNeverHeld_OneAttempt_ReadsTheSingular()
+    {
+        var failure = new CalibrationFailure(CalibrationFailureCode.TargetNeverHeld, 150.0, 1);
+
+        Check.That(CalibrationFailureText.Describe(failure))
+             .IsEqualTo("Gaze reached the target but never stayed within 150px of it long enough "
+                      + "to collect a sample (1 sample seen, all out of band).");
+    }
+
     [Theory]
     [InlineData(CalibrationTargetRegion.Unknown, "a point")]
     [InlineData(CalibrationTargetRegion.TopLeft, "the top-left point")]

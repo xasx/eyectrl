@@ -1,6 +1,7 @@
 namespace EyeCtrl.EyeCare.Exercises;
 
 using EyeCtrl.Core;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.EyeCare.Scoring;
 
@@ -24,9 +25,10 @@ public sealed class NearFarFocusExercise : ExerciseBase
         OnTargetRadiusPixels = onTargetRadiusPixels;
     }
 
-    public override string Name => "Near-Far Focus";
+    public override string Name => StringTable.Current.T("eye-care.exercise.nearFarFocus.name");
     public override double OnTargetRadiusPixels { get; }
-    protected override string EncouragementLine => "Great focus switching!";
+    protected override string EncouragementLine =>
+        StringTable.Current.T("eye-care.exercise.nearFarFocus.encouragement");
 
     public override PhysicalPoint GetTargetAt(long timestampMicroseconds)
     {

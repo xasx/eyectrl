@@ -2,6 +2,7 @@ namespace EyeCtrl.Core.Tests.Models;
 
 using System.Collections.Generic;
 using System.Linq;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using NFluent;
 using Xunit;
@@ -66,8 +67,40 @@ public class ActionMapsTests
     }
 
     [Fact]
-    public void RingLabels_UseTheRingVocabulary_NotTheSettingsRowNames()
+    public void RingLabels_AreOverlaysKeys_NotEnglishText()
     {
+        // T08: the map is the key vocabulary; the English lives only in strings.json. Pinned
+        // literally so a typo or a stray word (an "overlays.ring.scroll" for scrollMode, say)
+        // fails here rather than reaching the ring as a raw key.
+        var expected = new Dictionary<InteractionAction, string>
+        {
+            [InteractionAction.LeftClick] = "overlays.ring.leftClick",
+            [InteractionAction.RightClick] = "overlays.ring.rightClick",
+            [InteractionAction.DoubleClick] = "overlays.ring.doubleClick",
+            [InteractionAction.MiddleClick] = "overlays.ring.middleClick",
+            [InteractionAction.Drag] = "overlays.ring.drag",
+            [InteractionAction.ScrollUp] = "overlays.ring.scrollUp",
+            [InteractionAction.ScrollDown] = "overlays.ring.scrollDown",
+            [InteractionAction.ScrollLeft] = "overlays.ring.scrollLeft",
+            [InteractionAction.ScrollRight] = "overlays.ring.scrollRight",
+            [InteractionAction.ScrollMode] = "overlays.ring.scrollMode",
+            [InteractionAction.PinNote] = "overlays.ring.pinNote",
+            [InteractionAction.Keyboard] = "overlays.ring.keyboard",
+        };
+
+        var allActions = Enum.GetValues<InteractionAction>();
+        Check.That(expected.Keys).IsEquivalentTo(allActions);
+
+        foreach (var action in allActions)
+            Check.WithCustomMessage($"{action} key")
+                 .That(RingLabelMap.For(action)).IsEqualTo(expected[action]);
+    }
+
+    [Fact]
+    public void RingLabels_ResolveToTheRingVocabulary_NotTheSettingsRowNames()
+    {
+        // The resolved English the ring shows — an English literal compared against the whole
+        // map → table chain, so a wrong key cannot pass as its own raw text.
         var expected = new Dictionary<InteractionAction, string>
         {
             [InteractionAction.LeftClick] = "Left click",
@@ -88,14 +121,16 @@ public class ActionMapsTests
         Check.That(expected.Keys).IsEquivalentTo(allActions);
 
         foreach (var action in allActions)
-            Check.WithCustomMessage($"{action} label").That(RingLabelMap.For(action)).IsEqualTo(expected[action]);
+            Check.WithCustomMessage($"{action} label")
+                 .That(StringTable.EmbeddedEnglish.T(RingLabelMap.For(action))).IsEqualTo(expected[action]);
     }
 
     [Fact]
     public void RingLabels_NullIsBack()
     {
         // Parity with the map this replaced: the VM asked for a null action to name the Back.
-        Check.That(RingLabelMap.For(null)).IsEqualTo("Back");
+        Check.That(RingLabelMap.For(null)).IsEqualTo("overlays.ring.back");
+        Check.That(StringTable.EmbeddedEnglish.T(RingLabelMap.For(null))).IsEqualTo("Back");
     }
 
     [Fact]

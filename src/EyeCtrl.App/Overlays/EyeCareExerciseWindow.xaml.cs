@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Threading;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Interfaces;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 
@@ -107,7 +108,7 @@ public partial class EyeCareExerciseWindow : OverlayWindow, IEyeCareExercise
         // Every number follows the eye-care surface's language (T02): invariant while it is
         // English, de-DE once its German is effective. Never CultureInfo.Current. The provider is
         // inline at each site so the format scan sees the surface id at the call site.
-        SummaryName.Text = $"{outcome.ExerciseName} complete";
+        SummaryName.Text = StringTable.Current.T("eye-care.summary.complete", outcome.ExerciseName);
         SummaryAccuracy.Text = string.Create(
             EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("eye-care"),
             $"{outcome.AccuracyPercent:0}%");

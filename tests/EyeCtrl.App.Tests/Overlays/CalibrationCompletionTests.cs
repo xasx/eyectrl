@@ -19,7 +19,7 @@ public class CalibrationCompletionTests
             var presentation = CalibrationCompletion.Describe(
                 measureOnly: true, goodResult, errorPx: 12.3, quality, errorText: "Calibration failed");
 
-            Check.That(presentation.Title).IsEqualTo(CalibrationCompletion.MeasureOnlyTitle);
+            // T08: the title text lives in strings.json under calibration.window.title.recorded.
             Check.That(presentation.Title).IsEqualTo("Gaze offset recorded");
             Check.That(presentation.Detail).IsEqualTo("");
             Check.That(presentation.RetryVisible).IsFalse();
@@ -32,12 +32,16 @@ public class CalibrationCompletionTests
     }
 
     [Theory]
-    [InlineData(true, 5.0, 0.5, null, "Calibration complete", true, false, 3000)]
-    [InlineData(true, 120.0, 7.5, null, "Calibration complete", false, true, 12000)]
-    [InlineData(false, 0.0, 0.0, "Gaze never reached the target", "Calibration failed", false, false, 12000)]
+    [InlineData(true, 5.0, 0.5, null, "Calibration complete", true, false, 3000,
+        "Mean error: 5.0 px (0.5%)")]
+    [InlineData(true, 120.0, 7.5, null, "Calibration complete", false, true, 12000,
+        "Mean error: 120.0 px (7.5%) — poor quality")]
+    [InlineData(false, 0.0, 0.0, "Gaze never reached the target", "Calibration failed", false, false, 12000,
+        "Gaze never reached the target")]
     public void Describe_NormalSession_PicksThePanelAndVisibility(
         bool goodResult, double errorPx, double qualityPercent, string? errorText,
-        string expectedTitle, bool expectedSuccessTone, bool retryVisible, int autoDismissMs)
+        string expectedTitle, bool expectedSuccessTone, bool retryVisible, int autoDismissMs,
+        string expectedDetail)
     {
         var presentation = CalibrationCompletion.Describe(
             measureOnly: false, goodResult, errorPx, qualityPercent, errorText);
@@ -47,13 +51,10 @@ public class CalibrationCompletionTests
             .IsEqualTo(expectedSuccessTone ? CompletionTone.Success : CompletionTone.Warning);
         Check.That(presentation.RetryVisible).IsEqualTo(retryVisible);
         Check.That(presentation.AutoDismissMs).IsEqualTo(autoDismissMs);
+        // The detail line is pinned as its whole English (T08 fixup R1): mutant M15 rendered the
+        // good case's detail as "— poor quality" with every existing assertion green.
+        Check.That(presentation.Detail).IsEqualTo(expectedDetail);
         // Normal endings keep the cancel line: the probe's panel is the only one that drops it.
         Check.That(presentation.CancelHintVisible).IsTrue();
-        if (goodResult && qualityPercent < CalibrationCompletion.GoodQualityPercent)
-            Check.That(presentation.Detail).Contains("Mean error:").And.Contains("px");
-        else if (!goodResult)
-            Check.That(presentation.Detail).IsEqualTo(errorText);
-        else
-            Check.That(presentation.Detail).Contains("poor quality");
     }
 }

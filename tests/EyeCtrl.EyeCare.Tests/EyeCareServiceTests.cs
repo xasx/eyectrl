@@ -12,7 +12,8 @@ public class EyeCareServiceTests
     {
         public int CancelActiveCalls;
         public int BannerCalls;
-        public Task<bool> ShowBannerAsync(string message) { BannerCalls++; return Task.FromResult(false); }
+        public string? BannerMessage;
+        public Task<bool> ShowBannerAsync(string message) { BannerCalls++; BannerMessage = message; return Task.FromResult(false); }
         public Task ShowExerciseAsync(string exerciseName, long durationMicroseconds,
             Func<long, PhysicalPoint> getTargetAt, Action<PhysicalPoint, long> recordGaze) => Task.CompletedTask;
         public Task ShowSummaryAsync(EyeCareExerciseOutcome outcome) => Task.CompletedTask;
@@ -44,6 +45,28 @@ public class EyeCareServiceTests
         settings.Enabled = false;
 
         Check.That(hooks.CancelActiveCalls).IsEqualTo(1);
+    }
+
+    /// <summary>
+    /// T08 fixup R1 (mutant M19): the banner's message is the eye-care surface's key, and nothing
+    /// pinned its English — swapping it for the subtext ("You've been fixating for a while") stayed
+    /// green. The fake hooks capture what the banner would show.
+    /// </summary>
+    [Fact]
+    public void BreakBanner_ShowsTheKeyedEnglishMessage()
+    {
+        var settings = new EyeCareSettings
+        {
+            Enabled = true, IntervalMinutes = 1, NaturalBreakSeconds = 30, SnoozeMinutes = 1
+        };
+        var hooks = new FakeHooks();
+        var svc = NewService(settings, hooks);
+
+        for (long t = 0; t <= 70_000_000; t += 1_000_000)
+            svc.OnGazeSample(new GazePoint(500, 500, t, IsValid: true), isPaused: false);
+
+        Check.That(hooks.BannerCalls).IsStrictlyGreaterThan(0);
+        Check.That(hooks.BannerMessage).IsEqualTo("Time for an eye break");
     }
 
     [Fact]

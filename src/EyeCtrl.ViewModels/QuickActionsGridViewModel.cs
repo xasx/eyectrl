@@ -29,8 +29,8 @@ public partial class QuickActionsGridViewModel : DwellOverlayViewModelBase,
     public ObservableCollection<QuickActionTileViewModel> Tiles { get; } = new();
 
     /// <summary>
-    /// The host's preset-label function for the tiles. English by default; the App shell will
-    /// set its own overlay-keyed function at composition (T08), the same way it sets
+    /// The host's preset-label function for the tiles. English by default; the App shell sets the
+    /// overlays-keyed function at composition (T08), the same way it sets
     /// <see cref="EffectiveSummonEdge"/>.
     /// </summary>
     public Func<string, string?> PresetLabelFor { get; set; } = QuickActionPresets.EnglishLabelFor;

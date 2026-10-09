@@ -376,7 +376,7 @@ public class CalibrationService
                     + "until you recalibrate. Saved on monitor {SavedMonitor} (hardware id {SavedHardwareId}) "
                     + "at {CalibratedAt:u}",
                     filePath, data.ScreenWidth, data.ScreenHeight, currentWidth, currentHeight,
-                    Describe(data.MonitorDeviceName), Describe(data.MonitorHardwareId), data.CalibratedAt);
+                    DescribeForLog(data.MonitorDeviceName), DescribeForLog(data.MonitorHardwareId), data.CalibratedAt);
                 LastLoadRejection = StringTable.Current.T(
                     "settings.calibration.rejected.screen",
                     data.ScreenWidth, data.ScreenHeight, currentWidth, currentHeight);
@@ -395,8 +395,8 @@ public class CalibrationService
                     + "hardwareId={CurrentHardwareId}. Note Windows renumbers \\\\.\\DISPLAYn when monitors are "
                     + "attached, detached, or re-enumerated, so a name-only difference can still be the same "
                     + "physical monitor — that case is matched by hardware id once both records carry one",
-                    filePath, Describe(data.MonitorDeviceName), Describe(data.MonitorHardwareId),
-                    data.CalibratedAt, Describe(currentMonitorDeviceName), Describe(currentMonitorHardwareId));
+                    filePath, DescribeForLog(data.MonitorDeviceName), DescribeForLog(data.MonitorHardwareId),
+                    data.CalibratedAt, DescribeForLog(currentMonitorDeviceName), DescribeForLog(currentMonitorHardwareId));
                 // Whole phrases, one per combination of the optional hardware ids. The sentence used to
                 // be assembled from a base string plus a conditionally appended ", {id}" fragment,
                 // which no translation can carry: German decides its own punctuation and word order,
@@ -530,7 +530,7 @@ public class CalibrationService
         _logger?.LogInformation(
             "Calibration monitor matched by hardware id {HardwareId}; the display was renumbered from "
             + "{SavedMonitor} to {CurrentMonitor}. Applying the calibration and refreshing the stored name",
-            data.MonitorHardwareId, Describe(data.MonitorDeviceName), Describe(currentMonitorDeviceName));
+            data.MonitorHardwareId, DescribeForLog(data.MonitorDeviceName), DescribeForLog(currentMonitorDeviceName));
 
         var refreshed = new CalibrationData
         {
@@ -557,8 +557,17 @@ public class CalibrationService
         }
     }
 
+    /// <summary>The UI's word for a missing monitor name or id, in the rendered language.</summary>
     private static string Describe(string? value) =>
         string.IsNullOrEmpty(value) ? StringTable.Current.T("settings.calibration.none") : value;
+
+    /// <summary>
+    /// The word for a missing monitor name or id in LOG arguments: invariant English "(none)",
+    /// never the table's text. Logs are diagnostics, not the user's screen — a German "(keine)"
+    /// in a support log would only make it harder to read (T07 fixup-02).
+    /// </summary>
+    internal static string DescribeForLog(string? value) =>
+        string.IsNullOrEmpty(value) ? "(none)" : value;
 
     /// <summary>
     /// Persists calibration data to disk as JSON, atomically (temp file + rename), mirroring

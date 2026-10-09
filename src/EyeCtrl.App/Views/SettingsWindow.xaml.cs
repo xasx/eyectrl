@@ -892,10 +892,9 @@ public partial class SettingsWindow : OverlayWindow
     }
 
     /// <summary>
-    /// Draws a pager button's whole face from ONE boundary value: the glyph and the accessible
-    /// name. They must never disagree — a wrap-jump wears the double arrow and says "Jump to…",
-    /// a step button wears the single arrow and says "Previous/Next…" — so both come from this
-    /// helper rather than from two statements at each call site (review 01 R3).
+    /// Draws a pager button's whole face from ONE boundary value, taken as a pair from
+    /// <see cref="SettingsPagerChrome.Face"/>: never from two boundary expressions here, so the
+    /// glyph and the accessible name can no longer disagree (review 01 R3 / review 02 R5).
     ///
     /// <para>
     /// The name goes on the TextBlock, the node WPF exposes from a transparent overlay window
@@ -906,10 +905,10 @@ public partial class SettingsWindow : OverlayWindow
     /// </summary>
     private static void ApplyPagerFace(Border btn, string id, bool boundary)
     {
+        var (glyph, nameKey) = SettingsPagerChrome.Face(id, boundary);
         var text = (TextBlock)btn.Child;
-        text.Text = SettingsPagerChrome.GlyphFor(id, boundary);
-        System.Windows.Automation.AutomationProperties.SetName(
-            text, StringTable.Current.T(SettingsPagerChrome.AccessibleNameKey(id, boundary)));
+        text.Text = glyph;
+        System.Windows.Automation.AutomationProperties.SetName(text, StringTable.Current.T(nameKey));
     }
 
     private void ActivateTabPager(string id, int direction) =>

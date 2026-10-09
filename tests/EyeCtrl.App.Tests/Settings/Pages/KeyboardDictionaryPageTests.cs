@@ -140,6 +140,36 @@ public class KeyboardDictionaryPageTests : IDisposable
         }
 
         Check.That(recorder.Errors).HasSize(1);
+        // The exact English at the call site (T07 fixup-02 R2/S22): a swap with the clear-all
+        // partial-error key would put the other sentence here.
+        Check.That(recorder.Errors[0]).IsEqualTo(
+            "Removed \u201czeppelin\u201d for this session, but the dictionary file could not be updated.");
+    }
+
+    [Fact]
+    public void ClearAll_ReadOnlyFile_ShowsTheClearSentence()
+    {
+        var service = CreateService();
+        var path = Path.Combine(_appDataDir, "user_dictionary_en.json");
+        var attributes = File.GetAttributes(path);
+        File.SetAttributes(path, FileAttributes.ReadOnly);
+        RecordingSettingsPageContext recorder;
+        try
+        {
+            recorder = new RecordingSettingsPageContext(dictionary: service);
+            var pages = new KeyboardPageSource(recorder.Context).Build();
+            pages[1].Rows.OfType<ButtonSpec>()
+                .Single(b => b.Id == "kb_wd_clear").OnActivate();
+            recorder.LastModalOnYes!();
+        }
+        finally
+        {
+            File.SetAttributes(path, attributes);
+        }
+
+        Check.That(recorder.Errors).HasSize(1);
+        Check.That(recorder.Errors[0]).IsEqualTo(
+            "Removed for this session, but the dictionary file could not be updated.");
     }
 
     public void Dispose()

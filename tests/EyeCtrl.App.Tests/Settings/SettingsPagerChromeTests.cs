@@ -143,6 +143,38 @@ public class SettingsPagerChromeTests
     }
 
     /// <summary>
+    /// The whole face as one pair, pinned for all eight states (review 02 R5): the glyph and the
+    /// accessible-name key must be the pair for THIS boundary, and the key's English is pinned
+    /// too, so the surviving M3′ shape — the name taken from the other boundary inside the helper
+    /// — fails here rather than on screen.
+    /// </summary>
+    [Fact]
+    public void Face_PinsTheGlyphAndTheEnglishName_ForAllEightStates()
+    {
+        var cases = new (string Id, bool Boundary, string Glyph, string NameKey, string English)[]
+        {
+            ("pag_prev", false, "\u25C0", "settings.pager.previous_page", "Previous page"),
+            ("pag_prev", true, "\u23ED", "settings.pager.jump_to_last_page", "Jump to last page"),
+            ("pag_next", false, "\u25B6", "settings.pager.next_page", "Next page"),
+            ("pag_next", true, "\u23EE", "settings.pager.jump_to_first_page", "Jump to first page"),
+            ("tab_prev", false, "\u25B2", "settings.pager.previous_tabs", "Previous tab page"),
+            ("tab_prev", true, "\u23ED", "settings.pager.jump_to_last_tabs", "Jump to last tab page"),
+            ("tab_next", false, "\u25BC", "settings.pager.next_tabs", "Next tab page"),
+            ("tab_next", true, "\u23EE", "settings.pager.jump_to_first_tabs", "Jump to first tab page"),
+        };
+
+        foreach (var (id, boundary, glyph, nameKey, english) in cases)
+        {
+            Check.WithCustomMessage(
+                    $"{id} at boundary={boundary}: Face did not return the pair for THIS boundary.")
+                .That(SettingsPagerChrome.Face(id, boundary)).IsEqualTo((glyph, nameKey));
+            Check.WithCustomMessage(
+                    $"{id} at boundary={boundary}: \"{nameKey}\" does not read \"{english}\".")
+                .That(StringTable.EmbeddedEnglish.T(nameKey)).IsEqualTo(english);
+        }
+    }
+
+    /// <summary>
     /// The glyph and the name must agree about "jump vs step" in all eight states (review 01 R3,
     /// mutant M3): a button drawing ⏭ while UIA reads "Previous tab page" tells a screen-reader
     /// user the opposite of what the sighted user sees.
@@ -887,13 +919,16 @@ public class SettingsPagerWiringTests
     public void PagerGlyphsAndActions_ComeFromTheBoundaryHelper()
     {
         // A glyph or an action hand-rolled at the call site would drift from the helper the
-        // behavioural tests pin. The glyph comes through ApplyPagerFace, which takes it from
-        // GlyphFor (review 01 R3 moved the glyph and the name into that one face helper); all
-        // four action sites (mouse + dwell, content + tab) come from ActionFor.
+        // behavioural tests pin. The glyph comes through Face, which takes it from GlyphFor
+        // (review 01 R3 / review 02 R5); all four action sites (mouse + dwell, content + tab)
+        // come from ActionFor.
         Check.WithCustomMessage(
-                "ApplyPagerFace no longer takes the glyph from SettingsPagerChrome.GlyphFor.")
-            .That(ExtractMethod(WindowSource(), "private static void ApplyPagerFace("))
-            .Contains("SettingsPagerChrome.GlyphFor(");
+                "SettingsPagerChrome.Face no longer pairs GlyphFor and AccessibleNameKey from "
+                + "the same boundary value.")
+            .That(File.ReadAllText(Path.Combine(
+                SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Views",
+                "SettingsPagerChrome.cs")))
+            .Contains("(GlyphFor(id, boundary), AccessibleNameKey(id, boundary))");
 
         foreach (var signature in new[]
                  {
@@ -936,14 +971,14 @@ public class SettingsPagerWiringTests
 
         var face = ExtractMethod(WindowSource(), "private static void ApplyPagerFace(");
         Check.WithCustomMessage(
-                "ApplyPagerFace no longer takes the glyph from SettingsPagerChrome.GlyphFor — the "
-                + "boundary-aware glyph mapping must live in the one testable helper.")
-            .That(face).Contains("SettingsPagerChrome.GlyphFor(");
+                "ApplyPagerFace no longer takes its glyph and name as one pair from "
+                + "SettingsPagerChrome.Face — a name from a different boundary could disagree "
+                + "with the glyph (review 01 R3 / review 02 R5).")
+            .That(face).Contains("SettingsPagerChrome.Face(");
         Check.WithCustomMessage(
-                "ApplyPagerFace no longer takes the name from "
-                + "SettingsPagerChrome.AccessibleNameKey — the boundary-aware mapping must live "
-                + "in the one testable helper.")
-            .That(face).Contains("SettingsPagerChrome.AccessibleNameKey(");
+                "ApplyPagerFace calls GlyphFor/AccessibleNameKey directly again; the pair must "
+                + "come from Face so the two cannot be chosen from different boundaries.")
+            .That(face.Contains("GlyphFor(") || face.Contains("AccessibleNameKey(")).IsFalse();
 
         var xaml = File.ReadAllText(Path.Combine(
             SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Views", "SettingsWindow.xaml"));

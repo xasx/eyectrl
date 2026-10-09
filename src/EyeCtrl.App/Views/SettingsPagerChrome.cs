@@ -95,6 +95,18 @@ internal static class SettingsPagerChrome
     };
 
     /// <summary>
+    /// The button's whole face as one decision (review 02 R5): the glyph and the accessible-name
+    /// key. <see cref="GlyphFor"/> and <see cref="AccessibleNameKey"/> remain the two authorities;
+    /// this pairs them from ONE boundary value, so a call site can never paint a double arrow and
+    /// name it "Previous page" — the surviving M3′ shape. The view resolves the key through
+    /// <c>StringTable.Current</c>, so the chrome class stays free of the table.
+    /// </summary>
+    /// <param name="id">One of the four pager ids; anything else throws via the two authorities.</param>
+    /// <param name="boundary">True when the button wraps at this page.</param>
+    internal static (string Glyph, string AccessibleNameKey) Face(string id, bool boundary) =>
+        (GlyphFor(id, boundary), AccessibleNameKey(id, boundary));
+
+    /// <summary>
     /// The dwell time a pager button registers with: the jump (toolbar) time at a boundary,
     /// <see cref="StepPagerDwellMs"/> otherwise. <paramref name="jumpDwellMs"/> is the window's
     /// <c>_dwellMs</c> (ToolbarButtonDwellMs), so jumps follow the user's tuning while steps stay

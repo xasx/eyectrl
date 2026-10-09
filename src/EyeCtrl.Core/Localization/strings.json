@@ -579,7 +579,7 @@
     "text": "Open Adaptation Log",
     "who": "user",
     "where": "settings",
-    "fit": "row",
+    "fit": "B260x2",
     "args": []
   },
   "settings.adaptation.posture.description": {
@@ -621,7 +621,7 @@
     "text": "Reset Adaptation Settings",
     "who": "user",
     "where": "settings",
-    "fit": "row",
+    "fit": "B260x2",
     "args": []
   },
   "settings.adaptation.reset.message": {
@@ -642,7 +642,7 @@
     "text": "Reset Learned Offsets",
     "who": "user",
     "where": "settings",
-    "fit": "row",
+    "fit": "B260x2",
     "args": []
   },
   "settings.adaptation.reset_learned.message": {
@@ -901,7 +901,7 @@
     "text": "Reset Advanced Settings",
     "who": "user",
     "where": "settings",
-    "fit": "row",
+    "fit": "B260x2",
     "args": []
   },
   "settings.advanced.reset.message": {
@@ -929,7 +929,7 @@
     "text": "Clear Calibration",
     "who": "user",
     "where": "settings",
-    "fit": "row",
+    "fit": "B260x2",
     "args": []
   },
   "settings.calibration.clear.message": {
@@ -992,7 +992,7 @@
     "text": "Measure Gaze Offset",
     "who": "user",
     "where": "settings",
-    "fit": "row",
+    "fit": "B260x2",
     "args": []
   },
   "settings.calibration.probe.note": {
@@ -1097,7 +1097,7 @@
     "text": "Calibrate Now",
     "who": "user",
     "where": "settings",
-    "fit": "row",
+    "fit": "B260x2",
     "args": []
   },
   "settings.calibration.samples.description": {
@@ -1462,7 +1462,7 @@
     "text": "Open Recordings Folder",
     "who": "user",
     "where": "settings",
-    "fit": "row",
+    "fit": "B260x2",
     "args": []
   },
   "settings.diagnostics.record_raw.description": {
@@ -1490,7 +1490,7 @@
     "text": "Reset Diagnostics Settings",
     "who": "user",
     "where": "settings",
-    "fit": "row",
+    "fit": "B260x2",
     "args": []
   },
   "settings.diagnostics.reset.message": {
@@ -1770,7 +1770,7 @@
     "text": "Reset Eye Care Settings",
     "who": "user",
     "where": "settings",
-    "fit": "row",
+    "fit": "B260x2",
     "args": []
   },
   "settings.eyecare.reset.message": {
@@ -2306,7 +2306,7 @@
     "text": "Back to models",
     "who": "user",
     "where": "settings",
-    "fit": "row",
+    "fit": "B260x2",
     "args": []
   },
   "settings.models.clipboard.invalid": {
@@ -2422,7 +2422,7 @@
     "text": "Manage models...",
     "who": "user",
     "where": "settings",
-    "fit": "row",
+    "fit": "B260x2",
     "args": []
   },
   "settings.models.none": {

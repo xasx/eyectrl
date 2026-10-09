@@ -41,6 +41,9 @@ public class SingleSurfaceKeyTests
         // the window and every other Supervisor file stay on the supervisor surface alone.
         ("src/EyeCtrl.Supervisor/Supervision/LanguageSetupRow.cs", ["language-recovery"]),
 
+        // T06: the startup-error box's two texts (title + labelled detail) resolve together.
+        ("src/EyeCtrl.App/Services/StartupErrorText.cs", ["startup-error"]),
+
         // Mixed folders: explicit files only.
         ("src/EyeCtrl.App/Views/SettingsWindow.xaml", ["settings", "language-recovery"]),
         ("src/EyeCtrl.App/Views/SettingsWindow.xaml.cs", ["settings", "language-recovery"]),
@@ -53,9 +56,11 @@ public class SingleSurfaceKeyTests
         ("src/EyeCtrl.App/Services/AppRestartCoordinator.cs", ["language-recovery"]),
         ("src/EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml", ["caregiver-alert"]),
         ("src/EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml.cs", ["caregiver-alert"]),
+        ("src/EyeCtrl.App/Overlays/DriftNoticeWindow.xaml", ["drift-notice"]),
         ("src/EyeCtrl.App/Overlays/CalibrationWindow.xaml", ["calibration"]),
         ("src/EyeCtrl.App/Overlays/CalibrationWindow.xaml.cs", ["calibration"]),
         ("src/EyeCtrl.App/Overlays/CalibrationCompletion.cs", ["calibration"]),
+        ("src/EyeCtrl.App/Overlays/TrackStatusWindow.xaml", ["track-status"]),
         ("src/EyeCtrl.App/Overlays/TrackStatusWindow.xaml.cs", ["track-status"]),
         ("src/EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml.cs", ["eye-care"]),
         ("src/EyeCtrl.ViewModels/CalibrationFailureText.cs", ["calibration"]),

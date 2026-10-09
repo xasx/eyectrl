@@ -698,6 +698,9 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
 
     private void OpenSettings()
     {
+        // One table for the whole window: the strings and the status line's frame resolve from
+        // the same snapshot, so a language change cannot show a half-resolved window (T06).
+        var strings = _languageResolver.ResolveTable(warning => Log.Debug("Supervisor strings: {Warning}", warning));
         var window = new SupervisorSetupWindow(
             settings: _settings,
             settingsService: _settingsService,
@@ -723,14 +726,18 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
             launchAppNow: () => HandleInput(new LaunchRequest(DateTime.UtcNow)),
             startOnBoot: new StartOnBootSetupRow(_startOnBootDelivery, () => _startOnBootTracker.Current),
             language: new LanguageSetupRow(_languageDelivery, () => _uiLanguageTracker.Current),
-            strings: _languageResolver.ResolveTable(warning => Log.Debug("Supervisor strings: {Warning}", warning)),
-            statusText: "Supervisor state: " + SupervisorStateText.Describe(_sm.State));
+            strings: strings,
+            statusText: strings.T("supervisor.setup.status", SupervisorStateText.Describe(strings, _sm.State)));
         window.Show();
     }
 
     private void UpdateTrayStatus()
     {
-        var text = SupervisorStateText.TrayPrefix + SupervisorStateText.Describe(_sm.State);
+        // Resolved on each update: the tooltip is continuously visible, so it must follow a
+        // language change like the windows do (T06). The resolver's reset and manifest reads are
+        // bounded and tiny; the tray menu's own texts still re-ask on every open (T05b).
+        var strings = _languageResolver.ResolveTable(warning => Log.Debug("Supervisor strings: {Warning}", warning));
+        var text = SupervisorStateText.TrayPrefix(strings) + SupervisorStateText.Describe(strings, _sm.State);
         _tray.SetStatusText(text);
     }
 

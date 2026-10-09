@@ -34,22 +34,22 @@ public class TrayIconManager : IDisposable
         _interactionManager = interactionManager;
         _messenger = messenger;
 
-        _pauseMenuItem = new ToolStripMenuItem("Pause");
+        _pauseMenuItem = new ToolStripMenuItem(StringTable.Current.T("app-tray.pause"));
         _pauseMenuItem.Click += (_, _) =>
         {
             interactionManager.TogglePause();
-            _pauseMenuItem.Text = interactionManager.CurrentState == InteractionState.Paused ? "Resume" : "Pause";
+            _pauseMenuItem.Text = PauseItemText(interactionManager.CurrentState);
         };
 
-        var settingsItem = new ToolStripMenuItem("Settings");
+        var settingsItem = new ToolStripMenuItem(StringTable.Current.T("app-tray.settings"));
         settingsItem.Click += (_, _) => dispatcher.BeginInvoke(() =>
             _messenger.Send(new SettingsRequestedMessage()));
 
-        var resetAdaptationItem = new ToolStripMenuItem("Reset adaptation");
+        var resetAdaptationItem = new ToolStripMenuItem(StringTable.Current.T("app-tray.reset-adaptation"));
         resetAdaptationItem.Click += (_, _) => dispatcher.BeginInvoke(() =>
             _messenger.Send(new ResetAdaptationMessage()));
 
-        var exitItem = new ToolStripMenuItem("Exit");
+        var exitItem = new ToolStripMenuItem(StringTable.Current.T("app-tray.exit"));
         exitItem.Click += (_, _) => dispatcher.BeginInvoke(shutdownCallback);
 
         var menu = new ContextMenuStrip();
@@ -62,7 +62,7 @@ public class TrayIconManager : IDisposable
         menu.Items.Add(resetAdaptationItem);
         if (showToolbarCallback != null)
         {
-            _showToolbarMenuItem = new ToolStripMenuItem("Show toolbar");
+            _showToolbarMenuItem = new ToolStripMenuItem(StringTable.Current.T("app-tray.show-toolbar"));
             _showToolbarMenuItem.Click += (_, _) => dispatcher.BeginInvoke(showToolbarCallback);
             menu.Items.Add(_showToolbarMenuItem);
             menu.Items.Add(new ToolStripSeparator());
@@ -154,11 +154,18 @@ public class TrayIconManager : IDisposable
         _disposed = true;
     }
 
+    /// <summary>The pause item's face for a state: "Resume" while paused, "Pause" otherwise. The
+    /// pair is written at three sites (constructor, click, state change), so it lives in one place.</summary>
+    /// <param name="state">The interaction state the face describes.</param>
+    /// <returns>The item text.</returns>
+    private static string PauseItemText(InteractionState state) =>
+        StringTable.Current.T(state == InteractionState.Paused ? "app-tray.resume" : "app-tray.pause");
+
     private void OnStateChanged(InteractionState state)
     {
         _dispatcher.BeginInvoke(() =>
         {
-            _pauseMenuItem.Text = state == InteractionState.Paused ? "Resume" : "Pause";
+            _pauseMenuItem.Text = PauseItemText(state);
         });
     }
 }

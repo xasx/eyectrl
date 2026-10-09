@@ -474,16 +474,17 @@ public partial class App : Application
             Shutdown();
             // The box itself auto-dismisses: nobody present may be able to click OK, and an
             // unattended retry loop (Run key, caregiver script) must be able to make progress.
-            DismissMessageBoxAfter(StartupErrorTitle, TimeSpan.FromSeconds(20));
+            // Title and message are resolved once (T06): the title is the auto-dismiss's exact
+            // lookup key, and a second resolution could hand FindWindowW a different string.
+            var startupError = StartupErrorText.Resolve(ex.Message);
+            DismissMessageBoxAfter(startupError.Title, TimeSpan.FromSeconds(20));
             MessageBox.Show(
-                $"EyeCtrl failed to start:\n{ex.Message}",
-                StartupErrorTitle,
+                startupError.Message,
+                startupError.Title,
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
         }
     }
-
-    private const string StartupErrorTitle = "EyeCtrl — Startup Error";
 
     /// <summary>
     /// A SendInput drag button-down is OS-global state that outlives the process: dying with the

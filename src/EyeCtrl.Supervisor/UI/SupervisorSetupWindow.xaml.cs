@@ -45,7 +45,9 @@ public partial class SupervisorSetupWindow : Window
     private readonly TextBlock _languageNote = new()
     {
         Foreground = new Media.SolidColorBrush(Media.Color.FromRgb(0xF4, 0xD0, 0x3F)),
-        FontSize = 13,
+        // T05b review-01 F5, deferred to T06's restyle of the Supervisor screens: at 13 DIP the
+        // note was the smallest text in the window and wrapped to two lines.
+        FontSize = 15,
         TextWrapping = TextWrapping.Wrap,
         Margin = new Thickness(0, 0, 0, 16),
     };
@@ -104,9 +106,10 @@ public partial class SupervisorSetupWindow : Window
         _enabledState = new SupervisionSetupEnabledState(settingsService, settings);
 
         InitializeComponent();
+        ApplyStrings();
         PopulateFallbackList();
         PopulateAdvancedFields();
-        StatusLabel.Text = string.IsNullOrEmpty(statusText) ? "Supervisor idle." : statusText;
+        StatusLabel.Text = string.IsNullOrEmpty(statusText) ? _strings.T("supervisor.setup.status.idle") : statusText;
         BuildToggles();
         BuildDiagnostics();
 
@@ -123,15 +126,52 @@ public partial class SupervisorSetupWindow : Window
 
     private void PopulateFallbackList()
     {
-        // Spec Non-Goal: full CRUD is out of scope. Show the configured default order read-only.
-        FallbackList.ItemsSource = _settings.Supervision.FallbackAtOrder.ToList();
+        // Spec Non-Goal: full CRUD is out of scope. Show the configured default order read-only,
+        // with display names (T06): the persisted ids stay ids.
+        FallbackList.ItemsSource = _settings.Supervision.FallbackAtOrder
+            .Select(id => FallbackDisplayName(_strings, id))
+            .ToList();
+    }
+
+    /// <summary>The display name for a fallback-AT id, keyed on the <c>supervisor</c> surface
+    /// (T06). An id with no known name shows as itself — the settings may carry a stale entry,
+    /// and a raw id is better than hiding it.</summary>
+    /// <param name="strings">The resolved Supervisor table.</param>
+    /// <param name="id">The persisted fallback id.</param>
+    /// <returns>The name to show in the list.</returns>
+    internal static string FallbackDisplayName(StringTable strings, string id) => id switch
+    {
+        "TDControl" => strings.T("supervisor.setup.fallback-app.td-control"),
+        "SnapCoreFirst" => strings.T("supervisor.setup.fallback-app.snap-core-first"),
+        "WindowsEyeControl" => strings.T("supervisor.setup.fallback-app.windows-eye-control"),
+        _ => id
+    };
+
+    /// <summary>Fills in the texts the XAML leaves empty. The markup extension cannot be used
+    /// here: the Supervisor never activates <see cref="StringTable.Current"/>, so every text is
+    /// assigned from this window's own table.</summary>
+    private void ApplyStrings()
+    {
+        Title = _strings.T("supervisor.setup.window-title");
+        SubtitleText.Text = _strings.T("supervisor.setup.subtitle");
+        FallbackHeadingText.Text = _strings.T("supervisor.setup.fallback.heading");
+        FallbackDescriptionText.Text = _strings.T("supervisor.setup.fallback.description");
+        ReorderingNoteText.Text = _strings.T("supervisor.setup.fallback.reordering-note");
+        AdvancedExpander.Header = _strings.T("supervisor.setup.advanced");
+        MaxRetriesLabel.Text = _strings.T("supervisor.setup.max-retries");
+        MaxRetriesRange.Text = _strings.T("supervisor.setup.max-retries.range", 1, 20);
+        HangThresholdLabel.Text = _strings.T("supervisor.setup.hang-threshold");
+        HangThresholdRange.Text = _strings.T("supervisor.setup.hang-threshold.range", 5, 300);
+        DiagnosticsHeadingText.Text = _strings.T("supervisor.setup.diagnostics");
     }
 
     private void PopulateAdvancedFields()
     {
-        // The supervisor surface's provider (T02): invariant while the surface is English, de-DE
-        // once its German is effective. The same provider reads the boxes back in OnSave.
-        var provider = EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("supervisor");
+        // The window's own table's provider (T06): invariant while the surface is English, de-DE
+        // once its German is effective. The process global would always be embedded English in
+        // the Supervisor process, which never activates it. The same provider reads the boxes
+        // back in OnSave.
+        var provider = _strings.FormatProviderFor("supervisor");
         MaxRetriesBox.Text = SupervisorNumericField.Format(_settings.Supervision.MaxRetries, provider);
         HangThresholdBox.Text = SupervisorNumericField.Format(_settings.Supervision.HangThresholdSeconds, provider);
     }
@@ -146,10 +186,10 @@ public partial class SupervisorSetupWindow : Window
         var enableToggle = new DwellToggle(
             registrar: _registrar,
             id: "setup_enable_supervision",
-            label: "Enable supervision",
-            // Host-supplied state words (T02); T06 passes supervisor keys.
-            onText: "On",
-            offText: "Off",
+            label: _strings.T("supervisor.setup.enable-supervision"),
+            // Host-supplied state words (T02), keyed on this surface (T06).
+            onText: _strings.T("supervisor.setup.toggle.on"),
+            offText: _strings.T("supervisor.setup.toggle.off"),
             get: () => _settings.Supervision.Enabled,
             set: value =>
             {
@@ -157,8 +197,8 @@ public partial class SupervisorSetupWindow : Window
                 // The actual Scheduled-Task install/remove is a separate workstream (spec Non-Goal);
                 // for now the toggle just flips the setting + notifies the host so Task 20 can react.
                 StatusLabel.Text = value
-                    ? "Supervision enabled. (Scheduled Task install is a separate step.)"
-                    : "Supervision disabled.";
+                    ? _strings.T("supervisor.setup.supervision-enabled")
+                    : _strings.T("supervisor.setup.supervision-disabled");
             },
             category: DwellCategory.Control,
             radiusPhysical: 200,
@@ -169,9 +209,9 @@ public partial class SupervisorSetupWindow : Window
         _startOnLogonToggle = new DwellToggle(
             registrar: _registrar,
             id: "setup_start_on_logon",
-            label: "Start EyeCtrl at logon",
-            onText: "On",
-            offText: "Off",
+            label: _strings.T("supervisor.setup.start-on-logon"),
+            onText: _strings.T("supervisor.setup.toggle.on"),
+            offText: _strings.T("supervisor.setup.toggle.off"),
             get: () => _startOnBoot.Value,
             set: _startOnBoot.Choose,
             category: DwellCategory.Control,
@@ -268,10 +308,10 @@ public partial class SupervisorSetupWindow : Window
         var launchNow = new DwellButton(
             registrar: _registrar,
             id: "setup_launch_now",
-            label: "Launch EyeCtrl now",
+            label: _strings.T("supervisor.launch-now"),
             action: () =>
             {
-                StatusLabel.Text = "Launch requested.";
+                StatusLabel.Text = _strings.T("supervisor.setup.launch-requested");
                 _launchAppNow();
             },
             baseColor: Media.Color.FromRgb(45, 90, 137),
@@ -284,7 +324,7 @@ public partial class SupervisorSetupWindow : Window
         var save = new DwellButton(
             registrar: _registrar,
             id: "setup_save",
-            label: "Save",
+            label: _strings.T("supervisor.setup.save"),
             action: OnSave,
             baseColor: Media.Color.FromRgb(30, 100, 30),
             category: DwellCategory.Control,
@@ -301,7 +341,7 @@ public partial class SupervisorSetupWindow : Window
     {
         // Pull advanced numeric fields into the snapshot before persisting. Same provider as
         // PopulateAdvancedFields, so what this window writes it can read back.
-        var provider = EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("supervisor");
+        var provider = _strings.FormatProviderFor("supervisor");
         if (SupervisorNumericField.TryParse(MaxRetriesBox.Text, provider, out var maxRetries))
             _settings.Supervision.MaxRetries = maxRetries;
         if (SupervisorNumericField.TryParse(HangThresholdBox.Text, provider, out var hangThreshold))
@@ -317,11 +357,13 @@ public partial class SupervisorSetupWindow : Window
             // SettingsWriter.Supervisor => Save persists ONLY the Supervision section
             // (re-reads disk under mutex, preserves all other sections).
             _settingsService.Save(_settings);
-            StatusLabel.Text = "Saved (supervision settings).";
+            StatusLabel.Text = _strings.T("supervisor.setup.saved");
         }
         catch (Exception ex)
         {
-            StatusLabel.Text = $"Save failed: {ex.Message}";
+            // The frame is keyed; the raw exception message stays as it is (English, or the
+            // Windows language for OS errors).
+            StatusLabel.Text = _strings.T("supervisor.setup.save-failed", ex.Message);
         }
 
         // Let the host refresh the running loop with the saved supervision policy.

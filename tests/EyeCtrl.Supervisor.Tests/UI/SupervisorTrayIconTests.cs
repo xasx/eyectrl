@@ -49,8 +49,10 @@ public class SupervisorTrayIconTests
     }
 
     [Fact]
-    public void TheProductionTexts_AreTheEnglishItems_UntilT06KeysThem()
+    public void TheProductionTexts_ResolveTheEnglishItemsFromTheTable()
     {
+        // English literals on the expected side by design (T06): resolving both sides from the
+        // keys would let a missing or mis-pasted key pass as its own raw text.
         Check.That(SupervisorTrayTexts.For(EyeCtrl.Core.Localization.StringTable.EmbeddedEnglish))
             .IsEqualTo(new SupervisorTrayTexts("EyeCtrl Supervisor settings", "Launch EyeCtrl now", "Exit supervisor"));
     }

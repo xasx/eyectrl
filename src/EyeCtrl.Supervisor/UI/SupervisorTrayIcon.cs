@@ -6,16 +6,19 @@ using EyeCtrl.Core.Localization;
 
 /// <summary>The tray menu's item texts, resolved each time the menu opens.</summary>
 /// <param name="Settings">The "open setup" item.</param>
-/// <param name="LaunchNow">The "launch the App" item.</param>
+/// <param name="LaunchNow">The "launch the App" item; the shared <c>supervisor.launch-now</c> key.</param>
 /// <param name="Exit">The "exit the Supervisor" item.</param>
 internal sealed record SupervisorTrayTexts(string Settings, string LaunchNow, string Exit)
 {
-    /// <summary>The texts for the Supervisor's current table. English until T06 keys the
-    /// Supervisor's strings; the menu already re-asks on every open (T05b), so T06's keys follow
-    /// a language change without a Supervisor restart.</summary>
+    /// <summary>The texts for the Supervisor's current table. The menu re-asks on every open
+    /// (T05b), so the items follow a language change without a Supervisor restart; the keys are
+    /// the <c>supervisor</c> surface's (T06).</summary>
     /// <param name="strings">The Supervisor's table, resolved at the moment the menu opens.</param>
     public static SupervisorTrayTexts For(StringTable strings) =>
-        new("EyeCtrl Supervisor settings", "Launch EyeCtrl now", "Exit supervisor");
+        new(
+            strings.T("supervisor.tray.settings"),
+            strings.T("supervisor.launch-now"),
+            strings.T("supervisor.tray.exit"));
 }
 
 /// <summary>

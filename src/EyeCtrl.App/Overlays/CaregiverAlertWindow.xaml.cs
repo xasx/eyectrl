@@ -4,6 +4,7 @@ using System;
 using System.Windows;
 using System.Windows.Media.Animation;
 using EyeCtrl.App.Services;
+using EyeCtrl.Core.Localization;
 using Serilog;
 
 /// <summary>
@@ -34,8 +35,8 @@ public partial class CaregiverAlertWindow : OverlayWindow, ICaregiverAlertPresen
     public void ShowCaregiverAlert(CaregiverAlertCondition condition)
     {
         Message.Text = condition == CaregiverAlertCondition.SustainedPoorTracking
-            ? "Eye tracking has been unreliable for the last minute — consider repositioning, or recalibrating in Tobii."
-            : "The user has been struggling continuously — consider checking in.";
+            ? StringTable.Current.T("caregiver-alert.poor-tracking")
+            : StringTable.Current.T("caregiver-alert.struggling");
         EnsurePositioned();
         // Cancel any in-flight fade and re-show at full opacity (the drift banner's re-show discipline:
         // a fade is started only by FadeOutCaregiverAlert, and removing a clock via BeginAnimation(dp, null)

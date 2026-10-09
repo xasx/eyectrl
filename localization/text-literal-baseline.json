@@ -1,11 +1,6 @@
 {
   "Entries": [
     {
-      "Path": "src/EyeCtrl.App/App.xaml.cs",
-      "Literal": "$\"EyeCtrl failed to start:\\n{ex.Message}\"",
-      "Count": 1
-    },
-    {
       "Path": "src/EyeCtrl.App/Overlays/CalibrationCompletion.cs",
       "Literal": "\"Calibration complete\"",
       "Count": 2
@@ -68,26 +63,6 @@
     {
       "Path": "src/EyeCtrl.App/Overlays/CalibrationWindow.xaml.cs",
       "Literal": "$\"Look at the dot \\u00B7 {idx + 1} / {total}\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml",
-      "Literal": "\"Caregiver attention needed\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml.cs",
-      "Literal": "\"Eye tracking has been unreliable for the last minute — consider repositioning, or recalibrating in Tobii.\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml.cs",
-      "Literal": "\"The user has been struggling continuously — consider checking in.\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Overlays/DriftNoticeWindow.xaml",
-      "Literal": "\"Tracking may have drifted — consider recalibrating in Tobii\"",
       "Count": 1
     },
     {
@@ -176,31 +151,6 @@
       "Count": 1
     },
     {
-      "Path": "src/EyeCtrl.App/Overlays/TrackStatusWindow.xaml",
-      "Literal": "\"Distance: \"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Overlays/TrackStatusWindow.xaml",
-      "Literal": "\"Quality: \"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Overlays/TrackStatusWindow.xaml",
-      "Literal": "\"Track Status\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Overlays/TrackStatusWindow.xaml",
-      "Literal": "\"Unknown\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Overlays/TrackStatusWindow.xaml.cs",
-      "Literal": "$\"{_viewModel.HeadDistanceMm:F0} mm\"",
-      "Count": 1
-    },
-    {
       "Path": "src/EyeCtrl.App/Services/ActionMenuEdgeButtons.cs",
       "Literal": "\"Close\"",
       "Count": 1
@@ -257,37 +207,7 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/TrayIconManager.cs",
-      "Literal": "\"Exit\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/TrayIconManager.cs",
       "Literal": "\"EyeCtrl\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/TrayIconManager.cs",
-      "Literal": "\"Pause\"",
-      "Count": 3
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/TrayIconManager.cs",
-      "Literal": "\"Reset adaptation\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/TrayIconManager.cs",
-      "Literal": "\"Resume\"",
-      "Count": 2
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/TrayIconManager.cs",
-      "Literal": "\"Settings\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.App/Services/TrayIconManager.cs",
-      "Literal": "\"Show toolbar\"",
       "Count": 1
     },
     {
@@ -2066,83 +1986,8 @@
       "Count": 2
     },
     {
-      "Path": "src/EyeCtrl.Supervisor/Supervision/SupervisorStateText.cs",
-      "Literal": "\"EyeCtrl Supervisor: \"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/Supervision/SupervisorStateText.cs",
-      "Literal": "\"EyeCtrl is closing\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/Supervision/SupervisorStateText.cs",
-      "Literal": "\"EyeCtrl stopped — backup program running\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/Supervision/SupervisorStateText.cs",
-      "Literal": "\"idle\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/Supervision/SupervisorStateText.cs",
-      "Literal": "\"restarting EyeCtrl\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/Supervision/SupervisorStateText.cs",
-      "Literal": "\"starting EyeCtrl\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/Supervision/SupervisorStateText.cs",
-      "Literal": "\"watching EyeCtrl\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/FallenBackDialog.xaml",
-      "Literal": "\"A fallback eye-control app has been launched. Use it (or a mouse) to choose an option below.\"",
-      "Count": 1
-    },
-    {
       "Path": "src/EyeCtrl.Supervisor/UI/FallenBackDialog.xaml",
       "Literal": "\"EyeCtrl Supervisor\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/FallenBackDialog.xaml",
-      "Literal": "\"EyeCtrl couldn't stay running\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/FallenBackDialog.xaml.cs",
-      "Literal": "\"Dismiss (keep fallback)\"",
-      "Count": 2
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/FallenBackDialog.xaml.cs",
-      "Literal": "\"Retry EyeCtrl (once)\"",
-      "Count": 2
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml",
-      "Literal": "\"(Reordering is out of scope for this build; the default order above is shown.)\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml",
-      "Literal": "\"Advanced\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml",
-      "Literal": "\"Diagnostics\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml",
-      "Literal": "\"EyeCtrl Supervisor - Setup\"",
       "Count": 1
     },
     {
@@ -2151,108 +1996,8 @@
       "Count": 1
     },
     {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml",
-      "Literal": "\"Fallback assistive-technology priority\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml",
-      "Literal": "\"Hang threshold (s):  \"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml",
-      "Literal": "\"Max retries:  \"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml",
-      "Literal": "\"Watchdog that keeps EyeCtrl running and falls back to another eye-control app if it crashes.\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml",
-      "Literal": "\"When EyeCtrl crashes repeatedly, the supervisor launches the first installed app in this list.\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
-      "Literal": "\"Enable supervision\"",
-      "Count": 2
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
-      "Literal": "\"Launch EyeCtrl now\"",
-      "Count": 2
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
-      "Literal": "\"Launch requested.\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
-      "Literal": "\"Off\"",
-      "Count": 4
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
-      "Literal": "\"On\"",
-      "Count": 4
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
-      "Literal": "\"Save\"",
-      "Count": 2
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
-      "Literal": "\"Saved (supervision settings).\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
-      "Literal": "\"Start EyeCtrl at logon\"",
-      "Count": 2
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
-      "Literal": "\"Supervision disabled.\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
-      "Literal": "\"Supervision enabled. (Scheduled Task install is a separate step.)\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
-      "Literal": "\"Supervisor idle.\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
-      "Literal": "$\"Save failed: {ex.Message}\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorTrayIcon.cs",
-      "Literal": "\"Exit supervisor\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorTrayIcon.cs",
-      "Literal": "\"EyeCtrl Supervisor settings\"",
-      "Count": 1
-    },
-    {
       "Path": "src/EyeCtrl.Supervisor/UI/SupervisorTrayIcon.cs",
       "Literal": "\"EyeCtrl Supervisor\"",
-      "Count": 1
-    },
-    {
-      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorTrayIcon.cs",
-      "Literal": "\"Launch EyeCtrl now\"",
       "Count": 1
     },
     {

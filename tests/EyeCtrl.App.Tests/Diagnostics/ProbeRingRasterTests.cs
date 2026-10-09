@@ -15,21 +15,33 @@ using EyeCtrl.Core.Settings;
 ///
 /// <para>
 /// <b>What it proves.</b> At 192 DPI (scale 2.0) and 96 DPI, for all three styles: condition B's
-/// ring moves by the applied fraction (±0.05 px), while condition A's ring lands on whole device
-/// pixels (a shift of 0 or 1 px against its own f = 0 reference). A second test handles the static
-/// park's non-integer half-size contract (250 DIP at scale 1.5), and a third reports the A-vs-B
-/// partial-coverage ("edge spread") count at the owner's geometry.
+/// ring moves by the applied fraction (±0.05 px), while condition A's ring lands on the whole pixel
+/// C1's away-from-zero rounding predicts (0 / 1 / 1 px for f = 0.25 / 0.5 / 0.75, against its own
+/// f = 0 reference). A second test handles the static park's non-integer half-size contract (250
+/// DIP at scale 1.5), and a third reports the A-vs-B partial-coverage ("edge spread") count at the
+/// owner's geometry.
 /// </para>
 ///
 /// <para>
 /// <b>Measurement.</b> The ring moved is estimated from the alpha centroid of the left and right
 /// stroke blocks (and the top/bottom pair), each over a ±20 px window centred on the reference
-/// edge, then averaged per axis. The average is deliberate: the eight pixels of a wide band's
-/// <i>outer</i> edge are two coincident antialiased bands composited per-pixel, which makes a
-/// single edge's centroid move sub-linearly under a fractional translation (measured up to 0.08 px
-/// error on WeightedSandwich); the mirrored block pair carries equal and opposite biases, so the
-/// mean cancels them to within 0.04 px across every measured style/DPI case. The per-case numbers
-/// are written to the test output.
+/// edge, then averaged per axis. The average is deliberate: a wide band's <i>outer</i> edge is two
+/// coincident antialiased bands composited per-pixel, which makes a single edge's centroid move
+/// sub-linearly under a fractional translation (measured up to 0.08 px error on WeightedSandwich);
+/// the mirrored block pair carries equal and opposite biases, so the mean cancels them.
+/// </para>
+///
+/// <para>
+/// <b>Resolution.</b> <see cref="RenderTargetBitmap"/>'s software rasterizer places edges on a
+/// <b>1/8-device-pixel grid</b> (review 01 measured a rectangle-edge sweep: the edge pixel's alpha
+/// takes only the values 255/223/191/159/128/96/64/32/0), so R1 is evidence at 1/8-px resolution,
+/// not continuity. The sweep's 0.25/0.5/0.75 fractions sit exactly on that grid, so their residual
+/// is the estimator bias alone — at most 0.040 px across every measured style/DPI case, inside the
+/// ±0.05 criterion. Off-grid fractions render on the grid (a scheduled 0.4 renders as 0.375, which
+/// the sub-case measures as 0.3774), and on this rasterizer a scheduled 0.3 renders at 0.25; the
+/// continuous 0.3-px floor can therefore only be shown on the hardware path, which is R2's job
+/// (sweep fine fractions, not just 0.25/0.5/0.75). The per-case numbers are written to the test
+/// output.
 /// </para>
 ///
 /// <para>
@@ -45,6 +57,15 @@ using EyeCtrl.Core.Settings;
 /// inside this estimator's 0.05 px tolerance). The extra re-anchor mutation: dropping
 /// <see cref="ProbeRingVisual.PlaceStaticPark"/>'s re-anchoring collapses the 250-DIP-at-1.5 A–B
 /// offset to 0.08 px (below the 0.3 px floor) → red here.
+/// </para>
+///
+/// <para>
+/// <b>Inherited flag pin (fixup 01, F1).</b> The scene parent is hostile by construction: it sets
+/// <c>SnapsToDevicePixels = true</c> and <c>UseLayoutRounding = true</c>, both of which inherit, so
+/// the probe's own explicit <c>false</c> values are the only thing keeping B fractional. Deleting
+/// <see cref="ProbeRingVisual"/>'s <c>SnapsToDevicePixels = false;</c> with that parent present
+/// turns B into A (0.000/0.993/0.993) and is confirmed red — without the parent the deletion is
+/// undetectable, which is how the review caught it.
 /// </para>
 ///
 /// <para>
@@ -140,14 +161,20 @@ public class ProbeRingRasterTests
                     $"Condition B must render fractionally on both axes: f = {fraction:0.00} at {dpi:0} DPI, "
                     + $"style {style}, but the vertical move measured {shiftB.Y:0.0000} px.")
                 .That(shiftB.Y).IsCloseTo(fraction, TolerancePixels);
+            // C1 rounds half away from zero, and at this whole-pixel half-size the top-left's
+            // fraction is exactly f, so A's move is 0 / 1 / 1 for 0.25 / 0.5 / 0.75 (F4: pinning
+            // the rounding mode, not just "a whole pixel").
+            var expectedShiftA = Math.Round(fraction, MidpointRounding.AwayFromZero);
             Check.WithCustomMessage(
-                    $"Condition A must land on whole device pixels: its ring moved {shiftA.X:0.0000} px "
-                    + $"for f = {fraction:0.00} at {dpi:0} DPI, style {style} — not a whole number of pixels.")
-                .That(WholePixelDistance(shiftA.X)).IsCloseTo(0.0, TolerancePixels);
+                    $"Condition A must land on whole device pixels, rounding half away from zero: its left edge "
+                    + $"should move {expectedShiftA:0} px for f = {fraction:0.00} at {dpi:0} DPI, style {style}, "
+                    + $"but moved {shiftA.X:0.0000} px.")
+                .That(shiftA.X).IsCloseTo(expectedShiftA, TolerancePixels);
             Check.WithCustomMessage(
-                    $"Condition A must land on whole device pixels: its ring moved {shiftA.Y:0.0000} px "
-                    + $"for f = {fraction:0.00} at {dpi:0} DPI, style {style} — not a whole number of pixels.")
-                .That(WholePixelDistance(shiftA.Y)).IsCloseTo(0.0, TolerancePixels);
+                    $"Condition A must land on whole device pixels, rounding half away from zero: its top edge "
+                    + $"should move {expectedShiftA:0} px for f = {fraction:0.00} at {dpi:0} DPI, style {style}, "
+                    + $"but moved {shiftA.Y:0.0000} px.")
+                .That(shiftA.Y).IsCloseTo(expectedShiftA, TolerancePixels);
         }
     }
 
@@ -158,10 +185,12 @@ public class ProbeRingRasterTests
     /// apart — a trial that tests nothing); the re-anchoring must put the scheduled fraction on the
     /// top-left instead, so B moves by f and A stays min(f, 1−f) away on each axis — SP-1's
     /// 0.3–0.5 px guarantee. 0.4 and 0.7 are the two fractions exercised: one where A rounds down
-    /// and one where it rounds up. (The 1.5-px band is thin, and the centroid estimator's
-    /// phase-dependent error is largest near a 0.6 fraction — up to 0.08 px — so the sub-case
-    /// sticks to fractions where the estimator's measured error is ≤0.033 px; the property under
-    /// test is a ~0.5 px effect.)
+    /// and one where it rounds up. (The measured error at these two points is ≤0.033 px; the larger
+    /// error seen at a 0.6 fraction is mostly RenderTargetBitmap's 1/8-px edge grid — 0.6 renders
+    /// as 0.625 — plus the thin band's composite-edge gain. The grid is visible on-grid too: the
+    /// 0.4 fraction renders at 0.375, which is why B's measured move is 0.3774, not 0.4. On this
+    /// rasterizer a scheduled 0.3 renders at 0.25, so the design's 0.3-px floor is only provable on
+    /// the hardware path — R2 should sweep fine fractions.)
     /// </summary>
     [StaFact]
     public void StaticPark_AtANonIntegerHalfSize_PutsTheScheduledFractionOnTheTopLeft()
@@ -320,7 +349,17 @@ public class ProbeRingRasterTests
         else
             probe.Place(centrePhys, snap);
 
-        var scene = new Canvas { Width = SceneDip, Height = SceneDip };
+        // The parent is hostile by construction (F1): both flags inherit, so the probe's own
+        // explicit false values are the only thing keeping B fractional. A parent that turns
+        // SnapsToDevicePixels on — an ancestor in SP-4b's real window could — must not silently
+        // make the A/B test A/A.
+        var scene = new Canvas
+        {
+            Width = SceneDip,
+            Height = SceneDip,
+            SnapsToDevicePixels = true,
+            UseLayoutRounding = true,
+        };
         scene.Children.Add(probe);
         scene.Measure(new Size(SceneDip, SceneDip));
         scene.Arrange(new Rect(0, 0, SceneDip, SceneDip));
@@ -449,7 +488,4 @@ public class ProbeRingRasterTests
     }
 
     private static int RoundToPixel(double physical) => (int)Math.Round(physical, MidpointRounding.AwayFromZero);
-
-    private static double WholePixelDistance(double shift) =>
-        Math.Abs(shift - Math.Round(shift, MidpointRounding.AwayFromZero));
 }

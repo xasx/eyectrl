@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Tests.Diagnostics;
 
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using EyeCtrl.App.Diagnostics.SubPixel;
@@ -30,7 +31,9 @@ using EyeCtrl.Core.Settings;
 /// division is not a no-op (at the owner's thickness 1.0 it would be invisible, which is why the
 /// matrix spans thicknesses). Per-band opacity: applying the look to each band and leaving the
 /// container opaque instead of applying it to the container — killed by the quiet-look cases
-/// (production's window opacity is 0.6).
+/// (production's window opacity is 0.6). Paint order (fixup 01, F2): adding the core ellipse before
+/// the halo — killed by the order check below (property parity alone cannot see it, and R1 reads
+/// alpha only, which is order-independent).
 /// </para>
 ///
 /// <para>
@@ -105,11 +108,37 @@ public class ProbeRingParityTests
 
             AssertBandMatchesProduction(probe.CircleHalo, window.CircleHalo, "outer band (CircleHalo)");
             AssertBandMatchesProduction(probe.Circle, window.Circle, "core band (Circle)");
+            AssertPaintOrderMatchesProduction(probe, window);
         }
         finally
         {
             window.Close();
         }
+    }
+
+    /// <summary>
+    /// Pins the bands' paint order to production's (fixup 01, F2). A <c>Canvas</c> renders children
+    /// in order, so the wide outer band must come first and the core paint on top — painted last,
+    /// the <c>thickness + 4</c> outer band of WeightedSandwich and AchromaticReticle would cover the
+    /// core completely and the probe would show a plain halo ring (production's own XAML says "the
+    /// wider one must come first"). Per-ellipse property parity cannot see an order swap, and R1
+    /// reads alpha only, which is order-independent.
+    /// </summary>
+    private static void AssertPaintOrderMatchesProduction(ProbeRingVisual probe, CursorCircleWindow window)
+    {
+        var windowCanvas = (Canvas)window.Content;
+        var windowHaloFirst = windowCanvas.Children.IndexOf(window.CircleHalo) < windowCanvas.Children.IndexOf(window.Circle);
+        var probeHaloFirst = probe.Children.IndexOf(probe.CircleHalo) < probe.Children.IndexOf(probe.Circle);
+
+        Check.WithCustomMessage(
+                "Production's window must paint the wide halo before the core (its XAML order); the parity "
+                + "reference has changed if this fails.")
+            .That(windowHaloFirst).IsTrue();
+        Check.WithCustomMessage(
+                $"The probe must paint the wide halo before the core, exactly as production does. "
+                + $"Probe order halo-first: {probeHaloFirst}; production's: {windowHaloFirst}. Painted last, the "
+                + "outer band would cover the core for WeightedSandwich and AchromaticReticle.")
+            .That(probeHaloFirst).IsEqualTo(windowHaloFirst);
     }
 
     private static void AssertBandMatchesProduction(Ellipse probeBand, Ellipse windowBand, string name)

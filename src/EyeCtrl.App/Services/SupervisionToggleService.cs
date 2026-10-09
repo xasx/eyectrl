@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Services;
 
 using System;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Settings;
 
 /// <summary>
@@ -112,9 +113,9 @@ public sealed class SupervisionToggleService
             {
                 return _kind switch
                 {
-                    RequestKind.Enabling => "Turning on\u2026 this can take up to 15 seconds.",
-                    RequestKind.Disabling => "Turning off\u2026",
-                    _ => "Starting the Supervisor\u2026"
+                    RequestKind.Enabling => StringTable.Current.T("settings.supervision.status.enabling"),
+                    RequestKind.Disabling => StringTable.Current.T("settings.supervision.status.disabling"),
+                    _ => StringTable.Current.T("settings.supervision.status.ensuring")
                 };
             }
 
@@ -128,15 +129,15 @@ public sealed class SupervisionToggleService
                 // The off text describes the world where the Supervisor re-reads the flag at every
                 // recovery decision and stands down when it is false (ticket 06): nothing restarts
                 // EyeCtrl after a crash, exactly as "Off" says.
-                return "Off \u2014 if EyeCtrl stops responding or crashes, it is not restarted automatically.";
+                return StringTable.Current.T("settings.supervision.status.off");
             }
 
             // Ticket 07: enabled is only a promise while something is actually answering. After a
             // reboot (or a Supervisor exit) the honest text is the second one, with the retry row
             // next to it — claiming "On" with no watcher is the bug this ticket exists for.
             return IsSupervisorConnected
-                ? "On \u2014 EyeCtrl restarts automatically if it stops responding or crashes."
-                : "On \u2014 but the Supervisor is not answering. Dwell Start Supervisor to try again.";
+                ? StringTable.Current.T("settings.supervision.status.on")
+                : StringTable.Current.T("settings.supervision.status.not_answering");
         }
     }
 
@@ -154,7 +155,7 @@ public sealed class SupervisionToggleService
 
         if (!_supervisorInstalled())
         {
-            _lastFailure = "Automatic crash recovery is unavailable: the EyeCtrl Supervisor is not installed.";
+            _lastFailure = StringTable.Current.T("settings.supervision.failure.unavailable");
             StateChanged?.Invoke();
             return;
         }
@@ -167,9 +168,9 @@ public sealed class SupervisionToggleService
                 {
                     SupervisorBringUpOutcome.Reachable => (string?)null,
                     SupervisorBringUpOutcome.StartedNotReachable => RollBack(
-                        "The Supervisor started but did not answer, so supervision was turned off again."),
+                        StringTable.Current.T("settings.supervision.failure.started_not_answering")),
                     // LaunchFailed: no process, nothing persisted — nothing to roll back.
-                    _ => "The Supervisor could not be started, so supervision is off.",
+                    _ => StringTable.Current.T("settings.supervision.failure.launch_failed"),
                 };
             }
             catch (Exception ex)
@@ -177,7 +178,7 @@ public sealed class SupervisionToggleService
                 // The persist step can throw; the live flag may already be true, so disarm it.
                 // The row gets a short message — ex.Message can carry a full path.
                 Serilog.Log.Warning(ex, "Enabling supervision failed while saving settings.");
-                return RollBack("Could not save supervision settings; supervision is off.");
+                return RollBack(StringTable.Current.T("settings.supervision.failure.save_failed_off"));
             }
         });
     }
@@ -196,7 +197,7 @@ public sealed class SupervisionToggleService
         }
 
         StartRequest(RequestKind.Ensuring, () =>
-            _startupEnsure.Run() ? null : "The Supervisor is not answering.");
+            _startupEnsure.Run() ? null : StringTable.Current.T("settings.supervision.failure.not_answering"));
     }
 
     /// <summary>
@@ -226,7 +227,7 @@ public sealed class SupervisionToggleService
             catch (Exception ex)
             {
                 Serilog.Log.Warning(ex, "Persisting supervision.enabled=false failed.");
-                return "Could not save supervision settings; supervision is still on.";
+                return StringTable.Current.T("settings.supervision.failure.save_failed_on");
             }
 
             _settings.Supervision.Enabled = false;
@@ -241,7 +242,7 @@ public sealed class SupervisionToggleService
                 // Supervision IS off (the persist landed); only launch-at-logon is stale. The
                 // user is told, and the flag stays off because that is what disk says.
                 Serilog.Log.Warning(ex, "Reconciling launch-at-logon after turn-off failed.");
-                return "Supervision is off, but launch-at-logon could not be updated.";
+                return StringTable.Current.T("settings.supervision.failure.run_key_failed");
             }
         });
     }

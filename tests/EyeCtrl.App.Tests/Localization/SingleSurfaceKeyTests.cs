@@ -47,6 +47,11 @@ public class SingleSurfaceKeyTests
         // Mixed folders: explicit files only.
         ("src/EyeCtrl.App/Views/SettingsWindow.xaml", ["settings", "language-recovery"]),
         ("src/EyeCtrl.App/Views/SettingsWindow.xaml.cs", ["settings", "language-recovery"]),
+        // T07: the pager chrome's glyph/step/jump decisions include the D11 accessible-name keys;
+        // the window resolves them. Settings chrome, so the settings surface.
+        ("src/EyeCtrl.App/Views/SettingsPagerChrome.cs", ["settings"]),
+        // T07: the Settings window's modal Yes/No labels live in the window's view model.
+        ("src/EyeCtrl.ViewModels/SettingsWindowViewModel.cs", ["settings"]),
         // T04: the General page holds the language row (language-recovery) among settings rows.
         ("src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs", ["settings", "language-recovery"]),
         // T04: the restart flow is language-recovery (D5) — its notices, its failure reasons,
@@ -95,7 +100,16 @@ public class SingleSurfaceKeyTests
         // T04: the tray's own items are app-tray, but the one language item is the recovery
         // path's entry point (D9) and takes its key from language-recovery (T06 expects this).
         ("src/EyeCtrl.App/Services/TrayIconManager.cs", ["app-tray", "language-recovery"]),
-        ("src/EyeCtrl.App/Services/SupervisionToggleService.cs", ["supervisor"])
+        // T07 fixup-01 C: the row's status and failure lines are Settings rows, so the service
+        // speaks the settings surface (T06 review N1) — corrected from `supervisor`.
+        ("src/EyeCtrl.App/Services/SupervisionToggleService.cs", ["settings"]),
+        // T07: the Models page's download failures and the busy line render on the Settings
+        // surface, so these App services speak `settings`.
+        ("src/EyeCtrl.App/Services/ModelManagementService.cs", ["settings"]),
+        // T07: the load-time calibration rejection sentences are shown only by the Settings
+        // Calibration page (`LastLoadRejection`); the calibration window renders typed failures
+        // instead. The settings surface owns them.
+        ("src/EyeCtrl.Core/Calibration/CalibrationService.cs", ["settings"])
     ];
 
     /// <summary>

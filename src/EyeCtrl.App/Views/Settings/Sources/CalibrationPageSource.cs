@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Views.Settings;
 
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.ViewModels.Messages;
 
 internal sealed class CalibrationPageSource : ISettingsPageSource
@@ -16,35 +17,42 @@ internal sealed class CalibrationPageSource : ISettingsPageSource
         return
         [
             new PageSpec([
-                new SliderSpec("cal_points", "Calibration Points", 3, 16, 1, 0,
+                new SliderSpec("cal_points",
+                    StringTable.Current.T("settings.calibration.points.label"), 3, 16, 1, 0,
                     () => cal.PointCount, v => { cal.PointCount = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = "How many points the calibration run visits." },
-                new SliderSpec("cal_samples", "Samples per Point", 5, 100, 5, 0,
+                    { Description = StringTable.Current.T("settings.calibration.points.description") },
+                new SliderSpec("cal_samples",
+                    StringTable.Current.T("settings.calibration.samples.label"), 5, 100, 5, 0,
                     () => cal.SamplesPerPoint, v => { cal.SamplesPerPoint = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = "Gaze samples gathered at each calibration point." },
-                new SliderSpec("cal_hold", "Target Hold (ms)", 200, 3000, 100, 0,
+                    { Description = StringTable.Current.T("settings.calibration.samples.description") },
+                new SliderSpec("cal_hold",
+                    StringTable.Current.T("settings.calibration.hold.label"), 200, 3000, 100, 0,
                     () => cal.TargetHoldMs, v => { cal.TargetHoldMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = "Each target stays on screen at least this long." },
-                new SliderSpec("cal_settle", "Settle Window (ms)", 0, 500, 25, 0,
+                    { Description = StringTable.Current.T("settings.calibration.hold.description") },
+                new SliderSpec("cal_settle",
+                    StringTable.Current.T("settings.calibration.settle.label"), 0, 500, 25, 0,
                     () => cal.SettleWindowMs, v => { cal.SettleWindowMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = "Time at a target before its samples start counting." },
-                new ColorPickerSpec("cal_color", "Target Color",
+                    { Description = StringTable.Current.T("settings.calibration.settle.description") },
+                new ColorPickerSpec("cal_color",
+                    StringTable.Current.T("settings.calibration.color.label"),
                     () => cal.TargetColor, v => { cal.TargetColor = v; _ctx.ApplyAndSave(); },
                     SettingsWindow.ColorSwatchRadius)
-                    { Description = "Color of the calibration target. Applies after a restart." },
+                    { Description = StringTable.Current.T("settings.calibration.color.description") },
             ]),
             new PageSpec([
                 new LabelSpec(StatusText),
-                new ButtonSpec("cal_run", "Calibrate Now",
+                new ButtonSpec("cal_run",
+                    StringTable.Current.T("settings.calibration.run.label"),
                     () => { _ctx.Close(); _ctx.Messenger.Send(new CalibrationRequestedMessage()); },
                     ButtonKind.Default, Width: 300, Height: 100),
-                new ButtonSpec("cal_probe", "Measure Gaze Offset",
+                new ButtonSpec("cal_probe",
+                    StringTable.Current.T("settings.calibration.probe.label"),
                     () => { _ctx.Close(); _ctx.Messenger.Send(new MeasureOnlyCalibrationRequestedMessage()); },
                     ButtonKind.Default, Width: 300, Height: 100),
-                new LabelSpec(() => "Measure gaze offset records where your gaze lands at five points. "
-                    + "It changes nothing and always ends with \u201Crecorded\u201D; run it when you are rested."),
-                new ButtonSpec("cal_clear", "Clear Calibration",
-                    () => _ctx.ShowModal("Clear saved calibration?", () =>
+                new LabelSpec(() => StringTable.Current.T("settings.calibration.probe.note")),
+                new ButtonSpec("cal_clear",
+                    StringTable.Current.T("settings.calibration.clear.label"),
+                    () => _ctx.ShowModal(StringTable.Current.T("settings.calibration.clear.message"), () =>
                     {
                         _ctx.Messenger.Send(new CalibrationClearRequestedMessage());
                         _ctx.RebuildContent();
@@ -63,18 +71,22 @@ internal sealed class CalibrationPageSource : ISettingsPageSource
             // window's Calibration tab — not the calibration overlay (T02 fixup-01 F2): T07 keys
             // this sentence as a settings.* key. The date itself goes through the pure helper
             // (fixup-02): English shows the unambiguous "2026-10-08 14:03", German the provider's
-            // own "g". The provider is inline here too, so the surface-reference gate can see it.
+            // own "g". The numbers are formatted by T() with the rendered language's provider, so
+            // the explicit provider here is only the date helper's, read off the surface id the
+            // surface-reference gate can see.
             var date = CalibrationDateText.Format(
                 data.CalibratedAt.LocalDateTime,
-                EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("settings"));
-            return string.Create(
-                EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("settings"),
-                $"Last calibration: {date}  \u00B7  {data.ComputeMeanErrorPixels():F1} px ({data.ComputeQualityPercent():F1}%)");
+                StringTable.Current.FormatProviderFor("settings"));
+            return StringTable.Current.T(
+                "settings.calibration.status.ok",
+                date, data.ComputeMeanErrorPixels(), data.ComputeQualityPercent());
         }
         // A calibration that exists on disk but was refused at startup is otherwise indistinguishable
         // from never having calibrated — both leave CurrentData null and gaze running raw. Surface the
         // rejection reason so drifting dwell has a visible explanation without reading the log.
         var rejection = _ctx.Calibration.LastLoadRejection;
-        return rejection == null ? "Last calibration: none" : $"Last calibration: {rejection}";
+        return rejection == null
+            ? StringTable.Current.T("settings.calibration.status.none")
+            : StringTable.Current.T("settings.calibration.status.rejected", rejection);
     }
 }

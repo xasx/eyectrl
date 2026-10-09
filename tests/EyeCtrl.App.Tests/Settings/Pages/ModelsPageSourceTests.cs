@@ -513,6 +513,63 @@ public class ModelsPageSourceTests
     }
 
     [Fact]
+    public void Build_Affixes_CarryTheApprovedEnglish()
+    {
+        // T07 fixup-02 R4: the delete/download/downloaded affixes are keys; a swap (S28) makes
+        // the delete button read "[Download]". Pinned as the tails of the real labels.
+
+        // Not downloaded: the row is the download button, ending "[Download]".
+        using (var scope = ModelTestFakes.Create())
+        {
+            var settings = new EyeCtrlSettings();
+            var manifest = new ModelManifest
+            {
+                Models =
+                {
+                    ["135M"] = new ModelEntry
+                    {
+                        DisplayName = "Test 135M",
+                        Url = "https://example.invalid/model.onnx",
+                        Sha256 = "",
+                        SizeBytes = 2_048,
+                        TokenizerUrl = "https://example.invalid/tokenizer.json",
+                        TokenizerSha256 = "",
+                    },
+                },
+            };
+            var registry = new ModelRegistryService(scope.Dir, manifest, settings);
+            var mgmt = new ModelManagementService(
+                registry, new ModelDownloadService(scope.Dir), settings);
+
+            var download = new ModelsPageSource(
+                    TestSettingsPageContext.Build(registry: registry, modelManagement: mgmt))
+                .Build().Single().Rows.OfType<ButtonSpec>().Single(b => b.Id == "md_dl_135M");
+            Check.That(download.Label).EndsWith("[Download]");
+        }
+
+        // Downloaded: the label ends "\u2713 Downloaded", and the Manage row's delete button
+        // ends "\U0001f5d1 Delete".
+        using (var scope = ModelTestFakes.Create())
+        {
+            var (registry, mgmt) = scope.WithDownloadedBundled();
+
+            var list = new ModelsPageSource(
+                TestSettingsPageContext.Build(registry: registry, modelManagement: mgmt));
+            var downloaded = list.Build().Single().Rows.OfType<LabelSpec>()
+                .Single(l => l.Text().Contains("Test 135M"));
+            Check.That(downloaded.Text()).EndsWith("\u2713 Downloaded");
+
+            var manage = new ModelsPageSource(
+                TestSettingsPageContext.Build(registry: registry, modelManagement: mgmt));
+            manage.Build().Single().Rows.OfType<ButtonSpec>()
+                .Single(b => b.Id == "md_manage").OnActivate();
+            var delete = manage.Build().Single().Rows.OfType<ButtonSpec>()
+                .Single(b => b.Id.StartsWith("md_del_"));
+            Check.That(delete.Label).EndsWith("\U0001f5d1 Delete");
+        }
+    }
+
+    [Fact]
     public void Build_FailedRow_InFlightTakesPrecedence()
     {
         using var scope = ModelTestFakes.Create();

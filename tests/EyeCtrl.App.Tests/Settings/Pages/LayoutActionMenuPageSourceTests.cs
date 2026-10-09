@@ -61,6 +61,15 @@ public class LayoutActionMenuPageSourceTests
 
         var preview = rows.OfType<RingPreviewSpec>().Single();
         Check.That(preview.MoreAnnotationFormat).IsNotNull();
-        Check.That(preview.MoreAnnotationFormat!).IsSameReferenceAs(RingPaintOptions.EnglishMoreAnnotation);
+        // T07 fixup-02 R4/S14: the two honesty captions are distinct keys, and their ORDER in the
+        // spec is the contract — a swap moves the "not a control" honesty onto the labels caption.
+        Check.That(preview.CaptionNotAControl).IsEqualTo("preview, not a control");
+        Check.That(preview.CaptionLabels).IsEqualTo("runtime shows labels only while you dwell");
+        // T07: the Settings host passes its own settings-keyed composer, not the painter's English
+        // default reference — but it must still compose the same "{label} +{count}" English.
+        Check.WithCustomMessage(
+                "the preview's More composer no longer reads \"{label} +{count}\" in English; the "
+                + "English on screen must stay word for word the same.")
+            .That(preview.MoreAnnotationFormat!("More", 3)).IsEqualTo("More +3");
     }
 }

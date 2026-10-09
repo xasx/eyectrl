@@ -8,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Interop;
 using EyeCtrl.App.Tests.Settings.Pages;
 using EyeCtrl.App.Views;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.ViewModels;
@@ -86,6 +87,126 @@ public class SettingsPagerChromeTests
     {
         Check.ThatCode(() => SettingsPagerChrome.GlyphFor("tab_sideways", boundary: false))
             .Throws<ArgumentOutOfRangeException>();
+    }
+
+    // ────── Accessible names (D11) ──────
+
+    /// <summary>The English a screen reader would read for a pager button's accessible name.</summary>
+    private static string EnglishName(string id, bool boundary) =>
+        StringTable.EmbeddedEnglish.T(SettingsPagerChrome.AccessibleNameKey(id, boundary));
+
+    [Fact]
+    public void AccessibleNameKey_NamesTheStepAndTheJumpApart()
+    {
+        // The glyph-only buttons would expose their arrow ("◀" vs "⏭") as the UIA name, which
+        // says nothing. The name must say what the button DOES at this boundary state.
+        foreach (var id in new[] { "pag_prev", "pag_next", "tab_prev", "tab_next" })
+        {
+            var step = EnglishName(id, boundary: false);
+            var jump = EnglishName(id, boundary: true);
+
+            Check.WithCustomMessage(
+                    $"{id}'s accessible name resolves to \"{step}\" — a raw key or an empty "
+                    + "string, so the screen reader gets nothing.")
+                .That(step).Not.Contains("settings.");
+            Check.WithCustomMessage(
+                    $"{id}'s jump accessible name resolves to \"{jump}\" — a raw key or an "
+                    + "empty string, so the screen reader gets nothing.")
+                .That(jump).Not.Contains("settings.");
+            Check.WithCustomMessage(
+                    $"{id}: the step and the wrap-jump name are identical (\"{step}\"). One of "
+                    + "the two mappings is wrong.")
+                .That(step).Not.IsEqualTo(jump);
+        }
+    }
+
+    [Fact]
+    public void AccessibleNameKey_SaysWhichFarEndAJumpReaches()
+    {
+        Check.That(EnglishName("pag_prev", boundary: false)).Contains("Previous");
+        Check.That(EnglishName("pag_prev", boundary: true)).Contains("last");
+        Check.That(EnglishName("pag_next", boundary: false)).Contains("Next");
+        Check.That(EnglishName("pag_next", boundary: true)).Contains("first");
+
+        // The tab pager wraps the tab-list pages, so its names say "tab page" and not "page".
+        Check.That(EnglishName("tab_prev", boundary: false)).Contains("tab");
+        Check.That(EnglishName("tab_prev", boundary: true)).Contains("last");
+        Check.That(EnglishName("tab_next", boundary: false)).Contains("tab");
+        Check.That(EnglishName("tab_next", boundary: true)).Contains("first");
+    }
+
+    [Fact]
+    public void AccessibleNameKey_AnUnknownId_Throws()
+    {
+        Check.ThatCode(() => SettingsPagerChrome.AccessibleNameKey("tab_sideways", boundary: false))
+            .Throws<ArgumentOutOfRangeException>();
+    }
+
+    /// <summary>
+    /// The whole face as one pair, pinned for all eight states (review 02 R5): the glyph and the
+    /// accessible-name key must be the pair for THIS boundary, and the key's English is pinned
+    /// too, so the surviving M3′ shape — the name taken from the other boundary inside the helper
+    /// — fails here rather than on screen.
+    /// </summary>
+    [Fact]
+    public void Face_PinsTheGlyphAndTheEnglishName_ForAllEightStates()
+    {
+        var cases = new (string Id, bool Boundary, string Glyph, string NameKey, string English)[]
+        {
+            ("pag_prev", false, "\u25C0", "settings.pager.previous_page", "Previous page"),
+            ("pag_prev", true, "\u23ED", "settings.pager.jump_to_last_page", "Jump to last page"),
+            ("pag_next", false, "\u25B6", "settings.pager.next_page", "Next page"),
+            ("pag_next", true, "\u23EE", "settings.pager.jump_to_first_page", "Jump to first page"),
+            ("tab_prev", false, "\u25B2", "settings.pager.previous_tabs", "Previous tab page"),
+            ("tab_prev", true, "\u23ED", "settings.pager.jump_to_last_tabs", "Jump to last tab page"),
+            ("tab_next", false, "\u25BC", "settings.pager.next_tabs", "Next tab page"),
+            ("tab_next", true, "\u23EE", "settings.pager.jump_to_first_tabs", "Jump to first tab page"),
+        };
+
+        foreach (var (id, boundary, glyph, nameKey, english) in cases)
+        {
+            Check.WithCustomMessage(
+                    $"{id} at boundary={boundary}: Face did not return the pair for THIS boundary.")
+                .That(SettingsPagerChrome.Face(id, boundary)).IsEqualTo((glyph, nameKey));
+            Check.WithCustomMessage(
+                    $"{id} at boundary={boundary}: \"{nameKey}\" does not read \"{english}\".")
+                .That(StringTable.EmbeddedEnglish.T(nameKey)).IsEqualTo(english);
+        }
+    }
+
+    /// <summary>
+    /// The glyph and the name must agree about "jump vs step" in all eight states (review 01 R3,
+    /// mutant M3): a button drawing ⏭ while UIA reads "Previous tab page" tells a screen-reader
+    /// user the opposite of what the sighted user sees.
+    /// </summary>
+    [Fact]
+    public void AccessibleNameKey_SaysJumpExactlyWhenTheGlyphIsADoubleArrow()
+    {
+        foreach (var id in new[] { "pag_prev", "pag_next", "tab_prev", "tab_next" })
+        {
+            foreach (var boundary in new[] { false, true })
+            {
+                var glyph = SettingsPagerChrome.GlyphFor(id, boundary);
+                var isJump = glyph is SettingsPagerChrome.JumpToEndGlyph
+                    or SettingsPagerChrome.JumpToStartGlyph;
+                Check.WithCustomMessage(
+                        $"{id} at boundary={boundary}: glyph \"{glyph}\" and name "
+                        + $"\"{EnglishName(id, boundary)}\" disagree about whether this is a jump.")
+                    .That(EnglishName(id, boundary).Contains("Jump", StringComparison.Ordinal))
+                    .IsEqualTo(isJump);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The page indicator's English, pinned as a literal (review 01 R2, mutant M2): the format is
+    /// in the table now, and nothing else asserts it.
+    /// </summary>
+    [Fact]
+    public void PageOf_FormatsTheTwoPageNumbers()
+    {
+        Check.That(StringTable.EmbeddedEnglish.T("settings.pager.page_of", 2, 5))
+            .IsEqualTo("2 / 5");
     }
 
     // ────── Dwell times ──────
@@ -798,12 +919,16 @@ public class SettingsPagerWiringTests
     public void PagerGlyphsAndActions_ComeFromTheBoundaryHelper()
     {
         // A glyph or an action hand-rolled at the call site would drift from the helper the
-        // behavioural tests pin. Both pagers' glyphs come from GlyphFor, and all four
-        // action sites (mouse + dwell, content + tab) from ActionFor.
-        Check.That(ExtractMethod(WindowSource(), "private Border MakePagButton("))
-            .Contains("SettingsPagerChrome.GlyphFor(");
-        Check.That(ExtractMethod(WindowSource(), "private void UpdateTabPagerButton("))
-            .Contains("SettingsPagerChrome.GlyphFor(");
+        // behavioural tests pin. The glyph comes through Face, which takes it from GlyphFor
+        // (review 01 R3 / review 02 R5); all four action sites (mouse + dwell, content + tab)
+        // come from ActionFor.
+        Check.WithCustomMessage(
+                "SettingsPagerChrome.Face no longer pairs GlyphFor and AccessibleNameKey from "
+                + "the same boundary value.")
+            .That(File.ReadAllText(Path.Combine(
+                SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Views",
+                "SettingsPagerChrome.cs")))
+            .Contains("(GlyphFor(id, boundary), AccessibleNameKey(id, boundary))");
 
         foreach (var signature in new[]
                  {
@@ -818,6 +943,62 @@ public class SettingsPagerWiringTests
                     + "in one place.")
                 .That(ExtractMethod(WindowSource(), signature)).Contains("SettingsPagerChrome.ActionFor(");
         }
+    }
+
+    [Fact]
+    public void PagerButtons_CarryTheAccessibleNameFromTheHelper()
+    {
+        // D11: a glyph-only button exposes its arrow as the UIA name unless the view sets one.
+        // Both builders must paint through the ONE face helper (review 01 R3: the glyph and the
+        // name come from a single boundary value, so they cannot disagree), the tab pager must
+        // re-paint when the boundary flips, and the close button's name is set in the XAML next
+        // to its glyph.
+        foreach (var signature in new[]
+                 {
+                     "private Border MakePagButton(",
+                     "private Border MakeTabPagerButton(",
+                     "private void UpdateTabPagerButton(",
+                 })
+        {
+            Check.WithCustomMessage(
+                    $"{signature} no longer paints the pager face through "
+                    + "ApplyPagerFace(btn, id, boundary). The button is glyph-only, so its UIA "
+                    + "name would be the arrow itself (D11); a `!boundary` (or a separate glyph "
+                    + "statement) could disagree with the name (R3).")
+                .That(ExtractMethod(WindowSource(), signature))
+                .Contains("ApplyPagerFace(btn, id, boundary)");
+        }
+
+        var face = ExtractMethod(WindowSource(), "private static void ApplyPagerFace(");
+        Check.WithCustomMessage(
+                "ApplyPagerFace no longer takes its glyph and name as one pair from "
+                + "SettingsPagerChrome.Face — a name from a different boundary could disagree "
+                + "with the glyph (review 01 R3 / review 02 R5).")
+            .That(face).Contains("SettingsPagerChrome.Face(");
+        Check.WithCustomMessage(
+                "ApplyPagerFace calls GlyphFor/AccessibleNameKey directly again; the pair must "
+                + "come from Face so the two cannot be chosen from different boundaries.")
+            .That(face.Contains("GlyphFor(") || face.Contains("AccessibleNameKey(")).IsFalse();
+
+        var xaml = File.ReadAllText(Path.Combine(
+            SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Views", "SettingsWindow.xaml"));
+        Check.WithCustomMessage(
+                "SettingsWindow.xaml's close button no longer carries "
+                + "AutomationProperties.Name=\"{loc:T 'settings.chrome.close'}\". The glyph-only "
+                + "close button would expose \"✕\" as its accessible name (D11).")
+            .That(xaml).Contains("AutomationProperties.Name=\"{loc:T 'settings.chrome.close'}\"");
+    }
+
+    [Fact]
+    public void ThePageIndicator_UsesTheSettingsPageOfKey()
+    {
+        // The value pin above guards the table; this pins the call site, so swapping the key for
+        // an inline format (or dropping the key) fails even if the table is fine (review 01 R2).
+        var body = ExtractMethod(WindowSource(), "private void RenderPagination(");
+        Check.WithCustomMessage(
+                "RenderPagination no longer builds the page indicator from "
+                + "\"settings.pager.page_of\"; the raw format would show unpinned English.")
+            .That(body).Contains("\"settings.pager.page_of\"");
     }
 
     [Fact]

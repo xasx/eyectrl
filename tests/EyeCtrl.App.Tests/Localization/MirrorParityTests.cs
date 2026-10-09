@@ -3,8 +3,10 @@ namespace EyeCtrl.App.Tests.Localization;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using EyeCtrl.Core.Localization;
+using EyeCtrl.Core.Models;
 using NFluent;
 using Xunit;
 
@@ -135,6 +137,78 @@ public class MirrorParityTests
 
         Check.That(violations).HasSize(1);
         Check.That(violations[0]).Contains("settings.count");
+    }
+
+    /// <summary>
+    /// R4 (T08 review-01): a DROPPED <c>mirrors:</c> field must fail, not silently shrink this
+    /// gate's declared-pairs-only loop. The shipped table's pair set is pinned against the pairs
+    /// D3 names — the 14 ring keys and the 24 presets — derived from the action enum and
+    /// <see cref="QuickActionPresets"/>, so an action or preset added without its twin fails here.
+    /// </summary>
+    [Fact]
+    public void TheShippedTable_DeclaresExactlyTheExpectedMirrorPairs()
+    {
+        using var english = LocalizationTestData.EnglishDocument();
+        var declared = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var property in english.RootElement.EnumerateObject())
+        {
+            if (property.Name.StartsWith("_", StringComparison.Ordinal)) continue;
+            if (property.Value.TryGetProperty("mirrors", out var mirror)
+                && mirror.ValueKind == JsonValueKind.String)
+            {
+                declared[property.Name] = mirror.GetString()!;
+            }
+        }
+
+        var expected = ExpectedMirrorPairs();
+        var missing = expected.Keys
+            .Except(declared.Keys, StringComparer.Ordinal)
+            .OrderBy(key => key, StringComparer.Ordinal)
+            .ToList();
+        var undeclared = declared.Keys
+            .Except(expected.Keys, StringComparer.Ordinal)
+            .OrderBy(key => key, StringComparer.Ordinal)
+            .ToList();
+        Check.WithCustomMessage(
+                "The shipped table's mirrors declarations drifted from the D3 pair set. Missing: ["
+                + string.Join(", ", missing) + "]. Not in the expected set: ["
+                + string.Join(", ", undeclared) + "].")
+            .That(missing.Concat(undeclared)).IsEmpty();
+
+        foreach (var (key, partner) in expected)
+        {
+            Check.WithCustomMessage($"{key} mirrors {declared[key]} instead of {partner}.")
+                .That(declared[key]).IsEqualTo(partner);
+        }
+    }
+
+    /// <summary>
+    /// The D3 pairs, derived from the action enum and the preset lists so an addition cannot slip
+    /// past: every action's ring key, Back, More, and every preset.
+    /// </summary>
+    private static Dictionary<string, string> ExpectedMirrorPairs()
+    {
+        var expected = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (var action in Enum.GetValues<InteractionAction>())
+            AddRingPair(expected, RingLabelMap.For(action));
+        AddRingPair(expected, RingLabelMap.For(null));
+        expected["settings.ring.more"] = "overlays.ring.more";
+
+        foreach (var preset in QuickActionPresets.KeyboardShortcuts
+                     .Concat(QuickActionPresets.MediaControls)
+                     .Concat(QuickActionPresets.WindowActions))
+        {
+            expected["settings.preset." + preset.Id] = "overlays.preset." + preset.Id;
+        }
+
+        return expected;
+
+        static void AddRingPair(Dictionary<string, string> expected, string overlaysKey)
+        {
+            // "overlays.ring.leftClick" → "settings.ring.leftClick".
+            expected["settings" + overlaysKey["overlays".Length..]] = overlaysKey;
+        }
     }
 
     // ────── the readers ──────

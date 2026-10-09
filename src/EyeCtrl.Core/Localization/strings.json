@@ -3465,169 +3465,193 @@
     "text": "Copy",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.kbd.copy"
   },
   "settings.preset.kbd.cut": {
     "text": "Cut",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.kbd.cut"
   },
   "settings.preset.kbd.file_explorer": {
     "text": "File Explorer",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.kbd.file_explorer"
   },
   "settings.preset.kbd.find": {
     "text": "Find",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.kbd.find"
   },
   "settings.preset.kbd.lock": {
     "text": "Lock",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.kbd.lock"
   },
   "settings.preset.kbd.new": {
     "text": "New",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.kbd.new"
   },
   "settings.preset.kbd.paste": {
     "text": "Paste",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.kbd.paste"
   },
   "settings.preset.kbd.print": {
     "text": "Print",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.kbd.print"
   },
   "settings.preset.kbd.redo": {
     "text": "Redo",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.kbd.redo"
   },
   "settings.preset.kbd.save": {
     "text": "Save",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.kbd.save"
   },
   "settings.preset.kbd.select_all": {
     "text": "Select All",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.kbd.select_all"
   },
   "settings.preset.kbd.show_desktop": {
     "text": "Show Desktop",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.kbd.show_desktop"
   },
   "settings.preset.kbd.switch_app": {
     "text": "Switch App",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.kbd.switch_app"
   },
   "settings.preset.kbd.undo": {
     "text": "Undo",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.kbd.undo"
   },
   "settings.preset.media.mute": {
     "text": "Mute",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.media.mute"
   },
   "settings.preset.media.next": {
     "text": "Next",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.media.next"
   },
   "settings.preset.media.play_pause": {
     "text": "Play / Pause",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.media.play_pause"
   },
   "settings.preset.media.previous": {
     "text": "Previous",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.media.previous"
   },
   "settings.preset.media.stop": {
     "text": "Stop",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.media.stop"
   },
   "settings.preset.media.volume_down": {
     "text": "Volume Down",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.media.volume_down"
   },
   "settings.preset.media.volume_up": {
     "text": "Volume Up",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.media.volume_up"
   },
   "settings.preset.window.close": {
     "text": "Close Window",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.window.close"
   },
   "settings.preset.window.maximize_restore": {
     "text": "Maximize / Restore",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.window.maximize_restore"
   },
   "settings.preset.window.minimize": {
     "text": "Minimize Window",
     "who": "user",
     "where": "settings",
-    "fit": "B94x2",
-    "args": []
+    "fit": "B114",
+    "args": [],
+    "mirrors": "overlays.preset.window.minimize"
   },
   "settings.quick_actions.add.label": {
     "text": "＋  Add action",
@@ -3762,98 +3786,112 @@
     "who": "user",
     "where": "settings",
     "fit": "A105",
-    "args": []
+    "args": [],
+    "mirrors": "overlays.ring.back"
   },
   "settings.ring.doubleClick": {
     "text": "Double click",
     "who": "user",
     "where": "settings",
     "fit": "A105",
-    "args": []
+    "args": [],
+    "mirrors": "overlays.ring.doubleClick"
   },
   "settings.ring.drag": {
     "text": "Drag",
     "who": "user",
     "where": "settings",
     "fit": "A105",
-    "args": []
+    "args": [],
+    "mirrors": "overlays.ring.drag"
   },
   "settings.ring.keyboard": {
     "text": "Keyboard",
     "who": "user",
     "where": "settings",
     "fit": "A105",
-    "args": []
+    "args": [],
+    "mirrors": "overlays.ring.keyboard"
   },
   "settings.ring.leftClick": {
     "text": "Left click",
     "who": "user",
     "where": "settings",
     "fit": "A105",
-    "args": []
+    "args": [],
+    "mirrors": "overlays.ring.leftClick"
   },
   "settings.ring.middleClick": {
     "text": "Middle click",
     "who": "user",
     "where": "settings",
     "fit": "A105",
-    "args": []
+    "args": [],
+    "mirrors": "overlays.ring.middleClick"
   },
   "settings.ring.more": {
     "text": "More",
     "who": "user",
     "where": "settings",
     "fit": "A105",
-    "args": []
+    "args": [],
+    "mirrors": "overlays.ring.more"
   },
   "settings.ring.pinNote": {
     "text": "Pin note",
     "who": "user",
     "where": "settings",
     "fit": "A105",
-    "args": []
+    "args": [],
+    "mirrors": "overlays.ring.pinNote"
   },
   "settings.ring.rightClick": {
     "text": "Right click",
     "who": "user",
     "where": "settings",
     "fit": "A105",
-    "args": []
+    "args": [],
+    "mirrors": "overlays.ring.rightClick"
   },
   "settings.ring.scrollDown": {
     "text": "Scroll down",
     "who": "user",
     "where": "settings",
     "fit": "A105",
-    "args": []
+    "args": [],
+    "mirrors": "overlays.ring.scrollDown"
   },
   "settings.ring.scrollLeft": {
     "text": "Scroll left",
     "who": "user",
     "where": "settings",
     "fit": "A105",
-    "args": []
+    "args": [],
+    "mirrors": "overlays.ring.scrollLeft"
   },
   "settings.ring.scrollMode": {
     "text": "Scroll",
     "who": "user",
     "where": "settings",
     "fit": "A105",
-    "args": []
+    "args": [],
+    "mirrors": "overlays.ring.scrollMode"
   },
   "settings.ring.scrollRight": {
     "text": "Scroll right",
     "who": "user",
     "where": "settings",
     "fit": "A105",
-    "args": []
+    "args": [],
+    "mirrors": "overlays.ring.scrollRight"
   },
   "settings.ring.scrollUp": {
     "text": "Scroll up",
     "who": "user",
     "where": "settings",
     "fit": "A105",
-    "args": []
+    "args": [],
+    "mirrors": "overlays.ring.scrollUp"
   },
   "settings.selection.center_dot.description": {
     "text": "Diameter of the dot at the center of the gaze ring; applies after a restart.",

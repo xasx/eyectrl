@@ -188,6 +188,246 @@
     "args": [],
     "crisis": true
   },
+  "settings.action_menu.jump.label": {
+    "text": "View ring preview",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.action_menu.preview.labels": {
+    "text": "runtime shows labels only while you dwell",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.action_menu.preview.more_annotation": {
+    "text": "{0} +{1}",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": [
+      "label",
+      "count"
+    ]
+  },
+  "settings.action_menu.preview.not_a_control": {
+    "text": "preview, not a control",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.action_menu.primary.description": {
+    "text": "Shows {0} straight away instead of behind More. Four fit.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": [
+      "action"
+    ]
+  },
+  "settings.action_menu.primary.full": {
+    "text": "The first layer holds {0} actions. Turn off another action's \"on first layer\" switch to free a slot.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": [
+      "max"
+    ]
+  },
+  "settings.action_menu.primary.label": {
+    "text": "{0} on first layer",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": [
+      "action"
+    ]
+  },
+  "settings.action_menu.reset.label": {
+    "text": "Reset Action Menu Settings",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.action_menu.reset.message": {
+    "text": "Reset Action Menu settings to defaults?",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.action_menu.visible.double_click.description": {
+    "text": "Two quick clicks at the point you chose.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.action_menu.visible.double_click.label": {
+    "text": "Double Click",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.action_menu.visible.drag.description": {
+    "text": "Grabs at that point, then follows your gaze.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.action_menu.visible.drag.label": {
+    "text": "Drag",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.action_menu.visible.keyboard.description": {
+    "text": "Opens the gaze keyboard for typing.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.action_menu.visible.keyboard.label": {
+    "text": "Keyboard",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.action_menu.visible.left_click.description": {
+    "text": "One left click at the point you chose.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.action_menu.visible.left_click.label": {
+    "text": "Left Click",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.action_menu.visible.middle_click.description": {
+    "text": "One middle click at the point you chose.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.action_menu.visible.middle_click.label": {
+    "text": "Middle Click",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.action_menu.visible.pin_note.description": {
+    "text": "Opens a note to type at the point you chose.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.action_menu.visible.pin_note.label": {
+    "text": "Pin Note",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.action_menu.visible.right_click.description": {
+    "text": "One right click at the point you chose.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.action_menu.visible.right_click.label": {
+    "text": "Right Click",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.action_menu.visible.scroll_down.description": {
+    "text": "Scrolls down from the point you chose.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.action_menu.visible.scroll_down.label": {
+    "text": "Scroll Down",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.action_menu.visible.scroll_left.description": {
+    "text": "Scrolls left from the point you chose.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.action_menu.visible.scroll_left.label": {
+    "text": "Scroll Left",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.action_menu.visible.scroll_mode.description": {
+    "text": "Continuous scrolling, steered by where you look.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.action_menu.visible.scroll_mode.label": {
+    "text": "Scroll Mode",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.action_menu.visible.scroll_right.description": {
+    "text": "Scrolls right from the point you chose.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.action_menu.visible.scroll_right.label": {
+    "text": "Scroll Right",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.action_menu.visible.scroll_up.description": {
+    "text": "Scrolls up from the point you chose.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.action_menu.visible.scroll_up.label": {
+    "text": "Scroll Up",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
   "settings.chrome.close": {
     "text": "Close settings",
     "who": "user",
@@ -813,6 +1053,255 @@
     "fit": "row",
     "args": []
   },
+  "settings.keyboard.click_sound.description": {
+    "text": "Plays a click each time a key activates.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.keyboard.click_sound.label": {
+    "text": "Click Sound",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.keyboard.dictionary.clear.label": {
+    "text": "Remove ALL Learned Words",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.keyboard.dictionary.clear.message": {
+    "text": {
+      "one": "Remove all {0} learned words?",
+      "other": "Remove all {0} learned words?"
+    },
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": [
+      "count"
+    ]
+  },
+  "settings.keyboard.dictionary.clear.partial_error": {
+    "text": "Removed for this session, but the dictionary file could not be updated.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.keyboard.dictionary.empty": {
+    "text": "No learned words yet. They collect as you type; the Add Word key (Fn row) adds one on the spot.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.keyboard.dictionary.remove.label": {
+    "text": "✕  Remove from dictionary",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.keyboard.dictionary.remove.message": {
+    "text": "Remove “{0}” from the learned dictionary?",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": [
+      "word"
+    ]
+  },
+  "settings.keyboard.dictionary.remove.partial_error": {
+    "text": "Removed “{0}” for this session, but the dictionary file could not be updated.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": [
+      "word"
+    ]
+  },
+  "settings.keyboard.dictionary.word": {
+    "text": "“{0}”",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": [
+      "word"
+    ]
+  },
+  "settings.keyboard.dictionary_language.description": {
+    "text": "Which language the word suggestions draw from.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.keyboard.dictionary_language.label": {
+    "text": "Dictionary Language",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.keyboard.dictionary_language.option.english": {
+    "text": "English",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.keyboard.dictionary_language.option.french": {
+    "text": "French",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.keyboard.dictionary_language.option.german": {
+    "text": "German",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.keyboard.dictionary_language.option.polish": {
+    "text": "Polish",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.keyboard.dictionary_language.option.spanish": {
+    "text": "Spanish",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.keyboard.layout.description": {
+    "text": "Key arrangement; QWERTZ suits German, AZERTY suits French.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.keyboard.layout.label": {
+    "text": "Active Layout",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.keyboard.layout.option.azerty": {
+    "text": "AZERTY",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.keyboard.layout.option.qwerty": {
+    "text": "QWERTY",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.keyboard.layout.option.qwertz": {
+    "text": "QWERTZ",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.keyboard.prediction.description": {
+    "text": "Shows suggested words above the keyboard while you type.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.keyboard.prediction.label": {
+    "text": "Word Prediction",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.keyboard.prediction_count.description": {
+    "text": "How many suggestions fill the bar. Fewer are easier to aim; takes effect as you type.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.keyboard.prediction_count.label": {
+    "text": "Max Predictions",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.keyboard.reset.label": {
+    "text": "Reset Keyboard Settings",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.keyboard.reset.message": {
+    "text": "Reset Keyboard settings to defaults?",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.keyboard.screen_edge.description": {
+    "text": "The screen edge the keyboard docks to.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.keyboard.screen_edge.label": {
+    "text": "Screen Edge",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.keyboard.screen_edge.option.bottom": {
+    "text": "Bottom",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.keyboard.screen_edge.option.top": {
+    "text": "Top",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.keyboard.size.description": {
+    "text": "Scales every key; bigger keys are easier to hit.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.keyboard.size.label": {
+    "text": "Key Size Multiplier",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
   "settings.layout.position.description": {
     "text": "The action menu and magnifier: at your gaze, or centered.",
     "who": "user",
@@ -933,6 +1422,400 @@
     "who": "user",
     "where": "settings",
     "fit": "row",
+    "args": []
+  },
+  "settings.preset.kbd.copy": {
+    "text": "Copy",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.kbd.cut": {
+    "text": "Cut",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.kbd.file_explorer": {
+    "text": "File Explorer",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.kbd.find": {
+    "text": "Find",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.kbd.lock": {
+    "text": "Lock",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.kbd.new": {
+    "text": "New",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.kbd.paste": {
+    "text": "Paste",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.kbd.print": {
+    "text": "Print",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.kbd.redo": {
+    "text": "Redo",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.kbd.save": {
+    "text": "Save",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.kbd.select_all": {
+    "text": "Select All",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.kbd.show_desktop": {
+    "text": "Show Desktop",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.kbd.switch_app": {
+    "text": "Switch App",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.kbd.undo": {
+    "text": "Undo",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.media.mute": {
+    "text": "Mute",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.media.next": {
+    "text": "Next",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.media.play_pause": {
+    "text": "Play / Pause",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.media.previous": {
+    "text": "Previous",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.media.stop": {
+    "text": "Stop",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.media.volume_down": {
+    "text": "Volume Down",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.media.volume_up": {
+    "text": "Volume Up",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.window.close": {
+    "text": "Close Window",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.window.maximize_restore": {
+    "text": "Maximize / Restore",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.preset.window.minimize": {
+    "text": "Minimize Window",
+    "who": "user",
+    "where": "settings",
+    "fit": "B94x2",
+    "args": []
+  },
+  "settings.quick_actions.add.label": {
+    "text": "＋  Add action",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.quick_actions.apps.empty": {
+    "text": "No installed apps found.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.quick_actions.back.label": {
+    "text": "←  Back",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.quick_actions.delete.label": {
+    "text": "✕  Delete",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.quick_actions.delete.message": {
+    "text": "Delete \"{0}\"?",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": [
+      "name"
+    ]
+  },
+  "settings.quick_actions.dismiss_timeout.label": {
+    "text": "Dismiss Timeout (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.quick_actions.edge.label": {
+    "text": "Summon Edge",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.quick_actions.edge.option.bottom": {
+    "text": "Bottom",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.quick_actions.edge.option.left": {
+    "text": "Left",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.quick_actions.edge.option.right": {
+    "text": "Right",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.quick_actions.edge.option.top": {
+    "text": "Top",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.quick_actions.enabled.label": {
+    "text": "Enable Quick Actions",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.quick_actions.grid_columns.label": {
+    "text": "Grid Columns",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.quick_actions.summon_threshold.label": {
+    "text": "Summon Threshold (ms)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.quick_actions.type.app.label": {
+    "text": "▦  Launch App",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.quick_actions.type.keyboard.label": {
+    "text": "⌨  Keyboard Shortcut",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.quick_actions.type.media.label": {
+    "text": "♫  Media Control",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.quick_actions.type.window.label": {
+    "text": "▣  Window Action",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.ring.back": {
+    "text": "Back",
+    "who": "user",
+    "where": "settings",
+    "fit": "A105",
+    "args": []
+  },
+  "settings.ring.doubleClick": {
+    "text": "Double click",
+    "who": "user",
+    "where": "settings",
+    "fit": "A105",
+    "args": []
+  },
+  "settings.ring.drag": {
+    "text": "Drag",
+    "who": "user",
+    "where": "settings",
+    "fit": "A105",
+    "args": []
+  },
+  "settings.ring.keyboard": {
+    "text": "Keyboard",
+    "who": "user",
+    "where": "settings",
+    "fit": "A105",
+    "args": []
+  },
+  "settings.ring.leftClick": {
+    "text": "Left click",
+    "who": "user",
+    "where": "settings",
+    "fit": "A105",
+    "args": []
+  },
+  "settings.ring.middleClick": {
+    "text": "Middle click",
+    "who": "user",
+    "where": "settings",
+    "fit": "A105",
+    "args": []
+  },
+  "settings.ring.more": {
+    "text": "More",
+    "who": "user",
+    "where": "settings",
+    "fit": "A105",
+    "args": []
+  },
+  "settings.ring.pinNote": {
+    "text": "Pin note",
+    "who": "user",
+    "where": "settings",
+    "fit": "A105",
+    "args": []
+  },
+  "settings.ring.rightClick": {
+    "text": "Right click",
+    "who": "user",
+    "where": "settings",
+    "fit": "A105",
+    "args": []
+  },
+  "settings.ring.scrollDown": {
+    "text": "Scroll down",
+    "who": "user",
+    "where": "settings",
+    "fit": "A105",
+    "args": []
+  },
+  "settings.ring.scrollLeft": {
+    "text": "Scroll left",
+    "who": "user",
+    "where": "settings",
+    "fit": "A105",
+    "args": []
+  },
+  "settings.ring.scrollMode": {
+    "text": "Scroll",
+    "who": "user",
+    "where": "settings",
+    "fit": "A105",
+    "args": []
+  },
+  "settings.ring.scrollRight": {
+    "text": "Scroll right",
+    "who": "user",
+    "where": "settings",
+    "fit": "A105",
+    "args": []
+  },
+  "settings.ring.scrollUp": {
+    "text": "Scroll up",
+    "who": "user",
+    "where": "settings",
+    "fit": "A105",
     "args": []
   },
   "settings.selection.center_dot.description": {

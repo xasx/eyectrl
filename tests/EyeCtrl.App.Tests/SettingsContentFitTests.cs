@@ -661,8 +661,13 @@ public class SettingsContentFitTests
 
         var actionMenu = File.ReadAllText(Path.Combine(sources, "ActionMenuPageSource.cs"));
         foreach (Match m in Regex.Matches(
-                     actionMenu, @"InteractionAction\.\w+\s*=>\s*""([^""]*)"""))
-            labels.Add(m.Groups[1].Value);
+                     actionMenu,
+                     "InteractionAction\\.\\w+\\s*=>\\s*(?:StringTable\\.Current\\.T\\(\\s*\"(?<key>[^\"]*)\"\\s*\\)|\"(?<literal>[^\"]*)\")"))
+        {
+            labels.Add(m.Groups["literal"].Success
+                ? m.Groups["literal"].Value
+                : EnglishText(m.Groups["key"].Value));
+        }
 
         // A box-drawing glyph plus the two spaces the caption interpolates, over every preset the
         // app can create an action from. Referenced, not regexed: QuickActionPresets is public.

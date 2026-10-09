@@ -67,6 +67,9 @@ public class SubPixelAbScheduleTests
     [Fact]
     public void Create_StaticTrialsParkWithFractionalPartInRange_OnBothAxes()
     {
+        double minFraction = double.MaxValue;
+        double maxFraction = double.MinValue;
+
         for (int seed = 0; seed < SeedCount; seed++)
         {
             foreach (var trial in Create(seed).StaticTrials)
@@ -86,6 +89,92 @@ public class SubPixelAbScheduleTests
                 Check.That(fractionX).IsStrictlyLessThan(0.7 + 1e-9);
                 Check.That(fractionY).IsStrictlyGreaterThan(0.3 - 1e-9);
                 Check.That(fractionY).IsStrictlyLessThan(0.7 + 1e-9);
+
+                minFraction = Math.Min(minFraction, Math.Min(fractionX, fractionY));
+                maxFraction = Math.Max(maxFraction, Math.Max(fractionX, fractionY));
+            }
+        }
+
+        // The range must be sampled, not pinned: a fraction fixed at 0.5 sits inside the bounds
+        // checks above and would survive them.
+        Check.That(minFraction).IsStrictlyLessThan(0.4);
+        Check.That(maxFraction).IsStrictlyGreaterThan(0.6);
+    }
+
+    [Fact]
+    public void Create_ShufflesTheOrderAcrossSeeds()
+    {
+        foreach (var block in new[] { SubPixelAbBlock.Drift, SubPixelAbBlock.Static, SubPixelAbBlock.Live })
+        {
+            var sequences = new List<string>();
+            var aFirstAt = new bool[SubPixelAbSchedule.TrialsPerBlock];
+            var bFirstAt = new bool[SubPixelAbSchedule.TrialsPerBlock];
+
+            for (int seed = 0; seed < SeedCount; seed++)
+            {
+                var trials = BlockOf(Create(seed), block);
+                sequences.Add(new string(trials.Select(t => t.Order == SubPixelAbOrder.AFirst ? 'A' : 'B').ToArray()));
+
+                for (int i = 0; i < trials.Count; i++)
+                {
+                    if (trials[i].Order == SubPixelAbOrder.AFirst) aFirstAt[i] = true;
+                    else bFirstAt[i] = true;
+                }
+            }
+
+            // The shuffle must actually shuffle. A block frozen to AAAAABBBBB (the no-swap mutant)
+            // has exactly one sequence and never yields an early index B-first.
+            Check.That(sequences.Distinct().Count()).IsStrictlyGreaterThan(19);
+            for (int i = 0; i < aFirstAt.Length; i++)
+            {
+                Check.That(aFirstAt[i]).IsTrue();
+                Check.That(bFirstAt[i]).IsTrue();
+            }
+        }
+    }
+
+    [Fact]
+    public void Create_DifferentSeeds_ProduceDifferentPlans()
+    {
+        // The seed must drive the plan by design, not by luck: a constant RNG still passes the
+        // balance and range assertions above.
+        var zero = Create(0);
+        var one = Create(1);
+
+        bool differs = false;
+        for (int i = 0; i < zero.Session1Trials.Count && !differs; i++)
+            differs = !zero.Session1Trials[i].Equals(one.Session1Trials[i]);
+
+        Check.That(differs).IsTrue();
+    }
+
+    [Fact]
+    public void Create_AllTrialPositions_StayInTheCentralHalf()
+    {
+        // "Parked at a random central location": the middle half of the screen, so trials stay away
+        // from the edges and the answer furniture. A schedule free to use the whole screen survives
+        // the on-screen check inside the fraction test, so this pins the central region itself.
+        double minX = Screen.Width * 0.25, maxX = Screen.Width * 0.75;
+        double minY = Screen.Height * 0.25, maxY = Screen.Height * 0.75;
+
+        for (int seed = 0; seed < SeedCount; seed++)
+        {
+            var schedule = Create(seed);
+
+            foreach (var trial in schedule.Session1Trials.Concat(schedule.Session2Trials))
+            {
+                var point = trial.Motion switch
+                {
+                    SubPixelAbDriftMotion drift => drift.Start,
+                    SubPixelAbStaticMotion still => still.Position,
+                    SubPixelAbLiveMotion live => live.TargetStart,
+                    _ => throw new InvalidOperationException($"Unhandled motion {trial.Motion.GetType().Name}."),
+                };
+
+                Check.That(point.X).IsStrictlyGreaterThan(minX - 1e-6);
+                Check.That(point.X).IsStrictlyLessThan(maxX + 1e-6);
+                Check.That(point.Y).IsStrictlyGreaterThan(minY - 1e-6);
+                Check.That(point.Y).IsStrictlyLessThan(maxY + 1e-6);
             }
         }
     }
@@ -207,6 +296,14 @@ public class SubPixelAbScheduleTests
         for (int i = 0; i < expected.Count; i++)
             Check.That(actual[i]).IsEqualTo(expected[i]);
     }
+
+    private static IReadOnlyList<SubPixelAbTrial> BlockOf(SubPixelAbSchedule schedule, SubPixelAbBlock block) =>
+        block switch
+        {
+            SubPixelAbBlock.Drift => schedule.DriftTrials,
+            SubPixelAbBlock.Static => schedule.StaticTrials,
+            _ => schedule.LiveTrials,
+        };
 
     // The expected unit vectors, owned by the test rather than read from production: if the test
     // asked production for its unit vector, a mutated one would pass its own check.

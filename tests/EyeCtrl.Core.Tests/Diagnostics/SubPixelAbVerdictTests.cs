@@ -68,11 +68,16 @@ public class SubPixelAbVerdictTests
     [Fact]
     public void VoidCap_ThreeVoidsStillScore_FourMakeTheBlockIncomplete()
     {
+        // Exactly 3 voids is still a scored block in every block; the cap boundary is 4. Session 2
+        // is the only conviction step, so its 3-void boundary is pinned for both outcomes.
         var driftAtCap = SubPixelAbVerdict.Session1(new(2, 8, 3), new(5, 5, 3));
         Check.That(driftAtCap.Outcome).IsEqualTo(SubPixelAbOutcome.Convicts);
         Check.That(driftAtCap.StaticReadout).IsEqualTo(SubPixelAbStaticReadout.CannotTellStillRingsApart);
 
-        var driftOverCap = SubPixelAbVerdict.Session1(new(2, 8, 4), new(5, 5, 0));
+        Check.That(SubPixelAbVerdict.Session2(new(2, 8, 3)).Outcome).IsEqualTo(SubPixelAbOutcome.Convicts);
+        Check.That(SubPixelAbVerdict.Session2(new(3, 7, 3)).Outcome).IsEqualTo(SubPixelAbOutcome.Acquits);
+
+        var driftOverCap = SubPixelAbVerdict.Session1(new(2, 8, 4), staticBlock: null);
         Check.That(driftOverCap.Outcome).IsEqualTo(SubPixelAbOutcome.Incomplete);
 
         var liveOverCap = SubPixelAbVerdict.Session2(new(2, 8, 4));
@@ -91,15 +96,64 @@ public class SubPixelAbVerdictTests
     [Fact]
     public void Session1_DriftCap_RemovesTheVerdictAndSkipsTheStaticBlock()
     {
-        // Static is skipped when drift caps out, so its tally is absent. A tally passed anyway does
-        // not change the outcome: the static block's fate is not what removes the session-1 verdict.
+        // Static is skipped when drift caps out, so its tally is absent. The capped drift block can
+        // be short — it never reached its 10th score — and still has no verdict.
         var skipped = SubPixelAbVerdict.Session1(new(0, 10, 4), staticBlock: null);
-        var tallyIgnored = SubPixelAbVerdict.Session1(new(0, 10, 4), new(5, 5, 0));
+        var cutShort = SubPixelAbVerdict.Session1(new(3, 4, 4), staticBlock: null);
 
         Check.That(skipped.Outcome).IsEqualTo(SubPixelAbOutcome.Incomplete);
         Check.That(skipped.StaticReadout).IsEqualTo(SubPixelAbStaticReadout.Skipped);
-        Check.That(tallyIgnored.Outcome).IsEqualTo(SubPixelAbOutcome.Incomplete);
-        Check.That(tallyIgnored.StaticReadout).IsEqualTo(SubPixelAbStaticReadout.Skipped);
+        Check.That(cutShort.Outcome).IsEqualTo(SubPixelAbOutcome.Incomplete);
+        Check.That(cutShort.StaticReadout).IsEqualTo(SubPixelAbStaticReadout.Skipped);
+    }
+
+    [Fact]
+    public void Session1_RejectsMalformedTallies()
+    {
+        // The rules are stated "of 10": a partial block, a double-counted requeue or a negative
+        // count must not be scored against a threshold the pre-registration never set.
+        CheckThrows(() => SubPixelAbVerdict.Session1(new(0, 8, 0), null), "drift");       // the review's example
+        CheckThrows(() => SubPixelAbVerdict.Session1(new(-1, 11, 0), null), "drift");     // negative count
+        CheckThrows(() => SubPixelAbVerdict.Session1(new(6, 5, 0), null), "drift");       // 11 scored
+        CheckThrows(() => SubPixelAbVerdict.Session1(new(2, 8, 0), new(6, 3, 0)), "staticBlock");
+        CheckThrows(() => SubPixelAbVerdict.Session1(new(2, 8, 0), new(-1, 11, 0)), "staticBlock");
+
+        // A static tally while the drift block is incomplete is a caller error: the static block was
+        // skipped, so there is no tally to pass.
+        CheckThrows(() => SubPixelAbVerdict.Session1(new(3, 4, 4), new(5, 5, 0)), "staticBlock");
+
+        // The one legitimate short block is the capped static block: the drift verdict stands and
+        // the readout reads incomplete.
+        var cappedStatic = SubPixelAbVerdict.Session1(new(2, 8, 0), new(3, 4, 4));
+        Check.That(cappedStatic.Outcome).IsEqualTo(SubPixelAbOutcome.Convicts);
+        Check.That(cappedStatic.StaticReadout).IsEqualTo(SubPixelAbStaticReadout.Incomplete);
+    }
+
+    [Fact]
+    public void Session2_RejectsMalformedTallies()
+    {
+        CheckThrows(() => SubPixelAbVerdict.Session2(new(0, 8, 0)), "live");              // the review's example
+        CheckThrows(() => SubPixelAbVerdict.Session2(new(-2, 10, 0)), "live");            // negative count
+        CheckThrows(() => SubPixelAbVerdict.Session2(new(6, 5, 0)), "live");              // 11 scored
+
+        // A capped live block may be short and still has no verdict.
+        Check.That(SubPixelAbVerdict.Session2(new(3, 4, 4)).Outcome).IsEqualTo(SubPixelAbOutcome.Incomplete);
+    }
+
+    private static void CheckThrows(Action action, string paramName)
+    {
+        ArgumentException? ex = null;
+        try
+        {
+            action();
+        }
+        catch (ArgumentException e)
+        {
+            ex = e;
+        }
+
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo(paramName);
     }
 
     [Fact]
@@ -123,7 +177,7 @@ public class SubPixelAbVerdictTests
         Check.That(SubPixelAbVerdict.Session1(new(1, 9, 0), new(6, 4, 4)).LogLine)
             .IsEqualTo("Sub-pixel A/B — drift 9/10 → session 1 CONVICTS (static incomplete)");
 
-        Check.That(SubPixelAbVerdict.Session1(new(2, 8, 4), new(5, 5, 0)).LogLine)
+        Check.That(SubPixelAbVerdict.Session1(new(2, 8, 4), staticBlock: null).LogLine)
             .IsEqualTo("Sub-pixel A/B — drift incomplete (4 voided) → session 1 has no verdict");
 
         Check.That(SubPixelAbVerdict.Session2(new(2, 8, 0)).LogLine)

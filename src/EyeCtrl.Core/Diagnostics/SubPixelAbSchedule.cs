@@ -100,8 +100,13 @@ public sealed record SubPixelAbDriftMotion(PhysicalPoint Start, SubPixelAbDirect
     /// <summary>
     /// The ring's position <paramref name="elapsedMs"/> after the interval starts:
     /// <c>Start + 0.25·⌊t/30 ms⌋·dir</c>.
+    /// <para>
+    /// <paramref name="elapsedMs"/> is measured from the interval's start and is never negative in
+    /// production; ⌊t/30⌋ is the integer division's result only for t ≥ 0 (a negative t would
+    /// truncate toward zero), so callers must not pre-date the interval.
+    /// </para>
     /// </summary>
-    /// <param name="elapsedMs">Time since the interval started, in milliseconds.</param>
+    /// <param name="elapsedMs">Time since the interval started, in milliseconds; not negative.</param>
     /// <returns>The ring centre for condition A and condition B alike, in physical pixels.</returns>
     public PhysicalPoint PositionAt(long elapsedMs)
     {
@@ -114,9 +119,19 @@ public sealed record SubPixelAbDriftMotion(PhysicalPoint Start, SubPixelAbDirect
 }
 
 /// <summary>
-/// A still park: the ring is drawn at <paramref name="Position"/> for both intervals. The position's
-/// fractional part is in [0.3, 0.7] on both axes, so neither "exactly on a pixel" nor "half a pixel
-/// off" can be the answer by construction; only the placement rule differs between A and B.
+/// A still park: the ring is drawn at <paramref name="Position"/> for both intervals.
+/// <para>
+/// The position is the ring's <b>centre</b>, and its fractional part is in [0.3, 0.7] on both axes.
+/// Condition A rounds the <b>top-left</b> (<c>centre − sizeDip·scale/2</c>), so the A–B offset is
+/// driven by the top-left's fractional part, and the range's guarantee — that the ring cannot sit
+/// exactly on a pixel nor exactly half a pixel off by construction — holds only when the physical
+/// half-size <c>sizeDip·scale/2</c> is a whole number of device pixels (review 01 F4).
+/// </para>
+/// <para>
+/// <b>Contract for the probe (SP-2):</b> draw a static park with a whole-pixel physical half-size —
+/// scale 2.0 with a whole-DIP size, which is the owner's case (250 DIP at 2.0) — or else apply the
+/// [0.3, 0.7] fraction to the rounded top-left instead of the centre.
+/// </para>
 /// </summary>
 /// <param name="Position">The ring centre, in physical pixels.</param>
 public sealed record SubPixelAbStaticMotion(PhysicalPoint Position) : SubPixelAbMotion;

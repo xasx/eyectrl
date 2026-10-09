@@ -94,19 +94,38 @@ public static class SubPixelAbVerdict
     /// Session 1: convicts on <c>drift BPicks ≥ 8</c>; the static block is read two-sided and never
     /// convicts. A drift cap removes the session-1 verdict and skips the static block; a static cap
     /// leaves the drift verdict standing and reads "incomplete".
+    /// <para>
+    /// Tallies are validated before they are scored: no count may be negative, no block may score
+    /// more than 10 trials, and a block that did not hit the void cap must have scored all 10 — the
+    /// "≥ 8 of 10" rule and the two-sided symmetry only hold out of 10. A capped block may be short:
+    /// it never reached its 10th score. When the drift block is capped the static block was skipped,
+    /// so <paramref name="staticBlock"/> must be <c>null</c>.
+    /// </para>
     /// </summary>
     /// <param name="drift">The drift block's answers and voids.</param>
     /// <param name="staticBlock">The static block's tally, or <c>null</c> if it was not run.</param>
     /// <returns>The session-1 verdict and log line.</returns>
+    /// <exception cref="ArgumentException">
+    /// A tally is malformed, or a static tally is passed while the drift block is incomplete.
+    /// </exception>
     public static SubPixelAbSession1Verdict Session1(SubPixelAbBlockTally drift, SubPixelAbBlockTally? staticBlock)
     {
+        ValidateTally(drift, nameof(drift));
+
         if (drift.Voids > MaxVoidsPerBlock)
         {
+            if (staticBlock is not null)
+                throw new ArgumentException(
+                    "The static block is skipped when the drift block is incomplete; pass null.",
+                    nameof(staticBlock));
+
             return new SubPixelAbSession1Verdict(
                 SubPixelAbOutcome.Incomplete,
                 SubPixelAbStaticReadout.Skipped,
                 $"Sub-pixel A/B — drift incomplete ({drift.Voids} voided) → session 1 has no verdict");
         }
+
+        if (staticBlock is not null) ValidateTally(staticBlock, nameof(staticBlock));
 
         var outcome = drift.BPicks >= ConvictionThreshold
             ? SubPixelAbOutcome.Convicts
@@ -122,11 +141,18 @@ public static class SubPixelAbVerdict
 
     /// <summary>
     /// Session 2: convicts on <c>live BPicks ≥ 8</c>. A live cap removes the session-2 verdict.
+    /// <para>
+    /// The tally is validated like session 1's: non-negative counts, at most 10 scored, and exactly
+    /// 10 scored unless the block hit its void cap.
+    /// </para>
     /// </summary>
     /// <param name="live">The live block's answers and voids.</param>
     /// <returns>The session-2 verdict and log line.</returns>
+    /// <exception cref="ArgumentException">The tally is malformed.</exception>
     public static SubPixelAbSession2Verdict Session2(SubPixelAbBlockTally live)
     {
+        ValidateTally(live, nameof(live));
+
         if (live.Voids > MaxVoidsPerBlock)
         {
             return new SubPixelAbSession2Verdict(
@@ -141,6 +167,27 @@ public static class SubPixelAbVerdict
         return new SubPixelAbSession2Verdict(
             outcome,
             $"Sub-pixel A/B — live {live.BPicks}/{live.Scored} → session 2 {OutcomeText(outcome)}");
+    }
+
+    // The rules are stated "of 10". Without this guard a partial block (an aborted run, one wrong
+    // caller) would be scored against a threshold the pre-registration never set, and a
+    // double-counted requeue could convict on 11 trials (review 01 F3). A capped block is the one
+    // legitimate short block: it was cut off by its 4th void and never reached its 10th score.
+    private static void ValidateTally(SubPixelAbBlockTally tally, string paramName)
+    {
+        if (tally.APicks < 0 || tally.BPicks < 0 || tally.Voids < 0)
+            throw new ArgumentException("Block counts must be non-negative.", paramName);
+
+        if (tally.Scored > SubPixelAbSchedule.TrialsPerBlock)
+            throw new ArgumentException(
+                $"A block cannot score more than {SubPixelAbSchedule.TrialsPerBlock} trials; got {tally.Scored}.",
+                paramName);
+
+        if (tally.Voids <= MaxVoidsPerBlock && tally.Scored != SubPixelAbSchedule.TrialsPerBlock)
+            throw new ArgumentException(
+                $"A block that did not hit the void cap must score all {SubPixelAbSchedule.TrialsPerBlock} "
+                + $"trials; got {tally.Scored}.",
+                paramName);
     }
 
     private static SubPixelAbStaticReadout StaticReadout(SubPixelAbBlockTally? staticBlock)

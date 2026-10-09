@@ -41,6 +41,9 @@ public class SingleSurfaceKeyTests
         // the window and every other Supervisor file stay on the supervisor surface alone.
         ("src/EyeCtrl.Supervisor/Supervision/LanguageSetupRow.cs", ["language-recovery"]),
 
+        // T06: the startup-error box's two texts (title + labelled detail) resolve together.
+        ("src/EyeCtrl.App/Services/StartupErrorText.cs", ["startup-error"]),
+
         // Mixed folders: explicit files only.
         ("src/EyeCtrl.App/Views/SettingsWindow.xaml", ["settings", "language-recovery"]),
         ("src/EyeCtrl.App/Views/SettingsWindow.xaml.cs", ["settings", "language-recovery"]),
@@ -58,12 +61,42 @@ public class SingleSurfaceKeyTests
         ("src/EyeCtrl.App/Services/AppRestartCoordinator.cs", ["language-recovery"]),
         ("src/EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml", ["caregiver-alert"]),
         ("src/EyeCtrl.App/Overlays/CaregiverAlertWindow.xaml.cs", ["caregiver-alert"]),
+        ("src/EyeCtrl.App/Overlays/DriftNoticeWindow.xaml", ["drift-notice"]),
         ("src/EyeCtrl.App/Overlays/CalibrationWindow.xaml", ["calibration"]),
         ("src/EyeCtrl.App/Overlays/CalibrationWindow.xaml.cs", ["calibration"]),
         ("src/EyeCtrl.App/Overlays/CalibrationCompletion.cs", ["calibration"]),
+        ("src/EyeCtrl.App/Overlays/TrackStatusWindow.xaml", ["track-status"]),
         ("src/EyeCtrl.App/Overlays/TrackStatusWindow.xaml.cs", ["track-status"]),
+        ("src/EyeCtrl.App/Overlays/EyeCareBannerWindow.xaml", ["eye-care"]),
+        ("src/EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml", ["eye-care"]),
         ("src/EyeCtrl.App/Overlays/EyeCareExerciseWindow.xaml.cs", ["eye-care"]),
+        ("src/EyeCtrl.EyeCare/EyeCareService.cs", ["eye-care"]),
+        ("src/EyeCtrl.EyeCare/Exercises/Calibration202020Exercise.cs", ["eye-care"]),
+        ("src/EyeCtrl.EyeCare/Exercises/DirectionalSweepExercise.cs", ["eye-care"]),
+        ("src/EyeCtrl.EyeCare/Exercises/NearFarFocusExercise.cs", ["eye-care"]),
+        ("src/EyeCtrl.EyeCare/Exercises/SaccadeExercise.cs", ["eye-care"]),
+        ("src/EyeCtrl.EyeCare/Exercises/SmoothPursuitExercise.cs", ["eye-care"]),
         ("src/EyeCtrl.ViewModels/CalibrationFailureText.cs", ["calibration"]),
+        // T08: the ring's key map lives in Core (the English lives in strings.json now), and the
+        // class that resolves it, plus the App-side overlays hosts, reference the overlays keys.
+        ("src/EyeCtrl.Core/Models/RingLabelMap.cs", ["overlays"]),
+        ("src/EyeCtrl.Core/ActionMenu/RingLabelSource.cs", ["overlays"]),
+        ("src/EyeCtrl.App/Localization/OverlayTextSources.cs", ["overlays"]),
+        ("src/EyeCtrl.App/Overlays/ToolbarBand.cs", ["overlays"]),
+        ("src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs", ["overlays"]),
+        ("src/EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml", ["overlays"]),
+        ("src/EyeCtrl.App/Overlays/GlassBackdropWindow.xaml", ["overlays"]),
+        ("src/EyeCtrl.App/Overlays/GlassBackdropWindow.xaml.cs", ["overlays"]),
+        ("src/EyeCtrl.App/Overlays/PauseIndicatorWindow.xaml", ["overlays"]),
+        ("src/EyeCtrl.App/Overlays/ScrollOverlayWindow.xaml", ["overlays"]),
+        ("src/EyeCtrl.App/Overlays/TaskSwitcherWindow.xaml", ["overlays"]),
+        ("src/EyeCtrl.App/Services/ActionMenuEdgeButtons.cs", ["overlays"]),
+        ("src/EyeCtrl.App/Services/ActionMenuModifierButtons.cs", ["overlays"]),
+        ("src/EyeCtrl.App/Services/KeyboardEdgeButtons.cs", ["overlays"]),
+        ("src/EyeCtrl.App/Services/ManualSelectionEdgeButtons.cs", ["overlays"]),
+        ("src/EyeCtrl.App/Services/ScrollModeController.cs", ["overlays"]),
+        ("src/EyeCtrl.App/Services/Coordinators/DragCoordinator.cs", ["overlays"]),
+        ("src/EyeCtrl.App/Services/Coordinators/RepeatModeController.cs", ["overlays"]),
         // T04: the tray's own items are app-tray, but the one language item is the recovery
         // path's entry point (D9) and takes its key from language-recovery (T06 expects this).
         ("src/EyeCtrl.App/Services/TrayIconManager.cs", ["app-tray", "language-recovery"]),

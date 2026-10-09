@@ -49,9 +49,117 @@ public class SupervisorTrayIconTests
     }
 
     [Fact]
-    public void TheProductionTexts_AreTheEnglishItems_UntilT06KeysThem()
+    public void TheProductionTexts_ResolveTheEnglishItemsFromTheTable()
     {
+        // English literals on the expected side by design (T06): resolving both sides from the
+        // keys would let a missing or mis-pasted key pass as its own raw text.
         Check.That(SupervisorTrayTexts.For(EyeCtrl.Core.Localization.StringTable.EmbeddedEnglish))
             .IsEqualTo(new SupervisorTrayTexts("EyeCtrl Supervisor settings", "Launch EyeCtrl now", "Exit supervisor"));
+    }
+
+    // ── T06 fixup-01 F2: the tooltip refreshes at hover (throttled) and menu open, never ──────
+    // ── from the supervision loop ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void HoverRefresh_IsThrottled_AndShowsTheNewText()
+    {
+        var ticks = 1000L;
+        var calls = 0;
+        string? status = "one";
+        using var tray = new SupervisorTrayIcon(
+            () => { }, () => { }, () => { },
+            () => new SupervisorTrayTexts("a", "b", "c"),
+            visible: false,
+            refreshStatus: () => { calls++; return status; },
+            tickCount: () => ticks);
+
+        Check.That(tray.ApplyHoverRefresh()).IsEqualTo("one");
+        Check.That(calls).IsEqualTo(1);
+        Check.That(tray.StatusText).IsEqualTo("one");
+
+        // MouseMove repeats while the pointer moves: within 2 s the throttle swallows it.
+        ticks += 1000;
+        Check.That(tray.ApplyHoverRefresh()).IsNull();
+        Check.That(calls).IsEqualTo(1);
+
+        // The language changed on disk (the provider now answers "two"); the next hover past the
+        // throttle shows it, without any state change.
+        status = "two";
+        ticks += 1000;
+        Check.That(tray.ApplyHoverRefresh()).IsEqualTo("two");
+        Check.That(calls).IsEqualTo(2);
+        Check.That(tray.StatusText).IsEqualTo("two");
+    }
+
+    [Fact]
+    public void TheMouseMoveSubscription_RefreshesTheTooltip()
+    {
+        // The subscription is the only path that brings an App-side language change into the
+        // tooltip while the state is steady and nobody opens the menu (T06 review-02 R1): raise
+        // the icon's hover event the way the shell does, through its protected OnMouseMove.
+        var ticks = 1000L;
+        var calls = 0;
+        string? status = "one";
+        using var tray = new SupervisorTrayIcon(
+            () => { }, () => { }, () => { },
+            () => new SupervisorTrayTexts("a", "b", "c"),
+            visible: false,
+            refreshStatus: () => { calls++; return status; },
+            tickCount: () => ticks);
+
+        RaiseMouseMove(tray);
+        Check.That(calls).IsEqualTo(1);
+        Check.That(tray.StatusText).IsEqualTo("one");
+
+        status = "two";
+        ticks += 2000;
+        RaiseMouseMove(tray);
+        Check.That(calls).IsEqualTo(2);
+        Check.That(tray.StatusText).IsEqualTo("two");
+    }
+
+    [Fact]
+    public void MenuOpening_RefreshesTheStatus_Unthrottled()
+    {
+        var ticks = 1000L;
+        var calls = 0;
+        using var tray = new SupervisorTrayIcon(
+            () => { }, () => { }, () => { },
+            () => new SupervisorTrayTexts("a", "b", "c"),
+            visible: false,
+            refreshStatus: () => { calls++; return "status " + calls; },
+            tickCount: () => ticks);
+
+        tray.ApplyHoverRefresh();
+        Check.That(calls).IsEqualTo(1);
+
+        RaiseOpening(tray);   // the menu is a display moment; not swallowed by the hover throttle
+        Check.That(calls).IsEqualTo(2);
+        Check.That(tray.StatusText).IsEqualTo("status 2");
+    }
+
+    [Fact]
+    public void AFailingStatusProvider_KeepsTheCurrentTooltip()
+    {
+        using var tray = new SupervisorTrayIcon(
+            () => { }, () => { }, () => { },
+            () => new SupervisorTrayTexts("a", "b", "c"),
+            visible: false,
+            refreshStatus: () => throw new InvalidOperationException("table unreadable"),
+            tickCount: () => 1000L);
+
+        Check.That(tray.ApplyStatusRefresh()).IsNull();
+        Check.That(tray.StatusText).IsEqualTo("EyeCtrl Supervisor");   // the pre-status default
+    }
+
+    /// <summary>Raises the icon's hover event through its protected
+    /// <c>OnMouseMove(MouseEventArgs)</c>, the way the shell does (the <c>OnOpening</c> precedent).</summary>
+    private static void RaiseMouseMove(SupervisorTrayIcon tray)
+    {
+        var onMouseMove = typeof(System.Windows.Forms.NotifyIcon).GetMethod(
+            "OnMouseMove", BindingFlags.Instance | BindingFlags.NonPublic,
+            [typeof(System.Windows.Forms.MouseEventArgs)])!;
+        onMouseMove.Invoke(tray.TrayIcon,
+            [new System.Windows.Forms.MouseEventArgs(System.Windows.Forms.MouseButtons.None, 0, 0, 0, 0)]);
     }
 }

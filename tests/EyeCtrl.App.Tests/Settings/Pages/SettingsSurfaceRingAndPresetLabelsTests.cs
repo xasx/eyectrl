@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using EyeCtrl.App.Views.Settings;
+using EyeCtrl.Core.ActionMenu;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 
@@ -18,17 +19,20 @@ public class SettingsSurfaceRingAndPresetLabelsTests
     [Fact]
     public void PreviewRingLabels_MatchTheLiveRingsEnglish()
     {
-        // The preview's action names, Back and More must read exactly as RingLabelMap's, or the
-        // miniature lies about what the live ring will say once its own keys land (T08).
+        // The preview's action names, Back and More must read exactly as the live ring's English, or
+        // the miniature lies about what the live ring says. Since T08, RingLabelMap returns the
+        // overlays KEYS, so the live ring's English is its embedded-English source.
+        var live = RingLabelSource.English;
         foreach (var action in Enum.GetValues<InteractionAction>())
         {
             Check.WithCustomMessage(
                     $"the settings preview names {action} \"{ActionMenuPageSource.RingLabelFor(action)}\" "
-                    + $"but the live ring says \"{RingLabelMap.For(action)}\".")
-                .That(ActionMenuPageSource.RingLabelFor(action)).IsEqualTo(RingLabelMap.For(action));
+                    + $"but the live ring says \"{live.ActionLabel(action)}\".")
+                .That(ActionMenuPageSource.RingLabelFor(action)).IsEqualTo(live.ActionLabel(action));
         }
 
-        Check.That(ActionMenuPageSource.RingBackLabel()).IsEqualTo(RingLabelMap.For(null));
+        Check.That(ActionMenuPageSource.RingBackLabel()).IsEqualTo(live.BackLabel);
+        Check.That(ActionMenuPageSource.RingMoreLabel()).IsEqualTo(live.MoreLabel);
         Check.That(ActionMenuPageSource.RingMoreLabel()).IsEqualTo("More");
     }
 

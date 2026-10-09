@@ -1,5 +1,6 @@
 namespace EyeCtrl.Core.ActionMenu;
 
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 
 /// <summary>
@@ -17,11 +18,24 @@ public sealed record RingLabelSource(
     string MoreLabel)
 {
     /// <summary>
-    /// The English default — <see cref="RingLabelMap"/>'s vocabulary plus the literal "More".
-    /// Every current host passes this until its own keys arrive.
+    /// The live ring's source: resolves <see cref="RingLabelMap"/>'s <c>overlays</c> keys and the
+    /// <c>more</c> key through the process table, so the ring follows the overlays surface's
+    /// language. Computed per access rather than cached, so a table activated later in the process
+    /// is picked up and no test can freeze a stale one.
     /// </summary>
-    public static RingLabelSource English { get; } = new(
-        action => RingLabelMap.For(action),
-        RingLabelMap.For(null),
-        "More");
+    public static RingLabelSource Overlays => new(
+        action => StringTable.Current.T(RingLabelMap.For(action)),
+        StringTable.Current.T(RingLabelMap.For(null)),
+        StringTable.Current.T("overlays.ring.more"));
+
+    /// <summary>
+    /// The embedded-English source — <see cref="RingLabelMap"/>'s vocabulary resolved against the
+    /// compiled English table. The fallback default for a host that has not chosen a source yet
+    /// (the modes menu before composition, the Settings preview until T07 passes <c>settings</c>
+    /// keys), and the deterministic vocabulary the Core tests assert.
+    /// </summary>
+    public static RingLabelSource English => new(
+        action => StringTable.EmbeddedEnglish.T(RingLabelMap.For(action)),
+        StringTable.EmbeddedEnglish.T(RingLabelMap.For(null)),
+        StringTable.EmbeddedEnglish.T("overlays.ring.more"));
 }

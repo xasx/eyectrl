@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Services;
 using System.Windows.Threading;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Views;
+using EyeCtrl.Core.ActionMenu;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Interfaces;
@@ -197,7 +198,10 @@ public class OverlayManager : IOverlayManager
         _quickActionsGrid.Configure(viewModels.QuickActionsGrid);
 
         // Modes menu panel (small, under the toolbar). Takes the VM + toolbar height for placement.
+        // T08 (N2): its icon-only buttons publish the overlays-keyed action names (D11); the live
+        // ring's own source is the same seam.
         _modesMenu = new ModesMenuWindow();
+        _modesMenu.Labels = RingLabelSource.Overlays;
         _modesMenu.Configure(viewModels.ModesMenu, settings.Toolbar.Size);
 
         // Contracting locked-mode aiming cursor (bound by the VM coordinator); sized from the

@@ -13,4 +13,15 @@ public class KeyDefinition
     public double Width { get; set; } = 1.0;
     /// <summary>Special action identifier (e.g., "shift", "backspace", "enter", "tab", "space", "symbols", "layout").</summary>
     public string? SpecialAction { get; set; }
+    /// <summary>
+    /// Screen-reader name for a caption a reader cannot pronounce (e.g. "⌫" → "Rücktaste"). Null
+    /// for keys whose label already reads as its name. Layout data, so it is worded in the
+    /// layout's language regardless of the UI language.
+    /// </summary>
+    public string? AccessibleName { get; set; }
+    /// <summary>
+    /// Optional frame drawn around the caption (T14 round 3: "eraseLeft" draws "Aa" inside the
+    /// word-delete key's ⌫-shaped arrow). Null for an ordinary caption.
+    /// </summary>
+    public string? LabelFrame { get; set; }
 }

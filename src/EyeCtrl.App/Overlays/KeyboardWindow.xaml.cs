@@ -235,6 +235,10 @@ public partial class KeyboardWindow : OverlayWindow
                 // unique. Regular keys (no SpecialAction) keep the positional id.
                 var id = !string.IsNullOrEmpty(key.SpecialAction) ? key.SpecialAction : $"key_{rowIdx}_{keyIdx}";
 
+                // The box the label must fit: the same width the Border below takes. The
+                // symbol-caption fit limit is stated against this number.
+                var boxWidth = _keySize * key.Width + (key.Width > 1 ? (key.Width - 1) * 4 : 0);
+
                 var label = new TextBlock
                 {
                     Text = key.Label,
@@ -253,15 +257,30 @@ public partial class KeyboardWindow : OverlayWindow
                     // gate it >= 12, not == 12 — so raising body text to 14 would silently grow
                     // this glyph, and three others, at the bottom of the multiplier range. A
                     // minimum also has no business being theme-dependent.
-                    FontSize = Math.Max(_keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize),
+                    //
+                    // A symbol caption (⬆ ⇧ ⌫ ⌴ ↵ ⇥ ✂ ↶ ↷ ← ↑ → ↓ 😀) takes the T14 rule
+                    // (user's pick, 2026-10-07): x1.4 in the theme's medium weight, fit-limited
+                    // to the box. Resolve returns the base font untouched for every other key.
+                    FontSize = SymbolCaptionFonts.Resolve(
+                        key,
+                        Math.Max(_keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize),
+                        boxWidth),
+                    FontWeight = SymbolCaptionRule.IsSymbolCaption(key) ? Tokens.FontWeightMedium : FontWeights.Normal,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
                 };
 
+                // A label frame (round 3: the word-delete key's erase arrow) replaces the label's
+                // visuals: the label stays the UIA anchor at Opacity 0 and the frame is drawn as
+                // geometry around it. Everything that acts on the label still works.
+                FrameworkElement captionContent = label;
+                if (key.LabelFrame == EraseLabelFrame.EraseLeft)
+                    captionContent = EraseLabelFrame.Build(label, _keySize, boxWidth);
+
                 var keyBrush = new SolidColorBrush(GetKeyBaseColor(key));
                 var container = new Border
                 {
-                    Width = _keySize * key.Width + (key.Width > 1 ? (key.Width - 1) * 4 : 0),
+                    Width = boxWidth,
                     Height = _keySize,
                     Margin = new Thickness(2),
                     Background = keyBrush,
@@ -270,8 +289,14 @@ public partial class KeyboardWindow : OverlayWindow
                 _keyBrushes[id] = keyBrush;
 
                 System.Windows.Automation.AutomationProperties.SetAutomationId(label, $"Keyboard_Key_{id}");
+                // A symbol caption is unpronounceable to a screen reader, so the layout supplies
+                // its name ("⌫" -> "Rücktaste"). Set ONLY when supplied: an explicit name freezes
+                // a shift-variant key at its resting label, while an unnamed label keeps the
+                // peer's live text (ß announces ẞ under Caps).
+                if (key.AccessibleName is not null)
+                    System.Windows.Automation.AutomationProperties.SetName(label, key.AccessibleName);
 
-                RegisterKeyVisual(id, key, container, label);
+                RegisterKeyVisual(id, key, container, label, captionContent);
                 rowPanel.Children.Add(container);
             }
 
@@ -893,10 +918,17 @@ public partial class KeyboardWindow : OverlayWindow
     /// call site; a funnel makes that silent omission structurally impossible to repeat.
     /// </summary>
     /// <param name="container">The target's border. Its <c>Child</c> must be unset: the outline
-    /// wraps <paramref name="label"/> and installs the wrapper as the Child.</param>
+    /// wraps the caption content and installs the wrapper as the Child.</param>
+    /// <param name="label">The target's label, kept for the automation name and the id.</param>
     private void RegisterKeyVisual(string id, KeyDefinition keyDef, Border container, TextBlock? label)
+        => RegisterKeyVisual(id, keyDef, container, label, label);
+
+    /// <param name="content">The element the outline wraps: the label itself, or the two-line
+    /// caption stack whose first line is <paramref name="label"/> (B4).</param>
+    private void RegisterKeyVisual(
+        string id, KeyDefinition keyDef, Border container, TextBlock? label, FrameworkElement? content)
     {
-        _keyOutlines[id] = DwellOutlineOverlay.Attach(container, label);
+        _keyOutlines[id] = DwellOutlineOverlay.Attach(container, content);
         _keyDefinitions[id] = keyDef;
         _keyVisuals[id] = (container, label);
     }

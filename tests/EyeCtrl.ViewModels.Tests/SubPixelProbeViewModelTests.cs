@@ -684,12 +684,19 @@ public class SubPixelProbeViewModelTests
         public void PlayBlock(SubPixelAbCondition pick = SubPixelAbCondition.B)
         {
             int target = Blocks.Count + 1;
-            while (Blocks.Count < target)
+            long elapsed = 0;
+
+            // A virtual-time budget, so a broken state machine fails the test instead of spinning.
+            while (Blocks.Count < target && elapsed < 300_000)
             {
                 Tick();
+                elapsed += 30;
                 if (Vm.Phase == SubPixelProbePhase.Answer)
                     AnswerCurrentTrial(pick);
             }
+
+            Check.WithCustomMessage($"The block did not complete within {elapsed} ms of virtual time.")
+                .That(Blocks).HasSize(target);
         }
     }
 }

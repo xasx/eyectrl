@@ -783,21 +783,91 @@ public class SymbolCaptionFitTests
                     }
                     if (action == "tab")
                     {
-                        // →|: the head points right, and the stop bar sits at w − t/2.
+                        // →|: the head points right, and the stop bar sits at w − t/2. The head and
+                        // the shaft are then pinned to the round-7 geometry, because the full-height
+                        // bar and the left-edge shaft fix the ink box while the head can still move
+                        // or shrink inside it (review-08 F1).
                         var figures = ((PathGeometry)path.Data).Figures;
+                        var t = path.StrokeThickness;
+                        var half = ArrowLabelFrame.EnterHeadHalf * canvas.Width - t / 2;
+                        var tip = new Point(canvas.Width - 2.5 * t, canvas.Height / 2);
+                        var baseX = tip.X - ArrowLabelFrame.EnterHeadLength * canvas.Width;
                         var head = figures[1];
-                        var baseX = ((PolyLineSegment)head.Segments[0]).Points[0].X;
                         Check.WithCustomMessage(
                                 $"{action} at {mult:0.0}x: the head must point right (tip {head.StartPoint.X:0.###} "
                                 + $"must be right of its base {baseX:0.###})")
                              .That(head.StartPoint.X).IsStrictlyGreaterThan(baseX);
+                        Check.WithCustomMessage(
+                                $"{action} at {mult:0.0}x: head tip {head.StartPoint.X:0.###},{head.StartPoint.Y:0.###} "
+                                + $"must be ({tip.X:0.###},{tip.Y:0.###})")
+                             .That(head.StartPoint.X).IsCloseTo(tip.X, 1e-9);
+                        Check.That(head.StartPoint.Y).IsCloseTo(tip.Y, 1e-9);
+                        var headPoints = ((PolyLineSegment)head.Segments[0]).Points;
+                        Check.WithCustomMessage($"{action} at {mult:0.0}x: the head base must be 0.32w left of the tip")
+                             .That(headPoints[0].X).IsCloseTo(baseX, 1e-9);
+                        Check.That(headPoints[1].X).IsCloseTo(baseX, 1e-9);
+                        Check.WithCustomMessage(
+                                $"{action} at {mult:0.0}x: the head base half-height must be 0.24w - t/2 = {half:0.###}")
+                             .That(headPoints[0].Y).IsCloseTo(tip.Y - half, 1e-9);
+                        Check.That(headPoints[1].Y).IsCloseTo(tip.Y + half, 1e-9);
+                        var shaft = figures[0];
+                        Check.WithCustomMessage(
+                                $"{action} at {mult:0.0}x: the shaft must start at (t/2, h/2) = ({t / 2:0.###},{tip.Y:0.###})")
+                             .That(shaft.StartPoint.X).IsCloseTo(t / 2, 1e-9);
+                        Check.That(shaft.StartPoint.Y).IsCloseTo(tip.Y, 1e-9);
+                        var shaftEnd = ((LineSegment)shaft.Segments[0]).Point;
+                        Check.WithCustomMessage($"{action} at {mult:0.0}x: the shaft must reach the head's base line")
+                             .That(shaftEnd.X).IsCloseTo(baseX, 1e-9);
+                        Check.That(shaftEnd.Y).IsCloseTo(tip.Y, 1e-9);
+
                         var bar = figures[2];
                         var barX = ((LineSegment)bar.Segments[0]).Point.X;
                         Check.WithCustomMessage(
                                 $"{action} at {mult:0.0}x: the stop bar must sit at w - t/2 = "
-                                + $"{canvas.Width - path.StrokeThickness / 2:0.###}, not {barX:0.###}")
-                             .That(barX).IsCloseTo(canvas.Width - path.StrokeThickness / 2, 1e-9);
-                        Check.That(bar.StartPoint.X).IsCloseTo(canvas.Width - path.StrokeThickness / 2, 1e-9);
+                                + $"{canvas.Width - t / 2:0.###}, not {barX:0.###}")
+                             .That(barX).IsCloseTo(canvas.Width - t / 2, 1e-9);
+                        Check.That(bar.StartPoint.X).IsCloseTo(canvas.Width - t / 2, 1e-9);
+                    }
+                    if (action == "enter")
+                    {
+                        // ↵: the head's tip at (t/2, h − 0.24w) with its base 0.32w to the right,
+                        // and the stem from (w − t/2, t/2) onto the head's base line (review-08 F1;
+                        // this gap predates Tab).
+                        var figures = ((PathGeometry)path.Data).Figures;
+                        var t = path.StrokeThickness;
+                        var tip = new Point(t / 2, canvas.Height - ArrowLabelFrame.EnterHeadHalf * canvas.Width);
+                        var half = ArrowLabelFrame.EnterHeadHalf * canvas.Width - t / 2;
+                        // The reference puts the base at the 0.32w mark measured from the box's left
+                        // edge (the tip sits at t/2), so the visible head length is 0.32w - t/2.
+                        var baseX = ArrowLabelFrame.EnterHeadLength * canvas.Width;
+                        var head = figures[1];
+                        Check.WithCustomMessage(
+                                $"{action} at {mult:0.0}x: head tip {head.StartPoint.X:0.###},{head.StartPoint.Y:0.###} "
+                                + $"must be ({tip.X:0.###},{tip.Y:0.###})")
+                             .That(head.StartPoint.X).IsCloseTo(tip.X, 1e-9);
+                        Check.That(head.StartPoint.Y).IsCloseTo(tip.Y, 1e-9);
+                        var headPoints = ((PolyLineSegment)head.Segments[0]).Points;
+                        Check.WithCustomMessage($"{action} at {mult:0.0}x: the head base must be 0.32w right of the tip")
+                             .That(headPoints[0].X).IsCloseTo(baseX, 1e-9);
+                        Check.That(headPoints[1].X).IsCloseTo(baseX, 1e-9);
+                        Check.WithCustomMessage(
+                                $"{action} at {mult:0.0}x: the head base half-height must be 0.24w - t/2 = {half:0.###}")
+                             .That(headPoints[0].Y).IsCloseTo(tip.Y - half, 1e-9);
+                        Check.That(headPoints[1].Y).IsCloseTo(tip.Y + half, 1e-9);
+                        var stem = figures[0];
+                        Check.WithCustomMessage(
+                                $"{action} at {mult:0.0}x: the stem must start at (w - t/2, t/2) = "
+                                + $"({canvas.Width - t / 2:0.###},{t / 2:0.###})")
+                             .That(stem.StartPoint.X).IsCloseTo(canvas.Width - t / 2, 1e-9);
+                        Check.That(stem.StartPoint.Y).IsCloseTo(t / 2, 1e-9);
+                        var stemPoints = ((PolyLineSegment)stem.Segments[0]).Points;
+                        Check.WithCustomMessage($"{action} at {mult:0.0}x: the stem's corner must sit on the tip's line")
+                             .That(stemPoints[0].X).IsCloseTo(canvas.Width - t / 2, 1e-9);
+                        Check.That(stemPoints[0].Y).IsCloseTo(tip.Y, 1e-9);
+                        var stemEnd = stemPoints[^1];
+                        Check.WithCustomMessage($"{action} at {mult:0.0}x: the stem must end on the head's base line")
+                             .That(stemEnd.X).IsCloseTo(baseX, 1e-9);
+                        Check.That(stemEnd.Y).IsCloseTo(tip.Y, 1e-9);
                     }
                 }
             }

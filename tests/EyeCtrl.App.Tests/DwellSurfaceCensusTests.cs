@@ -24,6 +24,7 @@ public class DwellSurfaceCensusTests
         ("EyeCtrl.App/Services/ManualSelectionDwellService.cs", "cue", "manual-selection dwell clicks"),
         ("EyeCtrl.ViewModels/SettingsWindowViewModel.cs", "cue", "tabs/controls/pagination/modal"),
         ("EyeCtrl.ViewModels/DwellOverlayViewModelBase.cs", "cue", "base wrapper — 9 effectful VMs + 2 opt-outs"),
+        ("EyeCtrl.ViewModels/SubPixelProbeViewModel.cs", "excluded", "sub-pixel probe — diagnostic A/B scene; a cue is not in the test design and would distract the trial"),
     ];
 
     // DwellContext members that are not a user-facing surface of their own.

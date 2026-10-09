@@ -115,6 +115,8 @@ public class SubPixelAbVerdictTests
         CheckThrows(() => SubPixelAbVerdict.Session1(new(0, 8, 0), null), "drift");       // the review's example
         CheckThrows(() => SubPixelAbVerdict.Session1(new(-1, 11, 0), null), "drift");     // negative count
         CheckThrows(() => SubPixelAbVerdict.Session1(new(6, 5, 0), null), "drift");       // 11 scored
+        CheckThrows(() => SubPixelAbVerdict.Session1(new(1, 8, 3), null), "drift");       // 3 voids is not an exemption from 10 scored
+        CheckThrows(() => SubPixelAbVerdict.Session1(new(2, 8, -1), null), "drift");      // negative voids
         CheckThrows(() => SubPixelAbVerdict.Session1(new(2, 8, 0), new(6, 3, 0)), "staticBlock");
         CheckThrows(() => SubPixelAbVerdict.Session1(new(2, 8, 0), new(-1, 11, 0)), "staticBlock");
 
@@ -135,6 +137,9 @@ public class SubPixelAbVerdictTests
         CheckThrows(() => SubPixelAbVerdict.Session2(new(0, 8, 0)), "live");              // the review's example
         CheckThrows(() => SubPixelAbVerdict.Session2(new(-2, 10, 0)), "live");            // negative count
         CheckThrows(() => SubPixelAbVerdict.Session2(new(6, 5, 0)), "live");              // 11 scored
+        CheckThrows(() => SubPixelAbVerdict.Session2(new(1, 8, 3)), "live");              // 3 voids is not an exemption from 10 scored
+        CheckThrows(() => SubPixelAbVerdict.Session2(new(2, 8, -1)), "live");             // negative voids
+        CheckThrows(() => SubPixelAbVerdict.Session2(new(6, 5, 4)), "live");              // 11 scored is malformed even when capped
 
         // A capped live block may be short and still has no verdict.
         Check.That(SubPixelAbVerdict.Session2(new(3, 4, 4)).Outcome).IsEqualTo(SubPixelAbOutcome.Incomplete);

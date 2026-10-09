@@ -123,14 +123,16 @@ public sealed record SubPixelAbDriftMotion(PhysicalPoint Start, SubPixelAbDirect
 /// <para>
 /// The position is the ring's <b>centre</b>, and its fractional part is in [0.3, 0.7] on both axes.
 /// Condition A rounds the <b>top-left</b> (<c>centre − sizeDip·scale/2</c>), so the A–B offset is
-/// driven by the top-left's fractional part, and the range's guarantee — that the ring cannot sit
-/// exactly on a pixel nor exactly half a pixel off by construction — holds only when the physical
-/// half-size <c>sizeDip·scale/2</c> is a whole number of device pixels (review 01 F4).
+/// driven by the top-left's fractional part. When the physical half-size <c>sizeDip·scale/2</c> is a
+/// whole number of device pixels, rounding moves the top-left by <c>min(f, 1 − f)</c> — between 0.3
+/// and 0.5 px per axis — so A and B are never closer than 0.3 px (review 01 F4).
 /// </para>
 /// <para>
 /// <b>Contract for the probe (SP-2):</b> draw a static park with a whole-pixel physical half-size —
 /// scale 2.0 with a whole-DIP size, which is the owner's case (250 DIP at 2.0) — or else apply the
-/// [0.3, 0.7] fraction to the rounded top-left instead of the centre.
+/// [0.3, 0.7] fraction to the <b>exact (unrounded)</b> top-left instead of the centre: park
+/// <c>topLeft = ⌊anchor⌋ + fraction</c>, then derive the centre as <c>topLeft + sizeDip·scale/2</c>,
+/// so both conditions start from that centre.
 /// </para>
 /// </summary>
 /// <param name="Position">The ring centre, in physical pixels.</param>

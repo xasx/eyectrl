@@ -19,7 +19,7 @@ public enum SubPixelAbOutcome
 /// </summary>
 public enum SubPixelAbStaticReadout
 {
-    /// <summary>Never run, because the drift block was incomplete.</summary>
+    /// <summary>Not scored: the drift block was incomplete so the static block was skipped, or the static block was aborted before it completed.</summary>
     Skipped,
 
     /// <summary>More voids than the cap allows: no readout.</summary>

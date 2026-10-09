@@ -499,10 +499,14 @@ public class SubPixelProbeViewModel : MessengerViewModelBase,
         EnterInterval1();
     }
 
+    /// <summary>
+    /// Begins a presentation's interval 1. Every caller has already checked the view model is live
+    /// (Start, a phase timer callback, a target activation, a void, or <see cref="CompleteBlock"/>'s
+    /// post-raise guard); this transition's own guard is the post-raise check below, so a dispose
+    /// inside a <see cref="PhaseAdvanced"/> handler cannot arm the phase timer.
+    /// </summary>
     private void EnterInterval1()
     {
-        if (IsDisposed || _ended) return;
-
         _phase = SubPixelProbePhase.Interval1;
         _phaseStartTimestamp = _timeProvider.GetTimestamp();
         _invalidSince = null;

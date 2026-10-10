@@ -1019,7 +1019,109 @@ public class SubPixelProbeViewModelTests
     // Mutation (o7): the per-trial statistics are not reset at interval 1 -> trial 2 inherits the
     //   60 ms: red.
 
+    // --------------------------------------------------------------------------- session-2 resume
+
+    [Fact]
+    public void V1resume_ResumeRunsOnlyTheLiveBlock_AndEndsAtResultThenRunEnded()
+    {
+        var verdict = ConvictingSession1();
+        var f = new Harness(SubPixelProbeStartMode.ResumeSession2, verdict);
+
+        f.Vm.Start();
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Intro);
+        Check.That(f.Vm.Session1Verdict).IsEqualTo(verdict);
+
+        f.Vm.BeginTrials();
+
+        // The live block only: no drift, no static, and never the Ask screen.
+        Check.That(f.Vm.CurrentBlock).IsEqualTo(SubPixelAbBlock.Live);
+        Check.That(f.Vm.IsDemo).IsTrue();
+
+        f.PlayBlock();
+
+        Check.That(f.Blocks).HasSize(1);
+        Check.That(f.Blocks[0].Block).IsEqualTo(SubPixelAbBlock.Live);
+        Check.That(f.Sessions).HasSize(1);
+        Check.That(f.Sessions[0].Session).IsEqualTo(SubPixelProbeSessionKind.Session2);
+        Check.That(f.Sessions[0].Reason).IsEqualTo(SubPixelProbeEndReason.BlocksCompleted);
+        Check.That(f.PhaseLog).Not.Contains(SubPixelProbePhase.Ask);
+        Check.That(f.Runs).IsEmpty();
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Result);
+        Check.That(f.Vm.Session2Verdict!.Outcome).IsEqualTo(SubPixelAbOutcome.Convicts);
+        Check.That(f.Vm.Session1Verdict).IsEqualTo(verdict);
+
+        f.Vm.AcknowledgeResult();
+        Check.That(f.Runs).HasSize(1);
+        Check.That(f.Runs[0]).IsEqualTo(SubPixelProbeRunEndReason.Completed);
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Ended);
+    }
+
+    // Mutation (resume1): BeginTrials ignores the start mode and runs session 1 -> the live-block
+    //   and no-Ask assertions go red.
+
+    [Fact]
+    public void V1resume2_NonConvictingOrMissingSession1_IsRefused()
+    {
+        var acquit = SubPixelAbVerdict.Session1(
+            new SubPixelAbBlockTally(5, 5, 0), new SubPixelAbBlockTally(5, 5, 0));
+        var incomplete = SubPixelAbVerdict.Session1(new SubPixelAbBlockTally(0, 0, 4), null);
+
+        Check.That(SubPixelProbeViewModel.CanResumeSession2(acquit)).IsFalse();
+        Check.That(SubPixelProbeViewModel.CanResumeSession2(incomplete)).IsFalse();
+        Check.That(SubPixelProbeViewModel.CanResumeSession2(null)).IsFalse();
+        Check.That(SubPixelProbeViewModel.CanResumeSession2(ConvictingSession1())).IsTrue();
+
+        ArgumentException? ex = null;
+        try { _ = new Harness(SubPixelProbeStartMode.ResumeSession2, acquit); }
+        catch (ArgumentException e) { ex = e; }
+        Check.That(ex).IsNotNull();
+        Check.That(ex!.ParamName).IsEqualTo("resumedSession1Verdict");
+
+        ex = null;
+        try { _ = new Harness(SubPixelProbeStartMode.ResumeSession2, null); }
+        catch (ArgumentException e) { ex = e; }
+        Check.That(ex).IsNotNull();
+    }
+
+    // Mutation (resume2): the constructor's refusal guard removed -> the throws never happen.
+
+    [Theory]
+    [InlineData(SubPixelProbeRunEndReason.EndTest)]
+    [InlineData(SubPixelProbeRunEndReason.EyesClosed)]
+    [InlineData(SubPixelProbeRunEndReason.NoAnswer)]
+    public void V1resume3_ResumeIntroHonoursEveryExit(SubPixelProbeRunEndReason exit)
+    {
+        var f = new Harness(SubPixelProbeStartMode.ResumeSession2, ConvictingSession1());
+        f.Vm.Start();
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Intro);
+
+        switch (exit)
+        {
+            case SubPixelProbeRunEndReason.EndTest:
+                f.Vm.SimulateActivated(SubPixelProbeViewModel.EndTestTargetId);
+                break;
+            case SubPixelProbeRunEndReason.EyesClosed:
+                f.Time.Advance(10_100);
+                break;
+            default:
+                f.Drive(60_500);
+                break;
+        }
+
+        Check.That(f.Runs).HasSize(1);
+        Check.That(f.Runs[0]).IsEqualTo(exit);
+        Check.That(f.Sessions).IsEmpty();
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Ended);
+    }
+
+    // Mutation (resume3): the resume skips the Intro (Start goes straight to the live block) ->
+    //   the Phase == Intro check and all three exit cases go red.
+
     // ------------------------------------------------------------------------------------ V1 helpers
+
+    private static SubPixelAbSession1Verdict ConvictingSession1() =>
+        SubPixelAbVerdict.Session1(
+            new SubPixelAbBlockTally(2, 8, 0), new SubPixelAbBlockTally(5, 5, 0));
 
     private static PhysicalPoint Inside => new(ButtonOne.X + 74, ButtonOne.Y);
     private static PhysicalPoint Outside => new(ButtonOne.X + 76, ButtonOne.Y);
@@ -1047,10 +1149,13 @@ public class SubPixelProbeViewModelTests
         public int AnswerClicks;
         public int EndTestClicks;
 
-        public Harness()
+        public Harness(
+            SubPixelProbeStartMode startMode = SubPixelProbeStartMode.FullRun,
+            SubPixelAbSession1Verdict? resumedSession1Verdict = null)
         {
             Schedule = SubPixelAbSchedule.Create(Seed, Screen);
-            Vm = new SubPixelProbeViewModel(Messenger, Time, Schedule, Dwell, () => Valid);
+            Vm = new SubPixelProbeViewModel(
+                Messenger, Time, Schedule, Dwell, () => Valid, startMode, resumedSession1Verdict);
             Vm.PhaseAdvanced += () =>
             {
                 PhaseLog.Add(Vm.Phase);

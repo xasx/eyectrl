@@ -18,6 +18,19 @@ public enum SubPixelProbeSessionKind
     Session2,
 }
 
+/// <summary>Which run a state machine starts.</summary>
+public enum SubPixelProbeStartMode
+{
+    /// <summary>The full run: Intro → session 1 → Ask/Result → session 2 → Result.</summary>
+    FullRun,
+
+    /// <summary>
+    /// A session-2 resume: Intro → session-2 (live) blocks → Result. Used when session 1 already
+    /// convicted and its result was persisted; the caller supplies that verdict.
+    /// </summary>
+    ResumeSession2,
+}
+
 /// <summary>The phase the run is in.</summary>
 public enum SubPixelProbePhase
 {
@@ -153,7 +166,9 @@ public sealed record SubPixelProbeSessionOutcome(
 /// C5 — the sub-pixel visibility test's run state machine.
 /// <para>
 /// One run owns every screen: <c>Intro → session-1 blocks → Ask (only on a session-1 conviction) →
-/// session-2 blocks → Result</c>. Within a block the flow is demo pair → interval 1 → 0.8 s gap →
+/// session-2 blocks → Result</c>. A <see cref="SubPixelProbeStartMode.ResumeSession2"/> run skips
+/// session 1 and its Ask — Intro → session-2 blocks → Result — continuing from a persisted,
+/// convicting session-1 verdict. Within a block the flow is demo pair → interval 1 → 0.8 s gap →
 /// interval 2 → answer → next. Takes <see cref="GazeCursorMovedMessage"/> for dwell and positions,
 /// and validity through an injected callback because the message carries no validity flag.
 /// </para>
@@ -241,6 +256,7 @@ public partial class SubPixelProbeViewModel : MessengerViewModelBase,
     /// <summary>Time since the last valid sample after which the run ends (closed eyes, silence).</summary>
     public const int EyesClosedExitMs = 10_000;
 
+    private readonly SubPixelProbeStartMode _startMode;
     private readonly TimeProvider _timeProvider;
     private readonly SubPixelAbSchedule _schedule;
     private readonly DwellSettings _dwellSettings;
@@ -301,14 +317,36 @@ public partial class SubPixelProbeViewModel : MessengerViewModelBase,
     /// thread for every gaze message; <c>false</c> means the gaze is currently invalid. A missing
     /// sample is silence, handled by the silence guard and the eyes-closed timer.
     /// </param>
+    /// <param name="startMode">The run to start: the full run, or a session-2 resume.</param>
+    /// <param name="resumedSession1Verdict">
+    /// The persisted session-1 verdict a <see cref="SubPixelProbeStartMode.ResumeSession2"/> run
+    /// continues from. Required, and must convict, for a resume; ignored for a full run.
+    /// </param>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="startMode"/> is a session-2 resume whose
+    /// <paramref name="resumedSession1Verdict"/> is missing or does not convict. Callers should
+    /// gate on <see cref="CanResumeSession2"/> and surface their own refusal reason.
+    /// </exception>
     public SubPixelProbeViewModel(
         IMessenger messenger,
         TimeProvider timeProvider,
         SubPixelAbSchedule schedule,
         DwellSettings dwellSettings,
-        Func<bool> isValidSample)
+        Func<bool> isValidSample,
+        SubPixelProbeStartMode startMode = SubPixelProbeStartMode.FullRun,
+        SubPixelAbSession1Verdict? resumedSession1Verdict = null)
         : base(messenger)
     {
+        if (startMode == SubPixelProbeStartMode.ResumeSession2 && !CanResumeSession2(resumedSession1Verdict))
+        {
+            throw new ArgumentException(
+                "A session-2 resume needs a convicting session-1 verdict.", nameof(resumedSession1Verdict));
+        }
+
+        _startMode = startMode;
+        if (startMode == SubPixelProbeStartMode.ResumeSession2)
+            Session1Verdict = resumedSession1Verdict;
+
         _timeProvider = timeProvider;
         _schedule = schedule;
         _dwellSettings = dwellSettings;
@@ -400,13 +438,28 @@ public partial class SubPixelProbeViewModel : MessengerViewModelBase,
         EnterScreen(SubPixelProbePhase.Intro);
     }
 
-    /// <summary>Leaves the Intro screen and starts session 1. Ignored outside Intro.</summary>
+    /// <summary>
+    /// Leaves the Intro screen and starts the run's blocks: session 1 on a full run, session 2 on
+    /// a resume. Ignored outside Intro.
+    /// </summary>
     public void BeginTrials()
     {
         if (IsDisposed || _ended || Phase != SubPixelProbePhase.Intro) return;
         _screenTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
-        BeginSession(SubPixelProbeSessionKind.Session1);
+        BeginSession(_startMode == SubPixelProbeStartMode.ResumeSession2
+            ? SubPixelProbeSessionKind.Session2
+            : SubPixelProbeSessionKind.Session1);
     }
+
+    /// <summary>
+    /// Whether a session-2 resume may start from <paramref name="session1Verdict"/>: only a
+    /// session 1 that <see cref="SubPixelAbOutcome.Convicts"/> opens the live-gaze part. SP-4b
+    /// gates the resume entry on this and can show its own refusal reason.
+    /// </summary>
+    /// <param name="session1Verdict">The persisted session-1 verdict, or <c>null</c> if none was found.</param>
+    /// <returns><c>true</c> when the resume is allowed.</returns>
+    public static bool CanResumeSession2(SubPixelAbSession1Verdict? session1Verdict) =>
+        session1Verdict?.Outcome == SubPixelAbOutcome.Convicts;
 
     /// <summary>Ask → Yes: starts session 2 in the same run. Ignored outside Ask.</summary>
     public void ContinueToLiveGaze()

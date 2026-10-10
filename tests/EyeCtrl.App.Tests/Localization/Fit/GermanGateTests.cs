@@ -204,6 +204,44 @@ public class GermanGateTests
         }
     }
 
+    /// <summary>
+    /// Binding: the drift notice — a crisis surface — shows its whole message. The window is a fixed
+    /// 560 DIP, and the message is ONE line (no wrapping) classed <c>row</c>, which no T09 class
+    /// measures: a longer translation would be clipped at the banner's edge. English is the
+    /// baseline; an over-long message must fail (the teeth).
+    /// </summary>
+    [StaFact]
+    public void TheDriftNotice_ShowsItsWholeMessage_InEnglishAndGerman()
+    {
+        var english = DriftNotice(StringTable.EmbeddedEnglish.T("drift-notice.message"));
+        var german = DriftNotice(GermanDraft.Table.T("drift-notice.message"));
+        var overLong = DriftNotice(string.Join(" ", Enumerable.Repeat(GermanDraft.Table.T("drift-notice.message"), 2)));
+        _output.WriteLine($"English: {english}");
+        _output.WriteLine($"German: {german}");
+        Check.WithCustomMessage("The drift-notice gate passed a doubled message: it cannot fail.").That(overLong.Fits).IsFalse();
+        Check.WithCustomMessage(english.ToString()).That(english.Fits).IsTrue();
+        Check.WithCustomMessage(german.ToString()).That(german.Fits).IsTrue();
+    }
+
+    /// <summary>The drift notice's content at 2.0 in its own 560 × 72 window: the message's one line must fit the banner inside it.</summary>
+    private static FitVerdict DriftNotice(string message)
+    {
+        EyeCtrl.App.Tests.Fixtures.WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new DriftNoticeWindow();
+        window.Message.Text = message;
+        var root = (System.Windows.FrameworkElement)window.Content;
+        window.Content = null;
+        using var host = FitHost.Open(root, width: window.Width, height: window.Height, inheritFrom: window);
+        var banner = window.Banner;
+        var natural = FitText.NaturalWidth(window.Message, message);
+        var room = window.Width - banner.Padding.Left - banner.Padding.Right
+                   - banner.BorderThickness.Left - banner.BorderThickness.Right;
+        var shown = window.Message.ActualWidth;
+        return new FitVerdict(natural <= room && natural <= shown + 0.5,
+            $"one line {FitText.Dip(natural)} DIP; shown {FitText.Dip(shown)}; room in the {FitText.Dip(window.Width)} DIP window {FitText.Dip(room)}",
+            FitText.ResolvedFace(window.Message), room - natural);
+    }
+
     /// <summary>Binding: every German TrackStatus row fits the fixed window's width (de-DE digits included).</summary>
     [StaFact]
     public void EveryTrackStatusRow_InGerman_FitsTheWindowWidth()

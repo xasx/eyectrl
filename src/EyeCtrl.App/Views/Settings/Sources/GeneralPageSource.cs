@@ -58,6 +58,12 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                     () => _ctx.ShowModal("Reset ALL settings to defaults?\nThis cannot be undone.", () =>
                     {
                         _ctx.ViewModel.Settings.ResetAllSettings();
+                        // ResetAllSettings copies every default by reflection, including
+                        // the Midnight-absolute mark colours — the third path that can
+                        // reopen the cross-theme carry-over at runtime (round 3, R2;
+                        // the other two were the cursor and advanced resets).
+                        EyeCtrl.App.Services.ThemeStartup.MigrateHaloedMarks(
+                            EyeCtrl.Controls.Theme.Tokens.Current, _ctx.Settings);
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     }),

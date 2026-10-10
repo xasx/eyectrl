@@ -222,12 +222,33 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
     /// The C10 button's precondition probe (build plan C10 / review 03 F11): <c>null</c> when the
     /// run may start, otherwise the localized one-line reason. Evaluated on activation, never as a
     /// live label.
+    /// <para>
+    /// <b>The SettingsOpen term is deliberately absent.</b> The button lives inside Settings, which
+    /// holds <c>SettingsOpen = true</c> for as long as it is open, so the full precondition would
+    /// refuse every press with "Close Settings first". The request closes Settings synchronously,
+    /// and <see cref="BeginStart"/> re-checks the full precondition — SettingsOpen included — once
+    /// the queued start runs, so a re-opened window still refuses (review 04 N3; fixup 01 B1).
+    /// </para>
     /// </summary>
     internal string? GetBlockReason()
     {
-        var refusal = CurrentRefusal();
+        var refusal = ButtonRefusal();
         return refusal is null ? null : ReasonText(refusal.Value);
     }
+
+    /// <summary>
+    /// The C10 reason's precondition: everything <see cref="RefusalFor"/> checks except
+    /// SettingsOpen, because the button is pressed from inside Settings.
+    /// </summary>
+    internal static ProbeRefusal? ButtonRefusalFor(
+        InteractionState state,
+        bool menusVisible,
+        bool eyeCareEnabled,
+        bool adaptationEnabled,
+        bool sessionLive,
+        bool calibrationActive) =>
+        RefusalFor(state, menusVisible, eyeCareEnabled, adaptationEnabled,
+            settingsOpen: false, sessionLive, calibrationActive);
 
     /// <summary>
     /// The precondition, as a pure function so W8 can kill each term in isolation (the SP-4a gate
@@ -268,22 +289,36 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
 
     private ProbeRefusal? CurrentRefusal()
     {
-        var context = Context;
-        if (context is null) return ProbeRefusal.SettingsOpen;
-
-        bool menusVisible = context.ModesMenuVM.IsVisible
-            || context.TaskSwitcherVM.IsVisible
-            || context.QuickActionsGridVM.IsVisible;
+        if (Context is null) return ProbeRefusal.SettingsOpen;
 
         return RefusalFor(
-            context.InteractionManager.CurrentState,
-            menusVisible,
-            context.Settings.EyeCare.Enabled,
-            context.Settings.Adaptation.Enabled,
+            Context.InteractionManager.CurrentState,
+            AnyMenuVisible(),
+            Context.Settings.EyeCare.Enabled,
+            Context.Settings.Adaptation.Enabled,
             _modal.SettingsOpen,
             _session is not null,
-            context.CalibrationService.IsSessionActive);
+            Context.CalibrationService.IsSessionActive);
     }
+
+    /// <summary>The C10 reason's live-inputs form; see <see cref="ButtonRefusalFor"/>.</summary>
+    private ProbeRefusal? ButtonRefusal()
+    {
+        if (Context is null) return ProbeRefusal.SettingsOpen;
+
+        return ButtonRefusalFor(
+            Context.InteractionManager.CurrentState,
+            AnyMenuVisible(),
+            Context.Settings.EyeCare.Enabled,
+            Context.Settings.Adaptation.Enabled,
+            _session is not null,
+            Context.CalibrationService.IsSessionActive);
+    }
+
+    private bool AnyMenuVisible() =>
+        Context!.ModesMenuVM.IsVisible
+        || Context.TaskSwitcherVM.IsVisible
+        || Context.QuickActionsGridVM.IsVisible;
 
     private void OnSettingsOpenChanged(bool open)
     {

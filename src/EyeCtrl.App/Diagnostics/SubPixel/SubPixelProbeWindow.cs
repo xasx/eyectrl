@@ -81,15 +81,21 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
     /// <param name="vm">The run's view model; its phase drives every screen.</param>
     /// <param name="cursorSettings">The ring look the probe draws with.</param>
     /// <param name="sessionEnded">Invoked once, when this window's close is observed.</param>
+    /// <param name="scale">
+    /// Device pixels per DIP. Production passes <c>null</c> and the window reads
+    /// <see cref="DpiHelper.ScaleX"/>; the W6 hit tests inject 1.0 and 2.0 to prove the registered
+    /// geometry is in the same physical units the gaze path uses (C4's injection pattern).
+    /// </param>
     public SubPixelProbeWindow(
         BitmapSource? backdrop,
         SubPixelProbeViewModel vm,
         CursorSettings cursorSettings,
-        Action sessionEnded)
+        Action sessionEnded,
+        double? scale = null)
     {
         _vm = vm ?? throw new ArgumentNullException(nameof(vm));
         _sessionEnded = sessionEnded ?? throw new ArgumentNullException(nameof(sessionEnded));
-        _scale = DpiHelper.ScaleX <= 0 ? 1.0 : DpiHelper.ScaleX;
+        _scale = scale ?? (DpiHelper.ScaleX <= 0 ? 1.0 : DpiHelper.ScaleX);
 
         // C6's window properties (build plan C6): opaque, full-screen on the primary monitor,
         // topmost, never activated, not in the taskbar or Alt-Tab. Not click-through (the window
@@ -183,7 +189,6 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         _resultText.MaxWidth = 720;
 
         RegisterTargets();
-        Layout();
 
         _vm.PropertyChanged += OnVmPropertyChanged;
         SizeChanged += (_, _) => Layout();
@@ -326,8 +331,9 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
 
     /// <summary>
     /// Lays the screens and buttons out for the current window size, then re-centres every dwell
-    /// target. Runs on every size change; a headless window that was never shown has no size and
-    /// keeps the registration-time positions.
+    /// target from its laid-out position. Runs on every size change and on every phase change
+    /// (<see cref="ApplyPhase"/>), because a panel that is Collapsed until its phase starts has no
+    /// arrange until then.
     /// </summary>
     internal void Layout()
     {
@@ -354,13 +360,8 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         Centre(_askPanel, width, height);
         Centre(_resultPanel, width, height);
 
-        UpdateTargetGeometry(SubPixelProbeViewModel.AnswerOneTargetId, _answerOne, AnswerWidth, AnswerHeight);
-        UpdateTargetGeometry(SubPixelProbeViewModel.AnswerTwoTargetId, _answerTwo, AnswerWidth, AnswerHeight);
-        UpdateTargetGeometry(SubPixelProbeViewModel.EndTestTargetId, _endTest, EndButtonWidth, EndButtonHeight);
-        UpdateTargetGeometry(SubPixelProbeViewModel.IntroStartTargetId, _introStart, ScreenButtonWidth, ScreenButtonHeight);
-        UpdateTargetGeometry(SubPixelProbeViewModel.AskYesTargetId, _askYes, ScreenButtonWidth, ScreenButtonHeight);
-        UpdateTargetGeometry(SubPixelProbeViewModel.AskLaterTargetId, _askLater, ScreenButtonWidth, ScreenButtonHeight);
-        UpdateTargetGeometry(SubPixelProbeViewModel.ResultDoneTargetId, _resultDone, ScreenButtonWidth, ScreenButtonHeight);
+        EnsureArranged();
+        UpdateTargetGeometry();
     }
 
     private void Centre(FrameworkElement panel, double width, double height)
@@ -370,13 +371,78 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         Canvas.SetTop(panel, (height - panel.DesiredSize.Height) / 2);
     }
 
-    private void UpdateTargetGeometry(string id, FrameworkElement element, double width, double height)
+    /// <summary>
+    /// Recomputes every target's registered centre from the element's <b>laid-out</b> position in
+    /// the scene, in physical pixels for the injected scale. The screen buttons are children of
+    /// StackPanels, so their Canvas attachments are NaN — reading Canvas.Left/Top gave them no hit
+    /// circle at all (fixup 01 B2). A target whose phase is not showing is skipped and keeps its
+    /// last centre.
+    /// </summary>
+    internal void UpdateTargetGeometry()
     {
-        double left = Canvas.GetLeft(element);
-        double top = Canvas.GetTop(element);
-        _vm.UpdatePosition(id, DwellCategory.Control, new PhysicalPoint(
-            (left + width / 2) * _scale, (top + height / 2) * _scale));
+        UpdateTargetGeometry(SubPixelProbeViewModel.AnswerOneTargetId, _answerOne);
+        UpdateTargetGeometry(SubPixelProbeViewModel.AnswerTwoTargetId, _answerTwo);
+        UpdateTargetGeometry(SubPixelProbeViewModel.EndTestTargetId, _endTest);
+        UpdateTargetGeometry(SubPixelProbeViewModel.IntroStartTargetId, _introStart);
+        UpdateTargetGeometry(SubPixelProbeViewModel.AskYesTargetId, _askYes);
+        UpdateTargetGeometry(SubPixelProbeViewModel.AskLaterTargetId, _askLater);
+        UpdateTargetGeometry(SubPixelProbeViewModel.ResultDoneTargetId, _resultDone);
     }
+
+    /// <summary>
+    /// A centre no gaze sample can reach. A target whose button is not on screen keeps its entry in
+    /// the detector (the registrar has no phase concept), so it must be parked here instead of
+    /// holding a stale centre — otherwise a gaze at the screen's top-left corner dwells on an
+    /// invisible button (fixup 01 B2).
+    /// </summary>
+    private static readonly PhysicalPoint OffScreenCentre = new(-10_000, -10_000);
+
+    private void UpdateTargetGeometry(string id, FrameworkElement element)
+    {
+        // Own visibility, not IsVisible: IsVisible is false for every element of a window that has
+        // not been shown yet, which would keep the headless build from ever computing geometry.
+        if (element.Visibility != Visibility.Visible || element.ActualWidth <= 0 || element.ActualHeight <= 0)
+        {
+            _vm.UpdatePosition(id, DwellCategory.Control, OffScreenCentre);
+            return;
+        }
+
+        Point sceneCentre = element.TransformToAncestor(_scene)
+            .Transform(new Point(element.ActualWidth / 2, element.ActualHeight / 2));
+        _vm.UpdatePosition(id, DwellCategory.Control, new PhysicalPoint(
+            sceneCentre.X * _scale, sceneCentre.Y * _scale));
+    }
+
+    /// <summary>
+    /// Forces a layout pass when the scene has none yet (the pre-Show construction and headless
+    /// tests): Measure/Arrange at the window's size, then flush the visibility invalidations the
+    /// phase change just made. A shown window is already laid out, so this is effectively a no-op.
+    /// </summary>
+    private void EnsureArranged()
+    {
+        if (_scene.ActualWidth <= 0 || _scene.ActualHeight <= 0)
+        {
+            var size = new Size(Width, Height);
+            if (size.Width <= 0 || size.Height <= 0) return;
+            _scene.Measure(size);
+            _scene.Arrange(new Rect(size));
+        }
+
+        _scene.UpdateLayout();
+    }
+
+    /// <summary>Test seam: the button element a dwell target is registered against (W6).</summary>
+    internal FrameworkElement? TargetElementForTest(string id) => id switch
+    {
+        SubPixelProbeViewModel.AnswerOneTargetId => _answerOne,
+        SubPixelProbeViewModel.AnswerTwoTargetId => _answerTwo,
+        SubPixelProbeViewModel.EndTestTargetId => _endTest,
+        SubPixelProbeViewModel.IntroStartTargetId => _introStart,
+        SubPixelProbeViewModel.AskYesTargetId => _askYes,
+        SubPixelProbeViewModel.AskLaterTargetId => _askLater,
+        SubPixelProbeViewModel.ResultDoneTargetId => _resultDone,
+        _ => null,
+    };
 
     private void ApplyPhase()
     {
@@ -416,6 +482,10 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         _ring.Opacity = _vm.CurrentBlock == SubPixelAbBlock.Static
             ? ProbeRingVisual.PinnedLookOpacity
             : ProbeRingVisual.QuietLookOpacity;
+
+        // The phase decides which panels are visible, so it also decides which targets have render
+        // geometry: a panel that was Collapsed has no arrange until now (fixup 01 B2).
+        Layout();
     }
 
     private string TrialLabel()

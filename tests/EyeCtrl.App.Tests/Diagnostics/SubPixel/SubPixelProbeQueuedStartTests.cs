@@ -21,6 +21,13 @@ public class SubPixelProbeQueuedStartTests
         using var world = new ProbeTestWorld(withQuickActions: true, withSettingsUi: true);
         Check.That(world.QuickActions!.IsSummonSuspended).IsFalse();
 
+        // Settings is really open — the button is pressed from inside it (fixup 01 B1). C10's
+        // reason must therefore be null, or every press would say "Close Settings first".
+        world.Modal.SettingsOpen = true;
+        world.Modal.SettingsOpenChanged?.Invoke(true);
+        Check.WithCustomMessage("C10's reason refused while Settings is open (the button's own host)")
+            .That(world.Coordinator.GetBlockReason()).IsNull();
+
         world.Coordinator.RequestStart(Close(world));
 
         // The close has returned; BeginStart is queued at Background and must not have run.
@@ -51,6 +58,26 @@ public class SubPixelProbeQueuedStartTests
 
         Check.WithCustomMessage("A close C10 never requested armed the probe")
             .That(world.Modal.ProbeOpen).IsFalse();
+        Check.That(world.Host.CountOf("SetProbeOpen")).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void TheC10Reason_IgnoresSettingsOpen_ButBeginStartStillRefuses()
+    {
+        // B1: the button lives inside Settings, so its reason must not include SettingsOpen; the
+        // queued start keeps the full precondition, because by then the close has run and a
+        // re-opened Settings window must still refuse (review 04 N3).
+        using var world = new ProbeTestWorld(withQuickActions: true, withSettingsUi: true);
+        world.Modal.SettingsOpen = true;
+
+        Check.WithCustomMessage("C10's reason must ignore SettingsOpen")
+            .That(world.Coordinator.GetBlockReason()).IsNull();
+
+        world.Coordinator.StartForTest();
+
+        Check.WithCustomMessage("BeginStart must keep the SettingsOpen term")
+            .That(world.Modal.ProbeOpen).IsFalse();
+        Check.That(world.Coordinator.LiveSessionForTest).IsNull();
         Check.That(world.Host.CountOf("SetProbeOpen")).IsEqualTo(0);
     }
 

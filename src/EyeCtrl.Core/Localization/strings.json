@@ -441,7 +441,7 @@
     "text": "accuracy",
     "who": "user",
     "where": "eye-care",
-    "fit": "A56",
+    "fit": "card",
     "args": []
   },
   "eye-care.summary.complete": {
@@ -457,21 +457,21 @@
     "text": "reaction ms",
     "who": "user",
     "where": "eye-care",
-    "fit": "A56",
+    "fit": "card",
     "args": []
   },
   "eye-care.summary.steadiness": {
     "text": "steadiness",
     "who": "user",
     "where": "eye-care",
-    "fit": "A56",
+    "fit": "card",
     "args": []
   },
   "eye-care.summary.title": {
     "text": "✓ Nice work",
     "who": "user",
     "where": "eye-care",
-    "fit": "A56",
+    "fit": "card",
     "args": []
   },
   "language-recovery.note.pending": {

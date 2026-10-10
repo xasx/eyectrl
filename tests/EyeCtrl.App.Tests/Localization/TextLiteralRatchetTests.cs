@@ -202,6 +202,18 @@ public class TextLiteralRatchetTests
             "private const string StartupErrorTitle = \"EyeCtrl — Startup Error\";",
             "\"EyeCtrl — Startup Error\"");
 
+    /// <summary>T09 review-01 R4 (mutant A20): the const hole in another keyword is a sink too.</summary>
+    [Fact]
+    public void TheScan_CatchesAStaticReadonlyStringInitialiser()
+    {
+        CheckCatches(
+            "private static readonly string Hint = \"Please check on the user now\";",
+            "\"Please check on the user now\"");
+        CheckCatches(
+            "internal readonly static string Hint = \"Please check on the user now\";",
+            "\"Please check on the user now\"");
+    }
+
     /// <summary>T09 (T06 review N2): the setup window's <c>statusText:</c> argument is a sink.</summary>
     [Fact]
     public void TheScan_CatchesAStatusTextArgument() =>

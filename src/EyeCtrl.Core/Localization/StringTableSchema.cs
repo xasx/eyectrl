@@ -51,6 +51,9 @@ public static class StringTableSchema
         "A44",
         // A short caption: one line ≤ 56 DIP (the eye-care banner's 64 DIP rings less 8).
         "A56",
+        // The eye-care summary card's labels: one line, and the auto-width card they widen still
+        // fits the 1920 DIP exercise window (the card has no box of its own, so that is the bound).
+        "card",
         // A Settings sidebar tab: the label may overhang its tab highlight by < 8 DIP.
         "tab156",
         // The Supervisor tray tooltip: prefix + phrase ≤ 63 characters (D12).
@@ -58,7 +61,8 @@ public static class StringTableSchema
         // A default 100×100 DwellButton: 94 × 94 DIP of wrapping text (no keys today).
         "B94x2",
         // The quick-actions tile label. NOT 114: the label wraps in 106 DIP (the 120 DIP tile less
-        // its border and the label's 6 DIP margins) and must fit the tile's height under the icon.
+        // its border and the label's 6 DIP margins; 104 under the Contrast theme's 2 DIP border,
+        // which binds) and must fit the tile's height under the icon.
         "B114",
         // A 300×100 Settings button. NOT 260: the label wraps in 300 DIP and must fit 94 DIP of
         // height (the 6 DIP dwell bar is reserved), which is two lines.

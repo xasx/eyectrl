@@ -56,8 +56,17 @@ internal static class AppFitMeasurers
     /// </summary>
     internal static readonly Rect ReferenceWorkArea = new(0, 0, 1920, 1152);
 
-    /// <summary>The Settings content column a button row is laid into on the user's display.</summary>
-    private const double SettingsColumnWidth = 1680;
+    /// <summary>
+    /// The Settings content column a button row is laid into: production's own derivation at the
+    /// 1920 DIP display (<c>HandChunkedPageFitTests.ContentColumnWidth</c>, ≈1424). Wider than the
+    /// widest box (544), so <c>ConstrainToContentWidth</c> never clamps and the measured box is the
+    /// drawn box. KNOWN LIMIT (review-01 D2): on an 800 DIP display the column is 416 and the 420+
+    /// boxes clamp unmeasured; that is not this user's display.
+    /// </summary>
+    private static double SettingsColumnWidth => SettingsColumn.Value;
+
+    private static readonly Lazy<double> SettingsColumn = new(() =>
+        EyeCtrl.App.Tests.Settings.HandChunkedPageFitTests.ContentColumnWidth(SettingsContentFitTests.Xml()));
 
     /// <summary>The class-A budget rule: a one-line text keeps 4 DIP clear on each side of its box.</summary>
     private const double OneLineInset = 8;
@@ -73,6 +82,7 @@ internal static class AppFitMeasurers
             ["A68"] = ModifierBar,
             ["A44"] = (_, text) => ToggleStateWord(text),
             ["A56"] = ShortCaption,
+            ["card"] = (key, text) => SummaryCard(key, text),
             ["tab156"] = SidebarTab,
             ["B94x2"] = (_, text) => DefaultDwellButton(text),
             ["B114"] = (_, text) => QuickActionTile(text),
@@ -166,12 +176,13 @@ internal static class AppFitMeasurers
             + $"inside the arc's inner edge {FitText.Dip(fit.ArcInnerEdgeDip)}; overlaps icon: {fit.OverlapsIcon}";
         var face = FitText.ResolvedFace(button.Label!);
         if (key.StartsWith("overlays.", StringComparison.Ordinal))
-            return new FitVerdict(ok, detail, face);
+            return new FitVerdict(ok, detail, face, fit.ClearanceDip - ArcLabelFit.RequiredClearanceDip);
 
         // A settings.ring.* key (or a synthetic probe) is ALSO drawn by the Settings preview, in a
         // different geometry: an unscaled label under each miniature slot, unbounded in width.
         var preview = RingPreviewLabels(text);
-        return new FitVerdict(ok && preview.Fits, detail + "; preview: " + preview.Detail, face);
+        return new FitVerdict(ok && preview.Fits, detail + "; preview: " + preview.Detail, face,
+            fit.ClearanceDip - ArcLabelFit.RequiredClearanceDip);
     }
 
     /// <summary>
@@ -292,7 +303,7 @@ internal static class AppFitMeasurers
         }
 
         return new FitVerdict(worst.Clearance >= ArcLabelFit.RequiredClearanceDip && !worst.Overlap,
-            worst.Detail + $" (needs ≥ {FitText.Dip(ArcLabelFit.RequiredClearanceDip)})", worst.Face);
+            worst.Detail + $" (needs ≥ {FitText.Dip(ArcLabelFit.RequiredClearanceDip)})", worst.Face, worst.Clearance - ArcLabelFit.RequiredClearanceDip);
     }
 
     /// <summary>
@@ -323,29 +334,13 @@ internal static class AppFitMeasurers
     private static FitVerdict ShortCaption(string key, string text)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
-        if (key.StartsWith("eye-care.exercise.", StringComparison.Ordinal)
-            || key.StartsWith("eye-care.summary.", StringComparison.Ordinal))
+        if (key.StartsWith("eye-care.exercise.", StringComparison.Ordinal))
         {
             var window = new EyeCareExerciseWindow();
-            if (key == "eye-care.exercise.skip") window.SkipButton.Content = text;
-            var label = key switch
-            {
-                "eye-care.summary.title" => window.SummaryTitle,
-                "eye-care.summary.accuracy" => window.AccuracyLabel,
-                "eye-care.summary.steadiness" => window.SteadinessLabel,
-                "eye-care.summary.reactionMs" => window.ReactionMsLabel,
-                _ => null,
-            };
-            if (label is not null) label.Text = text;
-
+            window.SkipButton.Content = text;
             var root = (FrameworkElement)window.Content;
             window.Content = null;
             using var host = FitHost.Open(root, inheritFrom: window);
-            if (label is not null)
-                // The summary card sizes to its content: there is no box, so the class budget is
-                // the whole rule.
-                return OneLine(label, text, A56Budget, $"budget {A56Budget}, auto-width card");
-
             var skipText = FitText.Descendants<TextBlock>(window.SkipButton).Single();
             var skip = window.SkipButton;
             var slot = skip.ActualWidth - skip.Padding.Left - skip.Padding.Right
@@ -364,6 +359,52 @@ internal static class AppFitMeasurers
             $"budget {A56Budget}, ring {FitText.Dip(ring)} − {OneLineInset}");
     }
 
+    /// <summary>
+    /// The reference exercise window: the window is <c>PrimaryScreenWidth</c> wide, which on the
+    /// user's 3840×2400 display at 200 % is 1920 DIP.
+    /// </summary>
+    internal const double ExerciseWindowWidth = 1920;
+
+    /// <summary>
+    /// card: the eye-care summary card's labels (review-01 R1). The card is an auto-width panel
+    /// centred in the full-screen exercise window, so a label has no box of its own; its real bound
+    /// is that it stays on one line (the labels never wrap) and the card it widens still fits the
+    /// window. The card is laid out with the text in its slot, every other summary text at its
+    /// English, and the stat values at their widest ("100%", "100%", "9999"), and its natural width
+    /// must fit <see cref="ExerciseWindowWidth"/>.
+    /// </summary>
+    private static FitVerdict SummaryCard(string key, string text)
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new EyeCareExerciseWindow();
+        var label = key switch
+        {
+            "eye-care.summary.accuracy" => window.AccuracyLabel,
+            "eye-care.summary.steadiness" => window.SteadinessLabel,
+            "eye-care.summary.reactionMs" => window.ReactionMsLabel,
+            _ => window.SummaryTitle,
+        };
+        label.Text = text;
+        window.SummaryAccuracy.Text = "100%";
+        window.SummarySteadiness.Text = "100%";
+        window.SummaryReactionTime.Text = "9999";
+        window.ReactionTimePanel.Visibility = Visibility.Visible;
+        window.SummaryCard.Visibility = Visibility.Visible;
+
+        var root = (FrameworkElement)window.Content;
+        window.Content = null;
+        using var host = FitHost.Open(root, inheritFrom: window);
+        var card = window.SummaryCard;
+        card.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var cardWidth = card.DesiredSize.Width;
+        host.Relayout();
+        var lineWidth = FitText.NaturalWidth(label, text);
+        var ok = label.TextWrapping == TextWrapping.NoWrap && cardWidth <= ExerciseWindowWidth;
+        return new FitVerdict(ok,
+            $"one line {FitText.Dip(lineWidth)} DIP; the card {FitText.Dip(cardWidth)} wide vs the {ExerciseWindowWidth} DIP window",
+            FitText.ResolvedFace(label), ExerciseWindowWidth - cardWidth);
+    }
+
     /// <summary>tab156: a sidebar tab, rebuilt element for element (see <see cref="SidebarTabFit"/>).</summary>
     private static FitVerdict SidebarTab(string key, string text)
     {
@@ -373,7 +414,7 @@ internal static class AppFitMeasurers
         return new FitVerdict(ok,
             $"label right {FitText.Dip(tab.LabelRight)} vs column {FitText.Dip(tab.ColumnWidth)}; overhangs its tab by "
             + $"{FitText.Dip(overhang)} (must be < {FitText.Dip(SidebarTabFit.ToleratedOverhang)})",
-            tab.Face);
+            tab.Face, Math.Min(tab.ColumnWidth - tab.LabelRight, SidebarTabFit.ToleratedOverhang - overhang));
     }
 
     private static FitVerdict OneLine(TextBlock element, string text, double room, string roomNote)
@@ -387,7 +428,7 @@ internal static class AppFitMeasurers
         var width = FitText.NaturalWidth(element, text);
         return new FitVerdict(width <= room,
             $"one line {FitText.Dip(width)} DIP vs room {FitText.Dip(room)} ({roomNote})",
-            FitText.ResolvedFace(element));
+            FitText.ResolvedFace(element), room - width);
     }
 
     // ────── Class B: wrapping buttons ──────
@@ -444,7 +485,7 @@ internal static class AppFitMeasurers
         return new FitVerdict(ok,
             $"widest run '{run}' {FitText.Dip(runWidth)} vs width {FitText.Dip(roomWidth)}; wrapped height "
             + $"{FitText.Dip(height)} vs {FitText.Dip(roomHeight)} ({boxNote})",
-            FitText.ResolvedFace(label));
+            FitText.ResolvedFace(label), Math.Min(roomWidth - runWidth, roomHeight - height));
     }
 
     /// <summary>
@@ -474,7 +515,7 @@ internal static class AppFitMeasurers
         return new FitVerdict(ok,
             $"widest run '{run}' {FitText.Dip(runWidth)} vs label width {FitText.Dip(roomWidth)}; icon+label+bar "
             + $"{FitText.Dip(stackHeight)} vs tile inner height {FitText.Dip(grid.ActualHeight)}",
-            FitText.ResolvedFace(label));
+            FitText.ResolvedFace(label), Math.Min(roomWidth - runWidth, grid.ActualHeight - stackHeight));
     }
 
     /// <summary>
@@ -534,6 +575,7 @@ internal static class AppFitMeasurers
             + $"bottom {FitText.Dip(bottom)} (anchor {FitText.Dip(ReferenceWorkArea.Bottom - CaregiverAlertWindow.MarginDip)}); "
             + $"laid out at 2.0: {FitText.Dip(laidOut)}; title one line {FitText.Dip(titleWidth)} and widest run '{run}' "
             + $"{FitText.Dip(runWidth)} vs text room {FitText.Dip(textRoom)}",
-            FitText.ResolvedFace(isTitle ? window.TitleText : window.Message));
+            FitText.ResolvedFace(isTitle ? window.TitleText : window.Message),
+            Math.Min(textRoom - titleWidth, textRoom - runWidth));
     }
 }

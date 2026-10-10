@@ -7,23 +7,25 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Xml.Linq;
 using EyeCtrl.App.Views;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Tests.TestSupport;
 
 /// <summary>
-/// One Settings sidebar tab, rebuilt element for element and measured at 2.0 — the geometry the
-/// <c>tab156</c> class and <see cref="EyeCtrl.App.Tests.SettingsTabLabelFitTests"/> share.
+/// One Settings sidebar tab, measured at 2.0 — the geometry the <c>tab156</c> class and
+/// <see cref="EyeCtrl.App.Tests.SettingsTabLabelFitTests"/> share. The TAB itself is production's
+/// (<see cref="SettingsWindow.BuildTabFace"/>, review-01 R3); only the sidebar column around it is
+/// rebuilt, with its width and the tab panel's margin read off SettingsWindow.xaml.
 ///
 /// <para>
 /// <see cref="SettingsWindow"/> cannot be constructed here (it takes eight non-optional
-/// dependencies), so the tab's tree is rebuilt the way <c>SettingsWindow.BuildTabButtons</c> and
-/// the XAML around it build it: the root two-column grid, the sidebar's Auto/Star rows, the close
-/// border that sizes row 0, the <c>TabButtonPanel</c>'s Margin 8, the tab border's Margin 4 and the
-/// inner horizontal panel's Margin 16,0,16,0. The column width is read from SettingsWindow.xaml,
-/// the label type from the live tokens and the icon size from the production expression, so none
-/// of them is restated. Since T09 it is laid out in <see cref="FitHost"/> at 2.0.
+/// dependencies), so the column around the tab is rebuilt from the XAML: the root two-column grid
+/// with the sidebar's width, and the <c>TabButtonPanel</c> with its margin. Everything that decides
+/// where the label ends — the tab's own margin, its inner panel's margins, the icon's size and
+/// spacing, the label's type — comes from <see cref="SettingsWindow.BuildTabFace"/>, the builder
+/// production uses, so none of it is restated. Laid out in <see cref="FitHost"/> at 2.0.
 /// </para>
 /// </summary>
 internal static class SidebarTabFit
@@ -68,6 +70,9 @@ internal static class SidebarTabFit
         return width;
     }
 
+    /// <summary>The sidebar's <c>TabButtonPanel</c> margin, from SettingsWindow.xaml.</summary>
+    internal static Thickness TabButtonPanelMargin() => SettingsContentFitTests.Margin(SettingsContentFitTests.Xml(), "TabButtonPanel");
+
     /// <summary>Every tab's label key → icon, from the production <c>_tabDefs</c> initializer.</summary>
     internal static IReadOnlyDictionary<string, string> IconsByKey() =>
         SettingsTabDriftTests.RenderedTabDefs().ToDictionary(t => t.LabelKey, t => t.Icon, StringComparer.Ordinal);
@@ -90,7 +95,6 @@ internal static class SidebarTabFit
         const double windowWidth = 1600;
         const double windowHeight = 900;
         var columnWidth = ColumnWidth();
-        var iconSize = SettingsWindow.TabContainerHeight * ContainerRatio.Medium;
 
         var outer = new Grid { Width = windowWidth, Height = windowHeight };
         outer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(columnWidth) });
@@ -112,36 +116,15 @@ internal static class SidebarTabFit
         Grid.SetRow(close, 0);
         sidebar.Children.Add(close);
 
-        var panel = new StackPanel { Margin = new Thickness(8), VerticalAlignment = VerticalAlignment.Top };
+        // The TabButtonPanel's margin, read off the XAML (the panel the tabs are stacked in).
+        var panel = new StackPanel { Margin = TabButtonPanelMargin(), VerticalAlignment = VerticalAlignment.Top };
         Grid.SetRow(panel, 1);
         sidebar.Children.Add(panel);
 
-        var iconText = new TextBlock
-        {
-            Text = icon,
-            FontSize = iconSize,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 12, 0),
-        };
-        var labelText = new TextBlock
-        {
-            Text = label,
-            FontSize = Tokens.FontSizeTitle,
-            FontWeight = Tokens.FontWeightMedium,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        var border = new Border
-        {
-            Height = SettingsWindow.TabContainerHeight,
-            Margin = new Thickness(4),
-            Child = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(16, 0, 16, 0),
-                Children = { iconText, labelText },
-            },
-        };
+        // The production face, not a copy (review-01 R3): BuildTabButtons builds every tab through
+        // BuildTabFace, so its margins, type and icon size are what is measured here.
+        var border = SettingsWindow.BuildTabFace("fit_probe", icon, label, new SolidColorBrush(Colors.Transparent));
+        var labelText = ((StackPanel)border.Child).Children.OfType<TextBlock>().Last();
         panel.Children.Add(border);
 
         // FontFamily is inherited; OverlayWindow sets it on the window, the host sets it here.

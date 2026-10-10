@@ -192,7 +192,12 @@ internal sealed class FitHost : IDisposable
 /// <param name="Fits">True when the text meets every rule of the class.</param>
 /// <param name="Detail">The measured numbers and, on failure, which rule broke.</param>
 /// <param name="Face">The resolved font face the measurement used.</param>
-internal sealed record FitVerdict(bool Fits, string Detail, string Face)
+/// <param name="Margin">
+/// The verdict's tightest slack in DIP — room less need, so positive while the text fits and
+/// negative by how much it does not — or NaN where a class has no single figure. A recorded English
+/// exception is bounded by it: the measurement may not get worse than the figure on record.
+/// </param>
+internal sealed record FitVerdict(bool Fits, string Detail, string Face, double Margin = double.NaN)
 {
     public override string ToString() => $"{(Fits ? "fits" : "FAILS")}: {Detail} [{Face}]";
 }
@@ -266,7 +271,12 @@ internal static class FitText
         };
         TextOptions.SetTextFormattingMode(probe, TextOptions.GetTextFormattingMode(like));
         probe.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        return probe.DesiredSize.Width;
+
+        // Rounded UP to the device pixel at the user's 2.0 (review-01 N4): the probe is unhosted
+        // and unrounded, while a production root with UseLayoutRounding snaps widths to the pixel
+        // grid, so the raw figure could read up to half a DIP generous. Rounding up keeps the probe
+        // never more lenient than the drawn text.
+        return Math.Ceiling(probe.DesiredSize.Width * FitHost.Scale) / FitHost.Scale;
     }
 
     /// <summary>The widest unbreakable run of <paramref name="text"/> in <paramref name="like"/>'s font.</summary>

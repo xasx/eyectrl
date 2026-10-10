@@ -444,11 +444,22 @@ internal static class TextLiteralScan
 
     /// <summary>
     /// A <c>const string</c> initialiser (T09; T06 review N2: the startup-error title once lived
-    /// in one and the ratchet never saw it). Every const string in a scanned file is recorded: most
-    /// are ids, and the final ratchet's exception list names them as such.
+    /// in one and the ratchet never saw it), and its twin in another keyword, a
+    /// <c>static readonly string</c> field (T09 review-01 R4, mutant A20). Every such string in a
+    /// scanned file is recorded: most are ids, and the final ratchet's exception list names them as
+    /// such.
+    ///
+    /// <para>
+    /// <b>Known hole, swept empty:</b> a BLOCK-bodied member that returns a literal
+    /// (<c>string Hint() { return "…"; }</c>, review-01 mutant A21) is not a sink — only the
+    /// expression-bodied form is (<see cref="StringExpressionMember"/>). No scanned file holds that
+    /// shape today (grepped 2026-10-10 across App, Controls, ViewModels, Supervisor and EyeCare), so
+    /// the final-state assertion loses nothing now; a producer member written that way must be
+    /// listed in <see cref="ProducerMembers"/>, which scans block bodies.
+    /// </para>
     /// </summary>
     private static readonly Regex ConstStringInitialiser = new(
-        @"(?<![A-Za-z0-9_])const\s+string\s+[A-Za-z_][A-Za-z0-9_]*\s*=(?!=)",
+        @"(?<![A-Za-z0-9_])(?:const|static\s+readonly|readonly\s+static)\s+string\??\s+[A-Za-z_][A-Za-z0-9_]*\s*=(?!=)",
         RegexOptions.Compiled);
 
     /// <summary>

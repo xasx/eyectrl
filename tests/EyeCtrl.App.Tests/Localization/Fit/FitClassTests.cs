@@ -13,11 +13,19 @@ using EyeCtrl.Tests.TestSupport;
 ///
 /// <para>
 /// <b>The English baseline.</b> An English failure is either fixed or recorded in
-/// <see cref="EnglishExceptions"/> with its reason, before German is blamed for anything. The list
-/// is two-sided: a failure not on it fails <see cref="EveryEnglishText_FitsItsClass_OrIsARecordedException"/>,
-/// and an entry that starts to FIT fails it too — on the face the entry was measured in, because a
-/// CI runner without Segoe UI Variable resolves Segoe UI and measures different widths (the face
-/// is logged for every key).
+/// <see cref="EnglishExceptions"/> with its reason AND its measured figure, before German is blamed
+/// for anything. The list is two-sided and bounded (review-01 R1): a failure not on it fails
+/// <see cref="EveryEnglishText_FitsItsClass_OrIsARecordedException"/>; a listed key whose measurement
+/// gets WORSE than its recorded figure (by more than <see cref="ExceptionToleranceDip"/>) fails —
+/// "Double click and hold" cannot ride on "Double click"'s waiver; and a listed key that starts to
+/// FIT fails too, so the entry is deleted. Both checks run on the face the entry was measured in
+/// (matched case-insensitively): a CI runner without Segoe UI Variable resolves Segoe UI, whose
+/// figures are logged for every key.
+/// </para>
+///
+/// <para>
+/// <b>The list is ENGLISH-ONLY.</b> It waives English text the project shipped before T09; it says
+/// nothing about any translation. T10's German is measured with no exceptions at all.
 /// </para>
 ///
 /// <para>
@@ -29,36 +37,37 @@ using EyeCtrl.Tests.TestSupport;
 /// <para>
 /// The windows are built, never shown (<see cref="FitHost"/>), so these run in CI's
 /// <c>Category!=UI</c> set. The class constructs overlay windows against the WPF Application
-/// singleton, hence the "WpfApplication" collection.
+/// singleton, hence the "WpfApplication" collection. The classes whose room changes with the theme
+/// are also checked in every theme by <see cref="FitClassThemeTests"/>.
 /// </para>
 /// </summary>
 [Collection("WpfApplication")]
 public class FitClassTests
 {
-    /// <summary>One recorded English exception.</summary>
+    /// <summary>How much worse than its recorded figure an excepted key may measure before it fails.</summary>
+    internal const double ExceptionToleranceDip = 0.1;
+
+    /// <summary>One recorded ENGLISH exception — never consulted for a translation.</summary>
     /// <param name="Key">The key whose English does not meet its class.</param>
     /// <param name="FitClass">The class it fails.</param>
-    /// <param name="FaceFile">The font file it was measured in; staleness is checked on that face only.</param>
+    /// <param name="FaceFile">The font file it was measured in; the bound and staleness are checked on that face.</param>
+    /// <param name="MarginDip">
+    /// The measured <see cref="FitVerdict.Margin"/> (room less need; negative: it does not fit). The
+    /// key fails once it measures worse than this by more than <see cref="ExceptionToleranceDip"/>.
+    /// </param>
     /// <param name="Reason">Why it is accepted, and who revisits it.</param>
-    internal sealed record EnglishException(string Key, string FitClass, string FaceFile, string Reason);
+    internal sealed record EnglishException(string Key, string FitClass, string FaceFile, double MarginDip, string Reason);
 
-    /// <summary>The English baseline's exceptions. Each has a reason; none is a German problem.</summary>
+    /// <summary>The English baseline's exceptions. Each has a reason and a measured bound.</summary>
     internal static readonly EnglishException[] EnglishExceptions =
     [
         // The debate measured "Double click" at +1.77 DIP; this harness measures +1.8 at 2.0. The
         // whole ink box is inside the arc, 0.2 DIP short of the +2 margin. Pinned as the ticket's
         // recorded exception; T13 revisits the ring before Step 3 switches it on.
-        new("overlays.ring.doubleClick", "A105", "SEGUIVAR.TTF",
+        new("overlays.ring.doubleClick", "A105", "SegUIVar.ttf", -0.2,
             "+1.8 DIP against the +2 rule: inside the arc, short of the margin by 0.2 (debate: +1.77). T13 revisits."),
-        new("settings.ring.doubleClick", "A105", "SEGUIVAR.TTF",
+        new("settings.ring.doubleClick", "A105", "SegUIVar.ttf", -0.2,
             "The Settings mirror of overlays.ring.doubleClick, measured in the same runtime ring: +1.8 DIP. T13 revisits."),
-        // The summary card sizes to its content (EyeCareExerciseWindow.xaml, an auto-width card in
-        // a centred StackPanel): there is no box, so nothing clips. T08 classed these A56 so German
-        // stays short beside the 56 DIP banner captions; the class budget is advisory here.
-        new("eye-care.summary.title", "A56", "SEGUIVAR.TTF",
-            "65.1 DIP: an auto-width summary card with no box, so nothing clips; the 56 budget is advisory."),
-        new("eye-care.summary.reactionMs", "A56", "SEGUIVAR.TTF",
-            "61.6 DIP: an auto-width summary card with no box, so nothing clips; the 56 budget is advisory."),
     ];
 
     private readonly ITestOutputHelper _output;
@@ -76,7 +85,14 @@ public class FitClassTests
 
     [StaTheory]
     [MemberData(nameof(AppClasses))]
-    public void EveryEnglishText_FitsItsClass_OrIsARecordedException(string fitClass)
+    public void EveryEnglishText_FitsItsClass_OrIsARecordedException(string fitClass) =>
+        AssertEnglishFits(fitClass, _output, "the active theme");
+
+    /// <summary>
+    /// The English check for one class under whatever theme is active: every text fits, or is a
+    /// recorded exception that has not got worse and has not started to fit.
+    /// </summary>
+    internal static void AssertEnglishFits(string fitClass, ITestOutputHelper output, string context)
     {
         var measure = AppFitMeasurers.Measurers[fitClass];
         var items = FitCatalog.ItemsOf(fitClass);
@@ -89,13 +105,28 @@ public class FitClassTests
             foreach (var text in AppFitMeasurers.Samples(item))
             {
                 var verdict = measure(item.Key, text);
-                _output.WriteLine($"{fitClass} {item} \"{text}\": {verdict}");
+                output.WriteLine($"{fitClass} {item} \"{text}\" ({context}): {verdict} (margin {verdict.Margin:0.####})");
 
                 var exception = exceptions.FirstOrDefault(e => e.Key == item.Key);
-                if (!verdict.Fits && exception is null)
-                    failures.Add($"{item} \"{text}\": {verdict}");
-                else if (verdict.Fits && exception is not null && verdict.Face.Contains(exception.FaceFile, StringComparison.Ordinal))
+                if (exception is null)
+                {
+                    if (!verdict.Fits) failures.Add($"{item} \"{text}\": {verdict}");
+                    continue;
+                }
+
+                if (!verdict.Face.Contains(exception.FaceFile, StringComparison.OrdinalIgnoreCase))
+                {
+                    output.WriteLine($"  (the exception for {item.Key} was recorded on {exception.FaceFile}; this face is not bounded)");
+                    continue;
+                }
+
+                if (verdict.Fits)
                     stale.Add($"{item} now fits ({verdict}); remove its exception (\"{exception.Reason}\").");
+                else if (double.IsNaN(verdict.Margin))
+                    failures.Add($"{item}: an excepted key needs a measured margin to be bounded, and {fitClass} gives none.");
+                else if (verdict.Margin < exception.MarginDip - ExceptionToleranceDip)
+                    failures.Add($"{item} \"{text}\" got WORSE than its recorded exception: margin "
+                                 + $"{verdict.Margin:0.##} DIP vs {exception.MarginDip:0.##} on record. {verdict}");
             }
         }
 
@@ -104,8 +135,8 @@ public class FitClassTests
             .Select(e => $"{e.Key} is no longer in {fitClass}; remove its exception."));
 
         Check.WithCustomMessage(
-                $"{failures.Count} English text(s) do not fit class {fitClass} at 2.0. Fix the text or the "
-                + "layout, or record a reasoned exception in FitClassTests.EnglishExceptions:\n  "
+                $"{failures.Count} English text(s) do not fit class {fitClass} at 2.0 ({context}). Fix the text "
+                + "or the layout, or record a reasoned, measured exception in FitClassTests.EnglishExceptions:\n  "
                 + string.Join("\n  ", failures))
             .That(failures).IsEmpty();
         Check.WithCustomMessage("Stale English fit exceptions:\n  " + string.Join("\n  ", stale))
@@ -142,7 +173,8 @@ public class FitClassTests
     /// </summary>
     internal static IEnumerable<(string Name, string Text)> OverLongTexts()
     {
-        yield return ("unbreakable", new string('W', 120));
+        // 300, not 120: the summary card's bound is the 1920 DIP window, which 120 W at 12 DIP fits.
+        yield return ("unbreakable", new string('W', 300));
         yield return ("spaced", string.Join(" ", Enumerable.Repeat("Wwww", 2000)));
     }
 

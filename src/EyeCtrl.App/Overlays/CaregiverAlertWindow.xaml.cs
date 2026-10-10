@@ -113,8 +113,21 @@ public partial class CaregiverAlertWindow : OverlayWindow, ICaregiverAlertPresen
 
         var content = (FrameworkElement)Content;
         content.Measure(new Size(Width, double.PositiveInfinity));
-        Height = Math.Max(MinHeight, content.DesiredSize.Height);
-        Anchor(workArea, Height);
+        var height = Math.Max(MinHeight, content.DesiredSize.Height);
+
+        // Two window moves when the alert is re-shown while visible; order them so neither frame
+        // draws below the margin (review-01 N5): growing, raise the top first, then extend; shrinking,
+        // pull the bottom up first, then lower the top.
+        if (height > Height)
+        {
+            Anchor(workArea, height);
+            Height = height;
+        }
+        else
+        {
+            Height = height;
+            Anchor(workArea, height);
+        }
     }
 
     /// <summary>

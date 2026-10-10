@@ -97,6 +97,35 @@
     --border-width:        2px;
     --core:                #000000;
   }
+
+  /* Bright-room light theme (spec §10.8): every relation inverted — near-black
+     text, deep-teal accent as the darkest saturated thing on screen, WHITE halo,
+     elevation ramps lighter→darker. Same blue-violet hue axis as Midnight. */
+  :root[data-theme="daylight"] {
+    --surface-dark:        rgba(231,232,240,0.98);
+    --surface-medium:      rgba(243,244,249,0.98);
+    --surface-light:       #FFFFFF;
+    --surface-key:         #F0F1F7;
+    --surface-key-mod:     #CFDEF8;
+    --surface-key-switch:  #E9D5EF;
+    --surface-prediction:  #D3EDD8;
+    --border-subtle:       #667A9F;
+    --text-primary:        #0C0D12;
+    --text-secondary:      #484D5E;
+    --text-dim:            #5E6477;
+    --accent:              #07343E;
+    --stroke-halo:         #FFFFFF;
+    --accent-success:      #00620C;
+    --accent-warning:      #7A1000;
+    --accent-danger:       #C5313B;
+    --toggle-on:           #1F6B3E;
+    --toggle-off:          #D8DAE4;
+    --page-bg:             #F2F3F8;
+    --panel-bg:            #FFFFFF;
+    --rule:                #E2E4EE;
+    --border-width:        1px;
+    --core:                #E7E8F0;
+  }
   body {
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
     background: var(--page-bg); color: var(--text-primary);
@@ -109,7 +138,10 @@
   .header { display: flex; align-items: center; gap: 20px; padding-bottom: 22px; border-bottom: var(--border-width) solid var(--border-subtle); }
   .header h1 { font-size: 27px; font-weight: 600; }
   .header .sub { font-size: 14px; color: var(--text-secondary); display: block; }
-  .logo { width: 46px; height: 46px; border-radius: 10px; background: var(--accent);
+  /* Glyph on the accent chip: StrokeHalo is the accent's validated companion edge
+     in every theme (near-black on the dark themes, white on Daylight), so the logo
+     never lands text-primary-on-accent — which is ~1.1:1 on Daylight's deep teal. */
+  .logo { width: 46px; height: 46px; border-radius: 10px; background: var(--accent); color: var(--stroke-halo);
           display: flex; align-items: center; justify-content: center; font-size: 23px; }
 
   /* theme switch */
@@ -152,8 +184,10 @@
   .swatch .meta .usage { color: var(--text-dim); margin-top: 2px; font-size: 10.5px; }
   /* the ONE place a token is shown out-of-theme: shared semantics */
   .swatch.shared .meta .name::after { content: " ·shared"; color: var(--text-dim); font-weight: 400; font-size: 10px; }
-  /* Contrast cannot share the triad — red can't be high-contrast (see §7). */
+  /* Contrast cannot share the triad — red can't be high-contrast (see §7).
+     Daylight can't either — the halo cap and chroma floor invert the ladder (§10.8.1). */
   :root[data-theme="contrast"] .swatch.shared .meta .name::after { content: " ·HC-specific"; }
+  :root[data-theme="daylight"] .swatch.shared .meta .name::after { content: " ·Daylight-specific"; }
 
   /* typography */
   .type-samples { display: flex; flex-direction: column; gap: 14px; }
@@ -232,6 +266,7 @@
     <span class="lbl">Theme</span>
     <button id="b-mid" aria-pressed="true"  onclick="setTheme('midnight')">Midnight</button>
     <button id="b-emb" aria-pressed="false" onclick="setTheme('ember')">Ember</button>
+    <button id="b-day" aria-pressed="false" onclick="setTheme('daylight')">Daylight</button>
     <button id="b-con" aria-pressed="false" onclick="setTheme('contrast')">Contrast</button>
   </div>
 </div>
@@ -243,9 +278,8 @@
   (spec §4.1); <strong>Ember</strong> is the warm low-blue-light alternative (§10) and <strong>Contrast</strong>
   is a situational high-contrast theme; <strong>Daylight</strong> (§10.8) is the bright-room
   light theme that joined later. All four pass all ten gates:
-  <code>python tools/palette_validate.py</code>. This page's palette switch renders the three
-  original themes; Daylight's CSS block is not rendered here yet. Visual sections follow the switch; measured tables
-  always show both themes, so nothing is hidden behind a toggle.
+  <code>python tools/palette_validate.py</code>. Visual sections follow the switch;
+  measured tables always show every theme, so nothing is hidden behind a toggle.
 </div>
 
 <!-- ═══ 1. PALETTE ═══ -->
@@ -354,6 +388,11 @@
   <code>#FF7777</code> (8.16:1) — which, at C* 57.6, only just clears gate 9's chroma floor. Push
   further for contrast and it stops reading as red. Its triad is marked <em>·HC-specific</em> when
   that theme is active.
+  <br><br>
+  <strong>Daylight cannot share it either</strong>: on a light surface the 7:1-against-white-halo
+  preset bar and gate 9's chroma floor squeeze the triad until the lightness ladder itself inverts —
+  warning darkest, success lightest, the opposite of every dark theme (spec §10.8.1). Its triad is
+  marked <em>·Daylight-specific</em> when that theme is active.
 </div>
 
 <div class="callout warn">
@@ -607,8 +646,9 @@
     <div class="halo-cap">Mixed backdrop<br><span data-tok="haloMixed"></span></div></div>
 </div>
 <p class="note" style="margin-top:12px;">
-  Worst-case edge across nine backdrops: <strong>Midnight 15.78:1 · Ember 14.52:1</strong>, against a
-  floor of 7.0 and today's 1.37:1.
+  Worst-case edge across nine backdrops: <strong>Midnight 15.78:1 · Ember 14.52:1 · Daylight
+  13.38:1 · Contrast 16.75:1</strong>, against a floor of 7.0 and today's 1.37:1. Daylight's halo is
+  white — the same guarantee, mirrored.
 </p>
 </div>
 
@@ -617,7 +657,7 @@
 <h2>5. Before &amp; after — the migration</h2>
 <p class="note">
   Left column is today's code. Right column is the migration target, rendered in the
-  <strong>active theme</strong> — flip the switch to see it in the other one.
+  <strong>active theme</strong> — flip the switch to see it in another.
 </p>
 
 <h3>Keyboard</h3>
@@ -683,7 +723,7 @@
     <div style="padding:9px 15px;border-radius:8px;background:#442529;color:#FFF;font-size:16px;font-weight:600;">☐ Disable Feature</div>
     <div class="cap legacy">State on the red–green axis at near-equal luminance —<br>1.43:1 under deuteranopia. Effectively unreadable.</div>
   </div></div>
-  <div class="col after"><div class="hdr">AFTER — lightness-carried, ≈3.4:1</div><div class="body">
+  <div class="col after"><div class="hdr">AFTER — lightness-carried, <span data-tok="togglePair"></span></div><div class="body">
     <div style="padding:9px 15px;border-radius:8px;background:var(--toggle-on);color:var(--text-primary);font-size:16px;font-weight:600;border:1px solid var(--accent-success);">☑ Enable Feature</div>
     <div style="padding:9px 15px;border-radius:8px;background:var(--toggle-off);color:var(--text-secondary);font-size:16px;font-weight:600;border:1px solid var(--border-subtle);">☐ Disable Feature</div>
     <div style="display:flex;gap:8px;">
@@ -691,94 +731,97 @@
       <div style="flex:1;padding:8px;border-radius:8px;background:var(--accent-warning);color:var(--core);font-size:12.5px;font-weight:600;text-align:center;">⚠ Reset</div>
       <div style="flex:1;padding:8px;border-radius:8px;background:var(--accent-danger);color:var(--core);font-size:12.5px;font-weight:600;text-align:center;">✕ Delete</div>
     </div>
-    <div class="cap">≥3.26:1 under every dichromacy. "Off" is no longer red — off is not an error, and red is freed for genuine danger.</div>
+    <div class="cap"><span data-tok="toggleCvd"></span> under every dichromacy. "Off" is no longer red — off is not an error, and red is freed for genuine danger.</div>
   </div></div>
 </div>
 </div>
 
 <!-- ═══ 6. TOKEN REFERENCE ═══ -->
 <div>
-<h2>6. Token reference — both themes</h2>
+<h2>6. Token reference — every theme</h2>
 <table>
-  <thead><tr><th>Token</th><th>XAML key</th><th>Midnight</th><th>Ember</th><th>Contrast</th><th>Used in</th></tr></thead>
+  <thead><tr><th>Token</th><th>XAML key</th><th>Midnight</th><th>Ember</th><th>Daylight</th><th>Contrast</th><th>Used in</th></tr></thead>
   <tbody>
-    <tr><td>SurfaceDark</td><td><code>BrushSurfaceDark</code></td><td class="num">#FA1A1A2E</td><td class="num">#FA211B14</td><td class="num">#FF000000</td><td>All overlay backgrounds</td></tr>
-    <tr><td>SurfaceMedium</td><td><code>BrushSurfaceMedium</code></td><td class="num">#FA2A2A44</td><td class="num">#FA342B20</td><td class="num">#FF141414</td><td>Cards, DwellSlider/ComboBox</td></tr>
-    <tr><td>SurfaceLight</td><td><code>BrushSurfaceLight</code></td><td class="num">#FF3A3A5E</td><td class="num">#FF473A2C</td><td class="num">#FF262626</td><td>Modals, EyeCare summary</td></tr>
-    <tr><td>SurfaceKey</td><td><code>BrushSurfaceKey</code></td><td class="num">#2A2A3E</td><td class="num">#2E2619</td><td class="num">#0F0F0F</td><td>Keyboard keys, inactive tab</td></tr>
-    <tr><td>SurfaceKeyModifier</td><td><code>BrushSurfaceKeyModifier</code></td><td class="num">#3E3E64</td><td class="num">#4E4029</td><td class="num">#123A63</td><td>Shift / Ctrl / Alt</td></tr>
-    <tr><td>SurfaceKeySwitch</td><td><code>BrushSurfaceKeySwitch</code></td><td class="num">#38527F</td><td class="num">#63382A</td><td class="num">#4A4A4A</td><td>Sub-layout switch, active tab</td></tr>
-    <tr><td>SurfacePrediction</td><td><code>BrushSurfacePrediction</code></td><td class="num">#2F5340</td><td class="num">#33422A</td><td class="num">#004D22</td><td>Prediction bar chips</td></tr>
-    <tr><td>BorderSubtle</td><td><code>BrushBorderSubtle</code></td><td class="num">#616BA0</td><td class="num">#7A6C51</td><td class="num">#FFFFFF</td><td>All container borders</td></tr>
-    <tr><td>BorderFocus</td><td><code>BrushBorderFocus</code></td><td class="num">#A5F3FC</td><td class="num">#9FE8FF</td><td class="num">#00FFFF</td><td>= Accent; selection uses fill</td></tr>
-    <tr><td>TextPrimary</td><td><code>BrushTextPrimary</code></td><td class="num">#D6DEF5</td><td class="num">#F2EEE8</td><td class="num">#FFFFFF</td><td>All primary text</td></tr>
-    <tr><td>TextSecondary</td><td><code>BrushTextSecondary</code></td><td class="num">#9AA4C8</td><td class="num">#BFB4A2</td><td class="num">#E8E8E8</td><td>Subtext, hints, DwellLabel</td></tr>
-    <tr><td>TextDim</td><td><code>BrushTextDim</code></td><td class="num">#868FB5</td><td class="num">#A0917C</td><td class="num">#C8C8C8</td><td>Disabled / placeholder</td></tr>
-    <tr><td><strong>Accent</strong></td><td><code>BrushAccent</code></td><td class="num">#A5F3FC</td><td class="num">#9FE8FF</td><td class="num">#00FFFF</td><td><strong>Dwell progress — reserved</strong></td></tr>
-    <tr><td>StrokeHalo</td><td><code>BrushStrokeHalo</code></td><td class="num">#0A0A14</td><td class="num">#0E0A06</td><td class="num">#000000</td><td>Outline under Accent strokes</td></tr>
-    <tr><td>AccentSuccess</td><td><code>BrushAccentSuccess</code></td><td class="num" colspan="2" style="text-align:center;">#7EE787 — shared</td><td class="num">#00FF00</td><td>Completion, calibration done</td></tr>
-    <tr><td>AccentWarning</td><td><code>BrushAccentWarning</code></td><td class="num" colspan="2" style="text-align:center;">#E8A33C — shared</td><td class="num">#FFFF00</td><td>Warnings, reset, drag trail</td></tr>
-    <tr><td>AccentDanger</td><td><code>BrushAccentDanger</code></td><td class="num" colspan="2" style="text-align:center;">#FF5C7A — shared</td><td class="num">#FF7777</td><td>Close, cancel, delete</td></tr>
-    <tr><td>ToggleOn</td><td><code>BrushToggleOn</code></td><td class="num">#4A8F5C</td><td class="num">#67874C</td><td class="num">#00FF00</td><td>Toggles enabled, modal Yes</td></tr>
-    <tr><td>ToggleOff</td><td><code>BrushToggleOff</code></td><td class="num">#2E2E42</td><td class="num">#342C21</td><td class="num">#000000</td><td>Toggles disabled</td></tr>
-    <tr><td>ModalBackdrop</td><td><code>BrushModalBackdrop</code></td><td class="num" colspan="2" style="text-align:center;">#B3000000 — shared</td><td class="num">#E6000000</td><td>Modal dim, calibration backdrop</td></tr>
-    <tr><td>BorderThicknessStandard</td><td><code>BorderThicknessStandard</code> · <code>StandardBorderThickness</code></td><td class="num">1</td><td class="num">1</td><td class="num">2</td><td>All container borders</td></tr>
-    <tr><td>CornerRadiusSmall</td><td><code>CornerRadiusSmall</code> · <code>SmallCornerRadius</code></td><td class="num" colspan="3" style="text-align:center;">4 — all four themes</td><td>Toolbar, dwell feedback, target highlight</td></tr>
-    <tr><td>CornerRadiusStandard</td><td><code>CornerRadiusStandard</code> · <code>StandardCornerRadius</code></td><td class="num" colspan="3" style="text-align:center;">8 — all four themes</td><td>22 sites: containers, keys, tiles, controls</td></tr>
-    <tr><td>CornerRadiusLarge</td><td><code>CornerRadiusLarge</code> · <code>LargeCornerRadius</code></td><td class="num" colspan="3" style="text-align:center;">12 — all four themes</td><td>Splash, modal card, EyeCare summary</td></tr>
-    <tr><td>CornerRadiusCircle</td><td><code>CornerRadiusCircle</code> · <code>CircleCornerRadius</code></td><td class="num" colspan="3" style="text-align:center;">9999 — all four themes</td><td><strong>Square elements only</strong> — see §3</td></tr>
-    <tr><td>FontFamilyStandard</td><td><code>FontFamilyStandard</code> · <code>FontStandard</code></td><td class="num" colspan="3" style="text-align:center;">Segoe UI Variable Text, Segoe UI</td><td>Whole app, via <code>OverlayWindow</code>'s ctor</td></tr>
-    <tr><td>FontWeightMedium / Strong</td><td><code>FontWeightMedium</code> · <code>FontWeightStrong</code></td><td class="num" colspan="3" style="text-align:center;">SemiBold (600) / Bold (700)</td><td>9 / 8 sites</td></tr>
-    <tr><td>FontSizeBody … Display</td><td><code>FontSizeBody</code> · <code>BodyLarge</code> · <code>Subtitle</code> · <code>Title</code> · <code>Display</code></td><td class="num" colspan="3" style="text-align:center;">12 / 14 / 18 / 24 / 34 — all four themes</td><td>45 text sites; <code>Body</code> is a gated ≥12 floor</td></tr>
+    <tr><td>SurfaceDark</td><td><code>BrushSurfaceDark</code></td><td class="num">#FA1A1A2E</td><td class="num">#FA211B14</td><td class="num">#FAE7E8F0</td><td class="num">#FF000000</td><td>All overlay backgrounds</td></tr>
+    <tr><td>SurfaceMedium</td><td><code>BrushSurfaceMedium</code></td><td class="num">#FA2A2A44</td><td class="num">#FA342B20</td><td class="num">#FAF3F4F9</td><td class="num">#FF141414</td><td>Cards, DwellSlider/ComboBox</td></tr>
+    <tr><td>SurfaceLight</td><td><code>BrushSurfaceLight</code></td><td class="num">#FF3A3A5E</td><td class="num">#FF473A2C</td><td class="num">#FFFFFFFF</td><td class="num">#FF262626</td><td>Modals, EyeCare summary</td></tr>
+    <tr><td>SurfaceKey</td><td><code>BrushSurfaceKey</code></td><td class="num">#2A2A3E</td><td class="num">#2E2619</td><td class="num">#F0F1F7</td><td class="num">#0F0F0F</td><td>Keyboard keys, inactive tab</td></tr>
+    <tr><td>SurfaceKeyModifier</td><td><code>BrushSurfaceKeyModifier</code></td><td class="num">#3E3E64</td><td class="num">#4E4029</td><td class="num">#CFDEF8</td><td class="num">#123A63</td><td>Shift / Ctrl / Alt</td></tr>
+    <tr><td>SurfaceKeySwitch</td><td><code>BrushSurfaceKeySwitch</code></td><td class="num">#38527F</td><td class="num">#63382A</td><td class="num">#E9D5EF</td><td class="num">#4A4A4A</td><td>Sub-layout switch, active tab</td></tr>
+    <tr><td>SurfacePrediction</td><td><code>BrushSurfacePrediction</code></td><td class="num">#2F5340</td><td class="num">#33422A</td><td class="num">#D3EDD8</td><td class="num">#004D22</td><td>Prediction bar chips</td></tr>
+    <tr><td>BorderSubtle</td><td><code>BrushBorderSubtle</code></td><td class="num">#616BA0</td><td class="num">#7A6C51</td><td class="num">#667A9F</td><td class="num">#FFFFFF</td><td>All container borders</td></tr>
+    <tr><td>BorderFocus</td><td><code>BrushBorderFocus</code></td><td class="num">#A5F3FC</td><td class="num">#9FE8FF</td><td class="num">#07343E</td><td class="num">#00FFFF</td><td>= Accent; selection uses fill</td></tr>
+    <tr><td>TextPrimary</td><td><code>BrushTextPrimary</code></td><td class="num">#D6DEF5</td><td class="num">#F2EEE8</td><td class="num">#0C0D12</td><td class="num">#FFFFFF</td><td>All primary text</td></tr>
+    <tr><td>TextSecondary</td><td><code>BrushTextSecondary</code></td><td class="num">#9AA4C8</td><td class="num">#BFB4A2</td><td class="num">#484D5E</td><td class="num">#E8E8E8</td><td>Subtext, hints, DwellLabel</td></tr>
+    <tr><td>TextDim</td><td><code>BrushTextDim</code></td><td class="num">#868FB5</td><td class="num">#A0917C</td><td class="num">#5E6477</td><td class="num">#C8C8C8</td><td>Disabled / placeholder</td></tr>
+    <tr><td><strong>Accent</strong></td><td><code>BrushAccent</code></td><td class="num">#A5F3FC</td><td class="num">#9FE8FF</td><td class="num">#07343E</td><td class="num">#00FFFF</td><td><strong>Dwell progress — reserved</strong></td></tr>
+    <tr><td>StrokeHalo</td><td><code>BrushStrokeHalo</code></td><td class="num">#0A0A14</td><td class="num">#0E0A06</td><td class="num">#FFFFFF</td><td class="num">#000000</td><td>Outline under Accent strokes</td></tr>
+    <tr><td>AccentSuccess</td><td><code>BrushAccentSuccess</code></td><td class="num" colspan="2" style="text-align:center;">#7EE787 — shared</td><td class="num">#00620C</td><td class="num">#00FF00</td><td>Completion, calibration done</td></tr>
+    <tr><td>AccentWarning</td><td><code>BrushAccentWarning</code></td><td class="num" colspan="2" style="text-align:center;">#E8A33C — shared</td><td class="num">#7A1000</td><td class="num">#FFFF00</td><td>Warnings, reset, drag trail</td></tr>
+    <tr><td>AccentDanger</td><td><code>BrushAccentDanger</code></td><td class="num" colspan="2" style="text-align:center;">#FF5C7A — shared</td><td class="num">#C5313B</td><td class="num">#FF7777</td><td>Close, cancel, delete</td></tr>
+    <tr><td>ToggleOn</td><td><code>BrushToggleOn</code></td><td class="num">#4A8F5C</td><td class="num">#67874C</td><td class="num">#1F6B3E</td><td class="num">#00FF00</td><td>Toggles enabled, modal Yes</td></tr>
+    <tr><td>ToggleOff</td><td><code>BrushToggleOff</code></td><td class="num">#2E2E42</td><td class="num">#342C21</td><td class="num">#D8DAE4</td><td class="num">#000000</td><td>Toggles disabled</td></tr>
+    <tr><td>ModalBackdrop</td><td><code>BrushModalBackdrop</code></td><td class="num" colspan="3" style="text-align:center;">#B3000000 — shared</td><td class="num">#E6000000</td><td>Modal dim, calibration backdrop</td></tr>
+    <tr><td>BorderThicknessStandard</td><td><code>BorderThicknessStandard</code> · <code>StandardBorderThickness</code></td><td class="num">1</td><td class="num">1</td><td class="num">1</td><td class="num">2</td><td>All container borders</td></tr>
+    <tr><td>CornerRadiusSmall</td><td><code>CornerRadiusSmall</code> · <code>SmallCornerRadius</code></td><td class="num" colspan="4" style="text-align:center;">4 — all four themes</td><td>Toolbar, dwell feedback, target highlight</td></tr>
+    <tr><td>CornerRadiusStandard</td><td><code>CornerRadiusStandard</code> · <code>StandardCornerRadius</code></td><td class="num" colspan="4" style="text-align:center;">8 — all four themes</td><td>22 sites: containers, keys, tiles, controls</td></tr>
+    <tr><td>CornerRadiusLarge</td><td><code>CornerRadiusLarge</code> · <code>LargeCornerRadius</code></td><td class="num" colspan="4" style="text-align:center;">12 — all four themes</td><td>Splash, modal card, EyeCare summary</td></tr>
+    <tr><td>CornerRadiusCircle</td><td><code>CornerRadiusCircle</code> · <code>CircleCornerRadius</code></td><td class="num" colspan="4" style="text-align:center;">9999 — all four themes</td><td><strong>Square elements only</strong> — see §3</td></tr>
+    <tr><td>FontFamilyStandard</td><td><code>FontFamilyStandard</code> · <code>FontStandard</code></td><td class="num" colspan="4" style="text-align:center;">Segoe UI Variable Text, Segoe UI</td><td>Whole app, via <code>OverlayWindow</code>'s ctor</td></tr>
+    <tr><td>FontWeightMedium / Strong</td><td><code>FontWeightMedium</code> · <code>FontWeightStrong</code></td><td class="num" colspan="4" style="text-align:center;">SemiBold (600) / Bold (700)</td><td>9 / 8 sites</td></tr>
+    <tr><td>FontSizeBody … Display</td><td><code>FontSizeBody</code> · <code>BodyLarge</code> · <code>Subtitle</code> · <code>Title</code> · <code>Display</code></td><td class="num" colspan="4" style="text-align:center;">12 / 14 / 18 / 24 / 34 — all four themes</td><td>45 text sites; <code>Body</code> is a gated ≥12 floor</td></tr>
   </tbody>
 </table>
 </div>
 
 <!-- ═══ 7. MEASURED ═══ -->
 <div>
-<h2>7. Measured — ten gates, both themes</h2>
+<h2>7. Measured — ten gates, all four themes</h2>
 <p class="note">
   Output of <code>tools/palette_validate.py</code>; none of these are estimated. The
-  <strong>worst composited</strong> reference is <code>SurfaceDark</code> over a white document —
-  <code>#1E1E32</code> for Midnight, <code>#251F19</code> for Ember — which is what happens when an
-  overlay floats above a browser or editor. v1.0 measured only the opaque core and so overstated
-  every ratio.
+  <strong>worst composited</strong> reference is <code>SurfaceDark</code> composited over the worse
+  of a white and a black desktop — white binds the dark themes (<code>#1E1E32</code> Midnight,
+  <code>#251F19</code> Ember), black binds the light one (<code>#E2E3EB</code> Daylight) — which is
+  what happens when an overlay floats above a browser, an editor, or a maximised dark window.
+  v1.0 measured only the opaque core and so overstated every ratio.
 </p>
 <table>
-  <thead><tr><th>Gate</th><th>Midnight</th><th>Ember</th><th>Contrast</th><th>Floor</th></tr></thead>
+  <thead><tr><th>Gate</th><th>Midnight</th><th>Ember</th><th>Daylight</th><th>Contrast</th><th>Floor</th></tr></thead>
   <tbody>
-    <tr><td>1 · BorderSubtle (worst composited)</td><td class="num">3.20</td><td class="num">3.17</td><td class="num">21.00</td><td class="num">3.0</td></tr>
-    <tr><td>1 · Elevation raises opacity</td><td class="num">250→255</td><td class="num">250→255</td><td class="num">255→255</td><td class="num">≥0</td></tr>
-    <tr><td>2 · TextPrimary</td><td class="num aaa">12.14</td><td class="num aaa">14.10</td><td class="num">21.00</td><td class="num">7.0</td></tr>
-    <tr><td>2 · TextSecondary</td><td class="num">6.62</td><td class="num">7.97</td><td class="num">17.14</td><td class="num">4.5</td></tr>
-    <tr><td>2 · TextDim</td><td class="num">5.14</td><td class="num">5.30</td><td class="num">12.55</td><td class="num">4.5</td></tr>
-    <tr><td>3 · Accent — normal</td><td class="num">13.67</td><td class="num">12.55</td><td class="num">16.75</td><td class="num">9.5</td></tr>
-    <tr><td>3 · Accent — protanopia</td><td class="num">14.60</td><td class="num">13.33</td><td class="num">18.92</td><td class="num">9.5</td></tr>
-    <tr><td>3 · Accent — deuteranopia</td><td class="num">13.20</td><td class="num">12.12</td><td class="num">15.59</td><td class="num">9.5</td></tr>
-    <tr><td>3 · Accent — tritanopia</td><td class="num">11.60</td><td class="num">10.69</td><td class="num">11.89</td><td class="num">9.5</td></tr>
-    <tr><td>4 · Accent ↔ TextPrimary ΔE</td><td class="num">20.0</td><td class="num">21.1</td><td class="num">25.7</td><td class="num">15</td></tr>
-    <tr><td>4 · Accent ↔ nearest semantic ΔE</td><td class="num">29.0</td><td class="num">35.1</td><td class="num">34.5</td><td class="num">25</td></tr>
-    <tr><td>5 · Triad ΔL* (tightest pair)</td><td class="num">10.08</td><td class="num">10.08</td><td class="num">9.40</td><td class="num">9.0</td></tr>
-    <tr><td>6 · Toggle on/off (worst dichromacy)</td><td class="num">3.26</td><td class="num">3.30</td><td class="num">11.89</td><td class="num">3.0</td></tr>
-    <tr><td>7 · Halo edge, worst backdrop</td><td class="num">15.78</td><td class="num">14.52</td><td class="num">16.75</td><td class="num">7.0</td></tr>
-    <tr><td>8 · Key ramp ΔE (tightest pair)</td><td class="num">9.26</td><td class="num">9.56</td><td class="num">18.25</td><td class="num">8.0</td></tr>
-    <tr><td>9 · Semantic chroma C*</td><td class="num" colspan="2" style="text-align:center;">62.4 / 63.1 / 66.2</td><td class="num">119.8 / 96.9 / 57.6</td><td class="num">55</td></tr>
+    <tr><td>1 · BorderSubtle (worst composited)</td><td class="num">3.20</td><td class="num">3.17</td><td class="num">3.39</td><td class="num">21.00</td><td class="num">3.0</td></tr>
+    <tr><td>1 · Elevation raises opacity</td><td class="num">250→255</td><td class="num">250→255</td><td class="num">250→255</td><td class="num">255→255</td><td class="num">≥0</td></tr>
+    <tr><td>2 · TextPrimary</td><td class="num aaa">12.14</td><td class="num aaa">14.10</td><td class="num aaa">15.18</td><td class="num">21.00</td><td class="num">7.0</td></tr>
+    <tr><td>2 · TextSecondary</td><td class="num">6.62</td><td class="num">7.97</td><td class="num">6.57</td><td class="num">17.14</td><td class="num">4.5</td></tr>
+    <tr><td>2 · TextDim</td><td class="num">5.14</td><td class="num">5.30</td><td class="num">4.61</td><td class="num">12.55</td><td class="num">4.5</td></tr>
+    <tr><td>3 · Accent — normal</td><td class="num">13.67</td><td class="num">12.55</td><td class="num aaa">10.96</td><td class="num">16.75</td><td class="num">9.5</td></tr>
+    <tr><td>3 · Accent — protanopia</td><td class="num">14.60</td><td class="num">13.33</td><td class="num aaa">10.49</td><td class="num">18.92</td><td class="num">9.5</td></tr>
+    <tr><td>3 · Accent — deuteranopia</td><td class="num">13.20</td><td class="num">12.12</td><td class="num aaa">11.19</td><td class="num">15.59</td><td class="num">9.5</td></tr>
+    <tr><td>3 · Accent — tritanopia</td><td class="num">11.60</td><td class="num">10.69</td><td class="num aaa">11.09</td><td class="num">11.89</td><td class="num">9.5</td></tr>
+    <tr><td>4 · Accent ↔ TextPrimary ΔE</td><td class="num">20.0</td><td class="num">21.1</td><td class="num">16.6</td><td class="num">25.7</td><td class="num">15</td></tr>
+    <tr><td>4 · Accent ↔ nearest semantic ΔE</td><td class="num">29.0</td><td class="num">35.1</td><td class="num">26.3</td><td class="num">34.5</td><td class="num">25</td></tr>
+    <tr><td>5 · Triad ΔL* (tightest pair)</td><td class="num">10.08</td><td class="num">10.08</td><td class="num">9.26</td><td class="num">9.40</td><td class="num">9.0</td></tr>
+    <tr><td>6 · Toggle on/off (worst dichromacy)</td><td class="num">3.26</td><td class="num">3.30</td><td class="num">4.28</td><td class="num">11.89</td><td class="num">3.0</td></tr>
+    <tr><td>7 · Halo edge, worst backdrop</td><td class="num">15.78</td><td class="num">14.52</td><td class="num">13.38</td><td class="num">16.75</td><td class="num">7.0</td></tr>
+    <tr><td>8 · Key ramp ΔE (tightest pair)</td><td class="num">9.26</td><td class="num">9.56</td><td class="num">9.40</td><td class="num">18.25</td><td class="num">8.0</td></tr>
+    <tr><td>9 · Semantic chroma C*</td><td class="num" colspan="2" style="text-align:center;">62.4 / 63.1 / 66.2</td><td class="num">56.59 / 57.01 / 65.51</td><td class="num">119.8 / 96.9 / 57.6</td><td class="num">55</td></tr>
   </tbody>
 </table>
 
 <h3 style="margin-top:22px;">Semantic triad, per theme core</h3>
 <table>
-  <thead><tr><th>Token</th><th>Midnight / Ember</th><th>Contrast</th><th>Level (HC)</th></tr></thead>
+  <thead><tr><th>Token</th><th>Midnight / Ember</th><th>Daylight</th><th>Contrast</th><th>Level (HC)</th></tr></thead>
   <tbody>
-    <tr><td><span class="dot" style="background:var(--accent-success);"></span>AccentSuccess</td><td class="num">#7EE787 · L* 83.6 · 11.10</td><td class="num">#00FF00 · L* 87.7 · 15.30</td><td class="aaa">AAA</td></tr>
-    <tr><td><span class="dot" style="background:var(--accent-warning);"></span>AccentWarning</td><td class="num">#E8A33C · L* 72.0 · 7.91</td><td class="num">#FFFF00 · L* 97.1 · 19.56</td><td class="aaa">AAA</td></tr>
-    <tr><td><span class="dot" style="background:var(--accent-danger);"></span>AccentDanger</td><td class="num">#FF5C7A · L* 61.9 · 5.74</td><td class="num">#FF7777 · L* 66.4 · 8.16</td><td class="aaa">AAA</td></tr>
+    <tr><td><span class="dot" style="background:var(--accent-success);"></span>AccentSuccess</td><td class="num">#7EE787 · L* 83.6 · 11.10</td><td class="num">#00620C · L* 35.5 · 6.25</td><td class="num">#00FF00 · L* 87.7 · 15.30</td><td class="aaa">AAA</td></tr>
+    <tr><td><span class="dot" style="background:var(--accent-warning);"></span>AccentWarning</td><td class="num">#E8A33C · L* 72.0 · 7.91</td><td class="num">#7A1000 · L* 25.3 · 9.04</td><td class="num">#FFFF00 · L* 97.1 · 19.56</td><td class="aaa">AAA</td></tr>
+    <tr><td><span class="dot" style="background:var(--accent-danger);"></span>AccentDanger</td><td class="num">#FF5C7A · L* 61.9 · 5.74</td><td class="num">#C5313B · L* 44.8 · 4.44</td><td class="num">#FF7777 · L* 66.4 · 8.16</td><td class="aaa">AAA</td></tr>
   </tbody>
 </table>
 <p class="note" style="margin-top:10px;">
-  <code>AccentDanger</code> is the only token below AAA. It appears exclusively on ≥22px close/cancel
-  glyphs, where AA applies; raising it would collapse the lightness gap that keeps the triad
-  separable under red-green deficiency. A deliberate trade.
+  <code>AccentDanger</code> is the only token below AAA on the shared triad. It appears exclusively
+  on ≥22px close/cancel glyphs, where AA applies; raising it would collapse the lightness gap that
+  keeps the triad separable under red-green deficiency. A deliberate trade. Daylight's danger
+  (4.44:1) is below AAA for the same structural reason — gate 5's ladder pins its lightness from
+  below (§10.8.1) — and is held to the same AA-large reading.
 </p>
 
 <h3 style="margin-top:22px;">The accent swap does not regress</h3>
@@ -789,12 +832,12 @@
   interaction model depends on.
 </p>
 <table>
-  <thead><tr><th>Vision</th><th>Lime #00FF00 (today)</th><th>v1.0 #7DCFFF</th><th>Midnight #A5F3FC</th><th>Ember #9FE8FF</th><th>Contrast #00FFFF</th></tr></thead>
+  <thead><tr><th>Vision</th><th>Lime #00FF00 (today)</th><th>v1.0 #7DCFFF</th><th>Midnight #A5F3FC</th><th>Ember #9FE8FF</th><th>Daylight #07343E</th><th>Contrast #00FFFF</th></tr></thead>
   <tbody>
-    <tr><td>Normal</td><td class="num">12.43</td><td class="num bad">9.94</td><td class="num aaa">13.67</td><td class="num aaa">12.55</td><td class="num aaa">16.75</td></tr>
-    <tr><td>Protanopia</td><td class="num">14.20</td><td class="num bad">10.69</td><td class="num aaa">14.60</td><td class="num aaa">13.33</td><td class="num aaa">18.92</td></tr>
-    <tr><td>Deuteranopia</td><td class="num">11.52</td><td class="num bad">9.56</td><td class="num aaa">13.20</td><td class="num aaa">12.12</td><td class="num aaa">15.59</td></tr>
-    <tr><td>Tritanopia</td><td class="num">9.66</td><td class="num bad">8.28</td><td class="num aaa">11.60</td><td class="num aaa">10.69</td><td class="num aaa">11.89</td></tr>
+    <tr><td>Normal</td><td class="num">12.43</td><td class="num bad">9.94</td><td class="num aaa">13.67</td><td class="num aaa">12.55</td><td class="num aaa">10.96</td><td class="num aaa">16.75</td></tr>
+    <tr><td>Protanopia</td><td class="num">14.20</td><td class="num bad">10.69</td><td class="num aaa">14.60</td><td class="num aaa">13.33</td><td class="num aaa">10.49</td><td class="num aaa">18.92</td></tr>
+    <tr><td>Deuteranopia</td><td class="num">11.52</td><td class="num bad">9.56</td><td class="num aaa">13.20</td><td class="num aaa">12.12</td><td class="num aaa">11.19</td><td class="num aaa">15.59</td></tr>
+    <tr><td>Tritanopia</td><td class="num">9.66</td><td class="num bad">8.28</td><td class="num aaa">11.60</td><td class="num aaa">10.69</td><td class="num aaa">11.09</td><td class="num aaa">11.89</td></tr>
   </tbody>
 </table>
 
@@ -804,7 +847,7 @@
   <code>#F0D6D1</code> as <em>warning</em> and a pastel pink as <em>danger</em> — numerically fine,
   semantically meaningless. Nothing required a semantic colour to be saturated enough to signify.
   Gate 9 is a Lab chroma floor of <strong>C* ≥ 55</strong> on the triad. It is scoped to the triad
-  only: <code>Accent</code> is correctly low-chroma (C* ≈ 25 in both themes), being a luminance
+  only: <code>Accent</code> is correctly low-chroma (C* 14.9–25 across the four themes), being a luminance
   signal rather than a categorical one.
 </div>
 
@@ -919,6 +962,7 @@ Ring.<span class="att">StrokeThickness</span> = t;</pre>
       accent:'#A5F3FC', strokeHalo:'#0A0A14', toggleOn:'#4A8F5C', toggleOff:'#2E2E42',
       textPrimaryCr:'12.14:1 — AAA', textSecondaryCr:'6.62:1 — AA', textDimCr:'5.14:1 — AA',
       borderSubtleCr:'3.20:1', keyRamp:'ΔE 9.26', borderThickness:'1px at 3.20:1',
+      togglePair:'≈3.39:1', toggleCvd:'≥3.26:1',
       accentSuccess:'#7EE787', accentSuccessMeta:'L* 83.6 · 11.10:1',
       accentWarning:'#E8A33C', accentWarningMeta:'L* 72.0 · 7.91:1',
       accentDanger:'#FF5C7A',  accentDangerMeta:'L* 61.9 · 5.74:1 — AA',
@@ -937,6 +981,7 @@ Ring.<span class="att">StrokeThickness</span> = t;</pre>
       accent:'#9FE8FF', strokeHalo:'#0E0A06', toggleOn:'#67874C', toggleOff:'#342C21',
       textPrimaryCr:'14.10:1 — AAA', textSecondaryCr:'7.97:1 — AA', textDimCr:'5.30:1 — AA',
       borderSubtleCr:'3.17:1', keyRamp:'ΔE 9.56', borderThickness:'1px at 3.17:1',
+      togglePair:'≈3.37:1', toggleCvd:'≥3.30:1',
       accentSuccess:'#7EE787', accentSuccessMeta:'L* 83.6 · 11.10:1',
       accentWarning:'#E8A33C', accentWarningMeta:'L* 72.0 · 7.90:1',
       accentDanger:'#FF5C7A',  accentDangerMeta:'L* 61.9 · 5.74:1 — AA',
@@ -955,6 +1000,7 @@ Ring.<span class="att">StrokeThickness</span> = t;</pre>
       accent:'#00FFFF', strokeHalo:'#000000', toggleOn:'#00FF00', toggleOff:'#000000',
       textPrimaryCr:'21.00:1 — AAA', textSecondaryCr:'17.14:1 — AAA', textDimCr:'12.55:1 — AAA',
       borderSubtleCr:'21.00:1', keyRamp:'ΔE 18.25', borderThickness:'2px at 21.00:1',
+      togglePair:'15.30:1', toggleCvd:'≥11.89:1',
       accentSuccess:'#00FF00', accentSuccessMeta:'L* 87.7 · 15.30:1',
       accentWarning:'#FFFF00', accentWarningMeta:'L* 97.1 · 19.56:1',
       accentDanger:'#FF7777',  accentDangerMeta:'L* 66.4 · 8.16:1 — best of 3',
@@ -964,6 +1010,27 @@ Ring.<span class="att">StrokeThickness</span> = t;</pre>
       haloWhite:'plain 1.25 · lime 1.37 · halo 21.00',
       haloCyan:'plain 1.32 · halo 16.75',
       haloMixed:'plain varies · halo 16.75'
+    },
+    daylight: {
+      surfaceDark:'#FAE7E8F0', surfaceMedium:'#FAF3F4F9', surfaceLight:'#FFFFFFFF',
+      surfaceKey:'#F0F1F7', surfaceKeyMod:'#CFDEF8', surfaceKeySwitch:'#E9D5EF',
+      surfacePrediction:'#D3EDD8', borderSubtle:'#667A9F',
+      textPrimary:'#0C0D12', textSecondary:'#484D5E', textDim:'#5E6477',
+      accent:'#07343E', strokeHalo:'#FFFFFF', toggleOn:'#1F6B3E', toggleOff:'#D8DAE4',
+      textPrimaryCr:'15.18:1 — AAA', textSecondaryCr:'6.57:1 — AA', textDimCr:'4.61:1 — AA',
+      borderSubtleCr:'3.39:1', keyRamp:'ΔE 9.40', borderThickness:'1px at 3.39:1',
+      togglePair:'≈4.66:1', toggleCvd:'≥4.28:1',
+      accentSuccess:'#00620C', accentSuccessMeta:'L* 35.5 · 6.25:1 — AA',
+      accentWarning:'#7A1000', accentWarningMeta:'L* 25.3 · 9.04:1 — AAA',
+      accentDanger:'#C5313B',  accentDangerMeta:'L* 44.8 · 4.44:1 — AA-large',
+      modalBackdrop:'#B3000000',
+      // Contrast ratios for the light theme are against the BLACK worst-desktop
+      // composite (#E2E3EB) — the worse side for a light base (validator rule, review r1).
+      haloBlack:'plain 1.57 · lime 15.30 · halo 21.00',
+      haloGrey:'plain 3.39 · lime 2.88 · halo 13.38',
+      haloWhite:'plain 13.38 · lime 1.37 · halo 13.38',
+      haloCyan:'plain 8.06 · halo 13.38',
+      haloMixed:'plain varies · halo 13.38'
     }
   };
   function setTheme(name) {
@@ -973,6 +1040,7 @@ Ring.<span class="att">StrokeThickness</span> = t;</pre>
     }
     document.getElementById('b-mid').setAttribute('aria-pressed', name === 'midnight');
     document.getElementById('b-emb').setAttribute('aria-pressed', name === 'ember');
+    document.getElementById('b-day').setAttribute('aria-pressed', name === 'daylight');
     document.getElementById('b-con').setAttribute('aria-pressed', name === 'contrast');
   }
   setTheme('midnight');

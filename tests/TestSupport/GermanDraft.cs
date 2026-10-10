@@ -27,14 +27,24 @@ internal static class GermanDraft
 
     private static readonly Lazy<(StringTable Table, IReadOnlyList<string> Warnings)> TableValue = new(() =>
     {
+        // Only what the table says while it LOADS: once built, the table is shared by every test in
+        // the run, and a later caller's runtime warning (a template resolved without its arguments,
+        // as SettingsWindow does for the combo's "not available" format) is not a load problem.
         var warnings = new List<string>();
+        var loading = true;
+        void Warn(string line)
+        {
+            if (loading) warnings.Add(line);
+        }
+
         var table = StringTable.Create(
             UiLanguage.German,
             CultureInfo.GetCultureInfo("de-DE"),
-            StringTableContent.ParseEnglish(EnglishJson(), warnings.Add),
-            StringTableContent.ParseGerman(GermanJson.Value, warnings.Add),
+            StringTableContent.ParseEnglish(EnglishJson(), Warn),
+            StringTableContent.ParseGerman(GermanJson.Value, Warn),
             TestManifest,
-            warnings.Add);
+            Warn);
+        loading = false;
         return (table, warnings);
     });
 
@@ -52,7 +62,7 @@ internal static class GermanDraft
     /// <summary>The German table with every surface switched on, de-DE number formats included.</summary>
     internal static StringTable Table => TableValue.Value.Table;
 
-    /// <summary>What the table logged while loading: a surface left English for a missing key, a bad entry.</summary>
+    /// <summary>What the table logged while LOADING: a surface left English for a missing key, a bad entry.</summary>
     internal static IReadOnlyList<string> LoadWarnings => TableValue.Value.Warnings;
 
     /// <summary>The shipped German file's source copy.</summary>

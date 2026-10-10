@@ -18,6 +18,7 @@ using EyeCtrl.Controls;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.Tests.TestSupport;
 using EyeCtrl.ViewModels;
 using NFluent;
 using Xunit;
@@ -1003,6 +1004,107 @@ public class HandChunkedPageFitTests
                 + "constructed, so this means every one of them emitted zero pages — every "
                 + "assertion above then passed over nothing.")
             .That(pagesChecked).IsStrictlyGreaterThan(0);
+    }
+
+    /// <summary>The narrowest supported content column: every labelled row stacks its name above its control.</summary>
+    internal const double StackedColumnWidth = 416;
+
+    /// <summary>
+    /// T10 (the coordinator's call after mutant M10c): every visible text on every Settings page —
+    /// row names, descriptions, notes, options — shows whole SIDEWAYS. Pagination and reach
+    /// (<see cref="AssertEveryPageReachable"/>) bound a page's height; nothing bounded a long
+    /// unbreakable word, which a wrapping TextBlock cannot break and so draws past its column.
+    ///
+    /// <para>
+    /// Every page every source renders (the same sources, fixtures, views and production
+    /// pagination as the reachability sweep) is built through <c>SettingsWindow.CreateControl</c>
+    /// into a column of <paramref name="columnWidth"/> and hosted at 2.0 in <see cref="FitHost"/>.
+    /// For a wrapping text, its widest unbreakable run — split at spaces, after hyphens and at
+    /// U+00AD, measured with the hyphen a soft-hyphen break draws (<see cref="FitText.Runs"/>) —
+    /// must fit the width its parent gives it; a one-line text must be as wide as its natural
+    /// width. In whatever language <see cref="EyeCtrl.Core.Localization.StringTable.Current"/>
+    /// resolves.
+    /// </para>
+    /// </summary>
+    /// <param name="columnWidth">The content column: the production column (two-column rows) or <see cref="StackedColumnWidth"/>.</param>
+    /// <param name="measured">Receives the number of texts measured.</param>
+    /// <returns>One line per text that does not show whole.</returns>
+    internal static List<string> RowTextOverruns(double columnWidth, out int measured)
+    {
+        var root = SettingsContentFitTests.Xml();
+        var budget = ContentHeightBudget(root);
+        var findings = new List<string>();
+        var scopes = new List<IDisposable>();
+        measured = 0;
+        try
+        {
+            foreach (var type in AllSourceTypes())
+            {
+                foreach (var (fixture, source, scope) in FixturesOf(type))
+                {
+                    if (scope is not null) scopes.Add(scope);
+                    foreach (var (view, built) in ViewsOf(source))
+                    {
+                        var pages = PagesAsRendered(source, built, budget, columnWidth);
+                        for (var p = 0; p < pages.Count; p++)
+                            measured += MeasurePageTexts(pages[p], columnWidth, $"{type.Name}.{view} [{fixture}] page {p + 1}", findings);
+                    }
+                }
+            }
+        }
+        finally
+        {
+            foreach (var scope in scopes) scope.Dispose();
+        }
+
+        return findings;
+    }
+
+    private static int MeasurePageTexts(PageSpec page, double columnWidth, string where, List<string> findings)
+    {
+        var panel = new StackPanel { Width = columnWidth };
+        foreach (var spec in page.Rows)
+        {
+            var control = SettingsWindow.CreateControl(
+                spec, new SettingsAutoPagination.NoopDwellRegistrar(), RadiusPhysical, DwellMs, columnWidth);
+            switch (control)
+            {
+                case DwellControl single:
+                    SettingsWindow.ConstrainToContentWidth(single.Root, columnWidth);
+                    single.Attach(panel);
+                    break;
+                case IDwellComposite composite:
+                    composite.Attach(panel);
+                    break;
+                case DwellLabel label:
+                    label.Attach(panel);
+                    break;
+            }
+        }
+
+        using var host = FitHost.Open(panel, family: Tokens.FontStandard);
+        var count = 0;
+        foreach (var text in FitText.Descendants<TextBlock>(panel).Where(t => t.IsVisible && t.Text.Length > 0).ToList())
+        {
+            count++;
+            if (text.TextWrapping == TextWrapping.NoWrap)
+            {
+                var natural = FitText.NaturalWidth(text, text.Text) + text.Padding.Left + text.Padding.Right;
+                if (natural > text.ActualWidth + 0.5)
+                    findings.Add($"{where}: '{text.Text}' needs {FitText.Dip(natural)} DIP on one line but has {FitText.Dip(text.ActualWidth)} (clipped)");
+                continue;
+            }
+
+            // The width the parent offers (the layout slot less the margins), not ActualWidth: a
+            // wrapped text reports the width of its longest line, and an overrun line reports more.
+            var slot = System.Windows.Controls.Primitives.LayoutInformation.GetLayoutSlot(text);
+            var room = slot.Width - text.Margin.Left - text.Margin.Right - text.Padding.Left - text.Padding.Right;
+            var (run, runWidth) = FitText.WidestRun(text, text.Text);
+            if (runWidth > room + 0.5)
+                findings.Add($"{where}: '{text.Text}': the run '{run}' is {FitText.Dip(runWidth)} DIP in {FitText.Dip(room)} — it cannot break, so it overruns its column");
+        }
+
+        return count;
     }
 
     /// <summary>

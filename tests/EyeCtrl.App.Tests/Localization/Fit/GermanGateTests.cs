@@ -6,6 +6,7 @@ using System.Linq;
 using System.Windows.Controls;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Settings;
+using EyeCtrl.App.Tests.TestSupport;
 using EyeCtrl.App.Views;
 using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Controls.Theme;
@@ -78,6 +79,61 @@ public class GermanGateTests
         {
             Check.That(StringTable.Current.T("settings.tab.general.label")).IsEqualTo("Allgemein");
             HandChunkedPageFitTests.AssertEveryPageReachable("German");
+        }
+        finally
+        {
+            StringTable.ResetToEmbeddedEnglish();
+        }
+    }
+
+    /// <summary>Every theme × both row forms: two-column at the production column, stacked at the narrowest.</summary>
+    public static TheoryData<string, string> ThemesAndRowForms()
+    {
+        var data = new TheoryData<string, string>();
+        foreach (var theme in ThemeRegistry.Names)
+        {
+            data.Add(theme, "two-column");
+            data.Add(theme, "stacked");
+        }
+
+        return data;
+    }
+
+    /// <summary>
+    /// Binding (the coordinator's call after mutant M10c): every German text on every Settings page
+    /// shows whole sideways — a wrapping row name, description or note has no unbreakable run (a
+    /// U+00AD break counts, with its hyphen) wider than its column, and a one-line text is not
+    /// clipped. Both row forms, in every theme. See <see cref="HandChunkedPageFitTests.RowTextOverruns"/>.
+    /// </summary>
+    [StaTheory]
+    [MemberData(nameof(ThemesAndRowForms))]
+    public void EverySettingsText_InGerman_ShowsWholeSideways(string theme, string form) =>
+        AssertRowTextsShowWhole(GermanDraft.Table, theme, form);
+
+    /// <summary>The same sweep on the English: the baseline the German gate is measured against.</summary>
+    [StaTheory]
+    [MemberData(nameof(ThemesAndRowForms))]
+    public void EverySettingsText_InEnglish_ShowsWholeSideways(string theme, string form) =>
+        AssertRowTextsShowWhole(StringTable.EmbeddedEnglish, theme, form);
+
+    private void AssertRowTextsShowWhole(StringTable strings, string theme, string form)
+    {
+        var width = form == "stacked"
+            ? HandChunkedPageFitTests.StackedColumnWidth
+            : HandChunkedPageFitTests.ContentColumnWidth(SettingsContentFitTests.Xml());
+        Check.WithCustomMessage($"The {form} column ({FitText.Dip(width)} DIP) does not give the {form} row form.")
+            .That(width >= SettingsWindow.TwoColumnMinimumWidth).IsEqualTo(form == "two-column");
+
+        using var scope = ThemeScope.Activate(ThemeRegistry.Resolve(theme));
+        StringTable.Activate(strings);
+        try
+        {
+            var findings = HandChunkedPageFitTests.RowTextOverruns(width, out var measured);
+            _output.WriteLine($"{theme}, {form} ({FitText.Dip(width)} DIP): {measured} texts measured, {findings.Count} overrun");
+            Check.WithCustomMessage("Too few Settings texts were measured: the sweep is not seeing the pages.")
+                .That(measured).IsStrictlyGreaterThan(300);
+            Check.WithCustomMessage($"Settings texts overrun their column ({theme}, {form}):\n  " + string.Join("\n  ", findings))
+                .That(findings).IsEmpty();
         }
         finally
         {

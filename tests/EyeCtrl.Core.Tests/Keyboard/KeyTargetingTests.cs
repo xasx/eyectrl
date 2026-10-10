@@ -105,6 +105,25 @@ public class KeyTargetingTests
     }
 
     /// <summary>
+    /// Pass 2 keeps the old loop's tie order too: a gap point exactly between two centres goes to
+    /// the key enumerated first, in both orders.
+    /// </summary>
+    [Fact]
+    public void GapPoint_ExactTie_GoesToTheFirstKeyInLayoutOrder()
+    {
+        var left = new PhysicalRect(0, 0, 100, 100);
+        var right = new PhysicalRect(110, 0, 100, 100);
+        var gap = new PhysicalPoint(105, 50);   // in the gutter, 55 px from both centres
+
+        Check.That(KeyTargeting.PickKey(gap,
+            new Dictionary<string, PhysicalPoint> { ["z_left"] = left.Center, ["a_right"] = right.Center },
+            new Dictionary<string, PhysicalRect> { ["z_left"] = left, ["a_right"] = right })).IsEqualTo("z_left");
+        Check.That(KeyTargeting.PickKey(gap,
+            new Dictionary<string, PhysicalPoint> { ["a_right"] = right.Center, ["z_left"] = left.Center },
+            new Dictionary<string, PhysicalRect> { ["a_right"] = right, ["z_left"] = left })).IsEqualTo("a_right");
+    }
+
+    /// <summary>
     /// Overlapping boxes: the point is inside both, and the NEAREST centre among them wins — in
     /// both enumeration orders, so it is the distance and not the order deciding. A third key
     /// whose centre is nearer still but whose box does not contain the point must not win.

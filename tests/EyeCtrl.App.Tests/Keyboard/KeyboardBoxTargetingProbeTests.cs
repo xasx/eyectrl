@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
@@ -227,6 +228,166 @@ public class KeyboardBoxTargetingProbeTests
                 Check.WithCustomMessage($"'{id}' box {production[id]} != oracle {expected} after the swap")
                      .That(Math.Abs(production[id].X - expected.X) + Math.Abs(production[id].Width - expected.Width))
                      .IsStrictlyLessThan(0.01);
+        }
+        finally { probe.Dispose(); }
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
+
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoZOrder = 0x0004;
+    private const uint SwpNoActivate = 0x0010;
+
+    /// <summary>
+    /// Every production box equals the test's own two-corner <c>PointToScreen</c> of its Border
+    /// (within 0.01 px), and the key's centre lies inside it. Returns the oracle.
+    /// </summary>
+    private static Dictionary<string, PhysicalRect> AssertBoxesMatchBorders(Probe probe, string step)
+    {
+        var oracle = OracleBoxes(probe);
+        var production = ProductionBoxes(probe.Window);
+        var centres = Centres(probe.Window);
+        Check.WithCustomMessage($"{step}: box ids differ from the visual tree's")
+             .That(production.Keys).IsEquivalentTo(oracle.Keys);
+        foreach (var (id, expected) in oracle)
+        {
+            var actual = production[id];
+            Check.WithCustomMessage($"{step}: '{id}' box {actual} != {expected}")
+                 .That(Math.Abs(actual.X - expected.X) + Math.Abs(actual.Y - expected.Y)
+                       + Math.Abs(actual.Width - expected.Width) + Math.Abs(actual.Height - expected.Height))
+                 .IsStrictlyLessThan(0.01);
+            Check.WithCustomMessage($"{step}: '{id}' centre {centres[id]} is outside its box {actual}")
+                 .That(actual.Contains(centres[id].X, centres[id].Y)).IsTrue();
+        }
+        return oracle;
+    }
+
+    /// <summary>
+    /// The boxes are recomputed on EVERY sample, not only when the keys are rebuilt. The keyboard
+    /// moves without a rebuild whenever the toolbar yield or the screen edge changes its position
+    /// (<c>RepositionOnScreen</c>), and its scale changes with the monitor's DPI. Because pass 1
+    /// OVERRIDES nearest-centre, a stale box does not just blur the pick — it wins, and a gaze on one
+    /// key types whichever key used to sit there. Review-01 F1: a box computed once and never
+    /// refreshed passed every other test.
+    ///
+    /// <para>The move is a <c>SetWindowPos</c> on the off-screen, never-visible popup; the scale
+    /// change swaps the root <see cref="ScaleTransform"/> (the DPI-change proxy this fixture uses).
+    /// Each step asserts the boxes actually moved, so a no-op step cannot pass vacuously.</para>
+    /// </summary>
+    [StaFact]
+    public void BoxesFollowAMove_AndAScaleChange_WithoutARebuild()
+    {
+        var probe = Open(2.0);
+        try
+        {
+            var initial = AssertBoxesMatchBorders(probe, "initial");
+
+            Check.WithCustomMessage("SetWindowPos failed; the move step would test nothing.")
+                 .That(SetWindowPos(probe.Source.Handle, IntPtr.Zero, -29000, -29500, 0, 0,
+                     SwpNoSize | SwpNoZOrder | SwpNoActivate)).IsTrue();
+            probe.Window.UpdateGaze(new PhysicalPoint(0, 0), 200_000);
+            var moved = AssertBoxesMatchBorders(probe, "after move");
+            Check.WithCustomMessage("The move did not move the keys — the step is vacuous.")
+                 .That(Math.Abs(moved["modifier:win"].X - initial["modifier:win"].X)).IsStrictlyGreaterThan(500);
+
+            var factor = 1.25 / probe.Source.CompositionTarget!.TransformToDevice.M11;
+            probe.Content.LayoutTransform = new ScaleTransform(factor, factor);
+            probe.Content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            probe.Content.Arrange(new Rect(probe.Content.DesiredSize));
+            probe.Content.UpdateLayout();
+            probe.Window.UpdateGaze(new PhysicalPoint(0, 0), 400_000);
+            var rescaled = AssertBoxesMatchBorders(probe with { Scale = 1.25 }, "after scale change");
+            Check.WithCustomMessage("The scale change did not resize the keys — the step is vacuous.")
+                 .That(rescaled["modifier:win"].Width).IsStrictlyLessThan(moved["modifier:win"].Width * 0.7);
+        }
+        finally { probe.Dispose(); }
+    }
+
+    /// <summary>The in-box grid points (7×5 per key, edges included) whose nearest centre is ANOTHER key's.</summary>
+    private static List<(string Owner, PhysicalPoint Point)> TeethPoints(Probe probe)
+    {
+        var centres = new Dictionary<string, PhysicalPoint>(Centres(probe.Window));
+        var teeth = new List<(string, PhysicalPoint)>();
+        foreach (var (id, box) in OracleBoxes(probe))
+            for (var i = 0; i <= 6; i++)
+            for (var j = 0; j <= 4; j++)
+            {
+                var p = new PhysicalPoint(box.X + box.Width * i / 6.0, box.Y + box.Height * j / 4.0);
+                if (NearestCentre(centres, p) != id)
+                    teeth.Add((id, p));
+            }
+        return teeth;
+    }
+
+    /// <summary>
+    /// Entering a key from the UNLATCHED state — the common real path: <c>NearestKeyId</c> is
+    /// nulled after every activation, cooldown, gaze-left and D13 rest. The first sample inside a
+    /// key's box but nearer a neighbour's centre must latch the box's key, not the neighbour.
+    /// Every such grid point is entered fresh: an off-grid sample first (GazeLeft → unlatched),
+    /// then the point. Review-01 F2: "boxes ignored while nothing is latched" survived the App suite.
+    /// </summary>
+    [StaTheory]
+    [InlineData(1.25)]
+    [InlineData(2.0)]
+    public void UnlatchedEntry_InsideABoxNearerANeighbour_LatchesTheBoxOwner(double effectiveScale)
+    {
+        var probe = Open(effectiveScale);
+        try
+        {
+            var teeth = TeethPoints(probe);
+            Check.WithCustomMessage("No in-box point is nearer another centre — the test has no teeth.")
+                 .That(teeth).Not.IsEmpty();
+
+            var wrong = new List<string>();
+            long ts = 0;
+            foreach (var (owner, p) in teeth)
+            {
+                Pick(probe, new PhysicalPoint(-99999, -99999), ref ts);
+                Check.That(probe.Vm.NearestKeyId).IsNull();
+                var picked = Pick(probe, p, ref ts);
+                if (picked != owner)
+                    wrong.Add($"{owner}@({p.X:F1},{p.Y:F1})→{picked ?? "null"}");
+            }
+
+            Check.WithCustomMessage(
+                    $"{wrong.Count} of {teeth.Count} unlatched entries at scale {effectiveScale} latched "
+                    + "the neighbour: " + string.Join("; ", wrong.Take(20)))
+                .That(wrong).IsEmpty();
+        }
+        finally { probe.Dispose(); }
+    }
+
+    /// <summary>
+    /// The same entry straight after a real ACTIVATION, which is what nulls the latch most often:
+    /// a letter is dwelled to completion (a continuous 50 ms stream, so F3 does not restart it),
+    /// and the very next sample lands inside the Caps key's box at a point nearer a neighbour's
+    /// centre. Caps must latch.
+    /// </summary>
+    [StaFact]
+    public void AfterAnActivation_TheFirstSampleInsideCapsNearItsEdge_LatchesCaps()
+    {
+        var probe = Open(2.0);
+        try
+        {
+            var capsTooth = TeethPoints(probe).First(t => t.Owner == "toggle:capslock").Point;
+            var fired = new List<string>();
+            probe.Vm.KeyDwellCompleted += fired.Add;
+
+            var centres = new Dictionary<string, PhysicalPoint>(Centres(probe.Window));
+            var letter = centres["key_0_1"];   // Q
+            long ts = 1_000_000;
+            for (var t = ts; t <= ts + 450_000; t += 50_000)
+                probe.Window.UpdateGaze(letter, t);
+
+            Check.WithCustomMessage("The letter never activated, so the entry below is not post-activation.")
+                 .That(fired).ContainsExactly("key_0_1");
+            Check.That(probe.Vm.NearestKeyId).IsNull();
+
+            probe.Window.UpdateGaze(capsTooth, ts + 500_000);
+            Check.WithCustomMessage($"The first sample after an activation, inside Caps at ({capsTooth.X:F1},"
+                    + $"{capsTooth.Y:F1}), latched '{probe.Vm.NearestKeyId}'.")
+                 .That(probe.Vm.NearestKeyId).IsEqualTo("toggle:capslock");
         }
         finally { probe.Dispose(); }
     }

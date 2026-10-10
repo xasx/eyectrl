@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Diagnostics.SubPixel;
 using EyeCtrl.App.Tests.Fixtures;
@@ -45,7 +46,16 @@ public class SubPixelProbeWindowTests
             () => true);
 
         var ended = 0;
-        var window = new SubPixelProbeWindow(null, vm, new CursorSettings(), () => ended++);
+        bool closedObservedInCallback = false;
+        SubPixelProbeWindow? windowRef = null;
+        var window = new SubPixelProbeWindow(null, vm, new CursorSettings(), () =>
+        {
+            // W6-closedflag: "already closed" must be true before the session-end callback runs, or a
+            // re-entrant Restore inside it would try to close the window again.
+            closedObservedInCallback = windowRef!.ClosedObserved;
+            ended++;
+        });
+        windowRef = window;
         try
         {
             var handle = new System.Windows.Interop.WindowInteropHelper(window).EnsureHandle();
@@ -93,11 +103,147 @@ public class SubPixelProbeWindowTests
             window.Close();
             Check.That(window.ClosedObserved).IsTrue();
             Check.That(ended).IsEqualTo(1);
+            Check.WithCustomMessage("The close flag was set after the session-end callback")
+                .That(closedObservedInCallback).IsTrue();
         }
         finally
         {
             if (!window.ClosedObserved) window.Close();
         }
+    }
+
+    // ---- M5: the view's phases the plan describes but no test pinned ------------------------------
+
+    [StaFact]
+    public void VoidHold_ShowsTheRestYourEyesPanel_WithNoRing()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        using var vm = NewViewModel();
+        var window = new SubPixelProbeWindow(null, vm, new CursorSettings(), () => { });
+        try
+        {
+            new WindowInteropHelper(window).EnsureHandle();
+            SetPhase(vm, SubPixelProbePhase.VoidHold);
+
+            Check.WithCustomMessage("VoidHold must not draw the ring")
+                .That(window.IsRingDrawnForTest).IsFalse();
+            Check.WithCustomMessage("VoidHold must show the rest-your-eyes panel")
+                .That(window.VoidHoldPanelForTest.Visibility).IsEqualTo(Visibility.Visible);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [StaFact]
+    public void Result_ShowsTheC12VerdictText_AndNeverTheLogLine()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        using var vm = NewViewModel();
+        const string logLine = "Sub-pixel A/B — drift 9/10 → session 1 CONVICTS (LOG-LINE-SENTINEL)";
+        typeof(SubPixelProbeViewModel)
+            .GetProperty(nameof(SubPixelProbeViewModel.Session1Verdict))!
+            .SetValue(vm, new SubPixelAbSession1Verdict(
+                SubPixelAbOutcome.Convicts, SubPixelAbStaticReadout.CannotTellStillRingsApart, logLine));
+
+        var window = new SubPixelProbeWindow(null, vm, new CursorSettings(), () => { });
+        try
+        {
+            new WindowInteropHelper(window).EnsureHandle();
+            SetPhase(vm, SubPixelProbePhase.Result);
+
+            Check.WithCustomMessage("The Result screen must render the C12 key text")
+                .That(window.ResultTextForTest)
+                .Contains(EyeCtrl.Core.Localization.StringTable.Current.T("overlays.subpixel.result_convicted"));
+            Check.WithCustomMessage("The Result screen rendered the English log line")
+                .That(window.ResultTextForTest.Contains("LOG-LINE-SENTINEL", StringComparison.Ordinal)).IsFalse();
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    // ---- M2: the backdrop at the owner's DPI ------------------------------------------------------
+
+    /// <summary>
+    /// M2: at scale 2.0 the backdrop is one image pixel per device pixel. Rendered with the repo's
+    /// R1 pattern — <see cref="RenderTargetBitmap"/> at 96×scale DPI over a headless, arranged
+    /// visual — which is the deterministic way to ask "what lands on device pixels at 192 DPI"
+    /// without a visible window.
+    /// </summary>
+    [StaFact]
+    public void Backdrop_AtScale2_IsDrawnOneImagePixelPerDevicePixel()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+
+        // A 1-px checker: pixel identity is exactly what a 1:1 draw preserves.
+        var checker = CheckerBitmap(8, 8);
+        using var vm = NewViewModel();
+        var window = new SubPixelProbeWindow(checker, vm, new CursorSettings(), () => { }, scale: 2.0);
+        window.Width = 4;    // 8 device px at 2.0, so the bitmap covers the scene exactly
+        window.Height = 4;
+        try
+        {
+            new WindowInteropHelper(window).EnsureHandle();
+            var content = (FrameworkElement)window.Content!;
+            content.Measure(new Size(4, 4));
+            content.Arrange(new Rect(0, 0, 4, 4));
+            content.UpdateLayout();
+
+            // 192 DPI: 8 device px for 4 DIP, so a 1:1 backdrop reproduces the 8-px checker.
+            var bitmap = new RenderTargetBitmap(8, 8, 192, 192, PixelFormats.Pbgra32);
+            bitmap.Render(content);
+
+            var pixels = new byte[8 * 8 * 4];
+            bitmap.CopyPixels(pixels, 8 * 4, 0);
+            for (int y = 0; y < 8; y++)
+            {
+                for (int x = 0; x < 8; x++)
+                {
+                    int i = (y * 8 + x) * 4;
+                    byte expected = ((x + y) & 1) == 0 ? (byte)0 : (byte)255;
+                    Check.WithCustomMessage(
+                            $"The backdrop at scale 2.0 is not 1:1 at device pixel ({x},{y}): "
+                            + $"B={pixels[i]} G={pixels[i + 1]} R={pixels[i + 2]} expected {(int)expected}")
+                        .That(pixels[i]).IsEqualTo(expected);
+                    Check.That(pixels[i + 1]).IsEqualTo(expected);
+                    Check.That(pixels[i + 2]).IsEqualTo(expected);
+                }
+            }
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    private static SubPixelProbeViewModel NewViewModel() => new(
+        new WeakReferenceMessenger(),
+        new DispatcherTimeProvider(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+        SubPixelAbSchedule.Create(seed: 7, new PhysicalRect(0, 0, 1920, 1080)),
+        new EyeCtrlSettings().Dwell,
+        () => true);
+
+    private static BitmapSource CheckerBitmap(int width, int height)
+    {
+        var pixels = new byte[width * height * 4];
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int i = (y * width + x) * 4;
+                byte value = ((x + y) & 1) == 0 ? (byte)0 : (byte)255;
+                pixels[i] = value;
+                pixels[i + 1] = value;
+                pixels[i + 2] = value;
+                pixels[i + 3] = 255;
+            }
+        }
+
+        return BitmapSource.Create(
+            width, height, 96, 96, PixelFormats.Bgra32, null, pixels, width * 4);
     }
 
     // ---- B2: the seven dwell targets are hit at their RENDERED centres ---------------------------

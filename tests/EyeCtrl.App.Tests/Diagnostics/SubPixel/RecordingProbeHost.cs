@@ -56,6 +56,12 @@ internal sealed class RecordingProbeHost : IProbeHost
     /// <summary>When set, the named call throws once (before doing anything).</summary>
     internal string? ThrowOnceAt { get; set; }
 
+    /// <summary>
+    /// When true, <see cref="HideKeyboard"/> hides first and then throws — the W1-26 model of a
+    /// probe that touched the keyboard but never got to record that it did.
+    /// </summary>
+    internal bool ThrowAfterHideKeyboard { get; set; }
+
     /// <summary>When set for a call name, that call re-enters once, right after it is recorded.</summary>
     internal void ReenterOnceAt(string name, Action action) => _reenterAt[name] = action;
 
@@ -149,6 +155,8 @@ internal sealed class RecordingProbeHost : IProbeHost
     {
         Before(nameof(HideKeyboard));
         KeyboardVisible = false;
+        if (ThrowAfterHideKeyboard)
+            throw new InvalidOperationException("injected throw after hiding the keyboard");
     }
 
     public void RestoreKeyboard(bool wasVisible)

@@ -283,6 +283,22 @@ public class SubPixelProbeRestoreTests
     // ---- W1 (e2): the fake window's Close re-enters EndTest ---------------------------------------
 
     [Fact]
+    public void WhenTheKeyboardHideThrowsAfterHiding_TheKeyboardEndsVisible()
+    {
+        // W1-26 / plan F2: the record of KeyboardWasVisible and KeyboardTouched must happen BEFORE
+        // HideForProbe, or a hide that throws midway leaves a hidden keyboard with no restore.
+        using var world = new ProbeTestWorld(holdKeyboardClaim: true);
+        world.Host.ThrowAfterHideKeyboard = true;
+
+        world.Coordinator.StartForTest();
+        world.Pump();
+
+        Check.WithCustomMessage("The keyboard stayed hidden after a hide that threw midway")
+            .That(world.Host.KeyboardVisible).IsTrue();
+        Check.That(world.Modal.ProbeOpen).IsFalse();
+    }
+
+    [Fact]
     public void WhenTheWindowCloseReenters_RestoreReleasesAndTearsDownExactlyOnce()
     {
         using var world = new ProbeTestWorld(holdKeyboardClaim: true);

@@ -144,4 +144,99 @@ public class SubPixelAbResultWriterTests
         Check.That(doc.RootElement.GetProperty("resumedSession1LogLine").GetString())
             .IsEqualTo("drift 9/10 → CONVICTS");
     }
+
+    // ---- M3 (fixup 02): the *What is recorded* fields -------------------------------------------
+
+    [Fact]
+    public void StartedUtc_IsStampedOnce_NotRewrittenPerSave()
+    {
+        var path = Path.Combine(TempTestDirectory.Create("writer-started"), "result.json");
+        var writer = new SubPixelAbResultWriter(path, Info());
+
+        writer.WriteBlock(BlockOutcome(SubPixelAbBlock.Drift));
+        using var first = Read(writer);
+        var started = first.RootElement.GetProperty("startedUtc").GetString();
+
+        Thread.Sleep(20);
+        writer.WriteBlock(BlockOutcome(SubPixelAbBlock.Static, aPicks: 6, bPicks: 4, voids: 0));
+        using var second = Read(writer);
+
+        Check.WithCustomMessage("startedUtc moved between saves; it must be stamped once at the run's start")
+            .That(second.RootElement.GetProperty("startedUtc").GetString()).IsEqualTo(started);
+    }
+
+    [Fact]
+    public void StaticPicksOfAAndScored_HoldsThePicks_NotTheReadoutName()
+    {
+        var path = Path.Combine(TempTestDirectory.Create("writer-picks"), "result.json");
+        var writer = new SubPixelAbResultWriter(path, Info());
+        writer.WriteBlock(BlockOutcome(SubPixelAbBlock.Drift, aPicks: 1, bPicks: 9, voids: 0));
+        writer.WriteBlock(BlockOutcome(SubPixelAbBlock.Static, aPicks: 6, bPicks: 4, voids: 0));
+
+        writer.WriteSession(
+            new SubPixelProbeSessionOutcome(
+                SubPixelProbeSessionKind.Session1, SubPixelProbeEndReason.BlocksCompleted, false, []),
+            new SubPixelAbSession1Verdict(
+                SubPixelAbOutcome.Convicts, SubPixelAbStaticReadout.CannotTellStillRingsApart, "line"),
+            null);
+
+        using var doc = Read(writer);
+        var session = doc.RootElement.GetProperty("sessions")[0];
+        Check.WithCustomMessage("The field holds the readout's enum name, not the picks")
+            .That(session.GetProperty("staticPicksOfAAndScored").GetString()).IsEqualTo("6/10");
+    }
+
+    [Fact]
+    public void SampleCadence_IsRecorded_WhenC7SetsIt()
+    {
+        var path = Path.Combine(TempTestDirectory.Create("writer-cadence"), "result.json");
+        var writer = new SubPixelAbResultWriter(path, Info());
+
+        writer.SetSampleCadenceMs(30.24);
+        writer.WriteRunEnd(SubPixelProbeRunEndReason.EndTest);
+
+        using var doc = Read(writer);
+        Check.That(doc.RootElement.GetProperty("sampleCadenceMs").GetDouble()).IsCloseTo(30.24, 1e-9);
+    }
+
+    [Fact]
+    public void DisplayRefreshHz_IsRecorded_WhenTheRunInfoCarriesIt()
+    {
+        var path = Path.Combine(TempTestDirectory.Create("writer-refresh"), "result.json");
+        var writer = new SubPixelAbResultWriter(path, Info() with { DisplayRefreshHz = 59.94 });
+
+        writer.WriteRunEnd(SubPixelProbeRunEndReason.EndTest);
+
+        using var doc = Read(writer);
+        Check.That(doc.RootElement.GetProperty("displayRefreshHz").GetDouble()).IsCloseTo(59.94, 1e-9);
+    }
+
+    [Fact]
+    public void WriteRunEndIfAbsent_DoesNotOverwriteAnExistingReason()
+    {
+        var path = Path.Combine(TempTestDirectory.Create("writer-absent"), "result.json");
+        var writer = new SubPixelAbResultWriter(path, Info());
+
+        writer.WriteRunEnd(SubPixelProbeRunEndReason.Completed);
+        writer.WriteRunEndIfAbsent(SubPixelProbeRunEndReason.EndTest);
+
+        using var doc = Read(writer);
+        Check.WithCustomMessage("A coordinator abort overwrote a completed run's reason")
+            .That(doc.RootElement.GetProperty("runEndReason").GetString()).IsEqualTo("completed");
+    }
+
+    [Fact]
+    public void TheWrite_IsAtomic_TempThenMove()
+    {
+        // I5-atomic: the temp-then-move write is what keeps a reader from ever seeing a partial
+        // document. Pinned at source, because a race is not testable deterministically.
+        var path = Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Diagnostics", "SubPixel", "SubPixelAbResultWriter.cs");
+        var code = SourceScanner.StripComments(File.ReadAllText(path));
+
+        Check.WithCustomMessage("The results writer no longer writes to a temp file first")
+            .That(code.Contains("var temporary = _filePath + \".tmp\";")).IsTrue();
+        Check.WithCustomMessage("The results writer no longer moves the temp file over the target")
+            .That(code.Contains("File.Move(temporary, _filePath, overwrite: true);")).IsTrue();
+    }
 }

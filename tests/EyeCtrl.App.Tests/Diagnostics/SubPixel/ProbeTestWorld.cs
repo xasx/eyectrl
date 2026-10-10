@@ -128,6 +128,27 @@ internal sealed class ProbeTestWorld : IDisposable
     /// <summary>Drains everything queued, including the ContextIdle <c>CaptureAndShow</c>.</summary>
     internal void Pump() => Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
 
+    /// <summary>
+    /// Drains queued work and swallows whatever it throws, so one world's queued operation can never
+    /// run in a later test's <see cref="Pump"/> (fixup 02 M1). The SettingsRequested path posts a
+    /// real <c>ShowSettingsWindow</c> that this world cannot build; consuming it here is what makes
+    /// the tests order-independent.
+    /// </summary>
+    internal void DrainContaining()
+    {
+        for (int i = 0; i < 4; i++)
+        {
+            try
+            {
+                Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+            }
+            catch
+            {
+                // A queued operation threw; its item is consumed and the next pass drains the rest.
+            }
+        }
+    }
+
     /// <summary>Starts a run and drives it to the shown state.</summary>
     internal ProbeSession StartShown()
     {
@@ -146,6 +167,10 @@ internal sealed class ProbeTestWorld : IDisposable
         SettingsUi?.Dispose();
         QuickActions?.Dispose();
         Engine.Dispose();
+
+        // Contain anything this world queued (e.g. the SettingsRequested test's posted
+        // ShowSettingsWindow) before the dispatcher can hand it to a later test (fixup 02 M1).
+        DrainContaining();
     }
 }
 

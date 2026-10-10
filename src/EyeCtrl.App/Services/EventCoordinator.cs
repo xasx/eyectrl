@@ -182,7 +182,8 @@ public class EventCoordinator : IEventCoordinator
         _probe.Initialize(context);
         _settingsUi.SetProbeEntry(
             () => _probe.GetBlockReason(),
-            () => _probe.RequestStart(() => _settingsUi.CloseSettingsWindowForProbe()));
+            () => _probe.RequestStartAuto(() => _settingsUi.CloseSettingsWindowForProbe()),
+            () => _probe.CanResumeFromResults());
     }
 
     public void LoadKeyboard(KeyboardWindow keyboard, EyeCtrlSettings settings,

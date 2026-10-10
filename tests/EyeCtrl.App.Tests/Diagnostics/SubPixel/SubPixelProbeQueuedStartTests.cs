@@ -1,9 +1,16 @@
 namespace EyeCtrl.App.Tests.Diagnostics.SubPixel;
 
+using System.IO;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.App.Diagnostics.SubPixel;
+using EyeCtrl.App.Tests.Services.Coordinators;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Models;
+using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
+using Serilog;
+using Xunit;
 
 /// <summary>
 /// W3 — request → queued start. The same initialised <c>SettingsUiCoordinator</c> and real-object
@@ -135,6 +142,152 @@ public class SubPixelProbeQueuedStartTests
             .That(world.Modal.ProbeOpen).IsFalse();
         Check.That(world.Host.CountOf("SetProbeOpen")).IsEqualTo(0);
     }
+
+    // ---- H3: BeginStart's re-check, one term per case ------------------------------------------
+
+    [Theory]
+    [InlineData("modes")]
+    [InlineData("task-switcher")]
+    [InlineData("quick-actions-grid")]
+    [InlineData("eye-care")]
+    [InlineData("adaptation")]
+    [InlineData("settings")]
+    [InlineData("calibration")]
+    public void AQueuedStart_ReChecksThePrecondition_WhenTheStateChangesBeforeTheDrain(string term)
+    {
+        using var world = new ProbeTestWorld();
+
+        world.Coordinator.RequestStart(ManualClose(world));
+
+        switch (term)
+        {
+            case "modes": world.Context.ModesMenuVM.IsVisible = true; break;
+            case "task-switcher": world.Context.TaskSwitcherVM.IsVisible = true; break;
+            case "quick-actions-grid": world.Context.QuickActionsGridVM.IsVisible = true; break;
+            case "eye-care": world.Settings.EyeCare.Enabled = true; break;
+            case "adaptation": world.Settings.Adaptation.Enabled = true; break;
+            case "settings":
+                // The flag without its event: exactly the state a re-opened window leaves behind.
+                world.Modal.SettingsOpen = true;
+                break;
+            case "calibration":
+                world.Context.CalibrationService.StartSession(4, new PhysicalPoint(1920, 1080));
+                Check.That(world.Context.CalibrationService.IsSessionActive).IsTrue();
+                break;
+        }
+
+        world.Pump();
+
+        Check.WithCustomMessage(
+                $"The queued start ran although the {term} precondition was refused at BeginStart "
+                + "(the re-check is the only guard once C10 drops the SettingsOpen term)")
+            .That(world.Host.CountOf("SetProbeOpen")).IsEqualTo(0);
+        Check.That(world.Modal.ProbeOpen).IsFalse();
+    }
+
+    [Fact]
+    public void ARefusedQueuedStart_LogsTheReason()
+    {
+        using var world = new ProbeTestWorld();
+        var sink = new LostGazeExitCoordinatorTests.CapturingSink();
+        var previousLogger = Log.Logger;
+        try
+        {
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.Verbose()
+                .WriteTo.Sink(sink)
+                .CreateLogger();
+
+            world.Coordinator.RequestStart(ManualClose(world));
+            world.Settings.EyeCare.Enabled = true;
+            world.Pump();
+        }
+        finally
+        {
+            Log.Logger = previousLogger;
+        }
+
+        Check.WithCustomMessage("A refused start logged nothing; a missed dwell would read as a broken button")
+            .That(sink.Events.Select(e => e.MessageTemplate.Text))
+            .Contains("Sub-pixel probe start refused: {Refusal}");
+    }
+
+    // ---- H2: the resume route -------------------------------------------------------------------
+
+    [Fact]
+    public void RequestStartAuto_WithAConvictingResult_ResumesSession2()
+    {
+        using var world = new ProbeTestWorld();
+        WriteSeedVerdict(world.ResultsDir, SubPixelAbOutcome.Convicts);
+
+        world.Coordinator.RequestStartAuto(ManualClose(world));
+        world.Pump();
+
+        Check.That(world.Session.StartMode).IsEqualTo(SubPixelProbeStartMode.ResumeSession2);
+        Check.That(world.Session.ResumedSession1Verdict!.Outcome).IsEqualTo(SubPixelAbOutcome.Convicts);
+    }
+
+    [Fact]
+    public void RequestStartAuto_WithAnAcquittingResult_StartsAFullRun()
+    {
+        using var world = new ProbeTestWorld();
+        WriteSeedVerdict(world.ResultsDir, SubPixelAbOutcome.Acquits);
+
+        world.Coordinator.RequestStartAuto(ManualClose(world));
+        world.Pump();
+
+        Check.WithCustomMessage("The reader ignored outcome: an acquittal resumed session 2")
+            .That(world.Session.StartMode).IsEqualTo(SubPixelProbeStartMode.FullRun);
+        Check.That(world.Session.ResumedSession1Verdict).IsNull();
+    }
+
+    [Fact]
+    public void RequestStartAuto_WithNoResult_StartsAFullRun()
+    {
+        using var world = new ProbeTestWorld();
+
+        world.Coordinator.RequestStartAuto(ManualClose(world));
+        world.Pump();
+
+        Check.That(world.Session.StartMode).IsEqualTo(SubPixelProbeStartMode.FullRun);
+        Check.That(world.Session.ResumedSession1Verdict).IsNull();
+    }
+
+    [Fact]
+    public void CanResumeFromResults_FollowsTheNewestConvictingFile()
+    {
+        using var world = new ProbeTestWorld();
+
+        Check.That(world.Coordinator.CanResumeFromResults()).IsFalse();
+        WriteSeedVerdict(world.ResultsDir, SubPixelAbOutcome.Convicts);
+        Check.That(world.Coordinator.CanResumeFromResults()).IsTrue();
+    }
+
+    /// <summary>Closes Settings as the real window's handler does, without needing the coordinator.</summary>
+    private static Action ManualClose(ProbeTestWorld world) =>
+        () =>
+        {
+            world.Modal.SettingsOpen = false;
+            world.Modal.SettingsOpenChanged?.Invoke(false);
+        };
+
+    /// <summary>Drops a persisted session-1 verdict into the world's results directory.</summary>
+    private static void WriteSeedVerdict(string directory, SubPixelAbOutcome outcome)
+    {
+        var writer = new SubPixelAbResultWriter(
+            Path.Combine(directory, $"subpixel-ab-seed-{Guid.NewGuid():N}.json"),
+            new SubPixelAbRunInfo(
+                Seed: 1,
+                Ring: new SubPixelAbRingInfo("WeightedSandwich", 250, 3, 0.7, "#00FF00"),
+                AnswerDwellMs: 700,
+                DpiScale: 2.0,
+                ScreenBoundsPx: new PhysicalRect(0, 0, 2560, 1440)));
+        writer.WriteSession(
+            new SubPixelProbeSessionOutcome(
+                SubPixelProbeSessionKind.Session1, SubPixelProbeEndReason.BlocksCompleted, false, []),
+            new SubPixelAbSession1Verdict(outcome, SubPixelAbStaticReadout.Skipped, "seed " + outcome),
+            null);
+    }
 }
 
 /// <summary>
@@ -161,7 +314,9 @@ public class SubPixelProbeInterlockTests
         Check.That(world.Host.Names).Contains("ReleaseProbeSuppression");
         Check.That(world.Coordinator.LiveSessionForTest).IsNull();
 
-        // Nothing pumped: Settings' own handler only posts, so no real window is built here.
+        // Nothing pumped: Settings' own handler only posts, so no real window is built here. Drain
+        // that posted work now, containing it in this test rather than in a later test's Pump (M1).
+        world.DrainContaining();
     }
 
     [Fact]
@@ -179,6 +334,44 @@ public class SubPixelProbeInterlockTests
             .That(hostCallsWhenContinuationRan).IsStrictlyGreaterThan(0);
         Check.That(world.Modal.ProbeOpen).IsFalse();
         Check.That(world.Host.Names).Contains("ReleaseProbeSuppression");
+    }
+
+    [Fact]
+    public void ForceShowToolbar_EndsTheRun_Synchronously_NoPumpRequired()
+    {
+        // W9-b's order-independent killer: no Pump, no world interactions before it, so the test
+        // cannot be masked by work another test left queued (fixup 02 M1).
+        using var world = new ProbeTestWorld();
+        world.StartShown();
+
+        world.Coordinator.InterlockForceShowToolbar(() => { });
+
+        Check.That(world.Modal.ProbeOpen).IsFalse();
+        Check.That(world.Coordinator.LiveSessionForTest).IsNull();
+    }
+
+    [Fact]
+    public void Dispose_RestoresTheLiveSession()
+    {
+        var world = new ProbeTestWorld(holdKeyboardClaim: true);
+        try
+        {
+            world.StartShown();
+
+            world.Coordinator.Dispose();
+
+            Check.That(world.Modal.ProbeOpen).IsFalse();
+            Check.That(world.Host.Windows[0].ClosedObserved).IsTrue();
+            Check.That(world.Host.RingVisible).IsEqualTo(world.CursorVm.IsVisible);
+
+            world.ReleaseSeededKeyboardClaim();
+            Check.WithCustomMessage("A probe claim survived Dispose")
+                .That(world.Engine.SuppressFixation).IsFalse();
+        }
+        finally
+        {
+            world.Dispose();
+        }
     }
 
     [Fact]

@@ -133,7 +133,11 @@ internal sealed class SubPixelAbResultWriter
     /// <summary>The document schema version.</summary>
     public const int CurrentSchemaVersion = 1;
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    /// <summary>
+    /// The serializer options every write — and the resume reader — uses. Shared so a reader that
+    /// rebuilds a persisted verdict cannot disagree with the file the writer produced (fixup 02 H2).
+    /// </summary>
+    internal static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -143,11 +147,13 @@ internal sealed class SubPixelAbResultWriter
 
     private readonly SubPixelAbRunInfo _info;
     private readonly string _filePath;
+    private readonly DateTimeOffset _startedUtc;
     private readonly List<SubPixelAbBlockResult> _blocks = new();
     private readonly List<SubPixelAbSessionResult> _sessions = new();
     private readonly SubPixelProbeStartMode _startMode;
     private readonly string? _resumedSession1LogLine;
     private SubPixelProbeRunEndReason? _runEndReason;
+    private double? _sampleCadenceMs;
 
     /// <summary>Creates a writer for one run. Nothing is written until the first event.</summary>
     /// <param name="filePath">The full path of the result file.</param>
@@ -166,10 +172,21 @@ internal sealed class SubPixelAbResultWriter
         _info = info ?? throw new ArgumentNullException(nameof(info));
         _startMode = startMode;
         _resumedSession1LogLine = resumedSession1LogLine;
+        _startedUtc = DateTimeOffset.UtcNow;
     }
 
     /// <summary>The file this writer owns, for the log and tests.</summary>
     public string FilePath => _filePath;
+
+    /// <summary>Whether a run-end reason has been recorded; C7's abort path only writes when absent.</summary>
+    public bool HasRunEnd => _runEndReason is not null;
+
+    /// <summary>
+    /// Records the run's mean sample interval. C7 computes it from the <c>GazeSampled</c> stream as
+    /// the run progresses and sets it before the first write (test design, What is recorded).
+    /// </summary>
+    /// <param name="cadenceMs">The mean interval in milliseconds, or <c>null</c> when fewer than two samples arrived.</param>
+    public void SetSampleCadenceMs(double? cadenceMs) => _sampleCadenceMs = cadenceMs;
 
     /// <summary>Appends a finished block and rewrites the file.</summary>
     /// <param name="outcome">The block that finished.</param>
@@ -197,8 +214,8 @@ internal sealed class SubPixelAbResultWriter
         SubPixelAbSession1Verdict? session1,
         SubPixelAbSession2Verdict? session2)
     {
-        string? staticPicks = session1 is { StaticReadout: not SubPixelAbStaticReadout.Skipped } s1
-            ? $"{s1.StaticReadout}"
+        string? staticPicks = session1 is { StaticReadout: not SubPixelAbStaticReadout.Skipped }
+            ? StaticPicks()
             : null;
 
         _sessions.Add(new SubPixelAbSessionResult(
@@ -224,6 +241,29 @@ internal sealed class SubPixelAbResultWriter
     {
         _runEndReason = reason;
         Save();
+    }
+
+    /// <summary>
+    /// Records why the run ended unless a reason is already stored. C7's abort path uses this so a
+    /// coordinator-initiated abort (watchdog, Esc, interlock, a failed show) gives the file a reason
+    /// without overwriting the one a C5-triggered end already wrote (fixup 02 M3).
+    /// </summary>
+    /// <param name="reason">The run's end reason.</param>
+    public void WriteRunEndIfAbsent(SubPixelProbeRunEndReason reason)
+    {
+        if (_runEndReason is not null) return;
+        _runEndReason = reason;
+        Save();
+    }
+
+    /// <summary>
+    /// The static block's picks as <c>"A/scored"</c>, from the block already written to this
+    /// document — the field holds the picks, not the readout's enum name (fixup 02 M3).
+    /// </summary>
+    private string? StaticPicks()
+    {
+        var staticBlock = _blocks.FirstOrDefault(b => b.Block == SubPixelAbBlock.Static);
+        return staticBlock is null ? null : $"{staticBlock.APicks}/{staticBlock.Scored}";
     }
 
     private static SubPixelAbTrialResult MapTrial(SubPixelProbeTrialOutcome outcome)
@@ -262,14 +302,14 @@ internal sealed class SubPixelAbResultWriter
         var document = new SubPixelAbDocument(
             CurrentSchemaVersion,
             "subpixel-ab",
-            DateTimeOffset.UtcNow,
+            _startedUtc,
             typeof(SubPixelAbResultWriter).Assembly.GetName().Version?.ToString() ?? "unknown",
             _info.Seed,
             _info.DpiScale,
             _info.ScreenBoundsPx.Width,
             _info.ScreenBoundsPx.Height,
             _info.DisplayRefreshHz,
-            _info.SampleCadenceMs,
+            _sampleCadenceMs ?? _info.SampleCadenceMs,
             _info.AnswerDwellMs,
             _info.Ring,
             _startMode,

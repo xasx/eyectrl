@@ -62,33 +62,48 @@ public class DispatcherTimeProviderTests
     [Fact]
     public void Change_CancelsAnAlreadyQueuedTick_AndReArms()
     {
-        var provider = new DispatcherTimeProvider(Dispatcher.CurrentDispatcher);
+        var dispatcher = Dispatcher.CurrentDispatcher;
+        var provider = new DispatcherTimeProvider(dispatcher);
         int fires = 0;
 
-        using var timer = provider.CreateTimer(
-            _ => fires++, null, TimeSpan.FromMilliseconds(150), Timeout.InfiniteTimeSpan);
+        var timer = provider.CreateTimer(
+            _ => fires++, null, TimeSpan.FromMilliseconds(40), Timeout.InfiniteTimeSpan);
 
-        // Re-arm to a far deadline before the first due time: the queued tick must be cancelled.
-        timer.Change(TimeSpan.FromSeconds(30), Timeout.InfiniteTimeSpan);
+        // Hold the dispatcher at Normal pace PAST the due time, so the timer's tick is genuinely
+        // queued behind the blocker; Change inside the blocker must invalidate that queued tick.
+        dispatcher.BeginInvoke(DispatcherPriority.Normal, () =>
+        {
+            Thread.Sleep(150);
+            timer.Change(TimeSpan.FromSeconds(30), Timeout.InfiniteTimeSpan);
+        });
         PumpFor(TimeSpan.FromMilliseconds(300));
-        Check.WithCustomMessage("Change did not cancel the queued tick").That(fires).IsEqualTo(0);
+        Check.WithCustomMessage("Change did not cancel the already-queued tick").That(fires).IsEqualTo(0);
 
         timer.Change(TimeSpan.FromMilliseconds(1), Timeout.InfiniteTimeSpan);
         PumpFor(TimeSpan.FromMilliseconds(200));
         Check.That(fires).IsEqualTo(1);
+        timer.Dispose();
     }
 
     [Fact]
     public void Dispose_CancelsAnAlreadyQueuedTick()
     {
-        var provider = new DispatcherTimeProvider(Dispatcher.CurrentDispatcher);
+        var dispatcher = Dispatcher.CurrentDispatcher;
+        var provider = new DispatcherTimeProvider(dispatcher);
         int fires = 0;
 
         var timer = provider.CreateTimer(
-            _ => fires++, null, TimeSpan.FromMilliseconds(1), Timeout.InfiniteTimeSpan);
-        timer.Dispose();
+            _ => fires++, null, TimeSpan.FromMilliseconds(40), Timeout.InfiniteTimeSpan);
 
-        PumpFor(TimeSpan.FromMilliseconds(250));
+        // The tick is queued when Dispose runs: a Normal blocker holds the dispatcher past the due
+        // time, then disposes the timer; the queued tick must not reach the callback.
+        dispatcher.BeginInvoke(DispatcherPriority.Normal, () =>
+        {
+            Thread.Sleep(150);
+            timer.Dispose();
+        });
+        PumpFor(TimeSpan.FromMilliseconds(300));
+
         Check.WithCustomMessage("A tick queued before Dispose reached a torn-down run")
             .That(fires).IsEqualTo(0);
     }

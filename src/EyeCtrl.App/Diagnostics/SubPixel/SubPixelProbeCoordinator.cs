@@ -287,6 +287,31 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         _ => throw new ArgumentOutOfRangeException(nameof(refusal), refusal, "Unknown refusal."),
     });
 
+    /// <summary>
+    /// C10's activation (fixup 02 H2): when the newest persisted result convicts session 1 and has
+    /// no session 2, the button resumes session 2 with that verdict; otherwise it starts a full run.
+    /// A missing or unreadable result falls back to a full run.
+    /// </summary>
+    /// <param name="closeSettings">Closes the Settings window synchronously.</param>
+    internal void RequestStartAuto(Action closeSettings)
+    {
+        var verdict = ReadResumeVerdict();
+        RequestStart(
+            closeSettings,
+            SubPixelProbeViewModel.CanResumeSession2(verdict)
+                ? SubPixelProbeStartMode.ResumeSession2
+                : SubPixelProbeStartMode.FullRun,
+            verdict);
+    }
+
+    /// <summary>The persisted session-1 verdict a resume would continue from, or <c>null</c>.</summary>
+    internal SubPixelAbSession1Verdict? ReadResumeVerdict() =>
+        SubPixelAbResultReader.ReadNewestConvictingSession1(_resultsDirectory);
+
+    /// <summary>C10's label predicate: whether the newest persisted result opens a session-2 resume.</summary>
+    internal bool CanResumeFromResults() =>
+        SubPixelProbeViewModel.CanResumeSession2(ReadResumeVerdict());
+
     private ProbeRefusal? CurrentRefusal()
     {
         if (Context is null) return ProbeRefusal.SettingsOpen;
@@ -496,7 +521,8 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
                 SubPixelAbRunInfo.CaptureRing(context.Settings.Cursor),
                 context.Settings.Dwell.ToolbarButtonDwellMs,
                 DpiHelper.ScaleX,
-                PrimaryScreenBoundsPhys()),
+                PrimaryScreenBoundsPhys(),
+                DisplayRefreshHz: ProbeDisplayInfo.TryGetRefreshRateHz()),
             session.StartMode,
             session.ResumedSession1Verdict?.LogLine);
     }
@@ -516,6 +542,19 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
 
     private void OnSessionGaze(ProbeSession session, GazePoint point)
     {
+        // The mean sample interval the results file records (fixup 02 M3). Written on the gaze
+        // thread, read at write time; the accumulation is interlocked so the read is safe.
+        long previousUs = Interlocked.Exchange(ref session.LastSampleTimestampUs, point.TimestampMicroseconds);
+        if (previousUs != 0)
+        {
+            long deltaUs = point.TimestampMicroseconds - previousUs;
+            if (deltaUs > 0)
+            {
+                Interlocked.Add(ref session.SampleIntervalSumUs, deltaUs);
+                Interlocked.Increment(ref session.SampleIntervalCount);
+            }
+        }
+
         if (point.IsValid)
         {
             Volatile.Write(ref session.LastSampleWasValid, true);
@@ -573,12 +612,14 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         // 4. The after-capture check (review 05 F3; W1 (c1)).
         if (session.Aborted) return;
 
-        // 5. Construct C5 and assign at once. A re-entrant end here tears the view model down
-        // and never builds a window (W1 (c2)).
-        session.Vm = _host.CreateViewModel(
+        // 5. Construct C5 and assign at once. The local keeps the after-construct check the ONLY
+        // barrier: with the step-8 branch removed, `vm.Start()` below still has a live reference and
+        // the fake would record Show() (W1-08; fixup 02 L1).
+        var vm = _host.CreateViewModel(
             session.Schedule!, session.TimeProvider!,
             () => Volatile.Read(ref session.LastSampleWasValid),
             session.StartMode, session.ResumedSession1Verdict);
+        session.Vm = vm;
 
         // 6.
         if (session.Aborted)
@@ -591,7 +632,7 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
 
         // 7. Construct C6 into the session, its close wired to THIS session (review 05 F4; W1 (d)).
         session.Window = _host.CreateWindow(
-            session.Backdrop, session.Vm!, Context.Settings.Cursor, () => Restore(session));
+            session.Backdrop, vm, Context.Settings.Cursor, () => Restore(session));
 
         // 8.
         if (session.Aborted)
@@ -601,7 +642,7 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
             return;
         }
 
-        session.Vm.Start();
+        vm.Start();
 
         // 9.
         session.Window.Show();
@@ -643,7 +684,11 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         // verdict's file for a run that was abandoned (review 05 F3; W1 (g) sibling).
         if (session.Aborted) return;
 
-        try { session.Writer?.WriteBlock(outcome); }
+        try
+        {
+            SyncWriterCadence(session);
+            session.Writer?.WriteBlock(outcome);
+        }
         catch (Exception ex) { Log.Error(ex, "Could not write a sub-pixel probe block result"); }
     }
 
@@ -653,6 +698,7 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
 
         try
         {
+            SyncWriterCadence(session);
             session.Writer?.WriteSession(
                 outcome,
                 session.Vm?.Session1Verdict,
@@ -660,6 +706,9 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         }
         catch (Exception ex) { Log.Error(ex, "Could not write a sub-pixel probe session result"); }
     }
+
+    private void SyncWriterCadence(ProbeSession session) =>
+        session.Writer?.SetSampleCadenceMs(session.MeanSampleIntervalMs);
 
     private void OnPhaseAdvanced(ProbeSession session)
     {
@@ -677,7 +726,11 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
 
     private void OnRunEnded(ProbeSession session, SubPixelProbeRunEndReason reason)
     {
-        try { session.Writer?.WriteRunEnd(reason); }
+        try
+        {
+            SyncWriterCadence(session);
+            session.Writer?.WriteRunEnd(reason);
+        }
         catch (Exception ex) { Log.Error(ex, "Could not write the sub-pixel probe run result"); }
 
         // A C5-triggered end is posted: Restore disposes C5, and that must never happen inside
@@ -758,6 +811,16 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         // 3. Undo the rest once per run, each step isolated so one failure cannot skip the next
         // (review 03 F4; W1 (b)).
         if (session.Restored) return;
+
+        // A coordinator-initiated abort (watchdog, Esc, interlock, a failed show) must still leave a
+        // reason in the file; a C5-triggered end has already written its own (fixup 02 M3).
+        try
+        {
+            SyncWriterCadence(session);
+            session.Writer?.WriteRunEndIfAbsent(SubPixelProbeRunEndReason.EndTest);
+        }
+        catch (Exception ex) { Log.Error(ex, "Could not write the sub-pixel probe abort result"); }
+
         session.Restored = true;
 
         RestoreStep(() => _host.ReleaseProbeSuppression(), "release suppression");           // 1
@@ -896,9 +959,26 @@ internal sealed class ProbeSession
     internal bool LastSampleWasValid;
     internal long LastValidMs;
 
+    // Sample-cadence accumulation, written on the gaze thread with Interlocked (fixup 02 M3).
+    internal long LastSampleTimestampUs;
+    internal long SampleIntervalSumUs;
+    internal int SampleIntervalCount;
+
     internal long StartedMs;
     internal long CapStartMs;
     internal long LastProgressMs;
+
+    /// <summary>The mean interval between GazeSampled samples, in ms, or <c>null</c> before two arrivals.</summary>
+    internal double? MeanSampleIntervalMs
+    {
+        get
+        {
+            int count = Volatile.Read(ref SampleIntervalCount);
+            return count == 0
+                ? null
+                : Volatile.Read(ref SampleIntervalSumUs) / 1000.0 / count;
+        }
+    }
 
     /// <summary>0 until the window's <c>Show()</c> returned.</summary>
     internal long ShownMs;

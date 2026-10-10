@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Diagnostics.SubPixel;
 
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -70,7 +71,9 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
     private readonly Border _resultDone;
 
     private PhysicalPoint? _lastGaze;
-    private long _lastFrameMs;
+    private long _lastFrameTicks;
+    private readonly Func<long> _frameTicks;
+    private readonly double _frameTicksPerMs;
     private bool _closedObserved;
 
     /// <summary>
@@ -86,16 +89,25 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
     /// <see cref="DpiHelper.ScaleX"/>; the W6 hit tests inject 1.0 and 2.0 to prove the registered
     /// geometry is in the same physical units the gaze path uses (C4's injection pattern).
     /// </param>
+    /// <param name="frameTicks">
+    /// The frame clock, in raw ticks; production passes <c>null</c> and uses
+    /// <see cref="Stopwatch.GetTimestamp"/>. The render-gap test injects a millisecond clock.
+    /// </param>
+    /// <param name="frameTicksPerMs">Raw ticks per millisecond for <paramref name="frameTicks"/>; 0 selects the Stopwatch rate.</param>
     public SubPixelProbeWindow(
         BitmapSource? backdrop,
         SubPixelProbeViewModel vm,
         CursorSettings cursorSettings,
         Action sessionEnded,
-        double? scale = null)
+        double? scale = null,
+        Func<long>? frameTicks = null,
+        double frameTicksPerMs = 0)
     {
         _vm = vm ?? throw new ArgumentNullException(nameof(vm));
         _sessionEnded = sessionEnded ?? throw new ArgumentNullException(nameof(sessionEnded));
         _scale = scale ?? (DpiHelper.ScaleX <= 0 ? 1.0 : DpiHelper.ScaleX);
+        _frameTicks = frameTicks ?? Stopwatch.GetTimestamp;
+        _frameTicksPerMs = frameTicksPerMs > 0 ? frameTicksPerMs : Stopwatch.Frequency / 1000.0;
 
         // C6's window properties (build plan C6): opaque, full-screen on the primary monitor,
         // topmost, never activated, not in the taskbar or Alt-Tab. Not click-through (the window
@@ -121,9 +133,23 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         Content = _scene;
 
         _backdrop.Stretch = Stretch.Fill;
-        _backdrop.Width = SystemParameters.PrimaryScreenWidth;
-        _backdrop.Height = SystemParameters.PrimaryScreenHeight;
-        if (backdrop is not null) _backdrop.Source = backdrop;
+
+        // Size the image from the bitmap, not from SystemParameters: one image pixel per device
+        // pixel at the injected scale. At the owner's 2.0 that is 3840/2 DIP for a 3840-px capture,
+        // so `Stretch.Fill` stays a 1:1 draw even when SystemParameters and DpiHelper disagree
+        // (fixup 02 M2).
+        if (backdrop is not null)
+        {
+            _backdrop.Source = backdrop;
+            _backdrop.Width = backdrop.PixelWidth / _scale;
+            _backdrop.Height = backdrop.PixelHeight / _scale;
+        }
+        else
+        {
+            _backdrop.Width = SystemParameters.PrimaryScreenWidth;
+            _backdrop.Height = SystemParameters.PrimaryScreenHeight;
+        }
+
         Add(_backdrop, 0, 0);
 
         _ring = new ProbeRingVisual(_scale, cursorSettings, ProbeRingVisual.QuietLookOpacity)
@@ -215,15 +241,18 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
     /// </summary>
     internal void OnFrame()
     {
-        long now = Environment.TickCount64;
+        // Stopwatch ticks, not Environment.TickCount64: a 15.6 ms tick compared against a 50 ms
+        // threshold reads a three-frame stall as voided or not depending on tick phase (fixup 02 M4).
+        long now = _frameTicks();
         if (_vm.Phase is SubPixelProbePhase.Interval1 or SubPixelProbePhase.Interval2)
         {
-            if (_lastFrameMs != 0) _vm.ReportRenderGap(now - _lastFrameMs);
-            _lastFrameMs = now;
+            if (_lastFrameTicks != 0)
+                _vm.ReportRenderGap((long)((now - _lastFrameTicks) / _frameTicksPerMs));
+            _lastFrameTicks = now;
         }
         else
         {
-            _lastFrameMs = 0;
+            _lastFrameTicks = 0;
         }
 
         DrawPresentation();
@@ -443,6 +472,15 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         SubPixelProbeViewModel.ResultDoneTargetId => _resultDone,
         _ => null,
     };
+
+    /// <summary>Test seam (M5): whether the probe ring is currently drawn.</summary>
+    internal bool IsRingDrawnForTest => _ring.Visibility == Visibility.Visible;
+
+    /// <summary>Test seam (M5): the VoidHold panel, for the "rest your eyes" visibility assertion.</summary>
+    internal FrameworkElement VoidHoldPanelForTest => _voidHoldPanel;
+
+    /// <summary>Test seam (M5): the Result screen's rendered verdict text.</summary>
+    internal string ResultTextForTest => _resultText.Text;
 
     private void ApplyPhase()
     {

@@ -187,4 +187,56 @@ public class SubPixelProbeWatchdogTests
         Check.That(world.Coordinator.LiveSessionForTest).IsNull();
         Check.That(world.Host.Log).IsEmpty();
     }
+
+    // ---- M5: plan rules the code follows but no test pinned --------------------------------------
+
+    [Fact]
+    public void TheWatchdogIsArmedBeforeProbeOpenIsSet()
+    {
+        // W1-27: "the watchdog arms first" (review 04 N2). At the instant the first step sets
+        // ProbeOpen the timer must already exist.
+        using var world = new ProbeTestWorld();
+        int timersWhenProbeOpened = -1;
+        world.Host.ReenterOnceAt("SetProbeOpen",
+            () => timersWhenProbeOpened = world.Timers.Created.Count);
+
+        world.Coordinator.StartForTest();
+
+        Check.WithCustomMessage(
+                "ProbeOpen was set before the watchdog was armed (review 04 N2: the half-started "
+                + "state must always have an exit)")
+            .That(timersWhenProbeOpened).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void CaptureAndShow_IsPostedAtContextIdle_NotAtSend()
+    {
+        // W1-33: the show continuation must wait for the ContextIdle pass, so every queued
+        // Normal/Background item of the start runs first.
+        using var world = new ProbeTestWorld();
+        world.Coordinator.StartForTest();
+
+        world.Dispatcher.Invoke(() => { }, DispatcherPriority.Background, CancellationToken.None);
+        Check.WithCustomMessage("The window was created before the ContextIdle pass")
+            .That(world.Host.CountOf("CreateWindow")).IsEqualTo(0);
+
+        world.Pump();
+        Check.That(world.Host.CountOf("CreateWindow")).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void AnInvalidSample_DoesNotRestoreTheRun()
+    {
+        // W7-j / plan F8: the watchdog's GazeSampled handler only stamps the last-valid time; it
+        // never calls Restore, so an invalid sample can never end a live run.
+        using var world = new ProbeTestWorld();
+        world.StartShown();
+
+        world.Provider.Raise(new GazePoint(500, 500, 0, IsValid: false));
+        world.Pump();
+
+        Check.WithCustomMessage("The GazeSampled handler restored on an invalid sample")
+            .That(world.Modal.ProbeOpen).IsTrue();
+        Check.That(world.Coordinator.LiveSessionForTest).IsNotNull();
+    }
 }

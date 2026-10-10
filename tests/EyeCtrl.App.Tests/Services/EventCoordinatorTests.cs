@@ -173,7 +173,7 @@ public class EventCoordinatorTests
                 "The C10 entry is no longer threaded into the settings window, or the start is no "
                 + "longer queued behind the synchronous Settings close.")
             .That(source.Contains(
-                "_settingsUi.SetProbeEntry(()=>_probe.GetBlockReason(),()=>_probe.RequestStart(()=>_settingsUi.CloseSettingsWindowForProbe()));"))
+                "_settingsUi.SetProbeEntry(()=>_probe.GetBlockReason(),()=>_probe.RequestStartAuto(()=>_settingsUi.CloseSettingsWindowForProbe()),()=>_probe.CanResumeFromResults());"))
             .IsTrue();
         Check.WithCustomMessage("EventCoordinator.Dispose no longer disposes the probe coordinator.")
             .That(source.Contains("_probe?.Dispose();")).IsTrue();

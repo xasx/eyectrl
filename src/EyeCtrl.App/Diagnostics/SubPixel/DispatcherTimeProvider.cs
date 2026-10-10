@@ -27,7 +27,9 @@ using System.Windows.Threading;
 ///
 /// <para>
 /// The four C5 timers (phase, eyes-closed, screen, void guard) are all created through this class;
-/// the probe creates one provider per run and disposes it in Teardown after C5's own dispose.
+/// the probe creates one provider per run and disposes it in Teardown alongside the session timer
+/// and gaze handler — before C5's own dispose, whose four timers this provider created and which
+/// C5 stops itself.
 /// </para>
 /// </summary>
 internal sealed class DispatcherTimeProvider : TimeProvider

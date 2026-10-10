@@ -468,6 +468,54 @@ public sealed class SupervisorFitTests : IDisposable
         });
     }
 
+    // ────── T10: the user's review sheets (not a gate; EYECTRL_WRITE_T10_REVIEW=1) ──────
+
+    /// <summary>
+    /// The Supervisor's pieces of T10's review sheets, in English and German at 2.0: the FallenBack
+    /// dialog as it opens (its client area at the height the window would take), and the whole
+    /// setup form (Advanced open, laid out at full height). Written as PNG fragments that
+    /// App.Tests' sheet composer places next to each other. Writes nothing unless asked.
+    /// </summary>
+    [Fact]
+    public void ReviewFragments_WhenAsked()
+    {
+        if (!ReviewRender.Requested) return;
+        RunSta(() =>
+        {
+            foreach (var (language, strings) in new[] { ("en", StringTable.EmbeddedEnglish), ("de", GermanDraft.Table) })
+            {
+                ReviewRender.Save(FallenBackImage(strings), ReviewRender.FragmentPath($"fallenback-{language}"));
+                var form = FormLayout(strings, leftAlignedCards: false, render: true);
+                ReviewRender.Save((BitmapSource)form.Image!, ReviewRender.FragmentPath($"setup-{language}"));
+            }
+        });
+    }
+
+    /// <summary>The FallenBack dialog's client area in <paramref name="strings"/>, sized as the window sizes itself.</summary>
+    private static BitmapSource FallenBackImage(StringTable strings)
+    {
+        var dialog = new FallenBackDialog(strings);
+        try
+        {
+            var chrome = Chrome();
+            var clientWidth = dialog.Width - chrome.Left - chrome.Right;
+            var root = (FrameworkElement)dialog.Content;
+            dialog.Content = null;
+            double desired;
+            using (var probe = FitHost.Open(root, width: clientWidth, inheritFrom: dialog))
+                desired = FitText.NaturalHeight(probe, root, clientWidth - root.Margin.Left - root.Margin.Right)
+                          + root.Margin.Top + root.Margin.Bottom;
+            var clientHeight = Math.Max(dialog.MinHeight - chrome.Top - chrome.Bottom, desired);
+            // The whole client area, its margins included: the root draws inside them.
+            var client = new Border { Background = dialog.Background, Child = root };
+            return ReviewRender.Snap(client, clientWidth, clientHeight, dialog);
+        }
+        finally
+        {
+            dialog.Close();
+        }
+    }
+
     // ────── T10: the German draft (every surface on under a test manifest, GermanDraft) ──────
 
     /// <summary>T10, binding: every German tray phrase, behind the German prefix, fits the tooltip cap.</summary>

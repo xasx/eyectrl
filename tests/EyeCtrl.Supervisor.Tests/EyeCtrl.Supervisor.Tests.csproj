@@ -24,5 +24,7 @@
              Link="TestSupport\PseudoLocale.cs" />
     <Compile Include="..\TestSupport\GermanDraft.cs"
              Link="TestSupport\GermanDraft.cs" />
+    <Compile Include="..\TestSupport\ReviewRender.cs"
+             Link="TestSupport\ReviewRender.cs" />
   </ItemGroup>
 </Project>

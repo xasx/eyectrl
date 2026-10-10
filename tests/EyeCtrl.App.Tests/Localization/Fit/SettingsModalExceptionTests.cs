@@ -147,6 +147,28 @@ public class SettingsModalExceptionTests
 
     internal static ModalLayout Layout(string messageText, IReadOnlyList<string> choices)
     {
+        var (overlay, message, panel, card) = BuildModal(messageText, choices);
+        using var host = FitHost.Open(overlay, width: WindowSize.Width, height: WindowSize.Height);
+        Rect Box(FrameworkElement e) => e.TransformToAncestor(overlay).TransformBounds(new Rect(e.RenderSize));
+        return new ModalLayout(Box(card), panel.Children.OfType<Border>().Select(Box).ToList(), message.Text);
+    }
+
+    /// <summary>
+    /// T10's review sheets (not a gate): the modal's card as the user sees it — the same build as
+    /// <see cref="Layout(string, IReadOnlyList{string})"/>, hosted at the window's size at 2.0 and
+    /// rendered (<see cref="ReviewRender"/>).
+    /// </summary>
+    internal static System.Windows.Media.Imaging.BitmapSource RenderCard(string messageText, IReadOnlyList<string> choices)
+    {
+        var (overlay, _, _, card) = BuildModal(messageText, choices);
+        using var host = FitHost.Open(overlay, width: WindowSize.Width, height: WindowSize.Height);
+        return ReviewRender.Render(card, card.RenderSize);
+    }
+
+    /// <summary>The modal overlay filled the way <c>UpdateModalVisibility</c> fills it, not yet laid out.</summary>
+    private static (Grid Overlay, TextBlock Message, StackPanel Panel, Border Card) BuildModal(
+        string messageText, IReadOnlyList<string> choices)
+    {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var overlay = ParseModalOverlay();
         var message = (TextBlock)overlay.FindName("ModalMessage");
@@ -167,9 +189,7 @@ public class SettingsModalExceptionTests
         }
 
         overlay.Visibility = Visibility.Visible;
-        using var host = FitHost.Open(overlay, width: WindowSize.Width, height: WindowSize.Height);
-        Rect Box(FrameworkElement e) => e.TransformToAncestor(overlay).TransformBounds(new Rect(e.RenderSize));
-        return new ModalLayout(Box(card), panel.Children.OfType<Border>().Select(Box).ToList(), message.Text);
+        return (overlay, message, panel, card);
     }
 
     /// <summary><c>SettingsWindow.xaml</c>'s <c>ModalOverlay</c> grid, parsed on its own.</summary>

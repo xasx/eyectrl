@@ -103,7 +103,7 @@ internal static class GermanDraft
         return reader.ReadToEnd();
     }
 
-    private static string RepoRoot()
+    internal static string RepoRoot()
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
         {

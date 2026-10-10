@@ -1060,10 +1060,14 @@ public class HandChunkedPageFitTests
         return findings;
     }
 
-    private static int MeasurePageTexts(PageSpec page, double columnWidth, string where, List<string> findings)
+    /// <summary>
+    /// <paramref name="rows"/> built through production's <c>CreateControl</c> into a column of
+    /// <paramref name="columnWidth"/>, stacked the way <c>ContentPanel</c> stacks them. Not laid out.
+    /// </summary>
+    internal static StackPanel BuildPagePanel(IEnumerable<SettingsRowSpec> rows, double columnWidth)
     {
         var panel = new StackPanel { Width = columnWidth };
-        foreach (var spec in page.Rows)
+        foreach (var spec in rows)
         {
             var control = SettingsWindow.CreateControl(
                 spec, new SettingsAutoPagination.NoopDwellRegistrar(), RadiusPhysical, DwellMs, columnWidth);
@@ -1082,6 +1086,30 @@ public class HandChunkedPageFitTests
             }
         }
 
+        return panel;
+    }
+
+    /// <summary>
+    /// Runs <paramref name="use"/> over the pages production renders for <paramref name="sourceType"/>
+    /// under its first fixture and first view, with that fixture's scope still open.
+    /// </summary>
+    internal static T WithPagesOf<T>(Type sourceType, double columnWidth, Func<IReadOnlyList<PageSpec>, T> use)
+    {
+        var (_, source, scope) = FixturesOf(sourceType).First();
+        try
+        {
+            var (_, built) = ViewsOf(source).First();
+            return use(PagesAsRendered(source, built, ContentHeightBudget(SettingsContentFitTests.Xml()), columnWidth));
+        }
+        finally
+        {
+            scope?.Dispose();
+        }
+    }
+
+    private static int MeasurePageTexts(PageSpec page, double columnWidth, string where, List<string> findings)
+    {
+        var panel = BuildPagePanel(page.Rows, columnWidth);
         using var host = FitHost.Open(panel, family: Tokens.FontStandard);
         var count = 0;
         foreach (var text in FitText.Descendants<TextBlock>(panel).Where(t => t.IsVisible && t.Text.Length > 0).ToList())

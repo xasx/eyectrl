@@ -28,7 +28,7 @@ The result is a UI that feels like a patchwork of different apps rather than one
 | Constraint | Reason |
 |---|---|
 | **Dwell-friendly above all** | Users interact by staring. Feedback must be instant, high-contrast, and unambiguous. Targets must not shrink. |
-| **Dark-only backgrounds** | Eye trackers work poorly on bright surfaces; users stare at this UI for hours |
+| **Dark-only backgrounds** *(amended by §10.8)* | Eye trackers work poorly on bright surfaces; users stare at this UI for hours. Unchanged for the shipping default and the dark alternatives; **Daylight (§10.8)** deliberately reopens the light axis for bright rooms, with the ruling recorded there |
 | **No layout changes** | Target positions, sizes, and spacing are tuned for gaze accuracy — don't move them |
 | **Must not break UI tests** | FlaUI tests reference `AutomationId` strings — these must stay unchanged |
 | **No new dependencies** | Resource dictionary must be pure WPF/XAML, no new NuGet packages |
@@ -1318,7 +1318,7 @@ and are now all satisfied in code; each bullet closes with what was built. See
   Phase 0 rather than being introduced by a later refactor. Note it carries more
   than the 20 brushes: `BorderThicknessStandard` is theme-varying (§4.4), so
   `ITheme` needs at least one non-colour member from the start. **Resolved.**
-  `ITheme` + `ThemeBase` + three theme classes; `Tokens` keeps its 45-member
+  `ITheme` + `ThemeBase` + three theme classes (a fourth, Daylight, joined later — §10.8); `Tokens` keeps its 45-member
   static surface as forwarding properties, so all 131 C# call sites and 106 XAML
   lookups were unchanged. `BorderThicknessStandard` is on the interface from the
   start. The statics-without-`Application` property is preserved —
@@ -1336,11 +1336,14 @@ and are now all satisfied in code; each bullet closes with what was built. See
   track Midnight. The halo constraint from §5 item 9 (presets ≥ 7:1 against
   `StrokeHalo`) must be re-checked per theme — Ember's halo is `#0E0A06`, so the
   preset list is not automatically portable. **Re-checked, and it is portable
-  after all.** All four shipping presets clear 7:1 against all three halos (worst
-  case 9.13:1, Amber vs Midnight's `#0A0A14`). What was not portable is the
-  *first* preset, which must be the theme's accent — so the list is now derived
-  from the theme as `{Accent, AccentSuccess, AccentWarning, TextPrimary}`, which
-  reproduces Midnight's four values exactly.
+  after all.** All four shipping presets clear 7:1 against every theme's halo
+  (worst case across the four themes is still Midnight's Amber at 9.13:1; the
+  closest Daylight comes is its clamped ring green at 9.52:1 vs its white halo,
+  §10.8). What was not portable is the *first* preset, which must be the theme's
+  accent — so the list is now derived from the theme as `{Accent, green, AccentWarning,
+  TextPrimary}` (the green is `AccentSuccess` on the dark themes and a clamped
+  darker value on light ones, §10.8), which reproduces Midnight's four values
+  exactly.
 
 ---
 
@@ -1396,7 +1399,8 @@ what makes this theme structurally distinct rather than a re-hue:
    C\* 55 floor (`#FF9999` is C\* 41.5), at which point it stops reading as red.
    `#FF7777` is the ceiling: 8.16:1 at C\* 57.6. So danger is the weakest colour
    *within* this theme (8.16 against 15–21) while being the **strongest
-   `AccentDanger` of all three themes** (Midnight and Ember are 5.74).
+   `AccentDanger` of all four themes** (Midnight and Ember are 5.74; Daylight's is
+   the weakest at 4.40 vs its core, §10.8).
 
 **The triad is therefore NOT shared with Midnight and Ember.** That is a
 consequence of the above, not an inconsistency — no high-contrast palette can use
@@ -1419,3 +1423,122 @@ Two choices worth recording:
 to carry more than the 20 brushes.
 
 ---
+
+### 10.8 "Daylight" — the bright-room theme
+
+**Status:** added 2026-10-09, fourth registered theme. Situational, like
+Contrast but for the opposite environment: glare, sunlit rooms, white-desk
+offices — the conditions under which three dark overlays read as heavy voids on
+an already-bright screen.
+
+**The §2 ruling, reopened (owner decision D1).** "Dark-only backgrounds — eye
+trackers work poorly on bright surfaces" is amended, not silently dropped. Two
+scoping facts justify reopening: the overlays are a fraction of total screen
+luminance (the desktop behind them is whatever the user was reading — often a
+white document — under a 0xFA alpha either way), and the gaze provider at
+introduction is the mouse fallback, to which the tracking argument does not
+apply. The "stare for hours" comfort half of the ruling *inverts* in a bright
+room: there, a dark UI is the glare hazard. If a hardware tracker later shows
+degradation on light overlays, the theme is one `git revert` of its two commits
+to remove — §10.6's structure (interface, registry, tokens, applier) stands
+either way, and the dark themes are untouched by it.
+
+**The inversion principle.** Every contrast relation flips rather than shifts:
+
+| Relation | Dark themes | Daylight |
+|---|---|---|
+| Accent vs surfaces | brightest thing on screen | darkest saturated thing |
+| StrokeHalo | near-black | `#FFFFFF` white |
+| Elevation ramp | darker → lighter | lighter → darker (white top step) |
+| Text ramp | light text, dim = darkest | dark text, dim = lightest |
+| Triad ladder | warning lightest | warning darkest (§10.8.1) |
+
+Gate 7 is polarity-free — the guarantee is the accent/halo *edge*, and a dark
+teal on a white halo clears it at 13.38:1 worst-case over the nine backdrops,
+exactly as cyan on near-black does.
+
+**Palette** (source of truth: `tools/palette_validate.py`, entry `"Daylight"`;
+C# mirror `DaylightTheme.cs`, pinned by ThemeParityTests):
+
+| Token | Value | | Token | Value |
+|---|---|---|---|---|
+| SurfaceDark | `#FAE7E8F0` | | MarkerMove | `#634C7D` |
+| SurfaceMedium | `#FAF3F4F9` | | Accent | `#07343E` |
+| SurfaceLight | `#FFFFFFFF` | | BorderFocus | `#07343E` |
+| SurfaceKey | `#F0F1F7` | | StrokeHalo | `#FFFFFF` |
+| SurfaceKeyModifier | `#CFDEF8` | | AccentSuccess | `#00620C` |
+| SurfaceKeySwitch | `#E9D5EF` | | AccentWarning | `#7A1000` |
+| SurfaceKeyActive | `#9FBDE6` | | AccentDanger | `#C5313B` |
+| SurfacePrediction | `#D3EDD8` | | ToggleOn | `#1F6B3E` |
+| BorderSubtle | `#667A9F` | | ToggleOff | `#D8DAE4` |
+| TextPrimary | `#0C0D12` | | ModalBackdrop | `#B3000000` |
+| TextSecondary | `#5A6076` | | _core | `#E7E8F0` |
+| TextDim | `#5E6477` | | | |
+
+Non-colour tokens identical to every other theme; `BorderThicknessStandard` 1.
+The opaque core `#E7E8F0` is Midnight's `#1A1A2E` on the same blue-violet hue
+axis at L\* 92.1 — the two defaults sit on one axis, at opposite ends.
+
+**Measured results** (all ten gates pass; margins on the binding ones):
+
+- Gate 3, the reason the accent is *darker than instinct*: 10.96 normal /
+  **10.49 protanopia** / 11.19 deuteranopia / 11.09 tritanopia against the 9.5
+  floor. Every step lighter loses protanopia first — the red-channel loss dims
+  teal faster than it dims neutral text.
+- Gate 4: smallest accent distances are ΔE 26.3 (MarkerMove, floor 25) and 16.6
+  (TextPrimary, floor 15).
+- Gate 5: pairwise ΔL\* 10.24 / 9.26 / 19.49 — see §10.8.1 for why the ladder
+  runs warning-dark→success-light.
+- Gate 8: smallest key-ramp pair ΔE 9.40 (Key/KeyModifier). The ramp tints
+  (blue modifier, violet switch, green prediction) do the separating, as in
+  Contrast — an achromatic light ramp compresses exactly like an achromatic
+  dark one.
+- Gate 9: chroma 56.59 / 57.01 / 65.51 against the 55 floor — the tightest
+  triad of the four themes.
+- Gate 10: MarkerMove clears its white-halo floor at 7.34 (floor 7); it is
+  deliberately muted (C\* 31.5), because against this theme's low-chroma accent a
+  *richer* violet tests closer, not further — CIEDE2000's cross-term cancels
+  chroma difference at low average chroma.
+
+**Structural consequences outside the palette:**
+
+1. **`ModalButtonPalette` bright-kind labels become measured.** `AccentDanger`
+   against the light base is 4.40:1 — under the 4.5 Negative is held to — and
+   the gates pin danger's lightness from below (§10.8.1), so the *fill* cannot
+   move. The label rule is now "whichever surface brush contrasts more with the
+   fill", which resolves to the dark base in all three dark themes (preserving
+   them exactly) and to white `SurfaceLight` in Daylight (5.42:1).
+2. **The ring's green is not the semantic green.** Bi-tonal ring segments place the
+   preset beside the halo with nothing underneath, so over a mid-light backdrop
+   (`#FF5C7A`) each family must clear 3:1 alone — a bar no green satisfying gate
+   9's chroma floor can reach (that needs L\* ≥ 34; this bar needs L\* ≤ 30;
+   disjoint in sRGB). The dark themes never notice because their near-black halo
+   carries the mid backdrops. `DwellColorPicker` therefore clamps a light theme's
+   ring green to the darkest green that still reads green (`#005200`, C\* 52.5 —
+   a ring decoration carries no gate-9 obligation), while `AccentSuccess` stays
+   `#00620C` for filled surfaces. Bi-tonal worst case across all four themes:
+   3.20:1, Daylight's ring green over `#FF5C7A`.
+3. **TextSecondary and TextDim are near-twins** (`#5A6076` / `#5E6477`, ΔE 1.9).
+   Forced: Dim cannot go lighter than its 4.5 floor allows (4.82 measured) and
+   Secondary cannot go darker without approaching the near-black accent inside
+   gate 4's ΔE 15 reservation. The two-tier distinction survives through usage
+   context, not luminance — the one visual regression Daylight ships knowingly.
+
+#### 10.8.1 The triad ladder inverts
+
+Two app-side bars, both correct individually, squeeze the semantic triad from
+opposite ends on a light surface:
+
+- Success and warning are colour-picker presets and the cue-badge colour, so
+  each must clear **7:1 against the white halo** — capping both at L\* ≈ 37.8.
+- Gate 9 requires chroma C\* ≥ 55, and **a green below L\* ≈ 34 cannot hold it**
+  (dark greens desaturate faster than dark reds or ochres).
+
+So success and warning must both sit under L\* 38 while staying ΔL\* ≥ 9 apart —
+possible only if one of them goes *very* dark, and the one that can is warning:
+burnt ochre keeps its chroma in the dark. The resulting ladder — warning 25.3 /
+success 35.5 / danger 44.8 — runs in the opposite order from every dark theme,
+where warning is the *lightest* of the three. The consequence to watch (printed
+by the validator, deliberately not gated): warning-ochre and danger-red sit
+closer in hue than in any other theme, ΔE 17.4 under deuteranopia; §9.4's
+glyph-shape rule carries the distinction there, as it already does for Contrast.

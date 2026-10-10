@@ -58,9 +58,12 @@ public static class ThemeStartup
     /// <para>
     /// <see cref="CalibrationSettings.TargetColor"/> and
     /// <see cref="AutoSelectionSettings.HighlightColor"/> are deliberately NOT
-    /// migrated: both draw without a halo directly over desktop content, so their
-    /// legibility is backdrop-dependent on every theme alike — a theme switch does
-    /// not change their situation.
+    /// migrated. The calibration dot is user-coloured and now draws on the scrim
+    /// with a StrokeHalo rim (and its persisted value is finally APPLIED — round 3,
+    /// R1, a latent main-branch bug), so it survives every theme without migration;
+    /// the selection highlight remains an unhaloed mark over raw desktop content,
+    /// backdrop-dependent on every theme alike — a theme switch does not change
+    /// its situation.
     /// </para>
     /// </summary>
     /// <param name="theme">The theme being activated.</param>

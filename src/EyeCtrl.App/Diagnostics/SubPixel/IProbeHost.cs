@@ -106,10 +106,14 @@ internal interface IProbeHost
     /// <param name="vm">The run's view model.</param>
     /// <param name="cursorSettings">The ring look the probe draws with.</param>
     /// <param name="sessionEnded">Invoked once, when the window's close is observed.</param>
+    /// <param name="viewFault">
+    /// Invoked once when a frame or phase callback throws, so C7 can end the run (fixup 04 HR1).
+    /// </param>
     /// <returns>The window, not yet shown.</returns>
     IProbeWindow CreateWindow(
         BitmapSource? backdrop,
         SubPixelProbeViewModel vm,
         CursorSettings cursorSettings,
-        Action sessionEnded);
+        Action sessionEnded,
+        Action viewFault);
 }

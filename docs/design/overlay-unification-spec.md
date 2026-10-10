@@ -7,10 +7,12 @@
 
 ## 1. Problem Statement
 
-EyeCtrl has 29 overlay windows and 7 dwell controls — 24 with XAML under
-`Overlays/`, the code-only `NoteWindow`, and `SettingsWindow` under `Views/`
-(which also derives from `OverlayWindow`). Re-counted against merged `main` at
-b8295b6, which includes PRs #70 and #71, and enforced by
+EyeCtrl has 29 overlay windows and 7 dwell controls — 26 with XAML (25 under
+`Overlays/`, including `ActivationButtonWindow`, plus `SettingsWindow` under
+`Views/`, which also derives from `OverlayWindow`) and 3 without XAML (the
+code-only `NoteWindow`, `RepeatCursorWindow` and `SubPixelProbeWindow`). Re-counted against merged `main` at
+b8295b6, which includes PRs #70 and #71, plus the sub-pixel probe window from the
+sub-pixel visibility work; enforced by
 `OverlayInventoryDriftTests`. Each was built at a different time, introducing accumulated style drift:
 
 - **10 different background colors** used across overlays
@@ -76,10 +78,12 @@ The **Class** column is the match key for the drift-guard test
 `OverlayWindow` subclass in `EyeCtrl.App` must appear here, and every name here
 must resolve to a real type. Adding an overlay without a row fails the build.
 
-**Finding:** 14 overlays carry a dark fill; 12 are `Background="Transparent"` at
+**Finding:** 15 overlays carry a dark fill (14 with a literal dark background; the
+sub-pixel probe paints `BrushSurfaceDark` behind its full-screen backdrop image); 14
+are `Background="Transparent"` at
 the window level. The transparent ones are *not* out of scope — they composite
 accent content over live desktop pixels and therefore need §4.1.3's contrast
-guarantee, not merely a token swap. Three of the twelve (`AdaptationCue`,
+guarantee, not merely a token swap. Three of the fourteen (`AdaptationCue`,
 `DriftNotice`, `CaregiverAlert`) are transparent windows hosting a *filled* shape, which is the case
 §4.1.3 originally missed.
 
@@ -143,6 +147,11 @@ Literal sites per value: `2` → 1, `4` → 3, `6` → 11, `8` → 11, `12` → 
 ```bash
 git grep -n CornerRadius 2d3b1ae -- src/EyeCtrl.App src/EyeCtrl.Controls
 ```
+
+*Post-`2d3b1ae` addition:* the sub-pixel probe window's `BuildButton` adds one
+`CornerRadius` line that is **token-backed** (`Tokens.CornerRadiusStandard`), not a
+literal — so the 30 literal sites above are unchanged while the total line count is
+one higher.
 
 The **full per-site table** lives in §3.1 of
 `docs/superpowers/specs/2026-08-06-overlay-geometry-typography-tokens-design.md`, which

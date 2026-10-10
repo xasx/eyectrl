@@ -159,29 +159,29 @@ public class SubPixelAbResultReaderTests
         Check.That(SubPixelAbResultReader.ReadNewestConvictingSession1(directory)).IsNull();
     }
 
-    [Fact]
-    public void AFileHoldingBothSessions_NeverOffersAResume()
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"aborted\":false}")]
+    [InlineData("{\"session\":\"session1\",\"aborted\":false}")]
+    [InlineData("{\"session\":\"session2\",\"outcome\":\"acquits\"}")]
+    [InlineData("{\"aborted\":false,\"outcome\":\"acquits\"}")]
+    public void AFileHoldingATamperedRow_NeverHidesAnOlderConviction(string tamperedRow)
     {
-        // The rule is "the first decisive file: a session 2 → no resume", which must hold even for a
-        // file that also carries a convicting session 1 — the shape a future writer version could
-        // produce. Without the session-2 branch the session-1 verdict would win and loop.
-        var directory = TempTestDirectory.Create("reader-both-sessions");
-        var path = Path.Combine(directory, "subpixel-ab-both.json");
-        File.WriteAllText(path, JsonSerializer.Serialize(new
-        {
-            sessions = new object[]
-            {
-                new
-                {
-                    session = "session1", outcome = "convicts",
-                    staticReadout = "cannotTellStillRingsApart", logLine = "line", aborted = false,
-                },
-                new { session = "session2", outcome = "convicts", aborted = false },
-            },
-        }, SubPixelAbResultWriter.JsonOptions));
+        // HR10: a row missing session, aborted or outcome is not decisive. A tampered or
+        // future-schema file must not shadow a real conviction. One partial row per case (fixup
+        // 05 F3): each row must stay non-decisive under every term of IsDecisive, so no single
+        // dropped term (or an Aborted != true) can let it decide.
+        var directory = TempTestDirectory.Create("reader-tampered");
+        MakeOlder(WriteSession1(directory, "subpixel-ab-conviction.json", SubPixelAbOutcome.Convicts));
+        File.WriteAllText(
+            Path.Combine(directory, "subpixel-ab-tampered.json"), "{\"sessions\":[" + tamperedRow + "]}");
 
-        Check.WithCustomMessage("A file holding a session 2 must never offer a resume")
-            .That(SubPixelAbResultReader.ReadNewestConvictingSession1(directory)).IsNull();
+        var verdict = SubPixelAbResultReader.ReadNewestConvictingSession1(directory);
+
+        Check.WithCustomMessage(
+                $"The tampered row {tamperedRow} was treated as decisive and hid the older conviction")
+            .That(verdict).IsNotNull();
+        Check.That(verdict!.Outcome).IsEqualTo(SubPixelAbOutcome.Convicts);
     }
 
     [Fact]

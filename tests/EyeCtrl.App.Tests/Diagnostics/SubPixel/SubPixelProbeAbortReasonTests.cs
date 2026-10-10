@@ -29,6 +29,7 @@ public class SubPixelProbeAbortReasonTests
     [InlineData("menu-opened", "menuOpened")]
     [InlineData("window-closed", "windowClosed")]
     [InlineData("disposed", "disposed")]
+    [InlineData("view-fault", "viewFault")]
     public void EveryC7InitiatedAbort_RecordsItsReason(string trigger, string expected)
     {
         using var world = new ProbeTestWorld(holdKeyboardClaim: true);
@@ -81,6 +82,23 @@ public class SubPixelProbeAbortReasonTests
                 break;
             case "window-closed":
                 world.Host.Windows[0].FireClosed();
+                break;
+            case "view-fault":
+                world.Host.Windows[0].FireViewFault();
+
+                // F4: the fault must be POSTED, never restored inline. Inline, Restore would close
+                // the window from inside a CompositionTarget.Rendering callback — the path fixup 05
+                // F1 showed does not tolerate surprises. No Pump yet: nothing may have happened.
+                Check.WithCustomMessage(
+                        "The view fault restored inline; Restore ran inside the render callback")
+                    .That(world.Modal.ProbeOpen).IsTrue();
+                Check.WithCustomMessage("The window was closed inline by the view fault")
+                    .That(world.Host.CountOf("WindowClosed")).IsEqualTo(0);
+                Check.That(world.Coordinator.LiveSessionForTest).IsNotNull();
+
+                world.Pump();
+                Check.WithCustomMessage("The posted view-fault Restore never ran")
+                    .That(world.Modal.ProbeOpen).IsFalse();
                 break;
             case "disposed":
                 world.Coordinator.Dispose();

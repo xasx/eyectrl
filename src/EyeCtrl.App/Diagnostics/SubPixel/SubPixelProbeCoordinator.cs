@@ -88,6 +88,9 @@ internal enum ProbeAbortReason
 
     /// <summary>The coordinator was disposed with a live session.</summary>
     Disposed,
+
+    /// <summary>A view callback (a frame draw or a phase apply) threw.</summary>
+    ViewFault,
 }
 
 /// <summary>
@@ -698,7 +701,9 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
 
         // 7. Construct C6 into the session, its close wired to THIS session (review 05 F4; W1 (d)).
         session.Window = _host.CreateWindow(
-            session.Backdrop, vm, Context.Settings.Cursor, () => Restore(session, ProbeAbortReason.WindowClosed));
+            session.Backdrop, vm, Context.Settings.Cursor,
+            () => Restore(session, ProbeAbortReason.WindowClosed),
+            () => PostViewFault(session));
 
         // 8.
         if (session.Aborted)
@@ -873,12 +878,17 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
 
         // 2. Abort, close and tear down — deliberately BEFORE the restored guard, so a second
         // restore still closes a window that appeared after the first one ran (review 05 F3/F4).
+        // Only the restore that FIRST aborts the run may record a reason: a C5-triggered end posts
+        // a reasonless Restore, and its CloseWindow then lets the window's own Closed callback
+        // re-enter with WindowClosed — which must not turn every normal run into a window close
+        // (fixup 04 R1/HR2).
+        bool first = !session.Aborted;
         session.Aborted = true;
 
         // The trigger's reason is recorded first, BEFORE CloseWindow: the window's own Closed
         // callback re-enters Restore with WindowClosed, and first-wins must keep the real trigger
         // (fixup 03 N3). A later re-entrant restore is skipped by the writer's first-wins rule.
-        if (reason is { } abortReason)
+        if (first && reason is { } abortReason)
         {
             try
             {
@@ -910,6 +920,13 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
 
         if (ReferenceEquals(_session, session)) _session = null;                             // 7
     }
+
+    /// <summary>
+    /// The view's fault path (HR1): posted so Restore never runs inside the dispatcher's render
+    /// pump; once per run is enforced by C6, and the writer's first-wins keeps the reason.
+    /// </summary>
+    private void PostViewFault(ProbeSession session) =>
+        Context?.Dispatcher.BeginInvoke(() => Restore(session, ProbeAbortReason.ViewFault));
 
     private void RestoreStep(Action step, string what)
     {

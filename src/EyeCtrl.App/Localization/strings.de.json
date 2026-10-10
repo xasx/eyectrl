@@ -32,8 +32,8 @@
     "src": "55296069"
   },
   "overlays.subpixel.caption": {
-    "text": "Testbild — hier ist nichts anklickbar",
-    "src": "fdbd2bad"
+    "text": "Testbild — nur die Schaltflächen reagieren auf den Blick",
+    "src": "fa23978a"
   },
   "overlays.subpixel.demo_hint": {
     "text": "Demo — auf die Linie des Rings achten, nicht auf seine Mitte.",
@@ -120,8 +120,8 @@
     "src": "d1e09c8b"
   },
   "settings.diagnostics.subpixel.description": {
-    "text": "Startet einen kurzen bildschirmfüllenden A/B-Test der Subpixel-Position des Cursorrings. Einstellungen und Tastatur kommen danach zurück.",
-    "src": "56acf8ef"
+    "text": "Startet einen kurzen bildschirmfüllenden A/B-Test der Subpixel-Position des Cursorrings. Tastatur, Toolbar und Ring kommen danach zurück; die Einstellungen bleiben geschlossen.",
+    "src": "24316cbc"
   },
   "settings.diagnostics.subpixel.reason.adaptation": {
     "text": "Zuerst Anpassung ausschalten; sie kann ein eigenes Fenster öffnen.",

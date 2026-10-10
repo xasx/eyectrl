@@ -108,8 +108,7 @@ public class EventCoordinator : IEventCoordinator
 
         // The probe's note gate (build plan C15): note targets are gaze-only surfaces under no
         // window, so the probe must be able to suspend them while its own window covers the screen.
-        // The predicate reads the shared flag per sample; with ProbeOpen never set in this ticket
-        // it is a constant-false no-op.
+        // The predicate reads the shared flag per sample; the probe sets it while a run is live.
         context.NoteManager.SetSuspendPredicate(() => _modal.ProbeOpen);
 
         _scrollModeController = new ScrollModeController(context);

@@ -51,16 +51,18 @@ internal static class SubPixelAbResultReader
                 if (!TryReadDocument(file.FullName, out var document) || document?.Sessions is not { } sessions)
                     continue;
 
-                // A file with no non-aborted session row says nothing; keep scanning older files.
-                if (!sessions.Any(session => !session.Aborted)) continue;
+                // A file with no decisive session row says nothing; keep scanning older files. A
+                // row is decisive only with an explicit session, aborted:false and outcome — a
+                // tampered or future-schema row must never decide (fixup 04 HR10).
+                var decisive = sessions.Where(session => session.IsDecisive).ToList();
+                if (decisive.Count == 0) continue;
 
                 // The first decisive file decides, whether or not it offers a resume.
-                if (sessions.Any(session =>
-                        session is { Session: SubPixelProbeSessionKind.Session2, Aborted: false }))
+                if (decisive.Any(session => session.Session == SubPixelProbeSessionKind.Session2))
                     return null;
 
-                var session1 = sessions.FirstOrDefault(session =>
-                    session is { Session: SubPixelProbeSessionKind.Session1, Aborted: false });
+                var session1 = decisive.FirstOrDefault(session =>
+                    session.Session == SubPixelProbeSessionKind.Session1);
                 if (session1?.Outcome != SubPixelAbOutcome.Convicts) return null;
 
                 return new SubPixelAbSession1Verdict(
@@ -97,11 +99,18 @@ internal static class SubPixelAbResultReader
     /// <summary>The document fields the resume reader needs; the writer's own enums and names.</summary>
     internal sealed record ReaderDocument(List<ReaderSession> Sessions);
 
-    /// <summary>One persisted session row; absent nullable fields stay null.</summary>
+    /// <summary>
+    /// One persisted session row. Every field the decision needs is nullable so a row that omits
+    /// one cannot masquerade as a completed session (fixup 04 HR10).
+    /// </summary>
     internal sealed record ReaderSession(
-        SubPixelProbeSessionKind Session,
+        SubPixelProbeSessionKind? Session,
         SubPixelAbOutcome? Outcome,
         SubPixelAbStaticReadout? StaticReadout,
         string? LogLine,
-        bool Aborted);
+        bool? Aborted)
+    {
+        /// <summary>Whether this row is complete enough (and not an abort) to decide a scan.</summary>
+        internal bool IsDecisive => Session is not null && Aborted == false && Outcome is not null;
+    }
 }

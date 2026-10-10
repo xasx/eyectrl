@@ -16,6 +16,7 @@ using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
+using Serilog;
 
 /// <summary>
 /// C6 — the sub-pixel probe's own full-screen window. An <see cref="OverlayWindow"/> subclass, so it
@@ -72,6 +73,9 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
 
     private PhysicalPoint? _lastGaze;
     private long _lastFrameTicks;
+    private readonly Action _viewFault;
+    private bool _faulted;
+    private bool _renderingAttached;
     private readonly Func<long> _frameTicks;
     private readonly double _frameTicksPerMs;
     private bool _closedObserved;
@@ -84,6 +88,11 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
     /// <param name="vm">The run's view model; its phase drives every screen.</param>
     /// <param name="cursorSettings">The ring look the probe draws with.</param>
     /// <param name="sessionEnded">Invoked once, when this window's close is observed.</param>
+    /// <param name="viewFault">
+    /// Invoked once when a frame, phase or layout callback throws (fixup 04 HR1). Required, with no
+    /// no-op default: the production host must pass C7's posted fault path through, or a faulted run
+    /// would freeze behind an opaque topmost window with no way out (fixup 05 F2).
+    /// </param>
     /// <param name="scale">
     /// Device pixels per DIP. Production passes <c>null</c> and the window reads
     /// <see cref="DpiHelper.ScaleX"/>; the W6 hit tests inject 1.0 and 2.0 to prove the registered
@@ -99,12 +108,14 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         SubPixelProbeViewModel vm,
         CursorSettings cursorSettings,
         Action sessionEnded,
+        Action viewFault,
         double? scale = null,
         Func<long>? frameTicks = null,
         double frameTicksPerMs = 0)
     {
         _vm = vm ?? throw new ArgumentNullException(nameof(vm));
         _sessionEnded = sessionEnded ?? throw new ArgumentNullException(nameof(sessionEnded));
+        _viewFault = viewFault ?? throw new ArgumentNullException(nameof(viewFault));
         _scale = scale ?? (DpiHelper.ScaleX <= 0 ? 1.0 : DpiHelper.ScaleX);
         _frameTicks = frameTicks ?? Stopwatch.GetTimestamp;
         _frameTicksPerMs = frameTicksPerMs > 0 ? frameTicksPerMs : Stopwatch.Frequency / 1000.0;
@@ -217,8 +228,9 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         RegisterTargets();
 
         _vm.PropertyChanged += OnVmPropertyChanged;
-        SizeChanged += (_, _) => Layout();
+        SizeChanged += OnSizeChanged;
         CompositionTarget.Rendering += OnCompositionRendering;
+        _renderingAttached = true;
 
         ApplyPhase();
     }
@@ -235,39 +247,143 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
     private void OnCompositionRendering(object? sender, EventArgs e) => OnFrame();
 
     /// <summary>
+    /// The size-change path, contained like the frame and phase paths (fixup 05 F5): a resize or a
+    /// DPI change must not let a layout fault escape to <c>DispatcherUnhandledException</c>. The
+    /// arguments are unused; the test drives this handler directly, because a never-shown window's
+    /// HWND raises no <c>SizeChanged</c> headlessly.
+    /// </summary>
+    internal void OnSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        try
+        {
+            InjectFaultForTest(FaultSiteForTest.Layout);
+            Layout();
+        }
+        catch (Exception ex)
+        {
+            HandleViewFault(ex);
+        }
+    }
+
+    /// <summary>Test seam: a fault thrown at an injected fault site (fixup 04 HR1; fixup 05 F1/F5).</summary>
+    internal Action? FaultInjectorForTest { get; set; }
+
+    /// <summary>
+    /// Test seam: which entry points may fire <see cref="FaultInjectorForTest"/>. Tests arm the
+    /// injector after <c>EnsureHandle</c> and select one site, so a real <c>CompositionTarget.Rendering</c>
+    /// frame during HWND creation cannot fault the window first (fixup 05 F1).
+    /// </summary>
+    internal FaultSiteForTest FaultSitesForTest { get; set; }
+
+    /// <summary>The dispatcher entry points the test fault injector may fault (fixup 05 F1/F5).</summary>
+    [Flags]
+    internal enum FaultSiteForTest
+    {
+        /// <summary>No entry point.</summary>
+        None = 0,
+
+        /// <summary>The per-frame draw path.</summary>
+        Frame = 1,
+
+        /// <summary>The phase-change path.</summary>
+        Phase = 2,
+
+        /// <summary>The size-change path.</summary>
+        Layout = 4,
+    }
+
+    /// <summary>Fires the injected fault when the test armed the given site (fixup 05 F1).</summary>
+    private void InjectFaultForTest(FaultSiteForTest site)
+    {
+        if ((FaultSitesForTest & site) != 0) FaultInjectorForTest?.Invoke();
+    }
+
+    /// <summary>Test seam: whether the frame hook is still subscribed.</summary>
+    internal bool IsFrameHookAttachedForTest => _renderingAttached;
+
+    /// <summary>
     /// One presented frame: advances the ring and the live target dot, and reports the frame gap so
     /// C5 can void a trial whose interval had a gap above 50 ms (test design, trial anatomy).
     /// The frame callback is internal so tests can drive it without a rendered window.
+    /// <para>
+    /// A fault is contained (fixup 04 HR1): the owner runs without supervision, so an exception
+    /// escaping every frame would exhaust the crash policy's fault budget and kill the process. The
+    /// fault is logged, the frame hook is detached, drawing stops, and C7 is asked to end the run
+    /// exactly once. Nothing is ever rethrown out of here.
+    /// </para>
     /// </summary>
     internal void OnFrame()
     {
-        // Stopwatch ticks, not Environment.TickCount64: a 15.6 ms tick compared against a 50 ms
-        // threshold reads a three-frame stall as voided or not depending on tick phase (fixup 02 M4).
-        long now = _frameTicks();
-        if (_vm.Phase is SubPixelProbePhase.Interval1 or SubPixelProbePhase.Interval2)
-        {
-            if (_lastFrameTicks != 0)
-                _vm.ReportRenderGap((long)((now - _lastFrameTicks) / _frameTicksPerMs));
-            _lastFrameTicks = now;
-        }
-        else
-        {
-            _lastFrameTicks = 0;
-        }
+        if (_faulted) return;
 
-        DrawPresentation();
+        try
+        {
+            InjectFaultForTest(FaultSiteForTest.Frame);
+
+            // Stopwatch ticks, not Environment.TickCount64: a 15.6 ms tick compared against a 50 ms
+            // threshold reads a three-frame stall as voided or not depending on tick phase (fixup 02 M4).
+            long now = _frameTicks();
+            if (_vm.Phase is SubPixelProbePhase.Interval1 or SubPixelProbePhase.Interval2)
+            {
+                if (_lastFrameTicks != 0)
+                    _vm.ReportRenderGap((long)((now - _lastFrameTicks) / _frameTicksPerMs));
+                _lastFrameTicks = now;
+            }
+            else
+            {
+                _lastFrameTicks = 0;
+            }
+
+            DrawPresentation();
+        }
+        catch (Exception ex)
+        {
+            HandleViewFault(ex);
+        }
     }
 
     private void OnVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(SubPixelProbeViewModel.Phase)) ApplyPhase();
+        if (_faulted) return;
+        if (e.PropertyName != nameof(SubPixelProbeViewModel.Phase)) return;
+
+        try
+        {
+            InjectFaultForTest(FaultSiteForTest.Phase);
+            ApplyPhase();
+        }
+        catch (Exception ex)
+        {
+            HandleViewFault(ex);
+        }
+    }
+
+    /// <summary>
+    /// The frame/phase fault path (HR1): log, detach the frame hook, stop drawing, and ask C7 to end
+    /// the run once — posted by C7, never called re-entrantly from here.
+    /// </summary>
+    private void HandleViewFault(Exception ex)
+    {
+        Log.Error(ex, "The sub-pixel probe's view callback threw; ending the run");
+        DetachRendering();
+
+        if (_faulted) return;
+        _faulted = true;
+        _viewFault();
+    }
+
+    private void DetachRendering()
+    {
+        if (!_renderingAttached) return;
+        _renderingAttached = false;
+        CompositionTarget.Rendering -= OnCompositionRendering;
     }
 
     protected override void OnClosed(EventArgs e)
     {
         // "Already closed" means the event fired, not that Close() was called (review 05 F4).
         _closedObserved = true;
-        CompositionTarget.Rendering -= OnCompositionRendering;
+        DetachRendering();
         _vm.PropertyChanged -= OnVmPropertyChanged;
         base.OnClosed(e);
 
@@ -404,8 +520,8 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
     /// Recomputes every target's registered centre from the element's <b>laid-out</b> position in
     /// the scene, in physical pixels for the injected scale. The screen buttons are children of
     /// StackPanels, so their Canvas attachments are NaN — reading Canvas.Left/Top gave them no hit
-    /// circle at all (fixup 01 B2). A target whose phase is not showing is skipped and keeps its
-    /// last centre.
+    /// circle at all (fixup 01 B2). A target whose phase is not showing is parked off-screen, so a
+    /// hidden button can never hold a live hit circle (fixup 03 N2).
     /// </summary>
     internal void UpdateTargetGeometry()
     {
@@ -606,9 +722,12 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
             case SubPixelAbLiveMotion live:
                 // The ring follows the owner's filtered gaze; the dot is the guide to follow.
                 _ring.Place(_lastGaze ?? live.TargetPositionAt(elapsed), snap);
-                var target = live.TargetPositionAt(elapsed).ToLogical();
-                Canvas.SetLeft(_targetDot, target.X - DotDiameter / 2);
-                Canvas.SetTop(_targetDot, target.Y - DotDiameter / 2);
+
+                // The injected scale, like everything else in C6 — not the ambient DpiHelper
+                // (fixup 04 HR9).
+                var target = live.TargetPositionAt(elapsed);
+                Canvas.SetLeft(_targetDot, target.X / _scale - DotDiameter / 2);
+                Canvas.SetTop(_targetDot, target.Y / _scale - DotDiameter / 2);
                 _targetDot.Visibility = Visibility.Visible;
                 break;
         }

@@ -51,7 +51,7 @@ public class SubPixelProbeC5ExitTests
     public void EndTestThroughC5_PostsTheRestore_ThenClosesAndWritesEndTest()
     {
         var (world, _, driver) = NewRunWorld();
-        using var _ = world;
+        using var worldLifetime = world;
         var session = world.Session;
         var vm = session.Vm!;
         driver.StartToTrials();
@@ -80,6 +80,10 @@ public class SubPixelProbeC5ExitTests
         Check.WithCustomMessage("C7 never wrote the run's end reason")
             .That(document.RootElement.GetProperty("runEndReason").GetString()).IsEqualTo("endTest");
         Check.That(document.RootElement.GetProperty("sampleCadenceMs").GetDouble()).IsCloseTo(30.0, 0.001);
+        Check.WithCustomMessage(
+                "A C5-ended run must not carry an abortReason; the window-close re-entry made every run "
+                + "look aborted (fixup 04 R1/HR2)")
+            .That(document.RootElement.TryGetProperty("abortReason", out _)).IsFalse();
     }
 
     // ---- H1-2: session 1 in virtual time → Ask, with the blocks and session in the file ----------
@@ -120,7 +124,7 @@ public class SubPixelProbeC5ExitTests
     public void ACompletedRun_WritesCompleted_NotTheAbortFallback()
     {
         var (world, _, driver) = NewRunWorld();
-        using var _ = world;
+        using var worldLifetime = world;
         var session = world.Session;
         driver.StartToTrials();
         driver.PlayBlock(SubPixelAbCondition.B);
@@ -134,6 +138,10 @@ public class SubPixelProbeC5ExitTests
         Check.WithCustomMessage(
                 "C5's own run-end reason must survive; a completed run says 'completed', not the abort fallback")
             .That(document.RootElement.GetProperty("runEndReason").GetString()).IsEqualTo("completed");
+        Check.WithCustomMessage(
+                "A completed run must not carry an abortReason; the window-close re-entry made every run "
+                + "look aborted (fixup 04 R1/HR2)")
+            .That(document.RootElement.TryGetProperty("abortReason", out _)).IsFalse();
     }
 
     // ---- N5: the default frame rate interprets Stopwatch-scale ticks ------------------------------
@@ -156,7 +164,7 @@ public class SubPixelProbeC5ExitTests
             long baseTicks = System.Diagnostics.Stopwatch.GetTimestamp();
             double elapsedMs = 0;
             var window = new SubPixelProbeWindow(
-                null, session.Vm!, new CursorSettings(), () => { },
+                null, session.Vm!, new CursorSettings(), () => { }, viewFault: () => { },
                 scale: 1.0,
                 frameTicks: () => baseTicks + (long)(System.Diagnostics.Stopwatch.Frequency * elapsedMs / 1000.0),
                 frameTicksPerMs: 0);
@@ -188,11 +196,77 @@ public class SubPixelProbeC5ExitTests
         using var _ = world;
         var session = world.Session;
         driver.StartToTrials();
-        world.Coordinator.Restore(session);
+        session.Vm!.SimulateActivated(SubPixelProbeViewModel.EndTestTargetId);
+        world.Pump();
 
         using var document = ReadResult(session);
         Check.WithCustomMessage("displayRefreshHz is absent although the refresh provider returned 60.25")
             .That(document.RootElement.GetProperty("displayRefreshHz").GetDouble()).IsCloseTo(60.25, 1e-9);
+    }
+
+    // ---- R2: the two-session file built by the writer ---------------------------------------------
+
+    [Fact]
+    public void ASession2CompletedInTheSameRun_EndsTheResumeOffer()
+    {
+        var (world, _, driver) = NewRunWorld();
+        using var _ = world;
+        var session = world.Session;
+        driver.StartToTrials();
+        driver.PlayBlock(SubPixelAbCondition.B);   // drift → convicts
+        driver.PlayBlock(SubPixelAbCondition.B);   // static
+        session.Vm!.ContinueToLiveGaze();          // Ask → Yes
+        driver.PlayBlock(SubPixelAbCondition.B);   // live block completes in the same run
+
+        using var document = ReadResult(session);
+        Check.WithCustomMessage("The same run must have written both sessions")
+            .That(document.RootElement.GetProperty("sessions").GetArrayLength()).IsEqualTo(2);
+
+        Check.WithCustomMessage("A completed session 2 in the same file must end the resume offer")
+            .That(SubPixelAbResultReader.ReadNewestConvictingSession1(world.ResultsDir)).IsNull();
+    }
+
+    [Fact]
+    public void ASession2AbortedInTheSameRun_StillOffersTheResume()
+    {
+        var (world, _, driver) = NewRunWorld();
+        using var _ = world;
+        var session = world.Session;
+        driver.StartToTrials();
+        driver.PlayBlock(SubPixelAbCondition.B);
+        driver.PlayBlock(SubPixelAbCondition.B);
+        session.Vm!.ContinueToLiveGaze();
+        session.Vm.EndTest();                      // aborted mid-session-2
+        world.Pump();
+
+        using var document = ReadResult(session);
+        Check.That(document.RootElement.GetProperty("sessions").GetArrayLength()).IsEqualTo(2);
+        Check.That(document.RootElement.GetProperty("sessions")[1].GetProperty("aborted").GetBoolean())
+            .IsTrue();
+
+        var verdict = SubPixelAbResultReader.ReadNewestConvictingSession1(world.ResultsDir);
+        Check.WithCustomMessage("An aborted session 2 must not block the retry (review 03 R2)")
+            .That(verdict).IsNotNull();
+        Check.That(verdict!.Outcome).IsEqualTo(SubPixelAbOutcome.Convicts);
+    }
+
+    // ---- HR12: the keyboard is hidden before the backdrop is captured ------------------------------
+
+    [Fact]
+    public void TheKeyboardIsHiddenBeforeTheBackdropIsCaptured()
+    {
+        var (world, _, _) = NewRunWorld();
+        using var _ = world;
+
+        var names = world.Host.Names.ToList();
+        int hidden = names.IndexOf("HideKeyboard");
+        int captured = names.IndexOf("CaptureBackdrop");
+
+        Check.That(hidden).IsStrictlyGreaterThan(-1);
+        Check.That(captured).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage(
+                "The backdrop was captured before the keyboard was hidden; the keyboard could be baked in")
+            .That(hidden).IsStrictlyLessThan(captured);
     }
 
     // ---- M4: the render-gap clock ----------------------------------------------------------------
@@ -212,7 +286,7 @@ public class SubPixelProbeC5ExitTests
 
             long ticks = 1_000_000;
             var window = new SubPixelProbeWindow(
-                null, session.Vm!, new CursorSettings(), () => { },
+                null, session.Vm!, new CursorSettings(), () => { }, viewFault: () => { },
                 scale: 1.0, frameTicks: () => ticks, frameTicksPerMs: 1.0);
             try
             {

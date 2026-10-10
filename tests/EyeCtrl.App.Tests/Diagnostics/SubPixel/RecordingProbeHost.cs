@@ -219,7 +219,8 @@ internal sealed class RecordingProbeHost : IProbeHost
         System.Windows.Media.Imaging.BitmapSource? backdrop,
         SubPixelProbeViewModel vm,
         EyeCtrl.Core.Settings.CursorSettings cursorSettings,
-        Action sessionEnded)
+        Action sessionEnded,
+        Action viewFault)
     {
         Before(nameof(CreateWindow));
         var window = new FakeProbeWindow(sessionEnded)
@@ -227,6 +228,7 @@ internal sealed class RecordingProbeHost : IProbeHost
             // The close is a step of Restore; recording it in the same log is what makes W1 (b)'s
             // "close → teardown → suppression → …" order assertable.
             OnClosedObserved = () => _log.Add(new HostCall("WindowClosed", _dispatcher.CheckAccess())),
+            ViewFaultRequested = viewFault,
         };
         WindowSetup?.Invoke(window);
         Windows.Add(window);
@@ -253,6 +255,12 @@ internal sealed class FakeProbeWindow : IProbeWindow
 
     /// <summary>Invoked when <c>Closed</c> is observed, before the session-end callback runs.</summary>
     internal Action? OnClosedObserved { get; set; }
+
+    /// <summary>The C7 view-fault callback this window was built with (fixup 04 HR1).</summary>
+    internal Action? ViewFaultRequested { get; set; }
+
+    /// <summary>Fires the view-fault path as C6 does when a frame or phase callback throws.</summary>
+    internal void FireViewFault() => ViewFaultRequested?.Invoke();
 
     /// <summary>When true, a <see cref="Close"/> issued during <see cref="Show"/> is swallowed.</summary>
     internal bool SwallowCloseDuringShow { get; set; }

@@ -184,10 +184,12 @@ public class DispatcherTimeProviderTests
         vm.Start();
         vm.SimulateActivated(SubPixelProbeViewModel.IntroStartTargetId);   // Intro -> interval 1
 
-        PumpFor(TimeSpan.FromMilliseconds(3_400));
+        // Pump for ≥ 4000 ms: the interval is 3000 ms, so 4000 leaves a third of the interval as
+        // slack instead of the 13 % that flaked under load (HR11).
+        PumpFor(TimeSpan.FromMilliseconds(4_000));
 
         Check.WithCustomMessage("The interval timer never fired on the dispatcher")
-            .That(vm.Phase).IsEqualTo(SubPixelProbePhase.Gap);
+            .That(vm.Phase is SubPixelProbePhase.Gap or SubPixelProbePhase.Interval2).IsTrue();
         Check.WithCustomMessage("A C5 phase event ran off the UI thread")
             .That(advancedOnDispatcher).ContainsOnlyElementsThatMatch(a => a);
     }

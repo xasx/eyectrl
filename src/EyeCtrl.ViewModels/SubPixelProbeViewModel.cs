@@ -390,7 +390,7 @@ public partial class SubPixelProbeViewModel : MessengerViewModelBase,
     /// <summary>Raised exactly once per session that started, normally or through an abort.</summary>
     public event Action<SubPixelProbeSessionOutcome>? SessionCompleted;
 
-    /// <summary>Raised at every phase transition (never for the Idle between blocks; PropertyChanged covers that).</summary>
+    /// <summary>Raised at every phase transition, including the Idle between blocks and the terminal Ended (fixup 04 HR7).</summary>
     public event Action? PhaseAdvanced;
 
     /// <summary>The terminal event: raised once, last, when the run ends. C7 restores on it.</summary>

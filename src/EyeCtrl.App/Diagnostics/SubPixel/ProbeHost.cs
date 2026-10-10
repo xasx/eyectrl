@@ -143,6 +143,7 @@ internal sealed class ProbeHost : IProbeHost
         BitmapSource? backdrop,
         SubPixelProbeViewModel vm,
         CursorSettings cursorSettings,
-        Action sessionEnded) =>
-        new SubPixelProbeWindow(backdrop, vm, cursorSettings, sessionEnded);
+        Action sessionEnded,
+        Action viewFault) =>
+        new SubPixelProbeWindow(backdrop, vm, cursorSettings, sessionEnded, viewFault);
 }

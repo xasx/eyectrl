@@ -242,7 +242,7 @@
     "args": []
   },
   "overlays.subpixel.caption": {
-    "text": "Test picture — nothing here is clickable",
+    "text": "Test picture — only the buttons respond to your gaze",
     "who": "user",
     "where": "overlays",
     "fit": "prose",
@@ -399,7 +399,7 @@
     "args": []
   },
   "settings.diagnostics.subpixel.description": {
-    "text": "Runs a short full-screen A/B test of the cursor ring's sub-pixel placement. Your settings and keyboard come back when it ends.",
+    "text": "Runs a short full-screen A/B test of the cursor ring's sub-pixel placement. The keyboard, toolbar and ring come back when it ends; Settings stays closed.",
     "who": "user",
     "where": "settings",
     "fit": "prose",

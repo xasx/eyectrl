@@ -23,8 +23,8 @@ internal sealed class ModalInteractionState
 
     /// <summary>
     /// True while the sub-pixel probe owns the screen (build plan C9). Every consumer gates on it;
-    /// with it never set in this ticket, each gate is a no-op and the pre-probe behaviour is
-    /// byte-identical. Assigning raises <see cref="ProbeOpenChanged"/>.
+    /// C7 sets it for the duration of a run, and while it is false each gate is a no-op so the
+    /// pre-probe behaviour is unchanged. Assigning raises <see cref="ProbeOpenChanged"/>.
     /// </summary>
     public bool ProbeOpen
     {

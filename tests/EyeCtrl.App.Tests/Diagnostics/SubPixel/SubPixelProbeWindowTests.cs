@@ -55,7 +55,7 @@ public class SubPixelProbeWindowTests
             // re-entrant Restore inside it would try to close the window again.
             closedObservedInCallback = windowRef!.ClosedObserved;
             ended++;
-        });
+        }, viewFault: () => { });
         windowRef = window;
         try
         {
@@ -120,7 +120,7 @@ public class SubPixelProbeWindowTests
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         using var vm = NewViewModel();
-        var window = new SubPixelProbeWindow(null, vm, new CursorSettings(), () => { });
+        var window = new SubPixelProbeWindow(null, vm, new CursorSettings(), () => { }, viewFault: () => { });
         try
         {
             new WindowInteropHelper(window).EnsureHandle();
@@ -148,7 +148,7 @@ public class SubPixelProbeWindowTests
             .SetValue(vm, new SubPixelAbSession1Verdict(
                 SubPixelAbOutcome.Convicts, SubPixelAbStaticReadout.CannotTellStillRingsApart, logLine));
 
-        var window = new SubPixelProbeWindow(null, vm, new CursorSettings(), () => { });
+        var window = new SubPixelProbeWindow(null, vm, new CursorSettings(), () => { }, viewFault: () => { });
         try
         {
             new WindowInteropHelper(window).EnsureHandle();
@@ -182,7 +182,7 @@ public class SubPixelProbeWindowTests
         // A 1-px checker: pixel identity is exactly what a 1:1 draw preserves.
         var checker = CheckerBitmap(8, 8);
         using var vm = NewViewModel();
-        var window = new SubPixelProbeWindow(checker, vm, new CursorSettings(), () => { }, scale: 2.0);
+        var window = new SubPixelProbeWindow(checker, vm, new CursorSettings(), () => { }, viewFault: () => { }, scale: 2.0);
         window.Width = 4;    // 8 device px at 2.0, so the bitmap covers the scene exactly
         window.Height = 4;
         try
@@ -247,7 +247,7 @@ public class SubPixelProbeWindowTests
         {
             using var vm = NewViewModel();
             vm.Start();
-            var window = new SubPixelProbeWindow(null, vm, new CursorSettings(), () => { }, scale);
+            var window = new SubPixelProbeWindow(null, vm, new CursorSettings(), () => { }, viewFault: () => { }, scale);
             window.Width = 1920;
             window.Height = 1080;
             try
@@ -333,6 +333,156 @@ public class SubPixelProbeWindowTests
             .That(code.Contains("_frameTicks=frameTicks??Stopwatch.GetTimestamp;")).IsTrue();
         Check.WithCustomMessage("The frame rate default is no longer Stopwatch.Frequency/1000")
             .That(code.Contains("_frameTicksPerMs=frameTicksPerMs>0?frameTicksPerMs:Stopwatch.Frequency/1000.0;")).IsTrue();
+        Check.WithCustomMessage("The live target dot no longer uses the injected scale (HR9)")
+            .That(code.Contains("Canvas.SetLeft(_targetDot,target.X/_scale-DotDiameter/2);")).IsTrue();
+        Check.WithCustomMessage("The live target dot no longer uses the injected scale (HR9)")
+            .That(code.Contains("Canvas.SetTop(_targetDot,target.Y/_scale-DotDiameter/2);")).IsTrue();
+    }
+
+    // ---- HR1: a view fault must never kill the process -------------------------------------------
+
+    [StaFact]
+    public void AThrowingFrame_IsContained_RequestedOnce_AndDetached()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        using var vm = NewViewModel();
+        int faultRequests = 0;
+        int injectorCalls = 0;
+        var window = new SubPixelProbeWindow(
+            null, vm, new CursorSettings(), () => { }, viewFault: () => faultRequests++);
+        try
+        {
+            new WindowInteropHelper(window).EnsureHandle();
+
+            // Arm after EnsureHandle: a real Rendering frame fires during HWND creation (fixup 05
+            // F1). Arming before it faults the window there — and with the frame catch removed,
+            // hangs inside EnsureHandle instead of failing the explicit frames below.
+            window.FaultInjectorForTest = () =>
+            {
+                injectorCalls++;
+                throw new InvalidOperationException("injected frame fault");
+            };
+            window.FaultSitesForTest = SubPixelProbeWindow.FaultSiteForTest.Frame;
+
+            Check.WithCustomMessage("A frame fault escaped to the dispatcher (ten of those kill the app)")
+                .ThatCode(() => { window.OnFrame(); window.OnFrame(); window.OnFrame(); })
+                .DoesNotThrow();
+
+            Check.WithCustomMessage("The fault was not requested exactly once")
+                .That(faultRequests).IsEqualTo(1);
+            Check.WithCustomMessage("Drawing continued after the fault")
+                .That(injectorCalls).IsEqualTo(1);
+            Check.WithCustomMessage("The frame hook stayed attached (the fault would repeat every frame)")
+                .That(window.IsFrameHookAttachedForTest).IsFalse();
+        }
+        finally
+        {
+            // Disarm before Close: a mutant that leaves Rendering attached must not fault again
+            // inside WPF's render pass while the test tears down (that is the F1 HANG).
+            window.FaultInjectorForTest = null;
+            window.Close();
+        }
+    }
+
+    [StaFact]
+    public void AThrowingPhaseChange_IsContained_RequestedOnce_AndDetached()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        using var vm = NewViewModel();
+        int faultRequests = 0;
+        int injectorCalls = 0;
+        var window = new SubPixelProbeWindow(
+            null, vm, new CursorSettings(), () => { }, viewFault: () => faultRequests++);
+        try
+        {
+            new WindowInteropHelper(window).EnsureHandle();
+
+            // Phase only, armed after the handle: the injector calls below prove the fault came
+            // from the phase path, never from a real frame (fixup 05 F1).
+            window.FaultInjectorForTest = () =>
+            {
+                injectorCalls++;
+                throw new InvalidOperationException("injected phase fault");
+            };
+            window.FaultSitesForTest = SubPixelProbeWindow.FaultSiteForTest.Phase;
+
+            Check.WithCustomMessage("A phase fault escaped to the property-changed raise")
+                .ThatCode(() =>
+                {
+                    SetPhase(vm, SubPixelProbePhase.Intro);
+                    SetPhase(vm, SubPixelProbePhase.Ask);
+                })
+                .DoesNotThrow();
+
+            Check.WithCustomMessage("The fault was not requested exactly once")
+                .That(faultRequests).IsEqualTo(1);
+            Check.WithCustomMessage(
+                    "The phase handler kept working after the fault (the _faulted early-return is gone)")
+                .That(injectorCalls).IsEqualTo(1);
+            Check.WithCustomMessage("The frame hook stayed attached")
+                .That(window.IsFrameHookAttachedForTest).IsFalse();
+        }
+        finally
+        {
+            window.FaultInjectorForTest = null;
+            window.Close();
+        }
+    }
+
+    [StaFact]
+    public void AThrowingSizeChange_IsContained()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        using var vm = NewViewModel();
+        int faultRequests = 0;
+        int injectorCalls = 0;
+        var window = new SubPixelProbeWindow(
+            null, vm, new CursorSettings(), () => { }, viewFault: () => faultRequests++);
+        try
+        {
+            new WindowInteropHelper(window).EnsureHandle();
+
+            window.FaultInjectorForTest = () =>
+            {
+                injectorCalls++;
+                throw new InvalidOperationException("injected resize fault");
+            };
+            window.FaultSitesForTest = SubPixelProbeWindow.FaultSiteForTest.Layout;
+
+            // A never-shown HWND raises no SizeChanged headlessly, so the test drives the very
+            // handler the event is subscribed to (SizeChanged += OnSizeChanged); its args are unused.
+            Check.WithCustomMessage("A size-change fault escaped to the dispatcher (fixup 05 F5)")
+                .ThatCode(() => window.OnSizeChanged(window, null!))
+                .DoesNotThrow();
+
+            Check.WithCustomMessage("The size path never ran")
+                .That(injectorCalls).IsEqualTo(1);
+            Check.WithCustomMessage("The fault was not requested exactly once")
+                .That(faultRequests).IsEqualTo(1);
+        }
+        finally
+        {
+            window.FaultInjectorForTest = null;
+            window.Close();
+        }
+    }
+
+    [Fact]
+    public void TheProductionWindowFactory_PassesTheViewFaultThrough()
+    {
+        // F2: viewFault is a required C6 constructor parameter, and this pins C7's wiring through
+        // C14. A dropped or no-op argument would contain the fault but never end the run, leaving
+        // the owner behind a frozen opaque window (fixup 04 F2/HR1-prod-wiring).
+        var path = Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Diagnostics", "SubPixel", "ProbeHost.cs");
+        var code = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(File.ReadAllText(path)), @"\s+", string.Empty);
+
+        Check.WithCustomMessage(
+                "ProbeHost no longer passes viewFault to SubPixelProbeWindow (HR1-prod-wiring)")
+            .That(code.Contains(
+                "newSubPixelProbeWindow(backdrop,vm,cursorSettings,sessionEnded,viewFault);"))
+            .IsTrue();
     }
 
     private static SubPixelProbeViewModel NewViewModel() => new(
@@ -418,7 +568,7 @@ public class SubPixelProbeWindowTests
             () => true);
         vm.Start();
 
-        var window = new SubPixelProbeWindow(null, vm, new CursorSettings(), () => { }, scale);
+        var window = new SubPixelProbeWindow(null, vm, new CursorSettings(), () => { }, viewFault: () => { }, scale);
         window.Width = 1920;
         window.Height = 1080;
         try

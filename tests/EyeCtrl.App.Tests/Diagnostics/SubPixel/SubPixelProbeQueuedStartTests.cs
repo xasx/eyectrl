@@ -253,6 +253,23 @@ public class SubPixelProbeQueuedStartTests
         Check.That(world.Coordinator.CanResumeFromResults()).IsTrue();
     }
 
+    [Fact]
+    public void TheProductionRefusalLogAndRefreshProvider_AreWiredAtTheSource()
+    {
+        // R3: both production seams are behaviourally invisible headless, so they are pinned here.
+        var path = Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Diagnostics", "SubPixel", "SubPixelProbeCoordinator.cs");
+        var code = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(File.ReadAllText(path)), @"\s+", string.Empty);
+
+        Check.WithCustomMessage("The production refusal log line is gone (N8-prodlog)")
+            .That(code.Contains("Log.Information(\"Sub-pixelprobestartrefused:{Refusal}\",refusal);"))
+            .IsTrue();
+        Check.WithCustomMessage("The production refresh provider was dropped (M3-refresh-default)")
+            .That(code.Contains("_refreshRateHz=refreshRateHz??ProbeDisplayInfo.TryGetRefreshRateHz;"))
+            .IsTrue();
+    }
+
     /// <summary>Closes Settings as the real window's handler does, without needing the coordinator.</summary>
     private static Action ManualClose(ProbeTestWorld world) =>
         () =>

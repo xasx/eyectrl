@@ -163,6 +163,12 @@ public class SubPixelProbeRestoreTests
         Check.That(world.Host.Windows[0].IsShown).IsFalse();
         Check.WithCustomMessage("The after-construct branch must tear C5 down")
             .That(world.Host.CountOf("DisposeViewModel")).IsEqualTo(1);
+
+        // The branch's own order is teardown-then-close; the catch's Restore would close FIRST.
+        // Without this assertion, a missing branch is masked by the NRE path restoring anyway.
+        var names = world.Host.Names.ToList();
+        Check.WithCustomMessage("The branch did not run: the window was closed before C5 was torn down")
+            .That(names.IndexOf("DisposeViewModel")).IsStrictlyLessThan(names.IndexOf("WindowClosed"));
         Check.That(world.Modal.ProbeOpen).IsFalse();
     }
 
@@ -218,9 +224,19 @@ public class SubPixelProbeRestoreTests
     public void ALateCloseFromRun1_DoesNotEndRun2_AndRun2RestoresFully()
     {
         using var world = new ProbeTestWorld(holdKeyboardClaim: true);
+
+        // Run 1's window swallows its Close, so its Closed event is still pending when run 2 starts
+        // (the "fires late" of W1 (d)); run 2's window behaves normally.
+        int windowIndex = 0;
+        world.Host.WindowSetup = w =>
+        {
+            if (windowIndex++ == 0) w.SwallowAllCloses = true;
+        };
+
         world.StartShown();
         var window1 = world.Host.Windows[0];
         world.Coordinator.Restore(world.Session);
+        Check.That(window1.ClosedObserved).IsFalse();   // the late event is still to come
 
         var session2 = world.StartShown();
         var window2 = world.Host.Windows[1];

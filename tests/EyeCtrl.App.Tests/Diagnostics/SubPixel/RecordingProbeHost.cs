@@ -249,6 +249,9 @@ internal sealed class FakeProbeWindow : IProbeWindow
     /// <summary>When true, a <see cref="Close"/> issued during <see cref="Show"/> is swallowed.</summary>
     internal bool SwallowCloseDuringShow { get; set; }
 
+    /// <summary>When true, every <see cref="Close"/> is swallowed (models a late <c>Closed</c>).</summary>
+    internal bool SwallowAllCloses { get; set; }
+
     internal PhysicalPoint? LastGaze { get; private set; }
 
     public bool ClosedObserved { get; private set; }
@@ -283,6 +286,7 @@ internal sealed class FakeProbeWindow : IProbeWindow
 
     public void Close()
     {
+        if (SwallowAllCloses) return;
         if (_inShow && SwallowCloseDuringShow) return;
         FireClosed();
     }

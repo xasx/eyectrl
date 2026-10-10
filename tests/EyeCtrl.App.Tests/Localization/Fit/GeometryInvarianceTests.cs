@@ -69,8 +69,10 @@ using EyeCtrl.ViewModels.Messages;
 /// <item>The Settings modal: a wrapping message grows the centred card, so its buttons drop by half
 /// the extra height — laid out once per show, never under a live dwell
 /// (<see cref="SettingsModalExceptionTests"/>).</item>
-/// <item>Supervisor setup: "Launch EyeCtrl now" and "Save" move straight down with the text above
-/// them — laid out once per language (<c>SupervisorFitTests.Setup_TheRecordedException_…</c>).</item>
+/// <item>Supervisor setup, a scrolling form, re-flows: its dwell controls may move down, never
+/// sideways, never resized, in order (a lower control by at least as much as a higher one) — laid
+/// out once per language
+/// (<c>SupervisorFitTests.Setup_TheRecordedException_ControlsOnlyReflowDown_InOrder_NeverSideways</c>).</item>
 /// </list>
 /// </para>
 ///

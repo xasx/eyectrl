@@ -469,73 +469,105 @@ public sealed class SupervisorFitTests : IDisposable
     }
 
     /// <summary>
-    /// T09 PR 3 fixup-01 (review-04 D1b): Supervisor setup is a RECORDED geometry exception. "Launch
-    /// EyeCtrl now" and "Save" sit below text that wraps, so a longer translation moves them down
-    /// (about +16 DIP under the pseudo-locale). It is accepted because the window lays its texts out
-    /// once per language — <c>OnLanguageChanged</c> refreshes only the language row's note and the
-    /// status line — like a Settings page re-paginating, never under a live dwell.
+    /// T09 PR 3 (review-04 D1b, generalised after CI run 38084111300): Supervisor setup is a RECORDED
+    /// geometry exception — a scrolling form re-flows. Its texts wrap, so a longer translation moves
+    /// every dwell control below a wrapping text DOWN. Which texts wrap depends on the machine as well
+    /// as the language: the stress subtitle wraps a third line at a text column under 514 DIP, and
+    /// CI's wider window frame gives 512 (this machine: 515), so on CI the whole form moved 17.29 DIP.
+    /// Real German can do the same on the user's machine. It is accepted because the window lays its
+    /// texts out once per language — <c>OnLanguageChanged</c> refreshes only the language row's note
+    /// and the status line — like a Settings page re-paginating, never under a live dwell.
     ///
     /// <para>
-    /// This pins that it is the ONLY movement, under the pseudo-locale and the stress table: the two
-    /// buttons move straight down (x and size unchanged), together (one shared drop), and every other
-    /// dwell control in the form — the language row and, since option A stretched their cards, both
-    /// toggle switches — keeps its box exactly.
+    /// The rule, under the pseudo-locale and the stress table, at this machine's frame AND a wider
+    /// one (so the whole-form shift is exercised on every machine): every dwell control keeps its x
+    /// and its size; none moves up; a control lower in the form moves down by at least as much as any
+    /// control above it, and controls on one row move together — so the order is preserved, top to
+    /// bottom and in the tree. That the switches share one x and stay put inside their cards is
+    /// pinned by <see cref="Setup_BothToggleSwitches_ShareOneX"/> and
+    /// <see cref="Setup_TheToggleSwitches_StayPutInTheirCards_UnderThePseudoLocale"/>.
     /// </para>
     /// </summary>
     [Fact]
-    public void Setup_TheRecordedException_OnlyLaunchAndSaveMove_StraightDown_Together()
+    public void Setup_TheRecordedException_ControlsOnlyReflowDown_InOrder_NeverSideways()
     {
         RunSta(() =>
         {
-            var english = DwellControlBoxes(StringTable.EmbeddedEnglish);
-            Check.WithCustomMessage("The form's dwell controls were not all found.")
-                .That(english.Select(c => c.Role).Count(r => r is "launch" or "save" or "switch")).IsEqualTo(4);
-            Check.That(english.Count).IsEqualTo(7);
-
-            foreach (var (name, table) in new[] { ("pseudo", PseudoLocale.Table), ("stress", PseudoLocale.StressTable) })
+            foreach (var extraFrame in new[] { 0.0, 1.5 })
             {
-                var other = DwellControlBoxes(table);
-                Check.That(other.Select(c => c.Role)).ContainsExactly(english.Select(c => c.Role));
-                var problems = new List<string>();
-                var drops = new List<double>();
-                for (var i = 0; i < english.Count; i++)
-                {
-                    var (role, e) = english[i];
-                    var o = other[i].Box;
-                    _output.WriteLine($"{name} {role}: {e} → {o}");
-                    switch (role)
-                    {
-                        case "launch" or "save":
-                            if (Math.Abs(o.X - e.X) > 0.01 || Math.Abs(o.Width - e.Width) > 0.01 || Math.Abs(o.Height - e.Height) > 0.01)
-                                problems.Add($"{role}: moved sideways or resized, {e} → {o}");
-                            if (o.Y < e.Y - 0.01)
-                                problems.Add($"{role}: moved UP, {e} → {o}");
-                            drops.Add(o.Y - e.Y);
-                            break;
-                        default:
-                            if (Math.Abs(o.X - e.X) > 0.01 || Math.Abs(o.Y - e.Y) > 0.01
-                                || Math.Abs(o.Width - e.Width) > 0.01 || Math.Abs(o.Height - e.Height) > 0.01)
-                                problems.Add($"{role}: moved, {e} → {o} (only Launch and Save may)");
-                            break;
-                    }
-                }
+                var english = DwellControlBoxes(StringTable.EmbeddedEnglish, extraFrame);
+                Check.WithCustomMessage("The form's dwell controls were not all found.")
+                    .That(english.Select(c => c.Role).Count(r => r is "launch" or "save" or "switch")).IsEqualTo(4);
+                Check.That(english.Count).IsEqualTo(7);
 
-                if (drops.Count == 2 && Math.Abs(drops[0] - drops[1]) > 0.01)
-                    problems.Add($"Launch and Save dropped by different amounts: {FitText.Dip(drops[0])} and {FitText.Dip(drops[1])}");
-                _output.WriteLine($"{name}: Launch/Save drop {string.Join(", ", drops.Select(FitText.Dip))} DIP");
-                Check.WithCustomMessage($"Supervisor setup ({name}): a translation moved a dwell control beyond the recorded exception:\n  "
-                                        + string.Join("\n  ", problems))
-                    .That(problems).IsEmpty();
+                foreach (var (name, table) in new[] { ("pseudo", PseudoLocale.Table), ("stress", PseudoLocale.StressTable) })
+                {
+                    var other = DwellControlBoxes(table, extraFrame);
+                    var context = $"{name}, frame +{FitText.Dip(extraFrame)} DIP per side";
+                    for (var i = 0; i < english.Count; i++)
+                        _output.WriteLine($"{context} {english[i].Role}: {english[i].Box} → {other[i].Box}");
+                    var problems = ReflowProblems(english, other);
+                    Check.WithCustomMessage($"Supervisor setup ({context}): a translation moved a dwell control beyond the "
+                                            + "recorded re-flow exception:\n  " + string.Join("\n  ", problems))
+                        .That(problems).IsEmpty();
+                }
             }
         });
     }
 
     /// <summary>
+    /// Everything that breaks the re-flow rule between an English layout and a translated one: a
+    /// changed tree order, a sideways move, a resize, a move up, a control that moved less than one
+    /// above it, or a row that came apart.
+    /// </summary>
+    private static List<string> ReflowProblems(List<(string Role, Rect Box)> english, List<(string Role, Rect Box)> other)
+    {
+        const double tolerance = 0.01;
+        var problems = new List<string>();
+        if (!english.Select(c => c.Role).SequenceEqual(other.Select(c => c.Role)))
+        {
+            problems.Add($"the controls' order changed: {string.Join(", ", english.Select(c => c.Role))} → {string.Join(", ", other.Select(c => c.Role))}");
+            return problems;
+        }
+
+        var moves = english.Select((c, i) => (c.Role, Before: c.Box, After: other[i].Box, Drop: other[i].Box.Y - c.Box.Y)).ToList();
+        foreach (var m in moves)
+        {
+            if (Math.Abs(m.After.X - m.Before.X) > tolerance)
+                problems.Add($"{m.Role}: moved sideways, x {FitText.Dip(m.Before.X)} → {FitText.Dip(m.After.X)}");
+            if (Math.Abs(m.After.Width - m.Before.Width) > tolerance || Math.Abs(m.After.Height - m.Before.Height) > tolerance)
+                problems.Add($"{m.Role}: resized, {m.Before.Size} → {m.After.Size}");
+            if (m.Drop < -tolerance)
+                problems.Add($"{m.Role}: moved UP by {FitText.Dip(-m.Drop)}");
+        }
+
+        foreach (var upper in moves)
+        {
+            foreach (var lower in moves.Where(l => l.Before.Y > upper.Before.Y + tolerance))
+            {
+                if (lower.Drop < upper.Drop - tolerance)
+                    problems.Add($"{lower.Role} (y {FitText.Dip(lower.Before.Y)}) dropped {FitText.Dip(lower.Drop)}, less than "
+                                 + $"{upper.Role} above it (y {FitText.Dip(upper.Before.Y)}) dropped {FitText.Dip(upper.Drop)}");
+            }
+
+            foreach (var peer in moves.Where(p => p.Role != upper.Role && Math.Abs(p.Before.Y - upper.Before.Y) <= tolerance))
+            {
+                if (Math.Abs(peer.Drop - upper.Drop) > tolerance && string.CompareOrdinal(upper.Role, peer.Role) < 0)
+                    problems.Add($"{upper.Role} and {peer.Role} share a row but dropped {FitText.Dip(upper.Drop)} and {FitText.Dip(peer.Drop)}");
+            }
+        }
+
+        return problems;
+    }
+
+    /// <summary>
     /// Every dwell control of the setup form (the hand-cursor roots), in tree order, with its role —
     /// "launch", "save", "switch", or "language row #i" — and its box in DIP relative to the form,
-    /// laid out at its full height at 2.0 with the window's default (collapsed) Advanced section.
+    /// laid out at its full height at 2.0 with the window's default (collapsed) Advanced section, in
+    /// the client width this machine's frame leaves, narrowed by <paramref name="extraFrame"/> DIP a
+    /// side (a wider frame elsewhere, such as CI's).
     /// </summary>
-    private List<(string Role, Rect Box)> DwellControlBoxes(StringTable strings)
+    private List<(string Role, Rect Box)> DwellControlBoxes(StringTable strings, double extraFrame)
     {
         var window = BuildSetupWindow(strings);
         try
@@ -544,7 +576,7 @@ public sealed class SupervisorFitTests : IDisposable
             var scroller = (ScrollViewer)window.Content;
             window.Content = null;
             var form = new Border { Background = window.Background, Child = scroller };
-            using var host = FitHost.Open(form, width: window.Width - chrome.Left - chrome.Right, inheritFrom: window);
+            using var host = FitHost.Open(form, width: window.Width - chrome.Left - chrome.Right - 2 * extraFrame, inheritFrom: window);
 
             var switches = new[] { "setup_enable_supervision", "setup_start_on_logon" }
                 .Select(id => FitText.Descendants<TextBlock>(scroller)

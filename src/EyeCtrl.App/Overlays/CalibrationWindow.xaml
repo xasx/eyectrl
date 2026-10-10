@@ -32,9 +32,15 @@
         <Canvas x:Name="TargetCanvas" Visibility="Collapsed">
             <Canvas x:Name="TargetSetCanvas" IsHitTestVisible="False"/>
             <Canvas x:Name="ActiveTargetLayer" IsHitTestVisible="False">
+                <Ellipse x:Name="ToleranceHalo"
+                         Stroke="{StaticResource BrushStrokeHalo}" StrokeThickness="4"
+                         Opacity="0.35" IsHitTestVisible="False"/>
                 <Ellipse x:Name="ToleranceRing"
                          Stroke="{StaticResource BrushAccent}" StrokeThickness="2"
                          Opacity="0.35" IsHitTestVisible="False"/>
+                <Ellipse x:Name="ProgressHalo"
+                         Stroke="{StaticResource BrushStrokeHalo}" StrokeThickness="8"
+                         Opacity="0" IsHitTestVisible="False"/>
                 <Ellipse x:Name="ProgressRing"
                          Stroke="{StaticResource BrushAccentSuccess}" StrokeThickness="6"
                          Opacity="0" IsHitTestVisible="False"/>
@@ -48,14 +54,25 @@
             </Canvas>
         </Canvas>
 
-        <!-- Progress text -->
-        <TextBlock x:Name="ProgressText" Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeSubtitle}"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Top" Margin="0,30,0,0" Visibility="Collapsed"/>
+        <!-- Progress text. On a SurfaceMedium card (review round 2, N1): the scrim behind
+             is theme-invariant black, and Daylight's TextPrimary is near-black — straight
+             on the scrim that measured 1.1:1. The card pairs the tokens as validated. -->
+        <Border x:Name="ProgressCard" Visibility="Collapsed"
+                Background="{StaticResource BrushSurfaceMedium}"
+                CornerRadius="{StaticResource StandardCornerRadius}"
+                Padding="18,8" HorizontalAlignment="Center"
+                VerticalAlignment="Top" Margin="0,30,0,0">
+            <TextBlock x:Name="ProgressText" Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeSubtitle}"/>
+        </Border>
 
-        <!-- Completion display -->
-        <StackPanel x:Name="CompletionPanel" Visibility="Collapsed"
-                    HorizontalAlignment="Center" VerticalAlignment="Center">
+        <!-- Completion display. On a SurfaceMedium modal card (review round 2, N1): its
+             title/symbol/hint tokens are theme-varying and sat directly on the black
+             scrim, unreadable under Daylight. -->
+        <Border x:Name="CompletionCard" Visibility="Collapsed"
+                Background="{StaticResource BrushSurfaceMedium}"
+                CornerRadius="{StaticResource LargeCornerRadius}"
+                Padding="32,24" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <StackPanel x:Name="CompletionPanel">
             <TextBlock x:Name="CompletionSymbol" Text="&#x2713;" FontSize="{StaticResource FontSizeDisplay}"
                        HorizontalAlignment="Center" Margin="0,0,0,12"
                        Foreground="{StaticResource BrushAccentSuccess}"/>
@@ -79,11 +96,16 @@
                         BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="{StaticResource StandardBorderThickness}"/>
             </StackPanel>
         </StackPanel>
+        </Border>
 
-        <!-- Cancel hint -->
-        <TextBlock x:Name="CancelHint" Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}"
-                   HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                   Margin="0,0,20,20" Visibility="Collapsed"
-                   Text="Press Esc to cancel"/>
+        <!-- Cancel hint. Same card treatment (review round 2, N1). -->
+        <Border x:Name="CancelCard" Visibility="Collapsed"
+                Background="{StaticResource BrushSurfaceMedium}"
+                CornerRadius="{StaticResource SmallCornerRadius}"
+                Padding="10,4" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                Margin="0,0,20,20">
+            <TextBlock x:Name="CancelHint" Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}"
+                       Text="Press Esc to cancel"/>
+        </Border>
     </Grid>
 </local:OverlayWindow>

@@ -145,7 +145,9 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
         // DPI helper the dot uses, because the collector's radius is in physical pixels and this
         // canvas is in DIPs — drawing the raw number would be right only at 100 % scaling.
         var bandDiameterLogical = DiameterToLogical(_viewModel?.BandRadiusPixels ?? 0);
-        foreach (var ring in new[] { ToleranceRing, ProgressRing })
+        // Halos share the ring geometry; their thicker stroke is what shows the
+        // accent/halo edge (§4.1.3). Sized here with the rings they back.
+        foreach (var ring in new[] { ToleranceRing, ProgressRing, ToleranceHalo, ProgressHalo })
         {
             ring.Width = bandDiameterLogical;
             ring.Height = bandDiameterLogical;
@@ -353,12 +355,16 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
         var progress = Math.Clamp(_viewModel.TargetProgress, 0, 1);
         ProgressRing.Opacity = progress <= 0 ? 0 : 0.35 + (0.65 * progress);
         ProgressRing.StrokeThickness = 4 + (8 * progress);
+        ProgressHalo.Opacity = ProgressRing.Opacity;
+        ProgressHalo.StrokeThickness = ProgressRing.StrokeThickness + 2;
 
         // The tolerance ring itself is the on/off signal: solid while gaze is inside it, faint while
         // it is not. Deliberately a property of the RING rather than of the dot — the ring is the
         // thing whose meaning is being taught.
         ToleranceRing.Opacity = _viewModel.IsOnTarget ? 0.9 : 0.3;
         ToleranceRing.StrokeThickness = _viewModel.IsOnTarget ? 4 : 2;
+        ToleranceHalo.Opacity = ToleranceRing.Opacity;
+        ToleranceHalo.StrokeThickness = ToleranceRing.StrokeThickness + 2;
     }
 
     public void UpdateVisualState(CalibrationState state, double progress)
@@ -370,9 +376,9 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
             case CalibrationState.Collecting:
                 Backdrop.Visibility = Visibility.Visible;
                 TargetCanvas.Visibility = Visibility.Visible;
-                CompletionPanel.Visibility = Visibility.Collapsed;
-                ProgressText.Visibility = Visibility.Visible;
-                CancelHint.Visibility = Visibility.Visible;
+                CompletionCard.Visibility = Visibility.Collapsed;
+                ProgressCard.Visibility = Visibility.Visible;
+                CancelCard.Visibility = Visibility.Visible;
                 Show();
                 // Mouse passes through (never blocks the screen), but keep keyboard focus so Esc
                 // cancels. MUST come after Show(): SetOverlayInteraction early-returns while the
@@ -391,7 +397,7 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
 
             case CalibrationState.Training:
                 TargetCanvas.Visibility = Visibility.Collapsed;
-                CancelHint.Visibility = Visibility.Collapsed;
+                CancelCard.Visibility = Visibility.Collapsed;
                 StopPulse();
                 ProgressText.Text = _viewModel?.IsMeasureOnly == true ? "Recording..." : "Computing...";
                 break;
@@ -406,10 +412,10 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
 
             default:
                 TargetCanvas.Visibility = Visibility.Collapsed;
-                ProgressText.Visibility = Visibility.Collapsed;
-                CancelHint.Visibility = Visibility.Collapsed;
+                ProgressCard.Visibility = Visibility.Collapsed;
+                CancelCard.Visibility = Visibility.Collapsed;
                 Backdrop.Visibility = Visibility.Collapsed;
-                CompletionPanel.Visibility = Visibility.Collapsed;
+                CompletionCard.Visibility = Visibility.Collapsed;
                 StopPulse();
                 StopAutoDismiss();
                 break;
@@ -419,9 +425,9 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
     private void ShowCompletion(bool goodResult)
     {
         TargetCanvas.Visibility = Visibility.Collapsed;
-        ProgressText.Visibility = Visibility.Collapsed;
+        ProgressCard.Visibility = Visibility.Collapsed;
         Backdrop.Visibility = Visibility.Visible;
-        CompletionPanel.Visibility = Visibility.Visible;
+        CompletionCard.Visibility = Visibility.Visible;
         StopPulse();
 
         // Make the window opaque + focusable + hit-testable so Retry/Accept and Esc work.
@@ -453,7 +459,7 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
         CompletionError.Text = presentation.Detail;
         CompletionHint.Visibility = presentation.HintVisible ? Visibility.Visible : Visibility.Collapsed;
         RetryPanel.Visibility = presentation.RetryVisible ? Visibility.Visible : Visibility.Collapsed;
-        CancelHint.Visibility = presentation.CancelHintVisible ? Visibility.Visible : Visibility.Collapsed;
+        CancelCard.Visibility = presentation.CancelHintVisible ? Visibility.Visible : Visibility.Collapsed;
         StartAutoDismiss(presentation.AutoDismissMs, DismissAndReset);
     }
 
@@ -468,9 +474,9 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
     {
         Backdrop.Visibility = Visibility.Collapsed;
         TargetCanvas.Visibility = Visibility.Collapsed;
-        ProgressText.Visibility = Visibility.Collapsed;
-        CompletionPanel.Visibility = Visibility.Collapsed;
-        CancelHint.Visibility = Visibility.Collapsed;
+        ProgressCard.Visibility = Visibility.Collapsed;
+        CompletionCard.Visibility = Visibility.Collapsed;
+        CancelCard.Visibility = Visibility.Collapsed;
         RetryPanel.Visibility = Visibility.Collapsed;
         StopPulse();
         StopAutoDismiss();

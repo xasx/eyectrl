@@ -136,7 +136,7 @@ public class ToggleContrastTests
     /// fills alone are ToggleOn 2.76 / 2.70 / 6.50 / 11.03 and ToggleOff 1.23 / 1.25 / 1.39 / 1.39
     /// across Midnight / Ember / Daylight / Contrast: the ON track fails 3:1 in two of four themes
     /// and the OFF track is invisible in every one. TextSecondary as an outline measures
-    /// 4.38 / 5.38 / 6.23 / 12.35,
+    /// 4.38 / 5.38 / 8.40 / 12.35,
     /// which is why the track's perceptibility is made independent of its fill. Gates the same
     /// combined quantity the bar tests do — max(fill-vs-surface, outline-vs-surface) — against
     /// both states, in every theme.

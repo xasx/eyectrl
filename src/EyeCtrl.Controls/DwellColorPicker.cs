@@ -45,7 +45,9 @@ public class DwellColorPicker : IDwellComposite
 
     /// <summary>
     /// The swatches offered for <paramref name="theme"/>: its accent first (the
-    /// default dwell colour), then green, warning and body text.
+    /// default dwell colour), then green, warning and body text. The warning caption
+    /// is the ROLE name, not "Amber": Daylight's warning is a dark brick red (§10.8.1),
+    /// the same role-vs-colour mismatch that renamed the text preset.
     ///
     /// Derived rather than listed, so each theme offers colours from its own
     /// palette instead of Midnight's. Under Midnight this reproduces the four
@@ -62,16 +64,20 @@ public class DwellColorPicker : IDwellComposite
     [
         (Hex(theme.Accent), "Accent"),
         (Hex(RingGreen(theme)), "Green"),
-        (Hex(theme.AccentWarning), "Amber"),
+        (Hex(theme.AccentWarning), "Warning"),
         (Hex(theme.TextPrimary), "Text"),
     ];
 
     /// <summary>
     /// The ring's green, which is the theme's <see cref="ITheme.AccentSuccess"/> everywhere
-    /// except on light themes. Bi-tonal segments place the preset beside the halo with no
+    /// except on Daylight — currently the only light theme, hence the type test. A second
+    /// light theme must derive its own ring green; if it blindly reused AccentSuccess, the
+    /// bi-tonal suite (CursorRingStyleContrastTests) would fail it, so the gap cannot open
+    /// silently. Bi-tonal segments place the preset beside the halo with no
     /// band underneath, so over a mid-light backdrop (<c>#FF5C7A</c>) each family must clear
     /// 3:1 on its own — a bar no green that satisfies gate 9's chroma floor can reach (that
-    /// needs L* &gt;= 34, this bar needs L* &lt;= 30; proven disjoint in sRGB). The dark
+    /// needs L* &gt;= 31.8, this bar needs L* &lt;= 31.3; disjoint by 0.05 contrast, proven by
+    /// full-sRGB enumeration in review round 1 — max clearing-green chroma is 54.28). The dark
     /// themes never hit this because their near-black halo carries the mid backdrops. So a
     /// light theme's ring green is the darkest green that still reads green — a ring
     /// decoration, not a semantic token, and free of gate 9. Gated with the rest of the

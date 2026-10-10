@@ -169,7 +169,11 @@ THEMES = {
         # in lightness (gate 3 pins its L* under 24 against a near-white core), and at
         # that depth only a very deep text ink keeps dE 15 from it (gate 4).
         "TextPrimary":        "#0C0D12",
-        "TextSecondary":      "#5A6076",
+        # Darkened in review round 1 (was #5A6076, dE 1.9 from TextDim): the
+        # near-twin pair was a choice, not a constraint — at #484D5E the accent
+        # reservation still holds (dE 17.2 >= 15) and the two text tiers separate
+        # by dE 8.2. Also lifts the AAA-vs-SurfaceMedium pairing from 5.67 to 7.65.
+        "TextSecondary":      "#484D5E",
         "TextDim":            "#5E6477",
         # Muted, not maximal, violet: CIEDE2000's RT cross-term cancels chroma
         # difference against the low-chroma teal accent, so a C* 56 violet sits dE 20
@@ -181,9 +185,12 @@ THEMES = {
         "Accent":             "#07343E",
         "StrokeHalo":         "#FFFFFF",
         # Gate 5 forces the triad ladder to invert from the dark themes: >7:1 vs the
-        # white halo caps success AND warning at L* 37.8, and a green below L* 34
-        # cannot hold C* 55 - so warning (burnt ochre, which keeps its chroma dark)
-        # must be the darkest of the three, success the lightest.
+        # white halo caps success AND warning at L* 37.8, and a green below L* ~31.8
+        # cannot hold C* 55 - so warning (a dark brick red, which keeps its chroma
+        # dark) must be the darkest of the three, success the lightest. Corrected
+        # in review round 1: the thresholds are 31.8/31.3, not 34/30 (the sets miss
+        # by 0.05 contrast, not 4 L*; full-sRGB enumeration puts max clearing-green
+        # chroma at 54.28, just under the 55 floor).
         "AccentSuccess":      "#00620C",
         "AccentWarning":      "#7A1000",
         "AccentDanger":       "#C5313B",
@@ -248,8 +255,12 @@ NON_COLOUR_TOKENS = {
     "FontSizeDisplay",
 }
 
-# Worst realistic desktop behind a translucent overlay: a white document.
-WORST_DESKTOP = "#FFFFFF"
+# Worst realistic desktops behind a translucent overlay: a white document and a
+# maximised dark window. Which one is "worst" depends on the theme's polarity —
+# white lightens the composite (bites dark themes), black darkens it (bites light
+# ones) — so every gate that uses the composited base takes the worse of the two
+# per token rather than assuming one.
+WORST_DESKTOPS = ["#FFFFFF", "#000000"]
 # Backdrops a Background="Transparent" overlay may be drawn over.
 BACKDROPS = ["#000000", "#404040", "#808080", "#C0C0C0", "#FFFFFF",
              "#66D9E8", "#A0E060", "#FF5C7A", "#1A1A2E"]
@@ -393,16 +404,24 @@ def validate_theme(name: str, palette: dict) -> None:
     tok = {k: parse(v) for k, v in palette.items()
            if not k.startswith("_") and k not in NON_COLOUR_TOKENS}
     core = parse(palette["_core"])
-    # Worst-case SurfaceDark: translucent token over a white document.
-    worst = over(tok["SurfaceDark"], parse(WORST_DESKTOP))
+    # Worst-case SurfaceDark composited over each worst desktop. Gates take the
+    # worse of the two PER TOKEN: min(contrast(token, white-composite),
+    # contrast(token, black-composite)). For the dark themes the white composite
+    # binds (black barely changes a near-black base); for Daylight the black one
+    # does. Gating on a single assumed desktop measured a light theme's best case.
+    composites = [over(tok["SurfaceDark"], parse(d)) for d in WORST_DESKTOPS]
     accent = tok["Accent"]
+
+    def worst_contrast(key: str) -> float:
+        return min(contrast(tok[key], c) for c in composites)
 
     print("=" * 78)
     print(f"THEME: {name}")
     print("=" * 78)
     print(f"Opaque surface core     : {palette['_core']}")
-    print(f"Worst composited surface: #{worst[0]:02X}{worst[1]:02X}{worst[2]:02X} "
-          f"(SurfaceDark over {WORST_DESKTOP})")
+    for d, c in zip(WORST_DESKTOPS, composites):
+        print(f"Composited base over {d}: #{c[0]:02X}{c[1]:02X}{c[2]:02X}"
+              f"  TextPrimary {contrast(tok['TextPrimary'], c):5.2f}")
     print()
 
     print("GATE 1 - layering: fill step present, border carries the boundary")
@@ -411,14 +430,14 @@ def validate_theme(name: str, palette: dict) -> None:
         print(f"        {a:14}-> {b:14} contrast {contrast(ca, cb):5.2f}"
               f"  dE {delta_e(ca, cb):5.1f}")
     check(f"[{name}] BorderSubtle on worst surface",
-          contrast(tok["BorderSubtle"], worst), 3.0, "WCAG 1.4.11 non-text")
+          worst_contrast("BorderSubtle"), 3.0, "WCAG 1.4.11 non-text")
     check(f"[{name}] elevation raises opacity",
           tok["SurfaceLight"][3] - tok["SurfaceDark"][3], 0,
           f"{tok['SurfaceDark'][3]} -> {tok['SurfaceLight'][3]}")
     thickness = float(palette["BorderThicknessStandard"])
     check(f"[{name}] BorderThicknessStandard", thickness, 1.0,
           f"px — border carries the boundary at "
-          f"{contrast(tok['BorderSubtle'], worst):.2f}:1")
+          f"{worst_contrast('BorderSubtle'):.2f}:1")
 
     # Non-colour geometry and type. check() is a ">= floor" assertion, so orderings are
     # expressed as differences. Radii live here rather than in a new gate so that "ten
@@ -457,9 +476,9 @@ def validate_theme(name: str, palette: dict) -> None:
 
     print()
     print("GATE 2 - text legibility against the WORST composited surface")
-    check(f"[{name}] TextPrimary", contrast(tok["TextPrimary"], worst), 7.0, "AAA")
-    check(f"[{name}] TextSecondary", contrast(tok["TextSecondary"], worst), 4.5, "AA normal")
-    check(f"[{name}] TextDim", contrast(tok["TextDim"], worst), 4.5, "AA normal")
+    check(f"[{name}] TextPrimary", worst_contrast("TextPrimary"), 7.0, "AAA")
+    check(f"[{name}] TextSecondary", worst_contrast("TextSecondary"), 4.5, "AA normal")
+    check(f"[{name}] TextDim", worst_contrast("TextDim"), 4.5, "AA normal")
 
     print()
     print(f"GATE 3 - dwell accent >= {ACCENT_FLOOR} in every vision type")
@@ -538,7 +557,7 @@ def validate_theme(name: str, palette: dict) -> None:
     # glyph IS a glyph, so the same dE 15 floor applies in both directions.
     markers = [k for k in tok if k.startswith("Marker")]
     for key in markers:
-        check(f"[{name}] {key} on worst surface", contrast(tok[key], worst), MARKER_SURFACE_FLOOR,
+        check(f"[{name}] {key} on worst surface", worst_contrast(key), MARKER_SURFACE_FLOOR,
               "WCAG 1.4.11 non-text — a marker the user cannot see is not a marker")
         check(f"[{name}] {key} on SurfaceMedium", contrast(tok[key], tok["SurfaceMedium"]),
               MARKER_SURFACE_FLOOR, "markers also sit on cards and button discs")

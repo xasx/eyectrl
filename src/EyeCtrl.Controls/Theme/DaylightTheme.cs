@@ -20,7 +20,7 @@ using System.Windows.Media;
 /// that carry them: the semantic-triad lightness ladder inverts (§10.8.1) and
 /// the modal decline button takes its label from a measured pairing rather
 /// than the fixed dark-surface one (ModalButtonPalette). The opaque surface
-/// core #E7E8F0 is Midnight's #1A1A2E on the same hue axis, at L* 91.6.
+/// core #E7E8F0 is Midnight's #1A1A2E on the same hue axis, at L* 92.1.
 /// </summary>
 public sealed class DaylightTheme : ThemeBase
 {
@@ -61,8 +61,12 @@ public sealed class DaylightTheme : ThemeBase
     /// near-black in lightness here, and only a very deep ink keeps dE 15 from it (gate 4).
     /// </summary>
     public override Color TextPrimary => Color.FromRgb(0x0C, 0x0D, 0x12);
-    /// <inheritdoc />
-    public override Color TextSecondary => Color.FromRgb(0x5A, 0x60, 0x76);
+    /// <summary>
+    /// Darkened in review round 1 (was #5A6076, dE 1.9 from TextDim): the near-twin
+    /// pair was a choice, not a constraint — here the accent reservation still holds
+    /// (dE 17.2 of the 15 floor) and the two text tiers separate by dE 8.2.
+    /// </summary>
+    public override Color TextSecondary => Color.FromRgb(0x48, 0x4D, 0x5E);
     /// <inheritdoc />
     public override Color TextDim => Color.FromRgb(0x5E, 0x64, 0x77);
 
@@ -84,8 +88,10 @@ public sealed class DaylightTheme : ThemeBase
 
     // The triad ladder INVERTS relative to the dark themes — see §10.8.1. Success and
     // warning are both capped at L* ~38 by the >7:1-against-white-halo bar (colour-picker
-    // presets, cue badge), and a green below L* 34 cannot hold chroma C* 55, so burnt
-    // ochre — which keeps its chroma in the dark — takes the bottom rung.
+    // presets, cue badge), and a green below L* ~31.8 cannot hold chroma C* 55, so the
+    // warning — a dark BRICK RED, which keeps its chroma in the dark — takes the bottom
+    // rung. Not ochre despite the first draft's wording: hue 41°, thirteen degrees from
+    // the danger red.
     /// <inheritdoc />
     public override Color AccentSuccess => Color.FromRgb(0x00, 0x62, 0x0C);
     /// <inheritdoc />

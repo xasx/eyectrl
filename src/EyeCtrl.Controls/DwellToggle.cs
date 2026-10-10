@@ -329,7 +329,7 @@ public class DwellToggle : IDwellComposite
             // ToggleOff 1.23 / 1.25 / 1.39 / 1.39 — so the ON track fails the 3:1 non-text-component
             // bar in two of four themes, and the OFF track is invisible in every one: the switch
             // would have no visible extent at all when off. TextSecondary measures
-            // 4.38 / 5.38 / 6.23 / 12.35 against SurfaceLight and clears 3:1 in every theme, in both
+            // 4.38 / 5.38 / 8.40 / 12.35 against SurfaceLight and clears 3:1 in every theme, in both
             // states. Gated structurally by
             // DwellToggleVisualTests.TheTrackIsPerceptibleAgainstTheSwitchFill and across themes
             // by Theme.ToggleContrastTests.TheTrack_IsPerceptibleAgainstTheSwitchFill.

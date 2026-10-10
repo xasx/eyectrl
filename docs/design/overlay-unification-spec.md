@@ -1573,8 +1573,8 @@ feature (`git revert` of the branch's commits). Two consequences of a revert,
 both easy to miss: a persisted `"Daylight"` theme name is repaired back to
 Midnight by the settings loader's section repair, but the mark colours are NOT —
 the migration reverts with the branch, so a Daylight ring/trail hex would be
-stranded on Midnight's halo at 1.47:1 until the user re-picks a swatch or drops
-the two keys from settings.json. (Switching back through the picker, by
+stranded on Midnight's halo at 1.47:1 (the trail at 1.78:1) until the user
+re-picks a swatch or drops the two keys from settings.json. (Switching back through the picker, by
 contrast, maps everything back symmetrically — that path is fine.)
 
 | # | Decision | Rationale | Undo |

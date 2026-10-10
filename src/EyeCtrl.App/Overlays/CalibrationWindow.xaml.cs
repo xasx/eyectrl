@@ -160,7 +160,11 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
         // canvas is in DIPs — drawing the raw number would be right only at 100 % scaling.
         var bandDiameterLogical = DiameterToLogical(_viewModel?.BandRadiusPixels ?? 0);
         // Halos share the ring geometry; their thicker stroke is what shows the
-        // accent/halo edge (§4.1.3). Sized here with the rings they back.
+        // accent/halo edge (§4.1.3). Sized here with the rings they back. NOTE: the
+        // house convention is "halo stays at Opacity=1 so the edge holds" (Scroll-
+        // OverlayWindow, ManualSelection, DragTrail); these halos deliberately dim
+        // WITH their rings instead, because opacity IS the on/off-target signal here —
+        // an opaque white halo would read "solid" exactly when the user is off target.
         foreach (var ring in new[] { ToleranceRing, ProgressRing, ToleranceHalo, ProgressHalo })
         {
             ring.Width = bandDiameterLogical;

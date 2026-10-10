@@ -230,6 +230,16 @@ public partial class SettingsWindow : OverlayWindow
 
     private const double ModalButtonHeight = 100;
 
+    /// <summary>
+    /// A two-choice (horizontal) modal button's width. Its label never wraps, so the label's
+    /// one-line width is bounded by this box: the <c>modal170</c> fit class, measured by T09's
+    /// fit harness through <see cref="BuildModalButton"/>.
+    /// </summary>
+    internal const double ModalButtonWidth = 170;
+
+    /// <summary>A stacked (three-or-more-choice) modal button's width: the <c>modal460</c> class.</summary>
+    internal const double ModalWideButtonWidth = 460;
+
     // Window sizing
     //
     // internal for the same reason as TabContainerHeight: SettingsContentFitTests re-derives the
@@ -816,7 +826,7 @@ public partial class SettingsWindow : OverlayWindow
     /// token. Each adapter assigns it inline at its call site — the same precedent as
     /// DragTrailOverlay's IconSize, which repeats its expression rather than reading a local.
     /// </summary>
-    private Border MakeChromeButton(
+    private static Border MakeChromeButton(
         string id, string text, double width, double height, Thickness margin,
         Color fill, Brush textBrush,
         Action onMouseDown,
@@ -2233,14 +2243,37 @@ public partial class SettingsWindow : OverlayWindow
     /// </param>
     private Border MakeModalButton(string id, string text, Color bg, SolidColorBrush foreground, bool wide)
     {
-        var border = MakeChromeButton(
-            id, text, wide ? 460 : 170, ModalButtonHeight,
-            wide ? new Thickness(0, 8, 0, 8) : new Thickness(12, 0, 12, 0),
-            bg, foreground,
+        var border = BuildModalButton(
+            id, text, bg, foreground, wide,
             () => _viewModel.SimulateActivated(id, DwellCategory.Modal),
             _modalButtons, _modalBrushes);
-        ((TextBlock)border.Child).FontSize = Tokens.FontSizeTitle;
         _modalBaseColors[id] = bg;
+        return border;
+    }
+
+    /// <summary>
+    /// The modal button's face — box, margins, fill and label type — with no window state. The
+    /// one builder <see cref="MakeModalButton"/> uses, so T09's fit harness measures a modal
+    /// label in the exact box the user sees (<c>modal170</c> / <c>modal460</c>).
+    /// </summary>
+    /// <param name="id">Dwell-target id.</param>
+    /// <param name="text">Label.</param>
+    /// <param name="bg">Fill.</param>
+    /// <param name="foreground">Label brush.</param>
+    /// <param name="wide">True for the stacked layout's wider buttons.</param>
+    /// <param name="onMouseDown">Mouse fallback.</param>
+    /// <param name="buttons">Registry the button is recorded in, by id.</param>
+    /// <param name="brushes">Registry the fill brush is recorded in, by id.</param>
+    /// <returns>The button.</returns>
+    internal static Border BuildModalButton(
+        string id, string text, Color bg, Brush foreground, bool wide, Action onMouseDown,
+        Dictionary<string, Border> buttons, Dictionary<string, SolidColorBrush> brushes)
+    {
+        var border = MakeChromeButton(
+            id, text, wide ? ModalWideButtonWidth : ModalButtonWidth, ModalButtonHeight,
+            wide ? new Thickness(0, 8, 0, 8) : new Thickness(12, 0, 12, 0),
+            bg, foreground, onMouseDown, buttons, brushes);
+        ((TextBlock)border.Child).FontSize = Tokens.FontSizeTitle;
         return border;
     }
 }

@@ -187,11 +187,18 @@ internal sealed class SupervisorTrayIcon : IDisposable
         _exitItem.Text = texts.Exit;
     }
 
+    /// <summary>
+    /// The tooltip's character budget (D12, <c>tray63</c>): the shell caps NotifyIcon.Text at about
+    /// 63 characters, so the prefix plus the state phrase are written against it. T09's tray63 fit
+    /// gate measures every phrase against this number.
+    /// </summary>
+    internal const int TooltipCharacterCap = 63;
+
     /// <summary>Updates the icon's hover text (e.g. to reflect current supervision state).</summary>
     public void SetStatusText(string text)
     {
         // NotifyIcon.Text is capped at ~63 chars by the shell; truncate defensively.
-        _trayIcon.Text = text.Length > 63 ? text[..63] : text;
+        _trayIcon.Text = text.Length > TooltipCharacterCap ? text[..TooltipCharacterCap] : text;
     }
 
     /// <inheritdoc />

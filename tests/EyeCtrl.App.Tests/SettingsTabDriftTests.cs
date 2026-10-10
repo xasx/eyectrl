@@ -57,7 +57,8 @@ public class SettingsTabDriftTests
     /// <param name="Icon">The sidebar glyph.</param>
     /// <param name="Label">The resolved English header label.</param>
     /// <param name="Description">The resolved English header description.</param>
-    internal sealed record RenderedTab(string Id, string Icon, string Label, string Description);
+    /// <param name="LabelKey">The label's literal <c>settings</c> key (T09's tab156 gate keys on it).</param>
+    internal sealed record RenderedTab(string Id, string Icon, string Label, string Description, string LabelKey);
 
     /// <summary>
     /// Resolves one literal <c>settings</c> key to the English text the production app ships,
@@ -100,7 +101,8 @@ public class SettingsTabDriftTests
                 m.Groups["id"].Value,
                 m.Groups["icon"].Value,
                 English(m.Groups["labelKey"].Value),
-                English(m.Groups["descriptionKey"].Value)))
+                English(m.Groups["descriptionKey"].Value),
+                m.Groups["labelKey"].Value))
             .ToList();
     }
 

@@ -3,13 +3,18 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="EyeCtrl Supervisor"
         Width="640"
-        Height="320"
+        MinHeight="320"
+        SizeToContent="Height"
         WindowStartupLocation="CenterScreen"
         Topmost="True"
         ShowInTaskbar="True"
         ResizeMode="NoResize"
         WindowStyle="SingleBorderWindow"
         Background="#1E1E1E">
+    <!-- Class-C growth (T09): 640 wide and NoResize, but the HEIGHT follows the content, with
+         today's 320 as the minimum. A longer title or body therefore makes the window taller
+         instead of squeezing the star row, so the two 110 DIP buttons keep their full height.
+         CenterScreen centres the window after its size is known. -->
     <Grid Margin="24">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />

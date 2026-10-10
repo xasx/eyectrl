@@ -165,9 +165,11 @@ public sealed class SelfRestartStrategy
     /// <returns>Text suitable for a modal.</returns>
     public static string Describe(RestartOutcome outcome, UiLanguage target) => outcome switch
     {
-        // Not user-visible: production only calls Describe on the failure path below; the
-        // success acknowledgement is RestartNotices.InProgressMessage.
-        RestartOutcome.Started => "Restarting EyeCtrl…",
+        // Not user-visible: the one production caller (AppRestartCoordinator) describes only an
+        // outcome that is NOT Started; the success acknowledgement is
+        // RestartNotices.InProgressMessage. So this arm returns a log-only id rather than English
+        // text the literal ratchet would have to carry as a non-exception (T09).
+        RestartOutcome.Started => nameof(RestartOutcome.Started),
         RestartOutcome.NoExePath =>
             StringTable.Current.T(target, "language-recovery.restart.failed.no_exe_path"),
         RestartOutcome.LaunchFailed =>

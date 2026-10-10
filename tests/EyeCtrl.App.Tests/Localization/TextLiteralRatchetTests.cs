@@ -14,7 +14,9 @@ using Xunit;
 /// A new sink literal fails <see cref="UnbaselinedTextLiterals_FailTheRatchet"/>; a baseline entry
 /// that no longer exists fails <see cref="BaselineEntriesNoLongerFound_FailTheRatchet"/>. The
 /// string moves of T06–T08 delete their entries as they key the text; after T08 only the true
-/// exceptions (glyphs, product names, endonyms, ids) remain, and a later ticket asserts that.
+/// exceptions remain, and since T09 <see cref="TheBaseline_HoldsOnlyTrueExceptions"/> asserts that
+/// against <c>localization/text-literal-exceptions.json</c>, where each entry carries a category
+/// and a reason.
 ///
 /// <para>
 /// The scan is sink-based, not sentence-based: <see cref="TextLiteralScan"/> lists the syntactic
@@ -33,6 +35,12 @@ public class TextLiteralRatchetTests
     public const string WriteEnvironmentVariable = "EYECTRL_WRITE_TEXT_BASELINE";
 
     private const string BaselineRelativePath = "localization/text-literal-baseline.json";
+
+    private const string ExceptionsRelativePath = "localization/text-literal-exceptions.json";
+
+    /// <summary>The closed list of reasons a literal may stay in source (T09).</summary>
+    private static readonly string[] ExceptionCategories =
+        ["glyph", "product", "endonym", "id", "data", "log", "preset-legacy-label"];
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -140,7 +148,106 @@ public class TextLiteralRatchetTests
         File.WriteAllText(BaselinePath(), JsonSerializer.Serialize(new BaselineFile(entries), JsonOptions));
     }
 
+    /// <summary>
+    /// T09's final ratchet check (moved from T08, recheck N4): after T06–T08 the baseline holds
+    /// ONLY true exceptions. Every baseline entry must be named in the exceptions file with a
+    /// category from the closed list and a reason; every exception must still be in the baseline.
+    /// The sink kinds the batch-3 reviews found unrecorded (<c>const string</c> initialisers,
+    /// <c>statusText:</c>, <c>Label:</c>, string <c>=&gt;</c> members, <c>ShowBannerAsync</c>) were
+    /// closed first, so this is not vacuous for them — their pins are below.
+    /// </summary>
+    [Fact]
+    public void TheBaseline_HoldsOnlyTrueExceptions()
+    {
+        var path = Path.Combine(
+            SourceScanner.RepoRoot().FullName,
+            ExceptionsRelativePath.Replace('/', Path.DirectorySeparatorChar));
+        var exceptions = JsonSerializer.Deserialize<ExceptionsFile>(File.ReadAllText(path), JsonOptions)!.Entries;
+        var baseline = LoadBaseline();
+
+        var named = exceptions.ToDictionary(e => (e.Path, e.Literal));
+        var unexplained = baseline
+            .Where(entry => !named.ContainsKey((entry.Path, entry.Literal)))
+            .Select(entry => $"{entry.Path}: {entry.Literal}")
+            .ToList();
+        var inBaseline = baseline.Select(entry => (entry.Path, entry.Literal)).ToHashSet();
+        var stale = exceptions
+            .Where(e => !inBaseline.Contains((e.Path, e.Literal)))
+            .Select(e => $"{e.Path}: {e.Literal}")
+            .ToList();
+        var malformed = exceptions
+            .Where(e => !ExceptionCategories.Contains(e.Category) || string.IsNullOrWhiteSpace(e.Reason))
+            .Select(e => $"{e.Path}: {e.Literal} (category '{e.Category}')")
+            .ToList();
+
+        Check.WithCustomMessage(
+                "Baseline literals that are not a named true exception — key them, or (if they are "
+                + $"genuinely a glyph, product name, endonym, id, data or log line) add them to {ExceptionsRelativePath} "
+                + "with a reason:\n  " + string.Join("\n  ", unexplained))
+            .That(unexplained).IsEmpty();
+        Check.WithCustomMessage("Exceptions no longer in the baseline; remove them:\n  " + string.Join("\n  ", stale))
+            .That(stale).IsEmpty();
+        Check.WithCustomMessage(
+                $"Exceptions need a category from [{string.Join(", ", ExceptionCategories)}] and a reason:\n  "
+                + string.Join("\n  ", malformed))
+            .That(malformed).IsEmpty();
+    }
+
     // ────── The scanner's falsification pins: it must catch the forms it exists for ──────
+
+    /// <summary>T09 (T06 review N2): a const string initialiser is a sink.</summary>
+    [Fact]
+    public void TheScan_CatchesAConstStringInitialiser() =>
+        CheckCatches(
+            "private const string StartupErrorTitle = \"EyeCtrl — Startup Error\";",
+            "\"EyeCtrl — Startup Error\"");
+
+    /// <summary>T09 (T06 review N2): the setup window's <c>statusText:</c> argument is a sink.</summary>
+    [Fact]
+    public void TheScan_CatchesAStatusTextArgument() =>
+        CheckCatches(
+            "var w = new SupervisorSetupWindow(settings, statusText: \"Supervisor state: \" + state);",
+            "\"Supervisor state: \"");
+
+    /// <summary>T09 (T08 review R5): the capital <c>Label:</c> of a record argument is a sink.</summary>
+    [Fact]
+    public void TheScan_CatchesACapitalLabelArgument() =>
+        CheckCatches(
+            "new EdgeButtonDefinition(id, Symbol: string.Empty, dwellMs, Label: \"Shift\");",
+            "\"Shift\"");
+
+    /// <summary>T09 (T08 review R5): an expression-bodied string member is a sink, switch arms included.</summary>
+    [Fact]
+    public void TheScan_CatchesAnExpressionBodiedStringMember()
+    {
+        CheckCatches("public override string Name => \"Saccade Jumps\";", "\"Saccade Jumps\"");
+        CheckCatches(
+            "internal static string Line(int k) => k switch { 0 => \"Nice tracking!\", _ => \"Keep going\" };",
+            "\"Keep going\"");
+    }
+
+    /// <summary>T09 (T08 review R5): the eye-care banner's <c>ShowBannerAsync</c> argument is a sink.</summary>
+    [Fact]
+    public void TheScan_CatchesTheShowBannerAsyncArgument() =>
+        CheckCatches(
+            "var accepted = await _hooks.ShowBannerAsync(\"Time for an eye break\");",
+            "\"Time for an eye break\"");
+
+    /// <summary>
+    /// T09: QuickActionPresets (Core) is on the scan surface, so the named preset-label exception
+    /// names real literals — and its ids and payloads stay out (only the Label argument is a sink).
+    /// </summary>
+    [Fact]
+    public void TheScan_CoversQuickActionPresets_LabelsOnly()
+    {
+        Check.That(TextLiteralScan.IsScanned("src/EyeCtrl.Core/Models/QuickActionPresets.cs")).IsTrue();
+        var found = TextLiteralScan.FindSites(
+                "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+                "new QuickActionPreset(\"kbd.copy\", \"Copy\", \"Ctrl+C\"),")
+            .Select(e => e.Literal)
+            .ToList();
+        Check.That(found).ContainsExactly("\"Copy\"");
+    }
 
     private static void CheckCatches(string source, string expected) =>
         Check.WithCustomMessage($"the scan no longer recognises UI text in:\n  {source}")
@@ -299,4 +406,9 @@ public class TextLiteralRatchetTests
     }
 
     private sealed record BaselineFile(List<TextLiteralScan.Entry> Entries);
+
+    /// <summary>One named true exception: the literal, its category and why it stays.</summary>
+    private sealed record ExceptionEntry(string Path, string Literal, string Category, string Reason);
+
+    private sealed record ExceptionsFile(List<ExceptionEntry> Entries);
 }

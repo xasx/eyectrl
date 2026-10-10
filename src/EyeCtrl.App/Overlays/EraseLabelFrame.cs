@@ -18,7 +18,9 @@ using EyeCtrl.Core.Keyboard;
 /// </summary>
 internal static class EraseLabelFrame
 {
-    /// <summary>The one <see cref="KeyDefinition.LabelFrame"/> value today: the erase arrow.</summary>
+    /// <summary>The erase-arrow <see cref="KeyDefinition.LabelFrame"/> value ("Aa" inside the
+    /// word-backspace key's ⌫-shaped outline). See <see cref="ArrowLabelFrame"/> for round 6's
+    /// Caps/Shift/Enter arrows.</summary>
     public const string EraseLeft = "eraseLeft";
 
     /// <summary>Inner gap between the text ink and the stroke, as a fraction of the band.</summary>

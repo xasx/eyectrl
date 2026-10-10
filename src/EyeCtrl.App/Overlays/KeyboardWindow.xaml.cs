@@ -53,6 +53,9 @@ public partial class KeyboardWindow : OverlayWindow
     private readonly Dictionary<string, DwellOutlineOverlay> _keyOutlines = new();
     private readonly Dictionary<string, KeyDefinition> _keyDefinitions = new();
     private readonly Dictionary<string, PhysicalPoint> _keyScreenPositions = new();
+    // Each key's visible box in physical pixels, beside its centre: box-first targeting
+    // (KeyTargeting.PickKey). Filled and cleared together with _keyScreenPositions.
+    private readonly Dictionary<string, PhysicalRect> _keyScreenBoxes = new();
     private readonly List<DwellOutlineOverlay> _predictionOutlines = new();
     // The list the bar RENDERED. OnPredictionDwelled resolves its index against this, never
     // against a fresh GetSuggestionsWithContext() call: that call re-polls the LM
@@ -270,12 +273,15 @@ public partial class KeyboardWindow : OverlayWindow
                     VerticalAlignment = VerticalAlignment.Center
                 };
 
-                // A label frame (round 3: the word-delete key's erase arrow) replaces the label's
-                // visuals: the label stays the UIA anchor at Opacity 0 and the frame is drawn as
-                // geometry around it. Everything that acts on the label still works.
+                // A label frame (round 3: the word-delete erase arrow; round 6: the wide
+                // Caps/Shift/Enter arrows) replaces the label's visuals: the label stays the UIA
+                // anchor at Opacity 0 and the frame is drawn as geometry around it. Everything
+                // that acts on the label still works.
                 FrameworkElement captionContent = label;
                 if (key.LabelFrame == EraseLabelFrame.EraseLeft)
                     captionContent = EraseLabelFrame.Build(label, _keySize, boxWidth);
+                else if (ArrowLabelFrame.IsArrow(key.LabelFrame))
+                    captionContent = ArrowLabelFrame.Build(key.LabelFrame!, label, _keySize);
 
                 var keyBrush = new SolidColorBrush(GetKeyBaseColor(key));
                 var container = new Border
@@ -368,7 +374,8 @@ public partial class KeyboardWindow : OverlayWindow
             _predictionDwellDetector.ResetAllState();
         }
 
-        _viewModel.ProcessKeyGaze(_keyScreenPositions, screenPoint, gazeInsideKeyArea, timestampMicroseconds);
+        _viewModel.ProcessKeyGaze(_keyScreenPositions, screenPoint, gazeInsideKeyArea, timestampMicroseconds,
+            _keyScreenBoxes);
     }
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -528,12 +535,20 @@ public partial class KeyboardWindow : OverlayWindow
         RebuildKeys();
     }
 
+    /// <summary>
+    /// Each key's centre AND box, from the same <c>container</c> Border and the same
+    /// <c>PointToScreen</c> transform, so both are physical pixels at the real DPI. The box is the
+    /// two-corner <see cref="TryGetScreenRect"/>: the Border's own extent, i.e. the visible key
+    /// without its Margin, so the 4 DIP gutters stay gaps and keep the nearest-centre rule.
+    /// </summary>
     private void UpdateKeyScreenPositions()
     {
         foreach (var (id, (container, _)) in _keyVisuals)
         {
             if (OverlayPositioning.TryGetScreenCenter(container, out var pos))
                 _keyScreenPositions[id] = pos;
+            if (TryGetScreenRect(container, out var box))
+                _keyScreenBoxes[id] = box;
         }
     }
 
@@ -940,5 +955,6 @@ public partial class KeyboardWindow : OverlayWindow
         _keyOutlines.Clear();
         _keyDefinitions.Clear();
         _keyScreenPositions.Clear();
+        _keyScreenBoxes.Clear();
     }
 }

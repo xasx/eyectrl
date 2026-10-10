@@ -86,6 +86,11 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
                         st.ExternalDwell.Enabled = e.Enabled;
                         st.ExternalDwell.DefaultDwellMs = e.DefaultDwellMs;
                         st.ExternalDwell.CooldownMs = e.CooldownMs;
+                        // TrailColor's default is a Midnight absolute; re-derive for the live
+                        // theme as startup does (review round 2, N2 — resets must not reopen
+                        // the cross-theme ring/trail carry-over at runtime).
+                        EyeCtrl.App.Services.ThemeStartup.MigrateHaloedMarks(
+                            EyeCtrl.Controls.Theme.Tokens.Current, st);
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     }),

@@ -1,6 +1,8 @@
 namespace EyeCtrl.App.Views.Settings;
 
+using EyeCtrl.App.Services;
 using EyeCtrl.App.Views;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 
@@ -118,6 +120,11 @@ internal sealed class CursorPageSource : ISettingsPageSource
                         // two cursor settings behind.
                         c.DeadbandRadiusPx = d.DeadbandRadiusPx;
                         c.DeadbandConfirmSamples = d.DeadbandConfirmSamples;
+                        // The defaults are Midnight absolutes (§7.1); on any other theme they
+                        // would repaint the ring at 1.25:1 against the live halo until restart
+                        // (review round 2, N2). Re-derive through the same rule the startup
+                        // migration uses — idempotent, and heals a stale sibling setting too.
+                        ThemeStartup.MigrateHaloedMarks(Tokens.Current, _ctx.Settings);
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     }),

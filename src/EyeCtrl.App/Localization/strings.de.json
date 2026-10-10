@@ -40,7 +40,7 @@
     "src": "9d6b0359"
   },
   "calibration.failure.quality": {
-    "text": "Kalibrierung nicht übernommen: {0}. Bitte erneut versuchen und auf jedem Punkt bleiben, bis sich sein Kreis füllt – Wegschauen setzt nichts zurück, kurze Blicke zählen zusammen.",
+    "text": "Kalibrierung nicht übernommen: {0}. Bitte noch einmal versuchen und den Blick auf jedem Punkt ruhen lassen, bis sich sein Kreis füllt. Wegschauen setzt nichts zurück – kurze Blicke zählen zusammen.",
     "src": "51a98a29"
   },
   "calibration.failure.reason.excessScatter": {
@@ -52,7 +52,7 @@
     "src": "d616b8d1"
   },
   "calibration.failure.reason.residualTooLarge": {
-    "text": "die Korrektur verfehlt ihn um {0:F0} px (Grenze {1:F0} px)",
+    "text": "die Korrektur verfehlt den Punkt um {0:F0} px (Grenze {1:F0} px)",
     "src": "10da15c0"
   },
   "calibration.failure.region.bottomCenter": {
@@ -155,7 +155,7 @@
     "src": "1f7e311a"
   },
   "caregiver-alert.poor-tracking": {
-    "text": "Die Blickverfolgung ist seit einer Minute unzuverlässig – bitte Sitzposition oder Eyetracker neu ausrichten oder in Tobii neu kalibrieren.",
+    "text": "Die Blickverfolgung ist seit einer Minute unzuverlässig – bitte Sitzposition prüfen, Eyetracker ausrichten oder in Tobii neu kalibrieren.",
     "src": "42e822e9"
   },
   "caregiver-alert.struggling": {
@@ -183,7 +183,7 @@
     "src": "4d1a0297"
   },
   "eye-care.banner.subtext": {
-    "text": "Sie schauen schon eine Weile auf den Bildschirm",
+    "text": "Sie schauen seit einer Weile auf den Bildschirm",
     "src": "fe64ef13"
   },
   "eye-care.exercise.calibration202020.encouragement": {
@@ -199,7 +199,7 @@
     "src": "4f638d26"
   },
   "eye-care.exercise.directionalSweep.name": {
-    "text": "Richtungsschwenks",
+    "text": "Blickrichtungen",
     "src": "d9899ea1"
   },
   "eye-care.exercise.nearFarFocus.encouragement": {
@@ -275,7 +275,7 @@
     "src": "8506c786"
   },
   "language-recovery.restart.failed.frame": {
-    "text": "Neustart fehlgeschlagen. Technische Details (Englisch): {0} EyeCtrl läuft weiter.",
+    "text": "Neustart fehlgeschlagen. EyeCtrl läuft weiter. Technische Details (Englisch): {0}",
     "src": "d885f26a"
   },
   "language-recovery.restart.failed.generic": {
@@ -295,7 +295,7 @@
     "src": "6a0b0efe"
   },
   "language-recovery.restart.in_progress.message": {
-    "text": "EyeCtrl wird neu gestartet.\nWarten, bis das neue EyeCtrl läuft. Startet es nicht, läuft dieses weiter.\nAusblenden hält den Neustart nicht an.",
+    "text": "EyeCtrl wird neu gestartet.\nDas neue EyeCtrl startet gerade; klappt das nicht, läuft dieses weiter.\nAusblenden hält den Neustart nicht an.",
     "src": "46821750"
   },
   "language-recovery.restart.refused.ok": {
@@ -355,7 +355,7 @@
     "src": "1dd4995d"
   },
   "overlays.edge.flip": {
-    "text": "Position wechseln",
+    "text": "Oben/unten wechseln",
     "src": "18d8a4ec"
   },
   "overlays.edge.help": {
@@ -447,7 +447,7 @@
     "src": "2e47996b"
   },
   "overlays.preset.kbd.redo": {
-    "text": "Wieder­herstellen",
+    "text": "Wiederholen",
     "src": "dafb29a2"
   },
   "overlays.preset.kbd.save": {
@@ -471,7 +471,7 @@
     "src": "281341dc"
   },
   "overlays.preset.media.mute": {
-    "text": "Stumm",
+    "text": "Stummschalten",
     "src": "8b0dc4e7"
   },
   "overlays.preset.media.next": {
@@ -611,7 +611,7 @@
     "src": "f2c5e4b9"
   },
   "settings.action_menu.preview.labels": {
-    "text": "im Betrieb nur beim Verweilen beschriftet",
+    "text": "Beschriftungen erscheinen im Betrieb nur beim Verweilen",
     "src": "9ac706a6"
   },
   "settings.action_menu.preview.more_annotation": {
@@ -1251,7 +1251,7 @@
     "src": "84023350"
   },
   "settings.cursor.position_indicator.option.pin": {
-    "text": "Nadel",
+    "text": "Stecknadel",
     "src": "80c8e38d"
   },
   "settings.cursor.reset.label": {
@@ -1331,7 +1331,7 @@
     "src": "6d075dbd"
   },
   "settings.diagnostics.reset.message": {
-    "text": "Beide Diagnosen ausschalten?",
+    "text": "Beide Diagnosefunktionen ausschalten?",
     "src": "ce57f8d9"
   },
   "settings.diagnostics.ui_timing.description": {
@@ -1371,7 +1371,7 @@
     "src": "1c776617"
   },
   "settings.dwell.cue_sound.label": {
-    "text": "Ton nach dem Verweilen",
+    "text": "Ton bei Auslösung",
     "src": "020aebb7"
   },
   "settings.dwell.fixation.description": {
@@ -1467,7 +1467,7 @@
     "src": "f233551c"
   },
   "settings.eyecare.fatigue.label": {
-    "text": "Pausen bei Ermüdung vorziehen",
+    "text": "Frühere Pausen bei Ermüdung",
     "src": "dac289e0"
   },
   "settings.eyecare.fatigue_threshold.description": {
@@ -1511,7 +1511,7 @@
     "src": "a9f19885"
   },
   "settings.general.pause.description": {
-    "text": "Startet mit pausierter Blicksteuerung, bis sie eingeschaltet wird.",
+    "text": "Startet pausiert; die Blicksteuerung beginnt erst mit „Fortsetzen“.",
     "src": "289182b1"
   },
   "settings.general.pause.label": {
@@ -1862,7 +1862,7 @@
     "src": "9f9ec04f"
   },
   "settings.models.repair.label": {
-    "text": "⚠ {0} – Modell unbrauchbar · Vorhersagen nur aus dem Wörterbuch · zum neu Laden verweilen",
+    "text": "⚠ {0} – Modell unbrauchbar · Vorhersagen nur aus dem Wörterbuch · zum Neuladen verweilen",
     "src": "4a4bb112"
   },
   "settings.models.repair.message": {
@@ -1938,7 +1938,7 @@
     "src": "2e47996b"
   },
   "settings.preset.kbd.redo": {
-    "text": "Wieder­herstellen",
+    "text": "Wiederholen",
     "src": "dafb29a2"
   },
   "settings.preset.kbd.save": {
@@ -1962,7 +1962,7 @@
     "src": "281341dc"
   },
   "settings.preset.media.mute": {
-    "text": "Stumm",
+    "text": "Stummschalten",
     "src": "8b0dc4e7"
   },
   "settings.preset.media.next": {
@@ -2478,7 +2478,7 @@
     "src": "e0911c9f"
   },
   "supervisor.fallback.body": {
-    "text": "Ein Ersatzprogramm zur Blicksteuerung läuft jetzt. Damit oder mit der Maus unten eine Möglichkeit wählen.",
+    "text": "Ein Ersatzprogramm zur Blicksteuerung läuft jetzt. Damit (oder mit der Maus) eine der Möglichkeiten unten wählen.",
     "src": "b2e1dba4"
   },
   "supervisor.fallback.dismiss": {
@@ -2534,7 +2534,7 @@
     "src": "a8fb071b"
   },
   "supervisor.setup.hang-threshold": {
-    "text": "Keine Reaktion ab (s):  ",
+    "text": "Gilt als hängend nach (s):  ",
     "src": "9a2eb013"
   },
   "supervisor.setup.hang-threshold.range": {
@@ -2546,7 +2546,7 @@
     "src": "1ea9a023"
   },
   "supervisor.setup.logon.parked": {
-    "text": "Noch nicht gespeichert. Das geschieht beim nächsten Lauf von EyeCtrl, sofern der PC oder der Supervisor nicht vorher neu startet.",
+    "text": "Noch nicht gespeichert. Das geschieht, sobald EyeCtrl wieder läuft, sofern der PC oder der Supervisor nicht vorher neu startet.",
     "src": "2b36a84c"
   },
   "supervisor.setup.logon.refused": {

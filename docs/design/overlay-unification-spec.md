@@ -1435,7 +1435,10 @@ offices — the conditions under which three dark overlays read as heavy voids o
 an already-bright screen. Review round 1 (2026-10-10, FIX-THEN-SHIP) processed:
 the both-desktops validator rule, TextSecondary darkening, the persisted-mark
 migration (consequence 4), the full decision ledger below, and corrected
-thresholds and figures throughout.
+thresholds and figures throughout. Review round 2 (2026-10-10, FIX-THEN-SHIP)
+processed: the calibration overlay made theme-safe (cards + ring halos), resets
+re-deriving haloed marks at runtime, D1's rationale corrected against the live
+tracker, and ledger D8.
 
 **The §2 ruling, reopened (owner decision D1).** "Dark-only backgrounds — eye
 trackers work poorly on bright surfaces" is amended, not silently dropped. The

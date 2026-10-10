@@ -1438,16 +1438,16 @@ migration (consequence 4), the full decision ledger below, and corrected
 thresholds and figures throughout.
 
 **The §2 ruling, reopened (owner decision D1).** "Dark-only backgrounds — eye
-trackers work poorly on bright surfaces" is amended, not silently dropped. Two
-scoping facts justify reopening: the overlays are a fraction of total screen
-luminance (the desktop behind them is whatever the user was reading — often a
-white document — under a 0xFA alpha either way), and the gaze provider at
-introduction is the mouse fallback, to which the tracking argument does not
-apply. The "stare for hours" comfort half of the ruling *inverts* in a bright
-room: there, a dark UI is the glare hazard. If a hardware tracker later shows
-degradation on light overlays, the theme is one `git revert` of its two commits
-to remove — §10.6's structure (interface, registry, tokens, applier) stands
-either way, and the dark themes are untouched by it.
+trackers work poorly on bright surfaces" is amended, not silently dropped. The
+case for reopening is the comfort half of the ruling, which *inverts* in a bright
+room: there, a dark UI is the glare hazard, and the white documents Daylight is
+for are what the user is already staring at behind a 0xFA alpha either way. The
+tracking half is NOT settled and must not be hand-waved: the app's own logs
+(2026-10-09/10) show `provider="StreamEngine"` with a Tobii PCEye connected and
+live gaze, so §2's concern applies directly and Daylight's effect on tracking
+quality is **untested** — the revert A/B in the ledger's D1 row can be run
+today. Removal is a `git revert` of the branch's commits — with the caveat the
+ledger notes about stranded mark colours.
 
 **The inversion principle.** Every contrast relation flips rather than shifts:
 
@@ -1549,26 +1549,36 @@ axis at L\* 92.1 — the two defaults sit on one axis, at opposite ends.
    default preset (the ring's is the accent, the trail's the warning — the
    trail is deliberately not accent-coloured). The mapping is symmetric, so
    switching back and forth is stable, and it is pinned by
-   `ThemeStartupMarkMigrationTests`. `CalibrationSettings.TargetColor` and
+   `ThemeStartupMarkMigrationTests`. One bound to know: no colour clears 7:1
+   against both a dark and a light halo (the best possible is 4.44:1), so a
+   custom pick cannot survive a light↔dark switch — it resets to the default
+   preset (ledger D8). Settings resets re-run the same rule at runtime
+   (round 2, N2), so a reset on Daylight writes Daylight's presets, never
+   Midnight's absolutes. `CalibrationSettings.TargetColor` and
    `AutoSelectionSettings.HighlightColor` stay absolute: both draw unhaloed
    directly over desktop content, backdrop-dependent on every theme alike — a
    theme switch does not change their situation.
 
 **Owner decision ledger.** These decisions were taken while the owner was not
 available to ratify them; each row is vetoable. D1's removal reverts the whole
-feature (`git revert` of the branch's commits — a persisted `"Daylight"` theme
-name is repaired back to Midnight by the settings loader's section repair, and
-the mark migration maps Daylight presets back symmetrically).
+feature (`git revert` of the branch's commits). Two consequences of a revert,
+both easy to miss: a persisted `"Daylight"` theme name is repaired back to
+Midnight by the settings loader's section repair, but the mark colours are NOT —
+the migration reverts with the branch, so a Daylight ring/trail hex would be
+stranded on Midnight's halo at 1.47:1 until the user re-picks a swatch or drops
+the two keys from settings.json. (Switching back through the picker, by
+contrast, maps everything back symmetrically — that path is fine.)
 
 | # | Decision | Rationale | Undo |
 |---|---|---|---|
-| D1 | Reopen the light axis (§2 amendment) | The three prior themes assume a dim room; bright rooms are the uncovered case. The §2 tracking claim is **untested on this machine either way** — the Tobii stack is licence-dead, so the incumbent provider is the mouse fallback, to which the claim does not apply. That is a scope fact, not a refutation: nothing restricts Daylight to the fallback provider, and "overlays are a fraction of screen luminance" is asserted, not measured. | Revert the branch. **Revert trigger:** with a live tracker, compare TrackStatus validity/quality rates under Daylight vs Midnight across one session; measurable degradation reverts this row. |
+| D1 | Reopen the light axis (§2 amendment) | The three prior themes assume a dim room; bright rooms are the uncovered case, and the glare argument for a light UI there is the positive case. The §2 tracking claim is **open, not refuted**: the tracker is LIVE (StreamEngine on a Tobii PCEye, per the app logs of 2026-10-09/10), so the claim applies directly and Daylight's effect on tracking quality is simply unmeasured — "overlays are a fraction of screen luminance" is asserted, not measured. | Revert the branch (see the stranding note above the table). **Revert trigger — runnable now:** compare TrackStatus validity/quality rates under Daylight vs Midnight across one session on the live tracker; measurable degradation reverts this row. |
 | D2 | Picker order: Midnight, Ember, Daylight, Contrast | Default first, the all-day alternative next, then the situational ones — Contrast last as the boldest extreme. | Reorder `ThemeRegistry.All` + `ThemeSettings.ValidNames`. |
 | D3 | The semantic triad ladder inverts (§10.8.1) | Forced jointly by the halo cap and the chroma floor; the alternative fails a gate. Consequence: TrackStatus "Fair"/"Poor" renders dark red vs red under Daylight — ΔL\* 19.5 carries the pair. | Not separately undoable without failing a gate; veto via D1. |
 | D4 | Modal bright-kind labels are measured, not hardcoded | Daylight's `AccentDanger` on the light base is 4.44:1, under the 4.5 floor Negative is held to; all three dark themes resolve identically to the old rule. | Restore the hardcoded `SurfaceDark` labels and drop the pin test. |
 | D5 | The ring's green ≠ `AccentSuccess` on Daylight | Bi-tonal segments need 3:1 alone over mid backdrops; no C\* ≥ 55 green reaches it (max 54.28). | Veto via D1, or give the ring its own token. |
 | D6 | Preset captions are role names: "Light"→"Text", "Amber"→"Warning" | Visible on all four themes; a colour caption is wrong whenever a theme's token isn't that colour (Daylight's text is near-black, its warning a brick red — hue 41°, 13° from the danger red). | Rename in `DwellColorPicker.PresetsFor`. |
 | D7 | TextSecondary/Dim near-twins | Originally shipped as "forced" and **retired in review round 1** by darkening Secondary to `#484D5E` — review proved it was a choice. | — (resolved). |
+| D8 | The mark migration overrides §7.1's theme-independence for preset-valued colours | A persisted value that is exactly another theme's preset is almost certainly a stale default, not a deliberate choice — including legacy pre-theme values (`#00FF00`, red, blue) on Midnight, which map to Midnight presets. Custom colours are kept while they clear 7:1 against the live halo; note that **no colour clears 7:1 against both a dark and a light halo** (best possible 4.44:1), so a custom pick resets on a light↔dark switch. | Drop `ThemeStartup.MigrateHaloedMarks` and its call sites; §7.1 then holds literally again (with I1's invisibility back). |
 
 #### 10.8.1 The triad ladder inverts
 

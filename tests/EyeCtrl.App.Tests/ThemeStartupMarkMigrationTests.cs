@@ -96,8 +96,10 @@ public class ThemeStartupMarkMigrationTests
 
             ThemeStartup.Apply(settings, new());
 
-            // The trail's own default is the warning (deliberately distinct from the
-            // accent), so a failing trail snaps to the warning preset, not the accent.
+            // The trail's DEFAULT value is Midnight's warning — a preset of another
+            // theme, so it maps by index to Daylight's warning, NOT to the accent the
+            // ring default uses. (The failing-custom snap to this same warning preset
+            // is pinned separately, by CustomColour_FailingTheNewHaloBar.)
             Check.That(settings.Drag.TrailColor).IsEqualTo("#7A1000");
             Check.That(settings.Cursor.CircleColor).IsEqualTo("#07343E");
         }
@@ -108,16 +110,22 @@ public class ThemeStartupMarkMigrationTests
     }
 
     [Fact]
-    public void DaylightPreset_OnMidnight_MapsBack_Symmetrically()
+    public void DaylightGreenAndTextPresets_OnMidnight_MapByIndex_Symmetrically()
     {
         try
         {
-            var settings = SettingsWith("Midnight", "#07343E", "#7A1000");
+            // GREEN and TEXT deliberately, not the accent/warning: those sit at the
+            // same index as each setting's snap default (0 and 2), so a test built on
+            // them cannot tell same-index mapping from the default snap apart (round
+            // 2's mutation (c) finding). Green is index 1 — mapped by index it stays
+            // green; if the same-index branch were deleted it would fail Midnight's
+            // halo and snap to the accent, a different colour.
+            var settings = SettingsWith("Midnight", "#005200", "#0C0D12");
 
             ThemeStartup.Apply(settings, new());
 
-            Check.That(settings.Cursor.CircleColor).IsEqualTo("#A5F3FC");
-            Check.That(settings.Drag.TrailColor).IsEqualTo("#E8A33C");
+            Check.That(settings.Cursor.CircleColor).IsEqualTo("#7EE787");
+            Check.That(settings.Drag.TrailColor).IsEqualTo("#D6DEF5");
         }
         finally
         {

@@ -226,7 +226,7 @@ ACCENT_FLOOR = 9.5
 # are numerically fine and semantically meaningless (a near-white "warning" at
 # C* 10, a pastel-pink "danger" at C* 41). The real triad sits at C* 62-66.
 # Deliberately NOT applied to Accent: the accent is a high-luminance signal and
-# is correctly low-chroma (C* ~25 in both themes).
+# is correctly low-chroma (C* 15-25 on the tuned themes, 50 on Contrast).
 SEMANTIC_CHROMA_FLOOR = 55.0
 
 # Gate 10: floors for Marker* tokens — small marks (a glyph, a 2px state border)

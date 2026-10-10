@@ -11,10 +11,12 @@ using Xunit;
 
 /// <summary>
 /// Modal buttons are filled shapes with a label on them, so the label's contrast
-/// depends on the fill. The bright semantic fills need a dark label; a neutral fill is
-/// itself dark and needs a light one. Getting this backwards produced a 2.16:1 button
-/// during the overlay migration, which is why the mapping is a tested function rather
-/// than a literal at the call site.
+/// depends on the fill. The bright semantic fills carry a label from the theme's
+/// surface ramp — dark on the dark themes, light on Daylight — and the mid-ramp
+/// Neutral fill carries a label from the ramp's far end (polarity-free statement;
+/// see ModalButtonPalette's doc). Getting a pairing backwards produced a 2.16:1
+/// button during the overlay migration, which is why the mapping is a tested
+/// function rather than a literal at the call site.
 /// </summary>
 public class ModalButtonPaletteTests
 {
@@ -161,15 +163,19 @@ public class ModalButtonPaletteTests
 
     [Theory]
     // The dwell-progress blend (ColorBlend.Blend(base, Accent, progress * factor)) shifts each
-    // button's fill toward the bright Accent as the user dwells. For the bright fills the dark
-    // label only gains contrast, but the dark-fill Neutral with its LIGHT label would collapse:
-    // a 0.5 factor reaches 2.62:1 at full dwell (below the 3.0 large-text floor the static test
-    // asserts). The palette therefore exposes a per-kind blend factor sized so the label clears
-    // the AA floor across the whole dwell. This test exercises the blend the static tests can't
-    // see — the worst case is the moment the button fires (progress 1.0).
+    // button's fill toward the Accent as the user dwells. Polarity-free: the bright fills'
+    // labels sit at the ramp end OPPOSITE the accent, so blending toward the accent only
+    // moves the fill away from the label (Midnight's bright fills darken toward a bright
+    // accent; Daylight's darken further); the mid-ramp Neutral's far-end label sits on the
+    // accent's side, so the 0.5 the bright kinds use would collapse the dark themes' Neutral
+    // to 2.62:1 at full dwell — below the 3.0 large-text floor. The per-kind blend factor is
+    // sized so the label clears the AA floor across the whole dwell, on every theme. This
+    // test exercises the blend the static tests can't see — the worst case is the moment the
+    // button fires (progress 1.0).
     //
     // Per theme, because Accent is a theme token too: the blend TARGET moves with the theme,
-    // not just the base. Worst measured full-dwell case is Midnight Neutral at 5.11:1.
+    // not just the base. Worst measured full-dwell case is Midnight Neutral at 5.11:1
+    // (Daylight's three measure 9.48 / 10.06 / 10.89).
     [MemberData(nameof(EveryThemeAndKind))]
     public void LabelStaysLegible_AtFullDwellBlend(ITheme theme, ModalChoiceKind kind)
     {

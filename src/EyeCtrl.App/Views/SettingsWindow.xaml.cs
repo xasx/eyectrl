@@ -366,7 +366,10 @@ public partial class SettingsWindow : OverlayWindow
         CalibrationService calibrationService,
         AppRestartCoordinator restartCoordinator,
         SupervisionToggleService supervisionToggle,
-        UserDictionaryService? dictionaryService = null)
+        UserDictionaryService? dictionaryService = null,
+        Func<string?>? probeBlockReason = null,
+        Action? requestProbe = null,
+        Func<bool>? canResumeSession2 = null)
     {
         InitializeComponent();
 
@@ -536,7 +539,12 @@ public partial class SettingsWindow : OverlayWindow
         _qaSource = new QuickActionsPageSource(_ctx);
         _eyeCareSource = new EyeCarePageSource(_ctx);
         _adaptationSource = new AdaptationPageSource(_ctx, onOpenAdaptationLog: OpenAdaptationLogFile);
-        _diagnosticsSource = new DiagnosticsPageSource(_ctx, onOpenRecordingFolder: OpenGazeRecordingFolder);
+        _diagnosticsSource = new DiagnosticsPageSource(
+            _ctx,
+            onOpenRecordingFolder: OpenGazeRecordingFolder,
+            probeBlockReason: probeBlockReason,
+            requestProbe: requestProbe,
+            canResumeSession2: canResumeSession2);
         _advancedSource = new AdvancedPageSource(_ctx);
 
         // One entry per tab, same ids as `_tabDefs`: MaybeRepaginateByHeight looks the

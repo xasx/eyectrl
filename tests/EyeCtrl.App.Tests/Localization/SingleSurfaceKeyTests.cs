@@ -62,7 +62,12 @@ public class SingleSurfaceKeyTests
         // T04: the tray's own items are app-tray, but the one language item is the recovery
         // path's entry point (D9) and takes its key from language-recovery (T06 expects this).
         ("src/EyeCtrl.App/Services/TrayIconManager.cs", ["app-tray", "language-recovery"]),
-        ("src/EyeCtrl.App/Services/SupervisionToggleService.cs", ["supervisor"])
+        ("src/EyeCtrl.App/Services/SupervisionToggleService.cs", ["supervisor"]),
+
+        // SP-4b: the probe's coordinator resolves the C10 refusal reasons on the settings surface;
+        // the probe window resolves its own screens on the overlays surface.
+        ("src/EyeCtrl.App/Diagnostics/SubPixel/SubPixelProbeCoordinator.cs", ["settings"]),
+        ("src/EyeCtrl.App/Diagnostics/SubPixel/SubPixelProbeWindow.cs", ["overlays"])
     ];
 
     /// <summary>

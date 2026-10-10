@@ -23,14 +23,14 @@ public class DiagnosticsPageSourceTests
         source.Build().SelectMany(p => p.Rows);
 
     [Fact]
-    public void Build_ExposesBothInstrumentToggles_AndTwoButtons()
+    public void Build_ExposesBothInstrumentToggles_AndTheButtons()
     {
         var rows = Rows(new DiagnosticsPageSource(TestSettingsPageContext.Build())).ToList();
 
         Check.That(rows.OfType<ToggleSpec>().Select(t => t.Id).ToList())
              .ContainsExactly("dg_record_raw", "dg_ui_instruments");
         Check.That(rows.OfType<ButtonSpec>().Select(b => b.Id).ToList())
-             .ContainsExactly("dg_open_folder", "dg_reset");
+             .ContainsExactly("dg_open_folder", "dg_subpixel_probe", "dg_reset");
     }
 
     [Fact]
@@ -153,5 +153,70 @@ public class DiagnosticsPageSourceTests
         Check.That(labels).HasSize(1);
         Check.That(labels[0]).Contains("looked");
         Check.That(labels[0]).Contains("this computer");
+    }
+
+    // ---- W3 (a): a blocked precondition shows the reason and never requests the probe -----------
+
+    [Fact]
+    public void SubPixelButton_WhenBlocked_ShowsTheReason_AndDoesNotRequest()
+    {
+        var rec = new RecordingSettingsPageContext(new EyeCtrlSettings());
+        bool requested = false;
+        var source = new DiagnosticsPageSource(
+            rec.Context,
+            probeBlockReason: () => "Resume first, then start the test.",
+            requestProbe: () => requested = true);
+
+        Rows(source).OfType<ButtonSpec>().Single(b => b.Id == "dg_subpixel_probe").OnActivate();
+
+        Check.WithCustomMessage(
+                "A blocked start must show the one-line reason instead of arming the probe (review 05 F8).")
+            .That(rec.Errors).ContainsExactly("Resume first, then start the test.");
+        Check.That(requested).IsFalse();
+    }
+
+    [Fact]
+    public void SubPixelButton_WhenAllowed_RequestsTheProbe()
+    {
+        var rec = new RecordingSettingsPageContext(new EyeCtrlSettings());
+        bool requested = false;
+        var source = new DiagnosticsPageSource(
+            rec.Context,
+            probeBlockReason: () => null,
+            requestProbe: () => requested = true);
+
+        Rows(source).OfType<ButtonSpec>().Single(b => b.Id == "dg_subpixel_probe").OnActivate();
+
+        Check.That(requested).IsTrue();
+        Check.That(rec.Errors).IsEmpty();
+    }
+
+    [Fact]
+    public void SubPixelButton_WithNoCallbacks_DoesNotThrow()
+    {
+        var source = new DiagnosticsPageSource(TestSettingsPageContext.Build());
+
+        Check.ThatCode(() => Rows(source).OfType<ButtonSpec>()
+                 .Single(b => b.Id == "dg_subpixel_probe").OnActivate())
+             .DoesNotThrow();
+    }
+
+    // ---- W3 (g): the label switches for a session-2 resume --------------------------------------
+
+    [Fact]
+    public void SubPixelButton_Label_SwitchesForASession2Resume()
+    {
+        var ctx = TestSettingsPageContext.Build();
+
+        string LabelFor(bool canResume) => Rows(new DiagnosticsPageSource(
+                ctx, canResumeSession2: () => canResume))
+            .OfType<ButtonSpec>().Single(b => b.Id == "dg_subpixel_probe").Label;
+
+        Check.That(LabelFor(false)).IsEqualTo(
+            EyeCtrl.Core.Localization.StringTable.Current.T("settings.diagnostics.subpixel.start"));
+        Check.WithCustomMessage(
+                "The label predicate is inverted: a resume-capable verdict still shows the full-run label.")
+            .That(LabelFor(true)).IsEqualTo(
+                EyeCtrl.Core.Localization.StringTable.Current.T("settings.diagnostics.subpixel.continue"));
     }
 }

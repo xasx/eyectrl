@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Services;
 
 using System;
+using EyeCtrl.App.Diagnostics.SubPixel;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.Core.Interfaces;
@@ -35,6 +36,7 @@ public class EventCoordinator : IEventCoordinator
     private OverlayMessageCoordinator? _overlayMessage;
     private SettingsUiCoordinator? _settingsUi;
     private ActivationOfferCoordinator? _activationOffers;
+    private SubPixelProbeCoordinator? _probe;
 
     /// <summary>
     /// Gets the word predictor instance used for keyboard predictions, if enabled.
@@ -90,11 +92,14 @@ public class EventCoordinator : IEventCoordinator
                 $"EventCoordinator must be initialized before calling {member}.");
     }
 
-    /// <summary>Tray fallback: force-show the toolbar regardless of auto-hide state.</summary>
+    /// <summary>Tray fallback: force-show the toolbar regardless of auto-hide state. A live probe
+    /// run ends first — the interlock's generation bump is also the only guard a queued start has
+    /// against this trigger (build plan C9/C7; W3 (e), W9 (b)).</summary>
     public void ForceShowToolbar()
     {
         if (_context == null) return;
-        _context.Dispatcher.BeginInvoke(() => _toolbar?.ForceShow());
+        _probe?.InterlockForceShowToolbar(
+            () => _context.Dispatcher.BeginInvoke(() => _toolbar?.ForceShow()));
     }
 
     public void Initialize(EventCoordinationContext context)
@@ -165,6 +170,19 @@ public class EventCoordinator : IEventCoordinator
         // settings window through this seam. Done after _settingsUi is constructed — ToolbarLifecycle
         // is constructed earlier in task order.
         _toolbar.AttachSettingsUi(_settingsUi);
+
+        // The sub-pixel probe (build plan C7) is constructed LAST: its host wraps the toolbar,
+        // keyboard and quick-actions seams, and its C10 entry is threaded back into the settings
+        // window it just built. Its messenger registration therefore follows SettingsUiCoordinator's,
+        // which is what W9 pins (review 04 N7).
+        _probe = new SubPixelProbeCoordinator(_modal, new ProbeHost(
+            _modal, context.GazeEngine, context.OverlayManager.CursorCircle, context.CursorVM,
+            context.ToolbarVM, _toolbar, _keyboard, _quickActions, context.ModesMenuVM,
+            context.TaskSwitcherVM, context.QuickActionsGridVM, context.Messenger, context.Settings));
+        _probe.Initialize(context);
+        _settingsUi.SetProbeEntry(
+            () => _probe.GetBlockReason(),
+            () => _probe.RequestStart(() => _settingsUi.CloseSettingsWindowForProbe()));
     }
 
     public void LoadKeyboard(KeyboardWindow keyboard, EyeCtrlSettings settings,
@@ -208,6 +226,11 @@ public class EventCoordinator : IEventCoordinator
         // — the SettingsRequested/CloseSettings registrations.)
         _settingsUi?.Dispose();
         _settingsUi = null;
+
+        // The probe goes next: its restore needs the toolbar, keyboard and summon seams alive, and
+        // its own messenger registration must go before those coordinators' teardown noise.
+        _probe?.Dispose();
+        _probe = null;
 
         // Dispose the keyboard sub-coordinator (handles its own SkinToneChanged unsubscribe,
         // message cleanup, and PredictionStackFactory disposal — the factory moved here in cluster 3).

@@ -1048,6 +1048,11 @@ public partial class SubPixelProbeViewModel : MessengerViewModelBase,
         id is AnswerOneTargetId or AnswerTwoTargetId or EndTestTargetId
             or IntroStartTargetId or AskYesTargetId or AskLaterTargetId or ResultDoneTargetId;
 
+    /// <summary>Whether a dwell target with this id is registered; the view's registration oracle (C6).</summary>
+    /// <param name="id">Target id to test.</param>
+    /// <returns><c>true</c> when <see cref="Register"/> has added the target.</returns>
+    public bool HasRegisteredTarget(string id) => _actions.ContainsKey(id);
+
     /// <summary>Stops every timer and clears the dwell targets. The messenger unregisters in the base.</summary>
     protected override void OnDispose()
     {

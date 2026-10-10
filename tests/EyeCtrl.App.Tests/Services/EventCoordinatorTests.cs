@@ -151,4 +151,68 @@ public class EventCoordinatorTests
                 "EventCoordinator.Initialize no longer hands QuickActionsCoordinator the shared ModalInteractionState.")
             .That(source.Contains("_quickActions=newQuickActionsCoordinator(_modal);")).IsTrue();
     }
+
+    [Fact]
+    public void Initialize_WiresTheProbeCoordinator_AndItsEntryThreading()
+    {
+        // Source pin (same precedent as Initialize_WiresTheProbeGates): C7 wraps the real
+        // coordinators in the production host and is initialized after SettingsUiCoordinator, and
+        // the C10 entry is threaded back through SettingsUiCoordinator. W3/W9 exercise the
+        // behaviour on the coordinator itself; the EventCoordinator wiring is review-pinned.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Services", "EventCoordinator.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage("EventCoordinator.Initialize no longer constructs the sub-pixel probe coordinator.")
+            .That(source.Contains("_probe=newSubPixelProbeCoordinator(_modal,newProbeHost(")).IsTrue();
+        Check.WithCustomMessage("The probe coordinator is no longer initialized.")
+            .That(source.Contains("_probe.Initialize(context);")).IsTrue();
+        Check.WithCustomMessage(
+                "The C10 entry is no longer threaded into the settings window, or the start is no "
+                + "longer queued behind the synchronous Settings close.")
+            .That(source.Contains(
+                "_settingsUi.SetProbeEntry(()=>_probe.GetBlockReason(),()=>_probe.RequestStart(()=>_settingsUi.CloseSettingsWindowForProbe()));"))
+            .IsTrue();
+        Check.WithCustomMessage("EventCoordinator.Dispose no longer disposes the probe coordinator.")
+            .That(source.Contains("_probe?.Dispose();")).IsTrue();
+    }
+
+    [Fact]
+    public void ForceShowToolbar_WiresTheProbeInterlock()
+    {
+        // The tray "Show toolbar" trigger's guard is C7's generation bump plus a synchronous
+        // Restore (build plan C9; W3 (e), W9 (b)). A source pin, because EventCoordinator is not
+        // constructed in tests — the C7 method itself is mutation-proven by W9.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Services", "EventCoordinator.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage(
+                "EventCoordinator.ForceShowToolbar no longer runs the probe interlock before the forced show.")
+            .That(source.Contains(
+                "_probe?.InterlockForceShowToolbar(()=>_context.Dispatcher.BeginInvoke(()=>_toolbar?.ForceShow()));"))
+            .IsTrue();
+    }
+
+    [Fact]
+    public void CloseSettingsWindowForProbe_ClosesSynchronously()
+    {
+        // The C10 request path needs a SYNCHRONOUS close: the PendingStart window is closed by the
+        // finally as soon as RequestStart returns, and only a synchronous Closed (review 05 E4)
+        // can post BeginStart while PendingStart is still armed.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Services", "Coordinators", "SettingsUiCoordinator.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage(
+                "SettingsUiCoordinator.CloseSettingsWindowForProbe no longer closes the window synchronously.")
+            .That(source.Contains("internalvoidCloseSettingsWindowForProbe(){if(_settingsWindowisnotnull)_settingsWindow.Close();}"))
+            .IsTrue();
+    }
 }

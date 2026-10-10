@@ -7,7 +7,7 @@
 
 ## 1. Problem Statement
 
-EyeCtrl has 28 overlay windows and 7 dwell controls — 24 with XAML under
+EyeCtrl has 29 overlay windows and 7 dwell controls — 24 with XAML under
 `Overlays/`, the code-only `NoteWindow`, and `SettingsWindow` under `Views/`
 (which also derives from `OverlayWindow`). Re-counted against merged `main` at
 b8295b6, which includes PRs #70 and #71, and enforced by
@@ -69,6 +69,7 @@ The result is a UI that feels like a patchwork of different apps rather than one
 | **DriftNotice** | `DriftNoticeWindow` | `Transparent` + `Border #E0202020` | XAML |
 | **CaregiverAlert** | `CaregiverAlertWindow` | `Transparent` + `Border #E0202020` | XAML |
 | **Note** | `NoteWindow` | `#1A1A2E` | code-only, no XAML |
+| **SubPixelProbe** | `SubPixelProbeWindow` | `BrushSurfaceDark` + full-screen backdrop image | code-only, no XAML |
 
 The **Class** column is the match key for the drift-guard test
 (`tests/EyeCtrl.App.Tests/OverlayInventoryDriftTests.cs`): every concrete

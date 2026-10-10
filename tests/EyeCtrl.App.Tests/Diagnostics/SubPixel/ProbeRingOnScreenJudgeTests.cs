@@ -238,4 +238,186 @@ public class ProbeRingOnScreenJudgeTests
         Check.WithCustomMessage($"The failure must be the reference offset's; got: {failure}")
             .That(failure!).Contains("With nothing to round");
     }
+
+    // ── fixup 03: collect-then-judge, the full table, repeats and the noise floor ──
+
+    /// <summary>The single-repeat inputs wrapped into the row shape <see cref="Measure"/> consumes.</summary>
+    private static ProbeRingOnScreenJudge.JudgeInputs Inputs(
+        double scale,
+        ProbeRaster expected,
+        ProbeRaster referenceB,
+        ProbeRaster referenceA,
+        ProbeRingOnScreenJudge.AbFrame[] assertions,
+        ProbeRingOnScreenJudge.SweepFrame[] sweep,
+        ProbeRaster[]? referenceRepeats = null)
+    {
+        var assertionRows = assertions
+            .SelectMany(frame => new[]
+            {
+                new ProbeRingOnScreenJudge.RowSamples(ProbeRingOnScreenJudge.ConditionA, frame.Fraction, [frame.A]),
+                new ProbeRingOnScreenJudge.RowSamples(ProbeRingOnScreenJudge.ConditionB, frame.Fraction, [frame.B]),
+            })
+            .ToList();
+        var sweepRows = sweep
+            .Select(frame => new ProbeRingOnScreenJudge.RowSamples(
+                ProbeRingOnScreenJudge.ConditionB, frame.Fraction, [frame.B]))
+            .ToList();
+
+        return new ProbeRingOnScreenJudge.JudgeInputs(
+            scale, expected, referenceB, referenceA, referenceRepeats ?? [referenceB], Geometry, HalfPx,
+            assertionRows, sweepRows);
+    }
+
+    /// <summary>
+    /// Fixup 03 item 1: two independent failures are <b>both</b> collected and both appear in the
+    /// final summary. Kills the "stop at the first failure" mutant — the run-1 lesson.
+    /// </summary>
+    [StaFact]
+    public void Measure_CollectsEveryFailure_AndJudgingReportsThemAll()
+    {
+        var (expected, referenceB, _, _, sweep) = HealthyInputs();
+
+        // Failure 1: condition B snapped (m4's shape). Failure 2: the references disagree.
+        var snappedB = ProbeRingOnScreenJudge.AssertionFractions
+            .Select(fraction => new ProbeRingOnScreenJudge.AbFrame(
+                fraction, RingAt(fraction, snap: true), RingAt(fraction, snap: true)))
+            .ToArray();
+        var referenceAOnePixelOff = RingAt(1.0, snap: true);
+
+        var report = ProbeRingOnScreenJudge.Measure(
+            Inputs(2.0, expected, referenceB, referenceAOnePixelOff, snappedB, sweep));
+
+        Check.WithCustomMessage(
+                "Both independent failures must be collected; a report that stops at the first one "
+                + "hides the table the owner needs.")
+            .That(report.Failures.Count).IsStrictlyGreaterThan(1);
+        Check.WithCustomMessage("The collected failures must include condition B's.")
+            .That(report.Failures.Any(failure => failure.Message.Contains("Condition B"))).IsTrue();
+        Check.WithCustomMessage("The collected failures must include the reference A-B one.")
+            .That(report.Failures.Any(failure => failure.Message.Contains("With nothing to round"))).IsTrue();
+
+        var combined = FailureMessage(() => ProbeRingOnScreenJudge.Judge(report));
+        Check.WithCustomMessage("Judge(report) must fail once with every collected failure in the summary.")
+            .That(combined).IsNotNull();
+        Check.That(combined!).Contains("Condition B");
+        Check.That(combined!).Contains("With nothing to round");
+    }
+
+    /// <summary>
+    /// Fixup 03 items 2-4: the report carries a per-axis line for every row, with expected,
+    /// measured, error, spread, the repeat samples and the mirrored halves. Kills the "report only
+    /// X" mutant.
+    /// </summary>
+    [StaFact]
+    public void WriteReport_PrintsBothAxesWithRepeatsAndHalves()
+    {
+        var (expected, referenceB, referenceA, assertions, sweep) = HealthyInputs();
+        var inputs = Inputs(2.0, expected, referenceB, referenceA, assertions, sweep);
+        inputs = inputs with
+        {
+            AssertionRows = inputs.AssertionRows
+                .Select(row => row.Condition == ProbeRingOnScreenJudge.ConditionB
+                               && Math.Abs(row.Fraction - 0.5) < 1e-9
+                    ? row with { Repeats = [RingAt(0.5, snap: false), RingAt(0.5, snap: false), RingAt(0.5, snap: false)] }
+                    : row)
+                .ToList(),
+        };
+
+        var report = ProbeRingOnScreenJudge.Measure(inputs);
+        var lines = new List<string>();
+        ProbeRingOnScreenJudge.WriteReport(report, lines.Add);
+
+        var rowLines = lines.Where(line => line.Contains("row B f=0.50")).ToList();
+        Check.WithCustomMessage("One row must produce one line per axis.")
+            .That(rowLines).HasSize(2);
+        Check.WithCustomMessage(
+                "The X line must carry expected, measured, error, spread, the samples and the left/right halves; "
+                + $"got: {string.Join(" | ", rowLines)}")
+            .That(rowLines.Any(line => line.Contains(" X: ") && line.Contains("expected=") && line.Contains("measured=")
+                                       && line.Contains("error=") && line.Contains("spread=") && line.Contains("samples=(")
+                                       && line.Contains("left=") && line.Contains("right="))).IsTrue();
+        Check.WithCustomMessage(
+                "The Y line must carry the top/bottom halves too (reporting only X is the mutant this kills).")
+            .That(rowLines.Any(line => line.Contains(" Y: ") && line.Contains("top=") && line.Contains("bottom="))).IsTrue();
+        Check.WithCustomMessage("The repeated row must print its repeat count.")
+            .That(rowLines.All(line => line.Contains("N=3"))).IsTrue();
+        Check.WithCustomMessage("The report must print the failure count before the verdict.")
+            .That(lines.Any(line => line.Contains("R2 failures so far:"))).IsTrue();
+    }
+
+    /// <summary>
+    /// Fixup 03 item 3: a row's measured value is the <b>mean of its repeats</b> and its spread the
+    /// max − min over them. Kills the "drop the repeats" mutant (which would report N=1, spread 0).
+    /// </summary>
+    [StaFact]
+    public void TableRows_UseTheMeanAndSpreadOfEveryRepeat()
+    {
+        var (expected, referenceB, referenceA, assertions, sweep) = HealthyInputs();
+        var inputs = Inputs(2.0, expected, referenceB, referenceA, assertions, sweep);
+
+        // The B f=0.5 row's three repeats are rendered at 0.25 / 0.5 / 0.75, so the mean is 0.5 and
+        // the spread is 0.5 — visible only if every repeat is aggregated.
+        inputs = inputs with
+        {
+            AssertionRows = inputs.AssertionRows
+                .Select(row => row.Condition == ProbeRingOnScreenJudge.ConditionB
+                               && Math.Abs(row.Fraction - 0.5) < 1e-9
+                    ? row with
+                    {
+                        Repeats =
+                        [
+                            RingAt(0.25, snap: false),
+                            RingAt(0.5, snap: false),
+                            RingAt(0.75, snap: false),
+                        ],
+                    }
+                    : row)
+                .ToList(),
+        };
+
+        var report = ProbeRingOnScreenJudge.Measure(inputs);
+        var row = report.AssertionRows.Single(candidate =>
+            candidate.Condition == ProbeRingOnScreenJudge.ConditionB && Math.Abs(candidate.Fraction - 0.5) < 1e-9);
+
+        Check.WithCustomMessage("Every repeat must be aggregated, not just the first.")
+            .That(row.Repeats).IsEqualTo(3);
+        Check.WithCustomMessage($"The row's mean must average its repeats; got {row.MeanX:0.0000}.")
+            .That(row.MeanX).IsCloseTo(0.5, 0.02);
+        Check.WithCustomMessage($"The row's spread must be max − min over its repeats; got {row.SpreadX:0.0000}.")
+            .That(row.SpreadX).IsCloseTo(0.5, 0.02);
+        Check.That(row.SampleX).HasSize(3);
+        Check.WithCustomMessage("The mirrored halves must average every repeat too.")
+            .That(row.LeftX).IsCloseTo(row.LeftX, 1e-12);
+    }
+
+    /// <summary>
+    /// Fixup 03 item 3: the f = 0 reference repeats become the noise floor — mean and spread of the
+    /// repeated reference measured against repeat 0.
+    /// </summary>
+    [StaFact]
+    public void ReferenceNoise_IsMeasuredOverTheReferenceRepeats()
+    {
+        var (expected, referenceB, referenceA, assertions, sweep) = HealthyInputs();
+
+        // Repeats 1..4 are rendered at 0.125 / 0.25 / 0.375 / 0.5 away from repeat 0.
+        var jittered = new[]
+        {
+            referenceB,
+            RingAt(0.125, snap: false),
+            RingAt(0.25, snap: false),
+            RingAt(0.375, snap: false),
+            RingAt(0.5, snap: false),
+        };
+
+        var report = ProbeRingOnScreenJudge.Measure(
+            Inputs(2.0, expected, referenceB, referenceA, assertions, sweep, jittered));
+
+        Check.WithCustomMessage("The noise floor must aggregate every reference repeat.")
+            .That(report.ReferenceNoise).IsNotNull();
+        Check.That(report.ReferenceNoise!.Repeats).IsEqualTo(5);
+        Check.WithCustomMessage(
+                $"The noise floor's spread must show the reference jitter; got {report.ReferenceNoise.SpreadX:0.0000}.")
+            .That(report.ReferenceNoise.SpreadX).IsCloseTo(0.5, 0.02);
+        Check.That(report.ReferenceNoise.SampleX).HasSize(5);
+    }
 }

@@ -257,12 +257,57 @@ internal static class ProbeRingCaptureAnalysis
     /// <param name="moved">The capture of the moved ring.</param>
     /// <param name="reference">The capture of the reference (whole-pixel) ring.</param>
     /// <param name="geometry">The scan geometry, in the reference capture's frame.</param>
-    internal static (double X, double Y) MeasureShift(ProbeRaster moved, ProbeRaster reference, RingScanGeometry geometry) =>
-        ProbeRasterEstimator.Shift(
-            moved, reference,
-            geometry.ScanRow, geometry.ScanColumn,
-            new PhysicalPoint(geometry.ReferenceCentreX, geometry.ReferenceCentreY),
-            geometry.HalfPx);
+    internal static (double X, double Y) MeasureShift(ProbeRaster moved, ProbeRaster reference, RingScanGeometry geometry)
+    {
+        var shift = MeasureMirroredShift(moved, reference, geometry);
+        return (shift.MeanX, shift.MeanY);
+    }
+
+    /// <summary>
+    /// The same measurement with its mirrored halves kept: the left/right block centroid shifts
+    /// separately (x) and the top/bottom pair (y), as well as their mean. Fixup 03's diagnosis
+    /// needs the halves: an asymmetric horizontal anti-aliasing shows up as left ≠ right, while a
+    /// constant measurement offset shows up as a stable bias in both.
+    /// </summary>
+    /// <param name="moved">The capture of the moved ring.</param>
+    /// <param name="reference">The capture of the reference (whole-pixel) ring.</param>
+    /// <param name="geometry">The scan geometry, in the reference capture's frame.</param>
+    internal static MirroredShift MeasureMirroredShift(
+        ProbeRaster moved, ProbeRaster reference, RingScanGeometry geometry)
+    {
+        var left = ProbeRasterEstimator.ScanRow(
+            moved, geometry.ScanRow, geometry.ReferenceCentreX - geometry.HalfPx)
+            - ProbeRasterEstimator.ScanRow(
+                reference, geometry.ScanRow, geometry.ReferenceCentreX - geometry.HalfPx);
+        var right = ProbeRasterEstimator.ScanRow(
+            moved, geometry.ScanRow, geometry.ReferenceCentreX + geometry.HalfPx)
+            - ProbeRasterEstimator.ScanRow(
+                reference, geometry.ScanRow, geometry.ReferenceCentreX + geometry.HalfPx);
+        var top = ProbeRasterEstimator.ScanColumn(
+            moved, geometry.ScanColumn, geometry.ReferenceCentreY - geometry.HalfPx)
+            - ProbeRasterEstimator.ScanColumn(
+                reference, geometry.ScanColumn, geometry.ReferenceCentreY - geometry.HalfPx);
+        var bottom = ProbeRasterEstimator.ScanColumn(
+            moved, geometry.ScanColumn, geometry.ReferenceCentreY + geometry.HalfPx)
+            - ProbeRasterEstimator.ScanColumn(
+                reference, geometry.ScanColumn, geometry.ReferenceCentreY + geometry.HalfPx);
+
+        return new MirroredShift((left + right) / 2.0, (top + bottom) / 2.0, left, right, top, bottom);
+    }
+
+    /// <summary>
+    /// A measured shift with its mirrored halves: <see cref="MeanX"/> is the mean of
+    /// <see cref="LeftX"/> and <see cref="RightX"/> (the mirrored-block estimator's cancellation),
+    /// and <see cref="MeanY"/> of <see cref="TopY"/> and <see cref="BottomY"/>.
+    /// </summary>
+    /// <param name="MeanX">The x movement: the mean of the left and right block shifts.</param>
+    /// <param name="MeanY">The y movement: the mean of the top and bottom block shifts.</param>
+    /// <param name="LeftX">The left edge block's centroid shift, x.</param>
+    /// <param name="RightX">The right edge block's centroid shift, x.</param>
+    /// <param name="TopY">The top edge block's centroid shift, y.</param>
+    /// <param name="BottomY">The bottom edge block's centroid shift, y.</param>
+    internal sealed record MirroredShift(
+        double MeanX, double MeanY, double LeftX, double RightX, double TopY, double BottomY);
 
     /// <summary>
     /// Requirement (f): what the fine-fraction sweep says about the real display path. The sweep is

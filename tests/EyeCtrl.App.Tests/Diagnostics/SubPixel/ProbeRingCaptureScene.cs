@@ -116,6 +116,56 @@ internal static class ProbeRingCaptureScene
     }
 
     /// <summary>
+    /// The expected-pattern weights for a captured reference: the same look rendered offscreen at
+    /// the reference's capture-local centre and converted through the capture's own background.
+    /// Shared by the live harness and the offline analyser, so the two measure against the same
+    /// expected pattern.
+    /// </summary>
+    /// <param name="centreInCapture">The reference ring centre, in capture-local pixels.</param>
+    /// <param name="background">The capture's measured background colour.</param>
+    /// <param name="scale">The window's effective scale.</param>
+    internal static ProbeRaster ExpectedWeightsAt(
+        PhysicalPoint centreInCapture, (byte R, byte G, byte B) background, double scale)
+    {
+        var bgra = RenderCapture(
+            scale, OwnerLook(), centreInCapture, snap: false, ProbeRingFrameSchedule.CaptureSizePx);
+        return ProbeRingCaptureAnalysis.ToWeights(
+            bgra, ProbeRingFrameSchedule.CaptureSizePx, ProbeRingFrameSchedule.CaptureSizePx, background);
+    }
+
+    /// <summary>
+    /// One synthetic captured sample at the owner's geometry: the frame the schedule produces, the
+    /// ring rendered at that frame's capture-local centre, and the weight raster derived from it.
+    /// The archive, offline and repeat tests build their folders from these.
+    /// </summary>
+    /// <param name="kind">The row kind (reference / assertion / sweep): see <see cref="ProbeRingOnScreenJudge"/>.</param>
+    /// <param name="condition">"A" or "B".</param>
+    /// <param name="fraction">The fraction the frame is rendered at (may differ from the row's scheduled fraction for jitter tests).</param>
+    /// <param name="snap">Whether the top-left snaps (condition A).</param>
+    /// <param name="repeat">The repeat index recorded in the sample.</param>
+    /// <param name="scale">Device pixels per DIP.</param>
+    internal static ProbeRingCapturedSample SyntheticSample(
+        string kind,
+        string condition,
+        double fraction,
+        bool snap,
+        int repeat = 0,
+        double scale = ProbeRingCaptureAnalysis.OwnerScale)
+    {
+        var frame = ProbeRingFrameSchedule.For(800, 440, scale, fraction, 3840, 2400);
+        var centreInCapture = new PhysicalPoint(
+            frame.CaptureCentrePx.X - frame.CaptureOriginX,
+            frame.CaptureCentrePx.Y - frame.CaptureOriginY);
+        var bgra = RenderCapture(scale, OwnerLook(), centreInCapture, snap, ProbeRingFrameSchedule.CaptureSizePx);
+        var background = ProbeRingCaptureAnalysis.MeasureBackground(
+            bgra, ProbeRingFrameSchedule.CaptureSizePx, ProbeRingFrameSchedule.CaptureSizePx);
+        var weights = ProbeRingCaptureAnalysis.ToWeights(
+            bgra, ProbeRingFrameSchedule.CaptureSizePx, ProbeRingFrameSchedule.CaptureSizePx, background);
+        return new ProbeRingCapturedSample(
+            kind, condition, fraction, repeat, frame, bgra, ProbeRingFrameSchedule.CaptureSizePx, weights, background);
+    }
+
+    /// <summary>
     /// Doubles a frame by pixel replication: the synthetic stand-in for a 96-DPI window that DWM
     /// bitmap-stretches to a 192-DPI display. Every source pixel becomes a 2x2 block, so a scheduled
     /// fraction in DIPs lands on twice as many device pixels — the pathology the DPI check exists

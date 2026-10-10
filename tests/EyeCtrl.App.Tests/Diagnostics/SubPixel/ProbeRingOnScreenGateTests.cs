@@ -133,7 +133,7 @@ public class ProbeRingOnScreenGateTests
         var harness = SourceScanner.StripComments(File.ReadAllText(Path.Combine(
             root, "tests", "EyeCtrl.App.Tests", "Diagnostics", "SubPixel", "ProbeRingOnScreenHarness.cs")));
 
-        const string captureMarker = "private static CapturedFrame CaptureAt(";
+        const string captureMarker = "private static ProbeRingCapturedSample CaptureAt(";
         var captureStart = harness.IndexOf(captureMarker, StringComparison.Ordinal);
         Check.WithCustomMessage(
                 "ProbeRingOnScreenHarness no longer declares CaptureAt(...), the one method that captures "
@@ -236,6 +236,16 @@ public class ProbeRingOnScreenGateTests
                 "Present() must wait for two composition frames (review 01 m1): one tick fires before its "
                 + "render is presented, so the capture could be the previous placement. Body read:\n" + presentBody)
             .That(presentBody).Contains("ticks < 2");
+
+        // Fixup 03 item 5: the harness must save its captures through the archive and print where.
+        Check.WithCustomMessage(
+                "ProbeRingOnScreenHarness no longer saves its captures through ProbeRingCaptureArchive.Save: "
+                + "a failed run's frames would be lost and no later diagnosis would be possible without "
+                + "another on-screen run.")
+            .That(harness.IndexOf("ProbeRingCaptureArchive.Save(", StringComparison.Ordinal))
+            .IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage("The harness must print the capture folder path for the session record.")
+            .That(harness.IndexOf("R2 captures saved to", StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);
 
         var onScreen = SourceScanner.StripComments(File.ReadAllText(Path.Combine(
             root, "tests", "EyeCtrl.App.Tests", "Diagnostics", "SubPixel", "ProbeRingOnScreenTests.cs")));

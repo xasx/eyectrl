@@ -49,6 +49,14 @@ internal enum ProbeRingOnScreenOutcome
 /// </para>
 ///
 /// <para>
+/// <b>Measure first (fixup 03).</b> The run captures everything first — the 5 reference repeats,
+/// then A/B and sweep rows 3 times each — saves every frame as a PNG with its manifest under
+/// <c>%TEMP%\eyectrl-r2-&lt;stamp&gt;\</c>, measures with <see cref="ProbeRingOnScreenJudge.Measure"/>,
+/// prints the full per-axis table (<see cref="ProbeRingOnScreenJudge.WriteReport"/>) and only then
+/// states a verdict, as one combined failure summary. The thresholds are unchanged.
+/// </para>
+///
+/// <para>
 /// <b>It is inert without the gate, twice over.</b> <see cref="Run"/> returns
 /// <see cref="ProbeRingOnScreenOutcome.GateClosed"/> before constructing anything when
 /// <see cref="AppFixture.UiTestsEnabled"/> is false, and the UI test that calls it starts with
@@ -97,6 +105,12 @@ internal enum ProbeRingOnScreenOutcome
 /// </summary>
 internal static class ProbeRingOnScreenHarness
 {
+    /// <summary>How many times the f = 0 reference is captured in a row: the noise floor (fixup 03 item 3).</summary>
+    internal const int ReferenceRepeats = 5;
+
+    /// <summary>How many times each table row is captured; the row is judged on the mean of these.</summary>
+    internal const int RowRepeats = 3;
+
     [DllImport("dwmapi.dll")]
     private static extern int DwmFlush();
 
@@ -172,66 +186,80 @@ internal static class ProbeRingOnScreenHarness
             writeLine(Invariant(
                 $"R2 window at ({window.Left:0.##}, {window.Top:0.##}) DIP; scale {scale:0.###}; captures are {ProbeRingFrameSchedule.CaptureSizePx} px square."));
 
-            var referenceB = CaptureAt(window, ring, scale, 0.0, snap: false, screenWidthPx, screenHeightPx);
-            var referenceA = CaptureAt(window, ring, scale, 0.0, snap: true, screenWidthPx, screenHeightPx);
+            // ---- Collect phase (fixup 03 item 1): every capture first; no measurement assertion
+            // runs until the whole run is measured and printed. ----
+            var startedUtc = DateTimeOffset.UtcNow;
+            var samples = new List<ProbeRingCapturedSample>();
 
-            var halfPx = ProbeRingCaptureScene.RingSizeDip * scale / 2.0;
-            var geometry = ProbeRingCaptureAnalysis.RingScanGeometry.For(
-                new PhysicalPoint(
-                    referenceB.Frame.CaptureCentrePx.X - referenceB.Frame.CaptureOriginX,
-                    referenceB.Frame.CaptureCentrePx.Y - referenceB.Frame.CaptureOriginY),
-                halfPx);
+            // The f = 0 reference, captured ReferenceRepeats times in a row without moving it: the
+            // capture and estimator noise floor. Repeat 0 is the reference every B row uses.
+            for (var repeat = 0; repeat < ReferenceRepeats; repeat++)
+            {
+                samples.Add(CaptureAt(window, ring, scale, 0.0, snap: false,
+                    screenWidthPx, screenHeightPx, ProbeRingOnScreenJudge.KindReference, ProbeRingOnScreenJudge.ConditionB, repeat));
+            }
 
-            // The expected pattern for the control: the same look, rendered offscreen at the same
-            // scale and converted through the capture's own measured background.
-            var expectedBgra = ProbeRingCaptureScene.RenderCapture(
-                scale, ProbeRingCaptureScene.OwnerLook(),
-                new PhysicalPoint(geometry.ReferenceCentreX, geometry.ReferenceCentreY),
-                snap: false, ProbeRingFrameSchedule.CaptureSizePx);
-            var expected = ProbeRingCaptureAnalysis.ToWeights(
-                expectedBgra, ProbeRingFrameSchedule.CaptureSizePx, ProbeRingFrameSchedule.CaptureSizePx,
-                referenceB.Background);
+            samples.Add(CaptureAt(window, ring, scale, 0.0, snap: true,
+                screenWidthPx, screenHeightPx, ProbeRingOnScreenJudge.KindReference, ProbeRingOnScreenJudge.ConditionA, 0));
 
-            var assertionCaptures = ProbeRingOnScreenJudge.AssertionFractions
-                .Select(fraction => (
-                    Fraction: fraction,
-                    A: CaptureAt(window, ring, scale, fraction, snap: true, screenWidthPx, screenHeightPx),
-                    B: CaptureAt(window, ring, scale, fraction, snap: false, screenWidthPx, screenHeightPx)))
-                .ToArray();
+            foreach (var fraction in ProbeRingOnScreenJudge.AssertionFractions)
+            {
+                for (var repeat = 0; repeat < RowRepeats; repeat++)
+                {
+                    samples.Add(CaptureAt(window, ring, scale, fraction, snap: true,
+                        screenWidthPx, screenHeightPx, ProbeRingOnScreenJudge.KindAssertion, ProbeRingOnScreenJudge.ConditionA, repeat));
+                    samples.Add(CaptureAt(window, ring, scale, fraction, snap: false,
+                        screenWidthPx, screenHeightPx, ProbeRingOnScreenJudge.KindAssertion, ProbeRingOnScreenJudge.ConditionB, repeat));
+                }
+            }
 
-            var sweepCaptures = ProbeRingOnScreenJudge.SweepFractions
-                .Select(fraction => CaptureAt(window, ring, scale, fraction, snap: false, screenWidthPx, screenHeightPx))
-                .ToArray();
+            foreach (var fraction in ProbeRingOnScreenJudge.SweepFractions)
+            {
+                for (var repeat = 0; repeat < RowRepeats; repeat++)
+                {
+                    samples.Add(CaptureAt(window, ring, scale, fraction, snap: false,
+                        screenWidthPx, screenHeightPx, ProbeRingOnScreenJudge.KindSweep, ProbeRingOnScreenJudge.ConditionB, repeat));
+                }
+            }
 
-            // B2: under production truncation the capture origin is one constant for the whole run.
-            // A moving origin would silently add a whole pixel to every measured shift.
-            var origins = assertionCaptures
-                .SelectMany(capture => new[] { capture.A, capture.B })
-                .Concat(sweepCaptures)
-                .Append(referenceB)
-                .Append(referenceA)
-                .Select(capture => (capture.Frame.CaptureOriginX, capture.Frame.CaptureOriginY))
+            // (h) The whole run is captured. Save every frame so later diagnosis is offline, then
+            // print where it went; nothing is written outside %TEMP%.
+            var folder = ProbeRingCaptureArchive.CreateRunFolder(startedUtc);
+            ProbeRingCaptureArchive.Save(folder, samples, scale, startedUtc);
+            writeLine($"R2 captures saved to {folder}");
+
+            var origins = samples
+                .Select(sample => (sample.Frame.CaptureOriginX, sample.Frame.CaptureOriginY))
                 .Distinct()
                 .ToList();
+            writeLine(
+                $"R2 capture origin (all {samples.Count} frames): "
+                + string.Join(" / ", origins.Select(origin => $"({origin.CaptureOriginX}, {origin.CaptureOriginY})")));
+
+            // ---- Measure + print (fixup 03 items 2-4): the full per-axis table with repeats and
+            // mirrored halves, before any verdict. ----
+            var referenceB = samples.First(sample =>
+                sample.Kind == ProbeRingOnScreenJudge.KindReference
+                && sample.Condition == ProbeRingOnScreenJudge.ConditionB
+                && sample.Fraction == 0.0 && sample.Repeat == 0);
+            var centreInCapture = new PhysicalPoint(
+                referenceB.Frame.CaptureCentrePx.X - referenceB.Frame.CaptureOriginX,
+                referenceB.Frame.CaptureCentrePx.Y - referenceB.Frame.CaptureOriginY);
+            var expected = ProbeRingCaptureScene.ExpectedWeightsAt(centreInCapture, referenceB.Background, scale);
+
+            var report = ProbeRingOnScreenJudge.Measure(
+                ProbeRingOnScreenJudge.BuildInputs(scale, expected, samples));
+            ProbeRingOnScreenJudge.WriteReport(report, writeLine);
+
+            // B2's fail-closed guard, after the report: a moving origin would bias every shift and
+            // make the table above unreadable as rendering evidence.
             Check.WithCustomMessage(
                     $"The capture origin moved during the run ({string.Join(", ", origins)}); the shift "
                     + "measurement assumes one constant origin for every frame.")
                 .That(origins).HasSize(1);
 
-            ProbeRingOnScreenJudge.Judge(
-                scale,
-                expected,
-                referenceB.Weights,
-                referenceA.Weights,
-                assertionCaptures
-                    .Select(capture => new ProbeRingOnScreenJudge.AbFrame(capture.Fraction, capture.A.Weights, capture.B.Weights))
-                    .ToArray(),
-                sweepCaptures
-                    .Select(capture => new ProbeRingOnScreenJudge.SweepFrame(capture.Frame.Fraction, capture.Weights))
-                    .ToArray(),
-                geometry,
-                halfPx,
-                writeLine);
+            // ---- Verdict: one combined failure summary (item 1). ----
+            ProbeRingOnScreenJudge.Judge(report);
         }
         finally
         {
@@ -258,9 +286,9 @@ internal static class ProbeRingOnScreenHarness
     /// <c>ProbeRingOnScreenGateTests</c>.
     /// </para>
     /// </summary>
-    private static CapturedFrame CaptureAt(
+    private static ProbeRingCapturedSample CaptureAt(
         ProbeRingTestWindow window, ProbeRingVisual ring, double scale, double fraction, bool snap,
-        int screenWidthPx, int screenHeightPx)
+        int screenWidthPx, int screenHeightPx, string kind, string condition, int repeat)
     {
         var frame = ProbeRingFrameSchedule.For(
             window.Left, window.Top, scale, fraction, screenWidthPx, screenHeightPx);
@@ -289,7 +317,8 @@ internal static class ProbeRingOnScreenHarness
         var bgra = ReadBgra(capture.Value.Image, capture.Value.Size);
         var background = ProbeRingCaptureAnalysis.MeasureBackground(bgra, capture.Value.Size, capture.Value.Size);
         var weights = ProbeRingCaptureAnalysis.ToWeights(bgra, capture.Value.Size, capture.Value.Size, background);
-        return new CapturedFrame(frame, weights, background);
+        return new ProbeRingCapturedSample(
+            kind, condition, fraction, repeat, frame, bgra, capture.Value.Size, weights, background);
     }
 
     /// <summary>
@@ -315,10 +344,6 @@ internal static class ProbeRingOnScreenHarness
 
     private static string Invariant(FormattableString message) =>
         FormattableString.Invariant(message);
-
-    /// <summary>One captured frame: how it was scheduled, the estimator raster, and its measured background.</summary>
-    private sealed record CapturedFrame(
-        ProbeRingFrameSchedule.Frame Frame, ProbeRaster Weights, (byte R, byte G, byte B) Background);
 }
 
 /// <summary>

@@ -258,7 +258,7 @@ public class SubPixelProbeViewModelTests
     // ------------------------------------------------------------------------- V1 (d), (e), (m): the void rules
 
     [Fact]
-    public void V1d_InvalidGazeOver500ms_VoidsAndRequeues_Exactly500DoesNot()
+    public void V1d_NoValidGazeOver500ms_VoidsAndRequeues_Exactly500DoesNot()
     {
         var f = new Harness();
         f.StartToTrials();
@@ -266,22 +266,26 @@ public class SubPixelProbeViewModelTests
         Check.That(f.DriveUntil(() => f.Vm.Phase == SubPixelProbePhase.Interval1 && !f.Vm.IsDemo)).IsTrue();
         var trial1 = f.Vm.CurrentTrial;
 
-        // 50 ms invalid samples: the run reaches exactly 500 ms at the 11th sample.
+        // 50 ms invalid samples from the last valid one: the guard's deadline is lastValid + 501.
         f.Valid = false;
         for (int i = 0; i < 10; i++) f.Tick(50);
 
-        f.Tick(50);
         Check.That(f.Vm.CurrentBlockVoids).IsEqualTo(0);
         Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Interval1);
 
         f.Tick(50);
         Check.That(f.Vm.CurrentBlockVoids).IsEqualTo(1);
-        Check.That(f.Vm.CurrentTrial).IsEqualTo(f.Schedule.DriftTrials[1]);
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.VoidHold);
         Check.That(f.Vm.CurrentBlockTrialOutcomes).HasSize(1);
         Check.That(f.Vm.CurrentBlockTrialOutcomes[0].VoidReason)
             .IsEqualTo(SubPixelProbeVoidReason.InvalidGaze);
 
+        // Q2: the next trial waits for a valid sample.
         f.Valid = true;
+        f.Tick(30);
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Interval1);
+        Check.That(f.Vm.CurrentTrial).IsEqualTo(f.Schedule.DriftTrials[1]);
+
         f.PlayBlock();
 
         Check.That(f.Blocks).HasSize(1);
@@ -293,7 +297,7 @@ public class SubPixelProbeViewModelTests
     }
 
     // Mutation (d1): InvalidGazeVoidMs 500 -> 700 -> the 550 ms run never voids.
-    // Mutation (d2): the comparison > becomes >= -> the exactly-500 sample voids.
+    // Mutation (d2): the guard is armed with 500, not 501 -> the exactly-500 check voids.
     // Mutation (d3, o10): the requeue dropped or inserted at the front -> the last-trial assertion
     //   or the next-trial assertion goes red.
 
@@ -353,6 +357,9 @@ public class SubPixelProbeViewModelTests
 
         f.Vm.ReportRenderGap(51);
         Check.That(f.Vm.CurrentBlockVoids).IsEqualTo(1);
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.VoidHold);
+
+        f.Tick(30); // a valid sample releases the hold and starts trial 2
         Check.That(f.Vm.CurrentTrial).IsEqualTo(f.Schedule.DriftTrials[1]);
 
         // Outside the intervals a report is ignored entirely.
@@ -425,8 +432,11 @@ public class SubPixelProbeViewModelTests
         var trial1 = f.Vm.CurrentTrial;
 
         f.Vm.ReportRenderGap(100);
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.VoidHold);
 
-        // The block carries on with the next scheduled trial; the voided one is appended.
+        // A valid sample releases the hold; the block carries on with the next scheduled trial and
+        // the voided one is appended.
+        f.Tick(30);
         Check.That(f.Vm.CurrentTrial).IsEqualTo(f.Schedule.DriftTrials[1]);
 
         f.PlayBlock();
@@ -451,10 +461,10 @@ public class SubPixelProbeViewModelTests
 
         Check.That(f.DriveUntil(() => f.Vm.Phase == SubPixelProbePhase.Interval1 && !f.Vm.IsDemo)).IsTrue();
 
-        f.Vm.ReportRenderGap(100);
-        f.Vm.ReportRenderGap(100);
-        f.Vm.ReportRenderGap(100);
-        f.Vm.ReportRenderGap(100);
+        f.VoidWithGap();
+        f.VoidWithGap();
+        f.VoidWithGap();
+        f.VoidWithGap();
 
         Check.That(f.Blocks).HasSize(1);
         Check.That(f.Blocks[0].Block).IsEqualTo(SubPixelAbBlock.Drift);
@@ -495,10 +505,10 @@ public class SubPixelProbeViewModelTests
             && f.Vm.Phase == SubPixelProbePhase.Interval1
             && !f.Vm.IsDemo)).IsTrue();
 
-        f.Vm.ReportRenderGap(100);
-        f.Vm.ReportRenderGap(100);
-        f.Vm.ReportRenderGap(100);
-        f.Vm.ReportRenderGap(100);
+        f.VoidWithGap();
+        f.VoidWithGap();
+        f.VoidWithGap();
+        f.VoidWithGap();
 
         Check.That(f.Blocks).HasSize(2);
         Check.That(f.Blocks[1].Block).IsEqualTo(SubPixelAbBlock.Static);
@@ -521,9 +531,9 @@ public class SubPixelProbeViewModelTests
         f.StartToTrials();
 
         Check.That(f.DriveUntil(() => f.Vm.Phase == SubPixelProbePhase.Interval1 && !f.Vm.IsDemo)).IsTrue();
-        f.Vm.ReportRenderGap(100);
-        f.Vm.ReportRenderGap(100);
-        f.Vm.ReportRenderGap(100);
+        f.VoidWithGap();
+        f.VoidWithGap();
+        f.VoidWithGap();
         f.PlayBlock();
 
         Check.That(f.Blocks[0].Tally.Voids).IsEqualTo(3);
@@ -727,14 +737,18 @@ public class SubPixelProbeViewModelTests
         f.ReachScreen(screen);
 
         // Valid samples keep the eyes-closed exit quiet; the screen timeout is the only exit left.
+        // A Result timeout ends an already-complete run, so it gets its own reason (F14).
         f.Drive(60_500);
         Check.That(f.Runs).HasSize(1);
-        Check.That(f.Runs[0]).IsEqualTo(SubPixelProbeRunEndReason.NoAnswer);
+        Check.That(f.Runs[0]).IsEqualTo(screen == SubPixelProbePhase.Result
+            ? SubPixelProbeRunEndReason.ResultTimeout
+            : SubPixelProbeRunEndReason.NoAnswer);
         Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Ended);
     }
 
     // Mutation (l1): any exit removed from any of the three phases -> that theory case goes red.
     // Mutation (l2): the screen timeout not armed on Intro/Ask/Result -> V1l3 goes red.
+    // Mutation (F14): a Result timeout reports NoAnswer again -> the Result case goes red.
 
     [Fact]
     public void V1l4_AskYes_StartsSessionTwo_AskLater_EndsAtResult()
@@ -1005,6 +1019,10 @@ public class SubPixelProbeViewModelTests
         Check.That(f.Vm.CurrentBlockVoids).IsEqualTo(1);
         Check.That(f.Vm.CurrentBlockTrialOutcomes[0].LongestRenderGapMs).IsEqualTo(60);
 
+        // Release the void hold with a valid sample; trial 2 then runs.
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.VoidHold);
+        f.Tick(30);
+
         // Trial 2: no interval reports; a report on its answer screen must not leak into the record.
         Check.That(f.DriveUntil(() => f.Vm.Phase == SubPixelProbePhase.Answer)).IsTrue();
         f.Vm.ReportRenderGap(200);
@@ -1116,6 +1134,255 @@ public class SubPixelProbeViewModelTests
 
     // Mutation (resume3): the resume skips the Intro (Start goes straight to the live block) ->
     //   the Phase == Intro check and all three exit cases go red.
+
+    // ------------------------------------------------------ review 02 probes: guarded raises (F9), cancels (F10)
+
+    [Fact]
+    public void V1n1_R1_EndTestFromSessionCompletedHandler_NothingAfterRunEnded()
+    {
+        var f = new Harness();
+        f.Vm.SessionCompleted += _ => f.Vm.EndTest();
+
+        f.StartToTrials();
+        f.PlayBlock();
+        f.PlayBlock();
+
+        Check.That(f.Runs).HasSize(1);
+        Check.That(f.Runs[0]).IsEqualTo(SubPixelProbeRunEndReason.EndTest);
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Ended);
+        Check.That(f.Events[^1]).IsEqualTo("R:EndTest");
+        Check.That(f.Time.ScheduledTimerCount).IsEqualTo(0);
+    }
+
+    // Mutation (n1): FinishSession's post-SessionCompleted guard checks IsDisposed only -> the Ask
+    //   screen is raised after RunEnded: the Events tail check goes red.
+
+    [Fact]
+    public void V1n2_R2_AbortedSession2_RaisesSessionCompletedBeforeRunEnded()
+    {
+        var f = new Harness();
+        f.StartToTrials();
+        f.CompleteSession1();
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Ask);
+
+        f.Vm.ContinueToLiveGaze();
+        f.Drive(5000);
+        f.Vm.EndTest();
+
+        Check.That(f.Sessions).HasSize(2);
+        Check.That(f.Sessions[1].Session).IsEqualTo(SubPixelProbeSessionKind.Session2);
+        Check.That(f.Sessions[1].Aborted).IsTrue();
+        Check.That(f.Sessions[1].Reason).IsEqualTo(SubPixelProbeEndReason.EndTest);
+        Check.That(f.Runs).HasSize(1);
+        Check.That(f.Runs[0]).IsEqualTo(SubPixelProbeRunEndReason.EndTest);
+    }
+
+    // Mutation (n3): an aborted session 2 raises no SessionCompleted -> the Sessions checks go red.
+
+    [Fact]
+    public void V1n3_R4_LateAskYes_StaleScreenTimerDoesNotAbortSession2()
+    {
+        var f = new Harness();
+        f.StartToTrials();
+        f.CompleteSession1();
+
+        f.Drive(50_000); // the Ask screen timer is 10 s from firing
+        f.Vm.ContinueToLiveGaze();
+        f.Drive(15_000); // past Ask onset + 60 s; the cancelled timer must not abort session 2
+
+        Check.That(f.Runs).IsEmpty();
+        Check.That(f.Sessions).HasSize(1);
+    }
+
+    // Mutation (n2): Ask -> Yes does not cancel the screen timer -> the stale timer aborts inside
+    //   the 15 s drive: the Runs check goes red.
+
+    [Fact]
+    public void V1n4_R4b_LateIntroStart_StaleScreenTimerDoesNotAbortSession1()
+    {
+        var f = new Harness();
+        f.Vm.Start();
+        f.Drive(55_000);
+        f.Vm.BeginTrials();
+        f.Drive(8_000);
+        Check.That(f.Runs).IsEmpty();
+    }
+
+    // Mutation (n2b): Intro -> Start does not cancel the screen timer -> red.
+
+    [Fact]
+    public void V1n5_R5_EndTestFromPhasePropertyChanged_NothingAfterRunEnded()
+    {
+        var f = new Harness();
+        bool fired = false;
+        f.Vm.PropertyChanged += (_, e) =>
+        {
+            if (!fired && e.PropertyName == nameof(SubPixelProbeViewModel.Phase)
+                && f.Vm.Phase == SubPixelProbePhase.Interval1 && !f.Vm.IsDemo)
+            {
+                fired = true;
+                f.Vm.EndTest();
+            }
+        };
+
+        f.StartToTrials();
+        f.DriveUntil(() => fired);
+
+        Check.That(fired).IsTrue();
+        Check.That(f.Events[^1]).IsEqualTo("R:EndTest");
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Ended);
+    }
+
+    // Mutation (F9a): TransitionTo drops the mid-check between the Phase assignment and the
+    //   PhaseAdvanced raise -> a PhaseAdvanced(Ended) lands after RunEnded: the tail check goes red.
+
+    [Fact]
+    public void V1n6_R5b_DisposeFromPhaseIdlePropertyChanged_NoBlockCompletedAfter()
+    {
+        var f = new Harness();
+        int afterDispose = 0;
+        bool disposed = false;
+        f.Vm.PropertyChanged += (_, e) =>
+        {
+            if (!disposed && e.PropertyName == nameof(SubPixelProbeViewModel.Phase)
+                && f.Vm.Phase == SubPixelProbePhase.Idle)
+            {
+                disposed = true;
+                f.Vm.Dispose();
+            }
+        };
+        f.Vm.BlockCompleted += _ => { if (disposed) afterDispose++; };
+
+        f.StartToTrials();
+        f.DriveUntil(() => disposed, answer: true);
+
+        Check.That(disposed).IsTrue();
+        Check.That(afterDispose).IsEqualTo(0);
+        Check.That(f.Time.ScheduledTimerCount).IsEqualTo(0);
+    }
+
+    // Mutation (F9b): CompleteBlock assigns Phase = Idle directly (no helper) -> BlockCompleted is
+    //   raised on the disposed view model: afterDispose becomes 1.
+
+    [Fact]
+    public void V1n7_R6_StartAfterEndTest_IsInert()
+    {
+        var f = new Harness();
+        f.Vm.EndTest();
+        Check.That(f.Runs).HasSize(1);
+
+        f.Vm.Start();
+
+        Check.That(f.Events[^1]).IsEqualTo("R:EndTest");
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Ended);
+    }
+
+    // Mutation (F11): Start's guard drops _ended -> the Intro is entered after RunEnded: red.
+
+    [Fact]
+    public void V1n8_R7_DisposeFromTerminalPhaseAdvanced_NoRunEnded()
+    {
+        var f = new Harness();
+        f.Vm.PhaseAdvanced += () => { if (f.Vm.Phase == SubPixelProbePhase.Ended) f.Vm.Dispose(); };
+
+        f.Vm.Start();
+        f.Vm.EndTest();
+
+        Check.That(f.Runs).IsEmpty();
+    }
+
+    // Mutation (F12): EndRun drops the IsDisposed check between the terminal raises -> RunEnded
+    //   reaches the disposed view model: the Runs check goes red.
+
+    [Fact]
+    public void V1n9_R8_MixedInvalidAndSilence_700msWithoutValidGaze_Voids()
+    {
+        var f = new Harness();
+        f.StartToTrials();
+        Check.That(f.DriveUntil(() => f.Vm.Phase == SubPixelProbePhase.Interval1 && !f.Vm.IsDemo)).IsTrue();
+
+        f.Drive(300);        // valid samples up to +300
+        f.Valid = false;
+        f.Drive(300);        // 300 ms of invalid samples
+        f.Time.Advance(400); // then 400 ms of silence
+        f.Valid = true;
+        f.Drive(60);
+
+        Check.That(f.Vm.CurrentBlockVoids).IsEqualTo(1);
+        Check.That(f.Vm.CurrentBlockTrialOutcomes[0].VoidReason)
+            .IsEqualTo(SubPixelProbeVoidReason.InvalidGaze);
+    }
+
+    // Mutation (F13): invalid and silence tracked separately — every sample re-arms the guard and
+    //   invalid samples never leave a run — the mixed 300+400 case never crosses 500: red.
+
+    [Fact]
+    public void V1n10_R10_OneClosureOf2500ms_CostsOneVoid_AndHolds()
+    {
+        var f = new Harness();
+        f.StartToTrials();
+        Check.That(f.DriveUntil(() => f.Vm.Phase == SubPixelProbePhase.Interval1 && !f.Vm.IsDemo)).IsTrue();
+
+        f.Valid = false;
+        f.Drive(2500);
+
+        Check.That(f.Vm.CurrentBlockVoids).IsEqualTo(1);
+        Check.That(f.Blocks).IsEmpty();
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.VoidHold);
+
+        f.Valid = true;
+        f.Tick(30);
+
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Interval1);
+        Check.That(f.Vm.CurrentTrial).IsEqualTo(f.Schedule.DriftTrials[1]);
+        Check.That(f.Vm.CurrentBlockVoids).IsEqualTo(1);
+    }
+
+    // Mutation (Q2): the void starts the next trial immediately -> the 2.5 s closure burns four
+    //   trials: Voids, Phase and Blocks all go red.
+
+    [Fact]
+    public void V1n11_R11_CloseEyesToLeave_MidTrial_IsRecordedAsAnEyesClosedAbort()
+    {
+        var f = new Harness();
+        f.StartToTrials();
+        Check.That(f.DriveUntil(() => f.Vm.Phase == SubPixelProbePhase.Interval1 && !f.Vm.IsDemo)).IsTrue();
+
+        f.Valid = false;
+        f.Drive(10_500);
+
+        Check.That(f.Sessions).HasSize(1);
+        Check.That(f.Sessions[0].Reason).IsEqualTo(SubPixelProbeEndReason.EyesClosed);
+        Check.That(f.Sessions[0].Aborted).IsTrue();
+        Check.That(f.Blocks).IsEmpty();
+        Check.That(f.Runs).HasSize(1);
+        Check.That(f.Runs[0]).IsEqualTo(SubPixelProbeRunEndReason.EyesClosed);
+    }
+
+    // Mutation (Q2b): the hold releases on any sample, not only a valid one -> the closure keeps
+    //   voiding trials and the cap wins: the eyes-closed abort assertions go red.
+
+    [Fact]
+    public void V1n12_CurrentSession_FollowsTheRun()
+    {
+        var f = new Harness();
+        f.Vm.Start();
+        Check.That(f.Vm.CurrentSession).IsNull();
+
+        f.Vm.BeginTrials();
+        Check.That(f.Vm.CurrentSession).IsEqualTo(SubPixelProbeSessionKind.Session1);
+
+        f.CompleteSession1();
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Ask);
+        Check.That(f.Vm.CurrentSession).IsNull();
+
+        f.Vm.ContinueToLiveGaze();
+        Check.That(f.Vm.CurrentSession).IsEqualTo(SubPixelProbeSessionKind.Session2);
+
+        f.PlayBlock();
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Result);
+        Check.That(f.Vm.CurrentSession).IsNull();
+    }
 
     // ------------------------------------------------------------------------------------ V1 helpers
 
@@ -1233,15 +1500,24 @@ public class SubPixelProbeViewModelTests
         }
 
         /// <summary>Drives until <paramref name="condition"/> holds; returns whether it held before the limit.</summary>
-        public bool DriveUntil(Func<bool> condition, PhysicalPoint? at = null, long limitMs = 300_000)
+        public bool DriveUntil(Func<bool> condition, PhysicalPoint? at = null, long limitMs = 300_000, bool answer = false)
         {
             for (long elapsed = 0; elapsed < limitMs; elapsed += 30)
             {
                 if (condition()) return true;
                 Tick(30, at);
+                if (answer && Vm.Phase == SubPixelProbePhase.Answer)
+                    AnswerCurrentTrial(SubPixelAbCondition.B);
             }
 
             return condition();
+        }
+
+        /// <summary>Voids the current trial with a 100 ms render gap, then releases the hold if one began.</summary>
+        public void VoidWithGap()
+        {
+            Vm.ReportRenderGap(100);
+            if (Vm.Phase == SubPixelProbePhase.VoidHold) Tick(30);
         }
 
         /// <summary>Drives to the answer screen of the current trial and simulates the picked button.</summary>

@@ -59,7 +59,8 @@ internal sealed class ProbeTestWorld : IDisposable
     internal ProbeTestWorld(
         bool holdKeyboardClaim = false,
         bool withQuickActions = false,
-        bool withSettingsUi = false)
+        bool withSettingsUi = false,
+        Func<double?>? refreshRateHz = null)
     {
         Engine = new GazeEngine(Provider, new TestFakes.FakeInputSimulator(), Settings);
         if (holdKeyboardClaim) Engine.AcquireFixationSuppression(FixationSuppressor.Keyboard);
@@ -117,7 +118,8 @@ internal sealed class ProbeTestWorld : IDisposable
                 : null,
         };
 
-        Coordinator = new SubPixelProbeCoordinator(Modal, Host, () => Now, Timers.Create, ResultsDir);
+        Coordinator = new SubPixelProbeCoordinator(
+            Modal, Host, () => Now, Timers.Create, ResultsDir, refreshRateHz);
         Coordinator.Initialize(context);
     }
 
@@ -128,24 +130,42 @@ internal sealed class ProbeTestWorld : IDisposable
     /// <summary>Drains everything queued, including the ContextIdle <c>CaptureAndShow</c>.</summary>
     internal void Pump() => Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
 
+    private Type? _expectedQueuedFailure;
+
     /// <summary>
-    /// Drains queued work and swallows whatever it throws, so one world's queued operation can never
-    /// run in a later test's <see cref="Pump"/> (fixup 02 M1). The SettingsRequested path posts a
-    /// real <c>ShowSettingsWindow</c> that this world cannot build; consuming it here is what makes
-    /// the tests order-independent.
+    /// Declares the one queued failure this world knowingly leaves behind (the SettingsRequested
+    /// path posts a real <c>ShowSettingsWindow</c> this world cannot build). Any other queued
+    /// failure makes <see cref="DrainQueuedWork"/> throw, so the containment cannot hide a broken
+    /// posted <c>Restore</c> or an un-pumped show sequence (fixup 03 N6).
     /// </summary>
-    internal void DrainContaining()
+    internal void ExpectQueuedFailure<TException>() where TException : Exception =>
+        _expectedQueuedFailure = typeof(TException);
+
+    /// <summary>
+    /// Drains queued work. A queued operation that throws is accepted only when its type was
+    /// declared with <see cref="ExpectQueuedFailure{TException}"/>; anything else throws here, in
+    /// the test that caused it.
+    /// </summary>
+    internal void DrainQueuedWork()
     {
         for (int i = 0; i < 4; i++)
         {
+            Exception? caught = null;
             try
             {
                 Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
             }
-            catch
+            catch (Exception ex)
             {
-                // A queued operation threw; its item is consumed and the next pass drains the rest.
+                caught = ex;
             }
+
+            if (caught is null) return;
+            if (_expectedQueuedFailure is { } expected && expected.IsInstanceOfType(caught)) continue;
+
+            throw new InvalidOperationException(
+                "A test left failing queued work behind; if it is expected, declare it with "
+                + "ExpectQueuedFailure<T>() (fixup 03 N6).", caught);
         }
     }
 
@@ -163,14 +183,14 @@ internal sealed class ProbeTestWorld : IDisposable
 
     public void Dispose()
     {
+        // Drain BEFORE teardown, so queued production work runs against the live graph and any
+        // undeclared failure surfaces in the test that caused it (fixup 03 N6).
+        DrainQueuedWork();
+
         Coordinator.Dispose();
         SettingsUi?.Dispose();
         QuickActions?.Dispose();
         Engine.Dispose();
-
-        // Contain anything this world queued (e.g. the SettingsRequested test's posted
-        // ShowSettingsWindow) before the dispatcher can hand it to a later test (fixup 02 M1).
-        DrainContaining();
     }
 }
 

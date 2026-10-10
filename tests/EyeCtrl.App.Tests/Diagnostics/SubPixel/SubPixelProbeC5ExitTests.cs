@@ -23,9 +23,10 @@ using Xunit;
 [Collection("WpfApplication")]
 public class SubPixelProbeC5ExitTests
 {
-    private static (ProbeTestWorld World, ManualTimeProvider Time, ProbeRunDriver Driver) NewRunWorld()
+    private static (ProbeTestWorld World, ManualTimeProvider Time, ProbeRunDriver Driver) NewRunWorld(
+        Func<double?>? refreshRateHz = null)
     {
-        var world = new ProbeTestWorld(holdKeyboardClaim: true);
+        var world = new ProbeTestWorld(holdKeyboardClaim: true, refreshRateHz: refreshRateHz);
         var time = new ManualTimeProvider();
         world.Host.ViewModelFactory = (schedule, _, _, mode, resume) =>
         {
@@ -113,23 +114,7 @@ public class SubPixelProbeC5ExitTests
         Check.That(sessions[0].GetProperty("session").GetString()).IsEqualTo("session1");
     }
 
-    // ---- M3: a coordinator-initiated abort still leaves a reason in the file ----------------------
-
-    [Fact]
-    public void ACoordinatorAbort_WritesAnEndTestRunReason()
-    {
-        var (world, _, driver) = NewRunWorld();
-        using var _ = world;
-        var session = world.Session;
-        driver.StartToTrials();
-
-        // What the watchdog, Esc, an interlock or a failed show all do.
-        world.Coordinator.Restore(session);
-
-        using var document = ReadResult(session);
-        Check.WithCustomMessage("A coordinator abort left the file without a run-end reason")
-            .That(document.RootElement.GetProperty("runEndReason").GetString()).IsEqualTo("endTest");
-    }
+    // ---- M3: a completed run keeps C5's own reason -------------------------------------------------
 
     [Fact]
     public void ACompletedRun_WritesCompleted_NotTheAbortFallback()
@@ -149,6 +134,65 @@ public class SubPixelProbeC5ExitTests
         Check.WithCustomMessage(
                 "C5's own run-end reason must survive; a completed run says 'completed', not the abort fallback")
             .That(document.RootElement.GetProperty("runEndReason").GetString()).IsEqualTo("completed");
+    }
+
+    // ---- N5: the default frame rate interprets Stopwatch-scale ticks ------------------------------
+
+    [StaFact]
+    public void TheDefaultFrameRate_InterpretsStopwatchScaleTicks()
+    {
+        // N5 / M4-rate + M4-nodiv: inject Stopwatch-scale ticks with frameTicksPerMs 0, so the
+        // production rate is selected. A rate of 1.0 or a raw-tick gap makes the 40 ms case void.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+
+        foreach (var (gapMs, expectVoid) in new[] { (40L, false), (60L, true) })
+        {
+            var (world, _, driver) = NewRunWorld();
+            using var _ = world;
+            var session = world.Session;
+            driver.StartToTrials();
+            driver.DriveToFirstScoredInterval1();
+
+            long baseTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+            double elapsedMs = 0;
+            var window = new SubPixelProbeWindow(
+                null, session.Vm!, new CursorSettings(), () => { },
+                scale: 1.0,
+                frameTicks: () => baseTicks + (long)(System.Diagnostics.Stopwatch.Frequency * elapsedMs / 1000.0),
+                frameTicksPerMs: 0);
+            try
+            {
+                new WindowInteropHelper(window).EnsureHandle();
+                window.OnFrame();
+                elapsedMs = gapMs;
+                window.OnFrame();
+
+                Check.WithCustomMessage(
+                        $"A {gapMs} ms Stopwatch-scale gap must {(expectVoid ? "" : "not ")}void the trial; "
+                        + $"phase is {session.Vm!.Phase}")
+                    .That(session.Vm!.Phase == SubPixelProbePhase.VoidHold).IsEqualTo(expectVoid);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+    }
+
+    // ---- N7: the injected refresh rate reaches the file -------------------------------------------
+
+    [Fact]
+    public void TheInjectedRefreshRate_IsRecorded()
+    {
+        var (world, _, driver) = NewRunWorld(() => 60.25);
+        using var _ = world;
+        var session = world.Session;
+        driver.StartToTrials();
+        world.Coordinator.Restore(session);
+
+        using var document = ReadResult(session);
+        Check.WithCustomMessage("displayRefreshHz is absent although the refresh provider returned 60.25")
+            .That(document.RootElement.GetProperty("displayRefreshHz").GetDouble()).IsCloseTo(60.25, 1e-9);
     }
 
     // ---- M4: the render-gap clock ----------------------------------------------------------------

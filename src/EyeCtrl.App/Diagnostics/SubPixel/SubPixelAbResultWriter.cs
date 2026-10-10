@@ -114,7 +114,8 @@ internal sealed record SubPixelAbDocument(
     string? ResumedSession1LogLine,
     IReadOnlyList<SubPixelAbBlockResult> Blocks,
     IReadOnlyList<SubPixelAbSessionResult> Sessions,
-    SubPixelProbeRunEndReason? RunEndReason);
+    SubPixelProbeRunEndReason? RunEndReason,
+    ProbeAbortReason? AbortReason);
 
 /// <summary>
 /// C11 — the sub-pixel probe's results writer. Writes an atomic JSON document to
@@ -153,6 +154,7 @@ internal sealed class SubPixelAbResultWriter
     private readonly SubPixelProbeStartMode _startMode;
     private readonly string? _resumedSession1LogLine;
     private SubPixelProbeRunEndReason? _runEndReason;
+    private ProbeAbortReason? _abortReason;
     private double? _sampleCadenceMs;
 
     /// <summary>Creates a writer for one run. Nothing is written until the first event.</summary>
@@ -177,9 +179,6 @@ internal sealed class SubPixelAbResultWriter
 
     /// <summary>The file this writer owns, for the log and tests.</summary>
     public string FilePath => _filePath;
-
-    /// <summary>Whether a run-end reason has been recorded; C7's abort path only writes when absent.</summary>
-    public bool HasRunEnd => _runEndReason is not null;
 
     /// <summary>
     /// Records the run's mean sample interval. C7 computes it from the <c>GazeSampled</c> stream as
@@ -244,15 +243,15 @@ internal sealed class SubPixelAbResultWriter
     }
 
     /// <summary>
-    /// Records why the run ended unless a reason is already stored. C7's abort path uses this so a
-    /// coordinator-initiated abort (watchdog, Esc, interlock, a failed show) gives the file a reason
-    /// without overwriting the one a C5-triggered end already wrote (fixup 02 M3).
+    /// Records why C7 itself ended the run, separately from C5's <c>runEndReason</c>, so SP-6 can
+    /// tell the owner's End test from a backstop, an interlock or a fault. First-wins: the first
+    /// trigger to end the run owns the reason (fixup 03 N3).
     /// </summary>
-    /// <param name="reason">The run's end reason.</param>
-    public void WriteRunEndIfAbsent(SubPixelProbeRunEndReason reason)
+    /// <param name="reason">The C7 abort reason.</param>
+    public void RecordAbortReason(ProbeAbortReason reason)
     {
-        if (_runEndReason is not null) return;
-        _runEndReason = reason;
+        if (_abortReason is not null) return;
+        _abortReason = reason;
         Save();
     }
 
@@ -316,7 +315,8 @@ internal sealed class SubPixelAbResultWriter
             _resumedSession1LogLine,
             [.. _blocks],
             [.. _sessions],
-            _runEndReason);
+            _runEndReason,
+            _abortReason);
 
         var directory = Path.GetDirectoryName(_filePath);
         if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);

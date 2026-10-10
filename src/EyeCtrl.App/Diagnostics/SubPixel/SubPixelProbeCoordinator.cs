@@ -46,6 +46,50 @@ internal enum ProbeRefusal
     CalibrationActive,
 }
 
+/// <summary>Why C7 itself ended a run (fixup 03 N3). Recorded separately from C5's own run-end reason so
+/// SP-6 can tell the owner's End test from a backstop, an interlock or a fault.</summary>
+internal enum ProbeAbortReason
+{
+    /// <summary>The window was not shown within the 5 s deadline.</summary>
+    ShowDeadline,
+
+    /// <summary>The 15-minute per-session cap expired.</summary>
+    SessionCap,
+
+    /// <summary>No phase progress for 90 s.</summary>
+    NoProgress,
+
+    /// <summary>No valid gaze sample for 12 s.</summary>
+    NoValidGaze,
+
+    /// <summary>Esc, for a caregiver.</summary>
+    Escape,
+
+    /// <summary>The tray or a deep link asked for Settings mid-run.</summary>
+    SettingsRequested,
+
+    /// <summary>The tray asked to show the toolbar mid-run.</summary>
+    ForceShowToolbar,
+
+    /// <summary>The tray paused the app mid-run.</summary>
+    Paused,
+
+    /// <summary>A BeginStart step threw.</summary>
+    StartStepFailed,
+
+    /// <summary>The show sequence threw.</summary>
+    ShowFailed,
+
+    /// <summary>A precondition menu appeared between the queue and the show.</summary>
+    MenuOpened,
+
+    /// <summary>The probe window's close was observed.</summary>
+    WindowClosed,
+
+    /// <summary>The coordinator was disposed with a live session.</summary>
+    Disposed,
+}
+
 /// <summary>
 /// C7 — the sub-pixel probe's coordinator (build plan C7, "how it works", in full).
 ///
@@ -106,6 +150,14 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
     private readonly Func<long> _nowMs;
     private readonly Func<DispatcherPriority, TimeSpan, Action, IDisposable> _timerFactory;
     private readonly string _resultsDirectory;
+    private readonly Func<double?> _refreshRateHz;
+
+    /// <summary>
+    /// Test seam for the refusal log (fixup 03 N8): when set, a refused start reports here instead
+    /// of the global Serilog logger, so a test never swaps the process-wide <c>Log.Logger</c> while
+    /// other classes log in parallel. Production leaves it null.
+    /// </summary>
+    internal Action<ProbeRefusal>? RefusalLogger { get; set; }
 
     private int _generation;
     private int? _pendingStart;
@@ -125,18 +177,21 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
     /// <param name="nowMs">The clock the watchdog reads; tests inject a fake.</param>
     /// <param name="timerFactory">The watchdog's timer factory; production wraps DispatcherTimer.</param>
     /// <param name="resultsDirectory">Where C11 writes results; tests pass a temp directory.</param>
+    /// <param name="refreshRateHz">The display refresh rate for the results file; tests inject a provider.</param>
     public SubPixelProbeCoordinator(
         ModalInteractionState modal,
         IProbeHost host,
         Func<long>? nowMs = null,
         Func<DispatcherPriority, TimeSpan, Action, IDisposable>? timerFactory = null,
-        string? resultsDirectory = null)
+        string? resultsDirectory = null,
+        Func<double?>? refreshRateHz = null)
     {
         _modal = modal ?? throw new ArgumentNullException(nameof(modal));
         _host = host ?? throw new ArgumentNullException(nameof(host));
         _nowMs = nowMs ?? (() => Environment.TickCount64);
         _timerFactory = timerFactory ?? CreateDispatcherTimer;
         _resultsDirectory = resultsDirectory ?? AppBootstrapper.DefaultAppDataDir;
+        _refreshRateHz = refreshRateHz ?? ProbeDisplayInfo.TryGetRefreshRateHz;
     }
 
     /// <summary>The live session, for tests (W1 (d)/(g), W7).</summary>
@@ -178,7 +233,7 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         _modal.SettingsOpenChanged += OnSettingsOpenChanged;
 
         context.Messenger.Register<SubPixelProbeCoordinator, SettingsRequestedMessage>(this,
-            (_, _) => OnInterlock());
+            (_, _) => OnInterlock(ProbeAbortReason.SettingsRequested));
         context.Messenger.Register<SubPixelProbeCoordinator, StateChangedMessage>(this,
             (_, m) => OnStateChanged(m));
         context.Messenger.Register<SubPixelProbeCoordinator, GazeCursorMovedMessage>(this,
@@ -312,6 +367,17 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
     internal bool CanResumeFromResults() =>
         SubPixelProbeViewModel.CanResumeSession2(ReadResumeVerdict());
 
+    private void ReportRefusal(ProbeRefusal refusal)
+    {
+        if (RefusalLogger is { } logger)
+        {
+            logger(refusal);
+            return;
+        }
+
+        Log.Information("Sub-pixel probe start refused: {Refusal}", refusal);
+    }
+
     private ProbeRefusal? CurrentRefusal()
     {
         if (Context is null) return ProbeRefusal.SettingsOpen;
@@ -369,10 +435,10 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
     /// original action continues. Running synchronously inside the trigger's handler is the
     /// ordering mechanism — the messenger guarantees no delivery order (review 04 N7).
     /// </summary>
-    private void OnInterlock()
+    private void OnInterlock(ProbeAbortReason reason)
     {
         _generation++;
-        if (_session is { } session) Restore(session);
+        if (_session is { } session) Restore(session, reason);
     }
 
     /// <summary>
@@ -384,14 +450,14 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
     internal void InterlockForceShowToolbar(Action continueWith)
     {
         ArgumentNullException.ThrowIfNull(continueWith);
-        OnInterlock();
+        OnInterlock(ProbeAbortReason.ForceShowToolbar);
         continueWith();
     }
 
     private void OnStateChanged(StateChangedMessage message)
     {
         if (message.NewState != InteractionState.Paused) return;
-        OnInterlock();
+        OnInterlock(ProbeAbortReason.Paused);
     }
 
     private void OnGazeCursorMoved(GazeCursorMovedMessage message)
@@ -412,7 +478,7 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         dispatcher.BeginInvoke(() =>
         {
             if (_disposed) return;
-            if (_modal.ProbeOpen && _session is { } session) Restore(session);
+            if (_modal.ProbeOpen && _session is { } session) Restore(session, ProbeAbortReason.Escape);
         });
     }
 
@@ -445,7 +511,7 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         var refusal = CurrentRefusal();
         if (refusal is not null)
         {
-            Log.Information("Sub-pixel probe start refused: {Refusal}", refusal.Value);
+            ReportRefusal(refusal.Value);
             return;
         }
 
@@ -484,7 +550,7 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
             catch (Exception ex)
             {
                 Log.Error(ex, "The sub-pixel probe's show sequence threw; restoring");
-                Restore(session);
+                Restore(session, ProbeAbortReason.ShowFailed);
             }
         });
     }
@@ -522,7 +588,7 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
                 context.Settings.Dwell.ToolbarButtonDwellMs,
                 DpiHelper.ScaleX,
                 PrimaryScreenBoundsPhys(),
-                DisplayRefreshHz: ProbeDisplayInfo.TryGetRefreshRateHz()),
+                DisplayRefreshHz: _refreshRateHz()),
             session.StartMode,
             session.ResumedSession1Verdict?.LogLine);
     }
@@ -580,7 +646,7 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         catch (Exception ex)
         {
             Log.Error(ex, "A sub-pixel probe start step threw; restoring");
-            Restore(session);
+            Restore(session, ProbeAbortReason.StartStepFailed);
             return false;
         }
 
@@ -602,7 +668,7 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         _host.AssertToolbarInactive();
         if (_host.AnyMenuVisible)
         {
-            Restore(session);
+            Restore(session, ProbeAbortReason.MenuOpened);
             return;
         }
 
@@ -632,7 +698,7 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
 
         // 7. Construct C6 into the session, its close wired to THIS session (review 05 F4; W1 (d)).
         session.Window = _host.CreateWindow(
-            session.Backdrop, vm, Context.Settings.Cursor, () => Restore(session));
+            session.Backdrop, vm, Context.Settings.Cursor, () => Restore(session, ProbeAbortReason.WindowClosed));
 
         // 8.
         if (session.Aborted)
@@ -753,32 +819,32 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
 
         if (!session.WindowShown && now - session.StartedMs >= ShowDeadlineMs)
         {
-            Abort(session, "the window was not shown within 5 s of the start");
+            Abort(session, ProbeAbortReason.ShowDeadline, "the window was not shown within 5 s of the start");
             return;
         }
 
         if (now - session.CapStartMs >= SessionCapMs)
         {
-            Abort(session, "the 15-minute session cap expired");
+            Abort(session, ProbeAbortReason.SessionCap, "the 15-minute session cap expired");
             return;
         }
 
         if (now - Volatile.Read(ref session.LastProgressMs) >= NoProgressMs)
         {
-            Abort(session, "no phase progress for 90 s");
+            Abort(session, ProbeAbortReason.NoProgress, "no phase progress for 90 s");
             return;
         }
 
         if (now - Volatile.Read(ref session.LastValidMs) >= NoValidSampleMs)
         {
-            Abort(session, "no valid gaze sample for 12 s");
+            Abort(session, ProbeAbortReason.NoValidGaze, "no valid gaze sample for 12 s");
         }
     }
 
-    private void Abort(ProbeSession session, string reason)
+    private void Abort(ProbeSession session, ProbeAbortReason reason, string text)
     {
-        Log.Warning("Sub-pixel probe aborting: {Reason}", reason);
-        Restore(session);
+        Log.Warning("Sub-pixel probe aborting: {Reason}", text);
+        Restore(session, reason);
     }
 
     /// <summary>
@@ -787,7 +853,12 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
     /// own guard, most dangerous first (review 03 F4).
     /// </summary>
     /// <param name="session">The run to restore.</param>
-    internal void Restore(ProbeSession session)
+    /// <param name="reason">
+    /// Why C7 ended the run, when C7 initiated it. Recorded in the results file as a separate
+    /// <c>abortReason</c>, first-wins; <c>null</c> for a C5-triggered end, whose own reason is
+    /// already in the file.
+    /// </param>
+    internal void Restore(ProbeSession session, ProbeAbortReason? reason = null)
     {
         var context = Context;
         if (context is null) return;
@@ -796,13 +867,27 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         // validity callback; the watchdog's GazeSampled handler only stamps a time.
         if (!context.Dispatcher.CheckAccess())
         {
-            context.Dispatcher.BeginInvoke(() => Restore(session));
+            context.Dispatcher.BeginInvoke(() => Restore(session, reason));
             return;
         }
 
         // 2. Abort, close and tear down — deliberately BEFORE the restored guard, so a second
         // restore still closes a window that appeared after the first one ran (review 05 F3/F4).
         session.Aborted = true;
+
+        // The trigger's reason is recorded first, BEFORE CloseWindow: the window's own Closed
+        // callback re-enters Restore with WindowClosed, and first-wins must keep the real trigger
+        // (fixup 03 N3). A later re-entrant restore is skipped by the writer's first-wins rule.
+        if (reason is { } abortReason)
+        {
+            try
+            {
+                SyncWriterCadence(session);
+                session.Writer?.RecordAbortReason(abortReason);
+            }
+            catch (Exception ex) { Log.Error(ex, "Could not write the sub-pixel probe abort reason"); }
+        }
+
         try { CloseWindow(session); }
         catch (Exception ex) { Log.Error(ex, "Closing the sub-pixel probe window failed"); }
         try { Teardown(session); }
@@ -811,15 +896,6 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
         // 3. Undo the rest once per run, each step isolated so one failure cannot skip the next
         // (review 03 F4; W1 (b)).
         if (session.Restored) return;
-
-        // A coordinator-initiated abort (watchdog, Esc, interlock, a failed show) must still leave a
-        // reason in the file; a C5-triggered end has already written its own (fixup 02 M3).
-        try
-        {
-            SyncWriterCadence(session);
-            session.Writer?.WriteRunEndIfAbsent(SubPixelProbeRunEndReason.EndTest);
-        }
-        catch (Exception ex) { Log.Error(ex, "Could not write the sub-pixel probe abort result"); }
 
         session.Restored = true;
 
@@ -915,7 +991,7 @@ internal sealed class SubPixelProbeCoordinator : CoordinatorBase
             Context.EscapeHatch.EscapePressed -= OnEscapePressed;
         }
 
-        if (_session is { } session) Restore(session);
+        if (_session is { } session) Restore(session, ProbeAbortReason.Disposed);
     }
 
     private static IDisposable CreateDispatcherTimer(DispatcherPriority priority, TimeSpan interval, Action tick)

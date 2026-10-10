@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Tests.Diagnostics.SubPixel;
 
 using System.IO;
+using System.Text.Json;
 using EyeCtrl.App.Diagnostics.SubPixel;
 using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Models;
@@ -9,9 +10,9 @@ using EyeCtrl.ViewModels;
 using Xunit;
 
 /// <summary>
-/// H2 (fixup 02): the resume reader. It must rebuild a convicting session-1 verdict from the newest
-/// matching result file, skip acquitting, session-2 and unreadable files, and fall back to "no
-/// resume" without throwing.
+/// H2 + N1 + N7 (fixup 03): the resume reader. The newest <b>decisive</b> file ends the scan — a
+/// file with at least one non-aborted session row. Aborted, half-started or empty runs say nothing
+/// and are skipped; a corrupt file is skipped and logged, so it can never hide an older conviction.
 /// </summary>
 public class SubPixelAbResultReaderTests
 {
@@ -33,54 +34,119 @@ public class SubPixelAbResultReaderTests
             [new SubPixelProbeTrialOutcome(trial, SubPixelAbCondition.B, null, 1000, 0, 0)]);
     }
 
-    private static void WriteSession1(
-        string path,
+    private const string ConvictingLogLine =
+        "Sub-pixel A/B — drift 9/10 → session 1 CONVICTS (static 6/10: cannot tell still rings apart)";
+
+    /// <summary>Writes a session-1 result; aborted, acquitting and incomplete variants included.</summary>
+    private static string WriteSession1(
+        string directory,
+        string fileName,
         SubPixelAbOutcome outcome,
-        SubPixelAbStaticReadout readout = SubPixelAbStaticReadout.CannotTellStillRingsApart,
-        string logLine = "Sub-pixel A/B — drift 9/10 → session 1 CONVICTS")
+        bool aborted = false,
+        SubPixelAbStaticReadout readout = SubPixelAbStaticReadout.CannotTellStillRingsApart)
     {
+        var path = Path.Combine(directory, fileName);
         var writer = new SubPixelAbResultWriter(path, Info());
         writer.WriteBlock(BlockOutcome(SubPixelAbBlock.Drift, aPicks: 1, bPicks: 9));
         writer.WriteBlock(BlockOutcome(SubPixelAbBlock.Static, aPicks: 6, bPicks: 4));
         writer.WriteSession(
             new SubPixelProbeSessionOutcome(
-                SubPixelProbeSessionKind.Session1, SubPixelProbeEndReason.BlocksCompleted, false, []),
-            new SubPixelAbSession1Verdict(outcome, readout, logLine),
+                SubPixelProbeSessionKind.Session1,
+                aborted ? SubPixelProbeEndReason.EndTest : SubPixelProbeEndReason.BlocksCompleted,
+                aborted,
+                []),
+            new SubPixelAbSession1Verdict(outcome, readout, ConvictingLogLine),
             null);
+        return path;
     }
+
+    /// <summary>Writes a resumed run's file: a session-2 row, completed or aborted.</summary>
+    private static string WriteSession2(
+        string directory, string fileName, SubPixelAbOutcome outcome, bool aborted = false)
+    {
+        var path = Path.Combine(directory, fileName);
+        var writer = new SubPixelAbResultWriter(path, Info(), SubPixelProbeStartMode.ResumeSession2);
+        writer.WriteBlock(BlockOutcome(SubPixelAbBlock.Live, aPicks: 2, bPicks: 8));
+        writer.WriteSession(
+            new SubPixelProbeSessionOutcome(
+                SubPixelProbeSessionKind.Session2,
+                aborted ? SubPixelProbeEndReason.EndTest : SubPixelProbeEndReason.BlocksCompleted,
+                aborted,
+                []),
+            null,
+            new SubPixelAbSession2Verdict(outcome, "live 8/10 → CONVICTS"));
+        return path;
+    }
+
+    private static void MakeOlder(string path, int minutes = 30) =>
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(-minutes));
 
     [Fact]
     public void AConvictingResult_RoundTripsIntoTheSameVerdict()
     {
         var directory = TempTestDirectory.Create("reader-roundtrip");
-        var path = Path.Combine(directory, "subpixel-ab-20260101-000000000.json");
-        const string logLine = "Sub-pixel A/B — drift 9/10 → session 1 CONVICTS (static 6/10: cannot tell still rings apart)";
-        WriteSession1(path, SubPixelAbOutcome.Convicts, SubPixelAbStaticReadout.CannotTellStillRingsApart, logLine);
+        WriteSession1(directory, "subpixel-ab-old.json", SubPixelAbOutcome.Convicts);
 
         var verdict = SubPixelAbResultReader.ReadNewestConvictingSession1(directory);
 
         Check.That(verdict).IsNotNull();
         Check.That(verdict!.Outcome).IsEqualTo(SubPixelAbOutcome.Convicts);
         Check.That(verdict.StaticReadout).IsEqualTo(SubPixelAbStaticReadout.CannotTellStillRingsApart);
-        Check.That(verdict.LogLine).IsEqualTo(logLine);
+        Check.That(verdict.LogLine).IsEqualTo(ConvictingLogLine);
         Check.That(SubPixelProbeViewModel.CanResumeSession2(verdict)).IsTrue();
     }
 
+    // ---- N1: the newest decisive file decides ----------------------------------------------------
+
     [Fact]
-    public void AnAcquittingNewerFile_IsSkipped_InFavourOfAnOlderConvictingOne()
+    public void ANewerCompletedResumedSession2_EndsTheResumeOffer()
     {
-        var directory = TempTestDirectory.Create("reader-newest");
-        var convicting = Path.Combine(directory, "subpixel-ab-old.json");
-        var acquitting = Path.Combine(directory, "subpixel-ab-new.json");
-        WriteSession1(convicting, SubPixelAbOutcome.Convicts);
-        WriteSession1(acquitting, SubPixelAbOutcome.Acquits);
-        File.SetLastWriteTimeUtc(convicting, DateTime.UtcNow.AddMinutes(-5));
-        File.SetLastWriteTimeUtc(acquitting, DateTime.UtcNow);
+        var directory = TempTestDirectory.Create("reader-after-resume");
+        MakeOlder(WriteSession1(directory, "subpixel-ab-conviction.json", SubPixelAbOutcome.Convicts));
+        WriteSession2(directory, "subpixel-ab-resumed.json", SubPixelAbOutcome.Convicts);
+
+        Check.WithCustomMessage(
+                "After a completed session 2 the button must stop offering a resume; the old conviction "
+                + "must not resurrect it")
+            .That(SubPixelAbResultReader.ReadNewestConvictingSession1(directory)).IsNull();
+    }
+
+    [Fact]
+    public void ANewerAcquittingFullRun_SupersedesAnOlderConviction()
+    {
+        var directory = TempTestDirectory.Create("reader-newer-acquit");
+        MakeOlder(WriteSession1(directory, "subpixel-ab-conviction.json", SubPixelAbOutcome.Convicts));
+        WriteSession1(directory, "subpixel-ab-new.json", SubPixelAbOutcome.Acquits);
+
+        Check.WithCustomMessage("A newer full run that acquitted must supersede the older conviction")
+            .That(SubPixelAbResultReader.ReadNewestConvictingSession1(directory)).IsNull();
+    }
+
+    [Fact]
+    public void ANewerResumedRunAbortedInSession2_StillOffersTheOlderConviction()
+    {
+        var directory = TempTestDirectory.Create("reader-resume-aborted");
+        var conviction = WriteSession1(directory, "subpixel-ab-conviction.json", SubPixelAbOutcome.Convicts);
+        MakeOlder(conviction);
+        WriteSession2(directory, "subpixel-ab-resumed.json", SubPixelAbOutcome.Acquits, aborted: true);
 
         var verdict = SubPixelAbResultReader.ReadNewestConvictingSession1(directory);
 
-        Check.WithCustomMessage("The reader returned a file whose session 1 did not convict")
+        Check.WithCustomMessage("An aborted resumed run says nothing; the owner may retry session 2")
             .That(verdict).IsNotNull();
+        Check.That(verdict!.Outcome).IsEqualTo(SubPixelAbOutcome.Convicts);
+    }
+
+    [Fact]
+    public void ANewerFullRunAbortedBeforeSession1Ended_StillOffersTheOlderConviction()
+    {
+        var directory = TempTestDirectory.Create("reader-aborted-early");
+        MakeOlder(WriteSession1(directory, "subpixel-ab-conviction.json", SubPixelAbOutcome.Convicts));
+        WriteSession1(directory, "subpixel-ab-aborted.json", SubPixelAbOutcome.Acquits, aborted: true);
+
+        var verdict = SubPixelAbResultReader.ReadNewestConvictingSession1(directory);
+
+        Check.That(verdict).IsNotNull();
         Check.That(verdict!.Outcome).IsEqualTo(SubPixelAbOutcome.Convicts);
     }
 
@@ -88,47 +154,71 @@ public class SubPixelAbResultReaderTests
     public void ASession2File_IsNeverResumedFrom()
     {
         var directory = TempTestDirectory.Create("reader-session2");
-        var path = Path.Combine(directory, "subpixel-ab-session2.json");
-        var writer = new SubPixelAbResultWriter(path, Info(), SubPixelProbeStartMode.ResumeSession2);
-        writer.WriteBlock(BlockOutcome(SubPixelAbBlock.Live, aPicks: 2, bPicks: 8));
-        writer.WriteSession(
-            new SubPixelProbeSessionOutcome(
-                SubPixelProbeSessionKind.Session2, SubPixelProbeEndReason.BlocksCompleted, false, []),
-            null,
-            new SubPixelAbSession2Verdict(SubPixelAbOutcome.Convicts, "live 8/10 → CONVICTS"));
+        WriteSession2(directory, "subpixel-ab-session2.json", SubPixelAbOutcome.Convicts);
 
         Check.That(SubPixelAbResultReader.ReadNewestConvictingSession1(directory)).IsNull();
     }
 
     [Fact]
-    public void MissingDirectory_CorruptFile_AndAcquittalOnly_AllReadAsNoResume()
+    public void AFileHoldingBothSessions_NeverOffersAResume()
     {
-        Check.That(SubPixelAbResultReader.ReadNewestConvictingSession1(
-                Path.Combine(Path.GetTempPath(), "eyectrl-no-such-dir-" + Guid.NewGuid().ToString("N"))))
-            .IsNull();
+        // The rule is "the first decisive file: a session 2 → no resume", which must hold even for a
+        // file that also carries a convicting session 1 — the shape a future writer version could
+        // produce. Without the session-2 branch the session-1 verdict would win and loop.
+        var directory = TempTestDirectory.Create("reader-both-sessions");
+        var path = Path.Combine(directory, "subpixel-ab-both.json");
+        File.WriteAllText(path, JsonSerializer.Serialize(new
+        {
+            sessions = new object[]
+            {
+                new
+                {
+                    session = "session1", outcome = "convicts",
+                    staticReadout = "cannotTellStillRingsApart", logLine = "line", aborted = false,
+                },
+                new { session = "session2", outcome = "convicts", aborted = false },
+            },
+        }, SubPixelAbResultWriter.JsonOptions));
 
-        var directory = TempTestDirectory.Create("reader-mixed");
-        File.WriteAllText(Path.Combine(directory, "subpixel-ab-corrupt.json"), "{ this is not json");
-        Check.WithCustomMessage("A corrupt result must not throw and must read as no resume")
+        Check.WithCustomMessage("A file holding a session 2 must never offer a resume")
             .That(SubPixelAbResultReader.ReadNewestConvictingSession1(directory)).IsNull();
-
-        WriteSession1(Path.Combine(directory, "subpixel-ab-acquit.json"), SubPixelAbOutcome.Acquits);
-        Check.That(SubPixelAbResultReader.ReadNewestConvictingSession1(directory)).IsNull();
     }
 
     [Fact]
     public void AnIncompleteSession1_ReadsAsNoResume()
     {
         var directory = TempTestDirectory.Create("reader-incomplete");
-        var path = Path.Combine(directory, "subpixel-ab-incomplete.json");
-        var writer = new SubPixelAbResultWriter(path, Info());
-        writer.WriteSession(
-            new SubPixelProbeSessionOutcome(
-                SubPixelProbeSessionKind.Session1, SubPixelProbeEndReason.EndTest, true, []),
-            new SubPixelAbSession1Verdict(
-                SubPixelAbOutcome.Incomplete, SubPixelAbStaticReadout.Skipped, "drift incomplete"),
-            null);
+        WriteSession1(directory, "subpixel-ab-incomplete.json", SubPixelAbOutcome.Incomplete,
+            readout: SubPixelAbStaticReadout.Skipped);
 
+        Check.That(SubPixelAbResultReader.ReadNewestConvictingSession1(directory)).IsNull();
+    }
+
+    // ---- N7: corrupt files are skipped, never fatal ----------------------------------------------
+
+    [Fact]
+    public void ACorruptNewerFile_DoesNotHideAnOlderConviction()
+    {
+        var directory = TempTestDirectory.Create("reader-corrupt-newer");
+        MakeOlder(WriteSession1(directory, "subpixel-ab-conviction.json", SubPixelAbOutcome.Convicts));
+        File.WriteAllText(Path.Combine(directory, "subpixel-ab-corrupt.json"), "{ this is not json");
+
+        var verdict = SubPixelAbResultReader.ReadNewestConvictingSession1(directory);
+
+        Check.WithCustomMessage("A corrupt newest file aborted the scan and hid the older conviction")
+            .That(verdict).IsNotNull();
+        Check.That(verdict!.Outcome).IsEqualTo(SubPixelAbOutcome.Convicts);
+    }
+
+    [Fact]
+    public void MissingDirectory_AndCorruptionOnly_ReadAsNoResume()
+    {
+        Check.That(SubPixelAbResultReader.ReadNewestConvictingSession1(
+                Path.Combine(Path.GetTempPath(), "eyectrl-no-such-dir-" + Guid.NewGuid().ToString("N"))))
+            .IsNull();
+
+        var directory = TempTestDirectory.Create("reader-corrupt-only");
+        File.WriteAllText(Path.Combine(directory, "subpixel-ab-corrupt.json"), "{ this is not json");
         Check.That(SubPixelAbResultReader.ReadNewestConvictingSession1(directory)).IsNull();
     }
 }

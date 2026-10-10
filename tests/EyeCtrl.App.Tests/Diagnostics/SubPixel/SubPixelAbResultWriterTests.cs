@@ -212,17 +212,19 @@ public class SubPixelAbResultWriterTests
     }
 
     [Fact]
-    public void WriteRunEndIfAbsent_DoesNotOverwriteAnExistingReason()
+    public void RecordAbortReason_IsFirstWins_AndSeparateFromRunEnd()
     {
-        var path = Path.Combine(TempTestDirectory.Create("writer-absent"), "result.json");
+        var path = Path.Combine(TempTestDirectory.Create("writer-abort"), "result.json");
         var writer = new SubPixelAbResultWriter(path, Info());
 
-        writer.WriteRunEnd(SubPixelProbeRunEndReason.Completed);
-        writer.WriteRunEndIfAbsent(SubPixelProbeRunEndReason.EndTest);
+        writer.RecordAbortReason(ProbeAbortReason.NoValidGaze);
+        writer.RecordAbortReason(ProbeAbortReason.Escape);
 
         using var doc = Read(writer);
-        Check.WithCustomMessage("A coordinator abort overwrote a completed run's reason")
-            .That(doc.RootElement.GetProperty("runEndReason").GetString()).IsEqualTo("completed");
+        Check.WithCustomMessage("A later abort overwrote the first one")
+            .That(doc.RootElement.GetProperty("abortReason").GetString()).IsEqualTo("noValidGaze");
+        Check.WithCustomMessage("The abort reason must not be recorded as C5's runEndReason")
+            .That(doc.RootElement.TryGetProperty("runEndReason", out _)).IsFalse();
     }
 
     [Fact]

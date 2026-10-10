@@ -428,9 +428,12 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
 
     private void UpdateTargetGeometry(string id, FrameworkElement element)
     {
-        // Own visibility, not IsVisible: IsVisible is false for every element of a window that has
-        // not been shown yet, which would keep the headless build from ever computing geometry.
-        if (element.Visibility != Visibility.Visible || element.ActualWidth <= 0 || element.ActualHeight <= 0)
+        // Shown means the button AND every ancestor below _scene is visible: the screen buttons
+        // never change their own Visibility — their StackPanel collapses instead, and a child of a
+        // collapsed panel keeps its last arranged size and transform. Checking only the button left
+        // hidden buttons dwell-live at their old centres, stealing up to 48 % of a visible button's
+        // disc (fixup 03 N2).
+        if (!IsShownInScene(element) || element.ActualWidth <= 0 || element.ActualHeight <= 0)
         {
             _vm.UpdatePosition(id, DwellCategory.Control, OffScreenCentre);
             return;
@@ -440,6 +443,18 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
             .Transform(new Point(element.ActualWidth / 2, element.ActualHeight / 2));
         _vm.UpdatePosition(id, DwellCategory.Control, new PhysicalPoint(
             sceneCentre.X * _scale, sceneCentre.Y * _scale));
+    }
+
+    /// <summary>Whether <paramref name="element"/> and all its ancestors below <see cref="_scene"/> are Visible.</summary>
+    private bool IsShownInScene(DependencyObject element)
+    {
+        for (DependencyObject? node = element; node is not null; node = VisualTreeHelper.GetParent(node))
+        {
+            if (ReferenceEquals(node, _scene)) return true;
+            if (node is UIElement ui && ui.Visibility != Visibility.Visible) return false;
+        }
+
+        return false;   // detached from the scene
     }
 
     /// <summary>

@@ -86,5 +86,23 @@ public class SubPixelProbePreconditionTests
             .That(world.Coordinator.GetBlockReason()).IsNotNull();
         world.Coordinator.Restore(session);
         Check.That(world.Coordinator.GetBlockReason()).IsNull();
+
+        // N4: the C10 button path reads eye care, adaptation and calibration too — with one of
+        // them dropped the button shows no reason, closes Settings, and BeginStart refuses silently.
+        world.Settings.EyeCare.Enabled = true;
+        Check.WithCustomMessage("the C10 reason does not read eye care")
+            .That(world.Coordinator.GetBlockReason()).IsNotNull();
+        world.Settings.EyeCare.Enabled = false;
+
+        world.Settings.Adaptation.Enabled = true;
+        Check.WithCustomMessage("the C10 reason does not read adaptation")
+            .That(world.Coordinator.GetBlockReason()).IsNotNull();
+        world.Settings.Adaptation.Enabled = false;
+
+        world.Context.CalibrationService.StartSession(4, new PhysicalPoint(1920, 1080));
+        Check.WithCustomMessage("the C10 reason does not read calibration")
+            .That(world.Coordinator.GetBlockReason()).IsNotNull();
+        world.Context.CalibrationService.CancelSession();
+        Check.That(world.Coordinator.GetBlockReason()).IsNull();
     }
 }

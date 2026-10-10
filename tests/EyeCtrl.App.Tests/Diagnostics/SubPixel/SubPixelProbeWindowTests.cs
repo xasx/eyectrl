@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Tests.Diagnostics.SubPixel;
 
+using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -217,6 +218,121 @@ public class SubPixelProbeWindowTests
         {
             window.Close();
         }
+    }
+
+    // ---- N2: hidden targets are parked after their phase ------------------------------------------
+
+    private static readonly (SubPixelProbePhase Phase, string[] Visible)[] PhaseVisibility =
+    [
+        (SubPixelProbePhase.Intro, [SubPixelProbeViewModel.IntroStartTargetId, SubPixelProbeViewModel.EndTestTargetId]),
+        (SubPixelProbePhase.Ask, [SubPixelProbeViewModel.AskYesTargetId, SubPixelProbeViewModel.AskLaterTargetId, SubPixelProbeViewModel.EndTestTargetId]),
+        (SubPixelProbePhase.Result, [SubPixelProbeViewModel.ResultDoneTargetId, SubPixelProbeViewModel.EndTestTargetId]),
+        (SubPixelProbePhase.Answer, [SubPixelProbeViewModel.AnswerOneTargetId, SubPixelProbeViewModel.AnswerTwoTargetId, SubPixelProbeViewModel.EndTestTargetId]),
+        (SubPixelProbePhase.VoidHold, [SubPixelProbeViewModel.EndTestTargetId]),
+        (SubPixelProbePhase.Ended, []),
+    ];
+
+    /// <summary>
+    /// N2: a target is dwell-live only in the phase where its button is shown. A child of a collapsed
+    /// StackPanel keeps its own Visibility, its size and its transform, so the ancestor check is what
+    /// parks the screen buttons after their phase; otherwise a hidden button steals up to 48 % of a
+    /// visible button's disc through the shared nearest-centre detector.
+    /// </summary>
+    [StaFact]
+    public void HiddenTargets_AreParkedAfterTheirPhase_AndVisibleButtonsWinTheirDisc()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+
+        foreach (double scale in new[] { 1.0, 2.0 })
+        {
+            using var vm = NewViewModel();
+            vm.Start();
+            var window = new SubPixelProbeWindow(null, vm, new CursorSettings(), () => { }, scale);
+            window.Width = 1920;
+            window.Height = 1080;
+            try
+            {
+                new WindowInteropHelper(window).EnsureHandle();
+                var scene = (Visual)window.Content!;
+                var detector = (DwellDetector)typeof(SubPixelProbeViewModel)
+                    .GetField("_targets", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(vm)!;
+                var recorded = new Dictionary<string, PhysicalPoint>();
+
+                foreach (var (phase, visible) in PhaseVisibility)
+                {
+                    SetPhase(vm, SubPixelProbePhase.Idle);
+                    SetPhase(vm, phase);
+
+                    var stolen = new List<string>();
+                    var stillLive = new List<string>();
+
+                    foreach (var id in AllTargetIds)
+                    {
+                        if (visible.Contains(id))
+                        {
+                            var element = window.TargetElementForTest(id)!;
+                            Check.WithCustomMessage($"{id}@{scale}: not arranged in {phase}")
+                                .That(element.ActualWidth).IsStrictlyGreaterThan(0);
+
+                            var centreDip = element.TransformToAncestor(scene)
+                                .Transform(new Point(element.ActualWidth / 2, element.ActualHeight / 2));
+                            var centre = new PhysicalPoint(centreDip.X * scale, centreDip.Y * scale);
+                            recorded[id] = centre;
+
+                            double radius = Math.Min(element.ActualWidth, element.ActualHeight) * scale / 2.0;
+                            for (double dx = -radius; dx <= radius; dx += 4)
+                            {
+                                for (double dy = -radius; dy <= radius; dy += 4)
+                                {
+                                    if (dx * dx + dy * dy > radius * radius) continue;
+                                    var point = new PhysicalPoint(centre.X + dx, centre.Y + dy);
+                                    if (detector.NearestHittingTargetId(point) != id)
+                                        stolen.Add($"{id}@{scale} {phase} at {point}");
+                                }
+                            }
+                        }
+                        else
+                        {
+                            if (recorded.TryGetValue(id, out var old) && detector.HitTest(id, old))
+                                stillLive.Add($"{id}@{scale} at its old centre {old} in {phase}");
+
+                            for (double x = 16; x < 1920; x += 64)
+                            {
+                                for (double y = 16; y < 1080; y += 64)
+                                {
+                                    if (detector.HitTest(id, new PhysicalPoint(x, y)))
+                                        stillLive.Add($"{id}@{scale} at ({x},{y}) in {phase}");
+                                }
+                            }
+                        }
+                    }
+
+                    Check.WithCustomMessage(
+                            $"Hidden targets are dwell-live or steal a visible disc in {phase} at {scale}: "
+                            + string.Join("; ", stillLive.Concat(stolen).Take(6)))
+                        .That(stillLive.Concat(stolen).ToList()).IsEmpty();
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+    }
+
+    [Fact]
+    public void TheProductionFrameClock_IsStopwatch()
+    {
+        // N5 / M4-clock: the production default must be the Stopwatch, not TickCount64.
+        var path = Path.Combine(SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Diagnostics", "SubPixel", "SubPixelProbeWindow.cs");
+        var code = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(File.ReadAllText(path)), @"\s+", string.Empty);
+
+        Check.WithCustomMessage("The frame clock default is no longer Stopwatch.GetTimestamp")
+            .That(code.Contains("_frameTicks=frameTicks??Stopwatch.GetTimestamp;")).IsTrue();
+        Check.WithCustomMessage("The frame rate default is no longer Stopwatch.Frequency/1000")
+            .That(code.Contains("_frameTicksPerMs=frameTicksPerMs>0?frameTicksPerMs:Stopwatch.Frequency/1000.0;")).IsTrue();
     }
 
     private static SubPixelProbeViewModel NewViewModel() => new(

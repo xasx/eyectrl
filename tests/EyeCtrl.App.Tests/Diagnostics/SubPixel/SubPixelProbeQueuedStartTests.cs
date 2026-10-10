@@ -188,28 +188,18 @@ public class SubPixelProbeQueuedStartTests
     [Fact]
     public void ARefusedQueuedStart_LogsTheReason()
     {
+        // N8: the seam, not a global Log.Logger swap — a parallel class's logging must never reach
+        // this assertion, and this test must never see another class's events.
         using var world = new ProbeTestWorld();
-        var sink = new LostGazeExitCoordinatorTests.CapturingSink();
-        var previousLogger = Log.Logger;
-        try
-        {
-            Log.Logger = new LoggerConfiguration()
-                .MinimumLevel.Verbose()
-                .WriteTo.Sink(sink)
-                .CreateLogger();
+        var refused = new List<ProbeRefusal>();
+        world.Coordinator.RefusalLogger = refused.Add;
 
-            world.Coordinator.RequestStart(ManualClose(world));
-            world.Settings.EyeCare.Enabled = true;
-            world.Pump();
-        }
-        finally
-        {
-            Log.Logger = previousLogger;
-        }
+        world.Coordinator.RequestStart(ManualClose(world));
+        world.Settings.EyeCare.Enabled = true;
+        world.Pump();
 
         Check.WithCustomMessage("A refused start logged nothing; a missed dwell would read as a broken button")
-            .That(sink.Events.Select(e => e.MessageTemplate.Text))
-            .Contains("Sub-pixel probe start refused: {Refusal}");
+            .That(refused).ContainsExactly(ProbeRefusal.EyeCareOn);
     }
 
     // ---- H2: the resume route -------------------------------------------------------------------
@@ -314,9 +304,11 @@ public class SubPixelProbeInterlockTests
         Check.That(world.Host.Names).Contains("ReleaseProbeSuppression");
         Check.That(world.Coordinator.LiveSessionForTest).IsNull();
 
-        // Nothing pumped: Settings' own handler only posts, so no real window is built here. Drain
-        // that posted work now, containing it in this test rather than in a later test's Pump (M1).
-        world.DrainContaining();
+        // Settings' own handler posted ShowSettingsWindow; this world has no model services, so the
+        // posted work throws. Declare the one expected failure and contain it here rather than in a
+        // later test's Pump (M1), without hiding any other queued failure (N6).
+        world.ExpectQueuedFailure<NullReferenceException>();
+        world.DrainQueuedWork();
     }
 
     [Fact]

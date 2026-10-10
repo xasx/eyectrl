@@ -149,6 +149,60 @@
       "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
     },
     {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"arrowDown\"",
+      "Category": "id",
+      "Reason": "A wide-arrow label-frame id a keyboard JSON names (T14 follow-ups); not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"arrowLeft\"",
+      "Category": "id",
+      "Reason": "A wide-arrow label-frame id a keyboard JSON names (T14 follow-ups); not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"arrowRight\"",
+      "Category": "id",
+      "Reason": "A wide-arrow label-frame id a keyboard JSON names (T14 follow-ups); not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"arrowUp\"",
+      "Category": "id",
+      "Reason": "A wide-arrow label-frame id a keyboard JSON names (T14 follow-ups); not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"capsArrow\"",
+      "Category": "id",
+      "Reason": "A wide-arrow label-frame id a keyboard JSON names (T14 follow-ups); not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"enterArrow\"",
+      "Category": "id",
+      "Reason": "A wide-arrow label-frame id a keyboard JSON names (T14 follow-ups); not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"shiftArrow\"",
+      "Category": "id",
+      "Reason": "A wide-arrow label-frame id a keyboard JSON names (T14 follow-ups); not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"spaceBracket\"",
+      "Category": "id",
+      "Reason": "A wide-arrow label-frame id a keyboard JSON names (T14 follow-ups); not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"tabArrow\"",
+      "Category": "id",
+      "Reason": "A wide-arrow label-frame id a keyboard JSON names (T14 follow-ups); not text."
+    },
+    {
       "Path": "src/EyeCtrl.App/Overlays/CursorCircleWindow.xaml.cs",
       "Literal": "\"X2\"",
       "Category": "data",

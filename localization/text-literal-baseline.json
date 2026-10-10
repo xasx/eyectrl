@@ -121,6 +121,51 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"arrowDown\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"arrowLeft\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"arrowRight\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"arrowUp\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"capsArrow\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"enterArrow\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"shiftArrow\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"spaceBracket\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"tabArrow\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Overlays/CursorCircleWindow.xaml.cs",
       "Literal": "\"X2\"",
       "Count": 3

@@ -117,7 +117,9 @@ public partial class CaregiverAlertWindow : OverlayWindow, ICaregiverAlertPresen
 
         // Two window moves when the alert is re-shown while visible; order them so neither frame
         // draws below the margin (review-01 N5): growing, raise the top first, then extend; shrinking,
-        // pull the bottom up first, then lower the top.
+        // pull the bottom up first, then lower the top. The anchor itself is pinned on both branches
+        // (and repeated by the SizeChanged backstop); this ORDER is unpinned: a hidden window draws no
+        // frames, so it is not observable headless (review-03, mutant Z5c). Do not swap it back.
         if (height > Height)
         {
             Anchor(workArea, height);

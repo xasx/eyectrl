@@ -114,6 +114,14 @@ public class FitClassTests
                     continue;
                 }
 
+                // Checked before the face: an exception bounds its margin's rule on its face, and
+                // waives nothing else on any face.
+                if (verdict.Unwaivable is { } rule)
+                {
+                    failures.Add($"{item} \"{text}\": its exception bounds the {fitClass} margin only, and it also breaks {rule}. {verdict}");
+                    continue;
+                }
+
                 if (!verdict.Face.Contains(exception.FaceFile, StringComparison.OrdinalIgnoreCase))
                 {
                     output.WriteLine($"  (the exception for {item.Key} was recorded on {exception.FaceFile}; this face is not bounded)");

@@ -34,6 +34,7 @@ using EyeCtrl.Tests.TestSupport;
 /// these classes); each class also has a teeth test — an over-long text must fail it.
 /// </para>
 /// </summary>
+[Collection(SupervisorXamlCollection.Name)]
 public sealed class SupervisorFitTests : IDisposable
 {
     /// <summary>The 200 % work area less a 48 DIP taskbar: a grown window must fit it.</summary>

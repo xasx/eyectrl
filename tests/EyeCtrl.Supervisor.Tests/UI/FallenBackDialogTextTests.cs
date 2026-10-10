@@ -19,6 +19,7 @@ using Xunit;
 /// design. The dialog is constructed headless (never <see cref="System.Windows.Window.Show"/>ed)
 /// on an STA thread, like the setup window's harness.
 /// </summary>
+[Collection(SupervisorXamlCollection.Name)]
 public class FallenBackDialogTextTests
 {
     private static void RunSta(Action action)

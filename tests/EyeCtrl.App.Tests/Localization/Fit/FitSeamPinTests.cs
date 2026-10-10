@@ -65,6 +65,60 @@ public class FitSeamPinTests
             .That(body).Not.Contains("MakeChromeButton(");
     }
 
+    /// <summary>
+    /// A write to any of these after the seam call would resize or move what the gate measured (review-03
+    /// mutants A5b, <c>border.Width = 120</c>, and A6b, <c>Height = MinHeight</c>). A comparison (<c>==</c>)
+    /// does not match.
+    /// </summary>
+    private static readonly System.Text.RegularExpressions.Regex GeometryWrite = new(
+        @"\b(Width|Height|MinWidth|MinHeight|MaxWidth|MaxHeight|Top|Left|Margin|Padding|SizeToContent)\s*=(?!=)");
+
+    private static int Count(string source, string needle)
+    {
+        var count = 0;
+        for (var i = source.IndexOf(needle, StringComparison.Ordinal); i >= 0; i = source.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+            count++;
+        return count;
+    }
+
+    [Fact]
+    public void TheUsersPaths_WriteNoGeometryAfterTheirSeams()
+    {
+        var alert = Body(Source("Overlays", "CaregiverAlertWindow.xaml.cs"), "public void ShowCaregiverAlert(");
+        Check.WithCustomMessage(
+                "ShowCaregiverAlert writes window geometry after Prepare(…), so the alert on screen is not the "
+                + $"one the C-alert gate measured: {GeometryWrite.Match(alert).Value}")
+            .That(GeometryWrite.IsMatch(alert)).IsFalse();
+
+        var modal = Body(Source("Views", "SettingsWindow.xaml.cs"), "private Border MakeModalButton(");
+        Check.WithCustomMessage(
+                "MakeModalButton changes the button's box after BuildModalButton(…), so the modal170/modal460 "
+                + $"box on screen is not the one the gate measured: {GeometryWrite.Match(modal).Value}")
+            .That(GeometryWrite.IsMatch(modal)).IsFalse();
+    }
+
+    /// <summary>
+    /// The paths the pins above read are the ONLY ones: a second place that sets the alert's text or
+    /// shows it, or a new <c>MakeChromeButton</c> caller (a second modal path), would bypass them.
+    /// A changed count is a prompt to pin the new path, then update the number here.
+    /// </summary>
+    [Fact]
+    public void TheSeamsHaveNoSecondPath()
+    {
+        var alert = Source("Overlays", "CaregiverAlertWindow.xaml.cs");
+        Check.WithCustomMessage("`Message.Text =` must be written once, in Prepare; a second writer bypasses its sizing.")
+            .That(Count(alert, "Message.Text =")).IsEqualTo(1);
+        Check.WithCustomMessage("`base.Show()` must occur once, in ShowCaregiverAlert, after Prepare.")
+            .That(Count(alert, "base.Show()")).IsEqualTo(1);
+
+        var settings = Source("Views", "SettingsWindow.xaml.cs");
+        var calls = Count(settings, "MakeChromeButton(") - Count(settings, "Border MakeChromeButton(");
+        Check.WithCustomMessage(
+                $"MakeChromeButton has {calls} call sites; the known three are the two pagers and BuildModalButton. "
+                + "Pin a new caller's box (or route a modal through BuildModalButton) before changing this number.")
+            .That(calls).IsEqualTo(3);
+    }
+
     [Fact]
     public void BuildTabButtons_BuildsEveryTabThroughTheMeasuredFace()
     {

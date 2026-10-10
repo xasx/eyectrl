@@ -197,7 +197,12 @@ internal sealed class FitHost : IDisposable
 /// negative by how much it does not — or NaN where a class has no single figure. A recorded English
 /// exception is bounded by it: the measurement may not get worse than the figure on record.
 /// </param>
-internal sealed record FitVerdict(bool Fits, string Detail, string Face, double Margin = double.NaN)
+/// <param name="Unwaivable">
+/// A rule the text broke that <paramref name="Margin"/> does not measure, or null. An exception
+/// bounds the margin's rule only, so a key with a recorded exception still fails on this one
+/// (T09 review-03, F2: the ring margin must not waive the Settings preview's labels).
+/// </param>
+internal sealed record FitVerdict(bool Fits, string Detail, string Face, double Margin = double.NaN, string? Unwaivable = null)
 {
     public override string ToString() => $"{(Fits ? "fits" : "FAILS")}: {Detail} [{Face}]";
 }

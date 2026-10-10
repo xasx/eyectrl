@@ -179,10 +179,13 @@ internal static class AppFitMeasurers
             return new FitVerdict(ok, detail, face, fit.ClearanceDip - ArcLabelFit.RequiredClearanceDip);
 
         // A settings.ring.* key (or a synthetic probe) is ALSO drawn by the Settings preview, in a
-        // different geometry: an unscaled label under each miniature slot, unbounded in width.
+        // different geometry: an unscaled label under each miniature slot, unbounded in width. The
+        // margin measures the ring clearance only, so a preview failure is reported as Unwaivable:
+        // an exception recorded against the ring cannot absorb it (review-03, F2).
         var preview = RingPreviewLabels(text);
         return new FitVerdict(ok && preview.Fits, detail + "; preview: " + preview.Detail, face,
-            fit.ClearanceDip - ArcLabelFit.RequiredClearanceDip);
+            fit.ClearanceDip - ArcLabelFit.RequiredClearanceDip,
+            Unwaivable: preview.Fits ? null : "the Settings preview's labels (" + preview.Detail + ")");
     }
 
     /// <summary>

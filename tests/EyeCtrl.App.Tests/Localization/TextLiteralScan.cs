@@ -414,7 +414,7 @@ internal static class TextLiteralScan
     /// with literals masked out, so a literal's content can never look like a call.
     /// </summary>
     private static readonly Regex SinkCall = new(
-        @"(?<![A-Za-z0-9_])(?<name>ShowModal|ShowError|new\s+ModalChoice|new\s+ToolStripMenuItem|MessageBox\.Show|AutomationProperties\.SetName|new\s+(?:SliderSpec|ToggleSpec|ComboBoxSpec|ColorPickerSpec|ButtonSpec|LabelSpec|RingPreviewSpec|RingJumpSpec)|new\s+QuickActionPreset|new\s+(?:DwellToggle|DwellComboBox|DwellColorPicker|DwellButton|DwellSlider))\s*\(",
+        @"(?<![A-Za-z0-9_])(?<name>ShowModal|ShowError|ShowBannerAsync|new\s+ModalChoice|new\s+ToolStripMenuItem|MessageBox\.Show|AutomationProperties\.SetName|new\s+(?:SliderSpec|ToggleSpec|ComboBoxSpec|ColorPickerSpec|ButtonSpec|LabelSpec|RingPreviewSpec|RingJumpSpec)|new\s+QuickActionPreset|new\s+(?:DwellToggle|DwellComboBox|DwellColorPicker|DwellButton|DwellSlider))\s*\(",
         RegexOptions.Compiled);
 
     /// <summary>Member assignments that take text directly.</summary>
@@ -432,10 +432,44 @@ internal static class TextLiteralScan
         @"(?<![A-Za-z0-9_.])(?<member>Text|Content|Header|Title|ToolTip|Description|Label|onText|offText|swatchNames|notAvailableFormat|accessibleName|AccessibleName|ColorSwatchNames)\s*=(?!=)",
         RegexOptions.Compiled);
 
-    /// <summary>Named arguments that take text.</summary>
+    /// <summary>
+    /// Named arguments that take text. T09 closed two holes the batch-3 reviews found: the
+    /// capital <c>Label:</c> of a record such as <c>EdgeButtonDefinition</c> (only lowercase
+    /// <c>label:</c> was a sink), and the Supervisor setup window's <c>statusText:</c>.
+    /// </summary>
     private static readonly Regex NamedArgument = new(
-        @"(?<![A-Za-z0-9_-])(?<name>accessibleName|AccessibleName|onText|offText|swatchNames|notAvailableFormat|Display|label)\s*:",
+        @"(?<![A-Za-z0-9_-])(?<name>accessibleName|AccessibleName|onText|offText|swatchNames|notAvailableFormat|Display|label|Label|statusText)\s*:",
 
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// A <c>const string</c> initialiser (T09; T06 review N2: the startup-error title once lived
+    /// in one and the ratchet never saw it), and its twin in another keyword, a
+    /// <c>static readonly string</c> field (T09 review-01 R4, mutant A20). Every such string in a
+    /// scanned file is recorded: most are ids, and the final ratchet's exception list names them as
+    /// such.
+    ///
+    /// <para>
+    /// <b>Known hole, swept empty:</b> a BLOCK-bodied member that returns a literal
+    /// (<c>string Hint() { return "…"; }</c>, review-01 mutant A21) is not a sink — only the
+    /// expression-bodied form is (<see cref="StringExpressionMember"/>). No scanned file holds that
+    /// shape today (grepped 2026-10-10 across App, Controls, ViewModels, Supervisor and EyeCare), so
+    /// the final-state assertion loses nothing now; a producer member written that way must be
+    /// listed in <see cref="ProducerMembers"/>, which scans block bodies.
+    /// </para>
+    /// </summary>
+    private static readonly Regex ConstStringInitialiser = new(
+        @"(?<![A-Za-z0-9_])(?:const|static\s+readonly|readonly\s+static)\s+string\??\s+[A-Za-z_][A-Za-z0-9_]*\s*=(?!=)",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// An expression-bodied string member — <c>string Name =&gt; "…"</c>, or a method whose body is
+    /// a switch of literals (T09; T08 review R5: the exercises' <c>Name =&gt;</c> and
+    /// <c>EncouragementLine =&gt;</c> were never baselined). Everything after the <c>=&gt;</c> to the
+    /// member's end is the member's text.
+    /// </summary>
+    private static readonly Regex StringExpressionMember = new(
+        @"(?<![A-Za-z0-9_.])string\??\s+[A-Za-z_][A-Za-z0-9_]*\s*(?:\([^()]*\))?\s*=>",
         RegexOptions.Compiled);
 
     /// <summary>Which constructor arguments carry text, by argument index.</summary>
@@ -455,12 +489,24 @@ internal static class TextLiteralScan
         _ => [1],                          // spec labels
     };
 
+    /// <summary>
+    /// Files outside the UI projects that are scanned under the ordinary SINK rules (not as
+    /// producers). T09: <c>QuickActionPresets</c> lives in Core, so its <c>new QuickActionPreset(…)</c>
+    /// labels — the one named exception the final ratchet keeps, for T03d's one-time legacy match —
+    /// were never on the scan surface, and the exception list would have named nothing.
+    /// </summary>
+    public static readonly string[] SinkFiles =
+    [
+        "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+    ];
+
     /// <summary>Whether <paramref name="relative"/> is on the ratchet's scan surface.</summary>
     /// <param name="relative">Repo-relative path with forward slashes.</param>
     /// <returns>True when the file is scanned.</returns>
     public static bool IsScanned(string relative) =>
         ScannedProjectPrefixes.Any(prefix => relative.StartsWith(prefix, StringComparison.Ordinal))
-        || ProducerFiles.Contains(relative, StringComparer.Ordinal);
+        || ProducerFiles.Contains(relative, StringComparer.Ordinal)
+        || SinkFiles.Contains(relative, StringComparer.Ordinal);
 
     /// <summary>The scanned files: the five UI projects plus the Core/lib producer files.</summary>
     /// <returns>Comment-stripped (relative path, text) pairs.</returns>
@@ -564,6 +610,10 @@ internal static class TextLiteralScan
         foreach (Match match in BareAssign.Matches(masked))
             AddRange(match.Index + match.Length, ExpressionEnd(text, match.Index + match.Length));
         foreach (Match match in NamedArgument.Matches(masked))
+            AddRange(match.Index + match.Length, ExpressionEnd(text, match.Index + match.Length));
+        foreach (Match match in ConstStringInitialiser.Matches(masked))
+            AddRange(match.Index + match.Length, ExpressionEnd(text, match.Index + match.Length));
+        foreach (Match match in StringExpressionMember.Matches(masked))
             AddRange(match.Index + match.Length, ExpressionEnd(text, match.Index + match.Length));
 
         return found;

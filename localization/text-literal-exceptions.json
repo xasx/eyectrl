@@ -1,0 +1,1058 @@
+{
+  "_comment": [
+    "T09: the literal ratchet's final state. Every entry of text-literal-baseline.json is a TRUE exception, named here with its category and reason; TextLiteralRatchetTests.TheBaseline_HoldsOnlyTrueExceptions fails when the two lists differ in either direction.",
+    "Categories: glyph, product, endonym, id (a real identifier: dwell ids, setting codes, icon and resource keys, string-table keys, pipe/mutex/env/registry/command-line names), data (non-text data: icon path geometry, number format specifiers), log (a log-only line, never shown), preset-legacy-label (QuickActionPresets' English labels, kept for T03d's one-time legacy match)."
+  ],
+  "Entries": [
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"kbd.copy\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"kbd.cut\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"kbd.file_explorer\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"kbd.find\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"kbd.lock\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"kbd.new\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"kbd.paste\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"kbd.print\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"kbd.redo\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"kbd.save\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"kbd.select_all\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"kbd.show_desktop\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"kbd.switch_app\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"kbd.undo\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"media.mute\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"media.next\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"media.play_pause\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"media.previous\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"media.stop\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"media.volume_down\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"media.volume_up\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"window.close\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"window.maximize_restore\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
+      "Literal": "\"window.minimize\"",
+      "Category": "id",
+      "Reason": "A preset id (dotted snake case, T03d) mapped to its overlays key; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"arrowDown\"",
+      "Category": "id",
+      "Reason": "A wide-arrow label-frame id a keyboard JSON names (T14 follow-ups); not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"arrowLeft\"",
+      "Category": "id",
+      "Reason": "A wide-arrow label-frame id a keyboard JSON names (T14 follow-ups); not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"arrowRight\"",
+      "Category": "id",
+      "Reason": "A wide-arrow label-frame id a keyboard JSON names (T14 follow-ups); not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"arrowUp\"",
+      "Category": "id",
+      "Reason": "A wide-arrow label-frame id a keyboard JSON names (T14 follow-ups); not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"capsArrow\"",
+      "Category": "id",
+      "Reason": "A wide-arrow label-frame id a keyboard JSON names (T14 follow-ups); not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"enterArrow\"",
+      "Category": "id",
+      "Reason": "A wide-arrow label-frame id a keyboard JSON names (T14 follow-ups); not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"shiftArrow\"",
+      "Category": "id",
+      "Reason": "A wide-arrow label-frame id a keyboard JSON names (T14 follow-ups); not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"spaceBracket\"",
+      "Category": "id",
+      "Reason": "A wide-arrow label-frame id a keyboard JSON names (T14 follow-ups); not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ArrowLabelFrame.cs",
+      "Literal": "\"tabArrow\"",
+      "Category": "id",
+      "Reason": "A wide-arrow label-frame id a keyboard JSON names (T14 follow-ups); not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/CursorCircleWindow.xaml.cs",
+      "Literal": "\"X2\"",
+      "Category": "data",
+      "Reason": "A number format specifier, not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/EraseLabelFrame.cs",
+      "Literal": "\"eraseLeft\"",
+      "Category": "id",
+      "Reason": "The erase-arrow label-frame id a keyboard JSON names; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/SplashWindow.xaml",
+      "Literal": "\"EyeCtrl\"",
+      "Category": "product",
+      "Reason": "The product name, which stays literal in every language (T06 decision)."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ToolbarBand.cs",
+      "Literal": "\"Keyboard\"",
+      "Category": "id",
+      "Reason": "A toolbar button id or icon key; the button's name comes from an overlays key."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ToolbarBand.cs",
+      "Literal": "\"Modes\"",
+      "Category": "id",
+      "Reason": "A toolbar button id or icon key; the button's name comes from an overlays key."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ToolbarBand.cs",
+      "Literal": "\"Pause\"",
+      "Category": "id",
+      "Reason": "A toolbar button id or icon key; the button's name comes from an overlays key."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ToolbarBand.cs",
+      "Literal": "\"Play\"",
+      "Category": "id",
+      "Reason": "A toolbar button id or icon key; the button's name comes from an overlays key."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ToolbarBand.cs",
+      "Literal": "\"ResetAdaptation\"",
+      "Category": "id",
+      "Reason": "A toolbar button id or icon key; the button's name comes from an overlays key."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ToolbarBand.cs",
+      "Literal": "\"SelectionMode\"",
+      "Category": "id",
+      "Reason": "A toolbar button id or icon key; the button's name comes from an overlays key."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ToolbarBand.cs",
+      "Literal": "\"Settings\"",
+      "Category": "id",
+      "Reason": "A toolbar button id or icon key; the button's name comes from an overlays key."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/ToolbarBand.cs",
+      "Literal": "\"TaskSwitcher\"",
+      "Category": "id",
+      "Reason": "A toolbar button id or icon key; the button's name comes from an overlays key."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ActionMenuEdgeButtons.cs",
+      "Literal": "\"ActionMenu_close\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ActionMenuEdgeButtons.cs",
+      "Literal": "\"ActionMenu_help\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ActionMenuModifierButtons.cs",
+      "Literal": "\"ActionMenu_mod_Alt\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ActionMenuModifierButtons.cs",
+      "Literal": "\"ActionMenu_mod_Ctrl\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ActionMenuModifierButtons.cs",
+      "Literal": "\"ActionMenu_mod_Shift\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/AppBootstrapper.cs",
+      "Literal": "\"EyeCtrl\"",
+      "Category": "product",
+      "Reason": "The product name, which stays literal in every language (T06 decision)."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/Coordinators/KeyboardCoordinator.cs",
+      "Literal": "\"Bottom\"",
+      "Category": "id",
+      "Reason": "A saved settings code (Keyboard.ScreenEdge), compared and written, never displayed."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/Coordinators/KeyboardCoordinator.cs",
+      "Literal": "\"Top\"",
+      "Category": "id",
+      "Reason": "A saved settings code (Keyboard.ScreenEdge), compared and written, never displayed."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/HeartbeatPublisher.cs",
+      "Literal": "\"eyectrl_watch\"",
+      "Category": "id",
+      "Reason": "The heartbeat pipe name."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/KeyboardEdgeButtons.cs",
+      "Literal": "\"Keyboard_close\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/KeyboardEdgeButtons.cs",
+      "Literal": "\"Keyboard_flip\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ManualSelectionDwellService.cs",
+      "Literal": "\"ManualSelection_dwell_target\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ManualSelectionEdgeButtons.cs",
+      "Literal": "\"ManualSelection_close\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/ManualSelectionEdgeButtons.cs",
+      "Literal": "\"ManualSelection_recapture\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RestartHandoff.cs",
+      "Literal": "\"--restart-handoff\"",
+      "Category": "id",
+      "Reason": "A command-line flag or a named kernel event; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RestartHandoff.cs",
+      "Literal": "@\"Local\\EyeCtrl.App.RestartReady\"",
+      "Category": "id",
+      "Reason": "A command-line flag or a named kernel event; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/SupervisorLauncher.cs",
+      "Literal": "\"EYECTRL_SUPERVISOR_EXE\"",
+      "Category": "id",
+      "Reason": "An environment-variable name or the Supervisor's file name."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/SupervisorLauncher.cs",
+      "Literal": "\"EyeCtrl.Supervisor.exe\"",
+      "Category": "id",
+      "Reason": "An environment-variable name or the Supervisor's file name."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/TrayIconManager.cs",
+      "Literal": "\"EyeCtrl\"",
+      "Category": "product",
+      "Reason": "The product name, which stays literal in every language (T06 decision)."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Startup/PauseLaunchProvenance.cs",
+      "Literal": "\"--paused argument\"",
+      "Category": "log",
+      "Reason": "Part of the startup provenance line written to the log only (PauseLaunchProvenance.Describe → writeLog); never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Startup/PauseLaunchProvenance.cs",
+      "Literal": "\"Startup paused state: \"",
+      "Category": "log",
+      "Reason": "Part of the startup provenance line written to the log only (PauseLaunchProvenance.Describe → writeLog); never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Startup/PauseLaunchProvenance.cs",
+      "Literal": "\"general.startPaused\"",
+      "Category": "log",
+      "Reason": "Part of the startup provenance line written to the log only (PauseLaunchProvenance.Describe → writeLog); never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Startup/PauseLaunchProvenance.cs",
+      "Literal": "\"neither\"",
+      "Category": "log",
+      "Reason": "Part of the startup provenance line written to the log only (PauseLaunchProvenance.Describe → writeLog); never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Startup/PauseLaunchProvenance.cs",
+      "Literal": "\"not paused\"",
+      "Category": "log",
+      "Reason": "Part of the startup provenance line written to the log only (PauseLaunchProvenance.Describe → writeLog); never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Startup/PauseLaunchProvenance.cs",
+      "Literal": "\"paused\"",
+      "Category": "log",
+      "Reason": "Part of the startup provenance line written to the log only (PauseLaunchProvenance.Describe → writeLog); never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Startup/PauseLaunchProvenance.cs",
+      "Literal": "$\" (source: {Source(isPausedLaunch, startPausedSetting)})\"",
+      "Category": "log",
+      "Reason": "Part of the startup provenance line written to the log only (PauseLaunchProvenance.Describe → writeLog); never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Startup/UiLanguageArgument.cs",
+      "Literal": "\"--ui-language\"",
+      "Category": "id",
+      "Reason": "A command-line flag."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/RestartNotices.cs",
+      "Literal": "\"restart_failed_ok\"",
+      "Category": "id",
+      "Reason": "A modal-choice dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/RestartNotices.cs",
+      "Literal": "\"restart_progress_hide\"",
+      "Category": "id",
+      "Reason": "A modal-choice dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/ActionMenuPageSource.cs",
+      "Literal": "\"am_jump_0\"",
+      "Category": "id",
+      "Reason": "A Settings row id or a string-table KEY held in a const; the text is resolved through T()."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/ActionMenuPageSource.cs",
+      "Literal": "\"settings.action_menu.preview.labels\"",
+      "Category": "id",
+      "Reason": "A Settings row id or a string-table KEY held in a const; the text is resolved through T()."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/ActionMenuPageSource.cs",
+      "Literal": "\"settings.action_menu.preview.not_a_control\"",
+      "Category": "id",
+      "Reason": "A Settings row id or a string-table KEY held in a const; the text is resolved through T()."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
+      "Literal": "\"language_cancel\"",
+      "Category": "id",
+      "Reason": "A modal-choice dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
+      "Literal": "\"language_restart\"",
+      "Category": "id",
+      "Reason": "A modal-choice dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
+      "Literal": "\"restart_cancel\"",
+      "Category": "id",
+      "Reason": "A modal-choice dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
+      "Literal": "\"restart_plain\"",
+      "Category": "id",
+      "Reason": "A modal-choice dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
+      "Literal": "\"restart_supervised\"",
+      "Category": "id",
+      "Reason": "A modal-choice dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/Sources/QuickActionsPageSource.cs",
+      "Literal": "\"T\"",
+      "Category": "glyph",
+      "Reason": "The canned-text action type's glyph, drawn as the letter T beside the caption; the same glyph in every language."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/Settings/SupervisionRebuildPolicy.cs",
+      "Literal": "\"General\"",
+      "Category": "id",
+      "Reason": "A Settings tab id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/SettingsPagerChrome.cs",
+      "Literal": "\"pag_next\"",
+      "Category": "id",
+      "Reason": "A pager dwell-target id or a string-table KEY; the text is resolved through T()."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/SettingsPagerChrome.cs",
+      "Literal": "\"pag_prev\"",
+      "Category": "id",
+      "Reason": "A pager dwell-target id or a string-table KEY; the text is resolved through T()."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/SettingsPagerChrome.cs",
+      "Literal": "\"settings.pager.jump_to_first_page\"",
+      "Category": "id",
+      "Reason": "A pager dwell-target id or a string-table KEY; the text is resolved through T()."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/SettingsPagerChrome.cs",
+      "Literal": "\"settings.pager.jump_to_first_tabs\"",
+      "Category": "id",
+      "Reason": "A pager dwell-target id or a string-table KEY; the text is resolved through T()."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/SettingsPagerChrome.cs",
+      "Literal": "\"settings.pager.jump_to_last_page\"",
+      "Category": "id",
+      "Reason": "A pager dwell-target id or a string-table KEY; the text is resolved through T()."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/SettingsPagerChrome.cs",
+      "Literal": "\"settings.pager.jump_to_last_tabs\"",
+      "Category": "id",
+      "Reason": "A pager dwell-target id or a string-table KEY; the text is resolved through T()."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/SettingsPagerChrome.cs",
+      "Literal": "\"settings.pager.next_page\"",
+      "Category": "id",
+      "Reason": "A pager dwell-target id or a string-table KEY; the text is resolved through T()."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/SettingsPagerChrome.cs",
+      "Literal": "\"settings.pager.next_tabs\"",
+      "Category": "id",
+      "Reason": "A pager dwell-target id or a string-table KEY; the text is resolved through T()."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/SettingsPagerChrome.cs",
+      "Literal": "\"settings.pager.previous_page\"",
+      "Category": "id",
+      "Reason": "A pager dwell-target id or a string-table KEY; the text is resolved through T()."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/SettingsPagerChrome.cs",
+      "Literal": "\"settings.pager.previous_tabs\"",
+      "Category": "id",
+      "Reason": "A pager dwell-target id or a string-table KEY; the text is resolved through T()."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/SettingsPagerChrome.cs",
+      "Literal": "\"tab_next\"",
+      "Category": "id",
+      "Reason": "A pager dwell-target id or a string-table KEY; the text is resolved through T()."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/SettingsPagerChrome.cs",
+      "Literal": "\"tab_prev\"",
+      "Category": "id",
+      "Reason": "A pager dwell-target id or a string-table KEY; the text is resolved through T()."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/DwellColorPicker.cs",
+      "Literal": "\"X2\"",
+      "Category": "data",
+      "Reason": "A number format specifier, not text."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/DwellSlider.cs",
+      "Literal": "$\"F{decimals}\"",
+      "Category": "data",
+      "Reason": "A number format specifier, not text."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Icons/ActionIcons.cs",
+      "Literal": "\" M12,6 L12,9.5\"",
+      "Category": "data",
+      "Reason": "Icon path geometry (WPF path mini-language), not text."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Icons/ActionIcons.cs",
+      "Literal": "\" M4,8A2,2,0,0,1,6,6 M20,6A2,2,0,0,1,22,8 M22,16A2,2,0,0,1,20,18 M6,18A2,2,0,0,1,4,16\"",
+      "Category": "data",
+      "Reason": "Icon path geometry (WPF path mini-language), not text."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Icons/ActionIcons.cs",
+      "Literal": "\" M6.5,9.5 L12,4.6 L17.5,9.5 M12,4.6 L12,19\"",
+      "Category": "data",
+      "Reason": "Icon path geometry (WPF path mini-language), not text."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Icons/ActionIcons.cs",
+      "Literal": "\" M8.5,10.5 L10.5,12.4 M15.5,10.5 L13.5,12.4 M10.5,12.4 A3,3 0 1 0 13.5,12.4 M12,15.4 L12,19\"",
+      "Category": "data",
+      "Reason": "Icon path geometry (WPF path mini-language), not text."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Icons/ActionIcons.cs",
+      "Literal": "\" M9,10.5 L12,7.8 L15,10.5 M12,13 L12,19 M8,16.5 L16,16.5\"",
+      "Category": "data",
+      "Reason": "Icon path geometry (WPF path mini-language), not text."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Icons/ActionIcons.cs",
+      "Literal": "\"F1M13.5,3.5L13.5,12.5 8,12.5 8,9C8,5.962433815002441,10.462433815002441,3.5,13.5,3.5z M10,0.29999983310699463L10.164752006530762,0.3020848333835602 10.328592300415039,0.3083103597164154 10.491455078125,0.31863120198249817 10.653275489807129,0.33300116658210754 10.813989639282227,0.3513730466365814 10.973535537719727,0.3736977279186249 11.13184928894043,0.39992740750312805 11.288869857788086,0.4300115704536438 11.444537162780762,0.4638996720314026 11.59879207611084,0.501541256904602 11.751575469970703,0.5428849458694458 11.902830123901367,0.5878788232803345 12.052499771118164,0.6364702582359314 12.200528144836426,0.6886082291603088 12.346861839294434,0.7442401647567749 12.491445541381836,0.8033130168914795 12.63422679901123,0.8657752871513367 12.775154113769531,0.9315745234489441 12.914175033569336,1.0006589889526367 13.051239013671875,1.07297682762146 13.186295509338379,1.1484757661819458 13.27906608581543,1.203321933746338 13.100532531738281,1.2101061344146729 12.902328491210938,1.222666621208191 12.70527458190918,1.2401654720306396 12.509468078613281,1.262548804283142 12.315003395080566,1.289759874343872 12.12197208404541,1.3217415809631348 11.930464744567871,1.3584333658218384 11.740567207336426,1.3997735977172852 11.55236530303955,1.4456992149353027 11.365941047668457,1.4961462020874023 11.18137264251709,1.5510495901107788 10.998739242553711,1.610343337059021 10.818115234375,1.673962116241455 10.639573097229004,1.7418384552001953 10.46318244934082,1.8139067888259888 10.28901195526123,1.8901009559631348 10.117128372192383,1.9703539609909058 9.947595596313477,2.054600715637207 9.856973648071289,2.102414131164551 9.762533187866211,2.1060023307800293 9.645110130310059,2.11344313621521 9.528589248657227,2.1237905025482178 9.412992477416992,2.1370036602020264 9.298343658447266,2.1530466079711914 9.184666633605957,2.1718804836273193 9.071986198425293,2.1934690475463867 8.960328102111816,2.2177765369415283 8.849720001220703,2.244767904281616 8.740190505981445,2.2744064331054688 8.631766319274902,2.30665922164917 8.524478912353516,2.3414909839630127 8.41835880279541,2.3788681030273438 8.313438415527344,2.4187560081481934 8.209748268127441,2.461121082305908 8.10732364654541,2.5059285163879395 8.00619888305664,2.553144693374634 7.906407356262207,2.602734327316284 7.807985305786133,2.6546630859375 7.710968971252441,2.708897590637207 7.615395545959473,2.7654008865356445 7.52130126953125,2.824138641357422 7.4287238121032715,2.8850746154785156 7.337701320648193,2.9481723308563232 7.24827241897583,3.0133965015411377 7.1604743003845215,3.08070969581604 7.074346542358398,3.1500749588012695 6.989927768707275,3.2214558124542236 6.907256126403809,3.2948131561279297 6.8263702392578125,3.370110273361206 6.747308731079102,3.4473087787628174 6.67011022567749,3.526370048522949 6.594813346862793,3.607255697250366 6.521455764770508,3.689927577972412 6.450075626373291,3.7743465900421143 6.380710124969482,3.8604745864868164 6.313396453857422,3.9482719898223877 6.248172760009766,4.03770112991333 6.185074329376221,4.128723621368408 6.124138832092285,4.221301078796387 6.065401077270508,4.315395355224609 6.00889778137207,4.410968780517578 5.9546637535095215,4.5079851150512695 5.902734279632568,4.606407165527344 5.853144645690918,4.706198215484619 5.805928707122803,4.807323932647705 5.7611212730407715,4.909748554229736 5.718756675720215,5.013437747955322 5.678868293762207,5.118359088897705 5.641491413116455,5.224478721618652 5.606659412384033,5.331766128540039 5.574406623840332,5.440189838409424 5.544767379760742,5.549720287322998 5.517776966094971,5.660327911376953 5.49346923828125,5.77198600769043 5.4718804359436035,5.884666442871094 5.453046798706055,5.998343467712402 5.437004089355469,6.112992286682129 5.423790454864502,6.228589057922363 5.413443565368652,6.345109939575195 5.406002521514893,6.462532997131348 5.401507377624512,6.580836772918701 5.400000095367432,6.699999809265137 5.400000095367432,14.699999809265137 5.401507377624512,14.81916332244873 5.406002521514893,14.937466621398926 5.413443565368652,15.054889678955078 5.423790454864502,15.17141056060791 5.437004089355469,15.287007331848145 5.453046798706055,15.401656150817871 5.4718804359436035,15.51533317565918 5.49346923828125,15.628013610839844 5.517776966094971,15.73967170715332 5.544767379760742,15.850279808044434 5.574406623840332,15.959810256958008 5.606659412384033,16.068233489990234 5.641491413116455,16.175519943237305 5.678868293762207,16.281641006469727 5.699999809265137,16.33722496032715 5.699999809265137,17 5.702534198760986,17.200210571289062 5.710105895996094,17.39946746826172 5.7226667404174805,17.597671508789062 5.740165710449219,17.79472541809082 5.762548446655273,17.99053192138672 5.789760112762451,18.184995651245117 5.821741580963135,18.378026962280273 5.858433246612549,18.569534301757812 5.899773597717285,18.759431838989258 5.945699214935303,18.947633743286133 5.996146202087402,19.13405990600586 6.05104923248291,19.318626403808594 6.1103434562683105,19.50126075744629 6.173961639404297,19.681884765625 6.241838455200195,19.860427856445312 6.253403186798096,19.88873291015625 6.170251846313477,19.828086853027344 6.048267841339111,19.73456382751465 5.92863130569458,19.63821029663086 5.811390399932861,19.539077758789062 5.696592330932617,19.437213897705078 5.584284782409668,19.332666397094727 5.47451639175415,19.225482940673828 5.367334365844727,19.11571502685547 5.262786865234375,19.003408432006836 5.160922527313232,18.888608932495117 5.061789512634277,18.7713680267334 4.965436935424805,18.651731491088867 4.871913433074951,18.529747009277344 4.781269073486328,18.40546417236328 4.693552494049072,18.278928756713867 4.608814716339111,18.150190353393555 4.527105808258057,18.01929473876953 4.4484758377075195,17.886295318603516 4.372976779937744,17.751237869262695 4.3006591796875,17.614173889160156 4.231574535369873,17.47515296936035 4.165775299072266,17.334226608276367 4.103312969207764,17.191444396972656 4.0442399978637695,17.04686164855957 3.9886083602905273,16.900527954101562 3.9364702701568604,16.752498626708984 3.8878791332244873,16.602828979492188 3.8428850173950195,16.451574325561523 3.8015410900115967,16.298791885375977 3.763899803161621,16.1445369720459 3.730011463165283,15.988869667053223 3.699927568435669,15.831849098205566 3.6736979484558105,15.673535346984863 3.6513729095458984,15.513989448547363 3.6330018043518066,15.353275299072266 3.618631601333618,15.191454887390137 3.6083109378814697,15.028592109680176 3.6020851135253906,14.864751815795898 3.5999996662139893,14.699999809265137 3.5999996662139893,6.699999809265137 3.6020851135253906,6.535247802734375 3.6083109378814697,6.371407985687256 3.618631601333618,6.208545207977295 3.6330018043518066,6.046724319458008 3.6513729095458984,5.886009693145752 3.6736979484558105,5.726464748382568 3.699927568435669,5.568150997161865 3.730011463165283,5.411129951477051 3.763899803161621,5.255462646484375 3.8015410900115967,5.101208209991455 3.8428850173950195,4.948424816131592 3.8878791332244873,4.7971696853637695 3.9364707469940186,4.647500514984131 3.9886083602905273,4.499471664428711 4.0442399978637695,4.353138446807861 4.103313446044922,4.208554744720459 4.165775299072266,4.065773010253906 4.231575012207031,3.9248461723327637 4.3006591796875,3.785825252532959 4.372976779937744,3.64876127243042 4.4484758377075195,3.513704299926758 4.527105808258057,3.380703926086426 4.608814716339111,3.249810218811035 4.6935529708862305,3.1210711002349854 4.781269073486328,2.9945361614227295 4.871913909912109,2.8702521324157715 4.965436935424805,2.7482681274414062 5.0617899894714355,2.628631830215454 5.160922527313232,2.511390447616577 5.262787342071533,2.396592140197754 5.367334365844727,2.284285068511963 5.47451639175415,2.174516201019287 5.584285259246826,2.0673344135284424 5.696592330932617,1.96278715133667 5.811390399932861,1.8609228134155273 5.928631782531738,1.7617894411087036 6.0482683181762695,1.6654369831085205 6.170252323150635,1.5719135999679565 6.294536113739014,1.4812688827514648 6.421071529388428,1.3935524225234985 6.549810409545898,1.308814525604248 6.680704593658447,1.2271054983139038 6.813704490661621,1.1484757661819458 6.948761463165283,1.07297682762146 7.085825443267822,1.0006589889526367 7.224846363067627,0.9315745234489441 7.3657732009887695,0.8657752871513367 7.508554935455322,0.8033130168914795 7.653138637542725,0.7442401647567749 7.799471855163574,0.6886082291603088 7.947500705718994,0.6364702582359314 8.097169876098633,0.5878788232803345 8.248424530029297,0.5428849458694458 8.40120792388916,0.501541256904602 8.555462837219238,0.4638996720314026 8.711130142211914,0.4300115704536438 8.86815071105957,0.39992740750312805 9.026464462280273,0.3736977279186249 9.186010360717773,0.3513730466365814 9.346724510192871,0.33300116658210754 9.508544921875,0.31863120198249817 9.671407699584961,0.3083103597164154 9.835247993469238,0.3020848333835602 10,0.29999983310699463z\"",
+      "Category": "data",
+      "Reason": "Icon path geometry (WPF path mini-language), not text."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Icons/ActionIcons.cs",
+      "Literal": "\"M10,1.5 A6,6 0 0 0 4,7.5 L4,10.5 L10,10.5 Z\"",
+      "Category": "data",
+      "Reason": "Icon path geometry (WPF path mini-language), not text."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Icons/ActionIcons.cs",
+      "Literal": "\"M10.1,2.9 A1.9,1.9 0 0 1 13.9,2.9 L13.9,7.1 A1.9,1.9 0 0 1 10.1,7.1 Z\"",
+      "Category": "data",
+      "Reason": "Icon path geometry (WPF path mini-language), not text."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Icons/ActionIcons.cs",
+      "Literal": "\"M12,3.5 A6,6 0 0 0 6,9.5 L6,16.5 A6,6 0 0 0 18,16.5 L18,12.5 M6,12.5 L18,12.5 M12,3.5 L12,12.5\"",
+      "Category": "data",
+      "Reason": "Icon path geometry (WPF path mini-language), not text."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Icons/ActionIcons.cs",
+      "Literal": "\"M12,3.5 A6,6 0 0 1 18,9.5 L18,16.5 A6,6 0 0 1 6,16.5 L6,12.5 M6,12.5 L18,12.5 M12,3.5 L12,12.5\"",
+      "Category": "data",
+      "Reason": "Icon path geometry (WPF path mini-language), not text."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Icons/ActionIcons.cs",
+      "Literal": "\"M14,1.5 A6,6 0 0 1 20,7.5 L20,10.5 L14,10.5 Z\"",
+      "Category": "data",
+      "Reason": "Icon path geometry (WPF path mini-language), not text."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Icons/ActionIcons.cs",
+      "Literal": "\"M15.3,4.49 A6,6 0 0 1 18,9.5 L18,16.5 A6,6 0 0 1 6,16.5 L6,9.5 A6,6 0 0 1 8.7,4.49 M6,12.5 L18,12.5\"",
+      "Category": "data",
+      "Reason": "Icon path geometry (WPF path mini-language), not text."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Icons/ActionIcons.cs",
+      "Literal": "\"M19.9,2.1 A1.9,1.9 0 1 1 20,5.9 A1.9,1.9 0 1 1 19.9,2.1 Z\"",
+      "Category": "data",
+      "Reason": "Icon path geometry (WPF path mini-language), not text."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Icons/ActionIcons.cs",
+      "Literal": "\"M7,7.5 A5,5 0 0 1 17,7.5 L17,16.5 A5,5 0 0 1 7,16.5 Z\"",
+      "Category": "data",
+      "Reason": "Icon path geometry (WPF path mini-language), not text."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Icons/ActionIcons.cs",
+      "Literal": "\"M8,9A5.5,5.5,0,0,1,19,9L19,17A5.5,5.5,0,0,1,8,17z M13.5,3.5L13.5,12.5 M8,12.5L19,12.5\"",
+      "Category": "data",
+      "Reason": "Icon path geometry (WPF path mini-language), not text."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Icons/ActionIcons.cs",
+      "Literal": "\"M8.2,7.2 L8.2,5.2 A1.2,1.2 0 0 1 9.4,4 L14.6,4 A1.2,1.2 0 0 1 15.8,5.2 L15.8,7.2\"",
+      "Category": "data",
+      "Reason": "Icon path geometry (WPF path mini-language), not text."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Icons/ToolbarIcons.cs",
+      "Literal": "\"M5,12 A7,7 0 1 1 19,12 A7,7 0 1 1 5,12 Z\"",
+      "Category": "data",
+      "Reason": "Icon path geometry (WPF path mini-language), not text."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Theme/ContrastTheme.cs",
+      "Literal": "\"Contrast\"",
+      "Category": "id",
+      "Reason": "A theme id, saved as a setting code; its display name is keyed (settings.general.theme.option.*)."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Theme/ContrastTheme.cs",
+      "Literal": "\"Segoe UI Variable Text, Segoe UI\"",
+      "Category": "product",
+      "Reason": "The theme font family chain: font product names, not text."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Theme/EmberTheme.cs",
+      "Literal": "\"Ember\"",
+      "Category": "id",
+      "Reason": "A theme id, saved as a setting code; its display name is keyed (settings.general.theme.option.*)."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Theme/EmberTheme.cs",
+      "Literal": "\"Segoe UI Variable Text, Segoe UI\"",
+      "Category": "product",
+      "Reason": "The theme font family chain: font product names, not text."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Theme/MidnightTheme.cs",
+      "Literal": "\"Midnight\"",
+      "Category": "id",
+      "Reason": "A theme id, saved as a setting code; its display name is keyed (settings.general.theme.option.*)."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Theme/MidnightTheme.cs",
+      "Literal": "\"Segoe UI Variable Text, Segoe UI\"",
+      "Category": "product",
+      "Reason": "The theme font family chain: font product names, not text."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Theme/ThemeResourceApplier.cs",
+      "Literal": "\"StandardBorderThickness\"",
+      "Category": "id",
+      "Reason": "A resource-dictionary key."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"Close Window\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"Copy\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"Cut\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"File Explorer\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"Find\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"Lock\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"Maximize / Restore\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"Minimize Window\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"Mute\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"New\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"Next\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"Paste\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"Play / Pause\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"Previous\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"Print\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"Redo\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"Save\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"Select All\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"Show Desktop\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"Stop\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"Switch App\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"Undo\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"Volume Down\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+      "Literal": "\"Volume Up\"",
+      "Category": "preset-legacy-label",
+      "Reason": "A preset's original English label, kept only for T03d's one-time legacy match of saved tiles (D2); tiles display the keyed overlays/settings preset text."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Settings/ThemeSettings.cs",
+      "Literal": "\"Contrast\"",
+      "Category": "id",
+      "Reason": "A theme id, saved as a setting code; its display name is keyed (settings.general.theme.option.*)."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Settings/ThemeSettings.cs",
+      "Literal": "\"Ember\"",
+      "Category": "id",
+      "Reason": "A theme id, saved as a setting code; its display name is keyed (settings.general.theme.option.*)."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Settings/ThemeSettings.cs",
+      "Literal": "\"Midnight\"",
+      "Category": "id",
+      "Reason": "A theme id, saved as a setting code; its display name is keyed (settings.general.theme.option.*)."
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/AppExePathResolver.cs",
+      "Literal": "\"EYECTRL_APP_EXE\"",
+      "Category": "id",
+      "Reason": "An environment-variable name."
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/Fallback/FallbackAtLauncher.cs",
+      "Literal": "\"ApplicationPath\"",
+      "Category": "id",
+      "Reason": "A registry path or value name."
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/Fallback/FallbackAtLauncher.cs",
+      "Literal": "\"LauncherPath\"",
+      "Category": "id",
+      "Reason": "A registry path or value name."
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/Fallback/FallbackAtLauncher.cs",
+      "Literal": "@\"SOFTWARE\\WOW6432Node\\Tobii Dynavox\\Computer Control\"",
+      "Category": "id",
+      "Reason": "A registry path or value name."
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/Fallback/FallbackAtLauncher.cs",
+      "Literal": "@\"SOFTWARE\\WOW6432Node\\Tobii Dynavox\\Snap Core First\"",
+      "Category": "id",
+      "Reason": "A registry path or value name."
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/Ipc/HeartbeatPipeServer.cs",
+      "Literal": "\"eyectrl_watch\"",
+      "Category": "id",
+      "Reason": "The heartbeat pipe name."
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/Program.cs",
+      "Literal": "@\"Local\\EyeCtrl.Supervisor.Singleton\"",
+      "Category": "id",
+      "Reason": "A named mutex."
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/UI/FallenBackDialog.xaml",
+      "Literal": "\"EyeCtrl Supervisor\"",
+      "Category": "product",
+      "Reason": "The product name, which stays literal in every language (T06 decision)."
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml",
+      "Literal": "\"EyeCtrl Supervisor\"",
+      "Category": "product",
+      "Reason": "The product name, which stays literal in every language (T06 decision)."
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
+      "Literal": "\"SnapCoreFirst\"",
+      "Category": "id",
+      "Reason": "A fallback-app id; its display name is keyed (supervisor.setup.fallback-app.*)."
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
+      "Literal": "\"TDControl\"",
+      "Category": "id",
+      "Reason": "A fallback-app id; its display name is keyed (supervisor.setup.fallback-app.*)."
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorSetupWindow.xaml.cs",
+      "Literal": "\"WindowsEyeControl\"",
+      "Category": "id",
+      "Reason": "A fallback-app id; its display name is keyed (supervisor.setup.fallback-app.*)."
+    },
+    {
+      "Path": "src/EyeCtrl.Supervisor/UI/SupervisorTrayIcon.cs",
+      "Literal": "\"EyeCtrl Supervisor\"",
+      "Category": "product",
+      "Reason": "The product name, which stays literal in every language (T06 decision)."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/DragTrailViewModel.cs",
+      "Literal": "\"Drag_release\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/GlassBackdropViewModel.cs",
+      "Literal": "\"backdrop_hide\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/ModesIcons.cs",
+      "Literal": "\"ModeDoubleClick\"",
+      "Category": "id",
+      "Reason": "An icon key."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/ModesIcons.cs",
+      "Literal": "\"ModeLeftClick\"",
+      "Category": "id",
+      "Reason": "An icon key."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/ModesIcons.cs",
+      "Literal": "\"ModeMiddleClick\"",
+      "Category": "id",
+      "Reason": "An icon key."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/ModesIcons.cs",
+      "Literal": "\"ModeRightClick\"",
+      "Category": "id",
+      "Reason": "An icon key."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/ModesIcons.cs",
+      "Literal": "\"Modes\"",
+      "Category": "id",
+      "Reason": "An icon key."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/QuickActionsGridViewModel.cs",
+      "Literal": "\"__qa_close__\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/SelectionModeIcons.cs",
+      "Literal": "\"SelectionAuto\"",
+      "Category": "id",
+      "Reason": "An icon key."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/SelectionModeIcons.cs",
+      "Literal": "\"SelectionManual\"",
+      "Category": "id",
+      "Reason": "An icon key."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/SelectionModeIcons.cs",
+      "Literal": "\"SelectionNone\"",
+      "Category": "id",
+      "Reason": "An icon key."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/SettingsWindowViewModel.cs",
+      "Literal": "\"modal_no\"",
+      "Category": "id",
+      "Reason": "A modal-choice dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/SettingsWindowViewModel.cs",
+      "Literal": "\"modal_yes\"",
+      "Category": "id",
+      "Reason": "A modal-choice dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/ToolbarViewModel.cs",
+      "Literal": "\"Pause\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    }
+  ]
+}

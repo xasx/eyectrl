@@ -2,6 +2,7 @@ namespace EyeCtrl.Platform.Tests.Input;
 
 using System.Runtime.InteropServices;
 using EyeCtrl.Platform.Input;
+using static EyeCtrl.Platform.Tests.TestTimeouts;
 
 public class GlobalEscapeHatchTests
 {
@@ -39,7 +40,7 @@ public class GlobalEscapeHatchTests
         {
             interop.CapturedProc!(0, (IntPtr)0x0100, lParam);
 
-            Check.That(raised.Wait(2000)).IsTrue();
+            Check.That(raised.Wait(PositiveWaitMs)).IsTrue();
             Check.That(interop.ForwardedToNextHook).IsTrue(); // the hook ALWAYS calls CallNextHookEx
             // Escalated off the hook thread (design H2): neither the test thread nor (trivially) the
             // pump thread — the pool dispatch is what makes the callback safe to return immediately.
@@ -107,7 +108,7 @@ public class GlobalEscapeHatchTests
         finally { Marshal.FreeHGlobal(lParam); }
 
         // The throwing subscriber must neither kill the process nor skip its neighbours.
-        Check.That(healthy.Wait(2000)).IsTrue();
+        Check.That(healthy.Wait(PositiveWaitMs)).IsTrue();
     }
 
     [Fact]
@@ -139,8 +140,8 @@ public class GlobalEscapeHatchTests
 
         // The pump consumes the scripted WmReArm while the hatch is still live; wait for BOTH
         // halves of the swap so the journal is quiescent when asserted.
-        Check.That(interop.SecondInstall.Wait(2000)).IsTrue();
-        Check.That(interop.StaleUnhooked.Wait(2000)).IsTrue();
+        Check.That(interop.SecondInstall.Wait(PositiveWaitMs)).IsTrue();
+        Check.That(interop.StaleUnhooked.Wait(PositiveWaitMs)).IsTrue();
         Check.That(hatch.IsActive).IsTrue();                                 // fresh handle active
         Check.That(interop.Journal).ContainsExactly(
             "install",          // initial

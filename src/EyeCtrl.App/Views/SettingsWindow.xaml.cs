@@ -230,6 +230,16 @@ public partial class SettingsWindow : OverlayWindow
 
     private const double ModalButtonHeight = 100;
 
+    /// <summary>
+    /// A two-choice (horizontal) modal button's width. Its label never wraps, so the label's
+    /// one-line width is bounded by this box: the <c>modal170</c> fit class, measured by T09's
+    /// fit harness through <see cref="BuildModalButton"/>.
+    /// </summary>
+    internal const double ModalButtonWidth = 170;
+
+    /// <summary>A stacked (three-or-more-choice) modal button's width: the <c>modal460</c> class.</summary>
+    internal const double ModalWideButtonWidth = 460;
+
     // Window sizing
     //
     // internal for the same reason as TabContainerHeight: SettingsContentFitTests re-derives the
@@ -640,94 +650,110 @@ public partial class SettingsWindow : OverlayWindow
 
     // ────── Sidebar tabs ──────
 
+    /// <summary>
+    /// One sidebar tab's face — its 100 DIP highlight, the icon and the label in their inner
+    /// panel — with no window state: <see cref="BuildTabButtons"/> builds every tab through it, and
+    /// T09's <c>tab156</c> gate (<c>SidebarTabFit</c>) measures exactly this element, so a change to
+    /// the tab's margins or type moves the gate with it (review-01 R3).
+    /// </summary>
+    /// <param name="id">The tab id (the <c>Settings_Tab_{id}</c> automation id).</param>
+    /// <param name="icon">The tab's glyph.</param>
+    /// <param name="label">The tab's resolved label.</param>
+    /// <param name="background">The highlight brush, which the window recolours by state.</param>
+    /// <returns>The tab's border.</returns>
+    internal static Border BuildTabFace(string id, string icon, string label, SolidColorBrush background)
+    {
+        // Set AutomationId on the label TextBlock — WPF's UIA control view only exposes
+        // TextBlock nodes from transparent overlay windows; Border containers are collapsed.
+        var iconText = new TextBlock
+        {
+            Text = icon,
+            Foreground = Tokens.BrushTextPrimary,
+            FontSize = TabContainerHeight * ContainerRatio.Medium,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 12, 0)
+        };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(iconText, $"Settings_Tab_{id}");
+
+        return new Border
+        {
+            Height = TabContainerHeight,
+            Margin = new Thickness(TabButtonMargin),
+            CornerRadius = Tokens.StandardCornerRadius,
+            Background = background,
+            Cursor = System.Windows.Input.Cursors.Hand,
+            Child = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(16, 0, 16, 0),
+                Children =
+                {
+                    iconText,
+                    new TextBlock
+                    {
+                        Text = label,
+                        Foreground = Tokens.BrushTextPrimary,
+                        FontSize = Tokens.FontSizeTitle,
+                        FontWeight = Tokens.FontWeightMedium,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        // FIXED by widening the sidebar column to 240 DIP
+                        // (SettingsWindow.xaml). **This branch caused the spill; it did not
+                        // inherit it.** Measured headlessly with the real glyphs, at the
+                        // sidebar's 220 DIP, for "Quick Actions":
+                        //
+                        //   pre-branch  (icon 30, label 22, no FontFamily override)  218.61
+                        //   post-branch (icon 32, label Tokens.FontSizeTitle = 24)   233.86
+                        //
+                        // So it sat 1.39px INSIDE the column before and 13.86px outside
+                        // after. The dominant term is this label going 22 -> 24, worth
+                        // +12.50px; the icon's 30 -> TabContainerHeight * Medium (32) adds
+                        // only +2.75px, and retargeting the family at "Segoe UI Variable
+                        // Text, Segoe UI" moves it by under 0.6px either way. An earlier
+                        // version of this comment claimed a pre-branch 231.11 and blamed
+                        // the icon alone — no configuration measures 231.11, and the label was
+                        // the larger half.
+                        //
+                        // At 240 every label clears the column, the tightest being
+                        // "Quick Actions" with 6.14px spare. It still overhangs its own tab
+                        // Border (which now ends at x=228) by 5.86px, and that is ACCEPTED:
+                        // the text stays fully legible against the sidebar's own fill, and
+                        // 240 strictly improves the highlight too — at 220 "Dwell Times" and
+                        // "Quick Actions" both overhung a Border ending at x=208.
+                        //
+                        // A TextTrimming.CharacterEllipsis was tried here and REMOVED because
+                        // it is provably inert, measured twice: this label's parent is a
+                        // horizontal StackPanel, which measures children with infinite width
+                        // in the stacking direction, so the label is never width-constrained
+                        // and has nothing to trim against — ActualWidth is 149.92 and the
+                        // right edge 233.86 with and without it. Left in place it would read,
+                        // at the call site, as if the label truncated. It does not. That is
+                        // still true and is why the attribute is still absent.
+                        //
+                        // The alternative was to make it live: a two-column Grid("Auto,*")
+                        // here plus the trimming back, which brings every right edge to
+                        // exactly 192.0 — inside the 220 column. It was REJECTED on the
+                        // measurement, because 192.0 is the slot edge, not the text's: the
+                        // constrained slots are 108.06 / 125.03 / 108.06 DIP against text
+                        // needing 131.12 / 140.22 / 149.92, so "Dwell Times", "Action Menu"
+                        // and "Quick Actions" would all render ellipsized. Trading three
+                        // unreadable tab names for 20px of a paginated, auto-sized content
+                        // column is the wrong trade for a user who navigates this window by
+                        // gaze. The robustness that fix bought is supplied instead by
+                        // SettingsTabLabelFitTests, which re-measures every label against the
+                        // column width parsed from the XAML and fails on any future resize.
+                    }
+                }
+            }
+        };
+    }
+
     private void BuildTabButtons()
     {
         foreach (var (id, icon, labelKey, _) in _tabDefs)
         {
-            // Set AutomationId on the label TextBlock — WPF's UIA control view only exposes
-            // TextBlock nodes from transparent overlay windows; Border containers are collapsed.
-            var iconText = new TextBlock
-            {
-                Text = icon,
-                Foreground = Tokens.BrushTextPrimary,
-                FontSize = TabContainerHeight * ContainerRatio.Medium,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 12, 0)
-            };
-            System.Windows.Automation.AutomationProperties.SetAutomationId(iconText, $"Settings_Tab_{id}");
-
             var tabBrush = new SolidColorBrush(TabInactive);
-            var border = new Border
-            {
-                Height = TabContainerHeight,
-                Margin = new Thickness(TabButtonMargin),
-                CornerRadius = Tokens.StandardCornerRadius,
-                Background = tabBrush,
-                Cursor = System.Windows.Input.Cursors.Hand,
-                Child = new StackPanel
-                {
-                    Orientation = Orientation.Horizontal,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(16, 0, 16, 0),
-                    Children =
-                    {
-                        iconText,
-                        new TextBlock
-                        {
-                            Text = StringTable.Current.T(labelKey),
-                            Foreground = Tokens.BrushTextPrimary,
-                            FontSize = Tokens.FontSizeTitle,
-                            FontWeight = Tokens.FontWeightMedium,
-                            VerticalAlignment = VerticalAlignment.Center,
-                            // FIXED by widening the sidebar column to 240 DIP
-                            // (SettingsWindow.xaml). **This branch caused the spill; it did not
-                            // inherit it.** Measured headlessly with the real glyphs, at the
-                            // sidebar's 220 DIP, for "Quick Actions":
-                            //
-                            //   pre-branch  (icon 30, label 22, no FontFamily override)  218.61
-                            //   post-branch (icon 32, label Tokens.FontSizeTitle = 24)   233.86
-                            //
-                            // So it sat 1.39px INSIDE the column before and 13.86px outside
-                            // after. The dominant term is this label going 22 -> 24, worth
-                            // +12.50px; the icon's 30 -> TabContainerHeight * Medium (32) adds
-                            // only +2.75px, and retargeting the family at "Segoe UI Variable
-                            // Text, Segoe UI" moves it by under 0.6px either way. An earlier
-                            // version of this comment claimed a pre-branch 231.11 and blamed
-                            // the icon alone — no configuration measures 231.11, and the label was
-                            // the larger half.
-                            //
-                            // At 240 every label clears the column, the tightest being
-                            // "Quick Actions" with 6.14px spare. It still overhangs its own tab
-                            // Border (which now ends at x=228) by 5.86px, and that is ACCEPTED:
-                            // the text stays fully legible against the sidebar's own fill, and
-                            // 240 strictly improves the highlight too — at 220 "Dwell Times" and
-                            // "Quick Actions" both overhung a Border ending at x=208.
-                            //
-                            // A TextTrimming.CharacterEllipsis was tried here and REMOVED because
-                            // it is provably inert, measured twice: this label's parent is a
-                            // horizontal StackPanel, which measures children with infinite width
-                            // in the stacking direction, so the label is never width-constrained
-                            // and has nothing to trim against — ActualWidth is 149.92 and the
-                            // right edge 233.86 with and without it. Left in place it would read,
-                            // at the call site, as if the label truncated. It does not. That is
-                            // still true and is why the attribute is still absent.
-                            //
-                            // The alternative was to make it live: a two-column Grid("Auto,*")
-                            // here plus the trimming back, which brings every right edge to
-                            // exactly 192.0 — inside the 220 column. It was REJECTED on the
-                            // measurement, because 192.0 is the slot edge, not the text's: the
-                            // constrained slots are 108.06 / 125.03 / 108.06 DIP against text
-                            // needing 131.12 / 140.22 / 149.92, so "Dwell Times", "Action Menu"
-                            // and "Quick Actions" would all render ellipsized. Trading three
-                            // unreadable tab names for 20px of a paginated, auto-sized content
-                            // column is the wrong trade for a user who navigates this window by
-                            // gaze. The robustness that fix bought is supplied instead by
-                            // SettingsTabLabelFitTests, which re-measures every label against the
-                            // column width parsed from the XAML and fails on any future resize.
-                        }
-                    }
-                }
-            };
+            var border = BuildTabFace(id, icon, StringTable.Current.T(labelKey), tabBrush);
 
             // Mouse fallback
             border.MouseLeftButtonDown += (_, _) => ShowTab(id);
@@ -816,7 +842,7 @@ public partial class SettingsWindow : OverlayWindow
     /// token. Each adapter assigns it inline at its call site — the same precedent as
     /// DragTrailOverlay's IconSize, which repeats its expression rather than reading a local.
     /// </summary>
-    private Border MakeChromeButton(
+    private static Border MakeChromeButton(
         string id, string text, double width, double height, Thickness margin,
         Color fill, Brush textBrush,
         Action onMouseDown,
@@ -1143,25 +1169,32 @@ public partial class SettingsWindow : OverlayWindow
         }
 
         var prev = MakePagButton("pag_prev", -1);
-        var indicator = new TextBlock
-        {
-            Text = StringTable.Current.T(
-                "settings.pager.page_of",
-                _viewModel.Settings.CurrentPage + 1, _viewModel.Settings.TotalPages),
-            Foreground = Tokens.BrushTextPrimary,
-            FontSize = Tokens.FontSizeTitle,
-            FontWeight = Tokens.FontWeightMedium,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(20, 0, 20, 0),
-            MinWidth = 80,
-            TextAlignment = TextAlignment.Center
-        };
+        var indicator = BuildPageIndicator(_viewModel.Settings.CurrentPage + 1, _viewModel.Settings.TotalPages);
         var next = MakePagButton("pag_next", +1);
 
         PaginationPanel.Children.Add(prev);
         PaginationPanel.Children.Add(indicator);
         PaginationPanel.Children.Add(next);
     }
+
+    /// <summary>
+    /// The content pager's "page / pages" indicator, sitting between the two pager buttons. Its
+    /// own builder so T09's pseudo-locale gate measures the element the pager draws.
+    /// </summary>
+    /// <param name="page">The 1-based current page.</param>
+    /// <param name="pages">The page count.</param>
+    /// <returns>The indicator.</returns>
+    internal static TextBlock BuildPageIndicator(int page, int pages) => new()
+    {
+        Text = StringTable.Current.T("settings.pager.page_of", page, pages),
+        Foreground = Tokens.BrushTextPrimary,
+        FontSize = Tokens.FontSizeTitle,
+        FontWeight = Tokens.FontWeightMedium,
+        VerticalAlignment = VerticalAlignment.Center,
+        Margin = new Thickness(20, 0, 20, 0),
+        MinWidth = 80,
+        TextAlignment = TextAlignment.Center
+    };
 
     // The glyph and the registered dwell/action both depend on the boundary state: a boundary
     // button wears a double arrow and wraps to the far end at the jump dwell; a step button
@@ -2233,14 +2266,37 @@ public partial class SettingsWindow : OverlayWindow
     /// </param>
     private Border MakeModalButton(string id, string text, Color bg, SolidColorBrush foreground, bool wide)
     {
-        var border = MakeChromeButton(
-            id, text, wide ? 460 : 170, ModalButtonHeight,
-            wide ? new Thickness(0, 8, 0, 8) : new Thickness(12, 0, 12, 0),
-            bg, foreground,
+        var border = BuildModalButton(
+            id, text, bg, foreground, wide,
             () => _viewModel.SimulateActivated(id, DwellCategory.Modal),
             _modalButtons, _modalBrushes);
-        ((TextBlock)border.Child).FontSize = Tokens.FontSizeTitle;
         _modalBaseColors[id] = bg;
+        return border;
+    }
+
+    /// <summary>
+    /// The modal button's face — box, margins, fill and label type — with no window state. The
+    /// one builder <see cref="MakeModalButton"/> uses, so T09's fit harness measures a modal
+    /// label in the exact box the user sees (<c>modal170</c> / <c>modal460</c>).
+    /// </summary>
+    /// <param name="id">Dwell-target id.</param>
+    /// <param name="text">Label.</param>
+    /// <param name="bg">Fill.</param>
+    /// <param name="foreground">Label brush.</param>
+    /// <param name="wide">True for the stacked layout's wider buttons.</param>
+    /// <param name="onMouseDown">Mouse fallback.</param>
+    /// <param name="buttons">Registry the button is recorded in, by id.</param>
+    /// <param name="brushes">Registry the fill brush is recorded in, by id.</param>
+    /// <returns>The button.</returns>
+    internal static Border BuildModalButton(
+        string id, string text, Color bg, Brush foreground, bool wide, Action onMouseDown,
+        Dictionary<string, Border> buttons, Dictionary<string, SolidColorBrush> brushes)
+    {
+        var border = MakeChromeButton(
+            id, text, wide ? ModalWideButtonWidth : ModalButtonWidth, ModalButtonHeight,
+            wide ? new Thickness(0, 8, 0, 8) : new Thickness(12, 0, 12, 0),
+            bg, foreground, onMouseDown, buttons, brushes);
+        ((TextBlock)border.Child).FontSize = Tokens.FontSizeTitle;
         return border;
     }
 }

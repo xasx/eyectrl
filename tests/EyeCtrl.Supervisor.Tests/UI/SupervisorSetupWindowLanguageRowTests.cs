@@ -32,6 +32,7 @@ using EyeCtrl.Supervisor.UI;
 /// the wrong slot, and a swap is exactly what these pins catch.
 /// </para>
 /// </summary>
+[Collection(SupervisorXamlCollection.Name)]
 public sealed class SupervisorSetupWindowLanguageRowTests : IDisposable
 {
     private const double Scale = 2.0;

@@ -102,7 +102,7 @@ internal sealed class ModelsPageSource : ISettingsPageSource
             {
                 var e3 = entry;
                 manageRows.Add(new ButtonSpec($"md_del_{entry.Id}",
-                    $"{entry.DisplayName}  {FormatSize(entry.SizeBytes)}  {StringTable.Current.T("settings.models.delete.affix")}",
+                    RowCaption(entry.DisplayName, entry.SizeBytes, StringTable.Current.T("settings.models.delete.affix")),
                     () => _ctx.ShowModal(
                         StringTable.Current.T("settings.models.delete.message", e3.DisplayName), () =>
                     {
@@ -167,7 +167,7 @@ internal sealed class ModelsPageSource : ISettingsPageSource
                 // clamps on narrower displays): one line for every bundled label except the
                 // GPU one, which wraps to two centered lines rather than clipping.
                 page1.Add(new ButtonSpec($"md_dl_{entry.Id}",
-                    $"{entry.DisplayName}  {FormatSize(entry.SizeBytes)}  {StringTable.Current.T("settings.models.download.affix")}",
+                    RowCaption(entry.DisplayName, entry.SizeBytes, StringTable.Current.T("settings.models.download.affix")),
                     () =>
                     {
                         // Not silent: a busy workflow that swallows the dwell is
@@ -323,6 +323,19 @@ internal sealed class ModelsPageSource : ISettingsPageSource
             });
         });
     }
+
+    /// <summary>
+    /// A model button's caption: the model's name, its size and the keyed affix. Only the affix is
+    /// translated, so the caption is composed here, in one place — the delete and download
+    /// buttons both use it, and T09's <c>btn544x100</c> fit gate measures exactly this string
+    /// for every bundled model.
+    /// </summary>
+    /// <param name="displayName">The model's display name.</param>
+    /// <param name="sizeBytes">The model's size in bytes.</param>
+    /// <param name="affix">The keyed affix ("🗑 Delete", "[Download]").</param>
+    /// <returns>The button caption.</returns>
+    internal static string RowCaption(string displayName, long sizeBytes, string affix) =>
+        $"{displayName}  {FormatSize(sizeBytes)}  {affix}";
 
     private static string FormatSize(long bytes)
     {

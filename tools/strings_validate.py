@@ -90,6 +90,8 @@ FIT_CLASSES = [
     "A68",
     "A44",
     "A56",
+    # T09 review-01: the eye-care summary card; one line, and the auto-width card fits the window.
+    "card",
     "tab156",
     "tray63",
     "B94x2",
@@ -98,6 +100,20 @@ FIT_CLASSES = [
     "B260x3",
     "C-fallback",
     "C-alert",
+    # T09: fixed boxes that were classed row, so no gate measured them. modalW is a one-line
+    # modal button W DIP wide; btnWxH is a wrapping Settings DwellButton of W x H DIP. The fit
+    # harness (tests/EyeCtrl.App.Tests/Localization/Fit) measures each in its production control.
+    "modal170",
+    "modal460",
+    "btn360x100",
+    "btn360x70",
+    "btn380x100",
+    "btn420x100",
+    "btn420x70",
+    "btn420x90",
+    "btn440x100",
+    "btn544x100",
+    "btn544x106",
     "row",
     "prose",
 ]

@@ -6,7 +6,7 @@
         AutomationProperties.AutomationId="CaregiverAlert_Window"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False"
-        Width="720" Height="120">
+        Width="720" Height="120" MinHeight="120">
     <Grid>
         <Border x:Name="Banner"
                 HorizontalAlignment="Center" VerticalAlignment="Center"

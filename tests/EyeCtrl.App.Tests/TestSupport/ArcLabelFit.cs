@@ -86,6 +86,17 @@ internal static class ArcLabelFit
     /// </summary>
     internal static (DwellArcButton Button, Canvas Canvas) BuildButton(EdgeButtonDefinition definition)
     {
+        var (button, canvas, _) = BuildButtonInWindow(definition);
+        return (button, canvas);
+    }
+
+    /// <summary>
+    /// <see cref="BuildButton"/>, also returning the window — T09's fit harness detaches the
+    /// window's content into its 2.0 host, so it needs the window to inherit the font from.
+    /// </summary>
+    internal static (DwellArcButton Button, Canvas Canvas, EdgeButtonBarWindow Window) BuildButtonInWindow(
+        EdgeButtonDefinition definition)
+    {
         var vm = new EdgeButtonBarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
         var window = new EdgeButtonBarWindow { DataContext = vm };
 
@@ -101,7 +112,7 @@ internal static class ArcLabelFit
         canvas.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         canvas.Arrange(new Rect(new Point(0, 0), canvas.DesiredSize));
 
-        return (window.DrawnButtons[definition.Id], canvas);
+        return (window.DrawnButtons[definition.Id], canvas, window);
     }
 
     /// <summary>

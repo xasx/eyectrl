@@ -75,6 +75,34 @@ public class DwellComboBox : IDwellComposite
     /// </summary>
     private const double OptionBorderThickness = 2;
 
+    /// <summary>
+    /// The margin around each option (and the unmatched marker) in the wrap panel.
+    ///
+    /// <para>
+    /// <b>The vertical part is the dwell clearance between WRAPPED rows</b> (T09). An option is a
+    /// 100 DIP button in a 2 DIP outline (104 tall) with a 100 DIP hit circle; with the old
+    /// <c>(0, 0, 8, 8)</c> a second row sat 112 DIP below the first, leaving 12 DIP between two
+    /// stacked circles against the 40 DIP floor every other adjacent pair keeps. English never
+    /// wraps on the user's display, but a translation ~40 % longer does (the pseudo-locale
+    /// wrapped the Cursor filter, ring style and dictionary language rows), so the floor was a
+    /// German-only hazard. Top 14 + bottom 22 makes the row pitch 104 + 36 = 140: a 40 DIP gap.
+    /// </para>
+    /// <para>
+    /// <b>The split is asymmetric on purpose, so English does not move.</b> The host row centres
+    /// the panel in its 150 DIP slot: a single row was 112 tall, its button centre 19 + 52 = 71
+    /// from the slot top; now it is 140 tall, (150 − 140) / 2 + 14 + 52 = 71. Same centre, same
+    /// 150 slot, so a single-row combo's target, its row height and the page chunking are
+    /// unchanged — language-driven re-layout inside Settings, English targets unchanged. A
+    /// symmetric or bottom-only margin moves that centre (bottom-only 36: up 14), which
+    /// <c>ComboRowPitchTests</c> pins.
+    /// </para>
+    /// <para>
+    /// The horizontal 8 is the gap between neighbours in one row, unchanged: buttons are at least
+    /// 150 wide, so two circles in a row are at least 162 apart.
+    /// </para>
+    /// </summary>
+    internal static readonly Thickness OptionMargin = new(0, 14, 8, 22);
+
     private readonly DwellLabel _label;
     private readonly List<DwellButton> _options = new();
     private readonly List<TextBlock> _optionTexts = new();
@@ -218,7 +246,7 @@ public class DwellComboBox : IDwellComposite
 
             var optionBorder = new Border
             {
-                Margin = new Thickness(0, 0, 8, 8),
+                Margin = OptionMargin,
                 CornerRadius = Tokens.StandardCornerRadius,
                 // Sane default only: Refresh() repaints every wrapper at
                 // the end of this constructor and on every selection change. Kept so a refactor
@@ -267,7 +295,7 @@ public class DwellComboBox : IDwellComposite
 
         _unmatchedMarker = new Border
         {
-            Margin = new Thickness(0, 0, 8, 8),
+            Margin = OptionMargin,
             CornerRadius = Tokens.StandardCornerRadius,
             BorderBrush = Tokens.BrushAccentWarning,
             BorderThickness = new Thickness(OptionBorderThickness),

@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Views.Settings;
 
+using EyeCtrl.Core.Localization;
+
 /// <summary>
 /// The two measurement instruments, exposed where a gaze user can reach them.
 /// <para>
@@ -34,21 +36,23 @@ internal sealed class DiagnosticsPageSource : ISettingsPageSource
         return
         [
             new PageSpec([
-                new ToggleSpec("dg_record_raw", "Record Raw Gaze (from next start)",
+                new ToggleSpec("dg_record_raw",
+                    StringTable.Current.T("settings.diagnostics.record_raw.label"),
                     () => d.RecordRawGaze, v => { d.RecordRawGaze = v; _ctx.ApplyAndSave(); })
-                    { Description = "Save every gaze sample to a file for analysis. Off by default; turn it back off when you are done." },
-                new LabelSpec(() =>
-                    "A recording is a trace of where you looked and when — nothing about what you were "
-                    + "looking at. It stays on this computer, in your EyeCtrl folder, until you delete it."),
-                new ToggleSpec("dg_ui_instruments", "Measure UI Timing (from next start)",
+                    { Description = StringTable.Current.T("settings.diagnostics.record_raw.description") },
+                new LabelSpec(() => StringTable.Current.T("settings.diagnostics.record_raw.note")),
+                new ToggleSpec("dg_ui_instruments",
+                    StringTable.Current.T("settings.diagnostics.ui_timing.label"),
                     () => d.MeasureUiInstruments, v => { d.MeasureUiInstruments = v; _ctx.ApplyAndSave(); })
-                    { Description = "Time how gaze reaches the screen. Records no gaze positions; writes only summary lines to the log." },
-                new ButtonSpec("dg_open_folder", "Open Recordings Folder",
+                    { Description = StringTable.Current.T("settings.diagnostics.ui_timing.description") },
+                new ButtonSpec("dg_open_folder",
+                    StringTable.Current.T("settings.diagnostics.open_folder.label"),
                     () => _onOpenRecordingFolder?.Invoke(),
                     ButtonKind.Default, Width: 300, Height: 100)
-                    { Description = "Show gaze-recording.csv and its ground-truth file in Explorer." },
-                new ButtonSpec("dg_reset", "Reset Diagnostics Settings",
-                    () => _ctx.ShowModal("Turn both diagnostics off?", () =>
+                    { Description = StringTable.Current.T("settings.diagnostics.open_folder.description") },
+                new ButtonSpec("dg_reset",
+                    StringTable.Current.T("settings.diagnostics.reset.label"),
+                    () => _ctx.ShowModal(StringTable.Current.T("settings.diagnostics.reset.message"), () =>
                     {
                         var defaults = new Core.Settings.DiagnosticsSettings();
                         d.RecordRawGaze = defaults.RecordRawGaze;

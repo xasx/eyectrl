@@ -17,16 +17,16 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0"
-                   Text="EyeCtrl couldn't stay running"
+        <TextBlock x:Name="HeadlineText"
+                   Grid.Row="0"
                    Foreground="#F4D03F"
                    FontSize="30"
                    FontWeight="Bold"
                    TextWrapping="Wrap"
                    Margin="0,0,0,12" />
 
-        <TextBlock Grid.Row="1"
-                   Text="A fallback eye-control app has been launched. Use it (or a mouse) to choose an option below."
+        <TextBlock x:Name="BodyText"
+                   Grid.Row="1"
                    Foreground="White"
                    FontSize="18"
                    TextWrapping="Wrap"

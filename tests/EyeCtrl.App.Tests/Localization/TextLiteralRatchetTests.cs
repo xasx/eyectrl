@@ -253,6 +253,20 @@ public class TextLiteralRatchetTests
         Check.That(found.Select(e => e.Literal)).Contains("\"Unknown\"");
     }
 
+    /// <summary>
+    /// T07: a producer member's UI text can live in a PROPERTY (<c>string StatusText { get { … }
+    /// } }</c>), which the method-only member form never matched — the T06 review's N1 hole that
+    /// let <c>SupervisionToggleService</c>'s status lines stay invisible to the ratchet.
+    /// </summary>
+    [Fact]
+    public void TheScan_CatchesAProducerProperty()
+    {
+        var found = TextLiteralScan.FindSites(
+            "src/EyeCtrl.App/Services/SupervisionToggleService.cs",
+            "public string StatusText { get { return \"Starting the Supervisor...\"; } }");
+        Check.That(found.Select(e => e.Literal)).Contains("\"Starting the Supervisor...\"");
+    }
+
     /// <summary>Log and diagnostic strings are not screen text; the ticket excludes them.</summary>
     [Fact]
     public void TheScan_IgnoresLogAndDiagnosticCalls()

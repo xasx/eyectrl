@@ -100,12 +100,16 @@ internal static class ActionMenuRingPainter
         {
             foreach (var slot in slots)
             {
+                // The accessible name rides every button, label or not: with the Help toggle off
+                // the icon-only disc is otherwise invisible to UIA (D11), and with labels on the
+                // name lands on the label TextBlock, which already says exactly this.
                 var button = DwellArcButton.Create(
                     slot.Center,
                     ActionMenuGeometry.ButtonRadius,
                     symbol: null,
                     icon: ActionIcons.For(slot.Icon),
-                    label: options.ShowLabels ? options.LabelFor(slot) : null);
+                    label: options.ShowLabels ? options.LabelFor(slot) : null,
+                    accessibleName: options.LabelFor(slot));
                 AddButton(canvas, button, slot.IsDisabled);
                 buttons[slot.Id] = button;
             }
@@ -133,6 +137,10 @@ internal static class ActionMenuRingPainter
 
         foreach (var slot in slots)
         {
+            // No accessible name on the miniature's disc: the preview draws its own unscaled label
+            // TextBlock below, which already exposes the slot's text, so an anchor here would make
+            // every preview slot announce twice (T08 review-02 N2). The runtime path, whose discs
+            // can be icon-only, keeps its anchor.
             var button = DwellArcButton.Create(
                 slot.Center,
                 ActionMenuGeometry.ButtonRadius,

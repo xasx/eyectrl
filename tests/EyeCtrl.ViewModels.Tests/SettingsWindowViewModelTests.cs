@@ -345,11 +345,25 @@ public class SettingsWindowViewModelTests
     [Fact]
     public void ShowModal_TwoButtonForm_StillOffersYesAndNo()
     {
-        // The wrapper must keep the ids every existing confirmation depends on.
+        // The wrapper must keep the ids every existing confirmation depends on, AND the labels
+        // (review 01 R1). The labels are asserted as English literals, per the story's test
+        // convention: a swapped key pair would put "✕ No" on the affirmative button, which runs
+        // onYes — behind it sit Reset ALL, Clear calibration and Delete model, and a gaze user
+        // acts on the word. A table edit to "Yes" also fails here.
         var vm = CreateViewModel();
         vm.ShowModal("Confirm action?", () => { });
 
         Check.That(vm.ModalChoices.Select(c => c.Id)).ContainsExactly("modal_yes", "modal_no");
+        Check.That(vm.ModalChoices.Select(c => c.Label)).ContainsExactly("✓ Yes", "✕ No");
+
+        Check.WithCustomMessage(
+                "The affirmative button must carry \"✓ Yes\" — onYes runs from it.")
+            .That(vm.ModalChoices.Single(c => c.Kind == ModalChoiceKind.Affirmative).Label)
+            .IsEqualTo("✓ Yes");
+        Check.WithCustomMessage(
+                "The negative button must carry \"✕ No\" and dismiss without running onYes.")
+            .That(vm.ModalChoices.Single(c => c.Kind == ModalChoiceKind.Negative).Label)
+            .IsEqualTo("✕ No");
     }
 
     [Fact]

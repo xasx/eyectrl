@@ -11,6 +11,7 @@ using System.Windows.Shapes;
 using System.Windows.Threading;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Calibration;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels;
 
@@ -365,6 +366,14 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
     {
         StopAutoDismiss();
 
+        // Hoisted here so both progress-bearing states read the same values through
+        // ProgressTextFor; the states that draw no progress line ignore them. These are the view
+        // model's raw reads — the 0-based index included — so the display arithmetic stays in the
+        // helper.
+        var idx = _viewModel?.CurrentTargetIndex ?? 0;
+        var total = _viewModel?.TotalTargets ?? 0;
+        var measureOnly = _viewModel?.IsMeasureOnly == true;
+
         switch (state)
         {
             case CalibrationState.Collecting:
@@ -383,9 +392,8 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
                 // blocked by WS_EX_NOACTIVATE and Esc did nothing, despite the visible hint.
                 SetOverlayInteraction(clickThrough: true, focusable: true);
                 Activate();
-                var idx = _viewModel?.CurrentTargetIndex ?? 0;
-                var total = _viewModel?.TotalTargets ?? 0;
-                ProgressText.Text = $"Look at the dot \u00B7 {idx + 1} / {total}";
+                ProgressText.Text = ProgressTextFor(
+                    state, index: idx, total: total, measureOnly: measureOnly);
                 StartPulse();
                 break;
 
@@ -393,7 +401,8 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
                 TargetCanvas.Visibility = Visibility.Collapsed;
                 CancelHint.Visibility = Visibility.Collapsed;
                 StopPulse();
-                ProgressText.Text = _viewModel?.IsMeasureOnly == true ? "Recording..." : "Computing...";
+                ProgressText.Text = ProgressTextFor(
+                    state, index: idx, total: total, measureOnly: measureOnly);
                 break;
 
             case CalibrationState.Active:
@@ -415,6 +424,23 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
                 break;
         }
     }
+
+    /// <summary>
+    /// The progress line for one state, as pure copy — the window draws it, but the text choice
+    /// needs no HWND. <paramref name="index"/> is the VIEW MODEL's 0-based target index and the
+    /// helper adds the 1 itself, so the display arithmetic lives inside this pinned seam and the
+    /// call site passes values through (with named arguments, so a swap is visible in review). A
+    /// state that shows no progress line returns empty.
+    /// </summary>
+    internal static string ProgressTextFor(
+        CalibrationState state, int index, int total, bool measureOnly) => state switch
+    {
+        CalibrationState.Collecting =>
+            StringTable.Current.T("calibration.progress.lookAtDot", index + 1, total),
+        CalibrationState.Training when measureOnly => StringTable.Current.T("calibration.progress.recording"),
+        CalibrationState.Training => StringTable.Current.T("calibration.progress.computing"),
+        _ => string.Empty,
+    };
 
     private void ShowCompletion(bool goodResult)
     {

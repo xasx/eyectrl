@@ -328,6 +328,9 @@ public class CalibrationServiceTests
 
             Check.That(service.CurrentTransform).IsNull();
             Check.That(logger.LoggedCount > 0).IsTrue();
+            // The call site assigned the OFF-SCREEN key, not another rejection (T07 fixup-02 R4).
+            Check.That(service.LastLoadRejection).IsEqualTo(
+                "Not applied \u2014 the saved calibration maps gaze off-screen (bad fit). Recalibrate to fix.");
         }
         finally
         {
@@ -355,6 +358,77 @@ public class CalibrationServiceTests
 
             Check.That(service.CurrentTransform).IsNull();
             Check.That(logger.LoggedCount > 0).IsTrue();
+            // The call site assigned the FLIPS key, which differs from the off-screen one above
+            // only by its words (T07 fixup-02 R4).
+            Check.That(service.LastLoadRejection).IsEqualTo(
+                "Not applied \u2014 the saved calibration flips or amplifies gaze (bad fit). Recalibrate to fix.");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_MalformedTransform_RejectsWithItsOwnSentence()
+    {
+        var service = new CalibrationService();
+        var path = Path.GetTempFileName();
+        try
+        {
+            // Valid JSON, a matching screen and monitor, but five transform parameters.
+            File.WriteAllText(path,
+                "{\"transformParams\":[1,0,100,0,1],\"screenWidth\":3840,\"screenHeight\":2400," +
+                "\"monitorDeviceName\":\"DISPLAY1\"}");
+
+            service.Load(path, new PhysicalPoint(3840, 2400), "DISPLAY1");
+
+            Check.That(service.CurrentTransform).IsNull();
+            Check.That(service.LastLoadRejection).IsEqualTo(
+                "Not applied \u2014 the saved calibration is malformed. Recalibrate to fix.");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_UnreadableFile_RejectsWithItsOwnSentence()
+    {
+        var service = new CalibrationService();
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path, "this is not JSON");
+
+            service.Load(path, new PhysicalPoint(3840, 2400), "DISPLAY1");
+
+            Check.That(service.CurrentTransform).IsNull();
+            Check.That(service.LastLoadRejection).IsEqualTo(
+                "Not applied \u2014 the saved calibration could not be read. Recalibrate to fix.");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_EmptyFile_RejectsWithItsOwnSentence()
+    {
+        var service = new CalibrationService();
+        var path = Path.GetTempFileName();
+        try
+        {
+            // Deserializes to null: the file is JSON-shaped but holds no record.
+            File.WriteAllText(path, "null");
+
+            service.Load(path, new PhysicalPoint(3840, 2400), "DISPLAY1");
+
+            Check.That(service.CurrentTransform).IsNull();
+            Check.That(service.LastLoadRejection).IsEqualTo(
+                "Not applied \u2014 the saved calibration file is empty. Recalibrate to fix.");
         }
         finally
         {
@@ -575,6 +649,10 @@ public class CalibrationServiceTests
             var warning = logger.Warnings.FirstOrDefault(w => w.Contains("3840x2400"));
             Check.That(warning).IsNotNull();
             Check.That(warning!).Contains("1920x1080");
+            // The sentence the settings page shows, pinned as an English literal at the CALL SITE
+            // (T07 fixup-02 R4): the table text alone does not prove Load picked the screen key.
+            Check.That(service.LastLoadRejection).IsEqualTo(
+                "Not applied \u2014 saved for a 3840\u00d72400 screen, current is 1920\u00d71080. Recalibrate to fix.");
         }
         finally
         {

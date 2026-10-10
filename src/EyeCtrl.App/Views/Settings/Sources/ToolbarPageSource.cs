@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Views.Settings;
 
+using EyeCtrl.Core.Localization;
+
 internal sealed class ToolbarPageSource : ISettingsPageSource
 {
     private readonly SettingsPageContext _ctx;
@@ -13,19 +15,28 @@ internal sealed class ToolbarPageSource : ISettingsPageSource
         return
         [
             new PageSpec([
-                new ToggleSpec("t_dock", "Dock to Screen Edge",
+                new ToggleSpec("t_dock",
+                    StringTable.Current.T("settings.toolbar.dock.label"),
                     () => t.IsDocked, v => { t.IsDocked = v; _ctx.ApplyAndSave(); })
-                    { Description = "Docks the toolbar to an edge; with an eye tracker it auto-hides." },
-                new ComboBoxSpec("t_edge", "Docked Edge",
-                    new[] { "Top", "Bottom", "Left", "Right" },
-                    new[] { "Top", "Bottom", "Left", "Right" },
+                    { Description = StringTable.Current.T("settings.toolbar.dock.description") },
+                new ComboBoxSpec("t_edge",
+                    StringTable.Current.T("settings.toolbar.edge.label"),
+                    [
+                        StringTable.Current.T("settings.toolbar.edge.option.top"),
+                        StringTable.Current.T("settings.toolbar.edge.option.bottom"),
+                        StringTable.Current.T("settings.toolbar.edge.option.left"),
+                        StringTable.Current.T("settings.toolbar.edge.option.right"),
+                    ],
+                    ["Top", "Bottom", "Left", "Right"],
                     () => t.DockedEdge, v => { t.DockedEdge = v; _ctx.ApplyAndSave(); })
-                    { Description = "Which screen edge the toolbar attaches to." },
-                new SliderSpec("t_size", "Button Size", 40, 120, 4, 0,
+                    { Description = StringTable.Current.T("settings.toolbar.edge.description") },
+                new SliderSpec("t_size",
+                    StringTable.Current.T("settings.toolbar.size.label"), 40, 120, 4, 0,
                     () => t.Size, v => { t.Size = v; _ctx.ApplyAndSave(); })
-                    { Description = "Size of each button; bigger ones are easier to aim at." },
-                new ButtonSpec("t_reset", "Reset Toolbar Settings",
-                    () => _ctx.ShowModal("Reset Toolbar settings to defaults?", () =>
+                    { Description = StringTable.Current.T("settings.toolbar.size.description") },
+                new ButtonSpec("t_reset",
+                    StringTable.Current.T("settings.toolbar.reset.label"),
+                    () => _ctx.ShowModal(StringTable.Current.T("settings.toolbar.reset.message"), () =>
                     {
                         var def = new Core.Settings.ToolbarSettings();
                         t.IsDocked = def.IsDocked;

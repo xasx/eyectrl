@@ -1,4 +1,5 @@
 using EyeCtrl.App.Services;
+using EyeCtrl.Core.Localization;
 
 namespace EyeCtrl.App.Views.Settings;
 
@@ -15,36 +16,57 @@ internal sealed class KeyboardPageSource : ISettingsPageSource
         return
         [
             new PageSpec([
-                new ComboBoxSpec("k_layout", "Active Layout",
-                    new[] { "QWERTY", "QWERTZ", "AZERTY" },
+                new ComboBoxSpec("k_layout",
+                    StringTable.Current.T("settings.keyboard.layout.label"),
+                    [
+                        StringTable.Current.T("settings.keyboard.layout.option.qwerty"),
+                        StringTable.Current.T("settings.keyboard.layout.option.qwertz"),
+                        StringTable.Current.T("settings.keyboard.layout.option.azerty"),
+                    ],
                     new[] { "QWERTY", "QWERTZ", "AZERTY" },
                     () => k.ActiveLayout, v => { k.ActiveLayout = v; _ctx.ApplyAndSave(); })
-                    { Description = "Key arrangement; QWERTZ suits German, AZERTY suits French." },
-                new SliderSpec("k_size", "Key Size Multiplier", 0.5, 2.0, 0.1, 1,
+                    { Description = StringTable.Current.T("settings.keyboard.layout.description") },
+                new SliderSpec("k_size",
+                    StringTable.Current.T("settings.keyboard.size.label"), 0.5, 2.0, 0.1, 1,
                     () => k.KeySizeMultiplier, v => { k.KeySizeMultiplier = v; _ctx.ApplyAndSave(); })
-                    { Description = "Scales every key; bigger keys are easier to hit." },
-                new ToggleSpec("k_pred", "Word Prediction",
+                    { Description = StringTable.Current.T("settings.keyboard.size.description") },
+                new ToggleSpec("k_pred",
+                    StringTable.Current.T("settings.keyboard.prediction.label"),
                     () => k.PredictionEnabled, v => { k.PredictionEnabled = v; _ctx.ApplyAndSave(); })
-                    { Description = "Shows suggested words above the keyboard while you type." },
-                new SliderSpec("k_pred_count", "Max Predictions", 1, Core.Settings.KeyboardSettings.MaxSuggestionsCeiling, 1, 0,
+                    { Description = StringTable.Current.T("settings.keyboard.prediction.description") },
+                new SliderSpec("k_pred_count",
+                    StringTable.Current.T("settings.keyboard.prediction_count.label"), 1, Core.Settings.KeyboardSettings.MaxSuggestionsCeiling, 1, 0,
                     () => k.MaxSuggestions, v => { k.MaxSuggestions = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = "How many suggestions fill the bar. Fewer are easier to aim; takes effect as you type." },
-                new ComboBoxSpec("k_lang", "Dictionary Language",
-                    new[] { "English", "French", "Spanish", "German", "Polish" },
+                    { Description = StringTable.Current.T("settings.keyboard.prediction_count.description") },
+                new ComboBoxSpec("k_lang",
+                    StringTable.Current.T("settings.keyboard.dictionary_language.label"),
+                    [
+                        StringTable.Current.T("settings.keyboard.dictionary_language.option.english"),
+                        StringTable.Current.T("settings.keyboard.dictionary_language.option.french"),
+                        StringTable.Current.T("settings.keyboard.dictionary_language.option.spanish"),
+                        StringTable.Current.T("settings.keyboard.dictionary_language.option.german"),
+                        StringTable.Current.T("settings.keyboard.dictionary_language.option.polish"),
+                    ],
                     new[] { "en", "fr", "es", "de", "pl" },
                     () => string.IsNullOrEmpty(k.LanguagePack) ? "en" : k.LanguagePack,
                     v => { k.LanguagePack = v; _ctx.ApplyAndSave(); })
-                    { Description = "Which language the word suggestions draw from." },
-                new ToggleSpec("k_sound", "Click Sound",
+                    { Description = StringTable.Current.T("settings.keyboard.dictionary_language.description") },
+                new ToggleSpec("k_sound",
+                    StringTable.Current.T("settings.keyboard.click_sound.label"),
                     () => k.ClickSoundEnabled, v => { k.ClickSoundEnabled = v; _ctx.ApplyAndSave(); })
-                    { Description = "Plays a click each time a key activates." },
-                new ComboBoxSpec("k_edge", "Screen Edge",
-                    new[] { "Bottom", "Top" },
+                    { Description = StringTable.Current.T("settings.keyboard.click_sound.description") },
+                new ComboBoxSpec("k_edge",
+                    StringTable.Current.T("settings.keyboard.screen_edge.label"),
+                    [
+                        StringTable.Current.T("settings.keyboard.screen_edge.option.bottom"),
+                        StringTable.Current.T("settings.keyboard.screen_edge.option.top"),
+                    ],
                     new[] { "Bottom", "Top" },
                     () => k.ScreenEdge, v => { k.ScreenEdge = v; _ctx.ApplyAndSave(); })
-                    { Description = "The screen edge the keyboard docks to." },
-                new ButtonSpec("k_reset", "Reset Keyboard Settings",
-                    () => _ctx.ShowModal("Reset Keyboard settings to defaults?", () =>
+                    { Description = StringTable.Current.T("settings.keyboard.screen_edge.description") },
+                new ButtonSpec("k_reset",
+                    StringTable.Current.T("settings.keyboard.reset.label"),
+                    () => _ctx.ShowModal(StringTable.Current.T("settings.keyboard.reset.message"), () =>
                     {
                         var def = new Core.Settings.KeyboardSettings();
                         k.ActiveLayout = def.ActiveLayout;
@@ -76,8 +98,7 @@ internal sealed class KeyboardPageSource : ISettingsPageSource
         if (learned.Count == 0)
         {
             yield return new PageSpec([
-                new LabelSpec(() =>
-                    "No learned words yet. They collect as you type; the Add Word key (Fn row) adds one on the spot."),
+                new LabelSpec(() => StringTable.Current.T("settings.keyboard.dictionary.empty")),
             ]);
             yield break;
         }
@@ -86,26 +107,31 @@ internal sealed class KeyboardPageSource : ISettingsPageSource
         foreach (var word in learned)
         {
             var captured = word;
-            rows.Add(new LabelSpec(() => $"“{captured}”"));
+            rows.Add(new LabelSpec(
+                () => StringTable.Current.T("settings.keyboard.dictionary.word", captured)));
             rows.Add(new ButtonSpec("kb_wd_del_" + captured,
-                "✕  Remove from dictionary",
-                () => _ctx.ShowModal($"Remove “{captured}” from the learned dictionary?", () =>
+                StringTable.Current.T("settings.keyboard.dictionary.remove.label"),
+                () => _ctx.ShowModal(
+                    StringTable.Current.T("settings.keyboard.dictionary.remove.message", captured), () =>
                 {
                     // Only a genuine write failure is worth a gaze user's error-dwell: the
                     // live view legitimately lists never-persisted Add Word learns, whose file
                     // rewrite has nothing to remove.
                     if (dictionary.ForgetWord(captured) == UserDictionaryService.DictionaryWriteResult.WriteFailed)
-                        _ctx.ShowError($"Removed “{captured}” for this session, but the dictionary file could not be updated.");
+                        _ctx.ShowError(StringTable.Current.T(
+                            "settings.keyboard.dictionary.remove.partial_error", captured));
                     _ctx.RebuildContent();
                 }),
                 ButtonKind.Delete, Width: 420, Height: 70));
         }
 
-        rows.Add(new ButtonSpec("kb_wd_clear", "Remove ALL Learned Words",
-            () => _ctx.ShowModal($"Remove all {learned.Count} learned words?", () =>
+        rows.Add(new ButtonSpec("kb_wd_clear",
+            StringTable.Current.T("settings.keyboard.dictionary.clear.label"),
+            () => _ctx.ShowModal(
+                StringTable.Current.T("settings.keyboard.dictionary.clear.message", learned.Count), () =>
             {
                 if (dictionary.ClearLearned() == UserDictionaryService.DictionaryWriteResult.WriteFailed)
-                    _ctx.ShowError("Removed for this session, but the dictionary file could not be updated.");
+                    _ctx.ShowError(StringTable.Current.T("settings.keyboard.dictionary.clear.partial_error"));
                 _ctx.RebuildContent();
             }),
             ButtonKind.Reset, Width: 420, Height: 100));

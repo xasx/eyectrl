@@ -86,8 +86,9 @@ public sealed class RingPlan
     /// <param name="circleSize">The cursor circle diameter in DIP (the Cursor tab's CircleSize).</param>
     /// <param name="labels">
     /// The host's text for every slot, Back and More included. Required — a host that forgets it
-    /// does not compile, which is the compiler enforcing D3. The English source is
-    /// <see cref="RingLabelSource.English"/>.
+    /// does not compile, which is the compiler enforcing D3. The defaults are
+    /// <see cref="RingLabelSource.Overlays"/> (the live table, resolving the <c>overlays</c> keys)
+    /// and <see cref="RingLabelSource.English"/> (the embedded English table).
     /// </param>
     public static RingPlan Create(
         IReadOnlyList<InteractionAction>? visibleActions,

@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests.Settings.Pages;
 
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Views.Settings;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 using NFluent;
@@ -46,6 +47,36 @@ public class CalibrationPageSourceTests
         var src = new CalibrationPageSource(TestSettingsPageContext.Build());
         var label = src.Build()[1].Rows[0];
         Check.That(((LabelSpec)label).Text()).IsEqualTo("Last calibration: none");
+    }
+
+    /// <summary>
+    /// T07: the calibration status and load-rejection sentences are <c>settings</c> keys now, so
+    /// the table is the only place their English lives. Pinned as literals (the story's test
+    /// convention) for the sentences no other test asserts through the real path — the four
+    /// monitor-mismatch arms are pinned by <c>CalibrationServiceTests</c>, and "none" above.
+    /// </summary>
+    [Fact]
+    public void CalibrationStatusAndRejectionEnglish_IsPinned()
+    {
+        var table = StringTable.EmbeddedEnglish;
+
+        Check.That(table.T("settings.calibration.status.ok", "2026-10-08 14:03", 12.3, 96.4))
+            .IsEqualTo("Last calibration: 2026-10-08 14:03  \u00b7  12.3 px (96.4%)");
+        Check.That(table.T("settings.calibration.status.rejected", "Not applied \u2014 x."))
+            .IsEqualTo("Last calibration: Not applied \u2014 x.");
+
+        Check.That(table.T("settings.calibration.rejected.empty"))
+            .IsEqualTo("Not applied \u2014 the saved calibration file is empty. Recalibrate to fix.");
+        Check.That(table.T("settings.calibration.rejected.screen", 3840, 2400, 1920, 1080))
+            .IsEqualTo("Not applied \u2014 saved for a 3840\u00d72400 screen, current is 1920\u00d71080. Recalibrate to fix.");
+        Check.That(table.T("settings.calibration.rejected.malformed"))
+            .IsEqualTo("Not applied \u2014 the saved calibration is malformed. Recalibrate to fix.");
+        Check.That(table.T("settings.calibration.rejected.off_screen"))
+            .IsEqualTo("Not applied \u2014 the saved calibration maps gaze off-screen (bad fit). Recalibrate to fix.");
+        Check.That(table.T("settings.calibration.rejected.flips"))
+            .IsEqualTo("Not applied \u2014 the saved calibration flips or amplifies gaze (bad fit). Recalibrate to fix.");
+        Check.That(table.T("settings.calibration.rejected.unreadable"))
+            .IsEqualTo("Not applied \u2014 the saved calibration could not be read. Recalibrate to fix.");
     }
 
     [Fact]

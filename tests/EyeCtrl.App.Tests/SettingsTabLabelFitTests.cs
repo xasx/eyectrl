@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -34,8 +33,10 @@ using Xunit;
 /// <item>the font family is <see cref="Tokens.FontStandard"/>, the very
 /// <see cref="FontFamily"/> object <c>OverlayWindow</c> assigns — glyph widths are what is being
 /// measured, so a family swap must move this test;</item>
-/// <item>the icons and labels are parsed out of the <c>_tabDefs</c> initialiser in
-/// SettingsWindow.xaml.cs, so a renamed or added tab is measured without touching this file.</item>
+/// <item>the icons and labels come from the <c>_tabDefs</c> initializer in
+/// SettingsWindow.xaml.cs through <see cref="SettingsTabDriftTests.RenderedTabDefs"/>: since T07
+/// the initializer carries literal <c>settings</c> keys and the English text is resolved from
+/// strings.json, so a renamed or added tab is measured without touching this file.</item>
 /// </list>
 ///
 /// <see cref="SettingsWindow"/> cannot be constructed here — it takes eight non-optional
@@ -50,22 +51,6 @@ public class SettingsTabLabelFitTests
     /// <summary>The WPF presentation namespace every element in the XAML lives in.</summary>
     private static readonly XNamespace Wpf =
         "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
-
-    /// <summary>
-    /// Matches one entry of the <c>_tabDefs</c> collection initialiser:
-    /// <c>("Dwell", "⏱", "Dwell Times", "How long gaze must rest…")</c>. FOUR members since the
-    /// page-builder element was collapsed away; the icon and label are the two this test measures,
-    /// and the description is matched only so the shape still parses.
-    ///
-    /// Re-narrowed deliberately when the fifth member was removed: the five-member form matched
-    /// nothing afterwards, and <see cref="TabChrome"/>'s floor turned that into a loud failure
-    /// rather than a guard silently measuring zero tabs (the same reason it was widened when the
-    /// fifth member landed). <c>\s</c> spans newlines, so an entry wrapped across
-    /// lines (most of them are) still matches.
-    /// </summary>
-    private static readonly Regex TabDef = new(
-        """\(\s*"(?<id>[^"]*)"\s*,\s*"(?<icon>[^"]*)"\s*,\s*"(?<label>[^"]*)"\s*,\s*"(?<description>[^"]*)"\s*\)""",
-        RegexOptions.Compiled);
 
     /// <summary>Reads a source file from the repo, not from the build output.</summary>
     /// <param name="parts">Path segments below the repository root.</param>
@@ -113,40 +98,29 @@ public class SettingsTabLabelFitTests
     }
 
     /// <summary>
-    /// The icon glyph and label of every sidebar tab, in declaration order, parsed from the
-    /// production <c>_tabDefs</c> initialiser.
+    /// The icon glyph and label of every sidebar tab, in declaration order.
     ///
-    /// Parsed rather than referenced because <c>_tabDefs</c> is an instance field built inside the
-    /// eight-dependency constructor: there is no way to reach it without constructing the window.
-    /// Parsing keeps the strings in ONE place — a renamed tab or a twelfth one is measured here
-    /// automatically, which a copied list would not be.
+    /// Read through <see cref="SettingsTabDriftTests.RenderedTabDefs"/>, which parses the
+    /// production <c>_tabDefs</c> initializer (the field is built inside the eight-dependency
+    /// constructor and cannot be referenced) and resolves each literal <c>settings</c> key from
+    /// the embedded English table. That keeps the strings in ONE place — strings.json — so a
+    /// renamed tab or a twelfth one is measured here automatically, which a copied list would not
+    /// be.
     /// </summary>
-    /// <param name="source">SettingsWindow.xaml.cs text.</param>
     /// <returns>One (icon, label) pair per tab.</returns>
-    private static List<(string Icon, string Label)> TabChrome(string source)
+    private static List<(string Icon, string Label)> TabChrome()
     {
-        var start = source.IndexOf("_tabDefs =", System.StringComparison.Ordinal);
-        Check.WithCustomMessage(
-                "SettingsWindow.xaml.cs no longer contains a `_tabDefs =` initialiser, which is "
-                + "where this test reads the tab icons and labels from. Repoint the extraction at "
-                + "wherever the tab chrome now lives.")
-            .That(start).IsStrictlyGreaterThan(-1);
-
-        var end = source.IndexOf("];", start, System.StringComparison.Ordinal);
-        Check.WithCustomMessage("The `_tabDefs` initialiser is unterminated.")
-            .That(end).IsStrictlyGreaterThan(start);
-
-        var chrome = TabDef.Matches(source[start..end])
-            .Select(m => (m.Groups["icon"].Value, m.Groups["label"].Value))
+        var chrome = SettingsTabDriftTests.RenderedTabDefs()
+            .Select(tab => (tab.Icon, tab.Label))
             .ToList();
 
-        // A regex that silently matches nothing is a test that silently guards nothing — the
-        // failure mode this whole file exists to close. Eleven tabs ship today; the floor is
-        // deliberately loose so adding one does not fail here, and tight enough that a shape
-        // change the regex stops understanding does.
+        // A table that resolves nothing is a test that guards nothing — the failure mode this
+        // whole file exists to close. Eleven tabs ship today; the floor is deliberately loose so
+        // adding one does not fail here, and tight enough that a shape change the reader stops
+        // understanding does.
         Check.WithCustomMessage(
-                $"Parsed {chrome.Count} tab definitions out of `_tabDefs`, which cannot be right. "
-                + "The initialiser's shape changed and the regex no longer understands it, so "
+                $"Read {chrome.Count} tab definitions out of `_tabDefs`, which cannot be right. "
+                + "The initializer's shape changed and the reader no longer understands it, so "
                 + "this guard would measure nothing at all.")
             .That(chrome.Count).IsStrictlyGreaterThan(5);
 
@@ -252,8 +226,7 @@ public class SettingsTabLabelFitTests
     {
         var columnWidth = SidebarColumnWidth(
             Source("src", "EyeCtrl.App", "Views", "SettingsWindow.xaml"));
-        var chrome = TabChrome(
-            Source("src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs"));
+        var chrome = TabChrome();
 
         // The production expression, not its result. TabContainerHeight is internal for this.
         var iconSize = SettingsWindow.TabContainerHeight * ContainerRatio.Medium;
@@ -306,8 +279,7 @@ public class SettingsTabLabelFitTests
         // amount so that it cannot quietly grow into something conspicuous.
         var columnWidth = SidebarColumnWidth(
             Source("src", "EyeCtrl.App", "Views", "SettingsWindow.xaml"));
-        var chrome = TabChrome(
-            Source("src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs"));
+        var chrome = TabChrome();
         var iconSize = SettingsWindow.TabContainerHeight * ContainerRatio.Medium;
 
         var worst = 0.0;
@@ -356,10 +328,9 @@ public class SettingsTabLabelFitTests
     [StaFact]
     public void TheTabChromeReading_FindsEveryTabAndItsRealLabel()
     {
-        // Pins the regex against the real file: if it degraded to matching a subset, the fit
+        // Pins the reader against the real file: if it degraded to matching a subset, the fit
         // assertion would still pass while no longer covering the tab that overflows.
-        var chrome = TabChrome(
-            Source("src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs"));
+        var chrome = TabChrome();
 
         // Not a copy of the list — a spot check that the parse produced real labels rather than
         // ids or builder names. "Quick Actions" is the widest and the one this whole file is

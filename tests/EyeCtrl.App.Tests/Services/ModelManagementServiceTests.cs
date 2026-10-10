@@ -34,6 +34,8 @@ public class ModelManagementServiceTests
             // The orphaned .onnx must be rolled back, mirroring the bundled path.
             Check.That(File.Exists(Path.Combine(tempDir, "repo.onnx"))).IsFalse();
             Check.That(settings.Keyboard.CustomModels).IsEmpty();
+            // The CALL SITE picked the tokenizer sentence, not the transport one (T07 fixup-02 R4).
+            Check.That(result.Error).IsEqualTo("Tokenizer download failed. Model removed.");
         }
         finally
         {
@@ -102,6 +104,45 @@ public class ModelManagementServiceTests
 
             Check.That(result.IsSuccess).IsFalse();
             Check.That(File.Exists(Path.Combine(tempDir, "smollm2-135m.onnx"))).IsFalse();
+            // The CALL SITE picked the tokenizer sentence, not the transport one (T07 fixup-02 R4).
+            Check.That(result.Error).IsEqualTo("Tokenizer download failed. Model removed.");
+        }
+        finally
+        {
+            Cleanup(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadBundledModelAsync_ModelTransportFails_RejectsWithTheTransportSentence()
+    {
+        var tempDir = NewTempDir();
+        try
+        {
+            var settings = new EyeCtrlSettings();
+            var manifest = new ModelManifest
+            {
+                Models =
+                {
+                    ["135M"] = new ModelEntry
+                    {
+                        DisplayName = "SmolLM2 135M",
+                        Url = "https://example.com/onnx/model.onnx",
+                        TokenizerUrl = "https://example.com/onnx/tokenizer.json",
+                    },
+                },
+            };
+            var (_, mgmt) = BuildServices(tempDir, settings, manifest,
+                _ => Task.FromResult(NotFound()));
+
+            var result = await mgmt.DownloadBundledModelAsync(
+                "135M", "https://example.com/onnx/model.onnx", "",
+                "https://example.com/onnx/tokenizer.json", "",
+                TestContext.Current.CancellationToken);
+
+            Check.That(result.IsSuccess).IsFalse();
+            // The CALL SITE picked the transport sentence, not the tokenizer one (T07 fixup-02 R4).
+            Check.That(result.Error).IsEqualTo("Download failed. Check the URL and try again.");
         }
         finally
         {
@@ -261,6 +302,7 @@ public class ModelManagementServiceTests
                 "https://huggingface.co/org/other/resolve/main/onnx/model.onnx",
                 TestContext.Current.CancellationToken);
             Check.That(second.IsBusy).IsTrue();
+            Check.That(second.Error).IsEqualTo("Another download is already in progress.");
 
             allowFinish.TrySetResult();
             var firstResult = await first;

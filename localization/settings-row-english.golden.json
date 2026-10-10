@@ -1,0 +1,1242 @@
+{
+  "_meta": "Approved English for every Settings row, in build order per page source: the label, the description, and for buttons the modal message and choices the activation shows. Regenerate with EYECTRL_WRITE_SETTINGS_GOLDEN=1; never compute an expectation with T(key).",
+  "Sources": [
+    {
+      "Name": "Cursor",
+      "Rows": [
+        {
+          "Id": "c_filter",
+          "Label": "Filter Mode",
+          "Description": "Filtering applied to raw gaze samples.",
+          "Modal": null
+        },
+        {
+          "Id": "c_smooth",
+          "Label": "Smoothing Factor",
+          "Description": "Higher is more responsive; lower is smoother.",
+          "Modal": null
+        },
+        {
+          "Id": "c_color",
+          "Label": "Circle Color",
+          "Description": "The cursor ring’s color; every preset stays clearly visible.",
+          "Modal": null
+        },
+        {
+          "Id": "c_ring_style",
+          "Label": "Ring Style",
+          "Description": "How the ring stays visible on light and dark backgrounds.",
+          "Modal": null
+        },
+        {
+          "Id": "c_opacity",
+          "Label": "Circle Opacity",
+          "Description": "Lowering this dims the colored half of the ring's edge, which is what keeps it visible.",
+          "Modal": null
+        },
+        {
+          "Id": "c_thick",
+          "Label": "Circle Thickness",
+          "Description": "Ring stroke width, in pixels.",
+          "Modal": null
+        },
+        {
+          "Id": "c_gap",
+          "Label": "Gap Interpolation (ms)",
+          "Description": "Bridge short tracker dropouts up to this long.",
+          "Modal": null
+        },
+        {
+          "Id": "c_pos_style",
+          "Label": "Position Indicator",
+          "Description": "How the position indicator is drawn; applies from the next action-menu open.",
+          "Modal": null
+        },
+        {
+          "Id": "c_size",
+          "Label": "Circle Size (px)",
+          "Description": "Diameter of the cursor circle.",
+          "Modal": null
+        },
+        {
+          "Id": "c_euro_cutoff",
+          "Label": "One Euro Min Cutoff",
+          "Description": "Lower is smoother and slower; higher follows fast motion. Above about a third of the tracker's sample rate (~10 Hz here) there is no further effect.",
+          "Modal": null
+        },
+        {
+          "Id": "c_euro_beta",
+          "Label": "One Euro Beta",
+          "Description": "Extra responsiveness per screen diagonal per second of gaze movement.",
+          "Modal": null
+        },
+        {
+          "Id": "c_reset",
+          "Label": "Reset Cursor Settings",
+          "Description": null,
+          "Modal": {
+            "Message": "Reset Cursor settings to defaults?",
+            "Choices": []
+          }
+        }
+      ]
+    },
+    {
+      "Name": "Dwell",
+      "Rows": [
+        {
+          "Id": "d_fix",
+          "Label": "Fixation Detection (ms)",
+          "Description": "How long your gaze must hold steady before a dwell can start.",
+          "Modal": null
+        },
+        {
+          "Id": "d_act",
+          "Label": "Activation Button (ms)",
+          "Description": "Dwell for the button that appears at your gaze.",
+          "Modal": null
+        },
+        {
+          "Id": "d_menu",
+          "Label": "Action Menu (ms)",
+          "Description": "How long to rest on an action in the ring.",
+          "Modal": null
+        },
+        {
+          "Id": "d_ManualSelection",
+          "Label": "Manual Selection Action Menu (ms)",
+          "Description": "Dwell for the action ring inside manual selection.",
+          "Modal": null
+        },
+        {
+          "Id": "d_tool",
+          "Label": "Toolbar / Settings (ms)",
+          "Description": "How long to rest on EyeCtrl's own buttons.",
+          "Modal": null
+        },
+        {
+          "Id": "d_key",
+          "Label": "Keyboard Key (ms)",
+          "Description": "How long to rest on a key before it fires. Keys that can leave the app or destroy work use 600 ms.",
+          "Modal": null
+        },
+        {
+          "Id": "d_pred",
+          "Label": "Prediction (ms)",
+          "Description": "Dwell for the word suggestions above the keyboard.",
+          "Modal": null
+        },
+        {
+          "Id": "d_rad",
+          "Label": "Fixation Radius (px)",
+          "Description": "How far your gaze may drift within a fixation.",
+          "Modal": null
+        },
+        {
+          "Id": "d_cooldown",
+          "Label": "Dwell Cooldown (ms)",
+          "Description": "How long a new dwell must wait after an activation.",
+          "Modal": null
+        },
+        {
+          "Id": "d_cue_sound",
+          "Label": "Dwell Completion Sound",
+          "Description": "Plays a soft tone when a dwell activates on any EyeCtrl surface — buttons, menus, settings. Keys keep their own click sound.",
+          "Modal": null
+        },
+        {
+          "Id": "d_reset",
+          "Label": "Reset Dwell Settings",
+          "Description": null,
+          "Modal": {
+            "Message": "Reset Dwell settings to defaults?",
+            "Choices": []
+          }
+        }
+      ]
+    },
+    {
+      "Name": "Selection",
+      "Rows": [
+        {
+          "Id": "s_mode",
+          "Label": "Selection Mode",
+          "Description": "None clicks your gaze point; Manual zooms; Auto snaps.",
+          "Modal": null
+        },
+        {
+          "Id": "s_rad",
+          "Label": "Circle Radius (px)",
+          "Description": "Radius of the magnifier's zoom circle.",
+          "Modal": null
+        },
+        {
+          "Id": "s_mag",
+          "Label": "Magnification Level",
+          "Description": "How strongly the zoom circle magnifies.",
+          "Modal": null
+        },
+        {
+          "Id": "s_grace",
+          "Label": "Grace Period (ms)",
+          "Description": "Dwell waits this long after manual selection opens.",
+          "Modal": null
+        },
+        {
+          "Id": "s_hold",
+          "Label": "Hold Tolerance (px)",
+          "Description": "How far your gaze may drift from the held point before the selection restarts. Larger is more forgiving.",
+          "Modal": null
+        },
+        {
+          "Id": "s_highlight",
+          "Label": "Highlight Color",
+          "Description": "Color of the box around an auto-selected control.",
+          "Modal": null
+        },
+        {
+          "Id": "s_highlightThickness",
+          "Label": "Highlight Thickness",
+          "Description": "Line weight of that auto-selection box.",
+          "Modal": null
+        },
+        {
+          "Id": "s_snapRadius",
+          "Label": "Snap Search Radius (px)",
+          "Description": "How far from your gaze Auto Selection searches for a control.",
+          "Modal": null
+        },
+        {
+          "Id": "s_gi_outer",
+          "Label": "Gaze Ring Diameter (px)",
+          "Description": "Diameter of the ring shown at your gaze; applies from the next selection.",
+          "Modal": null
+        },
+        {
+          "Id": "s_gi_dot",
+          "Label": "Center Dot (px)",
+          "Description": "Diameter of the dot at the center of the gaze ring; applies after a restart.",
+          "Modal": null
+        },
+        {
+          "Id": "s_gi_stroke",
+          "Label": "Ring Stroke (px)",
+          "Description": "Thickness of the gaze ring's outline; applies after a restart.",
+          "Modal": null
+        },
+        {
+          "Id": "s_gi_opacity",
+          "Label": "Ring Opacity",
+          "Description": "How visible the gaze ring is; applies after a restart.",
+          "Modal": null
+        },
+        {
+          "Id": "s_gi_anim",
+          "Label": "Reset Animation (ms)",
+          "Description": "How long the gaze ring takes to fade after a selection; applies after a restart.",
+          "Modal": null
+        }
+      ]
+    },
+    {
+      "Name": "Layout",
+      "Rows": [
+        {
+          "Id": "lay_pos",
+          "Label": "Position",
+          "Description": "The action menu and magnifier: at your gaze, or centered.",
+          "Modal": null
+        },
+        {
+          "Id": "lay_reset",
+          "Label": "Reset Layout Settings",
+          "Description": null,
+          "Modal": {
+            "Message": "Reset Layout settings to defaults?",
+            "Choices": []
+          }
+        }
+      ]
+    },
+    {
+      "Name": "ActionMenu",
+      "Rows": [
+        {
+          "Id": "am_jump_0",
+          "Label": "View ring preview",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "am_LeftClick",
+          "Label": "Left Click",
+          "Description": "One left click at the point you chose.",
+          "Modal": null
+        },
+        {
+          "Id": "am_RightClick",
+          "Label": "Right Click",
+          "Description": "One right click at the point you chose.",
+          "Modal": null
+        },
+        {
+          "Id": "am_DoubleClick",
+          "Label": "Double Click",
+          "Description": "Two quick clicks at the point you chose.",
+          "Modal": null
+        },
+        {
+          "Id": "am_MiddleClick",
+          "Label": "Middle Click",
+          "Description": "One middle click at the point you chose.",
+          "Modal": null
+        },
+        {
+          "Id": "am_Drag",
+          "Label": "Drag",
+          "Description": "Grabs at that point, then follows your gaze.",
+          "Modal": null
+        },
+        {
+          "Id": "am_ScrollUp",
+          "Label": "Scroll Up",
+          "Description": "Scrolls up from the point you chose.",
+          "Modal": null
+        },
+        {
+          "Id": "am_ScrollDown",
+          "Label": "Scroll Down",
+          "Description": "Scrolls down from the point you chose.",
+          "Modal": null
+        },
+        {
+          "Id": "am_ScrollLeft",
+          "Label": "Scroll Left",
+          "Description": "Scrolls left from the point you chose.",
+          "Modal": null
+        },
+        {
+          "Id": "am_ScrollRight",
+          "Label": "Scroll Right",
+          "Description": "Scrolls right from the point you chose.",
+          "Modal": null
+        },
+        {
+          "Id": "am_ScrollMode",
+          "Label": "Scroll Mode",
+          "Description": "Continuous scrolling, steered by where you look.",
+          "Modal": null
+        },
+        {
+          "Id": "am_PinNote",
+          "Label": "Pin Note",
+          "Description": "Opens a note to type at the point you chose.",
+          "Modal": null
+        },
+        {
+          "Id": "am_Keyboard",
+          "Label": "Keyboard",
+          "Description": "Opens the gaze keyboard for typing.",
+          "Modal": null
+        },
+        {
+          "Id": "am_primary_LeftClick",
+          "Label": "Left Click on first layer",
+          "Description": "Shows Left Click straight away instead of behind More. Four fit.",
+          "Modal": null
+        },
+        {
+          "Id": "am_primary_RightClick",
+          "Label": "Right Click on first layer",
+          "Description": "Shows Right Click straight away instead of behind More. Four fit.",
+          "Modal": null
+        },
+        {
+          "Id": "am_primary_DoubleClick",
+          "Label": "Double Click on first layer",
+          "Description": "Shows Double Click straight away instead of behind More. Four fit.",
+          "Modal": null
+        },
+        {
+          "Id": "am_primary_MiddleClick",
+          "Label": "Middle Click on first layer",
+          "Description": "Shows Middle Click straight away instead of behind More. Four fit.",
+          "Modal": null
+        },
+        {
+          "Id": "am_primary_Drag",
+          "Label": "Drag on first layer",
+          "Description": "Shows Drag straight away instead of behind More. Four fit.",
+          "Modal": null
+        },
+        {
+          "Id": "am_primary_ScrollUp",
+          "Label": "Scroll Up on first layer",
+          "Description": "Shows Scroll Up straight away instead of behind More. Four fit.",
+          "Modal": null
+        },
+        {
+          "Id": "am_primary_ScrollDown",
+          "Label": "Scroll Down on first layer",
+          "Description": "Shows Scroll Down straight away instead of behind More. Four fit.",
+          "Modal": null
+        },
+        {
+          "Id": "am_primary_ScrollLeft",
+          "Label": "Scroll Left on first layer",
+          "Description": "Shows Scroll Left straight away instead of behind More. Four fit.",
+          "Modal": null
+        },
+        {
+          "Id": "am_primary_ScrollRight",
+          "Label": "Scroll Right on first layer",
+          "Description": "Shows Scroll Right straight away instead of behind More. Four fit.",
+          "Modal": null
+        },
+        {
+          "Id": "am_primary_ScrollMode",
+          "Label": "Scroll Mode on first layer",
+          "Description": "Shows Scroll Mode straight away instead of behind More. Four fit.",
+          "Modal": null
+        },
+        {
+          "Id": "am_primary_PinNote",
+          "Label": "Pin Note on first layer",
+          "Description": "Shows Pin Note straight away instead of behind More. Four fit.",
+          "Modal": null
+        },
+        {
+          "Id": "am_primary_Keyboard",
+          "Label": "Keyboard on first layer",
+          "Description": "Shows Keyboard straight away instead of behind More. Four fit.",
+          "Modal": null
+        },
+        {
+          "Id": "am_reset",
+          "Label": "Reset Action Menu Settings",
+          "Description": null,
+          "Modal": {
+            "Message": "Reset Action Menu settings to defaults?",
+            "Choices": []
+          }
+        },
+        {
+          "Id": "am_preview",
+          "Label": "",
+          "Description": null,
+          "Modal": null
+        }
+      ]
+    },
+    {
+      "Name": "Keyboard",
+      "Rows": [
+        {
+          "Id": "k_layout",
+          "Label": "Active Layout",
+          "Description": "Key arrangement; QWERTZ suits German, AZERTY suits French.",
+          "Modal": null
+        },
+        {
+          "Id": "k_size",
+          "Label": "Key Size Multiplier",
+          "Description": "Scales every key; bigger keys are easier to hit.",
+          "Modal": null
+        },
+        {
+          "Id": "k_pred",
+          "Label": "Word Prediction",
+          "Description": "Shows suggested words above the keyboard while you type.",
+          "Modal": null
+        },
+        {
+          "Id": "k_pred_count",
+          "Label": "Max Predictions",
+          "Description": "How many suggestions fill the bar. Fewer are easier to aim; takes effect as you type.",
+          "Modal": null
+        },
+        {
+          "Id": "k_lang",
+          "Label": "Dictionary Language",
+          "Description": "Which language the word suggestions draw from.",
+          "Modal": null
+        },
+        {
+          "Id": "k_sound",
+          "Label": "Click Sound",
+          "Description": "Plays a click each time a key activates.",
+          "Modal": null
+        },
+        {
+          "Id": "k_edge",
+          "Label": "Screen Edge",
+          "Description": "The screen edge the keyboard docks to.",
+          "Modal": null
+        },
+        {
+          "Id": "k_reset",
+          "Label": "Reset Keyboard Settings",
+          "Description": null,
+          "Modal": {
+            "Message": "Reset Keyboard settings to defaults?",
+            "Choices": []
+          }
+        }
+      ]
+    },
+    {
+      "Name": "Toolbar",
+      "Rows": [
+        {
+          "Id": "t_dock",
+          "Label": "Dock to Screen Edge",
+          "Description": "Docks the toolbar to an edge; with an eye tracker it auto-hides.",
+          "Modal": null
+        },
+        {
+          "Id": "t_edge",
+          "Label": "Docked Edge",
+          "Description": "Which screen edge the toolbar attaches to.",
+          "Modal": null
+        },
+        {
+          "Id": "t_size",
+          "Label": "Button Size",
+          "Description": "Size of each button; bigger ones are easier to aim at.",
+          "Modal": null
+        },
+        {
+          "Id": "t_reset",
+          "Label": "Reset Toolbar Settings",
+          "Description": null,
+          "Modal": {
+            "Message": "Reset Toolbar settings to defaults?",
+            "Choices": []
+          }
+        }
+      ]
+    },
+    {
+      "Name": "Calibration",
+      "Rows": [
+        {
+          "Id": "cal_points",
+          "Label": "Calibration Points",
+          "Description": "How many points the calibration run visits.",
+          "Modal": null
+        },
+        {
+          "Id": "cal_samples",
+          "Label": "Samples per Point",
+          "Description": "Gaze samples gathered at each calibration point.",
+          "Modal": null
+        },
+        {
+          "Id": "cal_hold",
+          "Label": "Target Hold (ms)",
+          "Description": "Each target stays on screen at least this long.",
+          "Modal": null
+        },
+        {
+          "Id": "cal_settle",
+          "Label": "Settle Window (ms)",
+          "Description": "Time at a target before its samples start counting.",
+          "Modal": null
+        },
+        {
+          "Id": "cal_color",
+          "Label": "Target Color",
+          "Description": "Color of the calibration target. Applies after a restart.",
+          "Modal": null
+        },
+        {
+          "Id": "",
+          "Label": "Last calibration: none",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "cal_run",
+          "Label": "Calibrate Now",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "cal_probe",
+          "Label": "Measure Gaze Offset",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "",
+          "Label": "Measure gaze offset records where your gaze lands at five points. It changes nothing and always ends with “recorded”; run it when you are rested.",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "cal_clear",
+          "Label": "Clear Calibration",
+          "Description": null,
+          "Modal": {
+            "Message": "Clear saved calibration?",
+            "Choices": []
+          }
+        }
+      ]
+    },
+    {
+      "Name": "EyeCare",
+      "Rows": [
+        {
+          "Id": "ec_enabled",
+          "Label": "Enable Eye Care",
+          "Description": "Periodic break reminders and gaze exercises while you use EyeCtrl.",
+          "Modal": null
+        },
+        {
+          "Id": "ec_interval",
+          "Label": "Break Interval (min)",
+          "Description": "How often a break is offered when you haven't rested.",
+          "Modal": null
+        },
+        {
+          "Id": "ec_break",
+          "Label": "Natural Break Length (s)",
+          "Description": "Looking away this long counts as a natural break.",
+          "Modal": null
+        },
+        {
+          "Id": "ec_exercise",
+          "Label": "Exercise Duration (s)",
+          "Description": "How long each guided gaze exercise runs.",
+          "Modal": null
+        },
+        {
+          "Id": "ec_snooze_banner",
+          "Label": "Banner Auto-snooze (s)",
+          "Description": "How long an ignored banner waits before hiding itself. Applies after a restart.",
+          "Modal": null
+        },
+        {
+          "Id": "ec_snooze",
+          "Label": "Snooze Length (min)",
+          "Description": "How long breaks are postponed when you snooze a banner.",
+          "Modal": null
+        },
+        {
+          "Id": "ec_fatigue",
+          "Label": "Fatigue Escalation",
+          "Description": "Let rising fatigue bring breaks on early. Experimental.",
+          "Modal": null
+        },
+        {
+          "Id": "ec_fatigue_thresh",
+          "Label": "Fatigue Threshold",
+          "Description": "The fatigue score at which an early break fires.",
+          "Modal": null
+        },
+        {
+          "Id": "ec_reset",
+          "Label": "Reset Eye Care Settings",
+          "Description": null,
+          "Modal": {
+            "Message": "Reset Eye Care settings to defaults?",
+            "Choices": []
+          }
+        }
+      ]
+    },
+    {
+      "Name": "Adaptation",
+      "Rows": [
+        {
+          "Id": "ad_enabled",
+          "Label": "Enable Adaptation",
+          "Description": "Ease dwell and targeting automatically while you struggle.",
+          "Modal": null
+        },
+        {
+          "Id": "ad_posture",
+          "Label": "Posture",
+          "Description": "How readily adaptation responds to struggle.",
+          "Modal": null
+        },
+        {
+          "Id": "ad_dwell",
+          "Label": "Adapt Dwell Time",
+          "Description": "Shorten or lengthen dwell times as you struggle or cruise.",
+          "Modal": null
+        },
+        {
+          "Id": "ad_tolerance",
+          "Label": "Adapt Targeting Tolerance",
+          "Description": "Loosen or tighten how steadily you must rest on a target.",
+          "Modal": null
+        },
+        {
+          "Id": "ad_smoothing",
+          "Label": "Adapt Smoothing",
+          "Description": "Adapt how strongly raw gaze is smoothed.",
+          "Modal": null
+        },
+        {
+          "Id": "ad_geometry",
+          "Label": "Adapt Target Size",
+          "Description": "Grow or shrink targets when targeting is hard.",
+          "Modal": null
+        },
+        {
+          "Id": "ad_cue",
+          "Label": "Show Adaptation Cue",
+          "Description": "Show a small cue while a setting is being adapted.",
+          "Modal": null
+        },
+        {
+          "Id": "ad_sensitive",
+          "Label": "Suppress in Sensitive Contexts",
+          "Description": "Keep the cue and toasts hidden while you type passwords.",
+          "Modal": null
+        },
+        {
+          "Id": "ad_caregiver",
+          "Label": "Caregiver Alerts",
+          "Description": "Show a prominent alert for a caregiver while struggle or poor tracking persists.",
+          "Modal": null
+        },
+        {
+          "Id": "ad_caregiver_interval",
+          "Label": "Caregiver Alerts — Minimum Interval",
+          "Description": "The least time between two caregiver alerts, in minutes.",
+          "Modal": null
+        },
+        {
+          "Id": "ad_frac_dwell_short",
+          "Label": "Dwell — Shorter Limit",
+          "Description": "The most a dwell may be shortened, as a share of its baseline.",
+          "Modal": null
+        },
+        {
+          "Id": "ad_frac_dwell_long",
+          "Label": "Dwell — Longer Limit",
+          "Description": "The most a dwell may be lengthened, as a share of its baseline.",
+          "Modal": null
+        },
+        {
+          "Id": "ad_frac_tol_loose",
+          "Label": "Tolerance — Looser Limit",
+          "Description": "The most tolerance may be loosened, as a share of its baseline.",
+          "Modal": null
+        },
+        {
+          "Id": "ad_frac_smooth",
+          "Label": "Smoothing — More Limit",
+          "Description": "The most smoothing may be increased, as a share of its baseline.",
+          "Modal": null
+        },
+        {
+          "Id": "ad_frac_geom",
+          "Label": "Target Size — Bigger Limit",
+          "Description": "The most a target may be grown, as a share of its baseline.",
+          "Modal": null
+        },
+        {
+          "Id": "ad_geom_margin",
+          "Label": "Target Size — Growth Cap",
+          "Description": "The most a target's hit area may grow when adapted, in screen pixels.",
+          "Modal": null
+        },
+        {
+          "Id": "ad_reset",
+          "Label": "Reset Adaptation Settings",
+          "Description": null,
+          "Modal": {
+            "Message": "Reset Adaptation settings to defaults?",
+            "Choices": []
+          }
+        },
+        {
+          "Id": "ad_reset_learned",
+          "Label": "Reset Learned Offsets",
+          "Description": "Clear what the app has learned about your needs; it re-learns as you use it.",
+          "Modal": {
+            "Message": "Reset the learned adaptation offsets to zero?",
+            "Choices": []
+          }
+        },
+        {
+          "Id": "ad_log",
+          "Label": "Open Adaptation Log",
+          "Description": "Show the adaptation log file in Explorer.",
+          "Modal": null
+        }
+      ]
+    },
+    {
+      "Name": "Advanced",
+      "Rows": [
+        {
+          "Id": "av_backdrop_enabled",
+          "Label": "Enable Backdrop",
+          "Description": "Dim what's behind the keyboard and other overlays.",
+          "Modal": null
+        },
+        {
+          "Id": "av_backdrop_type",
+          "Label": "Backdrop Type",
+          "Description": "The dimming material; Acrylic and Mica blur, Solid Darken only tints.",
+          "Modal": null
+        },
+        {
+          "Id": "av_backdrop_opacity",
+          "Label": "Backdrop Opacity",
+          "Description": "How dark the backdrop is — only Solid Darken uses this; applies from the next open.",
+          "Modal": null
+        },
+        {
+          "Id": "",
+          "Label": "",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "av_drag_settle",
+          "Label": "Drag Settle Dwell (ms)",
+          "Description": "How long gaze must hold still before a drag starts. Applies after a restart.",
+          "Modal": null
+        },
+        {
+          "Id": "av_drag_radius",
+          "Label": "Drag Settle Radius (px)",
+          "Description": "How far gaze may drift while settling into a drag. Applies after a restart.",
+          "Modal": null
+        },
+        {
+          "Id": "av_drag_color",
+          "Label": "Drag Trail Color",
+          "Description": "Color of the trail drawn while dragging.",
+          "Modal": null
+        },
+        {
+          "Id": "av_drag_opacity",
+          "Label": "Drag Trail Opacity",
+          "Description": "How visible the drag trail is.",
+          "Modal": null
+        },
+        {
+          "Id": "",
+          "Label": "",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "av_scroll_sens",
+          "Label": "Scroll Sensitivity",
+          "Description": "How fast gaze scrolling moves through documents.",
+          "Modal": null
+        },
+        {
+          "Id": "",
+          "Label": "",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "av_repeat_dwell",
+          "Label": "Repeat Dwell (ms)",
+          "Description": "How long to hold your gaze on a target before the locked action fires there.",
+          "Modal": null
+        },
+        {
+          "Id": "",
+          "Label": "",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "av_ext_enabled",
+          "Label": "Enable External Dwell",
+          "Description": "Let other apps trigger dwell through EyeCtrl's pipe.",
+          "Modal": null
+        },
+        {
+          "Id": "av_ext_dwell",
+          "Label": "External Dwell (ms)",
+          "Description": "Dwell length applied when an external app registers a target.",
+          "Modal": null
+        },
+        {
+          "Id": "av_ext_cooldown",
+          "Label": "External Cooldown (ms)",
+          "Description": "Minimum wait between external dwell activations.",
+          "Modal": null
+        },
+        {
+          "Id": "av_reset",
+          "Label": "Reset Advanced Settings",
+          "Description": null,
+          "Modal": {
+            "Message": "Reset Advanced settings to defaults?",
+            "Choices": []
+          }
+        }
+      ]
+    },
+    {
+      "Name": "Diagnostics",
+      "Rows": [
+        {
+          "Id": "dg_record_raw",
+          "Label": "Record Raw Gaze (from next start)",
+          "Description": "Save every gaze sample to a file for analysis. Off by default; turn it back off when you are done.",
+          "Modal": null
+        },
+        {
+          "Id": "",
+          "Label": "A recording is a trace of where you looked and when — nothing about what you were looking at. It stays on this computer, in your EyeCtrl folder, until you delete it.",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "dg_ui_instruments",
+          "Label": "Measure UI Timing (from next start)",
+          "Description": "Time how gaze reaches the screen. Records no gaze positions; writes only summary lines to the log.",
+          "Modal": null
+        },
+        {
+          "Id": "dg_open_folder",
+          "Label": "Open Recordings Folder",
+          "Description": "Show gaze-recording.csv and its ground-truth file in Explorer.",
+          "Modal": null
+        },
+        {
+          "Id": "dg_reset",
+          "Label": "Reset Diagnostics Settings",
+          "Description": null,
+          "Modal": {
+            "Message": "Turn both diagnostics off?",
+            "Choices": []
+          }
+        }
+      ]
+    },
+    {
+      "Name": "KeyboardDictionary",
+      "Rows": [
+        {
+          "Id": "k_layout",
+          "Label": "Active Layout",
+          "Description": "Key arrangement; QWERTZ suits German, AZERTY suits French.",
+          "Modal": null
+        },
+        {
+          "Id": "k_size",
+          "Label": "Key Size Multiplier",
+          "Description": "Scales every key; bigger keys are easier to hit.",
+          "Modal": null
+        },
+        {
+          "Id": "k_pred",
+          "Label": "Word Prediction",
+          "Description": "Shows suggested words above the keyboard while you type.",
+          "Modal": null
+        },
+        {
+          "Id": "k_pred_count",
+          "Label": "Max Predictions",
+          "Description": "How many suggestions fill the bar. Fewer are easier to aim; takes effect as you type.",
+          "Modal": null
+        },
+        {
+          "Id": "k_lang",
+          "Label": "Dictionary Language",
+          "Description": "Which language the word suggestions draw from.",
+          "Modal": null
+        },
+        {
+          "Id": "k_sound",
+          "Label": "Click Sound",
+          "Description": "Plays a click each time a key activates.",
+          "Modal": null
+        },
+        {
+          "Id": "k_edge",
+          "Label": "Screen Edge",
+          "Description": "The screen edge the keyboard docks to.",
+          "Modal": null
+        },
+        {
+          "Id": "k_reset",
+          "Label": "Reset Keyboard Settings",
+          "Description": null,
+          "Modal": {
+            "Message": "Reset Keyboard settings to defaults?",
+            "Choices": []
+          }
+        },
+        {
+          "Id": "",
+          "Label": "“aardvark”",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "kb_wd_del_aardvark",
+          "Label": "✕  Remove from dictionary",
+          "Description": null,
+          "Modal": {
+            "Message": "Remove “aardvark” from the learned dictionary?",
+            "Choices": []
+          }
+        },
+        {
+          "Id": "",
+          "Label": "“zeppelin”",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "kb_wd_del_zeppelin",
+          "Label": "✕  Remove from dictionary",
+          "Description": null,
+          "Modal": {
+            "Message": "Remove “zeppelin” from the learned dictionary?",
+            "Choices": []
+          }
+        },
+        {
+          "Id": "kb_wd_clear",
+          "Label": "Remove ALL Learned Words",
+          "Description": null,
+          "Modal": {
+            "Message": "Remove all 2 learned words?",
+            "Choices": []
+          }
+        }
+      ]
+    },
+    {
+      "Name": "General",
+      "Rows": [
+        {
+          "Id": "g_language",
+          "Label": "Sprache / Language",
+          "Description": "Changes the language EyeCtrl's own screens are shown in.",
+          "Modal": null
+        },
+        {
+          "Id": "g_theme",
+          "Label": "Theme (restart to apply)",
+          "Description": "All three are dark; Contrast is the boldest.",
+          "Modal": null
+        },
+        {
+          "Id": "g_boot",
+          "Label": "Start on Windows Boot",
+          "Description": "Opens EyeCtrl automatically when you sign in.",
+          "Modal": null
+        },
+        {
+          "Id": "g_pause",
+          "Label": "Start Paused",
+          "Description": "Starts with tracking paused until you switch it on.",
+          "Modal": null
+        },
+        {
+          "Id": "g_track",
+          "Label": "Show Track Status",
+          "Description": "A corner box showing live eye-tracker status.",
+          "Modal": null
+        },
+        {
+          "Id": "g_supervision",
+          "Label": "Automatic Crash Recovery",
+          "Description": "If EyeCtrl stops responding or crashes, it restarts automatically; if it keeps failing, TD Control opens instead.",
+          "Modal": null
+        },
+        {
+          "Id": "",
+          "Label": "Off — if EyeCtrl stops responding or crashes, it is not restarted automatically.",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "g_restart",
+          "Label": "↻ Restart Now",
+          "Description": null,
+          "Modal": {
+            "Message": "Restart EyeCtrl now?\nA supervisor is installed. It restarts EyeCtrl if it ever fails, and can recover a restart that goes wrong.\nStarting it turns supervision on and leaves it on.",
+            "Choices": [
+              "↻ Restart with supervisor",
+              "↻ Restart without",
+              "✕ Cancel"
+            ]
+          }
+        },
+        {
+          "Id": "g_reset",
+          "Label": "Reset General Settings",
+          "Description": null,
+          "Modal": {
+            "Message": "Reset General settings to defaults?\nA changed theme applies after a restart.",
+            "Choices": []
+          }
+        },
+        {
+          "Id": "g_resetall",
+          "Label": "⚠ Reset ALL Settings",
+          "Description": null,
+          "Modal": {
+            "Message": "Reset ALL settings to defaults?\nThis cannot be undone.",
+            "Choices": []
+          }
+        }
+      ]
+    },
+    {
+      "Name": "QuickActions",
+      "Rows": [
+        {
+          "Id": "qa_add",
+          "Label": "＋  Add action",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "qa_enabled",
+          "Label": "Enable Quick Actions",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "qa_edge",
+          "Label": "Summon Edge",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "qa_summon",
+          "Label": "Summon Threshold (ms)",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "qa_dismiss",
+          "Label": "Dismiss Timeout (ms)",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "qa_columns",
+          "Label": "Grid Columns",
+          "Description": null,
+          "Modal": null
+        }
+      ]
+    },
+    {
+      "Name": "Models",
+      "Rows": [
+        {
+          "Id": "md_active",
+          "Label": "Active Model",
+          "Description": "Which model powers predictions; Off keeps dictionary words.",
+          "Modal": null
+        },
+        {
+          "Id": "",
+          "Label": "",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "",
+          "Label": "  Test 135M  2 KB  ✓ Downloaded",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "",
+          "Label": "",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "md_add",
+          "Label": "＋ Add Custom Model (paste URL)",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "md_manage",
+          "Label": "Manage models...",
+          "Description": null,
+          "Modal": null
+        }
+      ]
+    },
+    {
+      "Name": "ModelsManage",
+      "Rows": [
+        {
+          "Id": "md_del_135M",
+          "Label": "Test 135M  2 KB  \uD83D\uDDD1 Delete",
+          "Description": null,
+          "Modal": {
+            "Message": "Delete Test 135M? This cannot be undone.",
+            "Choices": []
+          }
+        },
+        {
+          "Id": "md_back",
+          "Label": "Back to models",
+          "Description": null,
+          "Modal": null
+        }
+      ]
+    },
+    {
+      "Name": "ModelsRepair",
+      "Rows": [
+        {
+          "Id": "md_active",
+          "Label": "Active Model",
+          "Description": "Which model powers predictions; Off keeps dictionary words.",
+          "Modal": null
+        },
+        {
+          "Id": "",
+          "Label": "",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "md_fix_135M",
+          "Label": "⚠ Test 135M — model unusable · predictions fall back to dictionary · dwell to re-download",
+          "Description": null,
+          "Modal": {
+            "Message": "Re-download Test 135M (1 B)? This replaces the files on disk.",
+            "Choices": []
+          }
+        },
+        {
+          "Id": "",
+          "Label": "",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "md_add",
+          "Label": "＋ Add Custom Model (paste URL)",
+          "Description": null,
+          "Modal": null
+        },
+        {
+          "Id": "md_manage",
+          "Label": "Manage models...",
+          "Description": null,
+          "Modal": null
+        }
+      ]
+    }
+  ]
+}

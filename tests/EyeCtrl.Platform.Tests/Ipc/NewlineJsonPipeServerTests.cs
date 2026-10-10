@@ -4,6 +4,7 @@ using System.IO;
 using System.IO.Pipes;
 using System.Text;
 using EyeCtrl.Platform.Ipc;
+using static EyeCtrl.Platform.Tests.TestTimeouts;
 
 public class NewlineJsonPipeServerTests
 {
@@ -34,15 +35,15 @@ public class NewlineJsonPipeServerTests
 
         await using (var bad = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous))
         {
-            await bad.ConnectAsync(2000);
+            await bad.ConnectAsync(PositiveWaitMs);
             await using var w = new StreamWriter(bad, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
             await w.WriteAsync(new string('x', 40)); // > cap of 32, no newline
         }
 
-        Check.That(badConnClosed.WaitOne(2000)).IsTrue();
+        Check.That(badConnClosed.WaitOne(PositiveWaitMs)).IsTrue();
 
         await using var good = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-        await good.ConnectAsync(2000);
+        await good.ConnectAsync(PositiveWaitMs);
         await using var wg = new StreamWriter(good, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
         await wg.WriteLineAsync("ok");
 
@@ -105,7 +106,7 @@ public class NewlineJsonPipeServerTests
         server.Start();
 
         await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-        await client.ConnectAsync(2000);
+        await client.ConnectAsync(PositiveWaitMs);
         await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
         await w.WriteAsync("a\r\nb\n"); // \r\n and bare \n terminators, both in one write
 
@@ -127,7 +128,7 @@ public class NewlineJsonPipeServerTests
         server.Start();
 
         await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-        await client.ConnectAsync(2000);
+        await client.ConnectAsync(PositiveWaitMs);
         await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
         await w.WriteLineAsync("12345678");
 
@@ -152,7 +153,7 @@ public class NewlineJsonPipeServerTests
         server.Start();
 
         await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-        await client.ConnectAsync(2000);
+        await client.ConnectAsync(PositiveWaitMs);
         await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
         await w.WriteAsync("a\r\rb\n");
 
@@ -176,11 +177,11 @@ public class NewlineJsonPipeServerTests
         server.Start();
 
         await using var bad = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-        await bad.ConnectAsync(2000);
+        await bad.ConnectAsync(PositiveWaitMs);
         await using var w = new StreamWriter(bad, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
         await w.WriteAsync(new string('\r', 40));
 
-        Check.That(closed.WaitOne(2000)).IsTrue();
+        Check.That(closed.WaitOne(PositiveWaitMs)).IsTrue();
         Check.That(received).IsEmpty();
     }
 }

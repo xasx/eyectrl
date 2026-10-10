@@ -2,6 +2,7 @@ namespace EyeCtrl.Platform.Tests.Interop;
 
 using System.IO.Pipes;
 using EyeCtrl.Platform.Interop;
+using static EyeCtrl.Platform.Tests.TestTimeouts;
 
 public class PipeServerIdentityTests
 {
@@ -20,7 +21,7 @@ public class PipeServerIdentityTests
         });
 
         using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-        await client.ConnectAsync(2000);
+        await client.ConnectAsync(PositiveWaitMs);
 
         Check.That(PipeServerIdentity.TryGetServerProcessId(client, out var pid)).IsTrue();
         Check.That(pid).IsEqualTo((uint)Environment.ProcessId);

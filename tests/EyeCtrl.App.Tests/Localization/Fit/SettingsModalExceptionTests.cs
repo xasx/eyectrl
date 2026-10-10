@@ -25,8 +25,8 @@ using EyeCtrl.ViewModels;
 ///
 /// <para>
 /// This pins that it is the ONLY movement: for every modal message, in English and under the
-/// pseudo-locale and the stress table, each button keeps its x and its size exactly, and all
-/// buttons drop by one shared amount equal to half the card's growth. A button that moved sideways
+/// pseudo-locale, the stress table and T10's German draft, each button keeps its x and its size
+/// exactly, and all buttons drop by one shared amount equal to half the card's growth. A button that moved sideways
 /// or apart from the others, or a drop that does not come from the card, fails.
 /// </para>
 ///
@@ -72,12 +72,12 @@ public class SettingsModalExceptionTests
     public void TheButtons_OnlyDropWithTheCard_UnderALongerTable(string messageKey, string choiceKeys)
     {
         var english = Layout(StringTable.EmbeddedEnglish, messageKey, choiceKeys);
-        foreach (var table in new[] { ("pseudo", PseudoLocale.Table), ("stress", PseudoLocale.StressTable) })
+        foreach (var table in new[] { ("pseudo", PseudoLocale.Table), ("stress", PseudoLocale.StressTable), ("german", GermanDraft.Table) })
         {
             var other = Layout(table.Item2, messageKey, choiceKeys);
             _output.WriteLine($"{messageKey} ({table.Item1}): card {Fmt(english.Card)} → {Fmt(other.Card)}");
             Check.WithCustomMessage($"{messageKey}: the {table.Item1} message is not translated, so nothing is compared.")
-                .That(other.Message).StartsWith("[");
+                .That(table.Item1 == "german" ? other.Message != english.Message : other.Message.StartsWith('[')).IsTrue();
 
             var problems = Problems(english, other);
             Check.WithCustomMessage($"{messageKey} ({table.Item1}): the modal moved its buttons beyond the recorded exception "

@@ -22,5 +22,7 @@
              Link="TestSupport\FitHarness.cs" />
     <Compile Include="..\TestSupport\PseudoLocale.cs"
              Link="TestSupport\PseudoLocale.cs" />
+    <Compile Include="..\TestSupport\GermanDraft.cs"
+             Link="TestSupport\GermanDraft.cs" />
   </ItemGroup>
 </Project>

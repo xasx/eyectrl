@@ -44,7 +44,9 @@ using EyeCtrl.ViewModels.Messages;
 /// </para>
 ///
 /// <para>
-/// <b>Two longer tables.</b> The pseudo-locale (every word +40 %, like German), and the STRESS table
+/// <b>Three tables.</b> T10's German draft (<see cref="GermanDraft"/>, every surface on under a test
+/// manifest; non-vacuous when some drawn text differs from the English), the pseudo-locale (every
+/// word +40 %, like German), and the STRESS table
 /// (every word doubled, review-04 D2): a fixed box whose text happens to stay just inside it looks
 /// fixed under the pseudo-locale without proving it — "snooze" is 63.8 DIP against its 64 DIP ring.
 /// Doubled, every caption overruns its box, so a box that follows its text moves.
@@ -123,7 +125,7 @@ public class GeometryInvarianceTests
     public static TheoryData<string, string> Surfaces()
     {
         var data = new TheoryData<string, string>();
-        foreach (var table in new[] { "pseudo", "stress" })
+        foreach (var table in new[] { "pseudo", "stress", "german" })
             foreach (var surface in SurfaceNames)
                 data.Add(surface, table);
         return data;
@@ -133,6 +135,7 @@ public class GeometryInvarianceTests
     {
         "pseudo" => PseudoLocale.Table,
         "stress" => PseudoLocale.StressTable,
+        "german" => GermanDraft.Table,
         _ => throw new ArgumentOutOfRangeException(nameof(table), table, "Unknown table."),
     };
 
@@ -150,7 +153,9 @@ public class GeometryInvarianceTests
         Check.WithCustomMessage($"{surface}: no targets — the snapshot measured nothing.").That(english.Targets).Not.IsEmpty();
         Check.WithCustomMessage($"{surface} ({table}): the translated build drew no translated text — it is not reading the "
                                 + $"table, so the comparison would be English against English. Texts: {string.Join(" | ", translated.Texts.Take(8))}")
-            .That(translated.Texts.Any(t => t.Contains('[', StringComparison.Ordinal))).IsTrue();
+            .That(table == "german"
+                ? translated.Texts.Except(english.Texts, StringComparer.Ordinal).Any()
+                : translated.Texts.Any(t => t.Contains('[', StringComparison.Ordinal))).IsTrue();
 
         Check.WithCustomMessage($"{surface}: a registered hit target is not where its disc is drawn (English):\n  " + string.Join("\n  ", english.Drift))
             .That(english.Drift).IsEmpty();

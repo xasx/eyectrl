@@ -1,2 +1,2700 @@
 {
+  "app-tray.exit": {
+    "text": "Beenden",
+    "src": "e463d56c"
+  },
+  "app-tray.pause": {
+    "text": "Pausieren",
+    "src": "6e174632"
+  },
+  "app-tray.reset-adaptation": {
+    "text": "Anpassung zurücksetzen",
+    "src": "39265f77"
+  },
+  "app-tray.resume": {
+    "text": "Fortsetzen",
+    "src": "9184cc1d"
+  },
+  "app-tray.settings": {
+    "text": "Einstellungen",
+    "src": "2c442692"
+  },
+  "app-tray.show-toolbar": {
+    "text": "Symbolleiste anzeigen",
+    "src": "be59643e"
+  },
+  "calibration.completion.detail": {
+    "text": "Mittlere Abweichung: {0:F1} px ({1:F1} %)",
+    "src": "8cdf5e3b"
+  },
+  "calibration.completion.detail.poor": {
+    "text": "Mittlere Abweichung: {0:F1} px ({1:F1} %) – schlechte Qualität",
+    "src": "36a9ae79"
+  },
+  "calibration.failure.distortedTransform": {
+    "text": "Die Kalibrierung ergab eine verzerrte Korrektur (der Blick würde gespiegelt oder verstärkt). Bitte neu kalibrieren.",
+    "src": "0c089b4a"
+  },
+  "calibration.failure.gazeVariation": {
+    "text": "Der Blick hat sich zwischen den Kalibrierpunkten kaum bewegt – vielleicht erfasst der Eyetracker die Augen nicht. Bitte neu kalibrieren.",
+    "src": "9d6b0359"
+  },
+  "calibration.failure.quality": {
+    "text": "Kalibrierung nicht übernommen: {0}. Bitte erneut versuchen und auf jedem Punkt bleiben, bis sich sein Kreis füllt – Wegschauen setzt nichts zurück, kurze Blicke zählen zusammen.",
+    "src": "51a98a29"
+  },
+  "calibration.failure.reason.excessScatter": {
+    "text": "der Blick streute dort zu stark (Streuung {0:F0} px, Grenze {1:F0} px)",
+    "src": "4b13fef8"
+  },
+  "calibration.failure.reason.lowCoverage": {
+    "text": "der Blick lag nur {0:F0} % der Zeit darauf (nötig: {1:F0} %)",
+    "src": "d616b8d1"
+  },
+  "calibration.failure.reason.residualTooLarge": {
+    "text": "die Korrektur verfehlt ihn um {0:F0} px (Grenze {1:F0} px)",
+    "src": "10da15c0"
+  },
+  "calibration.failure.region.bottomCenter": {
+    "text": "der Punkt unten",
+    "src": "ee38da9e"
+  },
+  "calibration.failure.region.bottomLeft": {
+    "text": "der Punkt unten links",
+    "src": "deb72122"
+  },
+  "calibration.failure.region.bottomRight": {
+    "text": "der Punkt unten rechts",
+    "src": "eb14ac1f"
+  },
+  "calibration.failure.region.center": {
+    "text": "der Punkt in der Mitte",
+    "src": "2d59298f"
+  },
+  "calibration.failure.region.middleLeft": {
+    "text": "der Punkt links",
+    "src": "f247b43b"
+  },
+  "calibration.failure.region.middleRight": {
+    "text": "der Punkt rechts",
+    "src": "51bd74cb"
+  },
+  "calibration.failure.region.topCenter": {
+    "text": "der Punkt oben",
+    "src": "cbb648a1"
+  },
+  "calibration.failure.region.topLeft": {
+    "text": "der Punkt oben links",
+    "src": "8ffcb2cc"
+  },
+  "calibration.failure.region.topRight": {
+    "text": "der Punkt oben rechts",
+    "src": "d63c5a75"
+  },
+  "calibration.failure.region.unknown": {
+    "text": "ein Punkt",
+    "src": "3bb07e42"
+  },
+  "calibration.failure.targetNeverHeld": {
+    "text": {
+      "one": "Der Blick erreichte das Ziel, blieb aber nie lange genug innerhalb von {1:0} px, um einen Messwert zu erfassen ({0} Messwert gesehen, alle außerhalb des Bereichs).",
+      "other": "Der Blick erreichte das Ziel, blieb aber nie lange genug innerhalb von {1:0} px, um einen Messwert zu erfassen ({0} Messwerte gesehen, alle außerhalb des Bereichs)."
+    },
+    "src": "1af58dd5"
+  },
+  "calibration.failure.targetNeverReached": {
+    "text": "Der Blick hat das Ziel nie erreicht.",
+    "src": "3fbfd5de"
+  },
+  "calibration.failure.unexpected": {
+    "text": "Beim Kalibrieren ist etwas schiefgegangen. Bitte erneut versuchen.",
+    "src": "eb076bcb"
+  },
+  "calibration.failure.unusableTransform": {
+    "text": "Die Kalibrierung ergab eine unbrauchbare Korrektur – der Blick würde außerhalb des Bildschirms landen. Bitte neu kalibrieren.",
+    "src": "f4aadf0c"
+  },
+  "calibration.progress.computing": {
+    "text": "Wird berechnet",
+    "src": "0b96e0a3"
+  },
+  "calibration.progress.lookAtDot": {
+    "text": "Auf den Punkt blicken · {0} / {1}",
+    "src": "556b110d"
+  },
+  "calibration.progress.recording": {
+    "text": "Aufnahme läuft",
+    "src": "c94b6012"
+  },
+  "calibration.window.accept": {
+    "text": "Trotzdem übernehmen",
+    "src": "750e17ad"
+  },
+  "calibration.window.cancelHint": {
+    "text": "Mit Esc abbrechen",
+    "src": "31338ae1"
+  },
+  "calibration.window.dismissHint": {
+    "text": "Schließt automatisch in 3 s",
+    "src": "6137c8e9"
+  },
+  "calibration.window.retry": {
+    "text": "Wiederholen",
+    "src": "90414b77"
+  },
+  "calibration.window.title.complete": {
+    "text": "Kalibrierung abgeschlossen",
+    "src": "97ebd950"
+  },
+  "calibration.window.title.failed": {
+    "text": "Kalibrierung fehlgeschlagen",
+    "src": "146a2b9a"
+  },
+  "calibration.window.title.recorded": {
+    "text": "Blickversatz aufgezeichnet",
+    "src": "1f7e311a"
+  },
+  "caregiver-alert.poor-tracking": {
+    "text": "Die Blickverfolgung ist seit einer Minute unzuverlässig – bitte Sitzposition oder Eyetracker neu ausrichten oder in Tobii neu kalibrieren.",
+    "src": "42e822e9"
+  },
+  "caregiver-alert.struggling": {
+    "text": "Die Bedienung fällt seit einer Weile schwer – bitte nachsehen.",
+    "src": "1dbed1d4"
+  },
+  "caregiver-alert.title": {
+    "text": "Bitte kurz nachsehen",
+    "src": "80803349"
+  },
+  "drift-notice.message": {
+    "text": "Der Blickpunkt weicht vielleicht ab – bitte in Tobii neu kalibrieren",
+    "src": "c0efcb73"
+  },
+  "eye-care.banner.message": {
+    "text": "Zeit für eine Augenpause",
+    "src": "95407529"
+  },
+  "eye-care.banner.snooze": {
+    "text": "später",
+    "src": "d9350c18"
+  },
+  "eye-care.banner.start": {
+    "text": "starten",
+    "src": "4d1a0297"
+  },
+  "eye-care.banner.subtext": {
+    "text": "Sie schauen schon eine Weile auf den Bildschirm",
+    "src": "fe64ef13"
+  },
+  "eye-care.exercise.calibration202020.encouragement": {
+    "text": "Augen entspannt!",
+    "src": "ebe66fcf"
+  },
+  "eye-care.exercise.calibration202020.name": {
+    "text": "20-20-20",
+    "src": "14407d31"
+  },
+  "eye-care.exercise.directionalSweep.encouragement": {
+    "text": "Voller Bewegungsumfang!",
+    "src": "4f638d26"
+  },
+  "eye-care.exercise.directionalSweep.name": {
+    "text": "Richtungsschwenks",
+    "src": "d9899ea1"
+  },
+  "eye-care.exercise.nearFarFocus.encouragement": {
+    "text": "Toller Fokuswechsel!",
+    "src": "ddc78bba"
+  },
+  "eye-care.exercise.nearFarFocus.name": {
+    "text": "Nah-Fern-Fokus",
+    "src": "b336608e"
+  },
+  "eye-care.exercise.saccade.encouragement": {
+    "text": "Schnelle Augen!",
+    "src": "d1976da2"
+  },
+  "eye-care.exercise.saccade.name": {
+    "text": "Blicksprünge",
+    "src": "187f7bdf"
+  },
+  "eye-care.exercise.skip": {
+    "text": "Ende ✕",
+    "src": "784f9286"
+  },
+  "eye-care.exercise.smoothPursuit.encouragement": {
+    "text": "Schön gleichmäßig gefolgt!",
+    "src": "c738d558"
+  },
+  "eye-care.exercise.smoothPursuit.name": {
+    "text": "Gleitendes Folgen",
+    "src": "aeead7bb"
+  },
+  "eye-care.summary.accuracy": {
+    "text": "Genauigkeit",
+    "src": "e02e43b5"
+  },
+  "eye-care.summary.complete": {
+    "text": "{0} abgeschlossen",
+    "src": "ed300cf7"
+  },
+  "eye-care.summary.reactionMs": {
+    "text": "Reaktion ms",
+    "src": "5ef9fc1e"
+  },
+  "eye-care.summary.steadiness": {
+    "text": "Stabilität",
+    "src": "79ff8ea0"
+  },
+  "eye-care.summary.title": {
+    "text": "✓ Gut gemacht",
+    "src": "8a888f50"
+  },
+  "language-recovery.note.pending": {
+    "text": "Wird nach Neustart wirksam / Takes effect after restart",
+    "src": "1dcf3882"
+  },
+  "language-recovery.prompt.cancel": {
+    "text": "Abbrechen",
+    "src": "3c9d8982"
+  },
+  "language-recovery.prompt.message": {
+    "text": "Die neue Sprache gilt nach einem Neustart.",
+    "src": "8ccbb3a4"
+  },
+  "language-recovery.prompt.restart": {
+    "text": "Neu starten",
+    "src": "bb5eac5f"
+  },
+  "language-recovery.restart.failed.child_exited_early": {
+    "text": "Neustart fehlgeschlagen: Das neue EyeCtrl wurde sofort wieder beendet. EyeCtrl läuft weiter.",
+    "src": "03ac76b9"
+  },
+  "language-recovery.restart.failed.child_not_ready": {
+    "text": "Neustart fehlgeschlagen: Das neue EyeCtrl ist nicht rechtzeitig gestartet. EyeCtrl läuft weiter.",
+    "src": "8506c786"
+  },
+  "language-recovery.restart.failed.frame": {
+    "text": "Neustart fehlgeschlagen. Technische Details (Englisch): {0} EyeCtrl läuft weiter.",
+    "src": "d885f26a"
+  },
+  "language-recovery.restart.failed.generic": {
+    "text": "Neustart fehlgeschlagen. EyeCtrl läuft weiter.",
+    "src": "eb24a9ea"
+  },
+  "language-recovery.restart.failed.launch_failed": {
+    "text": "Neustart fehlgeschlagen: Das neue EyeCtrl konnte nicht gestartet werden. EyeCtrl läuft weiter.",
+    "src": "6efc47eb"
+  },
+  "language-recovery.restart.failed.no_exe_path": {
+    "text": "Neustart fehlgeschlagen: EyeCtrl konnte seinen eigenen Programmpfad nicht ermitteln. EyeCtrl läuft weiter.",
+    "src": "b4c5f52f"
+  },
+  "language-recovery.restart.in_progress.hide": {
+    "text": "✕ Ausblenden",
+    "src": "6a0b0efe"
+  },
+  "language-recovery.restart.in_progress.message": {
+    "text": "EyeCtrl wird neu gestartet.\nWarten, bis das neue EyeCtrl läuft. Startet es nicht, läuft dieses weiter.\nAusblenden hält den Neustart nicht an.",
+    "src": "46821750"
+  },
+  "language-recovery.restart.refused.ok": {
+    "text": "✓ OK",
+    "src": "707b3797"
+  },
+  "language-recovery.row.description": {
+    "text": "Legt fest, in welcher Sprache EyeCtrl seine eigenen Fenster anzeigt.",
+    "src": "33a3a4a0"
+  },
+  "language-recovery.row.label": {
+    "text": "Sprache / Language",
+    "src": "49ec8cf6"
+  },
+  "language-recovery.supervisor.pending": {
+    "text": "Noch nicht gespeichert. Gilt beim nächsten Start von EyeCtrl, sofern der PC oder der Supervisor nicht vorher neu startet.",
+    "src": "d1c5fc11"
+  },
+  "language-recovery.supervisor.refused": {
+    "text": "EyeCtrl hat die Sprache abgelehnt; sie wurde nicht gespeichert.",
+    "src": "85833736"
+  },
+  "language-recovery.supervisor.saved": {
+    "text": "Sprache gespeichert.",
+    "src": "2e616881"
+  },
+  "language-recovery.supervisor.saved-restarting": {
+    "text": "Sprache gespeichert. EyeCtrl startet bereits neu.",
+    "src": "c8077d1a"
+  },
+  "language-recovery.supervisor.sending": {
+    "text": "EyeCtrl wird gebeten, die Sprache zu ändern.",
+    "src": "810e0d7b"
+  },
+  "language-recovery.supervisor.superseded": {
+    "text": "Die Sprache wurde inzwischen in EyeCtrl geändert. Diese neuere Wahl bleibt.",
+    "src": "49fddb09"
+  },
+  "language-recovery.supervisor.waiting": {
+    "text": "Die Sprachwahl wartet auf EyeCtrl.",
+    "src": "59086bf4"
+  },
+  "language-recovery.tray.item": {
+    "text": "Sprache / Language",
+    "src": "49ec8cf6"
+  },
+  "overlays.edge.back": {
+    "text": "Zurück",
+    "src": "a9db9b1c"
+  },
+  "overlays.edge.cancelDrag": {
+    "text": "Ziehen abbrechen",
+    "src": "9fecf11d"
+  },
+  "overlays.edge.close": {
+    "text": "Schließen",
+    "src": "1dd4995d"
+  },
+  "overlays.edge.flip": {
+    "text": "Position wechseln",
+    "src": "18d8a4ec"
+  },
+  "overlays.edge.help": {
+    "text": "Hilfe",
+    "src": "dc951279"
+  },
+  "overlays.edge.recapture": {
+    "text": "Neu erfassen",
+    "src": "b15c99dd"
+  },
+  "overlays.edge.stopRepeat": {
+    "text": "Wiederholung beenden",
+    "src": "ef953df0"
+  },
+  "overlays.edge.stopScrolling": {
+    "text": "Scrollen beenden",
+    "src": "75d6cda5"
+  },
+  "overlays.hint.pressEscToExit": {
+    "text": "Mit Esc beenden",
+    "src": "d79ba9fc"
+  },
+  "overlays.hint.pressEscToStopScrolling": {
+    "text": "Mit Esc das Scrollen beenden",
+    "src": "c74d1522"
+  },
+  "overlays.modifier.alt": {
+    "text": "Alt",
+    "src": "16fc9616"
+  },
+  "overlays.modifier.ctrl": {
+    "text": "Strg",
+    "src": "36c47ca1"
+  },
+  "overlays.modifier.shift": {
+    "text": "Shift",
+    "src": "bf8f96a7"
+  },
+  "overlays.note.close": {
+    "text": "Notiz schließen",
+    "src": "ca177537"
+  },
+  "overlays.note.edit": {
+    "text": "Notiz bearbeiten",
+    "src": "cb5af6a9"
+  },
+  "overlays.note.move": {
+    "text": "Notiz verschieben",
+    "src": "7787d174"
+  },
+  "overlays.note.title": {
+    "text": "ANGEHEFTETE NOTIZ",
+    "src": "aa84667f"
+  },
+  "overlays.pause.title": {
+    "text": "EyeCtrl pausiert",
+    "src": "f2e84b2e"
+  },
+  "overlays.preset.kbd.copy": {
+    "text": "Kopieren",
+    "src": "41335bb9"
+  },
+  "overlays.preset.kbd.cut": {
+    "text": "Ausschneiden",
+    "src": "f383f896"
+  },
+  "overlays.preset.kbd.file_explorer": {
+    "text": "Explorer",
+    "src": "d2f80212"
+  },
+  "overlays.preset.kbd.find": {
+    "text": "Suchen",
+    "src": "6e2e83a9"
+  },
+  "overlays.preset.kbd.lock": {
+    "text": "Sperren",
+    "src": "d0abdf42"
+  },
+  "overlays.preset.kbd.new": {
+    "text": "Neu",
+    "src": "8d0639d3"
+  },
+  "overlays.preset.kbd.paste": {
+    "text": "Einfügen",
+    "src": "c283bae3"
+  },
+  "overlays.preset.kbd.print": {
+    "text": "Drucken",
+    "src": "2e47996b"
+  },
+  "overlays.preset.kbd.redo": {
+    "text": "Wieder­herstellen",
+    "src": "dafb29a2"
+  },
+  "overlays.preset.kbd.save": {
+    "text": "Speichern",
+    "src": "96038583"
+  },
+  "overlays.preset.kbd.select_all": {
+    "text": "Alles auswählen",
+    "src": "ea37502f"
+  },
+  "overlays.preset.kbd.show_desktop": {
+    "text": "Desktop anzeigen",
+    "src": "1e9db88e"
+  },
+  "overlays.preset.kbd.switch_app": {
+    "text": "App wechseln",
+    "src": "92bb88ed"
+  },
+  "overlays.preset.kbd.undo": {
+    "text": "Rückgängig",
+    "src": "281341dc"
+  },
+  "overlays.preset.media.mute": {
+    "text": "Stumm",
+    "src": "8b0dc4e7"
+  },
+  "overlays.preset.media.next": {
+    "text": "Nächster Titel",
+    "src": "6414bf4c"
+  },
+  "overlays.preset.media.play_pause": {
+    "text": "Wiedergabe / Pause",
+    "src": "42f86cb0"
+  },
+  "overlays.preset.media.previous": {
+    "text": "Vorheriger Titel",
+    "src": "cf3fecaf"
+  },
+  "overlays.preset.media.stop": {
+    "text": "Stopp",
+    "src": "65999e90"
+  },
+  "overlays.preset.media.volume_down": {
+    "text": "Leiser",
+    "src": "90cac73b"
+  },
+  "overlays.preset.media.volume_up": {
+    "text": "Lauter",
+    "src": "2f847bc4"
+  },
+  "overlays.preset.window.close": {
+    "text": "Fenster schließen",
+    "src": "150774d9"
+  },
+  "overlays.preset.window.maximize_restore": {
+    "text": "Maximieren / Wieder­herstellen",
+    "src": "42696d00"
+  },
+  "overlays.preset.window.minimize": {
+    "text": "Fenster minimieren",
+    "src": "853cca05"
+  },
+  "overlays.ring.back": {
+    "text": "Zurück",
+    "src": "d75ae8b1"
+  },
+  "overlays.ring.doubleClick": {
+    "text": "2× Klick",
+    "src": "a7920e39"
+  },
+  "overlays.ring.drag": {
+    "text": "Ziehen",
+    "src": "854de132"
+  },
+  "overlays.ring.keyboard": {
+    "text": "Tastatur",
+    "src": "978d4d53"
+  },
+  "overlays.ring.leftClick": {
+    "text": "Linksklick",
+    "src": "11c50b6f"
+  },
+  "overlays.ring.middleClick": {
+    "text": "Mittelklick",
+    "src": "2d0dbdb3"
+  },
+  "overlays.ring.more": {
+    "text": "Mehr",
+    "src": "bda4caa9"
+  },
+  "overlays.ring.pinNote": {
+    "text": "Notiz",
+    "src": "31acfbb0"
+  },
+  "overlays.ring.rightClick": {
+    "text": "Rechtsklick",
+    "src": "41084bc6"
+  },
+  "overlays.ring.scrollDown": {
+    "text": "Nach unten",
+    "src": "158f84a0"
+  },
+  "overlays.ring.scrollLeft": {
+    "text": "Nach links",
+    "src": "d44eb9ff"
+  },
+  "overlays.ring.scrollMode": {
+    "text": "Scrollen",
+    "src": "0d54555a"
+  },
+  "overlays.ring.scrollRight": {
+    "text": "Nach rechts",
+    "src": "2b3f5385"
+  },
+  "overlays.ring.scrollUp": {
+    "text": "Nach oben",
+    "src": "92ff458a"
+  },
+  "overlays.scroll.title": {
+    "text": "Scroll-Anzeige",
+    "src": "ebaf748d"
+  },
+  "overlays.taskSwitcher.hint": {
+    "text": "Fenster auswählen – oder zum Abbrechen wegschauen",
+    "src": "e628a37c"
+  },
+  "overlays.toolbar.keyboard": {
+    "text": "Tastatur",
+    "src": "1010edb8"
+  },
+  "overlays.toolbar.modes": {
+    "text": "Modi",
+    "src": "6119541b"
+  },
+  "overlays.toolbar.pause": {
+    "text": "Pausieren",
+    "src": "6e174632"
+  },
+  "overlays.toolbar.resetAdaptation": {
+    "text": "Anpassung zurücksetzen",
+    "src": "39265f77"
+  },
+  "overlays.toolbar.resume": {
+    "text": "Fortsetzen",
+    "src": "9184cc1d"
+  },
+  "overlays.toolbar.selectionMode": {
+    "text": "Auswahlmodus",
+    "src": "b80a91be"
+  },
+  "overlays.toolbar.settings": {
+    "text": "Einstellungen",
+    "src": "2c442692"
+  },
+  "overlays.toolbar.taskSwitcher": {
+    "text": "Fenster wechseln",
+    "src": "82af8125"
+  },
+  "settings.action_menu.jump.label": {
+    "text": "Vorschau des Aktionsmenüs",
+    "src": "f2c5e4b9"
+  },
+  "settings.action_menu.preview.labels": {
+    "text": "im Betrieb nur beim Verweilen beschriftet",
+    "src": "9ac706a6"
+  },
+  "settings.action_menu.preview.more_annotation": {
+    "text": "{0} +{1}",
+    "src": "4080864a"
+  },
+  "settings.action_menu.preview.not_a_control": {
+    "text": "Vorschau, keine Schaltfläche",
+    "src": "64be0b88"
+  },
+  "settings.action_menu.primary.description": {
+    "text": "Zeigt „{0}“ sofort statt hinter „Mehr“. Vier passen.",
+    "src": "b6d96463"
+  },
+  "settings.action_menu.primary.full": {
+    "text": "Die erste Ebene fasst {0} Aktionen. Bei einer anderen Aktion den Schalter „auf erster Ebene“ ausschalten, um einen Platz frei zu machen.",
+    "src": "41dd0724"
+  },
+  "settings.action_menu.primary.label": {
+    "text": "„{0}“ auf erster Ebene",
+    "src": "c4d85a47"
+  },
+  "settings.action_menu.reset.label": {
+    "text": "„Aktionsmenü“ zurücksetzen",
+    "src": "0b0bffcd"
+  },
+  "settings.action_menu.reset.message": {
+    "text": "Einstellungen unter „Aktionsmenü“ auf Standardwerte zurücksetzen?",
+    "src": "32183536"
+  },
+  "settings.action_menu.visible.double_click.description": {
+    "text": "Zwei schnelle Klicks an der gewählten Stelle.",
+    "src": "9aa656ac"
+  },
+  "settings.action_menu.visible.double_click.label": {
+    "text": "Doppelklick",
+    "src": "3f61b50d"
+  },
+  "settings.action_menu.visible.drag.description": {
+    "text": "Greift an dieser Stelle zu und folgt dann dem Blick.",
+    "src": "fab3a82d"
+  },
+  "settings.action_menu.visible.drag.label": {
+    "text": "Ziehen",
+    "src": "a259bb69"
+  },
+  "settings.action_menu.visible.keyboard.description": {
+    "text": "Öffnet die Bildschirmtastatur zum Schreiben.",
+    "src": "05faa3a3"
+  },
+  "settings.action_menu.visible.keyboard.label": {
+    "text": "Tastatur",
+    "src": "1010edb8"
+  },
+  "settings.action_menu.visible.left_click.description": {
+    "text": "Ein Linksklick an der gewählten Stelle.",
+    "src": "34a8870e"
+  },
+  "settings.action_menu.visible.left_click.label": {
+    "text": "Linksklick",
+    "src": "8830a7f5"
+  },
+  "settings.action_menu.visible.middle_click.description": {
+    "text": "Ein Mittelklick an der gewählten Stelle.",
+    "src": "65a65849"
+  },
+  "settings.action_menu.visible.middle_click.label": {
+    "text": "Mittelklick",
+    "src": "21ce3117"
+  },
+  "settings.action_menu.visible.pin_note.description": {
+    "text": "Öffnet an der gewählten Stelle eine Notiz zum Schreiben.",
+    "src": "62287bc2"
+  },
+  "settings.action_menu.visible.pin_note.label": {
+    "text": "Notiz anheften",
+    "src": "079f5265"
+  },
+  "settings.action_menu.visible.right_click.description": {
+    "text": "Ein Rechtsklick an der gewählten Stelle.",
+    "src": "e79239d4"
+  },
+  "settings.action_menu.visible.right_click.label": {
+    "text": "Rechtsklick",
+    "src": "a4ed882d"
+  },
+  "settings.action_menu.visible.scroll_down.description": {
+    "text": "Scrollt ab der gewählten Stelle nach unten.",
+    "src": "52284b5c"
+  },
+  "settings.action_menu.visible.scroll_down.label": {
+    "text": "Nach unten scrollen",
+    "src": "997703ec"
+  },
+  "settings.action_menu.visible.scroll_left.description": {
+    "text": "Scrollt ab der gewählten Stelle nach links.",
+    "src": "f9ff8b50"
+  },
+  "settings.action_menu.visible.scroll_left.label": {
+    "text": "Nach links scrollen",
+    "src": "2ef0d97c"
+  },
+  "settings.action_menu.visible.scroll_mode.description": {
+    "text": "Fortlaufendes Scrollen, gesteuert durch den Blick.",
+    "src": "db983460"
+  },
+  "settings.action_menu.visible.scroll_mode.label": {
+    "text": "Scroll-Modus",
+    "src": "6a0c347e"
+  },
+  "settings.action_menu.visible.scroll_right.description": {
+    "text": "Scrollt ab der gewählten Stelle nach rechts.",
+    "src": "49e37d47"
+  },
+  "settings.action_menu.visible.scroll_right.label": {
+    "text": "Nach rechts scrollen",
+    "src": "d152ca2c"
+  },
+  "settings.action_menu.visible.scroll_up.description": {
+    "text": "Scrollt ab der gewählten Stelle nach oben.",
+    "src": "bf302eca"
+  },
+  "settings.action_menu.visible.scroll_up.label": {
+    "text": "Nach oben scrollen",
+    "src": "987dc689"
+  },
+  "settings.adaptation.caregiver.description": {
+    "text": "Zeigt einen deutlichen Hinweis für die Betreuungsperson, solange die Bedienung schwerfällt oder die Blickverfolgung schlecht ist.",
+    "src": "5cdbb59e"
+  },
+  "settings.adaptation.caregiver.label": {
+    "text": "Hinweise an die Betreuungsperson",
+    "src": "5ebc1088"
+  },
+  "settings.adaptation.caregiver_interval.description": {
+    "text": "Kürzester Abstand zwischen zwei Hinweisen an die Betreuungsperson, in Minuten.",
+    "src": "4096f6cc"
+  },
+  "settings.adaptation.caregiver_interval.label": {
+    "text": "Hinweise an die Betreuungsperson – Mindestabstand",
+    "src": "a5645497"
+  },
+  "settings.adaptation.cue.description": {
+    "text": "Zeigt ein kleines Zeichen, während eine Einstellung angepasst wird.",
+    "src": "bcfeb29e"
+  },
+  "settings.adaptation.cue.label": {
+    "text": "Anpassungszeichen anzeigen",
+    "src": "2d02ddf7"
+  },
+  "settings.adaptation.dwell.description": {
+    "text": "Verkürzt oder verlängert die Verweilzeiten, je nachdem, ob die Bedienung schwer- oder leichtfällt.",
+    "src": "53048405"
+  },
+  "settings.adaptation.dwell.label": {
+    "text": "Verweilzeit anpassen",
+    "src": "312cc8cf"
+  },
+  "settings.adaptation.dwell_longer.description": {
+    "text": "Wie weit eine Verweilzeit höchstens verlängert werden darf, als Anteil ihres Grundwerts.",
+    "src": "05902e64"
+  },
+  "settings.adaptation.dwell_longer.label": {
+    "text": "Verweilzeit – maximale Verlängerung",
+    "src": "a1396e33"
+  },
+  "settings.adaptation.dwell_shorter.description": {
+    "text": "Wie weit eine Verweilzeit höchstens verkürzt werden darf, als Anteil ihres Grundwerts.",
+    "src": "34bfc799"
+  },
+  "settings.adaptation.dwell_shorter.label": {
+    "text": "Verweilzeit – maximale Verkürzung",
+    "src": "a80bc221"
+  },
+  "settings.adaptation.enabled.description": {
+    "text": "Erleichtert Verweilen und Zielen automatisch, solange die Bedienung schwerfällt.",
+    "src": "591c56d8"
+  },
+  "settings.adaptation.enabled.label": {
+    "text": "Anpassung aktivieren",
+    "src": "efd3a29e"
+  },
+  "settings.adaptation.geometry.description": {
+    "text": "Vergrößert oder verkleinert Ziele, wenn das Zielen schwerfällt.",
+    "src": "aaa1c1e2"
+  },
+  "settings.adaptation.geometry.label": {
+    "text": "Zielgröße anpassen",
+    "src": "e20d5c8e"
+  },
+  "settings.adaptation.geometry_bigger.description": {
+    "text": "Wie weit ein Ziel höchstens vergrößert werden darf, als Anteil seines Grundwerts.",
+    "src": "11ebc364"
+  },
+  "settings.adaptation.geometry_bigger.label": {
+    "text": "Zielgröße – maximale Vergrößerung",
+    "src": "236def4b"
+  },
+  "settings.adaptation.growth_cap.description": {
+    "text": "Wie weit die Trefferfläche eines Ziels bei der Anpassung höchstens wachsen darf, in Bildschirmpixeln.",
+    "src": "21b2e355"
+  },
+  "settings.adaptation.growth_cap.label": {
+    "text": "Zielgröße – Wachstumsgrenze",
+    "src": "9a998116"
+  },
+  "settings.adaptation.log.description": {
+    "text": "Zeigt die Protokolldatei der Anpassung im Explorer.",
+    "src": "347c0d6c"
+  },
+  "settings.adaptation.log.label": {
+    "text": "Anpassungsprotokoll öffnen",
+    "src": "0530b471"
+  },
+  "settings.adaptation.posture.description": {
+    "text": "Wie bereitwillig die Anpassung auf Schwierigkeiten reagiert.",
+    "src": "89eaf791"
+  },
+  "settings.adaptation.posture.label": {
+    "text": "Reaktionsweise",
+    "src": "70c05580"
+  },
+  "settings.adaptation.posture.option.balanced": {
+    "text": "Ausgewogen",
+    "src": "0ba3450a"
+  },
+  "settings.adaptation.posture.option.conservative": {
+    "text": "Zurückhaltend",
+    "src": "beb32f79"
+  },
+  "settings.adaptation.posture.option.responsive": {
+    "text": "Reaktionsfreudig",
+    "src": "00e65098"
+  },
+  "settings.adaptation.reset.label": {
+    "text": "„Anpassung“ zurücksetzen",
+    "src": "aded49ee"
+  },
+  "settings.adaptation.reset.message": {
+    "text": "Einstellungen unter „Anpassung“ auf Standardwerte zurücksetzen?",
+    "src": "feac4908"
+  },
+  "settings.adaptation.reset_learned.description": {
+    "text": "Löscht, was EyeCtrl gelernt hat; es lernt bei der Nutzung neu.",
+    "src": "4862d640"
+  },
+  "settings.adaptation.reset_learned.label": {
+    "text": "Gelernte Werte zurücksetzen",
+    "src": "82377c64"
+  },
+  "settings.adaptation.reset_learned.message": {
+    "text": "Die gelernten Anpassungswerte auf null zurücksetzen?",
+    "src": "36415a64"
+  },
+  "settings.adaptation.sensitive.description": {
+    "text": "Blendet Anpassungszeichen und Meldungen bei der Eingabe von Passwörtern aus.",
+    "src": "efd479ec"
+  },
+  "settings.adaptation.sensitive.label": {
+    "text": "Bei sensiblen Eingaben ausblenden",
+    "src": "058af321"
+  },
+  "settings.adaptation.smoothing.description": {
+    "text": "Passt an, wie stark die rohen Blickdaten geglättet werden.",
+    "src": "0e2a2a7d"
+  },
+  "settings.adaptation.smoothing.label": {
+    "text": "Glättung anpassen",
+    "src": "9c232b28"
+  },
+  "settings.adaptation.smoothing_more.description": {
+    "text": "Wie weit die Glättung höchstens erhöht werden darf, als Anteil ihres Grundwerts.",
+    "src": "0751752d"
+  },
+  "settings.adaptation.smoothing_more.label": {
+    "text": "Glättung – maximale Erhöhung",
+    "src": "9f78c9d5"
+  },
+  "settings.adaptation.tolerance.description": {
+    "text": "Lockert oder verschärft, wie ruhig der Blick auf einem Ziel bleiben muss.",
+    "src": "16d662b2"
+  },
+  "settings.adaptation.tolerance.label": {
+    "text": "Zieltoleranz anpassen",
+    "src": "e412b4de"
+  },
+  "settings.adaptation.tolerance_looser.description": {
+    "text": "Wie weit die Toleranz höchstens gelockert werden darf, als Anteil ihres Grundwerts.",
+    "src": "fc39460d"
+  },
+  "settings.adaptation.tolerance_looser.label": {
+    "text": "Toleranz – maximale Lockerung",
+    "src": "6ff46555"
+  },
+  "settings.advanced.backdrop_enabled.description": {
+    "text": "Dunkelt ab, was hinter der Tastatur und anderen Einblendungen liegt.",
+    "src": "39efc8f8"
+  },
+  "settings.advanced.backdrop_enabled.label": {
+    "text": "Abdunklung aktivieren",
+    "src": "7344e4d7"
+  },
+  "settings.advanced.backdrop_opacity.description": {
+    "text": "Wie dunkel die Abdunklung ist – nur „Einfarbig abdunkeln“ nutzt das; gilt ab dem nächsten Öffnen.",
+    "src": "73474014"
+  },
+  "settings.advanced.backdrop_opacity.label": {
+    "text": "Deckkraft der Abdunklung",
+    "src": "2cab86e8"
+  },
+  "settings.advanced.backdrop_type.description": {
+    "text": "Das Material der Abdunklung; Acryl und Mica zeichnen weich, „Einfarbig abdunkeln“ tönt nur.",
+    "src": "c99b32a1"
+  },
+  "settings.advanced.backdrop_type.label": {
+    "text": "Art der Abdunklung",
+    "src": "6bf8b952"
+  },
+  "settings.advanced.backdrop_type.option.acrylic": {
+    "text": "Acryl",
+    "src": "f0cff9e8"
+  },
+  "settings.advanced.backdrop_type.option.mica": {
+    "text": "Mica",
+    "src": "0b2d8a7b"
+  },
+  "settings.advanced.backdrop_type.option.solid_darken": {
+    "text": "Einfarbig abdunkeln",
+    "src": "be5b41ce"
+  },
+  "settings.advanced.drag_color.description": {
+    "text": "Farbe der Spur, die beim Ziehen gezeichnet wird.",
+    "src": "27662bcd"
+  },
+  "settings.advanced.drag_color.label": {
+    "text": "Farbe der Ziehspur",
+    "src": "3adca8d6"
+  },
+  "settings.advanced.drag_opacity.description": {
+    "text": "Wie deutlich die Ziehspur zu sehen ist.",
+    "src": "93e67b68"
+  },
+  "settings.advanced.drag_opacity.label": {
+    "text": "Deckkraft der Ziehspur",
+    "src": "6ee9c870"
+  },
+  "settings.advanced.drag_radius.description": {
+    "text": "Wie weit der Blick wandern darf, bevor ein Ziehen beginnt. Gilt nach einem Neustart.",
+    "src": "6cee85ad"
+  },
+  "settings.advanced.drag_radius.label": {
+    "text": "Toleranzradius vor dem Ziehen (px)",
+    "src": "06290b71"
+  },
+  "settings.advanced.drag_settle.description": {
+    "text": "Wie lange der Blick ruhig bleiben muss, bevor ein Ziehen beginnt. Gilt nach einem Neustart.",
+    "src": "664bea91"
+  },
+  "settings.advanced.drag_settle.label": {
+    "text": "Verweilzeit vor dem Ziehen (ms)",
+    "src": "75da0aac"
+  },
+  "settings.advanced.external_cooldown.description": {
+    "text": "Kürzeste Wartezeit zwischen zwei Auslösungen durch andere Apps.",
+    "src": "28943be4"
+  },
+  "settings.advanced.external_cooldown.label": {
+    "text": "Externe Sperrzeit (ms)",
+    "src": "b87e6f4b"
+  },
+  "settings.advanced.external_dwell.description": {
+    "text": "Andere Apps dürfen über die Schnittstelle von EyeCtrl ein Verweilen auslösen.",
+    "src": "ba7e9fd6"
+  },
+  "settings.advanced.external_dwell.label": {
+    "text": "Externes Verweilen aktivieren",
+    "src": "67aae74c"
+  },
+  "settings.advanced.external_hold.description": {
+    "text": "Verweilzeit, wenn eine andere App ein Ziel anmeldet.",
+    "src": "1633a3a5"
+  },
+  "settings.advanced.external_hold.label": {
+    "text": "Externes Verweilen (ms)",
+    "src": "c831b6c4"
+  },
+  "settings.advanced.repeat_dwell.description": {
+    "text": "Wie lange der Blick auf einem Ziel bleiben muss, bevor die festgelegte Aktion dort auslöst.",
+    "src": "a3a19fb1"
+  },
+  "settings.advanced.repeat_dwell.label": {
+    "text": "Verweilzeit bei Wiederholung (ms)",
+    "src": "c664482b"
+  },
+  "settings.advanced.reset.label": {
+    "text": "„Erweitert“ zurücksetzen",
+    "src": "f84418ab"
+  },
+  "settings.advanced.reset.message": {
+    "text": "Einstellungen unter „Erweitert“ auf Standardwerte zurücksetzen?",
+    "src": "4b4e58ec"
+  },
+  "settings.advanced.scroll_sensitivity.description": {
+    "text": "Wie schnell das Scrollen per Blick durch Dokumente läuft.",
+    "src": "3471379e"
+  },
+  "settings.advanced.scroll_sensitivity.label": {
+    "text": "Scroll-Empfindlichkeit",
+    "src": "210802ff"
+  },
+  "settings.calibration.clear.label": {
+    "text": "Kalibrierung löschen",
+    "src": "bec38ee4"
+  },
+  "settings.calibration.clear.message": {
+    "text": "Gespeicherte Kalibrierung löschen?",
+    "src": "a21cf9c9"
+  },
+  "settings.calibration.color.description": {
+    "text": "Farbe des Kalibrierziels. Gilt nach einem Neustart.",
+    "src": "79950105"
+  },
+  "settings.calibration.color.label": {
+    "text": "Zielfarbe",
+    "src": "3ce37802"
+  },
+  "settings.calibration.hold.description": {
+    "text": "So lange bleibt jedes Ziel mindestens zu sehen.",
+    "src": "ca28643c"
+  },
+  "settings.calibration.hold.label": {
+    "text": "Anzeigedauer pro Ziel (ms)",
+    "src": "b5d5cd14"
+  },
+  "settings.calibration.none": {
+    "text": "(keine)",
+    "src": "66147276"
+  },
+  "settings.calibration.points.description": {
+    "text": "Wie viele Punkte ein Kalibrierdurchlauf zeigt.",
+    "src": "a910bfef"
+  },
+  "settings.calibration.points.label": {
+    "text": "Kalibrierpunkte",
+    "src": "d3a728d5"
+  },
+  "settings.calibration.probe.label": {
+    "text": "Blickversatz messen",
+    "src": "864ba360"
+  },
+  "settings.calibration.probe.note": {
+    "text": "„Blickversatz messen“ zeichnet auf, wo der Blick an fünf Punkten landet. Es ändert nichts und endet immer mit „aufgezeichnet“; am besten ausgeruht durchführen.",
+    "src": "65de052d"
+  },
+  "settings.calibration.rejected.empty": {
+    "text": "Nicht angewendet – die gespeicherte Kalibrierdatei ist leer. Zum Beheben neu kalibrieren.",
+    "src": "de6f56d7"
+  },
+  "settings.calibration.rejected.flips": {
+    "text": "Nicht angewendet – die gespeicherte Kalibrierung spiegelt oder verstärkt den Blick (schlechte Korrektur). Zum Beheben neu kalibrieren.",
+    "src": "a062c8c0"
+  },
+  "settings.calibration.rejected.malformed": {
+    "text": "Nicht angewendet – die gespeicherte Kalibrierung ist fehlerhaft. Zum Beheben neu kalibrieren.",
+    "src": "b4b43aad"
+  },
+  "settings.calibration.rejected.monitor.both_ids": {
+    "text": "Nicht angewendet – auf einem anderen Monitor gespeichert ({0}, {1}), aktuell ist {2}, {3}. Zum Beheben neu kalibrieren.",
+    "src": "230f748e"
+  },
+  "settings.calibration.rejected.monitor.current_id": {
+    "text": "Nicht angewendet – auf einem anderen Monitor gespeichert ({0}), aktuell ist {1}, {2}. Zum Beheben neu kalibrieren.",
+    "src": "10bcad08"
+  },
+  "settings.calibration.rejected.monitor.names_only": {
+    "text": "Nicht angewendet – auf einem anderen Monitor gespeichert ({0}), aktuell ist {1}. Zum Beheben neu kalibrieren.",
+    "src": "8cac3083"
+  },
+  "settings.calibration.rejected.monitor.saved_id": {
+    "text": "Nicht angewendet – auf einem anderen Monitor gespeichert ({0}, {1}), aktuell ist {2}. Zum Beheben neu kalibrieren.",
+    "src": "40915b2f"
+  },
+  "settings.calibration.rejected.off_screen": {
+    "text": "Nicht angewendet – die gespeicherte Kalibrierung lenkt den Blick aus dem Bildschirm (schlechte Korrektur). Zum Beheben neu kalibrieren.",
+    "src": "2a31106d"
+  },
+  "settings.calibration.rejected.screen": {
+    "text": "Nicht angewendet – für einen {0}×{1}-Bildschirm gespeichert, aktuell ist {2}×{3}. Zum Beheben neu kalibrieren.",
+    "src": "5883e2d8"
+  },
+  "settings.calibration.rejected.unreadable": {
+    "text": "Nicht angewendet – die gespeicherte Kalibrierung ließ sich nicht lesen. Zum Beheben neu kalibrieren.",
+    "src": "2190be97"
+  },
+  "settings.calibration.run.label": {
+    "text": "Jetzt kalibrieren",
+    "src": "85c4d380"
+  },
+  "settings.calibration.samples.description": {
+    "text": "Blickmesswerte, die an jedem Kalibrierpunkt gesammelt werden.",
+    "src": "8de5da83"
+  },
+  "settings.calibration.samples.label": {
+    "text": "Messwerte pro Punkt",
+    "src": "838bc646"
+  },
+  "settings.calibration.settle.description": {
+    "text": "Zeit auf einem Ziel, bevor seine Messwerte zählen.",
+    "src": "6329e642"
+  },
+  "settings.calibration.settle.label": {
+    "text": "Einschwingzeit (ms)",
+    "src": "78935053"
+  },
+  "settings.calibration.status.none": {
+    "text": "Letzte Kalibrierung: keine",
+    "src": "d5cb825a"
+  },
+  "settings.calibration.status.ok": {
+    "text": "Letzte Kalibrierung: {0}  ·  {1:F1} px ({2:F1} %)",
+    "src": "e505176b"
+  },
+  "settings.calibration.status.rejected": {
+    "text": "Letzte Kalibrierung: {0}",
+    "src": "f7b747fa"
+  },
+  "settings.chrome.close": {
+    "text": "Einstellungen schließen",
+    "src": "1af3ea6e"
+  },
+  "settings.control.combo.not_available": {
+    "text": "⚠ {0} (nicht verfügbar)",
+    "src": "e44258ef"
+  },
+  "settings.control.swatch.accent": {
+    "text": "Akzent",
+    "src": "714ebbcc"
+  },
+  "settings.control.swatch.amber": {
+    "text": "Bernstein",
+    "src": "0670f221"
+  },
+  "settings.control.swatch.green": {
+    "text": "Grün",
+    "src": "cb7eafc4"
+  },
+  "settings.control.swatch.light": {
+    "text": "Hell",
+    "src": "48be001c"
+  },
+  "settings.control.toggle.off": {
+    "text": "Aus",
+    "src": "96570ce5"
+  },
+  "settings.control.toggle.on": {
+    "text": "Ein",
+    "src": "83a4d87a"
+  },
+  "settings.cursor.color.description": {
+    "text": "Farbe des Cursorrings; jede Vorgabe bleibt gut sichtbar.",
+    "src": "141b4074"
+  },
+  "settings.cursor.color.label": {
+    "text": "Farbe des Cursorrings",
+    "src": "3e74dafe"
+  },
+  "settings.cursor.color_unavailable": {
+    "text": "„Farbe des Cursorrings“ wird vom Stil „Schwarz-Weiß-Visier“ nicht genutzt.",
+    "src": "8bb17e25"
+  },
+  "settings.cursor.filter.description": {
+    "text": "Filterung der rohen Blickmesswerte.",
+    "src": "94c0ca6f"
+  },
+  "settings.cursor.filter.label": {
+    "text": "Filtermodus",
+    "src": "4fbe7292"
+  },
+  "settings.cursor.filter.option.direct": {
+    "text": "Direkt",
+    "src": "cbb3d0b6"
+  },
+  "settings.cursor.filter.option.one_euro": {
+    "text": "One Euro",
+    "src": "696426c0"
+  },
+  "settings.cursor.filter.option.smoothed": {
+    "text": "Geglättet",
+    "src": "273da4e5"
+  },
+  "settings.cursor.filter.option.smoothed_legacy": {
+    "text": "Geglättet (alt)",
+    "src": "50754173"
+  },
+  "settings.cursor.gap.description": {
+    "text": "Überbrückt kurze Aussetzer des Eyetrackers bis zu dieser Dauer.",
+    "src": "1f38a129"
+  },
+  "settings.cursor.gap.label": {
+    "text": "Lücken überbrücken (ms)",
+    "src": "c2e81bf6"
+  },
+  "settings.cursor.one_euro_beta.description": {
+    "text": "Zusätzliches Ansprechen je Bildschirmdiagonale pro Sekunde Blickbewegung.",
+    "src": "e5ab9b8c"
+  },
+  "settings.cursor.one_euro_beta.label": {
+    "text": "One Euro: Beta",
+    "src": "3401d9cb"
+  },
+  "settings.cursor.one_euro_cutoff.description": {
+    "text": "Niedriger ist ruhiger und träger; höher folgt schnellen Bewegungen. Über etwa einem Drittel der Abtastrate des Eyetrackers (hier ~10 Hz) ändert sich nichts mehr.",
+    "src": "5e6d9f54"
+  },
+  "settings.cursor.one_euro_cutoff.label": {
+    "text": "One Euro: Mindest-Grenzfrequenz",
+    "src": "d4f4edcd"
+  },
+  "settings.cursor.opacity.description": {
+    "text": "Ein niedrigerer Wert dämpft die farbige Hälfte des Ringrands – genau sie hält den Cursorring sichtbar.",
+    "src": "91c09366"
+  },
+  "settings.cursor.opacity.label": {
+    "text": "Deckkraft des Cursorrings",
+    "src": "7e7efdb4"
+  },
+  "settings.cursor.position_indicator.description": {
+    "text": "Wie die Positionsmarke gezeichnet wird; gilt ab dem nächsten Öffnen des Aktionsmenüs.",
+    "src": "1a2c38e8"
+  },
+  "settings.cursor.position_indicator.label": {
+    "text": "Positionsmarke",
+    "src": "419d8545"
+  },
+  "settings.cursor.position_indicator.option.crosshair": {
+    "text": "Fadenkreuz",
+    "src": "84023350"
+  },
+  "settings.cursor.position_indicator.option.pin": {
+    "text": "Nadel",
+    "src": "80c8e38d"
+  },
+  "settings.cursor.reset.label": {
+    "text": "„Cursor“ zurücksetzen",
+    "src": "d6286e3a"
+  },
+  "settings.cursor.reset.message": {
+    "text": "Einstellungen unter „Cursor“ auf Standardwerte zurücksetzen?",
+    "src": "439e9136"
+  },
+  "settings.cursor.ring_style.description": {
+    "text": "Wie der Cursorring auf hellem und dunklem Hintergrund sichtbar bleibt.",
+    "src": "1000fea1"
+  },
+  "settings.cursor.ring_style.label": {
+    "text": "Stil des Cursorrings",
+    "src": "f3179811"
+  },
+  "settings.cursor.ring_style.option.achromatic_reticle": {
+    "text": "Schwarz-Weiß-Visier",
+    "src": "13753626"
+  },
+  "settings.cursor.ring_style.option.bitonal_segments": {
+    "text": "Zweifarbige Segmente",
+    "src": "8a684c27"
+  },
+  "settings.cursor.ring_style.option.weighted_sandwich": {
+    "text": "Gewichtetes Sandwich",
+    "src": "cedaf723"
+  },
+  "settings.cursor.size.description": {
+    "text": "Durchmesser des Cursorrings.",
+    "src": "6eb51f0b"
+  },
+  "settings.cursor.size.label": {
+    "text": "Größe des Cursorrings (px)",
+    "src": "ef6e2a78"
+  },
+  "settings.cursor.smoothing.description": {
+    "text": "Höher reagiert schneller; niedriger ist ruhiger.",
+    "src": "d5faf0ef"
+  },
+  "settings.cursor.smoothing.label": {
+    "text": "Glättungsfaktor",
+    "src": "98a9f94a"
+  },
+  "settings.cursor.thickness.description": {
+    "text": "Linienstärke des Cursorrings, in Pixeln.",
+    "src": "841952b0"
+  },
+  "settings.cursor.thickness.label": {
+    "text": "Stärke des Cursorrings",
+    "src": "83986f31"
+  },
+  "settings.diagnostics.open_folder.description": {
+    "text": "Zeigt gaze-recording.csv und die zugehörige Referenzdatei im Explorer.",
+    "src": "5f14d27d"
+  },
+  "settings.diagnostics.open_folder.label": {
+    "text": "Aufnahmeordner öffnen",
+    "src": "6ad0643d"
+  },
+  "settings.diagnostics.record_raw.description": {
+    "text": "Speichert jeden Blickmesswert zur Auswertung in einer Datei. Standardmäßig aus; danach bitte wieder ausschalten.",
+    "src": "2ed9abc6"
+  },
+  "settings.diagnostics.record_raw.label": {
+    "text": "Rohe Blickdaten aufzeichnen (ab nächstem Start)",
+    "src": "ea793c7f"
+  },
+  "settings.diagnostics.record_raw.note": {
+    "text": "Eine Aufzeichnung hält fest, wohin und wann Sie geschaut haben – nichts darüber, was Sie angesehen haben. Die Aufzeichnung bleibt auf diesem Computer in Ihrem EyeCtrl-Ordner, bis Sie sie löschen.",
+    "src": "c6fb4422"
+  },
+  "settings.diagnostics.reset.label": {
+    "text": "„Diagnose“ zurücksetzen",
+    "src": "6d075dbd"
+  },
+  "settings.diagnostics.reset.message": {
+    "text": "Beide Diagnosen ausschalten?",
+    "src": "ce57f8d9"
+  },
+  "settings.diagnostics.ui_timing.description": {
+    "text": "Misst, wie schnell der Blick auf dem Bildschirm ankommt. Zeichnet keine Blickpositionen auf; schreibt nur Zusammenfassungen ins Protokoll.",
+    "src": "5d04a03a"
+  },
+  "settings.diagnostics.ui_timing.label": {
+    "text": "Anzeigezeiten messen (ab nächstem Start)",
+    "src": "a72d231d"
+  },
+  "settings.dwell.action_menu.description": {
+    "text": "Wie lange der Blick auf einer Aktion im Aktionsmenü ruhen muss.",
+    "src": "b1526239"
+  },
+  "settings.dwell.action_menu.label": {
+    "text": "Aktionsmenü (ms)",
+    "src": "0a4ac2ca"
+  },
+  "settings.dwell.activation.description": {
+    "text": "Verweilzeit für den Aktivator, der am Blickpunkt erscheint.",
+    "src": "b5ea274a"
+  },
+  "settings.dwell.activation.label": {
+    "text": "Aktivator (ms)",
+    "src": "3f69be87"
+  },
+  "settings.dwell.cooldown.description": {
+    "text": "Wie lange ein neues Verweilen nach einer Auslösung warten muss.",
+    "src": "1c2d2800"
+  },
+  "settings.dwell.cooldown.label": {
+    "text": "Sperrzeit nach Auslösung (ms)",
+    "src": "00f633ee"
+  },
+  "settings.dwell.cue_sound.description": {
+    "text": "Spielt einen leisen Ton, wenn ein Verweilen auf einer Fläche von EyeCtrl auslöst – Schaltflächen, Menüs, Einstellungen. Tasten behalten ihren eigenen Klickton.",
+    "src": "1c776617"
+  },
+  "settings.dwell.cue_sound.label": {
+    "text": "Ton nach dem Verweilen",
+    "src": "020aebb7"
+  },
+  "settings.dwell.fixation.description": {
+    "text": "Wie lange der Blick ruhig bleiben muss, bevor ein Verweilen beginnen kann.",
+    "src": "ee2ad92e"
+  },
+  "settings.dwell.fixation.label": {
+    "text": "Fixierungserkennung (ms)",
+    "src": "ee5ce914"
+  },
+  "settings.dwell.fixation_radius.description": {
+    "text": "Wie weit der Blick innerhalb einer Fixierung wandern darf.",
+    "src": "cb36c332"
+  },
+  "settings.dwell.fixation_radius.label": {
+    "text": "Fixierungsradius (px)",
+    "src": "610271b1"
+  },
+  "settings.dwell.keyboard_key.description": {
+    "text": "Wie lange der Blick auf einer Taste ruhen muss, bevor sie auslöst. Tasten, die die App verlassen oder Arbeit zerstören können, nutzen 600 ms.",
+    "src": "99fdfa63"
+  },
+  "settings.dwell.keyboard_key.label": {
+    "text": "Tastaturtaste (ms)",
+    "src": "2f22a8b7"
+  },
+  "settings.dwell.manual_selection.description": {
+    "text": "Verweilzeit für das Aktionsmenü in der manuellen Auswahl.",
+    "src": "594e4f30"
+  },
+  "settings.dwell.manual_selection.label": {
+    "text": "Aktionsmenü bei manueller Auswahl (ms)",
+    "src": "bd8a2ade"
+  },
+  "settings.dwell.prediction.description": {
+    "text": "Verweilzeit für die Vorhersagen über der Tastatur.",
+    "src": "2ee458f9"
+  },
+  "settings.dwell.prediction.label": {
+    "text": "Vorhersagen (ms)",
+    "src": "f86a0732"
+  },
+  "settings.dwell.reset.label": {
+    "text": "„Verweilzeiten“ zurücksetzen",
+    "src": "8140f2f5"
+  },
+  "settings.dwell.reset.message": {
+    "text": "Einstellungen unter „Verweilzeiten“ auf Standardwerte zurücksetzen?",
+    "src": "ba2414da"
+  },
+  "settings.dwell.toolbar.description": {
+    "text": "Wie lange der Blick auf den Schaltflächen von EyeCtrl selbst ruhen muss.",
+    "src": "f19eae37"
+  },
+  "settings.dwell.toolbar.label": {
+    "text": "Symbolleiste / Einstellungen (ms)",
+    "src": "a1d8106f"
+  },
+  "settings.eyecare.banner_snooze.description": {
+    "text": "Wie lange ein unbeachteter Pausenhinweis wartet, bevor er sich ausblendet. Gilt nach einem Neustart.",
+    "src": "1818fe47"
+  },
+  "settings.eyecare.banner_snooze.label": {
+    "text": "Pausenhinweis automatisch verschieben (s)",
+    "src": "f3f6d66c"
+  },
+  "settings.eyecare.break_interval.description": {
+    "text": "Wie oft eine Pause angeboten wird, wenn zwischendurch keine Pause war.",
+    "src": "de939737"
+  },
+  "settings.eyecare.break_interval.label": {
+    "text": "Pausenabstand (min)",
+    "src": "5029dd88"
+  },
+  "settings.eyecare.enabled.description": {
+    "text": "Regelmäßige Pausenerinnerungen und Blickübungen während der Nutzung von EyeCtrl.",
+    "src": "9a4b4c57"
+  },
+  "settings.eyecare.enabled.label": {
+    "text": "Augenschutz aktivieren",
+    "src": "2521e5f2"
+  },
+  "settings.eyecare.exercise_duration.description": {
+    "text": "Wie lange jede angeleitete Blickübung dauert.",
+    "src": "1b08fc09"
+  },
+  "settings.eyecare.exercise_duration.label": {
+    "text": "Übungsdauer (s)",
+    "src": "2213c059"
+  },
+  "settings.eyecare.fatigue.description": {
+    "text": "Zunehmende Ermüdung holt Pausen früher. Experimentell.",
+    "src": "f233551c"
+  },
+  "settings.eyecare.fatigue.label": {
+    "text": "Pausen bei Ermüdung vorziehen",
+    "src": "dac289e0"
+  },
+  "settings.eyecare.fatigue_threshold.description": {
+    "text": "Der Ermüdungswert, ab dem eine vorgezogene Pause kommt.",
+    "src": "2192018f"
+  },
+  "settings.eyecare.fatigue_threshold.label": {
+    "text": "Ermüdungsschwelle",
+    "src": "e6369048"
+  },
+  "settings.eyecare.natural_break.description": {
+    "text": "So langes Wegschauen zählt als natürliche Pause.",
+    "src": "e235bebf"
+  },
+  "settings.eyecare.natural_break.label": {
+    "text": "Natürliche Pause ab (s)",
+    "src": "304051cc"
+  },
+  "settings.eyecare.reset.label": {
+    "text": "„Augenschutz“ zurücksetzen",
+    "src": "568c89b5"
+  },
+  "settings.eyecare.reset.message": {
+    "text": "Einstellungen unter „Augenschutz“ auf Standardwerte zurücksetzen?",
+    "src": "89bace88"
+  },
+  "settings.eyecare.snooze.description": {
+    "text": "Um wie viel eine Pause verschoben wird, wenn beim Pausenhinweis „später“ gewählt wird.",
+    "src": "6bff69d9"
+  },
+  "settings.eyecare.snooze.label": {
+    "text": "Verschieben um (min)",
+    "src": "63a47e22"
+  },
+  "settings.general.boot.description": {
+    "text": "Startet EyeCtrl automatisch bei der Windows-Anmeldung.",
+    "src": "44a883a9"
+  },
+  "settings.general.boot.label": {
+    "text": "Mit Windows starten",
+    "src": "a9f19885"
+  },
+  "settings.general.pause.description": {
+    "text": "Startet mit pausierter Blicksteuerung, bis sie eingeschaltet wird.",
+    "src": "289182b1"
+  },
+  "settings.general.pause.label": {
+    "text": "Pausiert starten",
+    "src": "f7e476e3"
+  },
+  "settings.general.reset.label": {
+    "text": "„Allgemein“ zurücksetzen",
+    "src": "250d98b2"
+  },
+  "settings.general.reset.message": {
+    "text": "Einstellungen unter „Allgemein“ auf Standardwerte zurücksetzen?\nEin geändertes Farbschema gilt nach einem Neustart.",
+    "src": "54416169"
+  },
+  "settings.general.resetall.label": {
+    "text": "⚠ ALLE Einstellungen zurücksetzen",
+    "src": "3d702b80"
+  },
+  "settings.general.resetall.message": {
+    "text": "ALLE Einstellungen auf Standardwerte zurücksetzen?\nDas lässt sich nicht rückgängig machen.",
+    "src": "92c16160"
+  },
+  "settings.general.restart.cancel.option": {
+    "text": "✕ Abbrechen",
+    "src": "0b1a0314"
+  },
+  "settings.general.restart.label": {
+    "text": "↻ Neu starten",
+    "src": "c9479f2e"
+  },
+  "settings.general.restart.message": {
+    "text": "EyeCtrl jetzt neu starten?",
+    "src": "942ea4cd"
+  },
+  "settings.general.restart.plain.option": {
+    "text": "↻ Ohne Supervisor neu starten",
+    "src": "d6291a12"
+  },
+  "settings.general.restart.supervised.message": {
+    "text": "EyeCtrl jetzt neu starten?\nDer Supervisor ist installiert. Er startet EyeCtrl neu, falls es einmal ausfällt, und kann einen misslungenen Neustart retten.\nWird er gestartet, schaltet das die Überwachung ein, und sie bleibt eingeschaltet.",
+    "src": "194bc120"
+  },
+  "settings.general.restart.supervised.option": {
+    "text": "↻ Mit Supervisor neu starten",
+    "src": "65276443"
+  },
+  "settings.general.supervision.description": {
+    "text": "Reagiert EyeCtrl nicht mehr oder stürzt ab, startet es automatisch neu; fällt es immer wieder aus, öffnet sich stattdessen TD Control.",
+    "src": "6ba60a86"
+  },
+  "settings.general.supervision.label": {
+    "text": "Automatischer Neustart nach Absturz",
+    "src": "b7b5f004"
+  },
+  "settings.general.supervision.unavailable": {
+    "text": "„Automatischer Neustart nach Absturz“ ist nicht verfügbar: Der EyeCtrl Supervisor ist auf diesem PC nicht installiert.",
+    "src": "cd1cfab4"
+  },
+  "settings.general.supervision_retry.label": {
+    "text": "↻ Supervisor starten",
+    "src": "5a88620c"
+  },
+  "settings.general.theme.description": {
+    "text": "Alle drei sind dunkel; „Kontrast“ ist das kräftigste.",
+    "src": "ee08416c"
+  },
+  "settings.general.theme.label": {
+    "text": "Farbschema (gilt nach Neustart)",
+    "src": "618120bc"
+  },
+  "settings.general.theme.option.contrast": {
+    "text": "Kontrast",
+    "src": "3870a9e6"
+  },
+  "settings.general.theme.option.ember": {
+    "text": "Glut",
+    "src": "7174aa23"
+  },
+  "settings.general.theme.option.midnight": {
+    "text": "Mitternacht",
+    "src": "44a32240"
+  },
+  "settings.general.track.description": {
+    "text": "Ein Kasten in der Ecke zeigt den aktuellen Zustand des Eyetrackers.",
+    "src": "d5a2c68d"
+  },
+  "settings.general.track.label": {
+    "text": "Trackstatus anzeigen",
+    "src": "855d7a6b"
+  },
+  "settings.keyboard.click_sound.description": {
+    "text": "Spielt bei jeder ausgelösten Taste ein Klicken.",
+    "src": "2d390a90"
+  },
+  "settings.keyboard.click_sound.label": {
+    "text": "Klickton",
+    "src": "faa8235e"
+  },
+  "settings.keyboard.dictionary.clear.label": {
+    "text": "ALLE gelernten Wörter entfernen",
+    "src": "6b2936f3"
+  },
+  "settings.keyboard.dictionary.clear.message": {
+    "text": {
+      "one": "{0} gelerntes Wort entfernen?",
+      "other": "Alle {0} gelernten Wörter entfernen?"
+    },
+    "src": "ecb12b7f"
+  },
+  "settings.keyboard.dictionary.clear.partial_error": {
+    "text": "Für diese Sitzung entfernt, aber die Wörterbuchdatei konnte nicht aktualisiert werden.",
+    "src": "51066d4d"
+  },
+  "settings.keyboard.dictionary.empty": {
+    "text": "Noch keine gelernten Wörter. Die Wörter sammeln sich beim Schreiben; die Taste „+ Wort“ (Fn-Reihe) fügt sofort eines hinzu.",
+    "src": "25838e81"
+  },
+  "settings.keyboard.dictionary.remove.label": {
+    "text": "✕  Aus dem Wörterbuch entfernen",
+    "src": "4b569db8"
+  },
+  "settings.keyboard.dictionary.remove.message": {
+    "text": "„{0}“ aus dem gelernten Wörterbuch entfernen?",
+    "src": "8fe8273f"
+  },
+  "settings.keyboard.dictionary.remove.partial_error": {
+    "text": "„{0}“ für diese Sitzung entfernt, aber die Wörterbuchdatei konnte nicht aktualisiert werden.",
+    "src": "354790d6"
+  },
+  "settings.keyboard.dictionary.word": {
+    "text": "„{0}“",
+    "src": "635c78ab"
+  },
+  "settings.keyboard.dictionary_language.description": {
+    "text": "Aus welcher Sprache die Vorhersagen stammen.",
+    "src": "7ef86d96"
+  },
+  "settings.keyboard.dictionary_language.label": {
+    "text": "Wörterbuchsprache",
+    "src": "efdaf743"
+  },
+  "settings.keyboard.dictionary_language.option.english": {
+    "text": "Englisch",
+    "src": "452af2eb"
+  },
+  "settings.keyboard.dictionary_language.option.french": {
+    "text": "Französisch",
+    "src": "a8370e4f"
+  },
+  "settings.keyboard.dictionary_language.option.german": {
+    "text": "Deutsch",
+    "src": "c43625b8"
+  },
+  "settings.keyboard.dictionary_language.option.polish": {
+    "text": "Polnisch",
+    "src": "3d8e9f8f"
+  },
+  "settings.keyboard.dictionary_language.option.spanish": {
+    "text": "Spanisch",
+    "src": "f4dc85c0"
+  },
+  "settings.keyboard.layout.description": {
+    "text": "Tastenanordnung; QWERTZ passt zu Deutsch, AZERTY zu Französisch.",
+    "src": "e7acc62a"
+  },
+  "settings.keyboard.layout.label": {
+    "text": "Tastaturlayout",
+    "src": "064373f6"
+  },
+  "settings.keyboard.layout.option.azerty": {
+    "text": "AZERTY",
+    "src": "07f3762c"
+  },
+  "settings.keyboard.layout.option.qwerty": {
+    "text": "QWERTY",
+    "src": "7de4bc94"
+  },
+  "settings.keyboard.layout.option.qwertz": {
+    "text": "QWERTZ",
+    "src": "1292f6f2"
+  },
+  "settings.keyboard.prediction.description": {
+    "text": "Zeigt beim Schreiben vorhergesagte Wörter über der Tastatur.",
+    "src": "6e9c5555"
+  },
+  "settings.keyboard.prediction.label": {
+    "text": "Wortvorhersage",
+    "src": "a84e9176"
+  },
+  "settings.keyboard.prediction_count.description": {
+    "text": "Wie viele Vorhersagen die Leiste füllen. Weniger sind leichter zu treffen; gilt sofort beim Schreiben.",
+    "src": "ca7b5d06"
+  },
+  "settings.keyboard.prediction_count.label": {
+    "text": "Höchstzahl Vorhersagen",
+    "src": "d9c486eb"
+  },
+  "settings.keyboard.reset.label": {
+    "text": "„Tastatur“ zurücksetzen",
+    "src": "1bc9b154"
+  },
+  "settings.keyboard.reset.message": {
+    "text": "Einstellungen unter „Tastatur“ auf Standardwerte zurücksetzen?",
+    "src": "68bd003e"
+  },
+  "settings.keyboard.screen_edge.description": {
+    "text": "Der Bildschirmrand, an dem die Tastatur andockt.",
+    "src": "d1754108"
+  },
+  "settings.keyboard.screen_edge.label": {
+    "text": "Bildschirmrand",
+    "src": "6c72a29f"
+  },
+  "settings.keyboard.screen_edge.option.bottom": {
+    "text": "Unten",
+    "src": "752bac30"
+  },
+  "settings.keyboard.screen_edge.option.top": {
+    "text": "Oben",
+    "src": "e9fb2728"
+  },
+  "settings.keyboard.size.description": {
+    "text": "Skaliert alle Tasten; größere Tasten sind leichter zu treffen.",
+    "src": "e8ae03a1"
+  },
+  "settings.keyboard.size.label": {
+    "text": "Tastengröße (Faktor)",
+    "src": "d211eafd"
+  },
+  "settings.layout.position.description": {
+    "text": "Aktionsmenü und Lupe: am Blickpunkt oder in der Mitte.",
+    "src": "f6772e85"
+  },
+  "settings.layout.position.label": {
+    "text": "Anzeigeort",
+    "src": "6b6745e6"
+  },
+  "settings.layout.position.option.at_center": {
+    "text": "In der Mitte",
+    "src": "0a5ef30d"
+  },
+  "settings.layout.position.option.at_gaze": {
+    "text": "Am Blickpunkt",
+    "src": "2a4d2796"
+  },
+  "settings.layout.reset.label": {
+    "text": "„Anordnung“ zurücksetzen",
+    "src": "1cdb4a7e"
+  },
+  "settings.layout.reset.message": {
+    "text": "Einstellungen unter „Anordnung“ auf Standardwerte zurücksetzen?",
+    "src": "80c7ca7e"
+  },
+  "settings.modal.no": {
+    "text": "✕ Nein",
+    "src": "dab9dccd"
+  },
+  "settings.modal.yes": {
+    "text": "✓ Ja",
+    "src": "bec96f05"
+  },
+  "settings.models.active.description": {
+    "text": "Welches Modell die Vorhersagen liefert; „Aus“ nutzt nur das Wörterbuch.",
+    "src": "da831ea8"
+  },
+  "settings.models.active.label": {
+    "text": "Aktives Modell",
+    "src": "9bd2deac"
+  },
+  "settings.models.active.off": {
+    "text": "Aus",
+    "src": "f1ad1bdc"
+  },
+  "settings.models.add.label": {
+    "text": "＋ Eigenes Modell hinzufügen (URL einfügen)",
+    "src": "a5e90ae8"
+  },
+  "settings.models.back.label": {
+    "text": "Zurück zu den Modellen",
+    "src": "20f28b0d"
+  },
+  "settings.models.clipboard.invalid": {
+    "text": "Erst eine gültige HTTPS-Modell-URL in die Zwischenablage kopieren, dann auf dieser Schaltfläche verweilen.",
+    "src": "848234a6"
+  },
+  "settings.models.custom.message": {
+    "text": "Eigenes Modell „{0}“ von der URL aus der Zwischenablage herunterladen?",
+    "src": "b92d61b8"
+  },
+  "settings.models.delete.affix": {
+    "text": "🗑 Löschen",
+    "src": "74a76aa4"
+  },
+  "settings.models.delete.message": {
+    "text": "{0} löschen? Das lässt sich nicht rückgängig machen.",
+    "src": "ff9188bd"
+  },
+  "settings.models.download.affix": {
+    "text": "[Herunterladen]",
+    "src": "2b748282"
+  },
+  "settings.models.download.busy": {
+    "text": "Es läuft bereits ein anderer Download.",
+    "src": "9cf19ef1"
+  },
+  "settings.models.download.failed": {
+    "text": "Download fehlgeschlagen.",
+    "src": "b23b4eb8"
+  },
+  "settings.models.download.failed_detail": {
+    "text": "Download fehlgeschlagen: {0}",
+    "src": "a31cfd76"
+  },
+  "settings.models.download.invalid_url": {
+    "text": "Ungültige URL: {0}",
+    "src": "948793f5"
+  },
+  "settings.models.download.invalid_url_https": {
+    "text": "Bitte eine gültige HTTPS-URL angeben (z. B. eine HuggingFace-Modell-URL).",
+    "src": "1c767ef2"
+  },
+  "settings.models.download.message": {
+    "text": "{0} ({1}) herunterladen?",
+    "src": "b8cdca66"
+  },
+  "settings.models.download.tokenizer_failed": {
+    "text": "Download des Tokenizers fehlgeschlagen. Modell entfernt.",
+    "src": "2397e91a"
+  },
+  "settings.models.download.transport_failed": {
+    "text": "Download fehlgeschlagen. Bitte die URL prüfen und erneut versuchen.",
+    "src": "925bd42f"
+  },
+  "settings.models.downloaded.affix": {
+    "text": "✓ Heruntergeladen",
+    "src": "d22934a9"
+  },
+  "settings.models.manage.label": {
+    "text": "Modelle verwalten",
+    "src": "c84fab9a"
+  },
+  "settings.models.none": {
+    "text": "Keine Modelle heruntergeladen. Unten eines herunterladen.",
+    "src": "7de5c818"
+  },
+  "settings.models.progress": {
+    "text": "⇣ {0}  wird geladen: {1:P0}",
+    "src": "9f9ec04f"
+  },
+  "settings.models.repair.label": {
+    "text": "⚠ {0} – Modell unbrauchbar · Vorhersagen nur aus dem Wörterbuch · zum neu Laden verweilen",
+    "src": "4a4bb112"
+  },
+  "settings.models.repair.message": {
+    "text": "{0} ({1}) erneut herunterladen? Das ersetzt die Dateien auf dem Datenträger.",
+    "src": "4036232e"
+  },
+  "settings.pager.jump_to_first_page": {
+    "text": "Zur ersten Seite",
+    "src": "a2cf8a1b"
+  },
+  "settings.pager.jump_to_first_tabs": {
+    "text": "Zu den ersten Reitern",
+    "src": "6c116b06"
+  },
+  "settings.pager.jump_to_last_page": {
+    "text": "Zur letzten Seite",
+    "src": "35657d57"
+  },
+  "settings.pager.jump_to_last_tabs": {
+    "text": "Zu den letzten Reitern",
+    "src": "34463dfc"
+  },
+  "settings.pager.next_page": {
+    "text": "Nächste Seite",
+    "src": "1b6e4124"
+  },
+  "settings.pager.next_tabs": {
+    "text": "Nächste Reiter",
+    "src": "bdb2f9e1"
+  },
+  "settings.pager.page_of": {
+    "text": "{0} / {1}",
+    "src": "7924b385"
+  },
+  "settings.pager.previous_page": {
+    "text": "Vorherige Seite",
+    "src": "37254365"
+  },
+  "settings.pager.previous_tabs": {
+    "text": "Vorherige Reiter",
+    "src": "a50364df"
+  },
+  "settings.preset.kbd.copy": {
+    "text": "Kopieren",
+    "src": "41335bb9"
+  },
+  "settings.preset.kbd.cut": {
+    "text": "Ausschneiden",
+    "src": "f383f896"
+  },
+  "settings.preset.kbd.file_explorer": {
+    "text": "Explorer",
+    "src": "d2f80212"
+  },
+  "settings.preset.kbd.find": {
+    "text": "Suchen",
+    "src": "6e2e83a9"
+  },
+  "settings.preset.kbd.lock": {
+    "text": "Sperren",
+    "src": "d0abdf42"
+  },
+  "settings.preset.kbd.new": {
+    "text": "Neu",
+    "src": "8d0639d3"
+  },
+  "settings.preset.kbd.paste": {
+    "text": "Einfügen",
+    "src": "c283bae3"
+  },
+  "settings.preset.kbd.print": {
+    "text": "Drucken",
+    "src": "2e47996b"
+  },
+  "settings.preset.kbd.redo": {
+    "text": "Wieder­herstellen",
+    "src": "dafb29a2"
+  },
+  "settings.preset.kbd.save": {
+    "text": "Speichern",
+    "src": "96038583"
+  },
+  "settings.preset.kbd.select_all": {
+    "text": "Alles auswählen",
+    "src": "ea37502f"
+  },
+  "settings.preset.kbd.show_desktop": {
+    "text": "Desktop anzeigen",
+    "src": "1e9db88e"
+  },
+  "settings.preset.kbd.switch_app": {
+    "text": "App wechseln",
+    "src": "92bb88ed"
+  },
+  "settings.preset.kbd.undo": {
+    "text": "Rückgängig",
+    "src": "281341dc"
+  },
+  "settings.preset.media.mute": {
+    "text": "Stumm",
+    "src": "8b0dc4e7"
+  },
+  "settings.preset.media.next": {
+    "text": "Nächster Titel",
+    "src": "6414bf4c"
+  },
+  "settings.preset.media.play_pause": {
+    "text": "Wiedergabe / Pause",
+    "src": "42f86cb0"
+  },
+  "settings.preset.media.previous": {
+    "text": "Vorheriger Titel",
+    "src": "cf3fecaf"
+  },
+  "settings.preset.media.stop": {
+    "text": "Stopp",
+    "src": "65999e90"
+  },
+  "settings.preset.media.volume_down": {
+    "text": "Leiser",
+    "src": "90cac73b"
+  },
+  "settings.preset.media.volume_up": {
+    "text": "Lauter",
+    "src": "2f847bc4"
+  },
+  "settings.preset.window.close": {
+    "text": "Fenster schließen",
+    "src": "150774d9"
+  },
+  "settings.preset.window.maximize_restore": {
+    "text": "Maximieren / Wieder­herstellen",
+    "src": "42696d00"
+  },
+  "settings.preset.window.minimize": {
+    "text": "Fenster minimieren",
+    "src": "853cca05"
+  },
+  "settings.quick_actions.add.label": {
+    "text": "＋  Kurzbefehl hinzufügen",
+    "src": "5e8a3c9c"
+  },
+  "settings.quick_actions.apps.empty": {
+    "text": "Keine installierten Apps gefunden.",
+    "src": "51027548"
+  },
+  "settings.quick_actions.back.label": {
+    "text": "←  Zurück",
+    "src": "30f8d68c"
+  },
+  "settings.quick_actions.delete.label": {
+    "text": "✕  Löschen",
+    "src": "e42dafcb"
+  },
+  "settings.quick_actions.delete.message": {
+    "text": "„{0}“ löschen?",
+    "src": "08d1aae4"
+  },
+  "settings.quick_actions.dismiss_timeout.label": {
+    "text": "Ausblenden nach (ms)",
+    "src": "28357397"
+  },
+  "settings.quick_actions.edge.label": {
+    "text": "Rand zum Aufrufen",
+    "src": "f1c940d4"
+  },
+  "settings.quick_actions.edge.option.bottom": {
+    "text": "Unten",
+    "src": "752bac30"
+  },
+  "settings.quick_actions.edge.option.left": {
+    "text": "Links",
+    "src": "676779e6"
+  },
+  "settings.quick_actions.edge.option.right": {
+    "text": "Rechts",
+    "src": "1d0aa6b3"
+  },
+  "settings.quick_actions.edge.option.top": {
+    "text": "Oben",
+    "src": "e9fb2728"
+  },
+  "settings.quick_actions.enabled.label": {
+    "text": "Kurzbefehle aktivieren",
+    "src": "00bf74ef"
+  },
+  "settings.quick_actions.grid_columns.label": {
+    "text": "Spalten im Raster",
+    "src": "450ba806"
+  },
+  "settings.quick_actions.summon_threshold.label": {
+    "text": "Aufrufen nach (ms)",
+    "src": "996c292f"
+  },
+  "settings.quick_actions.type.app.label": {
+    "text": "▦  App starten",
+    "src": "f16bb3a6"
+  },
+  "settings.quick_actions.type.keyboard.label": {
+    "text": "⌨  Tastenkürzel",
+    "src": "319ec56a"
+  },
+  "settings.quick_actions.type.media.label": {
+    "text": "♫  Mediensteuerung",
+    "src": "b6bb9fab"
+  },
+  "settings.quick_actions.type.window.label": {
+    "text": "▣  Fensteraktion",
+    "src": "e0f80f01"
+  },
+  "settings.ring.back": {
+    "text": "Zurück",
+    "src": "d75ae8b1"
+  },
+  "settings.ring.doubleClick": {
+    "text": "2× Klick",
+    "src": "a7920e39"
+  },
+  "settings.ring.drag": {
+    "text": "Ziehen",
+    "src": "854de132"
+  },
+  "settings.ring.keyboard": {
+    "text": "Tastatur",
+    "src": "978d4d53"
+  },
+  "settings.ring.leftClick": {
+    "text": "Linksklick",
+    "src": "11c50b6f"
+  },
+  "settings.ring.middleClick": {
+    "text": "Mittelklick",
+    "src": "2d0dbdb3"
+  },
+  "settings.ring.more": {
+    "text": "Mehr",
+    "src": "bda4caa9"
+  },
+  "settings.ring.pinNote": {
+    "text": "Notiz",
+    "src": "31acfbb0"
+  },
+  "settings.ring.rightClick": {
+    "text": "Rechtsklick",
+    "src": "41084bc6"
+  },
+  "settings.ring.scrollDown": {
+    "text": "Nach unten",
+    "src": "158f84a0"
+  },
+  "settings.ring.scrollLeft": {
+    "text": "Nach links",
+    "src": "d44eb9ff"
+  },
+  "settings.ring.scrollMode": {
+    "text": "Scrollen",
+    "src": "0d54555a"
+  },
+  "settings.ring.scrollRight": {
+    "text": "Nach rechts",
+    "src": "2b3f5385"
+  },
+  "settings.ring.scrollUp": {
+    "text": "Nach oben",
+    "src": "92ff458a"
+  },
+  "settings.selection.center_dot.description": {
+    "text": "Durchmesser des Punkts in der Mitte des Blickrings; gilt nach einem Neustart.",
+    "src": "a13c820f"
+  },
+  "settings.selection.center_dot.label": {
+    "text": "Mittelpunkt (px)",
+    "src": "9b5fd418"
+  },
+  "settings.selection.circle_radius.description": {
+    "text": "Radius des Vergrößerungskreises der Lupe.",
+    "src": "feba1360"
+  },
+  "settings.selection.circle_radius.label": {
+    "text": "Lupenradius (px)",
+    "src": "44f4a067"
+  },
+  "settings.selection.gaze_ring.description": {
+    "text": "Durchmesser des Blickrings am Blickpunkt; gilt ab der nächsten Auswahl.",
+    "src": "79b42b22"
+  },
+  "settings.selection.gaze_ring.label": {
+    "text": "Durchmesser des Blickrings (px)",
+    "src": "9f4a436c"
+  },
+  "settings.selection.grace.description": {
+    "text": "So lange wartet das Verweilen, nachdem die manuelle Auswahl geöffnet wurde.",
+    "src": "17422a75"
+  },
+  "settings.selection.grace.label": {
+    "text": "Schonfrist (ms)",
+    "src": "0e76ad3e"
+  },
+  "settings.selection.highlight.description": {
+    "text": "Farbe des Rahmens um ein automatisch gewähltes Element.",
+    "src": "7f836721"
+  },
+  "settings.selection.highlight.label": {
+    "text": "Markierungsfarbe",
+    "src": "c5ef5cfe"
+  },
+  "settings.selection.highlight_thickness.description": {
+    "text": "Linienstärke dieses Rahmens.",
+    "src": "72c2e80a"
+  },
+  "settings.selection.highlight_thickness.label": {
+    "text": "Markierungsstärke",
+    "src": "6f1cceb1"
+  },
+  "settings.selection.hold.description": {
+    "text": "Wie weit der Blick vom gehaltenen Punkt wandern darf, bevor die Auswahl neu beginnt. Größer ist nachsichtiger.",
+    "src": "8929981c"
+  },
+  "settings.selection.hold.label": {
+    "text": "Haltetoleranz (px)",
+    "src": "b5e56a1d"
+  },
+  "settings.selection.magnification.description": {
+    "text": "Wie stark die Lupe vergrößert.",
+    "src": "b357c5d7"
+  },
+  "settings.selection.magnification.label": {
+    "text": "Vergrößerungsstufe",
+    "src": "8785dc80"
+  },
+  "settings.selection.mode.description": {
+    "text": "„Keine“ klickt am Blickpunkt; „Manuelle Auswahl“ vergrößert; „Automatische Auswahl“ rastet ein.",
+    "src": "d30dcc36"
+  },
+  "settings.selection.mode.label": {
+    "text": "Auswahlmodus",
+    "src": "2a853d82"
+  },
+  "settings.selection.mode.option.auto": {
+    "text": "Automatische Auswahl",
+    "src": "83a7b3b7"
+  },
+  "settings.selection.mode.option.manual": {
+    "text": "Manuelle Auswahl",
+    "src": "fcb76e43"
+  },
+  "settings.selection.mode.option.none": {
+    "text": "Keine",
+    "src": "a2ad7ea1"
+  },
+  "settings.selection.reset_animation.description": {
+    "text": "Wie lange der Blickring nach einer Auswahl zum Ausblenden braucht; gilt nach einem Neustart.",
+    "src": "b816572d"
+  },
+  "settings.selection.reset_animation.label": {
+    "text": "Ausblendzeit (ms)",
+    "src": "826699eb"
+  },
+  "settings.selection.ring_opacity.description": {
+    "text": "Wie deutlich der Blickring zu sehen ist; gilt nach einem Neustart.",
+    "src": "5507f398"
+  },
+  "settings.selection.ring_opacity.label": {
+    "text": "Deckkraft des Blickrings",
+    "src": "e77110ce"
+  },
+  "settings.selection.ring_stroke.description": {
+    "text": "Linienstärke des Blickrings; gilt nach einem Neustart.",
+    "src": "8b6ebdef"
+  },
+  "settings.selection.ring_stroke.label": {
+    "text": "Linienstärke des Blickrings (px)",
+    "src": "34ce4b40"
+  },
+  "settings.selection.snap_radius.description": {
+    "text": "Wie weit vom Blickpunkt die automatische Auswahl nach einem Element sucht.",
+    "src": "330d3c9f"
+  },
+  "settings.selection.snap_radius.label": {
+    "text": "Suchradius (px)",
+    "src": "8138644d"
+  },
+  "settings.supervision.failure.launch_failed": {
+    "text": "Der Supervisor konnte nicht gestartet werden, daher ist die Überwachung aus.",
+    "src": "aad58c0b"
+  },
+  "settings.supervision.failure.not_answering": {
+    "text": "Der Supervisor antwortet nicht.",
+    "src": "3333c8a2"
+  },
+  "settings.supervision.failure.run_key_failed": {
+    "text": "Die Überwachung ist aus, aber der Start bei der Anmeldung ließ sich nicht aktualisieren.",
+    "src": "1cb3dc35"
+  },
+  "settings.supervision.failure.save_failed_off": {
+    "text": "Die Überwachungseinstellungen ließen sich nicht speichern; die Überwachung ist aus.",
+    "src": "99d6e08f"
+  },
+  "settings.supervision.failure.save_failed_on": {
+    "text": "Die Überwachungseinstellungen ließen sich nicht speichern; die Überwachung ist weiterhin ein.",
+    "src": "ef3f5983"
+  },
+  "settings.supervision.failure.started_not_answering": {
+    "text": "Der Supervisor wurde gestartet, antwortete aber nicht; die Überwachung wurde wieder ausgeschaltet.",
+    "src": "23684642"
+  },
+  "settings.supervision.failure.unavailable": {
+    "text": "Der automatische Neustart nach Absturz ist nicht verfügbar: Der EyeCtrl Supervisor ist nicht installiert.",
+    "src": "39e75424"
+  },
+  "settings.supervision.status.disabling": {
+    "text": "Wird ausgeschaltet",
+    "src": "05706890"
+  },
+  "settings.supervision.status.enabling": {
+    "text": "Wird eingeschaltet – das kann bis zu 15 Sekunden dauern.",
+    "src": "7a3e36d9"
+  },
+  "settings.supervision.status.ensuring": {
+    "text": "Supervisor wird gestartet",
+    "src": "13be5ae7"
+  },
+  "settings.supervision.status.not_answering": {
+    "text": "Ein – aber der Supervisor antwortet nicht. Für einen neuen Versuch auf „Supervisor starten“ verweilen.",
+    "src": "6d5fdda1"
+  },
+  "settings.supervision.status.off": {
+    "text": "Aus – reagiert EyeCtrl nicht mehr oder stürzt ab, wird es nicht automatisch neu gestartet.",
+    "src": "512cff45"
+  },
+  "settings.supervision.status.on": {
+    "text": "Ein – EyeCtrl startet automatisch neu, wenn es nicht mehr reagiert oder abstürzt.",
+    "src": "719c558b"
+  },
+  "settings.tab.actions.description": {
+    "text": "Welche Aktionen im Aktionsmenü erscheinen, das sich nach einer Auslösung des Aktivators öffnet.",
+    "src": "09838122"
+  },
+  "settings.tab.actions.label": {
+    "text": "Aktionsmenü",
+    "src": "b5e1af43"
+  },
+  "settings.tab.adaptation.description": {
+    "text": "Automatisches Nachstellen von Verweilen und Zielen, wenn die Bedienung schwerfällt.",
+    "src": "cb37cc25"
+  },
+  "settings.tab.adaptation.label": {
+    "text": "Anpassung",
+    "src": "bc18ad57"
+  },
+  "settings.tab.advanced.description": {
+    "text": "Für Fachleute: Abdunklung, Ziehen, Scrollen und externes Verweilen.",
+    "src": "43f04eb3"
+  },
+  "settings.tab.advanced.label": {
+    "text": "Erweitert",
+    "src": "40a11314"
+  },
+  "settings.tab.calibration.description": {
+    "text": "Den Versatz zwischen Blick und Cursor korrigieren.",
+    "src": "43b2a8dd"
+  },
+  "settings.tab.calibration.label": {
+    "text": "Kalibrierung",
+    "src": "6319edce"
+  },
+  "settings.tab.cursor.description": {
+    "text": "Wie die rohen Blickdaten gefiltert werden und wie der Cursorring aussieht.",
+    "src": "8a900eb9"
+  },
+  "settings.tab.cursor.label": {
+    "text": "Cursor",
+    "src": "8ea9597d"
+  },
+  "settings.tab.diagnostics.description": {
+    "text": "Messwerkzeuge: Aufzeichnung roher Blickdaten und Anzeigezeiten. Beide standardmäßig aus.",
+    "src": "4aaa0819"
+  },
+  "settings.tab.diagnostics.label": {
+    "text": "Diagnose",
+    "src": "fe778616"
+  },
+  "settings.tab.dwell.description": {
+    "text": "Verweilen heißt, den Blick auf einem Ziel ruhen lassen, bis es auslöst. Hier wird eingestellt, wie lange.",
+    "src": "38eb9ccd"
+  },
+  "settings.tab.dwell.label": {
+    "text": "Verweilzeiten",
+    "src": "07a8a277"
+  },
+  "settings.tab.eyecare.description": {
+    "text": "Pausenerinnerungen, Blickübungen und vorgezogene Pausen bei Ermüdung.",
+    "src": "ecce75e7"
+  },
+  "settings.tab.eyecare.label": {
+    "text": "Augenschutz",
+    "src": "163ca94c"
+  },
+  "settings.tab.general.description": {
+    "text": "Start, Farbschema, Neustart und Zurücksetzen der Einstellungen.",
+    "src": "e5f74e6d"
+  },
+  "settings.tab.general.label": {
+    "text": "Allgemein",
+    "src": "a9871cfd"
+  },
+  "settings.tab.keyboard.description": {
+    "text": "Größe, Layout und Wortvorhersage der Bildschirmtastatur.",
+    "src": "4e5275ce"
+  },
+  "settings.tab.keyboard.label": {
+    "text": "Tastatur",
+    "src": "1a04ea03"
+  },
+  "settings.tab.layout.description": {
+    "text": "Wo sich Aktionsmenü und Lupe öffnen: am Blickpunkt oder in der Bildschirmmitte.",
+    "src": "e53df125"
+  },
+  "settings.tab.layout.label": {
+    "text": "Anordnung",
+    "src": "788c9d3a"
+  },
+  "settings.tab.models.description": {
+    "text": "Sprachmodelle für die Wortvorhersage.",
+    "src": "d2d4b271"
+  },
+  "settings.tab.models.label": {
+    "text": "Modelle",
+    "src": "62aac6e2"
+  },
+  "settings.tab.quickactions.description": {
+    "text": "Das einblendbare Raster mit Kurzbefehlen, die mit einem Verweilen auslösen, und wie es aufgerufen wird.",
+    "src": "61b71efb"
+  },
+  "settings.tab.quickactions.label": {
+    "text": "Kurzbefehle",
+    "src": "57fd261b"
+  },
+  "settings.tab.selection.description": {
+    "text": "Das genaue Ziel wählen: Modus, Lupe, Markierung und Einrasten.",
+    "src": "9166781f"
+  },
+  "settings.tab.selection.label": {
+    "text": "Auswahl",
+    "src": "e0c271b2"
+  },
+  "settings.tab.toolbar.description": {
+    "text": "Wo die Symbolleiste andockt und wie groß ihre Schaltflächen sind.",
+    "src": "70ef364d"
+  },
+  "settings.tab.toolbar.label": {
+    "text": "Symbolleiste",
+    "src": "d2e6d847"
+  },
+  "settings.toolbar.dock.description": {
+    "text": "Dockt die Symbolleiste an einen Rand; mit Eyetracker blendet sie sich automatisch aus.",
+    "src": "d5d70b78"
+  },
+  "settings.toolbar.dock.label": {
+    "text": "Am Bildschirmrand andocken",
+    "src": "77fb7b24"
+  },
+  "settings.toolbar.edge.description": {
+    "text": "An welchem Bildschirmrand die Symbolleiste sitzt.",
+    "src": "c6bc2159"
+  },
+  "settings.toolbar.edge.label": {
+    "text": "Angedockter Rand",
+    "src": "e1ebe781"
+  },
+  "settings.toolbar.edge.option.bottom": {
+    "text": "Unten",
+    "src": "752bac30"
+  },
+  "settings.toolbar.edge.option.left": {
+    "text": "Links",
+    "src": "676779e6"
+  },
+  "settings.toolbar.edge.option.right": {
+    "text": "Rechts",
+    "src": "1d0aa6b3"
+  },
+  "settings.toolbar.edge.option.top": {
+    "text": "Oben",
+    "src": "e9fb2728"
+  },
+  "settings.toolbar.reset.label": {
+    "text": "„Symbolleiste“ zurücksetzen",
+    "src": "d638c0bf"
+  },
+  "settings.toolbar.reset.message": {
+    "text": "Einstellungen unter „Symbolleiste“ auf Standardwerte zurücksetzen?",
+    "src": "25607fca"
+  },
+  "settings.toolbar.size.description": {
+    "text": "Größe jeder Schaltfläche; größere sind leichter zu treffen.",
+    "src": "fef05fe4"
+  },
+  "settings.toolbar.size.label": {
+    "text": "Schaltflächengröße",
+    "src": "e57fc3df"
+  },
+  "settings.window.title": {
+    "text": "EyeCtrl-Einstellungen",
+    "src": "910d4dbd"
+  },
+  "startup-error.message": {
+    "text": "Beim Start ist ein Fehler aufgetreten.\nTechnische Details (Englisch): {0}",
+    "src": "e18bf636"
+  },
+  "startup-error.title": {
+    "text": "EyeCtrl konnte nicht starten",
+    "src": "e0911c9f"
+  },
+  "supervisor.fallback.body": {
+    "text": "Ein Ersatzprogramm zur Blicksteuerung läuft jetzt. Damit oder mit der Maus unten eine Möglichkeit wählen.",
+    "src": "b2e1dba4"
+  },
+  "supervisor.fallback.dismiss": {
+    "text": "Schließen (Ersatzprogramm behalten)",
+    "src": "c58df1bd"
+  },
+  "supervisor.fallback.retry": {
+    "text": "EyeCtrl erneut starten (einmal)",
+    "src": "dee683eb"
+  },
+  "supervisor.fallback.title": {
+    "text": "EyeCtrl läuft nicht mehr",
+    "src": "3a0e7499"
+  },
+  "supervisor.launch-now": {
+    "text": "EyeCtrl jetzt starten",
+    "src": "94c666d7"
+  },
+  "supervisor.setup.advanced": {
+    "text": "Erweitert",
+    "src": "c2f27a18"
+  },
+  "supervisor.setup.diagnostics": {
+    "text": "Diagnose",
+    "src": "98dad526"
+  },
+  "supervisor.setup.enable-supervision": {
+    "text": "Überwachung einschalten",
+    "src": "c4814324"
+  },
+  "supervisor.setup.fallback-app.snap-core-first": {
+    "text": "Snap Core First",
+    "src": "751cdd22"
+  },
+  "supervisor.setup.fallback-app.td-control": {
+    "text": "TD Control",
+    "src": "8cbc147a"
+  },
+  "supervisor.setup.fallback-app.windows-eye-control": {
+    "text": "Windows Eye Control",
+    "src": "57a2b453"
+  },
+  "supervisor.setup.fallback.description": {
+    "text": "Stürzt EyeCtrl wiederholt ab, startet der Supervisor das erste installierte Programm dieser Liste.",
+    "src": "f079bf16"
+  },
+  "supervisor.setup.fallback.heading": {
+    "text": "Reihenfolge der Ersatzprogramme",
+    "src": "27e994b0"
+  },
+  "supervisor.setup.fallback.reordering-note": {
+    "text": "(Umsortieren ist in dieser Version nicht möglich; oben steht die Standardreihenfolge.)",
+    "src": "a8fb071b"
+  },
+  "supervisor.setup.hang-threshold": {
+    "text": "Keine Reaktion ab (s):  ",
+    "src": "9a2eb013"
+  },
+  "supervisor.setup.hang-threshold.range": {
+    "text": "({0}–{1})",
+    "src": "7882987f"
+  },
+  "supervisor.setup.launch-requested": {
+    "text": "Start angefordert.",
+    "src": "1ea9a023"
+  },
+  "supervisor.setup.logon.parked": {
+    "text": "Noch nicht gespeichert. Das geschieht beim nächsten Lauf von EyeCtrl, sofern der PC oder der Supervisor nicht vorher neu startet.",
+    "src": "2b36a84c"
+  },
+  "supervisor.setup.logon.refused": {
+    "text": "EyeCtrl hat die Anmeldeeinstellung abgelehnt; sie wurde nicht gespeichert.",
+    "src": "5e247e9b"
+  },
+  "supervisor.setup.logon.saved-off": {
+    "text": "Gespeichert: EyeCtrl startet nicht bei der Anmeldung.",
+    "src": "d3b7c4d4"
+  },
+  "supervisor.setup.logon.saved-on": {
+    "text": "Gespeichert: EyeCtrl startet bei der Anmeldung.",
+    "src": "fc4d5fad"
+  },
+  "supervisor.setup.logon.sending": {
+    "text": "EyeCtrl wird gebeten, die Anmeldeeinstellung zu speichern.",
+    "src": "2f4af1c4"
+  },
+  "supervisor.setup.logon.superseded": {
+    "text": "Die Anmeldeeinstellung wurde inzwischen in EyeCtrl geändert. Dieser neuere Wert bleibt.",
+    "src": "983c1443"
+  },
+  "supervisor.setup.logon.waiting": {
+    "text": "Die Anmeldeeinstellung wartet auf EyeCtrl.",
+    "src": "83d81bff"
+  },
+  "supervisor.setup.max-retries": {
+    "text": "Höchstzahl Neustarts:  ",
+    "src": "b700e25a"
+  },
+  "supervisor.setup.max-retries.range": {
+    "text": "({0}–{1})",
+    "src": "7882987f"
+  },
+  "supervisor.setup.save": {
+    "text": "Speichern",
+    "src": "40475728"
+  },
+  "supervisor.setup.save-failed": {
+    "text": "Speichern fehlgeschlagen: {0}",
+    "src": "ec54b545"
+  },
+  "supervisor.setup.saved": {
+    "text": "Gespeichert (Überwachungseinstellungen).",
+    "src": "efa26b73"
+  },
+  "supervisor.setup.start-on-logon": {
+    "text": "EyeCtrl bei der Anmeldung starten",
+    "src": "644616c1"
+  },
+  "supervisor.setup.status": {
+    "text": "Zustand des Supervisors: {0}",
+    "src": "267df936"
+  },
+  "supervisor.setup.status.idle": {
+    "text": "Supervisor im Leerlauf.",
+    "src": "c5ed0632"
+  },
+  "supervisor.setup.subtitle": {
+    "text": "Hält EyeCtrl am Laufen und weicht bei einem Absturz auf ein anderes Programm zur Blicksteuerung aus.",
+    "src": "e49164dd"
+  },
+  "supervisor.setup.supervision-disabled": {
+    "text": "Überwachung ausgeschaltet.",
+    "src": "6e2ee507"
+  },
+  "supervisor.setup.supervision-enabled": {
+    "text": "Überwachung eingeschaltet. (Die geplante Aufgabe wird separat eingerichtet.)",
+    "src": "dc7384cc"
+  },
+  "supervisor.setup.toggle.off": {
+    "text": "Aus",
+    "src": "96570ce5"
+  },
+  "supervisor.setup.toggle.on": {
+    "text": "Ein",
+    "src": "83a4d87a"
+  },
+  "supervisor.setup.window-title": {
+    "text": "EyeCtrl Supervisor – Einrichtung",
+    "src": "dce0a8fc"
+  },
+  "supervisor.state.closing": {
+    "text": "EyeCtrl wird beendet",
+    "src": "306081a1"
+  },
+  "supervisor.state.fallen-back": {
+    "text": "EyeCtrl gestoppt – Ersatzprogramm läuft",
+    "src": "eed7e493"
+  },
+  "supervisor.state.idle": {
+    "text": "im Leerlauf",
+    "src": "c7e9dbbf"
+  },
+  "supervisor.state.restarting": {
+    "text": "startet EyeCtrl neu",
+    "src": "277a4d0e"
+  },
+  "supervisor.state.starting": {
+    "text": "startet EyeCtrl",
+    "src": "a06bd400"
+  },
+  "supervisor.state.watching": {
+    "text": "überwacht EyeCtrl",
+    "src": "86b3d856"
+  },
+  "supervisor.tray.exit": {
+    "text": "Supervisor beenden",
+    "src": "2c39ed29"
+  },
+  "supervisor.tray.prefix": {
+    "text": "EyeCtrl Supervisor: ",
+    "src": "858896fb"
+  },
+  "supervisor.tray.settings": {
+    "text": "EyeCtrl Supervisor – Einstellungen",
+    "src": "be3a98c9"
+  },
+  "track-status.distance": {
+    "text": "Abstand: ",
+    "src": "4ebe0f60"
+  },
+  "track-status.distance.mm": {
+    "text": "{0:F0} mm",
+    "src": "a7b64203"
+  },
+  "track-status.quality": {
+    "text": "Qualität: ",
+    "src": "472bc373"
+  },
+  "track-status.quality.fair": {
+    "text": "Mittel",
+    "src": "8fff4d6e"
+  },
+  "track-status.quality.good": {
+    "text": "Gut",
+    "src": "9d4cd73e"
+  },
+  "track-status.quality.poor": {
+    "text": "Schlecht",
+    "src": "37f20c9d"
+  },
+  "track-status.quality.unknown": {
+    "text": "Unbekannt",
+    "src": "d41f1c5c"
+  },
+  "track-status.title": {
+    "text": "Trackstatus",
+    "src": "ee9f879c"
+  }
 }

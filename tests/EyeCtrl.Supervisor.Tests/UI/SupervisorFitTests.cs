@@ -126,9 +126,9 @@ public sealed class SupervisorFitTests : IDisposable
     /// row must keep its full 110 DIP buttons, the grown window must fit the work area, and every
     /// run of the title and body must fit the text width.
     /// </summary>
-    private static FitVerdict FallenBack(string? title, string? body, string? buttonLabel)
+    private static FitVerdict FallenBack(string? title, string? body, string? buttonLabel, StringTable? strings = null)
     {
-        var dialog = new FallenBackDialog(StringTable.EmbeddedEnglish);
+        var dialog = new FallenBackDialog(strings ?? StringTable.EmbeddedEnglish);
         try
         {
             if (title is not null) dialog.HeadlineText.Text = title;
@@ -468,6 +468,85 @@ public sealed class SupervisorFitTests : IDisposable
         });
     }
 
+    // ────── T10: the German draft (every surface on under a test manifest, GermanDraft) ──────
+
+    /// <summary>T10, binding: every German tray phrase, behind the German prefix, fits the tooltip cap.</summary>
+    [Fact]
+    public void Tray63_EveryGermanKey_FitsTheTooltip()
+    {
+        var german = GermanDraft.Table;
+        var prefix = SupervisorStateText.TrayPrefix(german);
+        var phrases = GermanDraft.ItemsOf("tray63").Where(i => i.Key != "supervisor.tray.prefix").ToList();
+        Check.That(phrases).Not.IsEmpty();
+        Check.WithCustomMessage("The German table resolved an English state phrase: the test manifest is not effective.")
+            .That(SupervisorStateText.Describe(german, SupervisorState.Supervising)).IsEqualTo(GermanDraft.TextOf("supervisor.state.watching", ""));
+
+        var failures = phrases.Select(p => (p.Key, Verdict: Tray(prefix, p.Text)))
+            .Append(("supervisor.tray.prefix", Tray(prefix, phrases.MaxBy(p => p.Text.Length)!.Text)))
+            .Where(r => { _output.WriteLine($"{r.Item1}: {r.Item2}"); return !r.Item2.Fits; })
+            .Select(r => $"{r.Item1}: {r.Item2}")
+            .ToList();
+
+        Check.WithCustomMessage("German tray tooltips over the shell cap:\n  " + string.Join("\n  ", failures)).That(failures).IsEmpty();
+    }
+
+    /// <summary>
+    /// T10, binding: the FallenBack dialog built in German fits as a whole — every button keeps its
+    /// 110 DIP, the grown window fits the work area, no run breaks — and so does each German title,
+    /// body and button label of classes C-fallback and B260x3 on its own.
+    /// </summary>
+    [Fact]
+    public void FallenBack_InGerman_TheDialogAndEveryTextFit()
+    {
+        RunSta(() =>
+        {
+            var german = GermanDraft.Table;
+            Check.WithCustomMessage("The FallenBack title resolved its English: the German table is not effective.")
+                .That(german.T("supervisor.fallback.title")).IsNotEqualTo(StringTable.EmbeddedEnglish.T("supervisor.fallback.title"));
+            var failures = new List<string>();
+            var whole = FallenBack(null, null, null, german);
+            _output.WriteLine($"the German dialog: {whole}");
+            if (!whole.Fits) failures.Add($"the German dialog: {whole}");
+
+            foreach (var item in GermanDraft.ItemsOf("B260x3"))
+            {
+                var verdict = FallenBack(null, null, item.Text, german);
+                _output.WriteLine($"{item} \"{item.Text}\": {verdict}");
+                if (!verdict.Fits) failures.Add($"{item}: {verdict}");
+            }
+
+            foreach (var item in GermanDraft.ItemsOf("C-fallback"))
+            {
+                var isTitle = item.Key == "supervisor.fallback.title";
+                var verdict = FallenBack(isTitle ? item.Text : null, isTitle ? null : item.Text, null, german);
+                _output.WriteLine($"{item} \"{item.Text}\": {verdict}");
+                if (!verdict.Fits) failures.Add($"{item}: {verdict}");
+            }
+
+            Check.WithCustomMessage("German FallenBack texts do not fit:\n  " + string.Join("\n  ", failures)).That(failures).IsEmpty();
+        });
+    }
+
+    /// <summary>
+    /// T10, binding: the setup window built in German reaches every row (REACH) and shows every text
+    /// whole (CLIP) — the gate T09 bound under the pseudo-locale, on the real draft.
+    /// </summary>
+    [Fact]
+    public void Setup_InGerman_ClipsNothing_AndReachesEveryRow()
+    {
+        RunSta(() =>
+        {
+            var german = GermanDraft.Table;
+            Check.That(german.T("supervisor.setup.window-title")).IsNotEqualTo(StringTable.EmbeddedEnglish.T("supervisor.setup.window-title"));
+            var result = SetupIn(german);
+            _output.WriteLine(result.Verdict.ToString());
+            Check.WithCustomMessage("In German the setup window loses a row:\n  " + string.Join("\n  ", result.Reach))
+                .That(result.Reach).IsEmpty();
+            Check.WithCustomMessage("In German a setup-window text does not show whole:\n  " + string.Join("\n  ", result.Clip))
+                .That(result.Clip).IsEmpty();
+        });
+    }
+
     /// <summary>
     /// T09 PR 3 (review-04 D1b, generalised after CI run 38084111300): Supervisor setup is a RECORDED
     /// geometry exception — a scrolling form re-flows. Its texts wrap, so a longer translation moves
@@ -500,7 +579,7 @@ public sealed class SupervisorFitTests : IDisposable
                     .That(english.Select(c => c.Role).Count(r => r is "launch" or "save" or "switch")).IsEqualTo(4);
                 Check.That(english.Count).IsEqualTo(7);
 
-                foreach (var (name, table) in new[] { ("pseudo", PseudoLocale.Table), ("stress", PseudoLocale.StressTable) })
+                foreach (var (name, table) in new[] { ("pseudo", PseudoLocale.Table), ("stress", PseudoLocale.StressTable), ("german", GermanDraft.Table) })
                 {
                     var other = DwellControlBoxes(table, extraFrame);
                     var context = $"{name}, frame +{FitText.Dip(extraFrame)} DIP per side";
@@ -665,15 +744,19 @@ public sealed class SupervisorFitTests : IDisposable
         {
             var english = SwitchBoxes(StringTable.EmbeddedEnglish);
             var pseudo = SwitchBoxes(PseudoLocale.Table);
+            var german = SwitchBoxes(GermanDraft.Table);
             foreach (var (id, box) in english)
-                _output.WriteLine($"{id}: {box} (pseudo {pseudo[id]})");
+                _output.WriteLine($"{id}: {box} (pseudo {pseudo[id]}, German {german[id]})");
 
             Check.That(english.Keys).ContainsExactly(pseudo.Keys);
+            Check.That(english.Keys).ContainsExactly(german.Keys);
             Check.That(english).HasSize(2);
             foreach (var (id, box) in english)
             {
                 Check.WithCustomMessage($"{id}: the switch moved inside its card, {box} → {pseudo[id]}")
                     .That(pseudo[id]).IsEqualTo(box);
+                Check.WithCustomMessage($"{id}: the switch moved inside its card in German, {box} → {german[id]}")
+                    .That(german[id]).IsEqualTo(box);
                 Check.WithCustomMessage($"{id}: the switch is not 160 × 100 DIP at 2.0: {box}")
                     .That((box.Width, box.Height)).IsEqualTo((320.0, 200.0));
             }
@@ -690,7 +773,7 @@ public sealed class SupervisorFitTests : IDisposable
     {
         RunSta(() =>
         {
-            foreach (var strings in new[] { StringTable.EmbeddedEnglish, PseudoLocale.Table })
+            foreach (var strings in new[] { StringTable.EmbeddedEnglish, PseudoLocale.Table, GermanDraft.Table })
             {
                 var layout = FormLayout(strings, leftAlignedCards: false);
                 var xs = layout.Switches.Values.Select(r => r.X).ToList();

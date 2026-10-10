@@ -141,7 +141,7 @@ internal static class ProbeRingOnScreenHarness
         WpfApplicationGate.EnsureApplicationWithTokens();
 
         // (h)/(M4) Armed before the window can exist; disarmed on every exit path.
-        using var watchdog = new ProbeRingRunWatchdog(ProbeRingRunWatchdog.FailFastOnTimeout);
+        using var watchdog = new ProbeRingRunWatchdog(ProbeRingRunWatchdog.KillOnTimeout);
 
         ProbeRingTestWindow? window = null;
         try
@@ -150,6 +150,14 @@ internal static class ProbeRingOnScreenHarness
             window.Show();
 
             var scale = VisualTreeHelper.GetDpi(window).PixelsPerDip;
+
+            // (a)/(F4) The DPI verdict speaks first — before the schedule, which throws its own
+            // "physical origin must be whole pixels" on a 175 %/225 % display and would bury
+            // requirement (a)'s message. The Judge checks the same verdict again; this one is what
+            // a non-192 % run actually sees.
+            var dpi = ProbeRingCaptureAnalysis.CheckEffectiveDpi(scale);
+            writeLine(Invariant($"R2 scale gate: {scale:0.###}"));
+            Check.WithCustomMessage(dpi.Message).That(dpi.IsOwnerScale).IsTrue();
 
             // ScreenCaptureService derives the physical screen size from DpiHelper (its clamping
             // bounds), and production initializes DpiHelper at startup — the test host never does.

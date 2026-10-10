@@ -5,8 +5,8 @@ using System.Threading;
 
 /// <summary>
 /// Review 01 M4: the whole-run cap's logic, pinned without ever arming the real
-/// <see cref="Environment.FailFast(string)"/> action. The production cap is 30 s, so these tests
-/// drive the injected-cap constructor: one proves the action fires when nothing disarms the
+/// <see cref="ProbeRingRunWatchdog.KillOnTimeout"/> action. The production cap is 30 s, so these
+/// tests drive the injected-cap constructor: one proves the action fires when nothing disarms the
 /// watchdog, one proves it does not fire when the run disposes it in time.
 /// </summary>
 public class ProbeRingRunWatchdogTests

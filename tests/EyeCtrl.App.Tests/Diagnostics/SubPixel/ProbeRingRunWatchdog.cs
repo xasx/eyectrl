@@ -1,19 +1,20 @@
 namespace EyeCtrl.App.Tests.Diagnostics.SubPixel;
 
 using System;
+using System.Diagnostics;
 using System.Threading;
 
 /// <summary>
-/// R2's whole-run time cap (requirement h, review 01 M4): a background thread that calls
-/// <see cref="Environment.FailFast(string)"/> when the run outlives <see cref="Cap"/>, so the
-/// owner's screen cannot keep a topmost window past it. The per-frame timeout in the harness bounds
-/// every normal path; this bounds the process.
+/// R2's whole-run time cap (requirement h, review 01 M4): a background thread that kills the
+/// process when the run outlives <see cref="Cap"/>, so the owner's screen cannot keep a topmost
+/// window past it. The per-frame timeout in the harness bounds every normal path; this bounds the
+/// process.
 ///
 /// <para>
 /// It fires only when nothing disposes it in time. The harness arms it before the window exists and
-/// disposes it on the way out — success or exception — so the ordinary run never trips it. A
-/// hard process exit destroys the window with it, which is what makes (h) hold by construction
-/// rather than by the unwind path.
+/// disposes it on the way out — success or exception — so the ordinary run never trips it. A hard
+/// process exit destroys the window with it, which is what makes (h) hold by construction rather
+/// than by the unwind path.
 /// </para>
 /// </summary>
 internal sealed class ProbeRingRunWatchdog : IDisposable
@@ -52,14 +53,18 @@ internal sealed class ProbeRingRunWatchdog : IDisposable
 
     /// <summary>
     /// The production timeout action: no window on the owner's screen outlives the cap, so the
-    /// whole process goes. FailFast, not an exception: an exception can be swallowed by the test
-    /// runner, and this must not depend on the runner unwinding anything.
+    /// whole process goes.
+    ///
+    /// <para>
+    /// <b><c>Kill</c>, not <c>Environment.FailFast</c> (orchestrator decision, fixup 02 F2).</b>
+    /// FailFast goes through Windows Error Reporting, and this machine has a
+    /// <c>WER\LocalDumps</c> key: a dump write delays termination, and WER can put up an error
+    /// dialog — a surface the owner, who drives the PC by gaze alone, would have to dismiss with
+    /// the very input the watchdog exists to free. <c>Kill</c> terminates immediately and silently.
+    /// An exception would be worse still: the test runner can swallow one.
+    /// </para>
     /// </summary>
-    internal static void FailFastOnTimeout() =>
-        Environment.FailFast(
-            "R2 (the sub-pixel on-screen raster test) exceeded its 30 s whole-run cap. The test process "
-            + "exits so its topmost probe window is not left on the owner's screen. Nothing is wrong with "
-            + "EyeCtrl — this is a harness stall (DWM, a display driver, or a debugger).");
+    internal static void KillOnTimeout() => Process.GetCurrentProcess().Kill();
 
     /// <summary>
     /// Disarms the watchdog. Only signals — the event is not disposed, because the watchdog thread

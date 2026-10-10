@@ -3,7 +3,9 @@ namespace EyeCtrl.App.Tests.Diagnostics.SubPixel;
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Windows.Controls;
 using System.Windows.Interop;
+using EyeCtrl.App.Diagnostics.SubPixel;
 using EyeCtrl.App.Tests.Fixtures;
 
 /// <summary>
@@ -93,6 +95,29 @@ public class ProbeRingOnScreenGateTests
                 .That((style & WsExNoActivate) != 0).IsTrue();
             Check.WithCustomMessage("WS_EX_TOOLWINDOW must be set (not in Alt-Tab).")
                 .That((style & WsExToolWindow) != 0).IsTrue();
+
+            // F5 (H): the window and its scene are hostile by construction, or the inherited-flag
+            // mutant is invisible on the hardware path (review 02 F5). The probe's own flags must
+            // still win, which is what keeps condition B fractional.
+            window.AttachRing(new ProbeRingVisual(
+                2.0, ProbeRingCaptureScene.OwnerLook(), ProbeRingCaptureScene.LookOpacity));
+
+            Check.WithCustomMessage(
+                    "The harness window must be hostile by construction (SnapsToDevicePixels and "
+                    + "UseLayoutRounding), or the inherited-flag mutant cannot be seen on the hardware path.")
+                .That(window.UseLayoutRounding).IsTrue();
+            Check.That(window.SnapsToDevicePixels).IsTrue();
+
+            var scene = (Canvas)window.Content;
+            Check.WithCustomMessage("The scene canvas must be hostile too.").That(scene.UseLayoutRounding).IsTrue();
+            Check.That(scene.SnapsToDevicePixels).IsTrue();
+
+            var ring = (ProbeRingVisual)scene.Children[0];
+            Check.WithCustomMessage(
+                    "The probe's own explicit false values must still win over the hostile parent, or "
+                    + "condition B is no longer fractional.")
+                .That(ring.SnapsToDevicePixels).IsFalse();
+            Check.That(ring.UseLayoutRounding).IsFalse();
         }
         finally
         {
@@ -159,6 +184,58 @@ public class ProbeRingOnScreenGateTests
                 "The watchdog must be armed BEFORE the window is constructed, or a factory or Show() stall "
                 + "is unbounded.")
             .That(watchdog).IsStrictlyLessThan(factory);
+
+        // F2: the exact arming line, not just "a watchdog appears somewhere". W1 (any other action)
+        // and W2 (the using dropped, so a passing run is killed 30 s later) both fail this.
+        Check.WithCustomMessage(
+                "The watchdog must be armed as `using var watchdog = new ProbeRingRunWatchdog("
+                + "ProbeRingRunWatchdog.KillOnTimeout)` — dropping the using leaks a kill into a passing "
+                + "run, and any other action re-opens review 01's M4.")
+            .That(harness.IndexOf(
+                "using var watchdog = new ProbeRingRunWatchdog(ProbeRingRunWatchdog.KillOnTimeout)",
+                StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);
+
+        // F2: and the action must actually kill. FailFast goes through WER, which this machine's
+        // LocalDumps key can delay or dialog before the process dies (fixup 02 decision).
+        var watchdogSource = SourceScanner.StripComments(File.ReadAllText(Path.Combine(
+            root, "tests", "EyeCtrl.App.Tests", "Diagnostics", "SubPixel", "ProbeRingRunWatchdog.cs")));
+        const string killMarker = "internal static void KillOnTimeout()";
+        var killStart = watchdogSource.IndexOf(killMarker, StringComparison.Ordinal);
+        Check.WithCustomMessage(
+                "ProbeRingRunWatchdog no longer declares KillOnTimeout(). Repoint this pin.")
+            .That(killStart).IsStrictlyGreaterThan(-1);
+
+        var killBody = watchdogSource[killStart..Math.Min(watchdogSource.Length, killStart + 400)];
+        Check.WithCustomMessage(
+                "KillOnTimeout must kill the process: a no-op action leaves the topmost window on the "
+                + "owner's screen forever (W4). Body read:\n" + killBody)
+            .That(killBody).Contains("Process.GetCurrentProcess().Kill()");
+        Check.WithCustomMessage(
+                "Environment.FailFast must not come back: WER may write a dump (this box has LocalDumps) or "
+                + "show a dialog before the process dies, and a dialog is a stuck surface for a gaze-only "
+                + "owner.")
+            .That(watchdogSource.IndexOf("Environment.FailFast(", StringComparison.Ordinal)).IsEqualTo(-1);
+
+        // F4: the DPI verdict must speak before the schedule can throw on a 175 %/225 % display.
+        var dpiGate = harness.IndexOf("CheckEffectiveDpi(scale)", StringComparison.Ordinal);
+        var firstCapture = harness.IndexOf("CaptureAt(", StringComparison.Ordinal);
+        Check.WithCustomMessage(
+                "The harness must call CheckEffectiveDpi right after Show(), before the first capture: at "
+                + "175 %/225 % the schedule's whole-pixel-origin throw would otherwise bury requirement (a).")
+            .That(dpiGate).IsStrictlyGreaterThan(-1);
+        Check.That(firstCapture).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage("CheckEffectiveDpi must run before the first CaptureAt call.")
+            .That(dpiGate).IsStrictlyLessThan(firstCapture);
+
+        // F5 (m1): Present must wait for two composition frames.
+        const string presentMarker = "internal void Present()";
+        var presentStart = harness.IndexOf(presentMarker, StringComparison.Ordinal);
+        Check.WithCustomMessage("ProbeRingTestWindow no longer declares Present().").That(presentStart).IsStrictlyGreaterThan(-1);
+        var presentBody = harness[presentStart..harness.IndexOf("\n    }", presentStart, StringComparison.Ordinal)];
+        Check.WithCustomMessage(
+                "Present() must wait for two composition frames (review 01 m1): one tick fires before its "
+                + "render is presented, so the capture could be the previous placement. Body read:\n" + presentBody)
+            .That(presentBody).Contains("ticks < 2");
 
         var onScreen = SourceScanner.StripComments(File.ReadAllText(Path.Combine(
             root, "tests", "EyeCtrl.App.Tests", "Diagnostics", "SubPixel", "ProbeRingOnScreenTests.cs")));

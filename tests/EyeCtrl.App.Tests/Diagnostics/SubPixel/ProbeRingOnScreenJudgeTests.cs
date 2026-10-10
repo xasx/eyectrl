@@ -167,4 +167,75 @@ public class ProbeRingOnScreenJudgeTests
         Check.WithCustomMessage($"The failure must name the sweep schedule; got: {failure}")
             .That(failure!).Contains("sweep");
     }
+
+    /// <summary>
+    /// K1 (review 02 F1): m4's on-screen shape, on the Judge — B rendered snapped, so it measures
+    /// the whole-pixel values (0/1/1) instead of the fractions. Kills the "B check made
+    /// tautological" (J1) and "B accepts whole pixels" (J2) mutants.
+    /// </summary>
+    [StaFact]
+    public void Judge_FailsWhenConditionBIsSnapped()
+    {
+        var (expected, referenceB, referenceA, _, sweep) = HealthyInputs();
+
+        var snappedB = ProbeRingOnScreenJudge.AssertionFractions
+            .Select(fraction => new ProbeRingOnScreenJudge.AbFrame(
+                fraction, RingAt(fraction, snap: true), RingAt(fraction, snap: true)))
+            .ToArray();
+
+        var failure = FailureMessage(() => RunJudge(2.0, expected, referenceB, referenceA, snappedB, sweep));
+
+        Check.WithCustomMessage(
+                "A snapped B must fail on condition B's assertion: at f = 0.25/0.5/0.75 it measures "
+                + "0/1/1, not 0.25/0.5/0.75.")
+            .That(failure).IsNotNull();
+        Check.WithCustomMessage($"The failure must be condition B's; got: {failure}")
+            .That(failure!).Contains("Condition B");
+    }
+
+    /// <summary>
+    /// K2 (review 02 F1): B off by 0.1 px must fail at the stated ±0.05. Kills J1/J2 and, because
+    /// 0.1 is inside a loosened 0.3 tolerance, J5 too.
+    /// </summary>
+    [StaFact]
+    public void Judge_FailsWhenBIsOffByATenth()
+    {
+        var (expected, referenceB, referenceA, _, sweep) = HealthyInputs();
+
+        var offByATenth = ProbeRingOnScreenJudge.AssertionFractions
+            .Select(fraction => new ProbeRingOnScreenJudge.AbFrame(
+                fraction, RingAt(fraction, snap: true), RingAt(fraction + 0.1, snap: false)))
+            .ToArray();
+
+        var failure = FailureMessage(() => RunJudge(2.0, expected, referenceB, referenceA, offByATenth, sweep));
+
+        Check.WithCustomMessage(
+                "B rendered 0.1 px from the scheduled fraction must fail at R2's ±0.05; a loosened "
+                + "tolerance must not let it through.")
+            .That(failure).IsNotNull();
+        Check.WithCustomMessage($"The failure must be condition B's; got: {failure}")
+            .That(failure!).Contains("Condition B");
+    }
+
+    /// <summary>
+    /// K3 (review 02 F3): reference A a whole pixel from reference B. At f = 0 they must draw at
+    /// the same place; kills the "reference A-B check made tautological" mutant (J3).
+    /// </summary>
+    [StaFact]
+    public void Judge_FailsWhenTheReferencesDisagree()
+    {
+        var (expected, referenceB, _, assertions, sweep) = HealthyInputs();
+
+        var referenceAOnePixelOff = RingAt(1.0, snap: true);
+
+        var failure = FailureMessage(() =>
+            RunJudge(2.0, expected, referenceB, referenceAOnePixelOff, assertions, sweep));
+
+        Check.WithCustomMessage(
+                "Reference A drawn a whole pixel from reference B must fail the reference-offset check "
+                + "(at f = 0 A and B draw at the same place).")
+            .That(failure).IsNotNull();
+        Check.WithCustomMessage($"The failure must be the reference offset's; got: {failure}")
+            .That(failure!).Contains("With nothing to round");
+    }
 }

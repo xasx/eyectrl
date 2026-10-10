@@ -76,6 +76,29 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
         _viewModel = viewModel;
         DataContext = viewModel;
         viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        // Round 3, R1: TargetColor is set ONCE in the view model's constructor, without
+        // a change notification — so the handler below never fired for the persisted
+        // value and the dot kept the XAML's theme accent forever (on main, the saved
+        // colour has never been shown). Apply it at attach; later changes still ride
+        // the handler.
+        ApplyTargetDotColor();
+    }
+
+    /// <summary>
+    /// Parses and applies the user-chosen target colour. Shared by the attach path and the
+    /// <see cref="CalibrationViewModel.TargetColor"/> change handler so both produce the
+    /// same brush. Unparseable values are swallowed exactly as before: the dot keeps its
+    /// last good colour rather than blanking mid-calibration.
+    /// </summary>
+    private void ApplyTargetDotColor()
+    {
+        try
+        {
+            var brush = new SolidColorBrush(
+                (Color)ColorConverter.ConvertFromString(_viewModel!.TargetColor));
+            TargetDot.Fill = brush;
+        }
+        catch { }
     }
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -112,16 +135,7 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
                 });
                 break;
             case nameof(CalibrationViewModel.TargetColor):
-                Dispatcher.Invoke(() =>
-                {
-                    try
-                    {
-                        var brush = new SolidColorBrush(
-                            (Color)ColorConverter.ConvertFromString(_viewModel!.TargetColor));
-                        TargetDot.Fill = brush;
-                    }
-                    catch { }
-                });
+                Dispatcher.Invoke(ApplyTargetDotColor);
                 break;
         }
     }
@@ -304,17 +318,26 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
 
                 case CalibrationTargetStatus.Done:
                     // Filled and settled: progress through the set, readable at a glance.
+                    // Stroke is the HALO, not a second success band (round 3, m1): these
+                    // markers sit straight on the black scrim, where Daylight's dark
+                    // success fill measured ~1.5:1. The rim makes the fill read on every
+                    // theme's scrim, same idiom as the dot and the rings.
                     marker.Visibility = Visibility.Visible;
                     marker.Fill = Tokens.BrushAccentSuccess;
-                    marker.Stroke = Tokens.BrushAccentSuccess;
+                    marker.Stroke = Tokens.BrushStrokeHalo;
+                    marker.StrokeThickness = 1.5;
                     marker.Opacity = 0.55;
                     break;
 
                 default:
                     // Hollow and faint: present, clearly not the one being asked for.
+                    // Interior carries the halo colour for the same scrim reason — the
+                    // dim rim keeps the deliberate quietness, the interior guarantees an
+                    // edge against the backdrop on both polarities.
                     marker.Visibility = Visibility.Visible;
-                    marker.Fill = null;
+                    marker.Fill = Tokens.BrushStrokeHalo;
                     marker.Stroke = Tokens.BrushTextDim;
+                    marker.StrokeThickness = 1.5;
                     marker.Opacity = 0.45;
                     break;
             }

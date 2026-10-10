@@ -44,8 +44,12 @@
                 <Ellipse x:Name="ProgressRing"
                          Stroke="{StaticResource BrushAccentSuccess}" StrokeThickness="6"
                          Opacity="0" IsHitTestVisible="False"/>
+                <!-- Halo rim (round 3, R1): the dot is user-coloured (an absolute hex)
+                     drawn on the black scrim; the StrokeHalo rim keeps any pick visible
+                     on every theme's scrim, mirroring the rings above. -->
                 <Ellipse x:Name="TargetDot" Width="40" Height="40"
                          Fill="{StaticResource BrushAccent}" Opacity="0.8"
+                         Stroke="{StaticResource BrushStrokeHalo}" StrokeThickness="2"
                          RenderTransformOrigin="0.5,0.5">
                     <Ellipse.RenderTransform>
                         <ScaleTransform CenterX="20" CenterY="20"/>
@@ -58,7 +62,7 @@
              is theme-invariant black, and Daylight's TextPrimary is near-black — straight
              on the scrim that measured 1.1:1. The card pairs the tokens as validated. -->
         <Border x:Name="ProgressCard" Visibility="Collapsed"
-                Background="{StaticResource BrushSurfaceMedium}"
+                Background="{StaticResource BrushSurfaceDark}"
                 CornerRadius="{StaticResource StandardCornerRadius}"
                 Padding="18,8" HorizontalAlignment="Center"
                 VerticalAlignment="Top" Margin="0,30,0,0">
@@ -69,7 +73,7 @@
              title/symbol/hint tokens are theme-varying and sat directly on the black
              scrim, unreadable under Daylight. -->
         <Border x:Name="CompletionCard" Visibility="Collapsed"
-                Background="{StaticResource BrushSurfaceMedium}"
+                Background="{StaticResource BrushSurfaceDark}"
                 CornerRadius="{StaticResource LargeCornerRadius}"
                 Padding="32,24" HorizontalAlignment="Center" VerticalAlignment="Center">
             <StackPanel x:Name="CompletionPanel">
@@ -100,7 +104,7 @@
 
         <!-- Cancel hint. Same card treatment (review round 2, N1). -->
         <Border x:Name="CancelCard" Visibility="Collapsed"
-                Background="{StaticResource BrushSurfaceMedium}"
+                Background="{StaticResource BrushSurfaceDark}"
                 CornerRadius="{StaticResource SmallCornerRadius}"
                 Padding="10,4" HorizontalAlignment="Right" VerticalAlignment="Bottom"
                 Margin="0,0,20,20">

@@ -12,6 +12,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
@@ -477,9 +478,8 @@ public sealed class SupervisorFitTests : IDisposable
     /// <para>
     /// This pins that it is the ONLY movement, under the pseudo-locale and the stress table: the two
     /// buttons move straight down (x and size unchanged), together (one shared drop), and every other
-    /// dwell control in the form — the language row — keeps its box exactly. The toggle switches are
-    /// pinned inside their cards by
-    /// <see cref="Setup_TheToggleSwitches_StayPutInTheirCards_UnderThePseudoLocale"/>.
+    /// dwell control in the form — the language row and, since option A stretched their cards, both
+    /// toggle switches — keeps its box exactly.
     /// </para>
     /// </summary>
     [Fact]
@@ -505,8 +505,6 @@ public sealed class SupervisorFitTests : IDisposable
                     _output.WriteLine($"{name} {role}: {e} → {o}");
                     switch (role)
                     {
-                        case "switch":
-                            break;
                         case "launch" or "save":
                             if (Math.Abs(o.X - e.X) > 0.01 || Math.Abs(o.Width - e.Width) > 0.01 || Math.Abs(o.Height - e.Height) > 0.01)
                                 problems.Add($"{role}: moved sideways or resized, {e} → {o}");
@@ -617,6 +615,241 @@ public sealed class SupervisorFitTests : IDisposable
             Check.That(rows).HasSize(expected);
             Check.That(File.Exists(path)).IsTrue();
         });
+    }
+
+    /// <summary>
+    /// T09 PR 3, geometry invariance for the setup window's two toggles: each switch keeps its
+    /// 160 × 100 box AND its place inside its own toggle card, in English and under the
+    /// pseudo-locale, in physical px at 2.0. The cards themselves sit in a scrolling form, so a
+    /// longer subtitle above them moves the whole card down — a flowing form re-lays out, and the
+    /// REACH gate above guarantees every card still scrolls into view — but nothing inside a card
+    /// may follow the text: its label wraps within the card's fixed 100 DIP height (with an
+    /// ellipsis past it, which CLIP forbids) and its switch is a fixed-width right-hand column.
+    /// </summary>
+    [Fact]
+    public void Setup_TheToggleSwitches_StayPutInTheirCards_UnderThePseudoLocale()
+    {
+        RunSta(() =>
+        {
+            var english = SwitchBoxes(StringTable.EmbeddedEnglish);
+            var pseudo = SwitchBoxes(PseudoLocale.Table);
+            foreach (var (id, box) in english)
+                _output.WriteLine($"{id}: {box} (pseudo {pseudo[id]})");
+
+            Check.That(english.Keys).ContainsExactly(pseudo.Keys);
+            Check.That(english).HasSize(2);
+            foreach (var (id, box) in english)
+            {
+                Check.WithCustomMessage($"{id}: the switch moved inside its card, {box} → {pseudo[id]}")
+                    .That(pseudo[id]).IsEqualTo(box);
+                Check.WithCustomMessage($"{id}: the switch is not 160 × 100 DIP at 2.0: {box}")
+                    .That((box.Width, box.Height)).IsEqualTo((320.0, 200.0));
+            }
+        });
+    }
+
+    /// <summary>
+    /// T09 PR 3 (option A): the two switches share one x — the right edge of the form column — in
+    /// English and under the pseudo-locale. Before A each card was as wide as its label, so the two
+    /// English switches sat 28 DIP apart.
+    /// </summary>
+    [Fact]
+    public void Setup_BothToggleSwitches_ShareOneX()
+    {
+        RunSta(() =>
+        {
+            foreach (var strings in new[] { StringTable.EmbeddedEnglish, PseudoLocale.Table })
+            {
+                var layout = FormLayout(strings, leftAlignedCards: false);
+                var xs = layout.Switches.Values.Select(r => r.X).ToList();
+                _output.WriteLine($"{strings.T("supervisor.setup.toggle.on")}: switch x {string.Join(", ", xs.Select(FitText.Dip))}");
+                Check.That(xs).HasSize(2);
+                Check.WithCustomMessage("The two toggle switches are not aligned.").That(Math.Abs(xs[0] - xs[1])).IsLessOrEqualThan(1e-6);
+            }
+        });
+    }
+
+    /// <summary>
+    /// T09 PR 3 (option A, the coordinator's check 4): stretching the toggle cards moves ONLY the two
+    /// switches. Every other dwell control in the window — the T05b language row's three buttons,
+    /// "Launch EyeCtrl now", "Save" — keeps its box, compared against today's left-aligned cards.
+    /// </summary>
+    [Fact]
+    public void Setup_StretchingTheToggleCards_MovesOnlyTheirSwitches()
+    {
+        RunSta(() =>
+        {
+            var before = FormLayout(StringTable.EmbeddedEnglish, leftAlignedCards: true);
+            var after = FormLayout(StringTable.EmbeddedEnglish, leftAlignedCards: false);
+            Check.That(after.Controls.Keys).ContainsExactly(before.Controls.Keys);
+            var moved = before.Controls.Keys.Where(k => before.Controls[k] != after.Controls[k]).ToList();
+            foreach (var key in before.Controls.Keys)
+                _output.WriteLine($"{key}: {before.Controls[key]} → {after.Controls[key]}");
+            Check.WithCustomMessage("Stretching the toggle cards moved something other than their switches: "
+                    + string.Join(", ", moved.Where(k => !before.Switches.ContainsKey(k))))
+                .That(moved.Where(k => !before.Switches.ContainsKey(k))).IsEmpty();
+            Check.That(before.Controls.Count).IsStrictlyGreaterThan(5);
+        });
+    }
+
+    /// <summary>
+    /// The before/after sheet for the user's decision on option A (not a gate): set
+    /// <c>EYECTRL_WRITE_T09_TOGGLE_SHEET=1</c> and it writes
+    /// <c>C:\t\keys\t09-supervisor-toggle-alignment.png</c> — the whole setup form at 2.0 in English,
+    /// today's left-aligned cards on the left and A's stretched cards on the right, each switch's
+    /// centre marked and labelled.
+    /// </summary>
+    [Fact]
+    public void ToggleAlignmentSheet_WhenAsked()
+    {
+        if (Environment.GetEnvironmentVariable("EYECTRL_WRITE_T09_TOGGLE_SHEET") != "1") return;
+        RunSta(() =>
+        {
+            var before = FormLayout(StringTable.EmbeddedEnglish, leftAlignedCards: true, render: true);
+            var after = FormLayout(StringTable.EmbeddedEnglish, leftAlignedCards: false, render: true);
+            const double gap = 40, header = 70;
+            var width = before.Size.Width + gap + after.Size.Width;
+            var height = header + Math.Max(before.Size.Height, after.Size.Height);
+            var visual = new DrawingVisual();
+            using (var dc = visual.RenderOpen())
+            {
+                dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0x18, 0x18, 0x18)), null, new Rect(0, 0, width, height));
+                void Panel(FormLayoutResult layout, double x, string title)
+                {
+                    dc.DrawText(Text(title, 22, Brushes.White), new Point(x + 10, 18));
+                    dc.DrawImage(layout.Image!, new Rect(x, header, layout.Size.Width, layout.Size.Height));
+                    foreach (var (name, r) in layout.Switches)
+                    {
+                        var c = new Point(x + r.X + r.Width / 2, header + r.Y + r.Height / 2);
+                        var pen = new Pen(Brushes.Red, 3);
+                        dc.DrawEllipse(null, pen, c, 50, 50);
+                        dc.DrawLine(pen, new Point(c.X - 14, c.Y), new Point(c.X + 14, c.Y));
+                        dc.DrawLine(pen, new Point(c.X, c.Y - 14), new Point(c.X, c.Y + 14));
+                        var label = Text($"switch centre x = {FitText.Dip(c.X - x)} DIP", 15, Brushes.Red);
+                        var at = new Point(c.X - label.Width / 2, c.Y - 50 - label.Height - 6);
+                        dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(0xE0, 0x10, 0x10, 0x10)), null,
+                            new Rect(at.X - 4, at.Y - 2, label.Width + 8, label.Height + 4));
+                        dc.DrawText(label, at);
+                    }
+                }
+
+                Panel(before, 0, "Today: cards sized to their labels");
+                Panel(after, before.Size.Width + gap, "Option A: cards stretched, switches aligned");
+            }
+
+            var bitmap = new RenderTargetBitmap((int)Math.Ceiling(width * 2), (int)Math.Ceiling(height * 2), 192, 192, PixelFormats.Pbgra32);
+            bitmap.Render(visual);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            Directory.CreateDirectory(@"C:\t\keys");
+            using var file = File.Create(@"C:\t\keys\t09-supervisor-toggle-alignment.png");
+            encoder.Save(file);
+        });
+
+        static FormattedText Text(string s, double size, Brush brush) => new(s, CultureInfo.InvariantCulture,
+            FlowDirection.LeftToRight, new Typeface("Segoe UI"), size, brush, 2.0);
+    }
+
+    private sealed record FormLayoutResult(
+        Dictionary<string, Rect> Controls, Dictionary<string, Rect> Switches, Size Size, ImageSource? Image);
+
+    /// <summary>
+    /// The whole setup form at 2.0, its full height laid out (no scrolling), with the toggle cards
+    /// stretched (A) or left-aligned (today). Every dwell control's box, keyed by order and caption,
+    /// in DIP relative to the form; the two switches' boxes; and, when asked, a render.
+    /// </summary>
+    private FormLayoutResult FormLayout(StringTable strings, bool leftAlignedCards, bool render = false)
+    {
+        var window = BuildSetupWindow(strings);
+        try
+        {
+            window.AdvancedExpander.IsExpanded = true;
+            if (leftAlignedCards)
+            {
+                foreach (var card in window.ToggleHost.Children.OfType<Border>().Where(b => b.MinWidth == 360))
+                    card.HorizontalAlignment = HorizontalAlignment.Left;
+            }
+
+            var chrome = Chrome();
+            var scroller = (ScrollViewer)window.Content;
+            window.Content = null;
+            var form = new Border { Background = window.Background, Child = scroller };
+            using var host = FitHost.Open(form, width: window.Width - chrome.Left - chrome.Right, inheritFrom: window);
+
+            // Relative to the whole form (the rendered image), not the inner panel and its 20 DIP margin.
+            var root = (Visual)form;
+            var controls = new Dictionary<string, Rect>(StringComparer.Ordinal);
+            var index = 0;
+            foreach (var b in FitText.Descendants<Border>(scroller).Where(b => b.Cursor == System.Windows.Input.Cursors.Hand))
+            {
+                var caption = FitText.Descendants<TextBlock>(b).Select(t => t.Text).FirstOrDefault(t => t.Length > 0) ?? "";
+                var key = $"#{index++} '{caption}'";
+                controls[key] = b.TransformToAncestor(root).TransformBounds(new Rect(b.RenderSize));
+            }
+
+            var switches = new Dictionary<string, Rect>(StringComparer.Ordinal);
+            foreach (var id in new[] { "setup_enable_supervision", "setup_start_on_logon" })
+            {
+                var word = FitText.Descendants<TextBlock>(scroller)
+                    .Single(t => System.Windows.Automation.AutomationProperties.GetAutomationId(t) == $"Settings_Toggle_{id}");
+                var sw = FitText.Ancestors(word).OfType<Border>().First(b => b.Width == 160);
+                var key = controls.Single(pair => pair.Value == sw.TransformToAncestor(root).TransformBounds(new Rect(sw.RenderSize))).Key;
+                switches[key] = controls[key];
+            }
+
+            ImageSource? image = null;
+            var size = new Size(form.ActualWidth, form.ActualHeight);
+            if (render)
+            {
+                var rtb = new RenderTargetBitmap((int)Math.Ceiling(size.Width * 2), (int)Math.Ceiling(size.Height * 2), 192, 192, PixelFormats.Pbgra32);
+                var dv = new DrawingVisual();
+                using (var dc = dv.RenderOpen())
+                    dc.DrawRectangle(new VisualBrush(form), null, new Rect(size));
+                rtb.Render(dv);
+                rtb.Freeze();
+                image = rtb;
+            }
+
+            return new FormLayoutResult(controls, switches, size, image);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    /// <summary>Each toggle's switch box relative to its toggle card, in physical px at 2.0.</summary>
+    private Dictionary<string, Rect> SwitchBoxes(StringTable strings)
+    {
+        var window = BuildSetupWindow(strings);
+        try
+        {
+            var chrome = Chrome();
+            var scroller = (ScrollViewer)window.Content;
+            window.Content = null;
+            using var host = FitHost.Open(scroller, width: window.Width - chrome.Left - chrome.Right,
+                height: window.Height - chrome.Top - chrome.Bottom, inheritFrom: window);
+
+            var boxes = new Dictionary<string, Rect>(StringComparer.Ordinal);
+            foreach (var id in new[] { "setup_enable_supervision", "setup_start_on_logon" })
+            {
+                var word = FitText.Descendants<TextBlock>(scroller)
+                    .Single(t => System.Windows.Automation.AutomationProperties.GetAutomationId(t) == $"Settings_Toggle_{id}");
+                var switchBorder = FitText.Ancestors(word).OfType<Border>().First(b => b.Width == 160);
+                var card = (FrameworkElement)FitText.Ancestors(switchBorder)
+                    .First(a => a is FrameworkElement fe && ReferenceEquals(fe.Parent, window.ToggleHost));
+                var topLeft = switchBorder.TranslatePoint(new Point(0, 0), card);
+                var size = new Size(switchBorder.ActualWidth * FitHost.Scale, switchBorder.ActualHeight * FitHost.Scale);
+                boxes[id] = new Rect(new Point(topLeft.X * FitHost.Scale, topLeft.Y * FitHost.Scale), size);
+            }
+
+            Check.That(PseudoLocale.Table.T("supervisor.setup.toggle.on")).StartsWith("[");
+            return boxes;
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     [Fact]

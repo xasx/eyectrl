@@ -450,7 +450,16 @@ public class DwellToggle : IDwellComposite
             // No explicit Width: the label column is a star, so the row takes exactly the room it
             // is given and the label wraps inside it. A fixed width would overflow the Supervisor's
             // 560 DIP setup window, which hosts two of these.
-            HorizontalAlignment = HorizontalAlignment.Left,
+            //
+            // STRETCH, not Left (T09 PR 3): a Left card sized itself to its label, so the switch —
+            // the right-hand Auto column — sat wherever the label happened to end. Two English
+            // toggles put their switches 28 DIP apart, and a translation moved each by its own
+            // length (7-12 DIP under the pseudo-locale): the language decided where a target was,
+            // on a crisis surface. Stretched, the card fills its host and every switch sits on the
+            // host's right edge, in every language. Pinned by SupervisorFitTests'
+            // Setup_TheToggleSwitches_StayPutInTheirCards_UnderThePseudoLocale and
+            // Setup_BothToggleSwitches_ShareOneX.
+            HorizontalAlignment = HorizontalAlignment.Stretch,
             MinWidth = 360,
             // RowHeight + the 24 DIP bottom margin is the row rhythm every other settings row
             // carries, and it is exactly what this control measured before it became a composite.

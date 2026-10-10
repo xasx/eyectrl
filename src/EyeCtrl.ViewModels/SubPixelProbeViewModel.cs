@@ -1,5 +1,6 @@
 namespace EyeCtrl.ViewModels;
 
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Models;
@@ -7,7 +8,7 @@ using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels.Messages;
 
-/// <summary>Which of the test's two sessions a state machine runs.</summary>
+/// <summary>Which of the test's two sessions is running.</summary>
 public enum SubPixelProbeSessionKind
 {
     /// <summary>The drift block (decides session 1) then the static block (supporting evidence).</summary>
@@ -17,11 +18,14 @@ public enum SubPixelProbeSessionKind
     Session2,
 }
 
-/// <summary>The phase of the current trial presentation.</summary>
+/// <summary>The phase the run is in.</summary>
 public enum SubPixelProbePhase
 {
-    /// <summary>Nothing is running: before <see cref="SubPixelProbeViewModel.Start"/>, between two blocks, or after the session ended.</summary>
+    /// <summary>Nothing is running: before <see cref="SubPixelProbeViewModel.Start"/>, between blocks, or after the run ended.</summary>
     Idle,
+
+    /// <summary>The Intro screen: how to answer and how to leave, until Start.</summary>
+    Intro,
 
     /// <summary>Interval 1: the first condition, 3 s (live: 4 s).</summary>
     Interval1,
@@ -35,7 +39,13 @@ public enum SubPixelProbePhase
     /// <summary>The answer screen: up to 60 s for a completed answer dwell.</summary>
     Answer,
 
-    /// <summary>The session has ended, whether by completing its blocks or by an exit.</summary>
+    /// <summary>The "Continue to the live-gaze part now?" screen, shown only after a session-1 conviction.</summary>
+    Ask,
+
+    /// <summary>The Result screen, shown until it is acknowledged (or its 60 s timeout).</summary>
+    Result,
+
+    /// <summary>The run has ended, whether normally or through an exit.</summary>
     Ended,
 }
 
@@ -57,6 +67,9 @@ public enum SubPixelProbeVoidReason
 
     /// <summary>The view reported an interval render gap above 50 ms.</summary>
     RenderGap,
+
+    /// <summary>No sample arrived for more than 500 ms inside an interval (a tracker dropout).</summary>
+    Silence,
 }
 
 /// <summary>Why a session ended.</summary>
@@ -71,7 +84,23 @@ public enum SubPixelProbeEndReason
     /// <summary>10 s passed with no valid gaze sample: closed eyes, or a silent tracker.</summary>
     EyesClosed,
 
-    /// <summary>No answer within 60 s of the answer screen appearing.</summary>
+    /// <summary>No answer within 60 s of the screen appearing.</summary>
+    NoAnswer,
+}
+
+/// <summary>Why the whole run ended.</summary>
+public enum SubPixelProbeRunEndReason
+{
+    /// <summary>The run reached its normal end: the Result screen was acknowledged.</summary>
+    Completed,
+
+    /// <summary>End test ended the run.</summary>
+    EndTest,
+
+    /// <summary>10 s passed with no valid gaze sample.</summary>
+    EyesClosed,
+
+    /// <summary>A 60 s screen timeout expired (Intro, answer, Ask or Result).</summary>
     NoAnswer,
 }
 
@@ -83,8 +112,8 @@ public enum SubPixelProbeEndReason
 /// <param name="Answer">The condition the owner picked, or <c>null</c> when the trial was voided.</param>
 /// <param name="VoidReason">Why the trial was voided, or <c>null</c> when it was answered.</param>
 /// <param name="ResponseTimeMs">Answer latency from answer-screen onset; 0 for a voided trial.</param>
-/// <param name="LongestInvalidGazeMs">Longest continuous invalid-gaze run observed during the trial's intervals.</param>
-/// <param name="LongestRenderGapMs">Largest render gap the view reported during the trial's intervals.</param>
+/// <param name="LongestInvalidGazeMs">Longest continuous invalid-gaze run observed inside the trial's intervals.</param>
+/// <param name="LongestRenderGapMs">Largest render gap the view reported inside the trial's intervals.</param>
 public sealed record SubPixelProbeTrialOutcome(
     SubPixelAbTrial Trial,
     SubPixelAbCondition? Answer,
@@ -106,10 +135,14 @@ public sealed record SubPixelProbeBlockOutcome(
 /// <param name="Session">Which session ended.</param>
 /// <param name="Reason">What ended it.</param>
 /// <param name="Aborted">
-/// <c>true</c> when an exit (End test, closed eyes, no answer) stopped the run mid-session; a
-/// session that exhausted its blocks — including a void-capped block — is <c>false</c>.
+/// <c>true</c> when an exit (End test, closed eyes, no answer) stopped the session mid-run; a
+/// session that ran out its blocks — including a void-capped block — is <c>false</c>.
 /// </param>
-/// <param name="Blocks">The blocks that finished, in order; empty when the run aborted early.</param>
+/// <param name="Blocks">
+/// The blocks of this session that finished, in order. A session aborted mid-block still carries the
+/// blocks that completed before the abort, so an abort never loses a completed result; only a
+/// session aborted inside its first block ends with none.
+/// </param>
 public sealed record SubPixelProbeSessionOutcome(
     SubPixelProbeSessionKind Session,
     SubPixelProbeEndReason Reason,
@@ -117,35 +150,52 @@ public sealed record SubPixelProbeSessionOutcome(
     IReadOnlyList<SubPixelProbeBlockOutcome> Blocks);
 
 /// <summary>
-/// C5 — the trial state machine of the sub-pixel visibility test.
+/// C5 — the sub-pixel visibility test's run state machine.
 /// <para>
-/// One run = one session: demo → interval 1 → gap → interval 2 → answer → next, repeated for every
-/// scored trial of every block the session runs (session 1: drift then static; session 2: live).
-/// Takes <see cref="GazeCursorMovedMessage"/> for dwell and positions, and validity through an
-/// injected callback because the message carries no validity flag. Owns the three exits: the 10 s
-/// time-since-last-valid-sample exit, the 60 s no-answer abort and the End test button, plus the two
-/// void rules (> 500 ms invalid gaze in an interval, a view-reported render gap > 50 ms). Voided
-/// trials are repeated at the end of their block; a block's 4th void makes it incomplete and ends it.
+/// One run owns every screen: <c>Intro → session-1 blocks → Ask (only on a session-1 conviction) →
+/// session-2 blocks → Result</c>. Within a block the flow is demo pair → interval 1 → 0.8 s gap →
+/// interval 2 → answer → next. Takes <see cref="GazeCursorMovedMessage"/> for dwell and positions,
+/// and validity through an injected callback because the message carries no validity flag.
+/// </para>
+/// <para>
+/// <b>Exits (every phase):</b> the End test button, the 10 s time-since-last-valid-sample eyes-closed
+/// exit, and a 60 s timeout on the screens that wait for input (Intro, answer, Ask, Result). A
+/// session that is live when an exit fires first raises <see cref="SessionCompleted"/> for it, then
+/// <see cref="RunEnded"/> for the run.
+/// </para>
+/// <para>
+/// <b>Voids</b> (scored trials, inside interval 1 or 2 only): more than 500 ms of invalid gaze,
+/// more than 500 ms of silence (no samples at all — timer-driven), or a view-reported render gap
+/// above 50 ms. A voided trial is repeated at the end of its block; a block's 4th void makes it
+/// incomplete and ends it (a void-capped drift block skips the static block).
 /// </para>
 /// <para>
 /// <b>Single-threaded (review 05 F4b).</b> The injected <see cref="TimeProvider"/> must deliver its
 /// timer callbacks on the same thread as <see cref="Receive"/> — in production a dispatcher-backed
 /// adapter (SP-4b). The gaze thread never enters: <see cref="Receive"/> is messenger-delivered on
-/// the UI thread. <see cref="Func{Boolean}"/> validity is queried inside <see cref="Receive"/>, so
-/// it must also be safe on the UI thread.
+/// the UI thread.
 /// </para>
 /// <para>
-/// After raising any of its events the view model checks <c>IsDisposed</c> and stops: a handler may
-/// dispose it (End test, a coordinator teardown), and no timer may be armed or event raised after
-/// that. <see cref="Dispose"/> stops all three timers and unregisters from the messenger.
+/// After raising an event that has a continuation the view model checks <c>IsDisposed</c> (and, where
+/// a run can end inside the handler, <c>_ended</c>) and stops. <see cref="Dispose"/> stops all four
+/// timers and unregisters from the messenger; nothing is raised after a dispose.
 /// </para>
 /// </summary>
 /// <remarks>
-/// The timers come from <see cref="TimeProvider"/>: a one-shot phase timer re-armed per phase, a
-/// one-shot eyes-closed timer re-armed on every valid sample, and a one-shot answer timeout re-armed
-/// at every answer onset.
+/// <para>
+/// <b>Validity is the latest sample's, not the message's (review 01 F5).</b> The validity callback
+/// reads the tracker's newest published state, while the message being processed was marshalled
+/// earlier, so under UI backlog a message can be judged by a slightly newer sample. That is
+/// acceptable for the 500 ms / 10 s thresholds and must not be read as per-message validity.
+/// </para>
+/// <para>
+/// The timers are a one-shot phase timer re-armed per phase, a one-shot eyes-closed timer re-armed
+/// on every valid sample, a one-shot screen timer armed at Intro/answer/Ask/Result, and a one-shot
+/// silence guard armed inside each interval (it re-arms to the exact millisecond the current silence
+/// would cross 500 ms).
+/// </para>
 /// </remarks>
-public class SubPixelProbeViewModel : MessengerViewModelBase,
+public partial class SubPixelProbeViewModel : MessengerViewModelBase,
     IRecipient<GazeCursorMovedMessage>,
     IDwellRegistrar
 {
@@ -158,6 +208,18 @@ public class SubPixelProbeViewModel : MessengerViewModelBase,
     /// <summary>Target id of the always-present End test button.</summary>
     public const string EndTestTargetId = "subpixel_end_test";
 
+    /// <summary>Target id of the Intro screen's Start button.</summary>
+    public const string IntroStartTargetId = "subpixel_intro_start";
+
+    /// <summary>Target id of the Ask screen's Yes button ("continue to live gaze").</summary>
+    public const string AskYesTargetId = "subpixel_ask_yes";
+
+    /// <summary>Target id of the Ask screen's Later button.</summary>
+    public const string AskLaterTargetId = "subpixel_ask_later";
+
+    /// <summary>Target id of the Result screen's Done button.</summary>
+    public const string ResultDoneTargetId = "subpixel_result_done";
+
     /// <summary>Interval 1 and interval 2 duration of the scripted blocks, in milliseconds.</summary>
     public const int ScriptedIntervalMs = 3000;
 
@@ -167,38 +229,45 @@ public class SubPixelProbeViewModel : MessengerViewModelBase,
     /// <summary>The blank gap between the two intervals, in milliseconds.</summary>
     public const int GapMs = 800;
 
-    /// <summary>How long the answer screen waits for a dwell before aborting the session.</summary>
-    public const int AnswerTimeoutMs = 60_000;
+    /// <summary>How long a screen that waits for input (Intro, answer, Ask, Result) waits before aborting.</summary>
+    public const int ScreenTimeoutMs = 60_000;
 
-    /// <summary>Invalid-gaze time inside one interval that voids the trial; more than this voids.</summary>
+    /// <summary>Invalid-gaze (or silence) time inside one interval that voids the trial; more than this voids.</summary>
     public const int InvalidGazeVoidMs = 500;
 
     /// <summary>View-reported render gap that voids the trial; more than this voids.</summary>
     public const int RenderGapVoidMs = 50;
 
-    /// <summary>Time since the last valid sample after which the session ends (closed eyes, silence).</summary>
+    /// <summary>Time since the last valid sample after which the run ends (closed eyes, silence).</summary>
     public const int EyesClosedExitMs = 10_000;
 
     private readonly TimeProvider _timeProvider;
     private readonly SubPixelAbSchedule _schedule;
-    private readonly SubPixelProbeSessionKind _session;
     private readonly DwellSettings _dwellSettings;
     private readonly Func<bool> _isValidSample;
     private readonly DwellDetector _targets;
     private readonly Dictionary<string, Action> _actions = new();
-    private readonly List<SubPixelProbeBlockOutcome> _completedBlocks = new();
+    private readonly List<SubPixelProbeBlockOutcome> _sessionBlocks = new();
     private readonly List<SubPixelProbeTrialOutcome> _currentTrials = new();
-    private readonly Queue<SubPixelAbBlock> _blocks;
 
     private readonly ITimer _phaseTimer;
     private readonly ITimer _eyesClosedTimer;
-    private readonly ITimer _answerTimer;
+    private readonly ITimer _screenTimer;
+    private readonly ITimer _silenceTimer;
 
     // The current block's presentations that have not run yet; a voided trial is appended at the end.
     private List<SubPixelAbTrial> _pending = new();
     private int _pendingIndex;
 
+    // The current session's blocks and its position in them.
+    private List<SubPixelAbBlock> _blocks = new();
+    private int _blockIndex;
+
+    /// <summary>The current phase. An observable property, so SP-4b can bind to <c>Phase</c> and sees every change (review 01 F8).</summary>
+    [ObservableProperty]
     private SubPixelProbePhase _phase = SubPixelProbePhase.Idle;
+
+    private SubPixelProbeSessionKind? _currentSession;
     private SubPixelAbBlock _currentBlock;
     private SubPixelAbTrial? _currentTrial;
     private SubPixelAbMotion? _currentMotion;
@@ -211,39 +280,37 @@ public class SubPixelProbeViewModel : MessengerViewModelBase,
     private int _bPicks;
     private long _phaseStartTimestamp;
     private long _lastValidTimestamp;
+    private long _lastSampleTimestamp;
     private long? _invalidSince;
     private long _longestInvalidMs;
     private long _longestRenderGapMs;
-    private long _answerStartTimestamp;
+    private long _screenStartTimestamp;
 
     /// <summary>
-    /// Creates the state machine. It is inert until <see cref="Start"/>.
+    /// Creates the run state machine. It is inert until <see cref="Start"/>.
     /// </summary>
     /// <param name="messenger">Messenger the view model receives <see cref="GazeCursorMovedMessage"/> from.</param>
     /// <param name="timeProvider">
     /// Clock and timer source. All timer callbacks must run on the UI thread: production injects a
     /// dispatcher-backed adapter (SP-4b), tests a fake advanced together with the gaze timestamps.
     /// </param>
-    /// <param name="schedule">The session's trial plan, from <see cref="SubPixelAbSchedule.Create"/>.</param>
-    /// <param name="session">Which session to run.</param>
-    /// <param name="dwellSettings">Dwell configuration; the answer dwell is read from it live at registration.</param>
+    /// <param name="schedule">The run's trial plan, from <see cref="SubPixelAbSchedule.Create"/>.</param>
+    /// <param name="dwellSettings">Dwell configuration; the button dwell is read from it live at registration.</param>
     /// <param name="isValidSample">
     /// Validity of the tracker's most recent sample, fed by <c>GazeSampled</c>. Queried on the UI
     /// thread for every gaze message; <c>false</c> means the gaze is currently invalid. A missing
-    /// sample is silence, which is handled by the eyes-closed timer and needs no callback call.
+    /// sample is silence, handled by the silence guard and the eyes-closed timer.
     /// </param>
     public SubPixelProbeViewModel(
         IMessenger messenger,
         TimeProvider timeProvider,
         SubPixelAbSchedule schedule,
-        SubPixelProbeSessionKind session,
         DwellSettings dwellSettings,
         Func<bool> isValidSample)
         : base(messenger)
     {
         _timeProvider = timeProvider;
         _schedule = schedule;
-        _session = session;
         _dwellSettings = dwellSettings;
         _isValidSample = isValidSample;
 
@@ -256,26 +323,25 @@ public class SubPixelProbeViewModel : MessengerViewModelBase,
         _eyesClosedTimer = timeProvider.CreateTimer(
             static state => ((SubPixelProbeViewModel)state!).OnEyesClosedElapsed(),
             this, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
-        _answerTimer = timeProvider.CreateTimer(
-            static state => ((SubPixelProbeViewModel)state!).OnAnswerElapsed(),
+        _screenTimer = timeProvider.CreateTimer(
+            static state => ((SubPixelProbeViewModel)state!).OnScreenElapsed(),
             this, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
-
-        _blocks = session == SubPixelProbeSessionKind.Session1
-            ? new Queue<SubPixelAbBlock>([SubPixelAbBlock.Drift, SubPixelAbBlock.Static])
-            : new Queue<SubPixelAbBlock>([SubPixelAbBlock.Live]);
+        _silenceTimer = timeProvider.CreateTimer(
+            static state => ((SubPixelProbeViewModel)state!).OnSilenceElapsed(),
+            this, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
     }
 
-    /// <summary>Raised when a block finishes: every trial presented, or the 4th void capped it.</summary>
+    /// <summary>Raised when a session's blocks all ran or its exit stopped it; before Ask/Result on a normal end.</summary>
     public event Action<SubPixelProbeBlockOutcome>? BlockCompleted;
 
-    /// <summary>Raised exactly once when the session ends, normally or through an exit.</summary>
+    /// <summary>Raised exactly once per session that started, normally or through an abort.</summary>
     public event Action<SubPixelProbeSessionOutcome>? SessionCompleted;
 
-    /// <summary>Raised at every phase transition, answer onsets included. The coordinator's progress signal.</summary>
+    /// <summary>Raised at every phase transition (never for the Idle between blocks; PropertyChanged covers that).</summary>
     public event Action? PhaseAdvanced;
 
-    /// <summary>The phase the state machine is in.</summary>
-    public SubPixelProbePhase Phase => _phase;
+    /// <summary>The terminal event: raised once, last, when the run ends. C7 restores on it.</summary>
+    public event Action<SubPixelProbeRunEndReason>? RunEnded;
 
     /// <summary>The block being presented (or last presented).</summary>
     public SubPixelAbBlock CurrentBlock => _currentBlock;
@@ -297,9 +363,15 @@ public class SubPixelProbeViewModel : MessengerViewModelBase,
     public SubPixelAbCondition Interval2Condition =>
         _currentTrialIsAFirst ? SubPixelAbCondition.B : SubPixelAbCondition.A;
 
+    /// <summary>Session 1's verdict, once session 1 has ended; <c>null</c> before and during it.</summary>
+    public SubPixelAbSession1Verdict? Session1Verdict { get; private set; }
+
+    /// <summary>Session 2's verdict, once the live block has ended; <c>null</c> otherwise.</summary>
+    public SubPixelAbSession2Verdict? Session2Verdict { get; private set; }
+
     /// <summary>Milliseconds elapsed in the current phase, on the injected clock.</summary>
     public long PhaseElapsedMs =>
-        _phase == SubPixelProbePhase.Idle ? 0 : (long)_timeProvider.GetElapsedTime(_phaseStartTimestamp).TotalMilliseconds;
+        Phase == SubPixelProbePhase.Idle ? 0 : (long)_timeProvider.GetElapsedTime(_phaseStartTimestamp).TotalMilliseconds;
 
     /// <summary>Voids recorded in the current block, against the per-block cap of 3.</summary>
     internal int CurrentBlockVoids => _voids;
@@ -317,8 +389,7 @@ public class SubPixelProbeViewModel : MessengerViewModelBase,
     internal IReadOnlyList<SubPixelProbeTrialOutcome> CurrentBlockTrialOutcomes => _currentTrials;
 
     /// <summary>
-    /// Starts the first block: its demo pair, then its trials. Idempotent; a disposed view model
-    /// does nothing.
+    /// Starts the run: the Intro screen first. Idempotent; a disposed view model does nothing.
     /// </summary>
     public void Start()
     {
@@ -326,42 +397,74 @@ public class SubPixelProbeViewModel : MessengerViewModelBase,
         _started = true;
         _lastValidTimestamp = _timeProvider.GetTimestamp();
         _eyesClosedTimer.Change(TimeSpan.FromMilliseconds(EyesClosedExitMs), Timeout.InfiniteTimeSpan);
-        BeginNextBlock();
+        EnterScreen(SubPixelProbePhase.Intro);
+    }
+
+    /// <summary>Leaves the Intro screen and starts session 1. Ignored outside Intro.</summary>
+    public void BeginTrials()
+    {
+        if (IsDisposed || _ended || Phase != SubPixelProbePhase.Intro) return;
+        _screenTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        BeginSession(SubPixelProbeSessionKind.Session1);
+    }
+
+    /// <summary>Ask → Yes: starts session 2 in the same run. Ignored outside Ask.</summary>
+    public void ContinueToLiveGaze()
+    {
+        if (IsDisposed || _ended || Phase != SubPixelProbePhase.Ask) return;
+        _screenTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        BeginSession(SubPixelProbeSessionKind.Session2);
+    }
+
+    /// <summary>Ask → Later: goes to the Result screen. Ignored outside Ask.</summary>
+    public void DeclineLiveGaze()
+    {
+        if (IsDisposed || _ended || Phase != SubPixelProbePhase.Ask) return;
+        _screenTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        EnterScreen(SubPixelProbePhase.Result);
+    }
+
+    /// <summary>Result → Done: ends the run with <see cref="SubPixelProbeRunEndReason.Completed"/>.</summary>
+    public void AcknowledgeResult()
+    {
+        if (IsDisposed || _ended || Phase != SubPixelProbePhase.Result) return;
+        EndRun(SubPixelProbeRunEndReason.Completed);
     }
 
     /// <summary>
-    /// Ends the session as if the owner had dwelled End test: stops every timer, stops scoring the
-    /// current trial (it is not voided and not recorded), and raises
-    /// <see cref="SessionCompleted"/> once with <see cref="SubPixelProbeEndReason.EndTest"/>.
+    /// Ends the run as the End test button does: a live session is closed first (its
+    /// <see cref="SessionCompleted"/> carries <see cref="SubPixelProbeEndReason.EndTest"/>), then
+    /// <see cref="RunEnded"/> is raised once with the same reason.
     /// </summary>
-    public void EndTest() => EndSession(SubPixelProbeEndReason.EndTest);
+    public void EndTest() =>
+        AbortRun(SubPixelProbeEndReason.EndTest, SubPixelProbeRunEndReason.EndTest);
 
     /// <summary>
-    /// Reports an interval render gap measured by the view. A gap above 50 ms inside interval 1 or
-    /// 2 voids the current scored trial; the demo pair and the other phases ignore it.
+    /// Reports an interval render gap measured by the view. A gap inside interval 1 or 2 is recorded
+    /// for the trial's statistics, and above 50 ms voids the current scored trial; other phases
+    /// ignore it.
     /// </summary>
     /// <param name="gapMs">The gap between two presented frames, in milliseconds.</param>
     public void ReportRenderGap(long gapMs)
     {
         if (IsDisposed || _ended) return;
+        if (Phase is not (SubPixelProbePhase.Interval1 or SubPixelProbePhase.Interval2) || _isDemo) return;
 
         if (gapMs > _longestRenderGapMs) _longestRenderGapMs = gapMs;
 
-        if (_isDemo) return;
-        if (_phase is SubPixelProbePhase.Interval1 or SubPixelProbePhase.Interval2
-            && gapMs > RenderGapVoidMs)
-        {
+        if (gapMs > RenderGapVoidMs)
             VoidCurrentTrial(SubPixelProbeVoidReason.RenderGap);
-        }
     }
 
-    /// <summary>Receives the gaze stream: validity, then dwell. Inert until <see cref="Start"/>.</summary>
+    /// <summary>Receives the gaze stream: validity, silence anchor, then dwell. Inert until <see cref="Start"/>.</summary>
     /// <param name="message">The per-sample gaze message.</param>
     public void Receive(GazeCursorMovedMessage message)
     {
         // The recipient is registered at construction (MessengerViewModelBase), and gaze messages
-        // flow from the moment the engine runs; before Start there is no session to time or score.
+        // flow from the moment the engine runs; before Start there is no run to time or score.
         if (!_started || IsDisposed || _ended) return;
+
+        _lastSampleTimestamp = _timeProvider.GetTimestamp();
 
         if (_isValidSample())
         {
@@ -391,16 +494,13 @@ public class SubPixelProbeViewModel : MessengerViewModelBase,
     private void TrackInvalidGaze()
     {
         if (_invalidSince is not { } since) return;
+        if (Phase is not (SubPixelProbePhase.Interval1 or SubPixelProbePhase.Interval2) || _isDemo) return;
 
         long runMs = (long)_timeProvider.GetElapsedTime(since).TotalMilliseconds;
         if (runMs > _longestInvalidMs) _longestInvalidMs = runMs;
 
-        if (_isDemo) return;
-        if (_phase is SubPixelProbePhase.Interval1 or SubPixelProbePhase.Interval2
-            && runMs > InvalidGazeVoidMs)
-        {
+        if (runMs > InvalidGazeVoidMs)
             VoidCurrentTrial(SubPixelProbeVoidReason.InvalidGaze);
-        }
     }
 
     private void OnEyesClosedElapsed()
@@ -412,39 +512,63 @@ public class SubPixelProbeViewModel : MessengerViewModelBase,
         TimeSpan sinceLastValid = _timeProvider.GetElapsedTime(_lastValidTimestamp);
         if (sinceLastValid < TimeSpan.FromMilliseconds(EyesClosedExitMs)) return;
 
-        EndSession(SubPixelProbeEndReason.EyesClosed);
+        AbortRun(SubPixelProbeEndReason.EyesClosed, SubPixelProbeRunEndReason.EyesClosed);
     }
 
-    private void OnAnswerElapsed()
+    private void OnScreenElapsed()
     {
         if (IsDisposed || _ended) return;
-        if (_phase != SubPixelProbePhase.Answer) return;
-        EndSession(SubPixelProbeEndReason.NoAnswer);
+
+        // Only the screens arm this timer; an abort inside a session reports NoAnswer for it.
+        AbortRun(SubPixelProbeEndReason.NoAnswer, SubPixelProbeRunEndReason.NoAnswer);
+    }
+
+    private void OnSilenceElapsed()
+    {
+        if (IsDisposed || _ended) return;
+        if (Phase is not (SubPixelProbePhase.Interval1 or SubPixelProbePhase.Interval2) || _isDemo) return;
+
+        long silenceMs = (long)_timeProvider.GetElapsedTime(_lastSampleTimestamp).TotalMilliseconds;
+        if (silenceMs > InvalidGazeVoidMs)
+        {
+            VoidCurrentTrial(SubPixelProbeVoidReason.Silence);
+            return;
+        }
+
+        // Re-arm for the exact millisecond the current silence would cross the threshold.
+        _silenceTimer.Change(
+            TimeSpan.FromMilliseconds(InvalidGazeVoidMs - silenceMs + 1), Timeout.InfiniteTimeSpan);
     }
 
     private void OnPhaseElapsed()
     {
         if (IsDisposed || _ended) return;
 
-        switch (_phase)
+        switch (Phase)
         {
             case SubPixelProbePhase.Interval1:
-                _phase = SubPixelProbePhase.Gap;
+                DisarmSilenceGuard();
+                Phase = SubPixelProbePhase.Gap;
                 _phaseStartTimestamp = _timeProvider.GetTimestamp();
                 if (!RaisePhaseAdvanced()) return;
                 _phaseTimer.Change(TimeSpan.FromMilliseconds(GapMs), Timeout.InfiniteTimeSpan);
                 break;
 
             case SubPixelProbePhase.Gap:
-                _phase = SubPixelProbePhase.Interval2;
+                // The interval-2 count starts here: an invalid run that began in the gap (or in
+                // interval 1) must not be charged to interval 2 (review 01 F1).
+                Phase = SubPixelProbePhase.Interval2;
                 _phaseStartTimestamp = _timeProvider.GetTimestamp();
+                _invalidSince = null;
                 if (!RaisePhaseAdvanced()) return;
                 _phaseTimer.Change(IntervalDuration, Timeout.InfiniteTimeSpan);
+                ArmSilenceGuard();
                 break;
 
             case SubPixelProbePhase.Interval2:
+                DisarmSilenceGuard();
                 if (_isDemo) BeginNextScoredTrial();
-                else BeginAnswer();
+                else EnterScreen(SubPixelProbePhase.Answer);
                 break;
         }
     }
@@ -454,9 +578,21 @@ public class SubPixelProbeViewModel : MessengerViewModelBase,
             ? TimeSpan.FromMilliseconds(LiveIntervalMs)
             : TimeSpan.FromMilliseconds(ScriptedIntervalMs);
 
+    private void BeginSession(SubPixelProbeSessionKind kind)
+    {
+        _currentSession = kind;
+        _sessionBlocks.Clear();
+        _blocks = kind == SubPixelProbeSessionKind.Session1
+            ? [SubPixelAbBlock.Drift, SubPixelAbBlock.Static]
+            : [SubPixelAbBlock.Live];
+        _blockIndex = 0;
+
+        BeginNextBlock();
+    }
+
     private void BeginNextBlock()
     {
-        _currentBlock = _blocks.Dequeue();
+        _currentBlock = _blocks[_blockIndex++];
         _pending = [.. TrialsFor(_currentBlock)];
         _pendingIndex = 0;
         _voids = 0;
@@ -500,14 +636,13 @@ public class SubPixelProbeViewModel : MessengerViewModelBase,
     }
 
     /// <summary>
-    /// Begins a presentation's interval 1. Every caller has already checked the view model is live
-    /// (Start, a phase timer callback, a target activation, a void, or <see cref="CompleteBlock"/>'s
-    /// post-raise guard); this transition's own guard is the post-raise check below, so a dispose
-    /// inside a <see cref="PhaseAdvanced"/> handler cannot arm the phase timer.
+    /// Begins a presentation's interval 1. Every caller has already checked the view model is live,
+    /// so the run's state transitions carry no entry guard of their own; the post-raise check in
+    /// <see cref="RaisePhaseAdvanced"/> is what stops a disposed or ended run from arming timers.
     /// </summary>
     private void EnterInterval1()
     {
-        _phase = SubPixelProbePhase.Interval1;
+        Phase = SubPixelProbePhase.Interval1;
         _phaseStartTimestamp = _timeProvider.GetTimestamp();
         _invalidSince = null;
         _longestInvalidMs = 0;
@@ -515,23 +650,35 @@ public class SubPixelProbeViewModel : MessengerViewModelBase,
 
         if (!RaisePhaseAdvanced()) return;
         _phaseTimer.Change(IntervalDuration, Timeout.InfiniteTimeSpan);
+        ArmSilenceGuard();
     }
 
-    private void BeginAnswer()
+    private void EnterScreen(SubPixelProbePhase phase)
     {
-        _phase = SubPixelProbePhase.Answer;
+        Phase = phase;
         _phaseStartTimestamp = _timeProvider.GetTimestamp();
-        _answerStartTimestamp = _phaseStartTimestamp;
+        _screenStartTimestamp = _phaseStartTimestamp;
 
-        // The buttons go live only now: the reset is what guarantees a fresh dwell, and it is what
-        // the boundary test kills — removing it lets dwell accumulated during interval 2 (or the
-        // gap) deliver an answer at the first answer-phase sample.
+        // A fresh dwell for the screen's buttons: no state carried between screens.
         _targets.ResetAllState();
         _targets.ResetCooldown();
+        DisarmSilenceGuard();
 
         if (!RaisePhaseAdvanced()) return;
-        _answerTimer.Change(TimeSpan.FromMilliseconds(AnswerTimeoutMs), Timeout.InfiniteTimeSpan);
+        _screenTimer.Change(TimeSpan.FromMilliseconds(ScreenTimeoutMs), Timeout.InfiniteTimeSpan);
     }
+
+    private void ArmSilenceGuard()
+    {
+        // Silence is counted inside the interval only: the anchor starts at the interval's first
+        // instant, so a dropout that began in the gap is charged from here, not from the gap.
+        _lastSampleTimestamp = _timeProvider.GetTimestamp();
+        _silenceTimer.Change(
+            TimeSpan.FromMilliseconds(InvalidGazeVoidMs + 1), Timeout.InfiniteTimeSpan);
+    }
+
+    private void DisarmSilenceGuard() =>
+        _silenceTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
 
     private bool RaisePhaseAdvanced()
     {
@@ -550,11 +697,43 @@ public class SubPixelProbeViewModel : MessengerViewModelBase,
             return;
         }
 
+        if (id == IntroStartTargetId)
+        {
+            if (Phase != SubPixelProbePhase.Intro) return;
+            InvokeAction(id);
+            BeginTrials();
+            return;
+        }
+
+        if (id == AskYesTargetId)
+        {
+            if (Phase != SubPixelProbePhase.Ask) return;
+            InvokeAction(id);
+            ContinueToLiveGaze();
+            return;
+        }
+
+        if (id == AskLaterTargetId)
+        {
+            if (Phase != SubPixelProbePhase.Ask) return;
+            InvokeAction(id);
+            DeclineLiveGaze();
+            return;
+        }
+
+        if (id == ResultDoneTargetId)
+        {
+            if (Phase != SubPixelProbePhase.Result) return;
+            InvokeAction(id);
+            AcknowledgeResult();
+            return;
+        }
+
         if (id is AnswerOneTargetId or AnswerTwoTargetId)
         {
             // Dwell accumulated outside the answer screen is discarded: the buttons are live only
             // there, and the onset reset makes the answer dwell start from onset.
-            if (_phase != SubPixelProbePhase.Answer || _currentTrial is not { } trial) return;
+            if (Phase != SubPixelProbePhase.Answer || _currentTrial is not { } trial) return;
 
             SubPixelAbCondition picked = id == AnswerOneTargetId
                 ? Interval1Condition
@@ -563,10 +742,10 @@ public class SubPixelProbeViewModel : MessengerViewModelBase,
             if (picked == SubPixelAbCondition.B) _bPicks++;
             else _aPicks++;
 
-            _answerTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            _screenTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
             _currentTrials.Add(new SubPixelProbeTrialOutcome(
                 trial, picked, null,
-                (long)_timeProvider.GetElapsedTime(_answerStartTimestamp).TotalMilliseconds,
+                (long)_timeProvider.GetElapsedTime(_screenStartTimestamp).TotalMilliseconds,
                 _longestInvalidMs, _longestRenderGapMs));
 
             InvokeAction(id);
@@ -583,6 +762,7 @@ public class SubPixelProbeViewModel : MessengerViewModelBase,
     {
         if (_currentTrial is not { } trial || _isDemo) return;
 
+        DisarmSilenceGuard();
         _currentTrials.Add(new SubPixelProbeTrialOutcome(
             trial, null, reason, 0, _longestInvalidMs, _longestRenderGapMs));
         _voids++;
@@ -604,16 +784,16 @@ public class SubPixelProbeViewModel : MessengerViewModelBase,
             new SubPixelAbBlockTally(_aPicks, _bPicks, _voids),
             [.. _currentTrials]);
 
-        _completedBlocks.Add(outcome);
-        _phase = SubPixelProbePhase.Idle;
+        _sessionBlocks.Add(outcome);
+        Phase = SubPixelProbePhase.Idle;
         _currentTrial = null;
         _currentMotion = null;
 
         BlockCompleted?.Invoke(outcome);
-        if (IsDisposed) return;
+        if (IsDisposed || _ended) return;
 
         // A void-capped drift block removes the session-1 verdict and skips the static block.
-        if (_session == SubPixelProbeSessionKind.Session1
+        if (_currentSession == SubPixelProbeSessionKind.Session1
             && _currentBlock == SubPixelAbBlock.Drift
             && outcome.Tally.Voids <= SubPixelAbVerdict.MaxVoidsPerBlock)
         {
@@ -621,34 +801,83 @@ public class SubPixelProbeViewModel : MessengerViewModelBase,
             return;
         }
 
-        EndSession(SubPixelProbeEndReason.BlocksCompleted);
+        FinishSession();
     }
 
-    private void EndSession(SubPixelProbeEndReason reason)
+    private void FinishSession()
+    {
+        var kind = _currentSession!.Value;
+        _currentSession = null;
+
+        if (kind == SubPixelProbeSessionKind.Session1)
+        {
+            var drift = _sessionBlocks.First(block => block.Block == SubPixelAbBlock.Drift);
+            var staticBlock = _sessionBlocks.FirstOrDefault(block => block.Block == SubPixelAbBlock.Static);
+            Session1Verdict = SubPixelAbVerdict.Session1(drift.Tally, staticBlock?.Tally);
+        }
+        else
+        {
+            var live = _sessionBlocks.First(block => block.Block == SubPixelAbBlock.Live);
+            Session2Verdict = SubPixelAbVerdict.Session2(live.Tally);
+        }
+
+        // SessionCompleted is raised before Ask/Result so C11 writes the result first.
+        SessionCompleted?.Invoke(new SubPixelProbeSessionOutcome(
+            kind, SubPixelProbeEndReason.BlocksCompleted, Aborted: false, [.. _sessionBlocks]));
+        if (IsDisposed || _ended) return;
+
+        if (kind == SubPixelProbeSessionKind.Session1)
+        {
+            EnterScreen(Session1Verdict!.Outcome == SubPixelAbOutcome.Convicts
+                ? SubPixelProbePhase.Ask
+                : SubPixelProbePhase.Result);
+            return;
+        }
+
+        EnterScreen(SubPixelProbePhase.Result);
+    }
+
+    private void AbortRun(SubPixelProbeEndReason sessionReason, SubPixelProbeRunEndReason runReason)
+    {
+        if (IsDisposed || _ended) return;
+
+        RaiseAbortedSessionCompleted(sessionReason);
+        if (IsDisposed) return;
+
+        EndRun(runReason);
+    }
+
+    private void RaiseAbortedSessionCompleted(SubPixelProbeEndReason reason)
+    {
+        if (_currentSession is not { } kind) return;
+
+        _currentSession = null;
+        SessionCompleted?.Invoke(new SubPixelProbeSessionOutcome(
+            kind, reason, Aborted: true, [.. _sessionBlocks]));
+    }
+
+    private void EndRun(SubPixelProbeRunEndReason reason)
     {
         if (IsDisposed || _ended) return;
 
         _ended = true;
-        _phase = SubPixelProbePhase.Ended;
+        Phase = SubPixelProbePhase.Ended;
         _currentTrial = null;
+        _currentMotion = null;
         StopTimers();
         _targets.ClearTargets();
 
-        // SessionCompleted is the terminal raise: every timer is already stopped and nothing runs
-        // after it, so a dispose inside a handler needs no post-raise guard here. The raises that do
-        // have a continuation (PhaseAdvanced, BlockCompleted) check IsDisposed explicitly.
-        SessionCompleted?.Invoke(new SubPixelProbeSessionOutcome(
-            _session,
-            reason,
-            Aborted: reason != SubPixelProbeEndReason.BlocksCompleted,
-            [.. _completedBlocks]));
+        // PhaseAdvanced on the terminal transition (F8), then the terminal RunEnded; nothing after.
+        PhaseAdvanced?.Invoke();
+        RunEnded?.Invoke(reason);
     }
 
     private void StopTimers()
     {
         _phaseTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _eyesClosedTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
-        _answerTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        _screenTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        _silenceTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
     }
 
     private void InvokeAction(string id)
@@ -665,12 +894,12 @@ public class SubPixelProbeViewModel : MessengerViewModelBase,
 
     /// <inheritdoc/>
     /// <remarks>
-    /// C5 knows its three target ids; for them the dwell time is
+    /// C5 knows its own target ids; for them the dwell time is
     /// <see cref="DwellSettings.ToolbarButtonDwellMs"/> read from the injected settings at
     /// registration, so the owner's live value applies. Unknown ids use <paramref name="dwellMs"/>.
-    /// The hit radius is the caller's to compute (the answer buttons' half-shorter-side, in
-    /// physical px). All categories share C5's one detector; <paramref name="category"/> is accepted
-    /// for <see cref="IDwellRegistrar"/> compatibility.
+    /// The hit radius is the caller's to compute (the answer/End test buttons'
+    /// half-shorter-side, in physical px). All categories share C5's one detector;
+    /// <paramref name="category"/> is accepted for <see cref="IDwellRegistrar"/> compatibility.
     /// </remarks>
     public void Register(string id, DwellCategory category, double radiusPhysical, int dwellMs, Action onActivated)
     {
@@ -697,9 +926,10 @@ public class SubPixelProbeViewModel : MessengerViewModelBase,
 
     /// <summary>Whether <paramref name="id"/> is one of C5's own dwell targets.</summary>
     /// <param name="id">Target id to test.</param>
-    /// <returns><c>true</c> for the two answer buttons and the End test button.</returns>
+    /// <returns><c>true</c> for the answer, End test and screen buttons.</returns>
     public static bool IsKnownTarget(string id) =>
-        id is AnswerOneTargetId or AnswerTwoTargetId or EndTestTargetId;
+        id is AnswerOneTargetId or AnswerTwoTargetId or EndTestTargetId
+            or IntroStartTargetId or AskYesTargetId or AskLaterTargetId or ResultDoneTargetId;
 
     /// <summary>Stops every timer and clears the dwell targets. The messenger unregisters in the base.</summary>
     protected override void OnDispose()
@@ -708,6 +938,7 @@ public class SubPixelProbeViewModel : MessengerViewModelBase,
         _targets.ClearTargets();
         _phaseTimer.Dispose();
         _eyesClosedTimer.Dispose();
-        _answerTimer.Dispose();
+        _screenTimer.Dispose();
+        _silenceTimer.Dispose();
     }
 }

@@ -39,8 +39,8 @@ internal static class SidebarTabFit
 
     private static readonly XNamespace Wpf = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
 
-    /// <summary>One measured tab.</summary>
-    internal sealed record Result(double LabelRight, double BorderRight, double ColumnWidth, string Face);
+    /// <summary>One measured tab: its label's right edge, its highlight's box (the dwell target's frame).</summary>
+    internal sealed record Result(double LabelRight, double BorderRight, double ColumnWidth, string Face, Rect BorderBox);
 
     /// <summary>The sidebar column width, from the root grid's ColumnDefinitions in SettingsWindow.xaml.</summary>
     internal static double ColumnWidth() =>
@@ -131,6 +131,7 @@ internal static class SidebarTabFit
         using var host = FitHost.Open(outer, family: Tokens.FontStandard);
 
         double Right(FrameworkElement e) => e.TransformToAncestor(outer).Transform(new Point(e.ActualWidth, 0)).X;
-        return new Result(Right(labelText), Right(border), columnWidth, FitText.ResolvedFace(labelText));
+        var box = border.TransformToAncestor(outer).TransformBounds(new Rect(border.RenderSize));
+        return new Result(Right(labelText), Right(border), columnWidth, FitText.ResolvedFace(labelText), box);
     }
 }

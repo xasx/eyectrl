@@ -45,6 +45,8 @@
          that measures translated text in its real geometry. -->
     <Compile Include="..\TestSupport\FitHarness.cs"
              Link="TestSupport\FitHarness.cs" />
+    <Compile Include="..\TestSupport\PseudoLocale.cs"
+             Link="TestSupport\PseudoLocale.cs" />
   </ItemGroup>
 
 </Project>

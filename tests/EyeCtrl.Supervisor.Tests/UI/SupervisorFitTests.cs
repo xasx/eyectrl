@@ -295,7 +295,7 @@ public sealed class SupervisorFitTests : IDisposable
 
     // ────── The setup window ──────
 
-    private SupervisorSetupWindow BuildSetupWindow()
+    private SupervisorSetupWindow BuildSetupWindow(StringTable strings)
     {
         var language = new SettingDelivery<UiLanguage>(
             "UiLanguage",
@@ -317,9 +317,18 @@ public sealed class SupervisorFitTests : IDisposable
             () => { },
             new StartOnBootSetupRow(startOnBoot, () => false),
             new LanguageSetupRow(language, () => UiLanguage.System, CultureInfo.GetCultureInfo("de-DE")),
-            StringTable.EmbeddedEnglish,
-            "Supervisor state: Supervising");
+            strings,
+            strings.T("supervisor.setup.status",
+                SupervisorStateText.Describe(strings, Enum.GetValues<SupervisorState>().First())));
     }
+
+    /// <summary>
+    /// The setup gate's findings in two kinds: REACH (a dwell control outside the viewport's width
+    /// or the scroll extent, a switch that lost its 160 × 100 box, a last row the scroller cannot
+    /// bring into view) — binding in every language — and CLIP (a text that does not show all of
+    /// itself) — binding in English, reported for the pseudo-locale.
+    /// </summary>
+    private sealed record SetupResult(FitVerdict Verdict, IReadOnlyList<string> Reach, IReadOnlyList<string> Clip);
 
     /// <summary>
     /// The setup window's surface gate, at 2.0 in its 560 × 640 window (less the chrome), with the
@@ -329,9 +338,11 @@ public sealed class SupervisorFitTests : IDisposable
     /// toggles' switches keep their 160 × 100 box; and scrolling to the end brings the last row into
     /// the viewport.
     /// </summary>
-    private FitVerdict Setup(Action<SupervisorSetupWindow>? edit = null)
+    private FitVerdict Setup(Action<SupervisorSetupWindow>? edit = null) => SetupIn(StringTable.EmbeddedEnglish, edit).Verdict;
+
+    private SetupResult SetupIn(StringTable strings, Action<SupervisorSetupWindow>? edit = null)
     {
-        var window = BuildSetupWindow();
+        var window = BuildSetupWindow(strings);
         try
         {
             window.AdvancedExpander.IsExpanded = true;
@@ -345,6 +356,7 @@ public sealed class SupervisorFitTests : IDisposable
             using var host = FitHost.Open(scroller, width: clientWidth, height: clientHeight, inheritFrom: window);
 
             var problems = new List<string>();
+            var reach = new List<string>();
             var viewportRight = scroller.ViewportWidth;
             var measured = 0;
             foreach (var text in FitText.Descendants<TextBlock>(scroller).Where(t => t.IsVisible && t.Text.Length > 0).ToList())
@@ -383,9 +395,20 @@ public sealed class SupervisorFitTests : IDisposable
                     .Single(t => System.Windows.Automation.AutomationProperties.GetAutomationId(t) == $"Settings_Toggle_{id}");
                 DependencyObject node = word;
                 while (node is not Border { Width: 160 } && VisualTreeHelper.GetParent(node) is { } parent) node = parent;
-                if (node is not Border sw) { problems.Add($"{id}: no 160 DIP switch found"); continue; }
+                if (node is not Border sw) { reach.Add($"{id}: no 160 DIP switch found"); continue; }
                 if (Math.Abs(sw.ActualWidth - 160) > 1e-6 || Math.Abs(sw.ActualHeight - sw.Height) > 1e-6)
-                    problems.Add($"{id}: the switch is {FitText.Dip(sw.ActualWidth)}×{FitText.Dip(sw.ActualHeight)}, not 160×{FitText.Dip(sw.Height)}");
+                    reach.Add($"{id}: the switch is {FitText.Dip(sw.ActualWidth)}×{FitText.Dip(sw.ActualHeight)}, not 160×{FitText.Dip(sw.Height)}");
+            }
+
+            // Every dwell control — a DwellButton root carries the hand cursor — lies inside the
+            // viewport's width and inside the scroll extent, so the scroller can bring it into view.
+            var controls = FitText.Descendants<Border>(scroller).Where(b => b.Cursor == System.Windows.Input.Cursors.Hand).ToList();
+            if (controls.Count < 5) throw new InvalidOperationException($"Only {controls.Count} dwell controls found: the reach check is not seeing the window.");
+            foreach (var control in controls)
+            {
+                var box = control.TransformToAncestor((Visual)scroller.Content).TransformBounds(new Rect(control.RenderSize));
+                if (box.Left < -0.5 || box.Right > viewportRight + 0.5 || box.Bottom > scroller.ExtentHeight + 0.5)
+                    reach.Add($"a dwell control at {box} lies outside the {FitText.Dip(viewportRight)} viewport / {FitText.Dip(scroller.ExtentHeight)} extent");
             }
 
             scroller.ScrollToEnd();
@@ -393,14 +416,17 @@ public sealed class SupervisorFitTests : IDisposable
             var last = window.RootPanel.Children.OfType<FrameworkElement>().Last(e => e.IsVisible);
             var lastBottom = last.TransformToAncestor(scroller).Transform(new Point(0, last.ActualHeight)).Y;
             if (lastBottom > scroller.ViewportHeight + 0.5)
-                problems.Add($"scrolled to the end, the last row ends at {FitText.Dip(lastBottom)}, below the viewport {FitText.Dip(scroller.ViewportHeight)}");
+                reach.Add($"scrolled to the end, the last row ends at {FitText.Dip(lastBottom)}, below the viewport {FitText.Dip(scroller.ViewportHeight)}");
 
             if (measured < 10) throw new InvalidOperationException($"Only {measured} texts measured: the setup gate is not seeing the window.");
-            return new FitVerdict(problems.Count == 0,
-                $"{measured} texts in a {FitText.Dip(clientWidth)}×{FitText.Dip(clientHeight)} client, viewport "
-                + $"{FitText.Dip(scroller.ViewportWidth)}×{FitText.Dip(scroller.ViewportHeight)}, extent {FitText.Dip(scroller.ExtentHeight)}"
-                + (problems.Count == 0 ? "" : ":\n  " + string.Join("\n  ", problems)),
+            var all = reach.Concat(problems).ToList();
+            var verdict = new FitVerdict(all.Count == 0,
+                $"{measured} texts and {controls.Count} dwell controls in a {FitText.Dip(clientWidth)}×{FitText.Dip(clientHeight)} "
+                + $"client, viewport {FitText.Dip(scroller.ViewportWidth)}×{FitText.Dip(scroller.ViewportHeight)}, extent "
+                + $"{FitText.Dip(scroller.ExtentHeight)}"
+                + (all.Count == 0 ? "" : ":\n  " + string.Join("\n  ", all)),
                 FitText.ResolvedFace(window.SubtitleText));
+            return new SetupResult(verdict, reach, problems);
         }
         finally
         {
@@ -416,6 +442,71 @@ public sealed class SupervisorFitTests : IDisposable
             var verdict = Setup();
             _output.WriteLine(verdict.ToString());
             Check.WithCustomMessage(verdict.ToString()).That(verdict.Fits).IsTrue();
+        });
+    }
+
+    /// <summary>
+    /// T09 PR 2, binding: under the pseudo-locale the setup window still reaches every row — every
+    /// dwell control inside the viewport's width and the scroll extent, both switches at 160 × 100,
+    /// and scrolling to the end shows the last row. Texts that no longer show whole are a FIT
+    /// finding, reported by <see cref="PseudoLocaleFitReport_IsWritten_ForEveryKey"/>.
+    /// </summary>
+    [Fact]
+    public void Setup_UnderThePseudoLocale_EveryRowStaysReachable()
+    {
+        RunSta(() =>
+        {
+            var result = SetupIn(PseudoLocale.Table);
+            _output.WriteLine(result.Verdict.ToString());
+            Check.That(PseudoLocale.Table.T("supervisor.setup.window-title")).StartsWith("[");
+            Check.WithCustomMessage("Under the pseudo-locale the setup window loses a row:\n  " + string.Join("\n  ", result.Reach))
+                .That(result.Reach).IsEmpty();
+        });
+    }
+
+    /// <summary>
+    /// T09 PR 2, NON-binding: the Supervisor's fit classes (tray63, B260x3, C-fallback) and the
+    /// setup window's text findings under the pseudo-locale, written to
+    /// <c>t09-fit-report/pseudo-locale-supervisor.md</c> in the test output as an early warning for
+    /// T10. The Supervisor's windows carry no theme of their own, so one pass covers them. Asserts
+    /// only that every key was measured.
+    /// </summary>
+    [Fact]
+    public void PseudoLocaleFitReport_IsWritten_ForEveryKey()
+    {
+        RunSta(() =>
+        {
+            var rows = new List<FitReportRow>();
+            var pseudo = PseudoLocale.Table;
+            var prefix = SupervisorStateText.TrayPrefix(pseudo);
+            foreach (var item in PseudoLocale.ItemsOf("tray63"))
+            {
+                var phrase = item.Key == "supervisor.tray.prefix"
+                    ? PseudoLocale.ItemsOf("tray63").Where(i => i.Key != item.Key).MaxBy(i => i.Text.Length)!.Text
+                    : item.Text;
+                rows.Add(new FitReportRow("-", "tray63", item.Key, prefix + phrase, Tray(prefix, phrase)));
+            }
+
+            foreach (var item in PseudoLocale.ItemsOf("B260x3"))
+                rows.Add(new FitReportRow("-", "B260x3", item.Key, item.Text, FallenBack(null, null, item.Text)));
+            foreach (var item in PseudoLocale.ItemsOf("C-fallback"))
+            {
+                var isTitle = item.Key == "supervisor.fallback.title";
+                rows.Add(new FitReportRow("-", "C-fallback", item.Key, item.Text,
+                    FallenBack(isTitle ? item.Text : null, isTitle ? null : item.Text, null)));
+            }
+
+            var setup = SetupIn(pseudo);
+            var notes = setup.Clip.Select(c => "Supervisor setup window: " + c)
+                .DefaultIfEmpty("Supervisor setup window: every text shows whole under the pseudo-locale.")
+                .ToList();
+            var path = FitReport.Write("pseudo-locale-supervisor.md", "T09 pseudo-locale fit report — Supervisor", rows, notes);
+            _output.WriteLine($"Report: {path} ({rows.Count(r => !r.Verdict.Fits)} of {rows.Count} do not fit; "
+                              + $"{setup.Clip.Count} setup-window text findings)");
+
+            var expected = new[] { "tray63", "B260x3", "C-fallback" }.Sum(c => FitCatalog.ItemsOf(c).Count);
+            Check.That(rows).HasSize(expected);
+            Check.That(File.Exists(path)).IsTrue();
         });
     }
 

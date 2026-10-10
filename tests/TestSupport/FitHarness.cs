@@ -405,3 +405,54 @@ internal static class FitCatalog
         return JsonDocument.Parse(stream);
     }
 }
+
+/// <summary>One row of a non-binding fit report.</summary>
+internal sealed record FitReportRow(string Theme, string FitClass, string Key, string Text, FitVerdict Verdict);
+
+/// <summary>
+/// T09 PR 2's NON-BINDING fit report: the fit classes measured under the pseudo-locale, written as
+/// a Markdown file into the test output directory (<c>t09-fit-report/</c>) as an early warning for
+/// T10. It never fails a build; the test that writes it asserts only that it covered every key.
+/// </summary>
+internal static class FitReport
+{
+    /// <summary>The report directory under the test output.</summary>
+    internal static string Directory => Path.Combine(AppContext.BaseDirectory, "t09-fit-report");
+
+    /// <summary>Writes <paramref name="rows"/> as a Markdown report and returns its path.</summary>
+    internal static string Write(string fileName, string title, IReadOnlyList<FitReportRow> rows, IEnumerable<string>? notes = null)
+    {
+        System.IO.Directory.CreateDirectory(Directory);
+        var path = Path.Combine(Directory, fileName);
+        var md = new System.Text.StringBuilder();
+        md.AppendLine("# " + title).AppendLine();
+        md.AppendLine("Non-binding: the pseudo-locale (every word +40 %, accented, bracketed) measured in each class's ")
+          .AppendLine("production geometry at scale 2.0. An entry that does not fit is an early warning for T10's German.")
+          .AppendLine();
+        foreach (var group in rows.GroupBy(r => (r.Theme, r.FitClass)))
+        {
+            var failing = group.Count(r => !r.Verdict.Fits);
+            md.AppendLine($"- **{group.Key.FitClass}** ({group.Key.Theme}): {group.Count() - failing} fit, {failing} do not");
+        }
+
+        md.AppendLine().AppendLine("| Theme | Class | Key | Pseudo text | Verdict |").AppendLine("| --- | --- | --- | --- | --- |");
+        foreach (var row in rows.OrderBy(r => r.Verdict.Fits).ThenBy(r => r.Theme, StringComparer.Ordinal)
+                     .ThenBy(r => r.FitClass, StringComparer.Ordinal).ThenBy(r => r.Key, StringComparer.Ordinal))
+        {
+            md.AppendLine($"| {row.Theme} | {row.FitClass} | `{row.Key}` | {Cell(row.Text)} | "
+                          + $"{(row.Verdict.Fits ? "fits" : "**does not fit**")}: {Cell(row.Verdict.Detail)} |");
+        }
+
+        if (notes is not null)
+        {
+            md.AppendLine().AppendLine("## Notes").AppendLine();
+            foreach (var note in notes) md.AppendLine("- " + Cell(note));
+        }
+
+        File.WriteAllText(path, md.ToString(), new System.Text.UTF8Encoding(false));
+        return path;
+    }
+
+    private static string Cell(string text) =>
+        text.Replace("|", @"\|", StringComparison.Ordinal).Replace("\r", "", StringComparison.Ordinal).Replace("\n", " ", StringComparison.Ordinal);
+}

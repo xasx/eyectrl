@@ -757,7 +757,19 @@ public class HandChunkedPageFitTests
     /// </para>
     /// </summary>
     [StaFact]
-    public void EveryHandChunkedPage_KeepsItsDwellCirclesInsideTheContentCell()
+    public void EveryHandChunkedPage_KeepsItsDwellCirclesInsideTheContentCell() =>
+        AssertEveryPageReachable("English");
+
+    /// <summary>
+    /// The sweep behind <see cref="EveryHandChunkedPage_KeepsItsDwellCirclesInsideTheContentCell"/>,
+    /// in whatever language <see cref="EyeCtrl.Core.Localization.StringTable.Current"/> resolves —
+    /// the sources build their rows from it. T09's pseudo-locale gate runs the same sweep with the
+    /// pseudo-locale activated, so the reachability invariant is ONE rule in both languages, and
+    /// it also asserts that the chunker leaves no page without a row (an empty page is a page turn
+    /// to nothing).
+    /// </summary>
+    /// <param name="language">The language the sweep runs in, for the failure messages.</param>
+    internal static void AssertEveryPageReachable(string language)
     {
         var root = SettingsContentFitTests.Xml();
         var budget = ContentHeightBudget(root);
@@ -766,6 +778,7 @@ public class HandChunkedPageFitTests
         var unreachable = new List<Unreachable>();
         var tooClose = new List<ClearancePair>();
         var duplicateIds = new List<DuplicateId>();
+        var emptyPages = new List<string>();
         var scopes = new List<IDisposable>();
         var usedReachExemptions = new HashSet<ReachExemption>();
         var usedClearanceExemptions = new HashSet<ClearanceExemption>();
@@ -791,6 +804,9 @@ public class HandChunkedPageFitTests
 
                         for (var p = 0; p < pages.Count; p++)
                         {
+                            if (!pages[p].Rows.Any(row => row is not SeparatorSpec))
+                                emptyPages.Add($"  {viewKey} [{fixture}] page {p + 1}/{pages.Count}");
+
                             var (pageHeight, targets) = Place(pages[p], columnWidth);
                             pagesChecked++;
 
@@ -874,10 +890,16 @@ public class HandChunkedPageFitTests
 
         var context = string.Format(
             CultureInfo.InvariantCulture,
-            "(budget {0:F2} DIP, {1:F0}x{2:F0} display, {3:F2} DIP content column, "
+            "({7}: budget {0:F2} DIP, {1:F0}x{2:F0} display, {3:F2} DIP content column, "
             + "circle radius {4:F2}, clearance floor {5:F2}, {6} pages checked)",
             budget, DisplayWidthDip, DisplayHeightDip, columnWidth, RadiusPhysical,
-            ClearanceFloorDip, pagesChecked);
+            ClearanceFloorDip, pagesChecked, language);
+
+        Check.WithCustomMessage(
+                $"These pages hold no row (or only a rule) {context}:{Environment.NewLine}"
+                + string.Join(Environment.NewLine, emptyPages)
+                + $"{Environment.NewLine}A page with nothing on it is a page turn to nothing.")
+            .That(emptyPages).IsEmpty();
 
         Check.WithCustomMessage(string.Format(
                 CultureInfo.InvariantCulture,

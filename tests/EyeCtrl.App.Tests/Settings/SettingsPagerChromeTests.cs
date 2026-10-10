@@ -989,16 +989,22 @@ public class SettingsPagerWiringTests
             .That(xaml).Contains("AutomationProperties.Name=\"{loc:T 'settings.chrome.close'}\"");
     }
 
-    [Fact]
+    [StaFact]
     public void ThePageIndicator_UsesTheSettingsPageOfKey()
     {
         // The value pin above guards the table; this pins the call site, so swapping the key for
         // an inline format (or dropping the key) fails even if the table is fine (review 01 R2).
+        // Since T09 the indicator has its own builder (the pseudo-locale pager gate measures it),
+        // so the pin is two-step: RenderPagination draws THAT builder, and the builder reads the
+        // key — asserted on the English it renders, not on the key's spelling.
         var body = ExtractMethod(WindowSource(), "private void RenderPagination(");
         Check.WithCustomMessage(
-                "RenderPagination no longer builds the page indicator from "
-                + "\"settings.pager.page_of\"; the raw format would show unpinned English.")
-            .That(body).Contains("\"settings.pager.page_of\"");
+                "RenderPagination no longer draws the indicator from BuildPageIndicator, so the "
+                + "keyed builder the gates measure is not the one on screen.")
+            .That(body).Contains("BuildPageIndicator(");
+        Check.WithCustomMessage(
+                "BuildPageIndicator no longer renders \"settings.pager.page_of\" as \"2 / 5\".")
+            .That(SettingsWindow.BuildPageIndicator(2, 5).Text).IsEqualTo("2 / 5");
     }
 
     [Fact]

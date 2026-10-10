@@ -1169,25 +1169,32 @@ public partial class SettingsWindow : OverlayWindow
         }
 
         var prev = MakePagButton("pag_prev", -1);
-        var indicator = new TextBlock
-        {
-            Text = StringTable.Current.T(
-                "settings.pager.page_of",
-                _viewModel.Settings.CurrentPage + 1, _viewModel.Settings.TotalPages),
-            Foreground = Tokens.BrushTextPrimary,
-            FontSize = Tokens.FontSizeTitle,
-            FontWeight = Tokens.FontWeightMedium,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(20, 0, 20, 0),
-            MinWidth = 80,
-            TextAlignment = TextAlignment.Center
-        };
+        var indicator = BuildPageIndicator(_viewModel.Settings.CurrentPage + 1, _viewModel.Settings.TotalPages);
         var next = MakePagButton("pag_next", +1);
 
         PaginationPanel.Children.Add(prev);
         PaginationPanel.Children.Add(indicator);
         PaginationPanel.Children.Add(next);
     }
+
+    /// <summary>
+    /// The content pager's "page / pages" indicator, sitting between the two pager buttons. Its
+    /// own builder so T09's pseudo-locale gate measures the element the pager draws.
+    /// </summary>
+    /// <param name="page">The 1-based current page.</param>
+    /// <param name="pages">The page count.</param>
+    /// <returns>The indicator.</returns>
+    internal static TextBlock BuildPageIndicator(int page, int pages) => new()
+    {
+        Text = StringTable.Current.T("settings.pager.page_of", page, pages),
+        Foreground = Tokens.BrushTextPrimary,
+        FontSize = Tokens.FontSizeTitle,
+        FontWeight = Tokens.FontWeightMedium,
+        VerticalAlignment = VerticalAlignment.Center,
+        Margin = new Thickness(20, 0, 20, 0),
+        MinWidth = 80,
+        TextAlignment = TextAlignment.Center
+    };
 
     // The glyph and the registered dwell/action both depend on the boundary state: a boundary
     // button wears a double arrow and wraps to the far end at the jump dwell; a step button

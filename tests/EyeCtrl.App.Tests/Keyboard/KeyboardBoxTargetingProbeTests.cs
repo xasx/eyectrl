@@ -128,12 +128,13 @@ public class KeyboardBoxTargetingProbeTests
             var box = new PhysicalRect(tl.X, tl.Y, br.X - tl.X, br.Y - tl.Y);
 
             // Physical, not DIP: the box is the Border's DIP extent times the effective scale.
-            // Within 1 px, because layout rounding snaps edges to whole device pixels (126.8 DIP
-            // at 2.0 draws 254 px, not 253.6); a DIP or mixed-unit box is off by 25–100 %.
+            // Within 1.5 px, because layout rounding and PointToScreen snap each edge to a whole
+            // device pixel (126.8 DIP at 2.0 measures 254 px, 159.5 DIP measures 320); a DIP or
+            // mixed-unit box is off by 25–100 %, i.e. tens of pixels.
             Check.WithCustomMessage($"'{id}' box width {box.Width} != {container.ActualWidth} DIP × {probe.Scale}")
-                 .That(Math.Abs(box.Width - container.ActualWidth * probe.Scale)).IsStrictlyLessThan(1.0);
+                 .That(Math.Abs(box.Width - container.ActualWidth * probe.Scale)).IsStrictlyLessThan(1.5);
             Check.WithCustomMessage($"'{id}' box height {box.Height} != {container.ActualHeight} DIP × {probe.Scale}")
-                 .That(Math.Abs(box.Height - container.ActualHeight * probe.Scale)).IsStrictlyLessThan(1.0);
+                 .That(Math.Abs(box.Height - container.ActualHeight * probe.Scale)).IsStrictlyLessThan(1.5);
             boxes[id] = box;
         }
         return boxes;
@@ -197,6 +198,35 @@ public class KeyboardBoxTargetingProbeTests
                 Check.WithCustomMessage($"'{id}' centre {centres[id]} is not its box's centre {expected.Center}")
                      .That(Math.Sqrt(centres[id].DistanceSquaredTo(expected.Center))).IsStrictlyLessThan(1.0);
             }
+        }
+        finally { probe.Dispose(); }
+    }
+
+    /// <summary>
+    /// A sub-layout swap rebuilds the keys; the boxes must be the NEW layout's, with nothing left
+    /// over from the old one (a box outliving its key is a hit region nobody can see).
+    /// </summary>
+    [StaFact]
+    public void AfterASubLayoutSwap_TheBoxesAreExactlyTheNewLayouts()
+    {
+        var probe = Open(2.0);
+        try
+        {
+            var lettersIds = ProductionBoxes(probe.Window).Keys.ToHashSet();
+            probe.Vm.SwitchSubLayout("numbers");
+            probe.Content.UpdateLayout();
+            probe.Window.UpdateGaze(new PhysicalPoint(-99999, -99999), 1_000);
+
+            var oracle = OracleBoxes(probe);
+            var production = ProductionBoxes(probe.Window);
+            Check.That(probe.Vm.ActiveSubLayoutId).IsEqualTo("numbers");
+            // The layouts differ, or this would prove nothing.
+            Check.That(oracle.Keys.ToHashSet().SetEquals(lettersIds)).IsFalse();
+            Check.That(production.Keys).IsEquivalentTo(oracle.Keys);
+            foreach (var (id, expected) in oracle)
+                Check.WithCustomMessage($"'{id}' box {production[id]} != oracle {expected} after the swap")
+                     .That(Math.Abs(production[id].X - expected.X) + Math.Abs(production[id].Width - expected.Width))
+                     .IsStrictlyLessThan(0.01);
         }
         finally { probe.Dispose(); }
     }

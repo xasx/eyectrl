@@ -20,7 +20,7 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                 new ComboBoxSpec("g_theme", "Theme (restart to apply)",
                     Core.Settings.ThemeSettings.ValidNames, null,
                     () => s.Theme.Name, v => { s.Theme.Name = v; _ctx.ApplyAndSave(); })
-                    { Description = "All three are dark; Contrast is the boldest." },
+                    { Description = "Daylight is light, for bright rooms; Contrast is the boldest." },
                 new ToggleSpec("g_boot", "Start on Windows Boot",
                     () => s.General.StartOnBoot, v => { s.General.StartOnBoot = v; _ctx.ApplyAndSave(); })
                     { Description = "Opens EyeCtrl automatically when you sign in." },

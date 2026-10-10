@@ -261,10 +261,12 @@ public class CursorRingStyleContrastTests
     /// the core composites OVER that opaque band (or, for <see cref="CursorRingStyle.BiTonalSegments"/>,
     /// over the backdrop) and converges on whatever is behind it as opacity falls. The shipped
     /// default alone (Midnight, <c>WeightedSandwich</c>, the Accent preset) only needs 0.7
-    /// (6.03:1 at 0.6, 7.92:1 at 0.7), but Midnight's Amber preset (<c>AccentWarning</c>) needs
-    /// 0.9 under both <c>WeightedSandwich</c> and <c>BiTonalSegments</c> — the worst case across
-    /// every combination shipped today, and the value this test pins. A palette or preset change
-    /// that moves it must fail here and update <c>CircleOpacity</c>'s doc comment together with it.
+    /// (6.03:1 at 0.6, 7.92:1 at 0.7), but several dark-on-white-halo presets need 0.9 under
+    /// both <c>WeightedSandwich</c> and <c>BiTonalSegments</c> — Midnight's Amber
+    /// (<c>AccentWarning</c>), tied by Daylight's ring green (<c>#005200</c>) and its warning.
+    /// 0.9 is therefore the worst case across every combination shipped today, and the value
+    /// this test pins. A palette or preset change that moves it must fail here and update
+    /// <c>CircleOpacity</c>'s doc comment together with it.
     /// </summary>
     private const double WorstCaseOpacityThreshold = 0.9;
 

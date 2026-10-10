@@ -121,6 +121,23 @@ public class ModalButtonPaletteTests
 
     [Theory]
     [MemberData(nameof(ToggleContrastThemes))]
+    public void BrightKinds_ResolveToTheExpectedLabelBrush(ITheme theme)
+    {
+        // Direct pin added in review round 1 (M8): the contrast floors alone let the
+        // measured rule flip a label on Contrast or Daylight's Affirmative while every
+        // ratio still passes. Pin WHICH brush each theme resolves to, so a flip is a
+        // deliberate change to this test, not a silent drift under the floors.
+        var expected = theme is DaylightTheme
+            ? theme.BrushSurfaceLight
+            : theme.BrushSurfaceDark;
+        Check.That(ModalButtonPalette.For(ModalChoiceKind.Affirmative, theme).Foreground)
+             .IsSameReferenceAs(expected);
+        Check.That(ModalButtonPalette.For(ModalChoiceKind.Negative, theme).Foreground)
+             .IsSameReferenceAs(expected);
+    }
+
+    [Theory]
+    [MemberData(nameof(ToggleContrastThemes))]
     public void Neutral_IsDistinctFromBothOthers(ITheme theme)
     {
         // Per theme: nothing stops a new theme from collapsing SurfaceMedium onto ToggleOn,

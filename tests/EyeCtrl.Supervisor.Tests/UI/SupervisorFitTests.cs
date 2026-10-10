@@ -468,6 +468,112 @@ public sealed class SupervisorFitTests : IDisposable
     }
 
     /// <summary>
+    /// T09 PR 3 fixup-01 (review-04 D1b): Supervisor setup is a RECORDED geometry exception. "Launch
+    /// EyeCtrl now" and "Save" sit below text that wraps, so a longer translation moves them down
+    /// (about +16 DIP under the pseudo-locale). It is accepted because the window lays its texts out
+    /// once per language — <c>OnLanguageChanged</c> refreshes only the language row's note and the
+    /// status line — like a Settings page re-paginating, never under a live dwell.
+    ///
+    /// <para>
+    /// This pins that it is the ONLY movement, under the pseudo-locale and the stress table: the two
+    /// buttons move straight down (x and size unchanged), together (one shared drop), and every other
+    /// dwell control in the form — the language row — keeps its box exactly. The toggle switches are
+    /// pinned inside their cards by
+    /// <see cref="Setup_TheToggleSwitches_StayPutInTheirCards_UnderThePseudoLocale"/>.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Setup_TheRecordedException_OnlyLaunchAndSaveMove_StraightDown_Together()
+    {
+        RunSta(() =>
+        {
+            var english = DwellControlBoxes(StringTable.EmbeddedEnglish);
+            Check.WithCustomMessage("The form's dwell controls were not all found.")
+                .That(english.Select(c => c.Role).Count(r => r is "launch" or "save" or "switch")).IsEqualTo(4);
+            Check.That(english.Count).IsEqualTo(7);
+
+            foreach (var (name, table) in new[] { ("pseudo", PseudoLocale.Table), ("stress", PseudoLocale.StressTable) })
+            {
+                var other = DwellControlBoxes(table);
+                Check.That(other.Select(c => c.Role)).ContainsExactly(english.Select(c => c.Role));
+                var problems = new List<string>();
+                var drops = new List<double>();
+                for (var i = 0; i < english.Count; i++)
+                {
+                    var (role, e) = english[i];
+                    var o = other[i].Box;
+                    _output.WriteLine($"{name} {role}: {e} → {o}");
+                    switch (role)
+                    {
+                        case "switch":
+                            break;
+                        case "launch" or "save":
+                            if (Math.Abs(o.X - e.X) > 0.01 || Math.Abs(o.Width - e.Width) > 0.01 || Math.Abs(o.Height - e.Height) > 0.01)
+                                problems.Add($"{role}: moved sideways or resized, {e} → {o}");
+                            if (o.Y < e.Y - 0.01)
+                                problems.Add($"{role}: moved UP, {e} → {o}");
+                            drops.Add(o.Y - e.Y);
+                            break;
+                        default:
+                            if (Math.Abs(o.X - e.X) > 0.01 || Math.Abs(o.Y - e.Y) > 0.01
+                                || Math.Abs(o.Width - e.Width) > 0.01 || Math.Abs(o.Height - e.Height) > 0.01)
+                                problems.Add($"{role}: moved, {e} → {o} (only Launch and Save may)");
+                            break;
+                    }
+                }
+
+                if (drops.Count == 2 && Math.Abs(drops[0] - drops[1]) > 0.01)
+                    problems.Add($"Launch and Save dropped by different amounts: {FitText.Dip(drops[0])} and {FitText.Dip(drops[1])}");
+                _output.WriteLine($"{name}: Launch/Save drop {string.Join(", ", drops.Select(FitText.Dip))} DIP");
+                Check.WithCustomMessage($"Supervisor setup ({name}): a translation moved a dwell control beyond the recorded exception:\n  "
+                                        + string.Join("\n  ", problems))
+                    .That(problems).IsEmpty();
+            }
+        });
+    }
+
+    /// <summary>
+    /// Every dwell control of the setup form (the hand-cursor roots), in tree order, with its role —
+    /// "launch", "save", "switch", or "language row #i" — and its box in DIP relative to the form,
+    /// laid out at its full height at 2.0 with the window's default (collapsed) Advanced section.
+    /// </summary>
+    private List<(string Role, Rect Box)> DwellControlBoxes(StringTable strings)
+    {
+        var window = BuildSetupWindow(strings);
+        try
+        {
+            var chrome = Chrome();
+            var scroller = (ScrollViewer)window.Content;
+            window.Content = null;
+            var form = new Border { Background = window.Background, Child = scroller };
+            using var host = FitHost.Open(form, width: window.Width - chrome.Left - chrome.Right, inheritFrom: window);
+
+            var switches = new[] { "setup_enable_supervision", "setup_start_on_logon" }
+                .Select(id => FitText.Descendants<TextBlock>(scroller)
+                    .Single(t => System.Windows.Automation.AutomationProperties.GetAutomationId(t) == $"Settings_Toggle_{id}"))
+                .Select(word => FitText.Ancestors(word).OfType<Border>().First(b => b.Width == 160))
+                .ToHashSet();
+            var launch = strings.T("supervisor.launch-now");
+            var save = strings.T("supervisor.setup.save");
+
+            var result = new List<(string, Rect)>();
+            var other = 0;
+            foreach (var b in FitText.Descendants<Border>(scroller).Where(b => b.Cursor == System.Windows.Input.Cursors.Hand))
+            {
+                var caption = FitText.Descendants<TextBlock>(b).Select(t => t.Text).FirstOrDefault(t => t.Length > 0) ?? "";
+                var role = switches.Contains(b) ? "switch" : caption == launch ? "launch" : caption == save ? "save" : $"language row #{other++}";
+                result.Add((role, b.TransformToAncestor(form).TransformBounds(new Rect(b.RenderSize))));
+            }
+
+            return result;
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    /// <summary>
     /// T09 PR 2, NON-binding: the Supervisor's fit classes (tray63, B260x3, C-fallback) and the
     /// setup window's text findings under the pseudo-locale, written to
     /// <c>t09-fit-report/pseudo-locale-supervisor.md</c> in the test output as an early warning for

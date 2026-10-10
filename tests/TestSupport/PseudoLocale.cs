@@ -48,7 +48,13 @@ internal static class PseudoLocale
         ['V'] = 'Ṽ', ['W'] = 'Ŵ', ['X'] = 'Ẋ', ['Y'] = 'Ý', ['Z'] = 'Ž',
     };
 
-    private static readonly Lazy<string> PseudoJson = new(BuildJson);
+    private static readonly Lazy<string> PseudoJson = new(() => BuildJson(Transform));
+
+    private static readonly Lazy<StringTable> StressTableValue = new(() =>
+        StringTable.Create(
+            UiLanguage.English,
+            CultureInfo.InvariantCulture,
+            StringTableContent.ParseEnglish(BuildJson(StressTransform))));
 
     private static readonly Lazy<StringTable> PseudoTable = new(() =>
         StringTable.Create(
@@ -66,8 +72,22 @@ internal static class PseudoLocale
     /// <summary>The pseudo-locale's strings.json, every entry's metadata unchanged.</summary>
     internal static string Json => PseudoJson.Value;
 
+    /// <summary>
+    /// The STRESS table (review-04 D2), for the geometry gate only: every word DOUBLED (the
+    /// transform at 100 % instead of 40 %). The pseudo-locale is sized like German, so a fixed box
+    /// whose text happens to stay just inside it looks fixed without proving it — "snooze" grows to
+    /// 63.8 DIP against a 64 DIP ring. Doubled, every caption overruns its box, and a box that
+    /// follows its text moves.
+    /// </summary>
+    internal static StringTable StressTable => StressTableValue.Value;
+
+    /// <summary>The stress transform: <see cref="Transform(string)"/> with every word doubled.</summary>
+    internal static string StressTransform(string text) => Transform(text, 1.0);
+
     /// <summary>Transforms one text: longer words, accented letters, bracketed; placeholders kept.</summary>
-    internal static string Transform(string text)
+    internal static string Transform(string text) => Transform(text, Expansion);
+
+    private static string Transform(string text, double expansion)
     {
         var output = new StringBuilder(text.Length * 2);
         output.Append('[');
@@ -77,7 +97,7 @@ internal static class PseudoLocale
         {
             if (word.Length == 0) return;
             var letters = word.ToString();
-            var extra = (int)Math.Ceiling(letters.Length * Expansion);
+            var extra = (int)Math.Ceiling(letters.Length * expansion);
             foreach (var c in letters) output.Append(Accent(c));
             for (var i = 0; i < extra; i++) output.Append(Accent(char.ToLowerInvariant(letters[i % letters.Length])));
             word.Clear();
@@ -125,7 +145,7 @@ internal static class PseudoLocale
 
     private static char Accent(char c) => Accents.TryGetValue(c, out var accented) ? accented : c;
 
-    private static string BuildJson()
+    private static string BuildJson(Func<string, string> transform)
     {
         using var stream = typeof(StringTable).Assembly.GetManifestResourceStream(StringTable.EmbeddedResourceName)
             ?? throw new InvalidOperationException($"The embedded resource '{StringTable.EmbeddedResourceName}' is missing.");
@@ -136,11 +156,11 @@ internal static class PseudoLocale
             switch (entry["text"])
             {
                 case JsonValue single:
-                    entry["text"] = Transform(single.GetValue<string>());
+                    entry["text"] = transform(single.GetValue<string>());
                     break;
                 case JsonObject forms:
                     foreach (var (form, formText) in forms.ToList())
-                        forms[form] = Transform(formText!.GetValue<string>());
+                        forms[form] = transform(formText!.GetValue<string>());
                     break;
             }
         }

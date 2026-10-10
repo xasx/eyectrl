@@ -55,35 +55,15 @@ internal sealed record ProbeRaster(byte[] Pixels, int Width, int Height)
 ///
 /// <para>
 /// <see cref="ScanRow"/> and <see cref="ScanColumn"/> keep R1's fail-fast contract: an empty window
-/// would divide by zero, and the thrown message names the window. <see cref="TryScanRow"/> and
-/// <see cref="TryScanColumn"/> expose the identical measurement to R2's positive control, which
-/// must report a missing ring as a verdict rather than as an exception.
+/// would divide by zero, and the thrown message names the window. A caller that must treat a
+/// missing ring as data rather than as an exception — R2's positive control — measures the annulus
+/// through <see cref="ProbeRingCaptureAnalysis"/> instead of aborting the scan.
 /// </para>
 /// </summary>
 internal static class ProbeRasterEstimator
 {
     /// <summary>Half the scan window, in physical pixels, around the expected cardinal edge.</summary>
     internal const double EdgeWindowPixels = 20.0;
-
-    /// <summary>
-    /// The alpha centroid along one row over a window around a cardinal edge, or <c>null</c> when
-    /// the window holds no weight at all — the ring-not-there case the positive control reports.
-    /// </summary>
-    /// <param name="raster">The raster to measure.</param>
-    /// <param name="row">The row to scan.</param>
-    /// <param name="windowCentreX">The window centre, in pixels.</param>
-    internal static double? TryScanRow(ProbeRaster raster, int row, double windowCentreX)
-    {
-        var (_, _, weight, weighted) = AccumulateRow(raster, row, windowCentreX);
-        return weight > 0.0 ? weighted / weight : null;
-    }
-
-    /// <summary>The column twin of <see cref="TryScanRow"/>.</summary>
-    internal static double? TryScanColumn(ProbeRaster raster, int column, double windowCentreY)
-    {
-        var (_, _, weight, weighted) = AccumulateColumn(raster, column, windowCentreY);
-        return weight > 0.0 ? weighted / weight : null;
-    }
 
     /// <summary>
     /// The alpha centroid along one row, over a window around a cardinal edge. Measured in device

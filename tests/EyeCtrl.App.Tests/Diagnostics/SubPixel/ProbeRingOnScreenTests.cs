@@ -24,10 +24,36 @@ using EyeCtrl.Core.Services;
 /// </para>
 ///
 /// <para>
-/// The test delegates to <see cref="ProbeRingOnScreenHarness"/>, which holds the window, the
-/// DwmFlush-before-capture discipline and every assertion; the headless halves of R2 (the analysis
-/// and the gate/source pins) live in <see cref="ProbeRingCaptureAnalysisTests"/> and
-/// <see cref="ProbeRingOnScreenGateTests"/> and do run on CI.
+/// <b>On-screen mutant recipes (review 01 M3 — read literally, two earlier recipes were no-ops).</b>
+/// Each mutant must be applied, then this test run with the command above; all three go red for the
+/// mutant's own reason once B1/B2 are fixed.
+/// <list type="bullet">
+/// <item><b>m1 — A never snaps:</b> in <c>ProbeRingVisual.Place</c>, force the <c>snap</c> argument
+/// to <c>false</c> when placing condition A. After: A renders like B and the Judge's whole-pixel
+/// assertion fails (A at f = 0.25 measures ~0.25 against an expected 0).</item>
+/// <item><b>Capture exclusion on:</b> set
+/// <see cref="ProbeRingTestWindow.ExcludeFromCapture"/> to <c>true</c> — the one-word edit the
+/// switch exists for; it applies <c>SetWindowDisplayAffinity(hwnd, 0x11
+/// /* WDA_EXCLUDEFROMCAPTURE */)</c>. The plain window has no <c>ExcludeFromScreenCapture</c>
+/// property to flip, which is why the recipe is the Win32 call. After: <c>CopyFromScreen</c> returns
+/// the desktop behind the window and the positive control fails.</item>
+/// <item><b>m4 — B snaps:</b> <c>src/EyeCtrl.App/Diagnostics/SubPixel/ProbeRingVisual.cs:111</c>,
+/// the visual's own <c>SnapsToDevicePixels = false</c> → <c>true</c>. Not the harness container:
+/// the visual overrides anything inherited, so a container mutation is an equivalent no-op. After:
+/// B measures 0 / 1 / 1 for 0.25 / 0.5 / 0.75 (R1's measured numbers) and the fraction assertion
+/// fails. The same mutation also covers the inherited-flag case (R1 F1): the harness window and
+/// scene are hostile by construction, so deleting the probe's local <c>false</c> snaps B the same
+/// way.</item>
+/// </list>
+/// </para>
+///
+/// <para>
+/// The test delegates to <see cref="ProbeRingOnScreenHarness"/>, which holds the window and the
+/// DwmFlush-before-capture discipline; the judgement lives in <see cref="ProbeRingOnScreenJudge"/>
+/// and the geometry in <see cref="ProbeRingFrameSchedule"/>, both driven headlessly by
+/// <see cref="ProbeRingOnScreenJudgeTests"/> and <see cref="ProbeRingFrameScheduleTests"/>. The
+/// analysis and gate/source pins live in <see cref="ProbeRingCaptureAnalysisTests"/> and
+/// <see cref="ProbeRingOnScreenGateTests"/>; all of those run on CI.
 /// </para>
 /// </summary>
 [Collection("WpfApplication")]

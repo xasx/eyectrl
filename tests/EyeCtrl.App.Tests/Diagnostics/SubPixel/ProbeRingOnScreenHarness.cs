@@ -2,10 +2,12 @@ namespace EyeCtrl.App.Tests.Diagnostics.SubPixel;
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -13,6 +15,7 @@ using EyeCtrl.App.Diagnostics.SubPixel;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 
 /// <summary>What <see cref="ProbeRingOnScreenHarness.Run"/> did: nothing (gate closed) or the full run.</summary>
 internal enum ProbeRingOnScreenOutcome
@@ -29,8 +32,21 @@ internal enum ProbeRingOnScreenOutcome
 /// hosting the probe's real <see cref="ProbeRingVisual"/>, places the ring at scheduled centres,
 /// flushes DWM before every capture, captures through the production GDI path
 /// (<see cref="ScreenCaptureService.CaptureRegion"/>, the same <c>CopyFromScreen</c>
-/// <c>ScreenCaptureService</c> uses) and judges every frame with
-/// <see cref="ProbeRingCaptureAnalysis"/>.
+/// <c>ScreenCaptureService</c> uses) and judges the run with <see cref="ProbeRingOnScreenJudge"/>.
+///
+/// <para>
+/// <b>It only captures; the judgement is pure.</b> Every assertion, and the A/B set and sweep
+/// schedule themselves, live in <see cref="ProbeRingOnScreenJudge"/> and
+/// <see cref="ProbeRingFrameSchedule"/>, where headless tests drive them with synthetic frames —
+/// including the DPI verdict, which is the only guard against a bitmap-stretched capture passing
+/// the control (review 01 M1/O15).
+/// </para>
+///
+/// <para>
+/// <b>Two coordinate spaces.</b> The ring is placed in window-local pixels and captured in screen
+/// pixels; <see cref="ProbeRingFrameSchedule"/> owns that mapping, and the capture guard checks the
+/// real region against the schedule's production-derived origin (review 01 B1/B2).
+/// </para>
 ///
 /// <para>
 /// <b>It is inert without the gate, twice over.</b> <see cref="Run"/> returns
@@ -42,10 +58,12 @@ internal enum ProbeRingOnScreenOutcome
 /// </para>
 ///
 /// <para>
-/// <b>Owner safety (h).</b> The window is ~320 DIP square (ring plus margin), never activates,
-/// stays out of the taskbar, hides the OS cursor over itself (as the production probe window does),
-/// and is closed in a <c>finally</c>. Nothing simulates input. The reference, A/B and sweep captures
-/// together show the window for a few seconds — well inside the ~30 s the ticket allows.
+/// <b>Owner safety (h).</b> The window is ~320 DIP square (ring plus margin), never activates
+/// (<c>WS_EX_NOACTIVATE</c>, so even a dwell-click cannot take the foreground), stays out of the
+/// taskbar and Alt-Tab (<c>WS_EX_TOOLWINDOW</c>), hides the OS cursor over itself, and is closed in
+/// a <c>finally</c>. Nothing simulates input. A <see cref="ProbeRingRunWatchdog"/> ends the process
+/// at 30 s, so no stall can leave the window behind. The reference, A/B and sweep captures together
+/// show the window for a few seconds.
 /// </para>
 ///
 /// <para>
@@ -55,20 +73,30 @@ internal enum ProbeRingOnScreenOutcome
 /// is near-black and the core is the owner's colour), and the analysis measures the actual
 /// background from each capture rather than trusting the constant.
 /// </para>
+///
+/// <para>
+/// <b>On-screen mutant recipes (review 01 M3).</b>
+/// <list type="bullet">
+/// <item><b>m1 — A never snaps:</b> in <c>ProbeRingVisual.Place</c>, short-circuit the
+/// <c>snap</c> argument to <c>false</c> (or pass <c>false</c> from here). Killed by the Judge's
+/// condition-A whole-pixel assertion: A then renders like B and measures f where 0/1 is expected.</item>
+/// <item><b>Capture exclusion on:</b> set <see cref="ProbeRingTestWindow.ExcludeFromCapture"/> to
+/// <c>true</c> — the one-word edit this switch exists for; it applies
+/// <c>SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE = 0x11)</c> in
+/// <see cref="ProbeRingTestWindow.OnSourceInitialized"/>. Killed by the positive control, which then
+/// sees the desktop behind the window instead of the ring.</item>
+/// <item><b>m4 — B snaps:</b> <c>ProbeRingVisual.cs:111</c>, its own
+/// <c>SnapsToDevicePixels = false</c> → <c>true</c>. Killed by the Judge's condition-B fraction
+/// assertion (B measures 0/1/1 instead of f), exactly as R1 measured under RenderTargetBitmap.</item>
+/// <item><b>m1′ — inherited snap:</b> delete the probe's own <c>SnapsToDevicePixels = false;</c>
+/// (R1 fixup 01 F1). The harness window and scene are hostile by construction
+/// (<c>SnapsToDevicePixels = true</c>, <c>UseLayoutRounding = true</c>), so this mutant is visible on
+/// the hardware path too: B snaps and the same fraction assertion kills it.</item>
+/// </list>
+/// </para>
 /// </summary>
 internal static class ProbeRingOnScreenHarness
 {
-    /// <summary>The window's side, in DIPs: the 250-DIP ring plus margin on every side.</summary>
-    internal const double WindowDip = 320.0;
-
-    /// <summary>The capture's half-size, in pixels; the 250 px stroke radius plus the scan windows.</summary>
-    private const int CaptureRadiusPx = 300;
-
-    private const int CaptureSizePx = 2 * CaptureRadiusPx;
-
-    /// <summary>R2's stated tolerance, the same ±0.05 px R1 asserts at (requirement e).</summary>
-    internal const double TolerancePx = 0.05;
-
     [DllImport("dwmapi.dll")]
     private static extern int DwmFlush();
 
@@ -112,122 +140,90 @@ internal static class ProbeRingOnScreenHarness
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
 
+        // (h)/(M4) Armed before the window can exist; disarmed on every exit path.
+        using var watchdog = new ProbeRingRunWatchdog(ProbeRingRunWatchdog.FailFastOnTimeout);
+
         ProbeRingTestWindow? window = null;
         try
         {
             window = windowFactory();
             window.Show();
 
-            // (a) The effective DPI must be 192 or the test fails with this message — never a pass
-            // and never a silent skip: on any other scale DWM bitmap-stretching would fake the blur.
             var scale = VisualTreeHelper.GetDpi(window).PixelsPerDip;
-            var dpi = ProbeRingCaptureAnalysis.CheckEffectiveDpi(scale);
-            writeLine(Invariant($"R2 effective window scale: {scale:0.###}"));
-            Check.WithCustomMessage(dpi.Message).That(dpi.IsOwnerScale).IsTrue();
-
-            var ring = new ProbeRingVisual(scale, ProbeRingCaptureScene.OwnerLook(), ProbeRingCaptureScene.LookOpacity);
-            window.AttachRing(ring);
 
             // ScreenCaptureService derives the physical screen size from DpiHelper (its clamping
             // bounds), and production initializes DpiHelper at startup — the test host never does.
-            // Left at the process default 1.0 this is invisible in the geometry until the capture,
-            // which then clamps against a half-size "screen" and silently measures the wrong place.
             // The caller writes it (the UI test, in the non-parallel WpfApplication collection);
             // the assembly's DpiHelperRestore hook puts the scale back after the test.
             initializeDisplayScale(scale);
 
-            var originPhys = new PhysicalPoint(window.Left * scale, window.Top * scale);
-            var halfDip = WindowDip / 2.0;
-            var baseCentrePx = new PhysicalPoint(
-                originPhys.X + halfDip * scale, originPhys.Y + halfDip * scale);
+            var ring = new ProbeRingVisual(scale, ProbeRingCaptureScene.OwnerLook(), ProbeRingCaptureScene.LookOpacity);
+            window.AttachRing(ring);
+
+            var (screenWidthPx, screenHeightPx) = PhysicalScreenSize();
             writeLine(Invariant(
-                $"R2 window at ({window.Left:0.##}, {window.Top:0.##}) DIP; ring centre scheduled at ({baseCentrePx.X:0.##}, {baseCentrePx.Y:0.##}) px; captures are {CaptureSizePx} px square."));
+                $"R2 window at ({window.Left:0.##}, {window.Top:0.##}) DIP; scale {scale:0.###}; captures are {ProbeRingFrameSchedule.CaptureSizePx} px square."));
+
+            var referenceB = CaptureAt(window, ring, scale, 0.0, snap: false, screenWidthPx, screenHeightPx);
+            var referenceA = CaptureAt(window, ring, scale, 0.0, snap: true, screenWidthPx, screenHeightPx);
 
             var halfPx = ProbeRingCaptureScene.RingSizeDip * scale / 2.0;
-
-            var referenceB = CaptureAt(window, ring, baseCentrePx, snap: false);
-            var referenceA = CaptureAt(window, ring, baseCentrePx, snap: true);
-
             var geometry = ProbeRingCaptureAnalysis.RingScanGeometry.For(
-                new PhysicalPoint(baseCentrePx.X - referenceB.OriginX, baseCentrePx.Y - referenceB.OriginY),
+                new PhysicalPoint(
+                    referenceB.Frame.CaptureCentrePx.X - referenceB.Frame.CaptureOriginX,
+                    referenceB.Frame.CaptureCentrePx.Y - referenceB.Frame.CaptureOriginY),
                 halfPx);
 
-            // (c) The positive control on the reference frame, against the same ring rendered
-            // offscreen at the same scale and converted through the same weight transform. A capture
-            // of the desktop behind an excluded window cannot pass this.
+            // The expected pattern for the control: the same look, rendered offscreen at the same
+            // scale and converted through the capture's own measured background.
             var expectedBgra = ProbeRingCaptureScene.RenderCapture(
                 scale, ProbeRingCaptureScene.OwnerLook(),
                 new PhysicalPoint(geometry.ReferenceCentreX, geometry.ReferenceCentreY),
-                snap: false, CaptureSizePx);
+                snap: false, ProbeRingFrameSchedule.CaptureSizePx);
             var expected = ProbeRingCaptureAnalysis.ToWeights(
-                expectedBgra, CaptureSizePx, CaptureSizePx, referenceB.Background);
+                expectedBgra, ProbeRingFrameSchedule.CaptureSizePx, ProbeRingFrameSchedule.CaptureSizePx,
+                referenceB.Background);
 
-            var control = ProbeRingCaptureAnalysis.CheckExpectedRing(
-                referenceB.Weights, expected,
-                new PhysicalPoint(geometry.ReferenceCentreX, geometry.ReferenceCentreY), halfPx);
-            writeLine($"R2 positive control: {control.Reason}");
-            Check.WithCustomMessage(control.Reason).That(control.Matched).IsTrue();
+            var assertionCaptures = ProbeRingOnScreenJudge.AssertionFractions
+                .Select(fraction => (
+                    Fraction: fraction,
+                    A: CaptureAt(window, ring, scale, fraction, snap: true, screenWidthPx, screenHeightPx),
+                    B: CaptureAt(window, ring, scale, fraction, snap: false, screenWidthPx, screenHeightPx)))
+                .ToArray();
 
-            // With nothing to round, A and B must draw at the same place (R1's first assertion).
-            var referenceOffset = ProbeRingCaptureAnalysis.MeasureShift(referenceA.Weights, referenceB.Weights, geometry);
-            writeLine(Invariant(
-                $"R2 reference A-B offset at f=0: ({referenceOffset.X:0.0000}, {referenceOffset.Y:0.0000}) px"));
+            var sweepCaptures = ProbeRingOnScreenJudge.SweepFractions
+                .Select(fraction => CaptureAt(window, ring, scale, fraction, snap: false, screenWidthPx, screenHeightPx))
+                .ToArray();
+
+            // B2: under production truncation the capture origin is one constant for the whole run.
+            // A moving origin would silently add a whole pixel to every measured shift.
+            var origins = assertionCaptures
+                .SelectMany(capture => new[] { capture.A, capture.B })
+                .Concat(sweepCaptures)
+                .Append(referenceB)
+                .Append(referenceA)
+                .Select(capture => (capture.Frame.CaptureOriginX, capture.Frame.CaptureOriginY))
+                .Distinct()
+                .ToList();
             Check.WithCustomMessage(
-                    "With nothing to round, A and B must draw at the same place; measured "
-                    + $"({referenceOffset.X:0.0000}, {referenceOffset.Y:0.0000}) px.")
-                .That(referenceOffset.X).IsCloseTo(0.0, TolerancePx);
-            Check.WithCustomMessage(
-                    $"The reference frames' vertical offset must also be 0, measured {referenceOffset.Y:0.0000} px.")
-                .That(referenceOffset.Y).IsCloseTo(0.0, TolerancePx);
+                    $"The capture origin moved during the run ({string.Join(", ", origins)}); the shift "
+                    + "measurement assumes one constant origin for every frame.")
+                .That(origins).HasSize(1);
 
-            // (e) R1's centroid assertions on the hardware path.
-            foreach (var fraction in new[] { 0.25, 0.5, 0.75 })
-            {
-                var movedCentre = new PhysicalPoint(baseCentrePx.X + fraction, baseCentrePx.Y + fraction);
-                var b = CaptureAt(window, ring, movedCentre, snap: false);
-                var a = CaptureAt(window, ring, movedCentre, snap: true);
-
-                var shiftB = ProbeRingCaptureAnalysis.MeasureShift(b.Weights, referenceB.Weights, geometry);
-                var shiftA = ProbeRingCaptureAnalysis.MeasureShift(a.Weights, referenceA.Weights, geometry);
-                var expectedA = Math.Round(fraction, MidpointRounding.AwayFromZero);
-
-                writeLine(Invariant(
-                    $"R2 hardware f={fraction:0.00}: B=({shiftB.X:0.0000}, {shiftB.Y:0.0000}), A=({shiftA.X:0.0000}, {shiftA.Y:0.0000})"));
-
-                Check.WithCustomMessage(
-                        $"Condition B must render fractionally on the hardware path: f = {fraction:0.00} px but "
-                        + $"the ring moved ({shiftB.X:0.0000}, {shiftB.Y:0.0000}) px. If either axis is 0 or 1, "
-                        + "something snapped the ring to device pixels (m1/m4's shape).")
-                    .That(shiftB.X).IsCloseTo(fraction, TolerancePx);
-                Check.WithCustomMessage(
-                        $"Condition B's vertical move at f = {fraction:0.00} measured {shiftB.Y:0.0000} px.")
-                    .That(shiftB.Y).IsCloseTo(fraction, TolerancePx);
-                Check.WithCustomMessage(
-                        $"Condition A must land on whole device pixels: f = {fraction:0.00} should move "
-                        + $"{expectedA:0} px, measured {shiftA.X:0.0000}.")
-                    .That(shiftA.X).IsCloseTo(expectedA, TolerancePx);
-                Check.WithCustomMessage(
-                        $"Condition A's vertical move at f = {fraction:0.00} should be {expectedA:0} px, "
-                        + $"measured {shiftA.Y:0.0000}.")
-                    .That(shiftA.Y).IsCloseTo(expectedA, TolerancePx);
-            }
-
-            // (f) The fine-fraction sweep: a record of how finely the real display path resolves B.
-            var rows = new List<ProbeRingCaptureAnalysis.SweepRow>();
-            for (var i = 0; i < 20; i++)
-            {
-                var fraction = i * 0.05;
-                var moved = CaptureAt(window, ring,
-                    new PhysicalPoint(baseCentrePx.X + fraction, baseCentrePx.Y + fraction), snap: false);
-                var shift = ProbeRingCaptureAnalysis.MeasureShift(moved.Weights, referenceB.Weights, geometry);
-                rows.Add(new ProbeRingCaptureAnalysis.SweepRow(fraction, shift.X, shift.Y));
-                writeLine(Invariant(
-                    $"R2 sweep f={fraction:0.00}: measured=({shift.X:0.0000}, {shift.Y:0.0000}), error=({shift.X - fraction:0.0000}, {shift.Y - fraction:0.0000})"));
-            }
-
-            var summary = ProbeRingCaptureAnalysis.EvaluateSweep(rows);
-            writeLine(Invariant(
-                $"R2 sweep summary: max |error| {summary.MaxAbsErrorPx:0.0000} px; resolves B to {summary.ResolvedStepPx:0.00} px. {summary.Note}"));
+            ProbeRingOnScreenJudge.Judge(
+                scale,
+                expected,
+                referenceB.Weights,
+                referenceA.Weights,
+                assertionCaptures
+                    .Select(capture => new ProbeRingOnScreenJudge.AbFrame(capture.Fraction, capture.A.Weights, capture.B.Weights))
+                    .ToArray(),
+                sweepCaptures
+                    .Select(capture => new ProbeRingOnScreenJudge.SweepFrame(capture.Frame.Fraction, capture.Weights))
+                    .ToArray(),
+                geometry,
+                halfPx,
+                writeLine);
         }
         finally
         {
@@ -237,50 +233,65 @@ internal static class ProbeRingOnScreenHarness
     }
 
     /// <summary>
-    /// The one place a capture happens: place the ring, present the frame
-    /// (<see cref="ProbeRingTestWindow.Present"/>), flush DWM so the capture cannot read the
-    /// previous frame (requirement b), then capture through the production GDI path and convert to
-    /// the estimator's weight channel.
+    /// The one place a capture happens: schedule the frame, place the ring at its
+    /// <b>window-local</b> centre (the coordinate space <see cref="ProbeRingVisual.Place"/> takes —
+    /// review 01 B1), present it (<see cref="ProbeRingTestWindow.Present"/>), flush DWM so the
+    /// capture cannot read the previous frame (requirement b), then capture at the <b>screen</b>
+    /// centre through the production GDI path and convert to the estimator's weight channel.
     ///
     /// <para>
-    /// The source order of the flush and the capture is pinned by
-    /// <c>ProbeRingOnScreenGateTests</c>: removing the flush must fail a headless test, not quietly
-    /// turn every fraction into a zero.
+    /// The schedule's origin comes from <c>CaptureRegionMath.Compute</c> — production's truncating
+    /// math, not a re-derivation (review 01 B2) — and the real capture region is checked against it,
+    /// so a clamped or drifting origin fails here instead of silently biasing every shift.
+    /// </para>
+    ///
+    /// <para>
+    /// The source order of the flush and the capture, and the window-local placement, are pinned by
+    /// <c>ProbeRingOnScreenGateTests</c>.
     /// </para>
     /// </summary>
-    private static CapturedFrame CaptureAt(ProbeRingTestWindow window, ProbeRingVisual ring, PhysicalPoint centre, bool snap)
+    private static CapturedFrame CaptureAt(
+        ProbeRingTestWindow window, ProbeRingVisual ring, double scale, double fraction, bool snap,
+        int screenWidthPx, int screenHeightPx)
     {
-        ring.Place(centre, snap);
+        var frame = ProbeRingFrameSchedule.For(
+            window.Left, window.Top, scale, fraction, screenWidthPx, screenHeightPx);
+        ring.Place(frame.RingLocalCentrePx, snap);
 
-        // Wait for the frame carrying the new position, then drain DWM's composition queue: without
+        // Wait for the frames carrying the new position, then drain DWM's composition queue: without
         // this pair the capture may be the previous frame.
         window.Present();
         DwmFlush();
 
-        var capture = ScreenCaptureService.CaptureRegion(centre, CaptureRadiusPx);
+        var capture = ScreenCaptureService.CaptureRegion(frame.CaptureCentrePx, ProbeRingFrameSchedule.CaptureRadiusPx);
         if (capture is null)
             throw new InvalidOperationException(
-                $"ScreenCaptureService.CaptureRegion({centre.X}, {centre.Y}, {CaptureRadiusPx}) returned null; "
-                + "there is no screen to capture.");
+                $"ScreenCaptureService.CaptureRegion({frame.CaptureCentrePx.X}, {frame.CaptureCentrePx.Y}, "
+                + $"{ProbeRingFrameSchedule.CaptureRadiusPx}) returned null; there is no screen to capture.");
 
-        // The region is expected unclamped: the window sits well inside the screen. A clamped
-        // origin means ScreenCaptureService's screen bounds are wrong — the DpiHelper contract
-        // above was dropped — and the analysis would judge a region the ring is not in.
-        var expectedOriginX = (int)Math.Round(centre.X) - CaptureRadiusPx;
-        var expectedOriginY = (int)Math.Round(centre.Y) - CaptureRadiusPx;
-        if (capture.Value.X != expectedOriginX || capture.Value.Y != expectedOriginY)
+        if (capture.Value.X != frame.CaptureOriginX || capture.Value.Y != frame.CaptureOriginY)
         {
             throw new InvalidOperationException(
-                $"The capture was clamped to ({capture.Value.X}, {capture.Value.Y}) instead of "
-                + $"({expectedOriginX}, {expectedOriginY}); ScreenCaptureService's physical screen size is "
-                + "wrong. The harness must initialize DpiHelper from the measured window scale.");
+                $"The capture started at ({capture.Value.X}, {capture.Value.Y}), not the production math's "
+                + $"({frame.CaptureOriginX}, {frame.CaptureOriginY}). Either the region was clamped — the "
+                + "caller must initialize DpiHelper from the measured window scale — or the schedule no longer "
+                + "matches CaptureRegionMath.Compute.");
         }
 
         var bgra = ReadBgra(capture.Value.Image, capture.Value.Size);
         var background = ProbeRingCaptureAnalysis.MeasureBackground(bgra, capture.Value.Size, capture.Value.Size);
         var weights = ProbeRingCaptureAnalysis.ToWeights(bgra, capture.Value.Size, capture.Value.Size, background);
-        return new CapturedFrame(weights, capture.Value.X, capture.Value.Y, background);
+        return new CapturedFrame(frame, weights, background);
     }
+
+    /// <summary>
+    /// The primary screen's size in physical pixels, the capture's clamp bounds — <c>DpiHelper</c>
+    /// multiplied by <c>SystemParameters</c>, the same derivation <c>ScreenCaptureService</c> makes.
+    /// A drift between the two fails the capture-origin check above with a named cause.
+    /// </summary>
+    private static (int Width, int Height) PhysicalScreenSize() =>
+        ((int)DpiHelper.LogicalToPhysicalX(SystemParameters.PrimaryScreenWidth),
+         (int)DpiHelper.LogicalToPhysicalY(SystemParameters.PrimaryScreenHeight));
 
     private static byte[] ReadBgra(BitmapSource source, int sizePx)
     {
@@ -297,20 +308,35 @@ internal static class ProbeRingOnScreenHarness
     private static string Invariant(FormattableString message) =>
         FormattableString.Invariant(message);
 
-    /// <summary>One captured frame: the estimator raster, the capture's screen origin, and its measured background.</summary>
+    /// <summary>One captured frame: how it was scheduled, the estimator raster, and its measured background.</summary>
     private sealed record CapturedFrame(
-        ProbeRaster Weights, int OriginX, int OriginY, (byte R, byte G, byte B) Background);
+        ProbeRingFrameSchedule.Frame Frame, ProbeRaster Weights, (byte R, byte G, byte B) Background);
 }
 
 /// <summary>
-/// R2's harness window (requirement d): ring-sized, non-activating, topmost, out of the taskbar,
-/// never shown by anything but <see cref="ProbeRingOnScreenHarness"/>. It mirrors the probe
-/// window's relevant properties — including <c>UseLayoutRounding = false</c> and
-/// <c>SnapsToDevicePixels = false</c>, so the B condition really is fractional — and it is not
-/// excluded from capture, which the positive control would catch if it were.
+/// R2's harness window (requirement d): ring-sized, non-activating, topmost, out of the taskbar and
+/// Alt-Tab, never shown by anything but <see cref="ProbeRingOnScreenHarness"/>, and not excluded
+/// from capture unless the mutant switch is set. Its flags are <b>hostile by construction</b> —
+/// <c>SnapsToDevicePixels = true</c> and <c>UseLayoutRounding = true</c>, exactly as R1's scene is
+/// (R1 fixup 01, F1) — so the probe's own explicit <c>false</c> values are the only thing keeping
+/// condition B fractional on the hardware path too.
 /// </summary>
 internal sealed class ProbeRingTestWindow : Window
 {
+    private const int GwlExStyle = -20;
+    private const int WsExNoActivate = 0x08000000;
+    private const int WsExToolWindow = 0x00000080;
+    private const uint WdaExcludeFromCapture = 0x11;
+
+    [DllImport("user32.dll")]
+    private static extern int GetWindowLong(IntPtr hwnd, int index);
+
+    [DllImport("user32.dll")]
+    private static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowDisplayAffinity(IntPtr hwnd, uint affinity);
+
     public ProbeRingTestWindow()
     {
         ShowActivated = false;
@@ -321,11 +347,13 @@ internal sealed class ProbeRingTestWindow : Window
         WindowStartupLocation = WindowStartupLocation.Manual;
         AllowsTransparency = false;
         Cursor = Cursors.None;
-        UseLayoutRounding = false;
-        SnapsToDevicePixels = false;
 
-        Width = ProbeRingOnScreenHarness.WindowDip;
-        Height = ProbeRingOnScreenHarness.WindowDip;
+        // Hostile by construction (see the class doc): the probe's own flags must win.
+        UseLayoutRounding = true;
+        SnapsToDevicePixels = true;
+
+        Width = ProbeRingFrameSchedule.WindowDip;
+        Height = ProbeRingFrameSchedule.WindowDip;
         Left = Math.Round((SystemParameters.PrimaryScreenWidth - Width) / 2.0);
         Top = Math.Round((SystemParameters.PrimaryScreenHeight - Height) / 2.0);
 
@@ -335,8 +363,40 @@ internal sealed class ProbeRingTestWindow : Window
     }
 
     /// <summary>
-    /// Puts the ring in the window. Called only after the DPI check passed, so the ring's injected
-    /// scale is the window's measured one.
+    /// The capture-exclusion mutant's one-word switch (review 01 M3): set it to <c>true</c> and the
+    /// window registers <c>WDA_EXCLUDEFROMCAPTURE</c>, so <c>CopyFromScreen</c> returns the desktop
+    /// behind it and the positive control must fail. False is the shipping value — R2 measures the
+    /// real window.
+    /// </summary>
+    internal bool ExcludeFromCapture { get; set; }
+
+    /// <summary>
+    /// Applies the ex-styles that keep the owner's session untouched (review 01 m2):
+    /// <c>WS_EX_NOACTIVATE</c> so a gaze dwell-click on the square cannot take the foreground from
+    /// the console (<c>ShowActivated = false</c> only covers <c>Show</c>), and
+    /// <c>WS_EX_TOOLWINDOW</c> so it is not in Alt-Tab. The production probe window carries both
+    /// (<c>SubPixelProbeWindow</c>, pinned by <c>SubPixelProbeWindowTests</c>). Then the mutant
+    /// switch, if set.
+    /// </summary>
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+
+        var hwnd = new WindowInteropHelper(this).Handle;
+        var style = GetWindowLong(hwnd, GwlExStyle) | WsExNoActivate | WsExToolWindow;
+        SetWindowLong(hwnd, GwlExStyle, style);
+
+        if (ExcludeFromCapture)
+            SetWindowDisplayAffinity(hwnd, WdaExcludeFromCapture);
+    }
+
+    /// <summary>The window's own extended style, for the headless style pin (needs an HWND).</summary>
+    internal int ExtendedStyleForTest() =>
+        GetWindowLong(new WindowInteropHelper(this).Handle, GwlExStyle);
+
+    /// <summary>
+    /// Puts the ring in the window. Called only after the scale is measured, so the ring's injected
+    /// scale is the window's effective one.
     /// </summary>
     internal void AttachRing(ProbeRingVisual ring)
     {
@@ -345,8 +405,8 @@ internal sealed class ProbeRingTestWindow : Window
             Width = Width,
             Height = Height,
             Background = Background,
-            UseLayoutRounding = false,
-            SnapsToDevicePixels = false,
+            UseLayoutRounding = true,
+            SnapsToDevicePixels = true,
         };
         scene.Children.Add(ring);
         Content = scene;
@@ -354,20 +414,25 @@ internal sealed class ProbeRingTestWindow : Window
     }
 
     /// <summary>
-    /// Waits for the next composition frame — the one that carries the ring's latest placement —
-    /// then returns so the caller can flush DWM and capture. Throws if no frame arrives within 5 s;
-    /// a window that does not render is a harness fault, not a rendering result.
+    /// Waits for two composition frames before returning so the caller can flush DWM and capture.
+    /// <see cref="CompositionTarget.Rendering"/> fires <i>before</i> its tick is rendered and WPF's
+    /// own present is asynchronous, so one tick does not guarantee the placement is on screen
+    /// (review 01 m1); the second tick means a render pass carrying the change has completed, and
+    /// the caller's <c>DwmFlush</c> then drains presentation. Throws if the frames do not arrive
+    /// within 5 s — a window that does not render is a harness fault, not a rendering result.
     /// </summary>
     internal void Present()
     {
         UpdateLayout();
 
         var frame = new DispatcherFrame();
-        var rendered = false;
+        var ticks = 0;
         EventHandler? onRendering = null;
         onRendering = (_, _) =>
         {
-            rendered = true;
+            ticks++;
+            if (ticks < 2) return;
+
             if (onRendering is not null)
                 CompositionTarget.Rendering -= onRendering;
             frame.Continue = false;
@@ -389,11 +454,11 @@ internal sealed class ProbeRingTestWindow : Window
                 CompositionTarget.Rendering -= onRendering;
         }
 
-        if (!rendered)
+        if (ticks < 2)
         {
             throw new InvalidOperationException(
-                "The probe window produced no composition frame within 5 s; the ring cannot be captured "
-                + "as presented. This is a harness fault, not a rendering result.");
+                "The probe window produced fewer than two composition frames within 5 s; the ring cannot be "
+                + "captured as presented. This is a harness fault, not a rendering result.");
         }
     }
 }

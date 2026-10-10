@@ -86,16 +86,43 @@ public class ProbeRingCaptureAnalysisTests
     }
 
     [StaFact]
-    public void Control_PassesOnTheExpectedRingAtTheExpectedPlace()
+    public void Control_PassesOnAnIndependentlyRenderedExpectedRing()
     {
-        var frame = Weights(FrameAt(0.0, snap: false));
-        var verdict = ProbeRingCaptureAnalysis.CheckExpectedRing(frame, frame, CentreInCapture, HalfPx);
+        // Two separate renders of the same scene (review 01 n2): passing one frame as both sides
+        // would make cosine 1.0 and offset 0 true by construction.
+        var capture = Weights(FrameAt(0.0, snap: false));
+        var expected = Weights(FrameAt(0.0, snap: false));
+
+        var verdict = ProbeRingCaptureAnalysis.CheckExpectedRing(capture, expected, CentreInCapture, HalfPx);
 
         _output.WriteLine(verdict.Reason);
         Check.WithCustomMessage(verdict.Reason).That(verdict.Matched).IsTrue();
         Check.That(verdict.CentreOffsetPx).IsLessOrEqualThan(ProbeRingCaptureAnalysis.CentreTolerancePx);
         Check.That(Math.Abs(verdict.RadiusPx - HalfPx)).IsLessOrEqualThan(ProbeRingCaptureAnalysis.RadiusTolerancePx);
         Check.That(verdict.Similarity).IsStrictlyGreaterThan(0.95);
+    }
+
+    /// <summary>
+    /// The tolerance-proving positive (review 01 n2): a capture shifted by a quarter pixel must still
+    /// pass every control check. Without this, the positive fixture only proves the control accepts
+    /// an exact copy of itself.
+    /// </summary>
+    [StaFact]
+    public void Control_PassesOnASubToleranceShift()
+    {
+        var expected = Weights(FrameAt(0.0, snap: false));
+        var shifted = Weights(FrameAt(0.25, snap: false));
+
+        var verdict = ProbeRingCaptureAnalysis.CheckExpectedRing(shifted, expected, CentreInCapture, HalfPx);
+
+        _output.WriteLine(verdict.Reason);
+        Check.WithCustomMessage(
+                $"{verdict.Reason} A 0.25 px shift is inside the centre tolerance and must not fail the control.")
+            .That(verdict.Matched).IsTrue();
+        Check.That(verdict.CentreOffsetPx).IsStrictlyGreaterThan(0.2);
+        Check.That(verdict.CentreOffsetPx).IsLessOrEqualThan(ProbeRingCaptureAnalysis.CentreTolerancePx);
+        Check.WithCustomMessage("A sub-pixel shift must not dent the pattern similarity.")
+            .That(verdict.Similarity).IsStrictlyGreaterThan(0.9);
     }
 
     [StaFact]
@@ -126,6 +153,54 @@ public class ProbeRingCaptureAnalysisTests
                 "A ring one whole pixel from the expected place must fail the control, or a misplacement "
                 + "would be measured as a rendering result.")
             .That(verdict.Matched).IsFalse();
+    }
+
+    /// <summary>
+    /// The centre check's isolating fixture (review 01 M2): a 0.75 px x-shift fails the centre
+    /// tolerance (0.777 &gt; 0.5) while the cosine (~0.86) and the radius stay inside theirs, so
+    /// loosening the centre tolerance alone must turn this test red.
+    /// </summary>
+    [StaFact]
+    public void Control_FailsOnACentreOnlyShift()
+    {
+        var expected = Weights(FrameAt(0.0, snap: false));
+        var shifted = Weights(FrameAt(0.0, snap: false, centre: new PhysicalPoint(300.75, 300)));
+
+        var verdict = ProbeRingCaptureAnalysis.CheckExpectedRing(shifted, expected, CentreInCapture, HalfPx);
+
+        _output.WriteLine(verdict.Reason);
+        Check.WithCustomMessage(
+                "A 0.75 px shift is outside the centre tolerance and inside the cosine's; the centre check "
+                + "must be what rejects it.")
+            .That(verdict.Matched).IsFalse();
+        Check.WithCustomMessage($"The failure must be the centre check's; got: {verdict.Reason}")
+            .That(verdict.Reason).Contains("centre sits");
+    }
+
+    /// <summary>
+    /// The cosine check's isolating fixture (review 01 M2): a 252-DIP ring keeps the centre (0.06 px)
+    /// and the mean radius (1.997 px, just inside 2.0) inside their tolerances, but a 1-DIP size
+    /// change re-phases the BiTonal dashes and the pattern cosine collapses to ~0.1, so loosening the
+    /// cosine floor alone must turn this test red.
+    /// </summary>
+    [StaFact]
+    public void Control_FailsOnACosineOnlyMismatch()
+    {
+        var settings = ProbeRingCaptureScene.OwnerLook();
+        settings.CircleSize = 252;
+        var expected = Weights(FrameAt(0.0, snap: false));
+        var changed = Weights(ProbeRingCaptureScene.RenderCapture(
+            ProbeRingCaptureAnalysis.OwnerScale, settings, CentreInCapture, snap: false, CaptureSizePx));
+
+        var verdict = ProbeRingCaptureAnalysis.CheckExpectedRing(changed, expected, CentreInCapture, HalfPx);
+
+        _output.WriteLine(verdict.Reason);
+        Check.WithCustomMessage(
+                "A 252-DIP ring is inside the centre and radius tolerances but is not the expected pattern; "
+                + "the cosine check must be what rejects it.")
+            .That(verdict.Matched).IsFalse();
+        Check.WithCustomMessage($"The failure must be the cosine check's; got: {verdict.Reason}")
+            .That(verdict.Reason).Contains("cosine");
     }
 
     [StaFact]

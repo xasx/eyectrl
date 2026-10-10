@@ -2,6 +2,8 @@ namespace EyeCtrl.App.Tests.Diagnostics.SubPixel;
 
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Windows.Interop;
 using EyeCtrl.App.Tests.Fixtures;
 
 /// <summary>
@@ -13,15 +15,26 @@ using EyeCtrl.App.Tests.Fixtures;
 /// must return before constructing a window. The window factory injected here throws if it is ever
 /// called, so removing the gate turns this test red without ever creating a real window — the
 /// mutation can be proven headlessly.</item>
-/// <item>The source pins: <c>DwmFlush()</c> must call <i>before</i> the capture inside the one
-/// method that captures, and the on-screen test must call <see cref="AppFixture.SkipIfDisabled"/>
-/// before it calls the harness. Both are the kind of ordering that a future edit can invert with
-/// everything else still compiling and the headless suite still green.</item>
+/// <item>The window's ex-styles (review 01 m2): <c>WS_EX_NOACTIVATE</c> so a dwell-click cannot
+/// steal the foreground and <c>WS_EX_TOOLWINDOW</c> so it is not in Alt-Tab. Pinned on a real HWND
+/// from <c>EnsureHandle</c>, never a shown window.</item>
+/// <item>The source pins: <c>DwmFlush()</c> before the capture, the ring placed at its
+/// <b>window-local</b> centre (B1), the watchdog armed before the window (M4), and the on-screen
+/// test's <see cref="AppFixture.SkipIfDisabled"/> before the harness run. All are orderings a
+/// future edit can invert with everything else still compiling and the headless suite still
+/// green.</item>
 /// </list>
 /// </summary>
 [Collection("WpfApplication")]
 public class ProbeRingOnScreenGateTests
 {
+    private const int GwlExStyle = -20;
+    private const int WsExToolWindow = 0x00000080;
+    private const int WsExNoActivate = 0x08000000;
+
+    [DllImport("user32.dll")]
+    private static extern int GetWindowLong(IntPtr hwnd, int index);
+
     [Fact]
     public void WithTheUiVariableUnset_TheHarnessAttemptsNoWindow()
     {
@@ -55,6 +68,35 @@ public class ProbeRingOnScreenGateTests
         finally
         {
             Environment.SetEnvironmentVariable("EYECTRL_UI_TESTS", saved);
+        }
+    }
+
+    [StaFact]
+    public void TheHarnessWindow_IsNoActivateAndToolWindow()
+    {
+        // Review 01 m2: ShowActivated only covers Show; without WS_EX_NOACTIVATE a gaze dwell-click
+        // on the square still takes the foreground from the console, and without WS_EX_TOOLWINDOW
+        // the window shows in Alt-Tab. The window gets a real HWND from EnsureHandle and is NEVER
+        // shown, exactly as SubPixelProbeWindowTests pins the production probe's styles.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+
+        var window = new ProbeRingTestWindow();
+        try
+        {
+            var hwnd = new WindowInteropHelper(window).EnsureHandle();
+            Check.That(hwnd).IsNotEqualTo(IntPtr.Zero);
+
+            var style = GetWindowLong(hwnd, GwlExStyle);
+            Check.WithCustomMessage(
+                    "WS_EX_NOACTIVATE must be set: the owner runs EyeCtrl while R2 runs, and a dwell-click "
+                    + "on the square must not steal focus.")
+                .That((style & WsExNoActivate) != 0).IsTrue();
+            Check.WithCustomMessage("WS_EX_TOOLWINDOW must be set (not in Alt-Tab).")
+                .That((style & WsExToolWindow) != 0).IsTrue();
+        }
+        finally
+        {
+            window.Close();
         }
     }
 
@@ -93,6 +135,30 @@ public class ProbeRingOnScreenGateTests
                 "DwmFlush() must run BEFORE the capture in CaptureAt; a flush after CopyFromScreen cannot "
                 + "make the captured frame current. Body read:\n" + captureBody)
             .That(flush).IsStrictlyLessThan(capture);
+
+        // B1: Place takes window-local pixels. Passing the frame's screen centre (the B1 blocker)
+        // compiles and passes every other check, so only this pin keeps the two spaces apart here;
+        // ProbeRingFrameScheduleTests pins their values and the ring-inside-the-window property.
+        Check.WithCustomMessage(
+                "CaptureAt no longer places the ring at frame.RingLocalCentrePx — the window-local centre "
+                + "Place takes. Passing a screen-pixel centre draws the ring outside the window and the "
+                + "control fails on a display that works (review 01 B1). Body read:\n" + captureBody)
+            .That(captureBody.IndexOf("ring.Place(frame.RingLocalCentrePx", StringComparison.Ordinal))
+            .IsStrictlyGreaterThan(-1);
+
+        // M4: the whole-run cap must be armed before the window can exist.
+        var watchdog = harness.IndexOf("new ProbeRingRunWatchdog(", StringComparison.Ordinal);
+        var factory = harness.IndexOf("window = windowFactory();", StringComparison.Ordinal);
+        Check.WithCustomMessage(
+                "ProbeRingOnScreenHarness no longer arms a ProbeRingRunWatchdog: a stalled run would leave "
+                + "its topmost window on the owner's screen with no bound (review 01 M4).")
+            .That(watchdog).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage("The window factory call is missing; repoint this pin.")
+            .That(factory).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage(
+                "The watchdog must be armed BEFORE the window is constructed, or a factory or Show() stall "
+                + "is unbounded.")
+            .That(watchdog).IsStrictlyLessThan(factory);
 
         var onScreen = SourceScanner.StripComments(File.ReadAllText(Path.Combine(
             root, "tests", "EyeCtrl.App.Tests", "Diagnostics", "SubPixel", "ProbeRingOnScreenTests.cs")));

@@ -96,6 +96,26 @@ internal static class ProbeRingCaptureScene
     }
 
     /// <summary>
+    /// Renders one frame and converts it to the estimator's weight channel with its own measured
+    /// background — the shortest path from "the ring is here" to the form
+    /// <see cref="ProbeRingCaptureAnalysis"/> and <see cref="ProbeRingOnScreenJudge"/> consume.
+    /// </summary>
+    /// <param name="centreCapturePx">The ring centre, in capture-local physical pixels.</param>
+    /// <param name="snap">Whether the top-left snaps to whole device pixels (condition A).</param>
+    /// <param name="scale">Device pixels per DIP.</param>
+    /// <param name="captureSizePx">The square frame's size in pixels.</param>
+    internal static ProbeRaster WeightsAt(
+        PhysicalPoint centreCapturePx,
+        bool snap,
+        double scale = ProbeRingCaptureAnalysis.OwnerScale,
+        int captureSizePx = ProbeRingFrameSchedule.CaptureSizePx)
+    {
+        var bgra = RenderCapture(scale, OwnerLook(), centreCapturePx, snap, captureSizePx);
+        var background = ProbeRingCaptureAnalysis.MeasureBackground(bgra, captureSizePx, captureSizePx);
+        return ProbeRingCaptureAnalysis.ToWeights(bgra, captureSizePx, captureSizePx, background);
+    }
+
+    /// <summary>
     /// Doubles a frame by pixel replication: the synthetic stand-in for a 96-DPI window that DWM
     /// bitmap-stretches to a 192-DPI display. Every source pixel becomes a 2x2 block, so a scheduled
     /// fraction in DIPs lands on twice as many device pixels — the pathology the DPI check exists

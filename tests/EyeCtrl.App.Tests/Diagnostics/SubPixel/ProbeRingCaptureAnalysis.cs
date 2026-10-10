@@ -34,6 +34,14 @@ using EyeCtrl.Core.Models;
 /// </para>
 ///
 /// <para>
+/// <b>The radius check is a diagnostic, not an independent fourth check.</b> On the owner's dashed
+/// BiTonal look, every ≥ 2 px radius error also drives the pattern cosine to ~0 — a size change
+/// moves the dash phase with the circumference — so no radius-only fixture exists (review 01 M2,
+/// measured). It stays because it names the wrong-size case in one sentence, but a green control
+/// must not be read as four independent confirmations.
+/// </para>
+///
+/// <para>
 /// <b>Why the control compares against the expected render, not against the schedule.</b> The
 /// owner's BiTonalSegments look is dashed, and its dash cycle does not close exactly on the
 /// rendered path (15.94 cycles, not 16 — the dash length is computed from the nominal diameter,

@@ -1336,14 +1336,17 @@ and are now all satisfied in code; each bullet closes with what was built. See
   track Midnight. The halo constraint from §5 item 9 (presets ≥ 7:1 against
   `StrokeHalo`) must be re-checked per theme — Ember's halo is `#0E0A06`, so the
   preset list is not automatically portable. **Re-checked, and it is portable
-  after all.** All four shipping presets clear 7:1 against every theme's halo
-  (worst case across the four themes is still Midnight's Amber at 9.13:1; the
-  closest Daylight comes is its clamped ring green at 9.52:1 vs its white halo,
-  §10.8). What was not portable is the *first* preset, which must be the theme's
-  accent — so the list is now derived from the theme as `{Accent, green, AccentWarning,
-  TextPrimary}` (the green is `AccentSuccess` on the dark themes and a clamped
-  darker value on light ones, §10.8), which reproduces Midnight's four values
-  exactly.
+  after all.** All four shipping presets clear 7:1 against their OWN theme's
+  halo (worst case across the four themes is still Midnight's Amber at 9.13:1;
+  Daylight's closest is its clamped ring green at 9.52:1 vs its white halo,
+  §10.8) — but a preset does NOT survive a theme switch: Midnight's accent
+  measures 1.25:1 against Daylight's halo. The persisted haloed marks (ring,
+  trail) are therefore re-derived at theme application; see §10.8 consequence 4.
+  What was not portable is the *first* preset, which must be the theme's
+  accent — so the list is now derived from the theme as `{Accent, green,
+  Warning, TextPrimary}` (the green is `AccentSuccess` on the dark themes and
+  a clamped darker value on Daylight, §10.8; the captions are role names, D6),
+  which reproduces Midnight's four values exactly.
 
 ---
 
@@ -1400,7 +1403,7 @@ what makes this theme structurally distinct rather than a re-hue:
    `#FF7777` is the ceiling: 8.16:1 at C\* 57.6. So danger is the weakest colour
    *within* this theme (8.16 against 15–21) while being the **strongest
    `AccentDanger` of all four themes** (Midnight and Ember are 5.74; Daylight's is
-   the weakest at 4.40 vs its core, §10.8).
+   the weakest at 4.44 vs its core, §10.8).
 
 **The triad is therefore NOT shared with Midnight and Ember.** That is a
 consequence of the above, not an inconsistency — no high-contrast palette can use
@@ -1429,7 +1432,10 @@ to carry more than the 20 brushes.
 **Status:** added 2026-10-09, fourth registered theme. Situational, like
 Contrast but for the opposite environment: glare, sunlit rooms, white-desk
 offices — the conditions under which three dark overlays read as heavy voids on
-an already-bright screen.
+an already-bright screen. Review round 1 (2026-10-10, FIX-THEN-SHIP) processed:
+the both-desktops validator rule, TextSecondary darkening, the persisted-mark
+migration (consequence 4), the full decision ledger below, and corrected
+thresholds and figures throughout.
 
 **The §2 ruling, reopened (owner decision D1).** "Dark-only backgrounds — eye
 trackers work poorly on bright surfaces" is amended, not silently dropped. Two
@@ -1472,7 +1478,7 @@ C# mirror `DaylightTheme.cs`, pinned by ThemeParityTests):
 | SurfacePrediction | `#D3EDD8` | | ToggleOn | `#1F6B3E` |
 | BorderSubtle | `#667A9F` | | ToggleOff | `#D8DAE4` |
 | TextPrimary | `#0C0D12` | | ModalBackdrop | `#B3000000` |
-| TextSecondary | `#5A6076` | | _core | `#E7E8F0` |
+| TextSecondary | `#484D5E` | | _core | `#E7E8F0` |
 | TextDim | `#5E6477` | | | |
 
 Non-colour tokens identical to every other theme; `BorderThicknessStandard` 1.
@@ -1481,7 +1487,13 @@ axis at L\* 92.1 — the two defaults sit on one axis, at opposite ends.
 
 **Measured results** (all ten gates pass; margins on the binding ones):
 
-- Gate 3, the reason the accent is *darker than instinct*: 10.96 normal /
+- Gate 2, under the both-desktops rule (review round 1): the translucent base
+  composites over a white AND a black worst desktop, and each gate takes the
+  worse per token — a light theme's binding surface is the black composite
+  `#E2E3EB`, not the white one. TextPrimary 15.18 / TextSecondary 6.57 /
+  TextDim 4.61; Dim's 0.11 of headroom on its 4.5 floor is the thinnest text
+  margin of the four themes.
+- Gate 3, the reason the accent is *darker than instinct*": 10.96 normal /
   **10.49 protanopia** / 11.19 deuteranopia / 11.09 tritanopia against the 9.5
   floor. Every step lighter loses protanopia first — the red-channel loss dims
   teal faster than it dims neutral text.
@@ -1503,7 +1515,7 @@ axis at L\* 92.1 — the two defaults sit on one axis, at opposite ends.
 **Structural consequences outside the palette:**
 
 1. **`ModalButtonPalette` bright-kind labels become measured.** `AccentDanger`
-   against the light base is 4.40:1 — under the 4.5 Negative is held to — and
+   against the light base is 4.44:1 — under the 4.5 Negative is held to — and
    the gates pin danger's lightness from below (§10.8.1), so the *fill* cannot
    move. The label rule is now "whichever surface brush contrasts more with the
    fill", which resolves to the dark base in all three dark themes (preserving
@@ -1511,18 +1523,52 @@ axis at L\* 92.1 — the two defaults sit on one axis, at opposite ends.
 2. **The ring's green is not the semantic green.** Bi-tonal ring segments place the
    preset beside the halo with nothing underneath, so over a mid-light backdrop
    (`#FF5C7A`) each family must clear 3:1 alone — a bar no green satisfying gate
-   9's chroma floor can reach (that needs L\* ≥ 34; this bar needs L\* ≤ 30;
-   disjoint in sRGB). The dark themes never notice because their near-black halo
+   9's chroma floor can reach (that needs L\* ≈ 31.8; this bar needs L\* ≤ 31.3;
+   disjoint by 0.05 of contrast — full-sRGB enumeration puts the most saturated
+   clearing green at C\* 54.28, review round 1). The dark themes never notice because their near-black halo
    carries the mid backdrops. `DwellColorPicker` therefore clamps a light theme's
    ring green to the darkest green that still reads green (`#005200`, C\* 52.5 —
    a ring decoration carries no gate-9 obligation), while `AccentSuccess` stays
    `#00620C` for filled surfaces. Bi-tonal worst case across all four themes:
    3.20:1, Daylight's ring green over `#FF5C7A`.
-3. **TextSecondary and TextDim are near-twins** (`#5A6076` / `#5E6477`, ΔE 1.9).
-   Forced: Dim cannot go lighter than its 4.5 floor allows (4.82 measured) and
-   Secondary cannot go darker without approaching the near-black accent inside
-   gate 4's ΔE 15 reservation. The two-tier distinction survives through usage
-   context, not luminance — the one visual regression Daylight ships knowingly.
+3. **TextSecondary and TextDim were near-twins — retired in review round 1.**
+   The branch as first cut shipped `#5A6076` / `#5E6477` (ΔE 1.9) and called
+   the pairing forced; review proved darker Secondary candidates clear gate 4's
+   accent reservation, so it was a choice, not a constraint. Secondary is now
+   `#484D5E`: ΔE 17.2 from the accent (floor 15), ΔE 8.2 from Dim, and the
+   AAA-vs-SurfaceMedium pairing lifts from 5.67 to 7.65. Dim's 4.61 over the
+   black worst-desktop is the binding text margin (see the gate-2 bullet).
+4. **Persisted haloed marks re-derive at theme application.** `CircleColor`
+   and `TrailColor` are absolute hexes by the §7.1 ruling, so a theme switch
+   carried the old theme's mark onto the new theme's halo — Midnight's accent
+   on Daylight's white halo: 1.25:1, the gaze cursor invisible over the very
+   documents Daylight exists for (review round 1, I1). `ThemeStartup.MigrateHaloedMarks`
+   maps a persisted value that is a preset of ANY other theme to the same-index
+   preset of the new theme (green stays green), keeps a custom value while it
+   clears 7:1 against the new halo, and otherwise snaps to the setting's own
+   default preset (the ring's is the accent, the trail's the warning — the
+   trail is deliberately not accent-coloured). The mapping is symmetric, so
+   switching back and forth is stable, and it is pinned by
+   `ThemeStartupMarkMigrationTests`. `CalibrationSettings.TargetColor` and
+   `AutoSelectionSettings.HighlightColor` stay absolute: both draw unhaloed
+   directly over desktop content, backdrop-dependent on every theme alike — a
+   theme switch does not change their situation.
+
+**Owner decision ledger.** These decisions were taken while the owner was not
+available to ratify them; each row is vetoable. D1's removal reverts the whole
+feature (`git revert` of the branch's commits — a persisted `"Daylight"` theme
+name is repaired back to Midnight by the settings loader's section repair, and
+the mark migration maps Daylight presets back symmetrically).
+
+| # | Decision | Rationale | Undo |
+|---|---|---|---|
+| D1 | Reopen the light axis (§2 amendment) | The three prior themes assume a dim room; bright rooms are the uncovered case. The §2 tracking claim is **untested on this machine either way** — the Tobii stack is licence-dead, so the incumbent provider is the mouse fallback, to which the claim does not apply. That is a scope fact, not a refutation: nothing restricts Daylight to the fallback provider, and "overlays are a fraction of screen luminance" is asserted, not measured. | Revert the branch. **Revert trigger:** with a live tracker, compare TrackStatus validity/quality rates under Daylight vs Midnight across one session; measurable degradation reverts this row. |
+| D2 | Picker order: Midnight, Ember, Daylight, Contrast | Default first, the all-day alternative next, then the situational ones — Contrast last as the boldest extreme. | Reorder `ThemeRegistry.All` + `ThemeSettings.ValidNames`. |
+| D3 | The semantic triad ladder inverts (§10.8.1) | Forced jointly by the halo cap and the chroma floor; the alternative fails a gate. Consequence: TrackStatus "Fair"/"Poor" renders dark red vs red under Daylight — ΔL\* 19.5 carries the pair. | Not separately undoable without failing a gate; veto via D1. |
+| D4 | Modal bright-kind labels are measured, not hardcoded | Daylight's `AccentDanger` on the light base is 4.44:1, under the 4.5 floor Negative is held to; all three dark themes resolve identically to the old rule. | Restore the hardcoded `SurfaceDark` labels and drop the pin test. |
+| D5 | The ring's green ≠ `AccentSuccess` on Daylight | Bi-tonal segments need 3:1 alone over mid backdrops; no C\* ≥ 55 green reaches it (max 54.28). | Veto via D1, or give the ring its own token. |
+| D6 | Preset captions are role names: "Light"→"Text", "Amber"→"Warning" | Visible on all four themes; a colour caption is wrong whenever a theme's token isn't that colour (Daylight's text is near-black, its warning a brick red — hue 41°, 13° from the danger red). | Rename in `DwellColorPicker.PresetsFor`. |
+| D7 | TextSecondary/Dim near-twins | Originally shipped as "forced" and **retired in review round 1** by darkening Secondary to `#484D5E` — review proved it was a choice. | — (resolved). |
 
 #### 10.8.1 The triad ladder inverts
 
@@ -1531,14 +1577,20 @@ opposite ends on a light surface:
 
 - Success and warning are colour-picker presets and the cue-badge colour, so
   each must clear **7:1 against the white halo** — capping both at L\* ≈ 37.8.
-- Gate 9 requires chroma C\* ≥ 55, and **a green below L\* ≈ 34 cannot hold it**
-  (dark greens desaturate faster than dark reds or ochres).
+- Gate 9 requires chroma C\* ≥ 55, and **a green below L\* ≈ 31.8 cannot hold
+  it** (dark greens desaturate faster than dark reds; review round 1's
+  full-sRGB enumeration puts the most saturated 3:1-clearing green at C\* 54.28
+  — the two constraints miss by 0.05 of contrast, not comfortably).
 
 So success and warning must both sit under L\* 38 while staying ΔL\* ≥ 9 apart —
 possible only if one of them goes *very* dark, and the one that can is warning:
-burnt ochre keeps its chroma in the dark. The resulting ladder — warning 25.3 /
+a dark BRICK RED keeps its chroma in the dark. Not ochre, whatever the first
+draft said — hue 41°, thirteen degrees from the danger red (Midnight's warning
+sits at 75°); this is why the picker caption is the role name "Warning" (D6). The resulting ladder — warning 25.3 /
 success 35.5 / danger 44.8 — runs in the opposite order from every dark theme,
-where warning is the *lightest* of the three. The consequence to watch (printed
-by the validator, deliberately not gated): warning-ochre and danger-red sit
-closer in hue than in any other theme, ΔE 17.4 under deuteranopia; §9.4's
-glyph-shape rule carries the distinction there, as it already does for Contrast.
+where warning is the *lightest* of the three. The pair to watch (printed by
+the validator, deliberately not gated) is **success/warning: ΔE 4.4 under
+deuteranopia**, against 10.8 on Midnight and Ember — the lightness gap
+(ΔL\* 10.24) and §9.4's glyph shapes carry the distinction, as they already do
+for Contrast's protanopia 2.7. Warning/danger, by contrast, separates at 17.4
+under deuteranopia — better than Midnight's and Ember's 14.5 for that pair.

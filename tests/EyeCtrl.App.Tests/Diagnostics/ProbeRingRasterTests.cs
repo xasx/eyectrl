@@ -23,12 +23,9 @@ using EyeCtrl.Core.Settings;
 /// </para>
 ///
 /// <para>
-/// <b>Measurement.</b> The ring moved is estimated from the alpha centroid of the left and right
-/// stroke blocks (and the top/bottom pair), each over a ±20 px window centred on the reference
-/// edge, then averaged per axis. The average is deliberate: a wide band's <i>outer</i> edge is two
-/// coincident antialiased bands composited per-pixel, which makes a single edge's centroid move
-/// sub-linearly under a fractional translation (measured up to 0.08 px error on WeightedSandwich);
-/// the mirrored block pair carries equal and opposite biases, so the mean cancels them.
+/// <b>Measurement.</b> The ring moved is estimated by <see cref="ProbeRasterEstimator"/>, the
+/// mirrored-block centroid estimator this class and R2 share — extracted here so the on-screen
+/// test measures with the same code rather than a fork of it.
 /// </para>
 ///
 /// <para>
@@ -91,9 +88,6 @@ public class ProbeRingRasterTests
     /// <summary>The drift/live look; review 01's feasibility measurements were taken at this opacity.</summary>
     private const double SweepLookOpacity = ProbeRingVisual.QuietLookOpacity;
 
-    /// <summary>Half the scan window, in physical pixels, around the expected cardinal edge.</summary>
-    private const double EdgeWindowPixels = 20.0;
-
     /// <summary>R1's stated tolerance: ±0.05 px.</summary>
     private const double TolerancePixels = 0.05;
 
@@ -126,10 +120,10 @@ public class ProbeRingRasterTests
         var basePoint = new PhysicalPoint(160.0 * scale, 160.0 * scale);
         var referenceB = Render(style, scale, basePoint, snap: false, staticPark: false);
         var referenceA = Render(style, scale, basePoint, snap: true, staticPark: false);
-        var referenceRow = RoundToPixel(basePoint.Y);
-        var referenceColumn = RoundToPixel(basePoint.X);
-        var referenceShift = RingShift(referenceB, referenceB, referenceRow, referenceColumn, basePoint, half);
-        var referenceShiftA = RingShift(referenceA, referenceB, referenceRow, referenceColumn, basePoint, half);
+        var referenceRow = ProbeRasterEstimator.RoundToWholePixel(basePoint.Y);
+        var referenceColumn = ProbeRasterEstimator.RoundToWholePixel(basePoint.X);
+        var referenceShift = ProbeRasterEstimator.Shift(referenceB, referenceB, referenceRow, referenceColumn, basePoint, half);
+        var referenceShiftA = ProbeRasterEstimator.Shift(referenceA, referenceB, referenceRow, referenceColumn, basePoint, half);
 
         Check.WithCustomMessage(
                 $"With nothing to round, A and B must draw at the same place. Style {style} at {dpi:0} DPI: "
@@ -142,11 +136,11 @@ public class ProbeRingRasterTests
             var centre = new PhysicalPoint(basePoint.X + fraction, basePoint.Y + fraction);
             var b = Render(style, scale, centre, snap: false, staticPark: false);
             var a = Render(style, scale, centre, snap: true, staticPark: false);
-            var row = RoundToPixel(centre.Y);
-            var column = RoundToPixel(centre.X);
+            var row = ProbeRasterEstimator.RoundToWholePixel(centre.Y);
+            var column = ProbeRasterEstimator.RoundToWholePixel(centre.X);
 
-            var shiftB = RingShift(b, referenceB, row, column, basePoint, half);
-            var shiftA = RingShift(a, referenceA, row, column, basePoint, half);
+            var shiftB = ProbeRasterEstimator.Shift(b, referenceB, row, column, basePoint, half);
+            var shiftA = ProbeRasterEstimator.Shift(a, referenceA, row, column, basePoint, half);
 
             _output.WriteLine(
                 $"R1 {style} dpi={dpi:0} f={fraction:0.00}: "
@@ -206,8 +200,8 @@ public class ProbeRingRasterTests
             // C4 parks the top-left at anchor + fraction, so the park's centre — and the windows
             // the cardinal edges are measured in — sits at anchor + fraction + half.
             var parkedCentre = new PhysicalPoint(anchor.X + fraction + half, anchor.Y + fraction + half);
-            var row = RoundToPixel(parkedCentre.Y);
-            var column = RoundToPixel(parkedCentre.X);
+            var row = ProbeRasterEstimator.RoundToWholePixel(parkedCentre.Y);
+            var column = ProbeRasterEstimator.RoundToWholePixel(parkedCentre.X);
 
             var b = Render(style: CursorRingStyle.BiTonalSegments, scale, scheduled, snap: false, staticPark: true);
             var a = Render(style: CursorRingStyle.BiTonalSegments, scale, scheduled, snap: true, staticPark: true);
@@ -223,17 +217,17 @@ public class ProbeRingRasterTests
                 style: CursorRingStyle.BiTonalSegments, scale,
                 new PhysicalPoint(scheduled.X, Math.Ceiling(anchor.Y + half)), snap: false, staticPark: true);
 
-            var shiftBX = RingShiftX(b, fractionZeroX, row, parkedCentre.X, half);
-            var shiftBY = RingShiftY(b, fractionZeroY, column, parkedCentre.Y, half);
-            var offsetX = Math.Abs(RingShiftX(a, b, row, parkedCentre.X, half));
-            var offsetY = Math.Abs(RingShiftY(a, b, column, parkedCentre.Y, half));
+            var shiftBX = ProbeRasterEstimator.ShiftX(b, fractionZeroX, row, parkedCentre.X, half);
+            var shiftBY = ProbeRasterEstimator.ShiftY(b, fractionZeroY, column, parkedCentre.Y, half);
+            var offsetX = Math.Abs(ProbeRasterEstimator.ShiftX(a, b, row, parkedCentre.X, half));
+            var offsetY = Math.Abs(ProbeRasterEstimator.ShiftY(a, b, column, parkedCentre.Y, half));
 
             // What the naive centre-anchored placement would have produced at this geometry, for
             // the record: the top-left lands on a fraction 0.5 lower and the A-B gap collapses
             // below the 0.3 px floor the design depends on.
             var naiveB = Render(style: CursorRingStyle.BiTonalSegments, scale, scheduled, snap: false, staticPark: false);
             var naiveA = Render(style: CursorRingStyle.BiTonalSegments, scale, scheduled, snap: true, staticPark: false);
-            var naiveOffset = Math.Abs(RingShiftX(naiveA, naiveB, row, scheduled.X, half));
+            var naiveOffset = Math.Abs(ProbeRasterEstimator.ShiftX(naiveA, naiveB, row, scheduled.X, half));
 
             var expectedOffset = Math.Min(fraction, 1.0 - fraction);
             _output.WriteLine(
@@ -322,11 +316,9 @@ public class ProbeRingRasterTests
         }
     }
 
-    // ── rendering and measurement ──
+    // ── rendering ──
 
-    private sealed record Raster(byte[] Pixels, int Width, int Height);
-
-    private static Raster Render(
+    private static ProbeRaster Render(
         CursorRingStyle style,
         double scale,
         PhysicalPoint centrePhys,
@@ -374,80 +366,11 @@ public class ProbeRingRasterTests
         var stride = pixelWidth * 4;
         var pixels = new byte[stride * pixelHeight];
         bitmap.CopyPixels(pixels, stride, 0);
-        return new Raster(pixels, pixelWidth, pixelHeight);
-    }
-
-    /// <summary>
-    /// The ring's movement as the mean of the left/right block centroid shifts (x) and the
-    /// top/bottom pair (y) — one reference image for both axes. The mean is what cancels the
-    /// composite-edge bias; see the class doc.
-    /// </summary>
-    private static (double X, double Y) RingShift(
-        Raster moved, Raster reference, int row, int column, PhysicalPoint referenceCentre, double half) =>
-        (RingShiftX(moved, reference, row, referenceCentre.X, half),
-         RingShiftY(moved, reference, column, referenceCentre.Y, half));
-
-    /// <summary>The x movement, estimated from the mean of the two mirrored left/right blocks.</summary>
-    private static double RingShiftX(Raster moved, Raster reference, int row, double referenceCentreX, double half)
-    {
-        var left = ScanRow(moved, row, referenceCentreX - half) - ScanRow(reference, row, referenceCentreX - half);
-        var right = ScanRow(moved, row, referenceCentreX + half) - ScanRow(reference, row, referenceCentreX + half);
-        return (left + right) / 2.0;
-    }
-
-    /// <summary>The y movement, estimated from the mean of the two mirrored top/bottom blocks.</summary>
-    private static double RingShiftY(Raster moved, Raster reference, int column, double referenceCentreY, double half)
-    {
-        var top = ScanColumn(moved, column, referenceCentreY - half) - ScanColumn(reference, column, referenceCentreY - half);
-        var bottom = ScanColumn(moved, column, referenceCentreY + half) - ScanColumn(reference, column, referenceCentreY + half);
-        return (top + bottom) / 2.0;
-    }
-
-    /// <summary>
-    /// The alpha centroid along one row, over a window around a cardinal edge. Measured in device
-    /// pixels; for a single antialiased edge this moves exactly with the edge.
-    /// </summary>
-    private static double ScanRow(Raster raster, int row, double windowCentreX)
-    {
-        var from = Math.Max((int)Math.Floor(windowCentreX - EdgeWindowPixels), 0);
-        var to = Math.Min((int)Math.Ceiling(windowCentreX + EdgeWindowPixels), raster.Width - 1);
-        double weight = 0.0;
-        double weighted = 0.0;
-        for (var x = from; x <= to; x++)
-        {
-            var alpha = raster.Pixels[(row * raster.Width + x) * 4 + 3];
-            weight += alpha;
-            weighted += alpha * x;
-        }
-
-        Check.WithCustomMessage(
-                $"No ring alpha in the scan window — row {row}, x in [{from}, {to}]. The measurement would divide by zero.")
-            .That(weight).IsStrictlyGreaterThan(0.0);
-        return weighted / weight;
-    }
-
-    /// <summary>The alpha centroid along one column; the vertical twin of <see cref="ScanRow"/>.</summary>
-    private static double ScanColumn(Raster raster, int column, double windowCentreY)
-    {
-        var from = Math.Max((int)Math.Floor(windowCentreY - EdgeWindowPixels), 0);
-        var to = Math.Min((int)Math.Ceiling(windowCentreY + EdgeWindowPixels), raster.Height - 1);
-        double weight = 0.0;
-        double weighted = 0.0;
-        for (var y = from; y <= to; y++)
-        {
-            var alpha = raster.Pixels[(y * raster.Width + column) * 4 + 3];
-            weight += alpha;
-            weighted += alpha * y;
-        }
-
-        Check.WithCustomMessage(
-                $"No ring alpha in the scan window — column {column}, y in [{from}, {to}]. The measurement would divide by zero.")
-            .That(weight).IsStrictlyGreaterThan(0.0);
-        return weighted / weight;
+        return new ProbeRaster(pixels, pixelWidth, pixelHeight);
     }
 
     /// <summary>Pixels with alpha strictly between 0 and the image's maximum: partial coverage only.</summary>
-    private static int CountPartialAlphaPixels(Raster raster)
+    private static int CountPartialAlphaPixels(ProbeRaster raster)
     {
         byte maximum = 0;
         for (var i = 3; i < raster.Pixels.Length; i += 4)
@@ -466,7 +389,7 @@ public class ProbeRingRasterTests
         return partial;
     }
 
-    private static int DifferingPixels(Raster a, Raster b)
+    private static int DifferingPixels(ProbeRaster a, ProbeRaster b)
     {
         if (a.Width != b.Width || a.Height != b.Height)
             throw new InvalidOperationException(
@@ -486,6 +409,4 @@ public class ProbeRingRasterTests
 
         return differing;
     }
-
-    private static int RoundToPixel(double physical) => (int)Math.Round(physical, MidpointRounding.AwayFromZero);
 }

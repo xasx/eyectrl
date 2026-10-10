@@ -413,7 +413,7 @@ internal static class AppFitMeasurers
     {
         var tab = SidebarTabFit.Measure(SidebarTabFit.IconFor(key), text);
         var overhang = tab.LabelRight - tab.BorderRight;
-        var ok = tab.LabelRight <= tab.ColumnWidth && overhang < SidebarTabFit.ToleratedOverhang;
+        var ok = tab.LabelOneLine && tab.LabelRight <= tab.ColumnWidth && overhang < SidebarTabFit.ToleratedOverhang;
         return new FitVerdict(ok,
             $"label right {FitText.Dip(tab.LabelRight)} vs column {FitText.Dip(tab.ColumnWidth)}; overhangs its tab by "
             + $"{FitText.Dip(overhang)} (must be < {FitText.Dip(SidebarTabFit.ToleratedOverhang)})",

@@ -448,8 +448,9 @@ public sealed class SupervisorFitTests : IDisposable
     /// <summary>
     /// T09 PR 2, binding: under the pseudo-locale the setup window still reaches every row — every
     /// dwell control inside the viewport's width and the scroll extent, both switches at 160 × 100,
-    /// and scrolling to the end shows the last row. Texts that no longer show whole are a FIT
-    /// finding, reported by <see cref="PseudoLocaleFitReport_IsWritten_ForEveryKey"/>.
+    /// and scrolling to the end shows the last row — AND every text still shows whole (review-02
+    /// R3: the CLIP findings were already empty under the pseudo-locale, so they bind now rather than
+    /// stay a note). T10 runs the same gate on its German.
     /// </summary>
     [Fact]
     public void Setup_UnderThePseudoLocale_EveryRowStaysReachable()
@@ -461,6 +462,8 @@ public sealed class SupervisorFitTests : IDisposable
             Check.That(PseudoLocale.Table.T("supervisor.setup.window-title")).StartsWith("[");
             Check.WithCustomMessage("Under the pseudo-locale the setup window loses a row:\n  " + string.Join("\n  ", result.Reach))
                 .That(result.Reach).IsEmpty();
+            Check.WithCustomMessage("Under the pseudo-locale a setup-window text no longer shows whole:\n  " + string.Join("\n  ", result.Clip))
+                .That(result.Clip).IsEmpty();
         });
     }
 

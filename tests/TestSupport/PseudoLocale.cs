@@ -151,4 +151,24 @@ internal static class PseudoLocale
     /// <summary>The pseudo-locale's items of one fit class (the English items, text transformed).</summary>
     internal static IReadOnlyList<FitCatalog.Item> ItemsOf(string fitClass) =>
         FitCatalog.ItemsOf(fitClass).Select(i => i with { Text = Transform(i.Text) }).ToList();
+
+    /// <summary>
+    /// The COMPOUND variant (review-02 R2, for the non-binding report only): adjacent words joined
+    /// before the transform — "Quick Actions" becomes one run, as "Schnellaktionen" is — so T10 sees
+    /// where real German compounds will press on a line before they arrive. It binds nothing; T10's
+    /// real German does.
+    /// </summary>
+    internal static string TransformCompound(string text) =>
+        Transform(System.Text.RegularExpressions.Regex.Replace(text, @"(?<=\p{L}) (?=\p{L})", string.Empty));
+
+    /// <summary>The compound variant's items of one fit class.</summary>
+    internal static IReadOnlyList<FitCatalog.Item> CompoundItemsOf(string fitClass) =>
+        FitCatalog.ItemsOf(fitClass).Select(i => i with { Text = TransformCompound(i.Text) }).ToList();
+
+    /// <summary>The letter runs of <paramref name="text"/>, placeholders removed, in order.</summary>
+    internal static IReadOnlyList<string> LetterRuns(string text) =>
+        System.Text.RegularExpressions.Regex.Matches(
+                System.Text.RegularExpressions.Regex.Replace(text, @"\{[^{}]*\}", " "), @"\p{L}+")
+            .Select(m => m.Value)
+            .ToList();
 }

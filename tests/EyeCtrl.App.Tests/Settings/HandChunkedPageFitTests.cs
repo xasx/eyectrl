@@ -759,7 +759,6 @@ public class HandChunkedPageFitTests
     [StaFact]
     public void EveryHandChunkedPage_KeepsItsDwellCirclesInsideTheContentCell() =>
         AssertEveryPageReachable("English");
-
     /// <summary>
     /// The sweep behind <see cref="EveryHandChunkedPage_KeepsItsDwellCirclesInsideTheContentCell"/>,
     /// in whatever language <see cref="EyeCtrl.Core.Localization.StringTable.Current"/> resolves —
@@ -809,6 +808,15 @@ public class HandChunkedPageFitTests
 
                             var (pageHeight, targets) = Place(pages[p], columnWidth);
                             pagesChecked++;
+
+                            // A page of rows with no dwell target at all (labels only) is a page
+                            // the user can reach but not act on (review-02's zero-target gap). The
+                            // one page that is target-free BY DESIGN is the ring preview's: a
+                            // picture of the ring, painted through a painter that takes no
+                            // registrar (ActionMenuRingPainter), reached by its own jump row. The
+                            // exception is that rule, keyed on the row kind, not a list of pages.
+                            if (targets.Count == 0 && !pages[p].Rows.Any(row => row is RingPreviewSpec))
+                                emptyPages.Add($"  {viewKey} [{fixture}] page {p + 1}/{pages.Count}: rows but no dwell target");
 
                             foreach (var t in targets)
                             {

@@ -39,8 +39,14 @@ internal static class SidebarTabFit
 
     private static readonly XNamespace Wpf = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
 
-    /// <summary>One measured tab: its label's right edge, its highlight's box (the dwell target's frame).</summary>
-    internal sealed record Result(double LabelRight, double BorderRight, double ColumnWidth, string Face, Rect BorderBox);
+    /// <summary>
+    /// One measured tab: its label's right edge, its highlight's box (the dwell target's frame), and
+    /// whether the label stayed on one line — a wrapping label is a tab whose height, and so whose
+    /// pitch and tabs-per-page, would follow the language (review-02 R1).
+    /// </summary>
+    internal sealed record Result(
+        double LabelRight, double BorderRight, double ColumnWidth, string Face, Rect BorderBox,
+        bool LabelOneLine, double LabelHeight, double OneLineHeight);
 
     /// <summary>The sidebar column width, from the root grid's ColumnDefinitions in SettingsWindow.xaml.</summary>
     internal static double ColumnWidth() =>
@@ -132,6 +138,22 @@ internal static class SidebarTabFit
 
         double Right(FrameworkElement e) => e.TransformToAncestor(outer).Transform(new Point(e.ActualWidth, 0)).X;
         var box = border.TransformToAncestor(outer).TransformBounds(new Rect(border.RenderSize));
-        return new Result(Right(labelText), Right(border), columnWidth, FitText.ResolvedFace(labelText), box);
+
+        // One line's height in the label's own font, from an unconstrained NoWrap probe — not from
+        // the label, whose MaxWidth or wrapping would make "one line" two.
+        var probe = new TextBlock
+        {
+            Text = label,
+            FontFamily = labelText.FontFamily,
+            FontSize = labelText.FontSize,
+            FontWeight = labelText.FontWeight,
+            TextWrapping = TextWrapping.NoWrap,
+        };
+        probe.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var oneLine = probe.DesiredSize.Height;
+        var oneLineLabel = labelText.TextWrapping == TextWrapping.NoWrap && labelText.ActualHeight <= oneLine + 0.5;
+
+        return new Result(Right(labelText), Right(border), columnWidth, FitText.ResolvedFace(labelText), box,
+            oneLineLabel, labelText.ActualHeight, oneLine);
     }
 }

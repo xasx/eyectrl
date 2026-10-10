@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using EyeCtrl.App.Tests.Settings;
 using EyeCtrl.App.Views;
+using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Tests.TestSupport;
@@ -102,6 +103,47 @@ public class PseudoLocaleGateTests
     }
 
     /// <summary>
+    /// The growth is per WORD (review-02 R2): every letter run of every text grows to at least
+    /// ⌈1.4 n⌉ letters, so an unbreakable run gets longer the way a German word does. Padding the
+    /// end of a text would keep the total ratio and leave every run as short as the English — the
+    /// run rule (class B) would then never be pressed.
+    /// </summary>
+    [Fact]
+    public void EveryLetterRun_GrowsByAtLeastFortyPercent()
+    {
+        var problems = new List<string>();
+        var runs = 0;
+        foreach (var fitClass in StringTableSchema.FitClasses)
+        {
+            var items = FitCatalog.ItemsOf(fitClass);
+            var pseudo = PseudoLocale.ItemsOf(fitClass);
+            for (var i = 0; i < items.Count; i++)
+            {
+                var enRuns = PseudoLocale.LetterRuns(items[i].Text);
+                var psRuns = PseudoLocale.LetterRuns(pseudo[i].Text);
+                if (enRuns.Count != psRuns.Count)
+                {
+                    problems.Add($"{items[i]}: {enRuns.Count} English runs, {psRuns.Count} pseudo runs");
+                    continue;
+                }
+
+                for (var r = 0; r < enRuns.Count; r++)
+                {
+                    runs++;
+                    var need = (int)Math.Ceiling(enRuns[r].Length * (1 + PseudoLocale.Expansion));
+                    if (psRuns[r].Length < need)
+                        problems.Add($"{items[i]}: \"{enRuns[r]}\" → \"{psRuns[r]}\" ({psRuns[r].Length} < {need})");
+                }
+            }
+        }
+
+        _output.WriteLine($"{runs} letter runs checked");
+        Check.WithCustomMessage($"{problems.Count} runs did not grow by 40 %:\n  " + string.Join("\n  ", problems.Take(20)))
+            .That(problems).IsEmpty();
+        Check.That(runs).IsStrictlyGreaterThan(1000);
+    }
+
+    /// <summary>
     /// Binding: under the pseudo-locale every Settings source, in every view and fixture, is
     /// paginated by production (<c>Repaginate</c> at the production budget), the chunking ends with
     /// no empty page, and every dwell circle on every page lies wholly inside the content cell,
@@ -123,30 +165,53 @@ public class PseudoLocaleGateTests
     }
 
     /// <summary>
-    /// Binding: the sidebar still works under the pseudo-locale. A tab's label does not wrap and
-    /// its highlight is a fixed-height box stretched across the column, so a longer label must
-    /// move no tab: each tab's box — the frame its dwell target is centred in — is identical in
-    /// English and in the pseudo-locale, and so is the number of tabs a sidebar page holds. (That
-    /// a pseudo label overhangs its tab is a FIT finding, reported by the non-binding fit report;
-    /// T10 shortens German labels that do.)
+    /// Binding: the sidebar still works under the pseudo-locale. Each tab is built by production's
+    /// <see cref="SettingsWindow.BuildTabFace"/> (review-01 R3) with the English and with the
+    /// pseudo-locale label, and three things must hold in BOTH languages (review-02 R1):
+    /// <list type="bullet">
+    /// <item><description>the label stays on ONE line — a wrapping label makes a tab whose height
+    /// follows the language;</description></item>
+    /// <item><description>the tab keeps production's pitch, <c>TabContainerHeight + 2 × TabButtonMargin</c>,
+    /// the slot <c>SettingsTabPagination.TabsPerPage</c> paginates with — so the tabs a sidebar
+    /// page holds are the same in both languages;</description></item>
+    /// <item><description>the tab's box — the frame its dwell target is centred in — is identical.</description></item>
+    /// </list>
+    /// That a pseudo label overhangs its tab is a FIT finding (tab156), reported by the
+    /// non-binding report; T10 shortens German labels that do.
     /// </summary>
     [StaFact]
     public void TheSidebar_UnderThePseudoLocale_KeepsEveryTabWhereItWas()
     {
-        var moved = new List<string>();
+        var problems = new List<string>();
+        var pitch = SettingsWindow.TabContainerHeight + 2 * SettingsWindow.TabButtonMargin;
+        var budget = 1000.0;   // any budget: the tabs per page follow from the pitch alone
+        var tabsPerPage = SettingsTabPagination.TabsPerPage(budget, pitch);
         foreach (var tab in SettingsTabDriftTests.RenderedTabDefs())
         {
-            var english = SidebarTabFit.Measure(tab.Icon, tab.Label);
             var pseudoLabel = PseudoLocale.Table.T(tab.LabelKey);
+            Check.That(pseudoLabel).StartsWith("[");
+            var english = SidebarTabFit.Measure(tab.Icon, tab.Label);
             var pseudo = SidebarTabFit.Measure(tab.Icon, pseudoLabel);
             _output.WriteLine($"{tab.LabelKey}: \"{pseudoLabel}\" box {pseudo.BorderBox} (English {english.BorderBox}), "
-                              + $"label right {FitText.Dip(pseudo.LabelRight)} (English {FitText.Dip(english.LabelRight)})");
+                              + $"label {FitText.Dip(pseudo.LabelHeight)} tall, one line {FitText.Dip(pseudo.OneLineHeight)}");
+
+            foreach (var (language, measured) in new[] { ("English", english), ("pseudo", pseudo) })
+            {
+                if (!measured.LabelOneLine)
+                    problems.Add($"{tab.LabelKey} ({language}): the label is {FitText.Dip(measured.LabelHeight)} tall, "
+                                 + $"more than one line ({FitText.Dip(measured.OneLineHeight)}), or wraps");
+                var measuredPitch = measured.BorderBox.Height + 2 * SettingsWindow.TabButtonMargin;
+                if (Math.Abs(measuredPitch - pitch) > 1e-6
+                    || SettingsTabPagination.TabsPerPage(budget, measuredPitch) != tabsPerPage)
+                    problems.Add($"{tab.LabelKey} ({language}): the tab's pitch is {FitText.Dip(measuredPitch)}, not the "
+                                 + $"{FitText.Dip(pitch)} the sidebar paginates with");
+            }
+
             if (pseudo.BorderBox != english.BorderBox)
-                moved.Add($"{tab.LabelKey}: {english.BorderBox} → {pseudo.BorderBox}");
-            Check.That(pseudoLabel).StartsWith("[");
+                problems.Add($"{tab.LabelKey}: the tab moved, {english.BorderBox} → {pseudo.BorderBox}");
         }
 
-        Check.WithCustomMessage("A longer label moved a sidebar tab:\n  " + string.Join("\n  ", moved)).That(moved).IsEmpty();
+        Check.WithCustomMessage("A longer label changed the sidebar:\n  " + string.Join("\n  ", problems)).That(problems).IsEmpty();
     }
 
     /// <summary>

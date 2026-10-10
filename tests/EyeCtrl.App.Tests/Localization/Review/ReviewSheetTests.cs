@@ -366,12 +366,12 @@ public class ReviewSheetTests
     private string RingSheet(StringTable english, StringTable german)
     {
         _number = 0;
-        var sheet = new Sheet(6, "The action ring — its labels, shown while the user looks at Help",
+        var sheet = new Sheet(6, "The action ring and the modifier keys",
             "Are the ring labels right? Answer \"All good\", or \"Change some\" and say the numbers.");
         var rings = new StackPanel { Orientation = Orientation.Horizontal };
         rings.Children.Add(Labelled("First ring (the default four actions, More, Back)", Pic(Ring(german, RingLayer.Primary), 0.75), GermanInk));
         rings.Children.Add(Labelled("Second ring (behind More)", Pic(Ring(german, RingLayer.Secondary), 0.75), GermanInk));
-        sheet.Add(Card("The ring in German, as it opens (every label's English is listed beside it)", rings));
+        sheet.Add(Card("The ring in German, with its labels on (they show after looking at Help); each label's English is in 3", rings));
         sheet.Add(Pair("The modifier keys beside the action menu", Modifiers(english), Modifiers(german)));
         sheet.NextColumn();
         sheet.Add(TextPairs("Every ring label: English, then German",

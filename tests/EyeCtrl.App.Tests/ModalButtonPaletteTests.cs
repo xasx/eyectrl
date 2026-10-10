@@ -74,8 +74,9 @@ public class ModalButtonPaletteTests
     public void EveryKind_ClearsTheAALargeTextFloor(ITheme theme, ModalChoiceKind kind)
     {
         // The 24px bold label is WCAG "large text" (>= 14pt bold), so the AA floor is 3.0:1.
-        // Measured at rest: Affirmative 4.37 (Midnight) / 4.18 (Ember) / 15.30 (Contrast);
-        // Negative 5.74 / 5.74 / 8.16; Neutral 10.33 / 12.01 / 18.42. All clear 3.0.
+        // Measured at rest: Affirmative 4.37 (Midnight) / 4.18 (Ember) / 6.50 (Daylight) /
+        // 15.30 (Contrast); Negative 5.74 / 5.74 / 5.42 / 8.16; Neutral 10.33 / 12.01 /
+        // 17.67 / 18.42. All clear 3.0.
         var (background, foreground) = ModalButtonPalette.For(kind, theme);
         var ratio = Contrast(background, foreground.Color);
 
@@ -89,10 +90,11 @@ public class ModalButtonPaletteTests
     // Affirmative is deliberately excluded: it is pinned to the shared ToggleOn token, which
     // measures 4.37:1 against the dark label in Midnight and 4.18:1 in Ember — a near-miss on
     // the 4.5 normal-text floor, but these buttons are 24px bold (WCAG "large text", 3.0
-    // floor), so both still pass AA. Brightening the shared token to clear 4.5 was rejected as
+    // floor), so both still pass AA. Daylight's Affirmative is 6.50 (the measured label rule
+    // picks its white SurfaceLight). Brightening the shared token to clear 4.5 was rejected as
     // app-wide scope creep; the near-miss is documented, not papered over. Note the worst case
     // is EMBER's 4.18, not Midnight's 4.37 — the figure to quote when revisiting this.
-    // Negative (>= 5.74) and Neutral (>= 10.33) clear 4.5 in every theme and are held to it.
+    // Negative (>= 5.42) and Neutral (>= 10.33) clear 4.5 in every theme and are held to it.
     [MemberData(nameof(EveryThemeAndBrightKind))]
     public void BrightKinds_AlsoClearTheNormalTextFloor(ITheme theme, ModalChoiceKind kind)
     {

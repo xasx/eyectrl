@@ -93,12 +93,20 @@ public class ToggleContrastTests
 
     [Theory]
     [MemberData(nameof(AllThemes))]
-    public void ToggleOff_IsTheDarkerOfThePair(ITheme theme)
+    public void ToggleOff_RecedesTowardTheBaseSurface(ITheme theme)
     {
-        // Direction matters as much as separation: an "off" brighter than "on"
-        // would satisfy the 3:1 rule while inverting the affordance.
-        Check.WithCustomMessage($"{theme.Name}: ToggleOff must be darker than ToggleOn")
-            .That(Luminance(theme.ToggleOff)).IsStrictlyLessThan(Luminance(theme.ToggleOn));
+        // Direction matters as much as separation: an "off" state as prominent as
+        // "on" would satisfy the 3:1 rule while inverting the affordance. The
+        // polarity-free form: OFF sits closer to the theme's base surface in
+        // luminance, ON stands away from it. On the dark themes that reads "off is
+        // darker"; on Daylight, whose base is light, off is LIGHTER — same
+        // affordance, mirrored ramp.
+        var on = Math.Abs(Luminance(theme.ToggleOn) - Luminance(theme.SurfaceDark));
+        var off = Math.Abs(Luminance(theme.ToggleOff) - Luminance(theme.SurfaceDark));
+        Check.WithCustomMessage(
+                $"{theme.Name}: ToggleOff must recede toward the base surface more than "
+                + "ToggleOn stands out from it")
+            .That(off).IsStrictlyLessThan(on);
     }
 
     /// <summary>
@@ -125,9 +133,10 @@ public class ToggleContrastTests
     /// <para>
     /// What matters instead is whether the track can be SEEN, because the track is the switch's
     /// visible extent — the thing a gaze user aims at. Measured against SurfaceLight, the state
-    /// fills alone are ToggleOn 2.76 / 2.70 / 11.03 and ToggleOff 1.23 / 1.25 / 1.39 across
-    /// Midnight / Ember / Contrast: the ON track fails 3:1 in two of three themes and the OFF
-    /// track is invisible in all three. TextSecondary as an outline measures 4.38 / 5.38 / 12.35,
+    /// fills alone are ToggleOn 2.76 / 2.70 / 6.50 / 11.03 and ToggleOff 1.23 / 1.25 / 1.39 / 1.39
+    /// across Midnight / Ember / Daylight / Contrast: the ON track fails 3:1 in two of four themes
+    /// and the OFF track is invisible in every one. TextSecondary as an outline measures
+    /// 4.38 / 5.38 / 6.23 / 12.35,
     /// which is why the track's perceptibility is made independent of its fill. Gates the same
     /// combined quantity the bar tests do — max(fill-vs-surface, outline-vs-surface) — against
     /// both states, in every theme.

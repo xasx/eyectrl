@@ -45,24 +45,42 @@ public class DwellColorPicker : IDwellComposite
 
     /// <summary>
     /// The swatches offered for <paramref name="theme"/>: its accent first (the
-    /// default dwell colour), then success, warning and body text.
+    /// default dwell colour), then green, warning and body text.
     ///
     /// Derived rather than listed, so each theme offers colours from its own
     /// palette instead of Midnight's. Under Midnight this reproduces the four
     /// presets that shipped, hex for hex. Every entry is gated at >= 7:1 against
-    /// its own theme's StrokeHalo by ColorPickerPresetTests — worst case across all
-    /// three themes is 9.13:1 — because a dark preset would collapse the §4.1.3
-    /// halo guarantee on the cursor ring.
+    /// its own theme's StrokeHalo by ColorPickerPresetTests — worst case across
+    /// all four themes is still Midnight's Amber at 9.13:1 — because a preset
+    /// that fails its own halo would collapse the §4.1.3 halo guarantee on the
+    /// cursor ring. On the dark themes that bar keeps every preset light; on
+    /// Daylight it keeps every preset dark — the bar is polarity-free.
     /// </summary>
     /// <param name="theme">The theme whose palette the swatches come from.</param>
     /// <returns>Hex/name pairs, accent first.</returns>
     public static (string Hex, string Name)[] PresetsFor(ITheme theme) =>
     [
         (Hex(theme.Accent), "Accent"),
-        (Hex(theme.AccentSuccess), "Green"),
+        (Hex(RingGreen(theme)), "Green"),
         (Hex(theme.AccentWarning), "Amber"),
-        (Hex(theme.TextPrimary), "Light"),
+        (Hex(theme.TextPrimary), "Text"),
     ];
+
+    /// <summary>
+    /// The ring's green, which is the theme's <see cref="ITheme.AccentSuccess"/> everywhere
+    /// except on light themes. Bi-tonal segments place the preset beside the halo with no
+    /// band underneath, so over a mid-light backdrop (<c>#FF5C7A</c>) each family must clear
+    /// 3:1 on its own — a bar no green that satisfies gate 9's chroma floor can reach (that
+    /// needs L* &gt;= 34, this bar needs L* &lt;= 30; proven disjoint in sRGB). The dark
+    /// themes never hit this because their near-black halo carries the mid backdrops. So a
+    /// light theme's ring green is the darkest green that still reads green — a ring
+    /// decoration, not a semantic token, and free of gate 9. Gated with the rest of the
+    /// presets by CursorRingStyleContrastTests and ColorPickerPresetTests.
+    /// </summary>
+    private static Color RingGreen(ITheme theme) =>
+        theme is DaylightTheme
+            ? Color.FromRgb(0x00, 0x52, 0x00)
+            : theme.AccentSuccess;
 
     /// <summary>Swatches for the active theme. Used when no explicit preset list is passed.</summary>
     public static (string Hex, string Name)[] DefaultPresets => PresetsFor(Tokens.Current);

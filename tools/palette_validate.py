@@ -130,7 +130,7 @@ THEMES = {
         # Red is inherently dark: #FF0000 is only 5.25:1 on black. Pushing past
         # 10:1 drops chroma under the gate-9 floor (#FF9999 is C* 41.5). This is
         # the ceiling for "high contrast and still reads red" — 8.16:1 at C* 57.6,
-        # still the strongest AccentDanger of the three themes.
+        # still the strongest AccentDanger of the four themes.
         "AccentDanger":       "#FF7777",
         "ToggleOn":           "#00FF00",
         "ToggleOff":          "#000000",
@@ -149,6 +149,61 @@ THEMES = {
         "FontSizeTitle":           "24",
         "FontSizeDisplay":         "34",
         "_core":              "#000000",
+    },
+    # First LIGHT theme: the hue family of Midnight's #1A1A2E surfaces, inverted to a
+    # cool near-white. The halo guarantee inverts with it - dark marks get a white
+    # StrokeHalo - so every "vs StrokeHalo" app constraint that the dark themes pay
+    # against near-black is paid against #FFFFFF here.
+    "Daylight": {
+        "SurfaceDark":        "#FAE7E8F0",
+        "SurfaceMedium":      "#FAF3F4F9",
+        "SurfaceLight":       "#FFFFFFFF",
+        "SurfaceKey":         "#F0F1F7",
+        "SurfaceKeyModifier": "#CFDEF8",
+        "SurfaceKeySwitch":   "#E9D5EF",
+        "SurfaceKeyActive":   "#9FBDE6",
+        "SurfacePrediction":  "#D3EDD8",
+        "BorderSubtle":       "#667A9F",
+        "BorderFocus":        "#07343E",
+        # Darker than the #16181F family Midnight uses: the accent is also near-black
+        # in lightness (gate 3 pins its L* under 24 against a near-white core), and at
+        # that depth only a very deep text ink keeps dE 15 from it (gate 4).
+        "TextPrimary":        "#0C0D12",
+        "TextSecondary":      "#5A6076",
+        "TextDim":            "#5E6477",
+        # Muted, not maximal, violet: CIEDE2000's RT cross-term cancels chroma
+        # difference against the low-chroma teal accent, so a C* 56 violet sits dE 20
+        # from it while this C* 31 one clears 26. Same band every theme lands in.
+        "MarkerMove":         "#634C7D",
+        # Deep teal, but darker than the #08-0B/#3A-4A/#50-60 neighbourhood: the
+        # protanopia simulation is the binding vision type (10.49 of the 9.5 floor),
+        # and every step lighter toward that neighbourhood loses it.
+        "Accent":             "#07343E",
+        "StrokeHalo":         "#FFFFFF",
+        # Gate 5 forces the triad ladder to invert from the dark themes: >7:1 vs the
+        # white halo caps success AND warning at L* 37.8, and a green below L* 34
+        # cannot hold C* 55 - so warning (burnt ochre, which keeps its chroma dark)
+        # must be the darkest of the three, success the lightest.
+        "AccentSuccess":      "#00620C",
+        "AccentWarning":      "#7A1000",
+        "AccentDanger":       "#C5313B",
+        "ToggleOn":           "#1F6B3E",
+        "ToggleOff":          "#D8DAE4",
+        "ModalBackdrop":      "#B3000000",
+        "BorderThicknessStandard": "1",
+        "CornerRadiusSmall":       "4",
+        "CornerRadiusStandard":    "8",
+        "CornerRadiusLarge":       "12",
+        "CornerRadiusCircle":      "9999",
+        "FontFamilyStandard":      "Segoe UI Variable Text, Segoe UI",
+        "FontWeightMedium":        "SemiBold",
+        "FontWeightStrong":        "Bold",
+        "FontSizeBody":            "12",
+        "FontSizeBodyLarge":       "14",
+        "FontSizeSubtitle":        "18",
+        "FontSizeTitle":           "24",
+        "FontSizeDisplay":         "34",
+        "_core":              "#E7E8F0",
     },
 }
 
@@ -182,8 +237,8 @@ MARKER_HALO_FLOOR = 7.0
 # colour gate. BorderThicknessStandard was the first, and is the only one that actually
 # varies per theme: high-contrast convention is a 2px outline because structure there is
 # carried by the border rather than by fill steps (gate 1), while the tuned palettes use
-# 1px. The geometry and typography tokens joined it in spec §9; they are identical in all
-# three themes today, theme-varying only by mechanism. Any future non-colour token must be
+# 1px. The geometry and typography tokens joined it in spec §9; they are identical in
+# every theme today, theme-varying only by mechanism. Any future non-colour token must be
 # added here or parse() will reject it.
 NON_COLOUR_TOKENS = {
     "BorderThicknessStandard",

@@ -336,6 +336,13 @@ internal static class FitText
             : "<unresolved>";
     }
 
+    /// <summary><paramref name="node"/>'s visual ancestors, nearest first.</summary>
+    internal static IEnumerable<DependencyObject> Ancestors(DependencyObject node)
+    {
+        for (var parent = VisualTreeHelper.GetParent(node); parent is not null; parent = VisualTreeHelper.GetParent(parent))
+            yield return parent;
+    }
+
     /// <summary>All TextBlocks under <paramref name="root"/> in the visual tree.</summary>
     internal static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
     {

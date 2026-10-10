@@ -325,8 +325,15 @@ internal static class AppFitMeasurers
         var word = FitText.Descendants<TextBlock>(panel)
             .Single(t => AutomationProperties.GetAutomationId(t) == "Settings_Toggle_fit_probe");
         if (word.Text != text) throw new InvalidOperationException($"The state word reads '{word.Text}', not the probe text.");
-        var slot = word.ActualWidth - word.Padding.Left - word.Padding.Right;
-        return OneLine(word, text, Math.Min(A44Budget, slot), $"budget {A44Budget}, slot {FitText.Dip(slot)}");
+        // The slot is the width the switch's content cell GIVES the word, less its padding — not
+        // the word's ActualWidth: WPF arranges an over-wide Stretch child at its desired width and
+        // clips it, so ActualWidth reports the text's need, never the room (a T09 PR 2 misreading:
+        // "[Öƒƒöƒ]" read as a 64 DIP slot while the switch stayed 160).
+        var cell = (FrameworkElement)word.Parent;
+        var slot = cell.ActualWidth - word.Padding.Left - word.Padding.Right;
+        var switchBox = (FrameworkElement)FitText.Ancestors(word).OfType<Border>().First(b => b.Width > 0);
+        return OneLine(word, text, Math.Min(A44Budget, slot),
+            $"budget {A44Budget}, slot {FitText.Dip(slot)}, switch {FitText.Dip(switchBox.ActualWidth)} wide");
     }
 
     /// <summary>

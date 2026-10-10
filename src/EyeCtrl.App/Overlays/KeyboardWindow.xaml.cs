@@ -270,12 +270,15 @@ public partial class KeyboardWindow : OverlayWindow
                     VerticalAlignment = VerticalAlignment.Center
                 };
 
-                // A label frame (round 3: the word-delete key's erase arrow) replaces the label's
-                // visuals: the label stays the UIA anchor at Opacity 0 and the frame is drawn as
-                // geometry around it. Everything that acts on the label still works.
+                // A label frame (round 3: the word-delete erase arrow; round 6: the wide
+                // Caps/Shift/Enter arrows) replaces the label's visuals: the label stays the UIA
+                // anchor at Opacity 0 and the frame is drawn as geometry around it. Everything
+                // that acts on the label still works.
                 FrameworkElement captionContent = label;
                 if (key.LabelFrame == EraseLabelFrame.EraseLeft)
                     captionContent = EraseLabelFrame.Build(label, _keySize, boxWidth);
+                else if (ArrowLabelFrame.IsArrow(key.LabelFrame))
+                    captionContent = ArrowLabelFrame.Build(key.LabelFrame!, label, _keySize);
 
                 var keyBrush = new SolidColorBrush(GetKeyBaseColor(key));
                 var container = new Border

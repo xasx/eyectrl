@@ -77,6 +77,11 @@ CASES: dict[str, tuple[int, list[str]]] = {
     "plural-specifier-mismatch-de": (1, ["different placeholders or specifiers"]),
     "stray-close-brace": (1, ["unbalanced '}'"]),
     "invalid-token": (1, ["invalid placeholder"]),
+    # T10 review-01, F3: the copy rules' typography, both spellings of the ellipsis, and the soft
+    # hyphen rejected in a one-line class but kept where it can break (B, row, prose).
+    "ellipsis": (1, ["settings.computing: ellipsis", "settings.waiting: ellipsis"]),
+    "soft-hyphen-one-line": (1, ["settings.ring: soft hyphen (U+00AD)", "fit 'A105' never wraps"]),
+    "soft-hyphen-wrapping": (0, []),
 }
 
 

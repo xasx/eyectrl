@@ -1117,9 +1117,15 @@ public class HandChunkedPageFitTests
             count++;
             if (text.TextWrapping == TextWrapping.NoWrap)
             {
+                // The room is the smaller of the text's own width (an explicit Width or MaxWidth) and
+                // the slot its parent gives it, less the margins (T10 review-01, F2). ActualWidth alone
+                // is blind: a no-wrap text arranged in a narrower slot keeps its unclipped width and
+                // is clipped, so it reports exactly what it needs.
                 var natural = FitText.NaturalWidth(text, text.Text) + text.Padding.Left + text.Padding.Right;
-                if (natural > text.ActualWidth + 0.5)
-                    findings.Add($"{where}: '{text.Text}' needs {FitText.Dip(natural)} DIP on one line but has {FitText.Dip(text.ActualWidth)} (clipped)");
+                var oneLineSlot = System.Windows.Controls.Primitives.LayoutInformation.GetLayoutSlot(text);
+                var oneLineRoom = Math.Min(text.ActualWidth, oneLineSlot.Width - text.Margin.Left - text.Margin.Right);
+                if (natural > oneLineRoom + 0.5)
+                    findings.Add($"{where}: '{text.Text}' needs {FitText.Dip(natural)} DIP on one line but has {FitText.Dip(oneLineRoom)} (clipped)");
                 continue;
             }
 

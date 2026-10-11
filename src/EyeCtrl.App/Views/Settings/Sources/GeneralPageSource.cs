@@ -37,7 +37,7 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                     ],
                     () => UiLanguageTokens.ToJson(s.General.UiLanguage),
                     OnLanguageChosen)
-                    { Description = StringTable.Current.T("language-recovery.row.description") },
+                    { Description = StringTable.Current.T("language-recovery.row.description"), Simple = true },
                 .. PendingLanguageNote(),
                 new ComboBoxSpec("g_theme",
                     StringTable.Current.T("settings.general.theme.label"),
@@ -48,19 +48,19 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                     ],
                     Core.Settings.ThemeSettings.ValidNames,
                     () => s.Theme.Name, v => { s.Theme.Name = v; _ctx.ApplyAndSave(); })
-                    { Description = StringTable.Current.T("settings.general.theme.description") },
+                    { Description = StringTable.Current.T("settings.general.theme.description"), Simple = true },
                 new ToggleSpec("g_boot",
                     StringTable.Current.T("settings.general.boot.label"),
                     () => s.General.StartOnBoot, v => { s.General.StartOnBoot = v; _ctx.ApplyAndSave(); })
-                    { Description = StringTable.Current.T("settings.general.boot.description") },
+                    { Description = StringTable.Current.T("settings.general.boot.description"), Simple = true },
                 new ToggleSpec("g_pause",
                     StringTable.Current.T("settings.general.pause.label"),
                     () => s.General.StartPaused, v => { s.General.StartPaused = v; _ctx.ApplyAndSave(); })
-                    { Description = StringTable.Current.T("settings.general.pause.description") },
+                    { Description = StringTable.Current.T("settings.general.pause.description"), Simple = true },
                 new ToggleSpec("g_track",
                     StringTable.Current.T("settings.general.track.label"),
                     () => s.TrackStatus.Enabled, v => { s.TrackStatus.Enabled = v; _ctx.ApplyAndSave(); })
-                    { Description = StringTable.Current.T("settings.general.track.description") },
+                    { Description = StringTable.Current.T("settings.general.track.description"), Simple = true },
                 .. SupervisionRows(),
                 new ButtonSpec("g_restart",
                     StringTable.Current.T("settings.general.restart.label"),
@@ -86,7 +86,7 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     }),
-                    ButtonKind.Reset, Width: 300, Height: 100),
+                    ButtonKind.Reset, Width: 300, Height: 100) { Simple = true },
                 new ButtonSpec("g_resetall",
                     StringTable.Current.T("settings.general.resetall.label"),
                     () => _ctx.ShowModal(StringTable.Current.T("settings.general.resetall.message"), () =>
@@ -110,7 +110,7 @@ internal sealed class GeneralPageSource : ISettingsPageSource
     private IEnumerable<SettingsRowSpec> PendingLanguageNote()
     {
         if (!LanguageChangePending(_ctx.Settings)) yield break;
-        yield return new LabelSpec(() => StringTable.Current.T("language-recovery.note.pending"));
+        yield return new LabelSpec(() => StringTable.Current.T("language-recovery.note.pending")) { Simple = true };
     }
 
     /// <summary>
@@ -175,7 +175,7 @@ internal sealed class GeneralPageSource : ISettingsPageSource
         if (!supervision.IsAvailable)
         {
             yield return new LabelSpec(
-                () => StringTable.Current.T("settings.general.supervision.unavailable"));
+                () => StringTable.Current.T("settings.general.supervision.unavailable")) { Simple = true };
             yield break;
         }
 
@@ -187,7 +187,7 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                 if (v) supervision.RequestEnable();
                 else supervision.RequestDisable();
             })
-            { Description = StringTable.Current.T("settings.general.supervision.description") };
+            { Description = StringTable.Current.T("settings.general.supervision.description"), Simple = true };
 
         // Ticket 07: enabled but no Supervisor answering (e.g. after a reboot, before the startup
         // ensure lands, or after a Supervisor exit) — offer the retry, sized like the Restart
@@ -196,10 +196,10 @@ internal sealed class GeneralPageSource : ISettingsPageSource
         {
             yield return new ButtonSpec("g_supervision_retry",
                 StringTable.Current.T("settings.general.supervision_retry.label"),
-                () => supervision.RequestEnsure(), ButtonKind.Default, Width: 300, Height: 100);
+                () => supervision.RequestEnsure(), ButtonKind.Default, Width: 300, Height: 100) { Simple = true };
         }
 
-        yield return new LabelSpec(() => supervision.StatusText);
+        yield return new LabelSpec(() => supervision.StatusText) { Simple = true };
     }
 
     private void OnRestart()

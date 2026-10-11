@@ -325,7 +325,12 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
                     // Stroke is the HALO, not a second success band (round 3, m1): these
                     // markers sit straight on the black scrim, where Daylight's dark
                     // success fill measured ~1.5:1. The rim makes the fill read on every
-                    // theme's scrim, same idiom as the dot and the rings.
+                    // theme's scrim, same idiom as the dot and the rings. NOTE (round 4,
+                    // m1): on Daylight the rim dominates and this state reads as a white
+                    // RING while the upcoming state below reads as a filled light DISC —
+                    // the dark themes' filled/hollow grammar inverts. Recorded in §10.8;
+                    // no single-ellipse fix exists (every Daylight token but the halo is
+                    // dark on the black scrim).
                     marker.Visibility = Visibility.Visible;
                     marker.Fill = Tokens.BrushAccentSuccess;
                     marker.Stroke = Tokens.BrushStrokeHalo;

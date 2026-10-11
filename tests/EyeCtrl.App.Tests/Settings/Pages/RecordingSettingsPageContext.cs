@@ -40,6 +40,7 @@ internal sealed class RecordingSettingsPageContext
     /// </param>
     public RecordingSettingsPageContext(
         EyeCtrlSettings? settings = null,
+        Action? onApplyAndSave = null,
         SettingsWindowViewModel? viewModel = null,
         ModelRegistryService? registry = null,
         ModelManagementService? modelManagement = null,
@@ -67,7 +68,7 @@ internal sealed class RecordingSettingsPageContext
             dictionary: dictionary,
             showModal: CaptureModal,
             showError: message => { _errors.Add(message); _log.Add(ErrorEntry); },
-            applyAndSave: () => { ApplyAndSaveCount++; _log.Add(ApplyAndSaveEntry); },
+            applyAndSave: () => { ApplyAndSaveCount++; _log.Add(ApplyAndSaveEntry); onApplyAndSave?.Invoke(); },
             rebuildContent: () => { RebuildContentCount++; _log.Add(RebuildContentEntry); },
             invoke: action => action(),   // single-threaded tests: marshal is a direct call
             close: () => { CloseCount++; _log.Add(CloseEntry); },

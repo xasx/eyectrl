@@ -142,6 +142,15 @@ public class CalibrationWindowVisualPinsTests
             AssertSynced(window);
             vm.IsOnTarget = false;
             AssertSynced(window);
+
+            // Round 4, m2: the PROGRESS pair syncs too. It is driven by
+            // TargetProgress, and a desync here leaves the halo at its XAML
+            // Opacity=0 — on Daylight the dark progress ring would lose its
+            // white backing and the "it is filling" signal would vanish.
+            vm.TargetProgress = 0.5;
+            Check.That(window.ProgressHalo.StrokeThickness)
+                 .IsEqualTo(window.ProgressRing.StrokeThickness + 2);
+            Check.That(window.ProgressHalo.Opacity).IsEqualTo(window.ProgressRing.Opacity);
         }
         finally
         {

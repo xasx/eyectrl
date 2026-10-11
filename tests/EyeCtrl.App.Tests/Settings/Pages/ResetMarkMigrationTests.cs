@@ -86,6 +86,35 @@ public class ResetMarkMigrationTests
     }
 
     [Fact]
+    public void CursorReset_MigratesTheMark_BeforeTheSaveThatRepaintsTheRing()
+    {
+        // Round 4, m3: the behavioural half the source-order pin cannot see. The
+        // hook captures the ring colour AT ApplyAndSave time — the value the live
+        // SettingsChanged repaint would paint. If the migration ran after the save,
+        // this sees Midnight's #A5F3FC even though the final settings are correct.
+        var settings = new EyeCtrlSettings();
+        try
+        {
+            Tokens.Activate(DaylightTheme.Instance);
+            string? colourAtApply = null;
+            var rec = new RecordingSettingsPageContext(
+                settings, onApplyAndSave: () => colourAtApply = settings.Cursor.CircleColor);
+            var reset = new CursorPageSource(rec.Context).Build()
+                .SelectMany(p => p.Rows).OfType<ButtonSpec>()
+                .Single(b => b.Id == "c_reset");
+
+            reset.OnActivate();
+            rec.LastModalOnYes!();
+
+            Check.That(colourAtApply).IsEqualTo("#07343E");
+        }
+        finally
+        {
+            Tokens.Activate(MidnightTheme.Instance);
+        }
+    }
+
+    [Fact]
     public void ResetHandlers_MigrateMarksBeforeApplyAndSave()
     {
         // m3c, pinned at the source level because the behavioural seam cannot observe

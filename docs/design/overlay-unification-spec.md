@@ -1341,7 +1341,7 @@ and are now all satisfied in code; each bullet closes with what was built. See
   Daylight's closest is its clamped ring green at 9.52:1 vs its white halo,
   §10.8) — but a preset does NOT survive a theme switch: Midnight's accent
   measures 1.25:1 against Daylight's halo. The persisted haloed marks (ring,
-  trail) are therefore re-derived at theme application; see §10.8 consequence 4.
+  trail) are therefore re-derived at theme application; see §10.8 consequence 5.
   What was not portable is the *first* preset, which must be the theme's
   accent — so the list is now derived from the theme as `{Accent, green,
   Warning, TextPrimary}` (the green is `AccentSuccess` on the dark themes and
@@ -1434,7 +1434,7 @@ Contrast but for the opposite environment: glare, sunlit rooms, white-desk
 offices — the conditions under which three dark overlays read as heavy voids on
 an already-bright screen. Review round 1 (2026-10-10, FIX-THEN-SHIP) processed:
 the both-desktops validator rule, TextSecondary darkening, the persisted-mark
-migration (consequence 4), the full decision ledger below, and corrected
+migration (consequence 5), the full decision ledger below, and corrected
 thresholds and figures throughout. Review round 2 (2026-10-10, FIX-THEN-SHIP)
 processed: the calibration overlay made theme-safe (cards + ring halos), resets
 re-deriving haloed marks at runtime, D1's rationale corrected against the live
@@ -1544,7 +1544,14 @@ axis at L\* 92.1 — the two defaults sit on one axis, at opposite ends.
    `#484D5E`: ΔE 17.2 from the accent (floor 15), ΔE 8.2 from Dim, and the
    AAA-vs-SurfaceMedium pairing lifts from 5.67 to 7.65. Dim's 4.61 over the
    black worst-desktop is the binding text margin (see the gate-2 bullet).
-4. **Persisted haloed marks re-derive at theme application.** `CircleColor`
+4. **On Daylight the calibration map's shape grammar inverts.** The done
+   markers read as white rings (halo rim dominant) and the upcoming ones as
+   filled light discs (halo interior) — the opposite of the dark themes'
+   filled-is-done convention, and the upcoming markers are the more salient
+   pair, which happens to serve the map's purpose (removing the search).
+   Both states are visible and distinguishable, which was the finding; no
+   polarity-free single-ellipse fix exists (round 4, m1).
+5. **Persisted haloed marks re-derive at theme application.** `CircleColor`
    and `TrailColor` are absolute hexes by the §7.1 ruling, so a theme switch
    carried the old theme's mark onto the new theme's halo — Midnight's accent
    on Daylight's white halo: 1.25:1, the gaze cursor invisible over the very
@@ -1556,11 +1563,12 @@ axis at L\* 92.1 — the two defaults sit on one axis, at opposite ends.
    trail is deliberately not accent-coloured). The mapping is symmetric, so
    switching back and forth is stable, and it is pinned by
    `ThemeStartupMarkMigrationTests`. One bound to know: no colour clears 7:1
-   against both a dark and a light halo (the best possible is 4.44:1), so a
-   custom pick cannot survive a light↔dark switch — it resets to the default
-   preset (ledger D8). Settings resets re-run the same rule at runtime
-   (round 2, N2), so a reset on Daylight writes Daylight's presets, never
-   Midnight's absolutes. `CalibrationSettings.TargetColor` and
+   against both a dark and a light halo (the best possible is 4.44:1 against
+   Midnight's halo and 4.58 against pure black), so a custom pick cannot
+   survive a light↔dark switch — it resets to the default preset (ledger D8).
+   ALL THREE settings resets re-run the same rule at runtime (round 2 N2 for
+   cursor and advanced, round 3 R2 for Reset-ALL), so a reset on Daylight
+   writes Daylight's presets, never Midnight's absolutes. `CalibrationSettings.TargetColor` and
    `AutoSelectionSettings.HighlightColor` stay absolute. The calibration dot is
    user-coloured and now draws on the scrim with a StrokeHalo rim — and its
    persisted value is finally APPLIED (D9; a latent main-branch bug) — so it
@@ -1586,7 +1594,7 @@ contrast, maps everything back symmetrically — that path is fine.)
 | D5 | The ring's green ≠ `AccentSuccess` on Daylight | Bi-tonal segments need 3:1 alone over mid backdrops; no C\* ≥ 55 green reaches it (max 54.28). | Veto via D1, or give the ring its own token. |
 | D6 | Preset captions are role names: "Light"→"Text", "Amber"→"Warning" | Visible on all four themes; a colour caption is wrong whenever a theme's token isn't that colour (Daylight's text is near-black, its warning a brick red — hue 41°, 13° from the danger red). | Rename in `DwellColorPicker.PresetsFor`. |
 | D7 | TextSecondary/Dim near-twins | Originally shipped as "forced" and **retired in review round 1** by darkening Secondary to `#484D5E` — review proved it was a choice. | — (resolved). |
-| D8 | The mark migration overrides §7.1's theme-independence for preset-valued colours | A persisted value that is exactly another theme's preset is almost certainly a stale default, not a deliberate choice — legacy pre-theme values included; only exact preset hexes map by index, so a stray `#00FF00` (a Contrast preset) maps to the same index, while arbitrary colours such as red or blue are nobody's preset and snap to the accent. Custom colours are kept while they clear 7:1 against the live halo; note that **no colour clears 7:1 against both a dark and a light halo** (best possible: 4.44 against Midnight's halo, 4.58 against pure black), so a custom pick resets on a light↔dark switch. | Drop `ThemeStartup.MigrateHaloedMarks` and its call sites; §7.1 then holds literally again (with I1's invisibility back). |
+| D8 | The mark migration overrides §7.1's theme-independence for preset-valued colours | A persisted value that is exactly another theme's preset is almost certainly a stale default, not a deliberate choice — legacy pre-theme values included; only exact preset hexes map by index, so a stray `#00FF00` (a Contrast preset) maps to the same index, while arbitrary colours such as red or blue are nobody's preset and snap to the setting's default preset (the accent for the ring, the warning for the trail; on the dark halos — blue clears Daylight's white halo and is kept there). Custom colours are kept while they clear 7:1 against the live halo; note that **no colour clears 7:1 against both a dark and a light halo** (best possible: 4.44 against Midnight's halo, 4.58 against pure black), so a custom pick resets on a light↔dark switch. | Drop `ThemeStartup.MigrateHaloedMarks` and its call sites; §7.1 then holds literally again (with I1's invisibility back). |
 | D9 | `TargetColor` is now actually applied, and the dot carries a halo rim (round 3, R1) | The view model stored the persisted colour once without announcing it, so the window kept the theme accent forever — the saved colour never rendered, on any theme (a latent MAIN-branch bug this branch fixes). The rim keeps any pick visible on the black scrim under every theme. **Owner-visible on Midnight: the dot becomes your saved colour (amber `#E8A33C`) instead of cyan** — that is the setting working, not a palette change. | Revert; the latent bug returns with it. |
 
 #### 10.8.1 The triad ladder inverts

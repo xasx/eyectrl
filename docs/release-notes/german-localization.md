@@ -17,28 +17,41 @@ screen used to borrow the machine's locale for its numbers.
   August. Once the Settings surface renders German it shows **"08.10.2026 14:03"**, that culture's
   own general date/time order. The user chose the unambiguous English form on 2026-10-08.
 
-## T10 — hand-off note from the Daylight theme merge (2026-10-11)
+## T11 - Step 1: the crisis and caretaker screens
 
-The Daylight theme branch renamed and added Settings keys in `strings.json`. The T10 German
-draft (`l10n/t10-german-draft` @ `21f1677b`) predates that merge, so before T10 lands:
+The first German anyone sees. On German Windows, EyeCtrl now starts in German; the screens that
+matter in a crisis, and the way back out of German, ship together.
 
-- **Re-key the swatch captions**: `settings.control.swatch.amber` ("Bernstein") →
-  `settings.control.swatch.warning`, and `swatch.light` ("Hell") → `swatch.text`. The English
-  captions became role names because Daylight's warning swatch is a brick red and its text
-  swatch is near-black — colour names were wrong on the light theme (Daylight ledger D6).
-  Fresh German for both needs a new sign-off.
-- **Add `settings.general.theme.option.daylight`** (the fourth theme option; a proper noun —
-  "Daylight" is expected to stay untranslated, matching how the other theme names are handled).
-- **Re-translate `settings.general.theme.description`**: the draft's signed-off
-  "Alle drei sind dunkel; „Kontrast" ist das kräftigste." states a falsehood once Daylight
-  ships. The English now reads "Daylight is light, for bright rooms; Contrast is the boldest."
-- **Decide on German "Text"**: the natural caption for `swatch.text` is identical to the
-  English, which the identical-to-English gate flags. Either allowlist it in
-  `localization/strings.identical-allowlist.json` with a reason, or pick a wording such as
-  "Textfarbe".
+- **German is the default on German Windows.** The Supervisor's tray, setup window and FallenBack
+  dialog, the caregiver alert, the drift notice, the startup-error box, the TrackStatus window and
+  the App's tray menu all follow the Windows language.
+- **These screens stay English until T12/T13:** Settings, calibration, eye care and the on-screen
+  overlays. So the German tray's "Einstellungen" opens the still-English Settings, where the
+  language row's description is the already-German sentence under "Sprache / Language" ("Legt fest,
+  in welcher Sprache EyeCtrl seine eigenen Fenster anzeigt."); every other row on that page is
+  English.
+- **The way back is "Sprache / Language"**: the flat item in the App's tray menu, or the first row
+  on General in Settings. The choice row shows each language's own name ("System", "Deutsch",
+  "English"), so it reads whichever language is running; the Supervisor's setup window carries the
+  same row when EyeCtrl itself will not start.
+- **The English UI on a de-DE machine shows "12.3 px"**, not "12,3 px" (T02's number-format fix,
+  in its section above).
+- **Known until T12:** the restart progress and failure notices appear on every restart, including
+  Settings' "Restart now" and a theme change, so the still-English Settings can show a German
+  "EyeCtrl wird neu gestartet." notice. By design they speak the TARGET language: choosing Deutsch
+  while English runs prompts in German, and choosing English from the German screen prompts in
+  English. T12 rechecks this (N8).
 
-Safety net, for the record (round-5 review measured this): merging the draft with the theme
-branch raises no textual conflicts; the orphaned `swatch.amber`/`swatch.light` keys fail
-`tools/strings_validate.py` immediately, so the overlap cannot land silently. The stale
-description and missing keys surface only once the `settings` surface enters the German
-manifest, where the stale-`src` and missing-key gates fire.
+## Daylight theme - its German
+
+The Daylight theme's new and changed Settings texts have German, which shows once the `settings`
+surface switches on (T12); until then Settings stays English.
+
+- **The colour swatches are captioned by their role**, as in English: "Warnung" and "Textfarbe"
+  replace the colour names "Bernstein" and "Hell" (Daylight's warning swatch is a brick red, its
+  text swatch near-black).
+- **The fourth theme is "Tageslicht"**, alongside "Mitternacht", "Glut" and "Kontrast".
+- **The theme description is reworded** for four themes: "„Tageslicht“ ist das helle Farbschema
+  für sonnige Räume; „Kontrast“ ist das kräftigste."
+- **Not reviewed strings** (none was on T10's review sheets): per T10's rule they were checked by
+  the validator and a MiMo back-translation, not a new user sitting.

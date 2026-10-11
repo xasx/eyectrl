@@ -82,6 +82,29 @@ public class CaregiverAlertGrowthTests
     }
 
     [StaFact]
+    public void TheGermanMessages_KeepTodaysWindow_AndTheAnchor()
+    {
+        // T11: measured at 2.0 on the user's work area, both German messages are 86.54–105.16 DIP
+        // of layout, under the 120 DIP floor, so German does NOT grow the alert. If a later German
+        // grows past it, this pin fails and the grown state (bottom edge at work-area bottom − 48,
+        // window inside the work area) is re-measured by the growth gate above.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var german = ShippedGerman.Load();
+        foreach (var condition in new[] { CaregiverAlertCondition.SustainedPoorTracking, CaregiverAlertCondition.SustainedStruggle })
+        {
+            var window = new CaregiverAlertWindow();
+            var message = CaregiverAlertWindow.MessageFor(german, condition);
+            window.Prepare(message, AppFitMeasurers.ReferenceWorkArea);
+
+            Check.WithCustomMessage($"{condition}: German grew the alert (\"{message}\").")
+                .That(window.Height).IsEqualTo(120.0);
+            Check.That(window.Width).IsEqualTo(720.0);
+            Check.WithCustomMessage($"{condition}: the bottom edge left its anchor.")
+                .That(window.Top).IsEqualTo(AppFitMeasurers.ReferenceWorkArea.Bottom - 48 - 120);
+        }
+    }
+
+    [StaFact]
     public void EveryShow_ReSizesAndReAnchors_SoAShorterMessageShrinksBack()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();

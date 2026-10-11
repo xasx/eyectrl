@@ -556,6 +556,13 @@ public sealed class SupervisorFitTests : IDisposable
             _output.WriteLine($"the German dialog: {whole}");
             if (!whole.Fits) failures.Add($"the German dialog: {whole}");
 
+            // T11: measured at 2.0, the German body is 273.78 DIP of content in the 320 DIP floor,
+            // so German does NOT grow this class-C window — the button row keeps its full height
+            // (the verdict's 110/110 above). If a later German grows past the floor, this fails and
+            // forces a re-measure rather than letting the grown state go unexamined.
+            Check.WithCustomMessage("German grew the FallenBack dialog past its 320 DIP floor: " + whole)
+                .That(whole.Detail).Contains($"window {FitText.Dip(320)} ");
+
             foreach (var item in GermanDraft.ItemsOf("B260x3"))
             {
                 var verdict = FallenBack(null, null, item.Text, german);

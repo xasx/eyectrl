@@ -1,2 +1,9 @@
 [
+  "app-tray",
+  "caregiver-alert",
+  "drift-notice",
+  "language-recovery",
+  "startup-error",
+  "supervisor",
+  "track-status"
 ]

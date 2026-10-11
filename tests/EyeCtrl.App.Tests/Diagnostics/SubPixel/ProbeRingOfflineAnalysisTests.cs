@@ -424,6 +424,100 @@ public class ProbeRingOfflineAnalysisTests
             File.Copy(file, Path.Combine(destination, Path.GetFileName(file)));
     }
 
+    /// <summary>
+    /// Fixup 12: the reference flags must reach <see cref="ProbeRingOnScreenJudge.Measure"/>
+    /// through <c>BuildInputs</c> — the live wiring. The orchestrator's v9 check found reference A's
+    /// two lines GREEN because only hand-built <c>JudgeInputs</c> drove the checks: a mutant that
+    /// hard-codes <c>false</c> for either reference's flags must turn these red.
+    /// </summary>
+    [StaTheory]
+    [InlineData("A", true, false, "reference A was stale")]
+    [InlineData("A", false, true, "reference A was covered by an overlay")]
+    [InlineData("B", true, false, "reference B (r0) was stale")]
+    [InlineData("B", false, true, "reference B (r0) was covered by an overlay")]
+    public void AFlaggedReference_ThroughBuildInputs_FailsTheJudgedAnchor(
+        string condition, bool stale, bool intruded, string expected)
+    {
+        var samples = ProbeRingSyntheticRun.Healthy();
+        FlagReference(samples, condition, stale, intruded);
+
+        var report = MeasureSamples(samples);
+
+        Check.WithCustomMessage(
+                $"A flagged reference {condition} must fail through BuildInputs; got: "
+                + string.Join(" | ", report.Failures.Select(failure => failure.Message)))
+            .That(report.Failures.Any(failure =>
+                failure.Message.Contains("The judged anchor is not clean") && failure.Message.Contains(expected)))
+            .IsTrue();
+        Check.WithCustomMessage("Every row measured against a flagged anchor is void; nothing may be measured.")
+            .That(report.AssertionRows).IsEmpty();
+    }
+
+    /// <summary>
+    /// Fixup 12: the same four cases through the offline analyser, whose flags arrive from the
+    /// manifest's <c>stale</c>/<c>intruded</c> fields (and are kept through the MarkStale/Mark
+    /// re-derivation). Kills the same four wiring mutants on the offline path.
+    /// </summary>
+    [StaTheory]
+    [InlineData("A", true, false, "reference A was stale")]
+    [InlineData("A", false, true, "reference A was covered by an overlay")]
+    [InlineData("B", true, false, "reference B (r0) was stale")]
+    [InlineData("B", false, true, "reference B (r0) was covered by an overlay")]
+    public void AFlaggedReference_ThroughTheOfflineAnalyser_FailsTheJudgedAnchor(
+        string condition, bool stale, bool intruded, string expected)
+    {
+        var samples = ProbeRingSyntheticRun.Healthy();
+        FlagReference(samples, condition, stale, intruded);
+
+        var folder = ProbeRingSyntheticRun.TempFolder();
+        try
+        {
+            ProbeRingCaptureArchive.Save(folder, samples, 2.0, DateTimeOffset.UtcNow);
+            var report = ProbeRingOfflineAnalysis.Analyse(folder);
+
+            Check.WithCustomMessage(
+                    $"A flagged reference {condition} must fail through the offline analyser; got: "
+                    + string.Join(" | ", report.Failures.Select(failure => failure.Message)))
+                .That(report.Failures.Any(failure =>
+                    failure.Message.Contains("The judged anchor is not clean") && failure.Message.Contains(expected)))
+                .IsTrue();
+            Check.That(report.AssertionRows).IsEmpty();
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>Marks the fixture's f = 0 reference for <paramref name="condition"/> with the flags.</summary>
+    private static void FlagReference(
+        List<ProbeRingCapturedSample> samples, string condition, bool stale, bool intruded)
+    {
+        var index = samples.FindIndex(sample =>
+            sample.Kind == ProbeRingOnScreenJudge.KindReference
+            && sample.Condition == condition && sample.Fraction == 0.0);
+        Check.WithCustomMessage($"The fixture needs a reference {condition} at f = 0.")
+            .That(index).IsStrictlyGreaterThan(-1);
+        samples[index] = samples[index] with { Stale = stale, Intruded = intruded };
+    }
+
+    /// <summary>The live measurement path: the same <c>BuildInputs</c> the harness runs.</summary>
+    private static ProbeRingOnScreenJudge.JudgeReport MeasureSamples(
+        IReadOnlyList<ProbeRingCapturedSample> samples)
+    {
+        var referenceB = samples.First(sample =>
+            sample.Kind == ProbeRingOnScreenJudge.KindReference
+            && sample.Condition == ProbeRingOnScreenJudge.ConditionB
+            && sample.Fraction == 0.0 && sample.Repeat == 0);
+        var centreInCapture = new PhysicalPoint(
+            referenceB.Frame.CaptureCentrePx.X - referenceB.Frame.CaptureOriginX,
+            referenceB.Frame.CaptureCentrePx.Y - referenceB.Frame.CaptureOriginY);
+        var expected = ProbeRingCaptureScene.ExpectedWeightsAt(
+            centreInCapture, referenceB.Background, ProbeRingCaptureAnalysis.OwnerScale);
+        return ProbeRingOnScreenJudge.Measure(
+            ProbeRingOnScreenJudge.BuildInputs(ProbeRingCaptureAnalysis.OwnerScale, expected, samples));
+    }
+
     private static string FirstDifference(IReadOnlyList<string> first, IReadOnlyList<string> second)
     {
         for (var i = 0; i < Math.Min(first.Count, second.Count); i++)

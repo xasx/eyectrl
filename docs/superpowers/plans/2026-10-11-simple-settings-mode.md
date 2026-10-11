@@ -545,7 +545,7 @@ The `ExpectedSequence` lists — **membership comes from spec §5.3 and is never
 - Cursor (WeightedSandwich): `Pick:c_color`, `Combo:c_ring_style`, `Slider:c_opacity`, `Slider:c_size`, `Button:c_reset` — `c_opacity` builds before `c_size` (CursorPageSource.cs:79 vs :103).
 - Dwell: `Slider:d_act`, `Slider:d_menu`, `Slider:d_tool`, `Slider:d_key`, `Slider:d_pred`, `Slider:d_rad`, `Toggle:d_cue_sound`, `Button:d_reset`.
 - Keyboard: `Combo:k_layout`, `Slider:k_size`, `Toggle:k_pred`, `Combo:k_lang`, `Toggle:k_sound`, `Button:k_reset`.
-- General lives ONLY in the supervision theory (plan-review r2 N3): disconnected = `Combo:g_language`, `Label:<pending-note prefix>`, `Combo:g_theme`, `Toggle:g_boot`, `Toggle:g_pause`, `Toggle:g_track`, `Toggle:g_supervision`, `Button:g_supervision_retry`, `Label:<status prefix>`, `Button:g_reset`; connected = the same minus the retry; unavailable = `…g_track`, `Label:<unavailable-note prefix — settings.general.supervision.unavailable>`, `Button:g_reset`. The headless table is the embedded English — pin label entries as `"Label:"` + a stable prefix of the resolved English text.
+- General lives ONLY in the supervision theory (plan-review r2 N3, r4 R3): disconnected = `Combo:g_language`, `Label:Wird nach Ne`, `Combo:g_theme`, `Toggle:g_boot`, `Toggle:g_pause`, `Toggle:g_track`, `Toggle:g_supervision`, `Button:g_supervision_retry`, `Label:On — but the`, `Button:g_reset`; connected = the same minus the retry and with `Label:On — EyeCtrl` for the status; unavailable = `…g_track`, `Label:Automatic Cr`, `Button:g_reset`. All label entries are the 12-char prefixes of the embedded English table — the code is normative.
 
 - [ ] **Step 2: Run, and correct ONLY the order**
 
@@ -1267,7 +1267,7 @@ git commit -m "feat(settings): mode toggle face — header host, BuildModeToggle
 - Modify: `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs` (`ModeToggleLabelKey` + `UpdateModeToggleLabel` + the call site in `SwitchSettingsUiMode`; the ctor ternary -> helper call)
 - Test: `tests/EyeCtrl.App.Tests/Settings/SettingsModeToggleLabelTests.cs` (new)
 - Test: `tests/EyeCtrl.App.Tests/Settings/SettingsModeSwitchWiringTests.cs` (Task 8's file — gains the re-label order pin)
-- Modify: `src/EyeCtrl.App/Localization/strings.de.json` (the two German entries, AFTER the re-class)
+- Modify: `src/EyeCtrl.App/Localization/strings.de.json` (re-stamp `src` AFTER the re-class — the entries themselves landed in Task 9; do NOT re-add them: duplicate keys throw every German test)
 
 **Interfaces:**
 - Consumes: `BuildModeToggle` (Task 9), `SwitchSettingsUiMode` (Task 8).
@@ -1354,13 +1354,7 @@ This completes the C1 fix: the window opens with the mode-correct label, and eve
 
 - [ ] **Step 4: Re-class the strings and register A208 everywhere**
 
-In `strings.json`, change both entries' `"fit"` from `"row"` to `"A208"`, then RE-STAMP the German `src` hashes (they include `fit`):
-
-```bash
-python tools/strings_validate.py --refresh-de-src
-```
-
-(The German entries themselves landed in Task 9 — production-inert while the shipped manifest is `[]`, but the suite's German gates are live. The wording is owner-provisional per the Task 9 note.)
+In `strings.json`, change both entries' `"fit"` from `"row"` to `"A208"`.
 
 `StringTableSchema.FitClasses` (with the derivation comment):
 
@@ -1400,6 +1394,14 @@ private static FitVerdict ModeToggleLabel(string text)
         $"box {FitText.Dip(border.ActualWidth)} - {OneLineInset} inset");
 }
 ```
+
+With `A208` now in BOTH registries, RE-STAMP the German `src` hashes — they include `fit`, and the validator checks the English table before it refreshes, so this command must run only AFTER the `FIT_CLASSES` edit above (round-4 F1: stamped-too-early, the validator flags `fit='A208' is not a fit class`, exits 1, and writes nothing):
+
+```bash
+python tools/strings_validate.py --refresh-de-src
+```
+
+(The German entries themselves landed in Task 9 — production-inert while the shipped manifest is `[]`, but the suite's German gates are live. The wording is owner-provisional per the Task 9 note.)
 
 - [ ] **Step 5: Run the localization gates**
 
@@ -1628,8 +1630,8 @@ public class SettingsModeToggleRestingGazeTests
 
             // (c) leave beyond the release radius, return: exactly one more flip.
             var away = new PhysicalPoint(centre.X + DpiHelper.LogicalToPhysicalX(120), centre.Y);
-            Frame(away);                              // the away frame reaches the VM too —
             guard.Update(away);                       // re-arm -> Register() via the callback seam
+            Frame(away);                              // the away frame reaches the VM too
             for (var i = 0; i < 20; i++) { guard.Update(centre); Frame(centre); }
             Check.That(flips).IsEqualTo(2);
         }

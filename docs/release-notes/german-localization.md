@@ -16,3 +16,28 @@ screen used to borrow the machine's locale for its numbers.
   **"2026-10-08 14:03"** (year-month-day), so a German reader cannot mistake it for the 10th of
   August. Once the Settings surface renders German it shows **"08.10.2026 14:03"**, that culture's
   own general date/time order. The user chose the unambiguous English form on 2026-10-08.
+
+## T11 - Step 1: the crisis and caretaker screens
+
+The first German anyone sees. On German Windows, EyeCtrl now starts in German; the screens that
+matter in a crisis, and the way back out of German, ship together.
+
+- **German is the default on German Windows.** The Supervisor's tray, setup window and FallenBack
+  dialog, the caregiver alert, the drift notice, the startup-error box, the TrackStatus window and
+  the App's tray menu all follow the Windows language.
+- **These screens stay English until T12/T13:** Settings, calibration, eye care and the on-screen
+  overlays. So the German tray's "Einstellungen" opens the still-English Settings, where the
+  language row's description is the already-German sentence under "Sprache / Language" ("Legt fest,
+  in welcher Sprache EyeCtrl seine eigenen Fenster anzeigt."); every other row on that page is
+  English.
+- **The way back is "Sprache / Language"**: the flat item in the App's tray menu, or the first row
+  on General in Settings. The choice row shows each language's own name ("System", "Deutsch",
+  "English"), so it reads whichever language is running; the Supervisor's setup window carries the
+  same row when EyeCtrl itself will not start.
+- **The English UI on a de-DE machine shows "12.3 px"**, not "12,3 px" (T02's number-format fix,
+  in its section above).
+- **Known until T12:** the restart progress and failure notices appear on every restart, including
+  Settings' "Restart now" and a theme change, so the still-English Settings can show a German
+  "EyeCtrl wird neu gestartet." notice. By design they speak the TARGET language: choosing Deutsch
+  while English runs prompts in German, and choosing English from the German screen prompts in
+  English. T12 rechecks this (N8).

@@ -72,8 +72,12 @@
 
         <!-- Completion display. On a SurfaceDark modal card (review round 2 N1; round 4 m2): its
              title/symbol/hint tokens are theme-varying and sat directly on the black
-             scrim, unreadable under Daylight. -->
-        <Border x:Name="CompletionCard" Visibility="Collapsed"
+             scrim, unreadable under Daylight. The card's 40-DIP side margin keeps it, and the
+             failure line inside it, 40 DIP from each screen edge (T10 fixup-01/02): the card is
+             offered the window's width less 80 DIP, and CompletionError wraps within that less
+             the card's padding. A line that fits stays one line; the calibration gate pins the
+             40 (GermanGateTests.CompletionEdgeClearance). -->
+        <Border x:Name="CompletionCard" Visibility="Collapsed" Margin="40,0"
                 Background="{StaticResource BrushSurfaceDark}"
                 CornerRadius="{StaticResource LargeCornerRadius}"
                 Padding="32,24" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -84,9 +88,13 @@
             <TextBlock x:Name="CompletionTitle" Text="{loc:T 'calibration.window.title.complete'}"
                        Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeSubtitle}"
                        HorizontalAlignment="Center" Margin="0,0,0,4"/>
+            <!-- Wraps (T10 fixup-01): a quality failure names every failing point, so the line has
+                 no fixed length. Kept on one line, it ran off both screen edges from three
+                 failing points in English and from two in German. -->
             <TextBlock x:Name="CompletionError" Text=""
                        Foreground="{StaticResource BrushAccentWarning}" FontSize="{StaticResource FontSizeBodyLarge}"
-                       HorizontalAlignment="Center" Margin="0,0,0,12"/>
+                       HorizontalAlignment="Center" Margin="0,0,0,12"
+                       TextWrapping="Wrap" TextAlignment="Center"/>
             <TextBlock x:Name="CompletionHint" Text="{loc:T 'calibration.window.dismissHint'}"
                        Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}"
                        HorizontalAlignment="Center" Margin="0,0,0,12" Visibility="Collapsed"/>

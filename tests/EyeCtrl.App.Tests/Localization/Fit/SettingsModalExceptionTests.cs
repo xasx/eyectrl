@@ -25,8 +25,8 @@ using EyeCtrl.ViewModels;
 ///
 /// <para>
 /// This pins that it is the ONLY movement: for every modal message, in English and under the
-/// pseudo-locale and the stress table, each button keeps its x and its size exactly, and all
-/// buttons drop by one shared amount equal to half the card's growth. A button that moved sideways
+/// pseudo-locale, the stress table and T10's German draft, each button keeps its x and its size
+/// exactly, and all buttons drop by one shared amount equal to half the card's growth. A button that moved sideways
 /// or apart from the others, or a drop that does not come from the card, fails.
 /// </para>
 ///
@@ -72,12 +72,12 @@ public class SettingsModalExceptionTests
     public void TheButtons_OnlyDropWithTheCard_UnderALongerTable(string messageKey, string choiceKeys)
     {
         var english = Layout(StringTable.EmbeddedEnglish, messageKey, choiceKeys);
-        foreach (var table in new[] { ("pseudo", PseudoLocale.Table), ("stress", PseudoLocale.StressTable) })
+        foreach (var table in new[] { ("pseudo", PseudoLocale.Table), ("stress", PseudoLocale.StressTable), ("german", GermanDraft.Table) })
         {
             var other = Layout(table.Item2, messageKey, choiceKeys);
             _output.WriteLine($"{messageKey} ({table.Item1}): card {Fmt(english.Card)} → {Fmt(other.Card)}");
             Check.WithCustomMessage($"{messageKey}: the {table.Item1} message is not translated, so nothing is compared.")
-                .That(other.Message).StartsWith("[");
+                .That(table.Item1 == "german" ? other.Message != english.Message : other.Message.StartsWith('[')).IsTrue();
 
             var problems = Problems(english, other);
             Check.WithCustomMessage($"{messageKey} ({table.Item1}): the modal moved its buttons beyond the recorded exception "
@@ -147,6 +147,28 @@ public class SettingsModalExceptionTests
 
     internal static ModalLayout Layout(string messageText, IReadOnlyList<string> choices)
     {
+        var (overlay, message, panel, card) = BuildModal(messageText, choices);
+        using var host = FitHost.Open(overlay, width: WindowSize.Width, height: WindowSize.Height);
+        Rect Box(FrameworkElement e) => e.TransformToAncestor(overlay).TransformBounds(new Rect(e.RenderSize));
+        return new ModalLayout(Box(card), panel.Children.OfType<Border>().Select(Box).ToList(), message.Text);
+    }
+
+    /// <summary>
+    /// T10's review sheets (not a gate): the modal's card as the user sees it — the same build as
+    /// <see cref="Layout(string, IReadOnlyList{string})"/>, hosted at the window's size at 2.0 and
+    /// rendered (<see cref="ReviewRender"/>).
+    /// </summary>
+    internal static System.Windows.Media.Imaging.BitmapSource RenderCard(string messageText, IReadOnlyList<string> choices)
+    {
+        var (overlay, _, _, card) = BuildModal(messageText, choices);
+        using var host = FitHost.Open(overlay, width: WindowSize.Width, height: WindowSize.Height);
+        return ReviewRender.Render(card, card.RenderSize);
+    }
+
+    /// <summary>The modal overlay filled the way <c>UpdateModalVisibility</c> fills it, not yet laid out.</summary>
+    private static (Grid Overlay, TextBlock Message, StackPanel Panel, Border Card) BuildModal(
+        string messageText, IReadOnlyList<string> choices)
+    {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var overlay = ParseModalOverlay();
         var message = (TextBlock)overlay.FindName("ModalMessage");
@@ -167,9 +189,7 @@ public class SettingsModalExceptionTests
         }
 
         overlay.Visibility = Visibility.Visible;
-        using var host = FitHost.Open(overlay, width: WindowSize.Width, height: WindowSize.Height);
-        Rect Box(FrameworkElement e) => e.TransformToAncestor(overlay).TransformBounds(new Rect(e.RenderSize));
-        return new ModalLayout(Box(card), panel.Children.OfType<Border>().Select(Box).ToList(), message.Text);
+        return (overlay, message, panel, card);
     }
 
     /// <summary><c>SettingsWindow.xaml</c>'s <c>ModalOverlay</c> grid, parsed on its own.</summary>

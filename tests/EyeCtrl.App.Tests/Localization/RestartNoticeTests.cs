@@ -88,6 +88,6 @@ public class RestartNoticeTests
         messenger.Send(new EyeCtrl.ViewModels.Messages.RestartAppRequestedMessage());
 
         Check.That(reported).HasSize(1);
-        Check.That(reported[0]).IsEqualTo("Restart failed: boom EyeCtrl is still running.");
+        Check.That(reported[0]).IsEqualTo("Restart failed. EyeCtrl is still running. Technical details: boom");
     }
 }

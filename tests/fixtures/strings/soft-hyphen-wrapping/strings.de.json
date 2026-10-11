@@ -1,0 +1,14 @@
+{
+  "settings.button": {
+    "text": "Maximieren/Wieder­herstellen",
+    "src": "0dc0a70c"
+  },
+  "settings.row": {
+    "text": "Wieder­herstellen",
+    "src": "fc9d3262"
+  },
+  "settings.text": {
+    "text": "Das Fenster wieder­herstellen",
+    "src": "f2f4e950"
+  }
+}

@@ -54,9 +54,12 @@
                    HorizontalAlignment="Center"
                    VerticalAlignment="Top" Margin="0,30,0,0" Visibility="Collapsed"/>
 
-        <!-- Completion display. The side margin keeps a wrapped failure line off the screen's
-             edges: the panel is offered the window's width less 80 DIP, so CompletionError wraps
-             there and only there. A line that fits stays one line, centred where it always was. -->
+        <!-- Completion display. The 40-DIP side margin keeps the failure line 40 DIP from each
+             screen edge: the panel is offered the window's width less 80 DIP, and CompletionError
+             wraps at that width. A line that fits within it stays one line, centred where it
+             always was; a line between that width and the window's full width (1840-1920 DIP on
+             the user's 1920-DIP screen) used to stay on one line and now wraps. The calibration
+             gate pins the 40 (GermanGateTests.CompletionEdgeClearance). -->
         <StackPanel x:Name="CompletionPanel" Visibility="Collapsed" Margin="40,0"
                     HorizontalAlignment="Center" VerticalAlignment="Center">
             <TextBlock x:Name="CompletionSymbol" Text="&#x2713;" FontSize="{StaticResource FontSizeDisplay}"

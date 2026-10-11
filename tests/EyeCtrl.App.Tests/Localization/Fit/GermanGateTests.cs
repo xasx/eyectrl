@@ -283,7 +283,8 @@ public class GermanGateTests
     /// Binding (T10 fixup-01): the calibration window's failure line shows whole, in English and in
     /// German — every <see cref="CalibrationFailureText.Describe"/> sentence, the quality failure for
     /// 1 to 9 failing points. The key is <c>prose</c>, a wrapping class, so the line wraps inside the
-    /// window instead of running off both edges, and the wrapped block reaches neither the title
+    /// window instead of running off both edges, keeps <see cref="CompletionEdgeClearance"/> DIP from
+    /// each side (the completion panel's side margin), and the wrapped block reaches neither the title
     /// above it, the Retry/Accept buttons below it nor the cancel hint in the corner. Measured on the
     /// user's screen (1920 × 1200 DIP at 2.0) and on a smaller one, so the wrap width must be the
     /// window's, not a constant; with and without the buttons. One failing point stays on ONE line
@@ -384,6 +385,12 @@ public class GermanGateTests
         }
     }
 
+    /// <summary>
+    /// How far the failure line stays from each side of the window: <c>CompletionPanel</c>'s side
+    /// margin in <c>CalibrationWindow.xaml</c>, restated here on purpose so the gate pins it.
+    /// </summary>
+    private const double CompletionEdgeClearance = 40.0;
+
     /// <summary>The failure line's verdict, its one-line width and how many lines it wraps to.</summary>
     private sealed record FailureLayout(bool Fits, string Detail, double OneLine, int Lines)
     {
@@ -421,6 +428,12 @@ public class GermanGateTests
         var room = Math.Min(slot.Width - error.Margin.Left - error.Margin.Right, width);
         var problems = new List<string>();
         if (!Inside(screen, box)) problems.Add($"its box {Box(box)} leaves the window");
+
+        // The edge clearance, pinned as a number (review-02, C4): read from the panel's Margin it
+        // would follow that margin to zero, and a line could run to the screen's edge unnoticed.
+        var clear = new System.Windows.Rect(CompletionEdgeClearance, 0, width - 2 * CompletionEdgeClearance, height);
+        if (!Inside(clear, box))
+            problems.Add($"its box {Box(box)} comes within {FitText.Dip(CompletionEdgeClearance)} DIP of the window's side");
         if (error.TextWrapping == System.Windows.TextWrapping.NoWrap)
         {
             if (oneLine > Math.Min(error.ActualWidth, room) + 0.5) problems.Add($"its one line is cut at {FitText.Dip(room)} DIP");

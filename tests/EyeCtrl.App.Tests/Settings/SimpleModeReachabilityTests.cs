@@ -29,7 +29,8 @@ using EyeCtrl.Controls.Theme;
 /// pagination consts. No term of the budget is restated, and none is omitted.
 /// </para>
 /// <para>
-/// KNOWN GAP, recorded not solved (owner ruling, 2026-10-11, measured this task): the brief
+/// KNOWN GAP, recorded not solved (controller ruling on a disclosed plan deviation, 2026-10-11,
+/// measured this task; surfaced to the owner for veto at plan completion): the brief
 /// mandated the 800×600 DIP narrow display (SettingsContentFitTests' NarrowDisplayWidthDip /
 /// NarrowDisplayHeightDip), and at it the gate is UNSATISFIABLE by the current rows, in
 /// production geometry — not just in this probe. <c>ContentColumnWidth(root, 800)</c> is the

@@ -58,14 +58,14 @@ public class SettingsSurfaceRingAndPresetLabelsTests
     }
 
     [Fact]
-    public void ClearLearnedWords_KeepsTheEnglishWordsForEveryCount()
+    public void ClearLearnedWords_ReadsTheSingularForOne_AndThePluralOtherwise()
     {
-        // The key is a real {one, other} plural so German can inflect, but English on screen must
-        // not change: today's sentence says "words" at every count, including 1, so BOTH forms
-        // carry it. Pinned through the resolver, which also proves the count picks the one form.
+        // The key is a real {one, other} plural. Its one form used to repeat the plural ("Remove
+        // all 1 learned words?"); the user approved the singular in the T10 review sitting
+        // (2026-10-11). Pinned through the resolver, which also proves the count picks the form.
         var table = StringTable.EmbeddedEnglish;
         Check.That(table.T("settings.keyboard.dictionary.clear.message", 1))
-            .IsEqualTo("Remove all 1 learned words?");
+            .IsEqualTo("Remove 1 learned word?");
         Check.That(table.T("settings.keyboard.dictionary.clear.message", 2))
             .IsEqualTo("Remove all 2 learned words?");
     }

@@ -523,7 +523,7 @@
     "crisis": true
   },
   "language-recovery.restart.failed.frame": {
-    "text": "Restart failed: {0} EyeCtrl is still running.",
+    "text": "Restart failed. EyeCtrl is still running. Technical details: {0}",
     "who": "user",
     "where": "language-recovery",
     "fit": "prose",
@@ -2926,7 +2926,7 @@
   },
   "settings.keyboard.dictionary.clear.message": {
     "text": {
-      "one": "Remove all {0} learned words?",
+      "one": "Remove {0} learned word?",
       "other": "Remove all {0} learned words?"
     },
     "who": "user",

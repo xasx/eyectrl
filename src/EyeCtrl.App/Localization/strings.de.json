@@ -276,7 +276,7 @@
   },
   "language-recovery.restart.failed.frame": {
     "text": "Neustart fehlgeschlagen. EyeCtrl läuft weiter. Technische Details (Englisch): {0}",
-    "src": "d885f26a"
+    "src": "dca4a2ab"
   },
   "language-recovery.restart.failed.generic": {
     "text": "Neustart fehlgeschlagen. EyeCtrl läuft weiter.",
@@ -1619,7 +1619,7 @@
       "one": "{0} gelerntes Wort entfernen?",
       "other": "Alle {0} gelernten Wörter entfernen?"
     },
-    "src": "ecb12b7f"
+    "src": "68593d85"
   },
   "settings.keyboard.dictionary.clear.partial_error": {
     "text": "Für diese Sitzung entfernt, aber die Wörterbuchdatei konnte nicht aktualisiert werden.",

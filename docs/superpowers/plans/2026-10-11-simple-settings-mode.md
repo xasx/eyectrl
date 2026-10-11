@@ -21,6 +21,7 @@
 - **Gaze-trap invariant:** a hidden control has no live hit circle. Every registration change ships with its unregister counterpart.
 - **The app is never launched by non-gated tests.** The FlaUI set (`Category=UI` + `EYECTRL_UI_TESTS=1`) is owner-gated: Task 13 only, after asking.
 - Advanced mode (the default) must stay bit-for-bit unchanged except the one header toggle (ledger L13) — including the `_viewModel.Register("close", …)` line at the end of `BuildTabButtons`, which no test pins: keep it.
+- **Base:** the branch is rebased on `52b031ba` (= origin/main, 2026-10-11), which merged the T10 German draft: `src/EyeCtrl.App/Localization/strings.de.json` now EXISTS (673 entries) — the spec's "the German table is empty on main" was true at r4 and is stale now; harmless, because the German surface manifest is still `[]`. The two mode keys get their German entries in Task 10, AFTER the A208 re-class (the German `src` hash includes `fit`).
 
 ---
 
@@ -339,6 +340,7 @@ git commit -m "feat(settings): curate the simple-mode rows on the four sources"
 **Files:**
 - Test: `tests/EyeCtrl.App.Tests/Settings/Pages/SimpleModeCurationTests.cs`
 - Test: `tests/EyeCtrl.App.Tests/Settings/SimpleModeReachabilityTests.cs`
+- Modify: `tests/EyeCtrl.App.Tests/Settings/HandChunkedPageFitTests.cs` (internalize `AllSourceTypes`/`Construct` + the type-to-tab-id map for the drift test)
 
 **Interfaces:**
 - Consumes: `SimpleSettingsFilter` (Task 3), the curated rows (Task 4), `SupervisionComposition.Create` + `SupervisionEnabledWriter` (namespace `EyeCtrl.App.Services`; see `tests/EyeCtrl.App.Tests/Settings/Pages/GeneralPageSourceResetDriftTests.cs:38-60` for the live-service construction), `TestSettingsPageContext.Build`, `HandChunkedPageFitTests`' source-construction + placement machinery, `SettingsContentFitTests`' narrow-display budget derivations.
@@ -352,6 +354,7 @@ using System.IO;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Core.Enums;
+using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 
 /// <summary>
@@ -362,15 +365,17 @@ using EyeCtrl.Core.Settings;
 /// </summary>
 public class SimpleModeCurationTests
 {
-    // The plan's own registrar fake: IStartupRegistrar is the seam the composition takes.
+    // The precedent fake, verbatim (GeneralPageSourceResetDriftTests.cs:98-102): the real
+    // IStartupRegistrar is SetStartOnBoot(bool) + an IsRegistered property.
     private sealed class FakeStartupRegistrar : EyeCtrl.Core.Interfaces.IStartupRegistrar
     {
-        public bool IsRegistered() => true;
-        public void Register() { }
-        public void Unregister() { }
+        public bool IsRegistered => true;
+        public void SetStartOnBoot(bool enabled) { }
     }
 
-    public static TheoryData<string> SimpleTabs() => new() { "Cursor", "Dwell", "Keyboard", "General" };
+    // General is NOT here: its rows depend on the supervision service, so it is built only in
+    // the three-branch theory below (plan-review r2 N3).
+    public static TheoryData<string> SimpleTabs() => new() { "Cursor", "Dwell", "Keyboard" };
 
     [Theory]
     [MemberData(nameof(SimpleTabs))]
@@ -394,11 +399,11 @@ public class SimpleModeCurationTests
         var ctx = TestSettingsPageContext.Build(settings: settings);
         var rows = SimpleFilter(ctx, "Cursor");
 
+        // Five entries: the picker's LabelSpec twin (12-char prefix of the resolved English
+        // note "Circle Color is not used...") replaces the Pick row (plan-review r2 N3.4).
         Check.That(rows.Select(Describe))
-            .ContainsExactly("Pick→Label swap:", "Label:Circle Colo", "Combo:c_ring_style",
+            .ContainsExactly("Label:Circle Colo", "Combo:c_ring_style",
                 "Slider:c_opacity", "Slider:c_size", "Button:c_reset");
-        // i.e. the FIRST entry is the LabelSpec unavailable-note standing in for the picker —
-        // pin it as "Label:" + a stable prefix of the resolved English text, not this literal.
     }
 
     public static TheoryData<string> SupervisionBranches() => new() { "connected", "disconnected", "unavailable" };
@@ -435,18 +440,22 @@ public class SimpleModeCurationTests
 
             // Disconnected adds exactly one row over connected: the retry button (the branch
             // difference IS the pin). Unavailable collapses to the note + no toggle.
-            if (branch == "disconnected")
-                Check.That(rows).Contains("Button:g_supervision_retry");
-            if (branch == "connected")
-                Check.That(rows).Not.Contains("Button:g_supervision_retry");
+            // FULL ordered sequences per branch — the exact-sequence form is what gives the
+            // branch checks teeth (plan-review r2 N3.2/N3.3).
+            var expected = new List<string> { "Combo:g_language", "Label:<pending-note prefix>",
+                "Combo:g_theme", "Toggle:g_boot", "Toggle:g_pause", "Toggle:g_track" };
             if (branch == "unavailable")
+                expected.AddRange(["Label:<unavailable-note prefix>", "Button:g_reset"]);
+            else
             {
-                Check.That(rows).Not.Contains("Toggle:g_supervision");
-                Check.That(rows.OfType<string>().Any(r => r.StartsWith("Label:"))).IsTrue();
+                expected.Add("Toggle:g_supervision");
+                if (branch == "disconnected") expected.Add("Button:g_supervision_retry");
+                expected.AddRange(["Label:<status prefix>", "Button:g_reset"]);
             }
-            Check.That(rows).Contains("Toggle:g_supervision", 
-                // unavailable excepted:
-                branch == "unavailable" ? (NFluent.FluentPredicate?)null : null);
+            Check.That(rows).ContainsExactly(expected.ToArray());
+            // The unavailable note resolves the key settings.general.supervision.unavailable —
+            // pin its prefix explicitly; the pending-note prefix likewise (both resolved
+            // against the embedded English table).
         }
         finally { File.Delete(path); }
     }
@@ -455,9 +464,11 @@ public class SimpleModeCurationTests
     public void SimpleTabIds_MatchReality_BothDirections()
     {
         // Spec §5.2/L9: every id in the set yields ≥1 Simple row; no other source has any.
-        // Iterate EVERY source HandChunkedPageFitTests can construct headlessly (its
-        // Construct/AllSourceTypes helpers) — not just the four.
-        foreach (var (id, source) in HandChunkedPageFitTests.AllSources())
+        // Route: internalize HandChunkedPageFitTests' private AllSourceTypes()/Construct()
+        // (this task edits that file — see Files), and map each source TYPE to its tab id
+        // (ActionMenuPageSource -> "Actions", etc.; the map THROWS on an unmapped type so a
+        // new source cannot silently skip the drift test).
+        foreach (var (id, source) in HandChunkedPageFitTests.AllSources(_ => new TestSettingsPageContext()))
         {
             var hasSimple = source.Build().SelectMany(p => p.Rows).Any(r => r.Simple);
             if (SimpleSettingsFilter.SimpleTabIds.Contains(id))
@@ -520,7 +531,7 @@ The `ExpectedSequence` lists — **membership comes from spec §5.3 and is never
 - Cursor (WeightedSandwich): `Pick:c_color`, `Combo:c_ring_style`, `Slider:c_opacity`, `Slider:c_size`, `Button:c_reset` — `c_opacity` builds before `c_size` (CursorPageSource.cs:79 vs :103).
 - Dwell: `Slider:d_act`, `Slider:d_menu`, `Slider:d_tool`, `Slider:d_key`, `Slider:d_pred`, `Slider:d_rad`, `Toggle:d_cue_sound`, `Button:d_reset`.
 - Keyboard: `Combo:k_layout`, `Slider:k_size`, `Toggle:k_pred`, `Combo:k_lang`, `Toggle:k_sound`, `Button:k_reset`.
-- General (German pending note, supervision live + disconnected): `Combo:g_language`, `Label:<pending-note prefix>`, `Combo:g_theme`, `Toggle:g_boot`, `Toggle:g_pause`, `Toggle:g_track`, `Toggle:g_supervision`, `Button:g_supervision_retry`, `Label:<status prefix>`, `Button:g_reset`. The headless table is the embedded English — pin label entries as `"Label:"` + a stable prefix of the resolved English text.
+- General lives ONLY in the supervision theory (plan-review r2 N3): disconnected = `Combo:g_language`, `Label:<pending-note prefix>`, `Combo:g_theme`, `Toggle:g_boot`, `Toggle:g_pause`, `Toggle:g_track`, `Toggle:g_supervision`, `Button:g_supervision_retry`, `Label:<status prefix>`, `Button:g_reset`; connected = the same minus the retry; unavailable = `…g_track`, `Label:<unavailable-note prefix — settings.general.supervision.unavailable>`, `Button:g_reset`. The headless table is the embedded English — pin label entries as `"Label:"` + a stable prefix of the resolved English text.
 
 - [ ] **Step 2: Run, and correct ONLY the order**
 
@@ -539,7 +550,7 @@ Expected: pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/EyeCtrl.App.Tests/Settings/Pages/SimpleModeCurationTests.cs tests/EyeCtrl.App.Tests/Settings/SimpleModeReachabilityTests.cs
+git add tests/EyeCtrl.App.Tests/Settings/Pages/SimpleModeCurationTests.cs tests/EyeCtrl.App.Tests/Settings/SimpleModeReachabilityTests.cs tests/EyeCtrl.App.Tests/Settings/HandChunkedPageFitTests.cs
 git commit -m "test(settings): pin the simple-mode curation sequence and reachability"
 ```
 
@@ -778,7 +789,11 @@ public void ComputeSidebarLayout_FeedsTheRealBudgetAndSlot()
 [Fact]
 public void ModelCompute_UsesTheChunker()
 {
-    var body = File.ReadAllText("src/EyeCtrl.App/Views/Settings/SettingsSidebarModel.cs");
+    // Rooted at the repo root like every source scan in this class (the test host's cwd is
+    // the bin directory — a relative path throws FileNotFoundException). Green on contact:
+    // the model exists from Task 6; this pin guards future rewrites (plan-review r2 N2).
+    var body = File.ReadAllText(Path.Combine(
+        SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Views", "Settings", "SettingsSidebarModel.cs"));
     Check.WithCustomMessage("SettingsSidebarModel.Compute must derive paging from SettingsTabPagination.")
         .That(body).Contains("SettingsTabPagination.TabsPerPage");
 }
@@ -789,7 +804,7 @@ public void ModelCompute_UsesTheChunker()
 Update the existing `BuildTabButtons_SizesPagesFromTheChunker` pin (`:79`): it expects `SettingsTabPagination.TabsPerPage` inside `BuildTabButtons`; after this task the call routes through `ComputeSidebarLayout` — change the expected literal to `ComputeSidebarLayout(` (the budget/slot pins above carry the original intent).
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SettingsTabPaginationWiringTests"`
-Expected: the two behavior pins (`RenderTabPage_SlicesTheVisibleDefs`, plus `ComputeSidebarLayout_*`/`ModelCompute_*`) FAIL; the guard pins (`NeverFiltersTheFaceLoop`, `RegistersTheCloseButton`) are green on contact — they exist to fail the day someone breaks them.
+Expected: the behavior pins (`RenderTabPage_SlicesTheVisibleDefs`, `ComputeSidebarLayout_FeedsTheRealBudgetAndSlot`) FAIL; the guard pins (`NeverFiltersTheFaceLoop`, `RegistersTheCloseButton`, `ModelCompute_UsesTheChunker`) are green on contact — they exist to fail the day someone breaks them. Note: `ExtractMethod` slices to the next `\n    }`, so the expression-bodied `ComputeSidebarLayout`'s slice spills into `ApplySidebarLayout` — harmless today (both bodies contain what the pin wants); if `ExtractMethod` is ever tightened, revisit this pin, do not delete it (plan-review r2 m-f).
 
 - [ ] **Step 2: Implement the window changes**
 
@@ -898,7 +913,7 @@ git commit -m "refactor(settings): window applies the pure sidebar model; deep l
 
 **Interfaces:**
 - Consumes: `SimpleSettingsFilter.Apply` (Task 3), `ApplySidebarLayout`/`ComputeSidebarLayout` (Task 7).
-- Produces: `SwitchSettingsUiMode(bool simple)` — Task 11's toggle calls it. `UpdateModeToggleLabel` is added by Task 10; its call site is added with it (do NOT call a method that does not exist yet).
+- Produces: `SwitchSettingsUiMode(bool simple)` — Task 11's toggle calls it. `UpdateModeToggleLabel` AND its call site (the final line of `SwitchSettingsUiMode`) both land in Task 10 — do NOT call a method that does not exist yet.
 
 - [ ] **Step 1: Write the failing wiring pins**
 
@@ -998,10 +1013,9 @@ private void SwitchSettingsUiMode(bool simple)
     {
         RebuildContent();
         if (_viewModel.Settings.CurrentPage != 0)
-        {
-            _viewModel.Settings.CurrentPage = 0;     // m5, applied after the rebuild so the stale
-            RenderCurrentPage();                     // page list is never rendered once
-        }
+            _viewModel.Settings.CurrentPage = 0;     // m5; the property handler re-renders the
+                                                     // page — no manual RenderCurrentPage (that
+                                                     // rendered twice, plan-review r2 m-b)
     }
     ApplySidebarLayout(layout);
 }
@@ -1222,12 +1236,14 @@ git commit -m "feat(settings): mode toggle face — header host, BuildModeToggle
 - Modify: `src/EyeCtrl.Core/Localization/StringTableSchema.cs:43-96`
 - Modify: `tools/strings_validate.py:88-110`
 - Modify: `tests/EyeCtrl.App.Tests/Localization/Fit/AppFitMeasurers.cs`
-- Modify: `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs` (`ModeToggleLabelKey` + `UpdateModeToggleLabel`; the ctor ternary -> helper call)
+- Modify: `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs` (`ModeToggleLabelKey` + `UpdateModeToggleLabel` + the call site in `SwitchSettingsUiMode`; the ctor ternary -> helper call)
 - Test: `tests/EyeCtrl.App.Tests/Settings/SettingsModeToggleLabelTests.cs` (new)
+- Test: `tests/EyeCtrl.App.Tests/Settings/SettingsModeSwitchWiringTests.cs` (Task 8's file — gains the re-label order pin)
+- Modify: `src/EyeCtrl.App/Localization/strings.de.json` (the two German entries, AFTER the re-class)
 
 **Interfaces:**
 - Consumes: `BuildModeToggle` (Task 9), `SwitchSettingsUiMode` (Task 8).
-- Produces: `internal static string ModeToggleLabelKey(bool simple)`, `UpdateModeToggleLabel()`, fit class `A208` — Task 11's switch calls the label update; the measurer is the gate's seam.
+- Produces: `internal static string ModeToggleLabelKey(bool simple)`, `UpdateModeToggleLabel()`, fit class `A208`. Task 10 ALSO wires the re-label call into `SwitchSettingsUiMode` — this task owns the call site (plan-review r2 N1: r2 defined the method and never called it).
 
 - [ ] **Step 1: Write the failing label-key test (plan-review C1 — the mapping was inverted in this plan's first draft)**
 
@@ -1291,11 +1307,26 @@ And replace the ctor's inlined ternary (Task 9 Step 3) with the helper:
 StringTable.Current.T(ModeToggleLabelKey(_settings.General.SimpleSettingsUi))
 ```
 
-This is the C1 fix: the window now opens with the mode-correct label, and every flip re-labels correctly.
+**The re-label call site (plan-review r2 N1 — the r2 plan defined the method and never called it):** append `UpdateModeToggleLabel();` as the FINAL statement of `SwitchSettingsUiMode` (Task 8's method), after `ApplySidebarLayout(layout);`. Pin it in `SettingsModeSwitchWiringTests`:
+
+```csharp
+[Fact]
+public void SwitchSettingsUiMode_RelabelsAfterTheSidebarApply()
+{
+    var body = ExtractMethod(WindowSource(), "private void SwitchSettingsUiMode(");
+    Check.WithCustomMessage(
+            "The switch must re-label the toggle AFTER applying the sidebar — the label names "
+            + "the mode now active (L21).")
+        .That(body.IndexOf("ApplySidebarLayout("))
+        .IsStrictlyLessThan(body.IndexOf("UpdateModeToggleLabel()"));
+}
+```
+
+This completes the C1 fix: the window opens with the mode-correct label, and every flip re-labels correctly — pinned, not promised.
 
 - [ ] **Step 4: Re-class the strings and register A208 everywhere**
 
-In `strings.json`, change both entries' `"fit"` from `"row"` to `"A208"`.
+In `strings.json`, change both entries' `"fit"` from `"row"` to `"A208"`. THEN add the two German entries to `src/EyeCtrl.App/Localization/strings.de.json` (the German table exists on this base — 673 entries; order matters because the German `src` hash includes `fit`): `"settings.mode.show.all": "Alle Einstellungen"`, `"settings.mode.show.basic": "Einfach"` — target-mode naming per L21; if the T10 draft's established terminology differs, follow it, but the label must fit the A208 room ("Grundeinstellungen" also fits; verify with the measurer). Inert until the German manifest lists the settings surface (it is still `[]` on this base).
 
 `StringTableSchema.FitClasses` (with the derivation comment):
 
@@ -1350,7 +1381,7 @@ Note (plan-review m5): per-class pseudo-locale measurement is the NON-BINDING `P
 Run: `dotnet test tests/EyeCtrl.App.Tests` — Expected: pass.
 
 ```bash
-git add src/EyeCtrl.Core/Localization/strings.json src/EyeCtrl.Core/Localization/StringTableSchema.cs tools/strings_validate.py tests/EyeCtrl.App.Tests/Localization/Fit/AppFitMeasurers.cs src/EyeCtrl.App/Views/SettingsWindow.xaml.cs tests/EyeCtrl.App.Tests/Settings/SettingsModeToggleLabelTests.cs
+git add src/EyeCtrl.Core/Localization/strings.json src/EyeCtrl.Core/Localization/StringTableSchema.cs tools/strings_validate.py tests/EyeCtrl.App.Tests/Localization/Fit/AppFitMeasurers.cs src/EyeCtrl.App/Views/SettingsWindow.xaml.cs tests/EyeCtrl.App.Tests/Settings/SettingsModeToggleLabelTests.cs tests/EyeCtrl.App.Tests/Settings/SettingsModeSwitchWiringTests.cs src/EyeCtrl.App/Localization/strings.de.json
 git commit -m "feat(settings): mode toggle label mapping (target-mode naming) and the A208 horizontal fit class"
 ```
 
@@ -1366,6 +1397,8 @@ git commit -m "feat(settings): mode toggle label mapping (target-mode naming) an
 - Produces: `RegisterModeToggleTarget()`, `GuardModeToggle()`, `OnModeToggleActivated`, `UpdateModeToggleVisuals()`.
 
 - [ ] **Step 1: Write the failing wiring pins**
+
+(New file — copy the usings of the precedent files it leans on: `System.IO` for the source scan, plus whatever `QaTestSupport`'s home and `EyeCtrl.App.Views` require.)
 
 ```csharp
 namespace EyeCtrl.App.Tests.Settings;
@@ -1506,47 +1539,69 @@ Wire-ins (each a one-line change in EXISTING methods — allowed, they are not t
 5. The `PagProgress` case -> add `UpdateModeToggleVisuals();` beside the two existing calls.
 6. Mouse path converges: change the ctor construction to pass `OnModeToggleActivated` and **DELETE the now-dead `OnModeToggleMouseDown`** (plan-review m10).
 
-- [ ] **Step 4: The resting-gaze behavioural test (real VM, real dwell, DPI 2.0 — plan-review I5)**
+- [ ] **Step 4: The resting-gaze behavioural test (real VM, real dwell, DPI 2.0 — plan-review r2 N4)**
 
-Add to `SettingsModeToggleWiringTests`, modelled on `SettingsPagerChromeTests.cs:653-700` (its `QaTestSupport.MakeViewModel()` + real `vm.Register` + dwell-frame feeding), at DPI scale **2.0**:
+Put it in its OWN class — `SettingsModeToggleRestingGazeTests.cs` — because the DPI-isolation gate matches per FILE: a file that calls `DpiHelper.Initialize` must sit in the non-parallel collection, and the source-scan pins in `SettingsModeToggleWiringTests` must not join it. Copy the usings from `SettingsPagerChromeTests.cs:3-17` (the precedent file), then:
 
 ```csharp
-[StaFact]
-public void RestingGazeOnTheModeToggle_FlipsExactlyOnce_UntilTheGazeLeaves()
+namespace EyeCtrl.App.Tests.Settings;
+
+[Collection("DpiHelper Tests (App)")]   // ManualSelectionDwellServiceTests.cs:57 is the precedent —
+                                        // DpiHelperWriterIsolationTests requires this on every
+                                        // DpiHelper.Initialize-calling file
+public class SettingsModeToggleRestingGazeTests
 {
-    var vm = QaTestSupport.MakeViewModel();               // per the pager precedent's construction
-    var guard = new SettingsPagerRearmGuard(vm, (_, _) => { });
-    var flips = 0;
-    var centre = new PhysicalPoint(1000, 300);            // scale-2.0 physical coords
-    var hit = DpiHelper.LogicalToPhysicalX(SettingsWindow.ModeToggleHitRadius);
-    var release = DpiHelper.LogicalToPhysicalX(SettingsWindow.ModeToggleReleaseRadius);
+    [StaFact]
+    public void RestingGazeOnTheModeToggle_FlipsExactlyOnce_UntilTheGazeLeaves()
+    {
+        DpiHelper.Initialize(2.0, 2.0);              // the wander/away arithmetic below is
+        try                                            // LOGICAL-DIP-derived; at 1.0 it cannot pass
+        {
+            var vm = QaTestSupport.MakeViewModel();  // per the pager precedent's construction
+            SettingsPagerRearmGuard? guard = null;
+            var flips = 0;
+            var centre = new PhysicalPoint(DpiHelper.LogicalToPhysicalX(1000), DpiHelper.LogicalToPhysicalX(300));
+            var hit = DpiHelper.LogicalToPhysicalX(SettingsWindow.ModeToggleHitRadius);      // 50 logical
+            var release = DpiHelper.LogicalToPhysicalX(SettingsWindow.ModeToggleReleaseRadius); // 85 logical
+            guard = new SettingsPagerRearmGuard(vm, (_, _) => Register());
 
-    void Register() =>
-        vm.Register("settings_mode", DwellCategory.Pagination, hit, 400,
-            () => { flips++; guard.Disarm("settings_mode", DwellCategory.Pagination, centre, release); });
-    Register();
+            void Register()
+            {
+                if (guard!.IsDisarmed("settings_mode")) return;   // mirrors RegisterModeToggleTarget
+                vm.Register("settings_mode", DwellCategory.Pagination, hit, 400,
+                    () => { flips++; guard.Disarm("settings_mode", DwellCategory.Pagination, centre, release); });
+                vm.UpdatePosition("settings_mode", DwellCategory.Pagination, centre);
+            }
+            Register();
 
-    // (a) 200 frames resting ON the centre: the cooldown re-arms the detector, the guard must not.
-    for (var i = 0; i < 200; i++) { Frame(vm, centre, hit); FrameGuard(guard, centre); }
-    Check.That(flips).IsEqualTo(1);
+            // (a) 200 frames resting ON the centre: the cooldown re-arms the detector; the guard
+            // must hold — exactly one flip. Use a running timestamp across ALL phases exactly as
+            // the pager precedent does (SettingsPagerChromeTests.cs:744-766).
+            for (var i = 0; i < 200; i++) { Frame(vm, centre); guard.Update(centre); }
+            Check.That(flips).IsEqualTo(1);
 
-    // (b) wander at ~70 logical DIP — OUTSIDE the 50 hit circle, INSIDE the 85 release circle:
-    // the hysteresis must hold the guard (this is the assertion that proves 50/85, not 50/50).
-    var wander = new PhysicalPoint(centre.X + (long)(70 * 2), centre.Y);
-    for (var i = 0; i < 50; i++) { FrameGuard(guard, wander); }
-    // and a return to the centre must NOT flip again — the guard still holds
-    for (var i = 0; i < 20; i++) { Frame(vm, centre, hit); FrameGuard(guard, centre); }
-    Check.That(flips).IsEqualTo(1);
+            // (b) wander at 70 LOGICAL DIP — outside the 50 hit circle, inside the 85 release
+            // circle: the hysteresis must hold the guard (the assertion that proves 50/85, not 50/50).
+            var wander = new PhysicalPoint(centre.X + DpiHelper.LogicalToPhysicalX(70), centre.Y);
+            for (var i = 0; i < 50; i++) guard.Update(wander);
+            for (var i = 0; i < 20; i++) { Frame(vm, centre); guard.Update(centre); }
+            Check.That(flips).IsEqualTo(1);
 
-    // (c) leave beyond the release radius, come back: exactly one more flip.
-    var away = new PhysicalPoint(centre.X + (long)(120 * 2), centre.Y);
-    FrameGuard(guard, away);                              // re-arm -> re-register via the seam
-    for (var i = 0; i < 20; i++) { Frame(vm, centre, hit); }
-    Check.That(flips).IsEqualTo(2);
+            // (c) leave beyond the release radius, return: exactly one more flip.
+            var away = new PhysicalPoint(centre.X + DpiHelper.LogicalToPhysicalX(120), centre.Y);
+            guard.Update(away);                       // re-arm -> Register() via the callback seam
+            for (var i = 0; i < 20; i++) Frame(vm, centre);
+            Check.That(flips).IsEqualTo(2);
+        }
+        finally
+        {
+            DpiHelper.Initialize(1.0, 1.0);           // restore the ambient scale
+        }
+    }
 }
 ```
 
-(`Frame` feeds one dwell frame through the same VM entry the pager test uses (`vm.Receive`-of-dwell-progress per its harness); `FrameGuard` calls `guard.Update(gaze)` then re-registers through `Register()` when the guard re-arms — mirror the precedent's exact frame plumbing, including its re-registration seam, so the test exercises RegisterModeToggleTarget's `IsDisarmed` consult. If the precedent's helpers cannot be reused directly, copy them; do not weaken the three assertions (a)/(b)/(c).)
+`Frame(vm, gaze)` is the precedent's dwell-frame feeder (its `vm.Receive(...)`-of-gaze/timestamp plumbing, copied verbatim from `SettingsPagerChromeTests.cs:653-707` including the running-timestamp discipline). Do not weaken the three assertions (a)/(b)/(c); do not hard-code physical offsets — everything derives through `DpiHelper.LogicalToPhysicalX` at the 2.0 scale.
 
 - [ ] **Step 5: Run everything this task touches**
 
@@ -1572,24 +1627,40 @@ git commit -m "feat(settings): mode toggle registration with 50/85 hysteresis, w
 
 - [ ] **Step 1: Write the tests**
 
-The contrast pin reads the BUILT face (not theme tokens), in EVERY theme, blending with production's `ColorBlend`, and asserts the size/weight that keep the pair legal (plan-review I5):
+The contrast pin reads the BUILT face (not theme tokens), in EVERY theme, blending with production's `ColorBlend`, and asserts the size/weight that keep the pair legal (plan-review r1 I5, r2 N5). The right precedent is `FitClassThemeTests` (theme scoping via `ThemeScope` + the `[Collection("ActiveTheme")]` discipline) — NOT `SettingsPageHeaderContrastTests`, which reads theme objects directly without either; the WCAG helpers below are copied from that file's `Contrast`/`Luminance` (`SettingsPageHeaderContrastTests.cs:74-87`).
 
 ```csharp
 namespace EyeCtrl.App.Tests.Settings;
 
 using System.IO;
+using EyeCtrl.App.Tests.TestSupport;      // ThemeScope — Activate, not Enter (plan-review r2 N5)
 using EyeCtrl.App.Views;
 using EyeCtrl.Controls;                   // ColorBlend — verify the namespace against its csproj use
-using EyeCtrl.Controls.Theme;             // Tokens, ThemeRegistry, ThemeScope (mirror SettingsPageHeaderContrastTests' usings)
+using EyeCtrl.Controls.Theme;             // Tokens, ThemeRegistry
 
+[Collection("ActiveTheme")]               // ThemeScope mutates process-global state — the
+                                           // FitClassThemeTests collection discipline
 public class SettingsModeToggleChromeTests
 {
+    // Copied from SettingsPageHeaderContrastTests.cs:74-87 (WCAG relative luminance):
+    private static double Luminance(System.Windows.Media.Color c)
+    {
+        double F(double ch) { var v = ch / 255.0; return v <= 0.03928 ? v / 12.92 : Math.Pow((v + 0.055) / 1.055, 2.4); }
+        return 0.2126 * F(c.R) + 0.7152 * F(c.G) + 0.0722 * F(c.B);
+    }
+
+    private static double Contrast(System.Windows.Media.Color a, System.Windows.Media.Color b)
+    {
+        var la = Luminance(a); var lb = Luminance(b);
+        return (Math.Max(la, lb) + 0.05) / (Math.Min(la, lb) + 0.05);
+    }
+
     [StaFact]
     public void LabelContrast_AtRestAndFullWash_ClearsTheBars_InEveryTheme()
     {
-        foreach (var theme in ThemeRegistry.All)                       // mirror the header-contrast
-        {                                                              // test's enumeration exactly
-            using (ThemeScope.Enter(theme))
+        foreach (var theme in ThemeRegistry.All)                       // mirror FitClassThemeTests'
+        {                                                              // enumeration exactly
+            using (ThemeScope.Activate(theme))
             {
                 var buttons = new Dictionary<string, System.Windows.Controls.Border>();
                 var brushes = new Dictionary<string, System.Windows.Media.SolidColorBrush>();
@@ -1601,8 +1672,9 @@ public class SettingsModeToggleChromeTests
                 var labelC = ((System.Windows.Media.SolidColorBrush)label.Foreground).Color;
 
                 // Size/weight are load-bearing: the 0.4 wash lands near 3.39:1, legal only at
-                // or above the LARGE-text 3:1 bar.
-                Check.That(label.FontSize).IsGreaterOrEqualThan(18.0);
+                // or above the LARGE-text 3:1 bar. The floor is the precedent's
+                // LargeTextThresholdDip = 24 (18.0 is NOT the WCAG large-text bar — plan-review r2 m-a).
+                Check.That(label.FontSize).IsGreaterOrEqualThan(24.0);
                 Check.That(label.FontWeight).IsEqualTo(System.Windows.FontWeights.Bold);
 
                 Check.That(Contrast(labelC, baseC)).IsGreaterOrEqualThan(4.5);          // at rest
@@ -1664,25 +1736,41 @@ The app reads `%APPDATA%/EyeCtrl/settings.json` once at launch, and `AppFixture`
 Move the guard to the fixture (gated on the UI-tests-enabled flag the fixture already checks):
 
 ```csharp
+// Fields on the fixture:
+private string? _settingsBackup;
+private bool _hadSettingsFile;
+private static string SettingsPath => Path.Combine(
+    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl", "settings.json");
+
 // In InitializeAsync, BEFORE Application.Launch:
 if (UiTestsEnabled)
 {
-    _settingsBackup = SettingsPath + ".ui_test_backup";
     _hadSettingsFile = File.Exists(SettingsPath);
-    if (_hadSettingsFile) File.Copy(SettingsPath, _settingsBackup, overwrite: true);
-    ForceSimpleSettingsUi(SettingsPath, simple: false);   // the launched app reads advanced
+    if (_hadSettingsFile)
+    {
+        _settingsBackup = SettingsPath + ".ui_test_backup";
+        File.Copy(SettingsPath, _settingsBackup, overwrite: true);
+        ForceSimpleSettingsUi(SettingsPath, simple: false);   // the launched app reads advanced
+    }
+    // No existing file: nothing to force or restore — advanced is the default the app will
+    // write. A throw here fails the whole UI collection, so every step is guarded (m-d).
 }
 
-// In DisposeAsync, AFTER Kill() + WaitForExit (the app must be dead before the restore,
-// or its debounced writer can overwrite it):
-if (UiTestsEnabled)
+// In DisposeAsync, AFTER Kill():
+if (UiTestsEnabled && _settingsBackup is not null)
 {
+    try
+    {
+        Process.GetProcessById(_app!.ProcessId).WaitForExit(5000);   // the app must be DEAD before
+    }                                                                 // the restore, or its debounced
+    catch (ArgumentException) { /* already gone */ }                  // writer overwrites it (m-d)
     if (_hadSettingsFile) File.Move(_settingsBackup, SettingsPath, overwrite: true);
-    else if (File.Exists(SettingsPath)) File.Delete(SettingsPath);
-}
+    else if (File.Exists(SettingsPath)) File.Delete(SettingsPath);    // unreachable while _settingsBackup
+}                                                                     // is gated on _hadSettingsFile — kept
+                                                                      // defensive
 ```
 
-`SettingsPath` is the `%APPDATA%/EyeCtrl/settings.json` path the fixture already knows (or add it); `ForceSimpleSettingsUi` is a small static helper on the fixture: `JsonNode.Parse` the file, set `["general"]["simpleSettingsUi"] = simple`, write back. **Record in the fixture's doc comment: a test-host crash mid-run leaves `settings.json.ui_test_backup` behind for manual restore.** Remove any per-test-method guard — the fixture owns this now.
+`ForceSimpleSettingsUi` is a small static helper on the fixture: `JsonNode.Parse` the file, set `["general"]?["simpleSettingsUi"] = simple` (tolerate a missing `general` node by creating it), write back. **Record in the fixture's doc comment: a test-host crash mid-run leaves `settings.json.ui_test_backup` behind for manual restore.** Remove any per-test-method guard — the fixture owns this now.
 
 The existing `SettingsWindow_RendersExactlyTheExpectedTabs` test is a no-phantom-tabs check (`expectedTabs` ⊆ actual, `>= 5` found) — with the fixture forcing advanced it stays honest. If you add the optional simple-mode pass (find `Settings_ModeToggle` on the TextBlock, dwell it, expect exactly the four simple `Settings_Tab_*` ids), it flips the live flag through the app: after asserting, **flip back via the toggle and wait out the debounced save (>= 2 s) before the test ends**, so the DisposeAsync restore is a belt-and-braces, not the only line of defense.
 
@@ -1724,10 +1812,10 @@ git add tests/EyeCtrl.App.Tests/Fixtures/AppFixture.cs tests/EyeCtrl.App.Tests/T
 git commit -m "test(settings): fixture-level isolation of the owner's settings file for UI tests"
 ```
 
-## Self-review record (r2 — plan-review round 1 folded)
+## Self-review record (r3 — plan-review rounds 1 and 2 folded)
 
-- **Spec coverage:** S5.1->Task 1; S5.2->Tasks 3/6/7 (+ the both-direction drift test in Task 5); S5.3->Tasks 4/5 (three supervision branches + Achromatic cursor row pinned); S5.4->Tasks 3/8; S5.5->Tasks 9-12 (label mapping C1-fixed with a unit test; A208 horizontal with the 8-DIP inset; 12-DIP host margin is real in the XAML); S5.6->Tasks 6-8/11 (applier pins: page assignment, one RenderTabPage, clear-before-build, ActiveTabId); S5.7->Tasks 1 (ResetAll) + 5 (g_reset keeps the flag); S5.8->Tasks 7/13; S6->Tasks 1-13; S7 file table->all present (incl. AppFixture); ledger L1-L21->L9 Task 5, L10 Task 8, L12/L18 Task 10, L15 Task 9, L16 Task 11, L20 Task 13 (fixture-level), L21 Task 10.
-- **Recorded deviations from the spec's letter:** (1) the spec's `case "settings_mode"` is realized as `case ModeToggleId:` — the constant IS that string (Task 11). (2) `SettingsDeepLinkTests:234` (`PageOf`) does NOT move — `_tabsPerPage` is model-fed, only the `FindIndex` line changes (Task 7). (3) The model's "pager register/unregister diff" output is realized as an unconditional teardown in `RebuildTabPagerChrome` — equivalent for the two ids (Task 8). (4) The spec's "deep link in simple mode" behavioural test is covered by the model test (General always visible) + the `_visibleDefs` wiring pin + the gated UI pass — a window-level behavioural test is infeasible headless (round-2 N5).
-- **Greenness:** every task ends green and commits. Task 9 lands the strings entries (temporarily `fit: row`) and the keyed ctor construction so its routing pin is satisfied in-task; Task 10 re-classes to A208 and adds the label mapping. Some pins are green-on-contact regression guards by design (close-button, face-loop Not-Contains, VM dispatch) — each is labelled as such where it is written.
-- **Known judgment calls an executor must not re-decide:** `ModeToggleWidth = 208` (derivation in the constant's comment; ~7.8 DIP of title headroom at the narrowest display — flagged, the fit tests police it); the curation pin's expected ORDER is finalized against real build order in Task 5 Step 2, its MEMBERSHIP never edits to match output; measurer layout realization mirrors the sibling measurers; `SettingsPagerClearanceTests`' parse-and-derive helpers are the geometry pin's model.
-- **Plan-review round 1 (FIX-THEN-SHIP) folded in full:** C1 (label mapping + ctor label + label-key unit test), I1-I13 (Task 9 green sequencing; Task 11 case-pin agreement; ~10 compile fixes incl. namespaces, private-helper copies, System.IO, visible.Length, void SimulateActivated, Dictionary arity; close-button pin; teeth for N1/resting-gaze/contrast/curation-branches; page-math pin chain; drift + g_reset tests; the 12-DIP margin + real-face mirror; the OneLineInset measurer; the fixture-level settings guard; cwd discipline), m1-m13.
+- **Spec coverage:** unchanged from r2's map (every S5 section and ledger line -> task), with round-2's corrections: the re-label CALL SITE is Task 10's (written and pinned, not promised); L20's guard is fixture-level; L12's German route now points at the POPULATED `src/EyeCtrl.App/Localization/strings.de.json` on base `52b031ba` (entries added in Task 10 after the A208 re-class, inert while the manifest is `[]`).
+- **Recorded deviations from the spec's letter:** (1) `case ModeToggleId:` for the spec's `case "settings_mode"` literal; (2) `SettingsDeepLinkTests:234` does not move (`_tabsPerPage` is model-fed); (3) the model's pager diff realized as an unconditional teardown; (4) the deep-link behavioural test covered model-side + wiring pin + gated UI; (5) the spec's "German table is empty" was true at r4 and is stale on this base — recorded, harmless, German entries routed per above.
+- **Greenness:** every task ends green and commits. Round-2's reds closed: Task 7's model pin roots at `SourceScanner.RepoRoot()`; Task 5 compiles (precedent registrar members, General split out of the context-less theory into the three full-sequence branches, real Achromatic literals, internalized `AllSourceTypes`/`Construct` + type->tab-id map); Task 11's resting-gaze harness is the precedent's shape (DPI 2.0 in the non-parallel collection, guard-consulting Register with UpdatePosition, running timestamp); Task 12's contrast compiles (`ThemeScope.Activate`, `[Collection("ActiveTheme")]`, helpers copied inline, floor 24).
+- **Known judgment calls an executor must not re-decide:** `ModeToggleWidth = 208` (~7.8 DIP headroom, flagged); curation ORDER finalized at Task 5 Step 2, MEMBERSHIP never edited; measurer layout realization mirrors the siblings; geometry pin mirrors `SettingsPagerClearanceTests`; German wording "Alle Einstellungen"/"Einfach" (follow the T10 draft's terminology if it differs; the A208 room governs).
+- **Plan-review history:** round 1 (FIX-THEN-SHIP): C1 + I1-I13 + m1-m13 folded in r2 (`3f233d24`, now `ba7345e1` after the `52b031ba` rebase). Round 2 (FIX-THEN-SHIP): N1 (the never-called re-label) + N2-N5 + m-a..m-f folded here; verdict at the main checkout root.

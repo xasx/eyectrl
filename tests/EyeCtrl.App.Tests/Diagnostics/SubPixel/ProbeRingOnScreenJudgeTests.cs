@@ -247,7 +247,12 @@ public class ProbeRingOnScreenJudgeTests
 
     // ── fixup 03: collect-then-judge, the full table, repeats and the noise floor ──
 
-    /// <summary>The single-repeat inputs wrapped into the row shape <see cref="Measure"/> consumes.</summary>
+    /// <summary>
+    /// The single-frame inputs wrapped into the row shape <see cref="Measure"/> consumes. Each
+    /// judged row carries the scheduled three repeats (fixup 09 F1: a judged row must hold
+    /// <see cref="ProbeRingOnScreenHarness.RowRepeats"/> captures; the three are the same frame, so
+    /// the measured values are unchanged).
+    /// </summary>
     private static ProbeRingOnScreenJudge.JudgeInputs Inputs(
         double scale,
         ProbeRaster expected,
@@ -261,8 +266,10 @@ public class ProbeRingOnScreenJudgeTests
         var assertionRows = assertions
             .SelectMany(frame => new[]
             {
-                new ProbeRingOnScreenJudge.RowSamples(ProbeRingOnScreenJudge.ConditionA, frame.Fraction, [frame.A]),
-                new ProbeRingOnScreenJudge.RowSamples(ProbeRingOnScreenJudge.ConditionB, frame.Fraction, [frame.B]),
+                new ProbeRingOnScreenJudge.RowSamples(
+                    ProbeRingOnScreenJudge.ConditionA, frame.Fraction, [frame.A, frame.A, frame.A]),
+                new ProbeRingOnScreenJudge.RowSamples(
+                    ProbeRingOnScreenJudge.ConditionB, frame.Fraction, [frame.B, frame.B, frame.B]),
             })
             .ToList();
         var sweepRows = sweep
@@ -701,20 +708,14 @@ public class ProbeRingOnScreenJudgeTests
     public void JudgedTwentyOneRow_AbsorbsAScanRowOnlyPerturbation()
     {
         var (expected, referenceB, referenceA, assertions, sweep) = HealthyInputs();
+        var perturbed = WithRowFrom(RingAt(0.25, snap: false), RingAt(0.45, snap: false), Geometry.ScanRow);
         var inputs = Inputs(2.0, expected, referenceB, referenceA, assertions, sweep);
         inputs = inputs with
         {
             AssertionRows = inputs.AssertionRows
                 .Select(row => row.Condition == ProbeRingOnScreenJudge.ConditionB
                                && Math.Abs(row.Fraction - 0.25) < 1e-9
-                    ? row with
-                    {
-                        Repeats =
-                        [
-                            WithRowFrom(
-                                RingAt(0.25, snap: false), RingAt(0.45, snap: false), Geometry.ScanRow),
-                        ],
-                    }
+                    ? row with { Repeats = [perturbed, perturbed, perturbed] }
                     : row)
                 .ToList(),
         };
@@ -829,6 +830,72 @@ public class ProbeRingOnScreenJudgeTests
         ProbeRingOnScreenJudge.WriteReport(report, lines.Add);
         Check.WithCustomMessage("The report must flag the stale repeat on the judged row's lines.")
             .That(lines.Any(line => line.Contains("R2 row B f=0.25") && line.Contains("stale=1"))).IsTrue();
+    }
+
+    /// <summary>
+    /// Fixup 09 F1 (review 07 MAJOR): a judged row with ZERO repeats used to pass vacuously — NaN
+    /// means, a per-repeat loop over nothing, and a schedule check that only looks at fractions.
+    /// It must fail, naming the row and the count. Kills the "count check deleted" mutant, which
+    /// restores the vacuous pass.
+    /// </summary>
+    [StaFact]
+    public void JudgedRows_WithNoRepeats_Fail_NeverPassVacuously()
+    {
+        var (expected, referenceB, referenceA, assertions, sweep) = HealthyInputs();
+        var inputs = Inputs(2.0, expected, referenceB, referenceA, assertions, sweep);
+        inputs = inputs with
+        {
+            AssertionRows = inputs.AssertionRows
+                .Select(row => row with { Repeats = [], StaleFlags = null })
+                .ToList(),
+        };
+
+        var report = ProbeRingOnScreenJudge.Measure(inputs);
+
+        Check.WithCustomMessage("An empty judged row must be a failure, not a vacuous pass.")
+            .That(report.Failures).Not.IsEmpty();
+        Check.WithCustomMessage(
+                "The failure must name the row and its count; got: "
+                + string.Join(" | ", report.Failures.Select(failure => failure.Message)))
+            .That(report.Failures.Any(failure =>
+                failure.Message.Contains("0 captures")
+                && failure.Message.Contains("f = 0.25"))).IsTrue();
+
+        var verdict = FailureMessage(() => ProbeRingOnScreenJudge.Judge(report));
+        Check.WithCustomMessage("The verdict must fail too; an empty run cannot be green.")
+            .That(verdict).IsNotNull();
+    }
+
+    /// <summary>
+    /// Fixup 09 F1: the same for a short row — 2 of the 3 scheduled repeats is a failure that names
+    /// the row and the count, even though the two captures it does hold measure fine.
+    /// </summary>
+    [StaFact]
+    public void JudgedRow_WithTwoOfThreeRepeats_Fails()
+    {
+        var (expected, referenceB, referenceA, assertions, sweep) = HealthyInputs();
+        var inputs = Inputs(2.0, expected, referenceB, referenceA, assertions, sweep);
+        inputs = inputs with
+        {
+            AssertionRows = inputs.AssertionRows
+                .Select(row => row.Condition == ProbeRingOnScreenJudge.ConditionB
+                               && Math.Abs(row.Fraction - 0.5) < 1e-9
+                    ? row with { Repeats = [RingAt(0.5, snap: false), RingAt(0.5, snap: false)] }
+                    : row)
+                .ToList(),
+        };
+
+        var report = ProbeRingOnScreenJudge.Measure(inputs);
+
+        Check.WithCustomMessage(
+                "A judged B row holding 2 of its 3 scheduled repeats must fail; got: "
+                + string.Join(" | ", report.Failures.Select(failure => failure.Message)))
+            .That(report.Failures.Any(failure =>
+                failure.Requirement.Contains("condition B")
+                && failure.Message.Contains("2 captures")
+                && failure.Message.Contains("f = 0.50"))).IsTrue();
+        Check.WithCustomMessage("Only the count check may fail; the row's two captures measure fine.")
+            .That(report.Failures.Count(failure => failure.Message.Contains("2 captures"))).IsEqualTo(1);
     }
 
     /// <summary>Copies a raster and replaces one row with the same row of <paramref name="donor"/>.</summary>

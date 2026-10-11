@@ -239,33 +239,10 @@ internal static class ProbeRingOnScreenHarness
             writeLine(Invariant(
                 $"R2 measured visible time: {visibleTime.TotalSeconds:0.0} s (show to close)."));
 
-            var origins = samples
-                .Select(sample => (sample.Frame.CaptureOriginX, sample.Frame.CaptureOriginY))
-                .Distinct()
-                .ToList();
-            writeLine(
-                $"R2 capture origin (all {samples.Count} frames): "
-                + string.Join(" / ", origins.Select(origin => $"({origin.CaptureOriginX}, {origin.CaptureOriginY})")));
-
-            // ---- Measure + print (fixup 03 items 2-4): the full per-axis table with repeats and
-            // mirrored halves, before any verdict. ----
-            var referenceB = samples.First(sample =>
-                sample.Kind == ProbeRingOnScreenJudge.KindReference
-                && sample.Condition == ProbeRingOnScreenJudge.ConditionB
-                && sample.Fraction == 0.0 && sample.Repeat == 0);
-            var centreInCapture = new PhysicalPoint(
-                referenceB.Frame.CaptureCentrePx.X - referenceB.Frame.CaptureOriginX,
-                referenceB.Frame.CaptureCentrePx.Y - referenceB.Frame.CaptureOriginY);
-            var expected = ProbeRingCaptureScene.ExpectedWeightsAt(centreInCapture, referenceB.Background, scale);
-
-            var report = ProbeRingOnScreenJudge.Measure(
-                ProbeRingOnScreenJudge.BuildInputs(scale, expected, samples));
-
-            ProbeRingOnScreenJudge.WriteReport(report, writeLine);
-
-            // (F6) The report is printed before the save: if %TEMP% is full or AV locks a file, the
-            // table above is still the run's evidence. A save failure is reported and does not skip
-            // the verdict.
+            // (F2, fixup 09 — review 07): the archive is saved FIRST, still inside its try/catch. The
+            // judged path is deliberately uncaught and now scans 21× as many windows, so a loud throw
+            // in Measure must not lose the run's evidence. Review 04's F6 concern — a save failure
+            // costing the table — is still covered by the catch: the table prints after it regardless.
             var folder = ProbeRingCaptureArchive.CreateRunFolder(startedUtc);
             try
             {
@@ -277,9 +254,33 @@ internal static class ProbeRingOnScreenHarness
                 writeLine($"R2 capture save FAILED ({folder}): {ex.Message}");
             }
 
-            // B2's fail-closed guard — after the save (fixup 05 nit): a moved origin must not be
-            // able to skip the archive, so the evidence is on disk first. It still runs before the
-            // verdict, and the table above is unreadable as rendering evidence without it.
+            var origins = samples
+                .Select(sample => (sample.Frame.CaptureOriginX, sample.Frame.CaptureOriginY))
+                .Distinct()
+                .ToList();
+            writeLine(
+                $"R2 capture origin (all {samples.Count} frames): "
+                + string.Join(" / ", origins.Select(origin => $"({origin.CaptureOriginX}, {origin.CaptureOriginY})")));
+
+            // ---- Measure + print (fixup 03 items 2-4): the full per-axis table with repeats and
+            // mirrored halves, before any verdict. The live samples go through the same MarkStale the
+            // offline analyser applies (fixup 09 F3), so the two staleness marks cannot diverge.
+            var referenceB = samples.First(sample =>
+                sample.Kind == ProbeRingOnScreenJudge.KindReference
+                && sample.Condition == ProbeRingOnScreenJudge.ConditionB
+                && sample.Fraction == 0.0 && sample.Repeat == 0);
+            var centreInCapture = new PhysicalPoint(
+                referenceB.Frame.CaptureCentrePx.X - referenceB.Frame.CaptureOriginX,
+                referenceB.Frame.CaptureCentrePx.Y - referenceB.Frame.CaptureOriginY);
+            var expected = ProbeRingCaptureScene.ExpectedWeightsAt(centreInCapture, referenceB.Background, scale);
+
+            var report = ProbeRingOnScreenJudge.Measure(
+                ProbeRingOnScreenJudge.BuildInputs(scale, expected, ProbeRingCaptureArchive.MarkStale(samples)));
+
+            ProbeRingOnScreenJudge.WriteReport(report, writeLine);
+
+            // B2's fail-closed guard: it still runs before the verdict, and the table above is
+            // unreadable as rendering evidence without it. The archive is already on disk (F2).
             Check.WithCustomMessage(
                     $"The capture origin moved during the run ({string.Join(", ", origins)}); the shift "
                     + "measurement assumes one constant origin for every frame.")

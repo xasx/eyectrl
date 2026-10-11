@@ -316,8 +316,10 @@ public class ProbeRingOnScreenGateTests
         Check.WithCustomMessage("The harness must save the archive.")
             .That(saveAt).IsStrictlyGreaterThan(-1);
         Check.WithCustomMessage(
-                "The report must be printed BEFORE the save: if the disk fails, the table is the run's evidence.")
-            .That(reportAt).IsStrictlyLessThan(saveAt);
+                "The archive must be saved BEFORE the measurement (fixup 09 F2, review 07): the judged "
+                + "path is deliberately uncaught and scans 21× as many windows, so a throw in Measure must "
+                + "not lose the run's evidence.")
+            .That(saveAt).IsStrictlyLessThan(reportAt);
 
         var earlyClose = harness.IndexOf("window.Close();", StringComparison.Ordinal);
         Check.WithCustomMessage(
@@ -403,6 +405,44 @@ public class ProbeRingOnScreenGateTests
             .That(harness.IndexOf("ProbeRingCaptureRetake.StaleLine(", StringComparison.Ordinal))
             .IsStrictlyGreaterThan(-1);
 
+        // Fixup 09 F3 (review 07 H1–H4): the four retake-wiring strings. Each mutant of one of these
+        // fails closed for judged rows, which is exactly why the source pins must catch it: the
+        // retake and the sweep's stale flag are lost silently otherwise.
+        Check.WithCustomMessage(
+                "The retake must compare against the previous capture's bytes — `previous: previousBgra`; "
+                + "a null previous never triggers a retake (H1).")
+            .That(harness.IndexOf("previous: previousBgra", StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage(
+                "The loop must carry each accepted capture forward — `previousBgra = sample.Bgra;`; "
+                + "never updating it disables every retake after the first step (H2).")
+            .That(harness.IndexOf("previousBgra = sample.Bgra;", StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage(
+                "The sample must record the retake's stale mark — `Stale = retake.Stale`; a hard-coded "
+                + "false loses the mark the report and manifest carry (H3).")
+            .That(harness.IndexOf("Stale = retake.Stale", StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);
+
+        var waitAt = harness.IndexOf("waitOneMoreFrame: () =>", StringComparison.Ordinal);
+        Check.WithCustomMessage(
+                "CaptureAt must pass a wait lambda for the retake. Body read:\n" + harness)
+            .That(waitAt).IsStrictlyGreaterThan(-1);
+        var waitEnd = harness.IndexOf("});", waitAt, StringComparison.Ordinal);
+        Check.WithCustomMessage("The wait lambda is unterminated.").That(waitEnd).IsStrictlyGreaterThan(waitAt);
+        var waitBody = harness[waitAt..waitEnd];
+        Check.WithCustomMessage(
+                "The retake's wait must present the frame (window.Present()) before re-capturing; an "
+                + "immediate return retakes the same presented frame (H4). Body read:\n" + waitBody)
+            .That(waitBody.IndexOf("window.Present()", StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage(
+                "The retake's wait must also drain DWM (DwmFlush()) before re-capturing. Body read:\n" + waitBody)
+            .That(waitBody.IndexOf("DwmFlush()", StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);
+
+        // Fixup 09 F3 defence in depth: the live samples take the same MarkStale the offline analyser
+        // applies, so the two staleness marks cannot diverge.
+        Check.WithCustomMessage(
+                "The harness must run the live samples through ProbeRingCaptureArchive.MarkStale before "
+                + "BuildInputs, as the offline analyser does (fixup 09 F3).")
+            .That(harness.IndexOf("MarkStale(samples)", StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);
+
         // Fixup 06 R2a: the loop must iterate the plan built here, not a reordered copy (H3b).
         Check.WithCustomMessage(
                 "The harness must build the plan as `var plan = ProbeRingCapturePlan.Build();` — a "
@@ -419,11 +459,13 @@ public class ProbeRingOnScreenGateTests
         Check.WithCustomMessage("The verdict call must be present.")
             .That(judgeAt).IsStrictlyGreaterThan(-1);
         Check.WithCustomMessage(
-                "The tail order must be: report (printed), save, origin check, verdict — "
-                + $"got report {reportAt}, save {saveAt}, origin {originAt}, verdict {judgeAt}.")
-            .That(reportAt).IsStrictlyLessThan(saveAt);
-        Check.WithCustomMessage("The save must come before the origin check (fixup 05 nit).")
+                "The tail order must be: close (window gone) → save → measure/report → origin check → "
+                + $"verdict — got report {reportAt}, save {saveAt}, origin {originAt}, verdict {judgeAt}.")
+            .That(saveAt).IsStrictlyLessThan(reportAt);
+        Check.WithCustomMessage("The save must come before the origin check.")
             .That(saveAt).IsStrictlyLessThan(originAt);
+        Check.WithCustomMessage("The report must come before the origin check.")
+            .That(reportAt).IsStrictlyLessThan(originAt);
         Check.WithCustomMessage("The origin check must come before the verdict.")
             .That(originAt).IsStrictlyLessThan(judgeAt);
 

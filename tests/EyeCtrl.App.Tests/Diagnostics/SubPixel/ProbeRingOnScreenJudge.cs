@@ -284,6 +284,18 @@ internal static class ProbeRingOnScreenJudge
                 expected, expected);
             assertionRows.Add(measured);
 
+            // F1 (fixup 09, review 07 MAJOR): a judged row must hold exactly the scheduled repeats.
+            // Zero repeats used to pass vacuously — NaN means, a per-repeat loop over nothing, and a
+            // schedule check that only looks at fractions. Nothing may skip the ±0.05 gate by being
+            // absent; this also covers an incomplete or edited archive fed to the offline analyser.
+            if (measured.Repeats != ProbeRingOnScreenHarness.RowRepeats)
+            {
+                failures.Add(new RequirementFailure(
+                    row.Condition == ConditionB ? "(e) condition B" : "(e) condition A",
+                    Invariant(
+                        $"The judged {row.Condition} row at f = {row.Fraction:0.00} holds {measured.Repeats} captures, not the scheduled {ProbeRingOnScreenHarness.RowRepeats}: a row without its repeats cannot be judged and must never pass vacuously.")));
+            }
+
             // F1 (orchestrator decision): EVERY repeat must be within ±0.05 — the run-1 rule applied
             // to each capture — now on the 21-row average (owner's decision 2026-10-11, after run 2).
             // A stale repeat is a failure in its own right and is excluded from the aggregates: it is
@@ -516,8 +528,8 @@ internal static class ProbeRingOnScreenJudge
         var assertionRows = assertionFrames
             .SelectMany(frame => new[]
             {
-                new RowSamples(ConditionA, frame.Fraction, [frame.A]),
-                new RowSamples(ConditionB, frame.Fraction, [frame.B]),
+                new RowSamples(ConditionA, frame.Fraction, [frame.A, frame.A, frame.A]),
+                new RowSamples(ConditionB, frame.Fraction, [frame.B, frame.B, frame.B]),
             })
             .ToList();
 
@@ -668,7 +680,10 @@ internal static class ProbeRingOnScreenJudge
             .ToList();
 
         // The single row stays in the output as a diagnostic, on lines labelled
-        // "R2 DIAGNOSTIC single-row …", with its own catch.
+        // "R2 DIAGNOSTIC single-row …", with its own catch. That catch is defence in depth: the
+        // single row is the 21-row average's centre row, so a single-row throw always also throws
+        // on the judged path first (fixup 09 nit 3) — a mutant that rethrows here is an equivalent
+        // mutant, and a later reviewer should not chase it.
         List<ProbeRingCaptureAnalysis.MirroredShift> singleRow = [];
         string? singleRowError = null;
         try
@@ -686,6 +701,12 @@ internal static class ProbeRingOnScreenJudge
             .Where((_, index) => index >= flags.Count || !flags[index])
             .ToList();
         var staleCount = judged.Count - kept.Count;
+
+        // The diagnostic excludes stale repeats exactly as the judged line does (fixup 09 nit 2):
+        // a stale single-row value is the previous frame's, and must not distort the printed spread.
+        var keptSingle = singleRow
+            .Where((_, index) => index >= flags.Count || !flags[index])
+            .ToList();
 
         return new RowMeasurement(
             condition,
@@ -705,13 +726,13 @@ internal static class ProbeRingOnScreenJudge
             judged.Select(shift => shift.MeanX).ToList(),
             judged.Select(shift => shift.MeanY).ToList(),
             [.. flags],
-            singleRow.Count > 0 ? singleRow.Average(shift => shift.MeanX) : double.NaN,
-            singleRow.Count > 0 ? singleRow.Average(shift => shift.MeanY) : double.NaN,
-            singleRow.Count > 1
-                ? singleRow.Max(shift => shift.MeanX) - singleRow.Min(shift => shift.MeanX)
+            keptSingle.Count > 0 ? keptSingle.Average(shift => shift.MeanX) : double.NaN,
+            keptSingle.Count > 0 ? keptSingle.Average(shift => shift.MeanY) : double.NaN,
+            keptSingle.Count > 1
+                ? keptSingle.Max(shift => shift.MeanX) - keptSingle.Min(shift => shift.MeanX)
                 : double.NaN,
-            singleRow.Count > 1
-                ? singleRow.Max(shift => shift.MeanY) - singleRow.Min(shift => shift.MeanY)
+            keptSingle.Count > 1
+                ? keptSingle.Max(shift => shift.MeanY) - keptSingle.Min(shift => shift.MeanY)
                 : double.NaN,
             singleRowError);
     }

@@ -232,19 +232,19 @@ public class ProbeRingOfflineAnalysisTests
     }
 
     /// <summary>
-    /// Fixup 08 item 3: the orchestrator's offline check. Opt-in on
+    /// Fixup 08 item 3, skip honesty by fixup 09 nit 1: the orchestrator's offline check. Opt-in on
     /// <c>EYECTRL_R2_ARCHIVE=&lt;folder&gt;</c> — a different variable from
     /// <c>EYECTRL_UI_TESTS</c> — this runs the full analyser (new judge) over a preserved archive
     /// and prints the complete report; it asserts nothing beyond completing, shows no window, and
-    /// carries no <c>Category=UI</c> trait. With the variable unset it is inert, so CI and the
-    /// headless sweep no-op it.
+    /// carries no <c>Category=UI</c> trait. With the variable unset it reports a <b>skip</b>, not a
+    /// pass, so nobody mistakes the inert run for a verified archive.
     /// </summary>
     [StaFact]
     public void OfflineCheck_OnTheOrchestratorsArchive_PrintsTheFullReport()
     {
         var folder = Environment.GetEnvironmentVariable("EYECTRL_R2_ARCHIVE");
         if (string.IsNullOrWhiteSpace(folder))
-            return;
+            Assert.Skip("EYECTRL_R2_ARCHIVE is not set: this opt-in offline check needs a preserved run folder.");
 
         var report = ProbeRingOfflineAnalysis.Analyse(folder);
         ProbeRingOnScreenJudge.WriteReport(report, _output.WriteLine);

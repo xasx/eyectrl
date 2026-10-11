@@ -1,12 +1,17 @@
 namespace EyeCtrl.App.Tests.Diagnostics.SubPixel;
 
 using System;
+using System.Globalization;
+using System.Linq;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Controls;
 using System.Windows.Interop;
+using System.Windows.Media;
+using Ellipse = System.Windows.Shapes.Ellipse;
 using EyeCtrl.App.Diagnostics.SubPixel;
 using EyeCtrl.App.Tests.Fixtures;
+using EyeCtrl.Core.Models;
 
 /// <summary>
 /// R2's headless pins on the on-screen half — the tests that keep it inert and disciplined without
@@ -123,6 +128,60 @@ public class ProbeRingOnScreenGateTests
         {
             window.Close();
         }
+    }
+
+    /// <summary>
+    /// Fixup 07 item 2: the AttachLook helper's <b>body</b> is exercised headlessly — the window is
+    /// constructed and never shown. The helper must build the visual from the look it is given,
+    /// attach it, and return both: a helper that built <c>OwnerLook()</c> for a solid call (the
+    /// silent D2 mislabel) or skipped the attach fails here.
+    /// </summary>
+    [StaFact]
+    public void AttachLook_BuildsTheVisualFromTheGivenLook_AndAttachesIt()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+
+        var window = new ProbeRingTestWindow();
+        try
+        {
+            var (solidRing, solidLook) = ProbeRingOnScreenHarness.AttachLook(
+                window, 2.0, ProbeRingCaptureScene.SolidLook());
+            Check.That(solidLook.RingStyle).IsEqualTo(CursorRingStyle.WeightedSandwich);
+            Check.WithCustomMessage("The window must hold the visual the helper returned.")
+                .That(((Canvas)window.Content).Children[0]).IsSameReferenceAs(solidRing);
+            Check.WithCustomMessage(
+                    "The attached solid visual's strokes must equal a directly built SolidLook visual.")
+                .That(StrokeSignature(solidRing)).IsEqualTo(StrokeSignature(
+                    new ProbeRingVisual(2.0, ProbeRingCaptureScene.SolidLook(), ProbeRingCaptureScene.LookOpacity)));
+
+            var (ownerRing, ownerLook) = ProbeRingOnScreenHarness.AttachLook(
+                window, 2.0, ProbeRingCaptureScene.OwnerLook());
+            Check.That(ownerLook.RingStyle).IsEqualTo(CursorRingStyle.BiTonalSegments);
+            Check.WithCustomMessage("The attach must replace the window's visual with the new one.")
+                .That(((Canvas)window.Content).Children[0]).IsSameReferenceAs(ownerRing);
+            Check.WithCustomMessage(
+                    "The attached owner visual's strokes must equal a directly built OwnerLook visual.")
+                .That(StrokeSignature(ownerRing)).IsEqualTo(StrokeSignature(
+                    new ProbeRingVisual(2.0, ProbeRingCaptureScene.OwnerLook(), ProbeRingCaptureScene.LookOpacity)));
+
+            Check.WithCustomMessage("The two looks must render differently, or the comparisons prove nothing.")
+                .That(StrokeSignature(ownerRing)).IsNotEqualTo(StrokeSignature(solidRing));
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    /// <summary>The painted bands of a probe visual, as one comparable string.</summary>
+    private static string StrokeSignature(ProbeRingVisual ring)
+    {
+        static string Band(Ellipse band) =>
+            $"{((SolidColorBrush)band.Stroke).Color}|{band.StrokeThickness:0.###}|{band.Opacity:0.###}|"
+            + $"{string.Join(",", band.StrokeDashArray.Cast<double>().Select(
+                value => value.ToString("0.###", CultureInfo.InvariantCulture)))}|{band.StrokeDashOffset:0.###}";
+
+        return $"halo={Band(ring.CircleHalo)};core={Band(ring.Circle)}";
     }
 
     [Fact]
@@ -311,14 +370,14 @@ public class ProbeRingOnScreenGateTests
         // (H2b) or re-attaches the old look's visual (H2c) fails. The guard pin kills G1.
         Check.WithCustomMessage(
                 "The harness must build and attach the initial look through AttachLook — "
-                + "`var (ring, currentLook) = AttachLook(ProbeRingCaptureScene.OwnerLook());` (R1).")
+                + "`var (ring, currentLook) = AttachLook(window, scale, ProbeRingCaptureScene.OwnerLook());` (R1).")
             .That(harness.IndexOf(
-                "var (ring, currentLook) = AttachLook(ProbeRingCaptureScene.OwnerLook());", StringComparison.Ordinal))
+                "var (ring, currentLook) = AttachLook(window, scale, ProbeRingCaptureScene.OwnerLook());", StringComparison.Ordinal))
             .IsStrictlyGreaterThan(-1);
         Check.WithCustomMessage(
                 "The switch's if-body must be exactly the helper call — `(ring, currentLook) = "
-                + "AttachLook(step.Look);` — so the visual and the look cannot come apart (H2b/H2c, R1).")
-            .That(harness.IndexOf("(ring, currentLook) = AttachLook(step.Look);", StringComparison.Ordinal))
+                + "AttachLook(window, scale, step.Look);` — so the visual and the look cannot come apart (H2b/H2c, R1).")
+            .That(harness.IndexOf("(ring, currentLook) = AttachLook(window, scale, step.Look);", StringComparison.Ordinal))
             .IsStrictlyGreaterThan(-1);
         Check.WithCustomMessage(
                 "The per-capture guard must compare the look the attached visual was built from "
@@ -327,7 +386,7 @@ public class ProbeRingOnScreenGateTests
                 "That(currentLook.RingStyle).IsEqualTo(step.Look.RingStyle)", StringComparison.Ordinal))
             .IsStrictlyGreaterThan(-1);
         Check.WithCustomMessage("AttachLook itself must build the visual from the look it returns (R1).")
-            .That(harness.IndexOf("(ProbeRingVisual Ring, CursorSettings Look) AttachLook(", StringComparison.Ordinal))
+            .That(harness.IndexOf("internal static (ProbeRingVisual Ring, CursorSettings Look) AttachLook(", StringComparison.Ordinal))
             .IsStrictlyGreaterThan(-1);
 
         // Fixup 06 R2a: the loop must iterate the plan built here, not a reordered copy (H3b).

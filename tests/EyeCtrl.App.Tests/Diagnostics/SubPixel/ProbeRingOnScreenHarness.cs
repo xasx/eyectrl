@@ -197,22 +197,12 @@ internal static class ProbeRingOnScreenHarness
             var captureClock = Stopwatch.StartNew();
             var samples = new List<ProbeRingCapturedSample>();
 
-            // Fixup 06 R1: the look and the visual are built and attached together, and the pair is
-            // what the guard and the manifest use — never a bookkeeping variable the switch has just
-            // assigned, which would make the guard tautological.
-            (ProbeRingVisual Ring, CursorSettings Look) AttachLook(CursorSettings look)
-            {
-                var visual = new ProbeRingVisual(scale, look, ProbeRingCaptureScene.LookOpacity);
-                window.AttachRing(visual);
-                return (visual, look);
-            }
-
-            var (ring, currentLook) = AttachLook(ProbeRingCaptureScene.OwnerLook());
+            var (ring, currentLook) = AttachLook(window, scale, ProbeRingCaptureScene.OwnerLook());
 
             foreach (var step in plan)
             {
                 if (step.Look.RingStyle != currentLook.RingStyle)
-                    (ring, currentLook) = AttachLook(step.Look);
+                    (ring, currentLook) = AttachLook(window, scale, step.Look);
 
                 // Fail closed if the attached visual was not built from the plan's look — a switch
                 // that silently keeps the old visual would draw D2 with the wrong look AND mislabel
@@ -291,6 +281,24 @@ internal static class ProbeRingOnScreenHarness
             // (h) No path leaves the window on the owner's screen.
             window?.Close();
         }
+    }
+
+    /// <summary>
+    /// Builds the ring visual from <paramref name="look"/>, attaches it to the window, and returns
+    /// both the visual and the look it was built from — never a bookkeeping variable that a caller
+    /// has just assigned, which is what makes the per-capture guard meaningful rather than
+    /// tautological (fixup 06 R1). Extracted and pinned by fixup 07 item 2: its body is exercised
+    /// headlessly against directly built visuals.
+    /// </summary>
+    /// <param name="window">The harness window (never shown by the test).</param>
+    /// <param name="scale">Device pixels per DIP.</param>
+    /// <param name="look">The look the visual is built from.</param>
+    internal static (ProbeRingVisual Ring, CursorSettings Look) AttachLook(
+        ProbeRingTestWindow window, double scale, CursorSettings look)
+    {
+        var visual = new ProbeRingVisual(scale, look, ProbeRingCaptureScene.LookOpacity);
+        window.AttachRing(visual);
+        return (visual, look);
     }
 
     /// <summary>

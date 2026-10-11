@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Tests.Diagnostics.SubPixel;
 
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -28,6 +29,70 @@ public class ProbeRingCaptureArchiveTests
         Check.WithCustomMessage(
                 $"FormatCommitSha({sha ?? "null"}, \"{porcelain.Replace("\n", "\\n")}\", {statusOk}) must be {expected}.")
             .That(ProbeRingCaptureArchive.FormatCommitSha(sha, porcelain, statusOk)).IsEqualTo(expected);
+    }
+
+    /// <summary>
+    /// Fixup 07 item 1: git prints forward slashes on Windows while a DirectoryInfo uses
+    /// backslashes; the toplevel comparison must normalise, or it is always false and the sha never
+    /// leaves "unknown".
+    /// </summary>
+    [Fact]
+    public void PathsEqual_NormalisesSeparators()
+    {
+        Check.WithCustomMessage("git's forward-slash form and the DirectoryInfo form are the same path.")
+            .That(ProbeRingCaptureArchive.PathsEqual("C:/t/x", @"C:\t\x")).IsTrue();
+        Check.WithCustomMessage("A trailing separator must not matter.")
+            .That(ProbeRingCaptureArchive.PathsEqual(@"C:\t\x\", "C:/t/x")).IsTrue();
+        Check.WithCustomMessage("Different paths must differ.")
+            .That(ProbeRingCaptureArchive.PathsEqual("C:/t/x", @"C:\t\y")).IsFalse();
+    }
+
+    /// <summary>
+    /// Fixup 07 item 1: wherever git resolves the toplevel at the repo root, the recorded sha must
+    /// be a real 40-hex sha (optionally -dirty/-unverified) — never "unknown". In a tree without
+    /// git (a git archive extract), this asserts nothing.
+    /// </summary>
+    [Fact]
+    public void CurrentCommitSha_IsARealSha_WhereGitResolvesTheRepoRoot()
+    {
+        var root = SourceScanner.RepoRoot().FullName;
+
+        string? topLevel = null;
+        try
+        {
+            using var git = Process.Start(new ProcessStartInfo("git", "rev-parse --show-toplevel")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = root,
+            });
+            if (git is not null)
+            {
+                topLevel = git.StandardOutput.ReadToEnd().Trim();
+                git.WaitForExit(5000);
+                if (git.ExitCode != 0)
+                    topLevel = null;
+            }
+        }
+        catch
+        {
+            topLevel = null;
+        }
+
+        if (topLevel is null || !ProbeRingCaptureArchive.PathsEqual(topLevel, root))
+            return;   // no git here, or a different repository: "unknown" is the correct record
+
+        Check.WithCustomMessage(
+                $"Git resolves the repo root here, so the manifest sha must be real; got "
+                + $"'{ProbeRingCaptureArchive.CurrentCommitSha}'.")
+            .That(ProbeRingCaptureArchive.CurrentCommitSha).IsNotEqualTo("unknown");
+        Check.WithCustomMessage(
+                $"The sha must be 40 hex, optionally -dirty/-unverified; got "
+                + $"'{ProbeRingCaptureArchive.CurrentCommitSha}'.")
+            .That(Regex.IsMatch(ProbeRingCaptureArchive.CurrentCommitSha, @"^[0-9a-f]{40}(-dirty|-unverified)?$"))
+            .IsTrue();
     }
 
     [Fact]

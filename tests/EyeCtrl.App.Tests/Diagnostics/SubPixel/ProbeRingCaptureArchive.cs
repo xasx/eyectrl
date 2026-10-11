@@ -311,11 +311,22 @@ internal static class ProbeRingCaptureArchive
         }
     }
 
-    private static bool PathsEqual(string left, string right) =>
-        string.Equals(
-            left.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-            right.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-            StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// Whether two paths name the same location, with both sides normalised through
+    /// <see cref="Path.GetFullPath"/> first — git on Windows prints forward slashes
+    /// ("C:/t/r2run2") while a <see cref="DirectoryInfo"/> uses backslashes ("C:\t\r2run2"), so a
+    /// plain string compare is always false and the sha would always record "unknown"
+    /// (fixup 07 item 1).
+    /// </summary>
+    /// <param name="left">One path.</param>
+    /// <param name="right">The other path.</param>
+    internal static bool PathsEqual(string left, string right)
+    {
+        static string Normalise(string path) =>
+            Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        return string.Equals(Normalise(left), Normalise(right), StringComparison.OrdinalIgnoreCase);
+    }
 
     private static (bool Ok, string Output) RunGit(string workingDirectory, string arguments)
     {

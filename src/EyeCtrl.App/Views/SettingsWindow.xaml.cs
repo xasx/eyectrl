@@ -1014,6 +1014,37 @@ public partial class SettingsWindow : OverlayWindow
     }
 
     /// <summary>
+    /// The mode switch, as one ordered contract (spec §5.6): flip + debounced save, disarm the
+    /// toggle (Task 11's GuardModeToggle is inserted HERE when it exists), compute the layout, snap
+    /// (riding the normal CurrentTabName rebuild, which resets the page) or rebuild in place with
+    /// the page reset AFTER the rebuild (m5: landing mid-list of a differently-filtered list is
+    /// disorienting), then apply the sidebar ONCE — after the snap — and re-label the toggle (Task 10
+    /// owns <c>UpdateModeToggleLabel</c> AND its call site as the final line of this method).
+    /// </summary>
+    private void SwitchSettingsUiMode(bool simple)
+    {
+        if (_settings.General.SimpleSettingsUi == simple) return;
+        _settings.General.SimpleSettingsUi = simple;
+        ApplyAndSave();
+
+        var layout = ComputeSidebarLayout(_viewModel.Settings.CurrentTabName);
+        if (layout.SnapTo is not null)
+        {
+            ShowTab(layout.SnapTo);                      // CurrentTabName -> RebuildContent; ShowTab resets the page
+            _viewModel.ActiveTabId = layout.SnapTo;      // the sidebar must not contradict the content (F6)
+        }
+        else
+        {
+            RebuildContent();
+            if (_viewModel.Settings.CurrentPage != 0)
+                _viewModel.Settings.CurrentPage = 0;     // m5; the property handler re-renders the
+                                                         // page — no manual RenderCurrentPage (that
+                                                         // rendered twice, plan-review r2 m-b)
+        }
+        ApplySidebarLayout(layout);
+    }
+
+    /// <summary>
     /// D9's deep link: bring this window forward and land on General page 1, where the language
     /// row is the first row. A modal already up is never discarded to satisfy the link — the
     /// navigation queues behind it and runs when it closes.
@@ -1115,7 +1146,9 @@ public partial class SettingsWindow : OverlayWindow
 
         UpdateHeader();
 
-        _pages = BuildPages();
+        _pages = _settings.General.SimpleSettingsUi
+            ? SimpleSettingsFilter.Apply(BuildPages())
+            : BuildPages();
         _pages = MaybeRepaginateByHeight(_pages);
         _viewModel.Settings.TotalPages = _pages.Count;
         _viewModel.Settings.CurrentPage = Math.Clamp(_viewModel.Settings.CurrentPage, 0, Math.Max(0, _viewModel.Settings.TotalPages - 1));

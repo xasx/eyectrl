@@ -213,11 +213,11 @@ internal static class ProbeRingOnScreenHarness
 
             var (ring, currentLook) = AttachLook(window, scale, ProbeRingCaptureScene.OwnerLook());
 
-            // ---- Warm-up (fixup 10 item 1; run 3): the window's first frame was black for about a
-            // second — run 3's first capture, reference B at f = 0, was uniformly near-black and the
-            // following captures stayed byte-identical to it through their retakes, so the 21-row
-            // scan had no ring to anchor on. Place the ring at f = 0 and wait, presenting and
-            // flushing between captures, until a capture passes the positive control (<= 3 s). ----
+            // ---- Warm-up (fixup 10 item 1; tightened by fixup 11 R1): the window's first frame was
+            // black for about a second in run 3, and the reference captured at that moment anchors
+            // every row. Place the ring at f = 0 and wait, presenting and flushing between captures,
+            // until a capture passes the positive control, is intrusion-free AND is settled
+            // (byte-identical to the previous one) — <= 3 s. ----
             var warmFrame = ProbeRingFrameSchedule.For(
                 window.Left, window.Top, scale, 0.0, 0.0, screenWidthPx, screenHeightPx);
             ring.Place(warmFrame.RingLocalCentrePx, snap: false);
@@ -225,6 +225,19 @@ internal static class ProbeRingOnScreenHarness
                 warmFrame.CaptureCentrePx.X - warmFrame.CaptureOriginX,
                 warmFrame.CaptureCentrePx.Y - warmFrame.CaptureOriginY);
             var halfPx = ProbeRingCaptureScene.RingSizeDip * scale / 2.0;
+            var geometry = ProbeRingCaptureAnalysis.RingScanGeometry.For(warmCentre, halfPx);
+
+            var masksByStyle = new Dictionary<string, bool[]>(StringComparer.Ordinal);
+            bool[] MaskFor(CursorSettings look)
+            {
+                if (!masksByStyle.TryGetValue(look.RingStyle.ToString(), out var mask))
+                {
+                    mask = ProbeRingIntrusion.BackgroundMask(look, warmCentre, scale);
+                    masksByStyle[look.RingStyle.ToString()] = mask;
+                }
+
+                return mask;
+            }
 
             byte[] OneWarmUpCapture()
             {
@@ -250,7 +263,7 @@ internal static class ProbeRingOnScreenHarness
 
             var warmUp = ProbeRingWarmUp.Wait(
                 capture: OneWarmUpCapture,
-                isRingFrame: bytes =>
+                classify: bytes =>
                 {
                     var background = ProbeRingCaptureAnalysis.MeasureBackground(
                         bytes, ProbeRingFrameSchedule.CaptureSizePx, ProbeRingFrameSchedule.CaptureSizePx);
@@ -258,8 +271,12 @@ internal static class ProbeRingOnScreenHarness
                         bytes, ProbeRingFrameSchedule.CaptureSizePx, ProbeRingFrameSchedule.CaptureSizePx,
                         background);
                     var expected = ProbeRingCaptureScene.ExpectedWeightsAt(warmCentre, background, scale);
-                    return ProbeRingCaptureAnalysis.CheckExpectedRing(
+                    var control = ProbeRingCaptureAnalysis.CheckExpectedRing(
                         weights, expected, warmCentre, halfPx).Matched;
+                    var intruded = ProbeRingIntrusion.Check(
+                        bytes, ProbeRingFrameSchedule.CaptureSizePx, ProbeRingFrameSchedule.CaptureSizePx,
+                        MaskFor(ProbeRingCaptureScene.OwnerLook()), background, geometry).Intruded;
+                    return new ProbeRingWarmUpFrame(control, !intruded);
                 },
                 waitOneMoreFrame: () =>
                 {
@@ -277,8 +294,9 @@ internal static class ProbeRingOnScreenHarness
                 var mean = warmUp.LastBytes is { } last
                     ? ProbeRingWarmUp.MeanColour(last)
                     : (R: 0, G: 0, B: 0);
-                Check.WithCustomMessage(
-                        ProbeRingWarmUp.FailureLine(warmUp.Captures, ProbeRingWarmUp.TimeoutMs, mean))
+                Check.WithCustomMessage(ProbeRingWarmUp.FailureLine(
+                        warmUp.Captures, ProbeRingWarmUp.TimeoutMs, mean,
+                        warmUp.SawControlPass, warmUp.SawIntrusionFree, warmUp.SawSettled))
                     .That(warmUp.Passed).IsTrue();
             }
 
@@ -286,18 +304,6 @@ internal static class ProbeRingOnScreenHarness
             // it must not be compared with it, or it would be flagged stale and retaken for nothing
             // (fixup 10 item 1). So the retake chain starts empty here.
             byte[]? previousBgra = null;
-
-            var masksByStyle = new Dictionary<string, bool[]>(StringComparer.Ordinal);
-            bool[] MaskFor(CursorSettings look)
-            {
-                if (!masksByStyle.TryGetValue(look.RingStyle.ToString(), out var mask))
-                {
-                    mask = ProbeRingIntrusion.BackgroundMask(look, warmCentre, scale);
-                    masksByStyle[look.RingStyle.ToString()] = mask;
-                }
-
-                return mask;
-            }
 
             var stepIndex = 0;
 
@@ -316,7 +322,7 @@ internal static class ProbeRingOnScreenHarness
 
                 var sample = CaptureAt(
                     window, ring, scale, step, stepIndex, previousBgra, currentLook, MaskFor(step.Look),
-                    screenWidthPx, screenHeightPx, captureClock, writeLine);
+                    geometry, screenWidthPx, screenHeightPx, captureClock, writeLine);
                 samples.Add(sample);
                 previousBgra = sample.Bgra;
                 stepIndex++;
@@ -437,7 +443,8 @@ internal static class ProbeRingOnScreenHarness
     /// </summary>
     private static ProbeRingCapturedSample CaptureAt(
         ProbeRingTestWindow window, ProbeRingVisual ring, double scale, ProbeRingCaptureStep step,
-        int stepIndex, byte[]? previousBgra, CursorSettings currentLook, bool[] mask, int screenWidthPx,
+        int stepIndex, byte[]? previousBgra, CursorSettings currentLook, bool[] mask,
+        ProbeRingCaptureAnalysis.RingScanGeometry geometry, int screenWidthPx,
         int screenHeightPx, Stopwatch captureClock, Action<string> writeLine)
     {
         var frame = ProbeRingFrameSchedule.For(
@@ -477,7 +484,7 @@ internal static class ProbeRingOnScreenHarness
         ProbeRingIntrusion.Verdict ClassifyIntrusion(byte[] bytes)
         {
             var background = ProbeRingCaptureAnalysis.MeasureBackground(bytes, lastSizePx, lastSizePx);
-            return ProbeRingIntrusion.Check(bytes, lastSizePx, lastSizePx, mask, background);
+            return ProbeRingIntrusion.Check(bytes, lastSizePx, lastSizePx, mask, background, geometry);
         }
 
         var retake = ProbeRingCaptureRetake.CaptureWithRetake(

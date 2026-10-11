@@ -158,6 +158,8 @@ internal static class ProbeRingOnScreenJudge
     /// <param name="Diagnostics">The D2/D3 blocks: measured and printed, never judged.</param>
     /// <param name="ReferenceBStaleFlags">Which of the f = 0 B repeats are stale copies, in capture order.</param>
     /// <param name="ReferenceBIntrudedFlags">Which of the f = 0 B repeats are intruded, in capture order.</param>
+    /// <param name="ReferenceAStale">Whether the f = 0 A reference is a stale copy (fixup 11 R1).</param>
+    /// <param name="ReferenceAIntruded">Whether the f = 0 A reference is intruded (fixup 11 R1).</param>
     internal sealed record JudgeInputs(
         double EffectiveScale,
         ProbeRaster ExpectedPattern,
@@ -170,7 +172,9 @@ internal static class ProbeRingOnScreenJudge
         IReadOnlyList<RowSamples> SweepRows,
         IReadOnlyList<DiagnosticGroup> Diagnostics,
         IReadOnlyList<bool>? ReferenceBStaleFlags = null,
-        IReadOnlyList<bool>? ReferenceBIntrudedFlags = null);
+        IReadOnlyList<bool>? ReferenceBIntrudedFlags = null,
+        bool ReferenceAStale = false,
+        bool ReferenceAIntruded = false);
 
     /// <summary>One failed requirement, named, with the message the fix must read.</summary>
     /// <param name="Requirement">The requirement's label, e.g. "(c) positive control".</param>
@@ -284,6 +288,40 @@ internal static class ProbeRingOnScreenJudge
                 Sweep: new ProbeRingCaptureAnalysis.SweepSummary(
                     double.NaN, double.NaN,
                     "Not measured: the positive control failed, so there is no ring to measure."),
+                Diagnostics: [],
+                failures);
+        }
+
+        // R1 (fixup 11, review 08): the references anchor every row — reference B r0 anchors every B
+        // row and the sweep, reference A anchors every A row. A stale or intruded one voids the run:
+        // measuring against it would surface as rendering failures on every row (run 4's window
+        // appears exactly when the owner's gaze cursor is near it). Fail as an unclean reference and
+        // measure nothing.
+        var referenceProblems = new List<string>(4);
+        if (inputs.ReferenceBStaleFlags is { Count: > 0 } staleB && staleB[0])
+            referenceProblems.Add("reference B (r0) was stale (the screen did not repaint)");
+        if (inputs.ReferenceBIntrudedFlags is { Count: > 0 } intrudedB && intrudedB[0])
+            referenceProblems.Add("reference B (r0) was covered by an overlay");
+        if (inputs.ReferenceAStale)
+            referenceProblems.Add("reference A was stale (the screen did not repaint)");
+        if (inputs.ReferenceAIntruded)
+            referenceProblems.Add("reference A was covered by an overlay");
+        if (referenceProblems.Count > 0)
+        {
+            failures.Add(new RequirementFailure("(e) reference frames",
+                $"The judged anchor is not clean: {string.Join("; ", referenceProblems)}. Reference B r0 anchors "
+                + "every B row and the sweep and reference A anchors every A row, so every row measured against it "
+                + "is void; this fails as an unclean reference, not as a rendering failure."));
+            return new JudgeReport(
+                dpi,
+                control,
+                ReferenceOffset: new ProbeRingCaptureAnalysis.MirroredShift(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+                ReferenceNoise: null,
+                AssertionRows: [],
+                SweepRows: [],
+                Sweep: new ProbeRingCaptureAnalysis.SweepSummary(
+                    double.NaN, double.NaN,
+                    "Not measured: a judged reference frame was stale or intruded."),
                 Diagnostics: [],
                 failures);
         }
@@ -699,7 +737,9 @@ internal static class ProbeRingOnScreenJudge
             sweepRows,
             diagnostics,
             SamplesAt(samples, KindReference, ConditionB, 0.0).Select(s => s.Stale).ToList(),
-            SamplesAt(samples, KindReference, ConditionB, 0.0).Select(s => s.Intruded).ToList());
+            SamplesAt(samples, KindReference, ConditionB, 0.0).Select(s => s.Intruded).ToList(),
+            referenceA.Stale,
+            referenceA.Intruded);
     }
 
     /// <summary>The samples of one row kind, condition and fraction, in repeat order.</summary>

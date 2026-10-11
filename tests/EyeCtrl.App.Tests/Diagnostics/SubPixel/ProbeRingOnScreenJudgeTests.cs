@@ -975,6 +975,69 @@ public class ProbeRingOnScreenJudgeTests
         Check.That(verdict!).Contains("positive control");
     }
 
+    /// <summary>
+    /// Fixup 11 R1 (review 08): reference B r0 anchors every B row and the sweep. If it was stale
+    /// or covered by an overlay, the run must fail as an unclean reference — not surface as
+    /// rendering failures on every row — and measure nothing. Kills "an intruded reference B
+    /// passes".
+    /// </summary>
+    [StaFact]
+    public void StaleOrIntrudedReferenceB_Fails_AndNothingIsMeasured()
+    {
+        var (expected, referenceB, referenceA, assertions, sweep) = HealthyInputs();
+        var intruded = Inputs(2.0, expected, referenceB, referenceA, assertions, sweep);
+        intruded = intruded with { ReferenceBIntrudedFlags = [true] };
+
+        var report = ProbeRingOnScreenJudge.Measure(intruded);
+
+        Check.WithCustomMessage(
+                "An intruded reference B must fail as an unclean reference; got: "
+                + string.Join(" | ", report.Failures.Select(failure => failure.Message)))
+            .That(report.Failures.Any(failure =>
+                failure.Requirement.Contains("reference frames")
+                && failure.Message.Contains("reference B (r0) was covered by an overlay"))).IsTrue();
+        Check.WithCustomMessage("Every row measured against an unclean anchor is void; nothing may be measured.")
+            .That(report.AssertionRows).IsEmpty();
+        var verdict = FailureMessage(() => ProbeRingOnScreenJudge.Judge(report));
+        Check.That(verdict).IsNotNull();
+        Check.That(verdict!).Contains("reference B");
+
+        var stale = Inputs(2.0, expected, referenceB, referenceA, assertions, sweep);
+        stale = stale with { ReferenceBStaleFlags = [true] };
+        var staleReport = ProbeRingOnScreenJudge.Measure(stale);
+        Check.WithCustomMessage("A stale reference B (r0) must fail as an unclean reference too.")
+            .That(staleReport.Failures.Any(failure =>
+                failure.Message.Contains("reference B (r0) was stale"))).IsTrue();
+    }
+
+    /// <summary>
+    /// Fixup 11 R1: reference A anchors every A row; a stale or intruded one is a judged failure
+    /// with its own message. Kills "an intruded or stale reference A passes".
+    /// </summary>
+    [StaFact]
+    public void StaleOrIntrudedReferenceA_Fails()
+    {
+        var (expected, referenceB, referenceA, assertions, sweep) = HealthyInputs();
+
+        var intruded = Inputs(2.0, expected, referenceB, referenceA, assertions, sweep);
+        intruded = intruded with { ReferenceAIntruded = true };
+        var intrudedReport = ProbeRingOnScreenJudge.Measure(intruded);
+        Check.WithCustomMessage(
+                "An intruded reference A must fail as an unclean reference; got: "
+                + string.Join(" | ", intrudedReport.Failures.Select(failure => failure.Message)))
+            .That(intrudedReport.Failures.Any(failure =>
+                failure.Requirement.Contains("reference frames")
+                && failure.Message.Contains("reference A was covered by an overlay"))).IsTrue();
+        Check.That(intrudedReport.AssertionRows).IsEmpty();
+
+        var stale = Inputs(2.0, expected, referenceB, referenceA, assertions, sweep);
+        stale = stale with { ReferenceAStale = true };
+        var staleReport = ProbeRingOnScreenJudge.Measure(stale);
+        Check.WithCustomMessage("A stale reference A must fail as an unclean reference too.")
+            .That(staleReport.Failures.Any(failure =>
+                failure.Message.Contains("reference A was stale"))).IsTrue();
+    }
+
     /// <summary>Copies a raster and replaces one row with the same row of <paramref name="donor"/>.</summary>
     private static ProbeRaster WithRowFrom(ProbeRaster target, ProbeRaster donor, int row)
     {

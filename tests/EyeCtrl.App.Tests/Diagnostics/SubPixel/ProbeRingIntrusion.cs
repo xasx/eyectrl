@@ -42,14 +42,32 @@ internal static class ProbeRingIntrusion
     /// </summary>
     internal const int MinimumPixels = 200;
 
+    /// <summary>
+    /// The strict rule <b>inside the judged scan windows</b> (fixup 11 item 2, review 08's
+    /// recommendation): a channel difference above this — 4, well below the faintest overlay
+    /// measured — counts. Run 2's noise floor inside those windows is exactly 0 px at every
+    /// tolerance, so the strict rule cannot fire on a clean hardware run.
+    /// </summary>
+    internal const int StrictChannelTolerance = 4;
+
+    /// <summary>
+    /// How many strict-window pixels off-background flag a capture. Five: a faint 8×60 stripe at
+    /// Δ12 (review 08's unflagged case) reads 480 px here; run 2 reads 0.
+    /// </summary>
+    internal const int StrictMinimumPixels = 5;
+
     /// <summary>Whether pixels outside the dilated ring footprint are the background colour.</summary>
-    /// <param name="Intruded">True when more than <see cref="MinimumPixels"/> mask-outside pixels are off-background.</param>
-    /// <param name="Pixels">How many mask-outside pixels are off-background (before the threshold).</param>
+    /// <param name="Intruded">True when the strict or the loose rule fires.</param>
+    /// <param name="Pixels">How many mask-outside pixels are off-background under their region's rule (before the thresholds).</param>
     /// <param name="MinX">The bounding box of those pixels, x.</param>
     /// <param name="MinY">The bounding box of those pixels, y.</param>
     /// <param name="MaxX">The bounding box of those pixels, right edge.</param>
     /// <param name="MaxY">The bounding box of those pixels, bottom edge.</param>
-    internal sealed record Verdict(bool Intruded, int Pixels, int MinX, int MinY, int MaxX, int MaxY)
+    /// <param name="StrictPixels">How many of them are inside the judged scan windows (Δ &gt; <see cref="StrictChannelTolerance"/>).</param>
+    /// <param name="LoosePixels">How many are elsewhere (Δ &gt; <see cref="ChannelTolerance"/>).</param>
+    internal sealed record Verdict(
+        bool Intruded, int Pixels, int MinX, int MinY, int MaxX, int MaxY,
+        int StrictPixels = 0, int LoosePixels = 0)
     {
         /// <summary>The bounding box's width in pixels; 0 when nothing was found.</summary>
         internal int Width => Pixels > 0 ? MaxX - MinX + 1 : 0;
@@ -61,6 +79,64 @@ internal static class ProbeRingIntrusion
         internal string Bounds => Pixels > 0
             ? string.Create(CultureInfo.InvariantCulture, $"{MinX},{MinY},{Width},{Height}")
             : "-";
+    }
+
+    /// <summary>
+    /// The judged scan windows: the four cardinal ±<c>EdgeWindowPixels</c> blocks the estimator
+    /// scans, across <see cref="ProbeRingCaptureAnalysis.JudgedRowRadius"/> rows and columns. An
+    /// overlay here biases the judged value directly, so the strict thresholds apply; elsewhere the
+    /// loose ones do.
+    /// </summary>
+    /// <param name="width">The frame width in pixels.</param>
+    /// <param name="height">The frame height in pixels.</param>
+    /// <param name="geometry">The run's scan geometry (the reference capture's).</param>
+    internal static bool[] ScanWindowMask(
+        int width, int height, ProbeRingCaptureAnalysis.RingScanGeometry geometry)
+    {
+        var window = ProbeRasterEstimator.EdgeWindowPixels;
+        var rowsFrom = geometry.ScanRow - ProbeRingCaptureAnalysis.JudgedRowRadius;
+        var rowsTo = geometry.ScanRow + ProbeRingCaptureAnalysis.JudgedRowRadius;
+        var columnsFrom = geometry.ScanColumn - ProbeRingCaptureAnalysis.JudgedRowRadius;
+        var columnsTo = geometry.ScanColumn + ProbeRingCaptureAnalysis.JudgedRowRadius;
+
+        var mask = new bool[width * height];
+
+        void MarkBox(int fromX, int toX, int fromY, int toY)
+        {
+            var x0 = Math.Max(fromX, 0);
+            var x1 = Math.Min(toX, width - 1);
+            var y0 = Math.Max(fromY, 0);
+            var y1 = Math.Min(toY, height - 1);
+            for (var y = y0; y <= y1; y++)
+            {
+                for (var x = x0; x <= x1; x++)
+                    mask[y * width + x] = true;
+            }
+        }
+
+        foreach (var centreX in new[]
+                 {
+                     geometry.ReferenceCentreX - geometry.HalfPx,
+                     geometry.ReferenceCentreX + geometry.HalfPx,
+                 })
+        {
+            MarkBox(
+                (int)Math.Floor(centreX - window), (int)Math.Ceiling(centreX + window),
+                rowsFrom, rowsTo);
+        }
+
+        foreach (var centreY in new[]
+                 {
+                     geometry.ReferenceCentreY - geometry.HalfPx,
+                     geometry.ReferenceCentreY + geometry.HalfPx,
+                 })
+        {
+            MarkBox(
+                columnsFrom, columnsTo,
+                (int)Math.Floor(centreY - window), (int)Math.Ceiling(centreY + window));
+        }
+
+        return mask;
     }
 
     /// <summary>
@@ -124,16 +200,22 @@ internal static class ProbeRingIntrusion
 
     /// <summary>
     /// The check for one capture: counts the mask-outside pixels whose largest channel difference
-    /// from the measured background exceeds <see cref="ChannelTolerance"/>, with their bounding box,
-    /// and flags the capture when more than <see cref="MinimumPixels"/> are off-background.
+    /// from the measured background exceeds their region's tolerance — strict
+    /// (<see cref="StrictChannelTolerance"/>) inside the judged scan windows, loose
+    /// (<see cref="ChannelTolerance"/>) elsewhere — with their bounding box, and flags the capture
+    /// when <see cref="StrictMinimumPixels"/> strict or more than <see cref="MinimumPixels"/> loose
+    /// pixels are off-background.
     /// </summary>
     /// <param name="bgra">The captured pixels, BGRA32 row-major.</param>
     /// <param name="width">The frame width in pixels.</param>
     /// <param name="height">The frame height in pixels.</param>
     /// <param name="backgroundMask">The mask from <see cref="BackgroundMask"/> for this capture's look.</param>
     /// <param name="background">The capture's own measured background colour.</param>
+    /// <param name="strictWindows">The judged scan windows from <see cref="ScanWindowMask"/>; null skips the strict rule.</param>
     internal static Verdict Check(
-        byte[] bgra, int width, int height, bool[] backgroundMask, (byte R, byte G, byte B) background)
+        byte[] bgra, int width, int height, bool[] backgroundMask,
+        (byte R, byte G, byte B) background,
+        ProbeRingCaptureAnalysis.RingScanGeometry? strictWindows = null)
     {
         if (backgroundMask.Length != width * height)
         {
@@ -142,7 +224,9 @@ internal static class ProbeRingIntrusion
                 nameof(backgroundMask));
         }
 
-        int pixels = 0, minX = 0, minY = 0, maxX = 0, maxY = 0;
+        var windows = strictWindows is { } geometry ? ScanWindowMask(width, height, geometry) : null;
+
+        int pixels = 0, strictPixels = 0, loosePixels = 0, minX = 0, minY = 0, maxX = 0, maxY = 0;
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
@@ -155,8 +239,16 @@ internal static class ProbeRingIntrusion
                 var dr = Math.Abs(bgra[p + 2] - background.R);
                 var dg = Math.Abs(bgra[p + 1] - background.G);
                 var db = Math.Abs(bgra[p] - background.B);
-                if (Math.Max(dr, Math.Max(dg, db)) <= ChannelTolerance)
+                var delta = Math.Max(dr, Math.Max(dg, db));
+
+                var inWindow = windows is not null && windows[index];
+                if (inWindow ? delta <= StrictChannelTolerance : delta <= ChannelTolerance)
                     continue;
+
+                if (inWindow)
+                    strictPixels++;
+                else
+                    loosePixels++;
 
                 if (pixels == 0)
                 {
@@ -175,7 +267,9 @@ internal static class ProbeRingIntrusion
             }
         }
 
-        return new Verdict(pixels > MinimumPixels, pixels, minX, minY, maxX, maxY);
+        return new Verdict(
+            strictPixels >= StrictMinimumPixels || loosePixels > MinimumPixels,
+            pixels, minX, minY, maxX, maxY, strictPixels, loosePixels);
     }
 
     /// <summary>
@@ -208,6 +302,8 @@ internal static class ProbeRingIntrusion
         var centreInCapture = new PhysicalPoint(
             referenceB.Frame.CaptureCentrePx.X - referenceB.Frame.CaptureOriginX,
             referenceB.Frame.CaptureCentrePx.Y - referenceB.Frame.CaptureOriginY);
+        var geometry = ProbeRingCaptureAnalysis.RingScanGeometry.For(
+            centreInCapture, ProbeRingCaptureScene.RingSizeDip * scale / 2.0);
 
         var masks = new Dictionary<string, bool[]>(StringComparer.Ordinal);
         var marked = new List<ProbeRingCapturedSample>(samples.Count);
@@ -219,7 +315,7 @@ internal static class ProbeRingIntrusion
                 masks[sample.Look.Style] = mask;
             }
 
-            var verdict = Check(sample.Bgra, sample.SizePx, sample.SizePx, mask, sample.Background);
+            var verdict = Check(sample.Bgra, sample.SizePx, sample.SizePx, mask, sample.Background, geometry);
             marked.Add(verdict.Intruded ? sample with { Intruded = true } : sample);
         }
 

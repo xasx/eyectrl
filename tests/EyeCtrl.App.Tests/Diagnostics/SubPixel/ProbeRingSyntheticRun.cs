@@ -44,6 +44,11 @@ internal static class ProbeRingSyntheticRun
         }
 
         Add(ProbeRingOnScreenJudge.KindReference, "B", 0.0, snap: false);
+
+        // The two f = 0 references are identical placements, so they must not be adjacent — the plan
+        // interleaves them too — or MarkStale would (correctly) call the second one a stale copy
+        // and the reference-clean check (fixup 11 R1) would fail every later measurement as void.
+        Add(ProbeRingOnScreenJudge.KindSweep, "B", 0.05, snap: false);
         Add(ProbeRingOnScreenJudge.KindReference, "A", 0.0, snap: true);
 
         foreach (var fraction in ProbeRingOnScreenJudge.AssertionFractions)

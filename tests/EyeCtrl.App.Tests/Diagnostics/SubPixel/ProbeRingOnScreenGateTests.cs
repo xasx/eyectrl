@@ -463,6 +463,31 @@ public class ProbeRingOnScreenGateTests
                 + "at f = 0) legitimately equals the last warm-up frame and must not be flagged stale.")
             .That(resetAt).IsStrictlyGreaterThan(warmUpAt);
 
+        // Fixup 11 P2: the warm-up's two purposes are pinned. Its classify must check the positive
+        // control (K1: the predicate replaced by `true` lets a black frame end the warm-up) and the
+        // intrusion rule (R1: an intruded reference is exactly what the warm-up must wait out), and
+        // its timeout must actually fail the run (K3: a neutered Check loses the failure).
+        var warmUpEnd = harness.IndexOf("captureClock.ElapsedMilliseconds);", warmUpAt, StringComparison.Ordinal);
+        Check.WithCustomMessage("The warm-up call is unterminated; repoint this pin.")
+            .That(warmUpEnd).IsStrictlyGreaterThan(warmUpAt);
+        var warmUpCall = harness[warmUpAt..warmUpEnd];
+        Check.WithCustomMessage(
+                "The warm-up's classify must check the positive control — CheckExpectedRing; a predicate "
+                + "replaced by `true` would let a black or ring-less frame end the warm-up (P2/K1). "
+                + $"Call read:\n{warmUpCall}")
+            .That(warmUpCall.IndexOf("ProbeRingCaptureAnalysis.CheckExpectedRing(", StringComparison.Ordinal))
+            .IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage(
+                "The warm-up's classify must also apply the intrusion rule — ProbeRingIntrusion.Check; "
+                + "an intruded reference is exactly what the warm-up must wait out (fixup 11 R1).")
+            .That(warmUpCall.IndexOf("ProbeRingIntrusion.Check(", StringComparison.Ordinal))
+            .IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage(
+                "The warm-up's timeout must fail the run — `.That(warmUp.Passed).IsTrue()`; a neutered "
+                + "Check loses the failure (P2/K3).")
+            .That(harness.IndexOf(".That(warmUp.Passed).IsTrue()", StringComparison.Ordinal))
+            .IsStrictlyGreaterThan(-1);
+
         // Fixup 10 item 2: the intrusion check, its lines, and the live marking.
         Check.WithCustomMessage("CaptureAt must classify intrusions through ProbeRingIntrusion.Check.")
             .That(harness.IndexOf("ProbeRingIntrusion.Check(", StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);

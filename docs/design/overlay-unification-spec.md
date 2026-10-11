@@ -1441,7 +1441,13 @@ re-deriving haloed marks at runtime, D1's rationale corrected against the live
 tracker, and ledger D8. Review round 3 (2026-10-10, FIX-THEN-SHIP) processed:
 the persisted TargetColor finally applied + dot rimmed (D9), the third reset
 path (Reset-ALL) migrated, cards moved to SurfaceDark, marker halos, and the
-round-3 test pins.
+round-3 test pins. Review round 4 (2026-10-11, FIX-THEN-SHIP — "the Daylight
+content itself is done") processed the r4 minors and MERGED the branch onto
+current main (32952f11, the l10n line): the picker kept main's colour-only
+shape with RingGreen inside it, the swatch captions became host string keys
+(swatch.warning / swatch.text — D6 now lives in strings.json), the theme row
+gained option.daylight and a true description, and the cancel-hint card kept
+main's loc:T text. The German draft (T10) must use the renamed keys.
 
 **The §2 ruling, reopened (owner decision D1).** "Dark-only backgrounds — eye
 trackers work poorly on bright surfaces" is amended, not silently dropped. The
@@ -1592,7 +1598,7 @@ contrast, maps everything back symmetrically — that path is fine.)
 | D3 | The semantic triad ladder inverts (§10.8.1) | Forced jointly by the halo cap and the chroma floor; the alternative fails a gate. Consequence: TrackStatus "Fair"/"Poor" renders dark red vs red under Daylight — ΔL\* 19.5 carries the pair. | Not separately undoable without failing a gate; veto via D1. |
 | D4 | Modal bright-kind labels are measured, not hardcoded | Daylight's `AccentDanger` on the light base is 4.44:1, under the 4.5 floor Negative is held to; all three dark themes resolve identically to the old rule. | Restore the hardcoded `SurfaceDark` labels and drop the pin test. |
 | D5 | The ring's green ≠ `AccentSuccess` on Daylight | Bi-tonal segments need 3:1 alone over mid backdrops; no C\* ≥ 55 green reaches it (max 54.28). | Veto via D1, or give the ring its own token. |
-| D6 | Preset captions are role names: "Light"→"Text", "Amber"→"Warning" | Visible on all four themes; a colour caption is wrong whenever a theme's token isn't that colour (Daylight's text is near-black, its warning a brick red — hue 41°, 13° from the danger red). | Rename in `DwellColorPicker.PresetsFor`. |
+| D6 | Preset captions are role names: "Light"→"Text", "Amber"→"Warning" | Visible on all four themes; a colour caption is wrong whenever a theme's token isn't that colour (Daylight's text is near-black, its warning a brick red — hue 41°, 13° from the danger red). | Since the l10n merge the captions are host-owned string keys: rename `settings.control.swatch.warning`/`.text` in `strings.json` and `SettingsWindow.ColorSwatchNames`. |
 | D7 | TextSecondary/Dim near-twins | Originally shipped as "forced" and **retired in review round 1** by darkening Secondary to `#484D5E` — review proved it was a choice. | — (resolved). |
 | D8 | The mark migration overrides §7.1's theme-independence for preset-valued colours | A persisted value that is exactly another theme's preset is almost certainly a stale default, not a deliberate choice — legacy pre-theme values included; only exact preset hexes map by index, so a stray `#00FF00` (a Contrast preset) maps to the same index, while arbitrary colours such as red or blue are nobody's preset and snap to the setting's default preset (the accent for the ring, the warning for the trail; on the dark halos — blue clears Daylight's white halo and is kept there). Custom colours are kept while they clear 7:1 against the live halo; note that **no colour clears 7:1 against both a dark and a light halo** (best possible: 4.44 against Midnight's halo, 4.58 against pure black), so a custom pick resets on a light↔dark switch. | Drop `ThemeStartup.MigrateHaloedMarks` and its call sites; §7.1 then holds literally again (with I1's invisibility back). |
 | D9 | `TargetColor` is now actually applied, and the dot carries a halo rim (round 3, R1) | The view model stored the persisted colour once without announcing it, so the window kept the theme accent forever — the saved colour never rendered, on any theme (a latent MAIN-branch bug this branch fixes). The rim keeps any pick visible on the black scrim under every theme. **Owner-visible on Midnight: the dot becomes your saved colour (amber `#E8A33C`) instead of cyan** — that is the setting working, not a palette change. | Revert; the latent bug returns with it. |

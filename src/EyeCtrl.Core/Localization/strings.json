@@ -2112,13 +2112,6 @@
     "fit": "row",
     "args": []
   },
-  "settings.control.swatch.warning": {
-    "text": "Warning",
-    "who": "user",
-    "where": "settings",
-    "fit": "row",
-    "args": []
-  },
   "settings.control.swatch.green": {
     "text": "Green",
     "who": "user",
@@ -2128,6 +2121,13 @@
   },
   "settings.control.swatch.text": {
     "text": "Text",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.control.swatch.warning": {
+    "text": "Warning",
     "who": "user",
     "where": "settings",
     "fit": "row",

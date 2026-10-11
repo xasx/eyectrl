@@ -2,12 +2,12 @@ namespace EyeCtrl.App.Tests.Localization;
 
 using System;
 using System.Collections.Generic;
-using System.Windows;
 using System.Windows.Threading;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Core.Localization;
+using EyeCtrl.Tests.TestSupport;
 using EyeCtrl.ViewModels;
 
 /// <summary>
@@ -17,11 +17,20 @@ using EyeCtrl.ViewModels;
 /// overlays exactly as a caregiver would see them.
 ///
 /// <para>
+/// The banners go up through their PRODUCTION show paths (<c>ShowCaregiverAlert</c>,
+/// <c>ShowDriftNotice</c>), because their content sits under <c>Opacity="0"</c> in XAML until
+/// those run; the message, the opacity and the position all come from production. Before every
+/// hold, <see cref="LiveCheck.AssertVisible"/> proves the window is visible, topmost, on-screen
+/// and not transparent — the proof that caught the first run's invisible banner.
+/// </para>
+///
+/// <para>
 /// <b>Not a gate.</b> The class is <c>Category=UI</c> so CI's <c>Category!=UI</c> filter excludes
 /// it, and every test SKIPS unless <c>EYECTRL_LIVE_CHECK=1</c>. It is only ever run with the
-/// owner's explicit go-ahead, under supervision. The full sequence:
-/// <c>dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~Step1LiveCheck"</c>
-/// (see the class test order in the report; four windows, about 80 seconds in total).
+/// owner's explicit go-ahead, under supervision, one case at a time:
+/// <c>dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~&lt;case&gt;"</c>. The
+/// order a viewer should see them in is the declaration order below: the struggle alert, the
+/// poor-tracking alert, the drift notice, TrackStatus.
 /// </para>
 /// </summary>
 [Collection("WpfApplication")]
@@ -32,18 +41,16 @@ public class Step1LiveCheckTests
     private static readonly TimeSpan Hold = TimeSpan.FromSeconds(20);
 
     [StaFact]
-    public void TheCaregiverAlert_ShowsTheGermanPoorTrackingBanner()
+    public void TheCaregiverAlert_ShowsTheGermanStruggleBanner()
     {
-        RequireLiveCheck();
+        LiveCheck.Require();
         WpfApplicationGate.EnsureApplicationWithTokens();
         try
         {
-            var german = ActivateShippedGerman();
+            _ = ActivateShippedGerman();
             var window = new CaregiverAlertWindow();
-            window.Prepare(
-                CaregiverAlertWindow.MessageFor(german, CaregiverAlertCondition.SustainedPoorTracking),
-                SystemParameters.WorkArea);
-            ShowFor(window, Hold);
+            LiveCheck.ShowAndHold(window, nameof(CaregiverAlertWindow) + " (struggle)", Hold,
+                () => window.ShowCaregiverAlert(CaregiverAlertCondition.SustainedStruggle));
         }
         finally
         {
@@ -52,18 +59,16 @@ public class Step1LiveCheckTests
     }
 
     [StaFact]
-    public void TheCaregiverAlert_ShowsTheGermanStruggleBanner()
+    public void TheCaregiverAlert_ShowsTheGermanPoorTrackingBanner()
     {
-        RequireLiveCheck();
+        LiveCheck.Require();
         WpfApplicationGate.EnsureApplicationWithTokens();
         try
         {
-            var german = ActivateShippedGerman();
+            _ = ActivateShippedGerman();
             var window = new CaregiverAlertWindow();
-            window.Prepare(
-                CaregiverAlertWindow.MessageFor(german, CaregiverAlertCondition.SustainedStruggle),
-                SystemParameters.WorkArea);
-            ShowFor(window, Hold);
+            LiveCheck.ShowAndHold(window, nameof(CaregiverAlertWindow) + " (poor tracking)", Hold,
+                () => window.ShowCaregiverAlert(CaregiverAlertCondition.SustainedPoorTracking));
         }
         finally
         {
@@ -74,23 +79,22 @@ public class Step1LiveCheckTests
     [StaFact]
     public void TheDriftNotice_ShowsTheGermanBanner()
     {
-        RequireLiveCheck();
+        LiveCheck.Require();
         WpfApplicationGate.EnsureApplicationWithTokens();
         try
         {
             _ = ActivateShippedGerman();
             var window = new DriftNoticeWindow();
             // The notice's real life is 8 s + a 1 s fade; show it twice so the owner has time to
-            // land on it, then close. No production behavior is changed.
+            // land on it. No production behavior is changed.
             var again = new DispatcherTimer(DispatcherPriority.Normal) { Interval = TimeSpan.FromSeconds(10) };
             again.Tick += (_, _) =>
             {
                 again.Stop();
                 window.ShowDriftNotice();
             };
-            window.ShowDriftNotice();
             again.Start();
-            ShowFor(window, Hold);
+            LiveCheck.ShowAndHold(window, nameof(DriftNoticeWindow), Hold, window.ShowDriftNotice);
         }
         finally
         {
@@ -101,7 +105,7 @@ public class Step1LiveCheckTests
     [StaFact]
     public void TheTrackStatusWindow_ShowsTheGermanWords()
     {
-        RequireLiveCheck();
+        LiveCheck.Require();
         WpfApplicationGate.EnsureApplicationWithTokens();
         try
         {
@@ -113,22 +117,13 @@ public class Step1LiveCheckTests
             window.PositionTopRight();
             window.DistanceText.Text = german.T("track-status.distance.mm", 600.0);
             window.QualityText.Text = TrackStatusWindow.QualityWord(german, DistanceQuality.Good);
-            ShowFor(window, Hold);
+            LiveCheck.ShowAndHold(window, nameof(TrackStatusWindow), Hold);
         }
         finally
         {
             StringTable.ResetToEmbeddedEnglish();
         }
     }
-
-    /// <summary>
-    /// The live-check gate: these tests are opt-in with <c>EYECTRL_LIVE_CHECK=1</c> because they
-    /// paint windows on the owner's screen, which they control by gaze.
-    /// </summary>
-    private static void RequireLiveCheck() =>
-        Assert.SkipUnless(
-            Environment.GetEnvironmentVariable("EYECTRL_LIVE_CHECK") is "1" or "true" or "TRUE",
-            "The T11 live check paints real windows on the screen; set EYECTRL_LIVE_CHECK=1 with the owner's go-ahead.");
 
     /// <summary>Activates the shipped German table exactly as the de-DE App loads it.</summary>
     private static StringTable ActivateShippedGerman()
@@ -139,33 +134,5 @@ public class Step1LiveCheckTests
             .That(warnings).IsEmpty();
         StringTable.Activate(table);
         return table;
-    }
-
-    /// <summary>
-    /// Shows <paramref name="window"/> on the real screen and pumps its dispatcher for
-    /// <paramref name="duration"/>, then closes it. A plain <c>Show</c> (never <c>ShowDialog</c>):
-    /// the production overlays are non-modal, and the pump is what lets them lay out, draw and
-    /// run their own timers.
-    /// </summary>
-    private static void ShowFor(Window window, TimeSpan duration)
-    {
-        window.Show();
-        var frame = new DispatcherFrame();
-        var timer = new DispatcherTimer(DispatcherPriority.Normal) { Interval = duration };
-        timer.Tick += (_, _) =>
-        {
-            timer.Stop();
-            frame.Continue = false;
-        };
-        timer.Start();
-        try
-        {
-            Dispatcher.PushFrame(frame);
-        }
-        finally
-        {
-            timer.Stop();
-            window.Close();
-        }
     }
 }

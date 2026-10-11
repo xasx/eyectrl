@@ -6,7 +6,6 @@ using System.IO;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Windows;
-using System.Windows.Threading;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
@@ -22,11 +21,21 @@ using EyeCtrl.Tests.TestSupport;
 /// fixed time, then closed. Nothing is simulated — no input, no cursor moves.
 ///
 /// <para>
+/// The two windows come from a background test process, so the showcase raises them to the
+/// foreground itself: <c>Topmost = true</c>, <c>WindowStartupLocation = CenterScreen</c> and
+/// <c>Activate()</c> (the FallenBack XAML already sets both properties; setting them again here is
+/// the showcase's own guard, and no production XAML changes). Before every hold,
+/// <see cref="LiveCheck.AssertVisible"/> proves the window is visible, topmost, on-screen and not
+/// transparent.
+/// </para>
+///
+/// <para>
 /// <b>Not a gate.</b> The class is <c>Category=UI</c> so CI's <c>Category!=UI</c> filter excludes
 /// it, and every test SKIPS unless <c>EYECTRL_LIVE_CHECK=1</c>. It is only ever run with the
-/// owner's explicit go-ahead, under supervision:
-/// <c>dotnet test tests/EyeCtrl.Supervisor.Tests --filter "FullyQualifiedName~Step1LiveCheck"</c>
-/// (three cases, about 75 seconds in total).
+/// owner's explicit go-ahead, under supervision, one case at a time:
+/// <c>dotnet test tests/EyeCtrl.Supervisor.Tests --filter "FullyQualifiedName~&lt;case&gt;"</c>.
+/// The order a viewer should see them in is the declaration order below: FallenBack, the setup
+/// window, then the tray icon.
 /// </para>
 /// </summary>
 [Collection(SupervisorXamlCollection.Name)]
@@ -61,11 +70,6 @@ public class Step1LiveCheckSupervisorTests : IDisposable
         return StringTable.Load(UiLanguage.German, CultureInfo.GetCultureInfo("de-DE"), _install);
     }
 
-    private static void RequireLiveCheck() =>
-        Assert.SkipUnless(
-            Environment.GetEnvironmentVariable("EYECTRL_LIVE_CHECK") is "1" or "true" or "TRUE",
-            "The T11 live check paints real windows on the screen; set EYECTRL_LIVE_CHECK=1 with the owner's go-ahead.");
-
     private static void RunSta(Action action)
     {
         ExceptionDispatchInfo? failure = null;
@@ -80,60 +84,23 @@ public class Step1LiveCheckSupervisorTests : IDisposable
         failure?.Throw();
     }
 
-    /// <summary>Shows the window and pumps for <paramref name="duration"/>, then closes it —
-    /// in a <c>finally</c>, so a throw from the pump cannot leave the window on the screen.</summary>
-    private static void ShowFor(Window window, TimeSpan duration)
-    {
-        window.Show();
-        try
-        {
-            PumpFor(duration);
-        }
-        finally
-        {
-            window.Close();
-        }
-    }
-
-    /// <summary>
-    /// Pumps this thread's dispatcher (which also dispatches the WinForms tray's messages) until
-    /// the timer ends the frame.
-    /// </summary>
-    private static void PumpFor(TimeSpan duration)
-    {
-        var frame = new DispatcherFrame();
-        var timer = new DispatcherTimer(DispatcherPriority.Normal) { Interval = duration };
-        timer.Tick += (_, _) =>
-        {
-            timer.Stop();
-            frame.Continue = false;
-        };
-        timer.Start();
-        try
-        {
-            Dispatcher.PushFrame(frame);
-        }
-        finally
-        {
-            timer.Stop();
-        }
-    }
-
     [Fact]
     public void TheFallenBackDialog_ShowsTheGermanTexts()
     {
-        RequireLiveCheck();
+        LiveCheck.Require();
         RunSta(() =>
         {
             var dialog = new FallenBackDialog(German());
-            ShowFor(dialog, TimeSpan.FromSeconds(25));
+            dialog.Topmost = true;
+            dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            LiveCheck.ShowAndHold(dialog, nameof(FallenBackDialog), TimeSpan.FromSeconds(25));
         });
     }
 
     [Fact]
     public void TheSupervisorSetupWindow_ShowsTheGermanForm()
     {
-        RequireLiveCheck();
+        LiveCheck.Require();
         RunSta(() =>
         {
             var german = German();
@@ -159,19 +126,22 @@ public class Step1LiveCheckSupervisorTests : IDisposable
                 new LanguageSetupRow(language, () => UiLanguage.German, CultureInfo.GetCultureInfo("de-DE")),
                 german,
                 SupervisorStateText.Describe(german, SupervisorState.IdleWatch));
-            ShowFor(window, TimeSpan.FromSeconds(20));
+            window.Topmost = true;
+            window.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            LiveCheck.ShowAndHold(window, nameof(SupervisorSetupWindow), TimeSpan.FromSeconds(20));
         });
     }
 
     /// <summary>
     /// A real tray icon for half a minute: the Supervisor's own icon with its German tooltip, so
     /// the owner can hover it by gaze. The menu is the production one (right-click); nothing here
-    /// opens it for them.
+    /// opens it for them. NOTE: the shell may place the icon in the notification OVERFLOW area
+    /// (the "^" chevron), which the test cannot control — look there if it is not on the strip.
     /// </summary>
     [Fact]
     public void TheSupervisorTray_ShowsItsGermanTooltip()
     {
-        RequireLiveCheck();
+        LiveCheck.Require();
         RunSta(() =>
         {
             var german = German();
@@ -182,7 +152,12 @@ public class Step1LiveCheckSupervisorTests : IDisposable
                 visible: true,
                 refreshStatus: () => status.Update(SupervisorState.Supervising));
             tray.ApplyStatusRefresh();
-            PumpFor(TimeSpan.FromSeconds(30));
+            // What the icon will show on hover and when the menu opens: the German tooltip line and
+            // the three German item texts. (The icon's placement is the shell's; see the note above.)
+            Check.That(tray.StatusText).IsEqualTo("EyeCtrl Supervisor: überwacht EyeCtrl");
+            Check.That(tray.ItemTexts).IsEqualTo(
+                ("EyeCtrl Supervisor – Einstellungen", "EyeCtrl jetzt starten", "Supervisor beenden"));
+            LiveCheck.PumpFor(TimeSpan.FromSeconds(30));
         });
     }
 }

@@ -1,3 +1,412 @@
 {
-  "entries": []
+  "_note": "T10's German glossary. In repo, never shipped. One German word per concept, everywhere. de-short is the ring and overlay form, de-long the Settings row form. avoid[] are stems the validator rejects in any German value (case-insensitive, word prefix, after stripping placeholders and U+00AD). budget is the tightest fit class the term is used in, with the margin measured headless at 2.0 (worst of the three themes) where one was measured. source: 'Tobii' means taken from Tobii Dynavox Computer Control's own German on this machine.",
+  "entries": [
+    {
+      "id": "dwell",
+      "en": "dwell / dwell time",
+      "de-short": "Verweilen",
+      "de-long": "Verweilzeit",
+      "avoid": [
+        "Verweildauer",
+        "Fixieren",
+        "Dwell"
+      ],
+      "budget": "tab156 (\"Verweilzeiten\" +7.5 DIP)",
+      "source": "Tobii (Verweilzeit; its \"Lernfähige Verweildauer\" is the variant we avoid)",
+      "note": "Explained once, in the Dwell tab's description: the gaze rests (\"ruhen\") on a target. Crisis copy never uses the noun; it uses the imperative (\"Blick ruhig halten\"). \"Fixieren\" is blocked as an infinitive; fixation uses the noun Fixierung."
+    },
+    {
+      "id": "fixation",
+      "en": "fixation",
+      "de-short": "Fixierung",
+      "de-long": "Fixierung",
+      "avoid": [
+        "Fixation"
+      ],
+      "budget": "row",
+      "source": "Tobii (Fixierungsdauer)",
+      "note": "Noun only. A description says what happens: \"der Blick bleibt ruhig\"."
+    },
+    {
+      "id": "activation-button",
+      "en": "activation button",
+      "de-short": "Aktivator",
+      "de-long": "Aktivator",
+      "avoid": [
+        "Aktivierungsschaltfläche"
+      ],
+      "budget": "row",
+      "source": "Tobii (Der Aktivator)"
+    },
+    {
+      "id": "action-menu",
+      "en": "action menu (the ring of actions that opens after an activation)",
+      "de-short": "Aktionsmenü",
+      "de-long": "Aktionsmenü",
+      "avoid": [
+        "Interaktionsmenü"
+      ],
+      "budget": "tab156 (\"Aktionsmenü\" +24.7)",
+      "source": "EyeCtrl (Tobii's \"Interaktionsmenü\" is 5 letters longer and names a different menu)",
+      "note": "\"Ring\" is reserved for the cursor ring: two gaze objects never share one German word. The action menu is \"das Aktionsmenü\" everywhere, its preview \"die Vorschau des Aktionsmenüs\"."
+    },
+    {
+      "id": "prediction",
+      "en": "prediction / word suggestions",
+      "de-short": "Vorhersagen",
+      "de-long": "Wortvorhersage",
+      "avoid": [
+        "Wortvorschlag",
+        "Wortvorschläge"
+      ],
+      "budget": "row",
+      "source": "Tobii (Vorhersagen, Wortvorhersage)"
+    },
+    {
+      "id": "calibration",
+      "en": "calibration / recalibrate",
+      "de-short": "Kalibrierung",
+      "de-long": "Kalibrierung",
+      "avoid": [
+        "Kalibration"
+      ],
+      "budget": "tab156 (\"Kalibrierung\" +37.7)",
+      "source": "Tobii (Kalibrierung, kalibrieren)",
+      "note": "Always says which one where it matters: \"in Tobii neu kalibrieren\" (the user's eye tracker) or EyeCtrl's own offset calibration on the Kalibrierung tab. Recalibrate = \"neu kalibrieren\"."
+    },
+    {
+      "id": "calibration-fit",
+      "en": "the calibration fit / transform",
+      "de-short": "Korrektur",
+      "de-long": "Korrektur",
+      "avoid": [],
+      "budget": "prose",
+      "source": "EyeCtrl",
+      "note": "The mapping a calibration computes. Not \"Anpassung\", which is adaptation."
+    },
+    {
+      "id": "eye-tracker",
+      "en": "eye tracker / eye tracking",
+      "de-short": "Eyetracker",
+      "de-long": "Blickverfolgung",
+      "avoid": [
+        "Tracking"
+      ],
+      "budget": "C-alert",
+      "source": "Tobii (Eyetracker, Blickverfolgung)",
+      "note": "The device is der Eyetracker; what it does is die Blickverfolgung. \"Track Status\" is Tobii's \"Trackstatus\"."
+    },
+    {
+      "id": "eye-control",
+      "en": "eye control (the kind of app)",
+      "de-short": "Blicksteuerung",
+      "de-long": "Blicksteuerung",
+      "avoid": [
+        "Augensteuerung"
+      ],
+      "budget": "C-fallback",
+      "source": "Tobii (\"Blicksteuerung pausieren\")"
+    },
+    {
+      "id": "pause",
+      "en": "pause / resume / paused",
+      "de-short": "Pausieren / Fortsetzen",
+      "de-long": "Pausieren / Fortsetzen",
+      "avoid": [
+        "Fortfahren"
+      ],
+      "budget": "row",
+      "source": "Tobii (pausieren, Fortsetzen)",
+      "note": "The state is \"pausiert\" (\"EyeCtrl pausiert\")."
+    },
+    {
+      "id": "caregiver",
+      "en": "caregiver",
+      "de-short": "(no noun: crisis titles are action-shaped)",
+      "de-long": "Betreuungsperson",
+      "avoid": [
+        "Betreuer",
+        "Pflegekraft",
+        "Pflegeperson"
+      ],
+      "budget": "C-alert",
+      "source": "EyeCtrl (Tobii has no caregiver term)",
+      "note": "\"Caregiver attention needed\" becomes \"Bitte kurz nachsehen\". The noun appears only in Settings prose."
+    },
+    {
+      "id": "notices",
+      "en": "caregiver alert / eye-care banner / adaptation cue / toast",
+      "de-short": "Hinweis an die Betreuungsperson / Pausenhinweis / Anpassungszeichen / Meldung",
+      "de-long": "Hinweis an die Betreuungsperson / Pausenhinweis / Anpassungszeichen / Meldung",
+      "avoid": [],
+      "budget": "row",
+      "source": "EyeCtrl",
+      "note": "Four different things on screen, four different words: never a bare \"Hinweis\" for more than one of them."
+    },
+    {
+      "id": "user-neutral",
+      "en": "the user (in caretaker copy)",
+      "de-short": "(impersonal)",
+      "de-long": "(impersonal: \"die Bedienung fällt schwer\")",
+      "avoid": [
+        "Nutzer",
+        "Benutzer"
+      ],
+      "budget": "C-alert",
+      "source": "EyeCtrl",
+      "note": "Gender-neutral by construction: say what is hard, never who. \"struggle\" = \"die Bedienung fällt schwer\"."
+    },
+    {
+      "id": "quick-actions",
+      "en": "quick actions / quick action",
+      "de-short": "Kurzbefehle / Kurzbefehl",
+      "de-long": "Kurzbefehle",
+      "avoid": [
+        "Schnellaktion"
+      ],
+      "budget": "tab156 (\"Kurzbefehle\" +22.2)",
+      "source": "EyeCtrl (debate cross-review: \"Schnellaktionen\" overflows the tab)",
+      "note": "Not \"Tastenkürzel\": that is a keyboard shortcut, one TYPE of Kurzbefehl."
+    },
+    {
+      "id": "eye-care",
+      "en": "eye care / eye break / exercise",
+      "de-short": "Augenschutz / Augenpause / Übung",
+      "de-long": "Augenschutz",
+      "avoid": [
+        "Augenschonung"
+      ],
+      "budget": "tab156 (\"Augenschutz\" +27.7)",
+      "source": "EyeCtrl (debate cross-review); Übung from Tobii"
+    },
+    {
+      "id": "clicks",
+      "en": "left / right / middle click",
+      "de-short": "Linksklick / Rechtsklick / Mittelklick",
+      "de-long": "Linksklick / Rechtsklick / Mittelklick",
+      "avoid": [],
+      "budget": "A105 (Linksklick +8.4, Rechtsklick +3.7, Mittelklick +5.6)",
+      "source": "Tobii (Linksklick, Rechtsklick)"
+    },
+    {
+      "id": "double-click",
+      "en": "double click",
+      "de-short": "2× Klick",
+      "de-long": "Doppelklick",
+      "avoid": [],
+      "budget": "A105: \"2× Klick\" +12.7. \"Doppelklick\" fails the ring at -1.2 (ink 0.85 DIP inside the arc against the 2 DIP rule), so the ring and its Settings-preview mirror say \"2× Klick\".",
+      "source": "Tobii (Doppelklick)",
+      "note": "The coordinator's call (b), 2026-10-11. The Settings row keeps Tobii's \"Doppelklick\". Shown on the ring-label sheet beside \"Doppelklick (passt nicht)\"."
+    },
+    {
+      "id": "drag",
+      "en": "drag",
+      "de-short": "Ziehen",
+      "de-long": "Ziehen",
+      "avoid": [],
+      "budget": "A105 (+16.1)",
+      "source": "Tobii (Klicken und ziehen)"
+    },
+    {
+      "id": "scroll",
+      "en": "scroll / scroll mode / scroll up, down, left, right",
+      "de-short": "Scrollen / Nach oben, Nach unten, Nach links, Nach rechts",
+      "de-long": "Scroll-Modus / Nach oben scrollen …",
+      "avoid": [],
+      "budget": "A105 (Scrollen +12.9; tightest \"Nach rechts\" +1.2; \"Hochscrollen\" fails at -2.7)",
+      "source": "Tobii (Scrollen)",
+      "note": "On the ring the scroll icon carries \"scroll\", so the label is the direction alone."
+    },
+    {
+      "id": "keyboard",
+      "en": "keyboard / key / keyboard shortcut",
+      "de-short": "Tastatur / Taste / Tastenkürzel",
+      "de-long": "Tastatur / Taste / Tastenkürzel",
+      "avoid": [],
+      "budget": "A105 (Tastatur +13.1)",
+      "source": "Tobii (Tastatur, Tastaturtaste)"
+    },
+    {
+      "id": "modifier-bar",
+      "en": "Shift / Ctrl / Alt (the modifier bar)",
+      "de-short": "Shift / Strg / Alt",
+      "de-long": "Shift / Strg / Alt",
+      "avoid": [],
+      "budget": "A68 (Strg +5.7, Shift +8.1, Alt +11.5)",
+      "source": "the user's pick B4 (T14, D8); Tobii says \"Strg\" too",
+      "note": "Key captions in qwertz.json are T14's and are not drafted here."
+    },
+    {
+      "id": "restart",
+      "en": "restart / restart now",
+      "de-short": "Neu starten",
+      "de-long": "Neu starten / Neustart",
+      "avoid": [],
+      "budget": "modal170 (\"Neu starten\" +29.5; \"Jetzt neu starten\" FAILS -26.5)",
+      "source": "Tobii (Neu starten)",
+      "note": "Never \"Jetzt neu starten\" in a 170 DIP modal button."
+    },
+    {
+      "id": "reset",
+      "en": "reset / reset to defaults",
+      "de-short": "Zurücksetzen",
+      "de-long": "auf Standardwerte zurücksetzen",
+      "avoid": [],
+      "budget": "B260x2 (\"Verweilzeiten zurücksetzen\" +30.2)",
+      "source": "Tobii (Zurücksetzen, Standardwerte)"
+    },
+    {
+      "id": "on-off",
+      "en": "On / Off",
+      "de-short": "Ein / Aus",
+      "de-long": "Ein / Aus",
+      "avoid": [],
+      "budget": "A44 (Ein +20.0, Aus +14.5)",
+      "source": "Tobii (Ein, Aus)"
+    },
+    {
+      "id": "supervisor",
+      "en": "Supervisor / supervision",
+      "de-short": "Supervisor",
+      "de-long": "Supervisor / Überwachung",
+      "avoid": [],
+      "budget": "tray63",
+      "source": "EyeCtrl",
+      "note": "The coordinator's call, 2026-10-11: \"Supervisor\" stays as the name of the installed program (\"EyeCtrl Supervisor\"), as T06 kept product names; the activity is \"Überwachung\". FLAGGED for the user's sitting: or a German name such as \"Wächter\"?"
+    },
+    {
+      "id": "crash-recovery",
+      "en": "automatic crash recovery",
+      "de-short": "Neustart nach Absturz",
+      "de-long": "Automatischer Neustart nach Absturz",
+      "avoid": [],
+      "budget": "row",
+      "source": "EyeCtrl"
+    },
+    {
+      "id": "fallback-app",
+      "en": "fallback app / backup program",
+      "de-short": "Ersatzprogramm",
+      "de-long": "Ersatzprogramm",
+      "avoid": [
+        "Fallback"
+      ],
+      "budget": "C-fallback (\"Ersatzprogramm\" 187 DIP of 260 at 24 Bold, debate)",
+      "source": "EyeCtrl"
+    },
+    {
+      "id": "target",
+      "en": "target",
+      "de-short": "Ziel",
+      "de-long": "Ziel",
+      "avoid": [],
+      "budget": "row",
+      "source": "Tobii (Ziel anpassen)"
+    },
+    {
+      "id": "gaze",
+      "en": "gaze / gaze point",
+      "de-short": "Blick / Blickpunkt",
+      "de-long": "der Blick / Blickpunkt",
+      "avoid": [],
+      "budget": "prose",
+      "source": "Tobii (Blick)",
+      "note": "Descriptions say \"der Blick\", never \"Ihr Blick\", so a caretaker does not read it as their own gaze."
+    },
+    {
+      "id": "drift",
+      "en": "drift (tracking drift)",
+      "de-short": "Blickpunkt weicht ab",
+      "de-long": "Blickpunkt weicht ab",
+      "avoid": [
+        "Drift"
+      ],
+      "budget": "row",
+      "source": "EyeCtrl (debate round 1)"
+    },
+    {
+      "id": "cursor-ring",
+      "en": "cursor ring / circle (the ring that follows the gaze)",
+      "de-short": "Ring",
+      "de-long": "Cursorring",
+      "avoid": [],
+      "budget": "row",
+      "source": "EyeCtrl",
+      "note": "Reserved for the cursor ring. English mixes \"Circle\" (rows) and \"ring\" (descriptions) for this one thing; German says Cursorring. The manual-selection ring is the Blickring, and a calibration point's progress ring is its Kreis, so no other gaze object is called Ring."
+    },
+    {
+      "id": "gaze-ring",
+      "en": "gaze ring (manual selection)",
+      "de-short": "Blickring",
+      "de-long": "Blickring",
+      "avoid": [],
+      "budget": "row",
+      "source": "EyeCtrl",
+      "note": "The ring shown at the gaze during manual selection. A different object from the cursor ring, so a different word."
+    },
+    {
+      "id": "selection",
+      "en": "selection mode / manual selection / auto selection / magnifier",
+      "de-short": "Auswahl / Lupe",
+      "de-long": "Auswahlmodus / Manuelle Auswahl / Automatische Auswahl / Lupe",
+      "avoid": [],
+      "budget": "tab156 (\"Auswahl\" +77.6)",
+      "source": "EyeCtrl"
+    },
+    {
+      "id": "toolbar",
+      "en": "toolbar",
+      "de-short": "Symbolleiste",
+      "de-long": "Symbolleiste",
+      "avoid": [],
+      "budget": "tab156 (+30.5)",
+      "source": "Windows German"
+    },
+    {
+      "id": "adaptation",
+      "en": "adaptation (automatic self-adjustment)",
+      "de-short": "Anpassung",
+      "de-long": "Automatische Anpassung",
+      "avoid": [],
+      "budget": "tab156 (+46.8)",
+      "source": "EyeCtrl"
+    },
+    {
+      "id": "settings",
+      "en": "Settings",
+      "de-short": "Einstellungen",
+      "de-long": "Einstellungen",
+      "avoid": [],
+      "budget": "row",
+      "source": "Tobii (Einstellungen)"
+    },
+    {
+      "id": "opacity",
+      "en": "opacity",
+      "de-short": "Deckkraft",
+      "de-long": "Deckkraft",
+      "avoid": [],
+      "budget": "row",
+      "source": "Tobii (Deckkraft)"
+    },
+    {
+      "id": "log",
+      "en": "log",
+      "de-short": "Protokoll",
+      "de-long": "Protokoll",
+      "avoid": [],
+      "budget": "B260x2",
+      "source": "Tobii (Protokolle)"
+    },
+    {
+      "id": "language",
+      "en": "language (the recovery row and tray item)",
+      "de-short": "Sprache / Language",
+      "de-long": "Sprache / Language",
+      "avoid": [],
+      "budget": "row",
+      "source": "the user's call D9",
+      "note": "Bilingual on purpose, and the endonyms Deutsch / English / System stay identical in both languages."
+    }
+  ]
 }

@@ -1,0 +1,10 @@
+{
+  "settings.computing": {
+    "text": "Wird berechnet…",
+    "src": "0b96e0a3"
+  },
+  "settings.waiting": {
+    "text": "Bitte warten...",
+    "src": "e8b4c722"
+  }
+}

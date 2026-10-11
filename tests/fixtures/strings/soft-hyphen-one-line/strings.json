@@ -1,0 +1,9 @@
+{
+  "settings.ring": {
+    "text": "Left click",
+    "who": "user",
+    "where": "settings",
+    "fit": "A105",
+    "args": []
+  }
+}

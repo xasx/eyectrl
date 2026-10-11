@@ -54,8 +54,13 @@
                    HorizontalAlignment="Center"
                    VerticalAlignment="Top" Margin="0,30,0,0" Visibility="Collapsed"/>
 
-        <!-- Completion display -->
-        <StackPanel x:Name="CompletionPanel" Visibility="Collapsed"
+        <!-- Completion display. The 40-DIP side margin keeps the failure line 40 DIP from each
+             screen edge: the panel is offered the window's width less 80 DIP, and CompletionError
+             wraps at that width. A line that fits within it stays one line, centred where it
+             always was; a line between that width and the window's full width (1840-1920 DIP on
+             the user's 1920-DIP screen) used to stay on one line and now wraps. The calibration
+             gate pins the 40 (GermanGateTests.CompletionEdgeClearance). -->
+        <StackPanel x:Name="CompletionPanel" Visibility="Collapsed" Margin="40,0"
                     HorizontalAlignment="Center" VerticalAlignment="Center">
             <TextBlock x:Name="CompletionSymbol" Text="&#x2713;" FontSize="{StaticResource FontSizeDisplay}"
                        HorizontalAlignment="Center" Margin="0,0,0,12"
@@ -63,9 +68,13 @@
             <TextBlock x:Name="CompletionTitle" Text="{loc:T 'calibration.window.title.complete'}"
                        Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeSubtitle}"
                        HorizontalAlignment="Center" Margin="0,0,0,4"/>
+            <!-- Wraps (T10 fixup-01): a quality failure names every failing point, so the line has
+                 no fixed length. Kept on one line, it ran off both screen edges from three
+                 failing points in English and from two in German. -->
             <TextBlock x:Name="CompletionError" Text=""
                        Foreground="{StaticResource BrushAccentWarning}" FontSize="{StaticResource FontSizeBodyLarge}"
-                       HorizontalAlignment="Center" Margin="0,0,0,12"/>
+                       HorizontalAlignment="Center" Margin="0,0,0,12"
+                       TextWrapping="Wrap" TextAlignment="Center"/>
             <TextBlock x:Name="CompletionHint" Text="{loc:T 'calibration.window.dismissHint'}"
                        Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}"
                        HorizontalAlignment="Center" Margin="0,0,0,12" Visibility="Collapsed"/>

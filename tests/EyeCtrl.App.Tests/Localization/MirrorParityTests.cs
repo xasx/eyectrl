@@ -17,9 +17,9 @@ using Xunit;
 /// <c>mirrors</c> declaration and this gate exist so the two surfaces cannot drift apart in German.
 ///
 /// <para>
-/// Vacuous until T10 adds German: a pair is only compared when BOTH sides have a German value, and
-/// the shipped German table is empty today. From the moment T10 fills these keys in, a divergence
-/// is red.
+/// Binding since T10 drafted the German: both keys of a pair must carry German, and the same German.
+/// A pair translated on one side only is red too — one surface would read German while its twin
+/// fell back to English.
 /// </para>
 /// </summary>
 public class MirrorParityTests
@@ -98,10 +98,10 @@ public class MirrorParityTests
     }
 
     [Fact]
-    public void TheGate_StaysQuietWhileEitherSideHasNoGermanYet()
+    public void TheGate_FailsWhenOnlyOneSideHasGerman()
     {
-        // The vacuous state until T10: the partner is translated, the mirrored side is not — or
-        // the other way round. Neither can be a drift while one side is still English.
+        // Binding since T10: the partner is translated and the mirrored side is not — or the other
+        // way round. One of the two surfaces would read English beside its German twin.
         var violations = FindViolations(
             """
             {
@@ -114,6 +114,22 @@ public class MirrorParityTests
                 ["overlays.ring.leftClick"] = "Linksklick",
                 ["settings.ring.drag"] = "Ziehen",
             });
+
+        Check.That(violations).HasSize(2);
+        Check.That(violations[0]).Contains("only overlays.ring.leftClick has German");
+        Check.That(violations[1]).Contains("only settings.ring.drag has German");
+    }
+
+    [Fact]
+    public void TheGate_StaysQuietWhenNeitherSideHasGerman()
+    {
+        var violations = FindViolations(
+            """
+            {
+              "settings.ring.leftClick": { "mirrors": "overlays.ring.leftClick" }
+            }
+            """,
+            new Dictionary<string, string?>(StringComparer.Ordinal));
 
         Check.That(violations).IsEmpty();
     }
@@ -264,8 +280,15 @@ public class MirrorParityTests
                 || mirror.ValueKind != JsonValueKind.String) continue;
 
             var partner = mirror.GetString()!;
-            if (!german.TryGetValue(property.Name, out var own) || own is null) continue;
-            if (!german.TryGetValue(partner, out var other) || other is null) continue;
+            var hasOwn = german.TryGetValue(property.Name, out var own) && own is not null;
+            var hasOther = german.TryGetValue(partner, out var other) && other is not null;
+            if (!hasOwn && !hasOther) continue;
+            if (hasOwn != hasOther)
+            {
+                violations.Add($"{property.Name}: only {(hasOwn ? property.Name : partner)} has German; its twin "
+                               + $"{(hasOwn ? partner : property.Name)} would fall back to English");
+                continue;
+            }
 
             if (!string.Equals(own, other, StringComparison.Ordinal))
                 violations.Add($"{property.Name}: German \"{own}\" differs from {partner} \"{other}\"");

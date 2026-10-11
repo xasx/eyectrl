@@ -10,6 +10,7 @@ using EyeCtrl.App.Tests.TestSupport;
 using EyeCtrl.App.Views;
 using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Controls.Theme;
+using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Tests.TestSupport;
 using EyeCtrl.ViewModels;
@@ -124,6 +125,9 @@ public class GermanGateTests
         Check.WithCustomMessage($"The {form} column ({FitText.Dip(width)} DIP) does not give the {form} row form.")
             .That(width >= SettingsWindow.TwoColumnMinimumWidth).IsEqualTo(form == "two-column");
 
+        // ThemeScope's users belong in "ActiveTheme"; this class is in "StringTable Tests (App)".
+        // Safe: both are DisableParallelization, which xUnit v3 runs alone, beside no other test
+        // (pinned by NonParallelCollectionPin), so the theme cannot change under a parallel reader.
         using var scope = ThemeScope.Activate(ThemeRegistry.Resolve(theme));
         StringTable.Activate(strings);
         try
@@ -240,6 +244,260 @@ public class GermanGateTests
         return new FitVerdict(natural <= room && natural <= shown + 0.5,
             $"one line {FitText.Dip(natural)} DIP; shown {FitText.Dip(shown)}; room in the {FitText.Dip(window.Width)} DIP window {FitText.Dip(room)}",
             FitText.ResolvedFace(window.Message), room - natural);
+    }
+
+    /// <summary>
+    /// Binding (T10 review-01, F1): the calibration window's Retry and Accept buttons, shown after a
+    /// poor result, are fixed at 80 and 120 DIP and never wrap, and their keys are classed
+    /// <c>row</c>, which only Settings pagination measures — a longer caption is cut at the button's
+    /// border. English is the baseline; a doubled caption must fail (the teeth).
+    /// </summary>
+    [StaFact]
+    public void TheCalibrationButtons_ShowTheirWholeCaptions_InEnglishAndGerman()
+    {
+        var failures = new List<string>();
+        foreach (var (language, table) in new[] { ("English", StringTable.EmbeddedEnglish), ("German", GermanDraft.Table) })
+        {
+            foreach (var (button, key) in CalibrationButtons)
+            {
+                var verdict = CalibrationButton(button, table.T(key));
+                _output.WriteLine($"{language} {key}: {verdict}");
+                if (!verdict.Fits) failures.Add($"{language} {key}: {verdict}");
+            }
+        }
+
+        foreach (var (button, key) in CalibrationButtons)
+        {
+            var german = GermanDraft.Table.T(key);
+            Check.WithCustomMessage($"{key} resolved its English: the German table is not effective.")
+                .That(german).IsNotEqualTo(StringTable.EmbeddedEnglish.T(key));
+            Check.WithCustomMessage($"The calibration-button gate passed a doubled {key}: it cannot fail.")
+                .That(CalibrationButton(button, german + " " + german).Fits).IsFalse();
+        }
+
+        Check.WithCustomMessage("The calibration buttons cut their captions:\n  " + string.Join("\n  ", failures))
+            .That(failures).IsEmpty();
+    }
+
+    /// <summary>
+    /// Binding (T10 fixup-01): the calibration window's failure line shows whole, in English and in
+    /// German — every <see cref="CalibrationFailureText.Describe"/> sentence, the quality failure for
+    /// 1 to 9 failing points. The key is <c>prose</c>, a wrapping class, so the line wraps inside the
+    /// window instead of running off both edges, and the wrapped block reaches neither the title
+    /// above it, the Retry/Accept buttons below it nor the cancel hint in the corner. Measured on the
+    /// user's screen (1920 × 1200 DIP at 2.0) and on a smaller one, so the wrap width must be the
+    /// window's, not a constant; with and without the buttons. One failing point stays on ONE line
+    /// on the user's screen (in English, exactly where it was before the line could wrap).
+    /// </summary>
+    [StaTheory]
+    [InlineData("English")]
+    [InlineData("German")]
+    public void EveryCalibrationFailure_ShowsWhole_InsideTheWindow(string language)
+    {
+        var table = language == "German" ? GermanDraft.Table : StringTable.EmbeddedEnglish;
+        StringTable.Activate(table);
+        try
+        {
+            var problems = new List<string>();
+            foreach (var (name, failure) in CalibrationFailures())
+            {
+                var text = CalibrationFailureText.Describe(failure);
+                foreach (var (width, height) in new[] { (1920.0, 1200.0), (1280.0, 800.0) })
+                {
+                    foreach (var withButtons in new[] { false, true })
+                    {
+                        var layout = CalibrationFailureLayout(text, width, height, withButtons);
+                        if (width == 1920.0 && !withButtons) _output.WriteLine($"{language}, {name}: {layout}");
+                        if (!layout.Fits)
+                            problems.Add($"{name}, {FitText.Dip(width)} × {FitText.Dip(height)}{(withButtons ? ", with the buttons" : "")}: {layout}");
+                    }
+                }
+            }
+
+            var onePoint = CalibrationFailureLayout(
+                CalibrationFailureText.Describe(QualityFailure(1)), 1920.0, 1200.0, withButtons: false);
+            Check.WithCustomMessage($"One failing point no longer reads on one line on the user's screen: {onePoint}")
+                .That(onePoint.Lines).IsEqualTo(1);
+            if (language == "German")
+            {
+                Check.WithCustomMessage("The failure line resolved its English: the German table is not effective.")
+                    .That(CalibrationFailureText.Describe(QualityFailure(1)))
+                    .IsNotEqualTo(EnglishOf(() => CalibrationFailureText.Describe(QualityFailure(1))));
+
+                // The teeth: the same block with its wrapping switched off must fail at two points.
+                var unwrapped = CalibrationFailureLayout(
+                    CalibrationFailureText.Describe(QualityFailure(2)), 1920.0, 1200.0, withButtons: false, noWrap: true);
+                Check.WithCustomMessage($"The gate passed two failing points on one unwrapped line: it cannot fail. {unwrapped}")
+                    .That(unwrapped.Fits).IsFalse();
+            }
+
+            Check.WithCustomMessage($"The calibration failure line is cut or collides ({language}):\n  " + string.Join("\n  ", problems))
+                .That(problems).IsEmpty();
+        }
+        finally
+        {
+            StringTable.ResetToEmbeddedEnglish();
+        }
+    }
+
+    /// <summary>Every failure the calibration window can show: each code, and the quality failure for 1 to 9 points.</summary>
+    private static IEnumerable<(string Name, CalibrationFailure Failure)> CalibrationFailures()
+    {
+        yield return ("gaze variation", new CalibrationFailure(CalibrationFailureCode.GazeVariation));
+        yield return ("unusable transform", new CalibrationFailure(CalibrationFailureCode.UnusableTransform));
+        yield return ("distorted transform", new CalibrationFailure(CalibrationFailureCode.DistortedTransform));
+        yield return ("target never reached", new CalibrationFailure(CalibrationFailureCode.TargetNeverReached));
+        yield return ("target never held, 1 sample", new CalibrationFailure(CalibrationFailureCode.TargetNeverHeld, 120.0, 1));
+        yield return ("target never held, 1234 samples", new CalibrationFailure(CalibrationFailureCode.TargetNeverHeld, 120.0, 1234));
+        yield return ("unexpected", CalibrationFailure.Unexpected);
+        for (var points = 1; points <= 9; points++) yield return ($"quality, {points} point(s)", QualityFailure(points));
+    }
+
+    /// <summary>A quality failure at <paramref name="points"/> distinct regions, cycling the three reasons.</summary>
+    private static CalibrationFailure QualityFailure(int points)
+    {
+        var regions = Enum.GetValues<CalibrationTargetRegion>().Where(r => r != CalibrationTargetRegion.Unknown).ToArray();
+        (CalibrationQualityReason Reason, double Value, double Limit)[] reasons =
+        [
+            (CalibrationQualityReason.ExcessScatter, 41.0, 30.0),
+            (CalibrationQualityReason.ResidualTooLarge, 140.0, 110.0),
+            (CalibrationQualityReason.LowCoverage, 35.0, 60.0),
+        ];
+        var failures = Enumerable.Range(0, points)
+            .Select(i => new CalibrationQualityFailure(i, regions[i], reasons[i % 3].Reason, reasons[i % 3].Value, reasons[i % 3].Limit))
+            .ToList();
+        return new CalibrationFailure(CalibrationFailureCode.Quality, (IReadOnlyList<CalibrationQualityFailure>)failures);
+    }
+
+    /// <summary>Runs <paramref name="describe"/> under the embedded English, then restores the active table.</summary>
+    private static string EnglishOf(Func<string> describe)
+    {
+        var active = StringTable.Current;
+        StringTable.ResetToEmbeddedEnglish();
+        try
+        {
+            return describe();
+        }
+        finally
+        {
+            StringTable.Activate(active);
+        }
+    }
+
+    /// <summary>The failure line's verdict, its one-line width and how many lines it wraps to.</summary>
+    private sealed record FailureLayout(bool Fits, string Detail, double OneLine, int Lines)
+    {
+        public override string ToString() => $"{(Fits ? "fits" : "FAILS")}: {Detail}";
+    }
+
+    /// <summary>
+    /// The calibration window as a failed session shows it (<c>ShowCompletion</c>'s presentation,
+    /// replayed here because that method shows the window), with <paramref name="detail"/> as the
+    /// failure line, hosted at <paramref name="width"/> × <paramref name="height"/> DIP at 2.0.
+    /// </summary>
+    private static FailureLayout CalibrationFailureLayout(string detail, double width, double height, bool withButtons, bool noWrap = false)
+    {
+        EyeCtrl.App.Tests.Fixtures.WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new CalibrationWindow();
+        var shown = CalibrationCompletion.Describe(measureOnly: false, goodResult: false, errorPx: 0, qualityPercent: 0, errorText: detail);
+        window.Backdrop.Visibility = System.Windows.Visibility.Visible;
+        window.CompletionPanel.Visibility = System.Windows.Visibility.Visible;
+        window.CompletionSymbol.Text = shown.Symbol;
+        window.CompletionTitle.Text = shown.Title;
+        window.CompletionError.Text = shown.Detail;
+        window.CompletionHint.Visibility = shown.HintVisible ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+        window.RetryPanel.Visibility = shown.RetryVisible || withButtons ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+        window.CancelHint.Visibility = shown.CancelHintVisible ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+        if (noWrap) window.CompletionError.TextWrapping = System.Windows.TextWrapping.NoWrap;
+        var root = (System.Windows.FrameworkElement)window.Content;
+        window.Content = null;
+        using var host = FitHost.Open(root, width: width, height: height, inheritFrom: window);
+
+        var error = window.CompletionError;
+        var screen = new System.Windows.Rect(0, 0, width, height);
+        var box = BoundsIn(root, error);
+        var oneLine = FitText.NaturalWidth(error, error.Text);
+        var slot = System.Windows.Controls.Primitives.LayoutInformation.GetLayoutSlot(error);
+        var room = Math.Min(slot.Width - error.Margin.Left - error.Margin.Right, width);
+        var problems = new List<string>();
+        if (!Inside(screen, box)) problems.Add($"its box {Box(box)} leaves the window");
+        if (error.TextWrapping == System.Windows.TextWrapping.NoWrap)
+        {
+            if (oneLine > Math.Min(error.ActualWidth, room) + 0.5) problems.Add($"its one line is cut at {FitText.Dip(room)} DIP");
+        }
+        else
+        {
+            var (run, runWidth) = FitText.WidestRun(error, error.Text);
+            if (runWidth > room + 0.5) problems.Add($"the run '{run}' ({FitText.Dip(runWidth)} DIP) cannot break in {FitText.Dip(room)}");
+        }
+
+        foreach (var (name, other) in new (string, System.Windows.FrameworkElement)[]
+                 {
+                     ("the title", window.CompletionTitle), ("the hint", window.CompletionHint),
+                     ("the Retry/Accept buttons", window.RetryPanel), ("the cancel hint", window.CancelHint),
+                 })
+        {
+            if (!other.IsVisible) continue;
+            var otherBox = BoundsIn(root, other);
+            var overlap = System.Windows.Rect.Intersect(box, otherBox);
+            if (!overlap.IsEmpty && overlap.Width > 0.01 && overlap.Height > 0.01) problems.Add($"it overlaps {name} {Box(otherBox)}");
+            if (!Inside(screen, otherBox)) problems.Add($"{name} {Box(otherBox)} is pushed out of the window");
+        }
+
+        var lines = (int)Math.Round(error.ActualHeight / LineHeight(error));
+        return new FailureLayout(problems.Count == 0,
+            $"{FitText.Dip(oneLine)} DIP on one line; {lines} line(s) in {Box(box)}"
+            + (problems.Count > 0 ? "; " + string.Join("; ", problems) : ""),
+            oneLine, lines);
+    }
+
+    /// <summary>The height of one line of <paramref name="like"/>'s text.</summary>
+    private static double LineHeight(TextBlock like)
+    {
+        var probe = new TextBlock { Text = "Ag", FontFamily = like.FontFamily, FontSize = like.FontSize, FontWeight = like.FontWeight };
+        probe.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+        return probe.DesiredSize.Height;
+    }
+
+    private static System.Windows.Rect BoundsIn(System.Windows.Media.Visual root, System.Windows.FrameworkElement element) =>
+        element.TransformToAncestor(root).TransformBounds(new System.Windows.Rect(element.RenderSize));
+
+    private static bool Inside(System.Windows.Rect outer, System.Windows.Rect inner) =>
+        inner.Left >= outer.Left - 0.5 && inner.Top >= outer.Top - 0.5
+        && inner.Right <= outer.Right + 0.5 && inner.Bottom <= outer.Bottom + 0.5;
+
+    private static string Box(System.Windows.Rect r) =>
+        $"[{FitText.Dip(r.Left)}, {FitText.Dip(r.Top)} – {FitText.Dip(r.Right)}, {FitText.Dip(r.Bottom)}]";
+
+    /// <summary>The two buttons of the poor-result panel and their keys.</summary>
+    private static readonly (Func<CalibrationWindow, Button> Button, string Key)[] CalibrationButtons =
+        [(w => w.RetryButton, "calibration.window.retry"), (w => w.AcceptButton, "calibration.window.accept")];
+
+    /// <summary>
+    /// One calibration button's caption at 2.0 in the real window: the poor-result panel, hosted at
+    /// the screen's size with the window's own font. The room is what the button's template gives
+    /// its content — the presenter's slot less its margin, i.e. the fixed width less border and
+    /// padding — never the text's <c>ActualWidth</c>, which a clipped one-line text reports unclipped.
+    /// </summary>
+    private static FitVerdict CalibrationButton(Func<CalibrationWindow, Button> pick, string caption)
+    {
+        EyeCtrl.App.Tests.Fixtures.WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new CalibrationWindow();
+        window.CompletionPanel.Visibility = System.Windows.Visibility.Visible;
+        window.RetryPanel.Visibility = System.Windows.Visibility.Visible;
+        var button = pick(window);
+        button.Content = caption;
+        var root = (System.Windows.FrameworkElement)window.Content;
+        window.Content = null;
+        using var host = FitHost.Open(root, width: 1920, height: 1200, inheritFrom: window);
+        var presenter = FitText.Descendants<ContentPresenter>(button).Single();
+        var text = FitText.Descendants<TextBlock>(presenter).Single();
+        var natural = FitText.NaturalWidth(text, caption);
+        var room = System.Windows.Controls.Primitives.LayoutInformation.GetLayoutSlot(presenter).Width
+                   - presenter.Margin.Left - presenter.Margin.Right;
+        return new FitVerdict(natural <= room,
+            $"\"{caption}\" one line {FitText.Dip(natural)} DIP; room in the {FitText.Dip(button.ActualWidth)} DIP button {FitText.Dip(room)}",
+            FitText.ResolvedFace(text), room - natural);
     }
 
     /// <summary>Binding: every German TrackStatus row fits the fixed window's width (de-DE digits included).</summary>

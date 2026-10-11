@@ -96,12 +96,14 @@ public class DwellDetector
     /// hot path is byte-for-byte identical to a detector with no telemetry.</param>
     /// <param name="pauseGraceMs">
     /// Opt-in "forgiving dwell" grace (SP-4c D4), defaulting to 0 = today's exact behaviour. When
-    /// positive, a target that was inside the hit area and then loses the gaze — the gaze leaves the
-    /// circle, or samples stop (an invalid sample, a blink frame, a dropout) — keeps its accumulated
-    /// dwell for up to this long instead of restarting: the away time is not credited, and returning
-    /// within the grace resumes from the accumulated value; the first sample past the grace restarts
-    /// from zero. Only the sub-pixel probe opts in (300 ms); every other surface keeps the default
-    /// reset-on-leave and the 150 ms silence clamp untouched.
+    /// positive, a target that was inside the hit area and then loses the gaze keeps its accumulated
+    /// dwell instead of restarting, and nothing spent away from the hit area is ever credited.
+    /// Measured bound (fixup 02 R2): the two away phases are bounded separately, so a dropout of up
+    /// to the grace while still on the target, followed by an outside excursion of up to the grace,
+    /// still resumes — up to about 2 × the grace away in total; returning within a phase's bound
+    /// resumes from the accumulated value, and the first sample past it restarts from zero. Only
+    /// the sub-pixel probe opts in (300 ms); every other surface keeps the default reset-on-leave
+    /// and the 150 ms silence clamp untouched.
     /// </param>
     public DwellDetector(int cooldownMs = 0, DwellContext context = DwellContext.Other,
         IStruggleTelemetrySink? sink = null, int pauseGraceMs = 0)
@@ -131,7 +133,8 @@ public class DwellDetector
 
     /// <summary>
     /// The opt-in pause grace in milliseconds (see the constructor); 0 is the default, reset-on-leave
-    /// behaviour every caller but the sub-pixel probe has.
+    /// behaviour every caller but the sub-pixel probe has. Each away phase (a dropout while on the
+    /// target, an excursion outside it) is bounded by it separately.
     /// </summary>
     public int PauseGraceMs => (int)(_pauseGraceMicroseconds / MathConstants.MicrosecondsPerMillisecond);
 
@@ -335,8 +338,11 @@ public class DwellDetector
         // sample is credited exactly as before. In both arms the inside sample is the last place
         // the gaze was known to be inside, so the "left at" stamp moves here too: without that,
         // a following outside landing would subtract the same silence a second time on the return
-        // shift (fixup 01 F3). A target that is paused OUTSIDE is dropped here once its absence
-        // passes the grace, which is the one place expiry is decided.
+        // shift (fixup 01 F3). Because each phase is bounded on its own, a silence followed by an
+        // outside excursion can total about 2 × the grace away and still resume — measured, and
+        // documented at the constructor; nothing away is ever credited either way. A target that is
+        // paused OUTSIDE is dropped here once its absence passes the grace, which is the one place
+        // expiry is decided.
         if (_pauseGraceMicroseconds > 0)
         {
             for (int i = 0; i < targets.Length; i++)
@@ -366,10 +372,10 @@ public class DwellDetector
                 else if (target.LastInsideTimestampUs is not { } lastInside
                     || timestampMicroseconds - lastInside > _pauseGraceMicroseconds)
                 {
-                    // Expiry: the pause is over, the cue clears (fixup 01 F2). Mutant O1 deletes
-                    // this whole branch and nothing turns red: it is EQUIVALENT — the return arm
-                    // re-checks the same window before resuming, and GetProgress only reads a
-                    // held anchor. Kept as hygiene, and for the explicit 0 the cue needs.
+                    // Expiry: the pause is over and the cue clears here (fixup 01 F2). Since F2 this
+                    // branch is REQUIRED, not hygiene as fixup 01 said: without it an expired pause
+                    // would keep its frozen cue forever, because GetProgress reads the held anchor
+                    // (mutant O1 is killed by P4). The explicit 0 is what the outline needs.
                     target.EnteredTimestamp = null;
                     target.LastInsideTimestampUs = null;
                     TargetProgress?.Invoke(target.Id, 0);

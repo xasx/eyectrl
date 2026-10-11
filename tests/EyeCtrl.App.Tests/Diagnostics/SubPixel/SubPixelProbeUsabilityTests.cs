@@ -131,6 +131,22 @@ public class SubPixelProbeUsabilityTests
                     Check.WithCustomMessage($"O4: {other} showed {id}'s progress")
                         .That(window.CueForTest(other)!.Outline.StrokeThickness).IsEqualTo(0.0);
                 }
+
+                // Fixup 02 N2b: an outside landing within the grace keeps the FROZEN progress on
+                // this button's outline (the owner must not read "lost it"), and it clears once the
+                // grace expires. This kills GetProgress -> 0 at the App level, through C6.
+                var (_, _, margin) = SpecFor(id);
+                var outside = new PhysicalPoint(at.X + (SpecFor(id).Width / 2 + margin + 80), at.Y);
+                Feed(vm, outside, 360_000);
+                window.OnFrame();
+                Check.WithCustomMessage($"N2b: {id}'s outline emptied during an outside pause")
+                    .That(window.CueForTest(id)!.Outline.StrokeThickness)
+                    .IsCloseTo(DwellOutlineOverlay.MaxThickness * 0.5, 1e-9);
+
+                Feed(vm, outside, 710_000);   // 360 ms after the last inside sample: past the grace
+                window.OnFrame();
+                Check.WithCustomMessage($"N2b: {id}'s outline must clear after the grace expires")
+                    .That(window.CueForTest(id)!.Outline.StrokeThickness).IsEqualTo(0.0);
             }
             finally
             {
@@ -346,38 +362,72 @@ public class SubPixelProbeUsabilityTests
     private static string Snippet(string text) =>
         text.Length <= 30 ? text : text[..30] + "…";
 
-    // ------------------------------------------------------ Fixup 01 F1: the demo band vs Start
+    // ------------------------------------------------------ Fixup 01 F1 / fixup 02 R1: the demo band
 
+    /// <summary>
+    /// Fixup 01 F1: the Intro text sits above the demo band and Start below it, the band clear of
+    /// Start's hit area. Fixup 02 R1: at the owner's ring (250) that clearance is at least 80 DIP —
+    /// above their measured 75–130 px gaze bias — and for rings 10, 250 and 500 Start, its whole
+    /// grown hit area and End test all stay on-screen (the clamp), with the text still 24 DIP above
+    /// the band.
+    /// </summary>
     [StaFact]
     public void D5_OnTheIntro_TheDemoBandClearsStartsHitArea_AndTheTextSitsAboveIt()
     {
         foreach (var (scale, widthDip, heightDip) in OwnerScales)
-            AssertIntroClearance(scale, widthDip, heightDip);
+        {
+            foreach (var ring in new[] { 10.0, 250.0, 500.0 })
+                AssertIntroClearance(scale, widthDip, heightDip, ring);
+        }
     }
 
-    private static void AssertIntroClearance(double scale, double widthDip, double heightDip)
+    private static void AssertIntroClearance(double scale, double widthDip, double heightDip, double ring)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         using var vm = NewViewModel();
         vm.Start();
-        var window = NewWindow(vm, scale, widthDip, heightDip);
+        var window = NewWindow(vm, scale, widthDip, heightDip,
+            cursor: new CursorSettings { CircleSize = ring });
         try
         {
             SetPhase(vm, SubPixelProbePhase.Idle);
             SetPhase(vm, SubPixelProbePhase.Intro);
 
             var startRect = HitRectInScene(window, SubPixelProbeViewModel.IntroStartTargetId);
+            var endRect = HitRectInScene(window, SubPixelProbeViewModel.EndTestTargetId);
             double bandTop = heightDip / 2 - window.RingForTest.SizeDip / 2;
             double bandBottom = heightDip / 2 + window.RingForTest.SizeDip / 2;
+            double clearance = startRect.Top - bandBottom;
 
-            Check.WithCustomMessage(
-                    $"At {scale}: the demo band's bottom {bandBottom:F0} vs Start's hit area top "
-                    + $"{startRect.Top:F0} — only {startRect.Top - bandBottom:F1} DIP of clearance")
-                .That(startRect.Top - bandBottom).IsGreaterOrEqualThan(24);
+            if (ring == 250)
+            {
+                Check.WithCustomMessage(
+                        $"ring 250 @{scale}: the demo band's bottom {bandBottom:F0} vs Start's hit-area "
+                        + $"top {startRect.Top:F0} — only {clearance:F1} DIP of clearance (R1 asks for 80)")
+                    .That(clearance).IsGreaterOrEqualThan(80);
+            }
+            else
+            {
+                Check.WithCustomMessage(
+                        $"ring {ring} @{scale}: the band ({bandBottom:F0}) must not overlap Start's hit "
+                        + $"area (top {startRect.Top:F0}); the clamp trades clearance for on-screen")
+                    .That(clearance).IsGreaterOrEqualThan(0);
+            }
+
+            Check.WithCustomMessage($"ring {ring} @{scale}: Start's hit area {startRect} is off-screen")
+                .That(startRect.Left >= 0 && startRect.Top >= 0
+                    && startRect.Right <= widthDip && startRect.Bottom <= heightDip).IsTrue();
+            Check.WithCustomMessage($"ring {ring} @{scale}: End test's hit area {endRect} is off-screen")
+                .That(endRect.Left >= 0 && endRect.Top >= 0
+                    && endRect.Right <= widthDip && endRect.Bottom <= heightDip).IsTrue();
 
             var textRect = RectInScene(window, window.PanelForTest(SubPixelProbePhase.Intro)!);
+            Check.WithCustomMessage($"ring {ring} @{scale}: the Intro text {textRect} is off-screen")
+                .That(textRect.Left >= 0 && textRect.Top >= 0
+                    && textRect.Right <= widthDip && textRect.Bottom <= heightDip).IsTrue();
             Check.WithCustomMessage(
-                    $"At {scale}: the Intro text ({textRect}) must sit above the demo band (top {bandTop:F0})")
+                    $"ring {ring} @{scale}: the text ({textRect.Bottom:F0}) must sit 24 DIP above the "
+                    + $"band (top {bandTop:F0})")
                 .That(textRect.Bottom).IsLessOrEqualThan(bandTop - 24 + 1e-9);
         }
         finally
@@ -386,7 +436,9 @@ public class SubPixelProbeUsabilityTests
         }
     }
 
-    // Mutation (F1-band): IntroStartGapDip 80 -> 24 -> the band is inside Start's hit area: red.
+    // Mutation (R1): IntroStartGapDip 128 -> 80 -> the clearance is 32 < 80 at the owner's ring: red.
+    // Mutation (R1-clamp): the Math.Min clamp removed -> at ring 500 on 1080 DIP Start's hit area
+    //   ends past the window's bottom: the on-screen check goes red.
 
     // ------------------------------------------- Fixup 01 F1: review 01's reading probe, ported
 
@@ -616,10 +668,11 @@ public class SubPixelProbeUsabilityTests
         double scale,
         double widthDip,
         double heightDip,
-        Func<long>? frameTicks = null)
+        Func<long>? frameTicks = null,
+        CursorSettings? cursor = null)
     {
         var window = new SubPixelProbeWindow(
-            null, vm, new CursorSettings(), () => { }, viewFault: () => { },
+            null, vm, cursor ?? new CursorSettings(), () => { }, viewFault: () => { },
             scale, frameTicks, frameTicksPerMs: frameTicks is null ? 0 : 1.0);
         window.Width = widthDip;
         window.Height = heightDip;

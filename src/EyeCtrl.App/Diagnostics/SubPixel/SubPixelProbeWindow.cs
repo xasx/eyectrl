@@ -76,11 +76,21 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
     private const double IntroTextGapDip = 24;
 
     /// <summary>
-    /// Fixup 01 F1: DIP between the demo band's bottom and the Start button's top edge. 80, not a
-    /// visual nicety: Start's hit area grows 48 DIP above the button, so the band-to-hit-area
-    /// clearance is this minus 48 = 32 DIP, above the required 24.
+    /// Fixup 01 F1 / fixup 02 R1: DIP between the demo band's bottom and the Start button's top
+    /// edge. 128, not 80: Start's hit area grows 48 DIP above the button, so the band-to-hit-area
+    /// clearance is 128 − 48 = 80 DIP — above the owner's measured 75–130 px gaze bias (37–65
+    /// DIP), which matters because the Intro asks them to follow the ring for up to 80 s.
+    /// <see cref="Layout"/> clamps the button so its whole grown hit area stays on-screen for a
+    /// large ring, where this gap would push it off.
     /// </summary>
-    private const double IntroStartGapDip = 80;
+    private const double IntroStartGapDip = 128;
+
+    /// <summary>
+    /// Fixup 02 R1: DIP kept free below Start's grown hit area, so the clamp never runs it off the
+    /// screen (the ring's own maximum, 500 DIP, leaves the unclamped 128 DIP gap no room on a
+    /// 1080 DIP screen).
+    /// </summary>
+    private const double IntroBottomMarginDip = 24;
 
     /// <summary>
     /// Fixup 01 F1: DIP between a screen's last text line and its button's top edge. 96, so the
@@ -623,16 +633,20 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         Canvas.SetTop(_corner, height - 62);
         Canvas.SetTop(_trialLabel, height - 92);
 
-        // D5 + fixup 01 F1: the demo band is the ring's path through the screen centre. The Intro
-        // text sits ABOVE it and the Start button BELOW it, so no text is under Start's grown hit
-        // area and the band clears that area's top edge by IntroStartGapDip − 48 = 32 DIP.
+        // D5 + fixup 01 F1 + fixup 02 R1: the demo band is the ring's path through the screen
+        // centre. The Intro text sits ABOVE it and the Start button BELOW it, 128 DIP clear of the
+        // band's bottom edge — 80 DIP clear of Start's grown hit area, more than the owner's worst
+        // gaze bias. The clamp keeps that whole hit area on-screen for a large ring.
         _introPanel.Measure(new Size(width, height));
         Canvas.SetLeft(_introPanel, (width - _introPanel.DesiredSize.Width) / 2);
         Canvas.SetTop(_introPanel,
             height / 2 - _ring.SizeDip / 2 - IntroTextGapDip - _introPanel.DesiredSize.Height);
 
+        double maxStartTop = height - ScreenButtonHeight - ButtonHitMarginDip - IntroBottomMarginDip;
         Canvas.SetLeft(_introStart, (width - ScreenButtonWidth) / 2);
-        Canvas.SetTop(_introStart, height / 2 + _ring.SizeDip / 2 + IntroStartGapDip);
+        Canvas.SetTop(_introStart, Math.Min(
+            height / 2 + _ring.SizeDip / 2 + IntroStartGapDip,
+            maxStartTop));
 
         Centre(_voidHoldPanel, width, height);
         Centre(_askPanel, width, height);

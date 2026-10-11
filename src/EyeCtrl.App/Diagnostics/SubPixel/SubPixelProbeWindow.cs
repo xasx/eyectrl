@@ -57,31 +57,38 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
     private const double DotDiameter = 14;
 
     /// <summary>
-    /// D3: extra hit-circle DIP around the answers and the screen buttons — half the larger side
-    /// plus this, in every direction, so the owner's measured gaze error no longer has to land on
-    /// the drawn button.
+    /// D3 (amended by fixup 01): extra hit-AREA DIP around the answers and the screen buttons — the
+    /// visible button grown by this on every side, so the owner's measured gaze error no longer has
+    /// to land on the drawn button, without reaching up into the text a circle would swallow.
     /// </summary>
     internal const double ButtonHitMarginDip = 48;
 
     /// <summary>
-    /// D3: extra hit-circle DIP around End test. Smaller than <see cref="ButtonHitMarginDip"/>
-    /// because a stray End test ends the run.
+    /// D3 (amended by fixup 01): extra hit-area DIP around End test. Smaller than
+    /// <see cref="ButtonHitMarginDip"/> because a stray End test ends the run.
     /// </summary>
     internal const double EndButtonHitMarginDip = 16;
 
     /// <summary>The Ask screen's panel width: two 420 DIP buttons side by side plus their 120 DIP gap.</summary>
     private const double AskPanelWidth = 960;
 
-    /// <summary>
-    /// D5: gap in DIP between the Intro's demo band and the top of the Intro panel. 80, not a
-    /// visual nicety: the Start button's D3 hit circle is 258 DIP in radius, so the band-to-circle
-    /// clearance is this gap minus (panel height above the Start centre − 85) − 258 ≈ 24 DIP —
-    /// measured, and pinned by <c>SubPixelProbeUsabilityTests.D5_OnTheIntro_...</c>. The panel's
-    /// own bottom stays ~48 DIP inside a 1080 DIP screen.
-    /// </summary>
-    private const double IntroPanelGapDip = 80;
+    /// <summary>Fixup 01 F1: DIP between the Intro text block and the demo band's top.</summary>
+    private const double IntroTextGapDip = 24;
 
-    /// <summary>The Ask screen's gap between its two buttons (D3: their hit circles must not overlap).</summary>
+    /// <summary>
+    /// Fixup 01 F1: DIP between the demo band's bottom and the Start button's top edge. 80, not a
+    /// visual nicety: Start's hit area grows 48 DIP above the button, so the band-to-hit-area
+    /// clearance is this minus 48 = 32 DIP, above the required 24.
+    /// </summary>
+    private const double IntroStartGapDip = 80;
+
+    /// <summary>
+    /// Fixup 01 F1: DIP between a screen's last text line and its button's top edge. 96, so the
+    /// grown hit area (48 DIP up) still clears the text by 48 DIP — above the required 24.
+    /// </summary>
+    private const double TextToButtonGapDip = 96;
+
+    /// <summary>The Ask screen's gap between its two buttons (D3: their hit areas must not overlap).</summary>
     private const double AskButtonGapDip = 120;
 
     // D5: the demo runs one scripted interval pair, with the same interval/gap lengths as a
@@ -276,12 +283,18 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         _askLater = BuildButton(T("overlays.subpixel.ask_later"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushSurfaceMedium, out _askLaterCue);
         _resultDone = BuildButton(T("overlays.subpixel.done"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushAccent, out _resultDoneCue);
 
+        // Fixup 01 F1: the Intro text block and the Start button are separate canvas children — the
+        // text sits above the demo band and Start below it, so no text is under Start's hit area.
+        _introStart.Margin = new Thickness(0);
+        Add(_introStart, 0, 0);
+
         _introPanel = BuildScreen(
-            T("overlays.subpixel.intro_title"), T("overlays.subpixel.intro_body"), _introStart);
+            T("overlays.subpixel.intro_title"), T("overlays.subpixel.intro_body"));
         _voidHoldPanel = BuildScreen(
             T("overlays.subpixel.void_hold_title"), T("overlays.subpixel.void_hold_body"));
         _askPanel = BuildAskScreen();
         _resultPanel = BuildScreen(T("overlays.subpixel.result_title"), null, _resultDone);
+        _resultDone.Margin = new Thickness(0, TextToButtonGapDip, 0, 0);
         _resultPanel.Children.Insert(1, _resultText);
         _resultText.FontSize = Tokens.FontSizeBodyLarge;
         _resultText.Foreground = Tokens.BrushTextPrimary;
@@ -535,17 +548,17 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
     }
 
     /// <summary>
-    /// Builds the Ask screen. Unlike the other screens its two buttons sit SIDE BY SIDE: D3's hit
-    /// circles (half the larger side + 48 DIP = 258 DIP each) must not overlap, and stacked at the
-    /// other screens' 24 DIP spacing they would (194 DIP centre to centre against a 516 DIP
-    /// minimum). The 120 DIP gap puts the centres 540 DIP apart; the screen's exits, its 60 s
-    /// timeout and its phase transitions are untouched.
+    /// Builds the Ask screen. Unlike the other screens its two buttons sit SIDE BY SIDE: D3's
+    /// grown hit areas (516 DIP wide each) must not overlap, and stacked at the other screens'
+    /// spacing they would. The 120 DIP gap puts them 24 DIP apart edge to edge; the 96 DIP
+    /// text-to-button gap keeps the title clear of both grown areas (fixup 01 F1). The screen's
+    /// exits, its 60 s timeout and its phase transitions are untouched.
     /// </summary>
     private StackPanel BuildAskScreen()
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal };
-        _askYes.Margin = new Thickness(0, 24, AskButtonGapDip / 2, 0);
-        _askLater.Margin = new Thickness(AskButtonGapDip / 2, 24, 0, 0);
+        _askYes.Margin = new Thickness(0, TextToButtonGapDip, AskButtonGapDip / 2, 0);
+        _askLater.Margin = new Thickness(AskButtonGapDip / 2, TextToButtonGapDip, 0, 0);
         row.Children.Add(_askYes);
         row.Children.Add(_askLater);
 
@@ -569,15 +582,20 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
     }
 
     /// <summary>
-    /// Registers one dwell target with its D3 hit circle: half the button's LARGER side (not the
-    /// smaller one, which produced the owner's 70/35/55 DIP circles) plus the button's margin, in
-    /// physical pixels at the injected scale.
+    /// Registers one dwell target with its D3 (amended) hit area: the visible button grown by its
+    /// margin on every side, as a rectangle. The provisional rectangle is replaced by the laid-out
+    /// one in <see cref="Layout"/> before any frame draws.
     /// </summary>
     private void Register(string id, double width, double height, double marginDip)
     {
-        double radiusPhysical = (Math.Max(width, height) / 2.0 + marginDip) * _scale;
-        _vm.Register(id, DwellCategory.Control, radiusPhysical, dwellMs: 0, onActivated: static () => { });
+        var provisional = new PhysicalRect(
+            0, 0, (width + 2 * marginDip) * _scale, (height + 2 * marginDip) * _scale);
+        _vm.RegisterRect(id, provisional, dwellMs: 0, onActivated: static () => { });
     }
+
+    /// <summary>The D3 growth of a target's hit rectangle, in DIP per side.</summary>
+    private static double HitMarginFor(string id) =>
+        id == SubPixelProbeViewModel.EndTestTargetId ? EndButtonHitMarginDip : ButtonHitMarginDip;
 
     /// <summary>
     /// Lays the screens and buttons out for the current window size, then re-centres every dwell
@@ -605,15 +623,16 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         Canvas.SetTop(_corner, height - 62);
         Canvas.SetTop(_trialLabel, height - 92);
 
-        // D5: the demo drifts through the screen centre, so the Intro panel sits BELOW its band —
-        // title, body and Start all clear of the ring and of the ring's target circle. The band's
-        // half-height is the ring's radius, and the demo's horizontal travel adds nothing
-        // vertically. The panel is bottom-anchored through this placement (its own height then
-        // reaches down towards the bottom edge), which is what keeps the Start button's 258 DIP
-        // hit circle off the ring's path.
+        // D5 + fixup 01 F1: the demo band is the ring's path through the screen centre. The Intro
+        // text sits ABOVE it and the Start button BELOW it, so no text is under Start's grown hit
+        // area and the band clears that area's top edge by IntroStartGapDip − 48 = 32 DIP.
         _introPanel.Measure(new Size(width, height));
         Canvas.SetLeft(_introPanel, (width - _introPanel.DesiredSize.Width) / 2);
-        Canvas.SetTop(_introPanel, height / 2 + _ring.SizeDip / 2 + IntroPanelGapDip);
+        Canvas.SetTop(_introPanel,
+            height / 2 - _ring.SizeDip / 2 - IntroTextGapDip - _introPanel.DesiredSize.Height);
+
+        Canvas.SetLeft(_introStart, (width - ScreenButtonWidth) / 2);
+        Canvas.SetTop(_introStart, height / 2 + _ring.SizeDip / 2 + IntroStartGapDip);
 
         Centre(_voidHoldPanel, width, height);
         Centre(_askPanel, width, height);
@@ -657,31 +676,38 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         UpdateTargetGeometry(SubPixelProbeViewModel.ResultDoneTargetId, _resultDone);
     }
 
+    private static readonly PhysicalPoint OffScreenCentre = new(-10_000, -10_000);
+
     /// <summary>
-    /// A centre no gaze sample can reach. A target whose button is not on screen keeps its entry in
-    /// the detector (the registrar has no phase concept), so it must be parked here instead of
-    /// holding a stale centre — otherwise a gaze at the screen's top-left corner dwells on an
+    /// A rectangle no gaze sample can reach. A target whose button is not on screen keeps its entry
+    /// in the detector (the registrar has no phase concept), so it must be parked here instead of
+    /// holding a stale hit area — otherwise a gaze at the screen's top-left corner dwells on an
     /// invisible button (fixup 01 B2).
     /// </summary>
-    private static readonly PhysicalPoint OffScreenCentre = new(-10_000, -10_000);
+    private static readonly PhysicalRect OffScreenRect =
+        new(OffScreenCentre.X, OffScreenCentre.Y, 0, 0);
 
     private void UpdateTargetGeometry(string id, FrameworkElement element)
     {
         // Shown means the button AND every ancestor below _scene is visible: the screen buttons
         // never change their own Visibility — their StackPanel collapses instead, and a child of a
         // collapsed panel keeps its last arranged size and transform. Checking only the button left
-        // hidden buttons dwell-live at their old centres, stealing up to 48 % of a visible button's
-        // disc (fixup 03 N2).
+        // hidden buttons dwell-live at their old areas (fixup 03 N2).
         if (!IsShownInScene(element) || element.ActualWidth <= 0 || element.ActualHeight <= 0)
         {
-            _vm.UpdatePosition(id, DwellCategory.Control, OffScreenCentre);
+            _vm.UpdateBounds(id, OffScreenRect);
             return;
         }
 
-        Point sceneCentre = element.TransformToAncestor(_scene)
-            .Transform(new Point(element.ActualWidth / 2, element.ActualHeight / 2));
-        _vm.UpdatePosition(id, DwellCategory.Control, new PhysicalPoint(
-            sceneCentre.X * _scale, sceneCentre.Y * _scale));
+        // The D3 (amended) hit area: the laid-out button grown by its margin on every side, in
+        // physical pixels at the injected scale. Re-published on every layout, state-preserving.
+        double margin = HitMarginFor(id);
+        Point topLeft = element.TransformToAncestor(_scene).Transform(new Point(0, 0));
+        _vm.UpdateBounds(id, new PhysicalRect(
+            (topLeft.X - margin) * _scale,
+            (topLeft.Y - margin) * _scale,
+            (element.ActualWidth + 2 * margin) * _scale,
+            (element.ActualHeight + 2 * margin) * _scale));
     }
 
     /// <summary>Whether <paramref name="element"/> and all its ancestors below <see cref="_scene"/> are Visible.</summary>
@@ -768,6 +794,7 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         bool ended = _vm.Phase == SubPixelProbePhase.Ended;
 
         SetVisible(_introPanel, _vm.Phase == SubPixelProbePhase.Intro);
+        SetVisible(_introStart, _vm.Phase == SubPixelProbePhase.Intro);
         SetVisible(_voidHoldPanel, _vm.Phase == SubPixelProbePhase.VoidHold);
         SetVisible(_askPanel, _vm.Phase == SubPixelProbePhase.Ask);
         SetVisible(_resultPanel, _vm.Phase == SubPixelProbePhase.Result);
@@ -897,10 +924,11 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
     /// <summary>
     /// D5 — the Intro screen's motion demo: the probe's real ring (same visual, same quiet look,
     /// same size) drifts through the screen centre at a trial's drift speed, looping one scripted
-    /// interval pair unlabelled — condition A (whole-pixel) for one interval, the 0.8 s gap with
-    /// the ring hidden, then condition B (sub-pixel) from the same start, exactly the way a
-    /// trial's two intervals look. Driven by the injected frame clock, so it is deterministic
-    /// headless; every other phase draws nothing here.
+    /// interval pair unlabelled — the pair's first condition for one interval, the 0.8 s gap with
+    /// the ring hidden, then the other from the same start, exactly the way a trial's two intervals
+    /// look. The condition order ALTERNATES per loop (fixup 01 F5: A→B, then B→A), so the demo
+    /// teaches no positional habit the trials do not have. Driven by the injected frame clock, so
+    /// it is deterministic headless; every other phase draws nothing here.
     /// </summary>
     private void DrawIntroDemo()
     {
@@ -913,10 +941,13 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
 
         if (now < _demoAnchorTicks) _demoAnchorTicks = now;   // a reset frame clock re-anchors
         long elapsedMs = (long)((now - _demoAnchorTicks) / _frameTicksPerMs);
+        long cycle = elapsedMs / DemoCycleMs;
+        bool bFirst = (cycle & 1) == 1;
         long at = elapsedMs % DemoCycleMs;
 
-        // One interval pair: A, gap, B, gap — the pair's second gap exists only so the loop
-        // re-enters A the way a block's next presentation does (ring hidden at the seam).
+        // One interval pair: first condition, gap, second condition, gap — the pair's second gap
+        // exists only so the loop re-enters the pair the way a block's next presentation does
+        // (ring hidden at the seam).
         if (at >= DemoIntervalMs && at < DemoIntervalMs + DemoGapMs)
         {
             _ring.Visibility = Visibility.Collapsed;
@@ -933,12 +964,12 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         long intervalMs;
         if (at < DemoIntervalMs)
         {
-            snap = true;                                    // interval 1 = condition A
+            snap = !bFirst;                                 // the pair's first condition
             intervalMs = at;
         }
         else
         {
-            snap = false;                                   // interval 2 = condition B
+            snap = bFirst;                                  // the pair's second condition
             intervalMs = at - DemoIntervalMs - DemoGapMs;
         }
 

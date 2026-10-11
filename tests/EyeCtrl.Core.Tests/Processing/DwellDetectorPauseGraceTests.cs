@@ -123,8 +123,9 @@ public class DwellDetectorPauseGraceTests
 
         // The gaze moves onto B for 250 ms, then back to A within the grace.
         detector.Update(new PhysicalPoint(500, 100), 210 * Ms);
-        Check.WithCustomMessage("A pause must report no live progress while away")
-            .That(detector.GetProgress("A")).IsEqualTo(0.0);
+        Check.WithCustomMessage(
+                "A pause must show the FROZEN progress, not 0 (fixup 01 F2)")
+            .That(detector.GetProgress("A")).IsCloseTo(180.0 / 700.0, 1e-9);
 
         detector.Update(On, 430 * Ms);
         Check.WithCustomMessage("A nearest-target change inside the grace did not pause the dwell")
@@ -192,5 +193,138 @@ public class DwellDetectorPauseGraceTests
 
         Check.That(ex).IsNotNull();
         Check.That(ex!.ParamName).IsEqualTo("pauseGraceMs");
+    }
+
+    // ------------------------------------------------- fixup 01 F2/F3 (review 01's probes P3, P4)
+
+    /// <summary>
+    /// P4 (F2): while a dwell is paused OUTSIDE, <see cref="DwellDetector.GetProgress"/> — what C6's
+    /// cue reads every frame — must report the FROZEN progress, not 0, and the leave itself must
+    /// emit that frozen value. The outline must not empty during a pause the owner can still resume.
+    /// </summary>
+    [Fact]
+    public void P4_AnOutsidePause_ShowsTheFrozenProgress_AndLeavingEmitsIt()
+    {
+        var detector = NewGraceDetector(300);
+        AddTarget(detector);
+        var emitted = new List<double>();
+        detector.TargetProgress += (_, p) => emitted.Add(p);
+
+        for (long t = 0; t <= 350 * Ms; t += 10 * Ms) detector.Update(On, t);
+        double before = detector.GetProgress("test");
+        Check.That(before).IsCloseTo(0.5, 1e-9);
+
+        detector.Update(Off, 360 * Ms);
+        Check.WithCustomMessage("The paused target emptied its cue: GetProgress reported 0")
+            .That(detector.GetProgress("test")).IsCloseTo(before, 1e-9);
+        Check.WithCustomMessage("The leave emitted 0 instead of the frozen value")
+            .That(emitted[^1]).IsCloseTo(before, 1e-9);
+
+        // The pause expires past the grace: the cue clears, and the expiry emits 0.
+        detector.Update(Off, 900 * Ms);
+        Check.WithCustomMessage("An expired pause must not keep showing the frozen value")
+            .That(detector.GetProgress("test")).IsEqualTo(0.0);
+        Check.That(emitted[^1]).IsEqualTo(0.0);
+    }
+
+    // Mutation (F2-get): GetProgress returns 0 for a non-inside graced target -> the frozen check
+    //   goes red.
+    // Mutation (F2-emit): the leave emits 0 -> the emission check goes red.
+
+    /// <summary>
+    /// P3 (F3): a 250 ms silence whose first post-silence sample lands OUTSIDE, then a return
+    /// within the grace. The silence is subtracted once (by the pre-pass), so the return must resume
+    /// at the pre-exit progress and never below 0.
+    /// </summary>
+    [Fact]
+    public void P3_SilenceThenOutside_ThenReturn_ResumesTheFrozenProgress()
+    {
+        var detector = NewGraceDetector(300);
+        AddTarget(detector);
+        var emitted = new List<double>();
+        detector.TargetProgress += (_, p) => emitted.Add(p);
+
+        detector.Update(On, 0);
+        detector.Update(On, 20 * Ms);
+        detector.Update(On, 40 * Ms);                 // 40 ms in: progress 40/700
+        double before = detector.GetProgress("test");
+        detector.Update(Off, 290 * Ms);               // 250 ms blink, then the eye lands outside
+        detector.Update(On, 310 * Ms);                // back inside, 270 ms after the last inside
+        double atReturn = detector.GetProgress("test");
+        detector.Update(On, 330 * Ms);
+        double after = detector.GetProgress("test");
+
+        Check.WithCustomMessage(
+                $"progress went negative: before {before:F3}, at return {atReturn:F3}, next {after:F3}, "
+                + $"emitted [{string.Join(", ", emitted.Select(e => e.ToString("F3")))}]")
+            .That(emitted.All(e => e >= 0) && atReturn >= 0).IsTrue();
+        Check.WithCustomMessage(
+                $"resumed below the frozen value: before {before:F3}, at return {atReturn:F3}, next {after:F3}")
+            .That(atReturn).IsCloseTo(before, 1e-9);
+        Check.That(after).IsGreaterOrEqualThan(before);
+    }
+
+    // Mutation (F3): the silence arm does not advance LastInside -> the return subtracts the
+    //   silence twice: atReturn is 40/700 - 250/700 = -0.300 and the non-negative check goes red.
+
+    /// <summary>
+    /// F3's property form: over random streams with a 300 ms grace, every progress the detector
+    /// reports (emissions and <c>GetProgress</c> reads, inside or paused) stays in [0, 1].
+    /// </summary>
+    [Fact]
+    public void TheGrace_KeepsEveryProgressInUnitRange_OnRandomStreams()
+    {
+        int checkedSamples = 0;
+        for (int seed = 0; seed < 200; seed++)
+        {
+            var rng = new Random(10_000 + seed);
+            var detector = new DwellDetector(pauseGraceMs: 300);
+            detector.AddTarget(new DwellTarget("t", On, radius: 30, dwellTimeMs: 700));
+            detector.AddTarget(new DwellTarget("u", new PhysicalPoint(500, 100), radius: 40, dwellTimeMs: 500));
+            var emitted = new List<double>();
+            detector.TargetProgress += (id, p) =>
+            {
+                Check.WithCustomMessage($"seed {seed}: emitted {p} for {id}")
+                    .That(p).IsGreaterOrEqualThan(0.0);
+                Check.WithCustomMessage($"seed {seed}: emitted {p} for {id}")
+                    .That(p).IsLessOrEqualThan(1.0);
+                emitted.Add(p);
+            };
+
+            long ts = 0;
+            for (int step = 0; step < 400; step++)
+            {
+                long gap = rng.Next(100) switch
+                {
+                    < 60 => rng.Next(5, 40) * Ms,
+                    < 80 => rng.Next(150, 300) * Ms,
+                    _ => rng.Next(300, 600) * Ms,
+                };
+                ts += gap;
+                var point = rng.Next(4) switch
+                {
+                    0 => On,
+                    1 => new PhysicalPoint(500, 100),
+                    2 => new PhysicalPoint(On.X + rng.Next(-80, 81), On.Y + rng.Next(-80, 81)),
+                    _ => new PhysicalPoint(900, 900),
+                };
+
+                detector.Update(point, ts);
+                checkedSamples += 2;
+
+                foreach (var id in new[] { "t", "u" })
+                {
+                    double progress = detector.GetProgress(id);
+                    Check.WithCustomMessage($"seed {seed} step {step}: GetProgress({id}) = {progress}")
+                        .That(progress).IsGreaterOrEqualThan(0.0);
+                    Check.WithCustomMessage($"seed {seed} step {step}: GetProgress({id}) = {progress}")
+                        .That(progress).IsLessOrEqualThan(1.0);
+                }
+            }
+
+            Check.That(emitted).Not.IsEmpty();
+        }
+
+        Check.That(checkedSamples).IsEqualTo(200 * 400 * 2);
     }
 }

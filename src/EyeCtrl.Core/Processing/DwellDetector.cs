@@ -323,16 +323,20 @@ public class DwellDetector
         // path reads it, so the activation computation below and the abandon telemetry further
         // down both consume bounded state instead of each patching its own arithmetic — and so the
         // case where the first post-gap sample already leaves the target is covered too (a
-        // nearest-arm-only check would miss it). At most one target holds a timestamp (the code
-        // below clears every non-nearest one), so this is a single-target operation in practice.
-        // The continuation arm emits the resulting 0 progress; the abandon arm already does.
+        // nearest-arm-only check would miss it). At grace 0 at most one target holds a timestamp
+        // (the loop below clears every non-nearest one), so this is a single-target operation in
+        // practice; a grace detector also keeps PAUSED anchors here, hence the per-target branch
+        // below. The continuation arm emits the resulting 0 progress; the abandon arm already does.
         //
         // A detector with a pause grace (SP-4c D4) replaces the restart with a two-level rule: a
-        // silence at or beyond the grace restarts (the anchor becomes now), a silence from the
-        // 150 ms clamp up to the grace PAUSES — the anchor advances by the silence so the frozen
-        // progress is preserved and the away time is not credited. Below the clamp, the sample is
-        // credited exactly as before. A target that is paused OUTSIDE (gaze left the circle) is
-        // dropped here once its absence passes the grace, so the pause cannot outlive it.
+        // silence ABOVE the grace restarts (the anchor becomes now); a silence from the 150 ms
+        // clamp up to and including the grace PAUSES — the anchor advances by the silence so the
+        // frozen progress is preserved and the away time is not credited. Below the clamp, the
+        // sample is credited exactly as before. In both arms the inside sample is the last place
+        // the gaze was known to be inside, so the "left at" stamp moves here too: without that,
+        // a following outside landing would subtract the same silence a second time on the return
+        // shift (fixup 01 F3). A target that is paused OUTSIDE is dropped here once its absence
+        // passes the grace, which is the one place expiry is decided.
         if (_pauseGraceMicroseconds > 0)
         {
             for (int i = 0; i < targets.Length; i++)
@@ -342,15 +346,33 @@ public class DwellDetector
                 if (target.IsGazeInside)
                 {
                     if (sinceLastSampleUs > _pauseGraceMicroseconds)
+                    {
+                        // Above the grace: restart from this sample. Both stamps move to it, so a
+                        // following leave pauses with a frozen progress of 0.
                         target.EnteredTimestamp = timestampMicroseconds;
+                        target.LastInsideTimestampUs = timestampMicroseconds;
+                    }
                     else if (sinceLastSampleUs >= MaxCreditedSampleGapUs)
+                    {
+                        // Pause: the anchor advances by the silence (which is not credited) and the
+                        // "left at" stamp advances WITH it, so the silence is accounted exactly
+                        // once and a following outside landing cannot subtract it again on the
+                        // return shift (fixup 01 F3). Advancing it unconditionally would instead
+                        // credit the last sample interval and overstate the frozen progress.
                         target.EnteredTimestamp += sinceLastSampleUs;
+                        target.LastInsideTimestampUs = timestampMicroseconds;
+                    }
                 }
                 else if (target.LastInsideTimestampUs is not { } lastInside
                     || timestampMicroseconds - lastInside > _pauseGraceMicroseconds)
                 {
+                    // Expiry: the pause is over, the cue clears (fixup 01 F2). Mutant O1 deletes
+                    // this whole branch and nothing turns red: it is EQUIVALENT — the return arm
+                    // re-checks the same window before resuming, and GetProgress only reads a
+                    // held anchor. Kept as hygiene, and for the explicit 0 the cue needs.
                     target.EnteredTimestamp = null;
                     target.LastInsideTimestampUs = null;
+                    TargetProgress?.Invoke(target.Id, 0);
                 }
             }
         }
@@ -383,12 +405,12 @@ public class DwellDetector
         // ── Find the single nearest target within hit range ──
         var nearestId = FindNearestHittingTargetId(targets, gazePoint, targetFilter);
 
-        // ── Accumulate dwell on nearest only; reset all others ──
+        // ── Accumulate dwell on nearest only; every other target leaves it ──
         string? activatedId = null;
-        // One slot each is sufficient: only the nearest target is ever given IsGazeInside == true, and
-        // every other target is cleared in the same pass, so at most one target can transition out of
-        // "inside" per Update. If that invariant is ever relaxed, these must become collections or
-        // abandonments will be silently overwritten.
+        // One slot each is sufficient: only the nearest target is ever given IsGazeInside == true,
+        // so at most one target can transition out of "inside" per Update (a grace detector keeps
+        // a paused target's anchor, but never its IsGazeInside). If that invariant is ever relaxed,
+        // these must become collections or abandonments will be silently overwritten.
         DwellOutcome? activationOutcome = null;
         DwellOutcome? abandonOutcome = null;
 
@@ -445,7 +467,11 @@ public class DwellDetector
             {
                 if (target.IsGazeInside)
                 {
-                    TargetProgress?.Invoke(target.Id, 0);
+                    // With a live grace pause the leave keeps showing the FROZEN progress (fixup 01
+                    // F2): the owner must not read "lost it, start again" while the dwell is still
+                    // held. Without a grace, and for a target with no anchor, this is the old 0.
+                    bool pauses = _pauseGraceMicroseconds > 0 && target.EnteredTimestamp.HasValue;
+                    TargetProgress?.Invoke(target.Id, pauses ? FrozenProgress(target) : 0);
                     if (_sink is not null && target.EnteredTimestamp.HasValue
                         && (targetFilter is null || targetFilter(target)))
                     {
@@ -463,7 +489,7 @@ public class DwellDetector
                     // Grace: keep the frozen anchor ("last inside" minus the accumulated dwell)
                     // so a return within the grace resumes it; the expiry is enforced by the
                     // pre-pass. Without a grace the dwell resets here, exactly as before.
-                    if (_pauseGraceMicroseconds == 0 || !target.EnteredTimestamp.HasValue)
+                    if (!pauses)
                     {
                         target.EnteredTimestamp = null;
                         target.LastInsideTimestampUs = null;
@@ -544,13 +570,36 @@ public class DwellDetector
 
     /// <summary>
     /// Gets the current progress (0.0 to 1.0) for a target.
+    /// <para>
+    /// A target paused OUTSIDE under a live pause grace reports its FROZEN progress — the dwell
+    /// accumulated up to its last inside sample — not 0 (SP-4c fixup 01 F2): the cue must hold
+    /// while the pause can still be resumed. Grace 0, and an expired pause, report 0 as before.
+    /// </para>
     /// </summary>
     public double GetProgress(string targetId)
     {
         if (!_targets.TryGetValue(targetId, out var target)) return 0;
-        if (!target.IsGazeInside || !target.EnteredTimestamp.HasValue) return 0;
+        if (!target.EnteredTimestamp.HasValue) return 0;
+        if (!target.IsGazeInside)
+            return _pauseGraceMicroseconds > 0 ? FrozenProgress(target) : 0;
+
         long elapsed = _lastTimestamp - target.EnteredTimestamp.Value;
         return Math.Min(1.0, (double)elapsed / target.DwellTimeMicroseconds);
+    }
+
+    /// <summary>
+    /// The progress a grace-paused target shows while its pause is live: the dwell accumulated up
+    /// to its last inside sample, <c>(LastInside − anchor) / dwell</c> clamped to [0, 1]. The
+    /// anchor of a paused target is itself <c>LastInside − accumulated</c>, so this is exactly the
+    /// value the outline showed at the moment the gaze left.
+    /// </summary>
+    private static double FrozenProgress(DwellTarget target)
+    {
+        if (target.LastInsideTimestampUs is not { } lastInside || !target.EnteredTimestamp.HasValue)
+            return 0;
+
+        long elapsed = lastInside - target.EnteredTimestamp.Value;
+        return elapsed <= 0 ? 0 : Math.Min(1.0, (double)elapsed / target.DwellTimeMicroseconds);
     }
 
     /// <summary>

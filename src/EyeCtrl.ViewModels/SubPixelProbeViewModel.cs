@@ -1065,6 +1065,37 @@ public partial class SubPixelProbeViewModel : MessengerViewModelBase,
         _targets.RemoveTarget(id);
     }
 
+    /// <summary>
+    /// Registers one probe target with a RECTANGULAR hit area (SP-4c fixup 01, the amended D3):
+    /// the visible button grown by its margin on every side, in physical pixels. A circle around a
+    /// wide button reached 173 DIP above it and swallowed the text the owner must read — reading the
+    /// Intro started the trials, reading the Ask title chose Yes. Rectangles keep the forgiveness
+    /// sideways and reach only the margin upward. C6 calls this instead of <see cref="Register"/>;
+    /// the dwell time is the same live <see cref="DwellSettings.ToolbarButtonDwellMs"/>.
+    /// </summary>
+    /// <param name="id">Target id, one of the C5 constants.</param>
+    /// <param name="boundsPhysical">The hit rectangle in physical screen pixels.</param>
+    /// <param name="dwellMs">Dwell for unknown ids; known ids use the settings value.</param>
+    /// <param name="onActivated">Action invoked on a completed dwell.</param>
+    public void RegisterRect(string id, PhysicalRect boundsPhysical, int dwellMs, Action onActivated)
+    {
+        if (IsDisposed) return;
+
+        _actions[id] = onActivated;
+        int effectiveDwellMs = IsKnownTarget(id) ? _dwellSettings.ToolbarButtonDwellMs : dwellMs;
+        _targets.AddTarget(new DwellTarget(id, boundsPhysical, effectiveDwellMs));
+    }
+
+    /// <summary>
+    /// Re-publishes a registered rect target's hit area on layout, keeping the dwell state (a
+    /// resize or phase change must not restart a dwell). C6 calls it wherever it used to call
+    /// <see cref="UpdatePosition"/> for a rect target; a circle target is a no-op.
+    /// </summary>
+    /// <param name="id">Target id.</param>
+    /// <param name="boundsPhysical">The new hit rectangle in physical screen pixels.</param>
+    public void UpdateBounds(string id, PhysicalRect boundsPhysical) =>
+        _targets.RebaseTarget(id, boundsPhysical);
+
     /// <inheritdoc/>
     public void UpdatePosition(string id, DwellCategory category, PhysicalPoint center) =>
         _targets.UpdateTargetCenter(id, center);

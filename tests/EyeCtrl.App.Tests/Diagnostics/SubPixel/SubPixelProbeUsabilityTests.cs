@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests.Diagnostics.SubPixel;
 
 using System.Reflection;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
 using CommunityToolkit.Mvvm.Messaging;
@@ -21,11 +22,13 @@ using Xunit;
 /// <c>EnsureHandle</c> and is NEVER shown.
 ///
 /// <para>
-/// D1: every button's <see cref="DwellOutlineOverlay"/> outline follows C5's dwell progress.
-/// D2/D3: the button sizes, the forgiving hit circles and the no-overlap rule at the owner's
-/// 2.0/3840×2400 and at 1.0/1920×1080, plus the layout fit at both. D5: the Intro's motion demo
-/// (the trial's drift law, both conditions, hidden elsewhere) and the Intro layout that keeps the
-/// Start button and its hit circle off the demo's path.
+/// D1: every button's <see cref="DwellOutlineOverlay"/> outline follows its own target's dwell
+/// progress (all seven, not only answer 1). D2/D3 (amended by fixup 01): the button sizes and the
+/// grown-RECTANGLE hit areas, no live pair overlapping, at the owner's 2.0/3840×2400 and at
+/// 1.0/1920×1080. Fixup 01 F1: no text block and no demo band sits inside a live hit area, and one
+/// slow read of every text block fires nothing — review 01's reading probe, ported. D5: the Intro's
+/// motion demo (the trial's drift law, both conditions alternating per loop, hidden elsewhere) and
+/// the Intro layout. D5's timer pin.
 /// </para>
 /// </summary>
 [Collection("WpfApplication")]
@@ -37,9 +40,33 @@ public class SubPixelProbeUsabilityTests
         (1.0, 1920, 1080),
     ];
 
+    private static readonly string[] AllTargetIds =
+    [
+        SubPixelProbeViewModel.AnswerOneTargetId,
+        SubPixelProbeViewModel.AnswerTwoTargetId,
+        SubPixelProbeViewModel.EndTestTargetId,
+        SubPixelProbeViewModel.IntroStartTargetId,
+        SubPixelProbeViewModel.AskYesTargetId,
+        SubPixelProbeViewModel.AskLaterTargetId,
+        SubPixelProbeViewModel.ResultDoneTargetId,
+    ];
+
+    /// <summary>The screen each target is honoured on (End test is on every screen).</summary>
+    private static SubPixelProbePhase PhaseFor(string id) => id switch
+    {
+        SubPixelProbeViewModel.AnswerOneTargetId or SubPixelProbeViewModel.AnswerTwoTargetId
+            => SubPixelProbePhase.Answer,
+        SubPixelProbeViewModel.IntroStartTargetId => SubPixelProbePhase.Intro,
+        SubPixelProbeViewModel.AskYesTargetId or SubPixelProbeViewModel.AskLaterTargetId
+            => SubPixelProbePhase.Ask,
+        SubPixelProbeViewModel.ResultDoneTargetId => SubPixelProbePhase.Result,
+        _ => SubPixelProbePhase.Intro,
+    };
+
     /// <summary>
-    /// D2's sizes and D3's hit-circle margins, per target — literals, so a mutant that changes the
-    /// production constant (or the margin a button gets) cannot move the test's expectation with it.
+    /// D2's sizes and D3's (amended) hit-area margins, per target — literals, so a mutant that
+    /// changes the production constant (or the margin a button gets) cannot move the test's
+    /// expectation with it.
     /// </summary>
     private static (double Width, double Height, double Margin) SpecFor(string id) => id switch
     {
@@ -50,7 +77,7 @@ public class SubPixelProbeUsabilityTests
         _ => (420, 170, 48),
     };
 
-    /// <summary>The live targets of every screen, in the shape the D3 no-overlap rule needs.</summary>
+    /// <summary>The live targets of every screen, as the D3 no-overlap rule and F1 need them.</summary>
     private static readonly (SubPixelProbePhase Phase, string[] Ids)[] LiveTargets =
     [
         (SubPixelProbePhase.Intro, [SubPixelProbeViewModel.IntroStartTargetId, SubPixelProbeViewModel.EndTestTargetId]),
@@ -62,58 +89,67 @@ public class SubPixelProbeUsabilityTests
     // ------------------------------------------------------------------ D1: the cue on the button
 
     [StaFact]
-    public void D1_TheDwellCue_ShowsTheTargetsProgressOnItsButton()
+    public void D1_TheDwellCue_ShowsEachTargetsProgressOnItsOwnButton()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var settings = new EyeCtrlSettings();
         settings.Dwell.ToolbarButtonDwellMs = 700;
-        using var vm = NewViewModel(settings.Dwell);
 
-        var window = NewWindow(vm, scale: 1.0, widthDip: 1920, heightDip: 1080);
-        try
+        foreach (var id in AllTargetIds)
         {
+            using var vm = NewViewModel(settings.Dwell);
             vm.Start();
-            SetPhase(vm, SubPixelProbePhase.Idle);
-            SetPhase(vm, SubPixelProbePhase.Answer);
+            var window = NewWindow(vm, scale: 1.0, widthDip: 1920, heightDip: 1080);
+            try
+            {
+                SetPhase(vm, SubPixelProbePhase.Idle);
+                SetPhase(vm, PhaseFor(id));
 
-            var cue = window.CueForTest(SubPixelProbeViewModel.AnswerOneTargetId);
-            Check.That(cue).IsNotNull();
-            var centre = CentreInScene(window, SubPixelProbeViewModel.AnswerOneTargetId);
-            var at = new PhysicalPoint(centre.X, centre.Y);
+                var centreDip = CentreInScene(window, id);
+                var at = new PhysicalPoint(centreDip.X, centreDip.Y);
 
-            window.OnFrame();
-            Check.WithCustomMessage("A target with no dwell must show no outline")
-                .That(cue!.Outline.StrokeThickness).IsEqualTo(0.0);
+                window.OnFrame();
+                foreach (var other in AllTargetIds)
+                {
+                    Check.WithCustomMessage($"{other}: a target with no dwell must show no outline")
+                        .That(window.CueForTest(other)!.Outline.StrokeThickness).IsEqualTo(0.0);
+                }
 
-            // A realistic cadence: a 350 ms hole between two samples would itself be a dropout,
-            // and the grace would (correctly) treat it as one.
-            Feed(vm, at, 0);
-            for (long t = 10_000; t <= 350_000; t += 10_000) Feed(vm, at, t);
-            window.OnFrame();
-            Check.WithCustomMessage("Progress 0.5 must draw half the outline")
-                .That(cue.Outline.StrokeThickness)
-                .IsCloseTo(DwellOutlineOverlay.MaxThickness * 0.5, 1e-9);
+                // A realistic 10 ms cadence: a single 350 ms hole would itself be a dropout.
+                Feed(vm, at, 0);
+                for (long t = 10_000; t <= 350_000; t += 10_000) Feed(vm, at, t);
+                window.OnFrame();
 
-            for (long t = 360_000; t <= 630_000; t += 10_000) Feed(vm, at, t);   // 0.9
-            window.OnFrame();
-            Check.WithCustomMessage("Progress 0.9 must draw 90 % of the outline")
-                .That(cue.Outline.StrokeThickness)
-                .IsCloseTo(DwellOutlineOverlay.MaxThickness * 0.9, 1e-9);
-        }
-        finally
-        {
-            window.Close();
+                Check.WithCustomMessage($"{id}: progress 0.5 must draw half the outline on its own button")
+                    .That(window.CueForTest(id)!.Outline.StrokeThickness)
+                    .IsCloseTo(DwellOutlineOverlay.MaxThickness * 0.5, 1e-9);
+
+                // The other six stay empty: each cue reads its own target, not a neighbour's.
+                foreach (var other in AllTargetIds)
+                {
+                    if (other == id) continue;
+                    Check.WithCustomMessage($"O4: {other} showed {id}'s progress")
+                        .That(window.CueForTest(other)!.Outline.StrokeThickness).IsEqualTo(0.0);
+                }
+            }
+            finally
+            {
+                window.Close();
+            }
         }
     }
 
-    // Mutation (D1-binding): UpdateDwellCues hardcodes 0 (or 1) -> both thickness checks go red.
+    // Mutation (D1-binding): UpdateDwellCues hardcodes one button's progress (or 0) -> the
+    //   per-button checks go red.
+    // Mutation (O4): End test's cue reads Start's progress -> the loop's "other six" check for
+    //   answer_1/Start goes red on End test's iteration.
     // Mutation (D1-overlay): the cue is not attached (BuildButton drops Attach) -> CueForTest is
     //   null and every thickness write is a no-op: red.
 
-    // ------------------------------------------------ D2/D3: sizes, hit circles, no overlap
+    // ------------------------------------------------ D2/D3: sizes, hit areas, no overlap
 
     [StaFact]
-    public void D2D3_ButtonsHitCirclesAndNoOverlap_MatchTheDecisionsAtBothOwnerScales()
+    public void D2D3_ButtonsHitAreasAndNoOverlap_MatchTheDecisionsAtBothOwnerScales()
     {
         foreach (var (scale, widthDip, heightDip) in OwnerScales)
             AssertGeometry(scale, widthDip, heightDip);
@@ -145,19 +181,31 @@ public class SubPixelProbeUsabilityTests
                     Check.WithCustomMessage($"{id}@{scale}: the drawn size is not the D2 size")
                         .That(element.Height).IsEqualTo(expectedHeight);
 
+                    // The D3 (amended) hit area: the button grown by its margin, nothing more.
                     var centre = CentreInScene(window, id);
                     var centrePhys = new PhysicalPoint(centre.X * scale, centre.Y * scale);
-                    double radiusPhysical = (Math.Max(expectedWidth, expectedHeight) / 2.0 + margin) * scale;
+                    double reachX = (expectedWidth / 2.0 + margin - 1) * scale;
+                    double outsideX = (expectedWidth / 2.0 + margin + 1) * scale;
+                    double reachY = (expectedHeight / 2.0 + margin - 1) * scale;
+                    double outsideY = (expectedHeight / 2.0 + margin + 1) * scale;
 
                     Check.WithCustomMessage(
-                            $"{id}@{scale}: a point {radiusPhysical - 1} px from the centre must be inside "
-                            + $"the D3 hit circle ({margin} DIP margin)")
-                        .That(detector.TargetHit(id, new PhysicalPoint(centrePhys.X + radiusPhysical - 1, centrePhys.Y)))
+                            $"{id}@{scale}: {reachX:F0} px sideways must be inside the grown rectangle")
+                        .That(detector.TargetHit(id, new PhysicalPoint(centrePhys.X + reachX, centrePhys.Y)))
                         .IsTrue();
                     Check.WithCustomMessage(
-                            $"{id}@{scale}: a point {radiusPhysical + 1} px from the centre must be outside "
-                            + $"the D3 hit circle (the owner's bias is not covered by a longer circle)")
-                        .That(detector.TargetHit(id, new PhysicalPoint(centrePhys.X + radiusPhysical + 1, centrePhys.Y)))
+                            $"{id}@{scale}: {outsideX:F0} px sideways must be outside the grown rectangle "
+                            + "(a bigger reach would cover the neighbour/edge)")
+                        .That(detector.TargetHit(id, new PhysicalPoint(centrePhys.X + outsideX, centrePhys.Y)))
+                        .IsFalse();
+                    Check.WithCustomMessage(
+                            $"{id}@{scale}: {reachY:F0} px vertically must be inside the grown rectangle")
+                        .That(detector.TargetHit(id, new PhysicalPoint(centrePhys.X, centrePhys.Y + reachY)))
+                        .IsTrue();
+                    Check.WithCustomMessage(
+                            $"{id}@{scale}: {outsideY:F0} px vertically must be outside the grown rectangle "
+                            + "(fixup 01 F1: a circle here reached the text)")
+                        .That(detector.TargetHit(id, new PhysicalPoint(centrePhys.X, centrePhys.Y + outsideY)))
                         .IsFalse();
                 }
 
@@ -165,19 +213,14 @@ public class SubPixelProbeUsabilityTests
                 {
                     for (int j = i + 1; j < ids.Length; j++)
                     {
-                        var a = CentreInScene(window, ids[i]);
-                        var b = CentreInScene(window, ids[j]);
-                        double ra = (Math.Max(SpecFor(ids[i]).Width, SpecFor(ids[i]).Height) / 2.0
-                            + SpecFor(ids[i]).Margin) * scale;
-                        double rb = (Math.Max(SpecFor(ids[j]).Width, SpecFor(ids[j]).Height) / 2.0
-                            + SpecFor(ids[j]).Margin) * scale;
-                        double distance = Math.Sqrt(
-                            Math.Pow(a.X * scale - b.X * scale, 2) + Math.Pow(a.Y * scale - b.Y * scale, 2));
+                        var a = HitRectInScene(window, ids[i]);
+                        var b = HitRectInScene(window, ids[j]);
+                        var overlap = Rect.Intersect(a, b);
 
                         Check.WithCustomMessage(
-                                $"D3: {ids[i]} and {ids[j]} hit circles overlap in {phase} at scale {scale} "
-                                + $"(centres {distance:F0} px apart, radii {ra:F0} + {rb:F0})")
-                            .That(distance).IsStrictlyGreaterThan(ra + rb);
+                                $"D3: {ids[i]} and {ids[j]} hit areas overlap in {phase} at scale {scale}: "
+                                + $"{a} ∩ {b} = {overlap}")
+                            .That(overlap.IsEmpty).IsTrue();
                     }
                 }
             }
@@ -190,12 +233,11 @@ public class SubPixelProbeUsabilityTests
 
     // Mutation (D2): any button size constant reverted (e.g. AnswerWidth 380 -> 220) -> the size
     //   pin goes red.
-    // Mutation (D3-radius): Register goes back to Math.Min (half the SHORTER side) -> the
-    //   inside-the-circle probe at radius - 1 goes red for every non-square button.
-    // Mutation (D3-margin): the answers' 48 becomes 0 or the End test's 16 becomes 48 -> the
-    //   outside/inside probes go red.
-    // Mutation (D3-overlap): the Ask screen goes back to stacking (24 DIP apart) -> the pairwise
-    //   no-overlap check for Yes/Later goes red.
+    // Mutation (D3-margin): the answers' 48 becomes 0, or End test's 16 becomes 48 -> the
+    //   inside/outside probes go red.
+    // Mutation (D3-overlap): the Ask screen goes back to stacking -> the Yes/Later overlap check.
+    // Mutation (F1-reg): the rects go back to circles (Register with a radius) -> the vertical
+    //   outside probe at width/2 + margin + 1 is inside a circle: red.
 
     // --------------------------------------------------------------- D2: every screen fits
 
@@ -214,14 +256,7 @@ public class SubPixelProbeUsabilityTests
         var window = NewWindow(vm, scale, widthDip, heightDip);
         try
         {
-            foreach (var (phase, id) in new (SubPixelProbePhase, string?)[]
-                     {
-                         (SubPixelProbePhase.Intro, null),
-                         (SubPixelProbePhase.VoidHold, null),
-                         (SubPixelProbePhase.Ask, null),
-                         (SubPixelProbePhase.Result, null),
-                         (SubPixelProbePhase.Answer, SubPixelProbeViewModel.AnswerOneTargetId),
-                     })
+            foreach (var (phase, ids) in ScreensWithLiveTargets)
             {
                 SetPhase(vm, SubPixelProbePhase.Idle);
                 SetPhase(vm, phase);
@@ -234,12 +269,13 @@ public class SubPixelProbeUsabilityTests
                             && rect.Right <= widthDip + 0.5 && rect.Bottom <= heightDip + 0.5).IsTrue();
                 }
 
-                if (id is not null)
+                foreach (var targetId in ids)
                 {
-                    var rect = RectInScene(window, window.TargetElementForTest(id)!);
-                    Check.WithCustomMessage($"The answer button at {scale} is not inside the window: {rect}")
-                        .That(rect.Left >= 0 && rect.Top >= 0 && rect.Right <= widthDip && rect.Bottom <= heightDip)
-                        .IsTrue();
+                    var element = window.TargetElementForTest(targetId)!;
+                    var rect = RectInScene(window, element);
+                    Check.WithCustomMessage($"{targetId} at {scale} is not inside the window: {rect}")
+                        .That(rect.Left >= 0 && rect.Top >= 0
+                            && rect.Right <= widthDip + 0.5 && rect.Bottom <= heightDip + 0.5).IsTrue();
                 }
             }
         }
@@ -249,8 +285,214 @@ public class SubPixelProbeUsabilityTests
         }
     }
 
-    // Mutation (D2-fit): the Intro panel is centred again (or the demo gap dropped) -> at 1.0 the
-    //   panel's bottom passes the window's bottom: red.
+    // Mutation (D2-fit): the Intro text block moved back below the band (panel top past the
+    //   window's bottom) -> at 1.0 the panel check goes red.
+
+    // ------------------------------------------- Fixup 01 F1: no text inside a live hit area
+
+    [StaFact]
+    public void F1_NoVisibleTextBlock_SitsInsideALiveHitArea_OnEveryScreenAtBothScales()
+    {
+        foreach (var (scale, widthDip, heightDip) in OwnerScales)
+            AssertNoTextInsideHitAreas(scale, widthDip, heightDip);
+    }
+
+    private static void AssertNoTextInsideHitAreas(double scale, double widthDip, double heightDip)
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        using var vm = NewViewModel();
+        vm.Start();
+        var window = NewWindow(vm, scale, widthDip, heightDip);
+        try
+        {
+            foreach (var (phase, ids) in ScreensWithLiveTargets)
+            {
+                SetPhase(vm, SubPixelProbePhase.Idle);
+                SetPhase(vm, phase);
+
+                var hits = ids.Select(id => HitRectInScene(window, id)).ToList();
+                int checkedPairs = 0;
+                foreach (var text in VisibleTextBlocks(window, out var root))
+                {
+                    var rect = RectInScene(text, root);
+                    if (rect.Width <= 0 || rect.Height <= 0) continue;
+
+                    foreach (var hit in hits)
+                    {
+                        checkedPairs++;
+                        double clearance = RectDistance(rect, hit);
+                        Check.WithCustomMessage(
+                                $"{phase}@{scale}: '{Snippet(text.Text)}' ({rect}) is only {clearance:F1} DIP "
+                                + $"from a live hit area ({hit}); the ticket requires at least 24")
+                            .That(clearance).IsGreaterOrEqualThan(24);
+                    }
+                }
+
+                Check.WithCustomMessage($"{phase}@{scale}: no text-to-hit-area pair was checked")
+                    .That(checkedPairs).IsStrictlyGreaterThan(0);
+            }
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    // Mutation (F1-text): TextToButtonGapDip 96 -> 24 -> the Ask title (and the result text) sit
+    //   inside the grown hit area: clearance is negative -> red.
+    // Mutation (F1-intro): the Intro text block is placed below the band instead of above -> the
+    //   Start hit area covers it -> red.
+
+    private static string Snippet(string text) =>
+        text.Length <= 30 ? text : text[..30] + "…";
+
+    // ------------------------------------------------------ Fixup 01 F1: the demo band vs Start
+
+    [StaFact]
+    public void D5_OnTheIntro_TheDemoBandClearsStartsHitArea_AndTheTextSitsAboveIt()
+    {
+        foreach (var (scale, widthDip, heightDip) in OwnerScales)
+            AssertIntroClearance(scale, widthDip, heightDip);
+    }
+
+    private static void AssertIntroClearance(double scale, double widthDip, double heightDip)
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        using var vm = NewViewModel();
+        vm.Start();
+        var window = NewWindow(vm, scale, widthDip, heightDip);
+        try
+        {
+            SetPhase(vm, SubPixelProbePhase.Idle);
+            SetPhase(vm, SubPixelProbePhase.Intro);
+
+            var startRect = HitRectInScene(window, SubPixelProbeViewModel.IntroStartTargetId);
+            double bandTop = heightDip / 2 - window.RingForTest.SizeDip / 2;
+            double bandBottom = heightDip / 2 + window.RingForTest.SizeDip / 2;
+
+            Check.WithCustomMessage(
+                    $"At {scale}: the demo band's bottom {bandBottom:F0} vs Start's hit area top "
+                    + $"{startRect.Top:F0} — only {startRect.Top - bandBottom:F1} DIP of clearance")
+                .That(startRect.Top - bandBottom).IsGreaterOrEqualThan(24);
+
+            var textRect = RectInScene(window, window.PanelForTest(SubPixelProbePhase.Intro)!);
+            Check.WithCustomMessage(
+                    $"At {scale}: the Intro text ({textRect}) must sit above the demo band (top {bandTop:F0})")
+                .That(textRect.Bottom).IsLessOrEqualThan(bandTop - 24 + 1e-9);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    // Mutation (F1-band): IntroStartGapDip 80 -> 24 -> the band is inside Start's hit area: red.
+
+    // ------------------------------------------- Fixup 01 F1: review 01's reading probe, ported
+
+    [StaFact]
+    public void F1_ReadingEveryTextBlockOnce_FiresNothing_OnEveryScreenAtBothScales()
+    {
+        foreach (var (scale, widthDip, heightDip) in OwnerScales)
+            AssertReadingFiresNothing(scale, widthDip, heightDip);
+    }
+
+    private static void AssertReadingFiresNothing(double scale, double widthDip, double heightDip)
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var settings = new EyeCtrlSettings();
+        settings.Dwell.ToolbarButtonDwellMs = 700;
+
+        foreach (var screen in new[]
+                 {
+                     SubPixelProbePhase.Intro,
+                     SubPixelProbePhase.Ask,
+                     SubPixelProbePhase.Result,
+                     SubPixelProbePhase.Answer,
+                     SubPixelProbePhase.VoidHold,
+                     SubPixelProbePhase.Interval1,
+                 })
+        {
+            ManualTimeProvider? time = screen == SubPixelProbePhase.VoidHold ? new ManualTimeProvider() : null;
+            using var vm = NewViewModel(settings.Dwell, time);
+            vm.Start();
+            var window = NewWindow(vm, scale, widthDip, heightDip);
+            try
+            {
+                var runs = 0;
+                vm.RunEnded += _ => runs++;
+                long ts = 1_000_000;
+
+                if (screen == SubPixelProbePhase.VoidHold)
+                {
+                    // VoidHold is driven for real on the virtual clock: any VALID sample continues
+                    // the block by design (Q2), so a reflected phase would crash C5 — and the thing
+                    // to prove here is that reading the "Rest your eyes" text does not fire a target
+                    // (End test is the only live one) and so does not end the run.
+                    vm.BeginTrials();
+                    while (vm.Phase != SubPixelProbePhase.Interval1 || vm.IsDemo)
+                    {
+                        time!.Advance(30);
+                        ts += 30_000;
+                        Feed(vm, new PhysicalPoint(50, 50), ts);
+                        Check.That(ts).IsStrictlyLessThan(60_000_000);
+                    }
+
+                    vm.ReportRenderGap(100);
+                    Check.That(vm.Phase).IsEqualTo(SubPixelProbePhase.VoidHold);
+                }
+                else
+                {
+                    SetPhase(vm, SubPixelProbePhase.Idle);
+                    SetPhase(vm, screen);
+                }
+
+                int samples = 0;
+                foreach (var text in VisibleTextBlocks(window, out var root))
+                {
+                    var rect = RectInScene(text, root);
+                    // A slow left-to-right read of every line of the block: ~360 DIP/s, 30 ms
+                    // samples (review 01's Probe_ReadingTheTextActivatesTheButton, every line).
+                    for (double y = rect.Top + rect.Height * 0.25;
+                         y <= rect.Bottom - 1;
+                         y += Math.Max(6, rect.Height / 6))
+                    {
+                        for (double x = rect.Left; x <= rect.Right; x += 11)
+                        {
+                            Feed(vm, new PhysicalPoint(x * scale, y * scale), ts);
+                            ts += 30_000;
+                            samples++;
+                        }
+                    }
+                }
+
+                Check.WithCustomMessage($"{screen}@{scale}: no text was found to read")
+                    .That(samples).IsStrictlyGreaterThan(50);
+
+                if (screen != SubPixelProbePhase.VoidHold)
+                {
+                    Check.WithCustomMessage(
+                            $"{screen}@{scale}: one read of the screen's text ({samples} samples) must not "
+                            + $"fire anything; phase is {vm.Phase}")
+                        .That(vm.Phase).IsEqualTo(screen);
+                }
+
+                Check.WithCustomMessage($"{screen}@{scale}: the read ended the run")
+                    .That(runs).IsEqualTo(0);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+    }
+
+    // Mutation (F1-read): the Ask row's TextToButtonGapDip 96 -> 0 -> reading the title fires Yes
+    //   at 2.0 and 1.0: the phase check goes red.
+    // Measured: moving the question onto the answers' row (0.22 -> 0.52 of the height) does NOT
+    // turn this probe red — the question block spans the full width and its glyphs sit between the
+    // two hit areas — but F1_NoVisibleTextBlock's clearance pin catches that mutant. The two pins
+    // are deliberately complementary: geometry there, behaviour here.
 
     // ---------------------------------------------------------------- D5: the Intro motion demo
 
@@ -278,7 +520,7 @@ public class SubPixelProbeUsabilityTests
             Check.WithCustomMessage("The Intro must draw the demo ring").That(window.IsRingDrawnForTest).IsTrue();
             AssertRingAt(ring, new PhysicalPoint(startX, centreY), snap: true);
 
-            // 1.8 s into interval 1: 60 ticks × 0.25 px East — exactly a trial's drift law.
+            // 1.8 s into the first interval: 60 ticks × 0.25 px East — exactly a trial's drift law.
             ticks = 1800;
             window.OnFrame();
             AssertRingAt(ring, new PhysicalPoint(startX + 15, centreY), snap: true);
@@ -289,14 +531,17 @@ public class SubPixelProbeUsabilityTests
             Check.WithCustomMessage("The demo ring must hide during the gap")
                 .That(window.IsRingDrawnForTest).IsFalse();
 
-            // Interval 2 runs condition B — the same path, the same law, no snapping.
+            // The pair's second interval runs the other condition — the same path, no snapping.
             ticks = 3800 + 1800;
             window.OnFrame();
             Check.That(window.IsRingDrawnForTest).IsTrue();
             AssertRingAt(ring, new PhysicalPoint(startX + 15, centreY), snap: false);
 
-            // It loops: one cycle later the pair repeats with condition A again.
+            // Fixup 01 F5: the NEXT loop alternates the order — B first, the snapshot off.
             ticks = 7600 + 1800;
+            window.OnFrame();
+            AssertRingAt(ring, new PhysicalPoint(startX + 15, centreY), snap: false);
+            ticks = 7600 + 3800 + 1800;
             window.OnFrame();
             AssertRingAt(ring, new PhysicalPoint(startX + 15, centreY), snap: true);
 
@@ -313,9 +558,10 @@ public class SubPixelProbeUsabilityTests
         }
     }
 
-    // Mutation (D5-snap): both demo intervals pass snap: true -> the condition-B assertion goes
-    //   red (the two expectations differ at this centre: 837.5 snapped to 838).
-    // Mutation (D5-swap): the demo's snap flags swap -> both condition assertions go red.
+    // Mutation (D5-snap): both demo intervals pass the same snap flag -> a condition assertion
+    //   goes red (the two expectations differ at this centre: 837.5 snapped to 838).
+    // Mutation (F5): the per-loop alternation removed (cycle parity ignored) -> the second loop's
+    //   B-first assertion goes red.
     // Mutation (D5-law): the demo position is computed with a wrong step (e.g. 0.5 px/tick) -> the
     //   1.8 s position assertions go red.
     // Mutation (D5-gap): the gap keeps drawing -> the hidden assertion goes red.
@@ -329,49 +575,6 @@ public class SubPixelProbeUsabilityTests
             .That(transform.X).IsCloseTo(expected.X, 1e-9);
         Check.That(transform.Y).IsCloseTo(expected.Y, 1e-9);
     }
-
-    [StaFact]
-    public void D5_OnTheIntro_StartIsBelowTheDemoBand_AndItsHitCircleClearsIt()
-    {
-        foreach (var (scale, widthDip, heightDip) in OwnerScales)
-            AssertIntroClearance(scale, widthDip, heightDip);
-    }
-
-    private static void AssertIntroClearance(double scale, double widthDip, double heightDip)
-    {
-        WpfApplicationGate.EnsureApplicationWithTokens();
-        using var vm = NewViewModel();
-        vm.Start();
-        var window = NewWindow(vm, scale, widthDip, heightDip);
-        try
-        {
-            SetPhase(vm, SubPixelProbePhase.Idle);
-            SetPhase(vm, SubPixelProbePhase.Intro);
-
-            var startDip = CentreInScene(window, SubPixelProbeViewModel.IntroStartTargetId);
-            var startPhys = new PhysicalPoint(startDip.X * scale, startDip.Y * scale);
-            double startRadius = (420 / 2.0 + 48) * scale;   // D3's literal margin, not the constant
-            double ringRadius = window.RingForTest.SizeDip * scale / 2.0;
-            double bandCentreY = heightDip * scale / 2.0;
-            double bandBottom = bandCentreY + ringRadius;
-
-            // The demo's travel is horizontal, so the vertical gap IS the closest approach —
-            // provided the Start button sits under the band's x extent (it does: centred panel).
-            Check.WithCustomMessage(
-                    $"At {scale}, the Start hit circle reaches the demo band: its top is at "
-                    + $"{startPhys.Y - startRadius:F1}, the band's bottom at {bandBottom:F1}")
-                .That(startPhys.Y - startRadius).IsStrictlyGreaterThan(bandBottom);
-            Check.WithCustomMessage($"At {scale}, Start is not below the demo's centre line")
-                .That(startPhys.Y).IsStrictlyGreaterThan(bandCentreY);
-        }
-        finally
-        {
-            window.Close();
-        }
-    }
-
-    // Mutation (D5-clearance): the Intro panel centred again -> the ring path runs through the
-    //   Start hit circle: the clearance assertion goes red.
 
     // -------------------------------------------------- D5: the Intro timeout vs the watchdog
 
@@ -389,9 +592,21 @@ public class SubPixelProbeUsabilityTests
 
     // ---------------------------------------------------------------------------------- helpers
 
-    private static SubPixelProbeViewModel NewViewModel(DwellSettings? dwell = null) => new(
+    /// <summary>The screens whose text the F1 pins cover, with the targets live on each.</summary>
+    private static readonly (SubPixelProbePhase Phase, string[] Ids)[] ScreensWithLiveTargets =
+    [
+        (SubPixelProbePhase.Intro, [SubPixelProbeViewModel.IntroStartTargetId, SubPixelProbeViewModel.EndTestTargetId]),
+        (SubPixelProbePhase.Ask, [SubPixelProbeViewModel.AskYesTargetId, SubPixelProbeViewModel.AskLaterTargetId, SubPixelProbeViewModel.EndTestTargetId]),
+        (SubPixelProbePhase.Result, [SubPixelProbeViewModel.ResultDoneTargetId, SubPixelProbeViewModel.EndTestTargetId]),
+        (SubPixelProbePhase.Answer, [SubPixelProbeViewModel.AnswerOneTargetId, SubPixelProbeViewModel.AnswerTwoTargetId, SubPixelProbeViewModel.EndTestTargetId]),
+        (SubPixelProbePhase.VoidHold, [SubPixelProbeViewModel.EndTestTargetId]),
+        (SubPixelProbePhase.Interval1, [SubPixelProbeViewModel.EndTestTargetId]),
+    ];
+
+    private static SubPixelProbeViewModel NewViewModel(
+        DwellSettings? dwell = null, TimeProvider? timeProvider = null) => new(
         new WeakReferenceMessenger(),
-        new DispatcherTimeProvider(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+        timeProvider ?? new DispatcherTimeProvider(System.Windows.Threading.Dispatcher.CurrentDispatcher),
         SubPixelAbSchedule.Create(seed: 7, new PhysicalRect(0, 0, 1920, 1080)),
         dwell ?? new EyeCtrlSettings().Dwell,
         () => true);
@@ -422,10 +637,86 @@ public class SubPixelProbeUsabilityTests
             .Transform(new Point(element.ActualWidth / 2, element.ActualHeight / 2));
     }
 
+    /// <summary>The laid-out button's rect, in scene DIP.</summary>
     private static Rect RectInScene(SubPixelProbeWindow window, FrameworkElement element)
+        => RectInScene(element, (Visual)window.Content!);
+
+    private static Rect RectInScene(FrameworkElement element, Visual root)
     {
-        var topLeft = element.TransformToAncestor((Visual)window.Content!).Transform(new Point(0, 0));
+        var topLeft = element.TransformToAncestor(root).Transform(new Point(0, 0));
         return new Rect(topLeft, element.RenderSize);
+    }
+
+    /// <summary>
+    /// The D3 (amended) hit area of a target, in scene DIP: the button grown by the PRODUCTION
+    /// margin (not the test's literal), so a margin mutant moves this rect into the text and the
+    /// F1 clearance checks go red.
+    /// </summary>
+    private static Rect HitRectInScene(SubPixelProbeWindow window, string id)
+    {
+        var element = window.TargetElementForTest(id)!;
+        double margin = id == SubPixelProbeViewModel.EndTestTargetId
+            ? SubPixelProbeWindow.EndButtonHitMarginDip
+            : SubPixelProbeWindow.ButtonHitMarginDip;
+        var rect = RectInScene(window, element);
+        return new Rect(
+            rect.Left - margin, rect.Top - margin, rect.Width + 2 * margin, rect.Height + 2 * margin);
+    }
+
+    /// <summary>The distance between two rects in DIP; 0 when they intersect.</summary>
+    private static double RectDistance(Rect a, Rect b)
+    {
+        double dx = Math.Max(0, Math.Max(a.Left - b.Right, b.Left - a.Right));
+        double dy = Math.Max(0, Math.Max(a.Top - b.Bottom, b.Top - a.Bottom));
+        return Math.Sqrt(dx * dx + dy * dy);
+    }
+
+    /// <summary>
+    /// Every VISIBLE TextBlock that is not part of a button's own face (its label lives inside its
+    /// hit area by construction). The scene root is returned for rect math.
+    /// </summary>
+    private static List<TextBlock> VisibleTextBlocks(SubPixelProbeWindow window, out Visual root)
+    {
+        var sceneRoot = (Visual)window.Content!;
+        root = sceneRoot;
+        var buttons = AllTargetIds
+            .Select(id => (DependencyObject?)window.TargetElementForTest(id))
+            .Where(b => b is not null)
+            .Cast<DependencyObject>()
+            .ToList();
+
+        var found = new List<TextBlock>();
+        Collect(sceneRoot, found);
+        return found
+            .Where(tb => !string.IsNullOrWhiteSpace(tb.Text)
+                && IsShownInScene(tb, sceneRoot)
+                && !buttons.Any(button => IsAncestorOf(button, tb)))
+            .ToList();
+    }
+
+    private static void Collect(DependencyObject node, List<TextBlock> into)
+    {
+        if (node is TextBlock tb) into.Add(tb);
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++)
+            Collect(VisualTreeHelper.GetChild(node, i), into);
+    }
+
+    private static bool IsAncestorOf(DependencyObject ancestor, DependencyObject node)
+    {
+        for (DependencyObject? n = node; n is not null; n = VisualTreeHelper.GetParent(n))
+            if (ReferenceEquals(n, ancestor)) return true;
+        return false;
+    }
+
+    private static bool IsShownInScene(DependencyObject node, Visual root)
+    {
+        for (DependencyObject? n = node; n is not null; n = VisualTreeHelper.GetParent(n))
+        {
+            if (ReferenceEquals(n, root)) return true;
+            if (n is UIElement u && u.Visibility != Visibility.Visible) return false;
+        }
+
+        return false;
     }
 
     /// <summary>Drives the view to a phase headlessly through C5's observable Phase (SP-3 F8).</summary>

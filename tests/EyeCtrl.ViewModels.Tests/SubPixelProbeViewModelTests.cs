@@ -1101,6 +1101,188 @@ public class SubPixelProbeViewModelTests
     // Mutation (D1-silent): the publish moves before the phase guards -> the discarded activation
     //   cues: the first cue check goes red.
 
+    /// <summary>The seven probe targets, in the order a guard sweep visits them.</summary>
+    private static readonly string[] ProbeTargetIds =
+    [
+        SubPixelProbeViewModel.AnswerOneTargetId,
+        SubPixelProbeViewModel.AnswerTwoTargetId,
+        SubPixelProbeViewModel.EndTestTargetId,
+        SubPixelProbeViewModel.IntroStartTargetId,
+        SubPixelProbeViewModel.AskYesTargetId,
+        SubPixelProbeViewModel.AskLaterTargetId,
+        SubPixelProbeViewModel.ResultDoneTargetId,
+    ];
+
+    private static readonly PhysicalPoint ParkedTarget = new(-10_000, -10_000);
+
+    /// <summary>Registers all seven probe targets, counts cues and per-target actions.</summary>
+    private sealed class ProbeTargets
+    {
+        public int Cues;
+        public readonly Dictionary<string, int> Clicks = new();
+
+        public void Wire(Harness f)
+        {
+            f.Messenger.Register<DwellActivationMessage>(f.Messenger, (_, _) => Cues++);
+            foreach (var id in ProbeTargetIds)
+            {
+                string captured = id;
+                Clicks[captured] = 0;
+                f.Vm.Register(captured, DwellCategory.Control, 100, 700, () => Clicks[captured]++);
+                f.Vm.UpdatePosition(captured, DwellCategory.Control, ParkedTarget);
+            }
+        }
+    }
+
+    /// <summary>
+    /// D1-silent, every guard: each screen honours only its own button(s) — Start on the Intro, Yes
+    /// and Later on Ask, Done on Result, the answers on Answer — and an activation anywhere else is
+    /// discarded silently, with no cue. (End test is honoured on every screen and is covered by
+    /// V1cue.)
+    /// </summary>
+    public static TheoryData<SubPixelProbePhase, string, string[]> GuardCases => new()
+    {
+        {
+            SubPixelProbePhase.Intro, SubPixelProbeViewModel.IntroStartTargetId,
+            [
+                SubPixelProbeViewModel.AskYesTargetId, SubPixelProbeViewModel.AskLaterTargetId,
+                SubPixelProbeViewModel.ResultDoneTargetId,
+                SubPixelProbeViewModel.AnswerOneTargetId, SubPixelProbeViewModel.AnswerTwoTargetId,
+            ]
+        },
+        {
+            SubPixelProbePhase.Ask, SubPixelProbeViewModel.AskYesTargetId,
+            [
+                SubPixelProbeViewModel.IntroStartTargetId, SubPixelProbeViewModel.ResultDoneTargetId,
+                SubPixelProbeViewModel.AnswerOneTargetId, SubPixelProbeViewModel.AnswerTwoTargetId,
+            ]
+        },
+        {
+            SubPixelProbePhase.Ask, SubPixelProbeViewModel.AskLaterTargetId,
+            [
+                SubPixelProbeViewModel.IntroStartTargetId, SubPixelProbeViewModel.ResultDoneTargetId,
+                SubPixelProbeViewModel.AnswerOneTargetId, SubPixelProbeViewModel.AnswerTwoTargetId,
+            ]
+        },
+        {
+            SubPixelProbePhase.Result, SubPixelProbeViewModel.ResultDoneTargetId,
+            [
+                SubPixelProbeViewModel.IntroStartTargetId, SubPixelProbeViewModel.AskYesTargetId,
+                SubPixelProbeViewModel.AskLaterTargetId,
+                SubPixelProbeViewModel.AnswerOneTargetId, SubPixelProbeViewModel.AnswerTwoTargetId,
+            ]
+        },
+        {
+            SubPixelProbePhase.Answer, SubPixelProbeViewModel.AnswerOneTargetId,
+            [
+                SubPixelProbeViewModel.IntroStartTargetId, SubPixelProbeViewModel.AskYesTargetId,
+                SubPixelProbeViewModel.AskLaterTargetId, SubPixelProbeViewModel.ResultDoneTargetId,
+            ]
+        },
+        {
+            SubPixelProbePhase.Answer, SubPixelProbeViewModel.AnswerTwoTargetId,
+            [
+                SubPixelProbeViewModel.IntroStartTargetId, SubPixelProbeViewModel.AskYesTargetId,
+                SubPixelProbeViewModel.AskLaterTargetId, SubPixelProbeViewModel.ResultDoneTargetId,
+            ]
+        },
+    };
+
+    [Theory]
+    [MemberData(nameof(GuardCases))]
+    public void V1cue2_EveryGuardedButton_IsSilentEverywhereElse_AndCuesOnItsOwnScreen(
+        SubPixelProbePhase screen, string honouredId, string[] silentIds)
+    {
+        var f = new Harness();
+        var targets = new ProbeTargets();
+        targets.Wire(f);
+
+        switch (screen)
+        {
+            case SubPixelProbePhase.Intro:
+                f.Vm.Start();
+                break;
+            case SubPixelProbePhase.Ask:
+                f.StartToTrials();
+                f.CompleteSession1();
+                break;
+            case SubPixelProbePhase.Result:
+                f.ReachScreen(SubPixelProbePhase.Result);
+                break;
+            default:
+                f.StartToTrials();
+                Check.That(f.DriveUntil(() => f.Vm.Phase == SubPixelProbePhase.Answer)).IsTrue();
+                break;
+        }
+
+        Check.That(f.Vm.Phase).IsEqualTo(screen);
+
+        // Deltas: reaching Ask/Result plays real blocks whose answered trials are honoured (and
+        // cue) on their own screens, so only the changes from here on are the assertion.
+        int cuesBefore = targets.Cues;
+        var clicksBefore = ClicksSnapshot(targets);
+
+        foreach (var id in silentIds)
+        {
+            f.Vm.SimulateActivated(id);
+            Check.WithCustomMessage($"{id} fired outside {screen}")
+                .That(targets.Clicks[id]).IsEqualTo(clicksBefore[id]);
+            Check.WithCustomMessage($"{id} cued outside {screen}")
+                .That(targets.Cues).IsEqualTo(cuesBefore);
+        }
+
+        Check.That(f.Vm.Phase).IsEqualTo(screen);
+
+        f.Vm.SimulateActivated(honouredId);
+        Check.WithCustomMessage($"{honouredId} did not fire on {screen}")
+            .That(targets.Clicks[honouredId]).IsEqualTo(clicksBefore[honouredId] + 1);
+        Check.WithCustomMessage($"{honouredId} did not cue on {screen}")
+            .That(targets.Cues).IsEqualTo(cuesBefore + 1);
+
+        if (screen is SubPixelProbePhase.Answer or SubPixelProbePhase.Intro)
+        {
+            Check.WithCustomMessage($"{honouredId} left the {screen} screen")
+                .That(f.Vm.Phase).IsNotEqualTo(screen);
+        }
+    }
+
+    private static Dictionary<string, int> ClicksSnapshot(ProbeTargets targets) =>
+        ProbeTargetIds.ToDictionary(id => id, id => targets.Clicks[id]);
+
+    // Mutation (I-D1-silent): the publish moves above the phase guards -> the silent ids cue:
+    //   the cue counts go red.
+    // Mutation (O-guard): a guard accepts the wrong phase (e.g. answers honoured on Ask) -> the
+    //   silent click checks go red.
+
+    [Fact]
+    public void V1c10_DwellPauseGrace_IsExactly300ms_AndALongerDropoutStillResetsIt()
+    {
+        Check.WithCustomMessage("O2: the probe's grace is the owner-facing bound, exactly 300 ms")
+            .That(SubPixelProbeViewModel.DwellPauseGraceMs).IsEqualTo(300);
+
+        var f = new Harness();
+        f.StartToTrials();
+        f.Dwell.ToolbarButtonDwellMs = 700;
+        f.Vm.Register(SubPixelProbeViewModel.AnswerOneTargetId, DwellCategory.Control, 75, 700, () => f.AnswerClicks++);
+        f.Vm.UpdatePosition(SubPixelProbeViewModel.AnswerOneTargetId, DwellCategory.Control, ButtonOne);
+
+        Check.That(f.DriveUntil(() => f.Vm.Phase == SubPixelProbePhase.Answer, at: Inside)).IsTrue();
+
+        // 180 ms inside, then a 350 ms blink: past the grace the dwell starts over.
+        f.Drive(180, Inside);
+        Check.That(f.Vm.GetProgress(SubPixelProbeViewModel.AnswerOneTargetId, DwellCategory.Control))
+            .IsStrictlyGreaterThan(0.2);
+
+        f.TickGap(350, Inside);
+        f.Tick(30, Inside);
+        Check.WithCustomMessage("A dropout past the 300 ms grace must reset the dwell")
+            .That(f.Vm.GetProgress(SubPixelProbeViewModel.AnswerOneTargetId, DwellCategory.Control))
+            .IsEqualTo(0.0);
+    }
+
+    // Mutation (O2): DwellPauseGraceMs 300 -> 2000 -> the constant pin goes red (and the 350 ms
+    //   dropout then pauses, so the reset check goes red too).
+
     // ------------------------------------------------------------------- V1: statistics (F6, o7)
 
     [Fact]

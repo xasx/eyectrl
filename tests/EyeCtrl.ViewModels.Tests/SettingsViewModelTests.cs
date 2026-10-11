@@ -91,6 +91,7 @@ public class SettingsViewModelTests
     public void ResetAllSettings_CoversEveryEnumeratedSubSetting()
     {
         var settings = new EyeCtrlSettings();
+        settings.General.SimpleSettingsUi = true;
         settings.Cursor.CircleSize = 400;
         settings.Dwell.FixationDetectionMs = 999;
         settings.Backdrop.Opacity = 0.8;
@@ -115,9 +116,12 @@ public class SettingsViewModelTests
         // Property-level exemptions inside a section the reset otherwise covers. D10 (the user's
         // call 2026-10-07): the language survives every reset, so General.UiLanguage is expected
         // to KEEP its perturbed-valued-shaped default and must not be equality-checked here.
+        // General.SimpleSettingsUi (spec §5.1) rides the same exemption — the interface mode
+        // survives every reset too, and the arrange leaves it true so this entry is load-bearing.
         var notResetPropsByDesign = new HashSet<(string Sub, string Prop)>
         {
             ("General", nameof(GeneralSettings.UiLanguage)),
+            ("General", nameof(EyeCtrl.Core.Settings.GeneralSettings.SimpleSettingsUi)),
         };
 
         foreach (var (name, sub) in settings.EnumerateSubSettings())
@@ -153,6 +157,18 @@ public class SettingsViewModelTests
 
         Check.That(settings.General.UiLanguage).IsEqualTo(UiLanguage.English);
         Check.That(settings.Cursor.CircleSize).IsEqualTo(new EyeCtrlSettings().Cursor.CircleSize);
+    }
+
+    [Fact]
+    public void ResetAllSettings_KeepsSimpleSettingsUi()
+    {
+        var settings = new EyeCtrlSettings();
+        settings.General.SimpleSettingsUi = true;
+        var vm = new SettingsViewModel(settings);
+
+        vm.ResetAllSettings();
+
+        Check.That(settings.General.SimpleSettingsUi).IsTrue();
     }
 
     [Fact]

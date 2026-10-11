@@ -230,7 +230,7 @@ public class SettingsDeepLinkWiringTests
         Check.WithCustomMessage(
                 "The sidebar page must be computed from General's own _tabDefs index (F6a), not a "
                 + "constant page number.")
-            .That(rowBody).Contains("Array.FindIndex(_tabDefs, t => t.Id == \"General\")");
+            .That(rowBody).Contains("Array.FindIndex(_visibleDefs, t => t.Id == \"General\")");
         Check.That(rowBody).Contains("SettingsTabPagination.PageOf(index, _tabsPerPage)");
     }
 

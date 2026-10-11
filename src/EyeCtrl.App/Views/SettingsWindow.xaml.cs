@@ -381,6 +381,52 @@ public partial class SettingsWindow : OverlayWindow
     private readonly (string Id, string Icon, string LabelKey, string DescriptionKey)[] _tabDefs;
     private readonly Dictionary<string, ISettingsPageSource> _sources = new();
 
+    private (string Id, string Icon, string LabelKey, string DescriptionKey)[] _visibleDefs = [];
+
+    /// <summary>
+    /// Everything the sidebar needs for the current mode, from the pure model. The FACE loop never
+    /// reads this (faces exist for every tab); only the page count, the active index, the
+    /// RenderTabPage slice and the language deep link ride it.
+    /// </summary>
+    private SettingsSidebarModel.SidebarLayout ComputeSidebarLayout(string currentTab) =>
+        SettingsSidebarModel.Compute(
+            _tabDefs.Select(t => t.Id).ToArray(),
+            SimpleSettingsFilter.SimpleTabIds,
+            _settings.General.SimpleSettingsUi,
+            SidebarTabBudget, TabContainerHeight + 2 * TabButtonMargin,
+            currentTab);
+
+    /// <summary>
+    /// Applies one layout: page-count fields, the pager chrome (cleared before rebuild —
+    /// BuildTabPagePager only appends), then ONE RenderTabPage. Registration mirrors chrome at
+    /// every step; the tab pager's guards keep their own lifecycle and are harmless while absent.
+    /// </summary>
+    private void ApplySidebarLayout(SettingsSidebarModel.SidebarLayout layout)
+    {
+        _visibleDefs = _tabDefs.Where(d => layout.VisibleIds.Contains(d.Id)).ToArray();
+        _tabsPerPage = layout.TabsPerPage;
+        _tabPageCount = layout.PageCount;
+        _tabPageIndex = layout.PageIndex;
+        RebuildTabPagerChrome();
+        RenderTabPage();
+    }
+
+    /// <summary>Clears the tab pager chrome unconditionally, then rebuilds it only when the mode's
+    /// page count needs one. Unregisters first: a vanished button must not keep a live circle.</summary>
+    private void RebuildTabPagerChrome()
+    {
+        _viewModel.Unregister("tab_prev", DwellCategory.Pagination);
+        _viewModel.Unregister("tab_next", DwellCategory.Pagination);
+        TabPagerPanel.Children.Clear();
+        _tabPagerButtons.Clear();
+        _tabPagerBrushes.Clear();
+        if (_tabPageCount > 1)
+        {
+            BuildTabPagePager();
+            UpdateTabPagePagerState();
+        }
+    }
+
     public SettingsWindow(
         SettingsWindowViewModel viewModel,
         EyeCtrlSettings settings,
@@ -765,17 +811,13 @@ public partial class SettingsWindow : OverlayWindow
             _tabBrushes[id] = tabBrush;
         }
 
-        // How many tabs one sidebar page holds at this window height, then land on the page
-        // showing the active tab (page 0 when nothing is active yet — the ctor's ShowTab
-        // follows and cannot change the page: "Cursor" IS page 0).
-        _tabsPerPage = SettingsTabPagination.TabsPerPage(
-            SidebarTabBudget, TabContainerHeight + 2 * TabButtonMargin);
-        _tabPageCount = SettingsTabPagination.PageCount(_tabDefs.Length, _tabsPerPage);
-        var activeIndex = Array.FindIndex(_tabDefs, t => t.Id == _viewModel.ActiveTabId);
-        _tabPageIndex = activeIndex < 0 ? 0 : SettingsTabPagination.PageOf(activeIndex, _tabsPerPage);
-
-        BuildTabPagePager();
-        RenderTabPage();
+        // The whole sidebar layout — page size, page count, the page holding the current tab —
+        // comes from the pure model in one call, then lands in one apply. Nothing is active yet
+        // on the first build, so "Cursor" (page 0's leader) stands in; the ctor's ShowTab
+        // follows and cannot change the page: "Cursor" IS page 0.
+        var layout = ComputeSidebarLayout(
+            string.IsNullOrEmpty(_viewModel.Settings.CurrentTabName) ? "Cursor" : _viewModel.Settings.CurrentTabName);
+        ApplySidebarLayout(layout);
 
         // Register close button with ViewModel
         _viewModel.Register("close", DwellCategory.Tab, DpiHelper.LogicalToPhysicalX(TabBtnRadius), _dwellMs, () => { });
@@ -793,10 +835,10 @@ public partial class SettingsWindow : OverlayWindow
         _renderedTabIds.Clear();
         TabButtonPanel.Children.Clear();
 
-        var (start, count) = SettingsTabPagination.PageSlice(_tabDefs.Length, _tabsPerPage, _tabPageIndex);
+        var (start, count) = SettingsTabPagination.PageSlice(_visibleDefs.Length, _tabsPerPage, _tabPageIndex);
         for (var i = start; i < start + count; i++)
         {
-            var (id, _, _, _) = _tabDefs[i];
+            var (id, _, _, _) = _visibleDefs[i];
             TabButtonPanel.Children.Add(_tabButtons[id]);
             _viewModel.Register(id, DwellCategory.Tab, DpiHelper.LogicalToPhysicalX(TabBtnRadius), _dwellMs, () => { });
             _renderedTabIds.Add(id);
@@ -995,7 +1037,7 @@ public partial class SettingsWindow : OverlayWindow
     {
         ShowTab("General");
         _viewModel.ActiveTabId = "General";
-        var index = Array.FindIndex(_tabDefs, t => t.Id == "General");
+        var index = Array.FindIndex(_visibleDefs, t => t.Id == "General");
         if (index >= 0)
             SwitchTabPage(SettingsTabPagination.PageOf(index, _tabsPerPage));
     }

@@ -61,22 +61,80 @@ public class SettingsTabPaginationTests
 
 public class SettingsTabPaginationWiringTests
 {
+    private static string WindowSource() => File.ReadAllText(Path.Combine(
+        SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs"));
+
     // Source-scan pin (the window can't be constructed headlessly — its XAML needs app-level
-    // resources): BuildTabButtons must derive the tab-page size from the pure chunker against
-    // the real sidebar budget, not a hardcoded tab count, or a future display geometry
-    // silently re-clips tabs.
+    // resources): BuildTabButtons must derive the tab-page size through the sidebar model call,
+    // not a hardcoded tab count, or a future display geometry silently re-clips tabs.
     [Fact]
     public void BuildTabButtons_SizesPagesFromTheChunker()
     {
-        var source = File.ReadAllText(Path.Combine(SourceScanner.RepoRoot().FullName,
-            "src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs"));
-        var body = ExtractMethod(source, "private void BuildTabButtons()");
+        var body = ExtractMethod(WindowSource(), "private void BuildTabButtons()");
 
         Check.WithCustomMessage(
-                "BuildTabButtons no longer derives tabs-per-page from SettingsTabPagination — "
+                "BuildTabButtons no longer routes its paging through ComputeSidebarLayout — "
                 + "a hardcoded count re-clips the bottom tabs on short windows. Repoint the "
                 + "check at the new derivation, do not delete it.")
-            .That(body.Contains("SettingsTabPagination.TabsPerPage")).IsTrue();
+            .That(body.Contains("ComputeSidebarLayout(")).IsTrue();
+    }
+
+    [Fact]
+    public void RenderTabPage_SlicesTheVisibleDefs()
+    {
+        var body = ExtractMethod(WindowSource(), "private void RenderTabPage(");
+        Check.WithCustomMessage(
+                "RenderTabPage must slice the model-visible defs, never the full list — a hidden tab "
+                + "must not be attached or registered (the gaze-trap rule extends to mode hiding).")
+            .That(body).Contains("_visibleDefs");
+    }
+
+    [Fact]
+    public void BuildTabButtons_NeverFiltersTheFaceLoop()
+    {
+        // Round-2 N1's real home: filtering the face loop crashes simple-to-advanced with
+        // KeyNotFoundException (the process dies with no Supervisor present). The loop's literal
+        // foreach is already green today; these Not-Contains are the teeth — no filter may creep in.
+        var body = ExtractMethod(WindowSource(), "private void BuildTabButtons(");
+        Check.WithCustomMessage("The face loop must not read the visible defs.")
+            .That(body).Not.Contains("_visibleDefs");
+        Check.WithCustomMessage("The face loop must not read the simple set.")
+            .That(body).Not.Contains("SimpleTabIds");
+        Check.WithCustomMessage("The face loop must not read the mode flag.")
+            .That(body).Not.Contains("SimpleSettingsUi");
+        Check.WithCustomMessage("No 'if (!visible) continue;' filter may be added to the face loop.")
+            .That(body).Not.Contains("continue");
+    }
+
+    [Fact]
+    public void BuildTabButtons_RegistersTheCloseButton()
+    {
+        // Plan-review I4: no test anywhere pins this; an executor "rewiring the tail" must not
+        // drop it — the gaze-only owner would lose the only dwell that closes Settings.
+        var body = ExtractMethod(WindowSource(), "private void BuildTabButtons(");
+        Check.That(body).Contains("Register(\"close\"");
+    }
+
+    [Fact]
+    public void ComputeSidebarLayout_FeedsTheRealBudgetAndSlot()
+    {
+        // Plan-review I7: the page math must still derive from the live sidebar budget, not a
+        // constant smuggled through the model call.
+        var body = ExtractMethod(WindowSource(), "private SettingsSidebarModel.SidebarLayout ComputeSidebarLayout(");
+        Check.That(body).Contains("SidebarTabBudget");
+        Check.That(body).Contains("TabContainerHeight + 2 * TabButtonMargin");
+    }
+
+    [Fact]
+    public void ModelCompute_UsesTheChunker()
+    {
+        // Rooted at the repo root like every source scan in this class (the test host's cwd is
+        // the bin directory — a relative path throws FileNotFoundException). Green on contact:
+        // the model exists from Task 6; this pin guards future rewrites (plan-review r2 N2).
+        var body = File.ReadAllText(Path.Combine(
+            SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Views", "Settings", "SettingsSidebarModel.cs"));
+        Check.WithCustomMessage("SettingsSidebarModel.Compute must derive paging from SettingsTabPagination.")
+            .That(body).Contains("SettingsTabPagination.TabsPerPage");
     }
 
     // Hidden tabs must not keep live dwell targets: an unregistered-looking tab that still

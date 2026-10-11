@@ -25,6 +25,18 @@ public class SettingsRowSpecTests
     }
 
     [Fact]
+    public void Simple_DefaultsToFalse_AndIsSettableOnAnySpecKind()
+    {
+        var unflagged = new ToggleSpec("t1", "Label", () => true, _ => { });
+        var flagged = new SliderSpec("s1", "Label", 0, 1, 0.1, 1, () => 0, _ => { }) { Simple = true };
+        var flaggedLabel = new LabelSpec(() => "note") { Simple = true };
+
+        Check.That(unflagged.Simple).IsFalse();
+        Check.That(flagged.Simple).IsTrue();
+        Check.That(flaggedLabel.Simple).IsTrue();
+    }
+
+    [Fact]
     public void PageSpec_HoldsRowsInOrder()
     {
         var page = new PageSpec(new SettingsRowSpec[]

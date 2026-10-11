@@ -36,6 +36,8 @@ public class Step1LiveCheckSupervisorTests : IDisposable
     private readonly string _root = Path.Combine(
         Path.GetTempPath(), "eyectrl-t11-live-" + Guid.NewGuid().ToString("N"));
     private readonly string _install;
+    private readonly string _writerMutexName =
+        @"Local\EyeCtrl.Settings.Writer.Test." + Guid.NewGuid().ToString("N");
 
     public Step1LiveCheckSupervisorTests()
     {
@@ -78,12 +80,19 @@ public class Step1LiveCheckSupervisorTests : IDisposable
         failure?.Throw();
     }
 
-    /// <summary>Shows the window and pumps for <paramref name="duration"/>, then closes it.</summary>
+    /// <summary>Shows the window and pumps for <paramref name="duration"/>, then closes it —
+    /// in a <c>finally</c>, so a throw from the pump cannot leave the window on the screen.</summary>
     private static void ShowFor(Window window, TimeSpan duration)
     {
         window.Show();
-        PumpFor(duration);
-        window.Close();
+        try
+        {
+            PumpFor(duration);
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     /// <summary>
@@ -143,7 +152,7 @@ public class Step1LiveCheckSupervisorTests : IDisposable
                 work => work());
             var window = new SupervisorSetupWindow(
                 new EyeCtrlSettings(),
-                new SettingsService(Path.Combine(_root, "settings.json"), SettingsWriter.Supervisor),
+                new SettingsService(Path.Combine(_root, "settings.json"), SettingsWriter.Supervisor, _writerMutexName),
                 _ => { },
                 () => { },
                 new StartOnBootSetupRow(startOnBoot, () => false),

@@ -166,7 +166,7 @@ public class ShippedGermanSupervisorTests : IDisposable
                 work => work());
             var window = new SupervisorSetupWindow(
                 new EyeCtrlSettings(),
-                new SettingsService(Path.Combine(_root, "settings.json"), SettingsWriter.Supervisor),
+                new SettingsService(Path.Combine(_root, "settings.json"), SettingsWriter.Supervisor, _writerMutexName),
                 _ => { },
                 () => { },
                 new StartOnBootSetupRow(startOnBoot, () => false),

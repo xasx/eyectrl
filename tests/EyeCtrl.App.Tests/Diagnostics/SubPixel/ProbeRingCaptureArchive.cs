@@ -262,21 +262,48 @@ internal static class ProbeRingCaptureArchive
     }
 
     /// <summary>
-    /// `git rev-parse HEAD` in the repo root, with a `-dirty` suffix when the working tree has
-    /// changes (fixup 05 nit), or "unknown" when git cannot be read. A run on a mutated tree must
-    /// not record a clean-looking sha.
+    /// The sha a manifest should record (fixup 06 R2d), pure so it can be unit-tested:
+    /// <list type="bullet">
+    /// <item>no sha → <c>unknown</c>;</item>
+    /// <item>the status probe failed → <c>&lt;sha&gt;-unverified</c> (never a clean-looking sha);</item>
+    /// <item>the working tree has changes → <c>&lt;sha&gt;-dirty</c>;</item>
+    /// <item>otherwise the sha.</item>
+    /// </list>
+    /// </summary>
+    /// <param name="sha">`git rev-parse HEAD` output, or null/empty.</param>
+    /// <param name="porcelain">`git status --porcelain` output.</param>
+    /// <param name="statusOk">Whether the status probe succeeded.</param>
+    internal static string FormatCommitSha(string? sha, string? porcelain, bool statusOk)
+    {
+        if (string.IsNullOrWhiteSpace(sha))
+            return "unknown";
+        if (!statusOk)
+            return sha.Trim() + "-unverified";
+        return string.IsNullOrWhiteSpace(porcelain) ? sha.Trim() : sha.Trim() + "-dirty";
+    }
+
+    /// <summary>
+    /// `git rev-parse HEAD` in the repo root, with the dirty/unverified suffix from
+    /// <see cref="FormatCommitSha"/>, or "unknown" when git cannot be read or the repo root is not
+    /// this checkout's top level (fixup 06 R2d: an archive extracted inside another repository must
+    /// not record that repository's HEAD).
     /// </summary>
     private static string ReadCommitSha()
     {
         try
         {
             var root = EyeCtrl.App.Tests.SourceScanner.RepoRoot().FullName;
-            var sha = RunGit(root, "rev-parse HEAD").Trim();
-            if (sha.Length == 0)
+
+            var (topLevelOk, topLevel) = RunGit(root, "rev-parse --show-toplevel");
+            if (!topLevelOk || !PathsEqual(topLevel.Trim(), root))
                 return "unknown";
 
-            var dirty = RunGit(root, "status --porcelain").Trim().Length > 0;
-            return dirty ? sha + "-dirty" : sha;
+            var (shaOk, sha) = RunGit(root, "rev-parse HEAD");
+            if (!shaOk)
+                return FormatCommitSha(null, null, statusOk: false);
+
+            var (statusOk, porcelain) = RunGit(root, "status --porcelain");
+            return FormatCommitSha(sha, porcelain, statusOk);
         }
         catch
         {
@@ -284,7 +311,13 @@ internal static class ProbeRingCaptureArchive
         }
     }
 
-    private static string RunGit(string workingDirectory, string arguments)
+    private static bool PathsEqual(string left, string right) =>
+        string.Equals(
+            left.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            right.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            StringComparison.OrdinalIgnoreCase);
+
+    private static (bool Ok, string Output) RunGit(string workingDirectory, string arguments)
     {
         using var git = Process.Start(new ProcessStartInfo("git", arguments)
         {
@@ -295,10 +328,10 @@ internal static class ProbeRingCaptureArchive
             WorkingDirectory = workingDirectory,
         });
         if (git is null)
-            return string.Empty;
+            return (false, string.Empty);
 
         var output = git.StandardOutput.ReadToEnd();
         git.WaitForExit(5000);
-        return git.ExitCode == 0 ? output : string.Empty;
+        return (git.ExitCode == 0, output);
     }
 }

@@ -13,6 +13,23 @@ using System.Text.RegularExpressions;
 [Collection("WpfApplication")]
 public class ProbeRingCaptureArchiveTests
 {
+    /// <summary>
+    /// Fixup 06 R2d: the manifest's sha rule, pure and unit-tested. A dropped dirty flag (S1), a
+    /// failed status probe recording a clean-looking sha, and an empty sha are each caught here.
+    /// </summary>
+    [Theory]
+    [InlineData("abc123", "", true, "abc123")]
+    [InlineData("abc123", " M file.cs\n", true, "abc123-dirty")]
+    [InlineData("abc123", "", false, "abc123-unverified")]
+    [InlineData(null, "", true, "unknown")]
+    [InlineData("", " M x", true, "unknown")]
+    public void FormatCommitSha_IsTheManifestRule(string? sha, string porcelain, bool statusOk, string expected)
+    {
+        Check.WithCustomMessage(
+                $"FormatCommitSha({sha ?? "null"}, \"{porcelain.Replace("\n", "\\n")}\", {statusOk}) must be {expected}.")
+            .That(ProbeRingCaptureArchive.FormatCommitSha(sha, porcelain, statusOk)).IsEqualTo(expected);
+    }
+
     [Fact]
     public void CreateRunFolder_LivesUnderTemp_AndNeverUnderAppData()
     {
@@ -119,8 +136,8 @@ public class ProbeRingCaptureArchiveTests
             Check.WithCustomMessage("The manifest must record the commit sha (or 'unknown').")
                 .That(archive.CommitSha).IsNotNull();
             Check.WithCustomMessage(
-                    $"The sha must be a real sha, optionally -dirty, or 'unknown'; got '{archive.CommitSha}'.")
-                .That(Regex.IsMatch(archive.CommitSha, @"^([0-9a-f]{40}(-dirty)?|unknown)$")).IsTrue();
+                    $"The sha must be a real sha, optionally -dirty/-unverified, or 'unknown'; got '{archive.CommitSha}'.")
+                .That(Regex.IsMatch(archive.CommitSha, @"^([0-9a-f]{40}(-dirty|-unverified)?|unknown)$")).IsTrue();
         }
         finally
         {

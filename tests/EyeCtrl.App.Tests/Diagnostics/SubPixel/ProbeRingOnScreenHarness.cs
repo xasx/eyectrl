@@ -196,25 +196,30 @@ internal static class ProbeRingOnScreenHarness
             var startedUtc = DateTimeOffset.UtcNow;
             var captureClock = Stopwatch.StartNew();
             var samples = new List<ProbeRingCapturedSample>();
-            var currentLook = ProbeRingCaptureScene.OwnerLook();
-            var ring = new ProbeRingVisual(scale, currentLook, ProbeRingCaptureScene.LookOpacity);
-            window.AttachRing(ring);
+
+            // Fixup 06 R1: the look and the visual are built and attached together, and the pair is
+            // what the guard and the manifest use — never a bookkeeping variable the switch has just
+            // assigned, which would make the guard tautological.
+            (ProbeRingVisual Ring, CursorSettings Look) AttachLook(CursorSettings look)
+            {
+                var visual = new ProbeRingVisual(scale, look, ProbeRingCaptureScene.LookOpacity);
+                window.AttachRing(visual);
+                return (visual, look);
+            }
+
+            var (ring, currentLook) = AttachLook(ProbeRingCaptureScene.OwnerLook());
 
             foreach (var step in plan)
             {
                 if (step.Look.RingStyle != currentLook.RingStyle)
-                {
-                    currentLook = step.Look;
-                    ring = new ProbeRingVisual(scale, currentLook, ProbeRingCaptureScene.LookOpacity);
-                    window.AttachRing(ring);
-                }
+                    (ring, currentLook) = AttachLook(step.Look);
 
-                // Fixup 05 P2: fail closed if the switch above did not actually attach the plan's
-                // look — a silently ignored switch would draw D2 with the wrong look AND (before the
-                // record fix) mislabel the manifest, pointing the key decider at the wrong cause.
+                // Fail closed if the attached visual was not built from the plan's look — a switch
+                // that silently keeps the old visual would draw D2 with the wrong look AND mislabel
+                // the manifest, pointing the key decider at the wrong cause (H2/H2b/H2c).
                 Check.WithCustomMessage(
                         $"The harness must draw step {step.Kind} at f={step.FractionX:0.00} with "
-                        + $"{step.Look.RingStyle}, but the attached look is {currentLook.RingStyle}.")
+                        + $"{step.Look.RingStyle}, but the attached visual was built from {currentLook.RingStyle}.")
                     .That(currentLook.RingStyle).IsEqualTo(step.Look.RingStyle);
 
                 samples.Add(CaptureAt(

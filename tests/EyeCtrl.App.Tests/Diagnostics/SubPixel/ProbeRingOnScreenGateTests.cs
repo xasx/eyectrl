@@ -305,6 +305,55 @@ public class ProbeRingOnScreenGateTests
                 + "step's look (fixup 05 P2).")
             .That(harness.IndexOf("LookOf(currentLook)", StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);
 
+        // Fixup 06 R1: the look and the visual are built and attached together, and the guard reads
+        // the built-from look. The guard pin names the fluent call, so it cannot also match the
+        // `if`; the switch pin is the helper call itself, so a switch that keeps the old visual
+        // (H2b) or re-attaches the old look's visual (H2c) fails. The guard pin kills G1.
+        Check.WithCustomMessage(
+                "The harness must build and attach the initial look through AttachLook — "
+                + "`var (ring, currentLook) = AttachLook(ProbeRingCaptureScene.OwnerLook());` (R1).")
+            .That(harness.IndexOf(
+                "var (ring, currentLook) = AttachLook(ProbeRingCaptureScene.OwnerLook());", StringComparison.Ordinal))
+            .IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage(
+                "The switch's if-body must be exactly the helper call — `(ring, currentLook) = "
+                + "AttachLook(step.Look);` — so the visual and the look cannot come apart (H2b/H2c, R1).")
+            .That(harness.IndexOf("(ring, currentLook) = AttachLook(step.Look);", StringComparison.Ordinal))
+            .IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage(
+                "The per-capture guard must compare the look the attached visual was built from "
+                + "(`That(currentLook.RingStyle).IsEqualTo(step.Look.RingStyle)`); G1 deletes it (R1).")
+            .That(harness.IndexOf(
+                "That(currentLook.RingStyle).IsEqualTo(step.Look.RingStyle)", StringComparison.Ordinal))
+            .IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage("AttachLook itself must build the visual from the look it returns (R1).")
+            .That(harness.IndexOf("(ProbeRingVisual Ring, CursorSettings Look) AttachLook(", StringComparison.Ordinal))
+            .IsStrictlyGreaterThan(-1);
+
+        // Fixup 06 R2a: the loop must iterate the plan built here, not a reordered copy (H3b).
+        Check.WithCustomMessage(
+                "The harness must build the plan as `var plan = ProbeRingCapturePlan.Build();` — a "
+                + "reordered Build() would slip past the loop pin (H3b).")
+            .That(harness.IndexOf("var plan = ProbeRingCapturePlan.Build();", StringComparison.Ordinal))
+            .IsStrictlyGreaterThan(-1);
+
+        // Fixup 06 R2c: the tail order — report, then save, then the single-origin check, then the
+        // verdict. Kills O1 (the origin check deleted or moved back before the save).
+        var originAt = harness.IndexOf("That(origins).HasSize(1)", StringComparison.Ordinal);
+        var judgeAt = harness.IndexOf("ProbeRingOnScreenJudge.Judge(report)", StringComparison.Ordinal);
+        Check.WithCustomMessage("The single-origin check must be present (O1 deletes it).")
+            .That(originAt).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage("The verdict call must be present.")
+            .That(judgeAt).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage(
+                "The tail order must be: report (printed), save, origin check, verdict — "
+                + $"got report {reportAt}, save {saveAt}, origin {originAt}, verdict {judgeAt}.")
+            .That(reportAt).IsStrictlyLessThan(saveAt);
+        Check.WithCustomMessage("The save must come before the origin check (fixup 05 nit).")
+            .That(saveAt).IsStrictlyLessThan(originAt);
+        Check.WithCustomMessage("The origin check must come before the verdict.")
+            .That(originAt).IsStrictlyLessThan(judgeAt);
+
         var onScreen = SourceScanner.StripComments(File.ReadAllText(Path.Combine(
             root, "tests", "EyeCtrl.App.Tests", "Diagnostics", "SubPixel", "ProbeRingOnScreenTests.cs")));
 

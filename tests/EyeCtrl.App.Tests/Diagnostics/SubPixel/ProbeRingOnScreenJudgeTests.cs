@@ -349,6 +349,65 @@ public class ProbeRingOnScreenJudgeTests
     }
 
     /// <summary>
+    /// Fixup 06 R2b: D1's own catch, with the single-row measurement succeeding. The fixture cuts a
+    /// band of rows just below the scan row, so the single-row X/Y windows still hold weight while
+    /// D1's offset row is empty and throws: the row degrades to NaN plus the message, the judged
+    /// rows are intact and the verdict is unaffected. Kills P4b (D1's catch rethrows).
+    /// </summary>
+    [StaFact]
+    public void D1OnlyThrow_DegradesToNaN_AndLeavesTheJudgedRowsAndVerdictIntact()
+    {
+        var (expected, referenceB, referenceA, assertions, sweep) = HealthyInputs();
+        var cut = CutRows(RingAt(0.25, snap: false), fromRow: 305, toRow: 315);
+
+        var diagnostic = new ProbeRingOnScreenJudge.DiagnosticGroup(
+            "D2",
+            "solid-look B rows (WeightedSandwich)",
+            referenceB,
+            [new ProbeRingOnScreenJudge.DiagnosticRow(0.25, 0.25, [cut])]);
+
+        var report = ProbeRingOnScreenJudge.Measure(
+            Inputs(2.0, expected, referenceB, referenceA, assertions, sweep, diagnostics: [diagnostic]));
+
+        var row = report.Diagnostics.Single().Row;
+        Check.WithCustomMessage("The single-row measurement is outside D1's catch and must succeed.")
+            .That(row).IsNotNull();
+        Check.WithCustomMessage("D1's offset rows are cut away; the row must degrade to NaN plus the message.")
+            .That(row!.MultiRowError).IsNotNull();
+        Check.That(double.IsNaN(row.MultiRowMeanX)).IsTrue();
+        Check.That(double.IsNaN(row.MultiRowMeanY)).IsTrue();
+
+        Check.WithCustomMessage("The judged rows must be intact and judged as before.")
+            .That(report.Failures).IsEmpty();
+
+        var lines = new List<string>();
+        ProbeRingOnScreenJudge.WriteReport(report, lines.Add);
+        Check.WithCustomMessage("The failed D1 must print with the DIAGNOSTIC label.")
+            .That(lines.Any(line => line.Contains("R2 DIAGNOSTIC") && line.Contains("failed:"))).IsTrue();
+
+        ProbeRingOnScreenJudge.Judge(report);
+    }
+
+    /// <summary>Copies a raster and zeroes every pixel in rows [fromRow, toRow].</summary>
+    private static ProbeRaster CutRows(ProbeRaster source, int fromRow, int toRow)
+    {
+        var pixels = (byte[])source.Pixels.Clone();
+        for (var y = fromRow; y <= toRow; y++)
+        {
+            for (var x = 0; x < source.Width; x++)
+            {
+                var p = (y * source.Width + x) * 4;
+                pixels[p] = 0;
+                pixels[p + 1] = 0;
+                pixels[p + 2] = 0;
+                pixels[p + 3] = 0;
+            }
+        }
+
+        return new ProbeRaster(pixels, source.Width, source.Height);
+    }
+
+    /// <summary>
     /// Fixup 03 items 2-4: the report carries a per-axis line for every row, with expected,
     /// measured, error, spread, the repeat samples and the mirrored halves. Kills the "report only
     /// X" mutant.

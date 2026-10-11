@@ -1,0 +1,113 @@
+namespace EyeCtrl.App.Tests.Diagnostics.SubPixel;
+
+using System;
+
+/// <summary>
+/// Fixup 08 item 2: the stale-capture retake, pure and headless. Consecutive plan steps never share
+/// a placement (pinned), so a capture whose bytes equal the previous capture's bytes is the previous
+/// frame: it is retaken up to <see cref="ProbeRingCaptureRetake.MaxRetakes"/> times, and if the copy
+/// stands it is marked — never dropped silently. The harness prints these lines and the judgement
+/// fails a stale capture in a judged row; the offline analyser applies the same rule to an archive.
+/// </summary>
+public class ProbeRingCaptureRetakeTests
+{
+    [Fact]
+    public void FreshCapture_IsNotRetaken()
+    {
+        var bytes = new byte[] { 1, 2, 3 };
+        var waits = 0;
+
+        var result = ProbeRingCaptureRetake.CaptureWithRetake(
+            capture: () => bytes,
+            previous: new byte[] { 9, 9, 9 },
+            waitOneMoreFrame: () => waits++);
+
+        Check.That(result.Retakes).IsEqualTo(0);
+        Check.That(result.Stale).IsFalse();
+        Check.That(result.Bytes).IsSameReferenceAs(bytes);
+        Check.WithCustomMessage("A fresh capture must not pay for a wait.").That(waits).IsEqualTo(0);
+    }
+
+    /// <summary>
+    /// Kills "retake disabled": the fake source returns the previous bytes first and fresh bytes
+    /// after the wait, so a retake must happen exactly once — a no-op retake leaves the stale copy
+    /// delivered and read as old pixels.
+    /// </summary>
+    [Fact]
+    public void StaleFirstCapture_IsRetakenOnceUntilFresh()
+    {
+        var previous = new byte[] { 7, 7, 7, 7 };
+        var fresh = new byte[] { 1, 1, 1, 1 };
+        var captures = 0;
+        var waits = 0;
+
+        var result = ProbeRingCaptureRetake.CaptureWithRetake(
+            capture: () => ++captures == 1 ? previous : fresh,
+            previous: previous,
+            waitOneMoreFrame: () => waits++);
+
+        Check.That(result.Retakes).IsEqualTo(1);
+        Check.That(result.Stale).IsFalse();
+        Check.That(result.Bytes).IsSameReferenceAs(fresh);
+        Check.That(captures).IsEqualTo(2);
+        Check.WithCustomMessage("The wait must happen before the retake, or the retake reads the same frame.")
+            .That(waits).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void StillStaleAfterThreeRetakes_IsMarkedAndNotRetakenFurther()
+    {
+        var previous = new byte[] { 7, 7, 7 };
+        var captures = 0;
+        var waits = 0;
+
+        var result = ProbeRingCaptureRetake.CaptureWithRetake(
+            capture: () =>
+            {
+                captures++;
+                return previous;
+            },
+            previous: previous,
+            waitOneMoreFrame: () => waits++);
+
+        Check.That(result.Retakes).IsEqualTo(ProbeRingCaptureRetake.MaxRetakes);
+        Check.WithCustomMessage("A copy that stands after three retakes must be marked, not dropped.")
+            .That(result.Stale).IsTrue();
+        Check.WithCustomMessage("The first capture plus exactly three retakes.")
+            .That(captures).IsEqualTo(4);
+        Check.That(waits).IsEqualTo(3);
+    }
+
+    [Fact]
+    public void NoPreviousCapture_IsNeverStale()
+    {
+        var captures = 0;
+
+        var result = ProbeRingCaptureRetake.CaptureWithRetake(
+            capture: () =>
+            {
+                captures++;
+                return new byte[] { 0 };
+            },
+            previous: null,
+            waitOneMoreFrame: () => throw new InvalidOperationException("The first capture has nothing to be stale against."));
+
+        Check.That(result.Retakes).IsEqualTo(0);
+        Check.That(result.Stale).IsFalse();
+        Check.That(captures).IsEqualTo(1);
+    }
+
+    /// <summary>
+    /// The session lines the harness prints: the pre-registered format
+    /// (<c>R2 retake: step k (kind f) after N</c>) and the stale mark's line.
+    /// </summary>
+    [Fact]
+    public void RetakeAndStaleLines_CarryTheStepKindFractionAndCount()
+    {
+        Check.That(ProbeRingCaptureRetake.RetakeLine(3, "sweep", 0.3, 1))
+            .IsEqualTo("R2 retake: step 3 (sweep f=0.30) after 1");
+        Check.WithCustomMessage("The stale line must name the step and the standing mark.")
+            .That(ProbeRingCaptureRetake.StaleLine(7, "assertion", 0.25, 3))
+            .Contains("R2 stale: step 7 (assertion f=0.25) after 3 retakes");
+    }
+}

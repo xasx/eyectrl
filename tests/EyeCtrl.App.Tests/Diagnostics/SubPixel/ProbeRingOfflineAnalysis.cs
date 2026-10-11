@@ -18,9 +18,14 @@ internal static class ProbeRingOfflineAnalysis
     {
         var archive = ProbeRingCaptureArchive.Load(folder);
 
+        // Fixup 08 item 2: the same staleness rule the live harness applies, re-derived from the
+        // saved bytes (consecutive in elapsedMs order, identical pixels) — so an archive predating
+        // the retakes field is checked identically, and a stale capture is judged as stale.
+        var samples = ProbeRingCaptureArchive.MarkStale(archive.Samples);
+
         // Select by Kind, not by save order (fixup 04 F4): the assertion fractions are also sweep
         // fractions, and the diagnostic blocks carry f = 0 references of their own.
-        var referenceB = archive.Samples
+        var referenceB = samples
             .Where(sample => sample.Kind == ProbeRingOnScreenJudge.KindReference
                              && sample.Condition == ProbeRingOnScreenJudge.ConditionB
                              && sample.Fraction == 0.0)
@@ -41,6 +46,6 @@ internal static class ProbeRingOfflineAnalysis
             referenceB.Background);
 
         return ProbeRingOnScreenJudge.Measure(
-            ProbeRingOnScreenJudge.BuildInputs(archive.Scale, expected, archive.Samples));
+            ProbeRingOnScreenJudge.BuildInputs(archive.Scale, expected, samples));
     }
 }

@@ -285,31 +285,62 @@ internal static class ProbeRingCaptureAnalysis
     }
 
     /// <summary>
-    /// The multi-row cardinal estimate (fixup 04 decider D1): <see cref="ProbeRasterEstimator.ShiftX"/>
-    /// averaged over the scan rows centre ± <paramref name="rowRadius"/>, and
-    /// <see cref="ProbeRasterEstimator.ShiftY"/> over the columns centre ± <paramref name="rowRadius"/>.
-    /// A local artefact at the single scan row — a dash end, a colour boundary — moves the single-row
-    /// value while leaving the neighbourhood average near the true shift; a real placement error moves
-    /// both. Diagnostic only, never judged.
+    /// The judged estimator's half-window, in rows/columns either side of the scan line (owner's
+    /// decision 2026-10-11, after run 2): the run-2 sweep showed the single scan row biased under
+    /// diagonal motion on the hardware rasterizer, so the judgement reads the 21-row average.
+    /// </summary>
+    internal const int JudgedRowRadius = 10;
+
+    /// <summary>
+    /// The multi-row cardinal estimate — the <b>judged</b> estimator (owner's decision 2026-10-11,
+    /// after run 2): <see cref="ProbeRasterEstimator.ShiftX"/> averaged over the scan rows centre ±
+    /// <paramref name="rowRadius"/>, and <see cref="ProbeRasterEstimator.ShiftY"/> over the columns
+    /// centre ± <paramref name="rowRadius"/>, with the mirrored halves averaged the same way (the
+    /// judged halves). A local artefact at the single scan row — a dash end, a colour boundary —
+    /// moves the single-row value while leaving the neighbourhood average near the true shift; a
+    /// real placement error moves both, which is the converse control the judge keeps.
+    /// </summary>
+    /// <param name="moved">The capture of the moved ring.</param>
+    /// <param name="reference">The capture of the reference (whole-pixel) ring.</param>
+    /// <param name="geometry">The scan geometry, in the reference capture's frame.</param>
+    /// <param name="rowRadius">How many rows/columns either side of the scan line are averaged; 10 by default.</param>
+    internal static MirroredShift MeasureMirroredMultiRowShift(
+        ProbeRaster moved, ProbeRaster reference, RingScanGeometry geometry, int rowRadius = JudgedRowRadius)
+    {
+        double left = 0.0, right = 0.0, top = 0.0, bottom = 0.0;
+        for (var offset = -rowRadius; offset <= rowRadius; offset++)
+        {
+            var xHalves = ProbeRasterEstimator.MirroredX(
+                moved, reference, geometry.ScanRow + offset, geometry.ReferenceCentreX, geometry.HalfPx);
+            var yHalves = ProbeRasterEstimator.MirroredY(
+                moved, reference, geometry.ScanColumn + offset, geometry.ReferenceCentreY, geometry.HalfPx);
+            left += xHalves.Left;
+            right += xHalves.Right;
+            top += yHalves.Top;
+            bottom += yHalves.Bottom;
+        }
+
+        var count = 2 * rowRadius + 1;
+        left /= count;
+        right /= count;
+        top /= count;
+        bottom /= count;
+        return new MirroredShift((left + right) / 2.0, (top + bottom) / 2.0, left, right, top, bottom);
+    }
+
+    /// <summary>
+    /// Just the mean of both axes of <see cref="MeasureMirroredMultiRowShift"/> — the named 21-row
+    /// estimate the sweep and the deciders speak in.
     /// </summary>
     /// <param name="moved">The capture of the moved ring.</param>
     /// <param name="reference">The capture of the reference (whole-pixel) ring.</param>
     /// <param name="geometry">The scan geometry, in the reference capture's frame.</param>
     /// <param name="rowRadius">How many rows/columns either side of the scan line are averaged; 10 by default.</param>
     internal static (double MeanX, double MeanY) MeasureMultiRowShift(
-        ProbeRaster moved, ProbeRaster reference, RingScanGeometry geometry, int rowRadius = 10)
+        ProbeRaster moved, ProbeRaster reference, RingScanGeometry geometry, int rowRadius = JudgedRowRadius)
     {
-        double sumX = 0.0, sumY = 0.0;
-        for (var offset = -rowRadius; offset <= rowRadius; offset++)
-        {
-            sumX += ProbeRasterEstimator.ShiftX(
-                moved, reference, geometry.ScanRow + offset, geometry.ReferenceCentreX, geometry.HalfPx);
-            sumY += ProbeRasterEstimator.ShiftY(
-                moved, reference, geometry.ScanColumn + offset, geometry.ReferenceCentreY, geometry.HalfPx);
-        }
-
-        var count = 2 * rowRadius + 1;
-        return (sumX / count, sumY / count);
+        var shift = MeasureMirroredMultiRowShift(moved, reference, geometry, rowRadius);
+        return (shift.MeanX, shift.MeanY);
     }
 
     /// <summary>

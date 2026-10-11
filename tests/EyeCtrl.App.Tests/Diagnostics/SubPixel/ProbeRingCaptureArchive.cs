@@ -54,6 +54,8 @@ internal sealed record ProbeRingLook(string Style, double SizeDip, double Thickn
 /// <param name="Background">The measured background colour.</param>
 /// <param name="Look">The ring look this frame was drawn with.</param>
 /// <param name="ElapsedMs">Milliseconds from the run's start to this capture (fixup 04 F5).</param>
+/// <param name="Retakes">How many stale-copy retakes this capture took (fixup 08 item 2).</param>
+/// <param name="Stale">Whether the capture is a stale copy of the previous frame despite the retakes.</param>
 internal sealed record ProbeRingCapturedSample(
     string Kind,
     string Condition,
@@ -65,7 +67,9 @@ internal sealed record ProbeRingCapturedSample(
     ProbeRaster Weights,
     (byte R, byte G, byte B) Background,
     ProbeRingLook Look,
-    long ElapsedMs);
+    long ElapsedMs,
+    int Retakes = 0,
+    bool Stale = false);
 
 /// <summary>The saved run's manifest header (fixup 03 item 5; sha added by fixup 04 F5).</summary>
 internal sealed record ProbeRingManifest(
@@ -94,7 +98,9 @@ internal sealed record ProbeRingManifestSample(
     byte BackgroundR,
     byte BackgroundG,
     byte BackgroundB,
-    string Utc);
+    string Utc,
+    int Retakes = 0,
+    bool Stale = false);
 
 /// <summary>A loaded run: its samples, the scale they were captured at, when, and the commit.</summary>
 internal sealed record ProbeRingArchive(
@@ -183,7 +189,9 @@ internal static class ProbeRingCaptureArchive
                 sample.Background.R,
                 sample.Background.G,
                 sample.Background.B,
-                createdUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)));
+                createdUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
+                sample.Retakes,
+                sample.Stale));
         }
 
         var manifest = new ProbeRingManifest(
@@ -258,7 +266,31 @@ internal static class ProbeRingCaptureArchive
 
         return new ProbeRingCapturedSample(
             entry.Kind, entry.Condition, entry.Fraction, entry.Repeat, geometry, pixels,
-            readable.PixelWidth, weights, background, look, entry.ElapsedMs);
+            readable.PixelWidth, weights, background, look, entry.ElapsedMs, entry.Retakes, entry.Stale);
+    }
+
+    /// <summary>
+    /// The offline staleness rule (fixup 08 item 2), the same rule the live harness applies to live
+    /// bytes: consecutive captures in <c>elapsedMs</c> order, and a capture whose pixels are
+    /// byte-identical to its predecessor's is the previous frame (consecutive plan placements never
+    /// share a position). The marked samples flow into the judgement, where a stale capture in a
+    /// judged row fails ("stale frame") and is excluded from the sweep's and diagnostics' means
+    /// with a <c>stale=N</c> flag. A manifest's own <c>stale</c> mark is kept as well.
+    /// </summary>
+    /// <param name="samples">The loaded samples, in any order.</param>
+    internal static IReadOnlyList<ProbeRingCapturedSample> MarkStale(
+        IReadOnlyList<ProbeRingCapturedSample> samples)
+    {
+        var ordered = samples.OrderBy(sample => sample.ElapsedMs).ToList();
+        var marked = new List<ProbeRingCapturedSample>(ordered.Count);
+        for (var i = 0; i < ordered.Count; i++)
+        {
+            var stale = ordered[i].Stale
+                || (i > 0 && ordered[i].Bgra.AsSpan().SequenceEqual(ordered[i - 1].Bgra));
+            marked.Add(ordered[i] with { Stale = stale });
+        }
+
+        return marked;
     }
 
     /// <summary>

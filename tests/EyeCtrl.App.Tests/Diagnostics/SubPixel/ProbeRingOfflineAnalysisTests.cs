@@ -145,6 +145,111 @@ public class ProbeRingOfflineAnalysisTests
         }
     }
 
+    /// <summary>
+    /// Fixup 08 item 2 (kills "offline staleness rule dropped"): a saved archive carrying one
+    /// byte-identical duplicate of its predecessor must mark that capture stale in a judged row —
+    /// the analysis fails it with the stale-frame message rather than quietly measuring the
+    /// previous frame's pixels. Run 2's own archive has exactly this shape; it predates the
+    /// retakes field and the rule is re-derived from the saved bytes.
+    /// </summary>
+    [StaFact]
+    public void Analyse_OfAnArchiveWithADuplicatedFrame_FailsTheJudgedRowAsStale()
+    {
+        var samples = ProbeRingSyntheticRun.Healthy();
+        var staleIndex = samples.FindIndex(sample =>
+            sample.Kind == ProbeRingOnScreenJudge.KindAssertion
+            && sample.Condition == ProbeRingOnScreenJudge.ConditionB
+            && Math.Abs(sample.Fraction - 0.25) < 1e-9
+            && sample.Repeat == 1);
+        Check.WithCustomMessage("The fixture needs a B f=0.25 repeat 1 to duplicate.")
+            .That(staleIndex).IsStrictlyGreaterThan(0);
+
+        var predecessor = samples[staleIndex - 1];
+        samples[staleIndex] = samples[staleIndex] with { Bgra = predecessor.Bgra, Weights = predecessor.Weights };
+
+        var folder = ProbeRingSyntheticRun.TempFolder();
+        try
+        {
+            ProbeRingCaptureArchive.Save(folder, samples, 2.0, DateTimeOffset.UtcNow);
+            var report = ProbeRingOfflineAnalysis.Analyse(folder);
+
+            Check.WithCustomMessage(
+                    "The duplicated frame is staleness, not a measurement miss; got failures: "
+                    + string.Join(" | ", report.Failures.Select(failure => failure.Message)))
+                .That(report.Failures.Any(failure => failure.Message.Contains("Stale frame"))).IsTrue();
+
+            var row = report.AssertionRows.Single(candidate =>
+                candidate.Condition == ProbeRingOnScreenJudge.ConditionB && Math.Abs(candidate.Fraction - 0.25) < 1e-9);
+            Check.WithCustomMessage("The stale repeat must be excluded from the judged mean.")
+                .That(row.MeanX).IsCloseTo(0.25, ProbeRingOnScreenJudge.TolerancePx);
+            Check.That(row.StaleRepeats).IsEqualTo(1);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Fixup 08 item 2: in the sweep a stale capture is <b>excluded from the mean and flagged</b>,
+    /// not judged and not silently included — the sweep's numbers must not carry the previous
+    /// frame's pixels. Kills the mutant that drops the offline rule (no flag, polluted mean).
+    /// </summary>
+    [StaFact]
+    public void Analyse_OfAnArchiveWithAStaleSweepCapture_ExcludesItAndFlagsIt()
+    {
+        var samples = ProbeRingSyntheticRun.Healthy();
+        var staleIndex = samples.FindIndex(sample =>
+            sample.Kind == ProbeRingOnScreenJudge.KindSweep
+            && Math.Abs(sample.Fraction - 0.30) < 1e-9
+            && sample.Repeat == 1);
+        Check.WithCustomMessage("The fixture needs a sweep f=0.30 repeat 1 to duplicate.")
+            .That(staleIndex).IsStrictlyGreaterThan(0);
+
+        var predecessor = samples[staleIndex - 1];
+        samples[staleIndex] = samples[staleIndex] with { Bgra = predecessor.Bgra, Weights = predecessor.Weights };
+
+        var folder = ProbeRingSyntheticRun.TempFolder();
+        try
+        {
+            ProbeRingCaptureArchive.Save(folder, samples, 2.0, DateTimeOffset.UtcNow);
+            var report = ProbeRingOfflineAnalysis.Analyse(folder);
+
+            var row = report.SweepRows.Single(candidate => Math.Abs(candidate.Fraction - 0.30) < 1e-9);
+            Check.That(row.StaleRepeats).IsEqualTo(1);
+            Check.WithCustomMessage($"The stale repeat must be excluded from the sweep mean; got {row.MeanX:0.0000}.")
+                .That(row.MeanX).IsCloseTo(0.30, ProbeRingOnScreenJudge.TolerancePx);
+
+            var lines = new List<string>();
+            ProbeRingOnScreenJudge.WriteReport(report, lines.Add);
+            Check.WithCustomMessage("The sweep row must flag the excluded stale repeat.")
+                .That(lines.Any(line => line.Contains("R2 sweep B f=0.30") && line.Contains("stale=1"))).IsTrue();
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Fixup 08 item 3: the orchestrator's offline check. Opt-in on
+    /// <c>EYECTRL_R2_ARCHIVE=&lt;folder&gt;</c> — a different variable from
+    /// <c>EYECTRL_UI_TESTS</c> — this runs the full analyser (new judge) over a preserved archive
+    /// and prints the complete report; it asserts nothing beyond completing, shows no window, and
+    /// carries no <c>Category=UI</c> trait. With the variable unset it is inert, so CI and the
+    /// headless sweep no-op it.
+    /// </summary>
+    [StaFact]
+    public void OfflineCheck_OnTheOrchestratorsArchive_PrintsTheFullReport()
+    {
+        var folder = Environment.GetEnvironmentVariable("EYECTRL_R2_ARCHIVE");
+        if (string.IsNullOrWhiteSpace(folder))
+            return;
+
+        var report = ProbeRingOfflineAnalysis.Analyse(folder);
+        ProbeRingOnScreenJudge.WriteReport(report, _output.WriteLine);
+    }
+
     private static string FirstDifference(IReadOnlyList<string> first, IReadOnlyList<string> second)
     {
         for (var i = 0; i < Math.Min(first.Count, second.Count); i++)

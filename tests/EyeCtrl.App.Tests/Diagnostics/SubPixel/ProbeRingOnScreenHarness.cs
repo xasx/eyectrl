@@ -51,11 +51,14 @@ internal enum ProbeRingOnScreenOutcome
 /// </para>
 ///
 /// <para>
-/// <b>Measure first (fixup 03).</b> The run captures everything first — the 5 reference repeats,
-/// then A/B and sweep rows 3 times each — saves every frame as a PNG with its manifest under
-/// <c>%TEMP%\eyectrl-r2-&lt;stamp&gt;\</c>, measures with <see cref="ProbeRingOnScreenJudge.Measure"/>,
-/// prints the full per-axis table (<see cref="ProbeRingOnScreenJudge.WriteReport"/>) and only then
-/// states a verdict, as one combined failure summary. The thresholds are unchanged.
+/// <b>Measure first (fixup 03; the judged estimator is the 21-row average by the owner's decision
+/// 2026-10-11, after run 2).</b> The run captures everything first — the 5 reference repeats,
+/// then A/B and sweep rows 3 times each — retaking any capture that is a stale copy of the previous
+/// frame (up to 3 times, printing <c>R2 retake:</c>/<c>R2 stale:</c> lines), saves every frame as a
+/// PNG with its manifest under <c>%TEMP%\eyectrl-r2-&lt;stamp&gt;\</c>, measures with
+/// <see cref="ProbeRingOnScreenJudge.Measure"/>, prints the full per-axis table
+/// (<see cref="ProbeRingOnScreenJudge.WriteReport"/>) and only then states a verdict, as one
+/// combined failure summary. The thresholds are unchanged.
 /// </para>
 ///
 /// <para>
@@ -89,7 +92,8 @@ internal enum ProbeRingOnScreenOutcome
 /// <list type="bullet">
 /// <item><b>m1 — A never snaps:</b> in <c>ProbeRingVisual.Place</c>, short-circuit the
 /// <c>snap</c> argument to <c>false</c> (or pass <c>false</c> from here). Killed by the Judge's
-/// condition-A whole-pixel assertion: A then renders like B and measures f where 0/1 is expected.</item>
+/// condition-A whole-pixel assertion — judged on the 21-row average (owner's decision 2026-10-11,
+/// after run 2): A then renders like B and measures f where 0/1 is expected.</item>
 /// <item><b>Capture exclusion on:</b> set <see cref="ProbeRingTestWindow.ExcludeFromCapture"/> to
 /// <c>true</c> — the one-word edit this switch exists for; it applies
 /// <c>SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE = 0x11)</c> in
@@ -97,7 +101,9 @@ internal enum ProbeRingOnScreenOutcome
 /// sees the desktop behind the window instead of the ring.</item>
 /// <item><b>m4 — B snaps:</b> <c>ProbeRingVisual.cs:111</c>, its own
 /// <c>SnapsToDevicePixels = false</c> → <c>true</c>. Killed by the Judge's condition-B fraction
-/// assertion (B measures 0/1/1 instead of f), exactly as R1 measured under RenderTargetBitmap.</item>
+/// assertion — judged on the 21-row average (owner's decision 2026-10-11, after run 2), where
+/// every row snaps together — (B measures 0/1/1 instead of f), exactly as R1 measured under
+/// RenderTargetBitmap.</item>
 /// <item><b>m1′ — inherited snap:</b> delete the probe's own <c>SnapsToDevicePixels = false;</c>
 /// (R1 fixup 01 F1). The harness window and scene are hostile by construction
 /// (<c>SnapsToDevicePixels = true</c>, <c>UseLayoutRounding = true</c>), so this mutant is visible on
@@ -198,6 +204,8 @@ internal static class ProbeRingOnScreenHarness
             var samples = new List<ProbeRingCapturedSample>();
 
             var (ring, currentLook) = AttachLook(window, scale, ProbeRingCaptureScene.OwnerLook());
+            byte[]? previousBgra = null;
+            var stepIndex = 0;
 
             foreach (var step in plan)
             {
@@ -212,8 +220,12 @@ internal static class ProbeRingOnScreenHarness
                         + $"{step.Look.RingStyle}, but the attached visual was built from {currentLook.RingStyle}.")
                     .That(currentLook.RingStyle).IsEqualTo(step.Look.RingStyle);
 
-                samples.Add(CaptureAt(
-                    window, ring, scale, step, currentLook, screenWidthPx, screenHeightPx, captureClock));
+                var sample = CaptureAt(
+                    window, ring, scale, step, stepIndex, previousBgra, currentLook,
+                    screenWidthPx, screenHeightPx, captureClock, writeLine);
+                samples.Add(sample);
+                previousBgra = sample.Bgra;
+                stepIndex++;
             }
 
             // (h)/(F6) The window and the watchdog are done the moment the last capture is in: the
@@ -309,9 +321,14 @@ internal static class ProbeRingOnScreenHarness
     /// centre through the production GDI path and convert to the estimator's weight channel.
     ///
     /// <para>
-    /// The schedule's origin comes from <c>CaptureRegionMath.Compute</c> — production's truncating
-    /// math, not a re-derivation (review 01 B2) — and the real capture region is checked against it,
-    /// so a clamped or drifting origin fails here instead of silently biasing every shift.
+    /// A capture whose bytes equal the previous capture's bytes is a stale copy of the previous
+    /// frame (consecutive plan steps never share a placement): <see cref="ProbeRingCaptureRetake"/>
+    /// waits one more frame and re-captures, up to 3 times, prints an <c>R2 retake:</c> line per
+    /// retake, and marks the sample stale when the copy stands — the judgement fails such a capture
+    /// in a judged row and excludes and flags it elsewhere (fixup 08 item 2, owner's decision
+    /// 2026-10-11). A retake repeats the capture only, not the placement: the schedule's origin came
+    /// from production's truncating math and is checked on every capture, so a clamped or drifting
+    /// origin fails here instead of silently biasing every shift (review 01 B2).
     /// </para>
     ///
     /// <para>
@@ -321,38 +338,69 @@ internal static class ProbeRingOnScreenHarness
     /// </summary>
     private static ProbeRingCapturedSample CaptureAt(
         ProbeRingTestWindow window, ProbeRingVisual ring, double scale, ProbeRingCaptureStep step,
-        CursorSettings currentLook, int screenWidthPx, int screenHeightPx, Stopwatch captureClock)
+        int stepIndex, byte[]? previousBgra, CursorSettings currentLook, int screenWidthPx,
+        int screenHeightPx, Stopwatch captureClock, Action<string> writeLine)
     {
         var frame = ProbeRingFrameSchedule.For(
             window.Left, window.Top, scale, step.FractionX, step.FractionY, screenWidthPx, screenHeightPx);
         ring.Place(frame.RingLocalCentrePx, step.Snap);
 
-        // Wait for the frames carrying the new position, then drain DWM's composition queue: without
-        // this pair the capture may be the previous frame.
-        window.Present();
-        DwmFlush();
+        var lastSizePx = 0;
 
-        var capture = ScreenCaptureService.CaptureRegion(frame.CaptureCentrePx, ProbeRingFrameSchedule.CaptureRadiusPx);
-        if (capture is null)
-            throw new InvalidOperationException(
-                $"ScreenCaptureService.CaptureRegion({frame.CaptureCentrePx.X}, {frame.CaptureCentrePx.Y}, "
-                + $"{ProbeRingFrameSchedule.CaptureRadiusPx}) returned null; there is no screen to capture.");
-
-        if (capture.Value.X != frame.CaptureOriginX || capture.Value.Y != frame.CaptureOriginY)
+        byte[] OneCapture()
         {
-            throw new InvalidOperationException(
-                $"The capture started at ({capture.Value.X}, {capture.Value.Y}), not the production math's "
-                + $"({frame.CaptureOriginX}, {frame.CaptureOriginY}). Either the region was clamped — the "
-                + "caller must initialize DpiHelper from the measured window scale — or the schedule no longer "
-                + "matches CaptureRegionMath.Compute.");
+            // Wait for the frames carrying the new position, then drain DWM's composition queue:
+            // without this pair the capture may be the previous frame.
+            window.Present();
+            DwmFlush();
+
+            var capture = ScreenCaptureService.CaptureRegion(frame.CaptureCentrePx, ProbeRingFrameSchedule.CaptureRadiusPx);
+            if (capture is null)
+            {
+                throw new InvalidOperationException(
+                    $"ScreenCaptureService.CaptureRegion({frame.CaptureCentrePx.X}, {frame.CaptureCentrePx.Y}, "
+                    + $"{ProbeRingFrameSchedule.CaptureRadiusPx}) returned null; there is no screen to capture.");
+            }
+
+            if (capture.Value.X != frame.CaptureOriginX || capture.Value.Y != frame.CaptureOriginY)
+            {
+                throw new InvalidOperationException(
+                    $"The capture started at ({capture.Value.X}, {capture.Value.Y}), not the production math's "
+                    + $"({frame.CaptureOriginX}, {frame.CaptureOriginY}). Either the region was clamped — the "
+                    + "caller must initialize DpiHelper from the measured window scale — or the schedule no longer "
+                    + "matches CaptureRegionMath.Compute.");
+            }
+
+            lastSizePx = capture.Value.Size;
+            return ReadBgra(capture.Value.Image, capture.Value.Size);
         }
 
-        var bgra = ReadBgra(capture.Value.Image, capture.Value.Size);
-        var background = ProbeRingCaptureAnalysis.MeasureBackground(bgra, capture.Value.Size, capture.Value.Size);
-        var weights = ProbeRingCaptureAnalysis.ToWeights(bgra, capture.Value.Size, capture.Value.Size, background);
+        var retake = ProbeRingCaptureRetake.CaptureWithRetake(
+            capture: OneCapture,
+            previous: previousBgra,
+            waitOneMoreFrame: () =>
+            {
+                // One more present + flush, then the retake inside CaptureWithRetake.
+                window.Present();
+                DwmFlush();
+            });
+
+        for (var n = 1; n <= retake.Retakes; n++)
+            writeLine(ProbeRingCaptureRetake.RetakeLine(stepIndex, step.Kind, step.FractionX, n));
+
+        if (retake.Stale)
+            writeLine(ProbeRingCaptureRetake.StaleLine(stepIndex, step.Kind, step.FractionX, retake.Retakes));
+
+        var bgra = retake.Bytes;
+        var background = ProbeRingCaptureAnalysis.MeasureBackground(bgra, lastSizePx, lastSizePx);
+        var weights = ProbeRingCaptureAnalysis.ToWeights(bgra, lastSizePx, lastSizePx, background);
         return new ProbeRingCapturedSample(
-            step.Kind, step.Condition, step.FractionX, step.Repeat, frame, bgra, capture.Value.Size, weights,
-            background, ProbeRingCaptureScene.LookOf(currentLook), captureClock.ElapsedMilliseconds);
+            step.Kind, step.Condition, step.FractionX, step.Repeat, frame, bgra, lastSizePx, weights,
+            background, ProbeRingCaptureScene.LookOf(currentLook), captureClock.ElapsedMilliseconds)
+        {
+            Retakes = retake.Retakes,
+            Stale = retake.Stale,
+        };
     }
 
     /// <summary>

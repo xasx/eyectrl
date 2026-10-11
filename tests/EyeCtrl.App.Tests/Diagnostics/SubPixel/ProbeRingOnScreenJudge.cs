@@ -29,6 +29,27 @@ using EyeCtrl.Core.Models;
 /// </para>
 ///
 /// <para>
+/// <b>The judged estimator is the 21-row average (owner's decision 2026-10-11, after run 2).</b>
+/// Every judged value — the B rows, the A rows, the reference A–B check, and the sweep's numbers —
+/// is <see cref="ProbeRingCaptureAnalysis.MeasureMirroredMultiRowShift"/>: R1's mirrored-block
+/// estimator averaged over the scan rows' centre ± 10 and the columns' centre ± 10. Run 2 showed
+/// the single scan row biased under diagonal motion on the hardware rasterizer while the 21-row
+/// average stayed on target, and a genuinely misplaced ring moves every row, so the average keeps
+/// the test's power against snapping. The single scan row stays in the output as
+/// <c>R2 DIAGNOSTIC single-row …</c> lines with their own catch, never judged. The judged path
+/// fails loudly: no catch around the 21-row measurement, and <see cref="ViolatesTolerance"/> makes
+/// a non-finite judged value a failure (a bare <c>Math.Abs(NaN − f) &gt; tolerance</c> is false).
+/// </para>
+///
+/// <para>
+/// <b>Stale captures.</b> A capture that is byte-identical to the previous one is the previous
+/// frame (consecutive plan steps never share a placement). The harness retakes it up to 3 times;
+/// a stale capture reaching a judged row is a failure with a "stale frame" message, and in the
+/// sweep and the diagnostics it is excluded from the mean and flagged (<c>stale=N</c>). The
+/// offline analyser applies the same rule to a saved archive.
+/// </para>
+///
+/// <para>
 /// <b>The schedule is part of the judgement.</b> The A/B assertion set and the sweep's range and
 /// step are constants here and the rows passed in must match them exactly — a harness that
 /// captures half the sweep, or a coarser step, fails in <see cref="Measure"/> rather than quietly
@@ -83,13 +104,17 @@ internal static class ProbeRingOnScreenJudge
     /// <param name="Condition">"A" or "B".</param>
     /// <param name="Fraction">The scheduled fraction.</param>
     /// <param name="Repeats">The frames, one per repeat.</param>
-    internal sealed record RowSamples(string Condition, double Fraction, IReadOnlyList<ProbeRaster> Repeats);
+    /// <param name="StaleFlags">Which repeats are stale copies, in capture order; null means none are.</param>
+    internal sealed record RowSamples(
+        string Condition, double Fraction, IReadOnlyList<ProbeRaster> Repeats, IReadOnlyList<bool>? StaleFlags = null);
 
     /// <summary>One diagnostic row: its own reference and its repeats (fixup 04 deciders).</summary>
     /// <param name="Fraction">The scheduled x fraction.</param>
     /// <param name="FractionY">The scheduled y fraction (0 for the X-only decider).</param>
     /// <param name="Repeats">The frames, one per repeat.</param>
-    internal sealed record DiagnosticRow(double Fraction, double FractionY, IReadOnlyList<ProbeRaster> Repeats);
+    /// <param name="StaleFlags">Which repeats are stale copies; null means none are.</param>
+    internal sealed record DiagnosticRow(
+        double Fraction, double FractionY, IReadOnlyList<ProbeRaster> Repeats, IReadOnlyList<bool>? StaleFlags = null);
 
     /// <summary>
     /// A diagnostic block (D2/D3): its own f = 0 reference and its rows. Diagnostics are measured
@@ -113,6 +138,7 @@ internal static class ProbeRingOnScreenJudge
     /// <param name="AssertionRows">A and B rows at <see cref="AssertionFractions"/> (requirement e).</param>
     /// <param name="SweepRows">B rows at <see cref="SweepFractions"/> (requirement f).</param>
     /// <param name="Diagnostics">The D2/D3 blocks: measured and printed, never judged.</param>
+    /// <param name="ReferenceBStaleFlags">Which of the f = 0 B repeats are stale copies, in capture order.</param>
     internal sealed record JudgeInputs(
         double EffectiveScale,
         ProbeRaster ExpectedPattern,
@@ -123,7 +149,8 @@ internal static class ProbeRingOnScreenJudge
         double HalfPx,
         IReadOnlyList<RowSamples> AssertionRows,
         IReadOnlyList<RowSamples> SweepRows,
-        IReadOnlyList<DiagnosticGroup> Diagnostics);
+        IReadOnlyList<DiagnosticGroup> Diagnostics,
+        IReadOnlyList<bool>? ReferenceBStaleFlags = null);
 
     /// <summary>One failed requirement, named, with the message the fix must read.</summary>
     /// <param name="Requirement">The requirement's label, e.g. "(c) positive control".</param>
@@ -134,25 +161,30 @@ internal static class ProbeRingOnScreenJudge
     /// <param name="Condition">"A" or "B".</param>
     /// <param name="Fraction">The scheduled fraction.</param>
     /// <param name="Repeats">How many captures were aggregated.</param>
+    /// <param name="StaleRepeats">How many of them were stale copies, excluded from every aggregate and flagged.</param>
     /// <param name="ExpectedX">The expected x movement.</param>
     /// <param name="ExpectedY">The expected y movement.</param>
-    /// <param name="MeanX">The mean measured x movement over the repeats.</param>
-    /// <param name="MeanY">The mean measured y movement over the repeats.</param>
-    /// <param name="SpreadX">max − min of the per-repeat x movements (the noise).</param>
-    /// <param name="SpreadY">max − min of the per-repeat y movements.</param>
-    /// <param name="LeftX">Mean of the left edge block's centroid shifts.</param>
-    /// <param name="RightX">Mean of the right edge block's centroid shifts.</param>
-    /// <param name="TopY">Mean of the top edge block's centroid shifts.</param>
-    /// <param name="BottomY">Mean of the bottom edge block's centroid shifts.</param>
-    /// <param name="SampleX">Every repeat's x movement, in capture order.</param>
-    /// <param name="SampleY">Every repeat's y movement, in capture order.</param>
-    /// <param name="MultiRowMeanX">D1: the mean over repeats of the 21-row cardinal estimate, x.</param>
-    /// <param name="MultiRowMeanY">D1: the mean over repeats of the 21-column cardinal estimate, y.</param>
-    /// <param name="MultiRowError">D1's failure message when the estimator threw, else null (fixup 05 P4).</param>
+    /// <param name="MeanX">The judged mean x movement: the 21-row average, over the non-stale repeats.</param>
+    /// <param name="MeanY">The judged mean y movement: the 21-row average, over the non-stale repeats.</param>
+    /// <param name="SpreadX">max − min of the per-repeat judged x movements (the noise).</param>
+    /// <param name="SpreadY">max − min of the per-repeat judged y movements.</param>
+    /// <param name="LeftX">Mean of the left edge block's 21-row centroid shifts.</param>
+    /// <param name="RightX">Mean of the right edge block's 21-row centroid shifts.</param>
+    /// <param name="TopY">Mean of the top edge block's 21-row centroid shifts.</param>
+    /// <param name="BottomY">Mean of the bottom edge block's 21-row centroid shifts.</param>
+    /// <param name="SampleX">Every repeat's judged (21-row) x movement, in capture order — stale repeats included, so the failure messages' repeat numbers map 1:1 to captures.</param>
+    /// <param name="SampleY">Every repeat's judged (21-row) y movement, in capture order.</param>
+    /// <param name="StaleFlags">Which repeats are stale, in capture order.</param>
+    /// <param name="SingleRowMeanX">Diagnostic: the single-scan-row mean of x over the repeats; never judged.</param>
+    /// <param name="SingleRowMeanY">Diagnostic: the single-scan-row mean of y over the repeats.</param>
+    /// <param name="SingleRowSpreadX">Diagnostic: the single-row x spread over the repeats.</param>
+    /// <param name="SingleRowSpreadY">Diagnostic: the single-row y spread over the repeats.</param>
+    /// <param name="SingleRowError">Why the single-row diagnostic is missing, else null (its own catch).</param>
     internal sealed record RowMeasurement(
         string Condition,
         double Fraction,
         int Repeats,
+        int StaleRepeats,
         double ExpectedX,
         double ExpectedY,
         double MeanX,
@@ -165,12 +197,15 @@ internal static class ProbeRingOnScreenJudge
         double BottomY,
         IReadOnlyList<double> SampleX,
         IReadOnlyList<double> SampleY,
-        double MultiRowMeanX,
-        double MultiRowMeanY,
-        string? MultiRowError);
+        IReadOnlyList<bool> StaleFlags,
+        double SingleRowMeanX,
+        double SingleRowMeanY,
+        double SingleRowSpreadX,
+        double SingleRowSpreadY,
+        string? SingleRowError);
 
     /// <summary>One diagnostic row's measurement, labelled for the output (never judged).</summary>
-    /// <param name="Id">"D1" / "D2" / "D3".</param>
+    /// <param name="Id">"D2" or "D3".</param>
     /// <param name="Label">What the diagnostic is for.</param>
     /// <param name="Row">The measured row, or null when the measurement threw (fixup 05 P4).</param>
     /// <param name="Error">The failure message when <paramref name="Row"/> is null.</param>
@@ -210,14 +245,16 @@ internal static class ProbeRingOnScreenJudge
         if (!control.Matched)
             failures.Add(new RequirementFailure("(c) positive control", control.Reason));
 
-        // With nothing to round, A and B must draw at the same place (R1's first assertion).
-        var referenceOffset = ProbeRingCaptureAnalysis.MeasureMirroredShift(
+        // With nothing to round, A and B must draw at the same place (R1's first assertion), judged
+        // on the 21-row average like every other judged value (owner's decision 2026-10-11).
+        var referenceOffset = ProbeRingCaptureAnalysis.MeasureMirroredMultiRowShift(
             inputs.ReferenceA, inputs.ReferenceB, inputs.Geometry);
-        if (Math.Abs(referenceOffset.MeanX) > TolerancePx || Math.Abs(referenceOffset.MeanY) > TolerancePx)
+        if (ViolatesTolerance(referenceOffset.MeanX, 0.0) || ViolatesTolerance(referenceOffset.MeanY, 0.0))
         {
             failures.Add(new RequirementFailure("(e) reference A-B",
-                "With nothing to round, A and B must draw at the same place; measured "
-                + $"({referenceOffset.MeanX:0.0000}, {referenceOffset.MeanY:0.0000}) px."));
+                "With nothing to round, A and B must draw at the same place, judged on the 21-row average; measured "
+                + $"({referenceOffset.MeanX:0.0000}, {referenceOffset.MeanY:0.0000}) px."
+                + NonFiniteNote(referenceOffset.MeanX) + NonFiniteNote(referenceOffset.MeanY)));
         }
 
         RequireSchedule(
@@ -230,7 +267,9 @@ internal static class ProbeRingOnScreenJudge
             inputs.SweepRows.Select(row => row.Fraction), SweepFractions, "sweep", failures);
 
         var referenceNoise = inputs.ReferenceBRepeats.Count > 1
-            ? MeasureRow(ConditionB, 0.0, inputs.ReferenceBRepeats, inputs.ReferenceB, inputs.Geometry, 0.0, 0.0)
+            ? MeasureRow(
+                ConditionB, 0.0, inputs.ReferenceBRepeats, inputs.ReferenceBStaleFlags,
+                inputs.ReferenceB, inputs.Geometry, 0.0, 0.0)
             : null;
 
         var assertionRows = new List<RowMeasurement>();
@@ -240,57 +279,78 @@ internal static class ProbeRingOnScreenJudge
             var expected = row.Condition == ConditionA
                 ? Math.Round(row.Fraction, MidpointRounding.AwayFromZero)
                 : row.Fraction;
-            var measured = MeasureRow(row.Condition, row.Fraction, row.Repeats, reference, inputs.Geometry, expected, expected);
+            var measured = MeasureRow(
+                row.Condition, row.Fraction, row.Repeats, row.StaleFlags, reference, inputs.Geometry,
+                expected, expected);
             assertionRows.Add(measured);
 
             // F1 (orchestrator decision): EVERY repeat must be within ±0.05 — the run-1 rule applied
-            // to each capture. The mean and spread stay in the report; judging on the mean would
-            // loosen the pre-registered gate after a failure.
+            // to each capture — now on the 21-row average (owner's decision 2026-10-11, after run 2).
+            // A stale repeat is a failure in its own right and is excluded from the aggregates: it is
+            // never passed and never silently dropped. The mean and spread stay in the report.
             for (var i = 0; i < measured.SampleX.Count; i++)
             {
+                if (measured.StaleFlags[i])
+                {
+                    failures.Add(new RequirementFailure(
+                        row.Condition == ConditionB ? "(e) condition B" : "(e) condition A",
+                        $"Stale frame: condition {row.Condition}'s repeat {i + 1} of {measured.Repeats} at "
+                        + $"f = {row.Fraction:0.00} is a byte-identical copy of the previous capture — the screen "
+                        + "did not repaint, so this value is the previous placement's. A stale capture is retaken "
+                        + "up to 3 times; one that reaches a judged row fails here, never dropped and never passed."));
+                    continue;
+                }
+
                 if (row.Condition == ConditionB)
                 {
-                    if (Math.Abs(measured.SampleX[i] - row.Fraction) > TolerancePx)
+                    if (ViolatesTolerance(measured.SampleX[i], row.Fraction))
                     {
                         failures.Add(new RequirementFailure("(e) condition B",
                             $"Condition B must render fractionally on the hardware path (x axis): f = {row.Fraction:0.00} px "
                             + $"but repeat {i + 1} of {measured.Repeats} moved ({measured.SampleX[i]:0.0000}, "
-                            + $"{measured.SampleY[i]:0.0000}) px. If either axis is 0 or 1, something snapped the "
+                            + $"{measured.SampleY[i]:0.0000}) px."
+                            + NonFiniteNote(measured.SampleX[i])
+                            + " If either axis is 0 or 1, something snapped the "
                             + "ring to device pixels (m1/m4's shape)."));
                     }
 
-                    if (Math.Abs(measured.SampleY[i] - row.Fraction) > TolerancePx)
+                    if (ViolatesTolerance(measured.SampleY[i], row.Fraction))
                     {
                         failures.Add(new RequirementFailure("(e) condition B",
                             $"Condition B's vertical (y axis) move at f = {row.Fraction:0.00} measured "
-                            + $"{measured.SampleY[i]:0.0000} px on repeat {i + 1} of {measured.Repeats}."));
+                            + $"{measured.SampleY[i]:0.0000} px on repeat {i + 1} of {measured.Repeats}."
+                            + NonFiniteNote(measured.SampleY[i])));
                     }
                 }
                 else
                 {
-                    if (Math.Abs(measured.SampleX[i] - expected) > TolerancePx)
+                    if (ViolatesTolerance(measured.SampleX[i], expected))
                     {
                         failures.Add(new RequirementFailure("(e) condition A",
                             $"Condition A must land on whole device pixels (x axis): f = {row.Fraction:0.00} should move "
                             + $"{expected:0} px, but repeat {i + 1} of {measured.Repeats} measured "
-                            + $"{measured.SampleX[i]:0.0000}."));
+                            + $"{measured.SampleX[i]:0.0000}."
+                            + NonFiniteNote(measured.SampleX[i])));
                     }
 
-                    if (Math.Abs(measured.SampleY[i] - expected) > TolerancePx)
+                    if (ViolatesTolerance(measured.SampleY[i], expected))
                     {
                         failures.Add(new RequirementFailure("(e) condition A",
                             $"Condition A's vertical (y axis) move at f = {row.Fraction:0.00} should be {expected:0} px, "
-                            + $"but repeat {i + 1} of {measured.Repeats} measured {measured.SampleY[i]:0.0000}."));
+                            + $"but repeat {i + 1} of {measured.Repeats} measured {measured.SampleY[i]:0.0000}."
+                            + NonFiniteNote(measured.SampleY[i])));
                     }
                 }
             }
         }
 
-        // (f) The fine-fraction sweep: a record of how finely the real display path resolves B. It
-        // has no pass/fail beyond the schedule check above.
+        // (f) The fine-fraction sweep: a record of how finely the real display path resolves B, now
+        // over the judged 21-row average. It has no pass/fail beyond the schedule check above; a
+        // stale repeat is excluded from the row's mean and flagged on its line.
         var sweepRows = inputs.SweepRows
             .Select(row => MeasureRow(
-                ConditionB, row.Fraction, row.Repeats, inputs.ReferenceB, inputs.Geometry, row.Fraction, row.Fraction))
+                ConditionB, row.Fraction, row.Repeats, row.StaleFlags, inputs.ReferenceB, inputs.Geometry,
+                row.Fraction, row.Fraction))
             .ToList();
         var sweepSummary = ProbeRingCaptureAnalysis.EvaluateSweep(
             sweepRows
@@ -306,11 +366,11 @@ internal static class ProbeRingOnScreenJudge
             foreach (var row in group.Rows)
             {
                 // A diagnostic must never cost the judged evidence (fixup 05 P4): a throw here —
-                // an empty scan window, or a D1 failure inside the row — becomes an error entry.
+                // an empty scan window at some offset row of the 21-row scan — becomes an error entry.
                 try
                 {
                     diagnostics.Add(new DiagnosticMeasurement(group.Id, group.Label, MeasureRow(
-                        ConditionB, row.Fraction, row.Repeats, group.Reference, inputs.Geometry,
+                        ConditionB, row.Fraction, row.Repeats, row.StaleFlags, group.Reference, inputs.Geometry,
                         row.Fraction, row.FractionY), null));
                 }
                 catch (Exception ex)
@@ -333,6 +393,8 @@ internal static class ProbeRingOnScreenJudge
     /// <param name="writeLine">Receives the report lines.</param>
     internal static void WriteReport(JudgeReport report, Action<string> writeLine)
     {
+        writeLine(Invariant(
+            $"R2 judged estimator: the 21-row average (ShiftX over rows, ShiftY over columns, centre ±{ProbeRingCaptureAnalysis.JudgedRowRadius}) — owner's decision 2026-10-11, after run 2. The single scan row is printed below as R2 DIAGNOSTIC single-row lines and is never judged."));
         writeLine(report.Dpi.Message);
         writeLine($"R2 positive control: {report.Control.Reason}");
         writeLine(Invariant(
@@ -353,8 +415,8 @@ internal static class ProbeRingOnScreenJudge
         if (report.Diagnostics.Count > 0)
         {
             writeLine(
-                "R2 diagnostics follow (D1 multi-row cardinal estimator, D2 solid-look control, D3 X-only "
-                + "motion): measured and printed, never judged.");
+                "R2 diagnostics follow (D2 solid-look control, D3 X-only motion): measured and printed, never "
+                + "judged. Stale repeats are excluded from their means and flagged with stale=N.");
             foreach (var diagnostic in report.Diagnostics)
             {
                 if (diagnostic.Row is null)
@@ -371,29 +433,32 @@ internal static class ProbeRingOnScreenJudge
     }
 
     /// <summary>
-    /// Prints one row, one line per axis, with its repeats and mirrored halves, then the D1
-    /// multi-row comparison. <paramref name="diagnosticId"/> is set only for the decider rows, so
-    /// their lines carry the DIAGNOSTIC label the decision requires.
+    /// Prints one row, one line per axis, with its repeats and mirrored halves — the judged 21-row
+    /// averages — then the single-scan-row values as a diagnostic, never judged.
+    /// <paramref name="diagnosticId"/> is set only for the decider rows, so their lines carry the
+    /// DIAGNOSTIC label the decision requires. A stale repeat count rides on the row lines as
+    /// <c>stale=N</c>.
     /// </summary>
     private static void WriteRow(
         RowMeasurement row, string kind, string? diagnosticId, Action<string> writeLine)
     {
         var samplesX = string.Join(", ", row.SampleX.Select(value => value.ToString("0.0000", CultureInfo.InvariantCulture)));
         var samplesY = string.Join(", ", row.SampleY.Select(value => value.ToString("0.0000", CultureInfo.InvariantCulture)));
+        var stale = row.StaleRepeats > 0 ? $" stale={row.StaleRepeats}" : string.Empty;
 
         writeLine(Invariant(
-            $"R2 {kind} {row.Condition} f={row.Fraction:0.00} N={row.Repeats} X: expected={row.ExpectedX:0.0000} measured={row.MeanX:0.0000} error={row.MeanX - row.ExpectedX:+0.0000;-0.0000;+0.0000} spread={row.SpreadX:0.0000} samples=({samplesX}) left={row.LeftX:0.0000} right={row.RightX:0.0000}"));
+            $"R2 {kind} {row.Condition} f={row.Fraction:0.00} N={row.Repeats}{stale} X: expected={row.ExpectedX:0.0000} measured={row.MeanX:0.0000} error={row.MeanX - row.ExpectedX:+0.0000;-0.0000;+0.0000} spread={row.SpreadX:0.0000} samples=({samplesX}) left={row.LeftX:0.0000} right={row.RightX:0.0000}"));
         writeLine(Invariant(
-            $"R2 {kind} {row.Condition} f={row.Fraction:0.00} N={row.Repeats} Y: expected={row.ExpectedY:0.0000} measured={row.MeanY:0.0000} error={row.MeanY - row.ExpectedY:+0.0000;-0.0000;+0.0000} spread={row.SpreadY:0.0000} samples=({samplesY}) top={row.TopY:0.0000} bottom={row.BottomY:0.0000}"));
+            $"R2 {kind} {row.Condition} f={row.Fraction:0.00} N={row.Repeats}{stale} Y: expected={row.ExpectedY:0.0000} measured={row.MeanY:0.0000} error={row.MeanY - row.ExpectedY:+0.0000;-0.0000;+0.0000} spread={row.SpreadY:0.0000} samples=({samplesY}) top={row.TopY:0.0000} bottom={row.BottomY:0.0000}"));
 
-        if (row.MultiRowError is not null)
+        if (row.SingleRowError is not null)
         {
-            writeLine($"R2 DIAGNOSTIC {diagnosticId ?? "D1"} failed: {row.MultiRowError}");
+            writeLine($"R2 DIAGNOSTIC single-row {diagnosticId ?? kind} failed: {row.SingleRowError}");
             return;
         }
 
         writeLine(Invariant(
-            $"R2 DIAGNOSTIC D1 {(diagnosticId ?? kind)} {row.Condition} f={row.Fraction:0.00} N={row.Repeats} single-row=({row.MeanX:0.0000}, {row.MeanY:0.0000}) 21-row=({row.MultiRowMeanX:0.0000}, {row.MultiRowMeanY:0.0000})"));
+            $"R2 DIAGNOSTIC single-row {diagnosticId ?? kind} {row.Condition} f={row.Fraction:0.00} N={row.Repeats} single-row=({row.SingleRowMeanX:0.0000}, {row.SingleRowMeanY:0.0000}) spread=({row.SingleRowSpreadX:0.0000}, {row.SingleRowSpreadY:0.0000})"));
     }
 
     /// <summary>
@@ -490,18 +555,25 @@ internal static class ProbeRingOnScreenJudge
         {
             foreach (var fraction in AssertionFractions)
             {
+                var rowSamples = SamplesAt(samples, KindAssertion, condition, fraction);
                 assertionRows.Add(new RowSamples(
                     condition,
                     fraction,
-                    SamplesAt(samples, KindAssertion, condition, fraction).Select(s => s.Weights).ToList()));
+                    rowSamples.Select(s => s.Weights).ToList(),
+                    rowSamples.Select(s => s.Stale).ToList()));
             }
         }
 
         var sweepRows = SweepFractions
-            .Select(fraction => new RowSamples(
-                ConditionB,
-                fraction,
-                SamplesAt(samples, KindSweep, ConditionB, fraction).Select(s => s.Weights).ToList()))
+            .Select(fraction =>
+            {
+                var rowSamples = SamplesAt(samples, KindSweep, ConditionB, fraction);
+                return new RowSamples(
+                    ConditionB,
+                    fraction,
+                    rowSamples.Select(s => s.Weights).ToList(),
+                    rowSamples.Select(s => s.Stale).ToList());
+            })
             .ToList();
 
         // D2/D3 (never judged): each block's own f = 0 reference and its rows.
@@ -512,9 +584,14 @@ internal static class ProbeRingOnScreenJudge
             diagnostics.Add(new DiagnosticGroup(
                 "D2", "solid-look B rows (WeightedSandwich)", solidReference.Weights,
                 ProbeRingCapturePlan.SolidControlFractions
-                    .Select(fraction => new DiagnosticRow(
-                        fraction, fraction,
-                        SamplesAt(samples, KindSolidControl, ConditionB, fraction).Select(s => s.Weights).ToList()))
+                    .Select(fraction =>
+                    {
+                        var rowSamples = SamplesAt(samples, KindSolidControl, ConditionB, fraction);
+                        return new DiagnosticRow(
+                            fraction, fraction,
+                            rowSamples.Select(s => s.Weights).ToList(),
+                            rowSamples.Select(s => s.Stale).ToList());
+                    })
                     .Where(row => row.Repeats.Count > 0)
                     .ToList()));
         }
@@ -525,9 +602,14 @@ internal static class ProbeRingOnScreenJudge
             diagnostics.Add(new DiagnosticGroup(
                 "D3", "X-only B rows (y = 0)", xOnlyReference.Weights,
                 ProbeRingCapturePlan.XOnlyFractions
-                    .Select(fraction => new DiagnosticRow(
-                        fraction, 0.0,
-                        SamplesAt(samples, KindXOnly, ConditionB, fraction).Select(s => s.Weights).ToList()))
+                    .Select(fraction =>
+                    {
+                        var rowSamples = SamplesAt(samples, KindXOnly, ConditionB, fraction);
+                        return new DiagnosticRow(
+                            fraction, 0.0,
+                            rowSamples.Select(s => s.Weights).ToList(),
+                            rowSamples.Select(s => s.Stale).ToList());
+                    })
                     .Where(row => row.Repeats.Count > 0)
                     .ToList()));
         }
@@ -542,7 +624,8 @@ internal static class ProbeRingOnScreenJudge
             halfPx,
             assertionRows,
             sweepRows,
-            diagnostics);
+            diagnostics,
+            SamplesAt(samples, KindReference, ConditionB, 0.0).Select(s => s.Stale).ToList());
     }
 
     /// <summary>The samples of one row kind, condition and fraction, in repeat order.</summary>
@@ -554,57 +637,102 @@ internal static class ProbeRingOnScreenJudge
             .ToList();
 
     /// <summary>
-    /// Measures one row over its repeats: the per-repeat mirrored shifts, then their mean and
-    /// spread, and the mean of each mirrored half.
+    /// Measures one row over its repeats with the <b>judged</b> estimator — the 21-row mirrored
+    /// average (owner's decision 2026-10-11, after run 2) — then the per-repeat sample values, their
+    /// mean and spread, and the mean of each judged half. Stale repeats are excluded from every
+    /// aggregate and counted; the single-scan-row values are kept as a diagnostic with their own
+    /// catch, so a diagnostic throw cannot lose the judged table.
+    ///
+    /// <para>
+    /// <b>The judged path fails loudly.</b> The 21-row measurement runs with no catch: a throw
+    /// propagates out of <see cref="Measure"/>, which is the failure. A non-finite value that could
+    /// still be produced is caught by <see cref="ViolatesTolerance"/> at every comparison.
+    /// </para>
     /// </summary>
     private static RowMeasurement MeasureRow(
         string condition,
         double fraction,
         IReadOnlyList<ProbeRaster> repeats,
+        IReadOnlyList<bool>? staleFlags,
         ProbeRaster reference,
         ProbeRingCaptureAnalysis.RingScanGeometry geometry,
         double expectedX,
         double expectedY)
     {
-        var shifts = repeats
-            .Select(frame => ProbeRingCaptureAnalysis.MeasureMirroredShift(frame, reference, geometry))
+        var flags = staleFlags ?? new bool[repeats.Count];
+
+        // The judged estimator: the 21-row mirrored average. No catch — a throw here is the loud
+        // failure the judged path must produce.
+        var judged = repeats
+            .Select(frame => ProbeRingCaptureAnalysis.MeasureMirroredMultiRowShift(frame, reference, geometry))
             .ToList();
 
-        // D1 is a diagnostic: a throw in its wider scan (an empty window at some offset row) must
-        // not cost the judged evidence, so it degrades to NaN plus the message (fixup 05 P4).
-        List<(double MeanX, double MeanY)> multiRow = [];
-        string? multiRowError = null;
+        // The single row stays in the output as a diagnostic, on lines labelled
+        // "R2 DIAGNOSTIC single-row …", with its own catch.
+        List<ProbeRingCaptureAnalysis.MirroredShift> singleRow = [];
+        string? singleRowError = null;
         try
         {
-            multiRow = repeats
-                .Select(frame => ProbeRingCaptureAnalysis.MeasureMultiRowShift(frame, reference, geometry))
+            singleRow = repeats
+                .Select(frame => ProbeRingCaptureAnalysis.MeasureMirroredShift(frame, reference, geometry))
                 .ToList();
         }
         catch (Exception ex)
         {
-            multiRowError = ex.Message;
+            singleRowError = ex.Message;
         }
+
+        var kept = judged
+            .Where((_, index) => index >= flags.Count || !flags[index])
+            .ToList();
+        var staleCount = judged.Count - kept.Count;
 
         return new RowMeasurement(
             condition,
             fraction,
-            shifts.Count,
+            repeats.Count,
+            staleCount,
             expectedX,
             expectedY,
-            shifts.Average(shift => shift.MeanX),
-            shifts.Average(shift => shift.MeanY),
-            shifts.Max(shift => shift.MeanX) - shifts.Min(shift => shift.MeanX),
-            shifts.Max(shift => shift.MeanY) - shifts.Min(shift => shift.MeanY),
-            shifts.Average(shift => shift.LeftX),
-            shifts.Average(shift => shift.RightX),
-            shifts.Average(shift => shift.TopY),
-            shifts.Average(shift => shift.BottomY),
-            shifts.Select(shift => shift.MeanX).ToList(),
-            shifts.Select(shift => shift.MeanY).ToList(),
-            multiRow.Count > 0 ? multiRow.Average(shift => shift.MeanX) : double.NaN,
-            multiRow.Count > 0 ? multiRow.Average(shift => shift.MeanY) : double.NaN,
-            multiRowError);
+            kept.Count > 0 ? kept.Average(shift => shift.MeanX) : double.NaN,
+            kept.Count > 0 ? kept.Average(shift => shift.MeanY) : double.NaN,
+            kept.Count > 0 ? kept.Max(shift => shift.MeanX) - kept.Min(shift => shift.MeanX) : double.NaN,
+            kept.Count > 0 ? kept.Max(shift => shift.MeanY) - kept.Min(shift => shift.MeanY) : double.NaN,
+            kept.Count > 0 ? kept.Average(shift => shift.LeftX) : double.NaN,
+            kept.Count > 0 ? kept.Average(shift => shift.RightX) : double.NaN,
+            kept.Count > 0 ? kept.Average(shift => shift.TopY) : double.NaN,
+            kept.Count > 0 ? kept.Average(shift => shift.BottomY) : double.NaN,
+            judged.Select(shift => shift.MeanX).ToList(),
+            judged.Select(shift => shift.MeanY).ToList(),
+            [.. flags],
+            singleRow.Count > 0 ? singleRow.Average(shift => shift.MeanX) : double.NaN,
+            singleRow.Count > 0 ? singleRow.Average(shift => shift.MeanY) : double.NaN,
+            singleRow.Count > 1
+                ? singleRow.Max(shift => shift.MeanX) - singleRow.Min(shift => shift.MeanX)
+                : double.NaN,
+            singleRow.Count > 1
+                ? singleRow.Max(shift => shift.MeanY) - singleRow.Min(shift => shift.MeanY)
+                : double.NaN,
+            singleRowError);
     }
+
+    /// <summary>
+    /// Whether a judged value must fail: not a finite number at all, or off by more than
+    /// <see cref="TolerancePx"/>. The finiteness arm is load-bearing (fixup 08 item 1):
+    /// <c>Math.Abs(NaN − f) &gt; tolerance</c> is <c>false</c>, so a bare comparison would let a
+    /// NaN judged value pass silently.
+    /// </summary>
+    /// <param name="judgedValue">The measured value the judgement reads.</param>
+    /// <param name="expected">The value it must be within <see cref="TolerancePx"/> of.</param>
+    internal static bool ViolatesTolerance(double judgedValue, double expected) =>
+        !double.IsFinite(judgedValue) || Math.Abs(judgedValue - expected) > TolerancePx;
+
+    /// <summary>The sentence a non-finite judged value appends to its failure message.</summary>
+    private static string NonFiniteNote(double value) =>
+        double.IsFinite(value)
+            ? string.Empty
+            : $" This judged (21-row) value is {value} — non-finite, so it can never be inside the "
+            + $"±{TolerancePx:0.00} px tolerance and must not pass silently.";
 
     /// <summary>
     /// The captured rows must be exactly the scheduled ones. This is what makes a shortened or

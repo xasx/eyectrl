@@ -198,8 +198,10 @@ public class ProbeRingOnScreenJudgeTests
     }
 
     /// <summary>
-    /// K2 (review 02 F1): B off by 0.1 px must fail at the stated ±0.05. Kills J1/J2 and, because
-    /// 0.1 is inside a loosened 0.3 tolerance, J5 too.
+    /// K2 (review 02 F1) and fixup 08 item 1's converse control: B off by 0.1 px must fail at the
+    /// stated ±0.05. Every row of the frame is genuinely shifted by +0.1 (the whole render moves),
+    /// so the 21-row average reads the shift undiluted — the new judged estimator must not blunt
+    /// the test. Kills J1/J2, J5 and any mutant that neuters the judged comparison.
     /// </summary>
     [StaFact]
     public void Judge_FailsWhenBIsOffByATenth()
@@ -349,13 +351,15 @@ public class ProbeRingOnScreenJudgeTests
     }
 
     /// <summary>
-    /// Fixup 06 R2b: D1's own catch, with the single-row measurement succeeding. The fixture cuts a
-    /// band of rows just below the scan row, so the single-row X/Y windows still hold weight while
-    /// D1's offset row is empty and throws: the row degrades to NaN plus the message, the judged
-    /// rows are intact and the verdict is unaffected. Kills P4b (D1's catch rethrows).
+    /// Fixup 05 P4, the 21-row shape (fixup 08): a diagnostic whose judged 21-row scan is empty
+    /// must not throw out of Measure. The fixture cuts a band of rows below the scan row, so the
+    /// D2 diagnostic's 21-row measurement throws; it becomes an error entry — printed as
+    /// "R2 DIAGNOSTIC D2 failed: …" — and the judged rows and the verdict are untouched. The judged
+    /// path itself has no catch (owner's decision 2026-10-11); the containment pinned here is the
+    /// diagnostic loop's.
     /// </summary>
     [StaFact]
-    public void D1OnlyThrow_DegradesToNaN_AndLeavesTheJudgedRowsAndVerdictIntact()
+    public void DiagnosticWhoseJudgedScanIsEmpty_LeavesTheJudgedRowsAndVerdictIntact()
     {
         var (expected, referenceB, referenceA, assertions, sweep) = HealthyInputs();
         var cut = CutRows(RingAt(0.25, snap: false), fromRow: 305, toRow: 315);
@@ -369,21 +373,19 @@ public class ProbeRingOnScreenJudgeTests
         var report = ProbeRingOnScreenJudge.Measure(
             Inputs(2.0, expected, referenceB, referenceA, assertions, sweep, diagnostics: [diagnostic]));
 
-        var row = report.Diagnostics.Single().Row;
-        Check.WithCustomMessage("The single-row measurement is outside D1's catch and must succeed.")
-            .That(row).IsNotNull();
-        Check.WithCustomMessage("D1's offset rows are cut away; the row must degrade to NaN plus the message.")
-            .That(row!.MultiRowError).IsNotNull();
-        Check.That(double.IsNaN(row.MultiRowMeanX)).IsTrue();
-        Check.That(double.IsNaN(row.MultiRowMeanY)).IsTrue();
+        var entry = report.Diagnostics.Single();
+        Check.WithCustomMessage(
+                "The diagnostic's judged 21-row scan hits the cut rows; the row must degrade to an error entry.")
+            .That(entry.Row).IsNull();
+        Check.WithCustomMessage("The failed diagnostic must carry its error message.").That(entry.Error).IsNotNull();
 
         Check.WithCustomMessage("The judged rows must be intact and judged as before.")
             .That(report.Failures).IsEmpty();
 
         var lines = new List<string>();
         ProbeRingOnScreenJudge.WriteReport(report, lines.Add);
-        Check.WithCustomMessage("The failed D1 must print with the DIAGNOSTIC label.")
-            .That(lines.Any(line => line.Contains("R2 DIAGNOSTIC") && line.Contains("failed:"))).IsTrue();
+        Check.WithCustomMessage("The failed diagnostic must print with the DIAGNOSTIC label.")
+            .That(lines.Any(line => line.Contains("R2 DIAGNOSTIC D2 failed:"))).IsTrue();
 
         ProbeRingOnScreenJudge.Judge(report);
     }
@@ -449,8 +451,11 @@ public class ProbeRingOnScreenJudgeTests
             .That(rowLines.All(line => line.Contains("N=3"))).IsTrue();
         Check.WithCustomMessage("The report must print the failure count before the verdict.")
             .That(lines.Any(line => line.Contains("R2 failures so far:"))).IsTrue();
-        Check.WithCustomMessage("The report must print the D1 multi-row comparison beside the single-row value.")
-            .That(lines.Any(line => line.Contains("DIAGNOSTIC D1") && line.Contains("single-row=") && line.Contains("21-row=")))
+        Check.WithCustomMessage("The report must name the judged estimator (the 21-row average).")
+            .That(lines.Any(line => line.Contains("R2 judged estimator: the 21-row average"))).IsTrue();
+        Check.WithCustomMessage(
+                "The report must print the single scan row as a DIAGNOSTIC line beside the judged values.")
+            .That(lines.Any(line => line.Contains("R2 DIAGNOSTIC single-row") && line.Contains("single-row=")))
             .IsTrue();
     }
 
@@ -680,5 +685,158 @@ public class ProbeRingOnScreenJudgeTests
                 $"The noise floor's spread must show the reference jitter; got {report.ReferenceNoise.SpreadX:0.0000}.")
             .That(report.ReferenceNoise.SpreadX).IsCloseTo(0.5, 0.02);
         Check.That(report.ReferenceNoise.SampleX).HasSize(5);
+    }
+
+    // ── fixup 08 (owner's decision 2026-10-11, after run 2): judged on the 21-row average ──
+
+    /// <summary>
+    /// Fixup 08 item 1: the judged estimator is the 21-row average. The fixture perturbs only the
+    /// scan row — replaced with the same row of a render 0.2 px away — so the single row reads ~0.2
+    /// px off while the 21-row average (20 clean rows + 1 bad) stays inside ±0.05: the Judge must
+    /// pass. A mutant that judges the single row again fails here, and a radius-0 mutant collapses
+    /// the average onto the bad row the same way. The single row must still be printed, labelled
+    /// DIAGNOSTIC.
+    /// </summary>
+    [StaFact]
+    public void JudgedTwentyOneRow_AbsorbsAScanRowOnlyPerturbation()
+    {
+        var (expected, referenceB, referenceA, assertions, sweep) = HealthyInputs();
+        var inputs = Inputs(2.0, expected, referenceB, referenceA, assertions, sweep);
+        inputs = inputs with
+        {
+            AssertionRows = inputs.AssertionRows
+                .Select(row => row.Condition == ProbeRingOnScreenJudge.ConditionB
+                               && Math.Abs(row.Fraction - 0.25) < 1e-9
+                    ? row with
+                    {
+                        Repeats =
+                        [
+                            WithRowFrom(
+                                RingAt(0.25, snap: false), RingAt(0.45, snap: false), Geometry.ScanRow),
+                        ],
+                    }
+                    : row)
+                .ToList(),
+        };
+
+        var report = ProbeRingOnScreenJudge.Measure(inputs);
+        var row = report.AssertionRows.Single(candidate =>
+            candidate.Condition == ProbeRingOnScreenJudge.ConditionB && Math.Abs(candidate.Fraction - 0.25) < 1e-9);
+
+        Check.WithCustomMessage(
+                $"The 21-row average must absorb a scan-row-only 0.2 px perturbation; got judged {row.MeanX:0.0000}.")
+            .That(row.MeanX).IsCloseTo(0.25, ProbeRingOnScreenJudge.TolerancePx);
+        Check.WithCustomMessage(
+                $"The single scan row itself must read the perturbation (its diagnostic role); got {row.SingleRowMeanX:0.0000}.")
+            .That(Math.Abs(row.SingleRowMeanX - 0.25)).IsStrictlyGreaterThan(ProbeRingOnScreenJudge.TolerancePx);
+        Check.WithCustomMessage(
+                "The scan-row-only perturbation is exactly what a single-row judge would fail on; the judged "
+                + $"path must not fail: {string.Join(" | ", report.Failures.Select(failure => failure.Message))}")
+            .That(report.Failures).IsEmpty();
+
+        var lines = new List<string>();
+        ProbeRingOnScreenJudge.WriteReport(report, lines.Add);
+        Check.WithCustomMessage("The scan row must still be printed as a DIAGNOSTIC single-row line.")
+            .That(lines.Any(line => line.Contains("R2 DIAGNOSTIC single-row") && line.Contains("f=0.25"))).IsTrue();
+    }
+
+    /// <summary>
+    /// Fixup 08 item 1: the reference A–B check is judged on the 21-row average too. The fixture
+    /// perturbs only reference B's scan row by 0.2 px, so a reference offset left on the single row
+    /// would read the perturbation and fail while the 21-row average stays inside ±0.05.
+    /// </summary>
+    [StaFact]
+    public void ReferenceOffset_IsJudgedOnTheTwentyOneRowAverage()
+    {
+        var (expected, referenceB, referenceA, assertions, sweep) = HealthyInputs();
+        var perturbedReferenceB = WithRowFrom(referenceB, RingAt(0.2, snap: false), Geometry.ScanRow);
+
+        var report = ProbeRingOnScreenJudge.Measure(
+            Inputs(2.0, expected, perturbedReferenceB, referenceA, assertions, sweep));
+
+        Check.WithCustomMessage(
+                "A scan-row-only perturbation of reference B must not fail the 21-row reference offset; got: "
+                + string.Join(" | ", report.Failures.Select(failure => failure.Message)))
+            .That(report.Failures.Any(failure => failure.Message.Contains("With nothing to round"))).IsFalse();
+    }
+
+    /// <summary>
+    /// Fixup 08 item 1: the judged-path guard. <c>Math.Abs(NaN − f) &gt; tolerance</c> is FALSE, so a
+    /// bare comparison would let a NaN judged value pass silently; <see cref="ProbeRingOnScreenJudge.ViolatesTolerance"/>
+    /// must flag every non-finite value, and only then fall back to the ±0.05 rule. A mutant that
+    /// drops the finiteness arm turns this red.
+    /// </summary>
+    [Fact]
+    public void ViolatesTolerance_RejectsNonFiniteJudgedValues()
+    {
+        Check.WithCustomMessage("A NaN judged value can never pass.")
+            .That(ProbeRingOnScreenJudge.ViolatesTolerance(double.NaN, 0.25)).IsTrue();
+        Check.WithCustomMessage("Positive infinity can never pass.")
+            .That(ProbeRingOnScreenJudge.ViolatesTolerance(double.PositiveInfinity, 0.25)).IsTrue();
+        Check.WithCustomMessage("Negative infinity can never pass.")
+            .That(ProbeRingOnScreenJudge.ViolatesTolerance(double.NegativeInfinity, 0.25)).IsTrue();
+        Check.WithCustomMessage("Inside the tolerance a finite value must pass.")
+            .That(ProbeRingOnScreenJudge.ViolatesTolerance(0.25 + 0.04, 0.25)).IsFalse();
+        Check.WithCustomMessage("Outside the tolerance a finite value must fail.")
+            .That(ProbeRingOnScreenJudge.ViolatesTolerance(0.25 + 0.1, 0.25)).IsTrue();
+    }
+
+    /// <summary>
+    /// Fixup 08 item 2: a stale capture in a judged row is a failure with a "stale frame" message —
+    /// never passed, never silently dropped. The fixture marks one B repeat stale (with a healthy
+    /// value, so no tolerance failure can mask the stale one); the failure must name the stale
+    /// frame, the excluded repeat must be counted on the row, and the report must flag it. A mutant
+    /// that ignores staleness in judged rows passes quietly and turns this red.
+    /// </summary>
+    [StaFact]
+    public void StaleRepeat_InAJudgedRow_FailsWithTheStaleFrameMessage()
+    {
+        var (expected, referenceB, referenceA, assertions, sweep) = HealthyInputs();
+        var inputs = Inputs(2.0, expected, referenceB, referenceA, assertions, sweep);
+        inputs = inputs with
+        {
+            AssertionRows = inputs.AssertionRows
+                .Select(row => row.Condition == ProbeRingOnScreenJudge.ConditionB
+                               && Math.Abs(row.Fraction - 0.25) < 1e-9
+                    ? row with
+                    {
+                        Repeats =
+                        [
+                            RingAt(0.25, snap: false),
+                            RingAt(0.25, snap: false),
+                            RingAt(0.25, snap: false),
+                        ],
+                        StaleFlags = [false, true, false],
+                    }
+                    : row)
+                .ToList(),
+        };
+
+        var report = ProbeRingOnScreenJudge.Measure(inputs);
+
+        Check.WithCustomMessage(
+                "A stale repeat in a judged row must fail with a stale-frame message; got: "
+                + string.Join(" | ", report.Failures.Select(failure => failure.Message)))
+            .That(report.Failures.Any(failure => failure.Message.Contains("Stale frame"))).IsTrue();
+
+        var row = report.AssertionRows.Single(candidate =>
+            candidate.Condition == ProbeRingOnScreenJudge.ConditionB && Math.Abs(candidate.Fraction - 0.25) < 1e-9);
+        Check.WithCustomMessage("The stale repeat must be excluded from the judged mean.")
+            .That(row.MeanX).IsCloseTo(0.25, ProbeRingOnScreenJudge.TolerancePx);
+        Check.That(row.StaleRepeats).IsEqualTo(1);
+
+        var lines = new List<string>();
+        ProbeRingOnScreenJudge.WriteReport(report, lines.Add);
+        Check.WithCustomMessage("The report must flag the stale repeat on the judged row's lines.")
+            .That(lines.Any(line => line.Contains("R2 row B f=0.25") && line.Contains("stale=1"))).IsTrue();
+    }
+
+    /// <summary>Copies a raster and replaces one row with the same row of <paramref name="donor"/>.</summary>
+    private static ProbeRaster WithRowFrom(ProbeRaster target, ProbeRaster donor, int row)
+    {
+        var pixels = (byte[])target.Pixels.Clone();
+        Array.Copy(
+            donor.Pixels, row * donor.Width * 4, pixels, row * target.Width * 4, target.Width * 4);
+        return new ProbeRaster(pixels, target.Width, target.Height);
     }
 }

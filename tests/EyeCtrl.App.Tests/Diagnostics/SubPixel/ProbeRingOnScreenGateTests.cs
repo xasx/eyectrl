@@ -389,6 +389,20 @@ public class ProbeRingOnScreenGateTests
             .That(harness.IndexOf("internal static (ProbeRingVisual Ring, CursorSettings Look) AttachLook(", StringComparison.Ordinal))
             .IsStrictlyGreaterThan(-1);
 
+        // Fixup 08 item 2: a stale capture must go through the pure retake helper, and the harness
+        // must print the retake and stale lines the session record reads.
+        Check.WithCustomMessage(
+                "CaptureAt must take a stale capture through ProbeRingCaptureRetake.CaptureWithRetake — a "
+                + "disabled retake ships the previous frame's pixels into the measurement (fixup 08 item 2).")
+            .That(harness.IndexOf("ProbeRingCaptureRetake.CaptureWithRetake(", StringComparison.Ordinal))
+            .IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage("The harness must print the R2 retake line for every retake.")
+            .That(harness.IndexOf("ProbeRingCaptureRetake.RetakeLine(", StringComparison.Ordinal))
+            .IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage("The harness must print the R2 stale line when the copy survives the retakes.")
+            .That(harness.IndexOf("ProbeRingCaptureRetake.StaleLine(", StringComparison.Ordinal))
+            .IsStrictlyGreaterThan(-1);
+
         // Fixup 06 R2a: the loop must iterate the plan built here, not a reordered copy (H3b).
         Check.WithCustomMessage(
                 "The harness must build the plan as `var plan = ProbeRingCapturePlan.Build();` — a "

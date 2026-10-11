@@ -276,6 +276,35 @@ public class ProbeRingOnScreenGateTests
         Check.WithCustomMessage("The harness must print the measured visible time.")
             .That(harness.IndexOf("R2 measured visible time:", StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);
 
+        // Fixup 05 P2: the harness must follow the plan, not a reordered copy of it. Each of these
+        // strings is the one call the corresponding mutant rewrites (H1: X for Y; H2: the look
+        // switch ignored; H3: the plan reordered).
+        Check.WithCustomMessage(
+                "The harness must capture in the plan's order — `foreach (var step in plan)` — or the "
+                + "references go adjacent and the noise floor degenerates again (H3).")
+            .That(harness.IndexOf("foreach (var step in plan)", StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage(
+                "CaptureAt must schedule both fractions from the step: `step.FractionX, step.FractionY` "
+                + "(H1 passes X for Y).")
+            .That(harness.IndexOf("step.FractionX, step.FractionY", StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage(
+                "CaptureAt must place with the step's snap: `ring.Place(frame.RingLocalCentrePx, step.Snap)`.")
+            .That(harness.IndexOf("ring.Place(frame.RingLocalCentrePx, step.Snap)", StringComparison.Ordinal))
+            .IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage(
+                "The harness must guard that the attached look matches the step's (H2: the look switch "
+                + "silently ignored, drawing D2 with the wrong look and mislabelling the manifest).")
+            .That(harness.IndexOf("currentLook.RingStyle", StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage(
+                "The look switch itself must be present — `if (step.Look.RingStyle != currentLook.RingStyle)` "
+                + "and the re-attach inside it (H2).")
+            .That(harness.IndexOf("if (step.Look.RingStyle != currentLook.RingStyle)", StringComparison.Ordinal))
+            .IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage(
+                "CaptureAt must record the look actually attached — `LookOf(currentLook)` — not the "
+                + "step's look (fixup 05 P2).")
+            .That(harness.IndexOf("LookOf(currentLook)", StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);
+
         var onScreen = SourceScanner.StripComments(File.ReadAllText(Path.Combine(
             root, "tests", "EyeCtrl.App.Tests", "Diagnostics", "SubPixel", "ProbeRingOnScreenTests.cs")));
 

@@ -309,6 +309,46 @@ public class ProbeRingOnScreenJudgeTests
     }
 
     /// <summary>
+    /// Fixup 05 P4: a diagnostic whose scan window is empty must not throw out of Measure. It
+    /// becomes an error entry — printed as "R2 DIAGNOSTIC … failed: …" — and the judged table and
+    /// the verdict are untouched.
+    /// </summary>
+    [StaFact]
+    public void EmptyDiagnosticWindow_LeavesTheJudgedTableAndVerdictIntact()
+    {
+        var (expected, referenceB, referenceA, assertions, sweep) = HealthyInputs();
+        var blank = ProbeRaster.FromWeights(new byte[600 * 600], 600, 600);
+
+        var diagnostic = new ProbeRingOnScreenJudge.DiagnosticGroup(
+            "D2",
+            "solid-look B rows (WeightedSandwich)",
+            blank,
+            [new ProbeRingOnScreenJudge.DiagnosticRow(0.25, 0.25, [blank])]);
+
+        var report = ProbeRingOnScreenJudge.Measure(
+            Inputs(2.0, expected, referenceB, referenceA, assertions, sweep, diagnostics: [diagnostic]));
+
+        Check.WithCustomMessage("The empty diagnostic must not add a failure.")
+            .That(report.Failures).IsEmpty();
+        Check.WithCustomMessage("The judged rows must all still be measured.")
+            .That(report.AssertionRows).HasSize(ProbeRingOnScreenJudge.AssertionFractions.Count * 2);
+
+        var d2 = report.Diagnostics.Single();
+        Check.That(d2.Row).IsNull();
+        Check.WithCustomMessage("The failed diagnostic must carry its error message.").That(d2.Error).IsNotNull();
+
+        var lines = new List<string>();
+        ProbeRingOnScreenJudge.WriteReport(report, lines.Add);
+        Check.WithCustomMessage("The failed diagnostic must print with the DIAGNOSTIC label.")
+            .That(lines.Any(line => line.Contains("R2 DIAGNOSTIC D2 failed:"))).IsTrue();
+        Check.WithCustomMessage("The judged table must still print its rows.")
+            .That(lines.Any(line => line.Contains("row B f=0.25"))).IsTrue();
+
+        // And the verdict itself is intact: the same report passes.
+        ProbeRingOnScreenJudge.Judge(report);
+    }
+
+    /// <summary>
     /// Fixup 03 items 2-4: the report carries a per-axis line for every row, with expected,
     /// measured, error, spread, the repeat samples and the mirrored halves. Kills the "report only
     /// X" mutant.
@@ -411,39 +451,66 @@ public class ProbeRingOnScreenJudgeTests
     }
 
     /// <summary>
-    /// F1's minimal shape: two good repeats and one off by 0.1. The mean (0.2833 at f = 0.25) is
-    /// inside ±0.05, so a mean-judging mutant passes this row and this test goes red.
+    /// F1's minimal shape over every position the strict rule must see (fixup 05 P1): the bad
+    /// repeat may be first, second or last, in either condition, on either axis — off by 0.12 px on
+    /// that axis only, the other two repeats exact, so the mean stays inside ±0.05. The failure
+    /// must name the condition, the axis and "repeat k of 3". Kills F1c (A judged on the mean),
+    /// F1e (only the last repeat judged) and every skip-one variant.
     /// </summary>
-    [StaFact]
-    public void Judge_FailsWhenOneRepeatMisses()
+    [StaTheory]
+    [InlineData(0, "A", true)]
+    [InlineData(1, "A", true)]
+    [InlineData(2, "A", true)]
+    [InlineData(0, "A", false)]
+    [InlineData(1, "A", false)]
+    [InlineData(2, "A", false)]
+    [InlineData(0, "B", true)]
+    [InlineData(1, "B", true)]
+    [InlineData(2, "B", true)]
+    [InlineData(0, "B", false)]
+    [InlineData(1, "B", false)]
+    [InlineData(2, "B", false)]
+    public void Judge_FailsWhenOneRepeatMisses(int badIndex, string condition, bool xAxis)
     {
         var (expected, referenceB, referenceA, assertions, sweep) = HealthyInputs();
         var inputs = Inputs(2.0, expected, referenceB, referenceA, assertions, sweep);
 
+        const double fraction = 0.25;
+        var wornBase = condition == ProbeRingOnScreenJudge.ConditionA
+            ? Math.Round(fraction, MidpointRounding.AwayFromZero)
+            : fraction;
+
+        ProbeRaster Repeat(int repeat)
+        {
+            var offX = xAxis && repeat == badIndex ? 0.12 : 0.0;
+            var offY = !xAxis && repeat == badIndex ? 0.12 : 0.0;
+
+            // Condition A's exact repeats snap (whole pixels); the bad repeat is fractional on its
+            // axis — the misplacement the judge must see. (A snapped capture cannot be 0.12 px off,
+            // so the bad frame is deliberately unsnapped.)
+            var snap = condition == ProbeRingOnScreenJudge.ConditionA && offX == 0.0 && offY == 0.0;
+            return RingAtAxis(wornBase + offX, wornBase + offY, snap);
+        }
+
         inputs = inputs with
         {
             AssertionRows = inputs.AssertionRows
-                .Select(row => row.Condition == ProbeRingOnScreenJudge.ConditionB
-                               && Math.Abs(row.Fraction - 0.25) < 1e-9
-                    ? row with
-                    {
-                        Repeats =
-                        [
-                            RingAt(0.25, snap: false),
-                            RingAt(0.25, snap: false),
-                            RingAt(0.375, snap: false),
-                        ],
-                    }
-                    : row)
+                .Where(existing => !(existing.Condition == condition && Math.Abs(existing.Fraction - fraction) < 1e-9))
+                .Append(new ProbeRingOnScreenJudge.RowSamples(condition, fraction, [Repeat(0), Repeat(1), Repeat(2)]))
                 .ToList(),
         };
 
         var report = ProbeRingOnScreenJudge.Measure(inputs);
 
+        var conditionText = condition == ProbeRingOnScreenJudge.ConditionA ? "Condition A" : "Condition B";
+        var axisText = xAxis ? "x axis" : "y axis";
         Check.WithCustomMessage(
-                "One repeat 0.125 px off must fail the row even though the mean stays inside ±0.05.")
+                $"A bad repeat {badIndex + 1} of 3 in {condition} on the {axisText} must fail and say so; "
+                + $"failures: {string.Join(" | ", report.Failures.Select(failure => failure.Message))}")
             .That(report.Failures.Any(failure =>
-                failure.Message.Contains("Condition B") && failure.Message.Contains("repeat 3 of 3"))).IsTrue();
+                failure.Message.Contains(conditionText)
+                && failure.Message.Contains(axisText)
+                && failure.Message.Contains($"repeat {badIndex + 1} of 3"))).IsTrue();
     }
 
     /// <summary>
@@ -467,7 +534,7 @@ public class ProbeRingOnScreenJudgeTests
                 "B off by 0.1 px vertically only must fail on the vertical check; got failures: "
                 + string.Join(" | ", report.Failures.Select(failure => failure.Message)))
             .That(report.Failures.Any(failure =>
-                failure.Message.Contains("Condition B") && failure.Message.Contains("vertical move"))).IsTrue();
+                failure.Message.Contains("Condition B") && failure.Message.Contains("(y axis)"))).IsTrue();
     }
 
     /// <summary>Fixup 04 F3 (kills V4): the same for condition A, one whole pixel low.</summary>
@@ -490,7 +557,7 @@ public class ProbeRingOnScreenJudgeTests
                 "A one whole pixel low must fail on the vertical check; got failures: "
                 + string.Join(" | ", report.Failures.Select(failure => failure.Message)))
             .That(report.Failures.Any(failure =>
-                failure.Message.Contains("Condition A") && failure.Message.Contains("vertical move"))).IsTrue();
+                failure.Message.Contains("Condition A") && failure.Message.Contains("(y axis)"))).IsTrue();
     }
 
     /// <summary>

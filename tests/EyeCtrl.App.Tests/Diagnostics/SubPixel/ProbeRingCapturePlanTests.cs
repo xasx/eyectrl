@@ -110,6 +110,25 @@ public class ProbeRingCapturePlanTests
     }
 
     /// <summary>
+    /// Fixup 05 P3: the D2 control must be the solid look, and differ from the owner's look only in
+    /// style. A BiTonal "solid control" says nothing (mutant D2).
+    /// </summary>
+    [Fact]
+    public void SolidLook_DiffersFromTheOwnerLook_OnlyInStyle()
+    {
+        var owner = ProbeRingCaptureScene.OwnerLook();
+        var solid = ProbeRingCaptureScene.SolidLook();
+
+        Check.WithCustomMessage("The owner's look is BiTonal; the solid control is WeightedSandwich.")
+            .That(owner.RingStyle).IsEqualTo(CursorRingStyle.BiTonalSegments);
+        Check.That(solid.RingStyle).IsEqualTo(CursorRingStyle.WeightedSandwich);
+        Check.That(solid.CircleSize).IsEqualTo(owner.CircleSize);
+        Check.That(solid.CircleThickness).IsEqualTo(owner.CircleThickness);
+        Check.That(solid.CircleOpacity).IsEqualTo(owner.CircleOpacity);
+        Check.That(solid.CircleColor).IsEqualTo(owner.CircleColor);
+    }
+
+    /// <summary>
     /// The estimate the report prints is derived from the plan's length; a plan change must move it.
     /// </summary>
     [Fact]

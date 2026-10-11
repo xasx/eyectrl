@@ -150,9 +150,51 @@ public class ProbeRingCaptureAnalysisTests
             .That(shift.MeanX).IsCloseTo(0.5, TolerancePx);
     }
 
-    /// <summary>Copies a raster, shifting every column right of <paramref name="centreX"/> one pixel right.</summary>
-    private static ProbeRaster RollRightOfCentre(ProbeRaster source, int centreX)
+    /// <summary>
+    /// Fixup 05 P3: D1 must average 21 rows and 21 columns (radius 10), not collapse to the single
+    /// scan line (mutant D1: rowRadius → 0). The expected mean is computed here independently from
+    /// <c>ShiftX</c>/<c>ShiftY</c>, and the fixture puts the single row far enough from the mean
+    /// that a collapsed radius fails loudly.
+    /// </summary>
+    [StaFact]
+    public void MultiRowShift_AveragesTheTwentyOneRowsAndColumns()
     {
+        var reference = Weights(FrameAt(0.0, snap: false));
+        var moved = Weights(FrameAt(0.4, snap: false));
+        var geometry = ProbeRingCaptureAnalysis.RingScanGeometry.For(CentreInCapture, HalfPx);
+
+        var measured = ProbeRingCaptureAnalysis.MeasureMultiRowShift(moved, reference, geometry);
+
+        double sumX = 0.0, sumY = 0.0;
+        for (var offset = -10; offset <= 10; offset++)
+        {
+            sumX += ProbeRasterEstimator.ShiftX(
+                moved, reference, geometry.ScanRow + offset, geometry.ReferenceCentreX, geometry.HalfPx);
+            sumY += ProbeRasterEstimator.ShiftY(
+                moved, reference, geometry.ScanColumn + offset, geometry.ReferenceCentreY, geometry.HalfPx);
+        }
+
+        _output.WriteLine(string.Format(CultureInfo.InvariantCulture,
+            "R2 synthetic D1: single-row=({0:0.00000}, {1:0.00000}) 21-row=({2:0.00000}, {3:0.00000})",
+            ProbeRasterEstimator.ShiftX(moved, reference, geometry.ScanRow, geometry.ReferenceCentreX, geometry.HalfPx),
+            ProbeRasterEstimator.ShiftY(moved, reference, geometry.ScanColumn, geometry.ReferenceCentreY, geometry.HalfPx),
+            measured.MeanX, measured.MeanY));
+
+        Check.WithCustomMessage($"D1 must average the 21 rows; got {measured.MeanX:0.00000} against {sumX / 21.0:0.00000}.")
+            .That(measured.MeanX).IsCloseTo(sumX / 21.0, 1e-12);
+        Check.WithCustomMessage($"D1 must average the 21 columns; got {measured.MeanY:0.00000} against {sumY / 21.0:0.00000}.")
+            .That(measured.MeanY).IsCloseTo(sumY / 21.0, 1e-12);
+
+        var singleRow = ProbeRasterEstimator.ShiftX(
+            moved, reference, geometry.ScanRow, geometry.ReferenceCentreX, geometry.HalfPx);
+        Check.WithCustomMessage(
+                $"At f = 0.4 the 21-row mean must differ from the single row (a radius-0 mutant collapses "
+                + $"them): single {singleRow:0.00000} vs multi {measured.MeanX:0.00000}.")
+            .That(Math.Abs(measured.MeanX - singleRow)).IsStrictlyGreaterThan(0.002);
+    }
+
+    /// <summary>Copies a raster, shifting every column right of <paramref name="centreX"/> one pixel right.</summary>
+    private static ProbeRaster RollRightOfCentre(ProbeRaster source, int centreX)    {
         var pixels = (byte[])source.Pixels.Clone();
         for (var y = 0; y < source.Height; y++)
         {

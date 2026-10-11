@@ -17,6 +17,7 @@ using EyeCtrl.App.Services;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
+using EyeCtrl.Core.Settings;
 
 /// <summary>What <see cref="ProbeRingOnScreenHarness.Run"/> did: nothing (gate closed) or the full run.</summary>
 internal enum ProbeRingOnScreenOutcome
@@ -208,7 +209,16 @@ internal static class ProbeRingOnScreenHarness
                     window.AttachRing(ring);
                 }
 
-                samples.Add(CaptureAt(window, ring, scale, step, screenWidthPx, screenHeightPx, captureClock));
+                // Fixup 05 P2: fail closed if the switch above did not actually attach the plan's
+                // look — a silently ignored switch would draw D2 with the wrong look AND (before the
+                // record fix) mislabel the manifest, pointing the key decider at the wrong cause.
+                Check.WithCustomMessage(
+                        $"The harness must draw step {step.Kind} at f={step.FractionX:0.00} with "
+                        + $"{step.Look.RingStyle}, but the attached look is {currentLook.RingStyle}.")
+                    .That(currentLook.RingStyle).IsEqualTo(step.Look.RingStyle);
+
+                samples.Add(CaptureAt(
+                    window, ring, scale, step, currentLook, screenWidthPx, screenHeightPx, captureClock));
             }
 
             // (h)/(F6) The window and the watchdog are done the moment the last capture is in: the
@@ -246,13 +256,6 @@ internal static class ProbeRingOnScreenHarness
 
             ProbeRingOnScreenJudge.WriteReport(report, writeLine);
 
-            // B2's fail-closed guard, after the report: a moving origin would bias every shift and
-            // make the table above unreadable as rendering evidence.
-            Check.WithCustomMessage(
-                    $"The capture origin moved during the run ({string.Join(", ", origins)}); the shift "
-                    + "measurement assumes one constant origin for every frame.")
-                .That(origins).HasSize(1);
-
             // (F6) The report is printed before the save: if %TEMP% is full or AV locks a file, the
             // table above is still the run's evidence. A save failure is reported and does not skip
             // the verdict.
@@ -266,6 +269,14 @@ internal static class ProbeRingOnScreenHarness
             {
                 writeLine($"R2 capture save FAILED ({folder}): {ex.Message}");
             }
+
+            // B2's fail-closed guard — after the save (fixup 05 nit): a moved origin must not be
+            // able to skip the archive, so the evidence is on disk first. It still runs before the
+            // verdict, and the table above is unreadable as rendering evidence without it.
+            Check.WithCustomMessage(
+                    $"The capture origin moved during the run ({string.Join(", ", origins)}); the shift "
+                    + "measurement assumes one constant origin for every frame.")
+                .That(origins).HasSize(1);
 
             // ---- Verdict: one combined failure summary (item 1). ----
             ProbeRingOnScreenJudge.Judge(report);
@@ -297,7 +308,7 @@ internal static class ProbeRingOnScreenHarness
     /// </summary>
     private static ProbeRingCapturedSample CaptureAt(
         ProbeRingTestWindow window, ProbeRingVisual ring, double scale, ProbeRingCaptureStep step,
-        int screenWidthPx, int screenHeightPx, Stopwatch captureClock)
+        CursorSettings currentLook, int screenWidthPx, int screenHeightPx, Stopwatch captureClock)
     {
         var frame = ProbeRingFrameSchedule.For(
             window.Left, window.Top, scale, step.FractionX, step.FractionY, screenWidthPx, screenHeightPx);
@@ -328,7 +339,7 @@ internal static class ProbeRingOnScreenHarness
         var weights = ProbeRingCaptureAnalysis.ToWeights(bgra, capture.Value.Size, capture.Value.Size, background);
         return new ProbeRingCapturedSample(
             step.Kind, step.Condition, step.FractionX, step.Repeat, frame, bgra, capture.Value.Size, weights,
-            background, ProbeRingCaptureScene.LookOf(step.Look), captureClock.ElapsedMilliseconds);
+            background, ProbeRingCaptureScene.LookOf(currentLook), captureClock.ElapsedMilliseconds);
     }
 
     /// <summary>

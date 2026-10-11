@@ -155,4 +155,37 @@ public class ProbeRingOfflineAnalysisTests
 
         return first.Count == second.Count ? "none" : $"lengths {first.Count} vs {second.Count}";
     }
+
+    /// <summary>
+    /// Fixup 05 P3: the D3 decider's rows are captured at (f, 0), so its Y expectation must be 0 —
+    /// a mutant that reuses f would print a false "-f" Y error and mislead the reading.
+    /// </summary>
+    [StaFact]
+    public void Analyse_GivesTheXOnlyDeciderItsZeroYExpectation()
+    {
+        var samples = ProbeRingSyntheticRun.Small();
+        samples.Add(ProbeRingCaptureScene.SyntheticSample(
+            ProbeRingOnScreenJudge.KindXOnly, "B", 0.0, 0.0, snap: false));
+        samples.Add(ProbeRingCaptureScene.SyntheticSample(
+            ProbeRingOnScreenJudge.KindXOnly, "B", 0.25, 0.0, snap: false));
+
+        var folder = ProbeRingSyntheticRun.TempFolder();
+        try
+        {
+            ProbeRingCaptureArchive.Save(folder, samples, 2.0, DateTimeOffset.UtcNow);
+            var report = ProbeRingOfflineAnalysis.Analyse(folder);
+
+            var d3 = report.Diagnostics.Single(diagnostic => diagnostic.Id == "D3");
+            Check.That(d3.Row).IsNotNull();
+            Check.That(d3.Row!.ExpectedX).IsCloseTo(0.25, 1e-9);
+            Check.WithCustomMessage(
+                    $"D3's rows are captured at (f, 0): its Y expectation must be 0, not f; got {d3.Row.ExpectedY}.")
+                .That(d3.Row.ExpectedY).IsEqualTo(0.0);
+            Check.That(d3.Row.MeanY).IsCloseTo(0.0, ProbeRingOnScreenJudge.TolerancePx);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
 }

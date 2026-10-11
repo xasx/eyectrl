@@ -261,29 +261,44 @@ internal static class ProbeRingCaptureArchive
             readable.PixelWidth, weights, background, look, entry.ElapsedMs);
     }
 
-    /// <summary>`git rev-parse HEAD` in the repo root, or "unknown" when it cannot be read.</summary>
+    /// <summary>
+    /// `git rev-parse HEAD` in the repo root, with a `-dirty` suffix when the working tree has
+    /// changes (fixup 05 nit), or "unknown" when git cannot be read. A run on a mutated tree must
+    /// not record a clean-looking sha.
+    /// </summary>
     private static string ReadCommitSha()
     {
         try
         {
-            using var git = Process.Start(new ProcessStartInfo("git", "rev-parse HEAD")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = EyeCtrl.App.Tests.SourceScanner.RepoRoot().FullName,
-            });
-            if (git is null)
+            var root = EyeCtrl.App.Tests.SourceScanner.RepoRoot().FullName;
+            var sha = RunGit(root, "rev-parse HEAD").Trim();
+            if (sha.Length == 0)
                 return "unknown";
 
-            var sha = git.StandardOutput.ReadToEnd().Trim();
-            git.WaitForExit(5000);
-            return git.ExitCode == 0 && sha.Length > 0 ? sha : "unknown";
+            var dirty = RunGit(root, "status --porcelain").Trim().Length > 0;
+            return dirty ? sha + "-dirty" : sha;
         }
         catch
         {
             return "unknown";
         }
+    }
+
+    private static string RunGit(string workingDirectory, string arguments)
+    {
+        using var git = Process.Start(new ProcessStartInfo("git", arguments)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = workingDirectory,
+        });
+        if (git is null)
+            return string.Empty;
+
+        var output = git.StandardOutput.ReadToEnd();
+        git.WaitForExit(5000);
+        return git.ExitCode == 0 ? output : string.Empty;
     }
 }

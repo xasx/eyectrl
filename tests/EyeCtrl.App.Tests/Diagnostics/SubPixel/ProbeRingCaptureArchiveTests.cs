@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Tests.Diagnostics.SubPixel;
 using System;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 /// <summary>
 /// Fixup 03 item 5's archive, headless: the run folder lives under %TEMP% (never
@@ -117,7 +118,9 @@ public class ProbeRingCaptureArchiveTests
                 .IsStrictlyGreaterThan(1);
             Check.WithCustomMessage("The manifest must record the commit sha (or 'unknown').")
                 .That(archive.CommitSha).IsNotNull();
-            Check.That(archive.CommitSha.Length).IsStrictlyGreaterThan(0);
+            Check.WithCustomMessage(
+                    $"The sha must be a real sha, optionally -dirty, or 'unknown'; got '{archive.CommitSha}'.")
+                .That(Regex.IsMatch(archive.CommitSha, @"^([0-9a-f]{40}(-dirty)?|unknown)$")).IsTrue();
         }
         finally
         {

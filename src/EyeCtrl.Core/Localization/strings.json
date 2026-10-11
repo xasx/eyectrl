@@ -270,7 +270,7 @@
     "args": []
   },
   "overlays.subpixel.intro_body": {
-    "text": "Look at Start to begin. At each question, look at 1 or 2 until it fills. To leave at any time, look at End test, or close your eyes for 10 seconds.",
+    "text": "This is the ring you will judge. It moves slowly — follow it with your eyes. Dwell Start when you are ready. To leave at any time, look at End test, or close your eyes for 10 seconds.",
     "who": "user",
     "where": "overlays",
     "fit": "prose",

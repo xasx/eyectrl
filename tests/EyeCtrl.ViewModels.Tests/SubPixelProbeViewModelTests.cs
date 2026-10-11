@@ -737,8 +737,11 @@ public class SubPixelProbeViewModelTests
         f.ReachScreen(screen);
 
         // Valid samples keep the eyes-closed exit quiet; the screen timeout is the only exit left.
-        // A Result timeout ends an already-complete run, so it gets its own reason (F14).
-        f.Drive(60_500);
+        // A Result timeout ends an already-complete run, so it gets its own reason (F14). The Intro
+        // waits IntroTimeoutMs (SP-4c D5, 80 s) since the demo screen; the other two keep 60 s.
+        f.Drive((screen == SubPixelProbePhase.Intro
+            ? SubPixelProbeViewModel.IntroTimeoutMs
+            : SubPixelProbeViewModel.ScreenTimeoutMs) + 500);
         Check.That(f.Runs).HasSize(1);
         Check.That(f.Runs[0]).IsEqualTo(screen == SubPixelProbePhase.Result
             ? SubPixelProbeRunEndReason.ResultTimeout
@@ -749,6 +752,25 @@ public class SubPixelProbeViewModelTests
     // Mutation (l1): any exit removed from any of the three phases -> that theory case goes red.
     // Mutation (l2): the screen timeout not armed on Intro/Ask/Result -> V1l3 goes red.
     // Mutation (F14): a Result timeout reports NoAnswer again -> the Result case goes red.
+
+    [Fact]
+    public void V1l3b_IntroTimeout_IsEightySeconds_AndTheOtherScreensKeepSixty()
+    {
+        var f = new Harness();
+        f.Vm.Start();
+
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Intro);
+        Check.WithCustomMessage("The Intro must still be waiting 500 ms before its timeout (80 s)")
+            .That(SubPixelProbeViewModel.IntroTimeoutMs).IsEqualTo(80_000);
+        f.Drive(SubPixelProbeViewModel.IntroTimeoutMs - 500);
+        Check.That(f.Runs).IsEmpty();
+
+        f.Drive(1000);
+        Check.That(f.Runs).ContainsExactly(SubPixelProbeRunEndReason.NoAnswer);
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Ended);
+    }
+
+    // Mutation (D5-intro): IntroTimeoutMs 80_000 -> 60_000 -> the 79.5 s check fires early, red.
 
     [Fact]
     public void V1l4_AskYes_StartsSessionTwo_AskLater_EndsAtResult()
@@ -1006,6 +1028,79 @@ public class SubPixelProbeViewModelTests
     // Mutation (o8): the answer path's post-callback guard removed -> a PhaseAdvanced fires after
     //   dispose: the phase-count check goes red.
 
+    [Fact]
+    public void V1c9_DwellPauseGrace_IsWired_A250msBlinkPausesTheAnswerDwell_AndDoesNotCreditIt()
+    {
+        var f = new Harness();
+        f.StartToTrials();
+        f.Dwell.ToolbarButtonDwellMs = 700;
+        f.Vm.Register(SubPixelProbeViewModel.AnswerOneTargetId, DwellCategory.Control, 75, 700, () => f.AnswerClicks++);
+        f.Vm.UpdatePosition(SubPixelProbeViewModel.AnswerOneTargetId, DwellCategory.Control, ButtonOne);
+
+        Check.That(f.DriveUntil(() => f.Vm.Phase == SubPixelProbePhase.Answer, at: Inside)).IsTrue();
+
+        // 180 ms of inside dwell, then a 250 ms blink (blink frames keep the position but are held
+        // samples, so C5 withholds them and the detector sees a dropout).
+        f.Drive(180, Inside);
+        double before = f.Vm.GetProgress(SubPixelProbeViewModel.AnswerOneTargetId, DwellCategory.Control);
+        Check.That(before).IsStrictlyGreaterThan(0.2);
+
+        f.TickGap(250, Inside);
+        Check.WithCustomMessage("A held (blink) sample must freeze the cue, not move it")
+            .That(f.Vm.GetProgress(SubPixelProbeViewModel.AnswerOneTargetId, DwellCategory.Control))
+            .IsCloseTo(before, 1e-9);
+
+        // Back inside: the grace paused the dwell, so the progress resumes where it left off — a
+        // reset detector would report ~0.04 (one sample), and a credit-the-gap detector more than
+        // "before".
+        f.Tick(30, Inside);
+        Check.WithCustomMessage("The probe's 300 ms grace is not wired to the detector")
+            .That(f.Vm.GetProgress(SubPixelProbeViewModel.AnswerOneTargetId, DwellCategory.Control))
+            .IsCloseTo(before, 1e-9);
+
+        // The dwell still needs its full 700 ms of inside time: it completes, on its own.
+        Check.That(f.DriveUntil(() => f.Vm.ScoredInCurrentBlock == 1, at: Inside)).IsTrue();
+        Check.That(f.AnswerClicks).IsEqualTo(1);
+    }
+
+    // Mutation (D4-wire): the DwellDetector is constructed without pauseGraceMs -> the resume check
+    //   reports ~0.04 instead of the pre-blink value: red.
+
+    [Fact]
+    public void V1cue_AnHonouredActivation_PublishesTheStandardDwellCue_AndADiscardedOneIsSilent()
+    {
+        var f = new Harness();
+        int cues = 0;
+        f.Messenger.Register<DwellActivationMessage>(f.Messenger, (_, _) => cues++);
+        f.StartToTrials();
+        f.Vm.Register(SubPixelProbeViewModel.AnswerOneTargetId, DwellCategory.Control, 75, 700, () => f.AnswerClicks++);
+        f.Vm.UpdatePosition(SubPixelProbeViewModel.AnswerOneTargetId, DwellCategory.Control, ButtonOne);
+        f.Vm.Register(SubPixelProbeViewModel.EndTestTargetId, DwellCategory.Control, 100, 700, () => f.EndTestClicks++);
+        f.Vm.UpdatePosition(SubPixelProbeViewModel.EndTestTargetId, DwellCategory.Control, EndButton);
+
+        // SP-4c D1: an activation the run discards (an answer button during an interval) is silent.
+        Check.That(f.DriveUntil(() => f.Vm.Phase == SubPixelProbePhase.Interval1 && !f.Vm.IsDemo)).IsTrue();
+        f.Vm.SimulateActivated(SubPixelProbeViewModel.AnswerOneTargetId);
+        Check.That(f.AnswerClicks).IsEqualTo(0);
+        Check.WithCustomMessage("A discarded activation published the dwell cue")
+            .That(cues).IsEqualTo(0);
+
+        // An honoured activation publishes the app-standard cue, exactly once.
+        Check.That(f.DriveUntil(() => f.Vm.Phase == SubPixelProbePhase.Answer)).IsTrue();
+        f.Vm.SimulateActivated(SubPixelProbeViewModel.AnswerOneTargetId);
+        Check.That(f.AnswerClicks).IsEqualTo(1);
+        Check.That(cues).IsEqualTo(1);
+
+        // End test is honoured on every screen and cues like every other button.
+        f.Vm.SimulateActivated(SubPixelProbeViewModel.EndTestTargetId);
+        Check.That(cues).IsEqualTo(2);
+        Check.That(f.Runs).ContainsExactly(SubPixelProbeRunEndReason.EndTest);
+    }
+
+    // Mutation (D1-cue): InvokeAction drops the publish -> cues stays 0: red.
+    // Mutation (D1-silent): the publish moves before the phase guards -> the discarded activation
+    //   cues: the first cue check goes red.
+
     // ------------------------------------------------------------------- V1: statistics (F6, o7)
 
     [Fact]
@@ -1122,7 +1217,8 @@ public class SubPixelProbeViewModelTests
                 f.Time.Advance(10_100);
                 break;
             default:
-                f.Drive(60_500);
+                // The resume's Intro is the demo screen: it waits IntroTimeoutMs, not 60 s (D5).
+                f.Drive(SubPixelProbeViewModel.IntroTimeoutMs + 500);
                 break;
         }
 

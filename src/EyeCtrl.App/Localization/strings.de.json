@@ -48,8 +48,8 @@
     "src": "127972ee"
   },
   "overlays.subpixel.intro_body": {
-    "text": "Auf Starten schauen, um zu beginnen. Bei jeder Frage auf 1 oder 2 schauen, bis der Ring sich füllt. Zum Verlassen jederzeit auf Test beenden schauen oder 10 Sekunden die Augen schließen.",
-    "src": "657265d5"
+    "text": "Das ist der Ring, den Sie beurteilen werden. Er bewegt sich langsam — folgen Sie ihm mit den Augen. Auf Starten schauen, wenn Sie bereit sind. Zum Verlassen jederzeit auf Test beenden schauen oder 10 Sekunden die Augen schließen.",
+    "src": "a5dd7faf"
   },
   "overlays.subpixel.intro_title": {
     "text": "Subpixel-Sichttest",

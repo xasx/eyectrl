@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using EyeCtrl.App.Overlays;
+using EyeCtrl.Controls;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Localization;
@@ -32,6 +33,14 @@ using Serilog;
 /// </para>
 ///
 /// <para>
+/// <b>SP-4c usability (the owner's live check).</b> Every button draws the app's standard
+/// rectangular dwell cue (<see cref="DwellOutlineOverlay"/>, the keyboard/emoji/prediction outline)
+/// driven from C5's <c>GetProgress</c>; the buttons are the D2 sizes with D3's forgiving hit
+/// circles; and the Intro draws a looping motion demo of the real ring so the owner sees what
+/// "moving" looks like before the run starts (D5).
+/// </para>
+///
+/// <para>
 /// Nothing here sets a snap or layout-rounding flag on the probe's ancestors (SP-2 review 01): the
 /// backdrop is drawn 1:1 because the image is exactly screen-DIPs wide at the injected scale, and
 /// the ring's placement is the only rounding in the subtree.
@@ -39,13 +48,52 @@ using Serilog;
 /// </summary>
 internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
 {
-    private const double AnswerWidth = 220;
-    private const double AnswerHeight = 140;
-    private const double ScreenButtonWidth = 260;
-    private const double ScreenButtonHeight = 110;
-    private const double EndButtonWidth = 170;
-    private const double EndButtonHeight = 70;
+    private const double AnswerWidth = 380;
+    private const double AnswerHeight = 260;
+    private const double ScreenButtonWidth = 420;
+    private const double ScreenButtonHeight = 170;
+    private const double EndButtonWidth = 280;
+    private const double EndButtonHeight = 120;
     private const double DotDiameter = 14;
+
+    /// <summary>
+    /// D3: extra hit-circle DIP around the answers and the screen buttons — half the larger side
+    /// plus this, in every direction, so the owner's measured gaze error no longer has to land on
+    /// the drawn button.
+    /// </summary>
+    internal const double ButtonHitMarginDip = 48;
+
+    /// <summary>
+    /// D3: extra hit-circle DIP around End test. Smaller than <see cref="ButtonHitMarginDip"/>
+    /// because a stray End test ends the run.
+    /// </summary>
+    internal const double EndButtonHitMarginDip = 16;
+
+    /// <summary>The Ask screen's panel width: two 420 DIP buttons side by side plus their 120 DIP gap.</summary>
+    private const double AskPanelWidth = 960;
+
+    /// <summary>
+    /// D5: gap in DIP between the Intro's demo band and the top of the Intro panel. 80, not a
+    /// visual nicety: the Start button's D3 hit circle is 258 DIP in radius, so the band-to-circle
+    /// clearance is this gap minus (panel height above the Start centre − 85) − 258 ≈ 24 DIP —
+    /// measured, and pinned by <c>SubPixelProbeUsabilityTests.D5_OnTheIntro_...</c>. The panel's
+    /// own bottom stays ~48 DIP inside a 1080 DIP screen.
+    /// </summary>
+    private const double IntroPanelGapDip = 80;
+
+    /// <summary>The Ask screen's gap between its two buttons (D3: their hit circles must not overlap).</summary>
+    private const double AskButtonGapDip = 120;
+
+    // D5: the demo runs one scripted interval pair, with the same interval/gap lengths as a
+    // trial, and repeats. Its step law is SubPixelAbDriftMotion's (0.25 physical px per 30 ms),
+    // so the demo ring moves exactly as a trial's ring does.
+    private const int DemoIntervalMs = SubPixelProbeViewModel.ScriptedIntervalMs;
+    private const int DemoGapMs = SubPixelProbeViewModel.GapMs;
+    private const long DemoCycleMs = 2L * (DemoIntervalMs + DemoGapMs);
+
+    /// <summary>Physical pixels the demo ring travels in one demo interval (the trial law's step × ticks).</summary>
+    private static readonly double DemoTravelPx = SubPixelAbDriftMotion.StepPixelsPerTick
+        * (DemoIntervalMs / (double)SubPixelAbDriftMotion.TickMilliseconds);
 
     private readonly SubPixelProbeViewModel _vm;
     private readonly Action _sessionEnded;
@@ -70,6 +118,13 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
     private readonly Border _askYes;
     private readonly Border _askLater;
     private readonly Border _resultDone;
+    private readonly DwellOutlineOverlay _answerOneCue;
+    private readonly DwellOutlineOverlay _answerTwoCue;
+    private readonly DwellOutlineOverlay _endTestCue;
+    private readonly DwellOutlineOverlay _introStartCue;
+    private readonly DwellOutlineOverlay _askYesCue;
+    private readonly DwellOutlineOverlay _askLaterCue;
+    private readonly DwellOutlineOverlay _resultDoneCue;
 
     private PhysicalPoint? _lastGaze;
     private long _lastFrameTicks;
@@ -79,6 +134,16 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
     private readonly Func<long> _frameTicks;
     private readonly double _frameTicksPerMs;
     private bool _closedObserved;
+
+    /// <summary>
+    /// D5's Intro demo drift: the step law of a trial's drift, re-anchored onto the screen centre
+    /// (recomputed by <see cref="Layout"/>, so it follows the window size) and driven by
+    /// <see cref="DrawIntroDemo"/> from the frame clock.
+    /// </summary>
+    private SubPixelAbDriftMotion _demoMotion = new(new PhysicalPoint(0, 0), SubPixelAbDirection.East);
+
+    private long _demoAnchorTicks;
+    private bool _demoAnchored;
 
     /// <summary>
     /// Builds the probe window for one run. The window is not shown here; C7 shows it through
@@ -199,24 +264,23 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         _trialLabel.Foreground = Tokens.BrushTextDim;
         Add(_trialLabel, 24, 0);
 
-        _answerOne = BuildButton(T("overlays.subpixel.answer_one"), AnswerWidth, AnswerHeight, Tokens.BrushAccent);
-        _answerTwo = BuildButton(T("overlays.subpixel.answer_two"), AnswerWidth, AnswerHeight, Tokens.BrushAccent);
-        _endTest = BuildButton(T("overlays.subpixel.end_test"), EndButtonWidth, EndButtonHeight, Tokens.BrushAccentDanger);
+        _answerOne = BuildButton(T("overlays.subpixel.answer_one"), AnswerWidth, AnswerHeight, Tokens.BrushAccent, out _answerOneCue);
+        _answerTwo = BuildButton(T("overlays.subpixel.answer_two"), AnswerWidth, AnswerHeight, Tokens.BrushAccent, out _answerTwoCue);
+        _endTest = BuildButton(T("overlays.subpixel.end_test"), EndButtonWidth, EndButtonHeight, Tokens.BrushAccentDanger, out _endTestCue);
         Add(_answerOne, 0, 0);
         Add(_answerTwo, 0, 0);
         Add(_endTest, 0, 0);
 
-        _introStart = BuildButton(T("overlays.subpixel.start"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushAccent);
-        _askYes = BuildButton(T("overlays.subpixel.ask_yes"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushAccent);
-        _askLater = BuildButton(T("overlays.subpixel.ask_later"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushSurfaceMedium);
-        _resultDone = BuildButton(T("overlays.subpixel.done"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushAccent);
+        _introStart = BuildButton(T("overlays.subpixel.start"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushAccent, out _introStartCue);
+        _askYes = BuildButton(T("overlays.subpixel.ask_yes"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushAccent, out _askYesCue);
+        _askLater = BuildButton(T("overlays.subpixel.ask_later"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushSurfaceMedium, out _askLaterCue);
+        _resultDone = BuildButton(T("overlays.subpixel.done"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushAccent, out _resultDoneCue);
 
         _introPanel = BuildScreen(
             T("overlays.subpixel.intro_title"), T("overlays.subpixel.intro_body"), _introStart);
         _voidHoldPanel = BuildScreen(
             T("overlays.subpixel.void_hold_title"), T("overlays.subpixel.void_hold_body"));
-        _askPanel = BuildScreen(
-            T("overlays.subpixel.ask_title"), null, _askYes, _askLater);
+        _askPanel = BuildAskScreen();
         _resultPanel = BuildScreen(T("overlays.subpixel.result_title"), null, _resultDone);
         _resultPanel.Children.Insert(1, _resultText);
         _resultText.FontSize = Tokens.FontSizeBodyLarge;
@@ -335,6 +399,7 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
             }
 
             DrawPresentation();
+            UpdateDwellCues();
         }
         catch (Exception ex)
         {
@@ -398,7 +463,16 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         _scene.Children.Add(element);
     }
 
-    private Border BuildButton(string label, double width, double height, Brush background)
+    /// <summary>
+    /// Builds one probe button and attaches the app's rectangular dwell cue to it (SP-4c D1):
+    /// <see cref="DwellOutlineOverlay.Attach"/> wraps the button's content and
+    /// <see cref="UpdateDwellCues"/> drives the outline from C5's dwell progress. This is the
+    /// keyboard keys'/emoji tabs'/prediction bar's outline, not the toolbar's circular arc: the
+    /// probe's buttons are rectangles, and the outline is the standard this app already uses where
+    /// a fill cannot carry the feedback (and where the target is not a disc).
+    /// </summary>
+    private static Border BuildButton(
+        string label, double width, double height, Brush background, out DwellOutlineOverlay cue)
     {
         var text = new TextBlock
         {
@@ -409,41 +483,44 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
             TextAlignment = TextAlignment.Center,
         };
 
-        return new Border
+        var button = new Border
         {
             Width = width,
             Height = height,
             CornerRadius = new CornerRadius(Tokens.CornerRadiusStandard),
             Background = background,
-            Child = new Grid { Children = { text } },
         };
+        cue = DwellOutlineOverlay.Attach(button, new Grid { Children = { text } });
+        return button;
     }
+
+    private static TextBlock TitleBlock(string text) => new()
+    {
+        Text = text,
+        FontSize = Tokens.FontSizeTitle,
+        FontWeight = Tokens.FontWeightStrong,
+        Foreground = Tokens.BrushTextPrimary,
+        TextAlignment = TextAlignment.Center,
+        TextWrapping = TextWrapping.Wrap,
+    };
+
+    private static TextBlock BodyBlock(string text) => new()
+    {
+        Text = text,
+        FontSize = Tokens.FontSizeBodyLarge,
+        Foreground = Tokens.BrushTextSecondary,
+        TextAlignment = TextAlignment.Center,
+        TextWrapping = TextWrapping.Wrap,
+        Margin = new Thickness(0, 24, 0, 0),
+    };
 
     private StackPanel BuildScreen(string title, string? body, params Border[] buttons)
     {
         var panel = new StackPanel { Width = 720 };
-        panel.Children.Add(new TextBlock
-        {
-            Text = title,
-            FontSize = Tokens.FontSizeTitle,
-            FontWeight = Tokens.FontWeightStrong,
-            Foreground = Tokens.BrushTextPrimary,
-            TextAlignment = TextAlignment.Center,
-            TextWrapping = TextWrapping.Wrap,
-        });
+        panel.Children.Add(TitleBlock(title));
 
         if (body is not null)
-        {
-            panel.Children.Add(new TextBlock
-            {
-                Text = body,
-                FontSize = Tokens.FontSizeBodyLarge,
-                Foreground = Tokens.BrushTextSecondary,
-                TextAlignment = TextAlignment.Center,
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 24, 0, 0),
-            });
-        }
+            panel.Children.Add(BodyBlock(body));
 
         foreach (var button in buttons)
         {
@@ -457,20 +534,48 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         return panel;
     }
 
-    private void RegisterTargets()
+    /// <summary>
+    /// Builds the Ask screen. Unlike the other screens its two buttons sit SIDE BY SIDE: D3's hit
+    /// circles (half the larger side + 48 DIP = 258 DIP each) must not overlap, and stacked at the
+    /// other screens' 24 DIP spacing they would (194 DIP centre to centre against a 516 DIP
+    /// minimum). The 120 DIP gap puts the centres 540 DIP apart; the screen's exits, its 60 s
+    /// timeout and its phase transitions are untouched.
+    /// </summary>
+    private StackPanel BuildAskScreen()
     {
-        Register(SubPixelProbeViewModel.AnswerOneTargetId, AnswerWidth, AnswerHeight);
-        Register(SubPixelProbeViewModel.AnswerTwoTargetId, AnswerWidth, AnswerHeight);
-        Register(SubPixelProbeViewModel.EndTestTargetId, EndButtonWidth, EndButtonHeight);
-        Register(SubPixelProbeViewModel.IntroStartTargetId, ScreenButtonWidth, ScreenButtonHeight);
-        Register(SubPixelProbeViewModel.AskYesTargetId, ScreenButtonWidth, ScreenButtonHeight);
-        Register(SubPixelProbeViewModel.AskLaterTargetId, ScreenButtonWidth, ScreenButtonHeight);
-        Register(SubPixelProbeViewModel.ResultDoneTargetId, ScreenButtonWidth, ScreenButtonHeight);
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        _askYes.Margin = new Thickness(0, 24, AskButtonGapDip / 2, 0);
+        _askLater.Margin = new Thickness(AskButtonGapDip / 2, 24, 0, 0);
+        row.Children.Add(_askYes);
+        row.Children.Add(_askLater);
+
+        var panel = new StackPanel { Width = AskPanelWidth };
+        panel.Children.Add(TitleBlock(T("overlays.subpixel.ask_title")));
+        panel.Children.Add(row);
+        panel.Visibility = Visibility.Collapsed;
+        _scene.Children.Add(panel);
+        return panel;
     }
 
-    private void Register(string id, double width, double height)
+    private void RegisterTargets()
     {
-        double radiusPhysical = Math.Min(width, height) * _scale / 2.0;
+        Register(SubPixelProbeViewModel.AnswerOneTargetId, AnswerWidth, AnswerHeight, ButtonHitMarginDip);
+        Register(SubPixelProbeViewModel.AnswerTwoTargetId, AnswerWidth, AnswerHeight, ButtonHitMarginDip);
+        Register(SubPixelProbeViewModel.EndTestTargetId, EndButtonWidth, EndButtonHeight, EndButtonHitMarginDip);
+        Register(SubPixelProbeViewModel.IntroStartTargetId, ScreenButtonWidth, ScreenButtonHeight, ButtonHitMarginDip);
+        Register(SubPixelProbeViewModel.AskYesTargetId, ScreenButtonWidth, ScreenButtonHeight, ButtonHitMarginDip);
+        Register(SubPixelProbeViewModel.AskLaterTargetId, ScreenButtonWidth, ScreenButtonHeight, ButtonHitMarginDip);
+        Register(SubPixelProbeViewModel.ResultDoneTargetId, ScreenButtonWidth, ScreenButtonHeight, ButtonHitMarginDip);
+    }
+
+    /// <summary>
+    /// Registers one dwell target with its D3 hit circle: half the button's LARGER side (not the
+    /// smaller one, which produced the owner's 70/35/55 DIP circles) plus the button's margin, in
+    /// physical pixels at the injected scale.
+    /// </summary>
+    private void Register(string id, double width, double height, double marginDip)
+    {
+        double radiusPhysical = (Math.Max(width, height) / 2.0 + marginDip) * _scale;
         _vm.Register(id, DwellCategory.Control, radiusPhysical, dwellMs: 0, onActivated: static () => { });
     }
 
@@ -500,10 +605,28 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         Canvas.SetTop(_corner, height - 62);
         Canvas.SetTop(_trialLabel, height - 92);
 
-        Centre(_introPanel, width, height);
+        // D5: the demo drifts through the screen centre, so the Intro panel sits BELOW its band —
+        // title, body and Start all clear of the ring and of the ring's target circle. The band's
+        // half-height is the ring's radius, and the demo's horizontal travel adds nothing
+        // vertically. The panel is bottom-anchored through this placement (its own height then
+        // reaches down towards the bottom edge), which is what keeps the Start button's 258 DIP
+        // hit circle off the ring's path.
+        _introPanel.Measure(new Size(width, height));
+        Canvas.SetLeft(_introPanel, (width - _introPanel.DesiredSize.Width) / 2);
+        Canvas.SetTop(_introPanel, height / 2 + _ring.SizeDip / 2 + IntroPanelGapDip);
+
         Centre(_voidHoldPanel, width, height);
         Centre(_askPanel, width, height);
         Centre(_resultPanel, width, height);
+
+        // The demo's step law re-anchored onto the screen centre: the ring starts half its travel
+        // left of centre so the whole path is centred, and drifts East (D5's "same drift path" is
+        // the trial law's; the direction is the demo's own, chosen so the path is predictable).
+        _demoMotion = new SubPixelAbDriftMotion(
+            new PhysicalPoint(
+                width * _scale / 2.0 - DemoTravelPx / 2.0,
+                height * _scale / 2.0),
+            SubPixelAbDirection.East);
 
         EnsureArranged();
         UpdateTargetGeometry();
@@ -607,6 +730,32 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
     /// <summary>Test seam (M5): whether the probe ring is currently drawn.</summary>
     internal bool IsRingDrawnForTest => _ring.Visibility == Visibility.Visible;
 
+    /// <summary>Test seam (SP-4c D1): the dwell cue outline a button draws.</summary>
+    internal DwellOutlineOverlay? CueForTest(string id) => id switch
+    {
+        SubPixelProbeViewModel.AnswerOneTargetId => _answerOneCue,
+        SubPixelProbeViewModel.AnswerTwoTargetId => _answerTwoCue,
+        SubPixelProbeViewModel.EndTestTargetId => _endTestCue,
+        SubPixelProbeViewModel.IntroStartTargetId => _introStartCue,
+        SubPixelProbeViewModel.AskYesTargetId => _askYesCue,
+        SubPixelProbeViewModel.AskLaterTargetId => _askLaterCue,
+        SubPixelProbeViewModel.ResultDoneTargetId => _resultDoneCue,
+        _ => null,
+    };
+
+    /// <summary>Test seam (SP-4c D5): the ring the demo and the trials draw with.</summary>
+    internal ProbeRingVisual RingForTest => _ring;
+
+    /// <summary>Test seam (SP-4c D2): a screen's panel, for the layout-fit assertions.</summary>
+    internal FrameworkElement? PanelForTest(SubPixelProbePhase phase) => phase switch
+    {
+        SubPixelProbePhase.Intro => _introPanel,
+        SubPixelProbePhase.VoidHold => _voidHoldPanel,
+        SubPixelProbePhase.Ask => _askPanel,
+        SubPixelProbePhase.Result => _resultPanel,
+        _ => null,
+    };
+
     /// <summary>Test seam (M5): the VoidHold panel, for the "rest your eyes" visibility assertion.</summary>
     internal FrameworkElement VoidHoldPanelForTest => _voidHoldPanel;
 
@@ -627,8 +776,14 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         SetVisible(_answerTwo, _vm.Phase == SubPixelProbePhase.Answer);
         SetVisible(_endTest, !ended && _vm.Phase != SubPixelProbePhase.Idle);
 
-        _ring.Visibility = interval ? Visibility.Visible : Visibility.Collapsed;
+        _ring.Visibility = interval || _vm.Phase == SubPixelProbePhase.Intro
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         _targetDot.Visibility = Visibility.Collapsed;
+
+        // D5: the demo repeats its interval pair; entering the Intro restarts the loop. The anchor
+        // itself is taken lazily on the first demo frame, so a frame clock that starts at 0 works.
+        if (_vm.Phase == SubPixelProbePhase.Intro) _demoAnchored = false;
 
         _corner.Text = _vm.Phase switch
         {
@@ -700,6 +855,12 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
 
     private void DrawPresentation()
     {
+        if (_vm.Phase == SubPixelProbePhase.Intro)
+        {
+            DrawIntroDemo();
+            return;
+        }
+
         if (_vm.Phase is not (SubPixelProbePhase.Interval1 or SubPixelProbePhase.Interval2)) return;
         if (_vm.CurrentMotion is not { } motion) return;
 
@@ -731,6 +892,75 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
                 _targetDot.Visibility = Visibility.Visible;
                 break;
         }
+    }
+
+    /// <summary>
+    /// D5 — the Intro screen's motion demo: the probe's real ring (same visual, same quiet look,
+    /// same size) drifts through the screen centre at a trial's drift speed, looping one scripted
+    /// interval pair unlabelled — condition A (whole-pixel) for one interval, the 0.8 s gap with
+    /// the ring hidden, then condition B (sub-pixel) from the same start, exactly the way a
+    /// trial's two intervals look. Driven by the injected frame clock, so it is deterministic
+    /// headless; every other phase draws nothing here.
+    /// </summary>
+    private void DrawIntroDemo()
+    {
+        long now = _frameTicks();
+        if (!_demoAnchored)
+        {
+            _demoAnchored = true;
+            _demoAnchorTicks = now;
+        }
+
+        if (now < _demoAnchorTicks) _demoAnchorTicks = now;   // a reset frame clock re-anchors
+        long elapsedMs = (long)((now - _demoAnchorTicks) / _frameTicksPerMs);
+        long at = elapsedMs % DemoCycleMs;
+
+        // One interval pair: A, gap, B, gap — the pair's second gap exists only so the loop
+        // re-enters A the way a block's next presentation does (ring hidden at the seam).
+        if (at >= DemoIntervalMs && at < DemoIntervalMs + DemoGapMs)
+        {
+            _ring.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        if (at >= 2L * DemoIntervalMs + DemoGapMs)
+        {
+            _ring.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        bool snap;
+        long intervalMs;
+        if (at < DemoIntervalMs)
+        {
+            snap = true;                                    // interval 1 = condition A
+            intervalMs = at;
+        }
+        else
+        {
+            snap = false;                                   // interval 2 = condition B
+            intervalMs = at - DemoIntervalMs - DemoGapMs;
+        }
+
+        _ring.Visibility = Visibility.Visible;
+        _ring.Place(_demoMotion.PositionAt(intervalMs), snap);
+    }
+
+    /// <summary>
+    /// D1: pushes every button's dwell progress into its outline. Runs once per presented frame
+    /// (like the rest of the drawing), allocation-free — <see cref="DwellOutlineOverlay.SetProgress"/>
+    /// only writes two stroke thicknesses. A button that is not on screen has no live dwell state,
+    /// so its progress is 0 and its outline collapses.
+    /// </summary>
+    private void UpdateDwellCues()
+    {
+        _answerOneCue.SetProgress(_vm.GetProgress(SubPixelProbeViewModel.AnswerOneTargetId, DwellCategory.Control));
+        _answerTwoCue.SetProgress(_vm.GetProgress(SubPixelProbeViewModel.AnswerTwoTargetId, DwellCategory.Control));
+        _endTestCue.SetProgress(_vm.GetProgress(SubPixelProbeViewModel.EndTestTargetId, DwellCategory.Control));
+        _introStartCue.SetProgress(_vm.GetProgress(SubPixelProbeViewModel.IntroStartTargetId, DwellCategory.Control));
+        _askYesCue.SetProgress(_vm.GetProgress(SubPixelProbeViewModel.AskYesTargetId, DwellCategory.Control));
+        _askLaterCue.SetProgress(_vm.GetProgress(SubPixelProbeViewModel.AskLaterTargetId, DwellCategory.Control));
+        _resultDoneCue.SetProgress(_vm.GetProgress(SubPixelProbeViewModel.ResultDoneTargetId, DwellCategory.Control));
     }
 
     private static void SetVisible(UIElement element, bool visible) =>

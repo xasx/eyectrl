@@ -183,9 +183,10 @@ public sealed record SubPixelProbeSessionOutcome(
 /// </para>
 /// <para>
 /// <b>Exits (every phase):</b> the End test button, the 10 s time-since-last-valid-sample eyes-closed
-/// exit, and a 60 s timeout on the screens that wait for input (Intro, answer, Ask, Result). A
-/// session that is live when an exit fires first raises <see cref="SessionCompleted"/> for it, then
-/// <see cref="RunEnded"/> for the run.
+/// exit, and a screen timeout on the screens that wait for input (Intro, answer, Ask, Result):
+/// <see cref="IntroTimeoutMs"/> (80 s, SP-4c D5) on the Intro, <see cref="ScreenTimeoutMs"/> (60 s)
+/// elsewhere. A session that is live when an exit fires first raises <see cref="SessionCompleted"/>
+/// for it, then <see cref="RunEnded"/> for the run.
 /// </para>
 /// <para>
 /// <b>Voids</b> (scored trials, inside interval 1 or 2 only): more than 500 ms with <b>no valid
@@ -259,8 +260,25 @@ public partial class SubPixelProbeViewModel : MessengerViewModelBase,
     /// <summary>The blank gap between the two intervals, in milliseconds.</summary>
     public const int GapMs = 800;
 
-    /// <summary>How long a screen that waits for input (Intro, answer, Ask, Result) waits before aborting.</summary>
+    /// <summary>How long a screen that waits for input (answer, Ask, Result) waits before aborting.</summary>
     public const int ScreenTimeoutMs = 60_000;
+
+    /// <summary>
+    /// How long the Intro screen waits before aborting (SP-4c D5). Longer than
+    /// <see cref="ScreenTimeoutMs"/> because the owner watches the Intro's motion demo first —
+    /// 80 s is several demo loops. It must stay below C7's 90 s no-progress watchdog
+    /// (<c>SubPixelProbeCoordinator.NoProgressMs</c>), which stamps only phase transitions: with a
+    /// longer Intro the watchdog would abort the run first and this timer could never fire. Pinned
+    /// by <c>SubPixelProbeIntroTimeoutTests</c>.
+    /// </summary>
+    public const int IntroTimeoutMs = 80_000;
+
+    /// <summary>
+    /// The pause grace every probe dwell target gets (SP-4c D4): leaving the hit circle, or a
+    /// dropout (invalid or blink sample) for up to this long, pauses the button's dwell progress
+    /// instead of resetting it. Opt-in at the detector; no other surface passes it.
+    /// </summary>
+    public const int DwellPauseGraceMs = 300;
 
     /// <summary>Invalid-gaze (or silence) time inside one interval that voids the trial; more than this voids.</summary>
     public const int InvalidGazeVoidMs = 500;
@@ -367,7 +385,8 @@ public partial class SubPixelProbeViewModel : MessengerViewModelBase,
         _dwellSettings = dwellSettings;
         _isValidSample = isValidSample;
 
-        _targets = new DwellDetector(dwellSettings.DwellCooldownMs);
+        _targets = new DwellDetector(
+            dwellSettings.DwellCooldownMs, pauseGraceMs: DwellPauseGraceMs);
         _targets.TargetActivated += OnTargetActivated;
 
         _phaseTimer = timeProvider.CreateTimer(
@@ -748,7 +767,9 @@ public partial class SubPixelProbeViewModel : MessengerViewModelBase,
         DisarmVoidGuard();
 
         if (!TransitionTo(phase)) return;
-        _screenTimer.Change(TimeSpan.FromMilliseconds(ScreenTimeoutMs), Timeout.InfiniteTimeSpan);
+        _screenTimer.Change(
+            TimeSpan.FromMilliseconds(phase == SubPixelProbePhase.Intro ? IntroTimeoutMs : ScreenTimeoutMs),
+            Timeout.InfiniteTimeSpan);
     }
 
     /// <summary>
@@ -997,9 +1018,19 @@ public partial class SubPixelProbeViewModel : MessengerViewModelBase,
         _voidGuardTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
     }
 
+    /// <summary>
+    /// Runs a registered target's action and publishes the app's dwell-completion cue first
+    /// (SP-4c D1): every honoured activation plays the standard <c>DwellCueService</c> sound, the
+    /// same message the toolbar and the other cue surfaces send. A discarded activation (an answer
+    /// outside the answer screen, Start outside the Intro) never reaches here, so it stays silent.
+    /// </summary>
     private void InvokeAction(string id)
     {
-        if (_actions.TryGetValue(id, out var action)) action();
+        if (_actions.TryGetValue(id, out var action))
+        {
+            Messenger.Send(new DwellActivationMessage());
+            action();
+        }
     }
 
     /// <summary>

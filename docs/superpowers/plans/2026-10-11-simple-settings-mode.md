@@ -10,16 +10,17 @@
 
 ## Global Constraints
 
-- **Worktree:** everything happens in `C:\Users\andre\source\repos\eyectrl\.worktrees\simple-settings-mode`, branch `feat/simple-settings-mode`. The main checkout is dirty with the owner's files — never touch it.
+- **Worktree + cwd discipline:** everything happens in `C:\Users\andre\source\repos\eyectrl\.worktrees\simple-settings-mode`, branch `feat/simple-settings-mode`. The main checkout is dirty with the owner's files — never touch it. **The shell's cwd resets to the main checkout between commands**: prefix every command with `cd C:\Users\andre\source\repos\eyectrl\.worktrees\simple-settings-mode && ` (or use absolute paths), and run `git -C C:\Users\andre\source\repos\eyectrl\.worktrees\simple-settings-mode status --short` before every commit to confirm you are committing the worktree, not main.
 - **One test project per `dotnet test` invocation; never two suites at once** (machine-global named pipes). Test output is German: "Fehler!" = FAIL, "Bestanden!" = pass.
-- **NFluent only** for assertions (`Check.That(...)`); xUnit v3 for structure. Inclusive comparisons are `IsGreaterOrEqualThan`/`IsLessOrEqualThan`.
+- **Test helpers are private per class:** `ExtractMethod`, `WindowSource`, `Body`/`Source`, `FakeStartupRegistrar` — copy the needed helper into each new test class; do not assume a shared one. `SettingsTabPaginationWiringTests` (inside `Settings/SettingsTabPaginationTests.cs`) has `ExtractMethod` but no `WindowSource()` — copy the window-source loader from `SettingsPagerChromeTests.cs`. Tests that construct WPF elements are `[StaFact]`. New `EyeCtrl.App.Tests` files import `using System.IO;` explicitly (the WindowsDesktop SDK drops it from implicit usings).
+- **NFluent only** for assertions (`Check.That(...)`); xUnit v3 for structure. Inclusive comparisons are `IsGreaterOrEqualThan`/`IsLessOrEqualThan`; unordered set checks use `IsOnlyMadeOf` + `HasSize` (never `ContainsExactly` on a `HashSet` — it pins enumeration order).
 - **No UI literals:** every user-visible string is a `StringTable` key present in `src/EyeCtrl.Core/Localization/strings.json` with `who`/`where`/`fit` metadata. Keys are **literals at the call site**.
 - **Insertion-scan caution:** `LanguageRowReachTests`, `SettingsTabDriftTests`, `SettingsTabLabelFitTests` anchor on the **first** `"_tabDefs ="` text in `SettingsWindow.xaml.cs`, comments included. Never write that token anywhere above the initializer.
 - **Own-methods rule:** the toggle's registration/disarm/wash/label code lives in its own methods, never inside `RenderPagination`, `MakePagButton`, or `RegisterPagerTarget` (their bodies are regex-extracted by `SettingsPagerChromeTests`; `MakePagButton` must keep containing no `_viewModel.Register(`).
 - **Lambda-free frame loop:** never add `=>` inside `UpdateAllTargetPositions` (`SettingsFrameLoopAllocationTests`).
 - **Gaze-trap invariant:** a hidden control has no live hit circle. Every registration change ships with its unregister counterpart.
 - **The app is never launched by non-gated tests.** The FlaUI set (`Category=UI` + `EYECTRL_UI_TESTS=1`) is owner-gated: Task 13 only, after asking.
-- Advanced mode (the default) must stay bit-for-bit unchanged except the one header toggle (ledger L13).
+- Advanced mode (the default) must stay bit-for-bit unchanged except the one header toggle (ledger L13) — including the `_viewModel.Register("close", …)` line at the end of `BuildTabButtons`, which no test pins: keep it.
 
 ---
 
@@ -87,10 +88,18 @@ _settings.General.SimpleSettingsUi = simpleUi;
 
 Also extend the `<summary>`'s "The language survives (D10…)" paragraph with one sentence: "The interface mode survives for the same reason — a bulk reset must not flip fifteen tabs into a novice's face."
 
-- [ ] **Step 4: Run to verify it passes**
+- [ ] **Step 4: Make the census exemption load-bearing, then run**
 
-Run: `dotnet test tests/EyeCtrl.ViewModels.Tests`
-Expected: all pass (the census test now expects the new pair and finds it).
+In the census test's arrange, the new pair only proves something if the flag is perturbed before `ResetAllSettings()` runs: set `settings.General.SimpleSettingsUi = true;` alongside the other non-default arrangements the census makes (the existing `notResetPropsByDesign` test perturbs each listed property — mirror how it does it for `UiLanguage`).
+
+Run both projects (the property lives in Core, the capture in ViewModels):
+
+```bash
+dotnet test tests/EyeCtrl.Core.Tests
+dotnet test tests/EyeCtrl.ViewModels.Tests
+```
+
+Expected: all pass.
 
 - [ ] **Step 5: Commit**
 
@@ -197,7 +206,10 @@ public class SimpleSettingsFilterTests
     [Fact]
     public void SimpleTabIds_AreExactlyTheCuratedTabs()
     {
-        Check.That(SimpleSettingsFilter.SimpleTabIds).ContainsExactly("Cursor", "Dwell", "Keyboard", "General");
+        // Unordered: IsOnlyMadeOf + size, never ContainsExactly (a HashSet's enumeration
+        // order is an implementation detail).
+        Check.That(SimpleSettingsFilter.SimpleTabIds).IsOnlyMadeOf("Cursor", "Dwell", "Keyboard", "General");
+        Check.That(SimpleSettingsFilter.SimpleTabIds).HasSize(4);
     }
 
     [Fact]
@@ -322,70 +334,160 @@ git add src/EyeCtrl.App/Views/Settings/Sources/
 git commit -m "feat(settings): curate the simple-mode rows on the four sources"
 ```
 
-### Task 5: curation pin + reachability
+### Task 5: curation pin + tab-set drift + reachability
 
 **Files:**
 - Test: `tests/EyeCtrl.App.Tests/Settings/Pages/SimpleModeCurationTests.cs`
 - Test: `tests/EyeCtrl.App.Tests/Settings/SimpleModeReachabilityTests.cs`
 
 **Interfaces:**
-- Consumes: `SimpleSettingsFilter` (Task 3), the curated rows (Task 4), `SupervisionComposition.Create` (see `tests/EyeCtrl.App.Tests/Settings/Pages/GeneralPageSourceResetDriftTests.cs:38-60` for the live-service construction), `SettingsAutoPagination.Repaginate` + `SettingsWindow.CreateControl` (see `tests/EyeCtrl.App.Tests/Settings/HandChunkedPageFitTests.cs` for the budget/reach idiom).
+- Consumes: `SimpleSettingsFilter` (Task 3), the curated rows (Task 4), `SupervisionComposition.Create` + `SupervisionEnabledWriter` (namespace `EyeCtrl.App.Services`; see `tests/EyeCtrl.App.Tests/Settings/Pages/GeneralPageSourceResetDriftTests.cs:38-60` for the live-service construction), `TestSettingsPageContext.Build`, `HandChunkedPageFitTests`' source-construction + placement machinery, `SettingsContentFitTests`' narrow-display budget derivations.
 
 - [ ] **Step 1: Write the curation pin test**
 
 ```csharp
 namespace EyeCtrl.App.Tests.Settings.Pages;
 
+using System.IO;
+using EyeCtrl.App.Services;
 using EyeCtrl.App.Views.Settings;
+using EyeCtrl.Core.Enums;
+using EyeCtrl.Core.Settings;
 
 /// <summary>
 /// Pins the curated subset per tab as an ordered row sequence (kind + id for interactive rows;
-/// LabelSpec twins pinned by a text predicate, their id is ""). Built with live supervision
-/// (three constructible branches) and with the pending-language note present, so conditional
-/// rows cannot silently leave simple mode (spec §6, round-2 m4/m5).
+/// LabelSpec twins pinned by a text predicate, their id is ""). General is built through ALL
+/// THREE supervision branches, and Cursor through both ring-style branches, so conditional rows
+/// cannot silently leave simple mode (spec §6, round-2 m4/m5; plan-review I6).
 /// </summary>
 public class SimpleModeCurationTests
 {
+    // The plan's own registrar fake: IStartupRegistrar is the seam the composition takes.
+    private sealed class FakeStartupRegistrar : EyeCtrl.Core.Interfaces.IStartupRegistrar
+    {
+        public bool IsRegistered() => true;
+        public void Register() { }
+        public void Unregister() { }
+    }
+
     public static TheoryData<string> SimpleTabs() => new() { "Cursor", "Dwell", "Keyboard", "General" };
 
     [Theory]
     [MemberData(nameof(SimpleTabs))]
     public void SimpleMode_ShowsExactlyTheCuratedSequence(string tab)
     {
-        var settings = new EyeCtrl.Core.Settings.EyeCtrlSettings();
-        settings.General.UiLanguage = EyeCtrl.Core.Enums.UiLanguage.German; // pending note present
+        var settings = new EyeCtrlSettings();
+        settings.General.UiLanguage = UiLanguage.German;            // pending-language note present
+        settings.Cursor.RingStyle = CursorRingStyle.WeightedSandwich;
         var ctx = TestSettingsPageContext.Build(settings: settings);
-        var source = SourceFor(ctx, tab);
 
-        var rows = SimpleSettingsFilter.Apply(source.Build()).SelectMany(p => p.Rows).ToArray();
+        var rows = SimpleFilter(ctx, tab);
 
         Check.That(rows.Select(Describe)).ContainsExactly(ExpectedSequence(tab).ToArray());
     }
 
     [Fact]
-    public void SupervisionUnavailable_NoteIsSimple()
+    public void Cursor_AchromaticReticle_NoteIsSimple()
     {
-        // The unavailable branch needs a service whose exe is absent — the composition fake
-        // with isSupervisorInstalled: () => false, mirroring ResetDrift's wiring.
+        var settings = new EyeCtrlSettings
+            { Cursor = { RingStyle = CursorRingStyle.AchromaticReticle } };
+        var ctx = TestSettingsPageContext.Build(settings: settings);
+        var rows = SimpleFilter(ctx, "Cursor");
+
+        Check.That(rows.Select(Describe))
+            .ContainsExactly("Pick→Label swap:", "Label:Circle Colo", "Combo:c_ring_style",
+                "Slider:c_opacity", "Slider:c_size", "Button:c_reset");
+        // i.e. the FIRST entry is the LabelSpec unavailable-note standing in for the picker —
+        // pin it as "Label:" + a stable prefix of the resolved English text, not this literal.
+    }
+
+    public static TheoryData<string> SupervisionBranches() => new() { "connected", "disconnected", "unavailable" };
+
+    [Theory]
+    [MemberData(nameof(SupervisionBranches))]
+    public void SimpleMode_GeneralBuildsEverySupervisionBranch(string branch)
+    {
         var path = Path.Combine(Path.GetTempPath(), $"eyectrl_simplecur_{Guid.NewGuid()}.json");
         try
         {
-            var settings = new EyeCtrl.Core.Settings.EyeCtrlSettings();
-            var (_, toggle, _) = EyeCtrl.App.Services.Supervision.SupervisionComposition.Create(
+            var settings = new EyeCtrlSettings();
+            settings.General.UiLanguage = UiLanguage.German;
+            var connected = branch == "connected";
+            var installed = branch != "unavailable";
+            if (installed)
+            {
+                settings.Supervision.Enabled = true;
+                new SupervisionEnabledWriter(path).Persist(true);
+            }
+            var (_, toggle, _) = SupervisionComposition.Create(
                 settings, path, new FakeStartupRegistrar(),
-                enablePublishing: () => { }, launchSupervisor: () => false,
-                tryReachSupervisor: () => false, isSupervisorInstalled: () => false,
-                isLaunchRegistered: () => true, isSupervisorConnected: () => false,
-                runInBackground: work => work(), postToUi: work => work());
-            var c = TestSettingsPageContext.Build(settings: settings, supervision: toggle);
-            var rows = SimpleSettingsFilter.Apply(new GeneralPageSource(c).Build())
-                .SelectMany(p => p.Rows).ToArray();
+                enablePublishing: () => { },
+                launchSupervisor: () => false,
+                tryReachSupervisor: () => false,
+                isSupervisorInstalled: () => installed,
+                isLaunchRegistered: () => true,
+                isSupervisorConnected: () => connected,
+                runInBackground: work => work(),
+                postToUi: work => work());
+            var ctx = TestSettingsPageContext.Build(settings: settings, supervision: toggle);
 
-            Check.That(rows.OfType<LabelSpec>()
-                .Any(l => l.Text().Contains("unavailable"))).IsTrue();
+            var rows = SimpleFilter(ctx, "General").Select(Describe).ToArray();
+
+            // Disconnected adds exactly one row over connected: the retry button (the branch
+            // difference IS the pin). Unavailable collapses to the note + no toggle.
+            if (branch == "disconnected")
+                Check.That(rows).Contains("Button:g_supervision_retry");
+            if (branch == "connected")
+                Check.That(rows).Not.Contains("Button:g_supervision_retry");
+            if (branch == "unavailable")
+            {
+                Check.That(rows).Not.Contains("Toggle:g_supervision");
+                Check.That(rows.OfType<string>().Any(r => r.StartsWith("Label:"))).IsTrue();
+            }
+            Check.That(rows).Contains("Toggle:g_supervision", 
+                // unavailable excepted:
+                branch == "unavailable" ? (NFluent.FluentPredicate?)null : null);
         }
         finally { File.Delete(path); }
     }
+
+    [Fact]
+    public void SimpleTabIds_MatchReality_BothDirections()
+    {
+        // Spec §5.2/L9: every id in the set yields ≥1 Simple row; no other source has any.
+        // Iterate EVERY source HandChunkedPageFitTests can construct headlessly (its
+        // Construct/AllSourceTypes helpers) — not just the four.
+        foreach (var (id, source) in HandChunkedPageFitTests.AllSources())
+        {
+            var hasSimple = source.Build().SelectMany(p => p.Rows).Any(r => r.Simple);
+            if (SimpleSettingsFilter.SimpleTabIds.Contains(id))
+                Check.WithCustomMessage($"{id} is in SimpleTabIds but yields no Simple row")
+                    .That(hasSimple).IsTrue();
+            else
+                Check.WithCustomMessage($"{id} is not in SimpleTabIds but has a Simple row")
+                    .That(hasSimple).IsFalse();
+        }
+    }
+
+    [Fact]
+    public void ResetGeneral_KeepsTheModeFlag()
+    {
+        // Spec §5.7 / plan-review I9: the General reset never touches the flag. Modelled on
+        // ResetGeneral_KeepsTheLanguage in GeneralPageSourceResetDriftTests.
+        var settings = new EyeCtrlSettings();
+        settings.General.SimpleSettingsUi = true;
+        var ctx = TestSettingsPageContext.Build(settings: settings, showModal: (_, act) => act());
+        var reset = new GeneralPageSource(ctx).Build().SelectMany(p => p.Rows)
+            .OfType<ButtonSpec>().Single(b => b.Id == "g_reset");
+
+        reset.OnActivate();
+
+        Check.That(settings.General.SimpleSettingsUi).IsTrue();
+    }
+
+    private static SettingsRowSpec[] SimpleFilter(SettingsPageContext ctx, string tab) =>
+        SimpleSettingsFilter.Apply(SourceFor(ctx, tab).Build())
+            .SelectMany(p => p.Rows).ToArray();
 
     private static ISettingsPageSource SourceFor(SettingsPageContext ctx, string tab) => tab switch
     {
@@ -397,7 +499,7 @@ public class SimpleModeCurationTests
     };
 
     /// <summary>Interactive rows pin as "Kind:id"; LabelSpec rows (id "") pin by kind + a text
-    /// predicate prefix — the sanctioned label-twin rule (round-1 I4, round-2 m4).</summary>
+    /// prefix — the sanctioned label-twin rule (round-1 I4, round-2 m4).</summary>
     private static string Describe(SettingsRowSpec row) => row switch
     {
         SliderSpec s => $"Slider:{s.Id}",
@@ -411,21 +513,23 @@ public class SimpleModeCurationTests
 }
 ```
 
-The `ExpectedSequence` lists (write them literally in the test file, derived from the sources after Task 4):
+(`HandChunkedPageFitTests.AllSources()` is whatever its source-enumeration helper is actually called — the file enumerates every source with a constructible context; use that member and note its name here once confirmed. The last `Contains` in the supervision theory should be written as a plain `if (branch != "unavailable") Check.That(rows).Contains("Toggle:g_supervision");` — do that, not the null-predicate form sketched above.)
 
-- Cursor (set `settings.Cursor.RingStyle = CursorRingStyle.WeightedSandwich` first so the picker branch builds): `Pick:c_color`, `Combo:c_ring_style`, `Slider:c_size`, `Slider:c_opacity`, `Button:c_reset` — pages flatten in BUILD order, and Cursor builds the colour row on page 1 before the ring-style row on page 2.
+The `ExpectedSequence` lists — **membership comes from spec §5.3 and is never edited to match output; only the ORDER may be corrected to build order** (plan-review I6):
+
+- Cursor (WeightedSandwich): `Pick:c_color`, `Combo:c_ring_style`, `Slider:c_opacity`, `Slider:c_size`, `Button:c_reset` — `c_opacity` builds before `c_size` (CursorPageSource.cs:79 vs :103).
 - Dwell: `Slider:d_act`, `Slider:d_menu`, `Slider:d_tool`, `Slider:d_key`, `Slider:d_pred`, `Slider:d_rad`, `Toggle:d_cue_sound`, `Button:d_reset`.
 - Keyboard: `Combo:k_layout`, `Slider:k_size`, `Toggle:k_pred`, `Combo:k_lang`, `Toggle:k_sound`, `Button:k_reset`.
-- General (German pending note present, supervision live + disconnected via `SupervisionComposition.Create` with `isSupervisorInstalled: () => true, isSupervisorConnected: () => false`, and `settings.Supervision.Enabled = true` + `SupervisionEnabledWriter` as in the ResetDrift test): `Combo:g_language`, `Label:<pending-note predicate>`, `Combo:g_theme`, `Toggle:g_boot`, `Toggle:g_pause`, `Toggle:g_track`, `Toggle:g_supervision`, `Button:g_supervision_retry`, `Label:<status predicate>`, `Button:g_reset`. For the two labels use `ContainsExactly` with a matcher: assert the filtered sequence by mapping labels through `Describe` but for `LabelSpec` positions use NFluent's element-wise `IsEqualTo` against the `Describe` prefix, and where the 12-char prefix is brittle (localized text), pin position + a `Text()` contains-predicate via `HasElementThatMatches` composition — keep it as one ordered list where label entries are `"Label:"` + a stable prefix of the resolved English text (the headless table is the embedded English).
+- General (German pending note, supervision live + disconnected): `Combo:g_language`, `Label:<pending-note prefix>`, `Combo:g_theme`, `Toggle:g_boot`, `Toggle:g_pause`, `Toggle:g_track`, `Toggle:g_supervision`, `Button:g_supervision_retry`, `Label:<status prefix>`, `Button:g_reset`. The headless table is the embedded English — pin label entries as `"Label:"` + a stable prefix of the resolved English text.
 
-- [ ] **Step 2: Run to verify it fails, then adjust expected sequences to the real build order**
+- [ ] **Step 2: Run, and correct ONLY the order**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SimpleModeCuration"`
-Expected: initially FAIL where the hand-written sequence mis-orders a row (e.g. Cursor builds `c_color` before `c_ring_style` because pages flatten in build order). Fix the expected lists to the sources' true order — that order IS the pin.
+Expected: may fail where the hand-written order mis-orders a row. Fix the expected ORDER to the sources' true build order. **Never delete an expected row because the output lacks it** — a missing row is a curation bug (usually: a `Simple = true` forgotten in Task 4), fix the source, not the pin.
 
 - [ ] **Step 3: Write the reachability test**
 
-In `SimpleModeReachabilityTests.cs`, follow `HandChunkedPageFitTests`'s idiom end to end — reuse that file's own budget constants and its `CreateControl`-based row-measurement helper (do not reinvent measuring and do not invent budget numbers): for each simple tab, `Build → SimpleSettingsFilter.Apply → SettingsAutoPagination.Repaginate(filteredRows.SelectMany(p => p.Rows).ToList(), width, height, radius, dwellMs)` with the SAME width/height/radius values that file's narrowest-budget case uses, then assert every interactive row id in the filtered list appears in exactly one output page and `pages.Count >= 1`. Sliders/toggles/combo/picker rows count; `LabelSpec` rows have no dwell id and are ignored by the assertion.
+In `SimpleModeReachabilityTests.cs`: for each simple tab, `Build → SimpleSettingsFilter.Apply → SettingsAutoPagination.Repaginate(...)`. Derive the budget the way `SettingsContentFitTests` does for the narrowest supported display — replicate its `ContentColumnWidth(root, 800)` and `ContentHeightBudget(root, 600)` arithmetic (the 800×600-DIP case; cite that file when copying) rather than inventing numbers. Assert every interactive row id in the filtered list appears in the output pages and `pages.Count >= 1`; for real teeth, reuse `HandChunkedPageFitTests`' placement/reach machinery (its `Place` + circle-in-cell checks) over the repaginated output rather than re-asserting `Repaginate`'s own partition property. `LabelSpec` rows have no dwell id and are ignored.
 
 - [ ] **Step 4: Run both new test classes**
 
@@ -459,20 +563,23 @@ git commit -m "test(settings): pin the simple-mode curation sequence and reachab
 namespace EyeCtrl.App.Tests.Settings;
 
 using EyeCtrl.App.Views.Settings;
+using EyeCtrl.App.Views;                    // SettingsWindow internals (TabContainerHeight etc.)
 
 public class SettingsSidebarModelTests
 {
+    // PRODUCTION order, from SettingsWindow's _tabDefs initializer (verify against
+    // SettingsTabDriftTests.RenderedTabDefs() when writing — do not hand-shuffle).
     private static readonly string[] All15 =
     [
         "Cursor", "Dwell", "Selection", "Actions", "Layout", "Keyboard", "Models", "Toolbar",
-        "Calibration", "General", "QuickActions", "EyeCare", "Adaptation", "Advanced", "Diagnostics"
+        "Calibration", "EyeCare", "Adaptation", "General", "QuickActions", "Advanced", "Diagnostics"
     ];
 
     private const double TallBudget = 1080 - 116 - 196 - 16;   // ~6 tabs per page at the owner's height
-    private const double Slot = 100 + 2 * 4;                    // TabContainerHeight + 2 * TabButtonMargin
+    private const double Slot = SettingsWindow.TabContainerHeight + 2 * SettingsWindow.TabButtonMargin;
 
     [Fact]
-    public void Advanced_ShowsAllTabs_NoPager_NoSnap()
+    public void Advanced_ShowsAllTabs_WithPager_NoSnap()
     {
         var layout = SettingsSidebarModel.Compute(
             All15, SimpleSettingsFilter.SimpleTabIds, simple: false, TallBudget, Slot, "Adaptation");
@@ -484,12 +591,12 @@ public class SettingsSidebarModelTests
     }
 
     [Fact]
-    public void Simple_HidesNonCuratedTabs_AndNeverSnapsFromAHiddenTab_WithoutCrashing()
+    public void Simple_HidesNonCuratedTabs_SnapsToTheLeader_AtThePostSnapPage()
     {
         var layout = SettingsSidebarModel.Compute(
             All15, SimpleSettingsFilter.SimpleTabIds, simple: true, TallBudget, Slot, "Adaptation");
 
-        Check.That(layout.VisibleIds).ContainsExactly("Cursor", "Dwell", "Keyboard", "General");
+        Check.That(layout.VisibleIds).HasSize(4);
         Check.That(layout.SnapTo).IsEqualTo("Cursor");          // Adaptation is hidden -> snap to the leader
         Check.That(layout.PageIndex).IsEqualTo(0);              // post-snap page, not a stale clamp
         Check.That(layout.Slice).IsEqualTo((0, 4));
@@ -504,20 +611,29 @@ public class SettingsSidebarModelTests
             All15, SimpleSettingsFilter.SimpleTabIds, simple: false, TallBudget, Slot, "General");
 
         Check.That(layout.SnapTo).IsNull();                     // General survives the switch
-        var generalIndex = 9;                                   // 0-based index of "General" in All15
+        var generalIndex = Array.IndexOf(All15, "General");
         Check.That(layout.PageIndex).IsEqualTo(generalIndex / layout.TabsPerPage);
     }
 
     [Fact]
-    public void Slice_IsAlwaysWithinVisibleIds_TheN1Regression()
+    public void Simple_OnShortScreens_StillPaginates()
     {
-        // Faces are built over ALL defs by the window; the model's slice may only name ids the
-        // window will have built. Constructed-in-simple, switched-to-advanced must not slice a
-        // tab whose face was never created.
-        var simple = SettingsSidebarModel.Compute(
-            All15, SimpleSettingsFilter.SimpleTabIds, simple: true, TallBudget, Slot, "Cursor");
-        Check.That(simple.VisibleIds).HasSize(4);
-        Check.That(simple.VisibleIds).ContainsOnlyElementsThatMatch(id => All15.Contains(id));
+        var layout = SettingsSidebarModel.Compute(
+            All15, SimpleSettingsFilter.SimpleTabIds, simple: true, sidebarBudget: 320, Slot, "General");
+
+        Check.That(layout.PageCount).IsStrictlyGreaterThan(1);  // ~3 tabs/page at this budget
+        Check.That(layout.PagerPresent).IsTrue();
+    }
+
+    [Fact]
+    public void Simple_GeneralIsAlwaysVisible_TheDeepLinkTarget()
+    {
+        // Spec L14's model-side half: General is simple-tier, so the language deep link's
+        // lookup can never miss in either mode.
+        var layout = SettingsSidebarModel.Compute(
+            All15, SimpleSettingsFilter.SimpleTabIds, simple: true, TallBudget, Slot, "General");
+        Check.That(layout.VisibleIds).Contains("General");
+        Check.That(layout.SnapTo).IsNull();
     }
 
     [Fact]
@@ -573,7 +689,7 @@ internal static class SettingsSidebarModel
         // The snap: the current tab must be visible after the switch; the leader of the target
         // set (Cursor in both) is the stable target. The page index is derived from the
         // POST-snap tab — a clamp would strand the current tab off-page (round-3 I4).
-        var snapTo = visible.Contains(currentTab) || visible.Count == 0
+        var snapTo = visible.Contains(currentTab) || visible.Length == 0
             ? null
             : visible[0];
         var effective = snapTo ?? currentTab;
@@ -600,16 +716,17 @@ git commit -m "feat(settings): pure SettingsSidebarModel with SnapTo and post-sn
 ### Task 7: the window applies the model (advanced behavior unchanged)
 
 **Files:**
-- Modify: `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs` (regions: fields near `:342`, `BuildTabButtons` `:750-775`, `RenderTabPage` `:793-806`, `ShowLanguageRow` `:994-1001`)
-- Test: `tests/EyeCtrl.App.Tests/Tests/` none; Test: `tests/EyeCtrl.App.Tests/Settings/SettingsTabPaginationWiringTests.cs`, `tests/EyeCtrl.App.Tests/Localization/LanguageRowReachTests.cs`, `tests/EyeCtrl.App.Tests/SettingsDeepLinkTests.cs`
+- Modify: `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs` (regions: fields near `:342`, `BuildTabButtons` `:750-781`, `RenderTabPage` `:793-806`, `ShowLanguageRow` `:994-1001`)
+- Test: `tests/EyeCtrl.App.Tests/Settings/SettingsTabPaginationTests.cs` (contains the `SettingsTabPaginationWiringTests` class — there is no separate file; adding one would duplicate the type)
+- Test: `tests/EyeCtrl.App.Tests/Settings/SettingsDeepLinkTests.cs`
 
 **Interfaces:**
 - Consumes: `SettingsSidebarModel` (Task 6), `SimpleSettingsFilter.SimpleTabIds` (Task 3).
 - Produces: window fields/methods Task 8 and Task 11 rely on — `_visibleDefs` array, `ComputeSidebarLayout(currentTab)`, `ApplySidebarLayout(layout)`, `RebuildTabPagerChrome()`.
 
-- [ ] **Step 1: Add the failing wiring pins first**
+- [ ] **Step 1: Add the wiring pins first (regression guards — they are green on contact; their value is future-facing)**
 
-In `SettingsTabPaginationWiringTests.cs` (which extracts method bodies via the shared `ExtractMethod` helper in `SettingsPagerChromeTests.cs:786-796`), add:
+Into `SettingsTabPaginationWiringTests` (inside `Settings/SettingsTabPaginationTests.cs`; it has a private `ExtractMethod` but no `WindowSource()` — copy the window-source loader from `SettingsPagerChromeTests.cs` into this class as a private helper):
 
 ```csharp
 [Fact]
@@ -623,21 +740,56 @@ public void RenderTabPage_SlicesTheVisibleDefs()
 }
 
 [Fact]
-public void BuildTabButtons_BuildsFacesOverEveryDef()
+public void BuildTabButtons_NeverFiltersTheFaceLoop()
 {
+    // Round-2 N1's real home: filtering the face loop crashes simple-to-advanced with
+    // KeyNotFoundException (the process dies with no Supervisor present). The loop's literal
+    // foreach is already green today; these Not-Contains are the teeth — no filter may creep in.
     var body = ExtractMethod(WindowSource(), "private void BuildTabButtons(");
-    Check.WithCustomMessage(
-            "Faces are built for EVERY _tabDefs entry, once — filtering the face loop crashes "
-            + "simple-to-advanced with KeyNotFoundException (round-2 N1: the process dies with "
-            + "no Supervisor present).")
-        .That(body).Contains("foreach (var (id, icon, labelKey, _) in _tabDefs)");
+    Check.WithCustomMessage("The face loop must not read the visible defs.")
+        .That(body).Not.Contains("_visibleDefs");
+    Check.WithCustomMessage("The face loop must not read the simple set.")
+        .That(body).Not.Contains("SimpleTabIds");
+    Check.WithCustomMessage("The face loop must not read the mode flag.")
+        .That(body).Not.Contains("SimpleSettingsUi");
+    Check.WithCustomMessage("No 'if (!visible) continue;' filter may be added to the face loop.")
+        .That(body).Not.Contains("continue");
+}
+
+[Fact]
+public void BuildTabButtons_RegistersTheCloseButton()
+{
+    // Plan-review I4: no test anywhere pins this; an executor "rewiring the tail" must not
+    // drop it — the gaze-only owner would lose the only dwell that closes Settings.
+    var body = ExtractMethod(WindowSource(), "private void BuildTabButtons(");
+    Check.That(body).Contains("Register(\"close\"");
+}
+
+[Fact]
+public void ComputeSidebarLayout_FeedsTheRealBudgetAndSlot()
+{
+    // Plan-review I7: the page math must still derive from the live sidebar budget, not a
+    // constant smuggled through the model call.
+    var body = ExtractMethod(WindowSource(), "private SettingsSidebarModel.SidebarLayout ComputeSidebarLayout(");
+    Check.That(body).Contains("SidebarTabBudget");
+    Check.That(body).Contains("TabContainerHeight + 2 * TabButtonMargin");
+}
+
+[Fact]
+public void ModelCompute_UsesTheChunker()
+{
+    var body = File.ReadAllText("src/EyeCtrl.App/Views/Settings/SettingsSidebarModel.cs");
+    Check.WithCustomMessage("SettingsSidebarModel.Compute must derive paging from SettingsTabPagination.")
+        .That(body).Contains("SettingsTabPagination.TabsPerPage");
 }
 ```
 
-Update the existing `BuildTabButtons_SizesPagesFromTheChunker` pin (`:79`): it expects `SettingsTabPagination.TabsPerPage` inside `BuildTabButtons`; after this task the math routes through `ComputeSidebarLayout` — change the expected literal to `ComputeSidebarLayout(` with the same custom-message style.
+(`WindowSource()` is the copied loader; `File` needs `using System.IO;` — that file already imports it.)
+
+Update the existing `BuildTabButtons_SizesPagesFromTheChunker` pin (`:79`): it expects `SettingsTabPagination.TabsPerPage` inside `BuildTabButtons`; after this task the call routes through `ComputeSidebarLayout` — change the expected literal to `ComputeSidebarLayout(` (the budget/slot pins above carry the original intent).
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SettingsTabPaginationWiringTests"`
-Expected: FAIL on the two new pins.
+Expected: the two behavior pins (`RenderTabPage_SlicesTheVisibleDefs`, plus `ComputeSidebarLayout_*`/`ModelCompute_*`) FAIL; the guard pins (`NeverFiltersTheFaceLoop`, `RegistersTheCloseButton`) are green on contact — they exist to fail the day someone breaks them.
 
 - [ ] **Step 2: Implement the window changes**
 
@@ -691,7 +843,7 @@ private void RebuildTabPagerChrome()
 }
 ```
 
-Rewire `BuildTabButtons`'s tail (the face loop over `_tabDefs` stays untouched):
+Rewire `BuildTabButtons`'s tail (the face loop over `_tabDefs` stays untouched, and the closing `_viewModel.Register("close", DwellCategory.Tab, …)` line at the end STAYS — only the four paging lines between them are replaced):
 
 ```csharp
 var layout = ComputeSidebarLayout(
@@ -720,7 +872,7 @@ var index = Array.FindIndex(_visibleDefs, t => t.Id == "General");
 
 - [ ] **Step 3: Update the literal pins that moved**
 
-- `SettingsDeepLinkTests` around `:233`/`:234`: its `rowBody` extraction of `ShowLanguageRow` expects `Array.FindIndex(_tabDefs, t => t.Id == "General")` — update the expected literal to `_visibleDefs`. The `PageOf` line below it is unchanged; if the test asserts both lines in one string, keep both updated to the new body.
+- `Settings/SettingsDeepLinkTests.cs` around `:233`/`:234`: its `rowBody` extraction of `ShowLanguageRow` expects `Array.FindIndex(_tabDefs, t => t.Id == "General")` — update the expected literal to `_visibleDefs`. The `PageOf` line below it stays unchanged (`_tabsPerPage` is model-fed — a recorded deviation from the spec's "both pins move"; see the self-review record); if the test asserts both lines in one string, keep only the `FindIndex` expectation changed.
 - `SettingsTabPaginationWiringTests.RenderTabPage_UnregistersTabsItHides` (existing) stays green — the unregister-all loop is untouched.
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SettingsDeepLinkTests|FullyQualifiedName~SettingsTabPaginationWiringTests|FullyQualifiedName~SettingsTabDriftTests|FullyQualifiedName~SettingsTabLabelFitTests|FullyQualifiedName~LanguageRowReachTests"`
@@ -734,24 +886,26 @@ Expected: all pass — advanced mode's behavior is identical; nothing consumes `
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/EyeCtrl.App/Views/SettingsWindow.xaml.cs tests/EyeCtrl.App.Tests/Settings/SettingsTabPaginationWiringTests.cs tests/EyeCtrl.App.Tests/SettingsDeepLinkTests.cs
+git add src/EyeCtrl.App/Views/SettingsWindow.xaml.cs tests/EyeCtrl.App.Tests/Settings/SettingsTabPaginationTests.cs tests/EyeCtrl.App.Tests/Settings/SettingsDeepLinkTests.cs
 git commit -m "refactor(settings): window applies the pure sidebar model; deep link rides visible defs"
 ```
 
 ### Task 8: filter step + `SwitchSettingsUiMode`
 
 **Files:**
-- Modify: `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs` (`RebuildContent` `:1076-1090`; new method near `ShowTab`)
-- Test: `tests/EyeCtrl.App.Tests/Settings/SettingsModeSwitchWiringTests.cs`
+- Modify: `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs` (`RebuildContent` `:1076-1090`; new methods near `ShowTab`)
+- Test: `tests/EyeCtrl.App.Tests/Settings/SettingsModeSwitchWiringTests.cs` (new file; `using System.IO;` for the copied `WindowSource`)
 
 **Interfaces:**
 - Consumes: `SimpleSettingsFilter.Apply` (Task 3), `ApplySidebarLayout`/`ComputeSidebarLayout` (Task 7).
-- Produces: `SwitchSettingsUiMode(bool simple)` — Task 11's toggle calls it; `UpdateModeToggleLabel` is added by Task 12 (the call site here is added there — do NOT add a call to a nonexistent method).
+- Produces: `SwitchSettingsUiMode(bool simple)` — Task 11's toggle calls it. `UpdateModeToggleLabel` is added by Task 10; its call site is added with it (do NOT call a method that does not exist yet).
 
-- [ ] **Step 1: Write the failing wiring pin**
+- [ ] **Step 1: Write the failing wiring pins**
 
 ```csharp
 namespace EyeCtrl.App.Tests.Settings;
+
+using System.IO;
 
 public class SettingsModeSwitchWiringTests
 {
@@ -765,6 +919,7 @@ public class SettingsModeSwitchWiringTests
             .That(body.IndexOf("ShowTab(")).IsStrictlyLessThan(body.IndexOf("ApplySidebarLayout("));
         Check.That(CountOccurrences(body, "RenderTabPage(")).IsEqualTo(0); // inside ApplySidebarLayout, not here
         Check.That(body).Contains("CurrentPage = 0");
+        Check.That(body).Contains("ActiveTabId = layout.SnapTo");   // the F6 sidebar-must-not-contradict pin
     }
 
     [Fact]
@@ -775,15 +930,37 @@ public class SettingsModeSwitchWiringTests
                 "The simple-mode filter must sit between BuildPages and the height repagination.")
             .That(body).Contains("SimpleSettingsFilter.Apply");
     }
+
+    [Fact]
+    public void ApplySidebarLayout_AssignsTheModelsPage_RendersOnce()
+    {
+        var body = ExtractMethod(WindowSource(), "private void ApplySidebarLayout(");
+        Check.WithCustomMessage(
+                "The applier must assign the model's post-snap page (a stale _tabPageIndex is "
+                + "the empty-sidebar regression, round-3 I4).")
+            .That(body).Contains("_tabPageIndex = layout.PageIndex");
+        Check.WithCustomMessage("Exactly one RenderTabPage in the applier.")
+            .That(CountOccurrences(body, "RenderTabPage(")).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void RebuildTabPagerChrome_ClearsBeforeItBuilds()
+    {
+        var body = ExtractMethod(WindowSource(), "private void RebuildTabPagerChrome(");
+        Check.WithCustomMessage(
+                "BuildTabPagePager only appends — the panel must be cleared first (round-2 I3).")
+            .That(body.IndexOf("TabPagerPanel.Children.Clear()"))
+            .IsStrictlyLessThan(body.IndexOf("BuildTabPagePager("));
+    }
 }
 ```
 
-Use the same `ExtractMethod`/`WindowSource` helpers (copy their invocations from `SettingsTabPaginationWiringTests`; `CountOccurrences` is a three-line local helper you write in this class).
+Copy `ExtractMethod` + `WindowSource` from `SettingsPagerChromeTests.cs` into this class (they are private per class — Global Constraints); `CountOccurrences` is a three-line local helper.
 
 - [ ] **Step 2: Run to verify it fails**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SettingsModeSwitchWiring"`
-Expected: FAIL (no such method).
+Expected: FAIL (no such methods).
 
 - [ ] **Step 3: Implement**
 
@@ -800,10 +977,10 @@ Add the switch (near `ShowTab`):
 ```csharp
 /// <summary>
 /// The mode switch, as one ordered contract (spec §5.6): flip + debounced save, disarm the
-/// toggle (Task 11's GuardModeToggle is inserted HERE when it exists), reset the content page
-/// (m5: landing mid-list of a differently-filtered list is disorienting), compute the layout,
-/// snap (riding the normal CurrentTabName rebuild) or rebuild in place, then apply the sidebar
-/// ONCE — after the snap — and re-label the toggle (Task 12).
+/// toggle (Task 11's GuardModeToggle is inserted HERE when it exists), compute the layout, snap
+/// (riding the normal CurrentTabName rebuild, which resets the page) or rebuild in place with
+/// the page reset AFTER the rebuild (m5: landing mid-list of a differently-filtered list is
+/// disorienting), then apply the sidebar ONCE — after the snap — and re-label the toggle (Task 10).
 /// </summary>
 private void SwitchSettingsUiMode(bool simple)
 {
@@ -811,20 +988,26 @@ private void SwitchSettingsUiMode(bool simple)
     _settings.General.SimpleSettingsUi = simple;
     ApplyAndSave();
 
-    _viewModel.Settings.CurrentPage = 0;
     var layout = ComputeSidebarLayout(_viewModel.Settings.CurrentTabName);
     if (layout.SnapTo is not null)
     {
-        ShowTab(layout.SnapTo);                      // CurrentTabName -> RebuildContent (already filtered)
+        ShowTab(layout.SnapTo);                      // CurrentTabName -> RebuildContent; ShowTab resets the page
         _viewModel.ActiveTabId = layout.SnapTo;      // the sidebar must not contradict the content (F6)
     }
     else
     {
         RebuildContent();
+        if (_viewModel.Settings.CurrentPage != 0)
+        {
+            _viewModel.Settings.CurrentPage = 0;     // m5, applied after the rebuild so the stale
+            RenderCurrentPage();                     // page list is never rendered once
+        }
     }
     ApplySidebarLayout(layout);
 }
 ```
+
+Recorded deviation (spec §5.6 wording): the model's "pager register/unregister diff" output is realized as an **unconditional teardown** in `RebuildTabPagerChrome` (unregister + clear, then build only when >1 page) — equivalent for the two ids the diff covered, and idempotent on the advanced path (`AddTarget` replaces; see DwellDetector).
 
 - [ ] **Step 4: Run to verify it passes, then the whole App suite**
 
@@ -837,16 +1020,16 @@ Expected: pass both (nothing calls `SwitchSettingsUiMode` yet; simple mode is un
 git add src/EyeCtrl.App/Views/SettingsWindow.xaml.cs tests/EyeCtrl.App.Tests/Settings/SettingsModeSwitchWiringTests.cs
 git commit -m "feat(settings): simple-mode filter step and the ordered mode-switch contract"
 ```
-
 ---
 
 ## Ticket T3 — header toggle
 
-### Task 9: the toggle face — XAML host + `BuildModeToggle` seam
+### Task 9: the toggle face — XAML host + `BuildModeToggle` seam + strings
 
 **Files:**
 - Modify: `src/EyeCtrl.App/Views/SettingsWindow.xaml` (`HeaderPanel` `:92-102`)
 - Modify: `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs` (constants near `:123`; static seam beside `BuildModalButton` `:2291`; ctor insertion)
+- Modify: `src/EyeCtrl.Core/Localization/strings.json` (two entries, temporarily classed `row` — Task 10 re-classes them `A208`)
 - Test: `tests/EyeCtrl.App.Tests/Localization/Fit/FitSeamPinTests.cs`; `tests/EyeCtrl.App.Tests/SettingsContentFitTests.cs`
 
 **Interfaces:**
@@ -854,28 +1037,30 @@ git commit -m "feat(settings): simple-mode filter step and the ordered mode-swit
 
 - [ ] **Step 1: Update the FitSeam pin (failing first)**
 
-In `FitSeamPinTests.cs:114-119`, `TheSeamsHaveNoSecondPath` pins `MakeChromeButton`'s call count at 3 — change to 4 and extend the custom message with `"the 4th caller is the settings mode toggle (BuildModeToggle)"`. Add the routing pin beside the existing `MakeModalButton` one (`:57-65`):
+In `FitSeamPinTests.cs:114-119`, `TheSeamsHaveNoSecondPath` pins `MakeChromeButton`'s call count at 3 — change to 4 and extend the custom message with `"the 4th caller is the settings mode toggle (BuildModeToggle)"`. Add the routing pin beside the existing `MakeModalButton` one (`:57-65`), using THIS file's own helper idiom (`Body(Source("Views", "SettingsWindow.xaml.cs"), ...)` — this file strips comments and has NO `ExtractMethod`/`WindowSource`):
 
 ```csharp
 [Fact]
 public void BuildModeToggle_BuildsTheFaceTheGateMeasures()
 {
-    var modal = ExtractMethod(WindowSource(), "internal static Border BuildModeToggle(");
+    var seam = Body(Source("Views", "SettingsWindow.xaml.cs"), "internal static Border BuildModeToggle(");
     Check.WithCustomMessage("BuildModeToggle must build through MakeChromeButton — the fit gate measures this face.")
-        .That(modal).Contains("MakeChromeButton(");
+        .That(seam).Contains("MakeChromeButton(");
 
-    var ctor = ExtractMethod(WindowSource(), "public SettingsWindow(");
+    var ctor = Body(Source("Views", "SettingsWindow.xaml.cs"), "public SettingsWindow(");
     Check.WithCustomMessage("The window must insert the toggle through BuildModeToggle, not a second construction path.")
         .That(ctor).Contains("BuildModeToggle(");
 }
 ```
 
+(Adapt to the exact helper names in that file — mirror how the `MakeModalButton` pin extracts its two sites.)
+
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~FitSeamPinTests"`
 Expected: FAIL.
 
-- [ ] **Step 2: XAML — the header grid**
+- [ ] **Step 2: XAML — the two-row header grid, with the toggle's left margin**
 
-Replace `HeaderPanel`'s StackPanel content with a two-column grid (keep `x:Name="HeaderPanel"`, `Height="112"`, `Margin="0,0,0,12"`, `Grid.Row="0"` — `ContentAvailableHeight` and `SettingsContentFitTests` read them; the hidden `Settings_Panel_Content` anchor stays in row 2):
+Replace `HeaderPanel`'s StackPanel content with a two-row grid (keep `x:Name="HeaderPanel"`, `Height="112"`, `Margin="0,0,0,12"`, `Grid.Row="0"` — `ContentAvailableHeight` and `SettingsContentFitTests` read them; the hidden `Settings_Panel_Content` anchor stays in row 2):
 
 ```xml
 <Grid x:Name="HeaderPanel" Grid.Row="0" Height="112" Margin="0,0,0,12"
@@ -886,10 +1071,12 @@ Replace `HeaderPanel`'s StackPanel content with a two-column grid (keep `x:Name=
                FontWeight="{StaticResource FontWeightStrong}"/>
     <!-- The mode toggle's host: code builds the face (BuildModeToggle) and inserts it here.
          The toggle rides the TITLE LINE only (row 0); the description spans the FULL width in
-         row 1 (ColumnSpan 2) — that is what the measured layout (103.9/112) assumes. Column
-         Auto keeps the toggle's 208 DIP fixed; the title clips in its column (no wrap) — the
-         fit class A208 bounds label+title for every shipped language (spec §5.5, L15). -->
-    <Border x:Name="ModeToggleHost" Grid.Row="0" Grid.Column="1" VerticalAlignment="Top"/>
+         row 1 (ColumnSpan 2) — that is what the measured layout (103.9/112) assumes. The
+         12-DIP left margin IS the title-to-toggle gap the fit arithmetic uses — a marginless
+         host would make the mirror measure a gap production does not have (plan-review I10).
+         Column Auto keeps the toggle's 208 DIP fixed; the title clips in its column (no
+         wrap) — the A208 class bounds label+title for shipped languages (spec L15). -->
+    <Border x:Name="ModeToggleHost" Grid.Row="0" Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Top"/>
     <TextBlock x:Name="HeaderDescription" Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
                Foreground="{StaticResource BrushTextSecondary}"
                FontSize="{StaticResource FontSizeSubtitle}"
@@ -898,14 +1085,14 @@ Replace `HeaderPanel`'s StackPanel content with a two-column grid (keep `x:Name=
 </Grid>
 ```
 
-- [ ] **Step 3: Constants + seam + insertion**
+- [ ] **Step 3: Constants + seam + keyed strings + ctor insertion**
 
 Constants (near `PagBtnRadius`, `:123-153`):
 
 ```csharp
 /// <summary>The settings mode toggle's dwell id. Registers under Pagination: the activation
 /// dispatch sends every non-close Tab id to ShowTab, and Pagination's generic _pagActions arm
-/// needs no ViewModel change (spec §5.5, L5).</summary>
+/// needs no ViewModel change (spec S5.5, L5).</summary>
 internal const string ModeToggleId = "settings_mode";
 /// <summary>Hit radius, DIP. 50 (the control standard), NOT PagBtnRadius's 60 — and NOT
 /// RegisterPagerTarget, which hard-codes 60: the sibling RegisterModeToggleTarget owns this
@@ -915,12 +1102,15 @@ internal const double ModeToggleHitRadius = 50;
 /// 2026-10-11): the measured top-right gaze bias (~80 px) sits near a 100 px circle's edge,
 /// and hysteresis absorbs that wander while keeping "until the gaze leaves" (L16).</summary>
 internal const double ModeToggleReleaseRadius = 85;
-/// <summary>Fixed button width: 448 (narrowest header) − 220.2 (tab156's widest English title
-/// at Display/Strong) − 12 (gap) − visual slack = 208. The A208 fit class enforces the label
-/// inside it; SettingsContentFitTests enforces title+gap+this ≤ 448 live per language.</summary>
+/// <summary>Fixed button width: 448 (narrowest header) - 220.2 (tab156's widest English title
+/// at Display/Strong) - 12 (gap) - visual slack = 208. The A208 fit class enforces the label
+/// inside it minus the standard 8-DIP one-line inset; SettingsContentFitTests enforces
+/// title+gap+this <= 448 live per language. NOTE: this leaves only ~7.8 DIP of title room at
+/// the narrowest display — any T10+ tab title growth eats it immediately; the fit tests
+/// police it (plan-review m13).</summary>
 internal const double ModeToggleWidth = 208;
 /// <summary>Button height. 48: the measured header fits (EN 103.9/112); 60 does not (115.9).
-/// Vertical margin is 0 — the budget is "height + vertical margins ≤ 56" (round-3 m1).</summary>
+/// Vertical margin is 0 — the budget is "height + vertical margins <= 56" (round-3 m1).</summary>
 internal const double ModeToggleHeight = 48;
 ```
 
@@ -954,16 +1144,36 @@ internal static Border BuildModeToggle(
 }
 ```
 
-Ctor (after `BuildTabButtons();`, before `ShowTab("Cursor");`) — the MOUSE path only; the dwell path arrives in Task 11 and converges on the same flip:
+The two strings.json entries land NOW (temporarily classed `row`, re-classed `A208` in Task 10 — a `fit` value must name an existing class, and A208 does not exist yet):
+
+```json
+"settings.mode.show.all": {
+  "text": "All settings",
+  "who": "user",
+  "where": "settings",
+  "fit": "row",
+  "args": []
+},
+"settings.mode.show.basic": {
+  "text": "Basic",
+  "who": "user",
+  "where": "settings",
+  "fit": "row",
+  "args": []
+},
+```
+
+(The labels name the mode you switch TO — owner ruling, ledger L21. No German entries: the table is empty on main; T10's draft owns German.)
+
+Ctor (after `BuildTabButtons();`, before `ShowTab("Cursor");`) — the MOUSE path only; the dwell path arrives in Task 11 and converges on the same flip. `ModeToggleLabelKey` is added by Task 10; to keep THIS task green, inline the ternary here and Task 10 replaces it with the helper call:
 
 ```csharp
 var toggle = BuildModeToggle(
-    StringTable.Current.T("settings.mode.show.all"),
+    StringTable.Current.T(_settings.General.SimpleSettingsUi
+        ? "settings.mode.show.all" : "settings.mode.show.basic"),
     OnModeToggleMouseDown, _modeToggleButtons, _modeToggleBrushes);
 ModeToggleHost.Child = toggle;
 ```
-
-The `settings.mode.show.all` key does not exist until Task 10 — so this ctor insertion lands with Task 10 Step 3 (the XAML host, seam, dicts, and pins land here; the keyed construction lands there). The routing pin's ctor assertion (`ctor contains BuildModeToggle(`) is satisfied when Task 10 lands.
 
 ```csharp
 private void OnModeToggleMouseDown() =>
@@ -972,26 +1182,26 @@ private void OnModeToggleMouseDown() =>
 
 - [ ] **Step 4: Update the header-fit mirror (failing first, then fix)**
 
-`SettingsContentFitTests.EveryHeaderStringFits_TheHeadersFixedHeight` (`:975-1008`) mirrors `HeaderPanel` element-for-element. It now measures the old full-width StackPanel while production has a two-row header. Update its mirror to the production shape: a `Grid` with `RowDefinitions="Auto,*"` and `ColumnDefinitions="*,Auto"`; row 0 holds the title TextBlock (measured in its column, `448 − 208 − 12` DIP wide at the narrowest display, no wrap) and a placeholder `new Border { Width = SettingsWindow.ModeToggleWidth, Height = SettingsWindow.ModeToggleHeight }`; row 1 holds the description at the **full** header width (`ColumnSpan 2`). The measured height is `max(title line, 48) + 8 + description height`; keep asserting `<= declaredHeight` (112).
+`SettingsContentFitTests.EveryHeaderStringFits_TheHeadersFixedHeight` (`:975-1008`) mirrors `HeaderPanel` element-for-element. Update its mirror to the production shape: a `Grid` with `RowDefinitions="Auto,*"` and `ColumnDefinitions="*,Auto"`; row 0 holds the title TextBlock in its column (width = header width minus `ModeToggleWidth` minus the host Margin **read from the XAML** (12) — not a restated constant) and the **real** `SettingsWindow.BuildModeToggle(...)` face (not a constant-sized placeholder — a future vertical margin on the face is then measured); row 1 holds the description at the **full** header width (`ColumnSpan 2`). The measured height is the laid-out grid height; keep asserting `<= declaredHeight` (112).
 
-Add the horizontal companion beside it:
+Add the horizontal companion beside it (`RenderedTabHeaders()` returns `(string Label, string Description)` — `h.Label`, not `h.label`; `[StaFact]` — this file's WPF precedent):
 
 ```csharp
-[Fact]
+[StaFact]
 public void TitlePlusModeToggle_FitsTheNarrowestHeaderWidth()
 {
     var root = Xml();
     var contentArea = Margin(root, "ContentArea");
     var headerWidth = WindowWidthFor(NarrowDisplayWidthDip)
         - SidebarWidth(root) - contentArea.Left - contentArea.Right;   // 448
-    var gap = 12.0;
+    var gap = Margin(root, "ModeToggleHost").Left;
     var widestTitle = SettingsTabDriftTests.RenderedTabHeaders()
-        .Select(h => MeasureAtDisplay(h.label)).Max();
+        .Select(h => MeasureAtDisplay(h.Label)).Max();
     Check.That(widestTitle + gap + SettingsWindow.ModeToggleWidth).IsLessOrEqualThan(headerWidth);
 }
 ```
 
-`MeasureAtDisplay` measures a `TextBlock` at `Tokens.FontSizeDisplay` + `FontWeightStrong` + `Tokens.FontStandard` — write it as a small local helper mirroring the file's existing measurement helper (it already sets `TextElement.SetFontFamily(panel, Tokens.FontStandard)`; reuse that idiom).
+`MeasureAtDisplay` measures a `TextBlock` at `Tokens.FontSizeDisplay` + `FontWeightStrong` + `Tokens.FontStandard` — write it as a small local helper mirroring the file's existing measurement idiom (`TextElement.SetFontFamily(panel, Tokens.FontStandard)`).
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SettingsContentFitTests|FullyQualifiedName~FitSeamPinTests"`
 Expected: pass.
@@ -1001,70 +1211,115 @@ Expected: pass.
 Run: `dotnet test tests/EyeCtrl.App.Tests` — Expected: pass.
 
 ```bash
-git add src/EyeCtrl.App/Views/SettingsWindow.xaml src/EyeCtrl.App/Views/SettingsWindow.xaml.cs tests/EyeCtrl.App.Tests/Localization/Fit/FitSeamPinTests.cs tests/EyeCtrl.App.Tests/SettingsContentFitTests.cs
-git commit -m "feat(settings): mode toggle face — header host, BuildModeToggle seam, fit mirrors"
+git add src/EyeCtrl.App/Views/SettingsWindow.xaml src/EyeCtrl.App/Views/SettingsWindow.xaml.cs src/EyeCtrl.Core/Localization/strings.json tests/EyeCtrl.App.Tests/Localization/Fit/FitSeamPinTests.cs tests/EyeCtrl.App.Tests/SettingsContentFitTests.cs
+git commit -m "feat(settings): mode toggle face — header host, BuildModeToggle seam, keyed strings, fit mirrors"
 ```
 
-### Task 10: localization — keys + the `A208` fit class
+### Task 10: the label mapping + the `A208` fit class
 
 **Files:**
-- Modify: `src/EyeCtrl.Core/Localization/strings.json`
+- Modify: `src/EyeCtrl.Core/Localization/strings.json` (re-class the two entries `row` -> `A208`)
 - Modify: `src/EyeCtrl.Core/Localization/StringTableSchema.cs:43-96`
 - Modify: `tools/strings_validate.py:88-110`
 - Modify: `tests/EyeCtrl.App.Tests/Localization/Fit/AppFitMeasurers.cs`
-- Modify: `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs` (the ctor insertion + `UpdateModeToggleLabel`, moved from Task 9's note)
+- Modify: `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs` (`ModeToggleLabelKey` + `UpdateModeToggleLabel`; the ctor ternary -> helper call)
+- Test: `tests/EyeCtrl.App.Tests/Settings/SettingsModeToggleLabelTests.cs` (new)
 
 **Interfaces:**
-- Consumes: `BuildModeToggle` (Task 9).
-- Produces: keys `settings.mode.show.all` / `settings.mode.show.basic`, fit class `A208`, `UpdateModeToggleLabel()` — Task 11's switch calls it.
+- Consumes: `BuildModeToggle` (Task 9), `SwitchSettingsUiMode` (Task 8).
+- Produces: `internal static string ModeToggleLabelKey(bool simple)`, `UpdateModeToggleLabel()`, fit class `A208` — Task 11's switch calls the label update; the measurer is the gate's seam.
 
-- [ ] **Step 1: Add the strings.json entries**
-
-Beside the other `settings.*` entries (alphabetical within the settings block; follow the file's existing ordering):
-
-```json
-"settings.mode.show.all": {
-  "text": "All settings",
-  "who": "user",
-  "where": "settings",
-  "fit": "A208",
-  "args": []
-},
-"settings.mode.show.basic": {
-  "text": "Basic",
-  "who": "user",
-  "where": "settings",
-  "fit": "A208",
-  "args": []
-},
-```
-
-(The labels name the mode you switch TO — owner ruling, ledger L21. No German entries: the table is empty on main; T10's draft owns German.)
-
-- [ ] **Step 2: Register the class in all three registries**
-
-`StringTableSchema.FitClasses` (with a derivation comment):
+- [ ] **Step 1: Write the failing label-key test (plan-review C1 — the mapping was inverted in this plan's first draft)**
 
 ```csharp
-// The settings mode toggle's label: one line inside the toggle's fixed 208 DIP box
-// (448 header − 220.2 tab156-widest-EN-title − 12 gap − slack). The live per-language
-// title+toggle bound is pinned in SettingsContentFitTests, not restated here.
+namespace EyeCtrl.App.Tests.Settings;
+
+using System.IO;
+
+public class SettingsModeToggleLabelTests
+{
+    [Fact]
+    public void LabelKey_NamesTheModeYouSwitchTo()
+    {
+        // Owner ruling L21: "All settings" while IN simple mode (it offers the full mode);
+        // "Basic" while IN advanced. The label names the TARGET.
+        Check.That(SettingsWindow.ModeToggleLabelKey(simple: true)).IsEqualTo("settings.mode.show.all");
+        Check.That(SettingsWindow.ModeToggleLabelKey(simple: false)).IsEqualTo("settings.mode.show.basic");
+    }
+
+    [Fact]
+    public void UpdateModeToggleLabel_RoutesThroughTheKeyHelper()
+    {
+        var label = ExtractMethod(WindowSource(), "private void UpdateModeToggleLabel(");
+        Check.WithCustomMessage("The re-label must route through ModeToggleLabelKey — the one tested mapping.")
+            .That(label).Contains("ModeToggleLabelKey(");
+    }
+}
+```
+
+(`ExtractMethod`/`WindowSource` are the copied private helpers, per Global Constraints; `using System.IO;` for the source read.)
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SettingsModeToggleLabelTests"`
+Expected: FAIL (no `ModeToggleLabelKey`).
+
+- [ ] **Step 3: Implement the mapping and the re-label**
+
+In `SettingsWindow.xaml.cs`:
+
+```csharp
+/// <summary>
+/// The key for the toggle's label in the given mode. The label names the mode you switch TO:
+/// "All settings" while simple (it offers the full mode), "Basic" while advanced (owner
+/// ruling, ledger L21 — "Advanced" collided with the Advanced tab in EN and DE). Both keys
+/// are literals: the coverage and unused-key gates read literals.
+/// </summary>
+internal static string ModeToggleLabelKey(bool simple) =>
+    simple ? "settings.mode.show.all" : "settings.mode.show.basic";
+
+/// <summary>Re-labels the toggle for the mode now active. No live re-localization: the table
+/// activates once at startup, so a build-time resolve is correct for the window's lifetime.</summary>
+private void UpdateModeToggleLabel() =>
+    ((TextBlock)_modeToggleButtons[ModeToggleId].Child).Text =
+        StringTable.Current.T(ModeToggleLabelKey(_settings.General.SimpleSettingsUi));
+```
+
+And replace the ctor's inlined ternary (Task 9 Step 3) with the helper:
+
+```csharp
+StringTable.Current.T(ModeToggleLabelKey(_settings.General.SimpleSettingsUi))
+```
+
+This is the C1 fix: the window now opens with the mode-correct label, and every flip re-labels correctly.
+
+- [ ] **Step 4: Re-class the strings and register A208 everywhere**
+
+In `strings.json`, change both entries' `"fit"` from `"row"` to `"A208"`.
+
+`StringTableSchema.FitClasses` (with the derivation comment):
+
+```csharp
+// The settings mode toggle's label: one line inside the toggle's box less the standard
+// 8-DIP one-line inset — i.e. <= 208 - 8. 208 derives from 448 (narrowest header) -
+// 220.2 (tab156's widest English title at Display/Strong) - 12 (gap) - slack. The live
+// per-language title+toggle bound is pinned in SettingsContentFitTests, not restated here.
 "A208",
 ```
 
-`tools/strings_validate.py` `FIT_CLASSES` — add `"A208",` in the same position. `AppFitMeasurers.Measurers` map:
+`tools/strings_validate.py` `FIT_CLASSES` — add `"A208",` in the same position.
+
+`AppFitMeasurers` — the map entry and the measurer (beside the A44 one; the box is READ from the built border, never restated, and the standard `OneLineInset = 8` applies — plan-review I11):
 
 ```csharp
 ["A208"] = (_, text) => ModeToggleLabel(text),
 ```
 
-with the measurer (place it beside the A44 one, following the file's section comment style; use the file's existing `System.Windows.Controls`/`System.Windows.Media` usings):
-
 ```csharp
 /// <summary>A208: the settings mode toggle's label, through the production BuildModeToggle
-/// face: one line within the toggle's fixed box. Horizontal by construction — a one-line
-/// label can never fail a height check, and the teeth test rejects a measurer that cannot
-/// fail.</summary>
+/// face: one line within the toggle's measured box less the standard one-line inset.
+/// Horizontal by construction — a one-line label can never fail a height check, and the
+/// teeth test rejects a measurer that cannot fail.</summary>
 private static FitVerdict ModeToggleLabel(string text)
 {
     var buttons = new Dictionary<string, System.Windows.Controls.Border>();
@@ -1073,64 +1328,49 @@ private static FitVerdict ModeToggleLabel(string text)
     var panel = new System.Windows.Controls.StackPanel();
     panel.Children.Add(border);
     using var host = FitHost.Open(panel, family: Tokens.FontStandard);
+    // Arrange exactly the way the sibling measurers realize layout (whatever SidebarTab /
+    // modal170 do after FitHost.Open) — the invariant: border.ActualWidth is laid-out, not 0.
     var label = (System.Windows.Controls.TextBlock)border.Child;
-    return OneLine(label, text, SettingsWindow.ModeToggleWidth,
-        $"the toggle's {SettingsWindow.ModeToggleWidth} DIP box");
+    return OneLine(label, text, border.ActualWidth - OneLineInset,
+        $"box {FitText.Dip(border.ActualWidth)} - {OneLineInset} inset");
 }
 ```
 
-- [ ] **Step 3: Construct the toggle with the real key + add the label update**
+- [ ] **Step 5: Run the localization gates**
 
-In the window ctor (Task 9's host is in place):
+Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~FitClassTests|FullyQualifiedName~StringsEnumParityTests|FullyQualifiedName~StringKeyCoverageTests|FullyQualifiedName~TextLiteralRatchetTests|FullyQualifiedName~SettingsModeToggleLabelTests"`
+Expected: pass — the teeth test auto-runs for A208 (an over-long probe text fails the measurer).
 
-```csharp
-var toggle = BuildModeToggle(
-    StringTable.Current.T("settings.mode.show.all"),
-    OnModeToggleMouseDown, _modeToggleButtons, _modeToggleBrushes);
-ModeToggleHost.Child = toggle;
-```
+Also run the Python validator once: `python tools/strings_validate.py` (must report no errors; it checks the new fit name and the entry shape).
 
-And the label method (its own method — own-methods rule):
+Note (plan-review m5): per-class pseudo-locale measurement is the NON-BINDING `PseudoLocaleFitReportTests` — the binding gates are the teeth test and the key/parity/ratchet set above. Do not claim a pseudo pass that nothing enforces.
 
-```csharp
-/// <summary>Re-labels the toggle for the mode now active. The label names the mode you switch
-/// TO. No live re-localization: the table activates once at startup, so a build-time resolve
-/// is correct for the window's lifetime.</summary>
-private void UpdateModeToggleLabel() =>
-    ((TextBlock)_modeToggleButtons[ModeToggleId].Child).Text = StringTable.Current.T(
-        _settings.General.SimpleSettingsUi ? "settings.mode.show.basic" : "settings.mode.show.all");
-```
-
-- [ ] **Step 4: Run the localization gates**
-
-Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~FitClassTests|FullyQualifiedName~StringsEnumParityTests|FullyQualifiedName~StringKeyCoverageTests|FullyQualifiedName~TextLiteralRatchetTests|FullyQualifiedName~PseudoLocaleGateTests"`
-Expected: pass — the teeth test auto-runs for A208 (an over-long probe text fails the measurer); the pseudo gate measures "All settings" (~200 DIP pseudo) inside 208.
-
-Also run the Python validator once: `python tools/strings_validate.py` (it must report no errors; it checks the new fit name and the entry shape).
-
-- [ ] **Step 5: Full App suite + commit**
+- [ ] **Step 6: Full App suite + commit**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests` — Expected: pass.
 
 ```bash
-git add src/EyeCtrl.Core/Localization/strings.json src/EyeCtrl.Core/Localization/StringTableSchema.cs tools/strings_validate.py tests/EyeCtrl.App.Tests/Localization/Fit/AppFitMeasurers.cs src/EyeCtrl.App/Views/SettingsWindow.xaml.cs
-git commit -m "feat(settings): mode toggle strings and the A208 horizontal fit class"
+git add src/EyeCtrl.Core/Localization/strings.json src/EyeCtrl.Core/Localization/StringTableSchema.cs tools/strings_validate.py tests/EyeCtrl.App.Tests/Localization/Fit/AppFitMeasurers.cs src/EyeCtrl.App/Views/SettingsWindow.xaml.cs tests/EyeCtrl.App.Tests/Settings/SettingsModeToggleLabelTests.cs
+git commit -m "feat(settings): mode toggle label mapping (target-mode naming) and the A208 horizontal fit class"
 ```
 
 ### Task 11: registration, hysteresis, wash, position push
 
 **Files:**
 - Modify: `src/EyeCtrl.App/Views/SettingsWindow.xaml.cs` (own methods; `RearmPagerTarget` `:1291-1301`; `UpdateAllTargetPositions` `:2010-2047`; the `PagProgress` case `:602-608`)
-- Test: `tests/EyeCtrl.App.Tests/Settings/SettingsModeToggleWiringTests.cs`
+- Test: `tests/EyeCtrl.App.Tests/Settings/SettingsModeToggleWiringTests.cs` (new; `using System.IO;`)
+- Test: `tests/EyeCtrl.ViewModels.Tests/` — the dispatch pin in the class that already tests `SimulateActivated`
 
 **Interfaces:**
-- Consumes: constants + dicts (Task 9), `SwitchSettingsUiMode` (Task 8), `SettingsPagerRearmGuard` + `_pagerCenters` + `TryScreenCenter` (existing).
+- Consumes: constants + dicts (Task 9), `SwitchSettingsUiMode` (Task 8), `UpdateModeToggleLabel` (Task 10), `SettingsPagerRearmGuard` + `_pagerCenters` + `TryScreenCenter` (existing).
 - Produces: `RegisterModeToggleTarget()`, `GuardModeToggle()`, `OnModeToggleActivated`, `UpdateModeToggleVisuals()`.
 
-- [ ] **Step 1: Write the failing wiring + behavior pins**
+- [ ] **Step 1: Write the failing wiring pins**
 
 ```csharp
 namespace EyeCtrl.App.Tests.Settings;
+
+using System.IO;
 
 public class SettingsModeToggleWiringTests
 {
@@ -1158,7 +1398,8 @@ public class SettingsModeToggleWiringTests
     public void RearmPagerTarget_KnowsTheModeToggle()
     {
         var body = ExtractMethod(WindowSource(), "private void RearmPagerTarget(");
-        Check.That(body).Contains("\"settings_mode\"");
+        Check.That(body).Contains("case ModeToggleId:");          // agrees with wire-in 3 below
+        Check.That(body).Contains("RegisterModeToggleTarget()");
     }
 
     [Fact]
@@ -1173,22 +1414,20 @@ public class SettingsModeToggleWiringTests
     [Fact]
     public void PagProgress_WashesTheToggleThroughItsOwnDictionary()
     {
-        var body = ExtractMethod(WindowSource(), "case nameof(SettingsWindowViewModel.PagProgress)");
-        Check.That(body.Contains("UpdateModeToggleVisuals")).IsTrue();
+        // Slice the switch statement to the NEXT case, or a call landed in ModalProgress would
+        // pass this pin (plan-review m11).
+        var body = SliceBetween(
+            WindowSource(),
+            "case nameof(SettingsWindowViewModel.PagProgress):",
+            "case nameof(SettingsWindowViewModel.ModalProgress):");
+        Check.That(body).Contains("UpdateModeToggleVisuals");
     }
 }
 ```
 
-(If `ExtractMethod` cannot key on a `case` label, extract `OnViewModelPropertyChanged` and assert it contains the third call — adjust the extraction target, not the assertion.)
+(`ExtractMethod`/`WindowSource` copied from `SettingsPagerChromeTests.cs`; `SliceBetween` is a small local helper: substring from the first marker to the next.)
 
-Resting-gaze pin — add to `SettingsModeToggleWiringTests` a test modelled on `SettingsPagerRestingGazeTests.RestingGazeOnAJumpedButton_TurnsThePageExactlyOnce`: construct a `SettingsPagerRearmGuard` over a recording registrar, `Disarm("settings_mode", Pagination, center, LogicalToPhysicalX(85))`, then feed 200 gaze frames inside 85 DIP of the centre and assert the registrar saw ZERO registrations; then one frame outside and assert exactly one re-arm callback for `settings_mode`. Follow that file's fake-registrar and frame-feeding helpers directly.
-
-- [ ] **Step 2: Run to verify it fails**
-
-Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SettingsModeToggleWiring"`
-Expected: FAIL.
-
-Also the VM dispatch test (spec §6 "Toggle dispatch"): `SettingsWindowViewModel` IS constructible headlessly (unlike the window). In `tests/EyeCtrl.ViewModels.Tests/SettingsWindowViewModelDispatchTests.cs` (or the existing dispatch test class, wherever `SimulateActivated` is already tested):
+The dispatch pin (spec §6 "Toggle dispatch") goes in the ViewModels test class that already exercises `SimulateActivated` — note it returns **void** (plan-review I3):
 
 ```csharp
 [Fact]
@@ -1199,15 +1438,19 @@ public void ModeToggleId_UnderPagination_DispatchesItsAction_NeverShowTab()
     vm.Register("settings_mode", DwellCategory.Pagination, radiusPhysical: 100, dwellMs: 700,
         () => fired = true);
 
-    var handled = vm.SimulateActivated("settings_mode", DwellCategory.Pagination);
+    vm.SimulateActivated("settings_mode", DwellCategory.Pagination);
 
-    Check.That(handled).IsTrue();
     Check.That(fired).IsTrue();
     Check.That(vm.Settings.CurrentTabName).IsEqualTo("");   // ShowTab never ran: the r1-C2 invariant
 }
 ```
 
-(This dispatch test passes the moment it is written — the generic arm already exists on main; it is a regression pin for the r1-C2 invariant, not a red-first test. The wiring pins above are the red-first part.)
+(This passes the moment it is written — the generic arm already exists on main; it is a regression pin for the r1-C2 invariant, not a red-first test. The wiring pins above are the red-first part.)
+
+- [ ] **Step 2: Run to verify the wiring pins fail**
+
+Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SettingsModeToggleWiring"`
+Expected: FAIL.
 
 - [ ] **Step 3: Implement (all in the toggle's own methods)**
 
@@ -1256,19 +1499,61 @@ private void UpdateModeToggleVisuals()
 
 Wire-ins (each a one-line change in EXISTING methods — allowed, they are not the extracted toggle methods):
 
-1. Ctor, after `ModeToggleHost.Child = toggle;` → `RegisterModeToggleTarget();`
-2. `SwitchSettingsUiMode`, immediately after `ApplyAndSave();` → `GuardModeToggle();` and at the end → `UpdateModeToggleLabel();`
-3. `RearmPagerTarget`'s switch → `case ModeToggleId: RegisterModeToggleTarget(); break;`
-4. `UpdateAllTargetPositions`, after the `_pagButtons` line → `UpdateButtonPositions(_modeToggleButtons, DwellCategory.Pagination);`
-5. The `PagProgress` case → add `UpdateModeToggleVisuals();` beside the two existing calls.
-6. Mouse path: change the ctor construction to pass `OnModeToggleActivated` (dwell and mouse converge).
+1. Ctor, after `ModeToggleHost.Child = toggle;` -> `RegisterModeToggleTarget();`
+2. `SwitchSettingsUiMode`, immediately after `ApplyAndSave();` -> `GuardModeToggle();`
+3. `RearmPagerTarget`'s switch -> `case ModeToggleId: RegisterModeToggleTarget(); break;` (recorded deviation from the spec's `case "settings_mode"` literal: the constant IS that string — see the self-review record)
+4. `UpdateAllTargetPositions`, after the `_pagButtons` line -> `UpdateButtonPositions(_modeToggleButtons, DwellCategory.Pagination);`
+5. The `PagProgress` case -> add `UpdateModeToggleVisuals();` beside the two existing calls.
+6. Mouse path converges: change the ctor construction to pass `OnModeToggleActivated` and **DELETE the now-dead `OnModeToggleMouseDown`** (plan-review m10).
 
-- [ ] **Step 4: Run**
+- [ ] **Step 4: The resting-gaze behavioural test (real VM, real dwell, DPI 2.0 — plan-review I5)**
 
-Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SettingsModeToggleWiring|FullyQualifiedName~SettingsPagerChromeTests|FullyQualifiedName~SettingsFrameLoopAllocationTests|FullyQualifiedName~DwellWashCensusTests"`
+Add to `SettingsModeToggleWiringTests`, modelled on `SettingsPagerChromeTests.cs:653-700` (its `QaTestSupport.MakeViewModel()` + real `vm.Register` + dwell-frame feeding), at DPI scale **2.0**:
+
+```csharp
+[StaFact]
+public void RestingGazeOnTheModeToggle_FlipsExactlyOnce_UntilTheGazeLeaves()
+{
+    var vm = QaTestSupport.MakeViewModel();               // per the pager precedent's construction
+    var guard = new SettingsPagerRearmGuard(vm, (_, _) => { });
+    var flips = 0;
+    var centre = new PhysicalPoint(1000, 300);            // scale-2.0 physical coords
+    var hit = DpiHelper.LogicalToPhysicalX(SettingsWindow.ModeToggleHitRadius);
+    var release = DpiHelper.LogicalToPhysicalX(SettingsWindow.ModeToggleReleaseRadius);
+
+    void Register() =>
+        vm.Register("settings_mode", DwellCategory.Pagination, hit, 400,
+            () => { flips++; guard.Disarm("settings_mode", DwellCategory.Pagination, centre, release); });
+    Register();
+
+    // (a) 200 frames resting ON the centre: the cooldown re-arms the detector, the guard must not.
+    for (var i = 0; i < 200; i++) { Frame(vm, centre, hit); FrameGuard(guard, centre); }
+    Check.That(flips).IsEqualTo(1);
+
+    // (b) wander at ~70 logical DIP — OUTSIDE the 50 hit circle, INSIDE the 85 release circle:
+    // the hysteresis must hold the guard (this is the assertion that proves 50/85, not 50/50).
+    var wander = new PhysicalPoint(centre.X + (long)(70 * 2), centre.Y);
+    for (var i = 0; i < 50; i++) { FrameGuard(guard, wander); }
+    // and a return to the centre must NOT flip again — the guard still holds
+    for (var i = 0; i < 20; i++) { Frame(vm, centre, hit); FrameGuard(guard, centre); }
+    Check.That(flips).IsEqualTo(1);
+
+    // (c) leave beyond the release radius, come back: exactly one more flip.
+    var away = new PhysicalPoint(centre.X + (long)(120 * 2), centre.Y);
+    FrameGuard(guard, away);                              // re-arm -> re-register via the seam
+    for (var i = 0; i < 20; i++) { Frame(vm, centre, hit); }
+    Check.That(flips).IsEqualTo(2);
+}
+```
+
+(`Frame` feeds one dwell frame through the same VM entry the pager test uses (`vm.Receive`-of-dwell-progress per its harness); `FrameGuard` calls `guard.Update(gaze)` then re-registers through `Register()` when the guard re-arms — mirror the precedent's exact frame plumbing, including its re-registration seam, so the test exercises RegisterModeToggleTarget's `IsDisarmed` consult. If the precedent's helpers cannot be reused directly, copy them; do not weaken the three assertions (a)/(b)/(c).)
+
+- [ ] **Step 5: Run everything this task touches**
+
+Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SettingsModeToggleWiring|FullyQualifiedName~SettingsPagerChromeTests|FullyQualifiedName~SettingsFrameLoopAllocationTests|FullyQualifiedName~DwellWashCensusTests"` then `dotnet test tests/EyeCtrl.ViewModels.Tests`
 Expected: pass — `MakePagButton` still contains no `_viewModel.Register(`; the frame loop is lambda-free; the wash census tolerates the exempt file (accepted debt, L17).
 
-- [ ] **Step 5: Full App suite + commit**
+- [ ] **Step 6: Full App suite + commit**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests` — Expected: pass.
 
@@ -1280,87 +1565,81 @@ git commit -m "feat(settings): mode toggle registration with 50/85 hysteresis, w
 ### Task 12: contrast + geometry pins
 
 **Files:**
-- Test: `tests/EyeCtrl.App.Tests/Settings/SettingsModeToggleChromeTests.cs`
+- Test: `tests/EyeCtrl.App.Tests/Settings/SettingsModeToggleChromeTests.cs` (new; `using System.IO;`)
 
 **Interfaces:**
-- Consumes: the finished toggle (Tasks 9–11).
+- Consumes: the finished toggle (Tasks 9–11): `BuildModeToggle`, `ModeToggleHitRadius`, `ModeToggleWidth/Height`, the header XAML.
 
 - [ ] **Step 1: Write the tests**
+
+The contrast pin reads the BUILT face (not theme tokens), in EVERY theme, blending with production's `ColorBlend`, and asserts the size/weight that keep the pair legal (plan-review I5):
 
 ```csharp
 namespace EyeCtrl.App.Tests.Settings;
 
-/// <summary>
-/// The toggle's chrome gates: the label-on-BtnBase contrast pair at rest and at the full dwell
-/// wash (round-2 N6's restored pin), and the radius-50 clearance against the content pager at
-/// the narrowest supported header. The 0.4 wash factor lands near 3.39:1, which only clears
-/// the LARGE-text 3:1 bar — FontSizeTitle/FontWeightStrong must stay (they are the size/weight
-/// under test).
-/// </summary>
+using System.IO;
+using EyeCtrl.App.Views;
+using EyeCtrl.Controls;                   // ColorBlend — verify the namespace against its csproj use
+using EyeCtrl.Controls.Theme;             // Tokens, ThemeRegistry, ThemeScope (mirror SettingsPageHeaderContrastTests' usings)
+
 public class SettingsModeToggleChromeTests
 {
     [StaFact]
-    public void LabelContrast_AtRestAndFullWash_ClearsTheLargeTextBar()
+    public void LabelContrast_AtRestAndFullWash_ClearsTheBars_InEveryTheme()
     {
-        var buttons = new Dictionary<System.Windows.Controls.Border>();
-        var brushes = new Dictionary<System.Windows.SolidColorBrush>();
-        var border = EyeCtrl.App.Views.SettingsWindow.BuildModeToggle(
-            "All settings", () => { }, buttons, brushes);
+        foreach (var theme in ThemeRegistry.All)                       // mirror the header-contrast
+        {                                                              // test's enumeration exactly
+            using (ThemeScope.Enter(theme))
+            {
+                var buttons = new Dictionary<string, System.Windows.Controls.Border>();
+                var brushes = new Dictionary<string, System.Windows.Media.SolidColorBrush>();
+                var border = SettingsWindow.BuildModeToggle("All settings", () => { }, buttons, brushes);
+                var label = (System.Windows.Controls.TextBlock)border.Child;
 
-        // rest: TextPrimary on SurfaceMedium (BtnBase)
-        var rest = Contrast(ThemeText(), Tokens.SurfaceMedium);
-        // full wash: TextPrimary blended 0.4 toward Accent is the BRUSH's colour; the label keeps
-        // TextPrimary — measure against the washed base, the dwell-complete state.
-        var washed = Blend(Tokens.SurfaceMedium, Tokens.Accent, 0.4);
-        var washedContrast = Contrast(ThemeText(), washed);
+                // The pair the user sees, read from the face:
+                var baseC = ((System.Windows.Media.SolidColorBrush)border.Background).Color;
+                var labelC = ((System.Windows.Media.SolidColorBrush)label.Foreground).Color;
 
-        Check.That(rest).IsGreaterOrEqualThan(4.5);
-        Check.That(washedContrast).IsGreaterOrEqualThan(3.0);   // large-text bar
-    }
+                // Size/weight are load-bearing: the 0.4 wash lands near 3.39:1, legal only at
+                // or above the LARGE-text 3:1 bar.
+                Check.That(label.FontSize).IsGreaterOrEqualThan(18.0);
+                Check.That(label.FontWeight).IsEqualTo(System.Windows.FontWeights.Bold);
 
-    [Fact]
-    public void ToggleClears_TheContentPager_AtTheNarrowestHeader()
-    {
-        // Title-line centre y = 24 (top of header + half of 48). The content pager's centre sits
-        // ~176 DIP down (header 112 + margin 12 + pager row 8 + half button 40). Vertical alone
-        // clears; assert the Euclidean distance with the horizontal offset the narrowest width
-        // forces (toggle right-aligned at 448, pager centred).
-        double toggleY = 24, pagerY = 176;
-        double toggleX = 448 - SettingsWindow.ModeToggleWidth / 2;
-        double pagerX = 448 / 2;
-        var distance = Math.Sqrt(Math.Pow(toggleX - pagerX, 2) + Math.Pow(toggleY - pagerY, 2));
-        Check.That(distance).IsGreaterOrEqualThan(SettingsWindow.ModeToggleHitRadius + 60); // + PagBtnRadius
+                Check.That(Contrast(labelC, baseC)).IsGreaterOrEqualThan(4.5);          // at rest
+                var washed = ColorBlend.Blend(baseC, Tokens.Accent, 0.4);
+                Check.That(Contrast(labelC, washed)).IsGreaterOrEqualThan(3.0);         // full dwell
+            }
+        }
     }
 }
 ```
 
-Fill the helpers locally (they are small and self-contained):
+(`ThemeRegistry.All`/`ThemeScope.Enter` — mirror whatever `SettingsPageHeaderContrastTests.cs:196-232` actually uses to enumerate and scope themes; copy its pattern verbatim, including the collection the file runs under. `Contrast`/`Luminance` are the WCAG helpers already defined in this plan revision's earlier snippet — keep them in this class.)
+
+The geometry pin derives centres from the XAML like `SettingsPagerClearanceTests` does (plan-review m7 — no restated arithmetic, no invented pager position), and records the m9 note:
 
 ```csharp
-private static System.Windows.Media.Color ThemeText() => Tokens.TextPrimary;   // the label brush colour
-
-private static double Luminance(System.Windows.Media.Color c)
+[Fact]
+public void ToggleClears_ThePagerAndTheFirstContentRow_AtTheNarrowestHeader()
 {
-    double F(double ch) { var s = ch / 255.0; return s <= 0.03928 ? s / 12.92 : Math.Pow((s + 0.055) / 1.055, 2.4); }
-    return 0.2126 * F(c.R) + 0.7152 * F(c.G) + 0.0722 * F(c.B);
+    // Parse SettingsWindow.xaml exactly as SettingsPagerClearanceTests does (same helpers),
+    // at the narrowest supported width (WindowWidthFor(NarrowDisplayWidthDip)).
+    // Centres: the toggle = header row 0, y = ModeToggleHeight / 2, x = headerWidth
+    //   - ModeToggleWidth / 2 - hostMargin.Left (the 12-DIP gap);
+    // pag_next = the PaginationPanel's centred bar (read its layout like the clearance test
+    //   reads the tab pager's), y = header (112) + margins + PaginationButtonHeight / 2;
+    // first content row centre = top of the content card + LabelledRowMinHeight / 2 (150).
+    // Assert Euclidean(toggle, pag_next) >= ModeToggleHitRadius + PagBtnRadius
+    //        and Euclidean(toggle, firstRow) >= ModeToggleHitRadius + ControlBtnRadius.
+    // NOTE (spec L17d / round-3 m9), recorded here as the accepted-debt note, not a check:
+    // at 448 DIP the 50-DIP hit circle's lower band overlaps the description's first line —
+    // reading that line's end can accrue toggle dwell; does not occur on the owner's display.
 }
-
-private static double Contrast(System.Windows.Media.Color a, System.Windows.Media.Color b)
-{
-    var la = Luminance(a); var lb = Luminance(b);
-    return (Math.Max(la, lb) + 0.05) / (Math.Min(la, lb) + 0.05);
-}
-
-private static System.Windows.Media.Color Blend(System.Windows.Media.Color baseC, System.Windows.Media.Color target, double t) =>
-    System.Windows.Media.Color.FromRgb(
-        (byte)(baseC.R + (target.R - baseC.R) * t),
-        (byte)(baseC.G + (target.G - baseC.G) * t),
-        (byte)(baseC.B + (target.B - baseC.B) * t));
 ```
 
-(If `Tokens.TextPrimary` exposes a Brush rather than a Color, read `((SolidColorBrush)Tokens.BrushTextPrimary).Color` — mirror what `SettingsPageHeaderContrastTests` does for its pair.)
+(Flesh the body out with the clearance test's own parse-and-derive helpers; the assertion pair above is the contract. If the clearance test's machinery cannot be reused for the content-row centre, derive it from the same XAML constants it reads and say so in a comment.)
 
-- [ ] **Step 2: Run + adjust thresholds only if a measured theme fails**
+- [ ] **Step 2: Run + treat any measured failure as a FINDING**
 
 Run: `dotnet test tests/EyeCtrl.App.Tests --filter "FullyQualifiedName~SettingsModeToggleChromeTests"`
 Expected: pass. If a theme's measured pair misses the bar, that is a FINDING, not a threshold to nudge: report it (the label brush/size is pinned by L5/L18).
@@ -1375,35 +1654,41 @@ git commit -m "test(settings): mode toggle contrast and clearance pins"
 ### Task 13: full gate + owner-gated UI pass
 
 **Files:**
-- Test: `tests/EyeCtrl.App.Tests/Tests/SettingsTests.cs` (gated)
+- Modify: `tests/EyeCtrl.App.Tests/Fixtures/AppFixture.cs` (the fixture-level settings guard — plan-review I12)
+- Test: `tests/EyeCtrl.App.Tests/Tests/SettingsTests.cs` (the optional simple-mode pass)
 
-- [ ] **Step 1: Gate the UI test against the owner's real settings file**
+- [ ] **Step 1: Move the settings-file guard into the AppFixture (I12 — the in-method guard cannot work)**
 
-`SettingsTests`' 15-tab test launches the real app via `--test-mode`, which reads `%APPDATA%/EyeCtrl/settings.json`. Add an isolation guard INSIDE the fixture usage of this test (and any new simple-mode test): back up the file, write `simpleSettingsUi: false`, run, restore in `finally`:
+The app reads `%APPDATA%/EyeCtrl/settings.json` once at launch, and `AppFixture` (an `ICollectionFixture`, `Fixtures/AppCollection.cs`) launches it in `InitializeAsync` BEFORE any test method runs and kills it in `DisposeAsync` AFTER the whole collection. An in-test-method backup/force/restore therefore (a) changes nothing the running app already loaded, and (b) races the app's debounced save, which can land after the restore and persist `simpleSettingsUi: true` into the owner's real file — the exact L20 violation.
+
+Move the guard to the fixture (gated on the UI-tests-enabled flag the fixture already checks):
 
 ```csharp
-var settingsPath = Path.Combine(
-    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl", "settings.json");
-var backup = settingsPath + ".ui_test_backup";
-var hadFile = File.Exists(settingsPath);
-try
+// In InitializeAsync, BEFORE Application.Launch:
+if (UiTestsEnabled)
 {
-    if (hadFile) File.Copy(settingsPath, backup, overwrite: true);
-    ForceSimpleSettingsUi(settingsPath, simple: false);
-    // ... existing test body (15-tab expectation) ...
+    _settingsBackup = SettingsPath + ".ui_test_backup";
+    _hadSettingsFile = File.Exists(SettingsPath);
+    if (_hadSettingsFile) File.Copy(SettingsPath, _settingsBackup, overwrite: true);
+    ForceSimpleSettingsUi(SettingsPath, simple: false);   // the launched app reads advanced
 }
-finally
+
+// In DisposeAsync, AFTER Kill() + WaitForExit (the app must be dead before the restore,
+// or its debounced writer can overwrite it):
+if (UiTestsEnabled)
 {
-    if (hadFile) File.Move(backup, settingsPath, overwrite: true);
-    else if (File.Exists(settingsPath)) File.Delete(settingsPath);
+    if (_hadSettingsFile) File.Move(_settingsBackup, SettingsPath, overwrite: true);
+    else if (File.Exists(SettingsPath)) File.Delete(SettingsPath);
 }
 ```
 
-`ForceSimpleSettingsUi` is a small local helper: read the JSON with `System.Text.Json` (`JsonNode.Parse`), set `["general"]["simpleSettingsUi"] = simple`, write back. If a simple-mode pass is added (find `Settings_ModeToggle`, dwell it, expect exactly the four `Settings_Tab_*` ids), it uses the same guard with `simple: true`.
+`SettingsPath` is the `%APPDATA%/EyeCtrl/settings.json` path the fixture already knows (or add it); `ForceSimpleSettingsUi` is a small static helper on the fixture: `JsonNode.Parse` the file, set `["general"]["simpleSettingsUi"] = simple`, write back. **Record in the fixture's doc comment: a test-host crash mid-run leaves `settings.json.ui_test_backup` behind for manual restore.** Remove any per-test-method guard — the fixture owns this now.
 
-- [ ] **Step 2: Full non-UI gate**
+The existing `SettingsWindow_RendersExactlyTheExpectedTabs` test is a no-phantom-tabs check (`expectedTabs` ⊆ actual, `>= 5` found) — with the fixture forcing advanced it stays honest. If you add the optional simple-mode pass (find `Settings_ModeToggle` on the TextBlock, dwell it, expect exactly the four simple `Settings_Tab_*` ids), it flips the live flag through the app: after asserting, **flip back via the toggle and wait out the debounced save (>= 2 s) before the test ends**, so the DisposeAsync restore is a belt-and-braces, not the only line of defense.
 
-Run each separately, in order:
+- [ ] **Step 2: Full non-UI gate — every test project, one per invocation**
+
+The change touches Core (settings, strings) and the App; CI runs everything:
 
 ```bash
 dotnet build EyeCtrl.slnx
@@ -1411,9 +1696,16 @@ dotnet test tests/EyeCtrl.Core.Tests
 dotnet test tests/EyeCtrl.ViewModels.Tests
 dotnet test tests/EyeCtrl.Platform.Tests
 dotnet test tests/EyeCtrl.App.Tests
+dotnet test tests/EyeCtrl.Controls.Tests
+dotnet test tests/EyeCtrl.Supervisor.Tests
+dotnet test tests/EyeCtrl.Architecture.Tests
+dotnet test tests/EyeCtrl.EyeCare.Tests
+dotnet test tests/EyeCtrl.LM.Tests
+dotnet test tests/EyeCtrl.Sdk.Abstractions.Tests
+dotnet test tests/EyeCtrl.Sdk.Wpf.Tests
 ```
 
-Expected: 0 failed everywhere. Also `python tools/strings_validate.py` and `python tools/palette_validate.py` (CI parity).
+(Adjust names to the actual project list under `tests/` — run every test project in the solution, sequentially.) Expected: 0 failed everywhere. Also `python tools/strings_validate.py` and `python tools/palette_validate.py` (CI parity).
 
 - [ ] **Step 3: ASK THE OWNER before the gated UI run**
 
@@ -1423,20 +1715,19 @@ The FlaUI set launches the real app and seizes the owner's only input channel. A
 EYECTRL_UI_TESTS=1 dotnet test tests/EyeCtrl.App.Tests --filter "Category=UI"
 ```
 
-Expected: pass, including the 15-tab pin under the isolation guard.
+Expected: pass, including the advanced-mode tab check under the fixture-level guard.
 
 - [ ] **Step 4: Final commit**
 
 ```bash
-git add tests/EyeCtrl.App.Tests/Tests/SettingsTests.cs
-git commit -m "test(settings): UI tests isolate the owner's settings file for the mode flag"
+git add tests/EyeCtrl.App.Tests/Fixtures/AppFixture.cs tests/EyeCtrl.App.Tests/Tests/SettingsTests.cs
+git commit -m "test(settings): fixture-level isolation of the owner's settings file for UI tests"
 ```
 
----
+## Self-review record (r2 — plan-review round 1 folded)
 
-## Self-review record
-
-- **Spec coverage:** §5.1→Task 1; §5.2→Tasks 3/6/7; §5.3→Tasks 4/5; §5.4→Tasks 3/8; §5.5→Tasks 9–12; §5.6→Tasks 6–8/11; §5.7→Task 1 (+ declined wording, no work); §5.8→Tasks 7/13 (unchanged-by-construction gates re-run); §6→Tasks 1–13, with one substitution: the spec's "deep link in simple mode lands on the language row" behavioural test is covered by the model tests (General is in `SimpleTabIds`, never snappable-away) plus the `_visibleDefs` wiring pin — a window-level behavioural test is infeasible headless (round-2 N5) and the gated UI pass exercises the real path; §7 file table→all present; ledger L1–L21→L9 Task 3, L10 Task 8, L12/L18 Task 10, L15 Task 9, L16 Task 11, L21 Task 10, L20 Task 13.
-- **Known judgment calls an executor must not re-decide:** `ModeToggleWidth = 208` (derivation in the constant's comment; the live test re-derives per language); the curation pin's expected sequences are finalized against the real build order in Task 5 Step 2; Task 9's keyed construction slides into Task 10 Step 3 (noted inline) so every task lands green.
-- **Type consistency:** `SidebarLayout(VisibleIds, TabsPerPage, PageCount, PageIndex, Slice, PagerPresent, SnapTo)` defined Task 6, consumed verbatim Tasks 7/8; `BuildModeToggle(string, Action, Dictionary<string, Border>, Dictionary<string, SolidColorBrush>)` defined Task 9, consumed Tasks 10/12; constants defined Task 9, referenced by name thereafter; the ctor passes `OnModeToggleMouseDown` from Task 10 and Task 11 Step 3 point 6 converges mouse and dwell on `OnModeToggleActivated`.
-```
+- **Spec coverage:** S5.1->Task 1; S5.2->Tasks 3/6/7 (+ the both-direction drift test in Task 5); S5.3->Tasks 4/5 (three supervision branches + Achromatic cursor row pinned); S5.4->Tasks 3/8; S5.5->Tasks 9-12 (label mapping C1-fixed with a unit test; A208 horizontal with the 8-DIP inset; 12-DIP host margin is real in the XAML); S5.6->Tasks 6-8/11 (applier pins: page assignment, one RenderTabPage, clear-before-build, ActiveTabId); S5.7->Tasks 1 (ResetAll) + 5 (g_reset keeps the flag); S5.8->Tasks 7/13; S6->Tasks 1-13; S7 file table->all present (incl. AppFixture); ledger L1-L21->L9 Task 5, L10 Task 8, L12/L18 Task 10, L15 Task 9, L16 Task 11, L20 Task 13 (fixture-level), L21 Task 10.
+- **Recorded deviations from the spec's letter:** (1) the spec's `case "settings_mode"` is realized as `case ModeToggleId:` — the constant IS that string (Task 11). (2) `SettingsDeepLinkTests:234` (`PageOf`) does NOT move — `_tabsPerPage` is model-fed, only the `FindIndex` line changes (Task 7). (3) The model's "pager register/unregister diff" output is realized as an unconditional teardown in `RebuildTabPagerChrome` — equivalent for the two ids (Task 8). (4) The spec's "deep link in simple mode" behavioural test is covered by the model test (General always visible) + the `_visibleDefs` wiring pin + the gated UI pass — a window-level behavioural test is infeasible headless (round-2 N5).
+- **Greenness:** every task ends green and commits. Task 9 lands the strings entries (temporarily `fit: row`) and the keyed ctor construction so its routing pin is satisfied in-task; Task 10 re-classes to A208 and adds the label mapping. Some pins are green-on-contact regression guards by design (close-button, face-loop Not-Contains, VM dispatch) — each is labelled as such where it is written.
+- **Known judgment calls an executor must not re-decide:** `ModeToggleWidth = 208` (derivation in the constant's comment; ~7.8 DIP of title headroom at the narrowest display — flagged, the fit tests police it); the curation pin's expected ORDER is finalized against real build order in Task 5 Step 2, its MEMBERSHIP never edits to match output; measurer layout realization mirrors the sibling measurers; `SettingsPagerClearanceTests`' parse-and-derive helpers are the geometry pin's model.
+- **Plan-review round 1 (FIX-THEN-SHIP) folded in full:** C1 (label mapping + ctor label + label-key unit test), I1-I13 (Task 9 green sequencing; Task 11 case-pin agreement; ~10 compile fixes incl. namespaces, private-helper copies, System.IO, visible.Length, void SimulateActivated, Dictionary arity; close-button pin; teeth for N1/resting-gaze/contrast/curation-branches; page-math pin chain; drift + g_reset tests; the 12-DIP margin + real-face mirror; the OneLineInset measurer; the fixture-level settings guard; cwd discipline), m1-m13.

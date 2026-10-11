@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Services;
 
 using System.Collections.Generic;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
@@ -14,8 +15,10 @@ using EyeCtrl.ViewModels.Messages;
 /// Slots and radius match the manual-selection pair (<c>OverlayVmBindingCoordinator</c>) exactly,
 /// so the bar reads the same whichever context owns it.
 ///
-/// Both keep their labels at all times: they are the two targets that cannot rely on being
-/// recognised, since one explains the others and the other is the escape hatch.
+/// Both are icon-only since 2026-10-06 (the user dropped the edge labels for good icons), so each
+/// carries an <see cref="EdgeButtonDefinition.AccessibleName"/> for UIA. They remain the two
+/// targets that cannot rely on being recognised — one explains the others and the other is the
+/// escape hatch — which is exactly why their icons are the boldest in the set.
 /// </summary>
 internal static class ActionMenuEdgeButtons
 {
@@ -38,14 +41,14 @@ internal static class ActionMenuEdgeButtons
                 VerticalOffset: -offset,
                 RadiusLogical: UIConstants.ButtonRadius,
                 Icon: ActionIcon.Close,
-                Label: "Close"),
+                AccessibleName: StringTable.Current.T("overlays.edge.close")),
             new EdgeButtonDefinition(
                 HelpId, Symbol: string.Empty, dwellMs,
                 m => m.Send(new ToggleActionMenuLabelsMessage()),
                 VerticalOffset: offset,
                 RadiusLogical: UIConstants.ButtonRadius,
                 Icon: ActionIcon.Help,
-                Label: "Help"),
+                AccessibleName: StringTable.Current.T("overlays.edge.help")),
         };
     }
 }

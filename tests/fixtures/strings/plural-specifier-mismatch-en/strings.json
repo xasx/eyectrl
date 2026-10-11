@@ -1,0 +1,14 @@
+{
+  "settings.sample": {
+    "text": {
+      "one": "{0:0.0} unit",
+      "other": "{0} units"
+    },
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": [
+      "count"
+    ]
+  }
+}

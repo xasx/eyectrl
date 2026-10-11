@@ -5,6 +5,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Threading;
 using EyeCtrl.Core.Diagnostics;
+using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
@@ -77,9 +78,25 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     private ProcessController _pc = null!;
     private HeartbeatFreshnessEvaluator _freshness = null!;
     private SupervisorTrayIcon _tray = null!;
+    private TrayStatusText _statusText = null!;
     private SettingsService _settingsService = null!;
     private EyeCtrlSettings _settings = null!;
     private string _appExePath = null!;
+
+    // T05a: the App owns general.startOnBoot, so the setup window's logon toggle asks the App to
+    // save it over the request channel. The delivery outlives the window: a choice parked while
+    // the App is down is retried — on verified heartbeats and on the clock tick, with backoff —
+    // until it is on disk. It lives in memory only, so this process exiting loses it.
+    private SettingDelivery<bool> _startOnBootDelivery = null!;
+    private StartOnBootTracker _startOnBootTracker = null!;
+    private SupervisorLanguageResolver _languageResolver = null!;
+
+    // T05b: the caretaker's language choice from the setup row. Delivered live while the App
+    // answers (it may restart into the new language); otherwise pending — passed as --ui-language
+    // on the next launch and retried, saved only, until a guarded re-read finds it on disk. The
+    // Supervisor's own screens resolve it before the setting. Memory only, like the logon park.
+    private SettingDelivery<UiLanguage> _languageDelivery = null!;
+    private SupervisorLanguageTracker _uiLanguageTracker = null!;
 
     // Ticket 06-B: last disk-read supervision.enabled, kept by the tracker so a damaged file falls
     // back to the last DISK value — never to the in-memory settings object the setup window edits.
@@ -163,6 +180,30 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         _appExePath = AppExePathResolver.Resolve();
         Log.Information("App exe path resolved to {AppExePath}.", _appExePath);
 
+        // 2b. The request channel's client side: every send runs off the UI thread with bounded
+        // connect and acknowledgement timeouts; completions come back through the dispatcher.
+        var appRequests = AppRequestClient.ForApp(_appExePath);
+        _startOnBootDelivery = new SettingDelivery<bool>(
+            "StartOnBoot",
+            (startOnBoot, _) => SettingRequest.SetStartOnBoot(startOnBoot),
+            appRequests.SendAsync,
+            work => Dispatcher.BeginInvoke(work),
+            // The stale-park guard's re-read: guarded, raw, off the UI thread (never Load()).
+            readDisk: () => StartOnBootReader.TryRead(settingsPath));
+        _startOnBootTracker = new StartOnBootTracker(settingsPath, _settings.General.StartOnBoot);
+        _languageDelivery = new SettingDelivery<UiLanguage>(
+            "UiLanguage",
+            (language, restart) => SettingRequest.SetUiLanguage(language, restart),
+            appRequests.SendAsync,
+            work => Dispatcher.BeginInvoke(work),
+            readDisk: () => UiLanguageReader.TryRead(settingsPath),
+            // T05b's clearing rule: an acknowledgement alone does not clear the choice; the
+            // guarded re-read must find it saved (a flagged launch can lose the App's guard).
+            confirmSaveByReRead: true);
+        _uiLanguageTracker = new SupervisorLanguageTracker(settingsPath);
+        _languageResolver = new SupervisorLanguageResolver(
+            settingsPath, _appExePath, pending: () => _languageDelivery.Pending);
+
         // 3. Construct the supervision components. Ticket 04 re-check 2 R2-1: the enabled predicate
         // (tracker-backed: disk, never the in-memory snapshot) and the startup decision live in the
         // composition factory, pinned by SupervisorCompositionTests — this class is integration
@@ -180,10 +221,18 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         _freshness = new HeartbeatFreshnessEvaluator(sup.HangThresholdSeconds);
 
         // 3a. Tray icon — settings/launch/exit callbacks wired to the loop below.
+        // The tooltip line composes on a state change and re-resolves only at its display
+        // moments (hover, menu open), so the heartbeat path does no settings read (T06 fixup-01
+        // F2). The menu item texts keep T05b's per-open resolve.
+        _statusText = new TrayStatusText(
+            () => _languageResolver.ResolveTable(warning => Log.Debug("Supervisor strings: {Warning}", warning)));
         _tray = new SupervisorTrayIcon(
             openSettings: OpenSettings,
             launchAppNow: () => HandleInput(new LaunchRequest(DateTime.UtcNow)),
-            exit: Shutdown);
+            exit: Shutdown,
+            // Asked on every menu open, so the items follow a language change (T05b).
+            texts: () => SupervisorTrayTexts.For(_languageResolver.ResolveTable()),
+            refreshStatus: () => _statusText.Refresh());
 
         // 3b. Periodic clock tick — runs on the UI thread; drives stale/window/deadline checks.
         _tickTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TickInterval };
@@ -284,6 +333,15 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
                 return;
             }
 
+            // A verified heartbeat proves a running App: retry a parked StartOnBoot choice. The
+            // delivery is single-flight and never waits here. Not on the final payload — that App
+            // is exiting, and its successor's first heartbeat retries instead.
+            if (!hb.ShuttingDown)
+            {
+                _startOnBootDelivery.OnAppHeartbeat();
+                _languageDelivery.OnAppHeartbeat();
+            }
+
             var now = DateTime.UtcNow;
 
             // 1. Freshness: gaze stream dead (connected but no frames for hangThreshold) -> recover.
@@ -346,7 +404,14 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     /// _loopLock), so the tick itself does not need to lock, and it already runs on the UI thread
     /// alongside all other HandleInput callers.
     /// </summary>
-    private void OnClockTick() => SupervisionClock.Tick(DateTime.UtcNow, this);
+    private void OnClockTick()
+    {
+        SupervisionClock.Tick(DateTime.UtcNow, this);
+        // A parked StartOnBoot choice must reach an App running with supervision off too, which
+        // publishes no heartbeats. The delivery applies its own backoff and single-flight.
+        _startOnBootDelivery.OnRetryTick();
+        _languageDelivery.OnRetryTick();
+    }
 
     SupervisionStateMachine ISupervisionClockHost.Machine => _sm;
     SupervisionSettings ISupervisionClockHost.Settings => _settings.Supervision;
@@ -369,7 +434,12 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         try
         {
             Log.Information("LaunchApp: starting {AppExePath}.", _appExePath);
-            _pc.Launch(_appExePath, paused: false);
+            // A language chosen while the App was down rides along as --ui-language (T05b), at
+            // most once per choice: a later relaunch must not override a newer choice the user
+            // made in the App. Both deliveries retry on the launched App's first heartbeat.
+            _pc.Launch(_appExePath, paused: false, uiLanguage: _languageDelivery.LaunchArgument());
+            _languageDelivery.AppLaunched();
+            _startOnBootDelivery.AppLaunched();
             EnsurePipeStarted(); // adoption-mode pipe starts eagerly at startup; this is an idempotent no-op.
             return true;
         }
@@ -593,7 +663,8 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         }
 
         // Show the recovery dialog (non-modal + topmost — see FallenBackDialog remarks).
-        var dialog = new FallenBackDialog();
+        var dialog = new FallenBackDialog(_languageResolver.ResolveTable(
+            warning => Log.Debug("Supervisor strings: {Warning}", warning)));
         dialog.RetryRequested += () =>
         {
             // Paused-retry handoff: relaunch with --paused so the retried instance is inert (no
@@ -604,7 +675,9 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
             Log.Information("FallenBack dialog Retry: relaunching app with --paused and returning to IdleWatch.");
             try
             {
-                _pc.Launch(_appExePath, paused: true);
+                _pc.Launch(_appExePath, paused: true, uiLanguage: _languageDelivery.LaunchArgument());
+                _languageDelivery.AppLaunched();
+                _startOnBootDelivery.AppLaunched();
                 WireProcessExited();
                 EnsurePipeStarted();
             }
@@ -632,6 +705,9 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
 
     private void OpenSettings()
     {
+        // One table for the whole window: the strings and the status line's frame resolve from
+        // the same snapshot, so a language change cannot show a half-resolved window (T06).
+        var strings = _languageResolver.ResolveTable(warning => Log.Debug("Supervisor strings: {Warning}", warning));
         var window = new SupervisorSetupWindow(
             settings: _settings,
             settingsService: _settingsService,
@@ -645,7 +721,8 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
                 //    stale-heartbeat check already reads it live each tick).
                 // Enabled also takes effect live (ticket 06-B): the machine re-reads it at every
                 // recovery decision, adoption re-checks it, and a due Recovering relaunch re-checks it.
-                // StartOnBoot lives in GeneralSettings (App-owned) and is NOT persisted by the supervisor.
+                // StartOnBoot lives in GeneralSettings (App-owned): its toggle asks the App to save
+                // it over the request channel (StartOnBootSetupRow), never through this callback.
                 var s = _settings.Supervision;
                 _sm.UpdatePolicy(s.MaxRetries, s.CrashWindowSeconds);
                 _freshness = new HeartbeatFreshnessEvaluator(s.HangThresholdSeconds);
@@ -654,23 +731,20 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
                     s.MaxRetries, s.CrashWindowSeconds, s.HangThresholdSeconds);
             },
             launchAppNow: () => HandleInput(new LaunchRequest(DateTime.UtcNow)),
-            statusText: $"Supervisor state: {_sm.State}");
+            startOnBoot: new StartOnBootSetupRow(_startOnBootDelivery, () => _startOnBootTracker.Current),
+            language: new LanguageSetupRow(_languageDelivery, () => _uiLanguageTracker.Current),
+            strings: strings,
+            statusText: strings.T("supervisor.setup.status", SupervisorStateText.Describe(strings, _sm.State)));
         window.Show();
     }
 
     private void UpdateTrayStatus()
     {
-        var text = _sm.State switch
-        {
-            SupervisorState.IdleWatch => "EyeCtrl Supervisor: idle",
-            SupervisorState.Launching => "EyeCtrl Supervisor: launching",
-            SupervisorState.Supervising => "EyeCtrl Supervisor: watching",
-            SupervisorState.Recovering => "EyeCtrl Supervisor: recovering",
-            SupervisorState.CleanExitPending => "EyeCtrl Supervisor: clean exit pending",
-            SupervisorState.FallenBack => "EyeCtrl Supervisor: FALLEN BACK (fallback AT running)",
-            _ => "EyeCtrl Supervisor"
-        };
-        _tray.SetStatusText(text);
+        // A state change composes a new line; a same-state input — every verified heartbeat,
+        // about every 3 s — does no table resolution and no settings read (T06 fixup-01 F2).
+        // The tooltip follows a language change at hover or menu open, where TrayStatusText
+        // re-resolves (the resolve-at-display pattern T05b uses for the menu texts).
+        _tray.SetStatusText(_statusText.Update(_sm.State));
     }
 
     // ---- App-exe path resolution (see AppExePathResolver) ------------------------------
@@ -678,6 +752,14 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     protected override void OnExit(ExitEventArgs e)
     {
         Log.Information("Supervisor exiting.");
+        if (_startOnBootDelivery?.Pending is { } undelivered)
+            Log.Warning(
+                "Supervisor exiting with StartOnBoot={Value} still parked; it was never saved and is lost (the park lives in memory).",
+                undelivered);
+        if (_languageDelivery?.Pending is { } undeliveredLanguage)
+            Log.Warning(
+                "Supervisor exiting with UiLanguage={Value} still pending; it was never saved and is lost (the choice lives in memory).",
+                undeliveredLanguage);
         _tickTimer?.Stop();
         _pipe?.Dispose();
         _tray?.Dispose();

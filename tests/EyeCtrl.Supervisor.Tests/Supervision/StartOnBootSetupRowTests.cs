@@ -1,0 +1,216 @@
+namespace EyeCtrl.Supervisor.Tests.Supervision;
+
+using System.IO;
+using EyeCtrl.Core.Localization;
+using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
+using EyeCtrl.Supervisor.Ipc;
+using EyeCtrl.Supervisor.Supervision;
+
+/// <summary>
+/// What the setup window's logon row shows: the value on disk, or the parked choice labelled as
+/// parked — never the Supervisor's startup snapshot. Status texts are crisis-surface strings, so
+/// they are asserted as English literals, never through <c>T(key)</c>.
+/// </summary>
+public sealed class StartOnBootSetupRowTests : IDisposable
+{
+    private readonly string _path = Path.Combine(
+        Path.GetTempPath(), "eyectrl-logon-row-" + Guid.NewGuid().ToString("N") + ".json");
+    private readonly string _writerMutexName =
+        @"Local\EyeCtrl.Settings.Writer.Test." + Guid.NewGuid().ToString("N");
+    private readonly List<TaskCompletionSource<AppRequestResult>> _replies = new();
+    private readonly SettingDelivery<bool> _delivery;
+    private readonly StringTable _strings = StringTable.EmbeddedEnglish;
+    private DateTime _now = new(2026, 10, 8, 12, 0, 0, DateTimeKind.Utc);
+
+    public StartOnBootSetupRowTests()
+    {
+        _delivery = new SettingDelivery<bool>(
+            "StartOnBoot",
+            (value, _) => SettingRequest.SetStartOnBoot(value),
+            _ =>
+            {
+                var reply = new TaskCompletionSource<AppRequestResult>();
+                _replies.Add(reply);
+                return reply.Task;
+            },
+            work => work(),
+            // As production wires it: the guarded raw read of this file, here run inline.
+            readDisk: () => StartOnBootReader.TryRead(_path, _writerMutexName),
+            runInBackground: work => work(),
+            utcNow: () => _now);
+    }
+
+    public void Dispose()
+    {
+        try { if (File.Exists(_path)) File.Delete(_path); } catch { }
+    }
+
+    private StartOnBootTracker Tracker(bool loadedAtStartup) =>
+        new(_path, loadedAtStartup, _writerMutexName);
+
+    private StartOnBootSetupRow Open(StartOnBootTracker tracker) => new(_delivery, () => tracker.Current);
+
+    private static AppRequestResult Saved => new(SettingRequestStatus.Saved, "test");
+
+    [Fact]
+    public void TheRow_ShowsTheValueOnDisk_NotTheStartupSnapshot()
+    {
+        // The Supervisor loaded false at startup; the App has saved true since.
+        File.WriteAllText(_path, """{"general":{"startOnBoot":true}}""");
+
+        using var row = Open(Tracker(loadedAtStartup: false));
+
+        Check.That(row.Value).IsTrue();
+        Check.That(row.IsParked).IsFalse();
+        Check.That(row.Note(_strings)).IsNull();
+    }
+
+    [Fact]
+    public void AChoiceTheAppCannotTake_IsShownParked_WithTheParkedNote()
+    {
+        File.WriteAllText(_path, """{"general":{"startOnBoot":false}}""");
+        using var row = Open(Tracker(loadedAtStartup: false));
+
+        row.Choose(true);
+        Check.That(row.StatusText(_strings)).IsEqualTo("Asking EyeCtrl to save the logon setting…");
+        _replies[0].SetResult(AppRequestResult.NotAvailable("test: no App"));
+
+        Check.That(row.Value).IsTrue();
+        Check.That(row.IsParked).IsTrue();
+        Check.That(row.Note(_strings)).IsEqualTo("Not saved yet. It is saved the next time EyeCtrl runs, unless the PC or the Supervisor restarts first.");
+        Check.That(row.StatusText(_strings)).IsEqualTo("The logon setting is waiting for EyeCtrl.");
+    }
+
+    [Fact]
+    public void AReopenedWindow_StillShowsTheParkedChoice_NotTheDisk()
+    {
+        File.WriteAllText(_path, """{"general":{"startOnBoot":false}}""");
+        var tracker = Tracker(loadedAtStartup: false);
+        using (var first = Open(tracker))
+        {
+            first.Choose(true);
+            _replies[0].SetResult(AppRequestResult.NotAvailable("test: no App"));
+        }
+
+        using var reopened = Open(tracker);
+
+        Check.That(reopened.Value).IsTrue();
+        Check.That(reopened.Note(_strings)).IsEqualTo("Not saved yet. It is saved the next time EyeCtrl runs, unless the PC or the Supervisor restarts first.");
+    }
+
+    [Fact]
+    public void AnAcknowledgedChoice_SaysSaved_AndKeepsShowingTheSavedValue()
+    {
+        File.WriteAllText(_path, """{"general":{"startOnBoot":false}}""");
+        using var row = Open(Tracker(loadedAtStartup: false));
+        var changes = 0;
+        row.Changed += () => changes++;
+
+        row.Choose(true);
+        _replies[0].SetResult(Saved);
+
+        Check.That(row.Value).IsTrue();   // not the false read when the window opened
+        Check.That(row.IsParked).IsFalse();
+        Check.That(row.Note(_strings)).IsNull();
+        Check.That(row.StatusText(_strings)).IsEqualTo("Saved: EyeCtrl will start at logon.");
+        Check.That(changes).IsEqualTo(2);   // sending, saved
+    }
+
+    [Fact]
+    public void TurningItOff_SaysItWillNotStart()
+    {
+        File.WriteAllText(_path, """{"general":{"startOnBoot":true}}""");
+        using var row = Open(Tracker(loadedAtStartup: true));
+
+        row.Choose(false);
+        _replies[0].SetResult(Saved);
+
+        Check.That(row.Value).IsFalse();
+        Check.That(row.StatusText(_strings)).IsEqualTo("Saved: EyeCtrl will not start at logon.");
+    }
+
+    [Fact]
+    public void ARefusedChoice_SaysSo_AndTheRowFallsBackToTheDisk()
+    {
+        File.WriteAllText(_path, """{"general":{"startOnBoot":false}}""");
+        using var row = Open(Tracker(loadedAtStartup: false));
+
+        row.Choose(true);
+        _replies[0].SetResult(new AppRequestResult(SettingRequestStatus.Rejected, "test"));
+
+        Check.That(row.Value).IsFalse();
+        Check.That(row.StatusText(_strings)).IsEqualTo("EyeCtrl refused the logon setting. It was not saved.");
+    }
+
+    [Fact]
+    public void AClosedWindow_StopsListening()
+    {
+        var row = Open(Tracker(loadedAtStartup: false));
+        var changes = 0;
+        row.Changed += () => changes++;
+        row.Dispose();
+
+        row.Choose(true);
+
+        Check.That(changes).IsEqualTo(0);
+    }
+
+    [Fact]
+    public void TheRow_NeverWritesTheSnapshot()
+    {
+        // The window no longer holds a setter into EyeCtrlSettings for this key; the row has no
+        // access to it at all. Pin the contract the window relies on: choosing leaves a snapshot
+        // the Supervisor loaded untouched, and nothing is written to disk by the Supervisor.
+        File.WriteAllText(_path, """{"general":{"startOnBoot":false}}""");
+        var snapshot = new EyeCtrlSettings();
+        using var row = Open(Tracker(loadedAtStartup: snapshot.General.StartOnBoot));
+
+        row.Choose(true);
+        _replies[0].SetResult(AppRequestResult.NotAvailable("test: no App"));
+
+        Check.That(snapshot.General.StartOnBoot).IsFalse();
+        Check.That(File.ReadAllText(_path)).IsEqualTo("""{"general":{"startOnBoot":false}}""");
+    }
+
+    [Fact]
+    public void AParkedChoiceOvertakenInTheApp_IsDropped_AndTheRowShowsTheNewerValue()
+    {
+        // on -> off -> on in quick succession while the App is down parks "on" with the disk at
+        // "on". The user then turns it off in EyeCtrl's own Settings: the stale "on" must not be
+        // delivered over that newer choice.
+        File.WriteAllText(_path, """{"general":{"startOnBoot":true}}""");
+        using var row = Open(Tracker(loadedAtStartup: true));
+        row.Choose(false);
+        row.Choose(true);                                      // while the first is in flight
+        _replies[0].SetResult(AppRequestResult.NotAvailable("test: no App"));
+        Check.That(row.IsParked).IsTrue();
+
+        File.WriteAllText(_path, """{"general":{"startOnBoot":false}}""");
+        _now = _delivery.NextRetryAt!.Value;
+        _delivery.OnRetryTick();
+
+        Check.That(_replies).HasSize(1);                       // nothing was sent
+        Check.That(row.IsParked).IsFalse();
+        Check.That(row.Value).IsFalse();
+        Check.That(row.StatusText(_strings)).IsEqualTo("The logon setting was changed in EyeCtrl meanwhile. That newer value stays.");
+    }
+
+    [Fact]
+    public void AParkedChoiceTheAppSavedAnotherWay_IsClearedAndShownSaved()
+    {
+        File.WriteAllText(_path, """{"general":{"startOnBoot":false}}""");
+        using var row = Open(Tracker(loadedAtStartup: false));
+        row.Choose(true);
+        _replies[0].SetResult(AppRequestResult.NotAvailable("test: no App"));
+
+        File.WriteAllText(_path, """{"general":{"startOnBoot":true}}""");
+        _now = _delivery.NextRetryAt!.Value;
+        _delivery.OnRetryTick();
+
+        Check.That(_replies).HasSize(1);
+        Check.That(row.Value).IsTrue();
+        Check.That(row.Note(_strings)).IsNull();
+        Check.That(row.StatusText(_strings)).IsEqualTo("Saved: EyeCtrl will start at logon.");
+    }
+}

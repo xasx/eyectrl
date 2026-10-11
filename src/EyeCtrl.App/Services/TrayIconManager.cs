@@ -6,10 +6,43 @@ using System.IO;
 using System.Windows.Forms;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.ViewModels.Messages;
 using Serilog;
+
+/// <summary>The App tray menu's item texts, resolved once at construction — the App tray follows a
+/// language change by restart, so per-open re-resolution (the Supervisor's pattern) is not needed.
+/// A record rather than inline constructor calls so the English is pinnable headlessly: a real
+/// <see cref="NotifyIcon"/> needs a shell tray.</summary>
+/// <param name="Pause">The pause item's face while running.</param>
+/// <param name="Resume">The pause item's face while paused.</param>
+/// <param name="Settings">The "open Settings" item.</param>
+/// <param name="ResetAdaptation">The "reset adaptation" item.</param>
+/// <param name="Exit">The "exit EyeCtrl" item.</param>
+/// <param name="ShowToolbar">The "show toolbar" item, present only when the toolbar auto-hides.</param>
+internal sealed record AppTrayTexts(
+    string Pause, string Resume, string Settings, string ResetAdaptation, string Exit, string ShowToolbar)
+{
+    /// <summary>The texts for the process's current table.</summary>
+    /// <param name="strings">The table to resolve from.</param>
+    /// <returns>The resolved texts.</returns>
+    public static AppTrayTexts For(StringTable strings) => new(
+        strings.T("app-tray.pause"),
+        strings.T("app-tray.resume"),
+        strings.T("app-tray.settings"),
+        strings.T("app-tray.reset-adaptation"),
+        strings.T("app-tray.exit"),
+        strings.T("app-tray.show-toolbar"));
+
+    /// <summary>The pause item's face for <paramref name="state"/>: "Resume" while paused,
+    /// "Pause" for every other state. Written at three sites, so the pair lives in one place.</summary>
+    /// <param name="state">The interaction state the face describes.</param>
+    /// <returns>The item text.</returns>
+    public string PauseItemText(InteractionState state) =>
+        state == InteractionState.Paused ? Resume : Pause;
+}
 
 /// <summary>
 /// Manages the system tray icon and its menu.
@@ -24,6 +57,7 @@ public class TrayIconManager : IDisposable
     private readonly Dispatcher _dispatcher;
     private readonly InteractionManager _interactionManager;
     private readonly IMessenger _messenger;
+    private readonly AppTrayTexts _texts;
     private bool _disposed;
 
     public TrayIconManager(InteractionManager interactionManager, Dispatcher dispatcher, IMessenger messenger,
@@ -32,32 +66,37 @@ public class TrayIconManager : IDisposable
         _dispatcher = dispatcher;
         _interactionManager = interactionManager;
         _messenger = messenger;
+        _texts = AppTrayTexts.For(StringTable.Current);
 
-        _pauseMenuItem = new ToolStripMenuItem("Pause");
+        _pauseMenuItem = new ToolStripMenuItem(_texts.Pause);
         _pauseMenuItem.Click += (_, _) =>
         {
             interactionManager.TogglePause();
-            _pauseMenuItem.Text = interactionManager.CurrentState == InteractionState.Paused ? "Resume" : "Pause";
+            _pauseMenuItem.Text = _texts.PauseItemText(interactionManager.CurrentState);
         };
 
-        var settingsItem = new ToolStripMenuItem("Settings");
+        var settingsItem = new ToolStripMenuItem(_texts.Settings);
         settingsItem.Click += (_, _) => dispatcher.BeginInvoke(() =>
             _messenger.Send(new SettingsRequestedMessage()));
 
-        var resetAdaptationItem = new ToolStripMenuItem("Reset adaptation");
+        var resetAdaptationItem = new ToolStripMenuItem(_texts.ResetAdaptation);
         resetAdaptationItem.Click += (_, _) => dispatcher.BeginInvoke(() =>
             _messenger.Send(new ResetAdaptationMessage()));
 
-        var exitItem = new ToolStripMenuItem("Exit");
+        var exitItem = new ToolStripMenuItem(_texts.Exit);
         exitItem.Click += (_, _) => dispatcher.BeginInvoke(shutdownCallback);
 
         var menu = new ContextMenuStrip();
         menu.Items.Add(_pauseMenuItem);
         menu.Items.Add(settingsItem);
+        // D9 (the user's call 2026-10-07): ONE flat language item, no submenu — a hover cascade
+        // is a poor fit for unsteady gaze. It deep-links to the language row in Settings, where
+        // the endonyms are; it does not restart anything itself.
+        menu.Items.Add(CreateLanguageMenuItem(dispatcher, _messenger));
         menu.Items.Add(resetAdaptationItem);
         if (showToolbarCallback != null)
         {
-            _showToolbarMenuItem = new ToolStripMenuItem("Show toolbar");
+            _showToolbarMenuItem = new ToolStripMenuItem(_texts.ShowToolbar);
             _showToolbarMenuItem.Click += (_, _) => dispatcher.BeginInvoke(showToolbarCallback);
             menu.Items.Add(_showToolbarMenuItem);
             menu.Items.Add(new ToolStripSeparator());
@@ -118,6 +157,23 @@ public class TrayIconManager : IDisposable
         return new Icon(memoryStream, size);
     }
 
+    /// <summary>
+    /// The one flat "Sprache / Language" item (D9): it deep-links to General page 1 with the
+    /// language row in view, where the endonyms are readable whatever the current language.
+    /// A factory rather than inline constructor lines so the label and the deep-link target are
+    /// pinnable headlessly — a real <see cref="NotifyIcon"/> needs a shell tray.
+    /// </summary>
+    /// <param name="dispatcher">Marshals the send onto the UI thread, like every other item.</param>
+    /// <param name="messenger">Receives <see cref="SettingsRequestedMessage"/>.</param>
+    /// <returns>The configured menu item.</returns>
+    internal static ToolStripMenuItem CreateLanguageMenuItem(Dispatcher dispatcher, IMessenger messenger)
+    {
+        var item = new ToolStripMenuItem(StringTable.Current.T("language-recovery.tray.item"));
+        item.Click += (_, _) => dispatcher.BeginInvoke(() =>
+            messenger.Send(new SettingsRequestedMessage(SettingsTarget.GeneralPage1)));
+        return item;
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
@@ -136,7 +192,7 @@ public class TrayIconManager : IDisposable
     {
         _dispatcher.BeginInvoke(() =>
         {
-            _pauseMenuItem.Text = state == InteractionState.Paused ? "Resume" : "Pause";
+            _pauseMenuItem.Text = _texts.PauseItemText(state);
         });
     }
 }

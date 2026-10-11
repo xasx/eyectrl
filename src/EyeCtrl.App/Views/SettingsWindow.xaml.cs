@@ -8,6 +8,8 @@ using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
 using EyeCtrl.Core.ActionMenu;
 using EyeCtrl.Core.Calibration;
+using EyeCtrl.Core.Enums;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Prediction;
@@ -32,6 +34,27 @@ public partial class SettingsWindow : OverlayWindow
     // Swatches render at DwellColorPicker.SwatchWidth x SwatchHeight with WrapPanel gutters sized so the
     // standard control radius (100 px hit circle) fits without overlapping neighbours — see SwatchTargetGeometryTests.
     internal const double ColorSwatchRadius = ControlBtnRadius;
+
+    /// <summary>
+    /// The literal <c>settings</c> keys for the names the settings host gives its colour swatches,
+    /// one per <see cref="DwellColorPicker.PresetsFor"/> entry (T02). Host-supplied so the control
+    /// owns no English; since T07 each entry is a key and <c>CreateControl</c> resolves it through
+    /// <see cref="StringTable.Current"/>. Kept as a field so the count can be pinned headlessly
+    /// against every palette (<c>ColorSwatchNamesTests</c>) — the coupling is otherwise only a
+    /// run-time throw.
+    /// </summary>
+    internal static readonly string[] ColorSwatchNames = SwatchNameKeys();
+
+    // A method, not an array initializer at the field: the field is a literal-ratchet sink
+    // (TextLiteralScan.BareAssign), and key strings are machinery, not UI text. The keys are still
+    // literals in the source, so the key-coverage and unused-key gates see them either way.
+    private static string[] SwatchNameKeys() =>
+    [
+        "settings.control.swatch.accent",
+        "settings.control.swatch.green",
+        "settings.control.swatch.warning",
+        "settings.control.swatch.text",
+    ];
 
     // ── The labelled-row geometry (name on the left, control on the right) ──
 
@@ -207,6 +230,16 @@ public partial class SettingsWindow : OverlayWindow
 
     private const double ModalButtonHeight = 100;
 
+    /// <summary>
+    /// A two-choice (horizontal) modal button's width. Its label never wraps, so the label's
+    /// one-line width is bounded by this box: the <c>modal170</c> fit class, measured by T09's
+    /// fit harness through <see cref="BuildModalButton"/>.
+    /// </summary>
+    internal const double ModalButtonWidth = 170;
+
+    /// <summary>A stacked (three-or-more-choice) modal button's width: the <c>modal460</c> class.</summary>
+    internal const double ModalWideButtonWidth = 460;
+
     // Window sizing
     //
     // internal for the same reason as TabContainerHeight: SettingsContentFitTests re-derives the
@@ -265,6 +298,9 @@ public partial class SettingsWindow : OverlayWindow
     private readonly UserDictionaryService? _dictionaryService;
     private readonly int _dwellMs;
     private readonly SettingsPagerRearmGuard _pagerRearmGuard;
+
+    /// <summary>The tray item's deep link, queued while a modal is up (T04's open-modal case).</summary>
+    private readonly SettingsDeepLinkQueue _languageRowDeepLink = new();
 
     // Last LAID-OUT screen centre per pager target, recorded by the position pass. The jump's
     // own re-render replaces the pager Border BEFORE GuardJumpedPager reads it, and a freshly
@@ -331,15 +367,18 @@ public partial class SettingsWindow : OverlayWindow
     public event Action<EyeCtrlSettings>? SettingsChanged;
 
     /// <summary>
-    /// The sidebar's tabs: id, sidebar glyph, human label, and the one-line description the page
-    /// header shows under that label. <c>Description</c> is not decoration — the header is the
-    /// only place a tab says what it is for, and the tab glyphs alone are ambiguous.
+    /// The sidebar's tabs: id, sidebar glyph, and the literal <c>settings</c> keys for the human
+    /// label and the one-line description the page header shows under that label.
+    /// <c>DescriptionKey</c> is not decoration — the header is the only place a tab says what it
+    /// is for, and the tab glyphs alone are ambiguous. The keys are resolved with
+    /// <see cref="StringTable.Current"/> where the tab buttons and the header are built, and are
+    /// written literally here because the key-coverage and unused-key gates read the literal.
     /// </summary>
     // INTENTIONALLY NOT EXPOSED in the settings UI (audit this list when adding settings):
     //  - ManualSelection.Enabled (driven by SelectionMode; the Selection tab owns the mode)
     //  - Keyboard ML/model settings (CustomModels etc. — managed by the model registry; Models tab)
     // Everything else in EyeCtrlSettings.EnumerateSubSettings() should have a tab/control here.
-    private readonly (string Id, string Icon, string Label, string Description)[] _tabDefs;
+    private readonly (string Id, string Icon, string LabelKey, string DescriptionKey)[] _tabDefs;
     private readonly Dictionary<string, ISettingsPageSource> _sources = new();
 
     public SettingsWindow(
@@ -390,12 +429,16 @@ public partial class SettingsWindow : OverlayWindow
         // The one button only HIDES the notice — it cannot cancel a restart whose child may
         // already be running, and it must exist: a modal with no dwell target would trap a
         // gaze-only user if the outcome never arrived.
+        //
+        // The notice's text belongs to the `language-recovery` surface (D5, T04) and resolves in
+        // the TARGET language — the saved selection resolved against the machine culture, i.e.
+        // what the replacement will run (F1). An ordinary restart resolves to the running
+        // language, unchanged. RestartNotices owns the keys so the English text is headlessly
+        // pinned.
         _messenger.Register<RestartInProgressMessage>(this, (_, _) =>
             Dispatcher.Invoke(() => _viewModel.ShowModal(
-                "Restarting EyeCtrl…\n"
-                + "Waiting for the new EyeCtrl to start. If it cannot, this one keeps running.\n"
-                + "Hiding this notice does not stop the restart.",
-                [new ModalChoice("restart_progress_hide", "✕ Hide", ModalChoiceKind.Neutral, null)])));
+                RestartNotices.InProgressMessage(TargetLanguage()),
+                RestartNotices.InProgressChoices(TargetLanguage()))));
 
         // A refused restart must be visible: the user just completed a dwell, and
         // silence reads as the dwell not registering.
@@ -404,47 +447,50 @@ public partial class SettingsWindow : OverlayWindow
         // "✕ No" to "the new EyeCtrl did not start in time" means nothing, and for a gaze
         // user every extra target is another chance to mis-dwell on a message that only
         // needs dismissing. The multi-choice modal makes a single button expressible;
-        // before it existed this had to borrow the Yes/No form.
+        // before it existed this had to borrow the Yes/No form. The reason text already
+        // arrives localized in the same target from the coordinator.
         _messenger.Register<RestartUnavailableMessage>(this, (_, m) =>
             Dispatcher.Invoke(() => _viewModel.ShowModal(
-                m.Reason,
-                [new ModalChoice("restart_failed_ok", "✓ OK", ModalChoiceKind.Affirmative, null)])));
+                m.Reason, RestartNotices.RefusedChoices(TargetLanguage()))));
 
         // Initialize tab definitions
         _tabDefs =
         [
             // Descriptions describe what each tab ACTUALLY holds, read off the page sources in
-            // src/EyeCtrl.App/Views/Settings/Sources — not what the tab's name suggests.
-            ("Cursor",   "◎", "Cursor",
-                "How raw gaze is filtered, and how the cursor ring is drawn."),
-            ("Dwell",    "⏱", "Dwell Times",
-                "How long gaze must rest on a target before it activates."),
-            ("Selection", "⊕", "Selection",
-                "Picking the exact target: mode, magnifier, highlight and snapping."),
-            ("Actions",  "⊙", "Action Menu",
-                "Which actions appear in the ring that opens after an activation."),
-            ("Layout",   "⊞", "Layout",
-                "Where the action menu and magnifier open: at your gaze, or at the screen centre."),
-            ("Keyboard", "⌨", "Keyboard",
-                "On-screen keyboard size, layout and word prediction."),
-            ("Models",    "⬡", "Models",
-                "Language models used for word prediction."),
-            ("Toolbar",  "▣", "Toolbar",
-                "Where the utility bar docks, and how big its buttons are."),
-            ("Calibration", "⌖", "Calibration",
-                "Correcting the offset between your gaze and the cursor."),
-            ("EyeCare", "◑", "Eye Care",
-                "Break reminders, gaze exercises and fatigue escalation."),
-            ("Adaptation", "⇄", "Adaptation",
-                "Auto-tuning of dwell and targeting when you struggle."),
-            ("General",  "⚙", "General",
-                "Startup, theme, restart, and resetting settings."),
-            ("QuickActions", "⚡", "Quick Actions",
-                "The pop-up grid of one-dwell shortcuts, and how it is summoned."),
-            ("Advanced", "⚒", "Advanced",
-                "Expert tuning: backdrop, drag, scroll and external dwell."),
-            ("Diagnostics", "◷", "Diagnostics",
-                "Measurement instruments: raw-gaze recording and UI timing. Both off by default.")
+            // src/EyeCtrl.App/Views/Settings/Sources — not what the tab's name suggests. The
+            // labels and descriptions are `settings` keys now; the English text lives in
+            // strings.json, and SettingsTabDriftTests/SettingsTabLabelFitTests resolve it from
+            // there rather than parsing it out of this file.
+            ("Cursor",   "◎", "settings.tab.cursor.label",
+                "settings.tab.cursor.description"),
+            ("Dwell",    "⏱", "settings.tab.dwell.label",
+                "settings.tab.dwell.description"),
+            ("Selection", "⊕", "settings.tab.selection.label",
+                "settings.tab.selection.description"),
+            ("Actions",  "⊙", "settings.tab.actions.label",
+                "settings.tab.actions.description"),
+            ("Layout",   "⊞", "settings.tab.layout.label",
+                "settings.tab.layout.description"),
+            ("Keyboard", "⌨", "settings.tab.keyboard.label",
+                "settings.tab.keyboard.description"),
+            ("Models",    "⬡", "settings.tab.models.label",
+                "settings.tab.models.description"),
+            ("Toolbar",  "▣", "settings.tab.toolbar.label",
+                "settings.tab.toolbar.description"),
+            ("Calibration", "⌖", "settings.tab.calibration.label",
+                "settings.tab.calibration.description"),
+            ("EyeCare", "◑", "settings.tab.eyecare.label",
+                "settings.tab.eyecare.description"),
+            ("Adaptation", "⇄", "settings.tab.adaptation.label",
+                "settings.tab.adaptation.description"),
+            ("General",  "⚙", "settings.tab.general.label",
+                "settings.tab.general.description"),
+            ("QuickActions", "⚡", "settings.tab.quickactions.label",
+                "settings.tab.quickactions.description"),
+            ("Advanced", "⚒", "settings.tab.advanced.label",
+                "settings.tab.advanced.description"),
+            ("Diagnostics", "◷", "settings.tab.diagnostics.label",
+                "settings.tab.diagnostics.description")
         ];
 
         // Set DataContext for data binding
@@ -568,6 +614,10 @@ public partial class SettingsWindow : OverlayWindow
                     break;
                 case nameof(SettingsWindowViewModel.IsModalVisible):
                     UpdateModalVisibility();
+                    // The deep link that arrived while this modal was up runs now. A modal is
+                    // never discarded to satisfy the link (T04's three window states).
+                    if (_languageRowDeepLink.TryApply(_viewModel.IsModalVisible))
+                        ShowLanguageRow();
                     break;
             }
         });
@@ -600,94 +650,110 @@ public partial class SettingsWindow : OverlayWindow
 
     // ────── Sidebar tabs ──────
 
-    private void BuildTabButtons()
+    /// <summary>
+    /// One sidebar tab's face — its 100 DIP highlight, the icon and the label in their inner
+    /// panel — with no window state: <see cref="BuildTabButtons"/> builds every tab through it, and
+    /// T09's <c>tab156</c> gate (<c>SidebarTabFit</c>) measures exactly this element, so a change to
+    /// the tab's margins or type moves the gate with it (review-01 R3).
+    /// </summary>
+    /// <param name="id">The tab id (the <c>Settings_Tab_{id}</c> automation id).</param>
+    /// <param name="icon">The tab's glyph.</param>
+    /// <param name="label">The tab's resolved label.</param>
+    /// <param name="background">The highlight brush, which the window recolours by state.</param>
+    /// <returns>The tab's border.</returns>
+    internal static Border BuildTabFace(string id, string icon, string label, SolidColorBrush background)
     {
-        foreach (var (id, icon, label, _) in _tabDefs)
+        // Set AutomationId on the label TextBlock — WPF's UIA control view only exposes
+        // TextBlock nodes from transparent overlay windows; Border containers are collapsed.
+        var iconText = new TextBlock
         {
-            // Set AutomationId on the label TextBlock — WPF's UIA control view only exposes
-            // TextBlock nodes from transparent overlay windows; Border containers are collapsed.
-            var iconText = new TextBlock
-            {
-                Text = icon,
-                Foreground = Tokens.BrushTextPrimary,
-                FontSize = TabContainerHeight * ContainerRatio.Medium,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 12, 0)
-            };
-            System.Windows.Automation.AutomationProperties.SetAutomationId(iconText, $"Settings_Tab_{id}");
+            Text = icon,
+            Foreground = Tokens.BrushTextPrimary,
+            FontSize = TabContainerHeight * ContainerRatio.Medium,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 12, 0)
+        };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(iconText, $"Settings_Tab_{id}");
 
-            var tabBrush = new SolidColorBrush(TabInactive);
-            var border = new Border
+        return new Border
+        {
+            Height = TabContainerHeight,
+            Margin = new Thickness(TabButtonMargin),
+            CornerRadius = Tokens.StandardCornerRadius,
+            Background = background,
+            Cursor = System.Windows.Input.Cursors.Hand,
+            Child = new StackPanel
             {
-                Height = TabContainerHeight,
-                Margin = new Thickness(TabButtonMargin),
-                CornerRadius = Tokens.StandardCornerRadius,
-                Background = tabBrush,
-                Cursor = System.Windows.Input.Cursors.Hand,
-                Child = new StackPanel
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(16, 0, 16, 0),
+                Children =
                 {
-                    Orientation = Orientation.Horizontal,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(16, 0, 16, 0),
-                    Children =
+                    iconText,
+                    new TextBlock
                     {
-                        iconText,
-                        new TextBlock
-                        {
-                            Text = label,
-                            Foreground = Tokens.BrushTextPrimary,
-                            FontSize = Tokens.FontSizeTitle,
-                            FontWeight = Tokens.FontWeightMedium,
-                            VerticalAlignment = VerticalAlignment.Center,
-                            // FIXED by widening the sidebar column to 240 DIP
-                            // (SettingsWindow.xaml). **This branch caused the spill; it did not
-                            // inherit it.** Measured headlessly with the real glyphs, at the
-                            // sidebar's 220 DIP, for "Quick Actions":
-                            //
-                            //   pre-branch  (icon 30, label 22, no FontFamily override)  218.61
-                            //   post-branch (icon 32, label Tokens.FontSizeTitle = 24)   233.86
-                            //
-                            // So it sat 1.39px INSIDE the column before and 13.86px outside
-                            // after. The dominant term is this label going 22 -> 24, worth
-                            // +12.50px; the icon's 30 -> TabContainerHeight * Medium (32) adds
-                            // only +2.75px, and retargeting the family at "Segoe UI Variable
-                            // Text, Segoe UI" moves it by under 0.6px either way. An earlier
-                            // version of this comment claimed a pre-branch 231.11 and blamed
-                            // the icon alone — no configuration measures 231.11, and the label was
-                            // the larger half.
-                            //
-                            // At 240 every label clears the column, the tightest being
-                            // "Quick Actions" with 6.14px spare. It still overhangs its own tab
-                            // Border (which now ends at x=228) by 5.86px, and that is ACCEPTED:
-                            // the text stays fully legible against the sidebar's own fill, and
-                            // 240 strictly improves the highlight too — at 220 "Dwell Times" and
-                            // "Quick Actions" both overhung a Border ending at x=208.
-                            //
-                            // A TextTrimming.CharacterEllipsis was tried here and REMOVED because
-                            // it is provably inert, measured twice: this label's parent is a
-                            // horizontal StackPanel, which measures children with infinite width
-                            // in the stacking direction, so the label is never width-constrained
-                            // and has nothing to trim against — ActualWidth is 149.92 and the
-                            // right edge 233.86 with and without it. Left in place it would read,
-                            // at the call site, as if the label truncated. It does not. That is
-                            // still true and is why the attribute is still absent.
-                            //
-                            // The alternative was to make it live: a two-column Grid("Auto,*")
-                            // here plus the trimming back, which brings every right edge to
-                            // exactly 192.0 — inside the 220 column. It was REJECTED on the
-                            // measurement, because 192.0 is the slot edge, not the text's: the
-                            // constrained slots are 108.06 / 125.03 / 108.06 DIP against text
-                            // needing 131.12 / 140.22 / 149.92, so "Dwell Times", "Action Menu"
-                            // and "Quick Actions" would all render ellipsized. Trading three
-                            // unreadable tab names for 20px of a paginated, auto-sized content
-                            // column is the wrong trade for a user who navigates this window by
-                            // gaze. The robustness that fix bought is supplied instead by
-                            // SettingsTabLabelFitTests, which re-measures every label against the
-                            // column width parsed from the XAML and fails on any future resize.
-                        }
+                        Text = label,
+                        Foreground = Tokens.BrushTextPrimary,
+                        FontSize = Tokens.FontSizeTitle,
+                        FontWeight = Tokens.FontWeightMedium,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        // FIXED by widening the sidebar column to 240 DIP
+                        // (SettingsWindow.xaml). **This branch caused the spill; it did not
+                        // inherit it.** Measured headlessly with the real glyphs, at the
+                        // sidebar's 220 DIP, for "Quick Actions":
+                        //
+                        //   pre-branch  (icon 30, label 22, no FontFamily override)  218.61
+                        //   post-branch (icon 32, label Tokens.FontSizeTitle = 24)   233.86
+                        //
+                        // So it sat 1.39px INSIDE the column before and 13.86px outside
+                        // after. The dominant term is this label going 22 -> 24, worth
+                        // +12.50px; the icon's 30 -> TabContainerHeight * Medium (32) adds
+                        // only +2.75px, and retargeting the family at "Segoe UI Variable
+                        // Text, Segoe UI" moves it by under 0.6px either way. An earlier
+                        // version of this comment claimed a pre-branch 231.11 and blamed
+                        // the icon alone — no configuration measures 231.11, and the label was
+                        // the larger half.
+                        //
+                        // At 240 every label clears the column, the tightest being
+                        // "Quick Actions" with 6.14px spare. It still overhangs its own tab
+                        // Border (which now ends at x=228) by 5.86px, and that is ACCEPTED:
+                        // the text stays fully legible against the sidebar's own fill, and
+                        // 240 strictly improves the highlight too — at 220 "Dwell Times" and
+                        // "Quick Actions" both overhung a Border ending at x=208.
+                        //
+                        // A TextTrimming.CharacterEllipsis was tried here and REMOVED because
+                        // it is provably inert, measured twice: this label's parent is a
+                        // horizontal StackPanel, which measures children with infinite width
+                        // in the stacking direction, so the label is never width-constrained
+                        // and has nothing to trim against — ActualWidth is 149.92 and the
+                        // right edge 233.86 with and without it. Left in place it would read,
+                        // at the call site, as if the label truncated. It does not. That is
+                        // still true and is why the attribute is still absent.
+                        //
+                        // The alternative was to make it live: a two-column Grid("Auto,*")
+                        // here plus the trimming back, which brings every right edge to
+                        // exactly 192.0 — inside the 220 column. It was REJECTED on the
+                        // measurement, because 192.0 is the slot edge, not the text's: the
+                        // constrained slots are 108.06 / 125.03 / 108.06 DIP against text
+                        // needing 131.12 / 140.22 / 149.92, so "Dwell Times", "Action Menu"
+                        // and "Quick Actions" would all render ellipsized. Trading three
+                        // unreadable tab names for 20px of a paginated, auto-sized content
+                        // column is the wrong trade for a user who navigates this window by
+                        // gaze. The robustness that fix bought is supplied instead by
+                        // SettingsTabLabelFitTests, which re-measures every label against the
+                        // column width parsed from the XAML and fails on any future resize.
                     }
                 }
-            };
+            }
+        };
+    }
+
+    private void BuildTabButtons()
+    {
+        foreach (var (id, icon, labelKey, _) in _tabDefs)
+        {
+            var tabBrush = new SolidColorBrush(TabInactive);
+            var border = BuildTabFace(id, icon, StringTable.Current.T(labelKey), tabBrush);
 
             // Mouse fallback
             border.MouseLeftButtonDown += (_, _) => ShowTab(id);
@@ -776,7 +842,7 @@ public partial class SettingsWindow : OverlayWindow
     /// token. Each adapter assigns it inline at its call site — the same precedent as
     /// DragTrailOverlay's IconSize, which repeats its expression rather than reading a local.
     /// </summary>
-    private Border MakeChromeButton(
+    private static Border MakeChromeButton(
         string id, string text, double width, double height, Thickness margin,
         Color fill, Brush textBrush,
         Action onMouseDown,
@@ -815,7 +881,7 @@ public partial class SettingsWindow : OverlayWindow
     {
         var boundary = SettingsPagerChrome.IsBoundary(_tabPageIndex, _tabPageCount, direction);
         var btn = MakeChromeButton(
-            id, SettingsPagerChrome.GlyphFor(id, boundary),
+            id, string.Empty,
             PaginationButtonWidth, PaginationButtonHeight,
             // One margin story (review r2 M1): every pin of the pager's clearance geometry
             // derives from this same thickness. The vertical margin is what keeps the two
@@ -826,6 +892,7 @@ public partial class SettingsWindow : OverlayWindow
             () => ActivateTabPager(id, direction),
             _tabPagerButtons, _tabPagerBrushes);
         ((TextBlock)btn.Child).FontSize = PaginationButtonHeight * ContainerRatio.Large;
+        ApplyPagerFace(btn, id, boundary);
         return btn;
     }
 
@@ -845,8 +912,29 @@ public partial class SettingsWindow : OverlayWindow
     private void UpdateTabPagerButton(string id, int direction)
     {
         var boundary = SettingsPagerChrome.IsBoundary(_tabPageIndex, _tabPageCount, direction);
-        ((TextBlock)_tabPagerButtons[id].Child).Text = SettingsPagerChrome.GlyphFor(id, boundary);
+        var btn = _tabPagerButtons[id];
+        ApplyPagerFace(btn, id, boundary);
         RegisterTabPagerTarget(id, direction);
+    }
+
+    /// <summary>
+    /// Draws a pager button's whole face from ONE boundary value, taken as a pair from
+    /// <see cref="SettingsPagerChrome.Face"/>: never from two boundary expressions here, so the
+    /// glyph and the accessible name can no longer disagree (review 01 R3 / review 02 R5).
+    ///
+    /// <para>
+    /// The name goes on the TextBlock, the node WPF exposes from a transparent overlay window
+    /// (the Border itself is collapsed in the UIA control view), alongside the glyph. Re-applied
+    /// whenever the boundary flips, because a wrap-jump button is a step button once it has
+    /// jumped.
+    /// </para>
+    /// </summary>
+    private static void ApplyPagerFace(Border btn, string id, bool boundary)
+    {
+        var (glyph, nameKey) = SettingsPagerChrome.Face(id, boundary);
+        var text = (TextBlock)btn.Child;
+        text.Text = glyph;
+        System.Windows.Automation.AutomationProperties.SetName(text, StringTable.Current.T(nameKey));
     }
 
     private void ActivateTabPager(string id, int direction) =>
@@ -882,6 +970,43 @@ public partial class SettingsWindow : OverlayWindow
         // Update ViewModel's tab state - property changed handler will rebuild content
         _viewModel.Settings.ShowTab(tabId);
     }
+
+    /// <summary>
+    /// D9's deep link: bring this window forward and land on General page 1, where the language
+    /// row is the first row. A modal already up is never discarded to satisfy the link — the
+    /// navigation queues behind it and runs when it closes.
+    /// </summary>
+    internal void NavigateToLanguageRow()
+    {
+        // WS_EX_NOACTIVATE (OverlayWindow): Activate() is either blocked or it steals the
+        // foreground from the user's app. RaiseToTop reasserts HWND_TOPMOST with SWP_NOACTIVATE.
+        RaiseToTop();
+        if (_languageRowDeepLink.Request(_viewModel.IsModalVisible))
+            ShowLanguageRow();
+    }
+
+    /// <summary>
+    /// Lands the whole window on the language row: content tab, sidebar highlight AND the sidebar
+    /// page holding General (F6). The dwell path sets <see cref="SettingsWindowViewModel.ActiveTabId"/>
+    /// too — without it the sidebar keeps highlighting the previous tab, which for a wrong-language
+    /// user is a sidebar that contradicts the content.
+    /// </summary>
+    private void ShowLanguageRow()
+    {
+        ShowTab("General");
+        _viewModel.ActiveTabId = "General";
+        var index = Array.FindIndex(_tabDefs, t => t.Id == "General");
+        if (index >= 0)
+            SwitchTabPage(SettingsTabPagination.PageOf(index, _tabsPerPage));
+    }
+
+    /// <summary>
+    /// The language the restart flow speaks (F1, D5): the SAVED selection resolved against the
+    /// machine culture — the language the replacement will actually run. An ordinary restart (no
+    /// pending change) resolves to the running language, so its notices are unchanged.
+    /// </summary>
+    private UiLanguage TargetLanguage() =>
+        StringTable.ResolveLanguage(_settings.General.UiLanguage, StringTable.Current.Culture);
 
     // ────── Live apply + debounced save ──────
 
@@ -958,21 +1083,26 @@ public partial class SettingsWindow : OverlayWindow
     }
 
     /// <summary>
-    /// Points the page header at the active tab. Silent if the id is unknown — the header is
-    /// chrome, and a missing description must never stop the page rendering.
+    /// Points the page header at the active tab, resolving its two <c>settings</c> keys in the
+    /// running language. Silent if the id is unknown — the header is chrome, and a missing
+    /// description must never stop the page rendering.
     ///
     /// <c>Array.Find</c> over a value-tuple array returns a DEFAULT tuple when nothing matches,
-    /// not null, so both string fields come back null and the <c>??</c> is what keeps the two
-    /// TextBlocks off a null Text. Reads <c>Settings.CurrentTabName</c> — the same property
+    /// not null, so both key fields come back null and the <c>?? string.Empty</c> plus the
+    /// length check is what keeps the two TextBlocks off a null Text and off a raw empty-key
+    /// lookup. Reads <c>Settings.CurrentTabName</c> — the same property
     /// <see cref="BuildPages"/> and <see cref="MaybeRepaginateByHeight"/> select on, so the
     /// header can never name a different tab than the one being built.
     /// </summary>
     private void UpdateHeader()
     {
         var def = Array.Find(_tabDefs, t => t.Id == _viewModel.Settings.CurrentTabName);
-        HeaderTitle.Text = def.Label ?? string.Empty;
-        HeaderDescription.Text = def.Description ?? string.Empty;
+        HeaderTitle.Text = ResolveTabText(def.LabelKey);
+        HeaderDescription.Text = ResolveTabText(def.DescriptionKey);
     }
+
+    private static string ResolveTabText(string? key) =>
+        string.IsNullOrEmpty(key) ? string.Empty : StringTable.Current.T(key);
 
     /// <summary>
     /// Re-splits the current tab's rows into height-fitting pages when the tab's source
@@ -1039,23 +1169,32 @@ public partial class SettingsWindow : OverlayWindow
         }
 
         var prev = MakePagButton("pag_prev", -1);
-        var indicator = new TextBlock
-        {
-            Text = $"{_viewModel.Settings.CurrentPage + 1} / {_viewModel.Settings.TotalPages}",
-            Foreground = Tokens.BrushTextPrimary,
-            FontSize = Tokens.FontSizeTitle,
-            FontWeight = Tokens.FontWeightMedium,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(20, 0, 20, 0),
-            MinWidth = 80,
-            TextAlignment = TextAlignment.Center
-        };
+        var indicator = BuildPageIndicator(_viewModel.Settings.CurrentPage + 1, _viewModel.Settings.TotalPages);
         var next = MakePagButton("pag_next", +1);
 
         PaginationPanel.Children.Add(prev);
         PaginationPanel.Children.Add(indicator);
         PaginationPanel.Children.Add(next);
     }
+
+    /// <summary>
+    /// The content pager's "page / pages" indicator, sitting between the two pager buttons. Its
+    /// own builder so T09's pseudo-locale gate measures the element the pager draws.
+    /// </summary>
+    /// <param name="page">The 1-based current page.</param>
+    /// <param name="pages">The page count.</param>
+    /// <returns>The indicator.</returns>
+    internal static TextBlock BuildPageIndicator(int page, int pages) => new()
+    {
+        Text = StringTable.Current.T("settings.pager.page_of", page, pages),
+        Foreground = Tokens.BrushTextPrimary,
+        FontSize = Tokens.FontSizeTitle,
+        FontWeight = Tokens.FontWeightMedium,
+        VerticalAlignment = VerticalAlignment.Center,
+        Margin = new Thickness(20, 0, 20, 0),
+        MinWidth = 80,
+        TextAlignment = TextAlignment.Center
+    };
 
     // The glyph and the registered dwell/action both depend on the boundary state: a boundary
     // button wears a double arrow and wraps to the far end at the jump dwell; a step button
@@ -1065,12 +1204,13 @@ public partial class SettingsWindow : OverlayWindow
         var boundary = SettingsPagerChrome.IsBoundary(
             _viewModel.Settings.CurrentPage, _viewModel.Settings.TotalPages, direction);
         var btn = MakeChromeButton(
-            id, SettingsPagerChrome.GlyphFor(id, boundary),
+            id, string.Empty,
             PaginationButtonWidth, PaginationButtonHeight, new Thickness(PaginationButtonMargin),
             BtnBase, Tokens.BrushTextPrimary,
             () => ActivateContentPager(id, direction),
             _pagButtons, _pagBrushes);
         ((TextBlock)btn.Child).FontSize = PaginationButtonHeight * ContainerRatio.Large;
+        ApplyPagerFace(btn, id, boundary);
         RegisterContentPagerTarget(id, direction);
         return btn;
     }
@@ -1272,10 +1412,28 @@ public partial class SettingsWindow : OverlayWindow
     /// decides it; the chunker clamps degenerate values to one tab per page.
     /// </summary>
     private double SidebarTabBudget =>
-        Height
-        - CloseButton.Height - CloseButton.Margin.Top - CloseButton.Margin.Bottom
-        - TabPagerReserveHeight
-        - TabButtonPanel.Margin.Top - TabButtonPanel.Margin.Bottom;
+        SidebarTabBudgetFor(
+            Height,
+            CloseButton.Height + CloseButton.Margin.Top + CloseButton.Margin.Bottom,
+            TabPagerReserveHeight,
+            TabButtonPanel.Margin.Top + TabButtonPanel.Margin.Bottom);
+
+    /// <summary>
+    /// <see cref="SidebarTabBudget"/>'s arithmetic, as one shared derivation: the window height
+    /// minus the close button's block, the tab-pager stack's reserve and the tab list's own
+    /// margins. <c>internal static</c> so <c>LanguageRowReachTests</c> measures the reach with
+    /// THIS formula rather than restating it (F8) — a restated formula in a test pins nothing
+    /// (the same lesson as <c>TabPagerStackReserve</c>). The caller reads every term off the live
+    /// element it belongs to.
+    /// </summary>
+    /// <param name="windowHeight"><c>Height</c>.</param>
+    /// <param name="closeButtonBlock">The close button's height plus its vertical margins.</param>
+    /// <param name="tabPagerReserve">The two-button tab pager stack plus its panel margins.</param>
+    /// <param name="tabPanelBlock">The tab list panel's vertical margins.</param>
+    /// <returns>The sidebar's tab-list budget in DIP.</returns>
+    internal static double SidebarTabBudgetFor(
+        double windowHeight, double closeButtonBlock, double tabPagerReserve, double tabPanelBlock) =>
+        windowHeight - closeButtonBlock - tabPagerReserve - tabPanelBlock;
 
     /// <summary>
     /// Caps <paramref name="root"/> so it cannot be drawn wider than the content column can show.
@@ -1361,18 +1519,26 @@ public partial class SettingsWindow : OverlayWindow
             case SliderSpec s:
                 return LabelledRow(s, availableWidth, new DwellSlider(registrar, s.Id, s.Label,
                     s.Min, s.Max, s.Step, s.Decimals, s.Get, s.Set, cat, radiusPhysical, dwellMs,
-                    showLabel: false));
+                    showLabel: false,
+                    formatProvider: StringTable.Current.FormatProviderFor("settings")));
             case ToggleSpec t:
+                // Host-supplied state words (T02), resolved from settings keys (T07).
                 return LabelledRow(t, availableWidth, new DwellToggle(registrar, t.Id, t.Label,
+                    StringTable.Current.T("settings.control.toggle.on"),
+                    StringTable.Current.T("settings.control.toggle.off"),
                     t.Get, t.Set, cat, radiusPhysical, dwellMs, showLabel: false));
             case ComboBoxSpec c:
+                // Host-supplied marker format (T02), resolved from a settings key (T07).
                 return LabelledRow(c, availableWidth, new DwellComboBox(registrar, c.Id, c.Label,
                     c.Display, c.Code ?? c.Display, c.Get, c.Set, cat, radiusPhysical, dwellMs,
-                    showLabel: false));
+                    StringTable.Current.T("settings.control.combo.not_available"), showLabel: false));
             case ColorPickerSpec cp:
+                // Host-supplied swatch names (T02), resolved from settings keys (T07).
                 return LabelledRow(cp, availableWidth, new DwellColorPicker(registrar, cp.Id,
                     cp.Label, cp.Get, cp.Set, cat,
-                    DpiHelper.LogicalToPhysicalX(cp.RadiusLogical), dwellMs, showLabel: false));
+                    DpiHelper.LogicalToPhysicalX(cp.RadiusLogical), dwellMs,
+                    swatchNames: ColorSwatchNames.Select(StringTable.Current.T).ToArray(),
+                    showLabel: false));
             case ButtonSpec b:
                 return ButtonRow(registrar, b.Id, b.Label, b.OnActivate, b.Kind, b.Width, b.Height,
                     radiusPhysical, dwellMs, cat);
@@ -1742,7 +1908,7 @@ public partial class SettingsWindow : OverlayWindow
             }
 
             ActionMenuRingPainter.Paint(
-                canvas, slots, RingPaintOptions.Preview(spec.Scale, plan.SecondaryActions.Count));
+                canvas, slots, RingPaintOptions.ForPreview(spec, plan.SecondaryActions.Count));
 
             var captions = new StackPanel
             {
@@ -2101,14 +2267,37 @@ public partial class SettingsWindow : OverlayWindow
     /// </param>
     private Border MakeModalButton(string id, string text, Color bg, SolidColorBrush foreground, bool wide)
     {
-        var border = MakeChromeButton(
-            id, text, wide ? 460 : 170, ModalButtonHeight,
-            wide ? new Thickness(0, 8, 0, 8) : new Thickness(12, 0, 12, 0),
-            bg, foreground,
+        var border = BuildModalButton(
+            id, text, bg, foreground, wide,
             () => _viewModel.SimulateActivated(id, DwellCategory.Modal),
             _modalButtons, _modalBrushes);
-        ((TextBlock)border.Child).FontSize = Tokens.FontSizeTitle;
         _modalBaseColors[id] = bg;
+        return border;
+    }
+
+    /// <summary>
+    /// The modal button's face — box, margins, fill and label type — with no window state. The
+    /// one builder <see cref="MakeModalButton"/> uses, so T09's fit harness measures a modal
+    /// label in the exact box the user sees (<c>modal170</c> / <c>modal460</c>).
+    /// </summary>
+    /// <param name="id">Dwell-target id.</param>
+    /// <param name="text">Label.</param>
+    /// <param name="bg">Fill.</param>
+    /// <param name="foreground">Label brush.</param>
+    /// <param name="wide">True for the stacked layout's wider buttons.</param>
+    /// <param name="onMouseDown">Mouse fallback.</param>
+    /// <param name="buttons">Registry the button is recorded in, by id.</param>
+    /// <param name="brushes">Registry the fill brush is recorded in, by id.</param>
+    /// <returns>The button.</returns>
+    internal static Border BuildModalButton(
+        string id, string text, Color bg, Brush foreground, bool wide, Action onMouseDown,
+        Dictionary<string, Border> buttons, Dictionary<string, SolidColorBrush> brushes)
+    {
+        var border = MakeChromeButton(
+            id, text, wide ? ModalWideButtonWidth : ModalButtonWidth, ModalButtonHeight,
+            wide ? new Thickness(0, 8, 0, 8) : new Thickness(12, 0, 12, 0),
+            bg, foreground, onMouseDown, buttons, brushes);
+        ((TextBlock)border.Child).FontSize = Tokens.FontSizeTitle;
         return border;
     }
 }

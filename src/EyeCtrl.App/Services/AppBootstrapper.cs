@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Services;
 
 using System.Windows.Threading;
+using EyeCtrl.App.Localization;
 using EyeCtrl.App.Overlays;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core;
@@ -112,7 +113,24 @@ public class AppBootstrapper
         services.AddSingleton<IQuickActionsStore>(sp =>
         {
             var path = Path.Combine(appDataDir, "actions.json");
-            return new QuickActionsStore(path);
+            var store = new QuickActionsStore(path);
+
+            // The one-time preset match (D2) runs here, at startup, before any surface reads the
+            // file — a keyed grid must not wait for the Settings window to be opened once. It
+            // fills only missing ids, keeps file order, writes only when something changed, and
+            // a corrupt file loads as empty so nothing is written over it. A failed write must
+            // not take startup down: the tiles then simply stay unmatched.
+            try
+            {
+                var actions = store.LoadAll();
+                if (QuickActionPresets.AssignMissingPresetIds(actions)) store.Save(actions);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Quick-action preset match failed at startup; tiles stay unmatched.");
+            }
+
+            return store;
         });
         services.AddSingleton<IWindowsAppLauncher, WindowsAppLauncher>();
         services.AddSingleton<IInstalledAppProvider, Win32InstalledAppProvider>();
@@ -635,6 +653,13 @@ public class AppBootstrapper
         var manualSelectionIndicatorVm = sp.GetRequiredService<ManualSelectionGazeIndicatorViewModel>();
         manualSelectionIndicatorVm.Configure(settings);
 
+        // T08 (N2): the live grid shows preset labels from the overlays surface's keys (D3). The
+        // Settings picker keeps its own settings-keyed function, so one key never serves two
+        // surfaces. Set here — the single composition point both the App and the bootstrap tests
+        // run — so no later reload can read the English default.
+        var quickActionsGridVm = sp.GetRequiredService<QuickActionsGridViewModel>();
+        quickActionsGridVm.PresetLabelFor = OverlayTextSources.PresetLabelFor;
+
         return new OverlayViewModels(
             CursorCircle: sp.GetRequiredService<CursorCircleViewModel>(),
             ActivationButton: sp.GetRequiredService<ActivationButtonViewModel>(),
@@ -649,7 +674,7 @@ public class AppBootstrapper
             ActionMenuModBar: sp.GetRequiredKeyedService<EdgeButtonBarViewModel>("actionMenuModBar"),
             TrackStatus: sp.GetRequiredService<TrackStatusViewModel>(),
             TaskSwitcher: sp.GetRequiredService<TaskSwitcherViewModel>(),
-            QuickActionsGrid: sp.GetRequiredService<QuickActionsGridViewModel>(),
+            QuickActionsGrid: quickActionsGridVm,
             ModesMenu: sp.GetRequiredService<ModesMenuViewModel>(),
             RepeatCursor: sp.GetRequiredService<RepeatCursorViewModel>());
     }

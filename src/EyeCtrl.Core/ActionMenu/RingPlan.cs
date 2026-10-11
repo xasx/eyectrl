@@ -20,7 +20,9 @@ using EyeCtrl.Core.Models;
 ///
 /// <para>
 /// Doubles only: no <c>System.Windows.Point</c>, no DPI conversion, no window. A host turns slot
-/// angles into positions (runtime: physical pixels via its DPI helper; preview: DIPs).
+/// angles into positions (runtime: physical pixels via its DPI helper; preview: DIPs). Slot text
+/// comes from the host too, as a <see cref="RingLabelSource"/> (see <see cref="Create"/>): a
+/// library plan cannot know which surface's keys it is drawing for.
 /// </para>
 /// </summary>
 public sealed class RingPlan
@@ -54,11 +56,15 @@ public sealed class RingPlan
     /// </summary>
     public const double ScaleCap = 1.0;
 
+    private readonly RingLabelSource _labels;
+
     private RingPlan(
         IReadOnlyList<InteractionAction> visibleActions,
         IReadOnlyList<InteractionAction> primaryActions,
-        double circleSize)
+        double circleSize,
+        RingLabelSource labels)
     {
+        _labels = labels;
         CircleSize = circleSize;
 
         // Visible order on both sides. PrimaryActions order is deliberately NOT used: a slot's
@@ -78,14 +84,22 @@ public sealed class RingPlan
     /// <param name="visibleActions">The visible actions, in the order the menu was opened with.</param>
     /// <param name="primaryActions">The actions promoted to the ring's first layer.</param>
     /// <param name="circleSize">The cursor circle diameter in DIP (the Cursor tab's CircleSize).</param>
+    /// <param name="labels">
+    /// The host's text for every slot, Back and More included. Required — a host that forgets it
+    /// does not compile, which is the compiler enforcing D3. The defaults are
+    /// <see cref="RingLabelSource.Overlays"/> (the live table, resolving the <c>overlays</c> keys)
+    /// and <see cref="RingLabelSource.English"/> (the embedded English table).
+    /// </param>
     public static RingPlan Create(
         IReadOnlyList<InteractionAction>? visibleActions,
         IReadOnlyList<InteractionAction>? primaryActions,
-        double circleSize)
+        double circleSize,
+        RingLabelSource labels)
         => new(
             visibleActions ?? Array.Empty<InteractionAction>(),
             primaryActions ?? Array.Empty<InteractionAction>(),
-            circleSize);
+            circleSize,
+            labels);
 
     /// <summary>The cursor circle diameter in DIP the ring is built around.</summary>
     public double CircleSize { get; }
@@ -157,23 +171,23 @@ public sealed class RingPlan
         if (layer == RingLayer.Secondary)
         {
             foreach (var action in SecondaryActions)
-                items.Add((action.ToString(), action, ActionIconMap.For(action), RingLabelMap.For(action), ActionMenuItemKind.Action));
+                items.Add((action.ToString(), action, ActionIconMap.For(action), _labels.ActionLabel(action), ActionMenuItemKind.Action));
 
-            items.Add(("BackToPrimary", null, ActionIcon.Back, "Back", ActionMenuItemKind.BackToPrimary));
+            items.Add(("BackToPrimary", null, ActionIcon.Back, _labels.BackLabel, ActionMenuItemKind.BackToPrimary));
         }
         else
         {
             foreach (var action in PrimaryActions)
-                items.Add((action.ToString(), action, ActionIconMap.For(action), RingLabelMap.For(action), ActionMenuItemKind.Action));
+                items.Add((action.ToString(), action, ActionIconMap.For(action), _labels.ActionLabel(action), ActionMenuItemKind.Action));
 
             // No More target when it would open an empty layer.
             if (SecondaryActions.Count > 0)
-                items.Add(("More", null, ActionIcon.More, "More", ActionMenuItemKind.OpenMore));
+                items.Add(("More", null, ActionIcon.More, _labels.MoreLabel, ActionMenuItemKind.OpenMore));
 
             // The zoom Back only exists on layer one. From layer two it takes two dwells — back
             // to primary, then Back — because one nav slot cannot mean two things.
             if (showBack)
-                items.Add(("Back", null, ActionIcon.Back, "Back", ActionMenuItemKind.ExitMenu));
+                items.Add(("Back", null, ActionIcon.Back, _labels.BackLabel, ActionMenuItemKind.ExitMenu));
         }
 
         var angleStepDegrees = items.Count == 0 ? 0.0 : MathConstants.FullCircleDegrees / items.Count;

@@ -1,6 +1,7 @@
 namespace EyeCtrl.Controls;
 
 using System.Collections.Generic;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -74,6 +75,34 @@ public class DwellComboBox : IDwellComposite
     /// </summary>
     private const double OptionBorderThickness = 2;
 
+    /// <summary>
+    /// The margin around each option (and the unmatched marker) in the wrap panel.
+    ///
+    /// <para>
+    /// <b>The vertical part is the dwell clearance between WRAPPED rows</b> (T09). An option is a
+    /// 100 DIP button in a 2 DIP outline (104 tall) with a 100 DIP hit circle; with the old
+    /// <c>(0, 0, 8, 8)</c> a second row sat 112 DIP below the first, leaving 12 DIP between two
+    /// stacked circles against the 40 DIP floor every other adjacent pair keeps. English never
+    /// wraps on the user's display, but a translation ~40 % longer does (the pseudo-locale
+    /// wrapped the Cursor filter, ring style and dictionary language rows), so the floor was a
+    /// German-only hazard. Top 14 + bottom 22 makes the row pitch 104 + 36 = 140: a 40 DIP gap.
+    /// </para>
+    /// <para>
+    /// <b>The split is asymmetric on purpose, so English does not move.</b> The host row centres
+    /// the panel in its 150 DIP slot: a single row was 112 tall, its button centre 19 + 52 = 71
+    /// from the slot top; now it is 140 tall, (150 − 140) / 2 + 14 + 52 = 71. Same centre, same
+    /// 150 slot, so a single-row combo's target, its row height and the page chunking are
+    /// unchanged — language-driven re-layout inside Settings, English targets unchanged. A
+    /// symmetric or bottom-only margin moves that centre (bottom-only 36: up 14), which
+    /// <c>ComboRowPitchTests</c> pins.
+    /// </para>
+    /// <para>
+    /// The horizontal 8 is the gap between neighbours in one row, unchanged: buttons are at least
+    /// 150 wide, so two circles in a row are at least 162 apart.
+    /// </para>
+    /// </summary>
+    internal static readonly Thickness OptionMargin = new(0, 14, 8, 22);
+
     private readonly DwellLabel _label;
     private readonly List<DwellButton> _options = new();
     private readonly List<TextBlock> _optionTexts = new();
@@ -96,6 +125,13 @@ public class DwellComboBox : IDwellComposite
     private readonly Func<string> _getCode;
     private readonly Action<string> _setCode;
     private readonly bool _showLabel;
+
+    /// <summary>
+    /// The host's format for the unmatched-value marker, <c>{0}</c> being the stored code.
+    /// The library owns no wording of its own (T02); today the settings host passes
+    /// "⚠ {0} (not available)", and T07 replaces it with a key.
+    /// </summary>
+    private readonly string _notAvailableFormat;
 
     /// <inheritdoc/>
     public IReadOnlyList<DwellControl> Children => _options;
@@ -121,6 +157,10 @@ public class DwellComboBox : IDwellComposite
     /// <param name="category">Dwell category the option buttons are registered under.</param>
     /// <param name="radiusPhysical">Hit-test radius in physical screen pixels.</param>
     /// <param name="dwellMs">Dwell duration in milliseconds.</param>
+    /// <param name="notAvailableFormat">
+    /// The host's text for the unmatched-value marker: a format whose <c>{0}</c> is the stored
+    /// code. Required, so the control carries no built-in wording.
+    /// </param>
     /// <param name="showLabel">
     /// Whether this composite draws its own heading above its controls. False when the host
     /// lays the name out itself — the settings window's two-column rows put the name in their
@@ -141,8 +181,10 @@ public class DwellComboBox : IDwellComposite
         DwellCategory category,
         double radiusPhysical,
         int dwellMs,
+        string notAvailableFormat,
         bool showLabel = true)
     {
+        ArgumentNullException.ThrowIfNull(notAvailableFormat);
         if (displayOptions.Length != codeOptions.Length)
         {
             throw new ArgumentException(
@@ -154,6 +196,7 @@ public class DwellComboBox : IDwellComposite
         _getCode = getCode;
         _setCode = setCode;
         _showLabel = showLabel;
+        _notAvailableFormat = notAvailableFormat;
 
         _label = new DwellLabel(label);
 
@@ -203,7 +246,7 @@ public class DwellComboBox : IDwellComposite
 
             var optionBorder = new Border
             {
-                Margin = new Thickness(0, 0, 8, 8),
+                Margin = OptionMargin,
                 CornerRadius = Tokens.StandardCornerRadius,
                 // Sane default only: Refresh() repaints every wrapper at
                 // the end of this constructor and on every selection change. Kept so a refactor
@@ -252,7 +295,7 @@ public class DwellComboBox : IDwellComposite
 
         _unmatchedMarker = new Border
         {
-            Margin = new Thickness(0, 0, 8, 8),
+            Margin = OptionMargin,
             CornerRadius = Tokens.StandardCornerRadius,
             BorderBrush = Tokens.BrushAccentWarning,
             BorderThickness = new Thickness(OptionBorderThickness),
@@ -277,6 +320,10 @@ public class DwellComboBox : IDwellComposite
     /// <param name="category">Dwell category the option buttons are registered under.</param>
     /// <param name="radiusPhysical">Hit-test radius in physical screen pixels.</param>
     /// <param name="dwellMs">Dwell duration in milliseconds.</param>
+    /// <param name="notAvailableFormat">
+    /// The host's text for the unmatched-value marker: a format whose <c>{0}</c> is the stored
+    /// code. Required, so the control carries no built-in wording.
+    /// </param>
     /// <param name="showLabel">
     /// Whether this composite draws its own heading above its controls. False when the host
     /// lays the name out itself — the settings window's two-column rows put the name in their
@@ -292,9 +339,10 @@ public class DwellComboBox : IDwellComposite
         DwellCategory category,
         double radiusPhysical,
         int dwellMs,
+        string notAvailableFormat,
         bool showLabel = true)
         : this(registrar, idPrefix, label, options, options, get, set, category, radiusPhysical,
-               dwellMs, showLabel)
+               dwellMs, notAvailableFormat, showLabel)
     {
     }
 
@@ -382,6 +430,11 @@ public class DwellComboBox : IDwellComposite
         var unmatched = selectedIndex < 0 && !string.IsNullOrWhiteSpace(storedCode);
         _unmatchedMarker.Visibility = unmatched ? Visibility.Visible : Visibility.Collapsed;
         if (unmatched)
-            _unmatchedText.Text = $"\u26A0 {storedCode} (not available)";
+        {
+            // The stored code is a plain string; the invariant provider only keeps CA1305 quiet
+            // and cannot change the rendered text.
+            _unmatchedText.Text = string.Format(
+                CultureInfo.InvariantCulture, _notAvailableFormat, storedCode);
+        }
     }
 }

@@ -68,7 +68,9 @@ public class DwellColorPickerLabelTests
         var hex = Presets[0].Hex;
         return new DwellColorPicker(
             new FakeDwellRegistrar(), "cp", "Circle Colour", () => hex, v => hex = v,
-            DwellCategory.Control, 50, 800, presets: Presets);
+            DwellCategory.Control, 50, 800,
+            swatchNames: Presets.Select(p => p.Name).ToArray(),
+            presets: Presets.Select(p => p.Hex).ToArray());
     }
 
     /// <summary>
@@ -84,7 +86,9 @@ public class DwellColorPickerLabelTests
         var current = selected;
         return new DwellColorPicker(
             registrar, "cp", "Circle Colour", () => current, v => current = v,
-            DwellCategory.Control, 50, 800, presets: Presets);
+            DwellCategory.Control, 50, 800,
+            swatchNames: Presets.Select(p => p.Name).ToArray(),
+            presets: Presets.Select(p => p.Hex).ToArray());
     }
 
     /// <summary>
@@ -97,7 +101,7 @@ public class DwellColorPickerLabelTests
     private static DwellColorPicker BuildWithSelection(string selected) =>
         new(new FakeDwellRegistrar(), "cp", "Circle Colour", () => selected, _ => { },
             DwellCategory.Control, 50, 800,
-            presets: new[] { ("#A5F3FC", "One"), ("#FFD166", "Two") });
+            swatchNames: ["One", "Two"], presets: ["#A5F3FC", "#FFD166"]);
 
     private static double Channel(byte c)
     {
@@ -409,7 +413,9 @@ public class DwellColorPickerLabelTests
     /// </summary>
     private static DwellColorPicker BuildHeadless() =>
         new(new FakeDwellRegistrar(), "cp", "Circle Colour", () => Presets[0].Hex, _ => { },
-            DwellCategory.Control, 50, 800, presets: Presets, showLabel: false);
+            DwellCategory.Control, 50, 800,
+            swatchNames: Presets.Select(p => p.Name).ToArray(),
+            presets: Presets.Select(p => p.Hex).ToArray(), showLabel: false);
 
     /// <summary>
     /// A two-column settings row lays the setting's NAME out itself, in its left column, so the

@@ -2,6 +2,8 @@ namespace EyeCtrl.App.Services;
 
 using System;
 using System.Diagnostics;
+using EyeCtrl.Core.Enums;
+using EyeCtrl.Core.Localization;
 
 /// <summary>The child process a restart launched, narrowed to what the parent needs.</summary>
 public interface IRestartChild
@@ -152,25 +154,31 @@ public sealed class SelfRestartStrategy
         return RestartOutcome.ChildNotReady;
     }
 
-    /// <summary>A user-facing explanation for a failed restart. Always states the app is still running.</summary>
+    /// <summary>
+    /// A user-facing explanation for a failed restart, resolved in <paramref name="target"/> —
+    /// the language the whole restart flow speaks (D5; the saved selection resolved against the
+    /// machine culture). Always states the app is still running.
+    /// </summary>
     /// <param name="outcome">The outcome to describe.</param>
+    /// <param name="target">The language the restart flow speaks; pass the resolved language,
+    /// not a raw selection (<see cref="UiLanguage.System"/> would mean "this instance's").</param>
     /// <returns>Text suitable for a modal.</returns>
-    public static string Describe(RestartOutcome outcome) => outcome switch
+    public static string Describe(RestartOutcome outcome, UiLanguage target) => outcome switch
     {
-        RestartOutcome.Started => "Restarting EyeCtrl…",
+        // Not user-visible: the one production caller (AppRestartCoordinator) describes only an
+        // outcome that is NOT Started; the success acknowledgement is
+        // RestartNotices.InProgressMessage. So this arm returns a log-only id rather than English
+        // text the literal ratchet would have to carry as a non-exception (T09).
+        RestartOutcome.Started => nameof(RestartOutcome.Started),
         RestartOutcome.NoExePath =>
-            "Restart failed: EyeCtrl could not determine its own program path. "
-            + "EyeCtrl is still running.",
+            StringTable.Current.T(target, "language-recovery.restart.failed.no_exe_path"),
         RestartOutcome.LaunchFailed =>
-            "Restart failed: the new EyeCtrl could not be started. "
-            + "EyeCtrl is still running.",
+            StringTable.Current.T(target, "language-recovery.restart.failed.launch_failed"),
         RestartOutcome.ChildExitedEarly =>
-            "Restart failed: the new EyeCtrl closed immediately. "
-            + "EyeCtrl is still running.",
+            StringTable.Current.T(target, "language-recovery.restart.failed.child_exited_early"),
         RestartOutcome.ChildNotReady =>
-            "Restart failed: the new EyeCtrl did not start in time. "
-            + "EyeCtrl is still running.",
-        _ => "Restart failed. EyeCtrl is still running.",
+            StringTable.Current.T(target, "language-recovery.restart.failed.child_not_ready"),
+        _ => StringTable.Current.T(target, "language-recovery.restart.failed.generic"),
     };
 
     private sealed class ProcessRestartChild(Process process) : IRestartChild

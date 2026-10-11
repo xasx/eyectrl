@@ -36,6 +36,17 @@
              Link="TestSupport\DpiHelperRestoreAttribute.cs" />
     <Compile Include="..\TestSupport\DpiHelperScaleObserverAttribute.cs"
              Link="TestSupport\DpiHelperScaleObserverAttribute.cs" />
+    <!-- Same shared-rule link for the string-table restore hook and its observer. -->
+    <Compile Include="..\TestSupport\StringTableRestoreAttribute.cs"
+             Link="TestSupport\StringTableRestoreAttribute.cs" />
+    <Compile Include="..\TestSupport\StringTableObserverAttribute.cs"
+             Link="TestSupport\StringTableObserverAttribute.cs" />
+    <!-- T09's fit harness: the 2.0 host and the class arithmetic, one copy for every project
+         that measures translated text in its real geometry. -->
+    <Compile Include="..\TestSupport\FitHarness.cs"
+             Link="TestSupport\FitHarness.cs" />
+    <Compile Include="..\TestSupport\PseudoLocale.cs"
+             Link="TestSupport\PseudoLocale.cs" />
   </ItemGroup>
 
 </Project>

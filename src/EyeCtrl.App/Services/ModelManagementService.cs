@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Services;
 
 using System.IO;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
 using Microsoft.Extensions.Logging;
@@ -113,7 +114,8 @@ public class ModelManagementService
 
             if (!downloaded)
             {
-                var result = ModelDownloadResult.Failed("Download failed. Check the URL and try again.");
+                var result = ModelDownloadResult.Failed(
+                    StringTable.Current.T("settings.models.download.transport_failed"));
                 Complete(result);
                 return result;
             }
@@ -128,7 +130,8 @@ public class ModelManagementService
                 {
                     var modelPath = _registryService.GetModelPath(modelId);
                     if (File.Exists(modelPath)) File.Delete(modelPath);
-                    var result = ModelDownloadResult.Failed("Tokenizer download failed. Model removed.");
+                    var result = ModelDownloadResult.Failed(
+                        StringTable.Current.T("settings.models.download.tokenizer_failed"));
                     Complete(result);
                     return result;
                 }
@@ -169,7 +172,8 @@ public class ModelManagementService
         string url, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(url) || !url.StartsWith("https://"))
-            return ModelDownloadResult.Failed("Provide a valid HTTPS URL (e.g., HuggingFace model URL).");
+            return ModelDownloadResult.Failed(
+                StringTable.Current.T("settings.models.download.invalid_url_https"));
 
         if (!await _workflowGate.WaitAsync(0, cancellationToken))
             return ModelDownloadResult.Busy();
@@ -189,7 +193,8 @@ public class ModelManagementService
             }
             catch (Exception ex)
             {
-                return ModelDownloadResult.Failed($"Invalid URL: {ex.Message}");
+                return ModelDownloadResult.Failed(
+                    StringTable.Current.T("settings.models.download.invalid_url", ex.Message));
             }
 
             var downloaded = await _downloadService.DownloadModelAsync(
@@ -197,7 +202,8 @@ public class ModelManagementService
 
             if (!downloaded)
             {
-                var result = ModelDownloadResult.Failed("Download failed. Check the URL and try again.");
+                var result = ModelDownloadResult.Failed(
+                    StringTable.Current.T("settings.models.download.transport_failed"));
                 Complete(result);
                 return result;
             }
@@ -211,7 +217,8 @@ public class ModelManagementService
                 // and the directory doesn't accumulate untracked files. Mirrors the bundled path.
                 var modelPath = _registryService.GetModelPath(finalName);
                 if (File.Exists(modelPath)) File.Delete(modelPath);
-                var result = ModelDownloadResult.Failed("Tokenizer download failed. Model removed.");
+                var result = ModelDownloadResult.Failed(
+                    StringTable.Current.T("settings.models.download.tokenizer_failed"));
                 Complete(result);
                 return result;
             }
@@ -327,5 +334,9 @@ public class ModelDownloadResult
 
     public static ModelDownloadResult Success(string modelId) => new() { IsSuccess = true, ModelId = modelId };
     public static ModelDownloadResult Failed(string error) => new() { Error = error };
-    public static ModelDownloadResult Busy() => new() { IsBusy = true, Error = "Another download is already in progress." };
+    public static ModelDownloadResult Busy() => new()
+    {
+        IsBusy = true,
+        Error = StringTable.Current.T("settings.models.download.busy"),
+    };
 }

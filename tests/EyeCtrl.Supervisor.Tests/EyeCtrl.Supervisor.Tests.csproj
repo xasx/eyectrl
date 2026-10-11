@@ -8,4 +8,19 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\EyeCtrl.Supervisor\EyeCtrl.Supervisor.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Linked, not copied: the hook is one rule, and a second copy is a second rule. Every
+         Core-referencing test project installs both; see AssemblyInfo.cs in this project and
+         StringTableIsolationTests in EyeCtrl.App.Tests. -->
+    <Compile Include="..\TestSupport\StringTableRestoreAttribute.cs"
+             Link="TestSupport\StringTableRestoreAttribute.cs" />
+    <Compile Include="..\TestSupport\StringTableObserverAttribute.cs"
+             Link="TestSupport\StringTableObserverAttribute.cs" />
+    <!-- T09's fit harness: the 2.0 host and the class arithmetic, one copy for every project
+         that measures translated text in its real geometry. -->
+    <Compile Include="..\TestSupport\FitHarness.cs"
+             Link="TestSupport\FitHarness.cs" />
+    <Compile Include="..\TestSupport\PseudoLocale.cs"
+             Link="TestSupport\PseudoLocale.cs" />
+  </ItemGroup>
 </Project>

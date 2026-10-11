@@ -1,6 +1,7 @@
 namespace EyeCtrl.Core.Calibration;
 
 using System.Text.Json;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using Microsoft.Extensions.Logging;
 
@@ -207,7 +208,12 @@ public class CalibrationService
     /// <paramref name="monitorDeviceName"/> instead.
     /// </param>
     /// <returns>The <see cref="CalibrationData"/> with the fitted transform and metadata.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when no session is in progress or the fit fails validation.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when no session is in progress.</exception>
+    /// <exception cref="CalibrationFailedException">
+    /// Thrown when the collected data or the fitted transform is refused. The exception carries a
+    /// typed <see cref="CalibrationFailure"/>; the calibration window renders the user's sentence
+    /// from it.
+    /// </exception>
     public CalibrationData CompleteSession(PhysicalPoint screenSize, string monitorDeviceName, string monitorHardwareId = "")
     {
         if (_targetPositions == null)
@@ -218,10 +224,20 @@ public class CalibrationService
         // Reject capture data where the sensor was not tracking the user's gaze — the gaze barely
         // moved across targets that span the screen. Caught before fitting for a clear message.
         if (!CalibrationValidator.HasSufficientGazeVariation(points))
-            throw new InvalidOperationException(
-                "Gaze barely changed across calibration targets — the eye tracker may not be tracking. Please recalibrate.");
+            throw new CalibrationFailedException(new CalibrationFailure(CalibrationFailureCode.GazeVariation));
 
-        var transform = AffineTransform.Fit(points);
+        AffineTransform transform;
+        try
+        {
+            transform = AffineTransform.Fit(points);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Fit's own guards (non-finite / singular) are technical and stay as they are. On the
+            // calibration surface their words would be raw English that can never be translated, so
+            // the fault is carried as Unexpected and the technical message is kept for logs.
+            throw new CalibrationFailedException(CalibrationFailure.Unexpected, ex);
+        }
 
         var data = new CalibrationData
         {
@@ -241,14 +257,12 @@ public class CalibrationService
         // point far off-screen — silently breaking all gaze interaction. The caller surfaces this
         // as a failed calibration and never persists it.
         if (!CalibrationValidator.IsTransformSane(transform, screenSize.X, screenSize.Y))
-            throw new InvalidOperationException(
-                "Calibration produced an unusable transform — gaze would map off-screen. Please recalibrate.");
+            throw new CalibrationFailedException(new CalibrationFailure(CalibrationFailureCode.UnusableTransform));
 
         // Also reject a fit that stays on-screen but is far from identity (flips/amplifies gaze): it would
         // pass IsTransformSane yet break fixation. See CalibrationValidator.IsNearIdentity.
         if (!CalibrationValidator.IsNearIdentity(transform, screenSize.X, screenSize.Y))
-            throw new InvalidOperationException(
-                "Calibration produced a distorted transform (gaze would be flipped or amplified). Please recalibrate.");
+            throw new CalibrationFailedException(new CalibrationFailure(CalibrationFailureCode.DistortedTransform));
 
         // Residual, precision AND coverage, per target, with the failing targets named.
         //
@@ -265,7 +279,8 @@ public class CalibrationService
         // while describing nothing the user did — so scatter and coverage are gated independently.
         var failures = CalibrationValidator.FindQualityFailures(transform, points, screenSize);
         if (failures.Count > 0)
-            throw new InvalidOperationException(CalibrationValidator.DescribeFailures(failures));
+            throw new CalibrationFailedException(
+                new CalibrationFailure(CalibrationFailureCode.Quality, failures));
 
         _currentTransform = transform;
         CurrentData = data;
@@ -344,7 +359,7 @@ public class CalibrationService
             {
                 _logger?.LogWarning(
                     "Calibration data from {FilePath} deserialized to null; ignoring", filePath);
-                LastLoadRejection = "Not applied — the saved calibration file is empty. Recalibrate to fix.";
+                LastLoadRejection = StringTable.Current.T("settings.calibration.rejected.empty");
                 return;
             }
 
@@ -361,10 +376,10 @@ public class CalibrationService
                     + "until you recalibrate. Saved on monitor {SavedMonitor} (hardware id {SavedHardwareId}) "
                     + "at {CalibratedAt:u}",
                     filePath, data.ScreenWidth, data.ScreenHeight, currentWidth, currentHeight,
-                    Describe(data.MonitorDeviceName), Describe(data.MonitorHardwareId), data.CalibratedAt);
-                LastLoadRejection =
-                    $"Not applied — saved for a {data.ScreenWidth}×{data.ScreenHeight} screen, "
-                    + $"current is {currentWidth}×{currentHeight}. Recalibrate to fix.";
+                    DescribeForLog(data.MonitorDeviceName), DescribeForLog(data.MonitorHardwareId), data.CalibratedAt);
+                LastLoadRejection = StringTable.Current.T(
+                    "settings.calibration.rejected.screen",
+                    data.ScreenWidth, data.ScreenHeight, currentWidth, currentHeight);
                 return;
             }
 
@@ -380,13 +395,32 @@ public class CalibrationService
                     + "hardwareId={CurrentHardwareId}. Note Windows renumbers \\\\.\\DISPLAYn when monitors are "
                     + "attached, detached, or re-enumerated, so a name-only difference can still be the same "
                     + "physical monitor — that case is matched by hardware id once both records carry one",
-                    filePath, Describe(data.MonitorDeviceName), Describe(data.MonitorHardwareId),
-                    data.CalibratedAt, Describe(currentMonitorDeviceName), Describe(currentMonitorHardwareId));
-                LastLoadRejection =
-                    $"Not applied — saved on a different monitor ({Describe(data.MonitorDeviceName)}"
-                    + $"{DescribeHardwareIdSuffix(data.MonitorHardwareId)}), current is "
-                    + $"{Describe(currentMonitorDeviceName)}"
-                    + $"{DescribeHardwareIdSuffix(currentMonitorHardwareId)}. Recalibrate to fix.";
+                    filePath, DescribeForLog(data.MonitorDeviceName), DescribeForLog(data.MonitorHardwareId),
+                    data.CalibratedAt, DescribeForLog(currentMonitorDeviceName), DescribeForLog(currentMonitorHardwareId));
+                // Whole phrases, one per combination of the optional hardware ids. The sentence used to
+                // be assembled from a base string plus a conditionally appended ", {id}" fragment,
+                // which no translation can carry: German decides its own punctuation and word order,
+                // and a fragment is not a phrase. The settings keying (T07) replaces each arm's
+                // literal as a whole.
+                string savedMonitor = Describe(data.MonitorDeviceName);
+                string currentMonitor = Describe(currentMonitorDeviceName);
+                bool savedHasHardwareId = !string.IsNullOrEmpty(data.MonitorHardwareId);
+                bool currentHasHardwareId = !string.IsNullOrEmpty(currentMonitorHardwareId);
+                LastLoadRejection = (savedHasHardwareId, currentHasHardwareId) switch
+                {
+                    (true, true) =>
+                        StringTable.Current.T("settings.calibration.rejected.monitor.both_ids",
+                            savedMonitor, data.MonitorHardwareId, currentMonitor, currentMonitorHardwareId),
+                    (true, false) =>
+                        StringTable.Current.T("settings.calibration.rejected.monitor.saved_id",
+                            savedMonitor, data.MonitorHardwareId, currentMonitor),
+                    (false, true) =>
+                        StringTable.Current.T("settings.calibration.rejected.monitor.current_id",
+                            savedMonitor, currentMonitor, currentMonitorHardwareId),
+                    (false, false) =>
+                        StringTable.Current.T("settings.calibration.rejected.monitor.names_only",
+                            savedMonitor, currentMonitor),
+                };
                 return;
             }
 
@@ -395,7 +429,7 @@ public class CalibrationService
                 _logger?.LogWarning(
                     "Calibration data from {FilePath} has invalid transform parameters (expected 6); ignoring",
                     filePath);
-                LastLoadRejection = "Not applied — the saved calibration is malformed. Recalibrate to fix.";
+                LastLoadRejection = StringTable.Current.T("settings.calibration.rejected.malformed");
                 return;
             }
 
@@ -411,7 +445,7 @@ public class CalibrationService
                     "Calibration data from {FilePath} maps gaze off-screen (degenerate transform); ignoring",
                     filePath);
                 LastLoadRejection =
-                    "Not applied — the saved calibration maps gaze off-screen (bad fit). Recalibrate to fix.";
+                    StringTable.Current.T("settings.calibration.rejected.off_screen");
                 return;
             }
 
@@ -426,7 +460,7 @@ public class CalibrationService
                     "Calibration data from {FilePath} deviates too far from identity (degenerate fit); ignoring",
                     filePath);
                 LastLoadRejection =
-                    "Not applied — the saved calibration flips or amplifies gaze (bad fit). Recalibrate to fix.";
+                    StringTable.Current.T("settings.calibration.rejected.flips");
                 return;
             }
 
@@ -442,7 +476,7 @@ public class CalibrationService
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
         {
             _logger?.LogWarning(ex, "Failed to load calibration data from {FilePath}; ignoring", filePath);
-            LastLoadRejection = "Not applied — the saved calibration could not be read. Recalibrate to fix.";
+            LastLoadRejection = StringTable.Current.T("settings.calibration.rejected.unreadable");
         }
     }
 
@@ -496,7 +530,7 @@ public class CalibrationService
         _logger?.LogInformation(
             "Calibration monitor matched by hardware id {HardwareId}; the display was renumbered from "
             + "{SavedMonitor} to {CurrentMonitor}. Applying the calibration and refreshing the stored name",
-            data.MonitorHardwareId, Describe(data.MonitorDeviceName), Describe(currentMonitorDeviceName));
+            data.MonitorHardwareId, DescribeForLog(data.MonitorDeviceName), DescribeForLog(currentMonitorDeviceName));
 
         var refreshed = new CalibrationData
         {
@@ -523,10 +557,17 @@ public class CalibrationService
         }
     }
 
-    private static string Describe(string? value) => string.IsNullOrEmpty(value) ? "(none)" : value;
+    /// <summary>The UI's word for a missing monitor name or id, in the rendered language.</summary>
+    private static string Describe(string? value) =>
+        string.IsNullOrEmpty(value) ? StringTable.Current.T("settings.calibration.none") : value;
 
-    private static string DescribeHardwareIdSuffix(string? hardwareId) =>
-        string.IsNullOrEmpty(hardwareId) ? "" : $", {hardwareId}";
+    /// <summary>
+    /// The word for a missing monitor name or id in LOG arguments: invariant English "(none)",
+    /// never the table's text. Logs are diagnostics, not the user's screen — a German "(keine)"
+    /// in a support log would only make it harder to read (T07 fixup-02).
+    /// </summary>
+    internal static string DescribeForLog(string? value) =>
+        string.IsNullOrEmpty(value) ? "(none)" : value;
 
     /// <summary>
     /// Persists calibration data to disk as JSON, atomically (temp file + rename), mirroring

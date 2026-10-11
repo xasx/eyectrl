@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Views.Settings;
 
+using EyeCtrl.Core.Localization;
+
 internal sealed class AdvancedPageSource : ISettingsPageSource
 {
     private readonly SettingsPageContext _ctx;
@@ -19,55 +21,73 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
         [
             new PageSpec([
                 // Backdrop
-                new ToggleSpec("av_backdrop_enabled", "Enable Backdrop",
+                new ToggleSpec("av_backdrop_enabled",
+                    StringTable.Current.T("settings.advanced.backdrop_enabled.label"),
                     () => backdrop.Enabled, v => { backdrop.Enabled = v; _ctx.ApplyAndSave(); })
-                    { Description = "Dim what's behind the keyboard and other overlays." },
-                new ComboBoxSpec("av_backdrop_type", "Backdrop Type",
-                    ["Acrylic", "Mica", "Solid Darken"], Enum.GetNames<Core.BackdropType>(),
+                    { Description = StringTable.Current.T("settings.advanced.backdrop_enabled.description") },
+                new ComboBoxSpec("av_backdrop_type",
+                    StringTable.Current.T("settings.advanced.backdrop_type.label"),
+                    [
+                        StringTable.Current.T("settings.advanced.backdrop_type.option.acrylic"),
+                        StringTable.Current.T("settings.advanced.backdrop_type.option.mica"),
+                        StringTable.Current.T("settings.advanced.backdrop_type.option.solid_darken"),
+                    ],
+                    Enum.GetNames<Core.BackdropType>(),
                     () => backdrop.Type.ToString(),
                     v => { backdrop.Type = Enum.Parse<Core.BackdropType>(v); _ctx.ApplyAndSave(); })
-                    { Description = "The dimming material; Acrylic and Mica blur, Solid Darken only tints." },
-                new SliderSpec("av_backdrop_opacity", "Backdrop Opacity", 0.1, 0.9, 0.05, 2,
+                    { Description = StringTable.Current.T("settings.advanced.backdrop_type.description") },
+                new SliderSpec("av_backdrop_opacity",
+                    StringTable.Current.T("settings.advanced.backdrop_opacity.label"), 0.1, 0.9, 0.05, 2,
                     () => backdrop.Opacity, v => { backdrop.Opacity = v; _ctx.ApplyAndSave(); })
-                    { Description = "How dark the backdrop is — only Solid Darken uses this; applies from the next open." },
+                    { Description = StringTable.Current.T("settings.advanced.backdrop_opacity.description") },
                 new SeparatorSpec(),
                 // Drag
-                new SliderSpec("av_drag_settle", "Drag Settle Dwell (ms)", 200, 2000, 50, 0,
+                new SliderSpec("av_drag_settle",
+                    StringTable.Current.T("settings.advanced.drag_settle.label"), 200, 2000, 50, 0,
                     () => drag.SettleDwellMs, v => { drag.SettleDwellMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = "How long gaze must hold still before a drag starts. Applies after a restart." },
-                new SliderSpec("av_drag_radius", "Drag Settle Radius (px)", 10, 200, 5, 0,
+                    { Description = StringTable.Current.T("settings.advanced.drag_settle.description") },
+                new SliderSpec("av_drag_radius",
+                    StringTable.Current.T("settings.advanced.drag_radius.label"), 10, 200, 5, 0,
                     () => drag.SettleRadiusPixels, v => { drag.SettleRadiusPixels = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = "How far gaze may drift while settling into a drag. Applies after a restart." },
-                new ColorPickerSpec("av_drag_color", "Drag Trail Color",
+                    { Description = StringTable.Current.T("settings.advanced.drag_radius.description") },
+                new ColorPickerSpec("av_drag_color",
+                    StringTable.Current.T("settings.advanced.drag_color.label"),
                     () => drag.TrailColor, v => { drag.TrailColor = v; _ctx.ApplyAndSave(); },
                     SettingsWindow.ColorSwatchRadius)
-                    { Description = "Colour of the trail drawn while dragging." },
-                new SliderSpec("av_drag_opacity", "Drag Trail Opacity", 0.1, 1.0, 0.05, 2,
+                    { Description = StringTable.Current.T("settings.advanced.drag_color.description") },
+                new SliderSpec("av_drag_opacity",
+                    StringTable.Current.T("settings.advanced.drag_opacity.label"), 0.1, 1.0, 0.05, 2,
                     () => drag.TrailOpacity, v => { drag.TrailOpacity = v; _ctx.ApplyAndSave(); })
-                    { Description = "How visible the drag trail is." },
+                    { Description = StringTable.Current.T("settings.advanced.drag_opacity.description") },
                 new SeparatorSpec(),
                 // Scroll
-                new SliderSpec("av_scroll_sens", "Scroll Sensitivity", 0.5, 2.0, 0.1, 1,
+                new SliderSpec("av_scroll_sens",
+                    StringTable.Current.T("settings.advanced.scroll_sensitivity.label"), 0.5, 2.0, 0.1, 1,
                     () => scroll.Sensitivity, v => { scroll.Sensitivity = v; _ctx.ApplyAndSave(); })
-                    { Description = "How fast gaze scrolling moves through documents." },
+                    { Description = StringTable.Current.T("settings.advanced.scroll_sensitivity.description") },
                 new SeparatorSpec(),
                 // Repeat
-                new SliderSpec("av_repeat_dwell", "Repeat Dwell (ms)", 200, 2000, 50, 0,
+                new SliderSpec("av_repeat_dwell",
+                    StringTable.Current.T("settings.advanced.repeat_dwell.label"), 200, 2000, 50, 0,
                     () => repeat.DwellMs, v => { repeat.DwellMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = "How long to hold your gaze on a target before the locked action fires there." },
+                    { Description = StringTable.Current.T("settings.advanced.repeat_dwell.description") },
                 new SeparatorSpec(),
                 // External Dwell
-                new ToggleSpec("av_ext_enabled", "Enable External Dwell",
+                new ToggleSpec("av_ext_enabled",
+                    StringTable.Current.T("settings.advanced.external_dwell.label"),
                     () => ext.Enabled, v => { ext.Enabled = v; _ctx.ApplyAndSave(); })
-                    { Description = "Let other apps trigger dwell through EyeCtrl's pipe." },
-                new SliderSpec("av_ext_dwell", "External Dwell (ms)", 200, 3000, 50, 0,
+                    { Description = StringTable.Current.T("settings.advanced.external_dwell.description") },
+                new SliderSpec("av_ext_dwell",
+                    StringTable.Current.T("settings.advanced.external_hold.label"), 200, 3000, 50, 0,
                     () => ext.DefaultDwellMs, v => { ext.DefaultDwellMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = "Dwell length applied when an external app registers a target." },
-                new SliderSpec("av_ext_cooldown", "External Cooldown (ms)", 0, 5000, 100, 0,
+                    { Description = StringTable.Current.T("settings.advanced.external_hold.description") },
+                new SliderSpec("av_ext_cooldown",
+                    StringTable.Current.T("settings.advanced.external_cooldown.label"), 0, 5000, 100, 0,
                     () => ext.CooldownMs, v => { ext.CooldownMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = "Minimum wait between external dwell activations." },
-                new ButtonSpec("av_reset", "Reset Advanced Settings",
-                    () => _ctx.ShowModal("Reset Advanced settings to defaults?", () =>
+                    { Description = StringTable.Current.T("settings.advanced.external_cooldown.description") },
+                new ButtonSpec("av_reset",
+                    StringTable.Current.T("settings.advanced.reset.label"),
+                    () => _ctx.ShowModal(StringTable.Current.T("settings.advanced.reset.message"), () =>
                     {
                         var b = new Core.Settings.BackdropSettings();
                         var d = new Core.Settings.DragSettings();

@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Services;
 
 using System.Collections.Generic;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
@@ -17,8 +18,9 @@ using EyeCtrl.ViewModels;
 /// flip"): Close above, Flip below, at both edges. On a flip the vacated positions carry no
 /// dwell target, so a gaze resting where a button just was hits nothing.
 ///
-/// Both keep their labels at all times (the ActionMenuEdgeButtons convention: the escape hatch
-/// cannot rely on being recognised).
+/// Both are icon-only since 2026-10-06 (the user dropped the edge labels), so each carries an
+/// <see cref="EdgeButtonDefinition.AccessibleName"/> for UIA — the escape hatch cannot rely on
+/// being recognised.
 /// </summary>
 internal static class KeyboardEdgeButtons
 {
@@ -43,14 +45,14 @@ internal static class KeyboardEdgeButtons
                 VerticalOffset: -offset,
                 RadiusLogical: UIConstants.ButtonRadius,
                 Icon: ActionIcon.Close,
-                Label: "Close"),
+                AccessibleName: StringTable.Current.T("overlays.edge.close")),
             new EdgeButtonDefinition(
                 FlipId, Symbol: string.Empty, dwellMs,
                 m => m.Send(new ViewModels.Messages.KeyboardEdgeToggledMessage()),
                 VerticalOffset: offset,
                 RadiusLogical: UIConstants.ButtonRadius,
                 Icon: ActionIcon.KeyboardEdge,
-                Label: "Flip"),
+                AccessibleName: StringTable.Current.T("overlays.edge.flip")),
         };
     }
 }

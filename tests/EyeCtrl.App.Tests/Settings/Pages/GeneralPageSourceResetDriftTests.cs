@@ -71,6 +71,29 @@ public class GeneralPageSourceResetDriftTests
         }
     }
 
+    [Fact]
+    public void ResetGeneral_KeepsTheLanguage()
+    {
+        // D10 (the user's call 2026-10-07): the language row sits on this page, but reset must
+        // not touch it — a user who chose a readable language must not be reset into one they
+        // cannot read. g_language is exempt in SettingsPageResetDriftGuard by name.
+        var settings = new EyeCtrlSettings();
+        settings.General.UiLanguage = EyeCtrl.Core.Enums.UiLanguage.English;
+        settings.General.StartPaused = true;
+
+        var ctx = TestSettingsPageContext.Build(settings: settings, showModal: (_, act) => act());
+        var rows = new GeneralPageSource(ctx).Build().Single().Rows;
+
+        // The row exists and carries the choice, so this is genuinely about the reset.
+        var language = rows.OfType<ComboBoxSpec>().Single(c => c.Id == "g_language");
+        Check.That(language.Get()).IsEqualTo("english");
+
+        rows.OfType<ButtonSpec>().Single(b => b.Id == "g_reset").OnActivate();
+
+        Check.That(settings.General.UiLanguage).IsEqualTo(EyeCtrl.Core.Enums.UiLanguage.English);
+        Check.That(settings.General.StartPaused).IsFalse();   // other General rows still reset
+    }
+
     private sealed class FakeStartupRegistrar : IStartupRegistrar
     {
         public bool IsRegistered => true;

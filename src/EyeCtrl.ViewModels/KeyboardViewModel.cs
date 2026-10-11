@@ -205,12 +205,18 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     }
 
     /// <summary>
-    /// Nearest-key dwell tracking: finds the closest key to the gaze point and
-    /// tracks dwell time directly. Eliminates dead zones between keys and avoids
-    /// circular hit-area overlap issues with rectangular keyboard keys.
+    /// Key dwell tracking: picks the targeted key and tracks dwell time directly. The pick is
+    /// <see cref="KeyTargeting.PickKey"/> — the key whose BOX contains the gaze, else the nearest
+    /// centre — so a gaze inside a key selects that key, and the gaps between keys still belong to
+    /// one (no dead zones). <see cref="NearestKeyId"/> keeps its name: in the gaps it is still the
+    /// nearest key.
     /// </summary>
+    /// <param name="keyScreenPositions">Key centres in physical pixels. Telemetry reports these.</param>
+    /// <param name="keyScreenBoxes">Key boxes in physical pixels, from the same transform as the
+    /// centres. Null is plain nearest-centre; production always passes them.</param>
     public void ProcessKeyGaze(Dictionary<string, PhysicalPoint> keyScreenPositions,
-        PhysicalPoint gazePoint, bool isGazeInsideWindow, long timestampUs)
+        PhysicalPoint gazePoint, bool isGazeInsideWindow, long timestampUs,
+        IReadOnlyDictionary<string, PhysicalRect>? keyScreenBoxes = null)
     {
         if (keyScreenPositions.Count == 0 || _keyDwellMs <= 0) return;
 
@@ -264,19 +270,8 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
             }
         }
 
-        // Find nearest key
-        string? nearestId = null;
-        double nearestDist = double.MaxValue;
-
-        foreach (var (id, center) in keyScreenPositions)
-        {
-            double dist = gazePoint.DistanceSquaredTo(center);
-            if (dist < nearestDist)
-            {
-                nearestDist = dist;
-                nearestId = id;
-            }
-        }
+        // Box-first, then nearest centre. Only WHICH key changes; everything below is the same.
+        string? nearestId = KeyTargeting.PickKey(gazePoint, keyScreenPositions, keyScreenBoxes);
 
         if (nearestId != NearestKeyId)
         {

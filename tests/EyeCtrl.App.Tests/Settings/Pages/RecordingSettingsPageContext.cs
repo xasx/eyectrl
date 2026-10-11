@@ -19,7 +19,9 @@ using CommunityToolkit.Mvvm.Messaging;
 ///
 /// <para><b>ShowModal captures without invoking.</b> The Yes callback is held in
 /// <see cref="LastModalOnYes"/>; a test simulates the user confirming by invoking it explicitly,
-/// so the pre-confirm and post-confirm states are both assertable.</para>
+/// so the pre-confirm and post-confirm states are both assertable. The three-choice form bypasses
+/// this recorder and lands on <see cref="SettingsPageContext.ViewModel"/>'s own modal state, which
+/// a test reads there.</para>
 ///
 /// <para><b>The messenger records into the same ordered log as the delegates.</b> That is what
 /// makes <c>cal_run</c>'s Close-then-Send ordering verifiable: both append to <see cref="Log"/> in
@@ -32,6 +34,7 @@ internal sealed class RecordingSettingsPageContext
     private readonly WeakReferenceMessenger _messenger = new();
     private readonly List<string> _log = new();
     private readonly List<string> _errors = new();
+    private readonly SettingsWindowViewModel? _viewModel;
 
     /// <param name="clipboard">
     /// What <see cref="SettingsPageContext.ReadClipboard"/> returns. Configurable because
@@ -58,12 +61,14 @@ internal sealed class RecordingSettingsPageContext
         _messenger.Register<RecordingSettingsPageContext, CalibrationClearRequestedMessage>(
             this, (_, _) => _log.Add(nameof(CalibrationClearRequestedMessage)));
 
+        _viewModel = viewModel;
+        var effectiveSettings = settings ?? new EyeCtrlSettings();
         Context = new SettingsPageContext(
-            settings ?? new EyeCtrlSettings(),
+            effectiveSettings,
             viewModel!, registry!, modelManagement!,
             calibration ?? new CalibrationService(),
             _messenger,
-            restart: null!,
+            restart: BuildRestartCoordinator(effectiveSettings),
             supervision: supervision,
             dictionary: dictionary,
             showModal: CaptureModal,
@@ -74,6 +79,27 @@ internal sealed class RecordingSettingsPageContext
             close: () => { CloseCount++; _log.Add(CloseEntry); },
             readClipboard: () => clipboard);
     }
+
+    /// <summary>
+    /// A real coordinator with no-op effects and an installed Supervisor: enough for
+    /// <c>ShouldOfferSupervisor</c> to answer TRUE (so the General tab's three-choice restart
+    /// modal is reachable and its option labels capturable), and nothing else. Only
+    /// <c>ShouldOfferSupervisor</c> is ever consulted by a page build.
+    /// </summary>
+    private static AppRestartCoordinator BuildRestartCoordinator(EyeCtrlSettings settings) =>
+        new(
+            new WeakReferenceMessenger(),
+            settings,
+            tryReachSupervisor: () => false,
+            selfRestart: () => RestartOutcome.Started,
+            shutdown: () => { },
+            reportInProgress: () => { },
+            reportUnavailable: _ => { },
+            runInBackground: action => action(),
+            postToUi: action => action(),
+            supervisorInstalled: () => true,
+            bringUp: new SupervisorBringUp(
+                settings, () => { }, () => false, _ => { }, () => { }, () => false));
 
     public const string ApplyAndSaveEntry = "ApplyAndSave";
     public const string RebuildContentEntry = "RebuildContent";
@@ -93,6 +119,18 @@ internal sealed class RecordingSettingsPageContext
     /// <summary>The most recent modal Yes callback, captured but NOT invoked. Null if no modal was
     /// shown. A test simulates the user confirming by invoking this.</summary>
     public Action? LastModalOnYes { get; private set; }
+
+    /// <summary>
+    /// Forgets every captured modal (the recorder's and the view model's), so the NEXT activation
+    /// is attributed to its own row. Used by the settings-row English golden, which activates each
+    /// button in turn and reads what THAT activation showed.
+    /// </summary>
+    public void ClearModalCapture()
+    {
+        LastModalMessage = null;
+        LastModalOnYes = null;
+        _viewModel?.HideModal();
+    }
 
     /// <summary>Ordered event log shared by the view-bound delegates and the messenger, so call
     /// order across the two surfaces (e.g. Close before Send) is assertable.</summary>

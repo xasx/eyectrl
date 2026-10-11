@@ -123,6 +123,8 @@ public class DwellToggle : IDwellComposite
 
     private readonly Func<bool> _get;
     private readonly Action<bool> _set;
+    private readonly string _onText;
+    private readonly string _offText;
     private readonly TextBlock _label;
     private readonly TextBlock _stateText;
     // Null in the headless form, which builds no card at all. See the type doc.
@@ -194,6 +196,9 @@ public class DwellToggle : IDwellComposite
     /// <param name="registrar">The dwell registrar for this overlay.</param>
     /// <param name="id">Unique target identifier within <paramref name="category"/>.</param>
     /// <param name="label">The setting's name, shown on the row's left.</param>
+    /// <param name="onText">The state word shown when the setting is on — the host's word, so the
+    /// library owns no English. Today the hosts pass "On"/"Off"; T06–T08 pass keys.</param>
+    /// <param name="offText">The state word shown when the setting is off.</param>
     /// <param name="get">Returns the current boolean value of the setting.</param>
     /// <param name="set">Applies a new boolean value when the switch activates.</param>
     /// <param name="category">Dwell category the switch is registered under.</param>
@@ -209,6 +214,8 @@ public class DwellToggle : IDwellComposite
         IDwellRegistrar registrar,
         string id,
         string label,
+        string onText,
+        string offText,
         Func<bool> get,
         Action<bool> set,
         DwellCategory category,
@@ -216,8 +223,12 @@ public class DwellToggle : IDwellComposite
         int dwellMs,
         bool showLabel = true)
     {
+        ArgumentNullException.ThrowIfNull(onText);
+        ArgumentNullException.ThrowIfNull(offText);
         _get = get;
         _set = set;
+        _onText = onText;
+        _offText = offText;
 
         _label = new TextBlock
         {
@@ -439,7 +450,16 @@ public class DwellToggle : IDwellComposite
             // No explicit Width: the label column is a star, so the row takes exactly the room it
             // is given and the label wraps inside it. A fixed width would overflow the Supervisor's
             // 560 DIP setup window, which hosts two of these.
-            HorizontalAlignment = HorizontalAlignment.Left,
+            //
+            // STRETCH, not Left (T09 PR 3): a Left card sized itself to its label, so the switch —
+            // the right-hand Auto column — sat wherever the label happened to end. Two English
+            // toggles put their switches 28 DIP apart, and a translation moved each by its own
+            // length (7-12 DIP under the pseudo-locale): the language decided where a target was,
+            // on a crisis surface. Stretched, the card fills its host and every switch sits on the
+            // host's right edge, in every language. Pinned by SupervisorFitTests'
+            // Setup_TheToggleSwitches_StayPutInTheirCards_UnderThePseudoLocale and
+            // Setup_BothToggleSwitches_ShareOneX.
+            HorizontalAlignment = HorizontalAlignment.Stretch,
             MinWidth = 360,
             // RowHeight + the 24 DIP bottom margin is the row rhythm every other settings row
             // carries, and it is exactly what this control measured before it became a composite.
@@ -489,13 +509,20 @@ public class DwellToggle : IDwellComposite
     }
 
     /// <summary>
+    /// Repaints the switch from the getter, for a host whose value changed without a dwell — for
+    /// example the Supervisor's logon row after a parked choice was superseded or refused. Without
+    /// it the face keeps the old state, and the next dwell sends the inverse of the hidden value.
+    /// </summary>
+    public void Refresh() => RefreshVisual();
+
+    /// <summary>
     /// Re-reads the setting and repaints the switch. User-rate, not gaze-rate: the two brushes are
     /// mutated in place rather than replaced.
     /// </summary>
     private void RefreshVisual()
     {
         var on = _get();
-        _stateText.Text = on ? "On" : "Off";
+        _stateText.Text = on ? _onText : _offText;
         // The switch has no text of its own, and a Border carries no UIA name, so the accessible
         // name has to be composed here: the setting the user is looking at, plus its state.
         System.Windows.Automation.AutomationProperties.SetName(

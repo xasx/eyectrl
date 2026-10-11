@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Services;
 
 using System.Collections.Generic;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.ViewModels;
@@ -15,12 +16,10 @@ using EyeCtrl.ViewModels.Messages;
 /// shape (a static <c>Definitions(dwellMs)</c> factory) rather than staying inline, so the plain
 /// data driving both edge-button pairs is testable the same way.
 ///
-/// Close keeps its label always, the same reasoning as <see cref="ActionMenuEdgeButtons"/>'s Close:
-/// it is the escape hatch — the user's gaze-driven way out of a modal view, and a caregiver must be
-/// able to recognise it without training. It reuses <see cref="ActionIcon.Close"/> rather than a
-/// second drawn icon for the same glyph. Recapture has no equivalent drawn icon yet, so it keeps
-/// its Unicode glyph and gains only a label: it is not the escape hatch, and a missing icon does
-/// not strand the user the way a missing exit would.
+/// Both are icon-only since 2026-10-06 — the drawn camera (user pick Re3) replaced Retake, whose
+/// label is gone with the rest of the edge labels — so each carries an
+/// <see cref="EdgeButtonDefinition.AccessibleName"/> for UIA. Close is the escape hatch and reuses
+/// <see cref="ActionIcon.Close"/> rather than a second drawn icon for the same glyph.
 /// </summary>
 internal static class ManualSelectionEdgeButtons
 {
@@ -47,13 +46,14 @@ internal static class ManualSelectionEdgeButtons
                 VerticalOffset: -offset,
                 RadiusLogical: radius,
                 Icon: ActionIcon.Close,
-                Label: "Close"),
+                AccessibleName: StringTable.Current.T("overlays.edge.close")),
             new EdgeButtonDefinition(
-                RecaptureId, Symbol: "↻", dwellMs,
+                RecaptureId, Symbol: string.Empty, dwellMs,
                 m => m.Send(new ManualSelectionRecaptureMessage()),
                 VerticalOffset: offset,
                 RadiusLogical: radius,
-                Label: "Recapture"),
+                Icon: ActionIcon.Recapture,
+                AccessibleName: StringTable.Current.T("overlays.edge.recapture")),
         };
     }
 }

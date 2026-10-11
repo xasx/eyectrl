@@ -201,12 +201,6 @@ public static class CalibrationValidator
         return gazeSpan >= targetSpan * MinGazeVariationRatio;
     }
 
-    /// <summary>Why one target failed the quality gate, in terms the user can act on.</summary>
-    /// <param name="TargetIndex">Zero-based index in the session's target order.</param>
-    /// <param name="Where">Plain-language position, e.g. "top-left".</param>
-    /// <param name="Reason">One sentence naming the metric and its value.</param>
-    public readonly record struct QualityFailure(int TargetIndex, string Where, string Reason);
-
     /// <summary>
     /// Every reason this calibration should be refused, target by target — empty when it may be
     /// accepted.
@@ -216,11 +210,15 @@ public static class CalibrationValidator
     /// coverage, is the difference between "recalibrate and hope" and "hold the top-left point a
     /// little longer". For a user whose only input is gaze, a retry they cannot aim is expensive.
     /// </para>
+    /// <para>
+    /// The failures are codes plus arguments (<see cref="CalibrationQualityFailure"/>), not sentences:
+    /// the calibration window renders them, so Core carries no user-facing English.
+    /// </para>
     /// </summary>
     /// <param name="transform">The fitted transform under test.</param>
     /// <param name="points">The session's collected points, in presentation order.</param>
     /// <param name="screenSize">Screen size in physical pixels, for the residual budget.</param>
-    public static IReadOnlyList<QualityFailure> FindQualityFailures(
+    public static IReadOnlyList<CalibrationQualityFailure> FindQualityFailures(
         ICalibrationTransform transform,
         IReadOnlyList<CalibrationPoint> points,
         PhysicalPoint screenSize)
@@ -228,20 +226,20 @@ public static class CalibrationValidator
         ArgumentNullException.ThrowIfNull(transform);
         ArgumentNullException.ThrowIfNull(points);
 
-        var failures = new List<QualityFailure>();
+        var failures = new List<CalibrationQualityFailure>();
         double diagonal = Math.Sqrt((screenSize.X * screenSize.X) + (screenSize.Y * screenSize.Y));
         double residualBudget = diagonal * MaxResidualScreenFraction;
 
         for (int i = 0; i < points.Count; i++)
         {
             var point = points[i];
-            var where = DescribePosition(point.Target, screenSize);
+            var region = RegionOf(point.Target, screenSize);
 
             double residual = transform.Apply(point.MeanGaze).DistanceTo(point.Target);
             if (residual > residualBudget)
             {
-                failures.Add(new QualityFailure(i, where,
-                    $"the fit misses it by {residual:F0}px (limit {residualBudget:F0}px)"));
+                failures.Add(new CalibrationQualityFailure(i, region,
+                    CalibrationQualityReason.ResidualTooLarge, residual, residualBudget));
                 continue;   // one reason per target: the most severe, not a pile-on
             }
 
@@ -249,8 +247,8 @@ public static class CalibrationValidator
                 (point.StdDevX * point.StdDevX) + (point.StdDevY * point.StdDevY));
             if (sigmaRadial > MaxTargetSigmaRadialPixels)
             {
-                failures.Add(new QualityFailure(i, where,
-                    $"gaze was too scattered on it (spread {sigmaRadial:F0}px, limit {MaxTargetSigmaRadialPixels:F0}px)"));
+                failures.Add(new CalibrationQualityFailure(i, region,
+                    CalibrationQualityReason.ExcessScatter, sigmaRadial, MaxTargetSigmaRadialPixels));
                 continue;
             }
 
@@ -258,8 +256,8 @@ public static class CalibrationValidator
             // must not be failed for being old.
             if (point.Coverage is { } coverage && coverage < MinTargetCoverage)
             {
-                failures.Add(new QualityFailure(i, where,
-                    $"gaze was on it only {coverage * 100:F0}% of the time (needs {MinTargetCoverage * 100:F0}%)"));
+                failures.Add(new CalibrationQualityFailure(i, region,
+                    CalibrationQualityReason.LowCoverage, coverage * 100, MinTargetCoverage * 100));
             }
         }
 
@@ -267,38 +265,32 @@ public static class CalibrationValidator
     }
 
     /// <summary>
-    /// Renders the failures as one sentence for the user, ending in what to do differently.
+    /// Classifies a target's screen region as a whole-position code. A phrase assembled from axis
+    /// words cannot be translated, so the renderer needs the code; this is the only place the
+    /// geometry-to-region rule lives.
     /// </summary>
-    public static string DescribeFailures(IReadOnlyList<QualityFailure> failures)
+    private static CalibrationTargetRegion RegionOf(PhysicalPoint target, PhysicalPoint screenSize)
     {
-        ArgumentNullException.ThrowIfNull(failures);
-        if (failures.Count == 0) return string.Empty;
-
-        var detail = string.Join("; ", failures.Select(f => $"{f.Where} — {f.Reason}"));
-
-        // The advice is the same in every case because the cause almost always is: the user moved
-        // during collection. Naming the points is what makes it actionable — they are told WHICH ones
-        // to spend longer on, rather than being sent back to repeat all of them blind.
-        return $"Calibration not accepted. {detail}. "
-             + "Try again and rest on each point until its ring fills — looking away resets nothing, "
-             + "so short looks add up.";
-    }
-
-    /// <summary>Plain-language screen position of a target, for a message a user reads under stress.</summary>
-    private static string DescribePosition(PhysicalPoint target, PhysicalPoint screenSize)
-    {
-        if (!(screenSize.X > 0) || !(screenSize.Y > 0)) return "a point";
+        if (!(screenSize.X > 0) || !(screenSize.Y > 0)) return CalibrationTargetRegion.Unknown;
 
         var nx = target.X / screenSize.X;
         var ny = target.Y / screenSize.Y;
 
-        string vertical = ny <= 1.0 / 3.0 ? "top" : ny >= 2.0 / 3.0 ? "bottom" : "middle";
-        string horizontal = nx <= 1.0 / 3.0 ? "left" : nx >= 2.0 / 3.0 ? "right" : "centre";
+        int vertical = ny <= 1.0 / 3.0 ? 0 : ny >= 2.0 / 3.0 ? 2 : 1;   // top, middle, bottom
+        int horizontal = nx <= 1.0 / 3.0 ? 0 : nx >= 2.0 / 3.0 ? 2 : 1; // left, center, right
 
-        if (vertical == "middle" && horizontal == "centre") return "the centre point";
-        if (vertical == "middle") return $"the {horizontal} point";
-        if (horizontal == "centre") return $"the {vertical} point";
-        return $"the {vertical}-{horizontal} point";
+        return (vertical, horizontal) switch
+        {
+            (0, 0) => CalibrationTargetRegion.TopLeft,
+            (0, 1) => CalibrationTargetRegion.TopCenter,
+            (0, 2) => CalibrationTargetRegion.TopRight,
+            (1, 0) => CalibrationTargetRegion.MiddleLeft,
+            (1, 1) => CalibrationTargetRegion.Center,
+            (1, 2) => CalibrationTargetRegion.MiddleRight,
+            (2, 0) => CalibrationTargetRegion.BottomLeft,
+            (2, 1) => CalibrationTargetRegion.BottomCenter,
+            _ => CalibrationTargetRegion.BottomRight,
+        };
     }
 
     /// <summary>

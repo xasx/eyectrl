@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Views.Settings;
 
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.ViewModels.Messages;
 
 internal sealed class AdaptationPageSource : ISettingsPageSource
@@ -22,58 +23,80 @@ internal sealed class AdaptationPageSource : ISettingsPageSource
         return
         [
             new PageSpec([
-                new ToggleSpec("ad_enabled", "Enable Adaptation",
+                new ToggleSpec("ad_enabled",
+                    StringTable.Current.T("settings.adaptation.enabled.label"),
                     () => s.Enabled, v => { s.Enabled = v; _ctx.ApplyAndSave(); })
-                    { Description = "Ease dwell and targeting automatically while you struggle." },
-                new ComboBoxSpec("ad_posture", "Posture",
-                    Enum.GetNames<Core.Settings.AdaptationPosture>(), null,
+                    { Description = StringTable.Current.T("settings.adaptation.enabled.description") },
+                new ComboBoxSpec("ad_posture",
+                    StringTable.Current.T("settings.adaptation.posture.label"),
+                    [
+                        StringTable.Current.T("settings.adaptation.posture.option.conservative"),
+                        StringTable.Current.T("settings.adaptation.posture.option.balanced"),
+                        StringTable.Current.T("settings.adaptation.posture.option.responsive"),
+                    ],
+                    Enum.GetNames<Core.Settings.AdaptationPosture>(),
                     () => s.Posture.ToString(),
                     v => { s.Posture = Enum.Parse<Core.Settings.AdaptationPosture>(v); _ctx.ApplyAndSave(); })
-                    { Description = "How readily adaptation responds to struggle." },
-                new ToggleSpec("ad_dwell", "Adapt Dwell Time",
+                    { Description = StringTable.Current.T("settings.adaptation.posture.description") },
+                new ToggleSpec("ad_dwell",
+                    StringTable.Current.T("settings.adaptation.dwell.label"),
                     () => s.AdaptDwell, v => { s.AdaptDwell = v; _ctx.ApplyAndSave(); })
-                    { Description = "Shorten or lengthen dwell times as you struggle or cruise." },
-                new ToggleSpec("ad_tolerance", "Adapt Targeting Tolerance",
+                    { Description = StringTable.Current.T("settings.adaptation.dwell.description") },
+                new ToggleSpec("ad_tolerance",
+                    StringTable.Current.T("settings.adaptation.tolerance.label"),
                     () => s.AdaptTolerance, v => { s.AdaptTolerance = v; _ctx.ApplyAndSave(); })
-                    { Description = "Loosen or tighten how steadily you must rest on a target." },
-                new ToggleSpec("ad_smoothing", "Adapt Smoothing",
+                    { Description = StringTable.Current.T("settings.adaptation.tolerance.description") },
+                new ToggleSpec("ad_smoothing",
+                    StringTable.Current.T("settings.adaptation.smoothing.label"),
                     () => s.AdaptSmoothing, v => { s.AdaptSmoothing = v; _ctx.ApplyAndSave(); })
-                    { Description = "Adapt how strongly raw gaze is smoothed." },
-                new ToggleSpec("ad_geometry", "Adapt Target Size",
+                    { Description = StringTable.Current.T("settings.adaptation.smoothing.description") },
+                new ToggleSpec("ad_geometry",
+                    StringTable.Current.T("settings.adaptation.geometry.label"),
                     () => s.AdaptGeometry, v => { s.AdaptGeometry = v; _ctx.ApplyAndSave(); })
-                    { Description = "Grow or shrink targets when targeting is hard." },
-                new ToggleSpec("ad_cue", "Show Adaptation Cue",
+                    { Description = StringTable.Current.T("settings.adaptation.geometry.description") },
+                new ToggleSpec("ad_cue",
+                    StringTable.Current.T("settings.adaptation.cue.label"),
                     () => s.ShowCue, v => { s.ShowCue = v; _ctx.ApplyAndSave(); })
-                    { Description = "Show a small cue while a setting is being adapted." },
-                new ToggleSpec("ad_sensitive", "Suppress in Sensitive Contexts",
+                    { Description = StringTable.Current.T("settings.adaptation.cue.description") },
+                new ToggleSpec("ad_sensitive",
+                    StringTable.Current.T("settings.adaptation.sensitive.label"),
                     () => s.SuppressInSensitiveContexts, v => { s.SuppressInSensitiveContexts = v; _ctx.ApplyAndSave(); })
-                    { Description = "Keep the cue and toasts hidden while you type passwords." },
-                new ToggleSpec("ad_caregiver", "Caregiver Alerts",
+                    { Description = StringTable.Current.T("settings.adaptation.sensitive.description") },
+                new ToggleSpec("ad_caregiver",
+                    StringTable.Current.T("settings.adaptation.caregiver.label"),
                     () => s.CaregiverAlerts, v => { s.CaregiverAlerts = v; _ctx.ApplyAndSave(); })
-                    { Description = "Show a prominent alert for a caregiver while struggle or poor tracking persists." },
-                new SliderSpec("ad_caregiver_interval", "Caregiver Alerts — Minimum Interval", 1.0, 60.0, 1.0, 0,
+                    { Description = StringTable.Current.T("settings.adaptation.caregiver.description") },
+                new SliderSpec("ad_caregiver_interval",
+                    StringTable.Current.T("settings.adaptation.caregiver_interval.label"), 1.0, 60.0, 1.0, 0,
                     () => s.CaregiverMinIntervalMinutes, v => { s.CaregiverMinIntervalMinutes = v; _ctx.ApplyAndSave(); })
-                    { Description = "The least time between two caregiver alerts, in minutes." },
-                new SliderSpec("ad_frac_dwell_short", "Dwell — Shorter Limit", 0.0, 1.0, 0.05, 2,
+                    { Description = StringTable.Current.T("settings.adaptation.caregiver_interval.description") },
+                new SliderSpec("ad_frac_dwell_short",
+                    StringTable.Current.T("settings.adaptation.dwell_shorter.label"), 0.0, 1.0, 0.05, 2,
                     () => s.DwellShorterMaxFraction, v => { s.DwellShorterMaxFraction = v; _ctx.ApplyAndSave(); })
-                    { Description = "The most a dwell may be shortened, as a share of its baseline." },
-                new SliderSpec("ad_frac_dwell_long", "Dwell — Longer Limit", 0.0, 1.0, 0.05, 2,
+                    { Description = StringTable.Current.T("settings.adaptation.dwell_shorter.description") },
+                new SliderSpec("ad_frac_dwell_long",
+                    StringTable.Current.T("settings.adaptation.dwell_longer.label"), 0.0, 1.0, 0.05, 2,
                     () => s.DwellLongerMaxFraction, v => { s.DwellLongerMaxFraction = v; _ctx.ApplyAndSave(); })
-                    { Description = "The most a dwell may be lengthened, as a share of its baseline." },
-                new SliderSpec("ad_frac_tol_loose", "Tolerance — Looser Limit", 0.0, 1.0, 0.05, 2,
+                    { Description = StringTable.Current.T("settings.adaptation.dwell_longer.description") },
+                new SliderSpec("ad_frac_tol_loose",
+                    StringTable.Current.T("settings.adaptation.tolerance_looser.label"), 0.0, 1.0, 0.05, 2,
                     () => s.ToleranceLooserMaxFraction, v => { s.ToleranceLooserMaxFraction = v; _ctx.ApplyAndSave(); })
-                    { Description = "The most tolerance may be loosened, as a share of its baseline." },
-                new SliderSpec("ad_frac_smooth", "Smoothing — More Limit", 0.0, 1.0, 0.05, 2,
+                    { Description = StringTable.Current.T("settings.adaptation.tolerance_looser.description") },
+                new SliderSpec("ad_frac_smooth",
+                    StringTable.Current.T("settings.adaptation.smoothing_more.label"), 0.0, 1.0, 0.05, 2,
                     () => s.SmoothingMoreMaxFraction, v => { s.SmoothingMoreMaxFraction = v; _ctx.ApplyAndSave(); })
-                    { Description = "The most smoothing may be increased, as a share of its baseline." },
-                new SliderSpec("ad_frac_geom", "Target Size — Bigger Limit", 0.0, 1.0, 0.05, 2,
+                    { Description = StringTable.Current.T("settings.adaptation.smoothing_more.description") },
+                new SliderSpec("ad_frac_geom",
+                    StringTable.Current.T("settings.adaptation.geometry_bigger.label"), 0.0, 1.0, 0.05, 2,
                     () => s.GeometryBiggerMaxFraction, v => { s.GeometryBiggerMaxFraction = v; _ctx.ApplyAndSave(); })
-                    { Description = "The most a target may be grown, as a share of its baseline." },
-                new SliderSpec("ad_geom_margin", "Target Size — Growth Cap", 0.0, 300.0, 5.0, 0,
+                    { Description = StringTable.Current.T("settings.adaptation.geometry_bigger.description") },
+                new SliderSpec("ad_geom_margin",
+                    StringTable.Current.T("settings.adaptation.growth_cap.label"), 0.0, 300.0, 5.0, 0,
                     () => s.GeometryMaxMarginPx, v => { s.GeometryMaxMarginPx = v; _ctx.ApplyAndSave(); })
-                    { Description = "The most a target's hit area may grow when adapted, in screen pixels." },
-                new ButtonSpec("ad_reset", "Reset Adaptation Settings",
-                    () => _ctx.ShowModal("Reset Adaptation settings to defaults?", () =>
+                    { Description = StringTable.Current.T("settings.adaptation.growth_cap.description") },
+                new ButtonSpec("ad_reset",
+                    StringTable.Current.T("settings.adaptation.reset.label"),
+                    () => _ctx.ShowModal(StringTable.Current.T("settings.adaptation.reset.message"), () =>
                     {
                         var d = new Core.Settings.AdaptationSettings();
                         s.Enabled = d.Enabled;
@@ -96,15 +119,17 @@ internal sealed class AdaptationPageSource : ISettingsPageSource
                         _ctx.RebuildContent();
                     }),
                     ButtonKind.Reset, Width: 300, Height: 100),
-                new ButtonSpec("ad_reset_learned", "Reset Learned Offsets",
-                    () => _ctx.ShowModal("Reset the learned adaptation offsets to zero?", () =>
+                new ButtonSpec("ad_reset_learned",
+                    StringTable.Current.T("settings.adaptation.reset_learned.label"),
+                    () => _ctx.ShowModal(StringTable.Current.T("settings.adaptation.reset_learned.message"), () =>
                         _ctx.Messenger.Send(new ResetLearnedOffsetsMessage())),
                     ButtonKind.Reset, Width: 300, Height: 100)
-                    { Description = "Clear what the app has learned about your needs; it re-learns as you use it." },
-                new ButtonSpec("ad_log", "Open Adaptation Log",
+                    { Description = StringTable.Current.T("settings.adaptation.reset_learned.description") },
+                new ButtonSpec("ad_log",
+                    StringTable.Current.T("settings.adaptation.log.label"),
                     () => _onOpenAdaptationLog?.Invoke(),
                     ButtonKind.Default, Width: 300, Height: 100)
-                    { Description = "Show the adaptation log file in Explorer." },
+                    { Description = StringTable.Current.T("settings.adaptation.log.description") },
             ]),
         ];
     }

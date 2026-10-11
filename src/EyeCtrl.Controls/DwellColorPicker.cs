@@ -41,13 +41,22 @@ public class DwellColorPicker : IDwellComposite
     /// AccentDanger (#FF5C7A) is deliberately absent: it fails that bar at 6.62:1,
     /// and is reserved for destructive actions rather than cursor decoration.
     /// </summary>
-    private static string Hex(Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+    /// <summary>
+    /// A colour as the settings' stored hex string. Explicitly invariant, built without a format
+    /// hole: a hex code is data, never a localized number (T02 fixup-01 F4 — the widened
+    /// specifier gate flags X2 like any other numeric specifier).
+    /// </summary>
+    private static string Hex(Color c) =>
+        "#" + c.R.ToString("X2", System.Globalization.CultureInfo.InvariantCulture)
+            + c.G.ToString("X2", System.Globalization.CultureInfo.InvariantCulture)
+            + c.B.ToString("X2", System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>
-    /// The swatches offered for <paramref name="theme"/>: its accent first (the
-    /// default dwell colour), then green, warning and body text. The warning caption
-    /// is the ROLE name, not "Amber": Daylight's warning is a dark brick red (§10.8.1),
-    /// the same role-vs-colour mismatch that renamed the text preset.
+    /// The swatch colours offered for <paramref name="theme"/>: its accent first (the
+    /// default dwell colour), then green, warning and body text. The HOST's captions
+    /// are role names — "Warning", not "Amber": Daylight's warning is a dark brick
+    /// red (§10.8.1), the same role-vs-colour mismatch that renamed the text preset
+    /// (ledger D6; the keys live in the host's swatch-name array).
     ///
     /// Derived rather than listed, so each theme offers colours from its own
     /// palette instead of Midnight's. Under Midnight this reproduces the four
@@ -57,15 +66,20 @@ public class DwellColorPicker : IDwellComposite
     /// that fails its own halo would collapse the §4.1.3 halo guarantee on the
     /// cursor ring. On the dark themes that bar keeps every preset light; on
     /// Daylight it keeps every preset dark — the bar is polarity-free.
+    ///
+    /// <para>
+    /// Colours only, no names: the caption and tooltip for each swatch are the host's
+    /// (<c>swatchNames</c>), so the library owns no English word (T02).
+    /// </para>
     /// </summary>
     /// <param name="theme">The theme whose palette the swatches come from.</param>
-    /// <returns>Hex/name pairs, accent first.</returns>
-    public static (string Hex, string Name)[] PresetsFor(ITheme theme) =>
+    /// <returns>Hex values, accent first.</returns>
+    public static string[] PresetsFor(ITheme theme) =>
     [
-        (Hex(theme.Accent), "Accent"),
-        (Hex(RingGreen(theme)), "Green"),
-        (Hex(theme.AccentWarning), "Warning"),
-        (Hex(theme.TextPrimary), "Text"),
+        Hex(theme.Accent),
+        Hex(RingGreen(theme)),
+        Hex(theme.AccentWarning),
+        Hex(theme.TextPrimary),
     ];
 
     /// <summary>
@@ -89,7 +103,7 @@ public class DwellColorPicker : IDwellComposite
             : theme.AccentSuccess;
 
     /// <summary>Swatches for the active theme. Used when no explicit preset list is passed.</summary>
-    public static (string Hex, string Name)[] DefaultPresets => PresetsFor(Tokens.Current);
+    public static string[] DefaultPresets => PresetsFor(Tokens.Current);
 
     /// <summary>Rendered swatch cell width in logical DIPs. See <see cref="SwatchHeight"/>.</summary>
     public const double SwatchWidth = 120;
@@ -148,14 +162,22 @@ public class DwellColorPicker : IDwellComposite
     /// <param name="radiusPhysical">Hit-test radius in physical screen pixels.</param>
     /// <param name="dwellMs">Dwell duration in milliseconds.</param>
     /// <param name="presets">
-    /// Custom colour presets. Each entry is a (hex, name) pair.
+    /// Custom swatch colours, one hex string per swatch (e.g. <c>"#FF0000"</c>).
     /// Defaults to <see cref="DefaultPresets"/> when <see langword="null"/>.
+    /// </param>
+    /// <param name="swatchNames">
+    /// The caption and tooltip for each swatch, host-supplied so the library owns no English
+    /// word (T02); must have the same length as the presets. Today the settings host passes
+    /// today's English words; T07 replaces them with keys.
     /// </param>
     /// <param name="showLabel">
     /// Whether this composite draws its own heading above its controls. False when the host
     /// lays the name out itself — the settings window's two-column rows put the name in their
     /// left column, and a second copy inside the composite would duplicate it.
     /// </param>
+    /// <exception cref="ArgumentException">
+    /// Thrown when <paramref name="swatchNames"/> and the presets have different lengths.
+    /// </exception>
     public DwellColorPicker(
         IDwellRegistrar registrar,
         string idPrefix,
@@ -165,13 +187,20 @@ public class DwellColorPicker : IDwellComposite
         DwellCategory category,
         double radiusPhysical,
         int dwellMs,
-        (string Hex, string Name)[]? presets = null,
+        string[] swatchNames,
+        string[]? presets = null,
         bool showLabel = true)
     {
+        ArgumentNullException.ThrowIfNull(swatchNames);
         _get = get;
         _set = set;
         _showLabel = showLabel;
         presets ??= DefaultPresets;
+        if (presets.Length != swatchNames.Length)
+        {
+            throw new ArgumentException(
+                "presets and swatchNames must contain the same number of elements.");
+        }
 
         _label = new DwellLabel(label);
 
@@ -192,7 +221,8 @@ public class DwellColorPicker : IDwellComposite
 
         for (int i = 0; i < presets.Length; i++)
         {
-            var (hex, name) = presets[i];
+            var hex = presets[i];
+            var name = swatchNames[i];
             var swatchId = $"{idPrefix}_{i}";
             var color = (Color)ColorConverter.ConvertFromString(hex);
             var capturedHex = hex;

@@ -246,7 +246,8 @@ public class ShippedLayoutFilesTests
         // D16 explicitly NOT applied: the footer is untouched.
         var footer = layout.SubLayouts["letters"].Rows[^1];
         Check.That(footer.Sum(k => k.Width)).IsCloseTo(11.7, 0.01);
-        Check.That(footer.Single(k => k.Label == "Space").Width).IsCloseTo(2.0, 0.01);
+        // Selected by SpecialAction, not by the "Space" label: T14 replaced the caption with ⌴.
+        Check.That(footer.Single(k => k.SpecialAction == "space").Width).IsCloseTo(2.0, 0.01);
     }
 
     [Fact]

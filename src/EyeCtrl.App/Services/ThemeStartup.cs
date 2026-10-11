@@ -77,12 +77,14 @@ public static class ThemeStartup
     private static string MigrateMark(string? persisted, int defaultPresetIndex, ITheme theme)
     {
         var value = (persisted ?? "").Trim();
+        // PresetsFor has been colour-only since main's T02 (host owns the captions),
+        // so the entries are the hex strings themselves.
         var presets = DwellColorPicker.PresetsFor(theme);
 
         foreach (var preset in presets)
         {
-            if (HexEquals(preset.Hex, value))
-                return preset.Hex;
+            if (HexEquals(preset, value))
+                return preset;
         }
 
         foreach (var other in ThemeRegistry.All)
@@ -93,12 +95,12 @@ public static class ThemeStartup
             var otherPresets = DwellColorPicker.PresetsFor(other);
             for (var i = 0; i < otherPresets.Length; i++)
             {
-                if (HexEquals(otherPresets[i].Hex, value))
-                    return presets[Math.Min(i, presets.Length - 1)].Hex;
+                if (HexEquals(otherPresets[i], value))
+                    return presets[Math.Min(i, presets.Length - 1)];
             }
         }
 
-        return ClearsHaloBar(value, theme.StrokeHalo) ? value : presets[defaultPresetIndex].Hex;
+        return ClearsHaloBar(value, theme.StrokeHalo) ? value : presets[defaultPresetIndex];
     }
 
     private static bool HexEquals(string a, string b) =>

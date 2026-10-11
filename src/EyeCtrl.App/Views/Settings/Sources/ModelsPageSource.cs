@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Views.Settings;
 
 using EyeCtrl.App.Services;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Prediction;
 
 /// <summary>
@@ -101,8 +102,9 @@ internal sealed class ModelsPageSource : ISettingsPageSource
             {
                 var e3 = entry;
                 manageRows.Add(new ButtonSpec($"md_del_{entry.Id}",
-                    $"{entry.DisplayName}  {FormatSize(entry.SizeBytes)}  \uD83D\uDDD1 Delete",
-                    () => _ctx.ShowModal($"Delete {e3.DisplayName}? This cannot be undone.", () =>
+                    RowCaption(entry.DisplayName, entry.SizeBytes, StringTable.Current.T("settings.models.delete.affix")),
+                    () => _ctx.ShowModal(
+                        StringTable.Current.T("settings.models.delete.message", e3.DisplayName), () =>
                     {
                         _ctx.ModelManagement.DeleteModel(e3.Id);
                         _ctx.ApplyAndSave();
@@ -110,7 +112,8 @@ internal sealed class ModelsPageSource : ISettingsPageSource
                     }),
                     ButtonKind.Delete, Width: 544, Height: 100));
             }
-            manageRows.Add(new ButtonSpec("md_back", "Back to models",
+            manageRows.Add(new ButtonSpec("md_back",
+                StringTable.Current.T("settings.models.back.label"),
                 () => GoTo(ModelsView.List), ButtonKind.Default, Width: 300, Height: 100));
             return [new PageSpec(manageRows)];
         }
@@ -120,17 +123,20 @@ internal sealed class ModelsPageSource : ISettingsPageSource
 
         if (downloaded.Count == 0)
         {
-            page1.Add(new LabelSpec(() => "No models downloaded. Download one below."));
+            page1.Add(new LabelSpec(
+                () => StringTable.Current.T("settings.models.none")));
         }
         else
         {
             var display = downloaded.Select(m => m.DisplayName).ToArray();
             var ids = downloaded.Select(m => m.Id).ToArray();
-            page1.Add(new ComboBoxSpec("md_active", "Active Model",
-                display.Prepend("Off").ToArray(), ids.Prepend("Off").ToArray(),
+            page1.Add(new ComboBoxSpec("md_active",
+                StringTable.Current.T("settings.models.active.label"),
+                display.Prepend(StringTable.Current.T("settings.models.active.off")).ToArray(),
+                ids.Prepend("Off").ToArray(),
                 () => _ctx.Registry.ActiveModelId ?? "Off",
                 v => { _ctx.ModelManagement.SetActiveModel(v); _ctx.ApplyAndSave(); })
-                { Description = "Which model powers predictions; Off keeps dictionary words." });
+                { Description = StringTable.Current.T("settings.models.active.description") });
         }
 
         page1.Add(new SeparatorSpec());
@@ -148,8 +154,9 @@ internal sealed class ModelsPageSource : ISettingsPageSource
                 // read as "models do not download". The label re-evaluates on every
                 // progress-driven rebuild (~2 Hz, see OnDownloadProgress).
                 var eInFlight = entry;
-                page1.Add(new LabelSpec(() =>
-                    $"⇣ {eInFlight.DisplayName}  downloading… {_ctx.ModelManagement.CurrentDownloadProgress:P0}"));
+                page1.Add(new LabelSpec(() => StringTable.Current.T(
+                    "settings.models.progress",
+                    eInFlight.DisplayName, _ctx.ModelManagement.CurrentDownloadProgress)));
                 continue;
             }
 
@@ -160,17 +167,19 @@ internal sealed class ModelsPageSource : ISettingsPageSource
                 // clamps on narrower displays): one line for every bundled label except the
                 // GPU one, which wraps to two centered lines rather than clipping.
                 page1.Add(new ButtonSpec($"md_dl_{entry.Id}",
-                    $"{entry.DisplayName}  {FormatSize(entry.SizeBytes)}  [Download]",
+                    RowCaption(entry.DisplayName, entry.SizeBytes, StringTable.Current.T("settings.models.download.affix")),
                     () =>
                     {
                         // Not silent: a busy workflow that swallows the dwell is
                         // indistinguishable from a broken button.
                         if (_ctx.ModelManagement.IsDownloading)
                         {
-                            _ctx.ShowError("Another download is already in progress.");
+                            _ctx.ShowError(StringTable.Current.T("settings.models.download.busy"));
                             return;
                         }
-                        _ctx.ShowModal($"Download {e2.DisplayName} ({FormatSize(e2.SizeBytes)})?",
+                        _ctx.ShowModal(
+                            StringTable.Current.T("settings.models.download.message",
+                                e2.DisplayName, FormatSize(e2.SizeBytes)),
                             () => _ = DownloadBundledAsync(e2.Id, e2.Url, e2.Sha256, e2.TokenizerUrl, e2.TokenizerSha256));
                     },
                     ButtonKind.Default, Width: 544, Height: 100));
@@ -181,7 +190,7 @@ internal sealed class ModelsPageSource : ISettingsPageSource
             {
                 var e1 = entry;
                 page1.Add(new LabelSpec(() =>
-                    $"  {e1.DisplayName}  {FormatSize(e1.SizeBytes)}  ✓ Downloaded"));
+                    $"  {e1.DisplayName}  {FormatSize(e1.SizeBytes)}  {StringTable.Current.T("settings.models.downloaded.affix")}"));
                 continue;
             }
 
@@ -200,29 +209,32 @@ internal sealed class ModelsPageSource : ISettingsPageSource
             // floor is a floor, not a cap, and CreateControl derives the row inset from the
             // height, so the 150 DIP row pitch and the circle's 75 DIP centre are unchanged.
             page1.Add(new ButtonSpec($"md_fix_{entry.Id}",
-                $"⚠ {e3.DisplayName} — model unusable · predictions fall back to dictionary · dwell to re-download",
+                StringTable.Current.T("settings.models.repair.label", e3.DisplayName),
                 () =>
                 {
                     // L3: same busy guard as the download arm — refuse BEFORE the modal.
                     if (_ctx.ModelManagement.IsDownloading)
                     {
-                        _ctx.ShowError("Another download is already in progress.");
+                        _ctx.ShowError(StringTable.Current.T("settings.models.download.busy"));
                         return;
                     }
                     _ctx.ShowModal(
-                        $"Re-download {e3.DisplayName} ({FormatSize(e3.SizeBytes)})? This replaces the files on disk.",
+                        StringTable.Current.T("settings.models.repair.message",
+                            e3.DisplayName, FormatSize(e3.SizeBytes)),
                         () => _ = DownloadBundledAsync(e3.Id, e3.Url, e3.Sha256, e3.TokenizerUrl, e3.TokenizerSha256));
                 },
                 ButtonKind.Danger, Width: 544, Height: 106));
         }
 
         page1.Add(new SeparatorSpec());
-        page1.Add(new ButtonSpec("md_add", "\uff0b Add Custom Model (paste URL)",
+        page1.Add(new ButtonSpec("md_add",
+            StringTable.Current.T("settings.models.add.label"),
             DownloadCustomFromClipboard, ButtonKind.Default, Width: 440, Height: 100));
 
         if (manageable.Count > 0)
         {
-            page1.Add(new ButtonSpec("md_manage", "Manage models...",
+            page1.Add(new ButtonSpec("md_manage",
+                StringTable.Current.T("settings.models.manage.label"),
                 () => GoTo(ModelsView.Manage), ButtonKind.Default, Width: 300, Height: 100));
         }
 
@@ -236,7 +248,8 @@ internal sealed class ModelsPageSource : ISettingsPageSource
             var result = await _ctx.ModelManagement.DownloadBundledModelAsync(id, url, sha256, tokUrl, tokSha256);
             _ctx.Invoke(() =>
             {
-                if (!result.IsSuccess) _ctx.ShowError(result.Error ?? "Download failed.");
+                if (!result.IsSuccess)
+                    _ctx.ShowError(result.Error ?? StringTable.Current.T("settings.models.download.failed"));
                 // ApplyAndSave persists and raises SettingsChanged -> ReloadIfChanged, which
                 // rebuilds the prediction stack when the captured stack inputs changed. One of
                 // those inputs is NOT a setting: KeyboardStackSnapshot carries whether the file
@@ -253,7 +266,7 @@ internal sealed class ModelsPageSource : ISettingsPageSource
         {
             _ctx.Invoke(() =>
             {
-                _ctx.ShowError($"Download failed: {ex.Message}");
+                _ctx.ShowError(StringTable.Current.T("settings.models.download.failed_detail", ex.Message));
                 _ctx.RebuildContent();
             });
         }
@@ -264,16 +277,17 @@ internal sealed class ModelsPageSource : ISettingsPageSource
         var url = (_ctx.ReadClipboard() ?? "").Trim();
         if (string.IsNullOrEmpty(url) || !url.StartsWith("https://"))
         {
-            _ctx.ShowError("Copy a valid HTTPS model URL to clipboard first, then dwell this button.");
+            _ctx.ShowError(StringTable.Current.T("settings.models.clipboard.invalid"));
             return;
         }
         if (_ctx.ModelManagement.IsDownloading)
         {
-            _ctx.ShowError("Another download is already in progress.");
+            _ctx.ShowError(StringTable.Current.T("settings.models.download.busy"));
             return;
         }
         var displayName = ModelManagementService.DeriveModelName(url);
-        _ctx.ShowModal($"Download custom model \"{displayName}\" from clipboard URL?", () =>
+        _ctx.ShowModal(
+            StringTable.Current.T("settings.models.custom.message", displayName), () =>
         {
             _ = Task.Run(async () =>
             {
@@ -292,7 +306,8 @@ internal sealed class ModelsPageSource : ISettingsPageSource
                     var result = await _ctx.ModelManagement.DownloadCustomModelAsync(url);
                     _ctx.Invoke(() =>
                     {
-                        if (!result.IsSuccess) _ctx.ShowError(result.Error ?? "Download failed.");
+                        if (!result.IsSuccess)
+                            _ctx.ShowError(result.Error ?? StringTable.Current.T("settings.models.download.failed"));
                         else _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     });
@@ -301,7 +316,7 @@ internal sealed class ModelsPageSource : ISettingsPageSource
                 {
                     _ctx.Invoke(() =>
                     {
-                        _ctx.ShowError($"Download failed: {ex.Message}");
+                        _ctx.ShowError(StringTable.Current.T("settings.models.download.failed_detail", ex.Message));
                         _ctx.RebuildContent();
                     });
                 }
@@ -309,11 +324,38 @@ internal sealed class ModelsPageSource : ISettingsPageSource
         });
     }
 
+    /// <summary>
+    /// A model button's caption: the model's name, its size and the keyed affix. Only the affix is
+    /// translated, so the caption is composed here, in one place — the delete and download
+    /// buttons both use it, and T09's <c>btn544x100</c> fit gate measures exactly this string
+    /// for every bundled model.
+    /// </summary>
+    /// <param name="displayName">The model's display name.</param>
+    /// <param name="sizeBytes">The model's size in bytes.</param>
+    /// <param name="affix">The keyed affix ("🗑 Delete", "[Download]").</param>
+    /// <returns>The button caption.</returns>
+    internal static string RowCaption(string displayName, long sizeBytes, string affix) =>
+        $"{displayName}  {FormatSize(sizeBytes)}  {affix}";
+
     private static string FormatSize(long bytes)
     {
-        if (bytes >= 1_073_741_824) return $"{bytes / 1_073_741_824.0:F1} GB";
-        if (bytes >= 1_048_576) return $"{bytes / 1_048_576:F0} MB";
-        if (bytes >= 1024) return $"{bytes / 1024:F0} KB";
-        return $"{bytes} B";
+        // Size units follow the Settings surface's language (T02): invariant while it is
+        // English, de-DE once its German is effective. The provider is inline at each site so the
+        // format scan sees the surface id at the call site.
+        if (bytes >= 1_073_741_824)
+            return string.Create(
+                EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("settings"),
+                $"{bytes / 1_073_741_824.0:F1} GB");
+        if (bytes >= 1_048_576)
+            return string.Create(
+                EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("settings"),
+                $"{bytes / 1_048_576:F0} MB");
+        if (bytes >= 1024)
+            return string.Create(
+                EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("settings"),
+                $"{bytes / 1024:F0} KB");
+        return string.Create(
+            EyeCtrl.Core.Localization.StringTable.Current.FormatProviderFor("settings"),
+            $"{bytes} B");
     }
 }

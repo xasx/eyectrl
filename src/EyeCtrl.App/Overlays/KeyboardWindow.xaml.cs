@@ -53,6 +53,9 @@ public partial class KeyboardWindow : OverlayWindow
     private readonly Dictionary<string, DwellOutlineOverlay> _keyOutlines = new();
     private readonly Dictionary<string, KeyDefinition> _keyDefinitions = new();
     private readonly Dictionary<string, PhysicalPoint> _keyScreenPositions = new();
+    // Each key's visible box in physical pixels, beside its centre: box-first targeting
+    // (KeyTargeting.PickKey). Filled and cleared together with _keyScreenPositions.
+    private readonly Dictionary<string, PhysicalRect> _keyScreenBoxes = new();
     private readonly List<DwellOutlineOverlay> _predictionOutlines = new();
     // The list the bar RENDERED. OnPredictionDwelled resolves its index against this, never
     // against a fresh GetSuggestionsWithContext() call: that call re-polls the LM
@@ -235,6 +238,10 @@ public partial class KeyboardWindow : OverlayWindow
                 // unique. Regular keys (no SpecialAction) keep the positional id.
                 var id = !string.IsNullOrEmpty(key.SpecialAction) ? key.SpecialAction : $"key_{rowIdx}_{keyIdx}";
 
+                // The box the label must fit: the same width the Border below takes. The
+                // symbol-caption fit limit is stated against this number.
+                var boxWidth = _keySize * key.Width + (key.Width > 1 ? (key.Width - 1) * 4 : 0);
+
                 var label = new TextBlock
                 {
                     Text = key.Label,
@@ -253,15 +260,33 @@ public partial class KeyboardWindow : OverlayWindow
                     // gate it >= 12, not == 12 — so raising body text to 14 would silently grow
                     // this glyph, and three others, at the bottom of the multiplier range. A
                     // minimum also has no business being theme-dependent.
-                    FontSize = Math.Max(_keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize),
+                    //
+                    // A symbol caption (⬆ ⇧ ⌫ ⌴ ↵ ⇥ ✂ ↶ ↷ ← ↑ → ↓ 😀) takes the T14 rule
+                    // (user's pick, 2026-10-07): x1.4 in the theme's medium weight, fit-limited
+                    // to the box. Resolve returns the base font untouched for every other key.
+                    FontSize = SymbolCaptionFonts.Resolve(
+                        key,
+                        Math.Max(_keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize),
+                        boxWidth),
+                    FontWeight = SymbolCaptionRule.IsSymbolCaption(key) ? Tokens.FontWeightMedium : FontWeights.Normal,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
                 };
 
+                // A label frame (round 3: the word-delete erase arrow; round 6: the wide
+                // Caps/Shift/Enter arrows) replaces the label's visuals: the label stays the UIA
+                // anchor at Opacity 0 and the frame is drawn as geometry around it. Everything
+                // that acts on the label still works.
+                FrameworkElement captionContent = label;
+                if (key.LabelFrame == EraseLabelFrame.EraseLeft)
+                    captionContent = EraseLabelFrame.Build(label, _keySize, boxWidth);
+                else if (ArrowLabelFrame.IsArrow(key.LabelFrame))
+                    captionContent = ArrowLabelFrame.Build(key.LabelFrame!, label, _keySize);
+
                 var keyBrush = new SolidColorBrush(GetKeyBaseColor(key));
                 var container = new Border
                 {
-                    Width = _keySize * key.Width + (key.Width > 1 ? (key.Width - 1) * 4 : 0),
+                    Width = boxWidth,
                     Height = _keySize,
                     Margin = new Thickness(2),
                     Background = keyBrush,
@@ -270,8 +295,14 @@ public partial class KeyboardWindow : OverlayWindow
                 _keyBrushes[id] = keyBrush;
 
                 System.Windows.Automation.AutomationProperties.SetAutomationId(label, $"Keyboard_Key_{id}");
+                // A symbol caption is unpronounceable to a screen reader, so the layout supplies
+                // its name ("⌫" -> "Rücktaste"). Set ONLY when supplied: an explicit name freezes
+                // a shift-variant key at its resting label, while an unnamed label keeps the
+                // peer's live text (ß announces ẞ under Caps).
+                if (key.AccessibleName is not null)
+                    System.Windows.Automation.AutomationProperties.SetName(label, key.AccessibleName);
 
-                RegisterKeyVisual(id, key, container, label);
+                RegisterKeyVisual(id, key, container, label, captionContent);
                 rowPanel.Children.Add(container);
             }
 
@@ -343,7 +374,8 @@ public partial class KeyboardWindow : OverlayWindow
             _predictionDwellDetector.ResetAllState();
         }
 
-        _viewModel.ProcessKeyGaze(_keyScreenPositions, screenPoint, gazeInsideKeyArea, timestampMicroseconds);
+        _viewModel.ProcessKeyGaze(_keyScreenPositions, screenPoint, gazeInsideKeyArea, timestampMicroseconds,
+            _keyScreenBoxes);
     }
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -503,12 +535,20 @@ public partial class KeyboardWindow : OverlayWindow
         RebuildKeys();
     }
 
+    /// <summary>
+    /// Each key's centre AND box, from the same <c>container</c> Border and the same
+    /// <c>PointToScreen</c> transform, so both are physical pixels at the real DPI. The box is the
+    /// two-corner <see cref="TryGetScreenRect"/>: the Border's own extent, i.e. the visible key
+    /// without its Margin, so the 4 DIP gutters stay gaps and keep the nearest-centre rule.
+    /// </summary>
     private void UpdateKeyScreenPositions()
     {
         foreach (var (id, (container, _)) in _keyVisuals)
         {
             if (OverlayPositioning.TryGetScreenCenter(container, out var pos))
                 _keyScreenPositions[id] = pos;
+            if (TryGetScreenRect(container, out var box))
+                _keyScreenBoxes[id] = box;
         }
     }
 
@@ -893,10 +933,17 @@ public partial class KeyboardWindow : OverlayWindow
     /// call site; a funnel makes that silent omission structurally impossible to repeat.
     /// </summary>
     /// <param name="container">The target's border. Its <c>Child</c> must be unset: the outline
-    /// wraps <paramref name="label"/> and installs the wrapper as the Child.</param>
+    /// wraps the caption content and installs the wrapper as the Child.</param>
+    /// <param name="label">The target's label, kept for the automation name and the id.</param>
     private void RegisterKeyVisual(string id, KeyDefinition keyDef, Border container, TextBlock? label)
+        => RegisterKeyVisual(id, keyDef, container, label, label);
+
+    /// <param name="content">The element the outline wraps: the label itself, or the two-line
+    /// caption stack whose first line is <paramref name="label"/> (B4).</param>
+    private void RegisterKeyVisual(
+        string id, KeyDefinition keyDef, Border container, TextBlock? label, FrameworkElement? content)
     {
-        _keyOutlines[id] = DwellOutlineOverlay.Attach(container, label);
+        _keyOutlines[id] = DwellOutlineOverlay.Attach(container, content);
         _keyDefinitions[id] = keyDef;
         _keyVisuals[id] = (container, label);
     }
@@ -908,5 +955,6 @@ public partial class KeyboardWindow : OverlayWindow
         _keyOutlines.Clear();
         _keyDefinitions.Clear();
         _keyScreenPositions.Clear();
+        _keyScreenBoxes.Clear();
     }
 }

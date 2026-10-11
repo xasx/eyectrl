@@ -44,6 +44,65 @@ public class CalibrationServiceTests
     }
 
     [Fact]
+    public void CompleteSession_RejectsGazeThatNeverChangedAcrossTargets_WithTheGazeVariationCode()
+    {
+        // On this small screen the 120 px band floor dominates the layout: at X = 168 every target is
+        // inside the band of the collected mean (|168-48| = 120, |168-272| = 104), so collection
+        // succeeds while the collected gaze never spans the target X span. That is the gaze-variation
+        // refusal, and it must carry its own code rather than one of the transform codes it shares
+        // CompleteSession with.
+        var screen = new PhysicalPoint(320, 240);
+        var service = new CalibrationService();
+        service.StartSession(5, screen);
+        var targets = CalibrationTargetPositionHelper.GetPositions(5, screen);
+
+        for (int i = 0; i < targets.Count; i++)
+        {
+            service.BeginTarget(i, settleWindowMs: 0);
+            for (int j = 0; j < 10; j++)
+                service.AddRawSample(new PhysicalPoint(168, targets[i].Y));
+            service.EndTarget();
+        }
+
+        var thrown = Check.ThatCode(() => service.CompleteSession(screen, "DISPLAY1"))
+                           .Throws<CalibrationFailedException>().Value;
+
+        Check.That(thrown.Failure.Code).IsEqualTo(CalibrationFailureCode.GazeVariation);
+        Check.That(service.CurrentTransform).IsNull();
+    }
+
+    [Fact]
+    public void CompleteSession_FitFault_IsCarriedAsUnexpected_WithTheTechnicalFaultInside()
+    {
+        // Gaze that passes the variation check but makes the fit singular: on this screen every target
+        // is within the 120 px band of the line y = x, and every sample sits exactly on it, so the
+        // design matrix is rank-deficient and Fit's own guard fires. That message is technical and
+        // stays; CompleteSession must still hand the window a renderable code, with the technical
+        // fault kept as the inner exception for the log.
+        var screen = new PhysicalPoint(280, 280);
+        var service = new CalibrationService();
+        service.StartSession(5, screen);
+        var targets = CalibrationTargetPositionHelper.GetPositions(5, screen);
+
+        for (int i = 0; i < targets.Count; i++)
+        {
+            var onDiagonal = (targets[i].X + targets[i].Y) / 2.0;
+            var gaze = new PhysicalPoint(onDiagonal, onDiagonal);
+            service.BeginTarget(i, settleWindowMs: 0);
+            for (int j = 0; j < 10; j++)
+                service.AddRawSample(gaze);
+            service.EndTarget();
+        }
+
+        var thrown = Check.ThatCode(() => service.CompleteSession(screen, "DISPLAY1"))
+                           .Throws<CalibrationFailedException>().Value;
+
+        Check.That(thrown.Failure.Code).IsEqualTo(CalibrationFailureCode.Unexpected);
+        Check.That(thrown.InnerException).IsInstanceOf<InvalidOperationException>();
+        Check.That(service.CurrentTransform).IsNull();
+    }
+
+    [Fact]
     public void CurrentTransform_IsNull_WhenNoCalibration()
     {
         var service = new CalibrationService();
@@ -269,6 +328,9 @@ public class CalibrationServiceTests
 
             Check.That(service.CurrentTransform).IsNull();
             Check.That(logger.LoggedCount > 0).IsTrue();
+            // The call site assigned the OFF-SCREEN key, not another rejection (T07 fixup-02 R4).
+            Check.That(service.LastLoadRejection).IsEqualTo(
+                "Not applied \u2014 the saved calibration maps gaze off-screen (bad fit). Recalibrate to fix.");
         }
         finally
         {
@@ -296,6 +358,77 @@ public class CalibrationServiceTests
 
             Check.That(service.CurrentTransform).IsNull();
             Check.That(logger.LoggedCount > 0).IsTrue();
+            // The call site assigned the FLIPS key, which differs from the off-screen one above
+            // only by its words (T07 fixup-02 R4).
+            Check.That(service.LastLoadRejection).IsEqualTo(
+                "Not applied \u2014 the saved calibration flips or amplifies gaze (bad fit). Recalibrate to fix.");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_MalformedTransform_RejectsWithItsOwnSentence()
+    {
+        var service = new CalibrationService();
+        var path = Path.GetTempFileName();
+        try
+        {
+            // Valid JSON, a matching screen and monitor, but five transform parameters.
+            File.WriteAllText(path,
+                "{\"transformParams\":[1,0,100,0,1],\"screenWidth\":3840,\"screenHeight\":2400," +
+                "\"monitorDeviceName\":\"DISPLAY1\"}");
+
+            service.Load(path, new PhysicalPoint(3840, 2400), "DISPLAY1");
+
+            Check.That(service.CurrentTransform).IsNull();
+            Check.That(service.LastLoadRejection).IsEqualTo(
+                "Not applied \u2014 the saved calibration is malformed. Recalibrate to fix.");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_UnreadableFile_RejectsWithItsOwnSentence()
+    {
+        var service = new CalibrationService();
+        var path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(path, "this is not JSON");
+
+            service.Load(path, new PhysicalPoint(3840, 2400), "DISPLAY1");
+
+            Check.That(service.CurrentTransform).IsNull();
+            Check.That(service.LastLoadRejection).IsEqualTo(
+                "Not applied \u2014 the saved calibration could not be read. Recalibrate to fix.");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_EmptyFile_RejectsWithItsOwnSentence()
+    {
+        var service = new CalibrationService();
+        var path = Path.GetTempFileName();
+        try
+        {
+            // Deserializes to null: the file is JSON-shaped but holds no record.
+            File.WriteAllText(path, "null");
+
+            service.Load(path, new PhysicalPoint(3840, 2400), "DISPLAY1");
+
+            Check.That(service.CurrentTransform).IsNull();
+            Check.That(service.LastLoadRejection).IsEqualTo(
+                "Not applied \u2014 the saved calibration file is empty. Recalibrate to fix.");
         }
         finally
         {
@@ -464,6 +597,14 @@ public class CalibrationServiceTests
         return path;
     }
 
+    /// <summary>Loads a saved calibration as if on the given monitor and returns the rejection sentence.</summary>
+    private static string LoadRejection(string path, string currentName, string currentId = "")
+    {
+        var service = new CalibrationService();
+        service.Load(path, new PhysicalPoint(3840, 2400), currentName, currentId);
+        return service.LastLoadRejection ?? "(none)";
+    }
+
     [Fact]
     public void Load_LogsWarningNamingBothMonitors_OnMonitorMismatch()
     {
@@ -508,6 +649,10 @@ public class CalibrationServiceTests
             var warning = logger.Warnings.FirstOrDefault(w => w.Contains("3840x2400"));
             Check.That(warning).IsNotNull();
             Check.That(warning!).Contains("1920x1080");
+            // The sentence the settings page shows, pinned as an English literal at the CALL SITE
+            // (T07 fixup-02 R4): the table text alone does not prove Load picked the screen key.
+            Check.That(service.LastLoadRejection).IsEqualTo(
+                "Not applied \u2014 saved for a 3840\u00d72400 screen, current is 1920\u00d71080. Recalibrate to fix.");
         }
         finally
         {
@@ -539,6 +684,43 @@ public class CalibrationServiceTests
         finally
         {
             File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_RecordsMonitorMismatch_AsOneWholePhrase_PerHardwareIdCombination()
+    {
+        // The rejection is built from ONE whole phrase per combination of the optional hardware ids,
+        // not from a base string plus a conditionally appended ", {id}" fragment. German decides its
+        // own punctuation and word order, and a fragment is not a phrase (T03c). Pinning all four
+        // exact sentences here keeps each arm whole and the English word-for-word.
+        var screen = new PhysicalPoint(3840, 2400);
+        var savedName = "\\\\.\\DISPLAY14";
+        var currentName = "\\\\.\\DISPLAY2";
+
+        var bothIds = SaveValidCalibration(screen, savedName, "AUOC5AC");
+        var savedIdOnly = SaveValidCalibration(screen, savedName, "AUOC5AC");
+        var currentIdOnly = SaveValidCalibration(screen, savedName);
+        var neitherId = SaveValidCalibration(screen, savedName);
+        try
+        {
+            Check.That(LoadRejection(bothIds, currentName, "DELA1CF")).IsEqualTo(
+                "Not applied — saved on a different monitor (\\\\.\\DISPLAY14, AUOC5AC), "
+                + "current is \\\\.\\DISPLAY2, DELA1CF. Recalibrate to fix.");
+            Check.That(LoadRejection(savedIdOnly, currentName)).IsEqualTo(
+                "Not applied — saved on a different monitor (\\\\.\\DISPLAY14, AUOC5AC), "
+                + "current is \\\\.\\DISPLAY2. Recalibrate to fix.");
+            Check.That(LoadRejection(currentIdOnly, currentName, "DELA1CF")).IsEqualTo(
+                "Not applied — saved on a different monitor (\\\\.\\DISPLAY14), "
+                + "current is \\\\.\\DISPLAY2, DELA1CF. Recalibrate to fix.");
+            Check.That(LoadRejection(neitherId, currentName)).IsEqualTo(
+                "Not applied — saved on a different monitor (\\\\.\\DISPLAY14), "
+                + "current is \\\\.\\DISPLAY2. Recalibrate to fix.");
+        }
+        finally
+        {
+            foreach (var path in new[] { bothIds, savedIdOnly, currentIdOnly, neitherId })
+                File.Delete(path);
         }
     }
 

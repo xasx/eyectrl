@@ -105,7 +105,8 @@ public partial class ActionMenuViewModel : DwellOverlayViewModelBase,
         // that same rule: visible-list order filtered by primary membership, deliberately not
         // PrimaryActions order.
         var plan = RingPlan.Create(
-            message.Actions, _settings.ActionMenu.PrimaryActions, message.CircleSize);
+            message.Actions, _settings.ActionMenu.PrimaryActions, message.CircleSize,
+            RingLabelSource.Overlays); // the live ring's host passes its own keyed source
         var layer = plan.BuildLayer(
             _onSecondaryLayer ? RingLayer.Secondary : RingLayer.Primary, message.ShowBack);
         if (layer.Slots.Count == 0) return;

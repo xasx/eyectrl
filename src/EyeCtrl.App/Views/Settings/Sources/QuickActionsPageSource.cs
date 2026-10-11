@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Views.Settings;
 
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 
 /// <summary>
@@ -159,9 +160,12 @@ internal sealed class QuickActionsPageSource : ISettingsPageSource
     public IReadOnlyList<PageSpec> Build() => _view switch
     {
         QaView.PickType => TypePicker(),
-        QaView.PickShortcut => PresetPicker("qa_ks", Core.Models.QuickActionPresets.KeyboardShortcuts, _ctx.ViewModel.QuickActionsEditor.AddKeyboardShortcut),
-        QaView.PickMedia => PresetPicker("qa_md", Core.Models.QuickActionPresets.MediaControls, _ctx.ViewModel.QuickActionsEditor.AddMediaControl),
-        QaView.PickWindowAction => PresetPicker("qa_win", Core.Models.QuickActionPresets.WindowActions, _ctx.ViewModel.QuickActionsEditor.AddWindowAction),
+        QaView.PickShortcut => PresetPicker("qa_ks", Core.Models.QuickActionPresets.KeyboardShortcuts,
+            p => _ctx.ViewModel.QuickActionsEditor.AddKeyboardShortcut(p.Label, p.Payload, p.Id)),
+        QaView.PickMedia => PresetPicker("qa_md", Core.Models.QuickActionPresets.MediaControls,
+            p => _ctx.ViewModel.QuickActionsEditor.AddMediaControl(p.Label, p.Payload, p.Id)),
+        QaView.PickWindowAction => PresetPicker("qa_win", Core.Models.QuickActionPresets.WindowActions,
+            p => _ctx.ViewModel.QuickActionsEditor.AddWindowAction(p.Label, p.Payload, p.Id)),
         QaView.PickApp => AppPicker(),
         _ => List(),
     };
@@ -175,12 +179,31 @@ internal sealed class QuickActionsPageSource : ISettingsPageSource
         // Add action leads, and that ORDER IS LOAD-BEARING — see QaConfigRowsPerPage.
         var config = new List<SettingsRowSpec>
         {
-            new ButtonSpec("qa_add", "\uFF0B  Add action", () => GoTo(QaView.PickType), ButtonKind.Default, Width: 360, Height: 100),
-            new ToggleSpec("qa_enabled", "Enable Quick Actions", () => qa.Enabled, v => { qa.Enabled = v; _ctx.ApplyAndSave(); }),
-            new ComboBoxSpec("qa_edge", "Summon Edge", new[] { "Left", "Right", "Top", "Bottom" }, null, () => qa.SummonEdge, v => { qa.SummonEdge = v; _ctx.ApplyAndSave(); }),
-            new SliderSpec("qa_summon", "Summon Threshold (ms)", 200, 2000, 50, 0, () => qa.SummonThresholdMs, v => { qa.SummonThresholdMs = (int)v; _ctx.ApplyAndSave(); }),
-            new SliderSpec("qa_dismiss", "Dismiss Timeout (ms)", 1000, 15000, 500, 0, () => qa.DismissTimeoutMs, v => { qa.DismissTimeoutMs = (int)v; _ctx.ApplyAndSave(); }),
-            new SliderSpec("qa_columns", "Grid Columns", 2, 5, 1, 0, () => qa.GridColumns, v => { qa.GridColumns = (int)v; _ctx.ApplyAndSave(); }),
+            new ButtonSpec("qa_add",
+                StringTable.Current.T("settings.quick_actions.add.label"),
+                () => GoTo(QaView.PickType), ButtonKind.Default, Width: 360, Height: 100),
+            new ToggleSpec("qa_enabled",
+                StringTable.Current.T("settings.quick_actions.enabled.label"),
+                () => qa.Enabled, v => { qa.Enabled = v; _ctx.ApplyAndSave(); }),
+            new ComboBoxSpec("qa_edge",
+                StringTable.Current.T("settings.quick_actions.edge.label"),
+                [
+                    StringTable.Current.T("settings.quick_actions.edge.option.left"),
+                    StringTable.Current.T("settings.quick_actions.edge.option.right"),
+                    StringTable.Current.T("settings.quick_actions.edge.option.top"),
+                    StringTable.Current.T("settings.quick_actions.edge.option.bottom"),
+                ],
+                new[] { "Left", "Right", "Top", "Bottom" },
+                () => qa.SummonEdge, v => { qa.SummonEdge = v; _ctx.ApplyAndSave(); }),
+            new SliderSpec("qa_summon",
+                StringTable.Current.T("settings.quick_actions.summon_threshold.label"),
+                200, 2000, 50, 0, () => qa.SummonThresholdMs, v => { qa.SummonThresholdMs = (int)v; _ctx.ApplyAndSave(); }),
+            new SliderSpec("qa_dismiss",
+                StringTable.Current.T("settings.quick_actions.dismiss_timeout.label"),
+                1000, 15000, 500, 0, () => qa.DismissTimeoutMs, v => { qa.DismissTimeoutMs = (int)v; _ctx.ApplyAndSave(); }),
+            new SliderSpec("qa_columns",
+                StringTable.Current.T("settings.quick_actions.grid_columns.label"),
+                2, 5, 1, 0, () => qa.GridColumns, v => { qa.GridColumns = (int)v; _ctx.ApplyAndSave(); }),
         };
 
         for (int i = 0; i < config.Count; i += QaConfigRowsPerPage)
@@ -194,10 +217,13 @@ internal sealed class QuickActionsPageSource : ISettingsPageSource
             foreach (var a in chunk)
             {
                 var captured = a;
-                var caption = $"{Glyph(a.Type)}  {a.Label}";
+                var caption = $"{Glyph(a.Type)}  {QuickActionPresets.DisplayLabel(a, PresetLabelFor)}";
                 rows.Add(new ToggleSpec("qa_en_" + a.Id, caption, () => captured.Enabled, _ => editor.ToggleEnabled(captured.Id)));
-                rows.Add(new ButtonSpec("qa_del_" + a.Id, "\u2715  Delete",
-                    () => _ctx.ShowModal($"Delete \"{captured.Label}\"?", () => { editor.DeleteAction(captured.Id); _ctx.RebuildContent(); }),
+                rows.Add(new ButtonSpec("qa_del_" + a.Id,
+                    StringTable.Current.T("settings.quick_actions.delete.label"),
+                    () => _ctx.ShowModal(StringTable.Current.T(
+                        "settings.quick_actions.delete.message",
+                        QuickActionPresets.DisplayLabel(captured, PresetLabelFor)), () => { editor.DeleteAction(captured.Id); _ctx.RebuildContent(); }),
                     ButtonKind.Delete, Width: 360, Height: 70));
             }
             pages.Add(new PageSpec(rows));
@@ -209,19 +235,78 @@ internal sealed class QuickActionsPageSource : ISettingsPageSource
     [
         new PageSpec([
             .. BackRow(0),
-            new ButtonSpec("qa_type_kbd", "\u2328  Keyboard Shortcut", () => GoTo(QaView.PickShortcut), ButtonKind.Default, Width: 420, Height: 90),
-            new ButtonSpec("qa_type_media", "\u266B  Media Control", () => GoTo(QaView.PickMedia), ButtonKind.Default, Width: 420, Height: 90),
-            new ButtonSpec("qa_type_app", "\u25A6  Launch App", () => GoTo(QaView.PickApp), ButtonKind.Default, Width: 420, Height: 90),
-            new ButtonSpec("qa_type_window", "\u25A3  Window Action", () => GoTo(QaView.PickWindowAction), ButtonKind.Default, Width: 420, Height: 90),
+            new ButtonSpec("qa_type_kbd",
+                StringTable.Current.T("settings.quick_actions.type.keyboard.label"),
+                () => GoTo(QaView.PickShortcut), ButtonKind.Default, Width: 420, Height: 90),
+            new ButtonSpec("qa_type_media",
+                StringTable.Current.T("settings.quick_actions.type.media.label"),
+                () => GoTo(QaView.PickMedia), ButtonKind.Default, Width: 420, Height: 90),
+            new ButtonSpec("qa_type_app",
+                StringTable.Current.T("settings.quick_actions.type.app.label"),
+                () => GoTo(QaView.PickApp), ButtonKind.Default, Width: 420, Height: 90),
+            new ButtonSpec("qa_type_window",
+                StringTable.Current.T("settings.quick_actions.type.window.label"),
+                () => GoTo(QaView.PickWindowAction), ButtonKind.Default, Width: 420, Height: 90),
         ]),
     ];
 
+    /// <summary>
+    /// The Settings surface's preset-label function. Every preset label the tab shows — the
+    /// picker buttons, the list caption, the delete modal — resolves through this one function.
+    ///
+    /// <para>
+    /// Each preset id maps to a literal <c>settings</c> key, which mirrors the grid's
+    /// <c>overlays.preset.</c> key for the same id (D3): the Settings surface speaks its own
+    /// keys from Step 2 while the live grid stays English until Step 3. An id outside the table
+    /// returns null, and <see cref="QuickActionPresets.DisplayLabel"/> falls back to the preset's
+    /// English label — the same behaviour as before this table existed.
+    /// </para>
+    /// </summary>
+    internal static string? PresetLabelFor(string presetId) =>
+        PresetLabelKeys.TryGetValue(presetId, out var key) ? StringTable.Current.T(key) : null;
+
+    /// <summary>
+    /// Preset id → literal key. Written out rather than built from the id so every key is a
+    /// literal the coverage and unused-key gates see, and so the mapping is pinned by
+    /// <c>QuickActionPresetLabelTests</c> against <see cref="QuickActionPresets"/>' real ids.
+    /// </summary>
+    private static readonly Dictionary<string, string> PresetLabelKeys = new(StringComparer.Ordinal)
+    {
+        ["kbd.copy"] = "settings.preset.kbd.copy",
+        ["kbd.paste"] = "settings.preset.kbd.paste",
+        ["kbd.cut"] = "settings.preset.kbd.cut",
+        ["kbd.undo"] = "settings.preset.kbd.undo",
+        ["kbd.redo"] = "settings.preset.kbd.redo",
+        ["kbd.select_all"] = "settings.preset.kbd.select_all",
+        ["kbd.save"] = "settings.preset.kbd.save",
+        ["kbd.find"] = "settings.preset.kbd.find",
+        ["kbd.new"] = "settings.preset.kbd.new",
+        ["kbd.print"] = "settings.preset.kbd.print",
+        ["kbd.switch_app"] = "settings.preset.kbd.switch_app",
+        ["kbd.show_desktop"] = "settings.preset.kbd.show_desktop",
+        ["kbd.lock"] = "settings.preset.kbd.lock",
+        ["kbd.file_explorer"] = "settings.preset.kbd.file_explorer",
+        ["media.play_pause"] = "settings.preset.media.play_pause",
+        ["media.stop"] = "settings.preset.media.stop",
+        ["media.next"] = "settings.preset.media.next",
+        ["media.previous"] = "settings.preset.media.previous",
+        ["media.volume_up"] = "settings.preset.media.volume_up",
+        ["media.volume_down"] = "settings.preset.media.volume_down",
+        ["media.mute"] = "settings.preset.media.mute",
+        ["window.minimize"] = "settings.preset.window.minimize",
+        ["window.maximize_restore"] = "settings.preset.window.maximize_restore",
+        ["window.close"] = "settings.preset.window.close",
+    };
+
     private IReadOnlyList<PageSpec> PresetPicker(string idPrefix,
-        IReadOnlyList<(string Label, string Payload)> presets, Action<string, string> add) =>
+        IReadOnlyList<QuickActionPreset> presets, Action<QuickActionPreset> add) =>
         ChunkPresets(presets.Count, idPrefix, i =>
         {
-            var (label, payload) = presets[i];
-            return (label, () => { add(label, payload); GoTo(QaView.List); });
+            var preset = presets[i];
+            // The button text comes from the host's label function; the stored English label is
+            // written only when the tile is created (the Add* call above).
+            return (QuickActionPresets.DisplayLabel(preset, PresetLabelFor),
+                    () => { add(preset); GoTo(QaView.List); });
         });
 
     private IReadOnlyList<PageSpec> AppPicker()
@@ -233,7 +318,7 @@ internal sealed class QuickActionsPageSource : ISettingsPageSource
             return
             [
                 new PageSpec([
-                    new LabelSpec(() => "No installed apps found."),
+                    new LabelSpec(() => StringTable.Current.T("settings.quick_actions.apps.empty")),
                     BackButton(0),
                 ]),
             ];
@@ -266,7 +351,8 @@ internal sealed class QuickActionsPageSource : ISettingsPageSource
 
     // Instance (not static): calls the instance BackButton, which captures `this` for GoTo.
     private List<SettingsRowSpec> BackRow(int page) => new() { BackButton(page) };
-    private ButtonSpec BackButton(int page) => new("qa_back_" + page, "\u2190  Back",
+    private ButtonSpec BackButton(int page) => new("qa_back_" + page,
+        StringTable.Current.T("settings.quick_actions.back.label"),
         () => GoTo(QaView.List), ButtonKind.Default, Width: 360, Height: 70);
 
     private static string Glyph(QuickActionType t) => t switch

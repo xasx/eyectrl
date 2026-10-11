@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using EyeCtrl.App.Tests.Localization;
 using NFluent;
 
 /// <summary>
@@ -42,13 +43,68 @@ public class SettingsTabDriftTests
         @"\(""(?<id>[A-Za-z][A-Za-z0-9_]*)"",\s*""", RegexOptions.Compiled);
 
     /// <summary>
-    /// Matches the label and header description (third and fourth elements) of a
-    /// <c>("Id", "icon", "Label", "Description")</c> tuple. <c>\s</c> spans newlines, so
-    /// entries wrapped across lines still match.
+    /// Matches the icon and the two key references (third and fourth elements) of a
+    /// <c>("Id", "icon", "settings.tab.…label", "settings.tab.…description")</c> tuple, since T07
+    /// moved the tab text into <c>strings.json</c>. <c>\s</c> spans newlines, so entries wrapped
+    /// across lines still match.
     /// </summary>
-    private static readonly Regex TabDefHeader = new(
-        @"\(\s*""[A-Za-z][A-Za-z0-9_]*""\s*,\s*""[^""]*""\s*,\s*""(?<label>[^""]*)""\s*,\s*""(?<description>[^""]*)""\s*\)",
+    private static readonly Regex TabDefFull = new(
+        @"\(\s*""(?<id>[A-Za-z][A-Za-z0-9_]*)""\s*,\s*""(?<icon>[^""]*)""\s*,\s*""(?<labelKey>[^""]*)""\s*,\s*""(?<descriptionKey>[^""]*)""\s*\)",
         RegexOptions.Compiled);
+
+    /// <summary>One rendered tab: its id, glyph, and the tab text resolved in English.</summary>
+    /// <param name="Id">The tab id (the <c>Settings_Tab_{Id}</c> AutomationId suffix).</param>
+    /// <param name="Icon">The sidebar glyph.</param>
+    /// <param name="Label">The resolved English header label.</param>
+    /// <param name="Description">The resolved English header description.</param>
+    /// <param name="LabelKey">The label's literal <c>settings</c> key (T09's tab156 gate keys on it).</param>
+    internal sealed record RenderedTab(string Id, string Icon, string Label, string Description, string LabelKey);
+
+    /// <summary>
+    /// Resolves one literal <c>settings</c> key to the English text the production app ships,
+    /// straight from the embedded table. A missing key fails here loudly: this resolution
+    /// replaced parsing the text out of source, and a raw key measured as a label would be a
+    /// silent regression.
+    /// </summary>
+    /// <param name="key">The literal key from the <c>_tabDefs</c> initializer.</param>
+    /// <returns>The key's English text.</returns>
+    internal static string English(string key)
+    {
+        var texts = LocalizationTestData.EnglishContent().Texts;
+        Check.WithCustomMessage(
+                $"`_tabDefs` references \"{key}\", which strings.json does not define. The tab "
+                + "label and description live in the English table now; add the key or fix the "
+                + "reference.")
+            .That(texts.ContainsKey(key)).IsTrue();
+
+        return texts[key].Value
+            ?? throw new InvalidOperationException(
+                $"The tab key \"{key}\" is a plural entry; tab labels and descriptions are single strings.");
+    }
+
+    /// <summary>
+    /// Every tab's id, glyph and resolved English text, in declaration order.
+    ///
+    /// Since T07 the <c>_tabDefs</c> initializer carries literal <c>settings</c> keys instead of
+    /// English text, so the table — not the source file — is the one place the text lives. A
+    /// renamed or added tab is still measured automatically; the shape is pinned by
+    /// <see cref="TabDefsParse_FoundTabs"/> and <see cref="EveryRenderedTab_HasALabelAndAHeaderDescription"/>.
+    /// </summary>
+    /// <returns>One <see cref="RenderedTab"/> per tab.</returns>
+    internal static IReadOnlyList<RenderedTab> RenderedTabDefs()
+    {
+        var region = Region(
+            ReadRepoFile(WindowRelativePath), "_tabDefs =", "[", "];", "the _tabDefs initializer");
+
+        return TabDefFull.Matches(region)
+            .Select(m => new RenderedTab(
+                m.Groups["id"].Value,
+                m.Groups["icon"].Value,
+                English(m.Groups["labelKey"].Value),
+                English(m.Groups["descriptionKey"].Value),
+                m.Groups["labelKey"].Value))
+            .ToList();
+    }
 
     /// <summary>Matches a <c>"Settings_Tab_Xxx"</c> string literal in the UI test's expected array.</summary>
     private static readonly Regex ExpectedTabLiteral = new(
@@ -102,22 +158,91 @@ public class SettingsTabDriftTests
     }
 
     /// <summary>
-    /// Each tab's header label and one-line description, taken from the same <c>_tabDefs</c>
-    /// initializer, in declaration order.
+    /// Each tab's header label and one-line description, resolved from the <c>settings</c> keys
+    /// the <c>_tabDefs</c> initializer carries, in declaration order.
     ///
     /// <c>internal</c> so <see cref="SettingsContentFitTests"/> can measure the REAL strings
     /// against the header's fixed height rather than a copy of them: a description edited to
     /// something longer has to be re-measured, and a copied list would not be.
     /// </summary>
     /// <returns>One (label, description) pair per tab, in declaration order.</returns>
-    internal static IReadOnlyList<(string Label, string Description)> RenderedTabHeaders()
+    internal static IReadOnlyList<(string Label, string Description)> RenderedTabHeaders() =>
+        RenderedTabDefs().Select(tab => (tab.Label, tab.Description)).ToList();
+
+    /// <summary>
+    /// Every tab's tuple points at ITS OWN label and description keys (review 01 R2, mutant M10).
+    /// A wrong-but-existing key — the Cursor tuple naming Dwell's — passes every other gate: the
+    /// text resolves, the fit measures, the coverage sees a valid key; only the user sees two
+    /// tabs with the same title. The naming rule is mechanical, so it is pinned mechanically.
+    /// </summary>
+    [Fact]
+    public void EveryTabTuple_NamesItsOwnLabelAndDescriptionKeys()
     {
         var region = Region(
             ReadRepoFile(WindowRelativePath), "_tabDefs =", "[", "];", "the _tabDefs initializer");
 
-        return TabDefHeader.Matches(region)
-            .Select(m => (m.Groups["label"].Value, m.Groups["description"].Value))
-            .ToList();
+        var entries = TabDefFull.Matches(region);
+        Check.WithCustomMessage(
+                "Parsed no tabs out of `_tabDefs`; repoint the reader rather than deleting this pin.")
+            .That(entries.Count).IsStrictlyGreaterThan(5);
+
+        foreach (Match match in entries)
+        {
+            var id = match.Groups["id"].Value;
+            var expected = "settings.tab." + id.ToLowerInvariant();
+            Check.WithCustomMessage(
+                    $"The \"{id}\" tab points at \"{match.Groups["labelKey"].Value}\" instead of "
+                    + $"its own \"{expected}.label\". A wrong-but-existing key shows another tab's "
+                    + "title with every other gate green (review 01 R2/M10).")
+                .That(match.Groups["labelKey"].Value).IsEqualTo(expected + ".label");
+            Check.WithCustomMessage(
+                    $"The \"{id}\" tab's description key is not \"{expected}.description\".")
+                .That(match.Groups["descriptionKey"].Value).IsEqualTo(expected + ".description");
+        }
+    }
+
+    /// <summary>
+    /// M5/M6 (review 01 R5): the eight-dependency window cannot be constructed headless, so the
+    /// two construction sites are source-pinned. The sidebar must pass its key through
+    /// <c>T()</c> — a raw key would draw "settings.tab.cursor.label" — and the header must
+    /// resolve the title and the description from their OWN tuple fields; swapping them draws
+    /// the prose as the title.
+    /// </summary>
+    [Fact]
+    public void TheSidebarAndHeader_RenderResolvedText_NotRawKeys()
+    {
+        var source = ReadRepoFile(WindowRelativePath);
+
+        Check.WithCustomMessage(
+                "BuildTabButtons no longer renders `StringTable.Current.T(labelKey)`; the sidebar "
+                + "would show the raw key (M5).")
+            .That(MethodBody(source, "private void BuildTabButtons("))
+            .Contains("StringTable.Current.T(labelKey)");
+
+        var header = MethodBody(source, "private void UpdateHeader(");
+        Check.WithCustomMessage(
+                "UpdateHeader no longer resolves the title from def.LabelKey (M6).")
+            .That(header).Contains("HeaderTitle.Text = ResolveTabText(def.LabelKey)");
+        Check.WithCustomMessage(
+                "UpdateHeader no longer resolves the description from def.DescriptionKey (M6: "
+                + "the title and the description swapped).")
+            .That(header).Contains("HeaderDescription.Text = ResolveTabText(def.DescriptionKey)");
+    }
+
+    /// <summary>The body of one method, from its signature line to its closing brace.</summary>
+    /// <param name="source">SettingsWindow.xaml.cs text.</param>
+    /// <param name="signature">The exact method signature to find.</param>
+    /// <returns>The method's text.</returns>
+    private static string MethodBody(string source, string signature)
+    {
+        var start = source.IndexOf(signature, StringComparison.Ordinal);
+        Check.WithCustomMessage(
+                $"SettingsWindow.xaml.cs no longer declares `{signature}`; repoint this pin rather "
+                + "than deleting it.")
+            .That(start).IsStrictlyGreaterThan(-1);
+        var end = source.IndexOf("\n    }", start, StringComparison.Ordinal);
+        Check.That(end).IsStrictlyGreaterThan(start);
+        return source[start..end];
     }
 
     /// <summary>
@@ -125,7 +250,7 @@ public class SettingsTabDriftTests
     /// says what it is for — the sidebar glyphs alone are ambiguous — so a twelfth tab added
     /// without a description would ship a blank second line with nothing failing.
     /// Also guards the guard: if the tuple's shape changes so
-    /// <see cref="TabDefHeader"/> stops matching, the counts diverge and this fails loudly
+    /// <see cref="TabDefFull"/> stops matching, the counts diverge and this fails loudly
     /// instead of every header assertion passing over an empty list.
     /// </summary>
     [Fact]
@@ -137,8 +262,8 @@ public class SettingsTabDriftTests
         Check.WithCustomMessage(
                 "Parsed " + headers.Count + " (label, description) pairs out of _tabDefs but "
                 + ids.Count + " tab ids. Either a tab is missing its header description (the "
-                + "fourth tuple element) or the tuple's shape changed and TabDefHeader no longer "
-                + "reads it — in which case repoint the regex, because every header measurement "
+                + "fourth tuple element) or the tuple's shape changed and TabDefFull no longer "
+                + "reads it — in which case repoint the reader, because every header measurement "
                 + "in SettingsContentFitTests would otherwise pass over an empty list.")
             .That(headers.Count).IsEqualTo(ids.Count);
 

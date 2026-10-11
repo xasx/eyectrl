@@ -33,6 +33,13 @@ public partial class EdgeButtonBarWindow : OverlayWindow, IEdgeButtonBar
     /// <inheritdoc />
     public EdgeButtonBarViewModel? EdgeBarVm => DataContext as EdgeButtonBarViewModel;
 
+    /// <summary>
+    /// The buttons the last <see cref="SyncButtons"/> drew, keyed by id — the same test seam
+    /// <c>ModesMenuWindow.DrawnButtons</c> provides, so the fit and UIA checks measure the real
+    /// control instances rather than rebuilding them.
+    /// </summary>
+    internal IReadOnlyDictionary<string, DwellArcButton> DrawnButtons => _buttons;
+
     public void ShowButtons(IReadOnlyList<EdgeButtonDefinition> definitions, PhysicalPoint edgeAnchor)
         => EdgeBarVm?.ShowButtons(definitions, edgeAnchor);
     public void AddButton(EdgeButtonDefinition definition) => EdgeBarVm?.AddButton(definition);
@@ -91,11 +98,19 @@ public partial class EdgeButtonBarWindow : OverlayWindow, IEdgeButtonBar
             // A definition may name a drawn icon and a label instead of a Unicode glyph; the
             // state only carries the glyph, so the definition is the one that knows.
             var definition = vm.DefinitionFor(state.Id);
+            // Solo is the icon-only edge surface (ContainerRatio.Solo). A labelled definition —
+            // the modifier bar's Shift/Ctrl/Alt — keeps Standard, whose Medium ratio is the size
+            // those keycap+label faces were measured at.
+            var hasIcon = definition?.Icon is not null;
             var btn = DwellArcButton.Create(
                 new Point(c.X - _originX, c.Y - _originY), state.RadiusLogical,
-                symbol: definition?.Icon is null ? state.Symbol : null,
+                symbol: hasIcon ? null : state.Symbol,
                 icon: definition?.Icon is { } iconKey ? ActionIcons.For(iconKey) : null,
-                label: definition?.Label);
+                label: definition?.Label,
+                iconSize: hasIcon && definition?.Label is null
+                    ? DwellArcButton.IconSize.Solo
+                    : DwellArcButton.IconSize.Standard,
+                accessibleName: definition?.AccessibleName ?? definition?.Label);
             btn.UpdateProgress(state.DwellProgress);
             btn.AddTo(ButtonCanvas);
             _buttons[state.Id] = btn;

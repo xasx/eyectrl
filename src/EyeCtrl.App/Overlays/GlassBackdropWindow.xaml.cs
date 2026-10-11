@@ -11,6 +11,7 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using EyeCtrl.Controls;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
@@ -282,7 +283,11 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
             DpiHelper.PhysicalToLogicalX(buttonCenter.X),
             DpiHelper.PhysicalToLogicalY(buttonCenter.Y));
 
-        _hideButton = DwellArcButton.Create(dipCenter, UIConstants.ButtonRadius, "\u2715");
+        // The same escape-hatch shape as the edge buttons: a bare glyph whose drawn face cannot
+        // name itself to UIA, so it carries the name explicitly.
+        _hideButton = DwellArcButton.Create(
+            dipCenter, UIConstants.ButtonRadius, "\u2715",
+            accessibleName: StringTable.Current.T("overlays.edge.close"));
         _hideButton.AddTo(BackdropCanvas);
 
         if (progress > 0)

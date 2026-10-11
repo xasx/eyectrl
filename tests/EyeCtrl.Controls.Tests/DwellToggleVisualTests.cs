@@ -78,7 +78,7 @@ public class DwellToggleVisualTests
     {
         var state = initial;
         return new DwellToggle(
-            registrar, "id", label, () => state, v => state = v,
+            registrar, "id", label, "On", "Off", () => state, v => state = v,
             DwellCategory.Control, Radius, 800);
     }
 
@@ -112,6 +112,29 @@ public class DwellToggleVisualTests
     }
 
     /// <summary>
+    /// Refresh repaints from the getter when the value changed without a dwell (T05b: the
+    /// Supervisor's logon row after a superseded or refused choice). Without it the face keeps the
+    /// old state, and the next dwell sends the inverse of the hidden value.
+    /// </summary>
+    [StaFact]
+    public void Refresh_RepaintsAValueThatChangedWithoutADwell()
+    {
+        var state = false;
+        var toggle = new DwellToggle(
+            new FakeDwellRegistrar(), "id", "Label", "On", "Off", () => state, v => state = v,
+            DwellCategory.Control, Radius, 800);
+        Check.That(toggle.StateText.Text).IsEqualTo("Off");
+
+        state = true;                              // changed by the host, not by the switch
+        Check.That(toggle.StateText.Text).IsEqualTo("Off");
+
+        toggle.Refresh();
+
+        Check.That(toggle.StateText.Text).IsEqualTo("On");
+        Check.That(toggle.Knob.HorizontalAlignment).IsEqualTo(HorizontalAlignment.Right);
+    }
+
+    /// <summary>
     /// State must survive a colour-vision deficiency and a monochrome screen alike, so the word
     /// is the primary carrier and the knob's side and the track's fill back it up.
     /// </summary>
@@ -123,6 +146,48 @@ public class DwellToggleVisualTests
         Check.That(toggle.StateText.Text).IsEqualTo("Off");
         toggle.Toggle();
         Check.That(toggle.StateText.Text).IsEqualTo("On");
+    }
+
+    /// <summary>
+    /// The state words are the host's (T02) — the library owns no English. The class's other
+    /// tests pass "On"/"Off", so on its own none of them would notice the control reverting to a
+    /// built-in pair; this one passes different words and would.
+    /// </summary>
+    [StaFact]
+    public void HostSuppliedStateWords_AreWhatTheSwitchDraws()
+    {
+        var state = false;
+        var toggle = new DwellToggle(
+            new FakeDwellRegistrar(), "id", "Label", "Aktiv", "Inaktiv",
+            () => state, v => state = v, DwellCategory.Control, Radius, 800);
+
+        Check.That(toggle.StateText.Text).IsEqualTo("Inaktiv");
+        toggle.Toggle();
+        Check.That(toggle.StateText.Text).IsEqualTo("Aktiv");
+
+        // The accessible name still composes "{label}: {state}" from the host's word.
+        Check.That(System.Windows.Automation.AutomationProperties.GetName(toggle.StateText))
+            .IsEqualTo("Label: Aktiv");
+    }
+
+    /// <summary>
+    /// A null state word would otherwise surface late as blank switch text; the host contract is
+    /// fail-fast (T02 fixup-01, uneven null guards).
+    /// </summary>
+    [StaFact]
+    public void Constructor_NullStateWords_ThrowArgumentNullException()
+    {
+        var state = false;
+
+        Check.ThatCode(() => new DwellToggle(
+                new FakeDwellRegistrar(), "id", "Label", null!, "Off",
+                () => state, v => state = v, DwellCategory.Control, Radius, 800))
+            .Throws<ArgumentNullException>();
+
+        Check.ThatCode(() => new DwellToggle(
+                new FakeDwellRegistrar(), "id", "Label", "On", null!,
+                () => state, v => state = v, DwellCategory.Control, Radius, 800))
+            .Throws<ArgumentNullException>();
     }
 
     [StaFact]
@@ -965,7 +1030,7 @@ public class DwellToggleVisualTests
     {
         var state = true;
         return new DwellToggle(
-            registrar, "id", "Label", () => state, v => state = v,
+            registrar, "id", "Label", "On", "Off", () => state, v => state = v,
             DwellCategory.Control, Radius, 800, showLabel: false);
     }
 

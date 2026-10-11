@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Tests.Settings.Pages;
 
+using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Views.Settings;
 using NFluent;
 using Xunit;
@@ -46,5 +47,29 @@ public class LayoutActionMenuPageSourceTests
 
         var buttons = rows.OfType<ButtonSpec>().ToList();
         Check.That(buttons.Select(b => b.Id)).ContainsExactly("am_reset");
+    }
+
+    /// <summary>
+    /// F3 (T03d review 01): the preview spec carries its host's More format explicitly — the
+    /// painter holds no text of its own, and T07 keys this value on the spec. A spec built
+    /// without it is the silent-English regression this pins.
+    /// </summary>
+    [Fact]
+    public void ActionMenu_PreviewSpec_CarriesTheHostsMoreFormat()
+    {
+        var rows = new ActionMenuPageSource(TestSettingsPageContext.Build()).Build().Single().Rows;
+
+        var preview = rows.OfType<RingPreviewSpec>().Single();
+        Check.That(preview.MoreAnnotationFormat).IsNotNull();
+        // T07 fixup-02 R4/S14: the two honesty captions are distinct keys, and their ORDER in the
+        // spec is the contract — a swap moves the "not a control" honesty onto the labels caption.
+        Check.That(preview.CaptionNotAControl).IsEqualTo("preview, not a control");
+        Check.That(preview.CaptionLabels).IsEqualTo("runtime shows labels only while you dwell");
+        // T07: the Settings host passes its own settings-keyed composer, not the painter's English
+        // default reference — but it must still compose the same "{label} +{count}" English.
+        Check.WithCustomMessage(
+                "the preview's More composer no longer reads \"{label} +{count}\" in English; the "
+                + "English on screen must stay word for word the same.")
+            .That(preview.MoreAnnotationFormat!("More", 3)).IsEqualTo("More +3");
     }
 }

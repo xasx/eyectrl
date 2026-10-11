@@ -333,19 +333,28 @@ public class CalibrationPointCollectorTests
     public void End_SaysWhetherTheTargetWasReachedOrOnlyNeverHeld()
     {
         // Two different user errors needing opposite advice - "you never looked at it" versus "you
-        // looked at it but could not hold it". The old message said neither.
+        // looked at it but could not hold it" - carried as two typed codes the calibration window
+        // renders into sentences.
         var never = Collector(new PhysicalPoint(500, 500), settleWindowMs: 0, bandRadiusPx: 50);
         never.AddRawSample(new PhysicalPoint(3000, 2000));
-        Check.ThatCode(() => never.End()).Throws<InvalidOperationException>()
-             .WithMessage("Gaze never reached the target.");
+
+        var neverThrown = Check.ThatCode(() => never.End())
+                                .Throws<CalibrationFailedException>().Value;
+        Check.That(neverThrown.Failure.Code).IsEqualTo(CalibrationFailureCode.TargetNeverReached);
+        Check.That(neverThrown.Failure.Arguments).IsEmpty();
 
         var reached = Collector(new PhysicalPoint(500, 500), settleWindowMs: 0, bandRadiusPx: 50);
         reached.AddRawSample(new PhysicalPoint(500, 500));     // arrival
         reached.AddRawSample(new PhysicalPoint(3000, 2000));   // then gone
 
-        var thrown = Check.ThatCode(() => reached.End()).Throws<InvalidOperationException>().Value;
-        Check.That(thrown.Message).Contains("never stayed within");
-        Check.That(thrown.Message).Contains("1 samples seen");   // the attempt is named, not just the failure
+        var reachedThrown = Check.ThatCode(() => reached.End())
+                                  .Throws<CalibrationFailedException>().Value;
+        Check.That(reachedThrown.Failure.Code).IsEqualTo(CalibrationFailureCode.TargetNeverHeld);
+        // The band radius and the attempt count, not just the failure: the window's sentence quotes
+        // both, so a wrong argument must fail here rather than only at the renderer.
+        Check.That(reachedThrown.Failure.Arguments).HasSize(2);
+        Check.That((double)reachedThrown.Failure.Arguments[0]!).IsEqualTo(50.0);
+        Check.That((int)reachedThrown.Failure.Arguments[1]!).IsEqualTo(1);
     }
 
     [Fact]

@@ -6,7 +6,7 @@ using EyeCtrl.Core.Models;
 /// <summary>
 /// Guards against the detector confidently mis-reading ordinary use — the false-positive cases found in
 /// review of PR #71. These matter more than missed detections: accidental-activation is the only signal
-/// that TIGHTENS (longer dwell), and drift raises a user-visible re-calibration suggestion.
+/// that TIGHTENS (longer dwell), and drift raises a user-visible suggestion to recalibrate in Tobii.
 /// </summary>
 public class StruggleSignalsFidelityTests
 {

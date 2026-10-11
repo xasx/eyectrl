@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Views.Settings;
 
+using EyeCtrl.Core.Localization;
+
 internal sealed class DwellPageSource : ISettingsPageSource
 {
     private readonly SettingsPageContext _ctx;
@@ -13,44 +15,57 @@ internal sealed class DwellPageSource : ISettingsPageSource
         return
         [
             new PageSpec([
-                new SliderSpec("d_fix", "Fixation Detection (ms)", 100, 500, 25, 0,
+                new SliderSpec("d_fix",
+                    StringTable.Current.T("settings.dwell.fixation.label"), 100, 500, 25, 0,
                     () => d.FixationDetectionMs, v => { d.FixationDetectionMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = "How long your gaze must hold steady before a dwell can start." },
-                new SliderSpec("d_act", "Activation Button (ms)", 200, 1500, 50, 0,
+                    { Description = StringTable.Current.T("settings.dwell.fixation.description") },
+                new SliderSpec("d_act",
+                    StringTable.Current.T("settings.dwell.activation.label"), 200, 1500, 50, 0,
                     () => d.ActivationButtonDwellMs, v => { d.ActivationButtonDwellMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = "Dwell for the button that appears at your gaze." },
-                new SliderSpec("d_menu", "Action Menu (ms)", 200, 1500, 50, 0,
+                    { Description = StringTable.Current.T("settings.dwell.activation.description") },
+                new SliderSpec("d_menu",
+                    StringTable.Current.T("settings.dwell.action_menu.label"), 200, 1500, 50, 0,
                     () => d.ActionMenuDwellMs, v => { d.ActionMenuDwellMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = "How long to rest on an action in the ring." },
-                new SliderSpec("d_ManualSelection", "ManualSelection Action Menu (ms)", 200, 1500, 50, 0,
+                    { Description = StringTable.Current.T("settings.dwell.action_menu.description") },
+                new SliderSpec("d_ManualSelection",
+                    StringTable.Current.T("settings.dwell.manual_selection.label"), 200, 1500, 50, 0,
                     () => d.ManualSelectionActionMenuDwellMs, v => { d.ManualSelectionActionMenuDwellMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = "Dwell for the action ring inside manual selection." },
+                    { Description = StringTable.Current.T("settings.dwell.manual_selection.description") },
             ]),
             new PageSpec([
-                new SliderSpec("d_tool", "Toolbar / Settings (ms)", 200, 1500, 50, 0,
+                new SliderSpec("d_tool",
+                    StringTable.Current.T("settings.dwell.toolbar.label"), 200, 1500, 50, 0,
                     () => d.ToolbarButtonDwellMs, v => { d.ToolbarButtonDwellMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = "How long to rest on EyeCtrl's own buttons." },
+                    { Description = StringTable.Current.T("settings.dwell.toolbar.description") },
                 // 300 is the keyboard family's blink-credit floor, shared with the Core guard and the
                 // adaptive clamp (Core.Adaptation.AdaptationDwellRanges.KeyboardMinDwellMs; the bound
                 // and its derivation live beside KeyboardSpecialActions.AppEscapingPolicyFloorMs).
                 // Below it a single credited blink can complete the dwell.
-                new SliderSpec("d_key", "Keyboard Key (ms)", Core.Adaptation.AdaptationDwellRanges.KeyboardMinDwellMs, 1000, 25, 0,
+                new SliderSpec("d_key",
+                    StringTable.Current.T("settings.dwell.keyboard_key.label"),
+                    Core.Adaptation.AdaptationDwellRanges.KeyboardMinDwellMs, 1000, 25, 0,
                     () => d.KeyboardKeyDwellMs, v => { d.KeyboardKeyDwellMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = "How long to rest on a key before it fires. Keys that can leave the app or destroy work use 600 ms." },
-                new SliderSpec("d_pred", "Prediction (ms)", Core.Adaptation.AdaptationDwellRanges.KeyboardMinDwellMs, 1000, 25, 0,
+                    { Description = StringTable.Current.T("settings.dwell.keyboard_key.description") },
+                new SliderSpec("d_pred",
+                    StringTable.Current.T("settings.dwell.prediction.label"),
+                    Core.Adaptation.AdaptationDwellRanges.KeyboardMinDwellMs, 1000, 25, 0,
                     () => d.KeyboardPredictionDwellMs, v => { d.KeyboardPredictionDwellMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = "Dwell for the word suggestions above the keyboard." },
-                new SliderSpec("d_rad", "Fixation Radius (px)", 20, 120, 5, 0,
+                    { Description = StringTable.Current.T("settings.dwell.prediction.description") },
+                new SliderSpec("d_rad",
+                    StringTable.Current.T("settings.dwell.fixation_radius.label"), 20, 120, 5, 0,
                     () => d.FixationRadiusPixels, v => { d.FixationRadiusPixels = v; _ctx.ApplyAndSave(); })
-                    { Description = "How far your gaze may drift within a fixation." },
-                new SliderSpec("d_cooldown", "Dwell Cooldown (ms)", 100, 1000, 50, 0,
+                    { Description = StringTable.Current.T("settings.dwell.fixation_radius.description") },
+                new SliderSpec("d_cooldown",
+                    StringTable.Current.T("settings.dwell.cooldown.label"), 100, 1000, 50, 0,
                     () => d.DwellCooldownMs, v => { d.DwellCooldownMs = (int)v; _ctx.ApplyAndSave(); })
-                    { Description = "How long a new dwell must wait after an activation." },
-                new ToggleSpec("d_cue_sound", "Dwell Completion Sound",
+                    { Description = StringTable.Current.T("settings.dwell.cooldown.description") },
+                new ToggleSpec("d_cue_sound",
+                    StringTable.Current.T("settings.dwell.cue_sound.label"),
                     () => d.CueEnabled, v => { d.CueEnabled = v; _ctx.ApplyAndSave(); })
-                    { Description = "Plays a soft tone when a dwell activates on any EyeCtrl surface — buttons, menus, settings. Keys keep their own click sound." },
-                new ButtonSpec("d_reset", "Reset Dwell Settings",
-                    () => _ctx.ShowModal("Reset Dwell settings to defaults?", () =>
+                    { Description = StringTable.Current.T("settings.dwell.cue_sound.description") },
+                new ButtonSpec("d_reset",
+                    StringTable.Current.T("settings.dwell.reset.label"),
+                    () => _ctx.ShowModal(StringTable.Current.T("settings.dwell.reset.message"), () =>
                     {
                         var def = new Core.Settings.DwellSettings();
                         d.FixationDetectionMs = def.FixationDetectionMs;

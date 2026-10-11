@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using EyeCtrl.Controls.Theme;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.ViewModels;
 
 public partial class TrackStatusWindow : OverlayWindow, ITrackStatusOverlay
@@ -79,21 +80,20 @@ public partial class TrackStatusWindow : OverlayWindow, ITrackStatusOverlay
                 break;
             case nameof(_viewModel.HeadDistanceMm):
             case nameof(_viewModel.HeadDistanceValid):
+                // The number and its unit are one keyed template (T06), formatted with the
+                // surface's provider: "{0:F0} mm" is identical in both languages, and the
+                // provider keeps a future format specifier's separators following the language.
+                // CultureInfo.Current is never read, so a de-DE machine shows "600 mm" in the
+                // English UI.
                 DistanceText.Text = _viewModel.HeadDistanceValid
-                    ? $"{_viewModel.HeadDistanceMm:F0} mm"
+                    ? StringTable.Current.T("track-status.distance.mm", _viewModel.HeadDistanceMm)
                     : "—";
                 break;
             case nameof(_viewModel.DistanceQuality):
-                QualityText.Text = _viewModel.DistanceQuality;
+                QualityText.Text = QualityWord(StringTable.Current, _viewModel.DistanceQuality);
                 // Quality is a semantic triad: success/warning/danger, carried by the palette
-                // tokens rather than raw Brushes.
-                QualityText.Foreground = _viewModel.DistanceQuality switch
-                {
-                    "Good" => Tokens.BrushAccentSuccess,
-                    "Fair" => Tokens.BrushAccentWarning,
-                    "Poor" => Tokens.BrushAccentDanger,
-                    _ => Tokens.BrushTextDim
-                };
+                // tokens rather than raw Brushes. Picked from the enum, never from the word.
+                QualityText.Foreground = QualityBrush(_viewModel.DistanceQuality);
                 break;
         }
     }
@@ -111,6 +111,38 @@ public partial class TrackStatusWindow : OverlayWindow, ITrackStatusOverlay
         dot.Fill = Tokens.BrushAccentSuccess;
         dot.Visibility = Visibility.Visible;
     }
+
+    /// <summary>
+    /// The word shown for a quality, resolved from the given table. Deliberately separate from
+    /// <see cref="QualityBrush"/>: this is the single place the quality's display text comes
+    /// from, so translating the word cannot change the colour. The table is a parameter rather
+    /// than the process global so the mapping is testable without activating one.
+    /// </summary>
+    /// <param name="strings">The table to resolve the word from.</param>
+    /// <param name="quality">The quality to name.</param>
+    /// <returns>The word shown beside "Quality:".</returns>
+    internal static string QualityWord(StringTable strings, DistanceQuality quality) => quality switch
+    {
+        DistanceQuality.Good => strings.T("track-status.quality.good"),
+        DistanceQuality.Fair => strings.T("track-status.quality.fair"),
+        DistanceQuality.Poor => strings.T("track-status.quality.poor"),
+        _ => strings.T("track-status.quality.unknown")
+    };
+
+    /// <summary>
+    /// The brush a quality is shown in: the success/warning/danger triad from the palette
+    /// tokens, dim for unknown. Keyed on the enum, never on <see cref="QualityWord"/>, so a
+    /// translated word cannot turn every quality grey.
+    /// </summary>
+    /// <param name="quality">The quality to colour.</param>
+    /// <returns>The palette brush for the quality.</returns>
+    internal static SolidColorBrush QualityBrush(DistanceQuality quality) => quality switch
+    {
+        DistanceQuality.Good => Tokens.BrushAccentSuccess,
+        DistanceQuality.Fair => Tokens.BrushAccentWarning,
+        DistanceQuality.Poor => Tokens.BrushAccentDanger,
+        _ => Tokens.BrushTextDim
+    };
 
     /// <summary>Positions the window at the top-right corner of the working area.</summary>
     public void PositionTopRight()

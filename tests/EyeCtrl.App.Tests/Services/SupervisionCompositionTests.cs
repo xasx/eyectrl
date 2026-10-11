@@ -18,6 +18,7 @@ using EyeCtrl.Core.Settings;
 /// by the App writer — survived the suite; these tests exercise the factory <c>App.xaml.cs</c>
 /// calls, so the sanctioned write path and the live Run-key predicate are pinned at their source.
 /// </summary>
+[Collection(SupervisorExeEnvironmentCollection.Name)]
 public class SupervisionCompositionTests
 {
     private sealed class FakeStartupRegistrar : IStartupRegistrar

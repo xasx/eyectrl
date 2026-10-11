@@ -27,8 +27,31 @@ public class RingPlanTests
     private sealed record ExpectedSlot(
         InteractionAction? Action, ActionMenuItemKind Kind, string Id, ActionIcon Icon, string Label);
 
+    /// <summary>
+    /// The ring's resolved English, as literals: <c>RingLabelMap</c> returns overlays keys since
+    /// T08, and the plan's input is <c>RingLabelSource.English</c>, so this dictionary pins the
+    /// whole map → table → slot-label chain against the words rather than against a computed key.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<InteractionAction, string> EnglishRingLabels =
+        new Dictionary<InteractionAction, string>
+        {
+            [InteractionAction.LeftClick] = "Left click",
+            [InteractionAction.RightClick] = "Right click",
+            [InteractionAction.DoubleClick] = "Double click",
+            [InteractionAction.MiddleClick] = "Middle click",
+            [InteractionAction.Drag] = "Drag",
+            [InteractionAction.ScrollUp] = "Scroll up",
+            [InteractionAction.ScrollDown] = "Scroll down",
+            [InteractionAction.ScrollLeft] = "Scroll left",
+            [InteractionAction.ScrollRight] = "Scroll right",
+            [InteractionAction.ScrollMode] = "Scroll",
+            [InteractionAction.PinNote] = "Pin note",
+            [InteractionAction.Keyboard] = "Keyboard",
+        };
+
     private static ExpectedSlot ActionSlot(InteractionAction action) => new(
-        action, ActionMenuItemKind.Action, action.ToString(), ActionIconMap.For(action), RingLabelMap.For(action));
+        action, ActionMenuItemKind.Action, action.ToString(), ActionIconMap.For(action),
+        EnglishRingLabels[action]);
 
     private static readonly ExpectedSlot MoreSlot =
         new(null, ActionMenuItemKind.OpenMore, "More", ActionIcon.More, "More");
@@ -69,7 +92,7 @@ public class RingPlanTests
     {
         var visible = AllActions.Take(visibleCount).ToList();
         var primary = PrimarySetFor(visible, primaryCount);
-        var plan = RingPlan.Create(visible, primary, DefaultCircleSize);
+        var plan = RingPlan.Create(visible, primary, DefaultCircleSize, RingLabelSource.English);
 
         var expectedPrimary = visible.Where(primary.Contains).ToList();
         var expectedSecondary = visible.Where(a => !primary.Contains(a)).ToList();
@@ -121,7 +144,7 @@ public class RingPlanTests
         // Deliberately the reverse of the visible order.
         var primary = new List<InteractionAction> { InteractionAction.PinNote, InteractionAction.Keyboard };
 
-        var plan = RingPlan.Create(visible, primary, DefaultCircleSize);
+        var plan = RingPlan.Create(visible, primary, DefaultCircleSize, RingLabelSource.English);
 
         Check.That(plan.PrimaryActions).ContainsExactly(
             InteractionAction.Keyboard, InteractionAction.PinNote);
@@ -136,7 +159,7 @@ public class RingPlanTests
         // MaxPrimaryActions is enforced at the settings boundary (Validate), not by the plan:
         // BuildLayer never clamped, so a plan built from a hand-picked message must not drop
         // slots either.
-        var layer = RingPlan.Create(AllActions, AllActions, DefaultCircleSize)
+        var layer = RingPlan.Create(AllActions, AllActions, DefaultCircleSize, RingLabelSource.English)
                             .BuildLayer(RingLayer.Primary, showBack: false);
 
         Check.That(layer.Slots).HasSize(AllActions.Count);
@@ -146,7 +169,7 @@ public class RingPlanTests
     [Fact]
     public void NullLists_AreTreatedAsEmpty()
     {
-        var plan = RingPlan.Create(null, null, DefaultCircleSize);
+        var plan = RingPlan.Create(null, null, DefaultCircleSize, RingLabelSource.English);
 
         Check.That(plan.PrimaryActions).IsEmpty();
         Check.That(plan.SecondaryActions).IsEmpty();
@@ -163,7 +186,7 @@ public class RingPlanTests
     {
         var visible = new List<InteractionAction> { InteractionAction.LeftClick, InteractionAction.RightClick };
 
-        var layer = RingPlan.Create(visible, visible, DefaultCircleSize)
+        var layer = RingPlan.Create(visible, visible, DefaultCircleSize, RingLabelSource.English)
                             .BuildLayer(RingLayer.Primary, showBack: false);
 
         Check.WithCustomMessage("A More target that opens an empty layer is a dead end")
@@ -173,7 +196,7 @@ public class RingPlanTests
     [Fact]
     public void ShowBack_OnlyAffectsLayerOne()
     {
-        var plan = RingPlan.Create(AllActions.Take(5).ToList(), AllActions.Take(2).ToList(), DefaultCircleSize);
+        var plan = RingPlan.Create(AllActions.Take(5).ToList(), AllActions.Take(2).ToList(), DefaultCircleSize, RingLabelSource.English);
 
         Check.That(plan.BuildLayer(RingLayer.Secondary, showBack: true).Slots.Select(s => s.Id))
              .ContainsExactly(plan.BuildLayer(RingLayer.Secondary, showBack: false).Slots.Select(s => s.Id));
@@ -181,5 +204,33 @@ public class RingPlanTests
              .Contains(ActionMenuItemKind.ExitMenu);
         Check.That(plan.BuildLayer(RingLayer.Primary, showBack: false).Slots.Select(s => s.Kind))
              .Not.Contains(ActionMenuItemKind.ExitMenu);
+    }
+
+    [Fact]
+    public void HostLabelSource_DecidesEverySlotLabel_BackAndMoreIncluded()
+    {
+        var labels = new RingLabelSource(
+            action => $"A:{action}",
+            BackLabel: "Zurück",
+            MoreLabel: "Mehr");
+
+        var plan = RingPlan.Create(
+            AllActions.Take(5).ToList(), AllActions.Take(3).ToList(), DefaultCircleSize, labels);
+
+        Check.That(plan.BuildLayer(RingLayer.Primary, showBack: true).Slots.Select(s => s.Label))
+             .ContainsExactly("A:LeftClick", "A:RightClick", "A:DoubleClick", "Mehr", "Zurück");
+
+        // Layer two's Back-to-first-layer slot is the host's Back label too.
+        Check.That(plan.BuildLayer(RingLayer.Secondary, showBack: false).Slots.Select(s => s.Label))
+             .ContainsExactly("A:MiddleClick", "A:Drag", "Zurück");
+    }
+
+    [Fact]
+    public void DefaultLabelSource_IsTheEnglishRingVocabulary()
+    {
+        var plan = RingPlan.Create(AllActions.Take(3).ToList(), AllActions.Take(1).ToList(), DefaultCircleSize, RingLabelSource.English);
+
+        Check.That(plan.BuildLayer(RingLayer.Primary, showBack: true).Slots.Select(s => s.Label))
+             .ContainsExactly("Left click", "More", "Back");
     }
 }

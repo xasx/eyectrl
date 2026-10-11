@@ -21,6 +21,10 @@ public class ActionMenuModifierButtonsTests
         Check.That(defs[2].Id).IsEqualTo(ActionMenuModifierButtons.AltId);
         Check.That(defs[2].VerticalOffset).IsEqualTo(-defs[0].VerticalOffset);
         Check.That(defs[0].Label).IsEqualTo("Shift");
+        // T08 fixup R1 (mutant M13): the Ctrl face reading "Alt" survived the first suite, and a
+        // gaze user reads the label before latching a key. Pin all three, not just the first.
+        Check.That(defs[1].Label).IsEqualTo("Ctrl");
+        Check.That(defs[2].Label).IsEqualTo("Alt");
         Check.That(defs.All(d => d.RearmOnGazeExit)).IsTrue();
     }
 

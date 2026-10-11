@@ -89,19 +89,39 @@ internal static class ProbeRasterEstimator
         return weighted / weight;
     }
 
-    /// <summary>The x movement, estimated from the mean of the two mirrored left/right blocks.</summary>
-    internal static double ShiftX(ProbeRaster moved, ProbeRaster reference, int row, double referenceCentreX, double half)
+    /// <summary>
+    /// The two mirrored x blocks' centroid shifts, separately: the left edge block first, then the
+    /// right. <see cref="ShiftX"/> is their mean — the one estimator, whose cancellation is why the
+    /// halves are kept (fixup 04 F3: R2's diagnosis must not fork this).
+    /// </summary>
+    internal static (double Left, double Right) MirroredX(
+        ProbeRaster moved, ProbeRaster reference, int row, double referenceCentreX, double half)
     {
         var left = ScanRow(moved, row, referenceCentreX - half) - ScanRow(reference, row, referenceCentreX - half);
         var right = ScanRow(moved, row, referenceCentreX + half) - ScanRow(reference, row, referenceCentreX + half);
+        return (left, right);
+    }
+
+    /// <summary>The top and bottom blocks' centroid shifts, separately; the y twin of <see cref="MirroredX"/>.</summary>
+    internal static (double Top, double Bottom) MirroredY(
+        ProbeRaster moved, ProbeRaster reference, int column, double referenceCentreY, double half)
+    {
+        var top = ScanColumn(moved, column, referenceCentreY - half) - ScanColumn(reference, column, referenceCentreY - half);
+        var bottom = ScanColumn(moved, column, referenceCentreY + half) - ScanColumn(reference, column, referenceCentreY + half);
+        return (top, bottom);
+    }
+
+    /// <summary>The x movement, estimated from the mean of the two mirrored left/right blocks.</summary>
+    internal static double ShiftX(ProbeRaster moved, ProbeRaster reference, int row, double referenceCentreX, double half)
+    {
+        var (left, right) = MirroredX(moved, reference, row, referenceCentreX, half);
         return (left + right) / 2.0;
     }
 
     /// <summary>The y movement, estimated from the mean of the two mirrored top/bottom blocks.</summary>
     internal static double ShiftY(ProbeRaster moved, ProbeRaster reference, int column, double referenceCentreY, double half)
     {
-        var top = ScanColumn(moved, column, referenceCentreY - half) - ScanColumn(reference, column, referenceCentreY - half);
-        var bottom = ScanColumn(moved, column, referenceCentreY + half) - ScanColumn(reference, column, referenceCentreY + half);
+        var (top, bottom) = MirroredY(moved, reference, column, referenceCentreY, half);
         return (top + bottom) / 2.0;
     }
 

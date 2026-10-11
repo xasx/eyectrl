@@ -247,6 +247,35 @@ public class ProbeRingOnScreenGateTests
         Check.WithCustomMessage("The harness must print the capture folder path for the session record.")
             .That(harness.IndexOf("R2 captures saved to", StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);
 
+        // Fixup 04 F6: print the table before saving, close the window (and disarm the watchdog)
+        // right after the last capture, and wrap the save so a disk failure cannot skip the table or
+        // the verdict.
+        var reportAt = harness.IndexOf("ProbeRingOnScreenJudge.WriteReport(", StringComparison.Ordinal);
+        var saveAt = harness.IndexOf("ProbeRingCaptureArchive.Save(", StringComparison.Ordinal);
+        Check.WithCustomMessage("The harness must print the report.")
+            .That(reportAt).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage("The harness must save the archive.")
+            .That(saveAt).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage(
+                "The report must be printed BEFORE the save: if the disk fails, the table is the run's evidence.")
+            .That(reportAt).IsStrictlyLessThan(saveAt);
+
+        var earlyClose = harness.IndexOf("window.Close();", StringComparison.Ordinal);
+        Check.WithCustomMessage(
+                "The window must be closed (and the watchdog disarmed) right after the last capture, before "
+                + "Save/Measure — a slow disk must never hold the window on screen into the Kill.")
+            .That(earlyClose).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage("The early close must come before the save.")
+            .That(earlyClose).IsStrictlyLessThan(saveAt);
+        Check.WithCustomMessage(
+                "The save must be wrapped: a failure is logged and the verdict still runs.")
+            .That(harness.Contains("catch (Exception ex)") && harness.Contains("R2 capture save FAILED")).IsTrue();
+
+        Check.WithCustomMessage("The harness must print the estimated visible time.")
+            .That(harness.IndexOf("R2 time: estimated visible", StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage("The harness must print the measured visible time.")
+            .That(harness.IndexOf("R2 measured visible time:", StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);
+
         var onScreen = SourceScanner.StripComments(File.ReadAllText(Path.Combine(
             root, "tests", "EyeCtrl.App.Tests", "Diagnostics", "SubPixel", "ProbeRingOnScreenTests.cs")));
 

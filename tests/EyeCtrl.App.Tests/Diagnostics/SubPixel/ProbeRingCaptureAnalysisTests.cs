@@ -125,6 +125,51 @@ public class ProbeRingCaptureAnalysisTests
             .That(verdict.Similarity).IsStrictlyGreaterThan(0.9);
     }
 
+    /// <summary>
+    /// Fixup 04 F3 (kills V1/V2): an asymmetric shift — only the columns right of the centre rolled
+    /// one pixel right — must come back as RightX ≈ 1, LeftX ≈ 0 and MeanX ≈ 0.5. The halves come
+    /// from the estimator itself (<c>ProbeRasterEstimator.MirroredX</c>), not from a second copy.
+    /// </summary>
+    [StaFact]
+    public void MirroredHalves_ReportAnAsymmetricShiftSeparately()
+    {
+        var reference = Weights(FrameAt(0.0, snap: false));
+        var moved = RollRightOfCentre(reference, (int)CentreInCapture.X);
+
+        var shift = ProbeRingCaptureAnalysis.MeasureMirroredShift(
+            moved, reference, ProbeRingCaptureAnalysis.RingScanGeometry.For(CentreInCapture, HalfPx));
+
+        _output.WriteLine(string.Format(CultureInfo.InvariantCulture,
+            "R2 synthetic asymmetric shift: left={0:0.0000} right={1:0.0000} mean={2:0.0000}",
+            shift.LeftX, shift.RightX, shift.MeanX));
+        Check.WithCustomMessage($"Only the right half moved; the left block must read 0, got {shift.LeftX:0.0000}.")
+            .That(shift.LeftX).IsCloseTo(0.0, TolerancePx);
+        Check.WithCustomMessage($"The right half rolled one pixel right; got {shift.RightX:0.0000}.")
+            .That(shift.RightX).IsCloseTo(1.0, TolerancePx);
+        Check.WithCustomMessage($"The mirrored mean of 0 and 1 must be 0.5, got {shift.MeanX:0.0000}.")
+            .That(shift.MeanX).IsCloseTo(0.5, TolerancePx);
+    }
+
+    /// <summary>Copies a raster, shifting every column right of <paramref name="centreX"/> one pixel right.</summary>
+    private static ProbeRaster RollRightOfCentre(ProbeRaster source, int centreX)
+    {
+        var pixels = (byte[])source.Pixels.Clone();
+        for (var y = 0; y < source.Height; y++)
+        {
+            for (var x = source.Width - 1; x > centreX; x--)
+            {
+                var from = (y * source.Width + x - 1) * 4;
+                var to = (y * source.Width + x) * 4;
+                pixels[to] = source.Pixels[from];
+                pixels[to + 1] = source.Pixels[from + 1];
+                pixels[to + 2] = source.Pixels[from + 2];
+                pixels[to + 3] = source.Pixels[from + 3];
+            }
+        }
+
+        return new ProbeRaster(pixels, source.Width, source.Height);
+    }
+
     [StaFact]
     public void Control_FailsWithNoRing_OnAUniformCapture()
     {

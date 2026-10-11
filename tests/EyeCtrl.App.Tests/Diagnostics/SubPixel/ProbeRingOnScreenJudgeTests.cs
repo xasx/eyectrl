@@ -31,6 +31,10 @@ public class ProbeRingOnScreenJudgeTests
     private static ProbeRaster RingAt(double fraction, bool snap) =>
         ProbeRingCaptureScene.WeightsAt(new PhysicalPoint(300 + fraction, 300 + fraction), snap);
 
+    /// <summary>A ring rendered with independent per-axis capture-local fractions (the Y-only fixtures).</summary>
+    private static ProbeRaster RingAtAxis(double fractionX, double fractionY, bool snap) =>
+        ProbeRingCaptureScene.WeightsAt(new PhysicalPoint(300 + fractionX, 300 + fractionY), snap);
+
     private static (ProbeRaster Expected, ProbeRaster ReferenceB, ProbeRaster ReferenceA,
         ProbeRingOnScreenJudge.AbFrame[] Assertions, ProbeRingOnScreenJudge.SweepFrame[] Sweep) HealthyInputs(
             bool fractionalA = false)
@@ -249,7 +253,8 @@ public class ProbeRingOnScreenJudgeTests
         ProbeRaster referenceA,
         ProbeRingOnScreenJudge.AbFrame[] assertions,
         ProbeRingOnScreenJudge.SweepFrame[] sweep,
-        ProbeRaster[]? referenceRepeats = null)
+        ProbeRaster[]? referenceRepeats = null,
+        ProbeRingOnScreenJudge.DiagnosticGroup[]? diagnostics = null)
     {
         var assertionRows = assertions
             .SelectMany(frame => new[]
@@ -265,7 +270,7 @@ public class ProbeRingOnScreenJudgeTests
 
         return new ProbeRingOnScreenJudge.JudgeInputs(
             scale, expected, referenceB, referenceA, referenceRepeats ?? [referenceB], Geometry, HalfPx,
-            assertionRows, sweepRows);
+            assertionRows, sweepRows, diagnostics ?? []);
     }
 
     /// <summary>
@@ -327,7 +332,9 @@ public class ProbeRingOnScreenJudgeTests
         var lines = new List<string>();
         ProbeRingOnScreenJudge.WriteReport(report, lines.Add);
 
-        var rowLines = lines.Where(line => line.Contains("row B f=0.50")).ToList();
+        var rowLines = lines
+            .Where(line => line.Contains("row B f=0.50") && (line.Contains(" X: ") || line.Contains(" Y: ")))
+            .ToList();
         Check.WithCustomMessage("One row must produce one line per axis.")
             .That(rowLines).HasSize(2);
         Check.WithCustomMessage(
@@ -343,14 +350,19 @@ public class ProbeRingOnScreenJudgeTests
             .That(rowLines.All(line => line.Contains("N=3"))).IsTrue();
         Check.WithCustomMessage("The report must print the failure count before the verdict.")
             .That(lines.Any(line => line.Contains("R2 failures so far:"))).IsTrue();
+        Check.WithCustomMessage("The report must print the D1 multi-row comparison beside the single-row value.")
+            .That(lines.Any(line => line.Contains("DIAGNOSTIC D1") && line.Contains("single-row=") && line.Contains("21-row=")))
+            .IsTrue();
     }
 
     /// <summary>
-    /// Fixup 03 item 3: a row's measured value is the <b>mean of its repeats</b> and its spread the
-    /// max − min over them. Kills the "drop the repeats" mutant (which would report N=1, spread 0).
+    /// Fixup 03 item 3 + fixup 04 F1: a row's measured value is the <b>mean of its repeats</b> and
+    /// its spread the max − min over them — but the <b>judged</b> rule is every repeat within ±0.05
+    /// (the orchestrator's decision). The pre-fixup fixture (0.25 / 0.5 / 0.75 at f = 0.5) passed on
+    /// its mean; it must now fail, per repeat, while the mean and spread stay in the report.
     /// </summary>
     [StaFact]
-    public void TableRows_UseTheMeanAndSpreadOfEveryRepeat()
+    public void TableRows_ReportMeanAndSpread_ButEveryRepeatMustPass()
     {
         var (expected, referenceB, referenceA, assertions, sweep) = HealthyInputs();
         var inputs = Inputs(2.0, expected, referenceB, referenceA, assertions, sweep);
@@ -386,8 +398,131 @@ public class ProbeRingOnScreenJudgeTests
         Check.WithCustomMessage($"The row's spread must be max − min over its repeats; got {row.SpreadX:0.0000}.")
             .That(row.SpreadX).IsCloseTo(0.5, 0.02);
         Check.That(row.SampleX).HasSize(3);
-        Check.WithCustomMessage("The mirrored halves must average every repeat too.")
-            .That(row.LeftX).IsCloseTo(row.LeftX, 1e-12);
+        Check.WithCustomMessage("The halves must average every repeat: (left + right) / 2 == the mean.")
+            .That((row.LeftX + row.RightX) / 2.0).IsCloseTo(row.MeanX, 1e-9);
+
+        // F1: the row's mean (0.5) is exactly its scheduled fraction, and it must STILL fail — the
+        // pre-registered rule is per capture.
+        Check.WithCustomMessage(
+                "A row whose mean passes but whose repeats do not must fail under the per-repeat rule; "
+                + "judging on the mean would loosen the gate after run 1.")
+            .That(report.Failures.Count(failure => failure.Message.Contains("Condition B")))
+            .IsStrictlyGreaterThan(0);
+    }
+
+    /// <summary>
+    /// F1's minimal shape: two good repeats and one off by 0.1. The mean (0.2833 at f = 0.25) is
+    /// inside ±0.05, so a mean-judging mutant passes this row and this test goes red.
+    /// </summary>
+    [StaFact]
+    public void Judge_FailsWhenOneRepeatMisses()
+    {
+        var (expected, referenceB, referenceA, assertions, sweep) = HealthyInputs();
+        var inputs = Inputs(2.0, expected, referenceB, referenceA, assertions, sweep);
+
+        inputs = inputs with
+        {
+            AssertionRows = inputs.AssertionRows
+                .Select(row => row.Condition == ProbeRingOnScreenJudge.ConditionB
+                               && Math.Abs(row.Fraction - 0.25) < 1e-9
+                    ? row with
+                    {
+                        Repeats =
+                        [
+                            RingAt(0.25, snap: false),
+                            RingAt(0.25, snap: false),
+                            RingAt(0.375, snap: false),
+                        ],
+                    }
+                    : row)
+                .ToList(),
+        };
+
+        var report = ProbeRingOnScreenJudge.Measure(inputs);
+
+        Check.WithCustomMessage(
+                "One repeat 0.125 px off must fail the row even though the mean stays inside ±0.05.")
+            .That(report.Failures.Any(failure =>
+                failure.Message.Contains("Condition B") && failure.Message.Contains("repeat 3 of 3"))).IsTrue();
+    }
+
+    /// <summary>
+    /// Fixup 04 F3 (kills V3): B moving only vertically must fail on the vertical check. Under a
+    /// mutant that deletes the Y check the row passes, because its X is exactly right.
+    /// </summary>
+    [StaFact]
+    public void Judge_FailsWhenBIsOffVerticallyOnly()
+    {
+        var (expected, referenceB, referenceA, _, sweep) = HealthyInputs();
+
+        var verticalOnly = ProbeRingOnScreenJudge.AssertionFractions
+            .Select(fraction => new ProbeRingOnScreenJudge.AbFrame(
+                fraction, RingAt(fraction, snap: true), RingAtAxis(fraction, fraction + 0.1, snap: false)))
+            .ToArray();
+
+        var report = ProbeRingOnScreenJudge.Measure(
+            Inputs(2.0, expected, referenceB, referenceA, verticalOnly, sweep));
+
+        Check.WithCustomMessage(
+                "B off by 0.1 px vertically only must fail on the vertical check; got failures: "
+                + string.Join(" | ", report.Failures.Select(failure => failure.Message)))
+            .That(report.Failures.Any(failure =>
+                failure.Message.Contains("Condition B") && failure.Message.Contains("vertical move"))).IsTrue();
+    }
+
+    /// <summary>Fixup 04 F3 (kills V4): the same for condition A, one whole pixel low.</summary>
+    [StaFact]
+    public void Judge_FailsWhenAIsOffVerticallyOnly()
+    {
+        var (expected, referenceB, referenceA, _, sweep) = HealthyInputs();
+
+        var verticalOnly = ProbeRingOnScreenJudge.AssertionFractions
+            .Select(fraction => new ProbeRingOnScreenJudge.AbFrame(
+                fraction,
+                RingAtAxis(Math.Round(fraction, MidpointRounding.AwayFromZero), Math.Round(fraction, MidpointRounding.AwayFromZero) + 1.0, snap: true),
+                RingAt(fraction, snap: false)))
+            .ToArray();
+
+        var report = ProbeRingOnScreenJudge.Measure(
+            Inputs(2.0, expected, referenceB, referenceA, verticalOnly, sweep));
+
+        Check.WithCustomMessage(
+                "A one whole pixel low must fail on the vertical check; got failures: "
+                + string.Join(" | ", report.Failures.Select(failure => failure.Message)))
+            .That(report.Failures.Any(failure =>
+                failure.Message.Contains("Condition A") && failure.Message.Contains("vertical move"))).IsTrue();
+    }
+
+    /// <summary>
+    /// The deciders are diagnostics (orchestrator decision): a wildly wrong diagnostic row is
+    /// measured and printed, and must never add a failure. Kills a mutant that judges them.
+    /// </summary>
+    [StaFact]
+    public void Diagnostics_AreMeasuredButNeverJudged()
+    {
+        var (expected, referenceB, referenceA, assertions, sweep) = HealthyInputs();
+        var diagnostic = new ProbeRingOnScreenJudge.DiagnosticGroup(
+            "D2",
+            "solid-look B rows (WeightedSandwich)",
+            referenceB,
+            [
+                new ProbeRingOnScreenJudge.DiagnosticRow(
+                    0.25, 0.25, [RingAt(0.9, snap: false), RingAt(0.9, snap: false), RingAt(0.9, snap: false)]),
+            ]);
+
+        var report = ProbeRingOnScreenJudge.Measure(
+            Inputs(2.0, expected, referenceB, referenceA, assertions, sweep, diagnostics: [diagnostic]));
+
+        Check.WithCustomMessage("The diagnostic row must be measured.")
+            .That(report.Diagnostics).HasSize(1);
+        Check.WithCustomMessage(
+                "Diagnostics are never judged; a diagnostic 0.65 px off must not add any failure.")
+            .That(report.Failures).IsEmpty();
+
+        var lines = new List<string>();
+        ProbeRingOnScreenJudge.WriteReport(report, lines.Add);
+        Check.WithCustomMessage("The diagnostic lines must carry the DIAGNOSTIC label.")
+            .That(lines.Any(line => line.Contains("DIAGNOSTIC D2"))).IsTrue();
     }
 
     /// <summary>

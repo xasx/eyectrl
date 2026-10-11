@@ -62,6 +62,12 @@ internal static class ProbeRingOnScreenJudge
     /// <summary>The sweep rows' kind. The assertion fractions 0.25/0.5/0.75 are sweep fractions too.</summary>
     internal const string KindSweep = "sweep";
 
+    /// <summary>D2's kind: the solid-look control rows (diagnostic only).</summary>
+    internal const string KindSolidControl = "solid-control";
+
+    /// <summary>D3's kind: the X-only rows (diagnostic only).</summary>
+    internal const string KindXOnly = "x-only";
+
     /// <summary>One captured fraction with both conditions (the single-repeat shape the tests drive).</summary>
     /// <param name="Fraction">The scheduled fraction.</param>
     /// <param name="A">Condition A's capture (whole-pixel placement).</param>
@@ -79,6 +85,23 @@ internal static class ProbeRingOnScreenJudge
     /// <param name="Repeats">The frames, one per repeat.</param>
     internal sealed record RowSamples(string Condition, double Fraction, IReadOnlyList<ProbeRaster> Repeats);
 
+    /// <summary>One diagnostic row: its own reference and its repeats (fixup 04 deciders).</summary>
+    /// <param name="Fraction">The scheduled x fraction.</param>
+    /// <param name="FractionY">The scheduled y fraction (0 for the X-only decider).</param>
+    /// <param name="Repeats">The frames, one per repeat.</param>
+    internal sealed record DiagnosticRow(double Fraction, double FractionY, IReadOnlyList<ProbeRaster> Repeats);
+
+    /// <summary>
+    /// A diagnostic block (D2/D3): its own f = 0 reference and its rows. Diagnostics are measured
+    /// and printed, never judged.
+    /// </summary>
+    /// <param name="Id">"D2" or "D3".</param>
+    /// <param name="Label">What the block is for, for the output.</param>
+    /// <param name="Reference">The block's own f = 0 capture.</param>
+    /// <param name="Rows">The block's rows.</param>
+    internal sealed record DiagnosticGroup(
+        string Id, string Label, ProbeRaster Reference, IReadOnlyList<DiagnosticRow> Rows);
+
     /// <summary>Everything the judgement needs.</summary>
     /// <param name="EffectiveScale">The window's measured device pixels per DIP (requirement a).</param>
     /// <param name="ExpectedPattern">The expected ring rendered offscreen at the reference geometry (requirement c).</param>
@@ -89,6 +112,7 @@ internal static class ProbeRingOnScreenJudge
     /// <param name="HalfPx">The expected stroke radius, in pixels.</param>
     /// <param name="AssertionRows">A and B rows at <see cref="AssertionFractions"/> (requirement e).</param>
     /// <param name="SweepRows">B rows at <see cref="SweepFractions"/> (requirement f).</param>
+    /// <param name="Diagnostics">The D2/D3 blocks: measured and printed, never judged.</param>
     internal sealed record JudgeInputs(
         double EffectiveScale,
         ProbeRaster ExpectedPattern,
@@ -98,7 +122,8 @@ internal static class ProbeRingOnScreenJudge
         ProbeRingCaptureAnalysis.RingScanGeometry Geometry,
         double HalfPx,
         IReadOnlyList<RowSamples> AssertionRows,
-        IReadOnlyList<RowSamples> SweepRows);
+        IReadOnlyList<RowSamples> SweepRows,
+        IReadOnlyList<DiagnosticGroup> Diagnostics);
 
     /// <summary>One failed requirement, named, with the message the fix must read.</summary>
     /// <param name="Requirement">The requirement's label, e.g. "(c) positive control".</param>
@@ -121,6 +146,8 @@ internal static class ProbeRingOnScreenJudge
     /// <param name="BottomY">Mean of the bottom edge block's centroid shifts.</param>
     /// <param name="SampleX">Every repeat's x movement, in capture order.</param>
     /// <param name="SampleY">Every repeat's y movement, in capture order.</param>
+    /// <param name="MultiRowMeanX">D1: the mean over repeats of the 21-row cardinal estimate, x.</param>
+    /// <param name="MultiRowMeanY">D1: the mean over repeats of the 21-column cardinal estimate, y.</param>
     internal sealed record RowMeasurement(
         string Condition,
         double Fraction,
@@ -136,7 +163,15 @@ internal static class ProbeRingOnScreenJudge
         double TopY,
         double BottomY,
         IReadOnlyList<double> SampleX,
-        IReadOnlyList<double> SampleY);
+        IReadOnlyList<double> SampleY,
+        double MultiRowMeanX,
+        double MultiRowMeanY);
+
+    /// <summary>One diagnostic row's measurement, labelled for the output (never judged).</summary>
+    /// <param name="Id">"D1" / "D2" / "D3".</param>
+    /// <param name="Label">What the diagnostic is for.</param>
+    /// <param name="Row">The measured row.</param>
+    internal sealed record DiagnosticMeasurement(string Id, string Label, RowMeasurement Row);
 
     /// <summary>The whole measured run, with every failure collected — nothing thrown yet.</summary>
     internal sealed record JudgeReport(
@@ -147,6 +182,7 @@ internal static class ProbeRingOnScreenJudge
         IReadOnlyList<RowMeasurement> AssertionRows,
         IReadOnlyList<RowMeasurement> SweepRows,
         ProbeRingCaptureAnalysis.SweepSummary Sweep,
+        IReadOnlyList<DiagnosticMeasurement> Diagnostics,
         IReadOnlyList<RequirementFailure> Failures);
 
     /// <summary>
@@ -191,7 +227,7 @@ internal static class ProbeRingOnScreenJudge
             inputs.SweepRows.Select(row => row.Fraction), SweepFractions, "sweep", failures);
 
         var referenceNoise = inputs.ReferenceBRepeats.Count > 1
-            ? MeasureRow(ConditionB, 0.0, inputs.ReferenceBRepeats, inputs.ReferenceB, inputs.Geometry, 0.0)
+            ? MeasureRow(ConditionB, 0.0, inputs.ReferenceBRepeats, inputs.ReferenceB, inputs.Geometry, 0.0, 0.0)
             : null;
 
         var assertionRows = new List<RowMeasurement>();
@@ -201,39 +237,48 @@ internal static class ProbeRingOnScreenJudge
             var expected = row.Condition == ConditionA
                 ? Math.Round(row.Fraction, MidpointRounding.AwayFromZero)
                 : row.Fraction;
-            var measured = MeasureRow(row.Condition, row.Fraction, row.Repeats, reference, inputs.Geometry, expected);
+            var measured = MeasureRow(row.Condition, row.Fraction, row.Repeats, reference, inputs.Geometry, expected, expected);
             assertionRows.Add(measured);
 
-            if (row.Condition == ConditionB)
+            // F1 (orchestrator decision): EVERY repeat must be within ±0.05 — the run-1 rule applied
+            // to each capture. The mean and spread stay in the report; judging on the mean would
+            // loosen the pre-registered gate after a failure.
+            for (var i = 0; i < measured.SampleX.Count; i++)
             {
-                if (Math.Abs(measured.MeanX - row.Fraction) > TolerancePx)
+                if (row.Condition == ConditionB)
                 {
-                    failures.Add(new RequirementFailure("(e) condition B",
-                        $"Condition B must render fractionally on the hardware path: f = {row.Fraction:0.00} px "
-                        + $"but the ring moved ({measured.MeanX:0.0000}, {measured.MeanY:0.0000}) px. If either "
-                        + "axis is 0 or 1, something snapped the ring to device pixels (m1/m4's shape)."));
-                }
+                    if (Math.Abs(measured.SampleX[i] - row.Fraction) > TolerancePx)
+                    {
+                        failures.Add(new RequirementFailure("(e) condition B",
+                            $"Condition B must render fractionally on the hardware path: f = {row.Fraction:0.00} px "
+                            + $"but repeat {i + 1} of {measured.Repeats} moved ({measured.SampleX[i]:0.0000}, "
+                            + $"{measured.SampleY[i]:0.0000}) px. If either axis is 0 or 1, something snapped the "
+                            + "ring to device pixels (m1/m4's shape)."));
+                    }
 
-                if (Math.Abs(measured.MeanY - row.Fraction) > TolerancePx)
-                {
-                    failures.Add(new RequirementFailure("(e) condition B",
-                        $"Condition B's vertical move at f = {row.Fraction:0.00} measured {measured.MeanY:0.0000} px."));
+                    if (Math.Abs(measured.SampleY[i] - row.Fraction) > TolerancePx)
+                    {
+                        failures.Add(new RequirementFailure("(e) condition B",
+                            $"Condition B's vertical move at f = {row.Fraction:0.00} measured "
+                            + $"{measured.SampleY[i]:0.0000} px on repeat {i + 1} of {measured.Repeats}."));
+                    }
                 }
-            }
-            else
-            {
-                if (Math.Abs(measured.MeanX - expected) > TolerancePx)
+                else
                 {
-                    failures.Add(new RequirementFailure("(e) condition A",
-                        $"Condition A must land on whole device pixels: f = {row.Fraction:0.00} should move "
-                        + $"{expected:0} px, measured {measured.MeanX:0.0000}."));
-                }
+                    if (Math.Abs(measured.SampleX[i] - expected) > TolerancePx)
+                    {
+                        failures.Add(new RequirementFailure("(e) condition A",
+                            $"Condition A must land on whole device pixels: f = {row.Fraction:0.00} should move "
+                            + $"{expected:0} px, but repeat {i + 1} of {measured.Repeats} measured "
+                            + $"{measured.SampleX[i]:0.0000}."));
+                    }
 
-                if (Math.Abs(measured.MeanY - expected) > TolerancePx)
-                {
-                    failures.Add(new RequirementFailure("(e) condition A",
-                        $"Condition A's vertical move at f = {row.Fraction:0.00} should be {expected:0} px, "
-                        + $"measured {measured.MeanY:0.0000}."));
+                    if (Math.Abs(measured.SampleY[i] - expected) > TolerancePx)
+                    {
+                        failures.Add(new RequirementFailure("(e) condition A",
+                            $"Condition A's vertical move at f = {row.Fraction:0.00} should be {expected:0} px, "
+                            + $"but repeat {i + 1} of {measured.Repeats} measured {measured.SampleY[i]:0.0000}."));
+                    }
                 }
             }
         }
@@ -242,15 +287,29 @@ internal static class ProbeRingOnScreenJudge
         // has no pass/fail beyond the schedule check above.
         var sweepRows = inputs.SweepRows
             .Select(row => MeasureRow(
-                ConditionB, row.Fraction, row.Repeats, inputs.ReferenceB, inputs.Geometry, row.Fraction))
+                ConditionB, row.Fraction, row.Repeats, inputs.ReferenceB, inputs.Geometry, row.Fraction, row.Fraction))
             .ToList();
         var sweepSummary = ProbeRingCaptureAnalysis.EvaluateSweep(
             sweepRows
                 .Select(row => new ProbeRingCaptureAnalysis.SweepRow(row.Fraction, row.MeanX, row.MeanY))
                 .ToList());
 
+        // Deciders D2/D3 (orchestrator decision): measured and printed with a DIAGNOSTIC label,
+        // never judged — their job is to separate a scan-row or dash artefact from a real placement
+        // error, which a verdict on them would misstate as evidence about the owner's look.
+        var diagnostics = new List<DiagnosticMeasurement>();
+        foreach (var group in inputs.Diagnostics)
+        {
+            foreach (var row in group.Rows)
+            {
+                diagnostics.Add(new DiagnosticMeasurement(group.Id, group.Label, MeasureRow(
+                    ConditionB, row.Fraction, row.Repeats, group.Reference, inputs.Geometry, row.Fraction, row.FractionY)));
+            }
+        }
+
         return new JudgeReport(
-            dpi, control, referenceOffset, referenceNoise, assertionRows, sweepRows, sweepSummary, failures);
+            dpi, control, referenceOffset, referenceNoise, assertionRows, sweepRows, sweepSummary,
+            diagnostics, failures);
     }
 
     /// <summary>
@@ -267,20 +326,36 @@ internal static class ProbeRingOnScreenJudge
             $"R2 reference A-B offset at f=0: ({report.ReferenceOffset.MeanX:0.0000}, {report.ReferenceOffset.MeanY:0.0000}) px"));
 
         if (report.ReferenceNoise is not null)
-            WriteRow(report.ReferenceNoise, "noise", writeLine);
+            WriteRow(report.ReferenceNoise, "noise", diagnosticId: null, writeLine);
 
         foreach (var row in report.AssertionRows)
-            WriteRow(row, "row", writeLine);
+            WriteRow(row, "row", diagnosticId: null, writeLine);
         foreach (var row in report.SweepRows)
-            WriteRow(row, "sweep", writeLine);
+            WriteRow(row, "sweep", diagnosticId: null, writeLine);
 
         writeLine(Invariant(
             $"R2 sweep summary: max |error| {report.Sweep.MaxAbsErrorPx:0.0000} px; resolves B to {report.Sweep.ResolvedStepPx:0.00} px. {report.Sweep.Note}"));
+
+        // Deciders last, clearly labelled DIAGNOSTIC: they are never judged (orchestrator decision).
+        if (report.Diagnostics.Count > 0)
+        {
+            writeLine(
+                "R2 diagnostics follow (D1 multi-row cardinal estimator, D2 solid-look control, D3 X-only "
+                + "motion): measured and printed, never judged.");
+            foreach (var diagnostic in report.Diagnostics)
+                WriteRow(diagnostic.Row, $"DIAGNOSTIC {diagnostic.Id}", diagnostic.Id, writeLine);
+        }
+
         writeLine($"R2 failures so far: {report.Failures.Count} (the verdict follows)");
     }
 
-    /// <summary>Prints one row, one line per axis, with its repeats and mirrored halves.</summary>
-    private static void WriteRow(RowMeasurement row, string kind, Action<string> writeLine)
+    /// <summary>
+    /// Prints one row, one line per axis, with its repeats and mirrored halves, then the D1
+    /// multi-row comparison. <paramref name="diagnosticId"/> is set only for the decider rows, so
+    /// their lines carry the DIAGNOSTIC label the decision requires.
+    /// </summary>
+    private static void WriteRow(
+        RowMeasurement row, string kind, string? diagnosticId, Action<string> writeLine)
     {
         var samplesX = string.Join(", ", row.SampleX.Select(value => value.ToString("0.0000", CultureInfo.InvariantCulture)));
         var samplesY = string.Join(", ", row.SampleY.Select(value => value.ToString("0.0000", CultureInfo.InvariantCulture)));
@@ -289,6 +364,8 @@ internal static class ProbeRingOnScreenJudge
             $"R2 {kind} {row.Condition} f={row.Fraction:0.00} N={row.Repeats} X: expected={row.ExpectedX:0.0000} measured={row.MeanX:0.0000} error={row.MeanX - row.ExpectedX:+0.0000;-0.0000;+0.0000} spread={row.SpreadX:0.0000} samples=({samplesX}) left={row.LeftX:0.0000} right={row.RightX:0.0000}"));
         writeLine(Invariant(
             $"R2 {kind} {row.Condition} f={row.Fraction:0.00} N={row.Repeats} Y: expected={row.ExpectedY:0.0000} measured={row.MeanY:0.0000} error={row.MeanY - row.ExpectedY:+0.0000;-0.0000;+0.0000} spread={row.SpreadY:0.0000} samples=({samplesY}) top={row.TopY:0.0000} bottom={row.BottomY:0.0000}"));
+        writeLine(Invariant(
+            $"R2 DIAGNOSTIC D1 {(diagnosticId ?? kind)} {row.Condition} f={row.Fraction:0.00} N={row.Repeats} single-row=({row.MeanX:0.0000}, {row.MeanY:0.0000}) 21-row=({row.MultiRowMeanX:0.0000}, {row.MultiRowMeanY:0.0000})"));
     }
 
     /// <summary>
@@ -357,7 +434,7 @@ internal static class ProbeRingOnScreenJudge
 
         return new JudgeInputs(
             effectiveScale, expectedPattern, referenceB, referenceA, [referenceB], geometry, halfPx,
-            assertionRows, sweepRows);
+            assertionRows, sweepRows, Diagnostics: []);
     }
 
     /// <summary>
@@ -399,6 +476,34 @@ internal static class ProbeRingOnScreenJudge
                 SamplesAt(samples, KindSweep, ConditionB, fraction).Select(s => s.Weights).ToList()))
             .ToList();
 
+        // D2/D3 (never judged): each block's own f = 0 reference and its rows.
+        var diagnostics = new List<DiagnosticGroup>();
+        var solidReference = SamplesAt(samples, KindSolidControl, ConditionB, 0.0).FirstOrDefault();
+        if (solidReference is not null)
+        {
+            diagnostics.Add(new DiagnosticGroup(
+                "D2", "solid-look B rows (WeightedSandwich)", solidReference.Weights,
+                ProbeRingCapturePlan.SolidControlFractions
+                    .Select(fraction => new DiagnosticRow(
+                        fraction, fraction,
+                        SamplesAt(samples, KindSolidControl, ConditionB, fraction).Select(s => s.Weights).ToList()))
+                    .Where(row => row.Repeats.Count > 0)
+                    .ToList()));
+        }
+
+        var xOnlyReference = SamplesAt(samples, KindXOnly, ConditionB, 0.0).FirstOrDefault();
+        if (xOnlyReference is not null)
+        {
+            diagnostics.Add(new DiagnosticGroup(
+                "D3", "X-only B rows (y = 0)", xOnlyReference.Weights,
+                ProbeRingCapturePlan.XOnlyFractions
+                    .Select(fraction => new DiagnosticRow(
+                        fraction, 0.0,
+                        SamplesAt(samples, KindXOnly, ConditionB, fraction).Select(s => s.Weights).ToList()))
+                    .Where(row => row.Repeats.Count > 0)
+                    .ToList()));
+        }
+
         return new JudgeInputs(
             scale,
             expectedPattern,
@@ -408,7 +513,8 @@ internal static class ProbeRingOnScreenJudge
             geometry,
             halfPx,
             assertionRows,
-            sweepRows);
+            sweepRows,
+            diagnostics);
     }
 
     /// <summary>The samples of one row kind, condition and fraction, in repeat order.</summary>
@@ -429,18 +535,22 @@ internal static class ProbeRingOnScreenJudge
         IReadOnlyList<ProbeRaster> repeats,
         ProbeRaster reference,
         ProbeRingCaptureAnalysis.RingScanGeometry geometry,
-        double expected)
+        double expectedX,
+        double expectedY)
     {
         var shifts = repeats
             .Select(frame => ProbeRingCaptureAnalysis.MeasureMirroredShift(frame, reference, geometry))
+            .ToList();
+        var multiRow = repeats
+            .Select(frame => ProbeRingCaptureAnalysis.MeasureMultiRowShift(frame, reference, geometry))
             .ToList();
 
         return new RowMeasurement(
             condition,
             fraction,
             shifts.Count,
-            expected,
-            expected,
+            expectedX,
+            expectedY,
             shifts.Average(shift => shift.MeanX),
             shifts.Average(shift => shift.MeanY),
             shifts.Max(shift => shift.MeanX) - shifts.Min(shift => shift.MeanX),
@@ -450,7 +560,9 @@ internal static class ProbeRingOnScreenJudge
             shifts.Average(shift => shift.TopY),
             shifts.Average(shift => shift.BottomY),
             shifts.Select(shift => shift.MeanX).ToList(),
-            shifts.Select(shift => shift.MeanY).ToList());
+            shifts.Select(shift => shift.MeanY).ToList(),
+            multiRow.Average(shift => shift.MeanX),
+            multiRow.Average(shift => shift.MeanY));
     }
 
     /// <summary>

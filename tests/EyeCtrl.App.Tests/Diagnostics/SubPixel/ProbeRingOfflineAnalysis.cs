@@ -18,17 +18,27 @@ internal static class ProbeRingOfflineAnalysis
     {
         var archive = ProbeRingCaptureArchive.Load(folder);
 
+        // Select by Kind, not by save order (fixup 04 F4): the assertion fractions are also sweep
+        // fractions, and the diagnostic blocks carry f = 0 references of their own.
         var referenceB = archive.Samples
-            .Where(sample => sample.Condition == ProbeRingOnScreenJudge.ConditionB && sample.Fraction == 0.0)
+            .Where(sample => sample.Kind == ProbeRingOnScreenJudge.KindReference
+                             && sample.Condition == ProbeRingOnScreenJudge.ConditionB
+                             && sample.Fraction == 0.0)
             .OrderBy(sample => sample.Repeat)
             .First();
         var centreInCapture = new PhysicalPoint(
             referenceB.Frame.CaptureCentrePx.X - referenceB.Frame.CaptureOriginX,
             referenceB.Frame.CaptureCentrePx.Y - referenceB.Frame.CaptureOriginY);
 
-        // The expected pattern is deterministic: the same look, rendered at the same reference
-        // geometry the live run rendered it at, converted through the captured background.
-        var expected = ProbeRingCaptureScene.ExpectedWeightsAt(centreInCapture, referenceB.Background, archive.Scale);
+        // The expected pattern comes from the look the capture was drawn with, recorded in the
+        // manifest (fixup 04 F5) — not from today's code, so a later look change cannot silently
+        // change what a saved run is measured against.
+        var expectedBgra = ProbeRingCaptureScene.RenderCapture(
+            archive.Scale, referenceB.Look.ToSettings(), centreInCapture,
+            snap: false, ProbeRingFrameSchedule.CaptureSizePx);
+        var expected = ProbeRingCaptureAnalysis.ToWeights(
+            expectedBgra, ProbeRingFrameSchedule.CaptureSizePx, ProbeRingFrameSchedule.CaptureSizePx,
+            referenceB.Background);
 
         return ProbeRingOnScreenJudge.Measure(
             ProbeRingOnScreenJudge.BuildInputs(archive.Scale, expected, archive.Samples));

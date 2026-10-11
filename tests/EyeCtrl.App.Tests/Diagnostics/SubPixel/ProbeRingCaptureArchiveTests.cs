@@ -34,7 +34,7 @@ public class ProbeRingCaptureArchiveTests
     [StaFact]
     public void Captures_RoundTripThroughTheArchive()
     {
-        var samples = ProbeRingSyntheticRun.Healthy();
+        var samples = ProbeRingSyntheticRun.Small();
         var folder = ProbeRingSyntheticRun.TempFolder();
         try
         {
@@ -49,10 +49,14 @@ public class ProbeRingCaptureArchiveTests
                 var before = samples[i];
                 var after = loaded.Samples[i];
 
+                Check.That(after.Kind).IsEqualTo(before.Kind);
                 Check.That(after.Condition).IsEqualTo(before.Condition);
                 Check.That(after.Fraction).IsEqualTo(before.Fraction);
                 Check.That(after.Repeat).IsEqualTo(before.Repeat);
                 Check.That(after.Background).IsEqualTo(before.Background);
+                Check.WithCustomMessage("The look must round-trip (fixup 04 F5).")
+                    .That(after.Look).IsEqualTo(before.Look);
+                Check.That(after.ElapsedMs).IsEqualTo(before.ElapsedMs);
                 Check.That(after.Frame.CaptureOriginX).IsEqualTo(before.Frame.CaptureOriginX);
                 Check.That(after.Frame.CaptureOriginY).IsEqualTo(before.Frame.CaptureOriginY);
                 Check.That(after.Frame.CaptureCentrePx.X).IsEqualTo(before.Frame.CaptureCentrePx.X);
@@ -77,7 +81,7 @@ public class ProbeRingCaptureArchiveTests
     [StaFact]
     public void Manifest_RecordsWhatTheOfflineAnalysisNeeds()
     {
-        var samples = ProbeRingSyntheticRun.Healthy(referenceRepeats: 1, rowRepeats: 1);
+        var samples = ProbeRingSyntheticRun.Small();
         var folder = ProbeRingSyntheticRun.TempFolder();
         try
         {
@@ -101,6 +105,19 @@ public class ProbeRingCaptureArchiveTests
             Check.WithCustomMessage("Every sample must name its PNG file on disk.")
                 .That(archive.Samples.All(sample =>
                     File.Exists(Path.Combine(folder, ProbeRingCaptureArchive.SampleFileName(sample))))).IsTrue();
+
+            // Fixup 04 F5: the look, the per-capture time and the commit sha.
+            Check.WithCustomMessage(
+                    "The manifest must record the look each frame was drawn with, or a later code change "
+                    + "silently changes the expected pattern a saved run is measured against.")
+                .That(entry.Look)
+                .IsEqualTo(ProbeRingCaptureScene.LookOf(ProbeRingCaptureScene.OwnerLook()));
+            Check.WithCustomMessage("The manifest must record a per-capture timestamp (small by a Stopwatch).")
+                .That(archive.Samples.Select(sample => sample.ElapsedMs).Distinct().Count())
+                .IsStrictlyGreaterThan(1);
+            Check.WithCustomMessage("The manifest must record the commit sha (or 'unknown').")
+                .That(archive.CommitSha).IsNotNull();
+            Check.That(archive.CommitSha.Length).IsStrictlyGreaterThan(0);
         }
         finally
         {

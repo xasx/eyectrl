@@ -3,41 +3,58 @@ namespace EyeCtrl.App.Tests.Diagnostics.SubPixel;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 /// <summary>
-/// Shared fixtures for fixup 03's archive and offline tests: a healthy synthetic run and a
-/// throwaway temp folder. The samples are the same renders the analysis tests use
-/// (<see cref="ProbeRingCaptureScene.SyntheticSample"/>), shaped exactly like the on-screen
-/// harness's capture plan: 5 reference repeats, then A/B assertion rows and the B sweep, 3 repeats
-/// each.
+/// Shared fixtures for the archive, offline and plan tests: synthetic runs and a throwaway temp
+/// folder. <see cref="Healthy"/> mirrors the on-screen capture plan step for step — the same kinds,
+/// orders and looks — so the offline and live paths are exercised over the same shape the owner's
+/// run will produce.
 /// </summary>
 internal static class ProbeRingSyntheticRun
 {
-    /// <summary>A run that should measure cleanly: every row at its scheduled fraction.</summary>
-    internal static List<ProbeRingCapturedSample> Healthy(
-        int referenceRepeats = ProbeRingOnScreenHarness.ReferenceRepeats,
-        int rowRepeats = ProbeRingOnScreenHarness.RowRepeats)
+    /// <summary>The full run, rendered from <see cref="ProbeRingCapturePlan.Build"/> itself.</summary>
+    internal static List<ProbeRingCapturedSample> Healthy()
     {
         var samples = new List<ProbeRingCapturedSample>();
+        var elapsed = 0L;
 
-        for (var repeat = 0; repeat < referenceRepeats; repeat++)
-            samples.Add(ProbeRingCaptureScene.SyntheticSample(ProbeRingOnScreenJudge.KindReference, "B", 0.0, snap: false, repeat));
+        foreach (var step in ProbeRingCapturePlan.Build())
+        {
+            elapsed += 40;
+            samples.Add(ProbeRingCaptureScene.SyntheticSample(
+                step.Kind, step.Condition, step.FractionX, step.FractionY, step.Snap, step.Repeat,
+                look: step.Look, elapsedMs: elapsed));
+        }
 
-        samples.Add(ProbeRingCaptureScene.SyntheticSample(ProbeRingOnScreenJudge.KindReference, "A", 0.0, snap: true));
+        return samples;
+    }
+
+    /// <summary>A minimal run — one repeat per row, no diagnostics — for tests that only need a valid archive.</summary>
+    internal static List<ProbeRingCapturedSample> Small()
+    {
+        var samples = new List<ProbeRingCapturedSample>();
+        var elapsed = 0L;
+
+        void Add(string kind, string condition, double fraction, bool snap)
+        {
+            elapsed += 40;
+            samples.Add(ProbeRingCaptureScene.SyntheticSample(
+                kind, condition, fraction, snap: snap, elapsedMs: elapsed));
+        }
+
+        Add(ProbeRingOnScreenJudge.KindReference, "B", 0.0, snap: false);
+        Add(ProbeRingOnScreenJudge.KindReference, "A", 0.0, snap: true);
 
         foreach (var fraction in ProbeRingOnScreenJudge.AssertionFractions)
         {
-            for (var repeat = 0; repeat < rowRepeats; repeat++)
-            {
-                samples.Add(ProbeRingCaptureScene.SyntheticSample(ProbeRingOnScreenJudge.KindAssertion, "A", fraction, snap: true, repeat));
-                samples.Add(ProbeRingCaptureScene.SyntheticSample(ProbeRingOnScreenJudge.KindAssertion, "B", fraction, snap: false, repeat));
-            }
+            Add(ProbeRingOnScreenJudge.KindAssertion, "A", fraction, snap: true);
+            Add(ProbeRingOnScreenJudge.KindAssertion, "B", fraction, snap: false);
         }
 
         foreach (var fraction in ProbeRingOnScreenJudge.SweepFractions)
         {
-            for (var repeat = 0; repeat < rowRepeats; repeat++)
-                samples.Add(ProbeRingCaptureScene.SyntheticSample(ProbeRingOnScreenJudge.KindSweep, "B", fraction, snap: false, repeat));
+            Add(ProbeRingOnScreenJudge.KindSweep, "B", fraction, snap: false);
         }
 
         return samples;

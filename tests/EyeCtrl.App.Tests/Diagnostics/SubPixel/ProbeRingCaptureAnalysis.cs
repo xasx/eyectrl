@@ -267,7 +267,8 @@ internal static class ProbeRingCaptureAnalysis
     /// The same measurement with its mirrored halves kept: the left/right block centroid shifts
     /// separately (x) and the top/bottom pair (y), as well as their mean. Fixup 03's diagnosis
     /// needs the halves: an asymmetric horizontal anti-aliasing shows up as left ≠ right, while a
-    /// constant measurement offset shows up as a stable bias in both.
+    /// constant measurement offset shows up as a stable bias in both. The blocks come from
+    /// <see cref="ProbeRasterEstimator"/> itself (fixup 04 F3 — no second copy of the estimator).
     /// </summary>
     /// <param name="moved">The capture of the moved ring.</param>
     /// <param name="reference">The capture of the reference (whole-pixel) ring.</param>
@@ -275,24 +276,40 @@ internal static class ProbeRingCaptureAnalysis
     internal static MirroredShift MeasureMirroredShift(
         ProbeRaster moved, ProbeRaster reference, RingScanGeometry geometry)
     {
-        var left = ProbeRasterEstimator.ScanRow(
-            moved, geometry.ScanRow, geometry.ReferenceCentreX - geometry.HalfPx)
-            - ProbeRasterEstimator.ScanRow(
-                reference, geometry.ScanRow, geometry.ReferenceCentreX - geometry.HalfPx);
-        var right = ProbeRasterEstimator.ScanRow(
-            moved, geometry.ScanRow, geometry.ReferenceCentreX + geometry.HalfPx)
-            - ProbeRasterEstimator.ScanRow(
-                reference, geometry.ScanRow, geometry.ReferenceCentreX + geometry.HalfPx);
-        var top = ProbeRasterEstimator.ScanColumn(
-            moved, geometry.ScanColumn, geometry.ReferenceCentreY - geometry.HalfPx)
-            - ProbeRasterEstimator.ScanColumn(
-                reference, geometry.ScanColumn, geometry.ReferenceCentreY - geometry.HalfPx);
-        var bottom = ProbeRasterEstimator.ScanColumn(
-            moved, geometry.ScanColumn, geometry.ReferenceCentreY + geometry.HalfPx)
-            - ProbeRasterEstimator.ScanColumn(
-                reference, geometry.ScanColumn, geometry.ReferenceCentreY + geometry.HalfPx);
+        var (left, right) = ProbeRasterEstimator.MirroredX(
+            moved, reference, geometry.ScanRow, geometry.ReferenceCentreX, geometry.HalfPx);
+        var (top, bottom) = ProbeRasterEstimator.MirroredY(
+            moved, reference, geometry.ScanColumn, geometry.ReferenceCentreY, geometry.HalfPx);
 
         return new MirroredShift((left + right) / 2.0, (top + bottom) / 2.0, left, right, top, bottom);
+    }
+
+    /// <summary>
+    /// The multi-row cardinal estimate (fixup 04 decider D1): <see cref="ProbeRasterEstimator.ShiftX"/>
+    /// averaged over the scan rows centre ± <paramref name="rowRadius"/>, and
+    /// <see cref="ProbeRasterEstimator.ShiftY"/> over the columns centre ± <paramref name="rowRadius"/>.
+    /// A local artefact at the single scan row — a dash end, a colour boundary — moves the single-row
+    /// value while leaving the neighbourhood average near the true shift; a real placement error moves
+    /// both. Diagnostic only, never judged.
+    /// </summary>
+    /// <param name="moved">The capture of the moved ring.</param>
+    /// <param name="reference">The capture of the reference (whole-pixel) ring.</param>
+    /// <param name="geometry">The scan geometry, in the reference capture's frame.</param>
+    /// <param name="rowRadius">How many rows/columns either side of the scan line are averaged; 10 by default.</param>
+    internal static (double MeanX, double MeanY) MeasureMultiRowShift(
+        ProbeRaster moved, ProbeRaster reference, RingScanGeometry geometry, int rowRadius = 10)
+    {
+        double sumX = 0.0, sumY = 0.0;
+        for (var offset = -rowRadius; offset <= rowRadius; offset++)
+        {
+            sumX += ProbeRasterEstimator.ShiftX(
+                moved, reference, geometry.ScanRow + offset, geometry.ReferenceCentreX, geometry.HalfPx);
+            sumY += ProbeRasterEstimator.ShiftY(
+                moved, reference, geometry.ScanColumn + offset, geometry.ReferenceCentreY, geometry.HalfPx);
+        }
+
+        var count = 2 * rowRadius + 1;
+        return (sumX / count, sumY / count);
     }
 
     /// <summary>

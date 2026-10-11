@@ -61,7 +61,8 @@ internal static class ProbeRingFrameSchedule
 
     /// <summary>
     /// Schedules one frame for a window whose client origin is <paramref name="windowLeftDip"/> /
-    /// <paramref name="windowTopDip"/> DIPs at <paramref name="scale"/> device pixels per DIP.
+    /// <paramref name="windowTopDip"/> DIPs at <paramref name="scale"/> device pixels per DIP, with
+    /// the same fraction on both axes.
     /// </summary>
     /// <param name="windowLeftDip">The window's left edge, in DIPs (as <c>Window.Left</c> reports it).</param>
     /// <param name="windowTopDip">The window's top edge, in DIPs (as <c>Window.Top</c> reports it).</param>
@@ -75,12 +76,35 @@ internal static class ProbeRingFrameSchedule
         double scale,
         double fraction,
         int screenWidthPx,
+        int screenHeightPx) =>
+        For(windowLeftDip, windowTopDip, scale, fraction, fraction, screenWidthPx, screenHeightPx);
+
+    /// <summary>
+    /// Schedules one frame with independent per-axis fractions (fixup 04's X-only/Y-only
+    /// diagnostics need the axes decoupled).
+    /// </summary>
+    /// <param name="windowLeftDip">The window's left edge, in DIPs (as <c>Window.Left</c> reports it).</param>
+    /// <param name="windowTopDip">The window's top edge, in DIPs (as <c>Window.Top</c> reports it).</param>
+    /// <param name="scale">The window's measured device pixels per DIP.</param>
+    /// <param name="fractionX">The scheduled sub-pixel fraction in [0, 1) on the x axis.</param>
+    /// <param name="fractionY">The scheduled sub-pixel fraction in [0, 1) on the y axis.</param>
+    /// <param name="screenWidthPx">The primary screen's width in physical pixels.</param>
+    /// <param name="screenHeightPx">The primary screen's height in physical pixels.</param>
+    internal static Frame For(
+        double windowLeftDip,
+        double windowTopDip,
+        double scale,
+        double fractionX,
+        double fractionY,
+        int screenWidthPx,
         int screenHeightPx)
     {
         if (scale <= 0.0)
             throw new ArgumentOutOfRangeException(nameof(scale), scale, "Scale must be positive.");
-        if (fraction is < 0.0 or >= 1.0)
-            throw new ArgumentOutOfRangeException(nameof(fraction), fraction, "Fraction must be in [0, 1).");
+        if (fractionX is < 0.0 or >= 1.0)
+            throw new ArgumentOutOfRangeException(nameof(fractionX), fractionX, "Fraction must be in [0, 1).");
+        if (fractionY is < 0.0 or >= 1.0)
+            throw new ArgumentOutOfRangeException(nameof(fractionY), fractionY, "Fraction must be in [0, 1).");
 
         var originX = windowLeftDip * scale;
         var originY = windowTopDip * scale;
@@ -94,7 +118,7 @@ internal static class ProbeRingFrameSchedule
         }
 
         var halfDip = WindowDip / 2.0;
-        var local = new PhysicalPoint(halfDip * scale + fraction, halfDip * scale + fraction);
+        var local = new PhysicalPoint(halfDip * scale + fractionX, halfDip * scale + fractionY);
         var captureCentre = new PhysicalPoint(originX + local.X, originY + local.Y);
 
         var region = CaptureRegionMath.Compute(
@@ -103,7 +127,7 @@ internal static class ProbeRingFrameSchedule
                 $"No valid capture region for centre ({captureCentre.X}, {captureCentre.Y}) and radius {CaptureRadiusPx}.");
 
         return new Frame(
-            fraction,
+            fractionX,
             new PhysicalPoint(originX, originY),
             local,
             captureCentre,

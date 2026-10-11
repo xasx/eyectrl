@@ -2,6 +2,7 @@ namespace EyeCtrl.App.Tests.Diagnostics.SubPixel;
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -10,23 +11,49 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using EyeCtrl.App.Tests.Diagnostics;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Settings;
+
+/// <summary>
+/// The ring look a capture was drawn with (fixup 04 F5): rebuilt into <see cref="CursorSettings"/>
+/// by the offline analyser, so a later code change cannot silently change the expected pattern a
+/// saved run is measured against.
+/// </summary>
+/// <param name="Style">The <see cref="CursorRingStyle"/> name.</param>
+/// <param name="SizeDip">The ring diameter in DIPs.</param>
+/// <param name="Thickness">The core band's thickness in DIPs.</param>
+/// <param name="Opacity">The user opacity.</param>
+/// <param name="Colour">The user's ring colour, in hex.</param>
+internal sealed record ProbeRingLook(string Style, double SizeDip, double Thickness, double Opacity, string Colour)
+{
+    /// <summary>Rebuilds the settings this look was drawn from.</summary>
+    internal CursorSettings ToSettings() => new()
+    {
+        RingStyle = Enum.Parse<CursorRingStyle>(Style),
+        CircleSize = SizeDip,
+        CircleThickness = Thickness,
+        CircleOpacity = Opacity,
+        CircleColor = Colour,
+    };
+}
 
 /// <summary>
 /// One captured frame with everything the archive and the measurement need: what was scheduled,
 /// the raw BGRA pixels (for the PNG), the estimator's weight raster, and the measured background.
-/// <see cref="Kind"/> separates the reference repeats, the A/B assertion rows and the sweep rows:
-/// the assertion fractions 0.25/0.5/0.75 are also sweep fractions, so the fraction alone cannot
-/// tell the rows apart.
+/// <see cref="Kind"/> separates the reference repeats, the A/B assertion rows, the sweep rows and
+/// the diagnostics: the assertion fractions 0.25/0.5/0.75 are also sweep fractions, so the
+/// fraction alone cannot tell the rows apart.
 /// </summary>
 /// <param name="Kind">The row kind: see <see cref="ProbeRingOnScreenJudge.KindReference"/> and friends.</param>
 /// <param name="Condition">"A" or "B".</param>
-/// <param name="Fraction">The scheduled sub-pixel fraction.</param>
+/// <param name="Fraction">The scheduled sub-pixel fraction (x; see the frame for y).</param>
 /// <param name="Repeat">The capture's index within its row (0-based).</param>
 /// <param name="Frame">The scheduled geometry the capture used.</param>
 /// <param name="Bgra">The raw capture pixels, BGRA32 row-major.</param>
 /// <param name="SizePx">The frame's side in pixels.</param>
 /// <param name="Weights">The estimator raster derived from <paramref name="Bgra"/>.</param>
 /// <param name="Background">The measured background colour.</param>
+/// <param name="Look">The ring look this frame was drawn with.</param>
+/// <param name="ElapsedMs">Milliseconds from the run's start to this capture (fixup 04 F5).</param>
 internal sealed record ProbeRingCapturedSample(
     string Kind,
     string Condition,
@@ -36,18 +63,27 @@ internal sealed record ProbeRingCapturedSample(
     byte[] Bgra,
     int SizePx,
     ProbeRaster Weights,
-    (byte R, byte G, byte B) Background);
+    (byte R, byte G, byte B) Background,
+    ProbeRingLook Look,
+    long ElapsedMs);
 
-/// <summary>The saved run's manifest header (fixup 03 item 5).</summary>
-internal sealed record ProbeRingManifest(double Scale, string CreatedUtc, IReadOnlyList<ProbeRingManifestSample> Samples);
+/// <summary>The saved run's manifest header (fixup 03 item 5; sha added by fixup 04 F5).</summary>
+internal sealed record ProbeRingManifest(
+    double Scale, string CommitSha, string CreatedUtc, IReadOnlyList<ProbeRingManifestSample> Samples);
 
-/// <summary>One manifest entry: enough to rebuild a capture's frame, background and weight raster.</summary>
+/// <summary>One manifest entry: enough to rebuild a capture's frame, look, background and weight raster.</summary>
 internal sealed record ProbeRingManifestSample(
     string File,
     string Kind,
     string Condition,
     double Fraction,
     int Repeat,
+    long ElapsedMs,
+    string LookStyle,
+    double LookSizeDip,
+    double LookThickness,
+    double LookOpacity,
+    string LookColour,
     int CaptureOriginX,
     int CaptureOriginY,
     double CaptureCentreX,
@@ -60,9 +96,9 @@ internal sealed record ProbeRingManifestSample(
     byte BackgroundB,
     string Utc);
 
-/// <summary>A loaded run: its samples, the scale they were captured at, and when.</summary>
+/// <summary>A loaded run: its samples, the scale they were captured at, when, and the commit.</summary>
 internal sealed record ProbeRingArchive(
-    IReadOnlyList<ProbeRingCapturedSample> Samples, double Scale, DateTimeOffset CreatedUtc);
+    IReadOnlyList<ProbeRingCapturedSample> Samples, double Scale, DateTimeOffset CreatedUtc, string CommitSha);
 
 /// <summary>
 /// R2's raw-capture archive (fixup 03 item 5): every on-screen capture as a lossless PNG plus a
@@ -91,6 +127,15 @@ internal static class ProbeRingCaptureArchive
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true,
     };
+
+    /// <summary>
+    /// The commit that produced a run, recorded once per manifest (fixup 04 F5): one run, one sha,
+    /// so a per-capture copy would only duplicate a constant. "unknown" when git cannot be read.
+    /// </summary>
+    private static readonly Lazy<string> CommitSha = new(ReadCommitSha);
+
+    /// <summary>The commit the current checkout is on, or "unknown"; cached for the process.</summary>
+    internal static string CurrentCommitSha => CommitSha.Value;
 
     /// <summary>
     /// The folder one run writes to: <c>%TEMP%\eyectrl-r2-&lt;yyyyMMdd-HHmmss&gt;\</c>.
@@ -122,6 +167,12 @@ internal static class ProbeRingCaptureArchive
                 sample.Condition,
                 sample.Fraction,
                 sample.Repeat,
+                sample.ElapsedMs,
+                sample.Look.Style,
+                sample.Look.SizeDip,
+                sample.Look.Thickness,
+                sample.Look.Opacity,
+                sample.Look.Colour,
                 sample.Frame.CaptureOriginX,
                 sample.Frame.CaptureOriginY,
                 sample.Frame.CaptureCentrePx.X,
@@ -137,6 +188,7 @@ internal static class ProbeRingCaptureArchive
 
         var manifest = new ProbeRingManifest(
             scale,
+            CurrentCommitSha,
             createdUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
             entries);
         File.WriteAllText(
@@ -157,7 +209,8 @@ internal static class ProbeRingCaptureArchive
         return new ProbeRingArchive(
             samples,
             manifest.Scale,
-            DateTimeOffset.Parse(manifest.CreatedUtc, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
+            DateTimeOffset.Parse(manifest.CreatedUtc, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+            manifest.CommitSha);
     }
 
     /// <summary>The PNG file name for one sample: condition, fraction and repeat, invariant formatting.</summary>
@@ -200,9 +253,37 @@ internal static class ProbeRingCaptureArchive
             new PhysicalPoint(entry.CaptureCentreX, entry.CaptureCentreY),
             entry.CaptureOriginX,
             entry.CaptureOriginY);
+        var look = new ProbeRingLook(
+            entry.LookStyle, entry.LookSizeDip, entry.LookThickness, entry.LookOpacity, entry.LookColour);
 
         return new ProbeRingCapturedSample(
             entry.Kind, entry.Condition, entry.Fraction, entry.Repeat, geometry, pixels,
-            readable.PixelWidth, weights, background);
+            readable.PixelWidth, weights, background, look, entry.ElapsedMs);
+    }
+
+    /// <summary>`git rev-parse HEAD` in the repo root, or "unknown" when it cannot be read.</summary>
+    private static string ReadCommitSha()
+    {
+        try
+        {
+            using var git = Process.Start(new ProcessStartInfo("git", "rev-parse HEAD")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = EyeCtrl.App.Tests.SourceScanner.RepoRoot().FullName,
+            });
+            if (git is null)
+                return "unknown";
+
+            var sha = git.StandardOutput.ReadToEnd().Trim();
+            git.WaitForExit(5000);
+            return git.ExitCode == 0 && sha.Length > 0 ? sha : "unknown";
+        }
+        catch
+        {
+            return "unknown";
+        }
     }
 }

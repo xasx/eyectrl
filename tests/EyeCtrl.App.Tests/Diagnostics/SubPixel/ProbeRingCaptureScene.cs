@@ -53,6 +53,25 @@ internal static class ProbeRingCaptureScene
     };
 
     /// <summary>
+    /// The solid look decider D2 runs with (fixup 04): the same size, thickness and colour, but
+    /// <see cref="CursorRingStyle.WeightedSandwich"/> — no dashes, so no dash-phase mechanism can
+    /// move a scan-row centroid. Diagnostic only.
+    /// </summary>
+    internal static CursorSettings SolidLook() => new()
+    {
+        RingStyle = CursorRingStyle.WeightedSandwich,
+        CircleSize = RingSizeDip,
+        CircleThickness = RingThickness,
+        CircleOpacity = 1.0,
+        CircleColor = "#A5F3FC",
+    };
+
+    /// <summary>The manifest form of a settings object.</summary>
+    internal static ProbeRingLook LookOf(CursorSettings settings) => new(
+        settings.RingStyle.ToString(), settings.CircleSize, settings.CircleThickness,
+        settings.CircleOpacity, settings.CircleColor);
+
+    /// <summary>
     /// Renders one frame: a <paramref name="captureSizePx"/>-square capture-key surface with the
     /// ring's physical top-left placed from <paramref name="centreCapturePx"/> (capture-local
     /// physical pixels) by the same <see cref="ProbeRingVisual"/> placement production uses.
@@ -138,31 +157,40 @@ internal static class ProbeRingCaptureScene
     /// ring rendered at that frame's capture-local centre, and the weight raster derived from it.
     /// The archive, offline and repeat tests build their folders from these.
     /// </summary>
-    /// <param name="kind">The row kind (reference / assertion / sweep): see <see cref="ProbeRingOnScreenJudge"/>.</param>
+    /// <param name="kind">The row kind (reference / assertion / sweep / diagnostic): see <see cref="ProbeRingOnScreenJudge"/>.</param>
     /// <param name="condition">"A" or "B".</param>
-    /// <param name="fraction">The fraction the frame is rendered at (may differ from the row's scheduled fraction for jitter tests).</param>
+    /// <param name="fractionX">The x fraction the frame is rendered at (may differ from the row's scheduled fraction for jitter tests).</param>
+    /// <param name="fractionY">The y fraction; NaN means the same as <paramref name="fractionX"/> (fixup 04's X-only decider passes 0).</param>
     /// <param name="snap">Whether the top-left snaps (condition A).</param>
     /// <param name="repeat">The repeat index recorded in the sample.</param>
     /// <param name="scale">Device pixels per DIP.</param>
+    /// <param name="look">The ring look; null means <see cref="OwnerLook"/>.</param>
+    /// <param name="elapsedMs">Milliseconds since the run's start, recorded in the sample.</param>
     internal static ProbeRingCapturedSample SyntheticSample(
         string kind,
         string condition,
-        double fraction,
-        bool snap,
+        double fractionX,
+        double fractionY = double.NaN,
+        bool snap = false,
         int repeat = 0,
-        double scale = ProbeRingCaptureAnalysis.OwnerScale)
+        double scale = ProbeRingCaptureAnalysis.OwnerScale,
+        CursorSettings? look = null,
+        long elapsedMs = 0)
     {
-        var frame = ProbeRingFrameSchedule.For(800, 440, scale, fraction, 3840, 2400);
+        var fy = double.IsNaN(fractionY) ? fractionX : fractionY;
+        var settings = look ?? OwnerLook();
+        var frame = ProbeRingFrameSchedule.For(800, 440, scale, fractionX, fy, 3840, 2400);
         var centreInCapture = new PhysicalPoint(
             frame.CaptureCentrePx.X - frame.CaptureOriginX,
             frame.CaptureCentrePx.Y - frame.CaptureOriginY);
-        var bgra = RenderCapture(scale, OwnerLook(), centreInCapture, snap, ProbeRingFrameSchedule.CaptureSizePx);
+        var bgra = RenderCapture(scale, settings, centreInCapture, snap, ProbeRingFrameSchedule.CaptureSizePx);
         var background = ProbeRingCaptureAnalysis.MeasureBackground(
             bgra, ProbeRingFrameSchedule.CaptureSizePx, ProbeRingFrameSchedule.CaptureSizePx);
         var weights = ProbeRingCaptureAnalysis.ToWeights(
             bgra, ProbeRingFrameSchedule.CaptureSizePx, ProbeRingFrameSchedule.CaptureSizePx, background);
         return new ProbeRingCapturedSample(
-            kind, condition, fraction, repeat, frame, bgra, ProbeRingFrameSchedule.CaptureSizePx, weights, background);
+            kind, condition, fractionX, repeat, frame, bgra, ProbeRingFrameSchedule.CaptureSizePx, weights,
+            background, LookOf(settings), elapsedMs);
     }
 
     /// <summary>

@@ -20,8 +20,10 @@ internal static class ProbeRingOfflineAnalysis
 
         // Fixup 08 item 2: the same staleness rule the live harness applies, re-derived from the
         // saved bytes (consecutive in elapsedMs order, identical pixels) — so an archive predating
-        // the retakes field is checked identically, and a stale capture is judged as stale.
+        // the retakes field is checked identically, and a stale capture is judged as stale. Fixup 10
+        // item 2 adds the same intrusion marking for the background rule.
         var samples = ProbeRingCaptureArchive.MarkStale(archive.Samples);
+        samples = ProbeRingIntrusion.Mark(samples, archive.Scale);
 
         // Select by Kind, not by save order (fixup 04 F4): the assertion fractions are also sweep
         // fractions, and the diagnostic blocks carry f = 0 references of their own.

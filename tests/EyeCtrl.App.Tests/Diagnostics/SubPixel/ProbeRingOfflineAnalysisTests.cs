@@ -250,6 +250,180 @@ public class ProbeRingOfflineAnalysisTests
         ProbeRingOnScreenJudge.WriteReport(report, _output.WriteLine);
     }
 
+    /// <summary>
+    /// Fixup 10 item 2 (kills "offline ignores intrusion"): a saved archive carrying an overlay
+    /// patch over the background must mark that capture intruded, and a judged row must fail with
+    /// the overlay message — the measurement must never read through it.
+    /// </summary>
+    [StaFact]
+    public void Analyse_OfAnArchiveWithAnIntrusion_FailsTheJudgedRowWithTheOverlayMessage()
+    {
+        var samples = ProbeRingSyntheticRun.Healthy();
+        var index = samples.FindIndex(sample =>
+            sample.Kind == ProbeRingOnScreenJudge.KindAssertion
+            && sample.Condition == ProbeRingOnScreenJudge.ConditionB
+            && Math.Abs(sample.Fraction - 0.25) < 1e-9
+            && sample.Repeat == 1);
+        Check.WithCustomMessage("The fixture needs a B f=0.25 repeat 1 to patch.")
+            .That(index).IsStrictlyGreaterThan(0);
+        samples[index] = WithPatchedBackground(samples[index]);
+
+        var folder = ProbeRingSyntheticRun.TempFolder();
+        try
+        {
+            ProbeRingCaptureArchive.Save(folder, samples, 2.0, DateTimeOffset.UtcNow);
+            var report = ProbeRingOfflineAnalysis.Analyse(folder);
+
+            Check.WithCustomMessage(
+                    "The overlay is an intrusion, not a measurement miss; got failures: "
+                    + string.Join(" | ", report.Failures.Select(failure => failure.Message)))
+                .That(report.Failures.Any(failure => failure.Message.Contains("an overlay"))).IsTrue();
+
+            var row = report.AssertionRows.Single(candidate =>
+                candidate.Condition == ProbeRingOnScreenJudge.ConditionB && Math.Abs(candidate.Fraction - 0.25) < 1e-9);
+            Check.That(row.IntrudedRepeats).IsEqualTo(1);
+            Check.WithCustomMessage("The intruded repeat must be excluded from the judged mean.")
+                .That(row.MeanX).IsCloseTo(0.25, ProbeRingOnScreenJudge.TolerancePx);
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Fixup 10 item 2: in the sweep an intruded capture is excluded from the mean and flagged
+    /// <c>intruded=N</c> — not judged and not measured through.
+    /// </summary>
+    [StaFact]
+    public void Analyse_OfAnArchiveWithAnIntrudedSweepCapture_ExcludesItAndFlagsIt()
+    {
+        var samples = ProbeRingSyntheticRun.Healthy();
+        var index = samples.FindIndex(sample =>
+            sample.Kind == ProbeRingOnScreenJudge.KindSweep
+            && Math.Abs(sample.Fraction - 0.30) < 1e-9
+            && sample.Repeat == 1);
+        Check.WithCustomMessage("The fixture needs a sweep f=0.30 repeat 1 to patch.")
+            .That(index).IsStrictlyGreaterThan(0);
+        samples[index] = WithPatchedBackground(samples[index]);
+
+        var folder = ProbeRingSyntheticRun.TempFolder();
+        try
+        {
+            ProbeRingCaptureArchive.Save(folder, samples, 2.0, DateTimeOffset.UtcNow);
+            var report = ProbeRingOfflineAnalysis.Analyse(folder);
+
+            var row = report.SweepRows.Single(candidate => Math.Abs(candidate.Fraction - 0.30) < 1e-9);
+            Check.That(row.IntrudedRepeats).IsEqualTo(1);
+            Check.WithCustomMessage($"The intruded repeat must be excluded from the sweep mean; got {row.MeanX:0.0000}.")
+                .That(row.MeanX).IsCloseTo(0.30, ProbeRingOnScreenJudge.TolerancePx);
+            Check.WithCustomMessage("The patch is in the sweep only: nothing judged may fail.")
+                .That(report.Failures).IsEmpty();
+
+            var lines = new List<string>();
+            ProbeRingOnScreenJudge.WriteReport(report, lines.Add);
+            Check.WithCustomMessage("The sweep row must flag the excluded intruded repeat.")
+                .That(lines.Any(line => line.Contains("R2 sweep B f=0.30") && line.Contains("intruded=1"))).IsTrue();
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Fixup 10 item 2, opt-in on the archives (both are read-only; the test copies before it
+    /// touches them): run 2's clean archive must have ZERO intruded frames — its 103 frames read 0
+    /// px above every tolerance tried (10–50) — so the chosen 20 px / 200 px threshold never fires
+    /// on a clean hardware run.
+    /// </summary>
+    [StaFact]
+    public void Run2Archive_HasNoIntrudedFrames()
+    {
+        var folder = Environment.GetEnvironmentVariable("EYECTRL_R2_ARCHIVE");
+        if (string.IsNullOrWhiteSpace(folder))
+            Assert.Skip("EYECTRL_R2_ARCHIVE is not set: point it at run 2's preserved archive.");
+
+        var copy = ProbeRingSyntheticRun.TempFolder();
+        try
+        {
+            CopyFolder(folder, copy);
+            var archive = ProbeRingCaptureArchive.Load(copy);
+            var marked = ProbeRingIntrusion.Mark(archive.Samples, archive.Scale);
+
+            Check.WithCustomMessage(
+                    $"Run 2's clean frames must never be flagged intruded; got {marked.Count(sample => sample.Intruded)}.")
+                .That(marked.Any(sample => sample.Intruded)).IsFalse();
+        }
+        finally
+        {
+            Directory.Delete(copy, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Fixup 10 item 2, opt-in: run 3's archive must flag its overlay frames (measured: 19 of 103,
+    /// the sweep pass-0 frames at f = 0.40–0.60 plus D2 and D3) and none of its judged frames
+    /// (every assertion and reference frame in run 3 was byte-identical to run 2's, and the black
+    /// first frame is self-consistent, so it is the control's case, not intrusion).
+    /// </summary>
+    [StaFact]
+    public void Run3Archive_FlagsTheIntrudedFrames_AndNoneJudged()
+    {
+        var folder = Environment.GetEnvironmentVariable("EYECTRL_R2_ARCHIVE_RUN3");
+        if (string.IsNullOrWhiteSpace(folder))
+            Assert.Skip("EYECTRL_R2_ARCHIVE_RUN3 is not set: point it at run 3's preserved archive.");
+
+        var copy = ProbeRingSyntheticRun.TempFolder();
+        try
+        {
+            CopyFolder(folder, copy);
+            var archive = ProbeRingCaptureArchive.Load(copy);
+            var marked = ProbeRingIntrusion.Mark(archive.Samples, archive.Scale);
+
+            var flagged = marked.Where(sample => sample.Intruded).ToList();
+            Check.WithCustomMessage("Run 3's overlay frames must be flagged; got none.")
+                .That(flagged).Not.IsEmpty();
+            Check.WithCustomMessage(
+                    "Run 3's judged frames were clean: nothing assertion or reference may be flagged; got "
+                    + string.Join(", ", flagged
+                        .Where(sample => sample.Kind is "assertion" or "reference")
+                        .Select(sample => $"{sample.Kind} {sample.Condition} f={sample.Fraction:0.00} r={sample.Repeat}")))
+                .That(flagged.All(sample => sample.Kind is not ("assertion" or "reference"))).IsTrue();
+            Check.WithCustomMessage("The sweep pass-0 frames at f = 0.40–0.60 are the ones run 3's overlay crossed.")
+                .That(flagged.Any(sample => sample.Kind == "sweep" && sample.Repeat == 0
+                    && sample.Fraction >= 0.40 - 1e-9 && sample.Fraction <= 0.60 + 1e-9)).IsTrue();
+        }
+        finally
+        {
+            Directory.Delete(copy, recursive: true);
+        }
+    }
+
+    private static ProbeRingCapturedSample WithPatchedBackground(ProbeRingCapturedSample sample)
+    {
+        var bgra = (byte[])sample.Bgra.Clone();
+        for (var y = 30; y < 50; y++)
+        {
+            for (var x = 30; x < 60; x++)
+            {
+                var p = (y * ProbeRingFrameSchedule.CaptureSizePx + x) * 4;
+                bgra[p] = (byte)(bgra[p] / 2);
+                bgra[p + 1] = 128;
+                bgra[p + 2] = 255;
+            }
+        }
+
+        return sample with { Bgra = bgra };
+    }
+
+    private static void CopyFolder(string source, string destination)
+    {
+        Directory.CreateDirectory(destination);
+        foreach (var file in Directory.GetFiles(source))
+            File.Copy(file, Path.Combine(destination, Path.GetFileName(file)));
+    }
+
     private static string FirstDifference(IReadOnlyList<string> first, IReadOnlyList<string> second)
     {
         for (var i = 0; i < Math.Min(first.Count, second.Count); i++)

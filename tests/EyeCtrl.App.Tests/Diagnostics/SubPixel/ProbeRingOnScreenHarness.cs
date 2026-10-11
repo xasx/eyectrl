@@ -51,10 +51,18 @@ internal enum ProbeRingOnScreenOutcome
 /// </para>
 ///
 /// <para>
+/// <b>Warm-up first (fixup 10 item 1).</b> Run 3's window held a black first frame for about a
+/// second; the harness now places the ring at f = 0 and waits — presenting and flushing — until a
+/// capture passes the positive control (≤ 3 s, <see cref="ProbeRingWarmUp"/>), prints
+/// <c>R2 warm-up: …</c>, and starts the retake chain empty afterwards.
+/// </para>
+///
+/// <para>
 /// <b>Measure first (fixup 03; the judged estimator is the 21-row average by the owner's decision
 /// 2026-10-11, after run 2).</b> The run captures everything first — the 5 reference repeats,
 /// then A/B and sweep rows 3 times each — retaking any capture that is a stale copy of the previous
-/// frame (up to 3 times, printing <c>R2 retake:</c>/<c>R2 stale:</c> lines), saves every frame as a
+/// frame or carries an overlay (the intrusion check, fixup 10 item 2; up to 3 times, printing
+/// <c>R2 retake:</c>/<c>R2 stale:</c>/<c>R2 intrusion:</c> lines), saves every frame as a
 /// PNG with its manifest under <c>%TEMP%\eyectrl-r2-&lt;stamp&gt;\</c>, measures with
 /// <see cref="ProbeRingOnScreenJudge.Measure"/>, prints the full per-axis table
 /// (<see cref="ProbeRingOnScreenJudge.WriteReport"/>) and only then states a verdict, as one
@@ -197,14 +205,100 @@ internal static class ProbeRingOnScreenHarness
             // is captured. ----
             var plan = ProbeRingCapturePlan.Build();
             writeLine(Invariant(
-                $"R2 time: estimated visible ~{TimeSpan.FromMilliseconds(plan.Count * ProbeRingCapturePlan.EstimatedMillisecondsPerCapture).TotalSeconds:0.0} s ({plan.Count} captures x {ProbeRingCapturePlan.EstimatedMillisecondsPerCapture} ms); the 30 s watchdog is the hard bound."));
+                $"R2 time: estimated visible ~{TimeSpan.FromMilliseconds(plan.Count * ProbeRingCapturePlan.EstimatedMillisecondsPerCapture).TotalSeconds:0.0} s ({plan.Count} captures x {ProbeRingCapturePlan.EstimatedMillisecondsPerCapture} ms) + warm-up <= {ProbeRingWarmUp.TimeoutMs / 1000.0:0.0} s and retakes <= +{ProbeRingCaptureRetake.MaxRetakes} per capture; the 30 s watchdog is the hard bound."));
 
             var startedUtc = DateTimeOffset.UtcNow;
             var captureClock = Stopwatch.StartNew();
             var samples = new List<ProbeRingCapturedSample>();
 
             var (ring, currentLook) = AttachLook(window, scale, ProbeRingCaptureScene.OwnerLook());
+
+            // ---- Warm-up (fixup 10 item 1; run 3): the window's first frame was black for about a
+            // second — run 3's first capture, reference B at f = 0, was uniformly near-black and the
+            // following captures stayed byte-identical to it through their retakes, so the 21-row
+            // scan had no ring to anchor on. Place the ring at f = 0 and wait, presenting and
+            // flushing between captures, until a capture passes the positive control (<= 3 s). ----
+            var warmFrame = ProbeRingFrameSchedule.For(
+                window.Left, window.Top, scale, 0.0, 0.0, screenWidthPx, screenHeightPx);
+            ring.Place(warmFrame.RingLocalCentrePx, snap: false);
+            var warmCentre = new PhysicalPoint(
+                warmFrame.CaptureCentrePx.X - warmFrame.CaptureOriginX,
+                warmFrame.CaptureCentrePx.Y - warmFrame.CaptureOriginY);
+            var halfPx = ProbeRingCaptureScene.RingSizeDip * scale / 2.0;
+
+            byte[] OneWarmUpCapture()
+            {
+                var capture = ScreenCaptureService.CaptureRegion(
+                    warmFrame.CaptureCentrePx, ProbeRingFrameSchedule.CaptureRadiusPx);
+                if (capture is null)
+                {
+                    throw new InvalidOperationException(
+                        $"ScreenCaptureService.CaptureRegion({warmFrame.CaptureCentrePx.X}, "
+                        + $"{warmFrame.CaptureCentrePx.Y}, {ProbeRingFrameSchedule.CaptureRadiusPx}) returned null "
+                        + "during warm-up; there is no screen to capture.");
+                }
+
+                if (capture.Value.X != warmFrame.CaptureOriginX || capture.Value.Y != warmFrame.CaptureOriginY)
+                {
+                    throw new InvalidOperationException(
+                        $"The warm-up capture started at ({capture.Value.X}, {capture.Value.Y}), not the "
+                        + $"production math's ({warmFrame.CaptureOriginX}, {warmFrame.CaptureOriginY}).");
+                }
+
+                return ReadBgra(capture.Value.Image, capture.Value.Size);
+            }
+
+            var warmUp = ProbeRingWarmUp.Wait(
+                capture: OneWarmUpCapture,
+                isRingFrame: bytes =>
+                {
+                    var background = ProbeRingCaptureAnalysis.MeasureBackground(
+                        bytes, ProbeRingFrameSchedule.CaptureSizePx, ProbeRingFrameSchedule.CaptureSizePx);
+                    var weights = ProbeRingCaptureAnalysis.ToWeights(
+                        bytes, ProbeRingFrameSchedule.CaptureSizePx, ProbeRingFrameSchedule.CaptureSizePx,
+                        background);
+                    var expected = ProbeRingCaptureScene.ExpectedWeightsAt(warmCentre, background, scale);
+                    return ProbeRingCaptureAnalysis.CheckExpectedRing(
+                        weights, expected, warmCentre, halfPx).Matched;
+                },
+                waitOneMoreFrame: () =>
+                {
+                    window.Present();
+                    DwmFlush();
+                },
+                elapsedMilliseconds: () => captureClock.ElapsedMilliseconds);
+
+            if (warmUp.Passed)
+            {
+                writeLine(ProbeRingWarmUp.Line(warmUp.Captures, warmUp.ElapsedMs));
+            }
+            else
+            {
+                var mean = warmUp.LastBytes is { } last
+                    ? ProbeRingWarmUp.MeanColour(last)
+                    : (R: 0, G: 0, B: 0);
+                Check.WithCustomMessage(
+                        ProbeRingWarmUp.FailureLine(warmUp.Captures, ProbeRingWarmUp.TimeoutMs, mean))
+                    .That(warmUp.Passed).IsTrue();
+            }
+
+            // The first plan step, reference B at f = 0, legitimately equals the last warm-up frame:
+            // it must not be compared with it, or it would be flagged stale and retaken for nothing
+            // (fixup 10 item 1). So the retake chain starts empty here.
             byte[]? previousBgra = null;
+
+            var masksByStyle = new Dictionary<string, bool[]>(StringComparer.Ordinal);
+            bool[] MaskFor(CursorSettings look)
+            {
+                if (!masksByStyle.TryGetValue(look.RingStyle.ToString(), out var mask))
+                {
+                    mask = ProbeRingIntrusion.BackgroundMask(look, warmCentre, scale);
+                    masksByStyle[look.RingStyle.ToString()] = mask;
+                }
+
+                return mask;
+            }
+
             var stepIndex = 0;
 
             foreach (var step in plan)
@@ -221,7 +315,7 @@ internal static class ProbeRingOnScreenHarness
                     .That(currentLook.RingStyle).IsEqualTo(step.Look.RingStyle);
 
                 var sample = CaptureAt(
-                    window, ring, scale, step, stepIndex, previousBgra, currentLook,
+                    window, ring, scale, step, stepIndex, previousBgra, currentLook, MaskFor(step.Look),
                     screenWidthPx, screenHeightPx, captureClock, writeLine);
                 samples.Add(sample);
                 previousBgra = sample.Bgra;
@@ -275,7 +369,9 @@ internal static class ProbeRingOnScreenHarness
             var expected = ProbeRingCaptureScene.ExpectedWeightsAt(centreInCapture, referenceB.Background, scale);
 
             var report = ProbeRingOnScreenJudge.Measure(
-                ProbeRingOnScreenJudge.BuildInputs(scale, expected, ProbeRingCaptureArchive.MarkStale(samples)));
+                ProbeRingOnScreenJudge.BuildInputs(
+                    scale, expected,
+                    ProbeRingIntrusion.Mark(ProbeRingCaptureArchive.MarkStale(samples), scale)));
 
             ProbeRingOnScreenJudge.WriteReport(report, writeLine);
 
@@ -323,11 +419,13 @@ internal static class ProbeRingOnScreenHarness
     ///
     /// <para>
     /// A capture whose bytes equal the previous capture's bytes is a stale copy of the previous
-    /// frame (consecutive plan steps never share a placement): <see cref="ProbeRingCaptureRetake"/>
-    /// waits one more frame and re-captures, up to 3 times, prints an <c>R2 retake:</c> line per
-    /// retake, and marks the sample stale when the copy stands — the judgement fails such a capture
-    /// in a judged row and excludes and flags it elsewhere (fixup 08 item 2, owner's decision
-    /// 2026-10-11). A retake repeats the capture only, not the placement: the schedule's origin came
+    /// frame (consecutive plan steps never share a placement), and a capture whose pixels are
+    /// off-background outside the ring's dilated footprint (<paramref name="mask"/>) carries an
+    /// overlay: <see cref="ProbeRingCaptureRetake"/> waits one more frame and re-captures on either,
+    /// up to 3 times, prints an <c>R2 retake:</c> line per retake, an <c>R2 intrusion:</c> line per
+    /// intruded capture and an <c>R2 stale:</c> line when the copy stands — the judgement fails such
+    /// a capture in a judged row and excludes and flags it elsewhere (fixup 08 item 2; fixup 10
+    /// item 2). A retake repeats the capture only, not the placement: the schedule's origin came
     /// from production's truncating math and is checked on every capture, so a clamped or drifting
     /// origin fails here instead of silently biasing every shift (review 01 B2).
     /// </para>
@@ -339,7 +437,7 @@ internal static class ProbeRingOnScreenHarness
     /// </summary>
     private static ProbeRingCapturedSample CaptureAt(
         ProbeRingTestWindow window, ProbeRingVisual ring, double scale, ProbeRingCaptureStep step,
-        int stepIndex, byte[]? previousBgra, CursorSettings currentLook, int screenWidthPx,
+        int stepIndex, byte[]? previousBgra, CursorSettings currentLook, bool[] mask, int screenWidthPx,
         int screenHeightPx, Stopwatch captureClock, Action<string> writeLine)
     {
         var frame = ProbeRingFrameSchedule.For(
@@ -376,6 +474,12 @@ internal static class ProbeRingOnScreenHarness
             return ReadBgra(capture.Value.Image, capture.Value.Size);
         }
 
+        ProbeRingIntrusion.Verdict ClassifyIntrusion(byte[] bytes)
+        {
+            var background = ProbeRingCaptureAnalysis.MeasureBackground(bytes, lastSizePx, lastSizePx);
+            return ProbeRingIntrusion.Check(bytes, lastSizePx, lastSizePx, mask, background);
+        }
+
         var retake = ProbeRingCaptureRetake.CaptureWithRetake(
             capture: OneCapture,
             previous: previousBgra,
@@ -384,13 +488,20 @@ internal static class ProbeRingOnScreenHarness
                 // One more present + flush, then the retake inside CaptureWithRetake.
                 window.Present();
                 DwmFlush();
-            });
+            },
+            classifyIntrusion: ClassifyIntrusion);
 
         for (var n = 1; n <= retake.Retakes; n++)
             writeLine(ProbeRingCaptureRetake.RetakeLine(stepIndex, step.Kind, step.FractionX, n));
 
         if (retake.Stale)
             writeLine(ProbeRingCaptureRetake.StaleLine(stepIndex, step.Kind, step.FractionX, retake.Retakes));
+
+        if (retake.Intrusions is not null)
+        {
+            foreach (var intrusion in retake.Intrusions)
+                writeLine(ProbeRingIntrusion.Line(stepIndex, step.Kind, step.FractionX, intrusion));
+        }
 
         var bgra = retake.Bytes;
         var background = ProbeRingCaptureAnalysis.MeasureBackground(bgra, lastSizePx, lastSizePx);
@@ -401,6 +512,7 @@ internal static class ProbeRingOnScreenHarness
         {
             Retakes = retake.Retakes,
             Stale = retake.Stale,
+            Intruded = retake.Intruded,
         };
     }
 

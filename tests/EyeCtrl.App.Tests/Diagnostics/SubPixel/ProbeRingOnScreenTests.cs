@@ -13,9 +13,12 @@ using EyeCtrl.Core.Services;
 /// value — A, B, the reference A–B check and the sweep — is R1's mirrored-block estimator averaged
 /// over the scan rows' centre ± 10 (the run-2 sweep showed the single scan row biased under
 /// diagonal motion on the hardware rasterizer); the single row stays as a printed
-/// <c>R2 DIAGNOSTIC single-row</c> line, never judged. A capture that is a byte-identical copy of
-/// the previous frame is retaken up to 3 times, and one that reaches a judged row fails as a stale
-/// frame; the sweep and diagnostics exclude and flag it. The ±0.05 tolerance is unchanged.
+/// <c>R2 DIAGNOSTIC single-row</c> line, never judged. The harness warms up first (waits for a
+/// capture that passes the positive control, ≤ 3 s — run 3's window was black for about a second)
+/// and retakes any capture that is a byte-identical copy of the previous frame or carries an
+/// overlay over the background (fixup 10); a capture that still fails either is a stale/intruded
+/// frame — a judged row fails on it, and the sweep and diagnostics exclude and flag it. The ±0.05
+/// tolerance is unchanged.
 /// </para>
 ///
 /// <para>

@@ -443,6 +443,35 @@ public class ProbeRingOnScreenGateTests
                 + "BuildInputs, as the offline analyser does (fixup 09 F3).")
             .That(harness.IndexOf("MarkStale(samples)", StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);
 
+        // Fixup 10 item 1: the warm-up gate must run before the plan loop, its line must print, and
+        // the retake chain must start empty after it (reference B at f = 0 equals the last warm-up
+        // frame; run 3's black first frame is what the gate exists for).
+        var warmUpAt = harness.IndexOf("ProbeRingWarmUp.Wait(", StringComparison.Ordinal);
+        var planLoopAt = harness.IndexOf("foreach (var step in plan)", StringComparison.Ordinal);
+        Check.WithCustomMessage(
+                "The harness must run the warm-up gate (ProbeRingWarmUp.Wait); without it run 3's black "
+                + "first frame goes straight into the 21-row scan.")
+            .That(warmUpAt).IsStrictlyGreaterThan(-1);
+        Check.That(planLoopAt).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage("The warm-up must run BEFORE the plan loop.")
+            .That(warmUpAt).IsStrictlyLessThan(planLoopAt);
+        Check.WithCustomMessage("The harness must print the warm-up line.")
+            .That(harness.IndexOf("ProbeRingWarmUp.Line(", StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);
+        var resetAt = harness.IndexOf("previousBgra = null;", StringComparison.Ordinal);
+        Check.WithCustomMessage(
+                "The retake chain must start empty AFTER the warm-up: the first plan capture (reference B "
+                + "at f = 0) legitimately equals the last warm-up frame and must not be flagged stale.")
+            .That(resetAt).IsStrictlyGreaterThan(warmUpAt);
+
+        // Fixup 10 item 2: the intrusion check, its lines, and the live marking.
+        Check.WithCustomMessage("CaptureAt must classify intrusions through ProbeRingIntrusion.Check.")
+            .That(harness.IndexOf("ProbeRingIntrusion.Check(", StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage("The harness must print the R2 intrusion line for an intruded capture.")
+            .That(harness.IndexOf("ProbeRingIntrusion.Line(", StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);
+        Check.WithCustomMessage(
+                "The live samples must take the same ProbeRingIntrusion.Mark the offline analyser applies.")
+            .That(harness.IndexOf("ProbeRingIntrusion.Mark(", StringComparison.Ordinal)).IsStrictlyGreaterThan(-1);
+
         // Fixup 06 R2a: the loop must iterate the plan built here, not a reordered copy (H3b).
         Check.WithCustomMessage(
                 "The harness must build the plan as `var plan = ProbeRingCapturePlan.Build();` — a "

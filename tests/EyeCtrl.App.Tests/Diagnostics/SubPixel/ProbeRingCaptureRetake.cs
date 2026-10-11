@@ -1,56 +1,87 @@
 namespace EyeCtrl.App.Tests.Diagnostics.SubPixel;
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 
 /// <summary>The result of <see cref="ProbeRingCaptureRetake.CaptureWithRetake"/>: the delivered bytes and what it took.</summary>
 /// <param name="Bytes">The accepted capture's bytes (the last one taken).</param>
-/// <param name="Retakes">How many extra captures were taken because the previous returned a stale copy.</param>
+/// <param name="Retakes">How many extra captures were taken because the previous was stale or intruded.</param>
 /// <param name="Stale">Whether the accepted bytes are STILL a stale copy after the retakes.</param>
-internal sealed record ProbeRingRetakeResult(byte[] Bytes, int Retakes, bool Stale);
+/// <param name="Intruded">Whether the accepted bytes still break the background rule after the retakes.</param>
+/// <param name="Intrusions">Every intruded capture observed, in order — the ones that triggered retakes plus the final one when the mark stands (fixup 10 item 2).</param>
+internal sealed record ProbeRingRetakeResult(
+    byte[] Bytes,
+    int Retakes,
+    bool Stale,
+    bool Intruded = false,
+    IReadOnlyList<ProbeRingIntrusion.Verdict>? Intrusions = null);
 
 /// <summary>
-/// R2's stale-capture retake (fixup 08 item 2), pure and headless-testable: consecutive plan steps
-/// never share a placement (pinned), so a capture whose BGRA bytes equal the <b>previous</b>
-/// capture's bytes is, by definition, the previous frame — the screen did not repaint. The caller
-/// waits one more frame (present + DwmFlush) and the capture is taken again, up to
-/// <see cref="MaxRetakes"/> times.
+/// R2's stale-capture retake (fixup 08 item 2; extended by fixup 10 item 2 with the intrusion
+/// check), pure and headless-testable: consecutive plan steps never share a placement (pinned), so
+/// a capture whose BGRA bytes equal the <b>previous</b> capture's bytes is, by definition, the
+/// previous frame — the screen did not repaint. And a capture whose pixels break the background
+/// rule outside the ring's dilated footprint (<paramref name="classifyIntrusion"/>) carries an
+/// overlay. Either condition triggers a retake: the caller waits one more frame (present +
+/// DwmFlush) and the capture is taken again, up to <see cref="MaxRetakes"/> times.
 ///
 /// <para>
-/// A capture that is still stale after the retakes is marked, never dropped: a judged row fails on
-/// it ("stale frame") and the sweep/diagnostics exclude and flag it. The live harness prints a
-/// <c>R2 retake: …</c> line per retake and a <c>R2 stale: …</c> line when the mark stands; the
-/// offline analyser applies the same rule to a saved archive.
+/// A capture that is still stale or intruded after the retakes is marked, never dropped: a judged
+/// row fails on it ("stale frame" / "an overlay covered the capture region") and the
+/// sweep/diagnostics exclude and flag it. The live harness prints a <c>R2 retake: …</c> line per
+/// retake, a <c>R2 stale: …</c> line when the stale mark stands, and a <c>R2 intrusion: …</c> line
+/// per intruded capture; the offline analyser applies the same rules to a saved archive.
 /// </para>
 /// </summary>
 internal static class ProbeRingCaptureRetake
 {
-    /// <summary>How many extra captures a stale frame may trigger before it is marked.</summary>
+    /// <summary>How many extra captures a stale or intruded frame may trigger before it is marked.</summary>
     internal const int MaxRetakes = 3;
 
     /// <summary>
     /// Captures once, and while the bytes are byte-identical to <paramref name="previous"/> — a
-    /// stale copy — waits one more frame and captures again, up to <paramref name="maxRetakes"/>
-    /// times. <paramref name="previous"/> null means there is nothing to be stale relative to.
+    /// stale copy — or the intrusion classifier flags them, waits one more frame and captures
+    /// again, up to <paramref name="maxRetakes"/> times. <paramref name="previous"/> null means
+    /// there is nothing to be stale relative to; a null classifier skips the intrusion check.
     /// </summary>
     /// <param name="capture">Takes one capture and returns its BGRA bytes.</param>
     /// <param name="previous">The previous capture's BGRA bytes, or null for the first capture.</param>
     /// <param name="waitOneMoreFrame">Presents the frame and flushes DWM once more before a retake.</param>
     /// <param name="maxRetakes">The retake bound; 3 by default.</param>
+    /// <param name="classifyIntrusion">Classifies a capture's pixels for the overlay check; null skips it.</param>
     internal static ProbeRingRetakeResult CaptureWithRetake(
-        Func<byte[]> capture, byte[]? previous, Action waitOneMoreFrame, int maxRetakes = MaxRetakes)
+        Func<byte[]> capture,
+        byte[]? previous,
+        Action waitOneMoreFrame,
+        int maxRetakes = MaxRetakes,
+        Func<byte[], ProbeRingIntrusion.Verdict>? classifyIntrusion = null)
     {
+        var intrusions = new List<ProbeRingIntrusion.Verdict>();
         var bytes = capture();
         var retakes = 0;
-        while (previous is not null && retakes < maxRetakes && bytes.AsSpan().SequenceEqual(previous))
+        ProbeRingIntrusion.Verdict? last = null;
+        while (true)
         {
+            last = classifyIntrusion?.Invoke(bytes);
+            if (last?.Intruded == true)
+                intrusions.Add(last);
+
+            var stale = previous is not null && bytes.AsSpan().SequenceEqual(previous);
+            if (retakes >= maxRetakes || (!stale && last?.Intruded != true))
+                break;
+
             waitOneMoreFrame();
             bytes = capture();
             retakes++;
         }
 
         return new ProbeRingRetakeResult(
-            bytes, retakes, previous is not null && bytes.AsSpan().SequenceEqual(previous));
+            bytes,
+            retakes,
+            previous is not null && bytes.AsSpan().SequenceEqual(previous),
+            last?.Intruded == true,
+            intrusions);
     }
 
     /// <summary>

@@ -56,6 +56,7 @@ internal sealed record ProbeRingLook(string Style, double SizeDip, double Thickn
 /// <param name="ElapsedMs">Milliseconds from the run's start to this capture (fixup 04 F5).</param>
 /// <param name="Retakes">How many stale-copy retakes this capture took (fixup 08 item 2).</param>
 /// <param name="Stale">Whether the capture is a stale copy of the previous frame despite the retakes.</param>
+/// <param name="Intruded">Whether an overlay broke the background rule inside the protected area (fixup 10 item 2).</param>
 internal sealed record ProbeRingCapturedSample(
     string Kind,
     string Condition,
@@ -69,7 +70,8 @@ internal sealed record ProbeRingCapturedSample(
     ProbeRingLook Look,
     long ElapsedMs,
     int Retakes = 0,
-    bool Stale = false);
+    bool Stale = false,
+    bool Intruded = false);
 
 /// <summary>The saved run's manifest header (fixup 03 item 5; sha added by fixup 04 F5).</summary>
 internal sealed record ProbeRingManifest(
@@ -100,7 +102,8 @@ internal sealed record ProbeRingManifestSample(
     byte BackgroundB,
     string Utc,
     int Retakes = 0,
-    bool Stale = false);
+    bool Stale = false,
+    bool Intruded = false);
 
 /// <summary>A loaded run: its samples, the scale they were captured at, when, and the commit.</summary>
 internal sealed record ProbeRingArchive(
@@ -191,7 +194,8 @@ internal static class ProbeRingCaptureArchive
                 sample.Background.B,
                 createdUtc.UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
                 sample.Retakes,
-                sample.Stale));
+                sample.Stale,
+                sample.Intruded));
         }
 
         var manifest = new ProbeRingManifest(
@@ -266,7 +270,8 @@ internal static class ProbeRingCaptureArchive
 
         return new ProbeRingCapturedSample(
             entry.Kind, entry.Condition, entry.Fraction, entry.Repeat, geometry, pixels,
-            readable.PixelWidth, weights, background, look, entry.ElapsedMs, entry.Retakes, entry.Stale);
+            readable.PixelWidth, weights, background, look, entry.ElapsedMs, entry.Retakes, entry.Stale,
+            entry.Intruded);
     }
 
     /// <summary>

@@ -121,7 +121,7 @@ public class ProbeRingCaptureArchiveTests
         var samples = ProbeRingSyntheticRun.Small();
 
         // Give one sample non-default retake metadata, so the round-trip exercises the fields.
-        samples = [.. samples.Take(1), samples[1] with { Retakes = 2, Stale = true }, .. samples.Skip(2)];
+        samples = [.. samples.Take(1), samples[1] with { Retakes = 2, Stale = true, Intruded = true }, .. samples.Skip(2)];
 
         var folder = ProbeRingSyntheticRun.TempFolder();
         try
@@ -148,6 +148,7 @@ public class ProbeRingCaptureArchiveTests
                 Check.WithCustomMessage("The retake metadata must round-trip (fixup 08 item 2).")
                     .That(after.Retakes).IsEqualTo(before.Retakes);
                 Check.That(after.Stale).IsEqualTo(before.Stale);
+                Check.That(after.Intruded).IsEqualTo(before.Intruded);
                 Check.That(after.Frame.CaptureOriginX).IsEqualTo(before.Frame.CaptureOriginX);
                 Check.That(after.Frame.CaptureOriginY).IsEqualTo(before.Frame.CaptureOriginY);
                 Check.That(after.Frame.CaptureCentrePx.X).IsEqualTo(before.Frame.CaptureCentrePx.X);
@@ -235,7 +236,7 @@ public class ProbeRingCaptureArchiveTests
             var manifestPath = Path.Combine(folder, ProbeRingCaptureArchive.ManifestFileName);
             var json = File.ReadAllText(manifestPath);
             Check.WithCustomMessage("A manifest written now must record per-capture retakes and the stale mark.")
-                .That(json.Contains("\"retakes\"") && json.Contains("\"stale\"")).IsTrue();
+                .That(json.Contains("\"retakes\"") && json.Contains("\"stale\"") && json.Contains("\"intruded\"")).IsTrue();
 
             // Strip the two fields, as an archive written before fixup 08 would lack them.
             var node = JsonNode.Parse(json)!;
@@ -243,13 +244,14 @@ public class ProbeRingCaptureArchiveTests
             {
                 sampleNode!.AsObject().Remove("retakes");
                 sampleNode.AsObject().Remove("stale");
+                sampleNode.AsObject().Remove("intruded");
             }
 
             File.WriteAllText(manifestPath, node.ToJsonString());
 
             var loaded = ProbeRingCaptureArchive.Load(folder);
             Check.WithCustomMessage("An older manifest without retakes/stale must load with the defaults.")
-                .That(loaded.Samples.All(sample => sample.Retakes == 0 && !sample.Stale)).IsTrue();
+                .That(loaded.Samples.All(sample => sample.Retakes == 0 && !sample.Stale && !sample.Intruded)).IsTrue();
         }
         finally
         {

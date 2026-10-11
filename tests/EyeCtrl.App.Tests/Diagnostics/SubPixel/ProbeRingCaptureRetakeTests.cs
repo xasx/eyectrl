@@ -98,6 +98,60 @@ public class ProbeRingCaptureRetakeTests
     }
 
     /// <summary>
+    /// Fixup 10 item 2: an intruded capture is retaken like a stale one, and the accepted capture's
+    /// verdict is reported — a clean retake clears the mark, an intrusion that stands is marked with
+    /// every observed verdict listed for the session lines.
+    /// </summary>
+    [Fact]
+    public void AnIntrudedCapture_IsRetakenUntilClean()
+    {
+        var intruded = new ProbeRingIntrusion.Verdict(true, 5000, 1, 2, 40, 50);
+        var clean = new ProbeRingIntrusion.Verdict(false, 0, 0, 0, 0, 0);
+        var frames = new[] { new byte[] { 1 }, new byte[] { 2 } };
+        var captures = 0;
+        var waits = 0;
+
+        var result = ProbeRingCaptureRetake.CaptureWithRetake(
+            capture: () => frames[captures++],
+            previous: null,
+            waitOneMoreFrame: () => waits++,
+            classifyIntrusion: bytes => bytes[0] == 1 ? intruded : clean);
+
+        Check.That(result.Retakes).IsEqualTo(1);
+        Check.That(result.Intruded).IsFalse();
+        Check.That(result.Stale).IsFalse();
+        Check.That(result.Intrusions).HasSize(1);
+        Check.That(result.Bytes).IsSameReferenceAs(frames[1]);
+        Check.WithCustomMessage("The retake must wait one more frame first.").That(waits).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void AnIntrusionThatStands_IsMarked_AndSharesTheStaleRetakeBudget()
+    {
+        var previous = new byte[] { 5, 5 };
+        var bad = new ProbeRingIntrusion.Verdict(true, 9000, 0, 0, 9, 9);
+        var captures = 0;
+
+        var result = ProbeRingCaptureRetake.CaptureWithRetake(
+            capture: () =>
+            {
+                captures++;
+                return previous;   // stale AND intruded: both conditions at once
+            },
+            previous: previous,
+            waitOneMoreFrame: () => { },
+            classifyIntrusion: _ => bad);
+
+        Check.WithCustomMessage("One shared budget: the capture plus three retakes, not three per condition.")
+            .That(result.Retakes).IsEqualTo(ProbeRingCaptureRetake.MaxRetakes);
+        Check.That(captures).IsEqualTo(4);
+        Check.That(result.Stale).IsTrue();
+        Check.That(result.Intruded).IsTrue();
+        Check.WithCustomMessage("Every observed intruded capture is listed for the session lines.")
+            .That(result.Intrusions).HasSize(4);
+    }
+
+    /// <summary>
     /// The session lines the harness prints: the pre-registered format
     /// (<c>R2 retake: step k (kind f) after N</c>) and the stale mark's line.
     /// </summary>

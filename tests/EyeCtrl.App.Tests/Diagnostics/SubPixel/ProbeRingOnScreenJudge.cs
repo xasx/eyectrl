@@ -50,6 +50,14 @@ using EyeCtrl.Core.Models;
 /// </para>
 ///
 /// <para>
+/// <b>Intruded captures (fixup 10 item 2; run 3's gaze-cursor overlay).</b> A capture whose pixels
+/// are off-background outside the expected ring's dilated footprint carries an overlay and is
+/// retaken like a stale one; if it stands, a judged row fails ("an overlay — e.g. a gaze cursor —
+/// covered the capture region") and the sweep and diagnostics exclude and flag it
+/// (<c>intruded=N</c>). The check and its thresholds live in <see cref="ProbeRingIntrusion"/>.
+/// </para>
+///
+/// <para>
 /// <b>The schedule is part of the judgement.</b> The A/B assertion set and the sweep's range and
 /// step are constants here and the rows passed in must match them exactly — a harness that
 /// captures half the sweep, or a coarser step, fails in <see cref="Measure"/> rather than quietly
@@ -105,16 +113,26 @@ internal static class ProbeRingOnScreenJudge
     /// <param name="Fraction">The scheduled fraction.</param>
     /// <param name="Repeats">The frames, one per repeat.</param>
     /// <param name="StaleFlags">Which repeats are stale copies, in capture order; null means none are.</param>
+    /// <param name="IntrudedFlags">Which repeats are intruded (an overlay broke the background rule); null means none are.</param>
     internal sealed record RowSamples(
-        string Condition, double Fraction, IReadOnlyList<ProbeRaster> Repeats, IReadOnlyList<bool>? StaleFlags = null);
+        string Condition,
+        double Fraction,
+        IReadOnlyList<ProbeRaster> Repeats,
+        IReadOnlyList<bool>? StaleFlags = null,
+        IReadOnlyList<bool>? IntrudedFlags = null);
 
     /// <summary>One diagnostic row: its own reference and its repeats (fixup 04 deciders).</summary>
     /// <param name="Fraction">The scheduled x fraction.</param>
     /// <param name="FractionY">The scheduled y fraction (0 for the X-only decider).</param>
     /// <param name="Repeats">The frames, one per repeat.</param>
     /// <param name="StaleFlags">Which repeats are stale copies; null means none are.</param>
+    /// <param name="IntrudedFlags">Which repeats are intruded; null means none are.</param>
     internal sealed record DiagnosticRow(
-        double Fraction, double FractionY, IReadOnlyList<ProbeRaster> Repeats, IReadOnlyList<bool>? StaleFlags = null);
+        double Fraction,
+        double FractionY,
+        IReadOnlyList<ProbeRaster> Repeats,
+        IReadOnlyList<bool>? StaleFlags = null,
+        IReadOnlyList<bool>? IntrudedFlags = null);
 
     /// <summary>
     /// A diagnostic block (D2/D3): its own f = 0 reference and its rows. Diagnostics are measured
@@ -139,6 +157,7 @@ internal static class ProbeRingOnScreenJudge
     /// <param name="SweepRows">B rows at <see cref="SweepFractions"/> (requirement f).</param>
     /// <param name="Diagnostics">The D2/D3 blocks: measured and printed, never judged.</param>
     /// <param name="ReferenceBStaleFlags">Which of the f = 0 B repeats are stale copies, in capture order.</param>
+    /// <param name="ReferenceBIntrudedFlags">Which of the f = 0 B repeats are intruded, in capture order.</param>
     internal sealed record JudgeInputs(
         double EffectiveScale,
         ProbeRaster ExpectedPattern,
@@ -150,7 +169,8 @@ internal static class ProbeRingOnScreenJudge
         IReadOnlyList<RowSamples> AssertionRows,
         IReadOnlyList<RowSamples> SweepRows,
         IReadOnlyList<DiagnosticGroup> Diagnostics,
-        IReadOnlyList<bool>? ReferenceBStaleFlags = null);
+        IReadOnlyList<bool>? ReferenceBStaleFlags = null,
+        IReadOnlyList<bool>? ReferenceBIntrudedFlags = null);
 
     /// <summary>One failed requirement, named, with the message the fix must read.</summary>
     /// <param name="Requirement">The requirement's label, e.g. "(c) positive control".</param>
@@ -162,6 +182,7 @@ internal static class ProbeRingOnScreenJudge
     /// <param name="Fraction">The scheduled fraction.</param>
     /// <param name="Repeats">How many captures were aggregated.</param>
     /// <param name="StaleRepeats">How many of them were stale copies, excluded from every aggregate and flagged.</param>
+    /// <param name="IntrudedRepeats">How many of them were intruded (an overlay over the capture), excluded and flagged.</param>
     /// <param name="ExpectedX">The expected x movement.</param>
     /// <param name="ExpectedY">The expected y movement.</param>
     /// <param name="MeanX">The judged mean x movement: the 21-row average, over the non-stale repeats.</param>
@@ -172,9 +193,10 @@ internal static class ProbeRingOnScreenJudge
     /// <param name="RightX">Mean of the right edge block's 21-row centroid shifts.</param>
     /// <param name="TopY">Mean of the top edge block's 21-row centroid shifts.</param>
     /// <param name="BottomY">Mean of the bottom edge block's 21-row centroid shifts.</param>
-    /// <param name="SampleX">Every repeat's judged (21-row) x movement, in capture order — stale repeats included, so the failure messages' repeat numbers map 1:1 to captures.</param>
+    /// <param name="SampleX">Every repeat's judged (21-row) x movement, in capture order — stale and intruded repeats included, so the failure messages' repeat numbers map 1:1 to captures.</param>
     /// <param name="SampleY">Every repeat's judged (21-row) y movement, in capture order.</param>
     /// <param name="StaleFlags">Which repeats are stale, in capture order.</param>
+    /// <param name="IntrudedFlags">Which repeats are intruded, in capture order.</param>
     /// <param name="SingleRowMeanX">Diagnostic: the single-scan-row mean of x over the repeats; never judged.</param>
     /// <param name="SingleRowMeanY">Diagnostic: the single-scan-row mean of y over the repeats.</param>
     /// <param name="SingleRowSpreadX">Diagnostic: the single-row x spread over the repeats.</param>
@@ -185,6 +207,7 @@ internal static class ProbeRingOnScreenJudge
         double Fraction,
         int Repeats,
         int StaleRepeats,
+        int IntrudedRepeats,
         double ExpectedX,
         double ExpectedY,
         double MeanX,
@@ -198,6 +221,7 @@ internal static class ProbeRingOnScreenJudge
         IReadOnlyList<double> SampleX,
         IReadOnlyList<double> SampleY,
         IReadOnlyList<bool> StaleFlags,
+        IReadOnlyList<bool> IntrudedFlags,
         double SingleRowMeanX,
         double SingleRowMeanY,
         double SingleRowSpreadX,
@@ -243,7 +267,26 @@ internal static class ProbeRingOnScreenJudge
         var control = ProbeRingCaptureAnalysis.CheckExpectedRing(
             inputs.ReferenceB, inputs.ExpectedPattern, expectedCentre, inputs.HalfPx);
         if (!control.Matched)
+        {
             failures.Add(new RequirementFailure("(c) positive control", control.Reason));
+
+            // (fixup 10 item 3; run 3's black first frame) A reference without a ring cannot anchor
+            // a scan: measuring shifts against it would throw "No ring alpha in the scan window"
+            // and bury the cause. Return the control failure and the DPI verdict now, with nothing
+            // measured — the run can never pass on a reference that holds no ring.
+            return new JudgeReport(
+                dpi,
+                control,
+                ReferenceOffset: new ProbeRingCaptureAnalysis.MirroredShift(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+                ReferenceNoise: null,
+                AssertionRows: [],
+                SweepRows: [],
+                Sweep: new ProbeRingCaptureAnalysis.SweepSummary(
+                    double.NaN, double.NaN,
+                    "Not measured: the positive control failed, so there is no ring to measure."),
+                Diagnostics: [],
+                failures);
+        }
 
         // With nothing to round, A and B must draw at the same place (R1's first assertion), judged
         // on the 21-row average like every other judged value (owner's decision 2026-10-11).
@@ -269,7 +312,7 @@ internal static class ProbeRingOnScreenJudge
         var referenceNoise = inputs.ReferenceBRepeats.Count > 1
             ? MeasureRow(
                 ConditionB, 0.0, inputs.ReferenceBRepeats, inputs.ReferenceBStaleFlags,
-                inputs.ReferenceB, inputs.Geometry, 0.0, 0.0)
+                inputs.ReferenceBIntrudedFlags, inputs.ReferenceB, inputs.Geometry, 0.0, 0.0)
             : null;
 
         var assertionRows = new List<RowMeasurement>();
@@ -280,8 +323,8 @@ internal static class ProbeRingOnScreenJudge
                 ? Math.Round(row.Fraction, MidpointRounding.AwayFromZero)
                 : row.Fraction;
             var measured = MeasureRow(
-                row.Condition, row.Fraction, row.Repeats, row.StaleFlags, reference, inputs.Geometry,
-                expected, expected);
+                row.Condition, row.Fraction, row.Repeats, row.StaleFlags, row.IntrudedFlags, reference,
+                inputs.Geometry, expected, expected);
             assertionRows.Add(measured);
 
             // F1 (fixup 09, review 07 MAJOR): a judged row must hold exactly the scheduled repeats.
@@ -298,8 +341,9 @@ internal static class ProbeRingOnScreenJudge
 
             // F1 (orchestrator decision): EVERY repeat must be within ±0.05 — the run-1 rule applied
             // to each capture — now on the 21-row average (owner's decision 2026-10-11, after run 2).
-            // A stale repeat is a failure in its own right and is excluded from the aggregates: it is
-            // never passed and never silently dropped. The mean and spread stay in the report.
+            // A stale or intruded repeat is a failure in its own right and is excluded from the
+            // aggregates: it is never passed and never silently dropped. The mean and spread stay in
+            // the report.
             for (var i = 0; i < measured.SampleX.Count; i++)
             {
                 if (measured.StaleFlags[i])
@@ -310,6 +354,17 @@ internal static class ProbeRingOnScreenJudge
                         + $"f = {row.Fraction:0.00} is a byte-identical copy of the previous capture — the screen "
                         + "did not repaint, so this value is the previous placement's. A stale capture is retaken "
                         + "up to 3 times; one that reaches a judged row fails here, never dropped and never passed."));
+                    continue;
+                }
+
+                if (measured.IntrudedFlags[i])
+                {
+                    failures.Add(new RequirementFailure(
+                        row.Condition == ConditionB ? "(e) condition B" : "(e) condition A",
+                        $"Intruded frame: condition {row.Condition}'s repeat {i + 1} of {measured.Repeats} at "
+                        + $"f = {row.Fraction:0.00} is off-background outside the ring's footprint — an overlay "
+                        + "(e.g. a gaze cursor) covered the capture region, so this value is not the ring alone. "
+                        + "It is retaken up to 3 times; one that reaches a judged row fails here (fixup 10)."));
                     continue;
                 }
 
@@ -361,8 +416,8 @@ internal static class ProbeRingOnScreenJudge
         // stale repeat is excluded from the row's mean and flagged on its line.
         var sweepRows = inputs.SweepRows
             .Select(row => MeasureRow(
-                ConditionB, row.Fraction, row.Repeats, row.StaleFlags, inputs.ReferenceB, inputs.Geometry,
-                row.Fraction, row.Fraction))
+                ConditionB, row.Fraction, row.Repeats, row.StaleFlags, row.IntrudedFlags, inputs.ReferenceB,
+                inputs.Geometry, row.Fraction, row.Fraction))
             .ToList();
         var sweepSummary = ProbeRingCaptureAnalysis.EvaluateSweep(
             sweepRows
@@ -382,8 +437,8 @@ internal static class ProbeRingOnScreenJudge
                 try
                 {
                     diagnostics.Add(new DiagnosticMeasurement(group.Id, group.Label, MeasureRow(
-                        ConditionB, row.Fraction, row.Repeats, row.StaleFlags, group.Reference, inputs.Geometry,
-                        row.Fraction, row.FractionY), null));
+                        ConditionB, row.Fraction, row.Repeats, row.StaleFlags, row.IntrudedFlags,
+                        group.Reference, inputs.Geometry, row.Fraction, row.FractionY), null));
                 }
                 catch (Exception ex)
                 {
@@ -428,7 +483,8 @@ internal static class ProbeRingOnScreenJudge
         {
             writeLine(
                 "R2 diagnostics follow (D2 solid-look control, D3 X-only motion): measured and printed, never "
-                + "judged. Stale repeats are excluded from their means and flagged with stale=N.");
+                + "judged. Stale and intruded repeats are excluded from their means and flagged with "
+                + "stale=N / intruded=N.");
             foreach (var diagnostic in report.Diagnostics)
             {
                 if (diagnostic.Row is null)
@@ -457,11 +513,12 @@ internal static class ProbeRingOnScreenJudge
         var samplesX = string.Join(", ", row.SampleX.Select(value => value.ToString("0.0000", CultureInfo.InvariantCulture)));
         var samplesY = string.Join(", ", row.SampleY.Select(value => value.ToString("0.0000", CultureInfo.InvariantCulture)));
         var stale = row.StaleRepeats > 0 ? $" stale={row.StaleRepeats}" : string.Empty;
+        var intruded = row.IntrudedRepeats > 0 ? $" intruded={row.IntrudedRepeats}" : string.Empty;
 
         writeLine(Invariant(
-            $"R2 {kind} {row.Condition} f={row.Fraction:0.00} N={row.Repeats}{stale} X: expected={row.ExpectedX:0.0000} measured={row.MeanX:0.0000} error={row.MeanX - row.ExpectedX:+0.0000;-0.0000;+0.0000} spread={row.SpreadX:0.0000} samples=({samplesX}) left={row.LeftX:0.0000} right={row.RightX:0.0000}"));
+            $"R2 {kind} {row.Condition} f={row.Fraction:0.00} N={row.Repeats}{stale}{intruded} X: expected={row.ExpectedX:0.0000} measured={row.MeanX:0.0000} error={row.MeanX - row.ExpectedX:+0.0000;-0.0000;+0.0000} spread={row.SpreadX:0.0000} samples=({samplesX}) left={row.LeftX:0.0000} right={row.RightX:0.0000}"));
         writeLine(Invariant(
-            $"R2 {kind} {row.Condition} f={row.Fraction:0.00} N={row.Repeats}{stale} Y: expected={row.ExpectedY:0.0000} measured={row.MeanY:0.0000} error={row.MeanY - row.ExpectedY:+0.0000;-0.0000;+0.0000} spread={row.SpreadY:0.0000} samples=({samplesY}) top={row.TopY:0.0000} bottom={row.BottomY:0.0000}"));
+            $"R2 {kind} {row.Condition} f={row.Fraction:0.00} N={row.Repeats}{stale}{intruded} Y: expected={row.ExpectedY:0.0000} measured={row.MeanY:0.0000} error={row.MeanY - row.ExpectedY:+0.0000;-0.0000;+0.0000} spread={row.SpreadY:0.0000} samples=({samplesY}) top={row.TopY:0.0000} bottom={row.BottomY:0.0000}"));
 
         if (row.SingleRowError is not null)
         {
@@ -572,7 +629,8 @@ internal static class ProbeRingOnScreenJudge
                     condition,
                     fraction,
                     rowSamples.Select(s => s.Weights).ToList(),
-                    rowSamples.Select(s => s.Stale).ToList()));
+                    rowSamples.Select(s => s.Stale).ToList(),
+                    rowSamples.Select(s => s.Intruded).ToList()));
             }
         }
 
@@ -584,7 +642,8 @@ internal static class ProbeRingOnScreenJudge
                     ConditionB,
                     fraction,
                     rowSamples.Select(s => s.Weights).ToList(),
-                    rowSamples.Select(s => s.Stale).ToList());
+                    rowSamples.Select(s => s.Stale).ToList(),
+                    rowSamples.Select(s => s.Intruded).ToList());
             })
             .ToList();
 
@@ -602,7 +661,8 @@ internal static class ProbeRingOnScreenJudge
                         return new DiagnosticRow(
                             fraction, fraction,
                             rowSamples.Select(s => s.Weights).ToList(),
-                            rowSamples.Select(s => s.Stale).ToList());
+                            rowSamples.Select(s => s.Stale).ToList(),
+                            rowSamples.Select(s => s.Intruded).ToList());
                     })
                     .Where(row => row.Repeats.Count > 0)
                     .ToList()));
@@ -620,7 +680,8 @@ internal static class ProbeRingOnScreenJudge
                         return new DiagnosticRow(
                             fraction, 0.0,
                             rowSamples.Select(s => s.Weights).ToList(),
-                            rowSamples.Select(s => s.Stale).ToList());
+                            rowSamples.Select(s => s.Stale).ToList(),
+                            rowSamples.Select(s => s.Intruded).ToList());
                     })
                     .Where(row => row.Repeats.Count > 0)
                     .ToList()));
@@ -637,7 +698,8 @@ internal static class ProbeRingOnScreenJudge
             assertionRows,
             sweepRows,
             diagnostics,
-            SamplesAt(samples, KindReference, ConditionB, 0.0).Select(s => s.Stale).ToList());
+            SamplesAt(samples, KindReference, ConditionB, 0.0).Select(s => s.Stale).ToList(),
+            SamplesAt(samples, KindReference, ConditionB, 0.0).Select(s => s.Intruded).ToList());
     }
 
     /// <summary>The samples of one row kind, condition and fraction, in repeat order.</summary>
@@ -666,12 +728,16 @@ internal static class ProbeRingOnScreenJudge
         double fraction,
         IReadOnlyList<ProbeRaster> repeats,
         IReadOnlyList<bool>? staleFlags,
+        IReadOnlyList<bool>? intrudedFlags,
         ProbeRaster reference,
         ProbeRingCaptureAnalysis.RingScanGeometry geometry,
         double expectedX,
         double expectedY)
     {
-        var flags = staleFlags ?? new bool[repeats.Count];
+        var stale = staleFlags ?? new bool[repeats.Count];
+        var intruded = intrudedFlags ?? new bool[repeats.Count];
+        bool Excluded(int index) =>
+            (index < stale.Count && stale[index]) || (index < intruded.Count && intruded[index]);
 
         // The judged estimator: the 21-row mirrored average. No catch — a throw here is the loud
         // failure the judged path must produce.
@@ -697,15 +763,17 @@ internal static class ProbeRingOnScreenJudge
             singleRowError = ex.Message;
         }
 
+        var staleCount = judged.Where((_, index) => index < stale.Count && stale[index]).Count();
+        var intrudedCount = judged.Where((_, index) => index < intruded.Count && intruded[index]).Count();
         var kept = judged
-            .Where((_, index) => index >= flags.Count || !flags[index])
+            .Where((_, index) => !Excluded(index))
             .ToList();
-        var staleCount = judged.Count - kept.Count;
 
-        // The diagnostic excludes stale repeats exactly as the judged line does (fixup 09 nit 2):
-        // a stale single-row value is the previous frame's, and must not distort the printed spread.
+        // The diagnostic excludes stale and intruded repeats exactly as the judged line does
+        // (fixup 09 nit 2, fixup 10 item 2): a stale single-row value is the previous frame's and an
+        // intruded one carries the overlay, and neither must distort the printed spread.
         var keptSingle = singleRow
-            .Where((_, index) => index >= flags.Count || !flags[index])
+            .Where((_, index) => !Excluded(index))
             .ToList();
 
         return new RowMeasurement(
@@ -713,6 +781,7 @@ internal static class ProbeRingOnScreenJudge
             fraction,
             repeats.Count,
             staleCount,
+            intrudedCount,
             expectedX,
             expectedY,
             kept.Count > 0 ? kept.Average(shift => shift.MeanX) : double.NaN,
@@ -725,7 +794,8 @@ internal static class ProbeRingOnScreenJudge
             kept.Count > 0 ? kept.Average(shift => shift.BottomY) : double.NaN,
             judged.Select(shift => shift.MeanX).ToList(),
             judged.Select(shift => shift.MeanY).ToList(),
-            [.. flags],
+            [.. stale],
+            [.. intruded],
             keptSingle.Count > 0 ? keptSingle.Average(shift => shift.MeanX) : double.NaN,
             keptSingle.Count > 0 ? keptSingle.Average(shift => shift.MeanY) : double.NaN,
             keptSingle.Count > 1

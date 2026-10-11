@@ -898,6 +898,83 @@ public class ProbeRingOnScreenJudgeTests
             .That(report.Failures.Count(failure => failure.Message.Contains("2 captures"))).IsEqualTo(1);
     }
 
+    /// <summary>
+    /// Fixup 10 item 2: an intruded capture in a judged row is a failure naming the overlay and is
+    /// excluded from the judged mean. Kills "an intruded judged repeat passing".
+    /// </summary>
+    [StaFact]
+    public void IntrudedRepeat_InAJudgedRow_FailsWithTheOverlayMessage()
+    {
+        var (expected, referenceB, referenceA, assertions, sweep) = HealthyInputs();
+        var inputs = Inputs(2.0, expected, referenceB, referenceA, assertions, sweep);
+        inputs = inputs with
+        {
+            AssertionRows = inputs.AssertionRows
+                .Select(row => row.Condition == ProbeRingOnScreenJudge.ConditionB
+                               && Math.Abs(row.Fraction - 0.25) < 1e-9
+                    ? row with
+                    {
+                        Repeats = [RingAt(0.25, snap: false), RingAt(0.25, snap: false), RingAt(0.25, snap: false)],
+                        IntrudedFlags = [false, true, false],
+                    }
+                    : row)
+                .ToList(),
+        };
+
+        var report = ProbeRingOnScreenJudge.Measure(inputs);
+
+        Check.WithCustomMessage(
+                "An intruded repeat in a judged row must fail naming the overlay; got: "
+                + string.Join(" | ", report.Failures.Select(failure => failure.Message)))
+            .That(report.Failures.Any(failure => failure.Message.Contains("an overlay"))).IsTrue();
+
+        var row = report.AssertionRows.Single(candidate =>
+            candidate.Condition == ProbeRingOnScreenJudge.ConditionB && Math.Abs(candidate.Fraction - 0.25) < 1e-9);
+        Check.WithCustomMessage("The intruded repeat must be excluded from the judged mean.")
+            .That(row.MeanX).IsCloseTo(0.25, ProbeRingOnScreenJudge.TolerancePx);
+        Check.That(row.IntrudedRepeats).IsEqualTo(1);
+
+        var lines = new List<string>();
+        ProbeRingOnScreenJudge.WriteReport(report, lines.Add);
+        Check.WithCustomMessage("The report must flag the intruded repeat on the judged row's lines.")
+            .That(lines.Any(line => line.Contains("R2 row B f=0.25") && line.Contains("intruded=1"))).IsTrue();
+    }
+
+    /// <summary>
+    /// Fixup 10 item 3: a reference with no ring (run 3's black frame) must return the control
+    /// failure without measuring shifts — the run-3 shape threw "No ring alpha in the scan window"
+    /// instead, burying the cause. Kills "control-fail still measures".
+    /// </summary>
+    [StaFact]
+    public void ControlFailure_ReturnsTheControlMessage_WithoutMeasuringShifts()
+    {
+        var (expected, _, referenceA, assertions, sweep) = HealthyInputs();
+        var blank = ProbeRaster.FromWeights(new byte[600 * 600], 600, 600);
+
+        ProbeRingOnScreenJudge.JudgeReport? report = null;
+        var failure = FailureMessage(() =>
+        {
+            report = ProbeRingOnScreenJudge.Measure(
+                Inputs(2.0, expected, blank, referenceA, assertions, sweep));
+        });
+
+        Check.WithCustomMessage("The control failure must be returned, not thrown from a scan window.")
+            .That(failure).IsNull();
+        Check.That(report).IsNotNull();
+        Check.WithCustomMessage(
+                "The report must carry the control failure naming the cause; got: "
+                + string.Join(" | ", report!.Failures.Select(candidate => candidate.Message)))
+            .That(report.Failures.Any(candidate =>
+                candidate.Requirement.Contains("positive control") && candidate.Message.Contains("No ring weight")))
+            .IsTrue();
+        Check.WithCustomMessage("Nothing may be measured against a reference that holds no ring.")
+            .That(report.AssertionRows).IsEmpty();
+
+        var verdict = FailureMessage(() => ProbeRingOnScreenJudge.Judge(report));
+        Check.WithCustomMessage("The run must fail on the control, never pass.").That(verdict).IsNotNull();
+        Check.That(verdict!).Contains("positive control");
+    }
+
     /// <summary>Copies a raster and replaces one row with the same row of <paramref name="donor"/>.</summary>
     private static ProbeRaster WithRowFrom(ProbeRaster target, ProbeRaster donor, int row)
     {

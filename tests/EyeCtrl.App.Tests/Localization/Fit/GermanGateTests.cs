@@ -386,7 +386,7 @@ public class GermanGateTests
     }
 
     /// <summary>
-    /// How far the failure line stays from each side of the window: <c>CompletionPanel</c>'s side
+    /// How far the failure line stays from each side of the window: <c>CompletionCard</c>'s side
     /// margin in <c>CalibrationWindow.xaml</c>, restated here on purpose so the gate pins it.
     /// </summary>
     private const double CompletionEdgeClearance = 40.0;
@@ -408,13 +408,13 @@ public class GermanGateTests
         var window = new CalibrationWindow();
         var shown = CalibrationCompletion.Describe(measureOnly: false, goodResult: false, errorPx: 0, qualityPercent: 0, errorText: detail);
         window.Backdrop.Visibility = System.Windows.Visibility.Visible;
-        window.CompletionPanel.Visibility = System.Windows.Visibility.Visible;
+        window.CompletionCard.Visibility = System.Windows.Visibility.Visible;
         window.CompletionSymbol.Text = shown.Symbol;
         window.CompletionTitle.Text = shown.Title;
         window.CompletionError.Text = shown.Detail;
         window.CompletionHint.Visibility = shown.HintVisible ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
         window.RetryPanel.Visibility = shown.RetryVisible || withButtons ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
-        window.CancelHint.Visibility = shown.CancelHintVisible ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+        window.CancelCard.Visibility = shown.CancelHintVisible ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
         if (noWrap) window.CompletionError.TextWrapping = System.Windows.TextWrapping.NoWrap;
         var root = (System.Windows.FrameworkElement)window.Content;
         window.Content = null;
@@ -496,7 +496,7 @@ public class GermanGateTests
     {
         EyeCtrl.App.Tests.Fixtures.WpfApplicationGate.EnsureApplicationWithTokens();
         var window = new CalibrationWindow();
-        window.CompletionPanel.Visibility = System.Windows.Visibility.Visible;
+        window.CompletionCard.Visibility = System.Windows.Visibility.Visible;
         window.RetryPanel.Visibility = System.Windows.Visibility.Visible;
         var button = pick(window);
         button.Content = caption;

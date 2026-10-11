@@ -479,7 +479,7 @@ public sealed class SupervisorFitTests : IDisposable
     [Fact]
     public void ReviewFragments_WhenAsked()
     {
-        if (!ReviewRender.Requested) return;
+        Assert.SkipUnless(ReviewRender.Requested, "set EYECTRL_WRITE_T10_REVIEW=1 to write the T10 review fragments");
         RunSta(() =>
         {
             foreach (var (language, strings) in new[] { ("en", StringTable.EmbeddedEnglish), ("de", GermanDraft.Table) })

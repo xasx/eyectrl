@@ -70,7 +70,7 @@ public class ReviewSheetTests
     [StaFact]
     public void ReviewSheets_WhenAsked()
     {
-        if (!ReviewRender.Requested) return;
+        Assert.SkipUnless(ReviewRender.Requested, "set EYECTRL_WRITE_T10_REVIEW=1 to write the T10 review sheets");
         WpfApplicationGate.EnsureApplicationWithTokens();
         var english = StringTable.EmbeddedEnglish;
         var german = GermanDraft.Table;

@@ -20,9 +20,15 @@ internal static class ReviewRender
     /// <summary>True when the review sheets were asked for.</summary>
     internal static bool Requested => Environment.GetEnvironmentVariable("EYECTRL_WRITE_T10_REVIEW") == "1";
 
-    /// <summary>The sheet directory (<c>EYECTRL_T10_REVIEW_DIR</c>, or <c>C:\t\t10\review</c>).</summary>
+    /// <summary>
+    /// The sheet directory: <c>EYECTRL_T10_REVIEW_DIR</c>, or <c>eyectrl-t10-review</c> under the
+    /// user's temp folder. Both test projects resolve the same folder, so the Supervisor's fragments
+    /// reach the App's sheet composer either way.
+    /// </summary>
     internal static string Directory =>
-        Environment.GetEnvironmentVariable("EYECTRL_T10_REVIEW_DIR") is { Length: > 0 } dir ? dir : @"C:\t\t10\review";
+        Environment.GetEnvironmentVariable("EYECTRL_T10_REVIEW_DIR") is { Length: > 0 } dir
+            ? dir
+            : Path.Combine(Path.GetTempPath(), "eyectrl-t10-review");
 
     /// <summary>Where one project's rendered pieces wait for the sheet composer.</summary>
     internal static string FragmentPath(string name) => Path.Combine(Directory, "fragments", name + ".png");

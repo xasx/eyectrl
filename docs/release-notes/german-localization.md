@@ -136,6 +136,12 @@ exception details and logs, and the product names.
   German formats ("4,3" where the English surface showed "4.3" — T02's rule, switched on with this
   surface) (`ShippedGermanStep3Tests` — the A56/card fit and the windows' captions; the provider pin
   in `ShippedGermanSwitchOnTests`).
+- **The eye-care banner's strip is taller (96 DIP; it was 80).** The two circle captions ("später",
+  "starten") used to end ~7.5 DIP below the strip; the strip now ends 8 DIP below them, the same
+  padding the rings have above. The rings' panel is anchored so both circle centres stay at 40 DIP
+  from the top — **no dwell target moves** (`EyeCareBannerGeometryTests.TheStrip_ContainsTheRingCaptions_…`).
+  A pre-existing layout flaw the T13 live check surfaced (it looks the same in English); the owner
+  approved the 96-DIP strip.
 - **The overlays' hints and names are German.** "Mit Esc beenden" (backdrop), "Mit Esc das Scrollen
   beenden" (scroll overlay), the pinned note's caption and ✕ ✎ ↕ names, the toolbar's UIA names and
   the icon-only edge buttons' names (`ShippedGermanStep3Tests.EveryIconOnlyTarget_…`).

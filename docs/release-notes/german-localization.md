@@ -141,7 +141,8 @@ surface of EyeCtrl follows the Windows language**; nothing user-facing stays Eng
   "Technische Details (Englisch)", the recovery frame's "(Englisch)", a failed model download's `{0}` —
   and the logs. The product names ("EyeCtrl", "Tobii", "Supervisor", "Shift", "Alt") stay as they are.
 - **The "Double click" ring exception is still open.** "Double click" measures +1.8 DIP against the
-  +2 DIP ring rule; T13 re-measured the alternatives (German "2× Klick" +14.7 DIP; the Settings row's
-  "Doppelklick" would measure +0.85 DIP on the ring) and left the decision — keep the recorded
-  exception, lower the threshold, or reword the English — to the owner
-  (`FitClassTests.EnglishExceptions` and `ShippedGermanStep3Tests.TheDoubleClickCandidates_…`).
+  +2 DIP ring rule; T13 re-measured the options (German "2× Klick" +14.7 DIP; the Settings row's
+  "Doppelklick" would measure +0.85 DIP on the ring; a reworded English "2× click" would measure
+  +15.6 DIP) and left the decision — keep the recorded exception, lower the threshold, or reword the
+  English — to the owner (`FitClassTests.EnglishExceptions` and
+  `ShippedGermanStep3Tests.TheDoubleClickCandidates_…`).

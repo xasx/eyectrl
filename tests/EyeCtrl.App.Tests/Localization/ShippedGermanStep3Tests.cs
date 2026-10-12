@@ -362,6 +362,7 @@ public class ShippedGermanStep3Tests
                          ("English (shipped today)", "Double click"),
                          ("German ring", table.T("overlays.ring.doubleClick")),
                          ("German Settings row word", "Doppelklick"),
+                         ("English, if reworded (hypothetical, not shipped)", "2× click"),
                      })
             {
                 var verdict = measure("overlays.ring.doubleClick", text);

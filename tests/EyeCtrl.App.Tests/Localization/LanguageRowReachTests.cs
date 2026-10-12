@@ -43,7 +43,7 @@ public class LanguageRowReachTests
     private const double DisplayHeightDip = 1200;
 
     /// <summary>1 = toolbar Settings; 1 = sidebar next-page; 1 = the General tab.</summary>
-    private const int PinnedToolbarToLanguageRowDwells = 3;
+    internal const int PinnedToolbarToLanguageRowDwells = 3;
 
     private const int DwellMs = 800;
 
@@ -51,7 +51,14 @@ public class LanguageRowReachTests
     /// General's 0-based index and the tab count, read from <c>SettingsWindow._tabDefs</c> — the
     /// real list, so a tab moved in front of General re-measures the reach (F8).
     /// </summary>
-    private static (int GeneralIndex, int TabCount) TabDefsFromSource()
+    internal static (int GeneralIndex, int TabCount) TabDefsFromSource()
+    {
+        var ids = TabIdsFromSource();
+        return (ids.ToList().IndexOf("General"), ids.Count);
+    }
+
+    /// <summary>The tab ids of <c>SettingsWindow._tabDefs</c>, in declaration order.</summary>
+    internal static IReadOnlyList<string> TabIdsFromSource()
     {
         var source = File.ReadAllText(Path.Combine(
                 SourceScanner.RepoRoot().FullName, "src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs"))
@@ -59,17 +66,16 @@ public class LanguageRowReachTests
         var start = source.IndexOf("_tabDefs =\n", StringComparison.Ordinal);
         var open = source.IndexOf('[', start);
         var close = source.IndexOf("];", open, StringComparison.Ordinal);
-        var ids = Regex.Matches(source[open..close], "\\(\\s*\"([A-Za-z]+)\"\\s*,")
+        return Regex.Matches(source[open..close], "\\(\\s*\"([A-Za-z]+)\"\\s*,")
             .Select(match => match.Groups[1].Value)
             .ToList();
-        return (ids.IndexOf("General"), ids.Count);
     }
 
     /// <summary>
     /// The sidebar's tab-list budget in DIP, through production's own formula and every term read
     /// off the live XAML element it belongs to.
     /// </summary>
-    private static double SidebarTabBudget(XElement root)
+    internal static double SidebarTabBudget(XElement root)
     {
         var close = SettingsContentFitTests.Margin(root, "CloseButton");
         var pager = SettingsContentFitTests.Margin(root, "TabPagerPanel");
@@ -82,20 +88,13 @@ public class LanguageRowReachTests
             tabs.Top + tabs.Bottom);
     }
 
-    private static string FirstRenderedRowId()
-    {
-        var root = SettingsContentFitTests.Xml();
-        var budget = HandChunkedPageFitTests.ContentHeightBudget(root, DisplayHeightDip);
-        var columnWidth = HandChunkedPageFitTests.ContentColumnWidth(root, DisplayWidthDip);
-        var rows = new GeneralPageSource(TestSettingsPageContext.Build()).Build()
-            .SelectMany(p => p.Rows).ToList();
-        var rendered = SettingsAutoPagination.Repaginate(
-            rows, columnWidth, budget, SettingsWindow.ControlBtnRadius * 2, DwellMs);
-        return ((ComboBoxSpec)rendered[0].Rows[0]).Id;
-    }
-
-    [Fact]
-    public void FromTheToolbarSettingsButton_TheLanguageRow_IsThreeDwellsAway()
+    /// <summary>
+    /// The dwell count from the toolbar's Settings button to the language row, the tabs per
+    /// sidebar page and General's page — one implementation shared by the English pin and T12's
+    /// shipped-German variant, so the arithmetic cannot drift between the two.
+    /// </summary>
+    /// <returns>(Dwells, PerPage, GeneralPage).</returns>
+    internal static (int Dwells, int PerPage, int GeneralPage) ToolbarToLanguageRow()
     {
         var root = SettingsContentFitTests.Xml();
         var budget = SidebarTabBudget(root);
@@ -111,11 +110,28 @@ public class LanguageRowReachTests
         Check.That(generalIndex).IsStrictlyGreaterThan(-1);
 
         var generalPage = SettingsTabPagination.PageOf(generalIndex, perPage);
-        var dwells = 1 + generalPage + 1;
+        return (1 + generalPage + 1, perPage, generalPage);
+    }
+
+    internal static string FirstRenderedRowId()
+    {
+        var root = SettingsContentFitTests.Xml();
+        var budget = HandChunkedPageFitTests.ContentHeightBudget(root, DisplayHeightDip);
+        var columnWidth = HandChunkedPageFitTests.ContentColumnWidth(root, DisplayWidthDip);
+        var rows = new GeneralPageSource(TestSettingsPageContext.Build()).Build()
+            .SelectMany(p => p.Rows).ToList();
+        var rendered = SettingsAutoPagination.Repaginate(
+            rows, columnWidth, budget, SettingsWindow.ControlBtnRadius * 2, DwellMs);
+        return ((ComboBoxSpec)rendered[0].Rows[0]).Id;
+    }
+
+    [Fact]
+    public void FromTheToolbarSettingsButton_TheLanguageRow_IsThreeDwellsAway()
+    {
+        var (dwells, perPage, generalPage) = ToolbarToLanguageRow();
 
         Check.WithCustomMessage(
-                $"At {DisplayWidthDip}x{DisplayHeightDip} DIP the sidebar budget is {budget} DIP, "
-                + $"so {perPage} of {tabCount} tabs fit per page and General (index {generalIndex}) "
+                $"At {DisplayWidthDip}x{DisplayHeightDip} DIP the sidebar shows {perPage} tabs per page and General "
                 + $"is on page {generalPage}. If this moved, re-measure the reach and update the pin "
                 + "deliberately — a longer recovery path is a UX decision, not a test failure to "
                 + "paper over.")

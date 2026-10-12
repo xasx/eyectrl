@@ -49,6 +49,17 @@ public class SettingsModeSwitchWiringTests
     }
 
     [Fact]
+    public void SwitchSettingsUiMode_RelabelsAfterTheSidebarApply()
+    {
+        var body = ExtractMethod(WindowSource(), "private void SwitchSettingsUiMode(");
+        Check.WithCustomMessage(
+                "The switch must re-label the toggle AFTER applying the sidebar — the label names "
+                + "the mode now active (L21).")
+            .That(body.IndexOf("ApplySidebarLayout("))
+            .IsStrictlyLessThan(body.IndexOf("UpdateModeToggleLabel()"));
+    }
+
+    [Fact]
     public void RebuildContent_FiltersPagesInSimpleMode()
     {
         var body = ExtractMethod(WindowSource(), "private void RebuildContent(");

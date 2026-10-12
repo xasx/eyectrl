@@ -665,11 +665,10 @@ public partial class SettingsWindow : OverlayWindow
 
         // The mode toggle, MOUSE path only (T09): the dwell path arrives in Task 11 and
         // converges on the same SwitchSettingsUiMode flip. The label names the mode you switch
-        // TO (owner ruling, ledger L21). ModeToggleLabelKey (T10) does not exist yet — the
-        // ternary is inlined here and Task 10 replaces it with the helper call.
+        // TO (owner ruling, ledger L21) through the same ModeToggleLabelKey mapping the re-label
+        // uses, so the window opens with the mode-correct label (plan-review C1).
         var toggle = BuildModeToggle(
-            StringTable.Current.T(_settings.General.SimpleSettingsUi
-                ? "settings.mode.show.all" : "settings.mode.show.basic"),
+            StringTable.Current.T(ModeToggleLabelKey(_settings.General.SimpleSettingsUi)),
             OnModeToggleMouseDown, _modeToggleButtons, _modeToggleBrushes);
         ModeToggleHost.Child = toggle;
         ShowTab("Cursor");
@@ -677,6 +676,21 @@ public partial class SettingsWindow : OverlayWindow
 
     private void OnModeToggleMouseDown() =>
         SwitchSettingsUiMode(!_settings.General.SimpleSettingsUi);
+
+    /// <summary>
+    /// The key for the toggle's label in the given mode. The label names the mode you switch TO:
+    /// "All settings" while simple (it offers the full mode), "Basic" while advanced (owner
+    /// ruling, ledger L21 — "Advanced" collided with the Advanced tab in EN and DE). Both keys
+    /// are literals: the coverage and unused-key gates read literals.
+    /// </summary>
+    internal static string ModeToggleLabelKey(bool simple) =>
+        simple ? "settings.mode.show.all" : "settings.mode.show.basic";
+
+    /// <summary>Re-labels the toggle for the mode now active. No live re-localization: the table
+    /// activates once at startup, so a build-time resolve is correct for the window's lifetime.</summary>
+    private void UpdateModeToggleLabel() =>
+        ((TextBlock)_modeToggleButtons[ModeToggleId].Child).Text =
+            StringTable.Current.T(ModeToggleLabelKey(_settings.General.SimpleSettingsUi));
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
@@ -1060,8 +1074,9 @@ public partial class SettingsWindow : OverlayWindow
     /// toggle (Task 11's GuardModeToggle is inserted HERE when it exists), compute the layout, snap
     /// (riding the normal CurrentTabName rebuild, which resets the page) or rebuild in place with
     /// the page reset AFTER the rebuild (m5: landing mid-list of a differently-filtered list is
-    /// disorienting), then apply the sidebar ONCE — after the snap — and re-label the toggle (Task 10
-    /// owns <c>UpdateModeToggleLabel</c> AND its call site as the final line of this method).
+    /// disorienting), then apply the sidebar ONCE — after the snap — and re-label the toggle LAST
+    /// (<c>UpdateModeToggleLabel</c>, after <c>ApplySidebarLayout</c>: the label names the mode now
+    /// active, L21; the order is pinned in <c>SettingsModeSwitchWiringTests</c>).
     /// </summary>
     private void SwitchSettingsUiMode(bool simple)
     {
@@ -1084,6 +1099,7 @@ public partial class SettingsWindow : OverlayWindow
                                                          // rendered twice, plan-review r2 m-b)
         }
         ApplySidebarLayout(layout);
+        UpdateModeToggleLabel();
     }
 
     /// <summary>

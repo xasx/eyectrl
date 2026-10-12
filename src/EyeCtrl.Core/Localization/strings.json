@@ -3212,14 +3212,14 @@
     "text": "All settings",
     "who": "user",
     "where": "settings",
-    "fit": "row",
+    "fit": "A208",
     "args": []
   },
   "settings.mode.show.basic": {
     "text": "Basic",
     "who": "user",
     "where": "settings",
-    "fit": "row",
+    "fit": "A208",
     "args": []
   },
   "settings.models.active.description": {

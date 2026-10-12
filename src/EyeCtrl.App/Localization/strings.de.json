@@ -1775,11 +1775,11 @@
   },
   "settings.mode.show.all": {
     "text": "Alle Optionen",
-    "src": "19734bd8"
+    "src": "9ca766cc"
   },
   "settings.mode.show.basic": {
     "text": "Einfach",
-    "src": "7b096574"
+    "src": "dcfa5568"
   },
   "settings.models.active.description": {
     "text": "Welches Modell die Vorhersagen liefert; „Aus“ nutzt nur das Wörterbuch.",

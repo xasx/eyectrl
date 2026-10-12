@@ -111,7 +111,9 @@ since T12, so a German Settings shows them as soon as the theme lands.
 ## T13 — Step 3: calibration, eye care and the overlays
 
 The gaze surfaces go German. With `calibration`, `eye-care` and `overlays` in the manifest, **every
-surface of EyeCtrl follows the Windows language**; nothing user-facing stays English by design.
+text surface of EyeCtrl follows the Windows language.** What deliberately does not is listed at the
+end of this section: keyboard key captions (layout data), word predictions (their own setting),
+exception details and logs, and the product names.
 
 - **The live ring speaks German.** The action ring's labels ("Linksklick", "Rechtsklick", "2× Klick",
   "Ziehen", "Mehr", "Zurück"), the modifier bar ("Shift", "Strg", "Alt") and the ring segments'
@@ -129,20 +131,34 @@ surface of EyeCtrl follows the Windows language**; nothing user-facing stays Eng
   failure sentence (typed since T03c; wrapped since T10) (`ShippedGermanStep3Tests`, and the shipped
   cases of `GermanGateTests.TheCalibrationButtons_…` / `EveryCalibrationFailure_…`).
 - **Eye care is German.** The banner ("Zeit für eine Augenpause", "starten", "später"), the exercise
-  screen ("Ende ✕", "Gleitendes Folgen") and the summary card ("✓ Gut gemacht", "Genauigkeit", "später"
-  numbers in German formats) (`ShippedGermanStep3Tests` — the A56/card fit and the windows' captions).
+  screen ("Ende ✕", "Gleitendes Folgen") and the summary card ("✓ Gut gemacht", "Genauigkeit",
+  "Stabilität", "Reaktion ms") all read German, and the card's numbers use the eye-care surface's
+  German formats ("4,3" where the English surface showed "4.3" — T02's rule, switched on with this
+  surface) (`ShippedGermanStep3Tests` — the A56/card fit and the windows' captions; the provider pin
+  in `ShippedGermanSwitchOnTests`).
 - **The overlays' hints and names are German.** "Mit Esc beenden" (backdrop), "Mit Esc das Scrollen
   beenden" (scroll overlay), the pinned note's caption and ✕ ✎ ↕ names, the toolbar's UIA names and
   the icon-only edge buttons' names (`ShippedGermanStep3Tests.EveryIconOnlyTarget_…`).
 - **AutomationIds never change with the language.** UI tests locate targets by AutomationId and keep
   running with English pinned; under German the toolbar and Settings tab faces keep the same ids
   (`ShippedGermanStep3Tests.TheToolbarsAndTabFaces_…`, `StringTableIsolationTests`).
+- **Keyboard key captions are layout data, not UI text.** They belong to the keyboard layout in use:
+  QWERTZ shows German captions ("Strg", "Kopieren", "Einfügen", "Alles mark.", "+ Wort", "Einfg",
+  "Entf", "Pos1", "Ende", "Bild↑", "Bild↓", "Druck"), while QWERTY and AZERTY keep their English ones
+  ("Ctrl", "Copy", "Paste", "Sel All", "Add Word", "Ins", "Del", "Home", "End", "PgUp", "PgDn",
+  "PrtSc", "Bksp", "DelWd") — whatever the UI language, and in both directions
+  (`qwertz.json`/`qwerty.json`/`azerty.json`).
+- **Word predictions follow the keyboard's language pack, not the UI language.** The dictionary and
+  the next-word index are per language (`de`/`en`/`es`/`fr`/`pl`; auto-detected from the system
+  language while the pack is unset), so this German PC predicts German; an AI model's suggestions
+  are model output — the bundled models carry no language tag (`PredictionStackFactory`,
+  `LanguageDetector`).
 - **Still English, deliberately:** exception details and technical messages — the startup box's
   "Technische Details (Englisch)", the recovery frame's "(Englisch)", a failed model download's `{0}` —
   and the logs. The product names ("EyeCtrl", "Tobii", "Supervisor", "Shift", "Alt") stay as they are.
-- **The "Double click" ring exception is still open.** "Double click" measures +1.8 DIP against the
-  +2 DIP ring rule; T13 re-measured the options (German "2× Klick" +14.7 DIP; the Settings row's
+- **The "Double click" ring exception stays.** "Double click" measures +1.8 DIP against the +2 DIP
+  ring rule; T13 re-measured the options (German "2× Klick" +14.7 DIP; the Settings row's
   "Doppelklick" would measure +0.85 DIP on the ring; a reworded English "2× click" would measure
-  +15.6 DIP) and left the decision — keep the recorded exception, lower the threshold, or reword the
-  English — to the owner (`FitClassTests.EnglishExceptions` and
+  +15.6 DIP) and the owner chose to **keep the recorded English exception** (2026-10-12) — no
+  threshold and no text changed (`FitClassTests.EnglishExceptions` and
   `ShippedGermanStep3Tests.TheDoubleClickCandidates_…`).

@@ -191,13 +191,15 @@ public class Step3LiveCheckTests
         finally
         {
             CloseCalibration(window);
+            RemoveTemp(dir);
             StringTable.ResetToEmbeddedEnglish();
         }
     }
 
     /// <summary>
     /// The good-completion panel: a clean fit's title and its German mean-error line. Production
-    /// auto-dismisses it after 3 s, and the hold shows exactly that lifetime.
+    /// auto-dismisses this panel after 3 s, so the hold shows exactly that lifetime — <b>expect this
+    /// step to flash by</b> (about 2.5 s; the other screens hold 10–25 s).
     /// </summary>
     [StaFact]
     public void TheCalibrationWindow_ShowsAGoodCompletion()
@@ -226,6 +228,7 @@ public class Step3LiveCheckTests
         finally
         {
             CloseCalibration(window);
+            RemoveTemp(dir);
             StringTable.ResetToEmbeddedEnglish();
         }
     }
@@ -256,6 +259,7 @@ public class Step3LiveCheckTests
         finally
         {
             CloseCalibration(window);
+            RemoveTemp(dir);
             StringTable.ResetToEmbeddedEnglish();
         }
     }
@@ -297,6 +301,7 @@ public class Step3LiveCheckTests
         finally
         {
             CloseCalibration(window);
+            RemoveTemp(dir);
             StringTable.ResetToEmbeddedEnglish();
         }
     }
@@ -456,5 +461,15 @@ public class Step3LiveCheckTests
     {
         try { window?.DismissCalibration(); } catch { /* the window may already be gone */ }
         try { window?.Close(); } catch { /* the window may already be gone */ }
+    }
+
+    /// <summary>
+    /// Removes a calibration case's temp directory (review-01 nit): four empty folders per run is
+    /// litter, and the host's exit hook would only clean them at process end. Best effort — failing
+    /// to delete a temp folder must not fail the check.
+    /// </summary>
+    private static void RemoveTemp(string directory)
+    {
+        try { Directory.Delete(directory, recursive: true); } catch { /* best effort */ }
     }
 }

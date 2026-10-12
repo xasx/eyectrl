@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Media;
 using System.Xml.Linq;
 using EyeCtrl.App.Tests.Localization;
 using EyeCtrl.App.Views;
@@ -962,14 +963,21 @@ public class SettingsContentFitTests
 
     /// <summary>
     /// The header's Height is FIXED (the budget has to subtract it before the first layout pass),
-    /// so the two real strings have to fit inside it — a StackPanel with an explicit Height clips
-    /// what overflows rather than growing, silently and with no assertion anywhere else noticing.
+    /// so the two real strings have to fit inside it — a Grid with an explicit Height clips what
+    /// overflows rather than growing, silently and with no assertion anywhere else noticing.
     ///
     /// Measured against the narrowest supported header width, which is wider than the content
     /// column: the header sits OUTSIDE <c>ContentCard</c>, so it pays <c>ContentArea</c>'s margin
     /// but not the card's padding. Every string comes from the live <c>_tabDefs</c> initializer
     /// via <see cref="SettingsTabDriftTests.RenderedTabHeaders"/>, so editing a description to
     /// something longer is re-measured here automatically.
+    ///
+    /// The mirror is the production GRID, not a stack: two rows (Auto title line, * description)
+    /// by two columns (* title, Auto toggle). The toggle is the REAL
+    /// <see cref="SettingsWindow.BuildModeToggle"/> face inside a host Border whose margin is
+    /// read out of the XAML, so the title's column is exactly the width production gives it
+    /// (header width − gap − toggle width) and a vertical margin added to the face later is
+    /// measured here, not assumed away.
     /// </summary>
     [StaFact]
     public void EveryHeaderStringFits_TheHeadersFixedHeight()
@@ -981,6 +989,7 @@ public class SettingsContentFitTests
             - contentArea.Left - contentArea.Right;
         var declaredHeight = FixedHeight(root, "HeaderPanel");
         var descriptionMargin = Margin(root, "HeaderDescription");
+        var hostMargin = Margin(root, "ModeToggleHost");
 
         var headers = SettingsTabDriftTests.RenderedTabHeaders();
         Check.WithCustomMessage(
@@ -991,21 +1000,48 @@ public class SettingsContentFitTests
         {
             // Mirrors HeaderPanel element for element, minus the explicit Height — measuring a
             // panel that already has one would just return that Height and prove nothing.
-            var panel = new StackPanel();
+            // Measured with an infinite height so the star row sizes to the description.
+            var panel = new Grid();
+            panel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            panel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            panel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            panel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             TextElement.SetFontFamily(panel, Tokens.FontStandard);
-            panel.Children.Add(new TextBlock
+
+            var title = new TextBlock
             {
                 Text = label,
                 FontSize = Tokens.FontSizeDisplay,
                 FontWeight = Tokens.FontWeightStrong,
-            });
-            panel.Children.Add(new TextBlock
+            };
+            Grid.SetRow(title, 0);
+            Grid.SetColumn(title, 0);
+            panel.Children.Add(title);
+
+            var host = new Border
+            {
+                Margin = hostMargin,
+                VerticalAlignment = VerticalAlignment.Top,
+                Child = SettingsWindow.BuildModeToggle(
+                    StringTable.EmbeddedEnglish.T("settings.mode.show.basic"),
+                    () => { },
+                    new Dictionary<string, Border>(), new Dictionary<string, SolidColorBrush>()),
+            };
+            Grid.SetRow(host, 0);
+            Grid.SetColumn(host, 1);
+            panel.Children.Add(host);
+
+            var body = new TextBlock
             {
                 Text = description,
                 FontSize = Tokens.FontSizeSubtitle,
                 TextWrapping = TextWrapping.Wrap,
                 Margin = descriptionMargin,
-            });
+            };
+            Grid.SetRow(body, 1);
+            Grid.SetColumn(body, 0);
+            Grid.SetColumnSpan(body, 2);
+            panel.Children.Add(body);
 
             panel.Measure(new Size(headerWidth, double.PositiveInfinity));
 
@@ -1013,14 +1049,68 @@ public class SettingsContentFitTests
                     CultureInfo.InvariantCulture,
                     "The \"{0}\" tab's header wants {1:F2} DIP of height inside a {2:F2} DIP box, "
                     + "measured against the {3:F2} DIP header width of the narrowest supported "
-                    + "display. HeaderPanel's Height is fixed and a StackPanel CLIPS what does "
-                    + "not fit, so the description would lose a line with nothing else failing. "
-                    + "Shorten the description, or raise HeaderPanel's Height — and if you raise "
-                    + "it, ThePageHeader_LeavesRoomForALabelledRow is the assertion that says "
-                    + "whether the content column can still afford it.",
-                    label, panel.DesiredSize.Height, declaredHeight, headerWidth))
+                    + "display, with the mode toggle ({4:F0} DIP) riding the title line beside the "
+                    + "title. HeaderPanel's Height is fixed and a Grid CLIPS what does not fit, so "
+                    + "the description would lose a line with nothing else failing. Shorten the "
+                    + "description, shrink the toggle's height, or raise HeaderPanel's Height — and "
+                    + "if you raise it, ThePageHeader_LeavesRoomForALabelledRow is the assertion "
+                    + "that says whether the content column can still afford it.",
+                    label, panel.DesiredSize.Height, declaredHeight, headerWidth,
+                    SettingsWindow.ModeToggleHeight))
                 .That(panel.DesiredSize.Height).IsLessOrEqualThan(declaredHeight);
         }
+    }
+
+    /// <summary>
+    /// The horizontal companion (plan-review I10): the title line now carries the mode toggle
+    /// BESIDE the title, and the title does not wrap (the A208 class bounds label+title for
+    /// shipped languages, spec L15) — so at the narrowest supported header the widest tab title,
+    /// the host's gap (read out of the XAML, not restated) and the toggle's fixed width must all
+    /// still fit the 448 DIP header. Today that leaves only a few DIP of slack: any tab title
+    /// growth eats it immediately, which is exactly what this guard is for (plan-review m13).
+    /// </summary>
+    [StaFact]
+    public void TitlePlusModeToggle_FitsTheNarrowestHeaderWidth()
+    {
+        var root = Xml();
+        var contentArea = Margin(root, "ContentArea");
+        var headerWidth = WindowWidthFor(NarrowDisplayWidthDip)
+            - SidebarWidth(root) - contentArea.Left - contentArea.Right;   // 448
+        var gap = Margin(root, "ModeToggleHost").Left;
+        var widestTitle = SettingsTabDriftTests.RenderedTabHeaders()
+            .Select(h => MeasureAtDisplay(h.Label)).Max();
+
+        Check.WithCustomMessage(string.Format(
+                CultureInfo.InvariantCulture,
+                "The widest tab title ({0:F2} DIP at Display/Strong) plus the toggle host's gap "
+                + "({1:F0}) and the toggle's fixed width ({2:F0}) is {3:F2} DIP against the "
+                + "{4:F2} DIP header of the narrowest supported display. The title does not wrap "
+                + "in its column, so the overflow would clip mid-glyph with nothing else failing. "
+                + "Shorten the title, or take the width out of ModeToggleWidth — and re-run the "
+                + "A208 fit class, which bounds the toggle's own label inside that width.",
+                widestTitle, gap, SettingsWindow.ModeToggleWidth,
+                widestTitle + gap + SettingsWindow.ModeToggleWidth, headerWidth))
+            .That(widestTitle + gap + SettingsWindow.ModeToggleWidth).IsLessOrEqualThan(headerWidth);
+    }
+
+    /// <summary>
+    /// One header title's one-line width at the title's own face —
+    /// <see cref="Tokens.FontSizeDisplay"/> + <see cref="Tokens.FontWeightStrong"/> on
+    /// <see cref="Tokens.FontStandard"/> — the pairing <c>HeaderTitle</c> renders.
+    /// </summary>
+    /// <param name="text">The title.</param>
+    /// <returns>The title's natural one-line width in DIP.</returns>
+    private static double MeasureAtDisplay(string text)
+    {
+        var scratch = new TextBlock
+        {
+            Text = text,
+            FontSize = Tokens.FontSizeDisplay,
+            FontWeight = Tokens.FontWeightStrong,
+        };
+        TextElement.SetFontFamily(scratch, Tokens.FontStandard);
+        scratch.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        return scratch.DesiredSize.Width;
     }
 
     /// <summary>

@@ -1773,6 +1773,14 @@
     "text": "✓ Ja",
     "src": "bec96f05"
   },
+  "settings.mode.show.all": {
+    "text": "Alle Optionen",
+    "src": "19734bd8"
+  },
+  "settings.mode.show.basic": {
+    "text": "Einfach",
+    "src": "7b096574"
+  },
   "settings.models.active.description": {
     "text": "Welches Modell die Vorhersagen liefert; „Aus“ nutzt nur das Wörterbuch.",
     "src": "da831ea8"

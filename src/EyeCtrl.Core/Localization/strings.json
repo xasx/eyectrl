@@ -3208,6 +3208,20 @@
     "fit": "modal170",
     "args": []
   },
+  "settings.mode.show.all": {
+    "text": "All settings",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.mode.show.basic": {
+    "text": "Basic",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
   "settings.models.active.description": {
     "text": "Which model powers predictions; Off keeps dictionary words.",
     "who": "user",

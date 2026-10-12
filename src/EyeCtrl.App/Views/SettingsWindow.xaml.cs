@@ -152,6 +152,29 @@ public partial class SettingsWindow : OverlayWindow
     /// </summary>
     internal const double PagBtnRadius = 60;
 
+    /// <summary>The settings mode toggle's dwell id. Registers under Pagination: the activation
+    /// dispatch sends every non-close Tab id to ShowTab, and Pagination's generic _pagActions arm
+    /// needs no ViewModel change (spec S5.5, L5).</summary>
+    internal const string ModeToggleId = "settings_mode";
+    /// <summary>Hit radius, DIP. 50 (the control standard), NOT PagBtnRadius's 60 — and NOT
+    /// RegisterPagerTarget, which hard-codes 60: the sibling RegisterModeToggleTarget owns this
+    /// constant so register and release can never disagree (spec L5/L16).</summary>
+    internal const double ModeToggleHitRadius = 50;
+    /// <summary>Release radius, DIP — deliberately larger than the hit radius (owner ruling
+    /// 2026-10-11): the measured top-right gaze bias (~80 px) sits near a 100 px circle's edge,
+    /// and hysteresis absorbs that wander while keeping "until the gaze leaves" (L16).</summary>
+    internal const double ModeToggleReleaseRadius = 85;
+    /// <summary>Fixed button width: 448 (narrowest header) - 220.2 (tab156's widest English title
+    /// at Display/Strong) - 12 (gap) - visual slack = 208. The A208 fit class enforces the label
+    /// inside it minus the standard 8-DIP one-line inset; SettingsContentFitTests enforces
+    /// title+gap+this <= 448 live per language. NOTE: this leaves only ~7.8 DIP of title room at
+    /// the narrowest display — any T10+ tab title growth eats it immediately; the fit tests
+    /// police it (plan-review m13).</summary>
+    internal const double ModeToggleWidth = 208;
+    /// <summary>Button height. 48: the measured header fits (EN 103.9/112); 60 does not (115.9).
+    /// Vertical margin is 0 — the budget is "height + vertical margins <= 56" (round-3 m1).</summary>
+    internal const double ModeToggleHeight = 48;
+
     private const double ModalBtnRadius = 70;
 
     // ── Container sizes that glyph sizes derive from ──
@@ -334,6 +357,12 @@ public partial class SettingsWindow : OverlayWindow
     private readonly Dictionary<string, Border> _tabButtons = new();
     private readonly Dictionary<string, Border> _pagButtons = new();
     private readonly Dictionary<string, Border> _modalButtons = new();
+
+    // The mode toggle's registries (T09): a separate pair from the pagers' because Task 11's
+    // dwell registration owns its own hit/release radii (ModeToggleHitRadius/ReleaseRadius),
+    // which RegisterPagerTarget's hard-coded 60 cannot express.
+    private readonly Dictionary<string, Border> _modeToggleButtons = new();
+    private readonly Dictionary<string, SolidColorBrush> _modeToggleBrushes = new();
 
     // Sidebar tab-list pagination (the sidebar cannot scroll): the current page's tab ids
     // (registered while shown), the pager buttons, and the page arithmetic state. The tab pager
@@ -633,8 +662,21 @@ public partial class SettingsWindow : OverlayWindow
 
         // Build UI
         BuildTabButtons();
+
+        // The mode toggle, MOUSE path only (T09): the dwell path arrives in Task 11 and
+        // converges on the same SwitchSettingsUiMode flip. The label names the mode you switch
+        // TO (owner ruling, ledger L21). ModeToggleLabelKey (T10) does not exist yet — the
+        // ternary is inlined here and Task 10 replaces it with the helper call.
+        var toggle = BuildModeToggle(
+            StringTable.Current.T(_settings.General.SimpleSettingsUi
+                ? "settings.mode.show.all" : "settings.mode.show.basic"),
+            OnModeToggleMouseDown, _modeToggleButtons, _modeToggleBrushes);
+        ModeToggleHost.Child = toggle;
         ShowTab("Cursor");
     }
+
+    private void OnModeToggleMouseDown() =>
+        SwitchSettingsUiMode(!_settings.General.SimpleSettingsUi);
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
@@ -2372,6 +2414,25 @@ public partial class SettingsWindow : OverlayWindow
             wide ? new Thickness(0, 8, 0, 8) : new Thickness(12, 0, 12, 0),
             bg, foreground, onMouseDown, buttons, brushes);
         ((TextBlock)border.Child).FontSize = Tokens.FontSizeTitle;
+        return border;
+    }
+
+    /// <summary>
+    /// The settings mode toggle's face, through MakeChromeButton — the fit gate's seam (a
+    /// routing pin ties the instance path and the measurer to this builder). The UIA id goes on
+    /// the label TextBlock, not the Border: Border containers collapse in the UIA control view of
+    /// a transparent overlay (the tab-face precedent).
+    /// </summary>
+    internal static Border BuildModeToggle(
+        string text, Action onMouseDown,
+        Dictionary<string, Border> buttons, Dictionary<string, SolidColorBrush> brushes)
+    {
+        var border = MakeChromeButton(
+            ModeToggleId, text, ModeToggleWidth, ModeToggleHeight, new Thickness(0),
+            BtnBase, Tokens.BrushTextPrimary, onMouseDown, buttons, brushes);
+        var label = (TextBlock)border.Child;
+        label.FontSize = Tokens.FontSizeTitle;               // RawGeometryLiteralTests: tokens only
+        System.Windows.Automation.AutomationProperties.SetAutomationId(label, "Settings_ModeToggle");
         return border;
     }
 }

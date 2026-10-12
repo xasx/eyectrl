@@ -476,6 +476,11 @@
       "Count": 2
     },
     {
+      "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
+      "Literal": "\"settings_mode\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.Controls/DwellColorPicker.cs",
       "Literal": "\"X2\"",
       "Count": 3

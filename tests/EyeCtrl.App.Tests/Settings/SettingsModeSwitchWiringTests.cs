@@ -46,6 +46,12 @@ public class SettingsModeSwitchWiringTests
         Check.That(CountOccurrences(body, "RenderTabPage(")).IsEqualTo(0); // inside ApplySidebarLayout, not here
         Check.That(body).Contains("CurrentPage = 0");
         Check.That(body).Contains("ActiveTabId = layout.SnapTo");   // the F6 sidebar-must-not-contradict pin
+        Check.WithCustomMessage(
+                "GuardModeToggle() is the anti-oscillation guard and must fire immediately after "
+                + "the debounced save (round-2 N3/L16): without it the dwell path's flip re-fires "
+                + "under the gaze that made it. Deleting the call passed the whole suite (final "
+                + "review F1) — this pin is why it no longer can.")
+            .That(body).Contains("GuardModeToggle()");
     }
 
     [Fact]

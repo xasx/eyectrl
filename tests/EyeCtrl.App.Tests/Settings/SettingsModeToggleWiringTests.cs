@@ -47,6 +47,28 @@ public class SettingsModeToggleWiringTests
     }
 
     [Fact]
+    public void Constructor_BuildsTheToggle_ThenRegistersItsDwellTarget()
+    {
+        // Final review F1: both lines were unpinned — deleting either passed the whole 6260-test
+        // suite. BuildModeToggle without RegisterModeToggleTarget leaves the toggle gaze-dead.
+        var body = ExtractMethod(WindowSource(), "public SettingsWindow(");
+        Check.WithCustomMessage(
+                "The ctor must build the mode toggle — there is nothing to register without it "
+                + "(final review F1).")
+            .That(body).Contains("BuildModeToggle(");
+        Check.WithCustomMessage(
+                "The ctor must register the toggle's dwell target (final review F1). "
+                + "BuildTabButtons_RegistersTheCloseButton (plan-review I4) is the precedent: an "
+                + "unpinned registration line is how gaze-critical chrome silently dies.")
+            .That(body).Contains("RegisterModeToggleTarget()");
+        Check.WithCustomMessage(
+                "Registration must follow construction — registering before the toggle is built "
+                + "registers nothing (final review F1).")
+            .That(body.IndexOf("BuildModeToggle("))
+            .IsStrictlyLessThan(body.IndexOf("RegisterModeToggleTarget()"));
+    }
+
+    [Fact]
     public void ModeToggle_RegistersUnderPagination_AtItsOwnRadius_ThroughItsOwnMethod()
     {
         var body = ExtractMethod(WindowSource(), "private void RegisterModeToggleTarget(");

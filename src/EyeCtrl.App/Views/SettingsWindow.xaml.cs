@@ -663,18 +663,22 @@ public partial class SettingsWindow : OverlayWindow
         // Build UI
         BuildTabButtons();
 
-        // The mode toggle, MOUSE path only (T09): the dwell path arrives in Task 11 and
-        // converges on the same SwitchSettingsUiMode flip. The label names the mode you switch
-        // TO (owner ruling, ledger L21) through the same ModeToggleLabelKey mapping the re-label
-        // uses, so the window opens with the mode-correct label (plan-review C1).
+        // The mode toggle (T09's face, Task 11's dwell): the mouse fallback and the dwell
+        // activation converge on the same OnModeToggleActivated flip (plan-review m10). The label
+        // names the mode you switch TO (owner ruling, ledger L21) through the same
+        // ModeToggleLabelKey mapping the re-label uses, so the window opens with the
+        // mode-correct label (plan-review C1).
         var toggle = BuildModeToggle(
             StringTable.Current.T(ModeToggleLabelKey(_settings.General.SimpleSettingsUi)),
-            OnModeToggleMouseDown, _modeToggleButtons, _modeToggleBrushes);
+            OnModeToggleActivated, _modeToggleButtons, _modeToggleBrushes);
         ModeToggleHost.Child = toggle;
+        RegisterModeToggleTarget();
         ShowTab("Cursor");
     }
 
-    private void OnModeToggleMouseDown() =>
+    /// <summary>The dwell activation: the same flip the mouse path performs. Guarded by the
+    /// re-arm guard at the registration site, not here — the guard IS unregistration.</summary>
+    private void OnModeToggleActivated() =>
         SwitchSettingsUiMode(!_settings.General.SimpleSettingsUi);
 
     /// <summary>
@@ -704,9 +708,10 @@ public partial class SettingsWindow : OverlayWindow
                 case nameof(SettingsWindowViewModel.PagProgress):
                     // Both pagers register under Pagination now (the tab pager moved off Tab when
                     // the tab flip's shared 400 ms detector was taken off its path), so one
-                    // progress notification washes both button sets.
+                    // progress notification washes both button sets — and the mode toggle's face.
                     UpdatePaginationVisuals();
                     UpdateTabPaginationVisuals();
+                    UpdateModeToggleVisuals();
                     break;
                 case nameof(SettingsWindowViewModel.ModalProgress):
                     UpdateModalVisuals();
@@ -1071,7 +1076,8 @@ public partial class SettingsWindow : OverlayWindow
 
     /// <summary>
     /// The mode switch, as one ordered contract (spec §5.6): flip + debounced save, disarm the
-    /// toggle (Task 11's GuardModeToggle is inserted HERE when it exists), compute the layout, snap
+    /// toggle (<see cref="GuardModeToggle"/>, at the 85-DIP release radius — the dwell path's
+    /// flip must not re-fire under the gaze that made it), compute the layout, snap
     /// (riding the normal CurrentTabName rebuild, which resets the page) or rebuild in place with
     /// the page reset AFTER the rebuild (m5: landing mid-list of a differently-filtered list is
     /// disorienting), then apply the sidebar ONCE — after the snap — and re-label the toggle LAST
@@ -1083,6 +1089,7 @@ public partial class SettingsWindow : OverlayWindow
         if (_settings.General.SimpleSettingsUi == simple) return;
         _settings.General.SimpleSettingsUi = simple;
         ApplyAndSave();
+        GuardModeToggle();
 
         var layout = ComputeSidebarLayout(_viewModel.Settings.CurrentTabName);
         if (layout.SnapTo is not null)
@@ -1384,6 +1391,17 @@ public partial class SettingsWindow : OverlayWindow
             id, DwellCategory.Pagination, DpiHelper.LogicalToPhysicalX(PagBtnRadius), dwellMs, onActivated);
     }
 
+    /// <summary>Guard-aware registration at the toggle's OWN hit radius — never
+    /// RegisterPagerTarget (hard-coded 60; round-3 I3's trap). Consults the guard so a re-render
+    /// cannot silently re-arm a held toggle.</summary>
+    private void RegisterModeToggleTarget()
+    {
+        if (_pagerRearmGuard.IsDisarmed(ModeToggleId)) return;
+        _viewModel.Register(
+            ModeToggleId, DwellCategory.Pagination,
+            DpiHelper.LogicalToPhysicalX(ModeToggleHitRadius), _dwellMs, OnModeToggleActivated);
+    }
+
     /// <summary>
     /// Arms the re-arm guard on a pager button that just wrapped. The jump re-rendered the page
     /// and re-registered the button; this removes that fresh target and holds the id until the
@@ -1416,6 +1434,24 @@ public partial class SettingsWindow : OverlayWindow
             id, DwellCategory.Pagination, center, DpiHelper.LogicalToPhysicalX(PagBtnRadius));
     }
 
+    /// <summary>Disarms the toggle after a flip, at the RELEASE radius (85 — hysteresis over the
+    /// 50 hit radius; owner ruling, L16). The centre comes from the position loop's tracked value;
+    /// the direct border read is valid as a fallback because the toggle's Border is never
+    /// re-rendered (round-3 m10).</summary>
+    private void GuardModeToggle()
+    {
+        if (_pagerCenters.TryGetValue(ModeToggleId, out var tracked))
+        {
+            _pagerRearmGuard.Disarm(ModeToggleId, DwellCategory.Pagination, tracked,
+                DpiHelper.LogicalToPhysicalX(ModeToggleReleaseRadius));
+            return;
+        }
+        if (_modeToggleButtons.TryGetValue(ModeToggleId, out var border)
+            && TryScreenCenter(border, out var center))
+            _pagerRearmGuard.Disarm(ModeToggleId, DwellCategory.Pagination, center,
+                DpiHelper.LogicalToPhysicalX(ModeToggleReleaseRadius));
+    }
+
     /// <summary>
     /// The guard's re-arm callback: re-registers one pager id against its CURRENT page state, so
     /// a button that changed meaning while it was held (the jump-to-end button is a step-back
@@ -1430,6 +1466,7 @@ public partial class SettingsWindow : OverlayWindow
             case "pag_next": RegisterContentPagerTarget(id, +1); break;
             case "tab_prev": RegisterTabPagerTarget(id, -1); break;
             case "tab_next": RegisterTabPagerTarget(id, +1); break;
+            case ModeToggleId: RegisterModeToggleTarget(); break;
         }
     }
 
@@ -2151,8 +2188,10 @@ public partial class SettingsWindow : OverlayWindow
         UpdateButtonPositions(_tabButtons, DwellCategory.Tab);
         UpdateButtonPositions(_tabPagerButtons, DwellCategory.Pagination);
 
-        // Update pagination button positions
+        // Update pagination button positions, and the mode toggle's — it rides Pagination too
+        // (the activation dispatch's generic arm, spec S5.5), so it gets the same per-frame push.
         UpdateButtonPositions(_pagButtons, DwellCategory.Pagination);
+        UpdateButtonPositions(_modeToggleButtons, DwellCategory.Pagination);
 
         // Update modal button positions if modal is visible
         if (_viewModel.IsModalVisible)
@@ -2301,6 +2340,13 @@ public partial class SettingsWindow : OverlayWindow
     private void UpdatePaginationVisuals()
     {
         BlendProgress(_viewModel.PagProgress, _pagBrushes, BtnBase, 0.4);
+    }
+
+    /// <summary>The toggle's dwell-progress wash: its own one-entry dictionary — never
+    /// _pagBrushes, which RenderPagination clears on every render (round-2 N4).</summary>
+    private void UpdateModeToggleVisuals()
+    {
+        BlendProgress(_viewModel.PagProgress, _modeToggleBrushes, BtnBase, 0.4);
     }
 
     private void UpdateModalVisuals()

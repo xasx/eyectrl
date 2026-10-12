@@ -65,8 +65,15 @@ public class SettingsContentFitTests
     /// A narrow-but-real primary display width in DIP. 1600x1200 at 150%, or 1920x1080 at 240%.
     /// Not the narrowest imaginable — the narrowest that a user of an eye-tracking application,
     /// who is likely to be running heavy display scaling, plausibly has.
+    ///
+    /// <para>
+    /// <c>internal</c>, not <c>private</c>, for the same reason the readers above are: this is
+    /// the suite's definition of "the narrowest supported width", and a second suite pinning
+    /// geometry at the narrow end (SettingsModeToggleChromeTests' clearance gates) must share it
+    /// rather than restate an 800 that can then drift.
+    /// </para>
     /// </summary>
-    private const double NarrowDisplayWidthDip = 800;
+    internal const double NarrowDisplayWidthDip = 800;
 
     /// <summary>
     /// Hit radius and dwell duration for the row-level probes below, matching what the settings

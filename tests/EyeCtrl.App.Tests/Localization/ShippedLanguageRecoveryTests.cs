@@ -32,8 +32,11 @@ using Xunit;
 [Collection("StringTable Tests (App)")]
 public class ShippedLanguageRecoveryTests
 {
-    /// <summary>Activates the shipped table as this de-DE machine's App loads it (System + de-DE).</summary>
-    private static StringTable ActivateShippedGerman()
+    /// <summary>
+    /// Activates the shipped table as this de-DE machine's App loads it (System + de-DE). Internal
+    /// so T12's Settings gates activate the same table through the same check.
+    /// </summary>
+    internal static StringTable ActivateShippedGerman()
     {
         var warnings = new List<string>();
         var table = ShippedGerman.Load(warnings.Add);

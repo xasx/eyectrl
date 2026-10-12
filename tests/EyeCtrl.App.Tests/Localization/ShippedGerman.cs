@@ -18,22 +18,22 @@ using EyeCtrl.Tests.TestSupport;
 /// </summary>
 internal static class ShippedGerman
 {
-    /// <summary>The seven surfaces Step 1 switches on, in the manifest's sorted order.</summary>
+    /// <summary>The eight surfaces Steps 1 and 2 switch on, in the manifest's sorted order.</summary>
     internal static readonly string[] SwitchedOn =
     [
         "app-tray",
         "caregiver-alert",
         "drift-notice",
         "language-recovery",
+        "settings",
         "startup-error",
         "supervisor",
         "track-status"
     ];
 
-    /// <summary>The surfaces that must stay English while Step 1 runs: Steps 2 and 3 are not shipped.</summary>
+    /// <summary>The surfaces that must stay English while Step 2 runs: Step 3 is not shipped.</summary>
     internal static readonly string[] StillEnglish =
     [
-        "settings",
         "calibration",
         "eye-care",
         "overlays"

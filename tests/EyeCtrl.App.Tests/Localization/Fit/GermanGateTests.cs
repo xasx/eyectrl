@@ -150,19 +150,32 @@ public class GermanGateTests
     /// sidebar's pitch, and leaves the tab's box exactly where the English one is.
     /// </summary>
     [StaFact]
-    public void TheSidebar_InGerman_KeepsEveryTabWhereItWas()
+    public void TheSidebar_InGerman_KeepsEveryTabWhereItWas() =>
+        AssertEverySidebarTabKeepsItsGeometry(GermanDraft.Table, "German", _output);
+
+    /// <summary>
+    /// The tab156 sweep behind <see cref="TheSidebar_InGerman_KeepsEveryTabWhereItWas"/>, with the
+    /// labels resolved from <paramref name="table"/> — T10's German draft here, the shipped German
+    /// (T12) there. One implementation: the invariant and the measurement are the same whatever
+    /// switches the surface on.
+    /// </summary>
+    /// <param name="table">The table to resolve the tab labels from.</param>
+    /// <param name="language">The language named in the failure messages.</param>
+    /// <param name="output">Optional test output for the per-tab measurements.</param>
+    internal static void AssertEverySidebarTabKeepsItsGeometry(
+        StringTable table, string language, ITestOutputHelper? output = null)
     {
         var problems = new List<string>();
         var translated = 0;
         var pitch = SettingsWindow.TabContainerHeight + 2 * SettingsWindow.TabButtonMargin;
         foreach (var tab in SettingsTabDriftTests.RenderedTabDefs())
         {
-            var german = GermanDraft.Table.T(tab.LabelKey);
+            var german = table.T(tab.LabelKey);
             Check.That(german).IsNotEqualTo(tab.LabelKey);
             if (german != tab.Label) translated++;
             var english = SidebarTabFit.Measure(tab.Icon, tab.Label);
             var measured = SidebarTabFit.Measure(tab.Icon, german);
-            _output.WriteLine($"{tab.LabelKey}: \"{german}\" box {measured.BorderBox} (English {english.BorderBox})");
+            output?.WriteLine($"{tab.LabelKey}: \"{german}\" box {measured.BorderBox} (English {english.BorderBox})");
             if (!measured.LabelOneLine)
                 problems.Add($"{tab.LabelKey}: \"{german}\" wraps or is taller than one line ({FitText.Dip(measured.LabelHeight)})");
             if (Math.Abs(measured.BorderBox.Height + 2 * SettingsWindow.TabButtonMargin - pitch) > 1e-6)
@@ -171,9 +184,10 @@ public class GermanGateTests
                 problems.Add($"{tab.LabelKey}: the tab moved, {english.BorderBox} → {measured.BorderBox}");
         }
 
-        Check.WithCustomMessage("Every tab read its English: the German table is not effective, so nothing was measured.")
+        Check.WithCustomMessage($"Every tab read its English: the {language} table is not effective, so nothing was measured.")
             .That(translated).IsStrictlyGreaterThan(10);
-        Check.WithCustomMessage("The German labels changed the sidebar:\n  " + string.Join("\n  ", problems)).That(problems).IsEmpty();
+        Check.WithCustomMessage($"The {language} labels changed the sidebar:\n  " + string.Join("\n  ", problems))
+            .That(problems).IsEmpty();
     }
 
     /// <summary>Binding: the pager's row fits in German, and its buttons have German names.</summary>

@@ -80,7 +80,7 @@ public class ThemeParityTests
     private static string Normalise(string hex) =>
         hex.Length == 7 ? "#FF" + hex[1..].ToUpperInvariant() : hex.ToUpperInvariant();
 
-    public static TheoryData<string> ThemeNames() => new() { "Midnight", "Ember", "Contrast" };
+    public static TheoryData<string> ThemeNames() => new() { "Midnight", "Ember", "Daylight", "Contrast" };
 
     [Theory]
     [MemberData(nameof(ThemeNames))]

@@ -1026,7 +1026,7 @@
         {
           "Id": "g_theme",
           "Label": "Theme (restart to apply)",
-          "Description": "All three are dark; Contrast is the boldest.",
+          "Description": "Daylight is light, for bright rooms; Contrast is the boldest.",
           "Modal": null
         },
         {

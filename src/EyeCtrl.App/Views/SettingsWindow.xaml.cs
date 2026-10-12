@@ -52,8 +52,8 @@ public partial class SettingsWindow : OverlayWindow
     [
         "settings.control.swatch.accent",
         "settings.control.swatch.green",
-        "settings.control.swatch.amber",
-        "settings.control.swatch.light",
+        "settings.control.swatch.warning",
+        "settings.control.swatch.text",
     ];
 
     // ── The labelled-row geometry (name on the left, control on the right) ──
@@ -2179,9 +2179,10 @@ public partial class SettingsWindow : OverlayWindow
                 && _modalBlendFactors.TryGetValue(id, out var factor))
             {
                 // Blend toward Accent by progress * factor. The factor is per-kind from
-                // ModalButtonPalette: 0.5 for the bright fills (their dark labels only gain
-                // contrast), 0.25 for the dark Neutral fill (whose light label would collapse
-                // to ~2.6:1 at full dwell under 0.5). Same Accent target preserves the app-wide
+                // ModalButtonPalette: 0.5 for the bright fills (their surface-ramp labels sit at
+                // the ramp's far end from the accent, so they only gain contrast), 0.25 for the
+                // mid-ramp Neutral fill (whose far-end label would collapse to ~2.6:1 at full
+                // dwell under 0.5). Same Accent target preserves the app-wide
                 // "accent means dwell in progress" cue; only the intensity adapts to the fill.
                 brush.Color = ColorBlend.Blend(baseC, Tokens.Accent, progress * factor);
             }

@@ -2112,13 +2112,6 @@
     "fit": "row",
     "args": []
   },
-  "settings.control.swatch.amber": {
-    "text": "Amber",
-    "who": "user",
-    "where": "settings",
-    "fit": "row",
-    "args": []
-  },
   "settings.control.swatch.green": {
     "text": "Green",
     "who": "user",
@@ -2126,8 +2119,15 @@
     "fit": "row",
     "args": []
   },
-  "settings.control.swatch.light": {
-    "text": "Light",
+  "settings.control.swatch.text": {
+    "text": "Text",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.control.swatch.warning": {
+    "text": "Warning",
     "who": "user",
     "where": "settings",
     "fit": "row",
@@ -2855,7 +2855,7 @@
     "args": []
   },
   "settings.general.theme.description": {
-    "text": "All three are dark; Contrast is the boldest.",
+    "text": "Daylight is light, for bright rooms; Contrast is the boldest.",
     "who": "user",
     "where": "settings",
     "fit": "prose",
@@ -2870,6 +2870,13 @@
   },
   "settings.general.theme.option.contrast": {
     "text": "Contrast",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.general.theme.option.daylight": {
+    "text": "Daylight",
     "who": "user",
     "where": "settings",
     "fit": "row",

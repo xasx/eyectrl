@@ -51,7 +51,7 @@ public class SettingsHostTextTests
                 "the swatch names no longer resolve, in order, to the presets' English names.")
             .That(SettingsWindow.ColorSwatchNames.Select(
                 key => StringTable.EmbeddedEnglish.T(key)))
-            .ContainsExactly("Accent", "Green", "Amber", "Light");
+            .ContainsExactly("Accent", "Green", "Warning", "Text");
     }
 
     [StaFact]

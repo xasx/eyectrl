@@ -701,6 +701,18 @@
       "Reason": "The theme font family chain: font product names, not text."
     },
     {
+      "Path": "src/EyeCtrl.Controls/Theme/DaylightTheme.cs",
+      "Literal": "\"Daylight\"",
+      "Category": "id",
+      "Reason": "A theme id, saved as a setting code; its display name is keyed (settings.general.theme.option.*)."
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Theme/DaylightTheme.cs",
+      "Literal": "\"Segoe UI Variable Text, Segoe UI\"",
+      "Category": "product",
+      "Reason": "The theme font family chain: font product names, not text."
+    },
+    {
       "Path": "src/EyeCtrl.Controls/Theme/EmberTheme.cs",
       "Literal": "\"Ember\"",
       "Category": "id",
@@ -877,6 +889,12 @@
     {
       "Path": "src/EyeCtrl.Core/Settings/ThemeSettings.cs",
       "Literal": "\"Contrast\"",
+      "Category": "id",
+      "Reason": "A theme id, saved as a setting code; its display name is keyed (settings.general.theme.option.*)."
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Settings/ThemeSettings.cs",
+      "Literal": "\"Daylight\"",
       "Category": "id",
       "Reason": "A theme id, saved as a setting code; its display name is keyed (settings.general.theme.option.*)."
     },

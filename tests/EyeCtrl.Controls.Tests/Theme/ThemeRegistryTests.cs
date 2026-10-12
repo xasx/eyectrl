@@ -12,12 +12,13 @@ public class ThemeRegistryTests
     {
         // Order is the picker's order, and Midnight is the shipping default.
         Check.That(ThemeRegistry.All.Select(t => t.Name).ToList())
-             .ContainsExactly("Midnight", "Ember", "Contrast");
+             .ContainsExactly("Midnight", "Ember", "Daylight", "Contrast");
     }
 
     [Theory]
     [InlineData("Midnight")]
     [InlineData("Ember")]
+    [InlineData("Daylight")]
     [InlineData("Contrast")]
     public void Resolve_ReturnsTheNamedTheme(string name)
     {

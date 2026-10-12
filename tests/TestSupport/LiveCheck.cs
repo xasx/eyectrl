@@ -84,8 +84,21 @@ internal static class LiveCheck
     /// 0.9 — the product of <see cref="UIElement.Opacity"/> from the text up to and including the
     /// window. The failure names the window and every dim text it holds, so the log says which
     /// surface stayed invisible.
+    ///
+    /// <para>
+    /// <paramref name="allowOverscan"/> is for the full-screen overlays only. They are sized to the
+    /// screen by <c>OverlayPositioning.CoverPrimaryScreen</c>, and a host whose <c>DpiHelper</c>
+    /// scale is not the monitor's — a bare test host leaves the default 1.0 — asks for a window
+    /// larger than the screen; Windows then clamps the shown window to its maximum tracking size,
+    /// a few DIP larger than the virtual screen. For those the whole-window rule is the wrong
+    /// proof — the window may legitimately exceed the screen — and what must hold is that every
+    /// visible text is actually ON the screen, so each visible text's bounds, taken in the window's
+    /// own device pixels, must lie inside the virtual screen (1.5 px of pixel snapping allowed).
+    /// The T13 live check found this with the scroll and backdrop hints, which sit inside by a
+    /// margin but would be caught here if a layout pushed them past the screen edge.
+    /// </para>
     /// </summary>
-    internal static void AssertVisible(Window window, string name)
+    internal static void AssertVisible(Window window, string name, bool allowOverscan = false)
     {
         Check.WithCustomMessage($"{name}: the window is not visible after it was shown.")
             .That(window.IsVisible).IsTrue();
@@ -96,8 +109,19 @@ internal static class LiveCheck
             SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
             SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
         var bounds = new Rect(window.Left, window.Top, window.ActualWidth, window.ActualHeight);
-        Check.WithCustomMessage($"{name}: its bounds {bounds} leave the virtual screen {screen}.")
-            .That(screen.Contains(bounds)).IsTrue();
+        if (allowOverscan)
+        {
+            var outside = VisibleTextsOutside(window, screen);
+            Check.WithCustomMessage(
+                    $"{name}: these visible texts lie outside the virtual screen {screen}, so the step is "
+                    + "showing text that is not on the screen:\n  " + string.Join("\n  ", outside))
+                .That(outside).IsEmpty();
+        }
+        else
+        {
+            Check.WithCustomMessage($"{name}: its bounds {bounds} leave the virtual screen {screen}.")
+                .That(screen.Contains(bounds)).IsTrue();
+        }
 
         var dim = FitText.Descendants<TextBlock>(window)
             .Where(text => text.IsVisible && text.Text.Length > 0)
@@ -109,6 +133,34 @@ internal static class LiveCheck
                 $"{name}: these texts are not effectively visible (is the XAML's Opacity still 0?):\n  "
                 + string.Join("\n  ", dim))
             .That(dim).IsEmpty();
+    }
+
+    /// <summary>
+    /// Every visible non-empty text whose screen bounds leave the virtual screen — the overscan half
+    /// of <see cref="AssertVisible"/>. <see cref="Visual.PointToScreen"/> answers in DEVICE pixels,
+    /// so the (DIP) virtual screen is converted through the window's own composition scale, never
+    /// through the process-global <c>DpiHelper</c> — which may be the very thing the overscan comes
+    /// from. The screen is inflated by the 1.5 px snapping allowance.
+    /// </summary>
+    private static List<string> VisibleTextsOutside(Window window, Rect screenDip)
+    {
+        var transform = PresentationSource.FromVisual(window)?.CompositionTarget?.TransformToDevice;
+        var scaleX = transform?.M11 ?? 1.0;
+        var scaleY = transform?.M22 ?? 1.0;
+        var allowed = new Rect(
+            (screenDip.Left * scaleX) - 1.5, (screenDip.Top * scaleY) - 1.5,
+            (screenDip.Width * scaleX) + 3, (screenDip.Height * scaleY) + 3);
+
+        var outside = new List<string>();
+        foreach (var text in FitText.Descendants<TextBlock>(window).Where(t => t.IsVisible && t.Text.Length > 0))
+        {
+            var box = new Rect(
+                text.PointToScreen(new Point(0, 0)),
+                text.PointToScreen(new Point(text.ActualWidth, text.ActualHeight)));
+            if (!allowed.Contains(box)) outside.Add($"'{text.Text}' {box} (device px)");
+        }
+
+        return outside;
     }
 
     /// <summary>

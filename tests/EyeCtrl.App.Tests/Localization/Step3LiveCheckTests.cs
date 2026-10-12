@@ -390,7 +390,9 @@ public class Step3LiveCheckTests
             window.Show(vm);
             LiveCheck.PumpFor(TimeSpan.FromMilliseconds(250));
             LiveCheck.AssertShowsText(window, "Scroll overlay", "Mit Esc das Scrollen beenden");
-            LiveCheck.AssertVisible(window, "Scroll overlay");
+            // Full-screen overlay: its window may exceed the virtual screen (see AssertVisible), so the
+            // proof is that the hint's own bounds lie on the screen.
+            LiveCheck.AssertVisible(window, "Scroll overlay", allowOverscan: true);
             LiveCheck.PumpFor(HintHold);
         }
         finally
@@ -419,7 +421,9 @@ public class Step3LiveCheckTests
             window.Show();
             LiveCheck.PumpFor(TimeSpan.FromMilliseconds(250));
             LiveCheck.AssertShowsText(window, "Glass backdrop", "Mit Esc beenden");
-            LiveCheck.AssertVisible(window, "Glass backdrop");
+            // Full-screen overlay: its window may exceed the virtual screen (see AssertVisible), so the
+            // proof is that the hint's own bounds lie on the screen.
+            LiveCheck.AssertVisible(window, "Glass backdrop", allowOverscan: true);
             LiveCheck.PumpFor(HintHold);
         }
         finally

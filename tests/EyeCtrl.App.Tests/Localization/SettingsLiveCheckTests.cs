@@ -124,8 +124,11 @@ public class SettingsLiveCheckTests
 
                     var rendered = SettingsTabDriftTests.RenderedTabDefs().Single(t => t.Id == tab);
                     var german = StringTable.Current.T(rendered.LabelKey);
-                    Check.WithCustomMessage($"the {tab} tab resolved its English \"{german}\".")
-                        .That(german).IsNotEqualTo(rendered.Label);
+                    // German, not an English fallback: the label is the shipped strings.de.json entry.
+                    // "Differs from the English" was the wrong test: "Cursor" is German too (it is on
+                    // the identical-allowlist), and the first live run stopped there (2026-10-12).
+                    Check.WithCustomMessage($"the {tab} tab's label \"{german}\" is not its shipped German.")
+                        .That(german).IsEqualTo(GermanDraft.TextOf(rendered.LabelKey, ""));
                     Check.WithCustomMessage($"the {tab} tab's header reads \"{harness.Settings.HeaderTitle.Text}\".")
                         .That(harness.Settings.HeaderTitle.Text).IsEqualTo(german);
                     LiveCheck.AssertShowsText(harness.Settings, $"SettingsWindow ({tab} tab, first page)", german);

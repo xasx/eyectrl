@@ -581,6 +581,16 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.Controls/Theme/DaylightTheme.cs",
+      "Literal": "\"Daylight\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.Controls/Theme/DaylightTheme.cs",
+      "Literal": "\"Segoe UI Variable Text, Segoe UI\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.Controls/Theme/EmberTheme.cs",
       "Literal": "\"Ember\"",
       "Count": 1
@@ -728,6 +738,11 @@
     {
       "Path": "src/EyeCtrl.Core/Settings/ThemeSettings.cs",
       "Literal": "\"Contrast\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.Core/Settings/ThemeSettings.cs",
+      "Literal": "\"Daylight\"",
       "Count": 1
     },
     {

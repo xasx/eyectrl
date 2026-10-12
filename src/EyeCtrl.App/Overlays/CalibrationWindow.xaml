@@ -33,14 +33,24 @@
         <Canvas x:Name="TargetCanvas" Visibility="Collapsed">
             <Canvas x:Name="TargetSetCanvas" IsHitTestVisible="False"/>
             <Canvas x:Name="ActiveTargetLayer" IsHitTestVisible="False">
+                <Ellipse x:Name="ToleranceHalo"
+                         Stroke="{StaticResource BrushStrokeHalo}" StrokeThickness="4"
+                         Opacity="0.35" IsHitTestVisible="False"/>
                 <Ellipse x:Name="ToleranceRing"
                          Stroke="{StaticResource BrushAccent}" StrokeThickness="2"
                          Opacity="0.35" IsHitTestVisible="False"/>
+                <Ellipse x:Name="ProgressHalo"
+                         Stroke="{StaticResource BrushStrokeHalo}" StrokeThickness="8"
+                         Opacity="0" IsHitTestVisible="False"/>
                 <Ellipse x:Name="ProgressRing"
                          Stroke="{StaticResource BrushAccentSuccess}" StrokeThickness="6"
                          Opacity="0" IsHitTestVisible="False"/>
+                <!-- Halo rim (round 3, R1): the dot is user-coloured (an absolute hex)
+                     drawn on the black scrim; the StrokeHalo rim keeps any pick visible
+                     on every theme's scrim, mirroring the rings above. -->
                 <Ellipse x:Name="TargetDot" Width="40" Height="40"
                          Fill="{StaticResource BrushAccent}" Opacity="0.8"
+                         Stroke="{StaticResource BrushStrokeHalo}" StrokeThickness="2"
                          RenderTransformOrigin="0.5,0.5">
                     <Ellipse.RenderTransform>
                         <ScaleTransform CenterX="20" CenterY="20"/>
@@ -49,19 +59,29 @@
             </Canvas>
         </Canvas>
 
-        <!-- Progress text -->
-        <TextBlock x:Name="ProgressText" Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeSubtitle}"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Top" Margin="0,30,0,0" Visibility="Collapsed"/>
+        <!-- Progress text. On a SurfaceDark card (review round 2 N1; round 4 m2): the scrim behind
+             is theme-invariant black, and Daylight's TextPrimary is near-black — straight
+             on the scrim that measured 1.1:1. The card pairs the tokens as validated. -->
+        <Border x:Name="ProgressCard" Visibility="Collapsed"
+                Background="{StaticResource BrushSurfaceDark}"
+                CornerRadius="{StaticResource StandardCornerRadius}"
+                Padding="18,8" HorizontalAlignment="Center"
+                VerticalAlignment="Top" Margin="0,30,0,0">
+            <TextBlock x:Name="ProgressText" Foreground="{StaticResource BrushTextPrimary}" FontSize="{StaticResource FontSizeSubtitle}"/>
+        </Border>
 
-        <!-- Completion display. The 40-DIP side margin keeps the failure line 40 DIP from each
-             screen edge: the panel is offered the window's width less 80 DIP, and CompletionError
-             wraps at that width. A line that fits within it stays one line, centred where it
-             always was; a line between that width and the window's full width (1840-1920 DIP on
-             the user's 1920-DIP screen) used to stay on one line and now wraps. The calibration
-             gate pins the 40 (GermanGateTests.CompletionEdgeClearance). -->
-        <StackPanel x:Name="CompletionPanel" Visibility="Collapsed" Margin="40,0"
-                    HorizontalAlignment="Center" VerticalAlignment="Center">
+        <!-- Completion display. On a SurfaceDark modal card (review round 2 N1; round 4 m2): its
+             title/symbol/hint tokens are theme-varying and sat directly on the black
+             scrim, unreadable under Daylight. The card's 40-DIP side margin keeps it, and the
+             failure line inside it, 40 DIP from each screen edge (T10 fixup-01/02): the card is
+             offered the window's width less 80 DIP, and CompletionError wraps within that less
+             the card's padding. A line that fits stays one line; the calibration gate pins the
+             40 (GermanGateTests.CompletionEdgeClearance). -->
+        <Border x:Name="CompletionCard" Visibility="Collapsed" Margin="40,0"
+                Background="{StaticResource BrushSurfaceDark}"
+                CornerRadius="{StaticResource LargeCornerRadius}"
+                Padding="32,24" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <StackPanel x:Name="CompletionPanel">
             <TextBlock x:Name="CompletionSymbol" Text="&#x2713;" FontSize="{StaticResource FontSizeDisplay}"
                        HorizontalAlignment="Center" Margin="0,0,0,12"
                        Foreground="{StaticResource BrushAccentSuccess}"/>
@@ -89,11 +109,17 @@
                         BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="{StaticResource StandardBorderThickness}"/>
             </StackPanel>
         </StackPanel>
+        </Border>
 
-        <!-- Cancel hint -->
-        <TextBlock x:Name="CancelHint" Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}"
-                   HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                   Margin="0,0,20,20" Visibility="Collapsed"
-                   Text="{loc:T 'calibration.window.cancelHint'}"/>
+        <!-- Cancel hint. Carded (review round 2 N1; round 4 m2: SurfaceDark), text from
+             the string table since T08. -->
+        <Border x:Name="CancelCard" Visibility="Collapsed"
+                Background="{StaticResource BrushSurfaceDark}"
+                CornerRadius="{StaticResource SmallCornerRadius}"
+                Padding="10,4" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                Margin="0,0,20,20">
+            <TextBlock x:Name="CancelHint" Foreground="{StaticResource BrushTextDim}" FontSize="{StaticResource FontSizeBody}"
+                       Text="{loc:T 'calibration.window.cancelHint'}"/>
+        </Border>
     </Grid>
 </local:OverlayWindow>

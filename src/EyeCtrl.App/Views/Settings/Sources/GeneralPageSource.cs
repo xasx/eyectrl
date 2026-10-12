@@ -44,6 +44,7 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                     [
                         StringTable.Current.T("settings.general.theme.option.midnight"),
                         StringTable.Current.T("settings.general.theme.option.ember"),
+                        StringTable.Current.T("settings.general.theme.option.daylight"),
                         StringTable.Current.T("settings.general.theme.option.contrast"),
                     ],
                     Core.Settings.ThemeSettings.ValidNames,
@@ -92,6 +93,12 @@ internal sealed class GeneralPageSource : ISettingsPageSource
                     () => _ctx.ShowModal(StringTable.Current.T("settings.general.resetall.message"), () =>
                     {
                         _ctx.ViewModel.Settings.ResetAllSettings();
+                        // ResetAllSettings copies every default by reflection, including
+                        // the Midnight-absolute mark colours — the third path that can
+                        // reopen the cross-theme carry-over at runtime (round 3, R2;
+                        // the other two were the cursor and advanced resets).
+                        EyeCtrl.App.Services.ThemeStartup.MigrateHaloedMarks(
+                            EyeCtrl.Controls.Theme.Tokens.Current, _ctx.Settings);
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     }),

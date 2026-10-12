@@ -1150,17 +1150,17 @@
     "text": "Akzent",
     "src": "714ebbcc"
   },
-  "settings.control.swatch.amber": {
-    "text": "Bernstein",
-    "src": "0670f221"
-  },
   "settings.control.swatch.green": {
     "text": "Grün",
     "src": "cb7eafc4"
   },
-  "settings.control.swatch.light": {
-    "text": "Hell",
-    "src": "48be001c"
+  "settings.control.swatch.text": {
+    "text": "Textfarbe",
+    "src": "b91327e1"
+  },
+  "settings.control.swatch.warning": {
+    "text": "Warnung",
+    "src": "76548f12"
   },
   "settings.control.toggle.off": {
     "text": "Aus",
@@ -1575,8 +1575,8 @@
     "src": "5a88620c"
   },
   "settings.general.theme.description": {
-    "text": "Alle drei sind dunkel; „Kontrast“ ist das kräftigste.",
-    "src": "ee08416c"
+    "text": "„Tageslicht“ ist das helle Farbschema für sonnige Räume; „Kontrast“ ist das kräftigste.",
+    "src": "44f0131e"
   },
   "settings.general.theme.label": {
     "text": "Farbschema (gilt nach Neustart)",
@@ -1585,6 +1585,10 @@
   "settings.general.theme.option.contrast": {
     "text": "Kontrast",
     "src": "3870a9e6"
+  },
+  "settings.general.theme.option.daylight": {
+    "text": "Tageslicht",
+    "src": "a1d523cc"
   },
   "settings.general.theme.option.ember": {
     "text": "Glut",

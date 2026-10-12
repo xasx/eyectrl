@@ -94,6 +94,20 @@ combos, the ring preview and the quick-action picker all turn German together.
   Details (Englisch)": a failed model download shows German "Download fehlgeschlagen: {0}" with the
   raw error in the `{0}` (`ModelsPageSource.cs`, the `settings.models.download.failed_detail` path).
 
+## Daylight theme - its German
+
+The Daylight theme's new and changed Settings texts ship with their German. Settings is German
+since T12, so a German Settings shows them as soon as the theme lands.
+
+- **The colour swatches are captioned by their role**, as in English: "Warnung" and "Textfarbe"
+  replace the colour names "Bernstein" and "Hell" (Daylight's warning swatch is a brick red, its
+  text swatch near-black).
+- **The fourth theme is "Tageslicht"**, alongside "Mitternacht", "Glut" and "Kontrast".
+- **The theme description is reworded** for four themes: "„Tageslicht“ ist das helle Farbschema
+  für sonnige Räume; „Kontrast“ ist das kräftigste."
+- **Not reviewed strings** (none was on T10's review sheets): per T10's rule they were checked by
+  the validator and a MiMo back-translation, not a new user sitting.
+
 ## T13 — Step 3: calibration, eye care and the overlays
 
 The gaze surfaces go German. With `calibration`, `eye-care` and `overlays` in the manifest, **every

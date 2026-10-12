@@ -81,7 +81,7 @@ public sealed class EmberTheme : ThemeBase
     /// <inheritdoc />
     public override double BorderThicknessStandard => 1.0;
 
-    // ── Geometry and typography: identical in all three themes (spec §5 decision 6).
+    // ── Geometry and typography: identical in every theme (spec §5 decision 6).
     // Theme-varying by mechanism so a future revision can diverge without touching a
     // single overlay; no measurement today says any theme wants different geometry.
 

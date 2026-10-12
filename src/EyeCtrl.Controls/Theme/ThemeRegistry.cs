@@ -7,7 +7,8 @@ using System.Linq;
 /// <summary>
 /// The set of available themes, and the name-to-theme mapping used by settings and
 /// the picker. Order is the picker's order: the shipping default first, the
-/// all-day alternative second, the situational one last.
+/// all-day alternative next, then the situational ones — Daylight for bright
+/// rooms, Contrast last as the boldest extreme (spec §10.7/§10.8).
 /// </summary>
 public static class ThemeRegistry
 {
@@ -16,6 +17,7 @@ public static class ThemeRegistry
     [
         MidnightTheme.Instance,
         EmberTheme.Instance,
+        DaylightTheme.Instance,
         ContrastTheme.Instance,
     ];
 

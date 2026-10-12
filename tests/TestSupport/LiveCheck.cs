@@ -111,6 +111,36 @@ internal static class LiveCheck
             .That(dim).IsEmpty();
     }
 
+    /// <summary>
+    /// The per-step half of the proof (T12 review-01 F2), for steps INSIDE one window:
+    /// <see cref="AssertVisible"/> proves the window, and this proves the step's target is what is
+    /// on screen — a visible, effectively-opaque <see cref="TextBlock"/> carries each
+    /// <paramref name="literals"/> entry. A step whose row never rendered (a navigation that
+    /// quietly did nothing) fails here instead of holding the wrong page.
+    /// </summary>
+    internal static void AssertShowsText(Window window, string name, params string[] literals)
+    {
+        foreach (var literal in literals) AssertShowsOne(window, name, literal);
+    }
+
+    private static void AssertShowsOne(Window window, string name, string literal)
+    {
+        var matches = FitText.Descendants<TextBlock>(window)
+            .Where(text => text.IsVisible && text.Text.Contains(literal, StringComparison.Ordinal))
+            .Select(text => (text.Text, Opacity: EffectiveOpacity(text, window)))
+            .ToList();
+        Check.WithCustomMessage(
+                $"{name}: no visible text carries \"{literal}\", so this step's target is not what "
+                + "is on screen (did the navigation do nothing?).")
+            .That(matches).Not.IsEmpty();
+
+        var opaque = matches.Where(pair => pair.Opacity > 0.9).ToList();
+        Check.WithCustomMessage(
+                $"{name}: \"{literal}\" is on screen but not effectively opaque:\n  "
+                + string.Join("\n  ", matches.Select(pair => $"'{pair.Text}' (effective opacity {pair.Opacity:0.##})")))
+            .That(opaque).Not.IsEmpty();
+    }
+
     /// <summary>The product of <see cref="UIElement.Opacity"/> from <paramref name="start"/> up to
     /// and including <paramref name="root"/>.</summary>
     private static double EffectiveOpacity(DependencyObject start, DependencyObject root)

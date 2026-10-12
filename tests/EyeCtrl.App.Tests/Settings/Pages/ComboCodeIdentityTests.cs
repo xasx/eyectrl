@@ -222,9 +222,10 @@ public class ComboCodeIdentityTests
     /// <summary>
     /// Every combo row of the sources a plain context can build, in tab order — including
     /// QuickActions, whose list page needs its real editor view model. Models is excluded:
-    /// md_active exists only with a downloaded model (covered separately).
+    /// md_active exists only with a downloaded model (covered separately). Internal so T12's
+    /// shipped-German code guard walks the same combos as this English pin.
     /// </summary>
-    private static IEnumerable<ComboBoxSpec> WalkableCombos(EyeCtrlSettings settings)
+    internal static IEnumerable<ComboBoxSpec> WalkableCombos(EyeCtrlSettings settings)
     {
         var ctx = TestSettingsPageContext.Build(settings);
         var sources = new ISettingsPageSource[]

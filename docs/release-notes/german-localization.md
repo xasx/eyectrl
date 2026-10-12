@@ -65,19 +65,31 @@ combos, the ring preview and the quick-action picker all turn German together.
   (`ShippedGermanSettingsTests.EveryCombo_SavesTheSameCodes_UnderTheShippedGerman`).
 - **Quick-action presets are German in Settings.** The picker, the list captions and the delete
   confirmation read the German preset names, while a newly added tile still stores the preset's
-  English label and its stable id (`ShippedGermanSettingsTests.ThePresetSites_...`).
+  English label and its stable id, for all three preset families
+  (`ShippedGermanSettingsTests.EveryPresetPicker_InTheShippedGerman_...`, `...ThePresetListCaptionAndDeleteModal_...`).
 - **The recovery path still works from the German screen.** The language row is still the first
   row of General page 1, still 3 dwells from the toolbar and 0 from the tray item
   (`ShippedGermanSettingsTests.FromTheToolbarSettingsButton_...`).
-- **N8 rechecked (the T11 note):** the restart notices speak the target language and appear on
+- **Settings' numbers and the "Last calibration" date now use German formats.** The T02 number-format
+  fix promised this "once the Settings surface renders German"; this is that moment: a German
+  Settings shows "12,3 px" and "08.10.2026 14:03" where the English surface showed "12.3 px" and
+  the sortable "2026-10-08 14:03". Every Settings number reads through
+  `StringTable.Current.FormatProviderFor("settings")`, now de-DE (the routing pin in
+  `ShippedGermanSwitchOnTests`; the date itself in `CalibrationDateTextTests.GermanSettings_...`).
+- **N8 rechecked (the T11 note):** the restart notices speak the TARGET language and appear on
   every restart. With Settings German the T11 mixed state — a German "EyeCtrl wird neu gestartet."
-  on an English Settings — is gone: a German session's Settings and its notices are both German,
-  and an English session's are both English (`ShippedLanguageRecoveryTests`, and the notice keys
-  resolve through the running table in `RestartNotices`).
+  on an English Settings — is gone: a German session's Settings and its notices are both German, and
+  an English session's are both English — except while switching language, when the notices speak
+  the target being switched to by design (`ShippedLanguageRecoveryTests`; `RestartNotices` and
+  `SettingsWindow.TargetLanguage()`, `SettingsWindow.xaml.cs:1008`).
 - **Accepted for the window until T13 (D3):** the Settings ring preview speaks German while the
   live ring still speaks English, and the quick-action picker speaks German while the grid still
   speaks English. The pairing is by design — one key per surface — and closes when Step 3 turns
   `overlays` on.
-- **Still English until T13:** calibration, eye care and the on-screen overlays, including the
-  live ring and the quick-actions grid. Opening the Calibration tab or a preview from German
-  Settings shows those screens' English until Step 3.
+- **Still English until T13:** the calibration window and the gaze-offset probe, eye care, and the
+  on-screen overlays including the live ring and the quick-actions grid. The Calibration *tab*
+  is German; starting a calibration or the offset probe ("Jetzt kalibrieren", "Blickversatz
+  messen") from German Settings opens the still-English calibration window.
+- **Exception details stay English**, the same convention as the startup box's "Technische
+  Details (Englisch)": a failed model download shows German "Download fehlgeschlagen: {0}" with the
+  raw error in the `{0}` (`ModelsPageSource.cs`, the `settings.models.download.failed_detail` path).

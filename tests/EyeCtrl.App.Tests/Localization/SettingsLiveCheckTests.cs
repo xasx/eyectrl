@@ -46,6 +46,13 @@ using Xunit;
 /// always-visible pill; nothing in the app opens a popup. The combo case therefore shows a combo
 /// row with all its options — the closest thing to "open" the control has.
 /// </para>
+///
+/// <para>
+/// <b>The one real-path effect.</b> Every step navigates and nothing acts, so the only thing a
+/// stray click by the owner could do is hit "Aufnahmeordner öffnen" or "Anpassungsprotokoll
+/// öffnen", which opens Explorer on <c>%APPDATA%\EyeCtrl</c> read-only. Mentioned for the
+/// briefing; no file is written.
+/// </para>
 /// </summary>
 [Collection("WpfApplication")]
 [Trait("Category", "UI")]
@@ -68,15 +75,19 @@ public class SettingsLiveCheckTests
     {
         LiveCheck.Require();
         WpfApplicationGate.EnsureApplicationWithTokens();
-        using var harness = Harness.Open();
+        // The window resolves its sidebar, header and rows from StringTable.Current as it builds,
+        // so the shipped German must be current BEFORE Harness.Open().
+        ShippedLanguageRecoveryTests.ActivateShippedGerman();
         try
         {
+            using var harness = Harness.Open();
             // The tray item's own navigation: production's deep link lands on General page 1,
             // where the language row is the first row.
             harness.Settings.NavigateToLanguageRow();
             harness.Settle();
-            Check.That(StringTable.Current.T("settings.tab.general.label")).IsEqualTo("Allgemein");
             Check.That(harness.Settings.HeaderTitle.Text).IsEqualTo("Allgemein");
+            LiveCheck.AssertShowsText(harness.Settings, "SettingsWindow (General, the language row)",
+                "Allgemein", "Sprache / Language");
             LiveCheck.AssertVisible(harness.Settings, "SettingsWindow (General, the language row)");
             LiveCheck.PumpFor(GeneralHold);
         }
@@ -91,19 +102,20 @@ public class SettingsLiveCheckTests
     {
         LiveCheck.Require();
         WpfApplicationGate.EnsureApplicationWithTokens();
-        using var harness = Harness.Open();
+        ShippedLanguageRecoveryTests.ActivateShippedGerman();
         try
         {
+            using var harness = Harness.Open();
             var tabs = LanguageRowReachTests.TabIdsFromSource();
-            var (_, perPage, generalPage) = LanguageRowReachTests.ToolbarToLanguageRow();
-            var pageCount = SettingsTabPagination.PageCount(tabs.Count, perPage);
+            var reach = LanguageRowReachTests.ToolbarToLanguageRow();
+            var pageCount = SettingsTabPagination.PageCount(tabs.Count, reach.PerPage);
 
             // Sidebar page by sidebar page, so the sidebar always shows the tab it is displaying.
-            harness.ShowSidebarPage(generalPage);
+            harness.ShowSidebarPage(reach.GeneralPage);
             for (var page = 0; page < pageCount; page++)
             {
                 harness.ShowSidebarPage(page);
-                var (start, count) = SettingsTabPagination.PageSlice(tabs.Count, perPage, page);
+                var (start, count) = SettingsTabPagination.PageSlice(tabs.Count, reach.PerPage, page);
                 foreach (var tab in tabs.Skip(start).Take(count))
                 {
                     if (tab == "General") continue;
@@ -116,6 +128,7 @@ public class SettingsLiveCheckTests
                         .That(german).IsNotEqualTo(rendered.Label);
                     Check.WithCustomMessage($"the {tab} tab's header reads \"{harness.Settings.HeaderTitle.Text}\".")
                         .That(harness.Settings.HeaderTitle.Text).IsEqualTo(german);
+                    LiveCheck.AssertShowsText(harness.Settings, $"SettingsWindow ({tab} tab, first page)", german);
                     LiveCheck.AssertVisible(harness.Settings, $"SettingsWindow ({tab} tab, first page)");
                     LiveCheck.PumpFor(TabHold);
                 }
@@ -132,9 +145,10 @@ public class SettingsLiveCheckTests
     {
         LiveCheck.Require();
         WpfApplicationGate.EnsureApplicationWithTokens();
-        using var harness = Harness.Open();
+        ShippedLanguageRecoveryTests.ActivateShippedGerman();
         try
         {
+            using var harness = Harness.Open();
             // The Dwell tab's reset: its label is one of the two the ticket chose wording for.
             harness.ViewModel.Settings.ShowTab("Dwell");
             harness.Settle();
@@ -145,6 +159,9 @@ public class SettingsLiveCheckTests
 
             Check.WithCustomMessage("the reset's modal did not open.")
                 .That(harness.ViewModel.IsModalVisible).IsTrue();
+            // The modal's own question, on screen — not just the view model's flag.
+            LiveCheck.AssertShowsText(harness.Settings, "SettingsWindow (the Dwell reset modal)",
+                "Einstellungen unter „Verweilzeiten“ auf Standardwerte zurücksetzen?");
             LiveCheck.AssertVisible(harness.Settings, "SettingsWindow (the Dwell reset modal)");
             LiveCheck.PumpFor(StepHold);
 
@@ -162,9 +179,10 @@ public class SettingsLiveCheckTests
     {
         LiveCheck.Require();
         WpfApplicationGate.EnsureApplicationWithTokens();
-        using var harness = Harness.Open();
+        ShippedLanguageRecoveryTests.ActivateShippedGerman();
         try
         {
+            using var harness = Harness.Open();
             // The Selection tab's mode row: a DwellComboBox, so its options are the always-visible
             // pills — there is no dropdown to open (see the class remarks).
             harness.ViewModel.Settings.ShowTab("Selection");
@@ -173,6 +191,8 @@ public class SettingsLiveCheckTests
                 .SelectMany(p => p.Rows).OfType<ComboBoxSpec>().Single(c => c.Id == "s_mode");
             Check.That(row.Display).ContainsExactly("Keine", "Manuelle Auswahl", "Automatische Auswahl");
             Check.That(row.Code).ContainsExactly("None", "ManualSelection", "AutoSelection");
+            LiveCheck.AssertShowsText(harness.Settings, "SettingsWindow (Selection, the mode combo)",
+                "Keine", "Manuelle Auswahl", "Automatische Auswahl");
             LiveCheck.AssertVisible(harness.Settings, "SettingsWindow (Selection, the mode combo)");
             LiveCheck.PumpFor(StepHold);
         }
@@ -187,9 +207,10 @@ public class SettingsLiveCheckTests
     {
         LiveCheck.Require();
         WpfApplicationGate.EnsureApplicationWithTokens();
-        using var harness = Harness.Open();
+        ShippedLanguageRecoveryTests.ActivateShippedGerman();
         try
         {
+            using var harness = Harness.Open();
             harness.ViewModel.Settings.ShowTab("Actions");
             harness.Settle();
             // The tab's own jump row, which production's dwell would use — reached on whichever
@@ -202,6 +223,9 @@ public class SettingsLiveCheckTests
             Check.WithCustomMessage("the jump row did not land on the preview page.")
                 .That(harness.ViewModel.Settings.CurrentPage)
                 .IsEqualTo(harness.ViewModel.Settings.TotalPages - 1);
+            // The preview's own German: a painted ring label and its caption.
+            LiveCheck.AssertShowsText(harness.Settings, "SettingsWindow (Action Menu ring preview)",
+                "Linksklick", "Beschriftungen erscheinen im Betrieb nur beim Verweilen");
             LiveCheck.AssertVisible(harness.Settings, "SettingsWindow (Action Menu ring preview)");
             LiveCheck.PumpFor(StepHold);
         }
@@ -216,9 +240,10 @@ public class SettingsLiveCheckTests
     {
         LiveCheck.Require();
         WpfApplicationGate.EnsureApplicationWithTokens();
-        using var harness = Harness.Open();
+        ShippedLanguageRecoveryTests.ActivateShippedGerman();
         try
         {
+            using var harness = Harness.Open();
             harness.ViewModel.Settings.ShowTab("QuickActions");
             harness.Settle();
             // Add action leads the List's first page (the reachability gate pins that); the type
@@ -233,7 +258,9 @@ public class SettingsLiveCheckTests
             harness.Settle();
             harness.ActivateRow("qa_type_kbd");
             harness.Settle();
-            Check.That(StringTable.Current.T("settings.preset.kbd.copy")).IsEqualTo("Kopieren");
+            // The picker's German preset names, on screen — the step's target page.
+            LiveCheck.AssertShowsText(harness.Settings, "SettingsWindow (quick-action preset picker)",
+                "Kopieren", "Einfügen");
             LiveCheck.AssertVisible(harness.Settings, "SettingsWindow (quick-action preset picker)");
             LiveCheck.PumpFor(StepHold);
         }
@@ -248,9 +275,11 @@ public class SettingsLiveCheckTests
     /// production pipeline the window's <c>MaybeRepaginateByHeight</c> runs (the ring preview's
     /// fit, then the height chunker) with the XAML-derived content cell. The showcase's row
     /// activations only work on the page the window has rendered, so the page must be reachable
-    /// and the row must be on it — failing loudly here says which.
+    /// and the row must be on it — failing loudly here says which. Internal so the headless roster
+    /// gate (<c>ShippedGermanSettingsTests.TheLiveChecksRows_AreOnPagesTheShowcaseNavigatesTo</c>)
+    /// can prove the same pages without running the showcase.
     /// </summary>
-    private static int PageHolding(string rowId, Func<SettingsPageContext, ISettingsPageSource> sourceFor)
+    internal static int PageHolding(string rowId, Func<SettingsPageContext, ISettingsPageSource> sourceFor)
     {
         var root = SettingsContentFitTests.Xml();
         var budget = HandChunkedPageFitTests.ContentHeightBudget(root);

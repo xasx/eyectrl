@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Tests.Localization;
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using EyeCtrl.App.Services;
@@ -8,6 +9,7 @@ using EyeCtrl.App.Tests.Settings;
 using EyeCtrl.App.Tests.Settings.Pages;
 using EyeCtrl.App.Views.Settings;
 using EyeCtrl.Core.Localization;
+using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Tests.TestSupport;
@@ -166,14 +168,11 @@ public class ShippedGermanSettingsTests
     }
 
     /// <summary>
-    /// D2 at its three Settings sites, under the shipped German: the list caption and the delete
-    /// modal show the German preset name rather than the tile's stale stored label, the picker
-    /// button shows the German name, and picking it still stores the preset's English label plus
-    /// its <see cref="EyeCtrl.Core.Models.QuickAction.PresetId"/> — the grid stays English until
-    /// Step 3 while the picker speaks German.
+    /// D2's read sites under the shipped German: the list caption and the delete modal show the
+    /// German preset name rather than the tile's stale stored label.
     /// </summary>
     [Fact]
-    public void ThePresetSites_InTheShippedGerman_ShowGermanNames_AndTheAddStoresThePresetId()
+    public void ThePresetListCaptionAndDeleteModal_InTheShippedGerman_ShowTheGermanName()
     {
         ShippedLanguageRecoveryTests.ActivateShippedGerman();
         try
@@ -192,22 +191,51 @@ public class ShippedGermanSettingsTests
             var del = rows.OfType<ButtonSpec>().Single(b => b.Id.StartsWith("qa_del_"));
             del.OnActivate();
             Check.That(rec.LastModalMessage).IsEqualTo("„Kopieren“ löschen?");
+        }
+        finally
+        {
+            StringTable.ResetToEmbeddedEnglish();
+        }
+    }
 
+    /// <summary>
+    /// D2's add path under the shipped German, one case per preset family (review-01 F3): the
+    /// picker button shows the German name, and picking it still stores the preset's ENGLISH label
+    /// plus its <see cref="EyeCtrl.Core.Models.QuickAction.PresetId"/> — the grid stays English
+    /// until Step 3 while the picker speaks German. In English the German-storing mutant is
+    /// equivalent, so only this German theory can kill it; the view ids and preset data mirror the
+    /// English theory in <see cref="QuickActionsLabelRouteTests"/>.
+    /// </summary>
+    [Theory]
+    [InlineData("PickShortcut", "qa_ks_0", QuickActionType.KeyboardShortcut, "kbd.copy", "Kopieren", "Copy", "Ctrl+C")]
+    [InlineData("PickMedia", "qa_md_0", QuickActionType.MediaControl, "media.play_pause", "Wiedergabe / Pause", "Play / Pause", "PlayPause")]
+    [InlineData("PickWindowAction", "qa_win_0", QuickActionType.WindowAction, "window.minimize", "Fenster minimieren", "Minimize Window", "Minimize")]
+    public void EveryPresetPicker_InTheShippedGerman_ShowsGermanNames_AndStoresThePresetId(
+        string viewName, string rowId, QuickActionType expectedType,
+        string expectedPresetId, string expectedGerman, string expectedEnglish, string expectedPayload)
+    {
+        ShippedLanguageRecoveryTests.ActivateShippedGerman();
+        try
+        {
             var picker = new RecordingSettingsPageContext(
                 viewModel: QaTestSupport.MakeViewModel(QuickActionsLabelRouteTests.StoreWith()));
             var source = new QuickActionsPageSource(picker.Context);
-            source.GoTo(QuickActionsPageSource.QaView.PickShortcut);
-            var add = source.Build().First().Rows.OfType<ButtonSpec>().Single(b => b.Id == "qa_ks_0");
-            Check.That(add.Label).IsEqualTo("Kopieren");
+            source.GoTo(Enum.Parse<QuickActionsPageSource.QaView>(viewName));
+
+            var add = source.Build().First().Rows.OfType<ButtonSpec>().Single(b => b.Id == rowId);
+            Check.WithCustomMessage($"{viewName}: the picker button reads \"{add.Label}\".")
+                .That(add.Label).IsEqualTo(expectedGerman);
 
             add.OnActivate();
             var editor = picker.Context.ViewModel.QuickActionsEditor;
             Check.That(editor.Actions).HasSize(1);
-            Check.That(editor.Actions[0].PresetId).IsEqualTo("kbd.copy");
+            Check.That(editor.Actions[0].Type).IsEqualTo(expectedType);
+            Check.That(editor.Actions[0].PresetId).IsEqualTo(expectedPresetId);
             Check.WithCustomMessage(
-                    "The picker stored the German display label; the tile must keep the preset's "
-                    + "English so the grid stays readable until Step 3 decides its German.")
-                .That(editor.Actions[0].Label).IsEqualTo("Copy");
+                    $"{viewName}: the picker stored the German display label; the tile must keep "
+                    + "the preset's English so the grid stays readable until Step 3 decides its German.")
+                .That(editor.Actions[0].Label).IsEqualTo(expectedEnglish);
+            Check.That(editor.Actions[0].Payload).IsEqualTo(expectedPayload);
         }
         finally
         {
@@ -230,18 +258,59 @@ public class ShippedGermanSettingsTests
             Check.WithCustomMessage("The shipped table is not German for Settings: the reach would be measured on English.")
                 .That(StringTable.Current.T("settings.tab.general.label")).IsEqualTo("Allgemein");
 
-            var (dwells, perPage, generalPage) = LanguageRowReachTests.ToolbarToLanguageRow();
+            var reach = LanguageRowReachTests.ToolbarToLanguageRow();
             Check.WithCustomMessage(
                     "The German re-pagination moved the reach pin; the language row is a recovery "
                     + "row, so a longer path is a UX decision, not a test failure to paper over.")
-                .That(dwells).IsEqualTo(LanguageRowReachTests.PinnedToolbarToLanguageRowDwells);
-            Check.That(perPage).IsEqualTo(6);
-            Check.That(generalPage).IsEqualTo(1);
+                .That(reach.Dwells).IsEqualTo(LanguageRowReachTests.PinnedToolbarToLanguageRowDwells);
+            Check.That(reach.PerPage).IsEqualTo(6);
+            Check.That(reach.GeneralPage).IsEqualTo(1);
 
             Check.WithCustomMessage(
                     "Under the shipped German the language row is not the first row of General page 1, "
                     + "so the pinned 3-dwell path no longer lands on it.")
                 .That(LanguageRowReachTests.FirstRenderedRowId()).IsEqualTo("g_language");
+        }
+        finally
+        {
+            StringTable.ResetToEmbeddedEnglish();
+        }
+    }
+
+    /// <summary>
+    /// The live check's navigation roster, headless (review-01 F2's teeth): every row the
+    /// showcase activates — and the picker page it lands on — is one the production page pipeline
+    /// renders for its tab, so a step cannot silently no-op. The on-screen half of the proof (the
+    /// step's German is actually visible) is <c>LiveCheck.AssertShowsText</c>, which only the live
+    /// check can run; this half fails headlessly when a showcased row id moves or disappears.
+    /// </summary>
+    [StaFact]
+    public void TheLiveChecksRows_AreOnPagesTheShowcaseNavigatesTo()
+    {
+        ShippedLanguageRecoveryTests.ActivateShippedGerman();
+        try
+        {
+            Check.ThatCode(() => SettingsLiveCheckTests.PageHolding(
+                    "d_reset", ctx => new DwellPageSource(ctx)))
+                .DoesNotThrow();
+            Check.ThatCode(() => SettingsLiveCheckTests.PageHolding(
+                    "s_mode", ctx => new SelectionPageSource(ctx)))
+                .DoesNotThrow();
+            Check.ThatCode(() => SettingsLiveCheckTests.PageHolding(
+                    ActionMenuPageSource.RingJumpRowId, ctx => new ActionMenuPageSource(ctx)))
+                .DoesNotThrow();
+
+            var picker = new RecordingSettingsPageContext(
+                viewModel: QaTestSupport.MakeViewModel(QuickActionsLabelRouteTests.StoreWith()));
+            var source = new QuickActionsPageSource(picker.Context);
+            Check.WithCustomMessage("the showcase's qa_add is not on QuickActions page 1.")
+                .That(source.Build()[0].Rows.Select(r => r.Id)).Contains("qa_add");
+            source.GoTo(QuickActionsPageSource.QaView.PickType);
+            Check.WithCustomMessage("the showcase's qa_type_kbd is not on the type picker's page.")
+                .That(source.Build()[0].Rows.Select(r => r.Id)).Contains("qa_type_kbd");
+            source.GoTo(QuickActionsPageSource.QaView.PickShortcut);
+            Check.WithCustomMessage("the showcase's keyboard picker's first page holds no preset.")
+                .That(source.Build()[0].Rows.Select(r => r.Id)).Contains("qa_ks_0");
         }
         finally
         {

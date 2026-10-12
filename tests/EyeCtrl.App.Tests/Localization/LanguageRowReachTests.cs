@@ -89,12 +89,22 @@ public class LanguageRowReachTests
     }
 
     /// <summary>
-    /// The dwell count from the toolbar's Settings button to the language row, the tabs per
-    /// sidebar page and General's page — one implementation shared by the English pin and T12's
-    /// shipped-German variant, so the arithmetic cannot drift between the two.
+    /// The dwell count from the toolbar's Settings button to the language row — one implementation
+    /// shared by the English pin and T12's shipped-German variant, so the arithmetic cannot drift
+    /// between the two — plus the geometry behind it, so a failure can name the budget and the tab
+    /// count instead of only the computed pages.
+    ///
+    /// <para>
+    /// The arithmetic itself is language-independent: the sidebar geometry comes from the XAML and
+    /// the tab labels keep their boxes (the tab156 sweep proves that). Its German teeth are the
+    /// caller's: the count only lands on the row if the language row is still the first rendered
+    /// row of General page 1 under German re-pagination.
+    /// </para>
     /// </summary>
-    /// <returns>(Dwells, PerPage, GeneralPage).</returns>
-    internal static (int Dwells, int PerPage, int GeneralPage) ToolbarToLanguageRow()
+    internal sealed record ToolbarReach(int Dwells, int PerPage, int GeneralPage, double Budget, int TabCount);
+
+    /// <inheritdoc cref="ToolbarReach"/>
+    internal static ToolbarReach ToolbarToLanguageRow()
     {
         var root = SettingsContentFitTests.Xml();
         var budget = SidebarTabBudget(root);
@@ -110,7 +120,7 @@ public class LanguageRowReachTests
         Check.That(generalIndex).IsStrictlyGreaterThan(-1);
 
         var generalPage = SettingsTabPagination.PageOf(generalIndex, perPage);
-        return (1 + generalPage + 1, perPage, generalPage);
+        return new ToolbarReach(1 + generalPage + 1, perPage, generalPage, budget, tabCount);
     }
 
     internal static string FirstRenderedRowId()
@@ -128,16 +138,17 @@ public class LanguageRowReachTests
     [Fact]
     public void FromTheToolbarSettingsButton_TheLanguageRow_IsThreeDwellsAway()
     {
-        var (dwells, perPage, generalPage) = ToolbarToLanguageRow();
+        var reach = ToolbarToLanguageRow();
 
         Check.WithCustomMessage(
-                $"At {DisplayWidthDip}x{DisplayHeightDip} DIP the sidebar shows {perPage} tabs per page and General "
-                + $"is on page {generalPage}. If this moved, re-measure the reach and update the pin "
+                $"At {DisplayWidthDip}x{DisplayHeightDip} DIP the sidebar budget is {reach.Budget} DIP, "
+                + $"so {reach.PerPage} of {reach.TabCount} tabs fit per page and General is on page "
+                + $"{reach.GeneralPage}. If this moved, re-measure the reach and update the pin "
                 + "deliberately — a longer recovery path is a UX decision, not a test failure to "
                 + "paper over.")
-            .That(dwells).IsEqualTo(PinnedToolbarToLanguageRowDwells);
-        Check.That(perPage).IsEqualTo(6);
-        Check.That(generalPage).IsEqualTo(1);
+            .That(reach.Dwells).IsEqualTo(PinnedToolbarToLanguageRowDwells);
+        Check.That(reach.PerPage).IsEqualTo(6);
+        Check.That(reach.GeneralPage).IsEqualTo(1);
     }
 
     [StaFact]

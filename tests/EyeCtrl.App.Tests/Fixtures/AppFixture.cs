@@ -22,8 +22,14 @@ using System.Text.Json.Nodes;
 /// launched app starts in advanced mode; <see cref="DisposeAsync"/> kills the app, waits up to
 /// 5&nbsp;s for the process to die (its debounced writer must be dead before the restore, or a
 /// late save re-persists the forced value over the restored file), then moves the backup back.
-/// CAVEAT: a test-host crash mid-run leaves <c>settings.json.ui_test_backup</c> behind for
+/// A restore that fails with <c>IOException</c> or <c>UnauthorizedAccessException</c> never
+/// throws from disposal (it would mask the collection's results): the backup stays on disk for
 /// manual restore.
+/// CAVEAT: a test-host crash mid-run leaves <c>settings.json.ui_test_backup</c> behind for
+/// manual restore — and the next gated run REFUSES to start until it is resolved:
+/// <see cref="InitializeAsync"/> throws rather than overwrite it, because the leftover backup
+/// holds the owner's ORIGINAL while the live <c>settings.json</c> may already be test-mutated,
+/// and copying over the backup would destroy the original (impl review I4/F3).
 /// </para>
 /// </summary>
 public class AppFixture : IAsyncLifetime
@@ -85,13 +91,28 @@ public class AppFixture : IAsyncLifetime
         // guard cannot influence what the already-running app loaded — and it races the app's
         // debounced save, which can land after a restore and persist simpleSettingsUi=true
         // into the owner's real file.
+        //
+        // A leftover backup from a crashed run is the owner's ORIGINAL, with a possibly
+        // test-mutated settings.json beside it. Copying over it would replace the original
+        // with the mutated file (impl review I4/F3) — so its presence fails the whole UI
+        // collection loudly instead. InvalidOperationException deliberately escapes the
+        // degrade-to-no-isolation catch below: degrading here would run the suite against an
+        // unknown settings state with the owner's only backup stranded mid-directory.
+        var backupPath = SettingsPath + ".ui_test_backup";
+        if (File.Exists(backupPath))
+            throw new InvalidOperationException(
+                $"Refusing to start UI tests: '{backupPath}' is left over from a crashed "
+                + $"UI-test run and holds the owner's original settings.json, while "
+                + $"'{SettingsPath}' may already be test-mutated. Restore it by hand (copy it "
+                + "over settings.json, or delete it if the live file is already correct), then "
+                + "re-run. See the CAVEAT in AppFixture's doc comment.");
         try
         {
             _hadSettingsFile = File.Exists(SettingsPath);
             if (_hadSettingsFile)
             {
-                _settingsBackup = SettingsPath + ".ui_test_backup";
-                File.Copy(SettingsPath, _settingsBackup, overwrite: true);
+                _settingsBackup = backupPath;
+                File.Copy(SettingsPath, _settingsBackup, overwrite: false); // never clobber a backup
                 ForceSimpleSettingsUi(SettingsPath, simple: false); // the launched app reads advanced
             }
             // No existing file: nothing to force or restore — advanced is the default the app
@@ -173,10 +194,12 @@ public class AppFixture : IAsyncLifetime
                 else if (File.Exists(SettingsPath)) File.Delete(SettingsPath); // unreachable while
                 // _settingsBackup is gated on _hadSettingsFile — kept defensive
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 // Never throw from disposal (it would mask the collection's test results);
                 // the backup file stays on disk for manual restore — see the class doc comment.
+                // UnauthorizedAccessException joins IOException (impl review F3, ledger T13):
+                // an ACL-locked settings directory must not take the results down either.
             }
         }
 

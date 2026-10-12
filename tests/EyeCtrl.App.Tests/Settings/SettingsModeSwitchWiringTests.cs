@@ -72,6 +72,17 @@ public class SettingsModeSwitchWiringTests
         Check.WithCustomMessage(
                 "The simple-mode filter must sit between BuildPages and the height repagination.")
             .That(body).Contains("SimpleSettingsFilter.Apply");
+        // Impl review F2 (mutation h): presence of the filter call is not enough — it must ride
+        // the LIVE mode flag. Making the filter unconditional passed 2270/0 while collapsing
+        // advanced mode to the 31 curated rows: 11 of 15 tabs rendered blank pages with live
+        // sidebar entries, a dead end for a gaze-only user. "Advanced mode is unchanged" is
+        // the feature's core safety promise.
+        Check.WithCustomMessage(
+                "RebuildContent's filter must be conditional on SimpleSettingsUi — the ternary "
+                + "condition must read the mode flag. Mutation h (impl review) made the filter "
+                + "unconditional (`true ? SimpleSettingsFilter.Apply(...) : ...`) and passed "
+                + "2270/0 with 11 of 15 advanced tabs blank behind live sidebar entries.")
+            .That(body).Contains("SimpleSettingsUi");
     }
 
     [Fact]

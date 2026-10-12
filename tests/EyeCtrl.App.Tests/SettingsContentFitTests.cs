@@ -18,6 +18,7 @@ using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
+using EyeCtrl.Tests.TestSupport;
 using NFluent;
 using Xunit;
 
@@ -1075,6 +1076,12 @@ public class SettingsContentFitTests
     /// the host's gap (read out of the XAML, not restated) and the toggle's fixed width must all
     /// still fit the 448 DIP header. Today that leaves only a few DIP of slack: any tab title
     /// growth eats it immediately, which is exactly what this guard is for (plan-review m13).
+    ///
+    /// The sweep covers BOTH tables (impl review m1): the English titles live (resolved from the
+    /// embedded table) and the German titles straight from the shipped
+    /// <c>strings.de.json</c> through <see cref="GermanDraft.TextOf"/> — which is what makes the
+    /// "live per language" claim on <see cref="SettingsWindow.ModeToggleWidth"/> true. A tab
+    /// label key with no German fails loudly inside GermanDraft rather than measuring a raw key.
     /// </summary>
     [StaFact]
     public void TitlePlusModeToggle_FitsTheNarrowestHeaderWidth()
@@ -1084,17 +1091,21 @@ public class SettingsContentFitTests
         var headerWidth = WindowWidthFor(NarrowDisplayWidthDip)
             - SidebarWidth(root) - contentArea.Left - contentArea.Right;   // 448
         var gap = Margin(root, "ModeToggleHost").Left;
-        var widestTitle = SettingsTabDriftTests.RenderedTabHeaders()
-            .Select(h => MeasureAtDisplay(h.Label)).Max();
+        var englishWidths = SettingsTabDriftTests.RenderedTabHeaders()
+            .Select(h => MeasureAtDisplay(h.Label));
+        var germanWidths = SettingsTabDriftTests.RenderedTabDefs()
+            .Select(t => MeasureAtDisplay(GermanDraft.TextOf(t.LabelKey, "")));
+        var widestTitle = englishWidths.Concat(germanWidths).Max();
 
         Check.WithCustomMessage(string.Format(
                 CultureInfo.InvariantCulture,
-                "The widest tab title ({0:F2} DIP at Display/Strong) plus the toggle host's gap "
-                + "({1:F0}) and the toggle's fixed width ({2:F0}) is {3:F2} DIP against the "
-                + "{4:F2} DIP header of the narrowest supported display. The title does not wrap "
-                + "in its column, so the overflow would clip mid-glyph with nothing else failing. "
-                + "Shorten the title, or take the width out of ModeToggleWidth — and re-run the "
-                + "A208 fit class, which bounds the toggle's own label inside that width.",
+                "The widest tab title across the English and German tables ({0:F2} DIP at "
+                + "Display/Strong) plus the toggle host's gap ({1:F0}) and the toggle's fixed "
+                + "width ({2:F0}) is {3:F2} DIP against the {4:F2} DIP header of the narrowest "
+                + "supported display. The title does not wrap in its column, so the overflow "
+                + "would clip mid-glyph with nothing else failing. Shorten the title, or take "
+                + "the width out of ModeToggleWidth — and re-run the A208 fit class, which "
+                + "bounds the toggle's own label inside that width.",
                 widestTitle, gap, SettingsWindow.ModeToggleWidth,
                 widestTitle + gap + SettingsWindow.ModeToggleWidth, headerWidth))
             .That(widestTitle + gap + SettingsWindow.ModeToggleWidth).IsLessOrEqualThan(headerWidth);

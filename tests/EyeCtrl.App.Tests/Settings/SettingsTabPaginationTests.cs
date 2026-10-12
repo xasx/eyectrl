@@ -123,6 +123,20 @@ public class SettingsTabPaginationWiringTests
         var body = ExtractMethod(WindowSource(), "private SettingsSidebarModel.SidebarLayout ComputeSidebarLayout(");
         Check.That(body).Contains("SidebarTabBudget");
         Check.That(body).Contains("TabContainerHeight + 2 * TabButtonMargin");
+        // Impl review F2 (mutation n): the model must also receive the LIVE mode flag. Feeding
+        // it a constant false passed 2270/0 while giving simple mode all 15 sidebar tabs — 11
+        // of which render blank because the content filter empties them.
+        //
+        // ExtractMethod note: the method is EXPRESSION-bodied, so the "\n    }" anchor lands on
+        // the next block-bodied method's closing brace and the slice spills past the `;`. That
+        // is harmless here — the spill (ApplySidebarLayout) contains no other SimpleSettingsUi
+        // occurrence, so the pin can only pass through ComputeSidebarLayout's own argument.
+        Check.WithCustomMessage(
+                "ComputeSidebarLayout must feed the model the LIVE mode flag "
+                + "(_settings.General.SimpleSettingsUi), never a constant. Mutation n (impl "
+                + "review) passed false and survived 2270/0: simple mode showed all 15 sidebar "
+                + "tabs, 11 of them blank (the content filter empties non-curated tabs).")
+            .That(body).Contains("SimpleSettingsUi");
     }
 
     [Fact]

@@ -84,8 +84,36 @@ public class SettingsModeToggleWiringTests
     public void ModeToggle_GuardUsesTheReleaseRadius_AndTheTrackedCentre()
     {
         var body = ExtractMethod(WindowSource(), "private void GuardModeToggle(");
-        Check.That(body).Contains("ModeToggleReleaseRadius");
         Check.That(body).Contains("_pagerCenters");
+        // Impl review F1 (mutation d2): a whole-method Contains was satisfied by ONE surviving
+        // occurrence — swapping the tracked-centre branch (the one every dwell activation
+        // takes; the frame loop has already pushed _pagerCenters["settings_mode"]) to the hit
+        // radius passed the whole suite green, leaving a 50-hit/50-release guard that re-arms
+        // under the resting gaze that made the flip. So the count is the pin: BOTH Disarm
+        // paths carry the release radius, and the hit radius appears on NEITHER — the guard
+        // never uses it.
+        Check.WithCustomMessage(
+                "GuardModeToggle must pass ModeToggleReleaseRadius on BOTH Disarm paths — the "
+                + "tracked-centre branch AND the border-fallback branch (exactly two occurrences). "
+                + "Mutation d2 (impl review) swapped only the tracked-centre branch to "
+                + "ModeToggleHitRadius and passed 2270/0: the gaze drift past 50 DIP re-arms the "
+                + "toggle and the next dwell flips the mode back — the oscillation owner ruling "
+                + "L16 exists to stop.")
+            .That(CountOccurrences(body, "ModeToggleReleaseRadius")).IsEqualTo(2);
+        Check.WithCustomMessage(
+                "GuardModeToggle must never use ModeToggleHitRadius — 85 release over 50 hit IS "
+                + "the hysteresis (mutation d2, impl review).")
+            .That(body).Not.Contains("ModeToggleHitRadius");
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        var count = 0;
+        for (var i = haystack.IndexOf(needle, StringComparison.Ordinal);
+             i >= 0;
+             i = haystack.IndexOf(needle, i + 1, StringComparison.Ordinal))
+            count++;
+        return count;
     }
 
     [Fact]

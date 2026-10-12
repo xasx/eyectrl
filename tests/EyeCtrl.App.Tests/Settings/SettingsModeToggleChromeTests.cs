@@ -210,8 +210,14 @@ public class SettingsModeToggleChromeTests
 
     /// <summary>
     /// The toggle's centre, in content-area coordinates: header row 0 with the host's top margin
-    /// above it, x inset from the header's right edge by the host's left margin (the 12-DIP
-    /// title-to-toggle gap the fit arithmetic uses, plan-review I10) plus half the toggle's width.
+    /// above it. The host's Auto column ends flush with the header's right edge and the host has
+    /// NO right margin, so the REAL arrange centre-x is contentWidth − 104 (half the 208-DIP
+    /// toggle). The host's 12-DIP LEFT margin is the title-to-toggle GAP the fit arithmetic
+    /// uses (plan-review I10) — not a right inset. This helper reads it as one, placing the
+    /// returned centre 12 DIP left of reality (contentWidth − 116); that divergence is inert for
+    /// the clearance assertions this feeds (impl review m2 / ledger T12): the vertical separation
+    /// between the toggle's row and both pag_next and the first content row exceeds the two
+    /// radius sums on its own, so 12 DIP of horizontal error cannot flip a verdict.
     /// The header spans the content area with no margin of its own, so the header's width IS the
     /// content area's width.
     /// </summary>

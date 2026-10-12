@@ -26,7 +26,8 @@ using Serilog;
 ///
 /// <para>
 /// The window only renders what C5 tells it (<see cref="SubPixelProbeViewModel.Phase"/> and the
-/// current presentation) and registers C5's seven dwell targets with their physical hit circles.
+/// current presentation) and registers C5's seven dwell targets with their physical hit
+/// rectangles (each visible button grown by its D3 margin).
 /// Its close path invokes the session-end callback captured at construction — never a coordinator
 /// field — and sets <see cref="ClosedObserved"/> before it does, so a re-entrant close is a no-op
 /// and "already closed" means the event fired (review 05 F3/F4).
@@ -36,8 +37,8 @@ using Serilog;
 /// <b>SP-4c usability (the owner's live check).</b> Every button draws the app's standard
 /// rectangular dwell cue (<see cref="DwellOutlineOverlay"/>, the keyboard/emoji/prediction outline)
 /// driven from C5's <c>GetProgress</c>; the buttons are the D2 sizes with D3's forgiving hit
-/// circles; and the Intro draws a looping motion demo of the real ring so the owner sees what
-/// "moving" looks like before the run starts (D5).
+/// rectangles (+48 DIP per side, +16 for End test); and the Intro draws a looping motion demo of
+/// the real ring so the owner sees what "moving" looks like before the run starts (D5).
 /// </para>
 ///
 /// <para>

@@ -1045,9 +1045,11 @@ public partial class SubPixelProbeViewModel : MessengerViewModelBase,
     /// C5 knows its own target ids; for them the dwell time is
     /// <see cref="DwellSettings.ToolbarButtonDwellMs"/> read from the injected settings at
     /// registration, so the owner's live value applies. Unknown ids use <paramref name="dwellMs"/>.
-    /// The hit radius is the caller's to compute (the answer/End test buttons'
-    /// half-shorter-side, in physical px). All categories share C5's one detector;
-    /// <paramref name="category"/> is accepted for <see cref="IDwellRegistrar"/> compatibility.
+    /// Legacy/test-only: <paramref name="radiusPhysical"/> is a circle's radius in physical px,
+    /// which no production surface passes — the probe view registers the D3 hit areas as grown
+    /// rectangles through <see cref="RegisterRect"/> (SP-4c fixup 01). All categories share C5's
+    /// one detector; <paramref name="category"/> is accepted for <see cref="IDwellRegistrar"/>
+    /// compatibility.
     /// </remarks>
     public void Register(string id, DwellCategory category, double radiusPhysical, int dwellMs, Action onActivated)
     {

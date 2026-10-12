@@ -24,7 +24,7 @@ public class ComboCodeIdentityTests
         ["ad_posture"] = ["Conservative", "Balanced", "Responsive"],
         ["c_filter"] = ["Direct", "Smoothed", "SmoothedWithSnapping", "OneEuro"],
         ["c_pos_style"] = ["Crosshair", "Pin"],
-        ["g_theme"] = ["Midnight", "Ember", "Contrast"],
+        ["g_theme"] = ["Midnight", "Ember", "Daylight", "Contrast"],
         ["k_layout"] = ["QWERTY", "QWERTZ", "AZERTY"],
         ["k_edge"] = ["Bottom", "Top"],
         ["lay_pos"] = ["At Gaze", "At Center"],
@@ -87,7 +87,7 @@ public class ComboCodeIdentityTests
                       ["en", "fr", "es", "de", "pl"]),
         ["k_edge"] = (["Bottom", "Top"], ["Bottom", "Top"]),
         ["qa_edge"] = (["Left", "Right", "Top", "Bottom"], ["Left", "Right", "Top", "Bottom"]),
-        ["g_theme"] = (["Midnight", "Ember", "Contrast"], ["Midnight", "Ember", "Contrast"]),
+        ["g_theme"] = (["Midnight", "Ember", "Daylight", "Contrast"], ["Midnight", "Ember", "Daylight", "Contrast"]),
         ["g_language"] = (["System", "Deutsch", "English"], ["system", "german", "english"]),
         ["av_backdrop_type"] = (["Acrylic", "Mica", "Solid Darken"],
                                 ["Acrylic", "Mica", "SolidDarken"]),
@@ -222,9 +222,10 @@ public class ComboCodeIdentityTests
     /// <summary>
     /// Every combo row of the sources a plain context can build, in tab order — including
     /// QuickActions, whose list page needs its real editor view model. Models is excluded:
-    /// md_active exists only with a downloaded model (covered separately).
+    /// md_active exists only with a downloaded model (covered separately). Internal so T12's
+    /// shipped-German code guard walks the same combos as this English pin.
     /// </summary>
-    private static IEnumerable<ComboBoxSpec> WalkableCombos(EyeCtrlSettings settings)
+    internal static IEnumerable<ComboBoxSpec> WalkableCombos(EyeCtrlSettings settings)
     {
         var ctx = TestSettingsPageContext.Build(settings);
         var sources = new ISettingsPageSource[]

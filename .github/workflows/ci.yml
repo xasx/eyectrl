@@ -28,7 +28,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      # tools/palette_validate.py runs ten gates over all three themes (Midnight, Ember, Contrast):
+      # tools/palette_validate.py runs ten gates over every theme (Midnight, Ember, Daylight, Contrast):
       # WCAG contrast, CIEDE2000 separation, Vienot dichromat simulation, and a non-colour tail
       # covering the radius ramp, the type ramp and the 12px legibility floor.
       #

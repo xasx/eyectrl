@@ -157,8 +157,11 @@ public class CursorRingStyleContrastTests
     /// internal mark/halo edge IS a perimeter edge, so <see cref="EdgeFloor"/> above is the
     /// property that matters for them, not this one.
     ///
-    /// Verified worst case across all three themes' presets and all nine backdrops: Midnight's
-    /// "Amber" (<c>#E8A33C</c>) against <c>#404040</c>, 4.81:1 (mark 4.81:1, halo 1.90:1).
+    /// Verified worst case across all four themes' presets and all nine backdrops: Daylight's
+    /// "Green" ring preset (<c>#005200</c> — see <c>DwellColorPicker.RingGreen</c>) against
+    /// <c>#FF5C7A</c>, 3.20:1 (mark 3.20:1, halo 2.97:1). Among the dark themes it remains
+    /// Midnight's "Amber" (<c>#E8A33C</c>) against <c>#404040</c>, 4.81:1 (mark 4.81:1,
+    /// halo 1.90:1).
     /// </summary>
     [Theory]
     [MemberData(nameof(AllThemes))]
@@ -258,10 +261,12 @@ public class CursorRingStyleContrastTests
     /// the core composites OVER that opaque band (or, for <see cref="CursorRingStyle.BiTonalSegments"/>,
     /// over the backdrop) and converges on whatever is behind it as opacity falls. The shipped
     /// default alone (Midnight, <c>WeightedSandwich</c>, the Accent preset) only needs 0.7
-    /// (6.03:1 at 0.6, 7.92:1 at 0.7), but Midnight's Amber preset (<c>AccentWarning</c>) needs
-    /// 0.9 under both <c>WeightedSandwich</c> and <c>BiTonalSegments</c> — the worst case across
-    /// every combination shipped today, and the value this test pins. A palette or preset change
-    /// that moves it must fail here and update <c>CircleOpacity</c>'s doc comment together with it.
+    /// (6.03:1 at 0.6, 7.92:1 at 0.7), but several dark-on-white-halo presets need 0.9 under
+    /// both <c>WeightedSandwich</c> and <c>BiTonalSegments</c> — Midnight's Amber
+    /// (<c>AccentWarning</c>), tied by Daylight's ring green (<c>#005200</c>) and its warning.
+    /// 0.9 is therefore the worst case across every combination shipped today, and the value
+    /// this test pins. A palette or preset change that moves it must fail here and update
+    /// <c>CircleOpacity</c>'s doc comment together with it.
     /// </summary>
     private const double WorstCaseOpacityThreshold = 0.9;
 

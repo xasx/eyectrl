@@ -56,7 +56,7 @@
          NOTE: {x:Static} resolves at PARSE time, before a theme is chosen — so every key
          here must also be written by ThemeResourceApplier.Apply, or it silently stays on
          Midnight. Apply_CoversEveryKeyTheDictionaryDeclares enforces that. See spec §6.6.
-         Today all three themes declare identical geometry and type, so "stays on Midnight"
+         Today every theme declares identical geometry and type, so "stays on Midnight"
          is a mechanism statement, not a currently-observable bug — only
          BorderThicknessStandard (Contrast = 2) actually differs. -->
     <x:Static x:Key="CornerRadiusSmall"    Member="theme:Tokens.CornerRadiusSmall"/>

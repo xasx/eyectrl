@@ -14,7 +14,10 @@ using EyeCtrl.Core.Models;
 /// </summary>
 public class QuickActionsLabelRouteTests
 {
-    private static QuickAction StalePresetTile() => new()
+    /// <summary>A preset tile whose stored label is stale German, so a site that reads the stored
+    /// label instead of the host's resolution shows the stale text. Internal for T12's
+    /// shipped-German variant of the same sites.</summary>
+    internal static QuickAction StalePresetTile() => new()
     {
         Type = QuickActionType.KeyboardShortcut,
         Payload = "Ctrl+C",
@@ -22,7 +25,7 @@ public class QuickActionsLabelRouteTests
         PresetId = "kbd.copy",
     };
 
-    private static QaTestSupport.FakeQuickActionsStore StoreWith(params QuickAction[] actions)
+    internal static QaTestSupport.FakeQuickActionsStore StoreWith(params QuickAction[] actions)
     {
         var store = new QaTestSupport.FakeQuickActionsStore();
         store.Save(actions);

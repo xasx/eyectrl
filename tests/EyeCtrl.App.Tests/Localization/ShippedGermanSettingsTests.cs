@@ -279,10 +279,12 @@ public class ShippedGermanSettingsTests
 
     /// <summary>
     /// The live check's navigation roster, headless (review-01 F2's teeth): every row the
-    /// showcase activates — and the picker page it lands on — is one the production page pipeline
-    /// renders for its tab, so a step cannot silently no-op. The on-screen half of the proof (the
-    /// step's German is actually visible) is <c>LiveCheck.AssertShowsText</c>, which only the live
-    /// check can run; this half fails headlessly when a showcased row id moves or disappears.
+    /// showcase activates is one the production page pipeline renders for its tab, and the two
+    /// step-on rows are driven through their PRODUCTION handlers — <c>qa_add</c> must land on the
+    /// type picker and <c>qa_type_kbd</c> on the keyboard-shortcut picker — so a no-op handler or
+    /// a row id that moved fails here without running the showcase. The on-screen half of the
+    /// proof (the step's German is actually visible) is <c>LiveCheck.AssertShowsText</c>, which
+    /// only the live check can run.
     /// </summary>
     [StaFact]
     public void TheLiveChecksRows_AreOnPagesTheShowcaseNavigatesTo()
@@ -300,23 +302,38 @@ public class ShippedGermanSettingsTests
                     ActionMenuPageSource.RingJumpRowId, ctx => new ActionMenuPageSource(ctx)))
                 .DoesNotThrow();
 
+            // The QuickActions steps, through the handlers the showcase's activations run — the
+            // production coverage gap V2/V3 exposed: "Kurzbefehl hinzufügen" or "Tastenkürzel"
+            // doing nothing went unnoticed.
             var picker = new RecordingSettingsPageContext(
                 viewModel: QaTestSupport.MakeViewModel(QuickActionsLabelRouteTests.StoreWith()));
             var source = new QuickActionsPageSource(picker.Context);
+
             Check.WithCustomMessage("the showcase's qa_add is not on QuickActions page 1.")
-                .That(source.Build()[0].Rows.Select(r => r.Id)).Contains("qa_add");
-            source.GoTo(QuickActionsPageSource.QaView.PickType);
-            Check.WithCustomMessage("the showcase's qa_type_kbd is not on the type picker's page.")
-                .That(source.Build()[0].Rows.Select(r => r.Id)).Contains("qa_type_kbd");
-            source.GoTo(QuickActionsPageSource.QaView.PickShortcut);
-            Check.WithCustomMessage("the showcase's keyboard picker's first page holds no preset.")
-                .That(source.Build()[0].Rows.Select(r => r.Id)).Contains("qa_ks_0");
+                .That(Rows(source)).Contains("qa_add");
+            Activate(source, "qa_add");
+            Check.WithCustomMessage("qa_add did not land on the type picker.")
+                .That(Rows(source)).Contains("qa_type_kbd");
+            Check.WithCustomMessage("qa_add left the source on its landing view.")
+                .That(Rows(source)).Not.Contains("qa_enabled");
+
+            Activate(source, "qa_type_kbd");
+            Check.WithCustomMessage("qa_type_kbd did not land on the keyboard-shortcut picker.")
+                .That(Rows(source)).Contains("qa_ks_0");
         }
         finally
         {
             StringTable.ResetToEmbeddedEnglish();
         }
     }
+
+    /// <summary>The ids of the first page the source currently builds.</summary>
+    private static List<string> Rows(QuickActionsPageSource source) =>
+        source.Build()[0].Rows.Select(r => r.Id).ToList();
+
+    /// <summary>Runs one row's production <c>OnActivate</c>, as the showcase's dwell activation would.</summary>
+    private static void Activate(QuickActionsPageSource source, string rowId) =>
+        source.Build().SelectMany(p => p.Rows).OfType<ButtonSpec>().Single(b => b.Id == rowId).OnActivate();
 
     /// <summary>Every combo the two walks compare: the walkable sources plus Models' md_active.</summary>
     private static Dictionary<string, ComboBoxSpec> WalkableCombos(

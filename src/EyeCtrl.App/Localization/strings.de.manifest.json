@@ -1,8 +1,11 @@
 [
   "app-tray",
+  "calibration",
   "caregiver-alert",
   "drift-notice",
+  "eye-care",
   "language-recovery",
+  "overlays",
   "settings",
   "startup-error",
   "supervisor",

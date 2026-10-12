@@ -93,3 +93,41 @@ combos, the ring preview and the quick-action picker all turn German together.
 - **Exception details stay English**, the same convention as the startup box's "Technische
   Details (Englisch)": a failed model download shows German "Download fehlgeschlagen: {0}" with the
   raw error in the `{0}` (`ModelsPageSource.cs`, the `settings.models.download.failed_detail` path).
+
+## T13 — Step 3: calibration, eye care and the overlays
+
+The gaze surfaces go German. With `calibration`, `eye-care` and `overlays` in the manifest, **every
+surface of EyeCtrl follows the Windows language**; nothing user-facing stays English by design.
+
+- **The live ring speaks German.** The action ring's labels ("Linksklick", "Rechtsklick", "2× Klick",
+  "Ziehen", "Mehr", "Zurück"), the modifier bar ("Shift", "Strg", "Alt") and the ring segments'
+  accessible names all follow the language (`ShippedGermanStep3Tests` — the view model's own labels and
+  the A105/A68 fit on the shipped table; `GeometryInvarianceTests` builds every overlay in English and
+  in the shipped German at 2.0 and finds identical dwell ids, centres and radii).
+- **The D3 window closes.** Until T12 the Settings ring preview spoke German while the live ring stayed
+  English; the quick-action picker spoke German while the grid stayed English. Both pairs now read the
+  same German: the live ring's labels equal the preview's (the `mirrors:` pairs,
+  `MirrorParityTests`), and the grid resolves its preset tiles through the `overlays` keys
+  (`ShippedGermanStep3Tests.TheQuickActionsGrid_…` — "Kopieren", "Wiedergabe / Pause", "Fenster
+  minimieren"). A quick-action tile the user named themselves keeps its own text (D2, unchanged).
+- **Calibration is German.** The progress line ("Auf den Punkt blicken · 1 / 9"), the
+  Retry/Accept buttons ("Wiederholen" / "So übernehmen"), the Esc and auto-dismiss hints and every
+  failure sentence (typed since T03c; wrapped since T10) (`ShippedGermanStep3Tests`, and the shipped
+  cases of `GermanGateTests.TheCalibrationButtons_…` / `EveryCalibrationFailure_…`).
+- **Eye care is German.** The banner ("Zeit für eine Augenpause", "starten", "später"), the exercise
+  screen ("Ende ✕", "Gleitendes Folgen") and the summary card ("✓ Gut gemacht", "Genauigkeit", "später"
+  numbers in German formats) (`ShippedGermanStep3Tests` — the A56/card fit and the windows' captions).
+- **The overlays' hints and names are German.** "Mit Esc beenden" (backdrop), "Mit Esc das Scrollen
+  beenden" (scroll overlay), the pinned note's caption and ✕ ✎ ↕ names, the toolbar's UIA names and
+  the icon-only edge buttons' names (`ShippedGermanStep3Tests.EveryIconOnlyTarget_…`).
+- **AutomationIds never change with the language.** UI tests locate targets by AutomationId and keep
+  running with English pinned; under German the toolbar and Settings tab faces keep the same ids
+  (`ShippedGermanStep3Tests.TheToolbarsAndTabFaces_…`, `StringTableIsolationTests`).
+- **Still English, deliberately:** exception details and technical messages — the startup box's
+  "Technische Details (Englisch)", the recovery frame's "(Englisch)", a failed model download's `{0}` —
+  and the logs. The product names ("EyeCtrl", "Tobii", "Supervisor", "Shift", "Alt") stay as they are.
+- **The "Double click" ring exception is still open.** "Double click" measures +1.8 DIP against the
+  +2 DIP ring rule; T13 re-measured the alternatives (German "2× Klick" +14.7 DIP; the Settings row's
+  "Doppelklick" would measure +0.85 DIP on the ring) and left the decision — keep the recorded
+  exception, lower the threshold, or reword the English — to the owner
+  (`FitClassTests.EnglishExceptions` and `ShippedGermanStep3Tests.TheDoubleClickCandidates_…`).

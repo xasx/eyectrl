@@ -30,6 +30,11 @@ using EyeCtrl.ViewModels;
 /// </para>
 ///
 /// <para>
+/// The calibration gates below run on the draft AND, since T13, on the SHIPPED German
+/// (<see cref="ShippedGerman"/>) — the real switch-on, not the rehearsal.
+/// </para>
+///
+/// <para>
 /// The Settings sources read <see cref="StringTable.Current"/>, so the German table is activated
 /// globally: the exclusive "StringTable Tests (App)" collection, with English restored after each.
 /// </para>
@@ -264,13 +269,21 @@ public class GermanGateTests
     /// Binding (T10 review-01, F1): the calibration window's Retry and Accept buttons, shown after a
     /// poor result, are fixed at 80 and 120 DIP and never wrap, and their keys are classed
     /// <c>row</c>, which only Settings pagination measures — a longer caption is cut at the button's
-    /// border. English is the baseline; a doubled caption must fail (the teeth).
+    /// border. English is the baseline; a doubled caption must fail (the teeth). T13 binds the
+    /// SHIPPED German here too: once <c>calibration</c> is in the manifest, the shipped table is the
+    /// one the user gets, and it must pass the same gate as the draft.
     /// </summary>
     [StaFact]
     public void TheCalibrationButtons_ShowTheirWholeCaptions_InEnglishAndGerman()
     {
+        var tables = new[]
+        {
+            ("English", StringTable.EmbeddedEnglish),
+            ("German", GermanDraft.Table),
+            ("Shipped German", ShippedGerman.Load()),
+        };
         var failures = new List<string>();
-        foreach (var (language, table) in new[] { ("English", StringTable.EmbeddedEnglish), ("German", GermanDraft.Table) })
+        foreach (var (language, table) in tables)
         {
             foreach (var (button, key) in CalibrationButtons)
             {
@@ -280,13 +293,16 @@ public class GermanGateTests
             }
         }
 
-        foreach (var (button, key) in CalibrationButtons)
+        foreach (var (language, table) in tables.Where(t => t.Item1 != "English"))
         {
-            var german = GermanDraft.Table.T(key);
-            Check.WithCustomMessage($"{key} resolved its English: the German table is not effective.")
-                .That(german).IsNotEqualTo(StringTable.EmbeddedEnglish.T(key));
-            Check.WithCustomMessage($"The calibration-button gate passed a doubled {key}: it cannot fail.")
-                .That(CalibrationButton(button, german + " " + german).Fits).IsFalse();
+            foreach (var (button, key) in CalibrationButtons)
+            {
+                var german = table.T(key);
+                Check.WithCustomMessage($"{language} {key} resolved its English: the table is not effective.")
+                    .That(german).IsNotEqualTo(StringTable.EmbeddedEnglish.T(key));
+                Check.WithCustomMessage($"The calibration-button gate passed a doubled {language} {key}: it cannot fail.")
+                    .That(CalibrationButton(button, german + " " + german).Fits).IsFalse();
+            }
         }
 
         Check.WithCustomMessage("The calibration buttons cut their captions:\n  " + string.Join("\n  ", failures))
@@ -302,14 +318,21 @@ public class GermanGateTests
     /// above it, the Retry/Accept buttons below it nor the cancel hint in the corner. Measured on the
     /// user's screen (1920 × 1200 DIP at 2.0) and on a smaller one, so the wrap width must be the
     /// window's, not a constant; with and without the buttons. One failing point stays on ONE line
-    /// on the user's screen (in English, exactly where it was before the line could wrap).
+    /// on the user's screen (in English, exactly where it was before the line could wrap). T13 adds
+    /// the SHIPPED German as a third case: the real switch-on must pass the same gate.
     /// </summary>
     [StaTheory]
     [InlineData("English")]
     [InlineData("German")]
+    [InlineData("Shipped German")]
     public void EveryCalibrationFailure_ShowsWhole_InsideTheWindow(string language)
     {
-        var table = language == "German" ? GermanDraft.Table : StringTable.EmbeddedEnglish;
+        var table = language switch
+        {
+            "German" => GermanDraft.Table,
+            "Shipped German" => ShippedGerman.Load(),
+            _ => StringTable.EmbeddedEnglish,
+        };
         StringTable.Activate(table);
         try
         {
@@ -333,9 +356,9 @@ public class GermanGateTests
                 CalibrationFailureText.Describe(QualityFailure(1)), 1920.0, 1200.0, withButtons: false);
             Check.WithCustomMessage($"One failing point no longer reads on one line on the user's screen: {onePoint}")
                 .That(onePoint.Lines).IsEqualTo(1);
-            if (language == "German")
+            if (language != "English")
             {
-                Check.WithCustomMessage("The failure line resolved its English: the German table is not effective.")
+                Check.WithCustomMessage($"The failure line resolved its English: the {language} table is not effective.")
                     .That(CalibrationFailureText.Describe(QualityFailure(1)))
                     .IsNotEqualTo(EnglishOf(() => CalibrationFailureText.Describe(QualityFailure(1))));
 

@@ -63,11 +63,17 @@ public class FitClassTests
     [
         // The debate measured "Double click" at +1.77 DIP; this harness measures +1.8 at 2.0. The
         // whole ink box is inside the arc, 0.2 DIP short of the +2 margin. Pinned as the ticket's
-        // recorded exception; T13 revisits the ring before Step 3 switches it on.
+        // recorded exception. T13 re-measured it (2026-10-12): the German ring's "2× Klick" keeps
+        // 14.7 DIP and the Settings row's "Doppelklick" would keep 0.85, so the ring's wording is
+        // the only candidate at issue; the owner's call among keeping this exception, lowering the
+        // threshold, or rewording the English is pending, and no threshold changed here.
         new("overlays.ring.doubleClick", "A105", "SegUIVar.ttf", -0.2,
-            "+1.8 DIP against the +2 rule: inside the arc, short of the margin by 0.2 (debate: +1.77). T13 revisits."),
+            "+1.8 DIP against the +2 rule: inside the arc, short of the margin by 0.2 (debate: +1.77). "
+            + "T13 re-measured it 2026-10-12 (+1.8; German \"2× Klick\" +14.7, \"Doppelklick\" +0.85); the "
+            + "threshold decision is the owner's and is pending."),
         new("settings.ring.doubleClick", "A105", "SegUIVar.ttf", -0.2,
-            "The Settings mirror of overlays.ring.doubleClick, measured in the same runtime ring: +1.8 DIP. T13 revisits."),
+            "The Settings mirror of overlays.ring.doubleClick, measured in the same runtime ring: +1.8 DIP. "
+            + "T13 re-measured it 2026-10-12; the German candidates' figures are on the overlays key's entry."),
     ];
 
     private readonly ITestOutputHelper _output;

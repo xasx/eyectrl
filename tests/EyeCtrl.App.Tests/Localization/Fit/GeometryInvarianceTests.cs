@@ -44,12 +44,13 @@ using EyeCtrl.ViewModels.Messages;
 /// </para>
 ///
 /// <para>
-/// <b>Three tables.</b> T10's German draft (<see cref="GermanDraft"/>, every surface on under a test
-/// manifest; non-vacuous when some drawn text differs from the English), the pseudo-locale (every
-/// word +40 %, like German), and the STRESS table
-/// (every word doubled, review-04 D2): a fixed box whose text happens to stay just inside it looks
-/// fixed under the pseudo-locale without proving it — "snooze" is 63.8 DIP against its 64 DIP ring.
-/// Doubled, every caption overruns its box, so a box that follows its text moves.
+/// <b>Four tables.</b> T10's German draft (<see cref="GermanDraft"/>, every surface on under a test
+/// manifest; non-vacuous when some drawn text differs from the English), the SHIPPED German (T13:
+/// the production manifest and <c>strings.de.json</c> beside the exe, so the binding is the real
+/// switch-on, not the test manifest), the pseudo-locale (every word +40 %, like German), and the
+/// STRESS table (every word doubled, review-04 D2): a fixed box whose text happens to stay just
+/// inside it looks fixed under the pseudo-locale without proving it — "snooze" is 63.8 DIP against
+/// its 64 DIP ring. Doubled, every caption overruns its box, so a box that follows its text moves.
 /// </para>
 ///
 /// <para>
@@ -121,11 +122,11 @@ public class GeometryInvarianceTests
         "settings toggle, two-column", "settings toggle, stacked",
     ];
 
-    /// <summary>Every surface, against the pseudo-locale and against the stress table.</summary>
+    /// <summary>Every surface, against the shipped German, the German draft, the pseudo-locale and the stress table.</summary>
     public static TheoryData<string, string> Surfaces()
     {
         var data = new TheoryData<string, string>();
-        foreach (var table in new[] { "pseudo", "stress", "german" })
+        foreach (var table in new[] { "shipped", "german", "pseudo", "stress" })
             foreach (var surface in SurfaceNames)
                 data.Add(surface, table);
         return data;
@@ -133,6 +134,7 @@ public class GeometryInvarianceTests
 
     private static StringTable TableNamed(string table) => table switch
     {
+        "shipped" => ShippedGerman.Load(),
         "pseudo" => PseudoLocale.Table,
         "stress" => PseudoLocale.StressTable,
         "german" => GermanDraft.Table,
@@ -153,7 +155,7 @@ public class GeometryInvarianceTests
         Check.WithCustomMessage($"{surface}: no targets — the snapshot measured nothing.").That(english.Targets).Not.IsEmpty();
         Check.WithCustomMessage($"{surface} ({table}): the translated build drew no translated text — it is not reading the "
                                 + $"table, so the comparison would be English against English. Texts: {string.Join(" | ", translated.Texts.Take(8))}")
-            .That(table == "german"
+            .That(table is "german" or "shipped"
                 ? translated.Texts.Except(english.Texts, StringComparer.Ordinal).Any()
                 : translated.Texts.Any(t => t.Contains('[', StringComparison.Ordinal))).IsTrue();
 

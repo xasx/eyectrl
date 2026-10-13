@@ -437,11 +437,14 @@ public class Step3LiveCheckTests
             var physicalScreen = new Rect(0, 0,
                 SystemParameters.VirtualScreenWidth * transform.M11,
                 SystemParameters.VirtualScreenHeight * transform.M22);
-            var glyphBox = new Rect(
-                glyph.PointToScreen(new Point(0, 0)),
-                glyph.PointToScreen(new Point(glyph.ActualWidth, glyph.ActualHeight)));
-            Check.WithCustomMessage($"the ✕ at {glyphBox} (device px) leaves the screen {physicalScreen}.")
-                .That(physicalScreen.Contains(glyphBox)).IsTrue();
+            // The ✕'s INK, not its layout box: the box is the whole 100-DIP dwell disc, and a disc
+            // centred 40 DIP from the corner reaches ~10 DIP past the right and top edges by design
+            // — the viewer sees the glyph, which sits well inside.
+            var inkBox = LiveCheck.InkBoundsInDevicePixels(glyph);
+            Check.WithCustomMessage(
+                    $"the ✕'s ink {inkBox} (device px) leaves the screen {physicalScreen}; the layout box is the "
+                    + "dwell disc, which the corner design may clip, but the glyph must be on screen.")
+                .That(physicalScreen.Contains(inkBox)).IsTrue();
 
             LiveCheck.AssertShowsText(window, "Glass backdrop", "Mit Esc beenden");
             LiveCheck.AssertVisible(window, "Glass backdrop");

@@ -40,7 +40,7 @@ public enum SubPixelProbePhase
     /// <summary>The Intro screen: how to answer and how to leave, until Start.</summary>
     Intro,
 
-    /// <summary>Interval 1: the first condition, 3 s (live: 4 s).</summary>
+    /// <summary>Interval 1: the first condition, 5 s (live: 6 s; A1).</summary>
     Interval1,
 
     /// <summary>The 0.8 s blank gap between the intervals.</summary>
@@ -251,14 +251,22 @@ public partial class SubPixelProbeViewModel : MessengerViewModelBase,
     /// <summary>Target id of the Result screen's Done button.</summary>
     public const string ResultDoneTargetId = "subpixel_result_done";
 
-    /// <summary>Interval 1 and interval 2 duration of the scripted blocks, in milliseconds.</summary>
-    public const int ScriptedIntervalMs = 3000;
+    /// <summary>
+    /// Interval 1 and interval 2 duration of the scripted blocks, in milliseconds (5 s, A1).
+    /// The value is owned by <see cref="SubPixelAbTiming"/> — Core needs it to bound the
+    /// schedule's start positions by the path the motion travels over a whole interval — and
+    /// re-exposed here as the state machine's own surface.
+    /// </summary>
+    public const int ScriptedIntervalMs = SubPixelAbTiming.ScriptedIntervalMs;
 
-    /// <summary>Interval 1 and interval 2 duration of the live block, in milliseconds.</summary>
-    public const int LiveIntervalMs = 4000;
+    /// <summary>
+    /// Interval 1 and interval 2 duration of the live block, in milliseconds (6 s, A1). Owned by
+    /// <see cref="SubPixelAbTiming"/> for the same reason as <see cref="ScriptedIntervalMs"/>.
+    /// </summary>
+    public const int LiveIntervalMs = SubPixelAbTiming.LiveIntervalMs;
 
-    /// <summary>The blank gap between the two intervals, in milliseconds.</summary>
-    public const int GapMs = 800;
+    /// <summary>The blank gap between the two intervals, in milliseconds (0.8 s, unchanged by A1).</summary>
+    public const int GapMs = SubPixelAbTiming.GapMs;
 
     /// <summary>How long a screen that waits for input (answer, Ask, Result) waits before aborting.</summary>
     public const int ScreenTimeoutMs = 60_000;

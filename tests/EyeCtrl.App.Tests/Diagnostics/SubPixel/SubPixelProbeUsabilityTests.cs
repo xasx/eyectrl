@@ -560,8 +560,10 @@ public class SubPixelProbeUsabilityTests
         try
         {
             var ring = window.RingForTest;
-            double travel = SubPixelAbDriftMotion.StepPixelsPerTick
-                * (SubPixelProbeViewModel.ScriptedIntervalMs / (double)SubPixelAbDriftMotion.TickMilliseconds);
+            // A1's trial timing as LITERALS (5000 ms intervals, 800 ms gap): the demo must follow
+            // the trial's timing, so a demo that kept the old 3000/800 pair fails here.
+            const double travel = SubPixelAbDriftMotion.StepPixelsPerTick
+                * (5000 / (double)SubPixelAbDriftMotion.TickMilliseconds);
             double startX = 1920 / 2.0 - travel / 2.0;
             double centreY = 1080 / 2.0;
 
@@ -577,23 +579,24 @@ public class SubPixelProbeUsabilityTests
             window.OnFrame();
             AssertRingAt(ring, new PhysicalPoint(startX + 15, centreY), snap: true);
 
-            // The pair's 0.8 s gap hides the ring, exactly as a trial's gap does.
-            ticks = 3400;
+            // The pair's 0.8 s gap (5000..5800) hides the ring, exactly as a trial's gap does.
+            ticks = 5000 + 400;
             window.OnFrame();
             Check.WithCustomMessage("The demo ring must hide during the gap")
                 .That(window.IsRingDrawnForTest).IsFalse();
 
             // The pair's second interval runs the other condition — the same path, no snapping.
-            ticks = 3800 + 1800;
+            ticks = 5000 + 800 + 1800;
             window.OnFrame();
             Check.That(window.IsRingDrawnForTest).IsTrue();
             AssertRingAt(ring, new PhysicalPoint(startX + 15, centreY), snap: false);
 
             // Fixup 01 F5: the NEXT loop alternates the order — B first, the snapshot off.
-            ticks = 7600 + 1800;
+            // One full loop is 2 × (5000 + 800) = 11600 ms.
+            ticks = 11600 + 1800;
             window.OnFrame();
             AssertRingAt(ring, new PhysicalPoint(startX + 15, centreY), snap: false);
-            ticks = 7600 + 3800 + 1800;
+            ticks = 11600 + 5800 + 1800;
             window.OnFrame();
             AssertRingAt(ring, new PhysicalPoint(startX + 15, centreY), snap: true);
 

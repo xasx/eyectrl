@@ -25,6 +25,12 @@ using NFluent;
 ///   2. every id the VIEW-MODEL defines must be rendered, unless it is listed in
 ///      <see cref="ReachableElsewhere"/> with its actual entry point.
 ///
+/// Plus one membership rule (Task 7): ResetAdaptation's band membership is CONDITIONAL on the
+/// includeReset flag while its view-model list entry and activation case are STATIC — see
+/// <see cref="ResetMembership_IsConditionalInTheBand_AndStaticInTheViewModel"/> for the D11
+/// reasoning. The array the band declares keeps the entry either way, so directions 1 and 2
+/// apply to it unchanged.
+///
 /// Not <c>Category=UI</c> — it only reads source files, so it runs in the headless
 /// <c>Category!=UI</c> subset that CI executes.
 ///

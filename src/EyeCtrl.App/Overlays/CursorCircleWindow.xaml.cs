@@ -30,8 +30,9 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
     }
 
     /// <summary>
-    /// Window opacity while paused. Large enough that the ring still reads as present (tracking is
-    /// alive), small enough that it does not compete with the resume target it is pointing at.
+    /// Window opacity for the paused state. Defensive only: the VM hides the ring while paused and
+    /// no production path shows the window in that state — this is the look a future direct show
+    /// while paused must present, never the quiet FreeLook ring.
     /// </summary>
     internal const double PausedDimOpacity = 0.45;
 

@@ -143,8 +143,9 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 else cursorCircle.Hide();
                 break;
             case nameof(CursorCircleViewModel.IsPaused):
-                // Paused keeps the ring visible, dimmed: it is the user's evidence that tracking is
-                // alive while they look for the resume target.
+                // Defensive dim: the VM hides the ring in Paused (IsVisible gate) and no production
+                // path shows the window in that state; this keeps a hypothetical direct show while
+                // paused reading as paused rather than as the quiet FreeLook ring.
                 cursorCircle.SetPausedDim(Context.CursorVM.IsPaused);
                 break;
             case nameof(CursorCircleViewModel.IsPinned):

@@ -58,8 +58,11 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     [ObservableProperty] private RingMove _moveTo;
 
     /// <summary>
-    /// True while the interaction state is Paused. Paused does not hide the ring: it stays visible
-    /// (dimmed by the View) so the user can see that tracking is alive and where their gaze is.
+    /// True while the interaction state is Paused. Paused hides the ring (<see cref="_stateAllowsCursor"/>
+    /// excludes it). IsPaused survives purely as a defensive View input: no production path shows the
+    /// window while paused (the startup show precedes the paused-launch toggle, whose single state
+    /// message dims and then hides in one dispatcher callback, so the dim is never presented) — but a
+    /// future direct-show path must still read as paused rather than as the quiet FreeLook ring.
     /// </summary>
     [ObservableProperty] private bool _isPaused;
 
@@ -95,8 +98,9 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
         }
 
         // Pinned means the ring stays where the fixation settled; a gaze move inside the hold radius
-        // must not nudge it. FreeLook (and Paused) follow as before, so the user can still see where
-        // the tracker thinks they are looking.
+        // must not nudge it. Hidden states (Paused included) do not follow either: the IsVisible
+        // gate below stops Position updates while the window is away, so the ring reappears
+        // exactly where UpdateVisibility's reappear snap put it.
         if (IsVisible && !IsPinned)
             Position = message.Position;
     }
@@ -135,9 +139,11 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     public void Receive(StateChangedMessage message)
     {
         _lastState = message.NewState;
-        // Paused keeps the ring (dimmed) — it is the user's only evidence that tracking is alive
-        // while they are looking for the resume target. RepeatMode hides the normal circle: the
-        // contracting repeat cursor replaces it there.
+        // Paused hides the ring: the PauseIndicator strip is the pause feedback, and resume needs no
+        // cursor — the past-edge summon carries no pause gate and the toolbar band is deliberately
+        // dwellable while paused (ToolbarViewModel.DwellActiveWhilePaused). The dim (IsPaused below)
+        // remains only as the View's defensive look; see IsPaused's summary.
+        // RepeatMode hides the normal circle too: the contracting repeat cursor replaces it there.
         IsPaused = message.NewState == InteractionState.Paused;
         // Belt and braces for the release: a pinned ring implies Fixation or FreeLook — FreeLook only
         // because the ring stays at the offer's P while the user looks at the button, and Core's
@@ -151,7 +157,7 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
             Position = _latestGaze;
         }
         _stateAllowsCursor = message.NewState
-            is InteractionState.FreeLook or InteractionState.Fixation or InteractionState.Paused;
+            is InteractionState.FreeLook or InteractionState.Fixation;
         UpdateVisibility();
     }
 
@@ -183,5 +189,21 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
         MoveTo = new RingMove(RingGlide.At(_glideFrom, _glideTo, elapsedMs), Glide: true);
     }
 
-    private void UpdateVisibility() => IsVisible = _stateAllowsCursor && !_externalDwellActive;
+    private void UpdateVisibility()
+    {
+        var wasVisible = IsVisible;
+        var nowVisible = _stateAllowsCursor && !_externalDwellActive;
+
+        // A ring that reappears after a hidden stretch draws where the gaze is NOW. The hidden
+        // window keeps its last drawn Left/Top, so without this the first shown frame presents
+        // the position from before the stretch — minutes old when the stretch was a pause. The
+        // pin is exempt: a pinned ring must stay exactly where it is until Core releases it.
+        // Position is written BEFORE IsVisible so the coordinator's Show lands on a window that
+        // is already at the live gaze — same order as the activation halo (position, then show),
+        // and for the same reason: the other order presents the previous position for a frame.
+        if (!wasVisible && nowVisible && !IsPinned)
+            Position = _latestGaze;
+
+        IsVisible = nowVisible;
+    }
 }

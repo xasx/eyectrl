@@ -105,9 +105,26 @@ public class PhysicalRectGeometryTests
 
 **Interfaces:**
 - Consumes: `EffectiveSmoothing.Compose` (Task 2).
-- Produces: `public static AdaptationPreviewSnapshot Build(AdaptationSettings adaptation, EffectiveSettingsProvider provider, DwellSettings dwell, CursorSettings cursor)` (P14 — the provider exposes no `Enabled`; disabled ⇒ all-zero rows via `adaptation.Enabled`), returning the row record from plan rev 1 unchanged (`AdaptationPreviewRow(Knob, TotalFill, LearnedFill, TighteningDirection, AbsoluteValue, BaselineValue, IsHzUnit)` + `AnythingActive`).
+- Produces: `public static AdaptationPreviewSnapshot Build(AdaptationSettings adaptation, EffectiveSettingsProvider provider, DwellSettings dwell, CursorSettings cursor)` (P14 — the provider exposes no `Enabled`; disabled ⇒ all-zero rows via `adaptation.Enabled`), returning:
 
-- [ ] **Step 1: Failing tests** — rev-1 case list PLUS: `adaptation.Enabled == false` with non-zero fills still stored ⇒ all-zero rows / `AnythingActive == false` (locked §8.3 invariant).
+```csharp
+public sealed record AdaptationPreviewRow(
+    AdaptationKnob Knob,
+    double TotalFill,         // clamped composed net fill toward the row's direction, [0,1]
+    double LearnedFill,       // the learned portion shaded inside TotalFill, [0, TotalFill]
+    bool TighteningDirection, // true only for DwellTime when the tightening side dominates
+    double? AbsoluteValue,    // tolerance px / smoothing parameter; null for Dwell/Geometry
+    double? BaselineValue,    // the absolute knob's baseline; null with AbsoluteValue
+    bool IsHzUnit);           // smoothing: Hz for One-Euro, false (factor) for EMA
+
+public sealed record AdaptationPreviewSnapshot(
+    IReadOnlyList<AdaptationPreviewRow> Rows,   // exactly four, knob order: Dwell, Tolerance, Smoothing, Geometry
+    bool AnythingActive);                       // false ⇒ the window shows the "nothing active" line
+```
+
+Composition rule (mirrors `EffectiveSettingsProvider.Effective`, spec §3.4): `TotalFill = clamp(learned + momentary, 0, 1)` **per direction**; for Dwell, the forgiving (shorter) and tightening (longer) fills are compared — the larger side sets `TotalFill` and `TighteningDirection` (ties ⇒ forgiving/"shorter", `TighteningDirection = false`); the learned fill is forgiving-only and `LearnedFill = min(learned, TotalFill)`. Tolerance absolute: `provider.Effective(FixationRadius, DwellContext.Other, dwell.FixationRadiusPixels)` as `AbsoluteValue`, the baseline as `BaselineValue`. Smoothing: `EffectiveSmoothing.Compose(provider, cursor)` as `AbsoluteValue` (the oracle — a test must assert it equals a direct `Compose` call), baseline = `cursor.OneEuroMinCutoff` (One-Euro, `IsHzUnit = true`) or `cursor.SmoothingFactor` (EMA, `false`), both null when `Compose` returns null. Dwell/Geometry: `AbsoluteValue`/`BaselineValue` null.
+
+- [ ] **Step 1: Failing tests** — cases: **all-at-baseline** (no fills anywhere ⇒ `AnythingActive == false`, four rows all-zero); **learned-only** (learned fill set, momentary zero ⇒ that knob's `TotalFill == LearnedFill`, `AnythingActive == true`); **tolerance absolute** (`dwell.FixationRadiusPixels = 45`, tolerance momentary fill 0.4 with `ToleranceLooserMaxFraction = 0.5` ⇒ effective 54 ⇒ `AbsoluteValue == 54`, `BaselineValue == 45`); **smoothing per filter mode** (One-Euro ⇒ `IsHzUnit == true` and value ≡ `Compose` oracle; EMA ⇒ `false` and ≡ oracle; Direct ⇒ null); **bidirectional dwell** (tightening-only fill ⇒ `TighteningDirection == true` "longer"; mixed with larger forgiving ⇒ `false` "shorter"; learned 0.5 + momentary 0.8 ⇒ `TotalFill == 1.0` clamped, `LearnedFill <= TotalFill`); **geometry band-only** (`AbsoluteValue` null, fill present); PLUS `adaptation.Enabled == false` with non-zero fills still stored ⇒ all-zero rows / `AnythingActive == false` (locked §8.3 invariant).
 - [ ] **Step 2: Verify fail. Step 3: Implement. Step 4: Run → PASS. Commit:** `feat: AdaptationPreviewSnapshot — pure rows, clamped net composition, disabled-aware (D3/G1/P14)`
 
 ---

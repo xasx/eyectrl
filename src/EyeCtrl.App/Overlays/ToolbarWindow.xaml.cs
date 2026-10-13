@@ -205,11 +205,10 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
         // adaptation-Enabled flip through Initialize) also removes its dwell target, zeroes a
         // held arc and closes any live preview engagement — without it, a stale target at a
         // former screen position could fire the one unrecoverable action from gaze merely
-        // passing there. AFTER BindToViewModel: SetRenderedButtons zeroes the absent id's
-        // progress/highlight, and the rebind's initial-apply block must have run first so a
-        // still-rendered button's live state survives those events (an absent id's handler
-        // returns at the band-Contains guard, so the order is belt-and-braces, but stated once
-        // here rather than left to be rediscovered). A null or non-ToolbarViewModel DataContext
+        // passing there. AFTER BindToViewModel, and the order is safe in both directions because
+        // the two never contend: SetRenderedButtons writes only the ABSENT ids' view-model
+        // buttons, and the PropertyChanged it thereby raises for an absent id hits BindButton's
+        // band-Contains guard and paints nothing. A null or non-ToolbarViewModel DataContext
         // (construction order varies across callers) simply skips — nothing is positioned yet,
         // so there is nothing to remove.
         if (DataContext is ToolbarViewModel vm)

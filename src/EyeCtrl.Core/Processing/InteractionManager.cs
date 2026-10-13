@@ -266,8 +266,9 @@ public class InteractionManager
 
     /// <summary>
     /// Sets whether offers are suspended entirely (the settings window, the task switcher, the
-    /// quick-actions grid or the eye-care banner is open — the user's decision of 2026-10-02). A rise
-    /// clears a live unfired offer; the state is applied by the gaze thread with the other requests.
+    /// quick-actions grid, the eye-care banner or the adaptation preview panel is open — the
+    /// user's decision of 2026-10-02, the preview added by D16 r5/P16). A rise clears a live
+    /// unfired offer; the state is applied by the gaze thread with the other requests.
     /// </summary>
     public void SetActivationOffersSuspended(bool suspended)
         => Interlocked.Exchange(ref _activationOffersSuspendedRequested, suspended ? 1 : 0);

@@ -200,7 +200,18 @@ public partial class AdaptationPreviewWindow : OverlayWindow, IPreviewPanel
         return block;
     }
 
-    private static UIElement RowFor(StringTable strings, AdaptationPreviewRow row)
+    /// <summary>An all-zero row (an empty track): what the fit harness's <see cref="RowForTest"/>
+    /// lays the probe texts over — the fill shades draw no width, so the geometry is the row's.</summary>
+    private static readonly AdaptationPreviewRow EmptyRow =
+        new(AdaptationKnob.FixationRadius, 0.0, 0.0, TighteningDirection: false, null, null, false);
+
+    private static UIElement RowFor(StringTable strings, AdaptationPreviewRow row) =>
+        BuildRow(LabelFor(strings, row.Knob), ValueTextFor(strings, row), row);
+
+    /// <summary>One row's grid (§3.4): knob label left, fill bar centre, right-aligned value right.
+    /// The production path composes both texts from the snapshot; the fit harness injects its own
+    /// through <see cref="RowForTest"/>.</summary>
+    private static UIElement BuildRow(string labelText, string valueText, AdaptationPreviewRow row)
     {
         var grid = new Grid { Margin = new Thickness(0, 5, 0, 0) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -209,7 +220,7 @@ public partial class AdaptationPreviewWindow : OverlayWindow, IPreviewPanel
 
         var label = new TextBlock
         {
-            Text = LabelFor(strings, row.Knob),
+            Text = labelText,
             FontSize = Tokens.FontSizeBody,
             Foreground = Tokens.BrushTextPrimary,
             VerticalAlignment = VerticalAlignment.Center,
@@ -225,7 +236,7 @@ public partial class AdaptationPreviewWindow : OverlayWindow, IPreviewPanel
 
         var value = new TextBlock
         {
-            Text = ValueTextFor(strings, row),
+            Text = valueText,
             FontSize = Tokens.FontSizeBody,
             Foreground = Tokens.BrushTextDim,
             VerticalAlignment = VerticalAlignment.Center,
@@ -236,6 +247,12 @@ public partial class AdaptationPreviewWindow : OverlayWindow, IPreviewPanel
 
         return grid;
     }
+
+    /// <summary>The fit harness's seam (class PV1): one production row with the label and value
+    /// texts injected at the data level — A68's <c>with { Label = text }</c> pattern — over an
+    /// empty track. Measured by tests/EyeCtrl.App.Tests/Localization/Fit.</summary>
+    internal static Grid RowForTest(string labelText, string valueText) =>
+        (Grid)BuildRow(labelText, valueText, EmptyRow);
 
     private static string LabelFor(StringTable strings, AdaptationKnob knob) => knob switch
     {

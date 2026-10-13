@@ -664,28 +664,28 @@
     "text": "at baseline",
     "who": "user",
     "where": "overlays",
-    "fit": "row",
+    "fit": "PV1",
     "args": []
   },
   "overlays.adaptationPreview.direction.bigger": {
     "text": "bigger",
     "who": "user",
     "where": "overlays",
-    "fit": "row",
+    "fit": "PV1",
     "args": []
   },
   "overlays.adaptationPreview.direction.longer": {
     "text": "longer",
     "who": "user",
     "where": "overlays",
-    "fit": "row",
+    "fit": "PV1",
     "args": []
   },
   "overlays.adaptationPreview.direction.shorter": {
     "text": "shorter",
     "who": "user",
     "where": "overlays",
-    "fit": "row",
+    "fit": "PV1",
     "args": []
   },
   "overlays.adaptationPreview.footer": {
@@ -699,28 +699,28 @@
     "text": "Dwell",
     "who": "user",
     "where": "overlays",
-    "fit": "row",
+    "fit": "PV1",
     "args": []
   },
   "overlays.adaptationPreview.knob.geometry": {
     "text": "Geometry",
     "who": "user",
     "where": "overlays",
-    "fit": "row",
+    "fit": "PV1",
     "args": []
   },
   "overlays.adaptationPreview.knob.smoothing": {
     "text": "Smoothing",
     "who": "user",
     "where": "overlays",
-    "fit": "row",
+    "fit": "PV1",
     "args": []
   },
   "overlays.adaptationPreview.knob.tolerance": {
     "text": "Tolerance",
     "who": "user",
     "where": "overlays",
-    "fit": "row",
+    "fit": "PV1",
     "args": []
   },
   "overlays.adaptationPreview.nothingActive": {
@@ -748,35 +748,35 @@
     "text": "factor",
     "who": "user",
     "where": "overlays",
-    "fit": "row",
+    "fit": "PV1",
     "args": []
   },
   "overlays.adaptationPreview.unit.hz": {
     "text": "Hz",
     "who": "user",
     "where": "overlays",
-    "fit": "row",
+    "fit": "PV1",
     "args": []
   },
   "overlays.adaptationPreview.unit.px": {
     "text": "px",
     "who": "user",
     "where": "overlays",
-    "fit": "row",
+    "fit": "PV1",
     "args": []
   },
   "overlays.adaptationPreview.value.absolute": {
     "text": "{0} → {1} {2}",
     "who": "user",
     "where": "overlays",
-    "fit": "row",
+    "fit": "PV1",
     "args": ["current", "baseline", "unit"]
   },
   "overlays.adaptationPreview.value.band": {
     "text": "{0}% {1}",
     "who": "user",
     "where": "overlays",
-    "fit": "row",
+    "fit": "PV1",
     "args": ["percent", "direction"]
   },
   "overlays.edge.back": {

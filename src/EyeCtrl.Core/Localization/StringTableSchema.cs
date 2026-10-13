@@ -79,6 +79,9 @@ public static class StringTableSchema
         "modal170",
         // A stacked (three-choice) modal button: one line ≤ 460 − 8 DIP.
         "modal460",
+        // The adaptation-preview row (D15): direction word + right-aligned value in a ≤360 DIP
+        // panel row, ink ≥ 2 DIP from the bar.
+        "PV1",
         // Settings DwellButtons of a fixed W×H DIP box: the label wraps in W, and its laid-out
         // height must fit H − 6 (the dwell bar's row); no run may need a mid-word break.
         "btn360x100",

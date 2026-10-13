@@ -344,19 +344,19 @@
   },
   "overlays.adaptationPreview.direction.atBaseline": {
     "text": "am Ausgangswert",
-    "src": "177a8a31"
+    "src": "32334352"
   },
   "overlays.adaptationPreview.direction.bigger": {
     "text": "größer",
-    "src": "9d423f01"
+    "src": "589bf1d8"
   },
   "overlays.adaptationPreview.direction.longer": {
     "text": "länger",
-    "src": "19737835"
+    "src": "5383cd5a"
   },
   "overlays.adaptationPreview.direction.shorter": {
     "text": "kürzer",
-    "src": "d9256be4"
+    "src": "63f9cf4f"
   },
   "overlays.adaptationPreview.footer": {
     "text": "Zurücksetzen löscht alle kurzfristigen und gelernten Anpassungen.",
@@ -364,19 +364,19 @@
   },
   "overlays.adaptationPreview.knob.dwell": {
     "text": "Verweilzeit",
-    "src": "397993eb"
+    "src": "eba951fa"
   },
   "overlays.adaptationPreview.knob.geometry": {
     "text": "Geometrie",
-    "src": "b4e164e7"
+    "src": "88221a94"
   },
   "overlays.adaptationPreview.knob.smoothing": {
     "text": "Glättung",
-    "src": "8d04c675"
+    "src": "92efda30"
   },
   "overlays.adaptationPreview.knob.tolerance": {
     "text": "Toleranz",
-    "src": "22b7b1cd"
+    "src": "6cd57035"
   },
   "overlays.adaptationPreview.nothingActive": {
     "text": "Gerade nichts aktiv",
@@ -392,23 +392,23 @@
   },
   "overlays.adaptationPreview.unit.factor": {
     "text": "Faktor",
-    "src": "7519cd3e"
+    "src": "8607b128"
   },
   "overlays.adaptationPreview.unit.hz": {
     "text": "Hz",
-    "src": "968de1c4"
+    "src": "7285b250"
   },
   "overlays.adaptationPreview.unit.px": {
     "text": "px",
-    "src": "b1e873a6"
+    "src": "70f8173a"
   },
   "overlays.adaptationPreview.value.absolute": {
     "text": "{0} → {1} {2}",
-    "src": "c3738e2c"
+    "src": "b507c9e0"
   },
   "overlays.adaptationPreview.value.band": {
     "text": "{0}% {1}",
-    "src": "5bc48489"
+    "src": "3dfdbbd4"
   },
   "overlays.edge.back": {
     "text": "Zurück",

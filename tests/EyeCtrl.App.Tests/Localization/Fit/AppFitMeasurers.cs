@@ -90,6 +90,7 @@ internal static class AppFitMeasurers
             ["C-alert"] = CaregiverAlert,
             ["modal170"] = (_, text) => ModalButton(text, wide: false),
             ["modal460"] = (_, text) => ModalButton(text, wide: true),
+            ["PV1"] = PreviewRowFit.Measure,
             ["btn360x100"] = (_, text) => SettingsButton(text, SettingsButtonBox("btn360x100")),
             ["btn360x70"] = (_, text) => SettingsButton(text, SettingsButtonBox("btn360x70")),
             ["btn380x100"] = (_, text) => SettingsButton(text, SettingsButtonBox("btn380x100")),
@@ -132,6 +133,11 @@ internal static class AppFitMeasurers
                 return BundledModels()
                     .Select(m => string.Format(CultureInfo.InvariantCulture, item.Text, m.DisplayName))
                     .ToList();
+            // The adaptation-preview value templates: composed at each unit's worst pair / a full
+            // band, in every shipped spelling of the unit/direction word (PreviewRowFit.SamplesFor).
+            case "overlays.adaptationPreview.value.absolute":
+            case "overlays.adaptationPreview.value.band":
+                return PreviewRowFit.SamplesFor(item.Key, item.Text);
         }
 
         if (item.Args.Count > 0)

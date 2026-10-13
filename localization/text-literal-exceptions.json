@@ -575,6 +575,24 @@
       "Reason": "A pager dwell-target id or a string-table KEY; the text is resolved through T()."
     },
     {
+      "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
+      "Literal": "\"settings.mode.show.all\"",
+      "Category": "id",
+      "Reason": "A string-table KEY (the mode toggle's label mapping, T10); the text is resolved through T()."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
+      "Literal": "\"settings.mode.show.basic\"",
+      "Category": "id",
+      "Reason": "A string-table KEY (the mode toggle's label mapping, T10); the text is resolved through T()."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
+      "Literal": "\"settings_mode\"",
+      "Category": "id",
+      "Reason": "The settings mode toggle's dwell-target id (T09); the label text is resolved through T()."
+    },
+    {
       "Path": "src/EyeCtrl.Controls/DwellColorPicker.cs",
       "Literal": "\"X2\"",
       "Category": "data",

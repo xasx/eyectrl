@@ -223,9 +223,10 @@ public class HandChunkedPageFitTests
     /// <summary>
     /// Every concrete <see cref="ISettingsPageSource"/> in the EyeCtrl.App assembly, found by
     /// reflection rather than listed by hand so a new tab is covered the day it is written.
+    /// Internal (not private) so the simple-mode tab-set drift test can sweep the same set.
     /// </summary>
     /// <returns>The implementing types, by name.</returns>
-    private static IReadOnlyList<Type> AllSourceTypes() =>
+    internal static IReadOnlyList<Type> AllSourceTypes() =>
         typeof(ISettingsPageSource).Assembly
             .GetTypes()
             .Where(t => t is { IsClass: true, IsAbstract: false }

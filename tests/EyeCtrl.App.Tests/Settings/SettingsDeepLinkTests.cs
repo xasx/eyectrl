@@ -224,13 +224,14 @@ public class SettingsDeepLinkWiringTests
             .That(rowBody).Contains("ShowTab(\"General\")");
         Check.That(rowBody).Contains("_viewModel.ActiveTabId = \"General\"");
         Check.That(rowBody).Contains("SwitchTabPage(");
-        // F6a: the sidebar page comes from General's OWN index in the real tab list, so moving
-        // General (or changing the tabs-per-page arithmetic) cannot strand the highlight on the
-        // wrong sidebar page.
+        // F6a: the sidebar page comes from General's OWN index in the visible (mode-filtered)
+        // tab list, so moving General (or changing the tabs-per-page arithmetic) cannot strand
+        // the highlight on the wrong sidebar page.
         Check.WithCustomMessage(
-                "The sidebar page must be computed from General's own _tabDefs index (F6a), not a "
-                + "constant page number.")
-            .That(rowBody).Contains("Array.FindIndex(_tabDefs, t => t.Id == \"General\")");
+                "The sidebar page must be computed from General's own _visibleDefs index (F6a) — "
+                + "the mode-filtered tab list the sidebar actually renders — not a constant page "
+                + "number.")
+            .That(rowBody).Contains("Array.FindIndex(_visibleDefs, t => t.Id == \"General\")");
         Check.That(rowBody).Contains("SettingsTabPagination.PageOf(index, _tabsPerPage)");
     }
 

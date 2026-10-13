@@ -260,6 +260,15 @@ public partial class App : Application
                 _serviceProvider.GetRequiredService<UserDictionaryService>());
             _eventCoordinator.Initialize(coordinationContext);
 
+            // Hand the toolbar lifecycle coordinator to the preview suspension bridge (Task 10, P8):
+            // the preview service suspends auto-hide through it while its panel is up, but the
+            // coordinator is EventCoordinator-owned and never in DI, while the preview service must
+            // stay lazily resolved (P9). This attach runs strictly before AdaptationActivation can
+            // first fire (its Start is below, at gaze-engine start), so the bridge is never empty
+            // in production.
+            _serviceProvider.GetRequiredService<ToolbarLifecycleBridge>()
+                .Attach(_eventCoordinator.ToolbarLifecycle!);
+
             // Surface a degraded hatch at startup (review PR #142): a failed or policy-blocked
             // hook is otherwise silent, and ESC is the caregiver's gaze-independent exit.
             if (!_serviceProvider.GetRequiredService<IGlobalEscapeHatch>().IsActive)

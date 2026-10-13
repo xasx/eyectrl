@@ -299,6 +299,12 @@
       "Reason": "A dwell-target id."
     },
     {
+      "Path": "src/EyeCtrl.App/Services/AdaptationPreviewService.cs",
+      "Literal": "\"adaptation-preview\"",
+      "Category": "id",
+      "Reason": "The P8 auto-hide suspension holder name (Task 10) — an ownership token keyed into ToolbarLifecycleCoordinator's holder set, never rendered."
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/AppBootstrapper.cs",
       "Literal": "\"EyeCtrl\"",
       "Category": "product",

@@ -246,6 +246,11 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Services/AdaptationPreviewService.cs",
+      "Literal": "\"adaptation-preview\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/AppBootstrapper.cs",
       "Literal": "\"EyeCtrl\"",
       "Count": 1

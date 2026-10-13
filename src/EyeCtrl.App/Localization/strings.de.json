@@ -342,6 +342,74 @@
     "text": "Sprache / Language",
     "src": "49ec8cf6"
   },
+  "overlays.adaptationPreview.direction.atBaseline": {
+    "text": "am Ausgangswert",
+    "src": "177a8a31"
+  },
+  "overlays.adaptationPreview.direction.bigger": {
+    "text": "größer",
+    "src": "9d423f01"
+  },
+  "overlays.adaptationPreview.direction.longer": {
+    "text": "länger",
+    "src": "19737835"
+  },
+  "overlays.adaptationPreview.direction.shorter": {
+    "text": "kürzer",
+    "src": "d9256be4"
+  },
+  "overlays.adaptationPreview.footer": {
+    "text": "Zurücksetzen löscht alle kurzfristigen und gelernten Anpassungen.",
+    "src": "31923e9c"
+  },
+  "overlays.adaptationPreview.knob.dwell": {
+    "text": "Verweilzeit",
+    "src": "397993eb"
+  },
+  "overlays.adaptationPreview.knob.geometry": {
+    "text": "Geometrie",
+    "src": "b4e164e7"
+  },
+  "overlays.adaptationPreview.knob.smoothing": {
+    "text": "Glättung",
+    "src": "8d04c675"
+  },
+  "overlays.adaptationPreview.knob.tolerance": {
+    "text": "Toleranz",
+    "src": "22b7b1cd"
+  },
+  "overlays.adaptationPreview.nothingActive": {
+    "text": "Gerade nichts aktiv",
+    "src": "2be98679"
+  },
+  "overlays.adaptationPreview.subtitle": {
+    "text": "was Zurücksetzen löschen würde",
+    "src": "552682aa"
+  },
+  "overlays.adaptationPreview.title": {
+    "text": "Anpassung im Moment",
+    "src": "b464d6af"
+  },
+  "overlays.adaptationPreview.unit.factor": {
+    "text": "Faktor",
+    "src": "7519cd3e"
+  },
+  "overlays.adaptationPreview.unit.hz": {
+    "text": "Hz",
+    "src": "968de1c4"
+  },
+  "overlays.adaptationPreview.unit.px": {
+    "text": "px",
+    "src": "b1e873a6"
+  },
+  "overlays.adaptationPreview.value.absolute": {
+    "text": "{0} → {1} {2}",
+    "src": "c3738e2c"
+  },
+  "overlays.adaptationPreview.value.band": {
+    "text": "{0}% {1}",
+    "src": "5bc48489"
+  },
   "overlays.edge.back": {
     "text": "Zurück",
     "src": "a9db9b1c"

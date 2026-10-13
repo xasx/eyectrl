@@ -637,6 +637,32 @@ public class AppBootstrapper
             sp.GetRequiredService<ICaregiverAlertPresenter>(),
             sp.GetRequiredService<AdaptationLog>().LogCaregiverAlert));
 
+        // Task 10 — the adaptation preview panel (spec §3.6-3/4). The window is a DI singleton (the
+        // CueOverlayWindow precedent) but is constructed ONLY on the first adaptation enable: the
+        // service holds LAZY resolvers for both the window and the toolbar geometry, and nothing
+        // resolves the service until AdaptationActivation's StartRuntime does (P9 — no overlay HWND
+        // while the feature is off). The collision seam ships always-clear; Task 11 replaces the
+        // implementation with the real gaze-consumer inventory (D17). The bridge carries the
+        // EventCoordinator-owned toolbar coordinator to the lazily-resolved service; App attaches
+        // it right after EventCoordinator initializes.
+        services.AddSingleton<IOverlayCollision, AlwaysClearOverlayCollision>();
+        services.AddSingleton<ToolbarLifecycleBridge>();
+        services.AddSingleton<AdaptationPreviewWindow>();
+        services.AddSingleton(sp => new AdaptationPreviewService(
+            sp.GetRequiredService<EyeCtrlSettings>(),
+            sp.GetRequiredService<EffectiveSettingsProvider>(),
+            toolbar: () => sp.GetRequiredService<IOverlayManager>().Toolbar,
+            panel: () => sp.GetRequiredService<AdaptationPreviewWindow>(),
+            collision: sp.GetRequiredService<IOverlayCollision>(),
+            suspension: sp.GetRequiredService<ToolbarLifecycleBridge>(),
+            sp.GetRequiredService<IMessenger>(),
+            workArea: () => new PhysicalRect(
+                DpiHelper.LogicalToPhysicalX(System.Windows.SystemParameters.WorkArea.X),
+                DpiHelper.LogicalToPhysicalY(System.Windows.SystemParameters.WorkArea.Y),
+                DpiHelper.LogicalToPhysicalX(System.Windows.SystemParameters.WorkArea.Width),
+                DpiHelper.LogicalToPhysicalY(System.Windows.SystemParameters.WorkArea.Height)),
+            logger: sp.GetRequiredService<ILogger<AdaptationPreviewService>>()));
+
         return services.BuildServiceProvider();
     }
 

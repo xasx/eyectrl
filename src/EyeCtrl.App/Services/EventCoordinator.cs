@@ -97,6 +97,14 @@ public class EventCoordinator : IEventCoordinator
         _context.Dispatcher.BeginInvoke(() => _toolbar?.ForceShow());
     }
 
+    /// <summary>
+    /// The toolbar lifecycle sub-coordinator, exposed for App's post-initialize hand-offs: the
+    /// adaptation preview's auto-hide suspension reaches it through the DI
+    /// <see cref="ToolbarLifecycleBridge"/> (Task 10, P8), which App attaches immediately after
+    /// <see cref="Initialize"/>. Null before Initialize and after Dispose.
+    /// </summary>
+    internal ToolbarLifecycleCoordinator? ToolbarLifecycle => _toolbar;
+
     public void Initialize(EventCoordinationContext context)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));

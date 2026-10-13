@@ -660,6 +660,125 @@
     "args": [],
     "crisis": true
   },
+  "overlays.adaptationPreview.direction.atBaseline": {
+    "text": "at baseline",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.adaptationPreview.direction.bigger": {
+    "text": "bigger",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.adaptationPreview.direction.longer": {
+    "text": "longer",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.adaptationPreview.direction.shorter": {
+    "text": "shorter",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.adaptationPreview.footer": {
+    "text": "Reset clears all momentary and learned offsets.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.adaptationPreview.knob.dwell": {
+    "text": "Dwell",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.adaptationPreview.knob.geometry": {
+    "text": "Geometry",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.adaptationPreview.knob.smoothing": {
+    "text": "Smoothing",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.adaptationPreview.knob.tolerance": {
+    "text": "Tolerance",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.adaptationPreview.nothingActive": {
+    "text": "Nothing active right now",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.adaptationPreview.subtitle": {
+    "text": "what Reset would clear",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.adaptationPreview.title": {
+    "text": "Adaptation right now",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.adaptationPreview.unit.factor": {
+    "text": "factor",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.adaptationPreview.unit.hz": {
+    "text": "Hz",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.adaptationPreview.unit.px": {
+    "text": "px",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.adaptationPreview.value.absolute": {
+    "text": "{0} → {1} {2}",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": ["current", "baseline", "unit"]
+  },
+  "overlays.adaptationPreview.value.band": {
+    "text": "{0}% {1}",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": ["percent", "direction"]
+  },
   "overlays.edge.back": {
     "text": "Back",
     "who": "user",

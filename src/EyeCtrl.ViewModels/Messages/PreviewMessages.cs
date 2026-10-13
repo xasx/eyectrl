@@ -15,3 +15,8 @@ public enum PreviewBoundsKind
 
 /// <summary>Service → VM: the live panel bounds and what kind of absence a hide is (P2).</summary>
 public record AdaptationPreviewBoundsMessage(int EngagementId, PreviewBoundsKind Kind, PhysicalRect? PanelBounds);
+
+/// <summary>AdaptationPreviewService → ActivationOfferCoordinator (Task 12): whether the preview
+/// panel is currently visible — the coordinator's fifth suspension input (D16). The service never
+/// writes the offers-suspension flag itself; the single writer recomputes from this message.</summary>
+public record PreviewPanelActiveMessage(bool Active);

@@ -134,6 +134,11 @@ public sealed class AdaptationActivation : IDisposable
         var coordinator = services.GetRequiredService<AdaptationCoordinator>();
         coordinator.Start(gazeEngine);
         services.GetRequiredService<AdaptationCueService>().Start(coordinator);
+        // The preview panel joins the runtime here (Task 10): this resolve is what constructs
+        // AdaptationPreviewWindow (the service's lazy panel factory), which must not happen while
+        // disabled — hence IServiceProvider rather than constructor injection (P9). Start is
+        // idempotent; Dispose (in StopRuntime) performs the full self-contained teardown.
+        services.GetRequiredService<AdaptationPreviewService>().Start();
         services.GetRequiredService<AdaptationLog>().Start(coordinator);
         services.GetRequiredService<DriftNoticeService>().Start(coordinator);
         services.GetRequiredService<CaregiverAlertService>().Start(coordinator);
@@ -154,6 +159,11 @@ public sealed class AdaptationActivation : IDisposable
         coordinator.ResetMomentary();
         coordinator.Dispose();
         services.GetRequiredService<AdaptationCueService>().Dispose();
+        // The preview service's Dispose is the FULL self-contained teardown (R2-2): hide, NoPanel
+        // for any live engagement, release the "adaptation-preview" auto-hide holder, publish
+        // PreviewPanelActiveMessage(false), unsubscribe — never waiting for a VM visibility-false,
+        // because the disable edge fires the settings handler and this one in undefined order.
+        services.GetRequiredService<AdaptationPreviewService>().Dispose();
         services.GetRequiredService<AdaptationLog>().Dispose();
         services.GetRequiredService<DriftNoticeService>().Dispose();
         services.GetRequiredService<CaregiverAlertService>().Dispose();

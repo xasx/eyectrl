@@ -139,9 +139,10 @@ exception details and logs, and the product names.
 - **The eye-care banner's strip is taller (96 DIP; it was 80).** The two circle captions ("später",
   "starten") used to end ~7.5 DIP below the strip; the strip now ends 8 DIP below them, the same
   padding the rings have above. The rings' panel is anchored so both circle centres stay at 40 DIP
-  from the top — **no dwell target moves** (`EyeCareBannerGeometryTests.TheStrip_ContainsTheRingCaptions_…`).
-  A pre-existing layout flaw the T13 live check surfaced (it looks the same in English); the owner
-  approved the 96-DIP strip.
+  from the top — the drawn rings move 0.5 DIP (39.5 → 40.0) onto their dwell targets, and the
+  message block moves down 8 DIP; both are invisible in practice. **No dwell target moves**
+  (`EyeCareBannerGeometryTests.TheStrip_ContainsTheRingCaptions_…`). A pre-existing layout flaw the
+  T13 live check surfaced (it looks the same in English); the owner approved the 96-DIP strip.
 - **The overlays' hints and names are German.** "Mit Esc beenden" (backdrop), "Mit Esc das Scrollen
   beenden" (scroll overlay), the pinned note's caption and ✕ ✎ ↕ names, the toolbar's UIA names and
   the icon-only edge buttons' names (`ShippedGermanStep3Tests.EveryIconOnlyTarget_…`).
@@ -149,13 +150,15 @@ exception details and logs, and the product names.
   running with English pinned; under German the toolbar and Settings tab faces keep the same ids
   (`ShippedGermanStep3Tests.TheToolbarsAndTabFaces_…`, `StringTableIsolationTests`).
 - **The glass backdrop's ✕, dark fill and hint now sit exactly where they belong.** A hidden resize
-  border — the default `ResizeMode` on the one overlay that must stay non-transparent for Mica —
-  pushed the client area 6 DIP inside the window, so everything drawn in client coordinates landed
-  6 DIP right and below its target; the ✕ was drawn off its own dwell target. `ResizeMode="NoResize"`
-  removes the border (as the edge bar already had), and a new handle-only gate checks every overlay
-  window's client origin, with the live check keeping the exact ✕ position
-  (`OverlayClientOriginTests`, `Step3LiveCheckTests.TheGlassBackdrop_…`). Pre-existing, found by the
-  T13 live check.
+  border — the default `ResizeMode` on a non-transparent overlay — pushed the client area 6 DIP
+  inside the window, so everything drawn in client coordinates landed 6 DIP right and below its
+  target; the ✕ was drawn off its own dwell target. `ResizeMode="NoResize"` removes the border (as
+  the edge bar already had), and a new handle-only gate checks every overlay window's client origin,
+  with the live check keeping the exact ✕ position (`OverlayClientOriginTests`,
+  `Step3LiveCheckTests.TheGlassBackdrop_…`). Pre-existing, found by the T13 live check. **Not settled
+  here:** during the live check the backdrop showed its dark look rather than the Mica material;
+  whether `ResizeMode="NoResize"` (which removes the window's resize frame) or the overlays'
+  never-activate style causes that is checked in a follow-up.
 - **Keyboard key captions are layout data, not UI text.** They belong to the keyboard layout in use:
   QWERTZ shows German captions ("Strg", "Kopieren", "Einfügen", "Alles mark.", "+ Wort", "Einfg",
   "Entf", "Pos1", "Ende", "Bild↑", "Bild↓", "Druck"), while QWERTY and AZERTY keep their English ones

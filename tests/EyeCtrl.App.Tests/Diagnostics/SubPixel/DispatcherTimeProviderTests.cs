@@ -168,7 +168,8 @@ public class DispatcherTimeProviderTests
     public void ARealC5_ReportsItsPhaseChangesOnTheDispatcherThread()
     {
         // The end-to-end half of the contract: a real C5 run on this provider must have every
-        // event raised on the UI thread. The shortest observable step is the 3 s scripted interval.
+        // event raised on the UI thread. The shortest observable step is the 5 s scripted interval
+        // (A1: 3 s -> 5 s).
         var provider = new DispatcherTimeProvider(Dispatcher.CurrentDispatcher);
         var settings = new EyeCtrlSettings();
         using var vm = new SubPixelProbeViewModel(
@@ -184,9 +185,9 @@ public class DispatcherTimeProviderTests
         vm.Start();
         vm.SimulateActivated(SubPixelProbeViewModel.IntroStartTargetId);   // Intro -> interval 1
 
-        // Pump for ≥ 4000 ms: the interval is 3000 ms, so 4000 leaves a third of the interval as
+        // Pump for ≥ 6700 ms: the interval is 5000 ms, so 6700 leaves a third of the interval as
         // slack instead of the 13 % that flaked under load (HR11).
-        PumpFor(TimeSpan.FromMilliseconds(4_000));
+        PumpFor(TimeSpan.FromMilliseconds(6_700));
 
         Check.WithCustomMessage("The interval timer never fired on the dispatcher")
             .That(vm.Phase is SubPixelProbePhase.Gap or SubPixelProbePhase.Interval2).IsTrue();

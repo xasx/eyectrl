@@ -40,7 +40,7 @@ public class SubPixelProbeViewModelTests
         Check.That(f.Vm.IsDemo).IsTrue();
         Check.That(f.Vm.CurrentTrial).IsNull();
 
-        f.Drive(2970);
+        f.Drive(4970);
         Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Interval1);
 
         f.Drive(30);
@@ -53,7 +53,7 @@ public class SubPixelProbeViewModelTests
         f.Drive(30);
         Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Interval2);
 
-        f.Drive(2990);
+        f.Drive(4990);
         Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Interval2);
 
         f.Drive(30);
@@ -72,12 +72,12 @@ public class SubPixelProbeViewModelTests
         Check.That(f.PhaseLog[^1]).IsEqualTo(SubPixelProbePhase.Interval1);
     }
 
-    // Mutation (a1): ScriptedIntervalMs 3000 -> 2500 (the 2970 check goes red).
+    // Mutation (a1/t1): ScriptedIntervalMs 5000 -> 3000 (the 4970 check goes red).
     // Mutation (a2): GapMs 800 -> 900 (the 770 + 30 checks go red).
     // Mutation (f): let the demo reach Answer and score it -> the unscored assertions go red.
 
     [Fact]
-    public void V1a2_LiveBlock_UsesFourSecondIntervals()
+    public void V1a2_LiveBlock_UsesSixSecondIntervals()
     {
         var f = new Harness();
         f.StartToTrials();
@@ -89,7 +89,7 @@ public class SubPixelProbeViewModelTests
         Check.That(f.Vm.CurrentBlock).IsEqualTo(SubPixelAbBlock.Live);
         Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Interval1);
 
-        f.Drive(3970);
+        f.Drive(5970);
         Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Interval1);
 
         f.Drive(30);
@@ -99,7 +99,7 @@ public class SubPixelProbeViewModelTests
         f.Drive(30);
         Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Interval2);
 
-        f.Drive(3970);
+        f.Drive(5970);
         Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Interval2);
 
         f.Drive(30);
@@ -107,7 +107,39 @@ public class SubPixelProbeViewModelTests
         Check.That(f.Vm.CurrentTrial).IsEqualTo(f.Schedule.LiveTrials[0]);
     }
 
-    // Mutation (a3): LiveIntervalMs 4000 -> 3000 (the 3970 checks go red).
+    // Mutation (a3/t2): LiveIntervalMs 6000 -> 4000 (the 5970 checks go red).
+
+    [Fact]
+    public void V1a4_StaticBlock_UsesFiveSecondIntervals()
+    {
+        var f = new Harness();
+        f.StartToTrials();
+        f.PlayBlock();   // completes the drift block; the static block's demo pair follows
+
+        Check.That(f.Vm.CurrentBlock).IsEqualTo(SubPixelAbBlock.Static);
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Interval1);
+        Check.That(f.Vm.IsDemo).IsTrue();
+
+        f.Drive(4970);
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Interval1);
+
+        f.Drive(30);
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Gap);
+
+        f.Drive(770);
+        f.Drive(30);
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Interval2);
+
+        f.Drive(4970);
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Interval2);
+
+        f.Drive(30);
+        Check.That(f.Vm.IsDemo).IsFalse();
+        Check.That(f.Vm.CurrentTrial).IsEqualTo(f.Schedule.StaticTrials[0]);
+    }
+
+    // Mutation (X6): IntervalDuration uses LiveIntervalMs for every non-Drift block -> the static
+    //   block runs 6 s and the 4970 + 30 checks go red. Review 01 F1: nothing pinned Static's 5 s.
 
     [Fact]
     public void V1a3_P3_DwellCompletedDuringIntervalTwo_IsNotDeliveredAtOnset()
@@ -120,7 +152,7 @@ public class SubPixelProbeViewModelTests
         Check.That(f.DriveUntil(() => f.Vm.Phase == SubPixelProbePhase.Interval1 && !f.Vm.IsDemo)).IsTrue();
         Check.That(f.DriveUntil(() => f.Vm.Phase == SubPixelProbePhase.Interval2)).IsTrue();
 
-        // Held on the button for all of interval 2 (3 s > the 700 ms dwell) and across the boundary.
+        // Held on the button for all of interval 2 (5 s > the 700 ms dwell) and across the boundary.
         Check.That(f.DriveUntil(() => f.Vm.Phase == SubPixelProbePhase.Answer, ButtonOne)).IsTrue();
         Check.That(f.Vm.ScoredInCurrentBlock).IsEqualTo(0);
         Check.That(f.Vm.CurrentTrial).IsEqualTo(f.Schedule.DriftTrials[0]);

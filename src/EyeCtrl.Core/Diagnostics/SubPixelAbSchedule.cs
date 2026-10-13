@@ -181,6 +181,14 @@ public sealed record SubPixelAbLiveMotion(
 /// central and on screen; the schedule is a pure function of (seed, screen), which is why the screen
 /// is an input.
 /// </para>
+/// <para>
+/// <b>The whole path stays inside that middle half (SP-4e T1).</b> A moving trial does not stop at
+/// its start: the drift travels 0.25 px per 30 ms tick for the scripted interval (166 ticks,
+/// 41.5 px on one axis) and the live target travels 20 px/s for the live interval (120 px). Every
+/// start is therefore inset by the block's maximum per-axis travel, so the entire motion — not only
+/// its first frame — is central. That is the region the schedule guarantees, and it is what the
+/// ring-clearance geometry (the corner label, the answer furniture) may rely on.
+/// </para>
 /// </summary>
 public sealed class SubPixelAbSchedule
 {
@@ -198,6 +206,22 @@ public sealed class SubPixelAbSchedule
 
     /// <summary>Fraction of the screen (per axis) the probe's trial positions are drawn from.</summary>
     private const double CentralRegionFraction = 0.5;
+
+    /// <summary>
+    /// The furthest a drift start travels from itself on one axis, in physical pixels: the step law
+    /// over the scripted interval, floor-stepped like <see cref="SubPixelAbDriftMotion.PositionAt"/>
+    /// (5000 ms is 166 whole ticks). <see cref="RandomPoint"/> insets every drift start by it.
+    /// </summary>
+    private static readonly double DriftTravelPx = SubPixelAbDriftMotion.StepPixelsPerTick
+        * (SubPixelAbTiming.ScriptedIntervalMs / SubPixelAbDriftMotion.TickMilliseconds);
+
+    /// <summary>
+    /// The furthest a live target travels from its start on one axis, in physical pixels: the
+    /// target's speed over the live interval. Every direction has |cos|, |sin| ≤ 1, so the per-axis
+    /// bound covers every angle. <see cref="RandomPoint"/> insets every live start by it.
+    /// </summary>
+    private static readonly double LiveTravelPx =
+        SubPixelAbLiveMotion.PixelsPerSecond * (SubPixelAbTiming.LiveIntervalMs / 1000.0);
 
     private static readonly SubPixelAbDirection[] Directions = Enum.GetValues<SubPixelAbDirection>();
 
@@ -275,7 +299,7 @@ public sealed class SubPixelAbSchedule
 
         for (int i = 0; i < trials.Length; i++)
         {
-            var start = RandomPoint(rng, screenBoundsPx);
+            var start = RandomPoint(rng, screenBoundsPx, DriftTravelPx);
             var direction = Directions[rng.Next(Directions.Length)];
             trials[i] = new SubPixelAbTrial(
                 SubPixelAbBlock.Drift, i, orders[i], new SubPixelAbDriftMotion(start, direction));
@@ -306,7 +330,7 @@ public sealed class SubPixelAbSchedule
 
         for (int i = 0; i < trials.Length; i++)
         {
-            var start = RandomPoint(rng, screenBoundsPx);
+            var start = RandomPoint(rng, screenBoundsPx, LiveTravelPx);
             double angle = rng.NextDouble() * Math.Tau;
             trials[i] = new SubPixelAbTrial(
                 SubPixelAbBlock.Live, i, orders[i],
@@ -333,12 +357,34 @@ public sealed class SubPixelAbSchedule
         return orders;
     }
 
-    private static PhysicalPoint RandomPoint(Random rng, PhysicalRect screenBoundsPx)
+    /// <summary>
+    /// A random start inside the middle half, inset by <paramref name="travelPx"/> on every side so
+    /// the trial's whole path — not only its start — stays in that half (SP-4e T1). The fractional
+    /// phase is whatever the uniform draw gives, as before; only the draw's bounds changed.
+    /// </summary>
+    /// <param name="rng">The schedule's RNG stream.</param>
+    /// <param name="screenBoundsPx">The primary screen, in physical pixels.</param>
+    /// <param name="travelPx">
+    /// The block's maximum per-axis travel, in physical pixels; 0 for a motion that does not move.
+    /// </param>
+    private static PhysicalPoint RandomPoint(Random rng, PhysicalRect screenBoundsPx, double travelPx)
     {
         var region = CentralRegion(screenBoundsPx);
+
+        double minX = region.MinX + travelPx;
+        double maxX = region.MinX + region.Width - travelPx;
+        double minY = region.MinY + travelPx;
+        double maxY = region.MinY + region.Height - travelPx;
+
+        // A synthetic screen too small for the inset degenerates to its region's centre; the real
+        // screens are four orders of magnitude larger than the 120 px bound, so this never fires in
+        // a session, and the explicit collapse keeps the draw well-defined for any input.
+        if (maxX < minX) minX = maxX = region.MinX + region.Width / 2.0;
+        if (maxY < minY) minY = maxY = region.MinY + region.Height / 2.0;
+
         return new PhysicalPoint(
-            region.MinX + rng.NextDouble() * region.Width,
-            region.MinY + rng.NextDouble() * region.Height);
+            minX + rng.NextDouble() * (maxX - minX),
+            minY + rng.NextDouble() * (maxY - minY));
     }
 
     // The fractional part is set explicitly on top of a whole-pixel anchor, so it is exactly in

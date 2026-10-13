@@ -62,6 +62,16 @@ using Serilog;
 /// backdrop is drawn 1:1 because the image is exactly screen-DIPs wide at the injected scale, and
 /// the ring's placement is the only rounding in the subtree.
 /// </para>
+///
+/// <para>
+/// <b>SP-4e (amendment A1).</b> The interval corner digit ("1"/"2") takes the answers' 96 DIP in
+/// <c>TextPrimary</c> — the owner could not tell the rings apart at the old 14 DIP
+/// <c>TextSecondary</c> — anchored bottom-left with its box's bottom 24 DIP above the window's
+/// edge, the trial label stacked above it. The schedule now insets trial starts by each block's
+/// path travel, so the ring's maximum extent over any trial is the screen's middle half grown by
+/// the travel and the ring radius; that extent and the corner digit's box clear each other by
+/// hundreds of DIP (pinned by <c>SubPixelProbeCornerLabelTests</c>).
+/// </para>
 /// </summary>
 internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
 {
@@ -104,6 +114,12 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
     /// largest steps instead — <c>FontSizeDisplay</c> (34) for the 420 × 170 DIP screen buttons and
     /// <c>FontSizeTitle</c> (24) for End test's 280 × 120 DIP — so every label fits its inner
     /// rectangle (border + full-progress cue) in English and German at 2.0.
+    ///
+    /// <para>
+    /// SP-4e T2 reuses the same size for the interval corner digit ("1"/"2"), which the owner could
+    /// not tell apart at 14 DIP: it is the same reading task in the same corner, so the two sizes
+    /// must not drift apart.
+    /// </para>
     ///
     /// <para>
     /// A property, and public, because <c>RawGeometryLiteralTests</c> admits a <c>FontSize =</c>
@@ -159,6 +175,18 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
 
     /// <summary>The Ask screen's gap between its two buttons (D3: their hit areas must not overlap).</summary>
     private const double AskButtonGapDip = 120;
+
+    /// <summary>
+    /// SP-4e T2: the corner digit's box is anchored by its BOTTOM this far above the window's
+    /// bottom edge — the same 24 DIP margin End test's bottom edge keeps — and the trial label
+    /// stacks above the digit's box by <see cref="CornerToTrialLabelGapDip"/>. Before T2 the 14 DIP
+    /// label sat at <c>height - 62</c>; a 96 DIP digit at that offset would be clipped by the
+    /// window's bottom edge, so both positions derive from the measured box.
+    /// </summary>
+    private const double CornerLabelBottomMarginDip = 24;
+
+    /// <summary>SP-4e T2: DIP between the corner digit's box top and the trial label's box bottom.</summary>
+    private const double CornerToTrialLabelGapDip = 8;
 
     // D5: the demo runs one scripted interval pair, with the same interval/gap lengths as a
     // trial, and repeats. Its step law is SubPixelAbDriftMotion's (0.25 physical px per 30 ms),
@@ -331,9 +359,12 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         Add(_question, 0, 0);
         _question.Width = Width;
 
-        _corner.FontSize = Tokens.FontSizeBodyLarge;
+        // SP-4e T2: the interval digit takes the answers' 96 DIP and TextPrimary — the owner could
+        // not tell "1" from "2" at the old 14 DIP TextSecondary — and stays bottom-left
+        // (Layout anchors its box by CornerLabelBottomMarginDip).
+        _corner.FontSize = SubPixelProbeWindow.AnswerLabelFontSizeDip;
         _corner.FontWeight = Tokens.FontWeightStrong;
-        _corner.Foreground = Tokens.BrushTextSecondary;
+        _corner.Foreground = Tokens.BrushTextPrimary;
         Add(_corner, 24, 0);
 
         _trialLabel.FontSize = Tokens.FontSizeBody;
@@ -712,8 +743,16 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         Canvas.SetLeft(_endTest, width - EndButtonWidth - 24);
         Canvas.SetTop(_endTest, height - EndButtonHeight - 24);
 
-        Canvas.SetTop(_corner, height - 62);
-        Canvas.SetTop(_trialLabel, height - 92);
+        // SP-4e T2: the corner digit's box is anchored by its bottom edge
+        // (CornerLabelBottomMarginDip, the same 24 DIP End test keeps from the bottom) and the
+        // trial label stacks above it by a fixed gap — at 96 DIP the old fixed top (height - 62)
+        // would clip the digit at the window's bottom edge and draw it through the label's line.
+        _corner.Measure(new Size(width, height));
+        double cornerTop = height - CornerLabelBottomMarginDip - _corner.DesiredSize.Height;
+        Canvas.SetTop(_corner, cornerTop);
+
+        _trialLabel.Measure(new Size(width, height));
+        Canvas.SetTop(_trialLabel, cornerTop - CornerToTrialLabelGapDip - _trialLabel.DesiredSize.Height);
 
         // D5 + fixup 01 F1 + fixup 02 R1: the demo band is the ring's path through the screen
         // centre. The Intro text sits ABOVE it and the Start button BELOW it, 128 DIP clear of the
@@ -867,6 +906,9 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
 
     /// <summary>Test seam (SP-4c D5): the ring the demo and the trials draw with.</summary>
     internal ProbeRingVisual RingForTest => _ring;
+
+    /// <summary>Test seam (SP-4e T2): the interval corner digit's TextBlock ("1"/"2").</summary>
+    internal TextBlock CornerDigitForTest => _corner;
 
     /// <summary>Test seam (SP-4c D2): a screen's panel, for the layout-fit assertions.</summary>
     internal FrameworkElement? PanelForTest(SubPixelProbePhase phase) => phase switch

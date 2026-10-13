@@ -149,13 +149,23 @@ public class SubPixelAbScheduleTests
     }
 
     [Fact]
-    public void Create_AllTrialPositions_StayInTheCentralHalf()
+    public void Create_AllTrialPositions_AndPaths_StayInTheCentralHalf()
     {
         // "Parked at a random central location": the middle half of the screen, so trials stay away
         // from the edges and the answer furniture. A schedule free to use the whole screen survives
         // the on-screen check inside the fraction test, so this pins the central region itself.
+        //
+        // SP-4e T1: the whole path is pinned, not only its start. A drift moves for a scripted
+        // interval (0.25 px per 30 ms tick, so 41.5 px on one axis) and the live target for a live
+        // one (20 px/s, so 120 px), so every start is inset by the block's maximum per-axis travel
+        // and every point of the motion — not only its first frame — stays inside the region.
         double minX = Screen.Width * 0.25, maxX = Screen.Width * 0.75;
         double minY = Screen.Height * 0.25, maxY = Screen.Height * 0.75;
+
+        double driftTravel = SubPixelAbDriftMotion.StepPixelsPerTick
+            * (SubPixelAbTiming.ScriptedIntervalMs / SubPixelAbDriftMotion.TickMilliseconds);
+        double liveTravel = SubPixelAbLiveMotion.PixelsPerSecond
+            * (SubPixelAbTiming.LiveIntervalMs / 1000.0);
 
         for (int seed = 0; seed < SeedCount; seed++)
         {
@@ -163,18 +173,32 @@ public class SubPixelAbScheduleTests
 
             foreach (var trial in schedule.Session1Trials.Concat(schedule.Session2Trials))
             {
-                var point = trial.Motion switch
+                // The drift's floor-stepped law and the live target's straight path are both
+                // piecewise affine, so the tick/30 ms samples below bound the whole motion.
+                foreach (var point in PathPoints(trial.Motion))
                 {
-                    SubPixelAbDriftMotion drift => drift.Start,
-                    SubPixelAbStaticMotion still => still.Position,
-                    SubPixelAbLiveMotion live => live.TargetStart,
-                    _ => throw new InvalidOperationException($"Unhandled motion {trial.Motion.GetType().Name}."),
-                };
+                    Check.That(point.X).IsStrictlyGreaterThan(minX - 1e-6);
+                    Check.That(point.X).IsStrictlyLessThan(maxX + 1e-6);
+                    Check.That(point.Y).IsStrictlyGreaterThan(minY - 1e-6);
+                    Check.That(point.Y).IsStrictlyLessThan(maxY + 1e-6);
+                }
 
-                Check.That(point.X).IsStrictlyGreaterThan(minX - 1e-6);
-                Check.That(point.X).IsStrictlyLessThan(maxX + 1e-6);
-                Check.That(point.Y).IsStrictlyGreaterThan(minY - 1e-6);
-                Check.That(point.Y).IsStrictlyLessThan(maxY + 1e-6);
+                // The start bound itself: the draw's region is the middle half inset by the block's
+                // travel. This is the assertion a start-bound that ignores the longer path fails,
+                // and it is tighter than the path check above (in a moved region it fails on the
+                // very first start near an edge, not only when a path happens to cross one).
+                double travel = trial.Block switch
+                {
+                    SubPixelAbBlock.Drift => driftTravel,
+                    SubPixelAbBlock.Live => liveTravel,
+                    _ => 0.0,
+                };
+                var start = StartOf(trial.Motion);
+
+                Check.That(start.X).IsGreaterOrEqualThan(minX + travel - 1e-6);
+                Check.That(start.X).IsLessOrEqualThan(maxX - travel + 1e-6);
+                Check.That(start.Y).IsGreaterOrEqualThan(minY + travel - 1e-6);
+                Check.That(start.Y).IsLessOrEqualThan(maxY - travel + 1e-6);
             }
         }
     }
@@ -190,11 +214,11 @@ public class SubPixelAbScheduleTests
             var unit = ExpectedUnitVector(direction);
 
             // floor(t/30) ticks: 0–29 ms is still at the start, 30–59 ms is one tick, and the
-            // interval's 3000 ms is 100 ticks — exactly 25 px along the path.
+            // interval's 5000 ms is 166 ticks — exactly 41.5 px along the path (A1: 5 s rings).
             Check.That(motion.PositionAt(0)).IsEqualTo(start);
             Check.That(motion.PositionAt(29)).IsEqualTo(start);
 
-            foreach ((long elapsedMs, long ticks) in new[] { (30L, 1L), (59L, 1L), (60L, 2L), (3000L, 100L) })
+            foreach ((long elapsedMs, long ticks) in new[] { (30L, 1L), (59L, 1L), (60L, 2L), (5000L, 166L) })
             {
                 double step = 0.25 * ticks;
                 Check.That(motion.PositionAt(elapsedMs).X).IsCloseTo(start.X + step * unit.X, 1e-9);
@@ -304,6 +328,49 @@ public class SubPixelAbScheduleTests
             SubPixelAbBlock.Static => schedule.StaticTrials,
             _ => schedule.LiveTrials,
         };
+
+    /// <summary>The start of any motion, for the central-half bounds test.</summary>
+    private static PhysicalPoint StartOf(SubPixelAbMotion motion) => motion switch
+    {
+        SubPixelAbDriftMotion drift => drift.Start,
+        SubPixelAbStaticMotion park => park.Position,
+        SubPixelAbLiveMotion live => live.TargetStart,
+        _ => throw new InvalidOperationException($"Unhandled motion {motion.GetType().Name}."),
+    };
+
+    /// <summary>
+    /// The points whose bounds cover the whole path: every tick of a drift (the law is
+    /// floor-stepped, so it is constant between ticks), every 30 ms of a live path (straight), and
+    /// the single park of a static trial.
+    /// </summary>
+    private static IEnumerable<PhysicalPoint> PathPoints(SubPixelAbMotion motion)
+    {
+        switch (motion)
+        {
+            case SubPixelAbDriftMotion drift:
+                for (long t = 0; t <= SubPixelAbTiming.ScriptedIntervalMs;
+                     t += SubPixelAbDriftMotion.TickMilliseconds)
+                {
+                    yield return drift.PositionAt(t);
+                }
+
+                // The interval end itself, so the last partial tick is covered too.
+                yield return drift.PositionAt(SubPixelAbTiming.ScriptedIntervalMs);
+                break;
+
+            case SubPixelAbStaticMotion park:
+                yield return park.Position;
+                break;
+
+            case SubPixelAbLiveMotion live:
+                for (long t = 0; t <= SubPixelAbTiming.LiveIntervalMs; t += 30)
+                    yield return live.TargetPositionAt(t);
+                break;
+
+            default:
+                throw new InvalidOperationException($"Unhandled motion {motion.GetType().Name}.");
+        }
+    }
 
     // The expected unit vectors, owned by the test rather than read from production: if the test
     // asked production for its unit vector, a mutated one would pass its own check.

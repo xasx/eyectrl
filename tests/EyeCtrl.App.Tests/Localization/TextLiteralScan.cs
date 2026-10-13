@@ -658,7 +658,8 @@ internal static class TextLiteralScan
 
     /// <summary>
     /// Spans whose literals are never UI text: exception-constructor messages (the ticket's
-    /// exclusion), <c>FormatProviderFor("…")</c> surface ids, <c>T("…")</c> string keys, and log
+    /// exclusion), <c>FormatProviderFor("…")</c> surface ids, <c>T("…")</c>/<c>Template("…")</c> string keys (Template resolves a raw per-item
+    /// format — its key literal is exactly the machinery the T(…) exclusion exists for), and log
     /// calls. Log and diagnostic strings are excluded by SINK in ordinary files; inside a
     /// whole-file or whole-member producer span nothing else would exclude them, so the patterns
     /// are here too. The method-name form is deliberate — a bare <c>Log\w+(</c> would also
@@ -672,6 +673,7 @@ internal static class TextLiteralScan
             @"new\s+\w*Exception\s*\(",
             @"(?<![A-Za-z0-9_])FormatProviderFor\s*\(",
             @"(?<![A-Za-z0-9_])T\s*\(",
+            @"(?<![A-Za-z0-9_])Template\s*\(",
             @"(?<![A-Za-z0-9_])Log\s*\.",
             @"(?<![A-Za-z0-9_])Log(?:Warning|Error|Information|Debug|Fatal|Verbose|Trace)\s*\(",
         };

@@ -384,4 +384,37 @@ public class StringTableTests
         _ = Build(manifest: ["settings"]);
         Check.That(StringTable.Current).IsSameReferenceAs(StringTable.EmbeddedEnglish);
     }
+
+    // ── Template: raw resolution for consumer-formatted keys (the combo not-available marker
+    // fix — T() with no args on a placeholder template warned and returned the text only via
+    // the format-failure path) ────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Template_ReturnsTheRawText_WithoutFormatting_OrWarnings()
+    {
+        // Non-manifest surface: resolves the ENGLISH template (the German branch is the next test).
+        var warnings = new List<string>();
+        var table = Build(manifest: ["overlays"], warnings: warnings);
+
+        Check.That(table.Template("settings.price")).IsEqualTo("Price {0}");
+        Check.That(warnings).IsEmpty();
+    }
+
+    [Fact]
+    public void Template_GermanManifestSurface_ResolvesTheGermanTemplate()
+    {
+        var table = Build(manifest: ["settings"]);
+
+        Check.That(table.Template("settings.price")).IsEqualTo("Preis {0}");
+    }
+
+    [Fact]
+    public void Template_MissingKey_WarnsAndReturnsTheRawKey()
+    {
+        var warnings = new List<string>();
+        var table = Build(manifest: ["settings"], warnings: warnings);
+
+        Check.That(table.Template("settings.missing")).IsEqualTo("settings.missing");
+        Check.That(warnings).HasSize(1);
+    }
 }

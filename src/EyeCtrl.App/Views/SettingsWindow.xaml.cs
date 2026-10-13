@@ -1086,12 +1086,20 @@ public partial class SettingsWindow : OverlayWindow
     /// </summary>
     private void SwitchSettingsUiMode(bool simple)
     {
+        // TEMP instrumentation for the owner-reported silent disappearance (2026-10-13) —
+        // REMOVE BEFORE MERGE. Six breadcrumbs; the crash left no exception anywhere.
+        Serilog.Log.Information("MODE-SWITCH: begin, target={Target} current={Current}", simple, _settings.General.SimpleSettingsUi);
         if (_settings.General.SimpleSettingsUi == simple) return;
         _settings.General.SimpleSettingsUi = simple;
+        Serilog.Log.Information("MODE-SWITCH: flag flipped");
         ApplyAndSave();
+        Serilog.Log.Information("MODE-SWITCH: save applied, guarding toggle");
         GuardModeToggle();
+        Serilog.Log.Information("MODE-SWITCH: toggle guarded");
 
         var layout = ComputeSidebarLayout(_viewModel.Settings.CurrentTabName);
+        Serilog.Log.Information("MODE-SWITCH: layout computed, snap={Snap} page={Page} visible={Count}",
+            layout.SnapTo, layout.PageIndex, layout.VisibleIds.Count);
         if (layout.SnapTo is not null)
         {
             ShowTab(layout.SnapTo);                      // CurrentTabName -> RebuildContent; ShowTab resets the page
@@ -1105,8 +1113,11 @@ public partial class SettingsWindow : OverlayWindow
                                                          // page — no manual RenderCurrentPage (that
                                                          // rendered twice, plan-review r2 m-b)
         }
+        Serilog.Log.Information("MODE-SWITCH: content settled, applying sidebar");
         ApplySidebarLayout(layout);
+        Serilog.Log.Information("MODE-SWITCH: sidebar applied, relabeling");
         UpdateModeToggleLabel();
+        Serilog.Log.Information("MODE-SWITCH: complete");
     }
 
     /// <summary>
@@ -1698,10 +1709,12 @@ public partial class SettingsWindow : OverlayWindow
                     StringTable.Current.T("settings.control.toggle.off"),
                     t.Get, t.Set, cat, radiusPhysical, dwellMs, showLabel: false));
             case ComboBoxSpec c:
-                // Host-supplied marker format (T02), resolved from a settings key (T07).
+                // Host-supplied marker format (T02), resolved RAW from a settings key (T07): the
+                // combo fills {0} per unmatched code, so Template — T() with no args would warn
+                // on every construction and return the text only via its format-failure path.
                 return LabelledRow(c, availableWidth, new DwellComboBox(registrar, c.Id, c.Label,
                     c.Display, c.Code ?? c.Display, c.Get, c.Set, cat, radiusPhysical, dwellMs,
-                    StringTable.Current.T("settings.control.combo.not_available"), showLabel: false));
+                    StringTable.Current.Template("settings.control.combo.not_available"), showLabel: false));
             case ColorPickerSpec cp:
                 // Host-supplied swatch names (T02), resolved from settings keys (T07).
                 return LabelledRow(cp, availableWidth, new DwellColorPicker(registrar, cp.Id,

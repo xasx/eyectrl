@@ -37,6 +37,37 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
     /// </summary>
     public bool AllWindowsVisible => _windows.All(w => w.IsVisible);
 
+    /// <summary>
+    /// The live note dwell-target rects, physical px (the D17 inventory's sixth source, review F1):
+    /// the surfaces this manager's own detector is actually feeding — a note's close/edit/move
+    /// buttons in display state, its close button while editing, its <c>:place</c> target while
+    /// moving. Reading the DETECTOR's snapshot (not re-deriving from note state) means the
+    /// inventory can never disagree with what gaze is really evaluated against. Rect targets
+    /// report their bounds; circular targets report centre ± hit radius as a covering rect.
+    /// Same thread-discipline as the rest of this class (UI thread — the inventory calls from the
+    /// UI thread; the snapshot itself is copy-on-write, so even a racing read is consistent).
+    /// Returns a fresh list; callers may hold it.
+    /// </summary>
+    public IReadOnlyList<PhysicalRect> LiveTargetRects()
+    {
+        var targets = _dwellDetector.Targets;
+        if (targets.Count == 0)
+            return Array.Empty<PhysicalRect>();
+        var rects = new List<PhysicalRect>(targets.Count);
+        foreach (var target in targets)
+        {
+            if (target.Bounds is { } bounds)
+                rects.Add(bounds);
+            else
+                rects.Add(new PhysicalRect(
+                    target.Center.X - target.Radius,
+                    target.Center.Y - target.Radius,
+                    target.Radius * 2,
+                    target.Radius * 2));
+        }
+        return rects;
+    }
+
     public NoteManager(IMessenger messenger, IStruggleTelemetrySink? sink = null,
         IDwellDetectorRegistry? dwellRegistry = null)
     {
@@ -93,6 +124,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         _dwellDetector.ClearTargets();
         RegisterDwellTargets(data.Id, registerCloseOnly: true);
         _dwellDetector.ResetAllState();
+        RaiseTargetsChanged();
     }
 
     public void RemoveNote(string id)
@@ -102,6 +134,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         if (window != null) { window.Close(); _windows.Remove(window); }
         if (note != null) _notes.Remove(note);
         ReRegisterAllTargets();
+        RaiseTargetsChanged();
     }
 
     public void StartEdit(string id)
@@ -118,6 +151,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         _dwellDetector.ClearTargets();
         RegisterDwellTargets(id, registerCloseOnly: true);
         _dwellDetector.ResetAllState();
+        RaiseTargetsChanged();
     }
 
     public void FinishEdit(string id, string text)
@@ -130,6 +164,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         window.SetState(NoteState.Display);
         window.SetText(text);
         ReRegisterAllTargets();
+        RaiseTargetsChanged();
 
         // Give the OS foreground back to whatever the user was in before the edit took it.
         if (_preEditForegroundWindow != IntPtr.Zero)
@@ -160,6 +195,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         _dwellDetector.AddTarget(new DwellTarget($"{id}:place", note.Position,
             DpiHelper.LogicalToPhysicalX(LayoutConstants.NotePlacementRadius), DwellTimeMs));
         _dwellDetector.ResetAllState();
+        RaiseTargetsChanged();
     }
 
     public void FinishMove(string id, PhysicalPoint newPosition)
@@ -171,7 +207,16 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         note.State = NoteState.Display;
         window.SetState(NoteState.Display);
         ReRegisterAllTargets();
+        RaiseTargetsChanged();
     }
+
+    /// <summary>
+    /// Broadcasts <see cref="NoteTargetsChangedMessage"/> after every structural change to the
+    /// detector's target set (create/remove/state flips) so the D17 inventory re-runs the preview
+    /// panel's collision check (review F1). NOT called from the gaze-driven <c>:place</c> centre
+    /// updates — see the message's doc for why that would be a per-sample walk.
+    /// </summary>
+    private void RaiseTargetsChanged() => _messenger.Send(new NoteTargetsChangedMessage());
 
     public void OnGazeMoved(PhysicalPoint gazePoint, long timestamp)
     {

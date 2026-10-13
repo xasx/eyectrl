@@ -69,7 +69,7 @@ The result is a UI that feels like a patchwork of different apps rather than one
 | **DriftNotice** | `DriftNoticeWindow` | `Transparent` + `Border #E0202020` | XAML | exempt:non-interactive banner |
 | **CaregiverAlert** | `CaregiverAlertWindow` | `Transparent` + `Border #E0202020` | XAML | exempt:non-interactive banner |
 | **AdaptationPreview** | `AdaptationPreviewWindow` | `Transparent` + token-bordered card (all values from `Tokens`) | XAML | exempt:it is the panel itself |
-| **Note** | `NoteWindow` | `#1A1A2E` | code-only, no XAML | exempt:note dwell targets live in NoteManager's private detector, outside D17's five named sources |
+| **Note** | `NoteWindow` | `#1A1A2E` | code-only, no XAML | collision-zone |
 
 The **Class** column is the match key for the drift-guard test
 (`tests/EyeCtrl.App.Tests/OverlayInventoryDriftTests.cs`): every concrete
@@ -83,7 +83,10 @@ preview panel's collision inventory — in BOTH directions. A class marked
 `collision-zone` that the inventory does not report is a claim nothing enforces;
 a reported source classified `exempt` is silent unprotection. `EdgeButtonBarWindow`
 counts once as a class but covers BOTH of its instances (the shared bar and the
-action-menu modifier bar). External dwell
+action-menu modifier bar). `NoteWindow`'s rects come from `NoteManager`'s live
+dwell-target set (its own detector — the note buttons ARE the window's interactive
+surface; review F1 reclassified it from a circular exemption that recorded the
+implementation instead of a safety property). External dwell
 contributes no row of its own because its rects belong to the SDK client apps,
 not to an `OverlayWindow` of ours. A new overlay must make the call explicitly;
 there is no default classification.

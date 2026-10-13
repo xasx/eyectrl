@@ -483,11 +483,15 @@ public class AppBootstrapper
             sink: sp.GetRequiredService<IStruggleTelemetrySink>(),
             dwellRegistry: sp.GetRequiredService<IDwellDetectorRegistry>()));
 
-        // NoteManager (pinned notes lifecycle)
-        services.AddSingleton<INoteManager>(sp => new NoteManager(
+        // NoteManager (pinned notes lifecycle). Registered as the CONCRETE singleton as well since
+        // review F1 — the D17 inventory reads its live dwell-target rects (the INoteManager
+        // interface stays coordinator-facing); the mapping keeps one instance behind both
+        // registrations.
+        services.AddSingleton<NoteManager>(sp => new NoteManager(
             sp.GetRequiredService<IMessenger>(),
             sp.GetRequiredService<IStruggleTelemetrySink>(),
             sp.GetRequiredService<IDwellDetectorRegistry>()));
+        services.AddSingleton<INoteManager>(sp => sp.GetRequiredService<NoteManager>());
 
         // OverlayManager (manages all overlay window lifecycle)
         services.AddSingleton<IOverlayManager>(sp => new OverlayManager(
@@ -642,7 +646,8 @@ public class AppBootstrapper
         // service holds LAZY resolvers for both the window and the toolbar geometry, and nothing
         // resolves the service until AdaptationActivation's StartRuntime does (P9 — no overlay HWND
         // while the feature is off). The collision seam is Task 11's real gaze-consumer inventory
-        // (D17): keyboard, both edge-button bars, the two menus and the external-dwell targets, plus
+        // (D17): keyboard, both edge-button bars, the two menus, the external-dwell targets and
+        // (review F1) the note dwell targets, plus
         // the Changed trigger set that keeps the check continuous while the panel is up. The bridge
         // carries the EventCoordinator-owned toolbar coordinator to the lazily-resolved service and
         // inventory alike; App attaches it right after EventCoordinator initializes.
@@ -655,6 +660,7 @@ public class AppBootstrapper
             sp.GetRequiredService<EdgeButtonBarViewModel>(),
             sp.GetRequiredKeyedService<EdgeButtonBarViewModel>("actionMenuModBar"),
             externalTargetRects: () => sp.GetRequiredService<ExternalDwellService>().LiveTargetRects(),
+            noteTargetRects: () => sp.GetRequiredService<NoteManager>().LiveTargetRects(),
             sp.GetRequiredService<ToolbarLifecycleBridge>(),
             sp.GetRequiredService<IMessenger>()));
         services.AddSingleton<ToolbarLifecycleBridge>();

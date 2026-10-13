@@ -111,12 +111,14 @@ public class DwellDetector
     public int CooldownMs => (int)(_cooldownMicroseconds / MathConstants.MicrosecondsPerMillisecond);
 
     /// <summary>
-    /// Test seam (<c>InternalsVisibleTo</c> → EyeCtrl.Core.Tests, EyeCtrl.App.Tests), read-only: the
-    /// registered targets — the geometry gaze is actually evaluated against — as of the last
-    /// add/remove/clear. The copy-on-write snapshot itself, never mutated in place. T09's geometry
-    /// gate compares these, not only the drawing, across languages (review-04 R1).
+    /// Read-only: the registered targets — the geometry gaze is actually evaluated against — as of
+    /// the last add/remove/clear. The copy-on-write snapshot itself, never mutated in place.
+    /// Originally the T09 geometry-gate test seam (<c>InternalsVisibleTo</c> tests still read it);
+    /// public since the D17 inventory (review F1): <c>NoteManager.LiveTargetRects</c> reads it so
+    /// the preview panel's collision check sees exactly the dwell surfaces the detector is
+    /// feeding, with no parallel bookkeeping to drift.
     /// </summary>
-    internal IReadOnlyList<DwellTarget> Targets => _targetsSnapshot;
+    public IReadOnlyList<DwellTarget> Targets => _targetsSnapshot;
 
     /// <summary>Adds a target for dwell detection. Replaces any existing target with the same ID.</summary>
     public void AddTarget(DwellTarget target)

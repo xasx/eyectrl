@@ -894,6 +894,77 @@ public class AdaptationPreviewServiceTests
         }
     }
 
+    [StaFact]
+    public void NoteOverThePanel_ThroughTheRealInventory_HidesKeepLast_ThenBlocksShow_Drains()
+    {
+        // Review F1's end-to-end pin: the REAL inventory (all six sources wired, nothing else up)
+        // with a REAL NoteManager. A note pinned where the panel already sits must behave exactly
+        // like the keyboard does: mid-read it is a POLICY hide (HiddenKeepLast, live engagement
+        // id), at the next show it is NoPanel, and removing the note drains the zone so the panel
+        // returns. Note geometry is the real RegisterDwellTargets math (DPI-robust: the close
+        // rect lands inside the panel for any scale this process can hold here). Fixture
+        // discipline: real NoteWindow constructed, so AdaptationSettings.Enabled stays false.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var messenger = new WeakReferenceMessenger();
+        using var noteManager = new NoteManager(messenger);
+
+        // Fresh VMs; the keyboard seam is never reached (IsVisible false short-circuits before
+        // the overlays factory is invoked — the delegate throws to prove it).
+        var invSettings = new EyeCtrlSettings();
+        using var inventory = new GazeConsumerInventory(
+            invSettings,
+            overlays: () => throw new NotImplementedException("the keyboard gate must short-circuit"),
+            new KeyboardViewModel(invSettings, messenger),
+            new ViewModels.ActionMenuViewModel(invSettings, messenger),
+            new ModesMenuViewModel(invSettings, messenger),
+            new EdgeButtonBarViewModel(invSettings, messenger),
+            new EdgeButtonBarViewModel(invSettings, messenger),
+            externalTargetRects: () => Array.Empty<PhysicalRect>(),
+            noteTargetRects: () => noteManager.LiveTargetRects(),
+            new ToolbarLifecycleBridge(),
+            messenger);
+
+        var h = new Harness(adaptationEnabled: false, collision: inventory, messenger: messenger);
+        try
+        {
+            h.Toolbar.Bounds = new PhysicalRect(100, 0, 1000, 140); // panel anchors at x = 1116
+            h.Panel.DipSize = (200, 150);
+            h.Panel.Scale = 2.0;
+
+            h.ShowPreview();
+            Check.That(h.Panel.IsShown).IsTrue();
+
+            // A note is pinned right where the panel sits (Edit state ⇒ the close button's dwell
+            // rect lands inside [1116..1516)x[0..300)) — the exact R4-H1 harm: buttons fed under
+            // the panel. The structural message is the inventory's trigger; no manual flip.
+            noteManager.CreateNoteAt(new PhysicalPoint(1300, 150));
+
+            Check.That(h.Panel.IsShown).IsFalse();
+            Check.That(h.Recorder.Bounds[^1].EngagementId).IsEqualTo(Engagement);
+            Check.That(h.Recorder.Bounds[^1].Kind).IsEqualTo(PreviewBoundsKind.HiddenKeepLast);
+            Check.That(h.Coordinator.IsAutoHideSuspended).IsFalse();
+
+            // The note still up blocks the NEXT show too — NoPanel at show time, no window.
+            h.HidePreview();
+            h.ShowPreview(Engagement + 1);
+
+            Check.That(h.Panel.ShowCount).IsEqualTo(1); // the first show only
+            Check.That(h.Recorder.Bounds[^1].EngagementId).IsEqualTo(Engagement + 1);
+            Check.That(h.Recorder.Bounds[^1].Kind).IsEqualTo(PreviewBoundsKind.NoPanel);
+
+            // Removing the note drains the zone: the panel returns on the show after that.
+            noteManager.RemoveNote(noteManager.ActiveNotes[0].Id);
+            h.ShowPreview(Engagement + 2);
+
+            Check.That(h.Panel.ShowCount).IsEqualTo(2);
+            Check.That(h.Panel.IsShown).IsTrue();
+        }
+        finally
+        {
+            h.Service.Dispose();
+        }
+    }
+
     /// <summary>
     /// The auto-show scenario's inventory stand-in: raises <see cref="IOverlayCollision.Changed"/>
     /// exactly when the real inventory would (the keyboard VM's visibility flip) and answers

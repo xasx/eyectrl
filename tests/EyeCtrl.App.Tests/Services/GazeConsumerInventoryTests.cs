@@ -20,9 +20,11 @@ using Xunit;
 /// this class pins (a) the mapping — each named source contributes its rect only while that source
 /// is up, reusing the ticket-8 derived rects for the two menus; (b) the edge-button bar's new
 /// derived rect (the union of the dwell hit areas, the same over-cover rule the menus use);
-/// (c) the <c>Changed</c> trigger set — exactly the set <c>ActivationOfferCoordinator</c>.SchedulePublish
-/// listens to, plus the bars' own button-set changes; (d) the strict overlap rule (<c>touching is
-/// clear</c>, Task 1) at the IsClear seam.
+/// (c) the <c>Changed</c> trigger set — a SUPERSET of what
+/// <c>ActivationOfferCoordinator</c>.SchedulePublish listens to (the coordinator's
+/// ExternalDwellActiveMessage handler clears offers rather than publishing zones), plus the bars'
+/// own button-set changes and the note-targets message (review F1);
+/// (d) the strict overlap rule (<c>touching is clear</c>, Task 1) at the IsClear seam.
 /// </summary>
 /// <remarks>
 /// In the <c>WpfApplication</c> collection only because the keyboard-source tests construct a real
@@ -51,6 +53,7 @@ public class GazeConsumerInventoryTests
         public readonly EdgeButtonBarViewModel ModBarVm;
         public readonly ToolbarLifecycleBridge Bridge = new();
         public readonly Func<IReadOnlyList<PhysicalRect>> ExternalRects = () => Array.Empty<PhysicalRect>();
+        public Func<IReadOnlyList<PhysicalRect>> NoteRects { get; set; } = () => Array.Empty<PhysicalRect>();
         public Func<IOverlayManager> Overlays = () => throw new NotImplementedException("no keyboard supplied");
         public GazeConsumerInventory Inventory = null!;
 
@@ -75,6 +78,7 @@ public class GazeConsumerInventoryTests
                 EdgeBarVm,
                 ModBarVm,
                 external ?? ExternalRects,
+                NoteRects,
                 Bridge,
                 Messenger);
             return Inventory;
@@ -271,6 +275,21 @@ public class GazeConsumerInventoryTests
     }
 
     [Fact]
+    public void Live_NoteTargetRects_ArePassedThrough()
+    {
+        // Review F1's sixth source: NoteManager.LiveTargetRects (its own tests pin the detector-
+        // snapshot geometry); here the seam just has to carry the note rects into the inventory —
+        // a note parked under the panel is the same R4-H1 harm as a keyboard there.
+        var kit = new Kit();
+        var close = new PhysicalRect(1200, 40, 60, 60);
+        var edit = new PhysicalRect(1200, 110, 60, 60);
+        kit.NoteRects = () => new[] { close, edit };
+        using var inventory = kit.Build();
+
+        Check.That(inventory.Live()).ContainsExactly(close, edit);
+    }
+
+    [Fact]
     public void Live_AllSourcesUpTogether_ReportsEveryRect()
     {
         var kit = new Kit();
@@ -323,16 +342,18 @@ public class GazeConsumerInventoryTests
         kit.ModBarVm.ShowButtons(new[] { Def("shift", 0) }, new PhysicalPoint(100, 100));
         // A toolbar geometry edit.
         kit.Settings.Toolbar.DockedEdge = "Bottom";
-        // The three messages.
+        // The four messages.
         kit.Messenger.Send(new DisplayGeometryChangedMessage(new DisplayGeometry(1920, 1080, 1, 1)));
         kit.Messenger.Send(new KeyboardEdgeToggledMessage());
         kit.Messenger.Send(new ExternalDwellActiveMessage(true));
+        kit.Messenger.Send(new NoteTargetsChangedMessage());
 
         Check.WithCustomMessage(
-                "Every SchedulePublish-set trigger plus the bars' button-set mutations must raise " +
-                "Changed (count: 3 keyboard — two visibility flips + emoji-mode — + 2 menus + " +
-                "4 bars (IsVisible + ButtonSetChanged each) + 1 toolbar settings + 3 messages = 13).")
-            .That(fired).IsEqualTo(13);
+                "Every SchedulePublish-set trigger plus the bars' button-set mutations and the " +
+                "note-targets message must raise Changed (count: 3 keyboard — two visibility flips " +
+                "+ emoji-mode — + 2 menus + 4 bars (IsVisible + ButtonSetChanged each) + 1 toolbar " +
+                "settings + 4 messages = 14).")
+            .That(fired).IsEqualTo(14);
     }
 
     [Fact]

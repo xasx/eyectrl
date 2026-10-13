@@ -14,7 +14,7 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// The D17 gaze-consumer inventory (Task 11): the surfaces whose rects a preview panel must never
-/// cover, as plain data. <see cref="Live"/> is the one call the collision gate needs; the five
+/// cover, as plain data. <see cref="Live"/> is the one call the collision gate needs; the six
 /// named sources are:
 ///
 /// <list type="bullet">
@@ -33,15 +33,25 @@ using Microsoft.Extensions.Logging;
 /// <item><b>External dwell</b> — the cooperating apps' target rects via
 /// <c>ExternalDwellService.LiveTargetRects</c> (read under its state lock), injected as a
 /// delegate so this class stays constructible headlessly.</item>
+/// <item><b>Notes</b> (review F1) — <c>NoteManager.LiveTargetRects</c>: the dwell rects this
+/// process itself feeds on its own private detector (a note's close/edit/move buttons, its
+/// <c>:place</c> target mid-move). Notes are non-modal and freely positioned, so a note parked
+/// beyond the strip's end is the same R4-H1 harm as a keyboard there; the detector snapshot (not
+/// re-derived button math) is read so the inventory can never disagree with what gaze is
+/// actually evaluated against. Delegate-injected like external dwell.</item>
 /// </list>
 /// <para>
 /// The class also implements <see cref="IOverlayCollision"/> (the seam Task 10's service already
-/// gates on) and raises <see cref="IOverlayCollision.Changed"/> on exactly the trigger set
+/// gates on) and raises <see cref="IOverlayCollision.Changed"/> on a SUPERSET of the trigger set
 /// <c>ActivationOfferCoordinator.SchedulePublish</c> listens to — keyboard/menus VM
 /// <c>PropertyChanged</c>, toolbar visibility and toolbar settings, the display-geometry,
 /// keyboard-edge and external-dwell messages — PLUS the bars' own <c>ButtonSetChanged</c>
 /// (buttons are added/removed while a bar is up, which moves its rect without touching
-/// <c>IsVisible</c>). The service re-checks on every raise.
+/// <c>IsVisible</c>) and <c>NoteTargetsChangedMessage</c>. It is a superset, not an exact copy:
+/// the offer coordinator's <c>ExternalDwellActiveMessage</c> handler CLEARS offers rather than
+/// publishing zones, so that trigger serves a different purpose there — for this inventory an
+/// external target appearing is a consumer change like any other, and the re-check must run.
+/// The service re-checks on every raise.
 /// </para>
 /// <para>
 /// The toolbar itself is NOT a source: the panel's placement (§3.3) puts it beyond the strip's
@@ -78,6 +88,7 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
     private readonly EdgeButtonBarViewModel _edgeBarVm;
     private readonly EdgeButtonBarViewModel _modBarVm;
     private readonly Func<IReadOnlyList<PhysicalRect>> _externalTargetRects;
+    private readonly Func<IReadOnlyList<PhysicalRect>> _noteTargetRects;
     private readonly ToolbarLifecycleBridge _bridge;
     private readonly IMessenger _messenger;
     private readonly ILogger? _logger;
@@ -96,6 +107,9 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
     /// <param name="externalTargetRects">The external-dwell rect source
     /// (<c>ExternalDwellService.LiveTargetRects</c>); a delegate so tests and this class stay free
     /// of the pipe service's construction weight.</param>
+    /// <param name="noteTargetRects">The note dwell-target rect source (review F1,
+    /// <c>NoteManager.LiveTargetRects</c>); a delegate for the same headless-construction
+    /// reason.</param>
     /// <param name="bridge">The late-bound toolbar lifecycle bridge: the attached coordinator's
     /// <c>ToolbarVisibilityChanged</c> is the slide/auto-hide trigger. Null-coordinator is
     /// tolerated (D14: a comfort feature's trigger set degrades, it does not crash the enable
@@ -111,6 +125,7 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         EdgeButtonBarViewModel edgeBarVm,
         EdgeButtonBarViewModel modBarVm,
         Func<IReadOnlyList<PhysicalRect>> externalTargetRects,
+        Func<IReadOnlyList<PhysicalRect>> noteTargetRects,
         ToolbarLifecycleBridge bridge,
         IMessenger messenger,
         ILogger? logger = null)
@@ -123,6 +138,7 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         _edgeBarVm = edgeBarVm ?? throw new ArgumentNullException(nameof(edgeBarVm));
         _modBarVm = modBarVm ?? throw new ArgumentNullException(nameof(modBarVm));
         _externalTargetRects = externalTargetRects ?? throw new ArgumentNullException(nameof(externalTargetRects));
+        _noteTargetRects = noteTargetRects ?? throw new ArgumentNullException(nameof(noteTargetRects));
         _bridge = bridge ?? throw new ArgumentNullException(nameof(bridge));
         _messenger = messenger ?? throw new ArgumentNullException(nameof(messenger));
         _logger = logger;
@@ -154,6 +170,7 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         _messenger.Register<GazeConsumerInventory, DisplayGeometryChangedMessage>(this, OnGeometryChanged);
         _messenger.Register<GazeConsumerInventory, KeyboardEdgeToggledMessage>(this, OnKeyboardEdgeToggled);
         _messenger.Register<GazeConsumerInventory, ExternalDwellActiveMessage>(this, OnExternalDwellActive);
+        _messenger.Register<GazeConsumerInventory, NoteTargetsChangedMessage>(this, OnNoteTargetsChanged);
     }
 
     /// <inheritdoc />
@@ -199,6 +216,10 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
 
         // External dwell: the cooperating apps' own rects.
         rects.AddRange(_externalTargetRects());
+
+        // Notes (review F1): this process's own note dwell rects — the detector snapshot, so the
+        // inventory and the fed geometry cannot drift.
+        rects.AddRange(_noteTargetRects());
         return rects;
     }
 
@@ -283,6 +304,9 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         => OnConsumersChanged();
 
     private void OnExternalDwellActive(GazeConsumerInventory recipient, ExternalDwellActiveMessage message)
+        => OnConsumersChanged();
+
+    private void OnNoteTargetsChanged(GazeConsumerInventory recipient, NoteTargetsChangedMessage message)
         => OnConsumersChanged();
 
     private void OnConsumersChanged() => Changed?.Invoke();

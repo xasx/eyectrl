@@ -22,9 +22,10 @@ using EyeCtrl.ViewModels.Messages;
 /// data, the <c>SetRepeatSuppressionZones</c> pattern; Core re-validates a live offer against them,
 /// so chrome that appears over one takes it away (review A F3).</item>
 /// <item><b>Suspension.</b> While EyeCtrl's Settings window, the task switcher, the quick-actions
-/// grid or the eye-care banner is open, NO offer is made and a live unfired offer is cleared (the
-/// user's decision of 2026-10-02, review B F3). A single suspension flag carries that rule, because
-/// these surfaces are not chrome to avoid but interactions to yield to entirely.</item>
+/// grid, the eye-care banner or the adaptation preview panel is open, NO offer is made and a live
+/// unfired offer is cleared (the user's decision of 2026-10-02, review B F3; the preview is Task
+/// 12's fifth input, D16). A single suspension flag carries that rule, because these surfaces are
+/// not chrome to avoid but interactions to yield to entirely.</item>
 /// </list>
 ///
 /// <para>
@@ -46,6 +47,7 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
     private readonly Func<EventCoordinationContext, PhysicalRect[]> _collectZones;
     private bool _publishScheduled;
     private bool _bannerActive;
+    private bool _previewVisible;
 
     public ActivationOfferCoordinator(
         ToolbarLifecycleCoordinator toolbar,
@@ -91,6 +93,14 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
         context.Messenger.Register<ActivationOfferCoordinator, EyeCareBannerActiveMessage>(this, (_, message) =>
         {
             _bannerActive = message.Active;
+            RecomputeSuspension();
+        });
+        // Task 12 (D16): the preview panel is the fifth suspension input. The service publishes
+        // its visibility; it never writes the offers flag itself — this coordinator stays the
+        // single writer that recomputes from all five inputs.
+        context.Messenger.Register<ActivationOfferCoordinator, PreviewPanelActiveMessage>(this, (_, message) =>
+        {
+            _previewVisible = message.Active;
             RecomputeSuspension();
         });
 
@@ -146,7 +156,7 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
         if (Context is null)
             return;
 
-        var reasons = new List<string>(4);
+        var reasons = new List<string>(5);
         if (_modal.SettingsOpen)
             reasons.Add("Settings");
         if (Context.TaskSwitcherVM.IsVisible)
@@ -155,6 +165,8 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
             reasons.Add("quick actions");
         if (_bannerActive)
             reasons.Add("eye-care banner");
+        if (_previewVisible)
+            reasons.Add("adaptation preview");
 
         bool suspended = reasons.Count > 0;
         string reason = suspended ? string.Join(", ", reasons) : "none";

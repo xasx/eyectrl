@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Tests.Services.Coordinators;
 
+using System.IO;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Services;
@@ -14,6 +15,9 @@ using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 using NFluent;
+using Serilog;
+using Serilog.Core;
+using Serilog.Events;
 using Xunit;
 
 /// <summary>
@@ -261,6 +265,143 @@ public class ActivationOfferCoordinatorTests
         Check.That(Settle(s, 1000, 1000)).IsNotNull();
     }
 
+    [StaFact]
+    public void PreviewPanelVisible_SuspendsOffers_AndLogsTheReason()
+    {
+        // Task 12 / D16: the preview panel is the FIFTH suspension input. While it is up no offer
+        // is made and a live one is cleared, and — like the other four inputs — the change is
+        // logged with the input's name, so a live session's gap in Offer-shown lines is
+        // explainable (ticket 8 fixup 02). Mutation: drop the PreviewPanelActiveMessage
+        // registration → the settle offers and no "adaptation preview" reason is logged.
+        var s = Build();
+        using var _ = s.Context.GazeEngine;
+
+        var sink = new CapturingSink();
+        var previousLogger = Log.Logger;
+        try
+        {
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.Information()
+                .WriteTo.Sink(sink)
+                .CreateLogger();
+
+            Check.That(Settle(s, 500, 500)).IsNotNull();
+
+            s.Messenger.Send(new PreviewPanelActiveMessage(true));
+            s.InteractionManager.ApplyPendingActivationOfferRequests();
+            Check.WithCustomMessage("a visible preview panel must suspend offers")
+                .That(Settle(s, 600, 600)).IsNull();
+
+            var suspension = sink.Events
+                .Where(e => e.MessageTemplate.Text.Contains(
+                    "Activation offers suspended", StringComparison.Ordinal))
+                .ToList();
+            Check.WithCustomMessage(
+                "the preview's suspension must be logged as Suspended=true with the reason "
+                + "'adaptation preview' — log events captured: " + Describe(sink.Events))
+                .That(suspension.Any(e =>
+                    BoolProperty(e, "Suspended") == true
+                    && StringProperty(e, "Reason") == "adaptation preview"))
+                .IsTrue();
+        }
+        finally
+        {
+            Log.Logger = previousLogger;
+        }
+    }
+
+    [StaFact]
+    public void PreviewPanelHides_WhileSettingsIsOpen_OffersStaySuspended()
+    {
+        // The combined-flag test: the preview's hide recombines ALL five inputs, and Settings
+        // still being open keeps the flag set. A second writer publishing its own true/false
+        // (the service writing the flag directly) would resume offers here — behind the user's
+        // open Settings window.
+        var s = Build();
+        using var _ = s.Context.GazeEngine;
+
+        s.Modal.SettingsOpen = true;
+        s.Modal.SettingsOpenChanged?.Invoke(true);
+        s.Messenger.Send(new PreviewPanelActiveMessage(true));
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        Check.WithCustomMessage("Settings + preview open must suspend offers")
+            .That(Settle(s, 700, 700)).IsNull();
+
+        s.Messenger.Send(new PreviewPanelActiveMessage(false));
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        Check.WithCustomMessage(
+            "the preview's hide must not resume offers while Settings is still open — the "
+            + "single writer recomputes from all five inputs")
+            .That(Settle(s, 800, 800)).IsNull();
+    }
+
+    [StaFact]
+    public void PreviewPanelHides_WithNothingElseHolding_OffersResume()
+    {
+        // P16: the hide edge (the service's user-leave, policy hide and R2-2 teardown all
+        // publish false) must release the suspension when no other input holds — a stuck
+        // suspension would keep offers off until restart.
+        var s = Build();
+        using var _ = s.Context.GazeEngine;
+
+        s.Messenger.Send(new PreviewPanelActiveMessage(true));
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        Check.That(Settle(s, 700, 700)).IsNull();
+
+        s.Messenger.Send(new PreviewPanelActiveMessage(false));
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        Check.WithCustomMessage("offers must resume once the preview hides and nothing else holds (P16)")
+            .That(Settle(s, 800, 800)).IsNotNull();
+    }
+
+    // The single-writer invariant (D16): the offers-suspension flag has ONE writer — this
+    // coordinator, whose RecomputeSuspension OR-combines the five inputs. The allowlist pins the
+    // exact allowed set of source files naming SetActivationOffersSuspended( (the
+    // DwellSurfaceCensusTests pattern): the writer's call site and Core's definition. The
+    // preview service — like the banner and the three VM-driven surfaces — goes through a
+    // message; a second writer fails here by name.
+    private static readonly string[] SuspensionFlagFiles =
+    [
+        "EyeCtrl.App/Services/Coordinators/ActivationOfferCoordinator.cs", // the single writer
+        "EyeCtrl.Core/Processing/InteractionManager.cs",                   // the definition
+    ];
+
+    [Fact]
+    public void TheOfferCoordinator_IsTheOnlyWriterOfTheSuspensionFlag()
+    {
+        var found = SuspensionFlagSourceFiles();
+        var unexpected = found
+            .Where(f => !SuspensionFlagFiles.Contains(f, StringComparer.Ordinal)).ToList();
+        Check.WithCustomMessage(
+            "These files write (or name) SetActivationOffersSuspended but are not in the "
+            + "allowlist — the flag has one writer, ActivationOfferCoordinator; publish a "
+            + "PreviewPanelActiveMessage (or the surface's own event) and let RecomputeSuspension "
+            + "combine it: " + string.Join(", ", unexpected))
+            .That(unexpected).IsEmpty();
+
+        foreach (var path in SuspensionFlagFiles)
+        {
+            var full = Path.Combine(SourceScanner.RepoRoot().FullName, "src",
+                path.Replace('/', Path.DirectorySeparatorChar));
+            Check.WithCustomMessage($"Allowlist entry '{path}' no longer exists on disk.")
+                .That(File.Exists(full)).IsTrue();
+            Check.WithCustomMessage(
+                $"Allowlist entry '{path}' no longer names SetActivationOffersSuspended — "
+                + "update the census to match the code.")
+                .That(File.ReadAllText(full).Contains("SetActivationOffersSuspended(")).IsTrue();
+        }
+    }
+
+    private static List<string> SuspensionFlagSourceFiles()
+    {
+        var src = Path.Combine(SourceScanner.RepoRoot().FullName, "src");
+        return Directory.EnumerateFiles(src, "*.cs", SearchOption.AllDirectories)
+            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}"))
+            .Where(f => File.ReadAllText(f).Contains("SetActivationOffersSuspended("))
+            .Select(f => f[(src.Length + 1)..].Replace('\\', '/'))
+            .ToList();
+    }
+
     /// <summary>Ends any live fixation, settles at a fresh point through the public API, and returns
     /// the offer (or null when none was made).</summary>
     private static ActivationOffer? Settle(Setup s, double x, double y)
@@ -272,6 +413,26 @@ public class ActivationOfferCoordinatorTests
         s.InteractionManager.OnFixationSettled(point);
         return s.InteractionManager.ActivationOffers!.CurrentOffer;
     }
+
+    /// <summary>Captures the events the coordinator logs while a test drives it (the
+    /// KeyboardCategoryGridExclusionTests pattern). Assertions read the structured properties,
+    /// never a rendered message, so an honest rewording does not red them.</summary>
+    private sealed class CapturingSink : ILogEventSink
+    {
+        public List<LogEvent> Events { get; } = new();
+        public void Emit(LogEvent logEvent) => Events.Add(logEvent);
+    }
+
+    private static string? StringProperty(LogEvent logEvent, string name) =>
+        logEvent.Properties.TryGetValue(name, out var value)
+            && value is ScalarValue { Value: string s } ? s : null;
+
+    private static bool? BoolProperty(LogEvent logEvent, string name) =>
+        logEvent.Properties.TryGetValue(name, out var value)
+            && value is ScalarValue { Value: bool b } ? b : null;
+
+    private static string Describe(IEnumerable<LogEvent> events) =>
+        string.Join("; ", events.Select(e => e.RenderMessage()));
 
     private sealed class NoOpQuickActionsStore : IQuickActionsStore
     {

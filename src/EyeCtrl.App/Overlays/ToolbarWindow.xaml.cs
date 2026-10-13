@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 
 using System.ComponentModel;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -132,6 +133,17 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
     /// </summary>
     private ToolbarViewModel? _activationHookedVm;
 
+    /// <summary>
+    /// The view-model whose <c>PropertyChanged</c> this window currently listens to for
+    /// <see cref="ToolbarViewModel.ResetFrozenSilent"/>, or null if none. Same tracked-reference
+    /// pattern as <see cref="_activationHookedVm"/> and for the same reason: this window has no
+    /// Closed-time teardown of its view-model subscriptions — the rebind in
+    /// <see cref="BindToViewModel"/> IS the teardown path (it runs on every rebuild), so a
+    /// DataContext reassignment must detach the old handler there rather than leak it and leave
+    /// the new view-model's cue unheard.
+    /// </summary>
+    private ToolbarViewModel? _frozenSilentHookedVm;
+
     /// <summary>The button band, for tests. Layout must be measured against this, not the Window.</summary>
     internal Canvas ButtonCanvasForTest => ButtonCanvas;
 
@@ -187,6 +199,21 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
         // SetMode below, and a plain size change via Initialize (SettingsUiCoordinator.cs:179),
         // which previously left the rebuilt band showing constructor defaults indefinitely.
         BindToViewModel();
+
+        // The band→VM seam (Task 8, P7/D11): report what the band now renders. This is the only
+        // route by which the view-model learns membership, so a rebuild that DROPS Reset (the
+        // adaptation-Enabled flip through Initialize) also removes its dwell target, zeroes a
+        // held arc and closes any live preview engagement — without it, a stale target at a
+        // former screen position could fire the one unrecoverable action from gaze merely
+        // passing there. AFTER BindToViewModel: SetRenderedButtons zeroes the absent id's
+        // progress/highlight, and the rebind's initial-apply block must have run first so a
+        // still-rendered button's live state survives those events (an absent id's handler
+        // returns at the band-Contains guard, so the order is belt-and-braces, but stated once
+        // here rather than left to be rediscovered). A null or non-ToolbarViewModel DataContext
+        // (construction order varies across callers) simply skips — nothing is positioned yet,
+        // so there is nothing to remove.
+        if (DataContext is ToolbarViewModel vm)
+            vm.SetRenderedButtons(_band.Buttons.Select(b => b.Key).ToArray());
     }
 
     /// <summary>
@@ -459,6 +486,39 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
             vm.ButtonActivated += FlashActivated;
             _activationHookedVm = vm;
         }
+
+        // The D18 rim cue's subscription (Task 8): the engine's FrozenSilentChanged arrives on the
+        // view-model as the ResetFrozenSilent observable, and this is the hand that carries it to
+        // the band. Same tracked-reference swap as the activation hook above.
+        if (!ReferenceEquals(_frozenSilentHookedVm, vm))
+        {
+            if (_frozenSilentHookedVm is not null)
+                _frozenSilentHookedVm.PropertyChanged -= OnToolbarVmPropertyChanged;
+            vm.PropertyChanged += OnToolbarVmPropertyChanged;
+            _frozenSilentHookedVm = vm;
+        }
+
+        // Re-apply the CURRENT cue value, the same "unchanged value repairs nothing" gap
+        // BindButton's initial-apply block covers for icon/mode-tint/highlight: a rebuild drops
+        // the drawn rim along with the old elements, and an unchanged ResetFrozenSilent raises no
+        // PropertyChanged to repair it. AddButton's PaintFace already re-applies the cue to the
+        // fresh Ellipse (the funnel consults _frozenSilentIds, which Build does not clear), so
+        // this line is defensive parity with that block rather than the load-bearing path — kept
+        // so the subscription and the drawn state converge here in one place, whatever the band's
+        // internals do.
+        _band.SetFrozenSilent(ToolbarBand.ResetId, vm.ResetFrozenSilent);
+    }
+
+    /// <summary>
+    /// Maps the view-model's frozen-silent observable to the band's D18 cue. Named, not a lambda,
+    /// so the unsubscription in <see cref="BindToViewModel"/> pairs with it by target plus method.
+    /// </summary>
+    private void OnToolbarVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(ToolbarViewModel.ResetFrozenSilent)) return;
+        if (sender is not ToolbarViewModel vm) return;
+
+        _band.SetFrozenSilent(ToolbarBand.ResetId, vm.ResetFrozenSilent);
     }
 
     /// <summary>

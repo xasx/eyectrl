@@ -583,7 +583,7 @@
     "src": "1c294e0b"
   },
   "overlays.subpixel.ask_title": {
-    "text": "Jetzt mit der Blickbewegung fortfahren?",
+    "text": "Jetzt mit dem Live-Blick-Teil weitermachen?",
     "src": "8bf8ecbe"
   },
   "overlays.subpixel.ask_yes": {
@@ -591,7 +591,7 @@
     "src": "e1f6b735"
   },
   "overlays.subpixel.block_drift": {
-    "text": "Drift-Block",
+    "text": "Bewegungs-Block",
     "src": "2ac822a4"
   },
   "overlays.subpixel.block_live": {
@@ -1471,7 +1471,7 @@
     "src": "f5937906"
   },
   "settings.diagnostics.subpixel.reason.menus": {
-    "text": "Zuerst das Modusmenü, den Aufgabenwechsler und das Schnellaktionen-Raster schließen.",
+    "text": "Zuerst das Modusmenü, den Aufgabenwechsler und das Raster mit Kurzbefehlen schließen.",
     "src": "1e68e7ee"
   },
   "settings.diagnostics.subpixel.reason.paused": {

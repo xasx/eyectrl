@@ -1,9 +1,14 @@
+<!-- NoResize: AllowsTransparency=False gives this window a real frame, and the default CanResize
+     adds an invisible 6-DIP resize border — the client area then starts inside the window origin,
+     but the ✕ and the dark fill are computed FROM the window origin, so they were drawn 6 DIP right
+     and below their places (EdgeButtonBarWindow.xaml does the same). -->
 <overlays:OverlayWindow x:Class="EyeCtrl.App.Overlays.GlassBackdropWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
         xmlns:loc="clr-namespace:EyeCtrl.Controls.Localization;assembly=EyeCtrl.Controls"
         WindowStyle="None" AllowsTransparency="False" Background="Transparent"
+        ResizeMode="NoResize"
         Topmost="True" ShowInTaskbar="False">
     <Grid>
         <Canvas x:Name="BackdropCanvas" IsHitTestVisible="False"/>

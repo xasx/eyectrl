@@ -148,6 +148,14 @@ exception details and logs, and the product names.
 - **AutomationIds never change with the language.** UI tests locate targets by AutomationId and keep
   running with English pinned; under German the toolbar and Settings tab faces keep the same ids
   (`ShippedGermanStep3Tests.TheToolbarsAndTabFaces_…`, `StringTableIsolationTests`).
+- **The glass backdrop's ✕, dark fill and hint now sit exactly where they belong.** A hidden resize
+  border — the default `ResizeMode` on the one overlay that must stay non-transparent for Mica —
+  pushed the client area 6 DIP inside the window, so everything drawn in client coordinates landed
+  6 DIP right and below its target; the ✕ was drawn off its own dwell target. `ResizeMode="NoResize"`
+  removes the border (as the edge bar already had), and a new handle-only gate checks every overlay
+  window's client origin, with the live check keeping the exact ✕ position
+  (`OverlayClientOriginTests`, `Step3LiveCheckTests.TheGlassBackdrop_…`). Pre-existing, found by the
+  T13 live check.
 - **Keyboard key captions are layout data, not UI text.** They belong to the keyboard layout in use:
   QWERTZ shows German captions ("Strg", "Kopieren", "Einfügen", "Alles mark.", "+ Wort", "Einfg",
   "Entf", "Pos1", "Ende", "Bild↑", "Bild↓", "Druck"), while QWERTY and AZERTY keep their English ones

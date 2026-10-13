@@ -1,27 +1,27 @@
 namespace EyeCtrl.App.Services;
 
+using System;
 using EyeCtrl.Core.Models;
 
 /// <summary>
-/// The D17 collision seam: whether the panel rect would cover another gaze-consuming surface.
-/// Task 10 ships the always-clear stub so the service's show-time gate and its immediate
-/// <c>NoPanel</c> publish (P11) exist end-to-end; Task 11 replaces the implementation with the real
-/// gaze-consumer inventory (keyboard, edge-button bar, action menu, modes menu, external dwell) and
-/// re-runs the check on every chrome change and panel resize.
+/// The D17 collision seam: whether the panel rect would cover another gaze-consuming surface, and
+/// when to ask again. Task 10 shipped the show-time gate behind an always-clear stub; Task 11
+/// maps <see cref="GazeConsumerInventory"/> here — the real inventory (keyboard, both edge-button
+/// bars, the two menus, external dwell) plus the <see cref="Changed"/> trigger set that keeps the
+/// check continuous while the panel is up.
 /// </summary>
 public interface IOverlayCollision
 {
-    /// <summary>Whether <paramref name="panelRect"/> is clear of every live gaze consumer.</summary>
+    /// <summary>Whether <paramref name="panelRect"/> is clear of every live gaze consumer
+    /// (strict overlap — touching edges are clear, Task 1).</summary>
     bool IsClear(PhysicalRect panelRect);
-}
 
-/// <summary>
-/// Task 10's stand-in implementation: the panel is always clear. Never delete the registration —
-/// Task 11 swaps the mapped implementation, and a missing registration would make the container
-/// resolution fail on the first enable edge (silently, inside AdaptationActivation's catch).
-/// </summary>
-public sealed class AlwaysClearOverlayCollision : IOverlayCollision
-{
-    /// <inheritdoc />
-    public bool IsClear(PhysicalRect panelRect) => true;
+    /// <summary>
+    /// Raised after any change that can move, add or remove a gaze consumer: the keyboard's and
+    /// the menus' visibility flips, either edge bar's button set, toolbar visibility and toolbar
+    /// settings edits, display-geometry changes, keyboard-edge toggles and external-dwell
+    /// activations. The preview service re-runs its collision check on every raise while the
+    /// panel is up. The pre-Task-11 stub never raised it.
+    /// </summary>
+    event Action? Changed;
 }

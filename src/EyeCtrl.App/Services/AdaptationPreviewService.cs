@@ -15,11 +15,18 @@ using Microsoft.Extensions.Logging;
 /// <see cref="AdaptationPreviewVisibilityMessage"/> stream (§3.1/§3.6). It reads every piece of
 /// placement geometry itself (P10) — the VM's message carries only the engagement id and Reset's
 /// last-reported centre — computes the §3.3 anchor (beyond Reset's outer end, into the screen,
-/// work-area-clamped), runs the D17 collision stub at show time (P11), builds content from the pure
+/// work-area-clamped), runs the D17 collision gate (<see cref="IOverlayCollision"/> — Task 11's
+/// real gaze-consumer inventory) not only at show time (P11) but CONTINUOUSLY: every
+/// <see cref="IOverlayCollision.Changed"/> chrome trigger and the panel's own SizeChanged
+/// re-intersect the panel's REAL measured rect against the live inventory (strict overlap, Task 1)
+/// and a new collision is a policy hide — <see cref="PreviewBoundsKind.HiddenKeepLast"/> mid-read,
+/// <see cref="PreviewBoundsKind.NoPanel"/> at show. It never relocates the panel to an opposite
+/// anchor (r6): a collision ends the panel, it does not move it. Content comes from the pure
 /// <see cref="AdaptationPreviewSnapshot"/> with a ≥500 ms refresh throttle on
-/// <see cref="EffectiveSettingsProvider.Changed"/>, holds the <c>"adaptation-preview"</c> auto-hide
-/// suspension holder while the panel is up (P8), and publishes <see cref="PreviewPanelActiveMessage"/>
-/// for the offer coordinator's fifth input (D16 — it never writes the offers flag itself).
+/// <see cref="EffectiveSettingsProvider.Changed"/>, it holds the <c>"adaptation-preview"</c>
+/// auto-hide suspension holder while the panel is up (P8), and publishes
+/// <see cref="PreviewPanelActiveMessage"/> for the offer coordinator's fifth input (D16 — it never
+/// writes the offers flag itself).
 /// <para>
 /// Lifecycle (P9 + R2-2): resolved lazily on the first <b>activation</b> (constructing the window
 /// must not happen while adaptation is disabled); <see cref="Start"/> is idempotent and
@@ -31,7 +38,9 @@ using Microsoft.Extensions.Logging;
 /// <para>
 /// Crash-contained throughout (D14): a comfort feature must never take the session down, and a
 /// contained show failure publishes <see cref="PreviewBoundsKind.NoPanel"/> so the VM falls back to
-/// Reset's hit area immediately instead of freezing the toolbar for the 500 ms unknown window.
+/// Reset's hit area immediately instead of freezing the toolbar for the 500 ms unknown window. A
+/// failed collision READ keeps the panel up and logs — hiding on every transient inventory failure
+/// would quietly disable the feature.
 /// </para>
 /// </summary>
 internal sealed class AdaptationPreviewService : IRecipient<AdaptationPreviewVisibilityMessage>, IDisposable
@@ -46,11 +55,13 @@ internal sealed class AdaptationPreviewService : IRecipient<AdaptationPreviewVis
     /// <summary>The gap between the strip's outer end (Reset's last button) and the panel, physical px.</summary>
     internal const double AnchorGapPx = 16;
 
-    /// <summary>The panel size assumed before the first layout reports one — the collision check's
-    /// stand-in estimate on a first show (Task 11 owns the real inventory; SizeToContent owns the
-    /// real size, reported back via BoundsChanged).</summary>
-    internal const double NominalWidthPx = 360;
-    internal const double NominalHeightPx = 260;
+    /// <summary>The panel size assumed before the first layout reports one — in DIP. The
+    /// show-time collision estimate multiplies by the live DPI scale (a 360-DIP panel is 720
+    /// physical px at 2.0; the bare DIP number under-covers there — Task 10 review carry (a)).
+    /// SizeToContent owns the real size, reported back via <c>BoundsChanged</c> and used from the
+    /// first report on.</summary>
+    internal const double NominalWidthDip = 360;
+    internal const double NominalHeightDip = 260;
 
     private readonly EyeCtrlSettings _settings;
     private readonly EffectiveSettingsProvider _provider;
@@ -60,6 +71,7 @@ internal sealed class AdaptationPreviewService : IRecipient<AdaptationPreviewVis
     private readonly ToolbarLifecycleBridge _suspension;
     private readonly IMessenger _messenger;
     private readonly Func<PhysicalRect> _workArea;
+    private readonly Func<double> _dpiScale;
     private readonly Func<long> _nowMs;
     private readonly ILogger<AdaptationPreviewService>? _logger;
 
@@ -69,8 +81,10 @@ internal sealed class AdaptationPreviewService : IRecipient<AdaptationPreviewVis
     private bool _panelShown;
     private bool _activePublished;
     private long _lastRefreshMs = long.MinValue;
-    private double _lastWidthPx = NominalWidthPx;
-    private double _lastHeightPx = NominalHeightPx;
+    private double _lastWidthPx;
+    private double _lastHeightPx;
+    private bool _hasMeasuredSize;
+    private PhysicalRect? _lastPanelRect;
     private PhysicalPoint _lastAnchor;
 
     /// <param name="settings">The live settings tree: the toolbar's dock state and edge (P10), and
@@ -87,6 +101,9 @@ internal sealed class AdaptationPreviewService : IRecipient<AdaptationPreviewVis
     /// <param name="messenger">The app messenger — the engine's visibility stream in, bounds and
     /// panel-active publishes out.</param>
     /// <param name="workArea">The current work area in physical px, for the §3.3 clamp.</param>
+    /// <param name="dpiScale">Physical px per logical px, for the first-show size estimate before
+    /// any <c>BoundsChanged</c> report exists (Task 10 review carry (a)); defaults to the live
+    /// <see cref="EyeCtrl.Core.Services.DpiHelper"/> scale.</param>
     /// <param name="nowMs">Monotonic clock for the refresh throttle; injectable for headless tests.</param>
     /// <param name="logger">Optional logger.</param>
     public AdaptationPreviewService(
@@ -98,6 +115,7 @@ internal sealed class AdaptationPreviewService : IRecipient<AdaptationPreviewVis
         ToolbarLifecycleBridge suspension,
         IMessenger messenger,
         Func<PhysicalRect> workArea,
+        Func<double>? dpiScale = null,
         Func<long>? nowMs = null,
         ILogger<AdaptationPreviewService>? logger = null)
     {
@@ -109,6 +127,7 @@ internal sealed class AdaptationPreviewService : IRecipient<AdaptationPreviewVis
         _suspension = suspension ?? throw new ArgumentNullException(nameof(suspension));
         _messenger = messenger ?? throw new ArgumentNullException(nameof(messenger));
         _workArea = workArea ?? throw new ArgumentNullException(nameof(workArea));
+        _dpiScale = dpiScale ?? (static () => DpiHelper.ScaleX);
         _nowMs = nowMs ?? (static () => Environment.TickCount64);
         _logger = logger;
     }
@@ -134,6 +153,10 @@ internal sealed class AdaptationPreviewService : IRecipient<AdaptationPreviewVis
         _panelInstance.BoundsChanged += OnPanelBounds;
         _messenger.Register(this);
         _provider.Changed += OnProviderChanged;
+        // Task 11: the continuous re-check. The inventory raises Changed on every chrome trigger
+        // (the SchedulePublish set + the bars' button sets); while the panel is up, each raise
+        // re-runs the gate against the panel's REAL measured rect.
+        _collision.Changed += OnConsumersChanged;
         _logger?.LogInformation("Adaptation preview service started");
     }
 
@@ -159,9 +182,11 @@ internal sealed class AdaptationPreviewService : IRecipient<AdaptationPreviewVis
             return;
         _started = false;
 
-        // Unsubscribe first: a message or Changed firing mid-teardown must find the service inert.
+        // Unsubscribe first: a message, Changed or provider event firing mid-teardown must find
+        // the service inert.
         _messenger.UnregisterAll(this);
         _provider.Changed -= OnProviderChanged;
+        _collision.Changed -= OnConsumersChanged;
 
         int liveEngagement = _engagementId;
         _engagementId = -1;
@@ -231,9 +256,10 @@ internal sealed class AdaptationPreviewService : IRecipient<AdaptationPreviewVis
             }
 
             var bounds = toolbar.GetPhysicalBounds();
+            var (widthPx, heightPx) = PanelSizePx();
             var candidate = ComputePanelPlacement(
-                resetCenter, toolbarSettings.DockedEdge, bounds, _lastWidthPx, _lastHeightPx, _workArea());
-            if (!_collision.IsClear(candidate))
+                resetCenter, toolbarSettings.DockedEdge, bounds, widthPx, heightPx, _workArea());
+            if (!IsClearWithContainment(candidate))
             {
                 // P11: a show-time collision is NoPanel IMMEDIATELY — no 500 ms unknown wait; the
                 // silent confirm is a complete safe mode (D17).
@@ -248,6 +274,12 @@ internal sealed class AdaptationPreviewService : IRecipient<AdaptationPreviewVis
             // ShowPanel (the real window publishes post-show), and that report must publish Rect —
             // not be dropped as a stale one. A throw below resets it in the contained-failure path.
             _panelShown = true;
+            // The previous engagement's rect dies HERE: the real window reports its fresh bounds
+            // asynchronously out of layout, and a Changed firing inside that window must hit the
+            // re-check's not-yet-measured guard (the show-time candidate gate owns the gap), not
+            // re-judge this show by the dead rect's position. The measured SIZE survives — that
+            // is the estimate carry (a), and size is position-independent.
+            _lastPanelRect = null;
             Panel().ShowPanel(snapshot, new PhysicalPoint(candidate.X, candidate.Y), toolbarSettings.DockedEdge);
 
             _activePublished = true;
@@ -316,9 +348,10 @@ internal sealed class AdaptationPreviewService : IRecipient<AdaptationPreviewVis
                 return;
             }
             var bounds = toolbar.GetPhysicalBounds();
+            var (widthPx, heightPx) = PanelSizePx();
             var candidate = ComputePanelPlacement(
-                _lastAnchor, toolbarSettings.DockedEdge, bounds, _lastWidthPx, _lastHeightPx, _workArea());
-            if (!_collision.IsClear(candidate))
+                _lastAnchor, toolbarSettings.DockedEdge, bounds, widthPx, heightPx, _workArea());
+            if (!IsClearWithContainment(candidate))
             {
                 HideAsPolicy();
                 return;
@@ -328,6 +361,7 @@ internal sealed class AdaptationPreviewService : IRecipient<AdaptationPreviewVis
                 _settings.Adaptation, _provider, _settings.Dwell, _settings.Cursor);
             // (Shown is already true here — a refresh only runs with the panel up. The synchronous
             // bounds report out of ShowPanel below therefore publishes Rect as it should.)
+            _lastPanelRect = null; // a refresh re-places the panel: same dead-rect rule as ShowFor
             Panel().ShowPanel(snapshot, new PhysicalPoint(candidate.X, candidate.Y), toolbarSettings.DockedEdge);
         }
         catch (Exception ex)
@@ -392,7 +426,62 @@ internal sealed class AdaptationPreviewService : IRecipient<AdaptationPreviewVis
 
         _lastWidthPx = rect.Value.Width;
         _lastHeightPx = rect.Value.Height;
+        _hasMeasuredSize = true;
+        _lastPanelRect = rect;
         PublishBounds(PreviewBoundsKind.Rect, rect);
+
+        // Task 11: the panel's own SizeChanged is the other continuous trigger — a refresh that
+        // GREW the panel over a consumer is caught here against the new measured rect. The Rect
+        // publish above ran first, so the HiddenKeepLast that follows keeps the last real rect in
+        // the VM's union (T5's rule).
+        if (!IsClearWithContainment(rect.Value))
+            HideAsPolicy();
+    }
+
+    /// <summary>
+    /// The continuous re-check's chrome trigger (Task 11): the inventory reports a gaze-consumer
+    /// change. Only meaningful while the panel is up mid-engagement — the intersected rect is the
+    /// panel's REAL measured bounds (the last <see cref="IPreviewPanel.BoundsChanged"/> report),
+    /// never a re-derived estimate; the show-time gate already cleared the candidate. A NEW
+    /// collision is a policy hide (<see cref="HideAsPolicy"/>).
+    /// </summary>
+    private void OnConsumersChanged()
+    {
+        if (!_started || !_panelShown || _engagementId < 0)
+            return;
+        if (_lastPanelRect is not { } live)
+            return; // shown but not yet measured — the show-time candidate gate owns this window
+        if (IsClearWithContainment(live))
+            return;
+        HideAsPolicy();
+    }
+
+    /// <summary>
+    /// The panel size for placement: the last MEASURED physical size once the panel has reported
+    /// bounds, otherwise the nominal DIP size × the live scale — physical px either way (Task 10
+    /// review carry (a): the bare DIP number under-covers at scale &gt; 1.0).
+    /// </summary>
+    private (double WidthPx, double HeightPx) PanelSizePx() =>
+        _hasMeasuredSize
+            ? (_lastWidthPx, _lastHeightPx)
+            : (NominalWidthDip * _dpiScale(), NominalHeightDip * _dpiScale());
+
+    /// <summary>
+    /// The collision gate, crash-contained (D14): a comfort feature whose inventory read fails
+    /// stays shown and logged — hiding on every transient failure would quietly kill the feature,
+    /// and the alternative (throwing out of a VM PropertyChanged handler) takes the session down.
+    /// </summary>
+    private bool IsClearWithContainment(PhysicalRect rect)
+    {
+        try
+        {
+            return _collision.IsClear(rect);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Adaptation preview collision check failed; treating the panel as clear (D14)");
+            return true;
+        }
     }
 
     /// <summary>

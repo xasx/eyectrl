@@ -23,6 +23,12 @@ using NFluent;
 /// a cheap reflection test that fails the build rather than letting documentation
 /// rot unnoticed.
 ///
+/// Task 11 added the second guard: §3.1's rows must each carry a D17 collision
+/// classification (<c>collision-zone</c> | <c>exempt:&lt;reason&gt;</c>) as their
+/// last cell, and the <c>collision-zone</c> set must equal the named sources of the
+/// gaze-consumer inventory (<c>GazeConsumerInventory.Live</c>) in both directions.
+/// A new overlay must make the call explicitly — there is no silent default.
+///
 /// Not <c>Category=UI</c> — it only reflects over types and reads a file, so it
 /// runs in the headless <c>Category!=UI</c> subset that CI executes.
 /// </summary>
@@ -34,6 +40,39 @@ public class OverlayInventoryDriftTests
     private static readonly Regex ClassCell = new(
         @"^\|[^|]+\|\s*`(?<cls>[A-Za-z0-9_]+)`\s*\|",
         RegexOptions.Multiline | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Matches a full §3.1 row INCLUDING its trailing D17-classification cell (Task 11):
+    /// <c>| Name | `Type` | … | collision-zone |</c> or <c>| … | exempt:reason |</c>. The
+    /// classification must be the row's LAST cell so a background/format edit cannot displace it.
+    /// </summary>
+    private static readonly Regex RowWithClassification = new(
+        @"^\|[^|]+\|\s*`(?<cls>[A-Za-z0-9_]+)`[^\r\n]*\|\s*(?<d17>[^|\r\n]+?)\s*\|[ \t]*$",
+        RegexOptions.Multiline | RegexOptions.Compiled);
+
+    /// <summary>
+    /// The only overlays whose rects the D17 gaze-consumer inventory reports (the preview panel's
+    /// collision sources): the keyboard window, the edge-button bar (both instances — the shared
+    /// bar and the action-menu modifier bar are the same window class), the action menu and the
+    /// modes menu. External dwell's rects come from the SDK client apps via
+    /// <c>ExternalDwellService.LiveTargetRects</c>, not from an overlay window of ours — so no
+    /// window class here carries that source. This map is the drift guard's pinned half: a row
+    /// being reclassified away from <c>collision-zone</c> fails the build instead of silently
+    /// unprotecting a surface.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, string> D17CollisionZoneClasses =
+        new Dictionary<string, string>
+        {
+            ["KeyboardWindow"] = "collision-zone",
+            ["EdgeButtonBarWindow"] = "collision-zone",
+            ["ActionMenuWindow"] = "collision-zone",
+            ["ModesMenuWindow"] = "collision-zone",
+        };
+
+    /// <summary>The classification cell grammar: exactly <c>collision-zone</c>, or an exemption
+    /// whose reason is a non-empty, pipe-free token run (<c>exempt:reason words</c>).</summary>
+    private static readonly Regex ValidClassification = new(
+        @"^(collision-zone|exempt:\S.*)$", RegexOptions.Compiled);
 
     /// <summary>
     /// Walks up from the test assembly until it finds the repo root, identified by
@@ -129,5 +168,96 @@ public class OverlayInventoryDriftTests
                 $"§1 of {SpecRelativePath} claims {claimed} overlay windows but "
                 + $"{declared} OverlayWindow subclasses exist. Update the opening sentence.")
             .That(claimed).IsEqualTo(declared);
+    }
+
+    // ── Task 11: the D17 collision classification (§3.1's fifth column) ──
+
+    /// <summary>Class-name → classification-cell pairs, parsed from §3.1. Rows without a valid
+    /// classification cell are absent here.</summary>
+    private static IReadOnlyDictionary<string, string> SpecClassifications()
+    {
+        var spec = SpecText();
+
+        var start = spec.IndexOf("### 3.1 Overlay Backgrounds", StringComparison.Ordinal);
+        Check.That(start).IsStrictlyGreaterThan(-1);
+        var end = spec.IndexOf("### 3.2", start, StringComparison.Ordinal);
+        Check.That(end).IsStrictlyGreaterThan(start);
+
+        return RowWithClassification.Matches(spec[start..end])
+            .GroupBy(m => m.Groups["cls"].Value, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First().Groups["d17"].Value, StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public void EverySpecRow_CarriesAValidD17Classification()
+    {
+        // The classification drift guard: every §3.1 row must end with a D17 cell that is either
+        // `collision-zone` or `exempt:<reason>`. Deleting the cell (or the whole trailing column
+        // from a row) turns the row invisible to the classification map, which must fail here —
+        // the same way a missing row fails the inventory test above.
+        var spec = SpecText();
+
+        var start = spec.IndexOf("### 3.1 Overlay Backgrounds", StringComparison.Ordinal);
+        var end = spec.IndexOf("### 3.2", start, StringComparison.Ordinal);
+        var totalRows = ClassCell.Matches(spec[start..end]).Count;
+        var classified = SpecClassifications();
+
+        var missing = DocumentedOverlays().Except(classified.Keys, StringComparer.Ordinal).ToList();
+
+        Check.WithCustomMessage(
+                $"§3.1 of {SpecRelativePath}: {totalRows} rows, but only {classified.Count} carry " +
+                "a D17 classification as their last cell. Missing: " + string.Join(", ", missing)
+                + ". Every row needs a trailing `collision-zone` or `exempt:<reason>` cell.")
+            .That(missing).IsEmpty();
+
+        var invalid = classified
+            .Where(kv => !ValidClassification.IsMatch(kv.Value))
+            .Select(kv => $"{kv.Key} = '{kv.Value}'")
+            .ToList();
+        Check.WithCustomMessage(
+                "§3.1's D17 cells must be exactly `collision-zone` or `exempt:<reason>`. Invalid: "
+                + string.Join(", ", invalid))
+            .That(invalid).IsEmpty();
+    }
+
+    [Fact]
+    public void D17NamedSources_AreClassifiedCollisionZone()
+    {
+        // The pinned half of the classification: the four overlay classes behind the inventory's
+        // named sources must read `collision-zone` in the spec. Reclassifying one as exempt (the
+        // silent-unprotection drift) fails here even though the row and its cell are well-formed.
+        var spec = SpecClassifications();
+
+        var drifted = D17CollisionZoneClasses
+            .Where(kv => spec.TryGetValue(kv.Key, out var value) && value != kv.Value)
+            .Select(kv => kv.Key)
+            .ToList();
+
+        Check.WithCustomMessage(
+                "These overlay classes are D17 collision sources (GazeConsumerInventory.Live) but " +
+                "§3.1 classifies them as something else: " + string.Join(", ", drifted)
+                + ". Either the spec row or the inventory's source list has drifted.")
+            .That(drifted).IsEmpty();
+    }
+
+    [Fact]
+    public void D17CollisionZoneClassification_NamesARealOverlaySource()
+    {
+        // The reverse direction: a `collision-zone` row whose class is NOT one of the inventory's
+        // named sources is a claim nothing enforces — either the inventory is missing a source (a
+        // real gap) or the classification lies. Both need a human, so both fail the build.
+        var spec = SpecClassifications();
+
+        var unbacked = spec
+            .Where(kv => kv.Value == "collision-zone")
+            .Select(kv => kv.Key)
+            .Except(D17CollisionZoneClasses.Keys, StringComparer.Ordinal)
+            .ToList();
+
+        Check.WithCustomMessage(
+                "§3.1 classifies these overlays as collision-zone, but GazeConsumerInventory.Live " +
+                "does not report them (no named source): " + string.Join(", ", unbacked)
+                + ". Add the source to the inventory or reclassify the row as exempt:<reason>.")
+            .That(unbacked).IsEmpty();
     }
 }

@@ -177,6 +177,38 @@ public sealed class ExternalDwellService : IDisposable
         get { lock (_stateLock) return _targetsById.Count; }
     }
 
+    /// <summary>
+    /// The registered external-dwell targets' rects, physical px (Task 11's D17 source): the
+    /// surfaces a cooperating app has declared dwellable — the preview panel's collision inventory
+    /// must not cover them. Read under <see cref="_stateLock"/> exactly like every other
+    /// enumeration of <c>_targetsById</c> (the pipe handlers mutate it on thread-pool threads
+    /// while this is called from the UI thread). Rect targets report their bounds; a circular
+    /// target (no bounds — none arrive via the pipe today, but the detector API allows them)
+    /// reports its centre ± hit radius as a covering rect. Returns a fresh snapshot: callers may
+    /// hold it across lock boundaries.
+    /// </summary>
+    public IReadOnlyList<PhysicalRect> LiveTargetRects()
+    {
+        lock (_stateLock)
+        {
+            if (_targetsById.Count == 0)
+                return Array.Empty<PhysicalRect>();
+            var rects = new List<PhysicalRect>(_targetsById.Count);
+            foreach (var target in _targetsById.Values)
+            {
+                if (target.Bounds is { } bounds)
+                    rects.Add(bounds);
+                else
+                    rects.Add(new PhysicalRect(
+                        target.Center.X - target.Radius,
+                        target.Center.Y - target.Radius,
+                        target.Radius * 2,
+                        target.Radius * 2));
+            }
+            return rects;
+        }
+    }
+
     private void OnCursorMoved(GazeFrame frame)
     {
         if (!_settings.Enabled

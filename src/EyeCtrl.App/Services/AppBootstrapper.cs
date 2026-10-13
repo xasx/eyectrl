@@ -637,15 +637,26 @@ public class AppBootstrapper
             sp.GetRequiredService<ICaregiverAlertPresenter>(),
             sp.GetRequiredService<AdaptationLog>().LogCaregiverAlert));
 
-        // Task 10 — the adaptation preview panel (spec §3.6-3/4). The window is a DI singleton (the
+        // Task 10/11 — the adaptation preview panel (spec §3.6-3/4). The window is a DI singleton (the
         // CueOverlayWindow precedent) but is constructed ONLY on the first adaptation enable: the
         // service holds LAZY resolvers for both the window and the toolbar geometry, and nothing
         // resolves the service until AdaptationActivation's StartRuntime does (P9 — no overlay HWND
-        // while the feature is off). The collision seam ships always-clear; Task 11 replaces the
-        // implementation with the real gaze-consumer inventory (D17). The bridge carries the
-        // EventCoordinator-owned toolbar coordinator to the lazily-resolved service; App attaches
-        // it right after EventCoordinator initializes.
-        services.AddSingleton<IOverlayCollision, AlwaysClearOverlayCollision>();
+        // while the feature is off). The collision seam is Task 11's real gaze-consumer inventory
+        // (D17): keyboard, both edge-button bars, the two menus and the external-dwell targets, plus
+        // the Changed trigger set that keeps the check continuous while the panel is up. The bridge
+        // carries the EventCoordinator-owned toolbar coordinator to the lazily-resolved service and
+        // inventory alike; App attaches it right after EventCoordinator initializes.
+        services.AddSingleton<IOverlayCollision>(sp => new GazeConsumerInventory(
+            sp.GetRequiredService<EyeCtrlSettings>(),
+            overlays: () => sp.GetRequiredService<IOverlayManager>(),
+            sp.GetRequiredService<KeyboardViewModel>(),
+            sp.GetRequiredService<ActionMenuViewModel>(),
+            sp.GetRequiredService<ModesMenuViewModel>(),
+            sp.GetRequiredService<EdgeButtonBarViewModel>(),
+            sp.GetRequiredKeyedService<EdgeButtonBarViewModel>("actionMenuModBar"),
+            externalTargetRects: () => sp.GetRequiredService<ExternalDwellService>().LiveTargetRects(),
+            sp.GetRequiredService<ToolbarLifecycleBridge>(),
+            sp.GetRequiredService<IMessenger>()));
         services.AddSingleton<ToolbarLifecycleBridge>();
         services.AddSingleton<AdaptationPreviewWindow>();
         services.AddSingleton(sp => new AdaptationPreviewService(

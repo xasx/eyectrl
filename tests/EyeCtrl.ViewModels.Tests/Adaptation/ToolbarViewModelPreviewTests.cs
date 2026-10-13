@@ -264,6 +264,7 @@ public class ToolbarViewModelPreviewTests
 
         // Gaze straight to Pause. The unknown-bounds guard holds the engagement Frozen (no leave
         // run), but FeedExcluded still feeds every OTHER target — Pause accumulates throughout.
+        var midWindowCaptured = false;
         long t = 380_000;
         for (; t <= 1_100_000; t += 30_000)
         {
@@ -271,13 +272,17 @@ public class ToolbarViewModelPreviewTests
 
             // 500 ms of sample time after the ~300 ms engage: the panel is cancelled to the
             // hit-area fallback and the rim cue comes on — captured between the timeout (800 ms)
-            // and the arm (920 ms), while Pause is still mid-dwell.
-            if (t == 830_000)
+            // and the arm (920 ms), while Pause is still mid-dwell. First sample in that window,
+            // so a cadence change cannot silently skip the check.
+            if (!midWindowCaptured && t >= 830_000)
             {
+                midWindowCaptured = true;
                 Check.That(visibility.Select(v => v.Visible)).ContainsExactly(true, false);
                 Check.That(vm.ResetFrozenSilent).IsTrue();
             }
         }
+
+        Check.That(midWindowCaptured).IsTrue();                       // the window really was observed
 
         Check.That(pauses).IsEqualTo(1);                             // the strip never died
         Check.That(vm.ResetFrozenSilent).IsFalse();                  // rim cue fell at arming

@@ -66,6 +66,16 @@ public class ToolbarButtonDriftTests
     private static readonly Regex ActivationCase = new(
         @"case\s+""(?<id>[A-Za-z][A-Za-z0-9_]*)""\s*:", RegexOptions.Compiled);
 
+    /// <summary>
+    /// Matches <c>ToolbarBand.Build</c>'s signature, whose <c>includeReset</c> parameter is the
+    /// membership gate Task 7 added. Anchored on the full parameter list so renaming, re-ordering
+    /// or deleting the flag fails this guard rather than silently checking nothing.
+    /// </summary>
+    private static readonly Regex BuildSignature = new(
+        @"internal\s+void\s+Build\s*\(\s*double\s+buttonSize\s*,\s*bool\s+vertical\s*,"
+        + @"\s*bool\s+includeReset\s*\)",
+        RegexOptions.Compiled);
+
     private static DirectoryInfo RepoRoot()
     {
         var dir = new DirectoryInfo(
@@ -134,6 +144,57 @@ public class ToolbarButtonDriftTests
             .Distinct(StringComparer.Ordinal)
             .OrderBy(id => id, StringComparer.Ordinal)
             .ToList();
+    }
+
+    /// <summary>
+    /// Task 7 (D5/M5): the band's Reset membership is CONDITIONAL — <c>ToolbarBand.Build</c>
+    /// takes an <c>includeReset</c> flag and filters the entry out when it is false — while the
+    /// view-model's button list and activation case are STATIC (D11): the id and its
+    /// <c>case "ResetAdaptation":</c> stay in <c>ToolbarViewModel</c> whatever the flag says.
+    ///
+    /// The asymmetry is deliberate. The view-model is built once and is consumed by surfaces
+    /// that never see the setting (tray, preview wiring, the VM's own tests), so an Enabled flip
+    /// rebuilds the BAND, never the list — and the band's array keeps the entry too, so the two
+    /// direction checks above keep applying to an id that is only sometimes drawn.
+    ///
+    /// This test pins both halves so neither can be "simplified" into the other: dropping the
+    /// flag makes the band unconditional again (signature check fails); deleting the id from
+    /// the array or the view-model makes the list conditional (entry checks fail).
+    /// </summary>
+    [Fact]
+    public void ResetMembership_IsConditionalInTheBand_AndStaticInTheViewModel()
+    {
+        var band = ReadRepoFile(ViewRelativePath);
+
+        // The band's gate: Build carries the flag, and the filter compares against the NAMED
+        // constant — a re-typed "ResetAdaptation" literal here could drift from ResetId and take
+        // the ordinary-button branch silently, the exact failure mode ResetId exists to prevent.
+        Check.WithCustomMessage(
+                "ToolbarBand.Build must take a `bool includeReset` parameter gating the Reset "
+                + "entry (Task 7, D5/M5) — band membership is conditional on adaptation being enabled.")
+            .That(BuildSignature.IsMatch(band)).IsTrue();
+        Check.WithCustomMessage(
+                "The band's Reset filter must compare against the ResetId constant, not a "
+                + "re-typed string literal.")
+            .That(band.Contains("Id != ResetId")).IsTrue();
+
+        // The entry STAYS in the band's array (filtered, not deleted), so direction 1 above
+        // still requires it to exist in the view-model — which is what keeps the id wired while
+        // the flag is on.
+        Check.WithCustomMessage(
+                "ResetAdaptation must stay in ToolbarBand's array declaration — membership is a "
+                + "runtime filter, not a deletion; the drift checks above read that array.")
+            .That(ButtonIdsFrom(ViewRelativePath)).Contains("ResetAdaptation");
+
+        // The view-model half of D11: static list, static case, unconditional.
+        Check.WithCustomMessage(
+                "ToolbarViewModel's button list must keep ResetAdaptation unconditionally (D11): "
+                + "an Enabled flip rebuilds the band, never the view-model's list.")
+            .That(ButtonIdsFrom(ViewModelRelativePath)).Contains("ResetAdaptation");
+        Check.WithCustomMessage(
+                "ToolbarViewModel.OnTargetActivated must keep its ResetAdaptation case even "
+                + "though the band can be built without the button (D11).")
+            .That(ActivationCaseIds()).Contains("ResetAdaptation");
     }
 
     [Fact]

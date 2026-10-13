@@ -57,6 +57,12 @@ public class AppLaunchTests
         // Order matches the View's buttons array. The optional provider indicator carries no
         // "Toolbar_Button_" id, so it is not included. The window-action trio moved to the Quick
         // Actions toolbar (2026-08-09 migration).
+        //
+        // The DEFAULT set — no Toolbar_Button_ResetAdaptation: the fixture launches with default
+        // settings, AdaptationSettings.Enabled defaults false, and the band carries Reset only
+        // while adaptation is enabled (Task 7, D5/M5). ToolbarButtonVisualTests pins the flag-on
+        // band headlessly; flipping Enabled here instead would start the whole adaptation runtime
+        // in the launched app, which is not what a set assertion means to turn on (R2-M3).
         var expectedIds = new[]
         {
             "Toolbar_Button_Pause",
@@ -64,8 +70,7 @@ public class AppLaunchTests
             "Toolbar_Button_Modes",
             "Toolbar_Button_Keyboard",
             "Toolbar_Button_Settings",
-            "Toolbar_Button_TaskSwitcher",
-            "Toolbar_Button_ResetAdaptation"
+            "Toolbar_Button_TaskSwitcher"
         };
 
         var actualIds = _fixture.FindElements(toolbar!, "Toolbar_Button_")

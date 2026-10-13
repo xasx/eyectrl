@@ -32,6 +32,14 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
 
     private double _buttonSize;
 
+    // Band membership for Reset, set by Initialize and consumed by RebuildBand. Stored because
+    // SetMode's axis flip rebuilds the band WITHOUT going through Initialize — if the flag were
+    // an Initialize-local, every dock change would rebuild at whatever default RebuildBand
+    // picked, silently flipping membership along with the axis (P17). Initialize itself always
+    // re-reads its own argument: both production callers pass the current
+    // AdaptationSettings.Enabled.
+    private bool _includeReset;
+
     // Written on the UI thread (UpdateTargetPositions / RebuildBand / SetMode), read on the gaze
     // thread through TargetsInitialized. Volatile for the reason ModalInteractionState's flags are:
     // a one-frame-stale read costs at most one extra dispatch.
@@ -139,9 +147,14 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
     /// </summary>
     /// <param name="buttonSize">Button diameter in DIP.</param>
     /// <param name="dwellTimeMs">Unused here; the ViewModel owns dwell timing.</param>
-    public void Initialize(double buttonSize, int dwellTimeMs)
+    /// <param name="includeReset">Whether the band carries the Reset button — the caller's
+    /// <c>AdaptationSettings.Enabled</c> (Task 7, D5/M5). Stored, not just used once, so the
+    /// axis-flip rebuild in <see cref="SetMode"/> keeps the membership the band was built with
+    /// (P17).</param>
+    public void Initialize(double buttonSize, int dwellTimeMs, bool includeReset)
     {
         _buttonSize = buttonSize;
+        _includeReset = includeReset;
         RebuildBand();
     }
 
@@ -159,7 +172,9 @@ public partial class ToolbarWindow : OverlayWindow, IToolbarOverlay
         // dead, not just redundant.
         _targetsInitialized = false;
 
-        _band.Build(_buttonSize, _vertical);
+        // The stored flag, not a parameter: this is the path SetMode's axis flip takes, and it
+        // must rebuild at the membership the band already had (see _includeReset's doc).
+        _band.Build(_buttonSize, _vertical, _includeReset);
 
         if (_providerType.HasValue)
             AddIndicatorElement(_providerType.Value);

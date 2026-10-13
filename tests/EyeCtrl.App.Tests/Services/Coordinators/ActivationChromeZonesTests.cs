@@ -147,7 +147,7 @@ public class ActivationChromeZonesTests
         public PhysicalRect GetPhysicalBounds() => _bounds;
         public void Show() { }
         public void Hide() { }
-        public void Initialize(double buttonSize, int dwellTimeMs) { }
+        public void Initialize(double buttonSize, int dwellTimeMs, bool includeReset) { }
         public void SetMode(bool isDocked, string edge) { }
         public void SetSelectionModeState(SelectionMode mode) { }
         public void SetPausedState(bool isPaused) { }

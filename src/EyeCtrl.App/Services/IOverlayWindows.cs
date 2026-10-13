@@ -163,7 +163,13 @@ public interface IToolbarOverlay
 
     void Show();
     void Hide();
-    void Initialize(double buttonSize, int dwellTimeMs);
+
+    /// <summary>
+    /// Builds the band at the given metrics. <paramref name="includeReset"/> is the caller's
+    /// <c>AdaptationSettings.Enabled</c>: Reset is on the band only while adaptation is on
+    /// (Task 7, D5/M5).
+    /// </summary>
+    void Initialize(double buttonSize, int dwellTimeMs, bool includeReset);
     void SetMode(bool isDocked, string edge);
     void SetSelectionModeState(SelectionMode mode);
     void SetPausedState(bool isPaused);

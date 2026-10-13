@@ -204,7 +204,11 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         var toolbarSnapshot = ToolbarSnapshot.Capture(s);
         if (_toolbarSnapshot != toolbarSnapshot)
         {
-            Context.OverlayManager.Toolbar.Initialize(s.Toolbar.Size, s.Dwell.ToolbarButtonDwellMs);
+            // includeReset: Adaptation.Enabled, as at startup (Task 7). Note the snapshot gates
+            // this call on TOOLBAR metrics — an Enabled-only change does not re-enter yet; the
+            // subscription that rebuilds the band on the live flip is Task 9's.
+            Context.OverlayManager.Toolbar.Initialize(s.Toolbar.Size, s.Dwell.ToolbarButtonDwellMs,
+                s.Adaptation.Enabled);
             Context.OverlayManager.Toolbar.SetMode(s.Toolbar.IsDocked, s.Toolbar.DockedEdge);
 
             // Re-evaluate enablement (IsDocked may have flipped to false → disable + force-show),

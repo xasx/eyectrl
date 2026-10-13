@@ -133,10 +133,22 @@ internal sealed class ToolbarBand
     /// <c>var buttons = new (string Id, string ...</c> prefix below and fails loudly if it moves,
     /// so it cannot silently start checking nothing.
     /// </para>
+    ///
+    /// <para>
+    /// Reset is on the band only while adaptation is enabled (Task 7, D5/M5): the one
+    /// unrecoverable action must not be offered when there is nothing to reset. The entry STAYS
+    /// in the array below and the view-model's list and activation case stay unconditional
+    /// (D11) — membership is a runtime filter, not a deletion, so the drift guard still reads
+    /// the id and an Enabled flip is a rebuild, not a code path. Dropping the entry removes the
+    /// separator and the <see cref="ResetGap"/> with it: <see cref="LayOut"/> adds both only for
+    /// <see cref="ResetId"/>.
+    /// </para>
     /// </summary>
     /// <param name="buttonSize">Button diameter in DIP.</param>
     /// <param name="vertical">Whether the band runs down the screen rather than across it.</param>
-    internal void Build(double buttonSize, bool vertical)
+    /// <param name="includeReset">Whether the band carries the Reset button — the caller's
+    /// <c>AdaptationSettings.Enabled</c>.</param>
+    internal void Build(double buttonSize, bool vertical, bool includeReset)
     {
         _buttonSize = buttonSize;
         _vertical = vertical;
@@ -155,6 +167,12 @@ internal sealed class ToolbarBand
             ("Modes",           "Modes"),
             ("ResetAdaptation", "ResetAdaptation"),
         };
+
+        // Filtering the declared array, not conditionally appending: the declaration above stays
+        // whole, which is what ToolbarButtonDriftTests' prefix-anchored extraction reads. And by
+        // the ResetId constant, not a re-typed literal — same reason the constant exists.
+        if (!includeReset)
+            buttons = Array.FindAll(buttons, b => b.Id != ResetId);
 
         LayOut(buttons);
     }

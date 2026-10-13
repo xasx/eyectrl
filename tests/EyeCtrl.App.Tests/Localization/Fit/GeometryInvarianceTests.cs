@@ -398,7 +398,9 @@ public class GeometryInvarianceTests
     /// </summary>
     private static Snapshot Toolbar()
     {
-        var (window, vm) = ToolbarTestHelpers.NewBoundToolbar();
+        // includeReset: true — the id list below places "ResetAdaptation" too; its label must
+        // fit-test in every locale exactly like the ordinary buttons'.
+        var (window, vm) = ToolbarTestHelpers.NewBoundToolbar(includeReset: true);
         var root = (FrameworkElement)window.Content;
         window.Content = null;
         using var host = FitHost.Open(root, inheritFrom: window);

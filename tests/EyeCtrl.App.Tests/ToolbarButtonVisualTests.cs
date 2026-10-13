@@ -34,11 +34,19 @@ using SelectionMode = EyeCtrl.Core.Models.SelectionMode;
 [Collection("WpfApplication")]
 public class ToolbarButtonVisualTests
 {
-    private static ToolbarWindow NewInitialisedToolbar()
+    /// <summary>
+    /// <paramref name="includeReset"/> defaults TRUE here — the opposite of
+    /// <see cref="ToolbarTestHelpers.NewBoundToolbar"/>'s false — because this class's pre-Task-7
+    /// tests pin the seven-button band byte-for-byte (extents, anchor order, the Reset separator).
+    /// Task 7's flag-off cases pass <c>false</c> explicitly; the flag passes straight through to
+    /// <see cref="ToolbarWindow.Initialize"/>, never via <c>AdaptationSettings.Enabled</c>
+    /// (fixture policy R2-M3).
+    /// </summary>
+    private static ToolbarWindow NewInitialisedToolbar(bool includeReset = true)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = new ToolbarWindow();
-        window.Initialize(ButtonSize, 700);
+        window.Initialize(ButtonSize, 700, includeReset);
         return window;
     }
 
@@ -233,6 +241,9 @@ public class ToolbarButtonVisualTests
     [StaFact]
     public void ButtonCentres_AndCanvasSize_AreExactlyAsLaidOut()
     {
+        // Flag-ON half of Task 7's membership pair: this stays the byte-for-byte pin of the
+        // seven-button layout. WithoutTheResetFlag_TheBandIsSixButtons... below is the flag-off
+        // half; between them, membership is pinned at both values.
         var window = NewInitialisedToolbar();
         var canvas = ButtonCanvas(window);
         var lefts = Faces(window).Select(Canvas.GetLeft).OrderBy(x => x).ToList();
@@ -245,6 +256,85 @@ public class ToolbarButtonVisualTests
         Check.That(canvas.Width).IsEqualTo(1032.0);
         Check.That(canvas.Height).IsEqualTo(144.0);
     }
+
+    /// <summary>
+    /// The flag-OFF band (Task 7, D5/M5): six buttons, no Reset anchor, no separator, and the
+    /// extent shrunk by the whole Reset slot (pitch 144 + gap 24 = 168; 1032 − 168 = 864).
+    /// Dropping the entry from the array makes the separator and the <see cref="ToolbarBand.ResetGap"/>
+    /// disappear naturally — LayOut adds both only for <see cref="ToolbarBand.ResetId"/> — so this
+    /// also pins that no orphaned separator or half-kept gap survives the shorter array.
+    ///
+    /// <para>
+    /// Membership via the flag on Initialize, never <c>AdaptationSettings.Enabled = true</c>:
+    /// in the launched app that setting starts the whole adaptation runtime, which is not what
+    /// a band-layout test means to turn on (fixture policy R2-M3).
+    /// </para>
+    /// </summary>
+    [StaFact]
+    public void WithoutTheResetFlag_TheBandIsSixButtons_NoSeparator_NoResetTarget()
+    {
+        var window = NewInitialisedToolbar(includeReset: false);
+        var canvas = ButtonCanvas(window);
+
+        // The SET, not a bare "does not contain Reset": a membership change that also dropped or
+        // renamed an ordinary button would sail through a Not.Contains and land here as green.
+        Check.That(AnchorsAlongTheBand(window).Select(AutomationProperties.GetAutomationId))
+            .ContainsExactly("Toolbar_Button_Pause", "Toolbar_Button_SelectionMode",
+                "Toolbar_Button_Keyboard", "Toolbar_Button_Settings",
+                "Toolbar_Button_TaskSwitcher", "Toolbar_Button_Modes");
+        Check.That(Faces(window)).HasSize(6);
+        Check.WithCustomMessage("The Reset separator outlived the Reset button.")
+            .That(canvas.Children.OfType<Line>()).IsEmpty();
+
+        // Exact extent — margin 12, pitch 144, NO ResetGap — not "narrower than before": the
+        // weaker form would pass on a band that kept half the gap or clipped the trailing margin.
+        var lefts = Faces(window).Select(Canvas.GetLeft).OrderBy(x => x).ToList();
+        Check.That(lefts).ContainsExactly(12.0, 156.0, 300.0, 444.0, 588.0, 732.0);
+        Check.That(canvas.Width).IsEqualTo(864.0);
+        Check.That(canvas.Height).IsEqualTo(144.0);
+    }
+
+    /// <summary>
+    /// P17: <see cref="ToolbarWindow.SetMode"/>'s axis flip rebuilds the band through
+    /// <c>RebuildBand</c>, which does NOT go through <see cref="ToolbarWindow.Initialize"/> — so
+    /// the membership decision must come from the flag Initialize STORES, or every dock change
+    /// would reset it. Both directions: a Reset button that vanishes when the band turns
+    /// vertical, or one that appears on a band built without it, would each leave the drawn band
+    /// disagreeing with the dwell targets the caller thinks it published.
+    /// </summary>
+    [StaFact]
+    public void TheAxisFlip_RebuildsTheBandAtTheStoredMembership_InEitherDirection()
+    {
+        var with = NewInitialisedToolbar(includeReset: true);
+        with.SetMode(isDocked: true, edge: "left");
+        Check.WithCustomMessage("Docking left dropped the Reset button from the band.")
+            .That(AnchorsAlongTheBand(with).Select(AutomationProperties.GetAutomationId))
+            .Contains("Toolbar_Button_" + ToolbarBand.ResetId);
+        // Vertical band: the extent moves to Y. 1032 is the seven-button extent, byte-for-byte
+        // the horizontal test's width — the flip must re-lay, not just rotate membership.
+        Check.That(ButtonCanvas(with).Width).IsEqualTo(144.0);
+        Check.That(ButtonCanvas(with).Height).IsEqualTo(1032.0);
+
+        var without = NewInitialisedToolbar(includeReset: false);
+        without.SetMode(isDocked: true, edge: "left");
+        Check.WithCustomMessage("Docking left grew a Reset button onto a band built without one.")
+            .That(AnchorsAlongTheBand(without).Select(AutomationProperties.GetAutomationId))
+            .Not.Contains("Toolbar_Button_" + ToolbarBand.ResetId);
+        Check.That(ButtonCanvas(without).Width).IsEqualTo(144.0);
+        Check.That(ButtonCanvas(without).Height).IsEqualTo(864.0);
+    }
+
+    /// <summary>
+    /// The band's anchors ordered along the docked axis — the same ordering contract
+    /// <c>EveryAutomationAnchor_CoversItsOwnDisc</c> pins for the horizontal band. Vertical bands
+    /// order by <c>Canvas.GetTop</c>; ordering by the other axis there would interleave wrong.
+    /// </summary>
+    private static List<TextBlock> AnchorsAlongTheBand(ToolbarWindow w) =>
+        ButtonCanvas(w).Children.OfType<TextBlock>()
+            .Where(t => !string.IsNullOrEmpty(AutomationProperties.GetAutomationId(t)))
+            .OrderBy(Canvas.GetTop)
+            .ThenBy(Canvas.GetLeft)
+            .ToList();
 
     /// <summary>
     /// Reset is the one adjacency where an overshoot is unrecoverable (see
@@ -346,7 +436,9 @@ public class ToolbarButtonVisualTests
     [StaFact]
     public void DwellProgress_DrivesTheArc_AndIsInvisibleAtRest()
     {
-        var (window, vm) = NewBoundToolbar();
+        // includeReset: true — the count below is SEVEN buttons' worth of halo/progress Paths
+        // (the helper's default six-button band would make it twelve and fail).
+        var (window, vm) = NewBoundToolbar(includeReset: true);
 
         // Seven buttons x (halo + progress arc) = 14 Paths, ALL collapsed at rest. Exact, not
         // "at least one": a 1-of-14 bar would still pass if the wiring collapsed only whichever
@@ -424,8 +516,9 @@ public class ToolbarButtonVisualTests
         vm.Receive(new StateChangedMessage(InteractionState.Paused));
 
         // A size save re-calls Initialize (SettingsUiCoordinator.cs:179), which rebuilds the band
-        // via RebuildBand without going through SetMode's axis-flip branch at all.
-        window.Initialize(ButtonSize + 10, 700);
+        // via RebuildBand without going through SetMode's axis-flip branch at all. The flag
+        // matches the band this window was built with (helper default: no Reset).
+        window.Initialize(ButtonSize + 10, 700, includeReset: false);
 
         Check.WithCustomMessage("Pause showed its Pause glyph after a size-change rebuild although "
                 + "the app is paused — RebuildBand did not reapply live state.")
@@ -461,7 +554,8 @@ public class ToolbarButtonVisualTests
     [StaFact]
     public void AcquiredState_OnReset_RestoresTheWarningRimNotTheOrdinaryOne()
     {
-        var (window, vm) = NewBoundToolbar();
+        // includeReset: true — this test dwells on the Reset button itself.
+        var (window, vm) = NewBoundToolbar(includeReset: true);
 
         var button = vm.Buttons.Single(b => b.Id == "ResetAdaptation");
         var face = window.ButtonForTest("ResetAdaptation").Background;
@@ -486,7 +580,7 @@ public class ToolbarButtonVisualTests
         var window = NewInitialisedToolbar();
 
         window.SetSelectionModeState(SelectionMode.ManualSelection);
-        window.Initialize(ButtonSize, 700);
+        window.Initialize(ButtonSize, 700, includeReset: true);
 
         Check.WithCustomMessage("SelectionMode disc lost its mode tint after a bare reinitialize.")
             .That(((SolidColorBrush)window.ButtonForTest("SelectionMode").Background.Fill).Color)
@@ -508,7 +602,8 @@ public class ToolbarButtonVisualTests
         button.IsHighlighted = true;
 
         // A plain size-change rebuild (SettingsUiCoordinator.cs:179 path), not the axis flip.
-        window.Initialize(ButtonSize, 700);
+        // Flag matches the window's six-button origin (helper default).
+        window.Initialize(ButtonSize, 700, includeReset: false);
 
         var face = window.ButtonForTest("Pause").Background;
         Check.WithCustomMessage("Pause lost its acquired fill across a rebuild although gaze never left it.")
@@ -530,7 +625,7 @@ public class ToolbarButtonVisualTests
         var button = vm.Buttons.Single(b => b.Id == "SelectionMode");
         button.IsHighlighted = true;
 
-        window.Initialize(ButtonSize, 700);
+        window.Initialize(ButtonSize, 700, includeReset: false);
 
         Check.WithCustomMessage("SelectionMode's acquired fill was clobbered by the mode tint on rebuild — "
                 + "ApplyAcquiredState must run after SetSelectionModeState in BindButton.")

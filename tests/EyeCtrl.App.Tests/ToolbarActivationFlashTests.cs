@@ -106,7 +106,9 @@ public class ToolbarActivationFlashTests
     [StaFact]
     public void EndingAFlash_OnReset_ReturnsToTheWarningRim_NotBorderSubtle()
     {
-        var (window, vm) = ToolbarTestHelpers.NewBoundToolbar();
+        // includeReset: true — the test flashes the Reset button itself (fixture policy R2-M3:
+        // the flag goes straight to the band, never via AdaptationSettings.Enabled).
+        var (window, vm) = ToolbarTestHelpers.NewBoundToolbar(includeReset: true);
         var face = window.ButtonForTest(ToolbarBand.ResetId).Background;
 
         vm.SimulateButtonActivated(ToolbarBand.ResetId);

@@ -4,12 +4,17 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.Json;
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Controls;
+using System.Windows.Interop;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.App.Tests.Services;
+using EyeCtrl.Core;
 using EyeCtrl.Core.Calibration;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Localization;
@@ -19,6 +24,7 @@ using EyeCtrl.Core.Settings;
 using EyeCtrl.Tests.TestSupport;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
+using NFluent;
 using Xunit;
 
 /// <summary>
@@ -79,9 +85,7 @@ public class Step3LiveCheckTests
     [StaFact]
     public void TheActionRing_ShowsItsGermanLabels_AndTheMehrRing()
     {
-        LiveCheck.Require();
-        WpfApplicationGate.EnsureApplicationWithTokens();
-        ShippedLanguageRecoveryTests.ActivateShippedGerman();
+        BeginShowcaseCase();
         ActionMenuWindow? window = null;
         ActionMenuViewModel? vm = null;
         try
@@ -127,7 +131,7 @@ public class Step3LiveCheckTests
         {
             try { window?.Close(); } catch { /* the window may already be gone */ }
             vm?.Dispose();
-            StringTable.ResetToEmbeddedEnglish();
+            EndShowcaseCase();
         }
     }
 
@@ -135,9 +139,7 @@ public class Step3LiveCheckTests
     [StaFact]
     public void TheModifierBar_ShowsShiftStrgAlt()
     {
-        LiveCheck.Require();
-        WpfApplicationGate.EnsureApplicationWithTokens();
-        ShippedLanguageRecoveryTests.ActivateShippedGerman();
+        BeginShowcaseCase();
         EdgeButtonBarWindow? window = null;
         try
         {
@@ -159,7 +161,7 @@ public class Step3LiveCheckTests
         {
             try { window?.Hide(); } catch { /* the window may already be gone */ }
             try { window?.Close(); } catch { /* the window may already be gone */ }
-            StringTable.ResetToEmbeddedEnglish();
+            EndShowcaseCase();
         }
     }
 
@@ -172,9 +174,7 @@ public class Step3LiveCheckTests
     [StaFact]
     public void TheCalibrationWindow_ShowsTheRunningPoint()
     {
-        LiveCheck.Require();
-        WpfApplicationGate.EnsureApplicationWithTokens();
-        ShippedLanguageRecoveryTests.ActivateShippedGerman();
+        BeginShowcaseCase();
         var dir = TempTestDirectory.Create("t13-live");
         CalibrationWindow? window = null;
         try
@@ -192,7 +192,7 @@ public class Step3LiveCheckTests
         {
             CloseCalibration(window);
             RemoveTemp(dir);
-            StringTable.ResetToEmbeddedEnglish();
+            EndShowcaseCase();
         }
     }
 
@@ -204,9 +204,7 @@ public class Step3LiveCheckTests
     [StaFact]
     public void TheCalibrationWindow_ShowsAGoodCompletion()
     {
-        LiveCheck.Require();
-        WpfApplicationGate.EnsureApplicationWithTokens();
-        ShippedLanguageRecoveryTests.ActivateShippedGerman();
+        BeginShowcaseCase();
         var dir = TempTestDirectory.Create("t13-live");
         CalibrationWindow? window = null;
         try
@@ -229,7 +227,7 @@ public class Step3LiveCheckTests
         {
             CloseCalibration(window);
             RemoveTemp(dir);
-            StringTable.ResetToEmbeddedEnglish();
+            EndShowcaseCase();
         }
     }
 
@@ -237,9 +235,7 @@ public class Step3LiveCheckTests
     [StaFact]
     public void TheCalibrationWindow_ShowsThePoorResult_WithUebernehmenUndWiederholen()
     {
-        LiveCheck.Require();
-        WpfApplicationGate.EnsureApplicationWithTokens();
-        ShippedLanguageRecoveryTests.ActivateShippedGerman();
+        BeginShowcaseCase();
         var dir = TempTestDirectory.Create("t13-live");
         CalibrationWindow? window = null;
         try
@@ -260,7 +256,7 @@ public class Step3LiveCheckTests
         {
             CloseCalibration(window);
             RemoveTemp(dir);
-            StringTable.ResetToEmbeddedEnglish();
+            EndShowcaseCase();
         }
     }
 
@@ -272,9 +268,7 @@ public class Step3LiveCheckTests
     [StaFact]
     public void TheCalibrationWindow_ShowsTheWrappedQualityFailure()
     {
-        LiveCheck.Require();
-        WpfApplicationGate.EnsureApplicationWithTokens();
-        ShippedLanguageRecoveryTests.ActivateShippedGerman();
+        BeginShowcaseCase();
         var dir = TempTestDirectory.Create("t13-live");
         CalibrationWindow? window = null;
         try
@@ -302,7 +296,7 @@ public class Step3LiveCheckTests
         {
             CloseCalibration(window);
             RemoveTemp(dir);
-            StringTable.ResetToEmbeddedEnglish();
+            EndShowcaseCase();
         }
     }
 
@@ -314,9 +308,7 @@ public class Step3LiveCheckTests
     [StaFact]
     public void TheEyeCareBanner_ShowsItsGermanMessage()
     {
-        LiveCheck.Require();
-        WpfApplicationGate.EnsureApplicationWithTokens();
-        ShippedLanguageRecoveryTests.ActivateShippedGerman();
+        BeginShowcaseCase();
         EyeCareBannerWindow? window = null;
         try
         {
@@ -334,7 +326,7 @@ public class Step3LiveCheckTests
         {
             try { window?.Cancel(); } catch { /* the window may already be gone */ }
             try { window?.Close(); } catch { /* the window may already be gone */ }
-            StringTable.ResetToEmbeddedEnglish();
+            EndShowcaseCase();
         }
     }
 
@@ -346,9 +338,7 @@ public class Step3LiveCheckTests
     [StaFact]
     public void TheExerciseScreen_ShowsTheGermanCaptions()
     {
-        LiveCheck.Require();
-        WpfApplicationGate.EnsureApplicationWithTokens();
-        ShippedLanguageRecoveryTests.ActivateShippedGerman();
+        BeginShowcaseCase();
         EyeCareExerciseWindow? window = null;
         try
         {
@@ -367,7 +357,7 @@ public class Step3LiveCheckTests
         {
             try { window?.Cancel(); } catch { /* the window may already be gone */ }
             try { window?.Close(); } catch { /* the window may already be gone */ }
-            StringTable.ResetToEmbeddedEnglish();
+            EndShowcaseCase();
         }
     }
 
@@ -375,9 +365,7 @@ public class Step3LiveCheckTests
     [StaFact]
     public void TheScrollOverlay_ShowsTheGermanHint()
     {
-        LiveCheck.Require();
-        WpfApplicationGate.EnsureApplicationWithTokens();
-        ShippedLanguageRecoveryTests.ActivateShippedGerman();
+        BeginShowcaseCase();
         ScrollOverlayWindow? window = null;
         try
         {
@@ -389,49 +377,178 @@ public class Step3LiveCheckTests
             window = new ScrollOverlayWindow();
             window.Show(vm);
             LiveCheck.PumpFor(TimeSpan.FromMilliseconds(250));
+            AssertFullScreen(window, "Scroll overlay");
             LiveCheck.AssertShowsText(window, "Scroll overlay", "Mit Esc das Scrollen beenden");
-            // Full-screen overlay: its window may exceed the virtual screen (see AssertVisible), so the
-            // proof is that the hint's own bounds lie on the screen.
-            LiveCheck.AssertVisible(window, "Scroll overlay", allowOverscan: true);
+            LiveCheck.AssertVisible(window, "Scroll overlay");
             LiveCheck.PumpFor(HintHold);
         }
         finally
         {
             try { window?.Close(); } catch { /* the window may already be gone */ }
-            StringTable.ResetToEmbeddedEnglish();
+            EndShowcaseCase();
         }
     }
 
-    /// <summary>The glass backdrop's dismiss hint (with its hide button drawn, as production shows it).</summary>
+    /// <summary>
+    /// The glass backdrop through production's own show path — <c>OverlayVmBindingCoordinator.ShowBackdropIfEnabled</c>
+    /// (<c>:96-117</c>: <c>Show()</c> → <c>ApplyBackdrop(settings)</c> → <c>DrawHideButton(centre)</c>) — with
+    /// the owner's REAL material read read-only from <c>%APPDATA%\EyeCtrl\settings.json</c> (Mica today;
+    /// the production default if it is missing), and the ✕ at the centre production computes
+    /// (<c>:107-111</c>), never a hand-picked point. Proves the ✕ ("Schließen") is drawn exactly there and
+    /// lies inside the screen, and the hint is on the screen too.
+    /// </summary>
     [StaFact]
     public void TheGlassBackdrop_ShowsTheGermanHint()
     {
-        LiveCheck.Require();
-        WpfApplicationGate.EnsureApplicationWithTokens();
-        ShippedLanguageRecoveryTests.ActivateShippedGerman();
+        BeginShowcaseCase();
         GlassBackdropWindow? window = null;
         try
         {
+            var settings = BackdropSettingsOfTheOwner();
+            settings.Enabled = true; // the showcase shows the backdrop itself; production skips only when disabled
+            var screen = System.Windows.Forms.Screen.PrimaryScreen!;
+
+            // Production's own hide-button layout, restated from ShowBackdropIfEnabled (:107-111).
+            var dipRight = screen.Bounds.Width / DpiHelper.ScaleX - UIConstants.BackdropHideButtonOffset;
+            var hideButtonCenter = new PhysicalPoint(
+                DpiHelper.LogicalToPhysicalX(dipRight),
+                DpiHelper.LogicalToPhysicalY(UIConstants.BackdropHideButtonOffset));
+
             window = new GlassBackdropWindow();
-            var centre = new PhysicalPoint(
-                DpiHelper.LogicalToPhysicalX(SystemParameters.PrimaryScreenWidth - 120),
-                DpiHelper.LogicalToPhysicalY(120));
-            window.DrawHideButton(centre);
+            window.Show();                        // production order: Show, then the material, then the ✕
+            window.ApplyBackdrop(settings);
+            window.DrawHideButton(hideButtonCenter);
             window.ShowEscapeHint();
-            window.Show();
             LiveCheck.PumpFor(TimeSpan.FromMilliseconds(250));
+
+            AssertFullScreen(window, "Glass backdrop");
+            var glyph = ((Canvas)window.FindName("BackdropCanvas")!).Children.OfType<TextBlock>()
+                .Single(t => t.Text == "\u2715");
+            Check.WithCustomMessage("the ✕ must carry its German UIA name.")
+                .That(AutomationProperties.GetName(glyph)).IsEqualTo("Schließen");
+            var glyphCentre = glyph.PointToScreen(new Point(glyph.ActualWidth / 2, glyph.ActualHeight / 2));
+            Check.WithCustomMessage(
+                    $"the ✕ is drawn at ({glyphCentre.X:0.#}, {glyphCentre.Y:0.#}) px, not at production's "
+                    + $"centre ({hideButtonCenter.X:0.#}, {hideButtonCenter.Y:0.#}).")
+                .That(glyphCentre.X).IsCloseTo(hideButtonCenter.X, 1.5);
+            Check.That(glyphCentre.Y).IsCloseTo(hideButtonCenter.Y, 1.5);
+
+            var transform = PresentationSource.FromVisual(window)!.CompositionTarget!.TransformToDevice;
+            var physicalScreen = new Rect(0, 0,
+                SystemParameters.VirtualScreenWidth * transform.M11,
+                SystemParameters.VirtualScreenHeight * transform.M22);
+            var glyphBox = new Rect(
+                glyph.PointToScreen(new Point(0, 0)),
+                glyph.PointToScreen(new Point(glyph.ActualWidth, glyph.ActualHeight)));
+            Check.WithCustomMessage($"the ✕ at {glyphBox} (device px) leaves the screen {physicalScreen}.")
+                .That(physicalScreen.Contains(glyphBox)).IsTrue();
+
             LiveCheck.AssertShowsText(window, "Glass backdrop", "Mit Esc beenden");
-            // Full-screen overlay: its window may exceed the virtual screen (see AssertVisible), so the
-            // proof is that the hint's own bounds lie on the screen.
-            LiveCheck.AssertVisible(window, "Glass backdrop", allowOverscan: true);
+            LiveCheck.AssertVisible(window, "Glass backdrop");
             LiveCheck.PumpFor(HintHold);
         }
         finally
         {
             try { window?.Hide(); } catch { /* the window may already be gone */ }
             try { window?.Close(); } catch { /* the window may already be gone */ }
-            StringTable.ResetToEmbeddedEnglish();
+            EndShowcaseCase();
         }
+    }
+
+    /// <summary>
+    /// The common prologue: the opt-in gate, the WPF Application with its tokens, the DPI scale the
+    /// App itself sets at startup, and the shipped German. Every case builds its window only after
+    /// this, so every overlay is laid out at the user's real scale.
+    /// </summary>
+    private static void BeginShowcaseCase()
+    {
+        LiveCheck.Require();
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        InitializeDpiLikeTheApp();
+        ShippedLanguageRecoveryTests.ActivateShippedGerman();
+    }
+
+    /// <summary>
+    /// Puts the process-global DPI scale and the string table back to their test-run defaults. The
+    /// assembly-level restore hooks do this after every test too; doing it here keeps the case's own
+    /// window of exposure closed even when it fails early.
+    /// </summary>
+    private static void EndShowcaseCase()
+    {
+        DpiHelper.Initialize(1.0, 1.0);
+        StringTable.ResetToEmbeddedEnglish();
+    }
+
+    /// <summary>
+    /// The App's own startup DPI initialisation, replayed: <c>App.InitializeDpi</c>
+    /// (<c>App.xaml.cs:694-703</c>) reads
+    /// <c>PresentationSource.FromVisual(splash).CompositionTarget.TransformToDevice</c> and calls
+    /// <c>DpiHelper.Initialize(m.M11, m.M22)</c>. A bare test host never runs it, so <c>DpiHelper</c>
+    /// stays at its 1.0 default and every overlay that converts physical↔DIP (<c>CoverPrimaryScreen</c>,
+    /// the ring's centre, <c>DrawHideButton</c>, the exercise dot, the scroll anchor…) lands at the
+    /// wrong place or size — the distortion the owner saw in the live run. Same read, from an
+    /// off-screen source on the same monitor.
+    /// </summary>
+    private static void InitializeDpiLikeTheApp()
+    {
+        using var source = new HwndSource(new HwndSourceParameters("t13-live-dpi")
+        {
+            WindowStyle = unchecked((int)0x80000000), // WS_POPUP, never shown
+            PositionX = -30000,
+            PositionY = -30000,
+            Width = 1,
+            Height = 1,
+        });
+        var transform = source.CompositionTarget!.TransformToDevice;
+        DpiHelper.Initialize(transform.M11, transform.M22);
+    }
+
+    /// <summary>
+    /// A full-screen overlay covers the primary screen exactly, now that the DPI scale is the App's:
+    /// <c>CoverPrimaryScreen</c> divides the monitor's physical bounds by the scale, so 1920×1200 DIP
+    /// at 2.0 on this screen. A wrong scale shows up here first.
+    /// </summary>
+    private static void AssertFullScreen(Window window, string name)
+    {
+        Check.WithCustomMessage(
+                $"{name}: the window is {window.ActualWidth:0.#}×{window.ActualHeight:0.#} DIP, not the screen's "
+                + $"{SystemParameters.PrimaryScreenWidth:0.#}×{SystemParameters.PrimaryScreenHeight:0.#}.")
+            .That(window.ActualWidth).IsCloseTo(SystemParameters.PrimaryScreenWidth, 0.01);
+        Check.That(window.ActualHeight).IsCloseTo(SystemParameters.PrimaryScreenHeight, 0.01);
+    }
+
+    /// <summary>
+    /// The owner's backdrop settings, read READ-ONLY from <c>%APPDATA%\EyeCtrl\settings.json</c>: the
+    /// material type is theirs (Mica today). A missing file, an unreadable one (the App may hold it),
+    /// or an unknown value falls back to the production defaults — nothing here writes.
+    /// </summary>
+    private static BackdropSettings BackdropSettingsOfTheOwner()
+    {
+        var settings = new BackdropSettings();
+        try
+        {
+            var path = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl", "settings.json");
+            if (!File.Exists(path)) return settings;
+
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            if (document.RootElement.TryGetProperty("backdrop", out var backdrop)
+                && backdrop.TryGetProperty("type", out var type)
+                && type.ValueKind == JsonValueKind.String
+                && Enum.TryParse<BackdropType>(type.GetString(), ignoreCase: true, out var parsed))
+            {
+                settings.Type = parsed;
+            }
+        }
+        catch (IOException)
+        {
+            // The App may hold the file open; the production default is the fallback.
+        }
+        catch (JsonException)
+        {
+        }
+
+        return settings;
     }
 
     /// <summary>

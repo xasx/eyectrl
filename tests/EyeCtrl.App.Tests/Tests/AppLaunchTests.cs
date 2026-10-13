@@ -63,6 +63,8 @@ public class AppLaunchTests
         // while adaptation is enabled (Task 7, D5/M5). ToolbarButtonVisualTests pins the flag-on
         // band headlessly; flipping Enabled here instead would start the whole adaptation runtime
         // in the launched app, which is not what a set assertion means to turn on (R2-M3).
+        // Task 9's live-flip rebuild does not loosen this: nothing in the launched app flips
+        // Enabled after startup, so the set stays the startup one for the whole assertion.
         var expectedIds = new[]
         {
             "Toolbar_Button_Pause",

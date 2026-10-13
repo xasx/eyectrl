@@ -182,8 +182,9 @@ public class OverlayManager : IOverlayManager
         // Initialize overlays with their specific APIs
         _cursorCircle.UpdateAppearance(settings.Cursor);
         // includeReset: Adaptation.Enabled — Reset is offered only while adaptation can have
-        // learned anything to reset (Task 7, D5/M5). Live Enabled flips re-entering here is
-        // Task 9's subscription; at startup the setting is read once.
+        // learned anything to reset (Task 7, D5/M5). Live Enabled flips re-build the band through
+        // SettingsUiCoordinator's AdaptationSettings.PropertyChanged subscription (Task 9);
+        // at startup the setting is read once, here.
         _toolbar.Initialize(settings.Toolbar.Size, settings.Dwell.ToolbarButtonDwellMs,
             settings.Adaptation.Enabled);
         _toolbar.SetProviderIndicator(providerType);

@@ -205,10 +205,26 @@ internal static class TestFakes
         IGlassBackdropOverlay? glassBackdrop = null,
         IEdgeButtonBar? actionMenuModBar = null,
         IActionMenuOverlay? actionMenu = null,
-        ICalibrationOverlay? calibration = null)
+        ICalibrationOverlay? calibration = null,
+        ITrackStatusOverlay? trackStatus = null)
         => new PartialOverlayManager(
             edgeButtonBar, toolbar, pauseIndicator, manualSelection, manualSelectionIndicator,
-            cursorCircle, activationButton, glassBackdrop, actionMenuModBar, actionMenu, calibration);
+            cursorCircle, activationButton, glassBackdrop, actionMenuModBar, actionMenu, calibration,
+            trackStatus);
+
+    /// <summary>No-op track-status overlay: <c>SettingsUiCoordinator.OnInitialize</c> dereferences
+    /// <c>IOverlayManager.TrackStatus</c> unconditionally (UpdateTrackStatusVisibility), so any
+    /// test initializing that coordinator must supply one.</summary>
+    internal sealed class FakeTrackStatusOverlay : ITrackStatusOverlay
+    {
+        public bool Tracking { get; private set; }
+
+        public void Show() { }
+        public void Hide() { }
+        public void StartTracking() => Tracking = true;
+        public void StopTracking() => Tracking = false;
+        public void PositionTopRight() { }
+    }
 
     /// <summary>No-op calibration overlay: the calibration state handler shows, updates and
     /// dismisses it on every state, so it must be present.</summary>
@@ -315,6 +331,7 @@ internal static class TestFakes
         private readonly IEdgeButtonBar? _actionMenuModBar;
         private readonly IActionMenuOverlay? _actionMenu;
         private readonly ICalibrationOverlay? _calibration;
+        private readonly ITrackStatusOverlay? _trackStatus;
 
         public IModesMenuOverlay ModesMenu => throw new NotImplementedException();
         public IRepeatCursorOverlay RepeatCursor => throw new NotImplementedException();
@@ -325,12 +342,13 @@ internal static class TestFakes
             ICursorCircleOverlay? cursorCircle = null, IActivationButtonOverlay? activationButton = null,
             IGlassBackdropOverlay? glassBackdrop = null,
             IEdgeButtonBar? actionMenuModBar = null, IActionMenuOverlay? actionMenu = null,
-            ICalibrationOverlay? calibration = null)
+            ICalibrationOverlay? calibration = null, ITrackStatusOverlay? trackStatus = null)
         {
             _bar = bar; _toolbar = toolbar; _pauseIndicator = pauseIndicator;
             _manualSelection = manualSelection; _manualSelectionIndicator = manualSelectionIndicator;
             _cursorCircle = cursorCircle; _activationButton = activationButton; _glassBackdrop = glassBackdrop;
             _actionMenuModBar = actionMenuModBar; _actionMenu = actionMenu; _calibration = calibration;
+            _trackStatus = trackStatus;
         }
 
         public IEdgeButtonBar EdgeButtonBar =>
@@ -361,7 +379,8 @@ internal static class TestFakes
         public ICalibrationOverlay Calibration =>
             _calibration ?? throw new NotImplementedException("test supplied no calibration overlay");
         public ITargetHighlightOverlay TargetHighlight => throw new NotImplementedException();
-        public ITrackStatusOverlay TrackStatus => throw new NotImplementedException();
+        public ITrackStatusOverlay TrackStatus =>
+            _trackStatus ?? throw new NotImplementedException("test supplied no track-status overlay");
         public ITaskSwitcherOverlay TaskSwitcher => throw new NotImplementedException();
         public IQuickActionsGridOverlay QuickActionsGrid => throw new NotImplementedException();
         public void Initialize(OverlayViewModels viewModels, EyeCtrlSettings settings, GazeProviderType providerType) => throw new NotImplementedException();

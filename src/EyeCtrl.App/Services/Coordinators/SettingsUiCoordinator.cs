@@ -33,9 +33,12 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     private ModelManagementService? _modelManagementService;
     private AppRestartCoordinator? _restartCoordinator;
     private SupervisionToggleService? _supervisionToggle;
-    // Owned HERE — moved from EventCoordinator. Read in OnSettingsChanged to gate the toolbar
-    // re-init (only re-initialize the toolbar when its layout-affecting settings changed).
+    // Owned HERE — moved from EventCoordinator. The metrics snapshot AND the includeReset flag
+    // (Adaptation.Enabled) of the last band build, compared by ReinitializeToolbar so the save
+    // path and the live Enabled subscription (Task 9) rebuild the band exactly once however
+    // their arrivals interleave.
     private ToolbarSnapshot? _toolbarSnapshot;
+    private bool? _appliedIncludeReset;
     public SettingsUiCoordinator(ModalInteractionState modal, QuickActionsCoordinator quickActions,
         ToolbarLifecycleCoordinator toolbar, KeyboardCoordinator keyboard)
     {
@@ -71,6 +74,11 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         // Named handler (was an anonymous lambda that was never detached — it kept this coordinator
         // alive through the settings object, which outlives EventCoordinator). Dispose -= it.
         context.Settings.TrackStatus.PropertyChanged += OnTrackStatusSettingsPropertyChanged;
+        // Task 9: the band's Reset membership follows the live Adaptation.Enabled flip. The
+        // settings UI mutates the live object as the user toggles — before any save raises
+        // SettingsChanged — so the flip arrives here as PropertyChanged. Marshalled like the
+        // TrackStatus handler above; the rebuild itself lives in ReinitializeToolbar.
+        context.Settings.Adaptation.PropertyChanged += OnAdaptationSettingsPropertyChanged;
     }
 
     private void OnTrackStatusSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -78,6 +86,16 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         if (Context is null) return;
         if (e.PropertyName == nameof(TrackStatusSettings.Enabled))
             Context.Dispatcher.BeginInvoke(UpdateTrackStatusVisibility);
+    }
+
+    private void OnAdaptationSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (Context is null) return;
+        if (e.PropertyName != nameof(AdaptationSettings.Enabled)) return;
+        // Through the same guard the save path uses, so a flip that also lands in a save
+        // re-initializes the band exactly once.
+        var settings = Context.Settings;
+        Context.Dispatcher.BeginInvoke(() => ReinitializeToolbar(settings));
     }
 
     /// <summary>Stores the model services for the next <see cref="ShowSettingsWindow"/> construction.
@@ -204,22 +222,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         var toolbarSnapshot = ToolbarSnapshot.Capture(s);
         if (_toolbarSnapshot != toolbarSnapshot)
         {
-            // includeReset: Adaptation.Enabled, as at startup (Task 7). Note the snapshot gates
-            // this call on TOOLBAR metrics — an Enabled-only change does not re-enter yet; the
-            // subscription that rebuilds the band on the live flip is Task 9's.
-            Context.OverlayManager.Toolbar.Initialize(s.Toolbar.Size, s.Dwell.ToolbarButtonDwellMs,
-                s.Adaptation.Enabled);
-            Context.OverlayManager.Toolbar.SetMode(s.Toolbar.IsDocked, s.Toolbar.DockedEdge);
-
-            // Re-evaluate enablement (IsDocked may have flipped to false → disable + force-show),
-            // refresh the cached edge, and reposition the pause indicator along the new edge.
-            bool nowEnabled = EyeCtrl.App.App.ActiveProviderType != Core.Enums.GazeProviderType.Mouse && s.Toolbar.IsDocked;
-            _toolbar.UpdateEnabled(nowEnabled);
-            _toolbar.UpdateEdge(s.Toolbar.DockedEdge);
-            _toolbar.PositionIndicator(s.Toolbar.DockedEdge);
-            _toolbar.RefreshToolbarRect();
-
-            _toolbarSnapshot = toolbarSnapshot;
+            ReinitializeToolbar(s);
         }
 
         // The keyboard snapshot compare + reload lives on KeyboardCoordinator (cluster 3), exposed
@@ -238,6 +241,43 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         }
 
         Log.Information("Settings saved");
+    }
+
+    /// <summary>
+    /// Rebuilds the toolbar band at the settings' metrics, with <c>Adaptation.Enabled</c> as the
+    /// includeReset flag (as at startup, Task 7 / D5/M5 — Reset is on the band only while
+    /// adaptation is on), then re-applies the dock mode, re-evaluates auto-hide enablement
+    /// (IsDocked may have flipped to false → disable + force-show), refreshes the cached edge,
+    /// repositions the pause indicator along it, and re-captures the auto-hide rect.
+    /// <para>
+    /// Two callers, one guard: the save path (the toolbar-metrics snapshot branch of
+    /// <see cref="OnSettingsChanged"/>) and the <see cref="AdaptationSettings.Enabled"/>
+    /// subscription — the settings UI mutates the live object as the user toggles, so a flip
+    /// that lands in the same save as a metrics change would otherwise rebuild the band twice.
+    /// The last applied (metrics snapshot, includeReset) pair is remembered and an identical
+    /// request returns, making the rebuild exactly-once in either arrival order.
+    /// </para>
+    /// </summary>
+    private void ReinitializeToolbar(EyeCtrlSettings s)
+    {
+        if (Context is null) return;
+
+        var toolbarSnapshot = ToolbarSnapshot.Capture(s);
+        if (_toolbarSnapshot == toolbarSnapshot && _appliedIncludeReset == s.Adaptation.Enabled)
+            return;
+
+        Context.OverlayManager.Toolbar.Initialize(s.Toolbar.Size, s.Dwell.ToolbarButtonDwellMs,
+            s.Adaptation.Enabled);
+        Context.OverlayManager.Toolbar.SetMode(s.Toolbar.IsDocked, s.Toolbar.DockedEdge);
+
+        bool nowEnabled = EyeCtrl.App.App.ActiveProviderType != Core.Enums.GazeProviderType.Mouse && s.Toolbar.IsDocked;
+        _toolbar.UpdateEnabled(nowEnabled);
+        _toolbar.UpdateEdge(s.Toolbar.DockedEdge);
+        _toolbar.PositionIndicator(s.Toolbar.DockedEdge);
+        _toolbar.RefreshToolbarRect();
+
+        _toolbarSnapshot = toolbarSnapshot;
+        _appliedIncludeReset = s.Adaptation.Enabled;
     }
 
     /// <summary>
@@ -282,6 +322,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         if (Context is not null)
         {
             Context.Settings.TrackStatus.PropertyChanged -= OnTrackStatusSettingsPropertyChanged;
+            Context.Settings.Adaptation.PropertyChanged -= OnAdaptationSettingsPropertyChanged;
         }
     }
 }

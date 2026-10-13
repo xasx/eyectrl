@@ -280,9 +280,12 @@ public partial class App : Application
 
             // ── System tray ──
             bool autoHideActive = ActiveProviderType != Core.Enums.GazeProviderType.Mouse && settings.Toolbar.IsDocked;
+            // isAdaptationEnabled: the LOCAL settings — the app mutates that instance in place on
+            // every apply, so the delegate reads the live Enabled for the tray item's gate (Task 9).
             _trayIconManager = new TrayIconManager(
                 im, Dispatcher, messenger,
                 shutdownCallback: () => Shutdown(),
+                isAdaptationEnabled: () => settings.Adaptation.Enabled,
                 showToolbarCallback: autoHideActive
                     ? () => _eventCoordinator?.ForceShowToolbar()
                     : null);

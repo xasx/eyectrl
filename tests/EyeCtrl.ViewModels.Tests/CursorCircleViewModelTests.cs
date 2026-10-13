@@ -37,24 +37,21 @@ public class CursorCircleViewModelTests
     }
 
     [Fact]
-    public void Paused_HidesRing_AndFlagsPaused()
+    public void Paused_HidesRing_AndShowsItAgainOnResume()
     {
         // Paused hides the ring (owner ruling 2026-10-07, superseding the visible-dim look of
         // ticket 1): the PauseIndicator strip is the pause feedback and the edge-summon dwell stays
-        // active while paused, so resume needs no cursor. IsPaused still flags the state and drives
-        // the View's dim as belt and braces.
+        // active while paused, so resume needs no cursor. The visible-dim plumbing itself was later
+        // removed — no production path ever showed the window in that state.
         var settings = new EyeCtrlSettings();
         var vm = new CursorCircleViewModel(settings, _messenger);
         Check.That(vm.IsVisible).IsTrue();
-        Check.That(vm.IsPaused).IsFalse();
 
         _messenger.Send(new StateChangedMessage(InteractionState.Paused));
         Check.That(vm.IsVisible).IsFalse();
-        Check.That(vm.IsPaused).IsTrue();
 
         _messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
         Check.That(vm.IsVisible).IsTrue();
-        Check.That(vm.IsPaused).IsFalse();
     }
 
     // ── The pin (ticket 7): the ring glides to the settle centroid and stops there ──
@@ -260,7 +257,6 @@ public class CursorCircleViewModelTests
         _messenger.Send(new StateChangedMessage(InteractionState.Paused));
 
         Check.That(vm.IsPinned).IsFalse();
-        Check.That(vm.IsPaused).IsTrue();
         Check.That(vm.IsVisible).IsFalse();
 
         SendFrame(_messenger, new PhysicalPoint(300, 400), 30_000);

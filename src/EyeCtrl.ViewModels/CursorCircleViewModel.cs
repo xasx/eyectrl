@@ -58,15 +58,6 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     [ObservableProperty] private RingMove _moveTo;
 
     /// <summary>
-    /// True while the interaction state is Paused. Paused hides the ring (<see cref="_stateAllowsCursor"/>
-    /// excludes it). IsPaused survives purely as a defensive View input: no production path shows the
-    /// window while paused (the startup show precedes the paused-launch toggle, whose single state
-    /// message dims and then hides in one dispatcher callback, so the dim is never presented) — but a
-    /// future direct-show path must still read as paused rather than as the quiet FreeLook ring.
-    /// </summary>
-    [ObservableProperty] private bool _isPaused;
-
-    /// <summary>
     /// True from Core's <c>PinRing</c> (the accepted settle, or an offer appearing) until Core's
     /// <c>ReleaseRing</c>: the fixation's end, or — while an activation offer is alive — the offer's
     /// close, so the ring does not move while the user looks at the button. While pinned the ring does
@@ -139,12 +130,10 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     public void Receive(StateChangedMessage message)
     {
         _lastState = message.NewState;
-        // Paused hides the ring: the PauseIndicator strip is the pause feedback, and resume needs no
-        // cursor — the past-edge summon carries no pause gate and the toolbar band is deliberately
-        // dwellable while paused (ToolbarViewModel.DwellActiveWhilePaused). The dim (IsPaused below)
-        // remains only as the View's defensive look; see IsPaused's summary.
+        // Paused hides the ring (as every non-targeting state does): the PauseIndicator strip is the
+        // pause feedback, and resume needs no cursor — the past-edge summon carries no pause gate and
+        // the toolbar band is deliberately dwellable while paused (ToolbarViewModel.DwellActiveWhilePaused).
         // RepeatMode hides the normal circle too: the contracting repeat cursor replaces it there.
-        IsPaused = message.NewState == InteractionState.Paused;
         // Belt and braces for the release: a pinned ring implies Fixation or FreeLook — FreeLook only
         // because the ring stays at the offer's P while the user looks at the button, and Core's
         // ReleaseRing (offer closed, or the run ended with no offer) is what frees it there. Any

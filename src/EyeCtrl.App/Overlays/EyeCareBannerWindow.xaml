@@ -14,8 +14,10 @@
         <!-- Dim the work area below the banner (click-through) -->
         <Rectangle x:Name="WorkDim" Fill="{StaticResource BrushModalBackdrop}" Visibility="Collapsed"/>
 
-        <!-- Top banner strip -->
-        <Border VerticalAlignment="Top" Height="80" Background="{StaticResource BrushSurfaceDark}"
+        <!-- Top banner strip. 96, not 80 (user decision, T13 fixup-03): the circle captions below
+             the rings end at ~88 DIP, so at 80 they hung ~7.5 DIP below the strip. 96 gives them
+             the same 8 DIP bottom padding the rings have above them. The window stays 120. -->
+        <Border VerticalAlignment="Top" Height="96" Background="{StaticResource BrushSurfaceDark}"
                 BorderBrush="{StaticResource BrushBorderSubtle}" BorderThickness="0,0,0,1">
             <Grid Margin="20,0">
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Left">
@@ -24,7 +26,10 @@
                     <TextBlock x:Name="SubText" Text="{loc:T 'eye-care.banner.subtext'}"
                                Foreground="{StaticResource BrushTextSecondary}" FontSize="{StaticResource FontSizeBody}" Margin="0,2,0,0"/>
                 </StackPanel>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <!-- Top-anchored at the rings' original 8 DIP offset, NOT centred: at 96 a centred
+                     panel would move both ring centres to 48 DIP, but ButtonCenterFromTopDip (40) is
+                     the dwell-target line the user aims at. The captions keep their -16 offset. -->
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,8,0,0">
                     <!-- Two large dwell circles: Start (accept) and Snooze. The ✕/▶ glyph sizes
                          are set in the constructor as a ratio of the 64px ring — XAML cannot
                          express the multiplication. -->

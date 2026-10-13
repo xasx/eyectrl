@@ -107,3 +107,75 @@ since T12, so a German Settings shows them as soon as the theme lands.
   für sonnige Räume; „Kontrast“ ist das kräftigste."
 - **Not reviewed strings** (none was on T10's review sheets): per T10's rule they were checked by
   the validator and a MiMo back-translation, not a new user sitting.
+
+## T13 — Step 3: calibration, eye care and the overlays
+
+The gaze surfaces go German. With `calibration`, `eye-care` and `overlays` in the manifest, **every
+text surface of EyeCtrl follows the Windows language.** What deliberately does not is listed at the
+end of this section: keyboard key captions (layout data), word predictions (their own setting),
+exception details and logs, and the product names.
+
+- **The live ring speaks German.** The action ring's labels ("Linksklick", "Rechtsklick", "2× Klick",
+  "Ziehen", "Mehr", "Zurück"), the modifier bar ("Shift", "Strg", "Alt") and the ring segments'
+  accessible names all follow the language (`ShippedGermanStep3Tests` — the view model's own labels and
+  the A105/A68 fit on the shipped table; `GeometryInvarianceTests` builds every overlay in English and
+  in the shipped German at 2.0 and finds identical dwell ids, centres and radii).
+- **The D3 window closes.** Until T12 the Settings ring preview spoke German while the live ring stayed
+  English; the quick-action picker spoke German while the grid stayed English. Both pairs now read the
+  same German: the live ring's labels equal the preview's (the `mirrors:` pairs,
+  `MirrorParityTests`), and the grid resolves its preset tiles through the `overlays` keys
+  (`ShippedGermanStep3Tests.TheQuickActionsGrid_…` — "Kopieren", "Wiedergabe / Pause", "Fenster
+  minimieren"). A quick-action tile the user named themselves keeps its own text (D2, unchanged).
+- **Calibration is German.** The progress line ("Auf den Punkt blicken · 1 / 9"), the
+  Retry/Accept buttons ("Wiederholen" / "So übernehmen"), the Esc and auto-dismiss hints and every
+  failure sentence (typed since T03c; wrapped since T10) (`ShippedGermanStep3Tests`, and the shipped
+  cases of `GermanGateTests.TheCalibrationButtons_…` / `EveryCalibrationFailure_…`).
+- **Eye care is German.** The banner ("Zeit für eine Augenpause", "starten", "später"), the exercise
+  screen ("Ende ✕", "Gleitendes Folgen") and the summary card ("✓ Gut gemacht", "Genauigkeit",
+  "Stabilität", "Reaktion ms") all read German, and the card's numbers use the eye-care surface's
+  German formats ("4,3" where the English surface showed "4.3" — T02's rule, switched on with this
+  surface) (`ShippedGermanStep3Tests` — the A56/card fit and the windows' captions; the provider pin
+  in `ShippedGermanSwitchOnTests`).
+- **The eye-care banner's strip is taller (96 DIP; it was 80).** The two circle captions ("später",
+  "starten") used to end ~7.5 DIP below the strip; the strip now ends 8 DIP below them, the same
+  padding the rings have above. The rings' panel is anchored so both circle centres stay at 40 DIP
+  from the top — the drawn rings move 0.5 DIP (39.5 → 40.0) onto their dwell targets, and the
+  message block moves down 8 DIP; both are invisible in practice. **No dwell target moves**
+  (`EyeCareBannerGeometryTests.TheStrip_ContainsTheRingCaptions_…`). A pre-existing layout flaw the
+  T13 live check surfaced (it looks the same in English); the owner approved the 96-DIP strip.
+- **The overlays' hints and names are German.** "Mit Esc beenden" (backdrop), "Mit Esc das Scrollen
+  beenden" (scroll overlay), the pinned note's caption and ✕ ✎ ↕ names, the toolbar's UIA names and
+  the icon-only edge buttons' names (`ShippedGermanStep3Tests.EveryIconOnlyTarget_…`).
+- **AutomationIds never change with the language.** UI tests locate targets by AutomationId and keep
+  running with English pinned; under German the toolbar and Settings tab faces keep the same ids
+  (`ShippedGermanStep3Tests.TheToolbarsAndTabFaces_…`, `StringTableIsolationTests`).
+- **The glass backdrop's ✕, dark fill and hint now sit exactly where they belong.** A hidden resize
+  border — the default `ResizeMode` on a non-transparent overlay — pushed the client area 6 DIP
+  inside the window, so everything drawn in client coordinates landed 6 DIP right and below its
+  target; the ✕ was drawn off its own dwell target. `ResizeMode="NoResize"` removes the border (as
+  the edge bar already had), and a new handle-only gate checks every overlay window's client origin,
+  with the live check keeping the exact ✕ position (`OverlayClientOriginTests`,
+  `Step3LiveCheckTests.TheGlassBackdrop_…`). Pre-existing, found by the T13 live check. **Not settled
+  here:** during the live check the backdrop showed its dark look rather than the Mica material;
+  whether `ResizeMode="NoResize"` (which removes the window's resize frame) or the overlays'
+  never-activate style causes that is checked in a follow-up.
+- **Keyboard key captions are layout data, not UI text.** They belong to the keyboard layout in use:
+  QWERTZ shows German captions ("Strg", "Kopieren", "Einfügen", "Alles mark.", "+ Wort", "Einfg",
+  "Entf", "Pos1", "Ende", "Bild↑", "Bild↓", "Druck"), while QWERTY and AZERTY keep their English ones
+  ("Ctrl", "Copy", "Paste", "Sel All", "Add Word", "Ins", "Del", "Home", "End", "PgUp", "PgDn",
+  "PrtSc", "Bksp", "DelWd") — whatever the UI language, and in both directions
+  (`qwertz.json`/`qwerty.json`/`azerty.json`).
+- **Word predictions follow the keyboard's language pack, not the UI language.** The dictionary and
+  the next-word index are per language (`de`/`en`/`es`/`fr`/`pl`; auto-detected from the system
+  language while the pack is unset), so this German PC predicts German; an AI model's suggestions
+  are model output — the bundled models carry no language tag (`PredictionStackFactory`,
+  `LanguageDetector`).
+- **Still English, deliberately:** exception details and technical messages — the startup box's
+  "Technische Details (Englisch)", the recovery frame's "(Englisch)", a failed model download's `{0}` —
+  and the logs. The product names ("EyeCtrl", "Tobii", "Supervisor", "Shift", "Alt") stay as they are.
+- **The "Double click" ring exception stays.** "Double click" measures +1.8 DIP against the +2 DIP
+  ring rule; T13 re-measured the options (German "2× Klick" +14.7 DIP; the Settings row's
+  "Doppelklick" would measure +0.85 DIP on the ring; a reworded English "2× click" would measure
+  +15.6 DIP) and the owner chose to **keep the recorded English exception** (2026-10-12) — no
+  threshold and no text changed (`FitClassTests.EnglishExceptions` and
+  `ShippedGermanStep3Tests.TheDoubleClickCandidates_…`).

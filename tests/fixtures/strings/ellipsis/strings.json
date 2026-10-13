@@ -1,0 +1,16 @@
+{
+  "settings.computing": {
+    "text": "Computing...",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.waiting": {
+    "text": "Waiting",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  }
+}

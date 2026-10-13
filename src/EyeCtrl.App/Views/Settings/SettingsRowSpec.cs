@@ -18,8 +18,8 @@ public abstract record SettingsRowSpec(string Id, string Label)
     /// name column. Optional: a row whose name already says everything leaves it null and the
     /// second line is not drawn at all.
     ///
-    /// An <c>init</c> property rather than a positional parameter so the ~80 existing spec
-    /// constructions across eleven page sources keep compiling untouched.
+    /// An <c>init</c> property rather than a positional parameter so the ~160 existing spec
+    /// constructions across the fifteen page sources keep compiling untouched.
     /// </summary>
     public string? Description { get; init; }
 }

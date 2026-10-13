@@ -78,6 +78,7 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
     private ProcessController _pc = null!;
     private HeartbeatFreshnessEvaluator _freshness = null!;
     private SupervisorTrayIcon _tray = null!;
+    private TrayStatusText _statusText = null!;
     private SettingsService _settingsService = null!;
     private EyeCtrlSettings _settings = null!;
     private string _appExePath = null!;
@@ -220,12 +221,18 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
         _freshness = new HeartbeatFreshnessEvaluator(sup.HangThresholdSeconds);
 
         // 3a. Tray icon — settings/launch/exit callbacks wired to the loop below.
+        // The tooltip line composes on a state change and re-resolves only at its display
+        // moments (hover, menu open), so the heartbeat path does no settings read (T06 fixup-01
+        // F2). The menu item texts keep T05b's per-open resolve.
+        _statusText = new TrayStatusText(
+            () => _languageResolver.ResolveTable(warning => Log.Debug("Supervisor strings: {Warning}", warning)));
         _tray = new SupervisorTrayIcon(
             openSettings: OpenSettings,
             launchAppNow: () => HandleInput(new LaunchRequest(DateTime.UtcNow)),
             exit: Shutdown,
             // Asked on every menu open, so the items follow a language change (T05b).
-            texts: () => SupervisorTrayTexts.For(_languageResolver.ResolveTable()));
+            texts: () => SupervisorTrayTexts.For(_languageResolver.ResolveTable()),
+            refreshStatus: () => _statusText.Refresh());
 
         // 3b. Periodic clock tick — runs on the UI thread; drives stale/window/deadline checks.
         _tickTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TickInterval };
@@ -698,6 +705,9 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
 
     private void OpenSettings()
     {
+        // One table for the whole window: the strings and the status line's frame resolve from
+        // the same snapshot, so a language change cannot show a half-resolved window (T06).
+        var strings = _languageResolver.ResolveTable(warning => Log.Debug("Supervisor strings: {Warning}", warning));
         var window = new SupervisorSetupWindow(
             settings: _settings,
             settingsService: _settingsService,
@@ -723,15 +733,18 @@ internal sealed class SupervisorApp : Application, ISupervisionClockHost
             launchAppNow: () => HandleInput(new LaunchRequest(DateTime.UtcNow)),
             startOnBoot: new StartOnBootSetupRow(_startOnBootDelivery, () => _startOnBootTracker.Current),
             language: new LanguageSetupRow(_languageDelivery, () => _uiLanguageTracker.Current),
-            strings: _languageResolver.ResolveTable(warning => Log.Debug("Supervisor strings: {Warning}", warning)),
-            statusText: "Supervisor state: " + SupervisorStateText.Describe(_sm.State));
+            strings: strings,
+            statusText: strings.T("supervisor.setup.status", SupervisorStateText.Describe(strings, _sm.State)));
         window.Show();
     }
 
     private void UpdateTrayStatus()
     {
-        var text = SupervisorStateText.TrayPrefix + SupervisorStateText.Describe(_sm.State);
-        _tray.SetStatusText(text);
+        // A state change composes a new line; a same-state input — every verified heartbeat,
+        // about every 3 s — does no table resolution and no settings read (T06 fixup-01 F2).
+        // The tooltip follows a language change at hover or menu open, where TrayStatusText
+        // re-resolves (the resolve-at-display pattern T05b uses for the menu texts).
+        _tray.SetStatusText(_statusText.Update(_sm.State));
     }
 
     // ---- App-exe path resolution (see AppExePathResolver) ------------------------------

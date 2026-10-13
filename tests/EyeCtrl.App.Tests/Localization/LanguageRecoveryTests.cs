@@ -187,7 +187,7 @@ public class LanguageRecoveryTests
                 .IsEqualTo("Restart failed: the new EyeCtrl did not start in time. EyeCtrl is still running.");
 
             Check.That(CoordinatorFailureFrame(page.Settings))
-                .IsEqualTo("Restart failed: boom EyeCtrl is still running.");
+                .IsEqualTo("Restart failed. EyeCtrl is still running. Technical details: boom");
         }
         finally
         {

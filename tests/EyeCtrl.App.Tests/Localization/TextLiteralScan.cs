@@ -377,10 +377,11 @@ internal static class TextLiteralScan
     /// <summary>
     /// Producer files scanned in full: their returned literals are UI text. Exception-constructor
     /// literals and surface-id/key arguments are excluded everywhere by <see cref="IsExcludedSink"/>.
+    /// <c>RingLabelMap</c> left this list in T08: it now returns the <c>overlays</c> keys, not text,
+    /// so its literals are the machinery the <c>T(…)</c> exclusion exists for.
     /// </summary>
     public static readonly string[] ProducerFiles =
     [
-        "src/EyeCtrl.Core/Models/RingLabelMap.cs",
         "src/EyeCtrl.Core/Settings/ThemeSettings.cs",
         "src/EyeCtrl.Supervisor/Supervision/SupervisorStateText.cs",
         "src/EyeCtrl.App/Overlays/CalibrationCompletion.cs",
@@ -398,6 +399,14 @@ internal static class TextLiteralScan
         ("src/EyeCtrl.App/Views/Settings/Sources/CalibrationPageSource.cs", "StatusText"),
         // T05b: the Supervisor tray's item texts, re-read at every menu open; still English until T06.
         ("src/EyeCtrl.Supervisor/UI/SupervisorTrayIcon.cs", "For"),
+        // T07: the Settings supervision row's status and failure lines. `StatusText` is a
+        // PROPERTY — the scan gained property bodies for this entry — and the three request
+        // methods carry the failure sentences; the ratchet must see all of them until T07 keys
+        // them away (T06 review N1).
+        ("src/EyeCtrl.App/Services/SupervisionToggleService.cs", "StatusText"),
+        ("src/EyeCtrl.App/Services/SupervisionToggleService.cs", "RequestEnable"),
+        ("src/EyeCtrl.App/Services/SupervisionToggleService.cs", "RequestDisable"),
+        ("src/EyeCtrl.App/Services/SupervisionToggleService.cs", "RequestEnsure"),
     ];
 
     /// <summary>
@@ -405,7 +414,7 @@ internal static class TextLiteralScan
     /// with literals masked out, so a literal's content can never look like a call.
     /// </summary>
     private static readonly Regex SinkCall = new(
-        @"(?<![A-Za-z0-9_])(?<name>ShowModal|ShowError|new\s+ModalChoice|new\s+ToolStripMenuItem|MessageBox\.Show|AutomationProperties\.SetName|new\s+(?:SliderSpec|ToggleSpec|ComboBoxSpec|ColorPickerSpec|ButtonSpec|LabelSpec|RingPreviewSpec|RingJumpSpec)|new\s+QuickActionPreset|new\s+(?:DwellToggle|DwellComboBox|DwellColorPicker|DwellButton|DwellSlider))\s*\(",
+        @"(?<![A-Za-z0-9_])(?<name>ShowModal|ShowError|ShowBannerAsync|new\s+ModalChoice|new\s+ToolStripMenuItem|MessageBox\.Show|AutomationProperties\.SetName|new\s+(?:SliderSpec|ToggleSpec|ComboBoxSpec|ColorPickerSpec|ButtonSpec|LabelSpec|RingPreviewSpec|RingJumpSpec)|new\s+QuickActionPreset|new\s+(?:DwellToggle|DwellComboBox|DwellColorPicker|DwellButton|DwellSlider))\s*\(",
         RegexOptions.Compiled);
 
     /// <summary>Member assignments that take text directly.</summary>
@@ -423,10 +432,44 @@ internal static class TextLiteralScan
         @"(?<![A-Za-z0-9_.])(?<member>Text|Content|Header|Title|ToolTip|Description|Label|onText|offText|swatchNames|notAvailableFormat|accessibleName|AccessibleName|ColorSwatchNames)\s*=(?!=)",
         RegexOptions.Compiled);
 
-    /// <summary>Named arguments that take text.</summary>
+    /// <summary>
+    /// Named arguments that take text. T09 closed two holes the batch-3 reviews found: the
+    /// capital <c>Label:</c> of a record such as <c>EdgeButtonDefinition</c> (only lowercase
+    /// <c>label:</c> was a sink), and the Supervisor setup window's <c>statusText:</c>.
+    /// </summary>
     private static readonly Regex NamedArgument = new(
-        @"(?<![A-Za-z0-9_-])(?<name>accessibleName|AccessibleName|onText|offText|swatchNames|notAvailableFormat|Display|label)\s*:",
+        @"(?<![A-Za-z0-9_-])(?<name>accessibleName|AccessibleName|onText|offText|swatchNames|notAvailableFormat|Display|label|Label|statusText)\s*:",
 
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// A <c>const string</c> initialiser (T09; T06 review N2: the startup-error title once lived
+    /// in one and the ratchet never saw it), and its twin in another keyword, a
+    /// <c>static readonly string</c> field (T09 review-01 R4, mutant A20). Every such string in a
+    /// scanned file is recorded: most are ids, and the final ratchet's exception list names them as
+    /// such.
+    ///
+    /// <para>
+    /// <b>Known hole, swept empty:</b> a BLOCK-bodied member that returns a literal
+    /// (<c>string Hint() { return "…"; }</c>, review-01 mutant A21) is not a sink — only the
+    /// expression-bodied form is (<see cref="StringExpressionMember"/>). No scanned file holds that
+    /// shape today (grepped 2026-10-10 across App, Controls, ViewModels, Supervisor and EyeCare), so
+    /// the final-state assertion loses nothing now; a producer member written that way must be
+    /// listed in <see cref="ProducerMembers"/>, which scans block bodies.
+    /// </para>
+    /// </summary>
+    private static readonly Regex ConstStringInitialiser = new(
+        @"(?<![A-Za-z0-9_])(?:const|static\s+readonly|readonly\s+static)\s+string\??\s+[A-Za-z_][A-Za-z0-9_]*\s*=(?!=)",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// An expression-bodied string member — <c>string Name =&gt; "…"</c>, or a method whose body is
+    /// a switch of literals (T09; T08 review R5: the exercises' <c>Name =&gt;</c> and
+    /// <c>EncouragementLine =&gt;</c> were never baselined). Everything after the <c>=&gt;</c> to the
+    /// member's end is the member's text.
+    /// </summary>
+    private static readonly Regex StringExpressionMember = new(
+        @"(?<![A-Za-z0-9_.])string\??\s+[A-Za-z_][A-Za-z0-9_]*\s*(?:\([^()]*\))?\s*=>",
         RegexOptions.Compiled);
 
     /// <summary>Which constructor arguments carry text, by argument index.</summary>
@@ -446,12 +489,24 @@ internal static class TextLiteralScan
         _ => [1],                          // spec labels
     };
 
+    /// <summary>
+    /// Files outside the UI projects that are scanned under the ordinary SINK rules (not as
+    /// producers). T09: <c>QuickActionPresets</c> lives in Core, so its <c>new QuickActionPreset(…)</c>
+    /// labels — the one named exception the final ratchet keeps, for T03d's one-time legacy match —
+    /// were never on the scan surface, and the exception list would have named nothing.
+    /// </summary>
+    public static readonly string[] SinkFiles =
+    [
+        "src/EyeCtrl.Core/Models/QuickActionPresets.cs",
+    ];
+
     /// <summary>Whether <paramref name="relative"/> is on the ratchet's scan surface.</summary>
     /// <param name="relative">Repo-relative path with forward slashes.</param>
     /// <returns>True when the file is scanned.</returns>
     public static bool IsScanned(string relative) =>
         ScannedProjectPrefixes.Any(prefix => relative.StartsWith(prefix, StringComparison.Ordinal))
-        || ProducerFiles.Contains(relative, StringComparer.Ordinal);
+        || ProducerFiles.Contains(relative, StringComparer.Ordinal)
+        || SinkFiles.Contains(relative, StringComparer.Ordinal);
 
     /// <summary>The scanned files: the five UI projects plus the Core/lib producer files.</summary>
     /// <returns>Comment-stripped (relative path, text) pairs.</returns>
@@ -556,6 +611,10 @@ internal static class TextLiteralScan
             AddRange(match.Index + match.Length, ExpressionEnd(text, match.Index + match.Length));
         foreach (Match match in NamedArgument.Matches(masked))
             AddRange(match.Index + match.Length, ExpressionEnd(text, match.Index + match.Length));
+        foreach (Match match in ConstStringInitialiser.Matches(masked))
+            AddRange(match.Index + match.Length, ExpressionEnd(text, match.Index + match.Length));
+        foreach (Match match in StringExpressionMember.Matches(masked))
+            AddRange(match.Index + match.Length, ExpressionEnd(text, match.Index + match.Length));
 
         return found;
     }
@@ -599,8 +658,11 @@ internal static class TextLiteralScan
 
     /// <summary>
     /// Spans whose literals are never UI text: exception-constructor messages (the ticket's
-    /// exclusion), <c>FormatProviderFor("…")</c> surface ids, and <c>T("…")</c> string keys —
-    /// ids and keys are the machinery, not the text.
+    /// exclusion), <c>FormatProviderFor("…")</c> surface ids, <c>T("…")</c> string keys, and log
+    /// calls. Log and diagnostic strings are excluded by SINK in ordinary files; inside a
+    /// whole-file or whole-member producer span nothing else would exclude them, so the patterns
+    /// are here too. The method-name form is deliberate — a bare <c>Log\w+(</c> would also
+    /// swallow <c>DpiHelper.LogicalToPhysicalX(…)</c>.
     /// </summary>
     private static List<(int Start, int End)> ExcludedSpans(string text, string masked)
     {
@@ -610,6 +672,8 @@ internal static class TextLiteralScan
             @"new\s+\w*Exception\s*\(",
             @"(?<![A-Za-z0-9_])FormatProviderFor\s*\(",
             @"(?<![A-Za-z0-9_])T\s*\(",
+            @"(?<![A-Za-z0-9_])Log\s*\.",
+            @"(?<![A-Za-z0-9_])Log(?:Warning|Error|Information|Debug|Fatal|Verbose|Trace)\s*\(",
         };
 
         foreach (var pattern in patterns)
@@ -655,13 +719,27 @@ internal static class TextLiteralScan
     /// <summary>
     /// The span of <paramref name="member"/>'s body in <paramref name="text"/>: everything after
     /// <c>=&gt;</c> to the matching <c>;</c>, or the balanced <c>{ … }</c> block after the
-    /// parameter list. Null when the member is absent.
+    /// parameter list. A PROPERTY (no parameter list — <c>string StatusText { get { … } }</c> or
+    /// <c>=&gt; expr;</c>) is handled too: T07's supervision status lines live in one. Null when
+    /// the member is absent.
     /// </summary>
     private static (int Start, int End)? FindMemberBody(string text, string member)
     {
         var masked = Mask(text, CSharpSourceText.FindLiterals(text));
         var declaration = Regex.Match(masked, $@"(?<![A-Za-z0-9_]){Regex.Escape(member)}\s*\(");
-        if (!declaration.Success) return null;
+        if (!declaration.Success)
+        {
+            // A property has no parameter list, so the method form above never matches it.
+            var property = Regex.Match(masked,
+                $@"(?<![A-Za-z0-9_]){Regex.Escape(member)}\s*(?:=>|\{{)");
+            if (!property.Success) return null;
+
+            var markerIndex = property.Index + property.Length - 1;
+            if (masked[markerIndex] == '{') return ScanBracedBlock(text, markerIndex);
+
+            var expressionStart = property.Index + property.Length;
+            return (expressionStart, ExpressionEnd(text, expressionStart));
+        }
 
         var openParen = masked.IndexOf('(', declaration.Index);
         var closeParen = CSharpSourceText.FindCloseParen(text, openParen);
@@ -680,25 +758,37 @@ internal static class TextLiteralScan
 
         if (trimmed.StartsWith("{", StringComparison.Ordinal))
         {
-            var depth = 0;
-            var i = offset;
-            while (i < text.Length)
+            return ScanBracedBlock(text, offset);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The balanced <c>{ … }</c> block starting at <paramref name="braceIndex"/>, as a span that
+    /// includes both braces; null when unbalanced. String literals are skipped so a brace inside
+    /// one cannot move the depth.
+    /// </summary>
+    private static (int Start, int End)? ScanBracedBlock(string text, int braceIndex)
+    {
+        var depth = 0;
+        var i = braceIndex;
+        while (i < text.Length)
+        {
+            if (CSharpSourceText.TryReadLiteral(text, i, out var literal))
             {
-                if (CSharpSourceText.TryReadLiteral(text, i, out var literal))
-                {
-                    i = literal.End;
-                    continue;
-                }
-
-                if (text[i] == '{') depth++;
-                else if (text[i] == '}')
-                {
-                    depth--;
-                    if (depth == 0) return (offset, i + 1);
-                }
-
-                i++;
+                i = literal.End;
+                continue;
             }
+
+            if (text[i] == '{') depth++;
+            else if (text[i] == '}')
+            {
+                depth--;
+                if (depth == 0) return (braceIndex, i + 1);
+            }
+
+            i++;
         }
 
         return null;

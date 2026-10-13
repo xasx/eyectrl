@@ -18,6 +18,7 @@ using EyeCtrl.Controls;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.Tests.TestSupport;
 using EyeCtrl.ViewModels;
 using NFluent;
 using Xunit;
@@ -757,7 +758,18 @@ public class HandChunkedPageFitTests
     /// </para>
     /// </summary>
     [StaFact]
-    public void EveryHandChunkedPage_KeepsItsDwellCirclesInsideTheContentCell()
+    public void EveryHandChunkedPage_KeepsItsDwellCirclesInsideTheContentCell() =>
+        AssertEveryPageReachable("English");
+    /// <summary>
+    /// The sweep behind <see cref="EveryHandChunkedPage_KeepsItsDwellCirclesInsideTheContentCell"/>,
+    /// in whatever language <see cref="EyeCtrl.Core.Localization.StringTable.Current"/> resolves —
+    /// the sources build their rows from it. T09's pseudo-locale gate runs the same sweep with the
+    /// pseudo-locale activated, so the reachability invariant is ONE rule in both languages, and
+    /// it also asserts that the chunker leaves no page without a row (an empty page is a page turn
+    /// to nothing).
+    /// </summary>
+    /// <param name="language">The language the sweep runs in, for the failure messages.</param>
+    internal static void AssertEveryPageReachable(string language)
     {
         var root = SettingsContentFitTests.Xml();
         var budget = ContentHeightBudget(root);
@@ -766,6 +778,7 @@ public class HandChunkedPageFitTests
         var unreachable = new List<Unreachable>();
         var tooClose = new List<ClearancePair>();
         var duplicateIds = new List<DuplicateId>();
+        var emptyPages = new List<string>();
         var scopes = new List<IDisposable>();
         var usedReachExemptions = new HashSet<ReachExemption>();
         var usedClearanceExemptions = new HashSet<ClearanceExemption>();
@@ -791,8 +804,20 @@ public class HandChunkedPageFitTests
 
                         for (var p = 0; p < pages.Count; p++)
                         {
+                            if (!pages[p].Rows.Any(row => row is not SeparatorSpec))
+                                emptyPages.Add($"  {viewKey} [{fixture}] page {p + 1}/{pages.Count}");
+
                             var (pageHeight, targets) = Place(pages[p], columnWidth);
                             pagesChecked++;
+
+                            // A page of rows with no dwell target at all (labels only) is a page
+                            // the user can reach but not act on (review-02's zero-target gap). The
+                            // one page that is target-free BY DESIGN is the ring preview's: a
+                            // picture of the ring, painted through a painter that takes no
+                            // registrar (ActionMenuRingPainter), reached by its own jump row. The
+                            // exception is that rule, keyed on the row kind, not a list of pages.
+                            if (targets.Count == 0 && !pages[p].Rows.Any(row => row is RingPreviewSpec))
+                                emptyPages.Add($"  {viewKey} [{fixture}] page {p + 1}/{pages.Count}: rows but no dwell target");
 
                             foreach (var t in targets)
                             {
@@ -874,10 +899,16 @@ public class HandChunkedPageFitTests
 
         var context = string.Format(
             CultureInfo.InvariantCulture,
-            "(budget {0:F2} DIP, {1:F0}x{2:F0} display, {3:F2} DIP content column, "
+            "({7}: budget {0:F2} DIP, {1:F0}x{2:F0} display, {3:F2} DIP content column, "
             + "circle radius {4:F2}, clearance floor {5:F2}, {6} pages checked)",
             budget, DisplayWidthDip, DisplayHeightDip, columnWidth, RadiusPhysical,
-            ClearanceFloorDip, pagesChecked);
+            ClearanceFloorDip, pagesChecked, language);
+
+        Check.WithCustomMessage(
+                $"These pages hold no row (or only a rule) {context}:{Environment.NewLine}"
+                + string.Join(Environment.NewLine, emptyPages)
+                + $"{Environment.NewLine}A page with nothing on it is a page turn to nothing.")
+            .That(emptyPages).IsEmpty();
 
         Check.WithCustomMessage(string.Format(
                 CultureInfo.InvariantCulture,
@@ -973,6 +1004,141 @@ public class HandChunkedPageFitTests
                 + "constructed, so this means every one of them emitted zero pages — every "
                 + "assertion above then passed over nothing.")
             .That(pagesChecked).IsStrictlyGreaterThan(0);
+    }
+
+    /// <summary>The narrowest supported content column: every labelled row stacks its name above its control.</summary>
+    internal const double StackedColumnWidth = 416;
+
+    /// <summary>
+    /// T10 (the coordinator's call after mutant M10c): every visible text on every Settings page —
+    /// row names, descriptions, notes, options — shows whole SIDEWAYS. Pagination and reach
+    /// (<see cref="AssertEveryPageReachable"/>) bound a page's height; nothing bounded a long
+    /// unbreakable word, which a wrapping TextBlock cannot break and so draws past its column.
+    ///
+    /// <para>
+    /// Every page every source renders (the same sources, fixtures, views and production
+    /// pagination as the reachability sweep) is built through <c>SettingsWindow.CreateControl</c>
+    /// into a column of <paramref name="columnWidth"/> and hosted at 2.0 in <see cref="FitHost"/>.
+    /// For a wrapping text, its widest unbreakable run — split at spaces, after hyphens and at
+    /// U+00AD, measured with the hyphen a soft-hyphen break draws (<see cref="FitText.Runs"/>) —
+    /// must fit the width its parent gives it; a one-line text must be as wide as its natural
+    /// width. In whatever language <see cref="EyeCtrl.Core.Localization.StringTable.Current"/>
+    /// resolves.
+    /// </para>
+    /// </summary>
+    /// <param name="columnWidth">The content column: the production column (two-column rows) or <see cref="StackedColumnWidth"/>.</param>
+    /// <param name="measured">Receives the number of texts measured.</param>
+    /// <returns>One line per text that does not show whole.</returns>
+    internal static List<string> RowTextOverruns(double columnWidth, out int measured)
+    {
+        var root = SettingsContentFitTests.Xml();
+        var budget = ContentHeightBudget(root);
+        var findings = new List<string>();
+        var scopes = new List<IDisposable>();
+        measured = 0;
+        try
+        {
+            foreach (var type in AllSourceTypes())
+            {
+                foreach (var (fixture, source, scope) in FixturesOf(type))
+                {
+                    if (scope is not null) scopes.Add(scope);
+                    foreach (var (view, built) in ViewsOf(source))
+                    {
+                        var pages = PagesAsRendered(source, built, budget, columnWidth);
+                        for (var p = 0; p < pages.Count; p++)
+                            measured += MeasurePageTexts(pages[p], columnWidth, $"{type.Name}.{view} [{fixture}] page {p + 1}", findings);
+                    }
+                }
+            }
+        }
+        finally
+        {
+            foreach (var scope in scopes) scope.Dispose();
+        }
+
+        return findings;
+    }
+
+    /// <summary>
+    /// <paramref name="rows"/> built through production's <c>CreateControl</c> into a column of
+    /// <paramref name="columnWidth"/>, stacked the way <c>ContentPanel</c> stacks them. Not laid out.
+    /// </summary>
+    internal static StackPanel BuildPagePanel(IEnumerable<SettingsRowSpec> rows, double columnWidth)
+    {
+        var panel = new StackPanel { Width = columnWidth };
+        foreach (var spec in rows)
+        {
+            var control = SettingsWindow.CreateControl(
+                spec, new SettingsAutoPagination.NoopDwellRegistrar(), RadiusPhysical, DwellMs, columnWidth);
+            switch (control)
+            {
+                case DwellControl single:
+                    SettingsWindow.ConstrainToContentWidth(single.Root, columnWidth);
+                    single.Attach(panel);
+                    break;
+                case IDwellComposite composite:
+                    composite.Attach(panel);
+                    break;
+                case DwellLabel label:
+                    label.Attach(panel);
+                    break;
+            }
+        }
+
+        return panel;
+    }
+
+    /// <summary>
+    /// Runs <paramref name="use"/> over the pages production renders for <paramref name="sourceType"/>
+    /// under its first fixture and first view, with that fixture's scope still open.
+    /// </summary>
+    internal static T WithPagesOf<T>(Type sourceType, double columnWidth, Func<IReadOnlyList<PageSpec>, T> use)
+    {
+        var (_, source, scope) = FixturesOf(sourceType).First();
+        try
+        {
+            var (_, built) = ViewsOf(source).First();
+            return use(PagesAsRendered(source, built, ContentHeightBudget(SettingsContentFitTests.Xml()), columnWidth));
+        }
+        finally
+        {
+            scope?.Dispose();
+        }
+    }
+
+    private static int MeasurePageTexts(PageSpec page, double columnWidth, string where, List<string> findings)
+    {
+        var panel = BuildPagePanel(page.Rows, columnWidth);
+        using var host = FitHost.Open(panel, family: Tokens.FontStandard);
+        var count = 0;
+        foreach (var text in FitText.Descendants<TextBlock>(panel).Where(t => t.IsVisible && t.Text.Length > 0).ToList())
+        {
+            count++;
+            if (text.TextWrapping == TextWrapping.NoWrap)
+            {
+                // The room is the smaller of the text's own width (an explicit Width or MaxWidth) and
+                // the slot its parent gives it, less the margins (T10 review-01, F2). ActualWidth alone
+                // is blind: a no-wrap text arranged in a narrower slot keeps its unclipped width and
+                // is clipped, so it reports exactly what it needs.
+                var natural = FitText.NaturalWidth(text, text.Text) + text.Padding.Left + text.Padding.Right;
+                var oneLineSlot = System.Windows.Controls.Primitives.LayoutInformation.GetLayoutSlot(text);
+                var oneLineRoom = Math.Min(text.ActualWidth, oneLineSlot.Width - text.Margin.Left - text.Margin.Right);
+                if (natural > oneLineRoom + 0.5)
+                    findings.Add($"{where}: '{text.Text}' needs {FitText.Dip(natural)} DIP on one line but has {FitText.Dip(oneLineRoom)} (clipped)");
+                continue;
+            }
+
+            // The width the parent offers (the layout slot less the margins), not ActualWidth: a
+            // wrapped text reports the width of its longest line, and an overrun line reports more.
+            var slot = System.Windows.Controls.Primitives.LayoutInformation.GetLayoutSlot(text);
+            var room = slot.Width - text.Margin.Left - text.Margin.Right - text.Padding.Left - text.Padding.Right;
+            var (run, runWidth) = FitText.WidestRun(text, text.Text);
+            if (runWidth > room + 0.5)
+                findings.Add($"{where}: '{text.Text}': the run '{run}' is {FitText.Dip(runWidth)} DIP in {FitText.Dip(room)} — it cannot break, so it overruns its column");
+        }
+
+        return count;
     }
 
     /// <summary>

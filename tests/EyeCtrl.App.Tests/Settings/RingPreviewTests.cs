@@ -81,15 +81,22 @@ public class RingPreviewTests
     }
 
     /// <summary>
-    /// The ring preview's two honesty captions, found by the text they were built with. Matching
-    /// on text is deliberate: at scale &lt; 1 the painter also draws one TextBlock per ring label
-    /// on the painting's canvas, so a tree-order or type-only walk would count those too.
+    /// The ring preview's two honesty captions, as the English on screen. Asserted as literals,
+    /// not resolved through <c>T(key)</c>, per the story's test convention: a <c>T(key)</c>
+    /// expectation would pass on a raw key and would move in step with a wrong table value.
+    /// </summary>
+    private const string CaptionNotAControl = "preview, not a control";
+    private const string CaptionLabels = "runtime shows labels only while you dwell";
+
+    /// <summary>
+    /// The preview's caption TextBlocks, found by the text they were built with. Matching on text
+    /// is deliberate: at scale &lt; 1 the painter also draws one TextBlock per ring label on the
+    /// painting's canvas, so a tree-order or type-only walk would count those too.
     /// </summary>
     private static List<TextBlock> CaptionBlocks(DependencyObject host) =>
         Descendants(host)
             .OfType<TextBlock>()
-            .Where(t => t.Text == ActionMenuPageSource.RingPreviewCaptionNotAControl
-                        || t.Text == ActionMenuPageSource.RingPreviewCaptionLabels)
+            .Where(t => t.Text == CaptionNotAControl || t.Text == CaptionLabels)
             .ToList();
 
     /// <summary>Every painted button face under <paramref name="root"/>: the true-diameter ellipses.</summary>
@@ -285,8 +292,8 @@ public class RingPreviewTests
         var host = Place(ring);
         var texts = Descendants(host).OfType<TextBlock>().Select(t => t.Text).ToList();
 
-        Check.That(texts).Contains(ActionMenuPageSource.RingPreviewCaptionNotAControl);
-        Check.That(texts).Contains(ActionMenuPageSource.RingPreviewCaptionLabels);
+        Check.That(texts).Contains(CaptionNotAControl);
+        Check.That(texts).Contains(CaptionLabels);
     }
 
     /// <summary>

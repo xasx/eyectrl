@@ -17,6 +17,18 @@ public partial class ScrollOverlayWindow : OverlayWindow, EyeCtrl.App.Services.I
 
     public void Show(ScrollOverlayViewModel vm)
     {
+        Place(vm);
+        base.Show();
+        Topmost = true;
+    }
+
+    /// <summary>
+    /// The headless half of <see cref="Show(ScrollOverlayViewModel)"/>: covers the primary screen and
+    /// places the anchor marks, without <c>Show()</c> — T09's geometry gate builds the overlay through
+    /// this seam on an STA thread (the <c>ModesMenuWindow.BuildButtonsAt</c> pattern).
+    /// </summary>
+    internal void Place(ScrollOverlayViewModel vm)
+    {
         DataContext = vm;
 
         OverlayPositioning.CoverPrimaryScreen(this);
@@ -40,9 +52,6 @@ public partial class ScrollOverlayWindow : OverlayWindow, EyeCtrl.App.Services.I
         Canvas.SetTop(VelocityRing, anchorLogY - 40);
         Canvas.SetLeft(VelocityRingHalo, anchorLogX - 40);
         Canvas.SetTop(VelocityRingHalo, anchorLogY - 40);
-
-        base.Show();
-        Topmost = true;
     }
 
     public void UpdateFeedback(double dotOffsetX, double dotOffsetY, double velMagnitude)

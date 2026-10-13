@@ -3,8 +3,9 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
+        xmlns:loc="clr-namespace:EyeCtrl.Controls.Localization;assembly=EyeCtrl.Controls"
         AutomationProperties.AutomationId="Settings_Window"
-        Title="EyeCtrl Settings"
+        Title="{loc:T 'settings.window.title'}"
         WindowStyle="None" AllowsTransparency="True"
         Background="{StaticResource BrushSurfaceDark}"
         Topmost="True" ResizeMode="NoResize"
@@ -39,6 +40,7 @@
                     CornerRadius="{StaticResource StandardCornerRadius}" Background="{StaticResource BrushAccentDanger}"
                     Cursor="Hand">
                 <TextBlock Text="✕" Foreground="{StaticResource BrushSurfaceDark}"
+                           AutomationProperties.Name="{loc:T 'settings.chrome.close'}"
                            FontSize="{StaticResource FontSizeDisplay}" FontWeight="{StaticResource FontWeightStrong}"
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center"/>

@@ -130,7 +130,7 @@ THEMES = {
         # Red is inherently dark: #FF0000 is only 5.25:1 on black. Pushing past
         # 10:1 drops chroma under the gate-9 floor (#FF9999 is C* 41.5). This is
         # the ceiling for "high contrast and still reads red" — 8.16:1 at C* 57.6,
-        # still the strongest AccentDanger of the three themes.
+        # still the strongest AccentDanger of the four themes.
         "AccentDanger":       "#FF7777",
         "ToggleOn":           "#00FF00",
         "ToggleOff":          "#000000",
@@ -150,6 +150,68 @@ THEMES = {
         "FontSizeDisplay":         "34",
         "_core":              "#000000",
     },
+    # First LIGHT theme: the hue family of Midnight's #1A1A2E surfaces, inverted to a
+    # cool near-white. The halo guarantee inverts with it - dark marks get a white
+    # StrokeHalo - so every "vs StrokeHalo" app constraint that the dark themes pay
+    # against near-black is paid against #FFFFFF here.
+    "Daylight": {
+        "SurfaceDark":        "#FAE7E8F0",
+        "SurfaceMedium":      "#FAF3F4F9",
+        "SurfaceLight":       "#FFFFFFFF",
+        "SurfaceKey":         "#F0F1F7",
+        "SurfaceKeyModifier": "#CFDEF8",
+        "SurfaceKeySwitch":   "#E9D5EF",
+        "SurfaceKeyActive":   "#9FBDE6",
+        "SurfacePrediction":  "#D3EDD8",
+        "BorderSubtle":       "#667A9F",
+        "BorderFocus":        "#07343E",
+        # Darker than the #16181F family Midnight uses: the accent is also near-black
+        # in lightness (gate 3 pins its L* under 24 against a near-white core), and at
+        # that depth only a very deep text ink keeps dE 15 from it (gate 4).
+        "TextPrimary":        "#0C0D12",
+        # Darkened in review round 1 (was #5A6076, dE 1.9 from TextDim): the
+        # near-twin pair was a choice, not a constraint — at #484D5E the accent
+        # reservation still holds (dE 17.2 >= 15) and the two text tiers separate
+        # by dE 8.2. Also lifts the AAA-vs-SurfaceMedium pairing from 5.67 to 7.65.
+        "TextSecondary":      "#484D5E",
+        "TextDim":            "#5E6477",
+        # Muted, not maximal, violet: CIEDE2000's RT cross-term cancels chroma
+        # difference against the low-chroma teal accent, so a C* 56 violet sits dE 20
+        # from it while this C* 31 one clears 26. Same band every theme lands in.
+        "MarkerMove":         "#634C7D",
+        # Deep teal, but darker than the #08-0B/#3A-4A/#50-60 neighbourhood: the
+        # protanopia simulation is the binding vision type (10.49 of the 9.5 floor),
+        # and every step lighter toward that neighbourhood loses it.
+        "Accent":             "#07343E",
+        "StrokeHalo":         "#FFFFFF",
+        # Gate 5 forces the triad ladder to invert from the dark themes: >7:1 vs the
+        # white halo caps success AND warning at L* 37.8, and a green below L* ~31.8
+        # cannot hold C* 55 - so warning (a dark brick red, which keeps its chroma
+        # dark) must be the darkest of the three, success the lightest. Corrected
+        # in review round 1: the thresholds are 31.8/31.3, not 34/30 (the sets miss
+        # by 0.05 contrast, not 4 L*; full-sRGB enumeration puts max clearing-green
+        # chroma at 54.28, just under the 55 floor).
+        "AccentSuccess":      "#00620C",
+        "AccentWarning":      "#7A1000",
+        "AccentDanger":       "#C5313B",
+        "ToggleOn":           "#1F6B3E",
+        "ToggleOff":          "#D8DAE4",
+        "ModalBackdrop":      "#B3000000",
+        "BorderThicknessStandard": "1",
+        "CornerRadiusSmall":       "4",
+        "CornerRadiusStandard":    "8",
+        "CornerRadiusLarge":       "12",
+        "CornerRadiusCircle":      "9999",
+        "FontFamilyStandard":      "Segoe UI Variable Text, Segoe UI",
+        "FontWeightMedium":        "SemiBold",
+        "FontWeightStrong":        "Bold",
+        "FontSizeBody":            "12",
+        "FontSizeBodyLarge":       "14",
+        "FontSizeSubtitle":        "18",
+        "FontSizeTitle":           "24",
+        "FontSizeDisplay":         "34",
+        "_core":              "#E7E8F0",
+    },
 }
 
 # Absolute floor for the dwell accent in every vision type. Set by what the
@@ -164,7 +226,7 @@ ACCENT_FLOOR = 9.5
 # are numerically fine and semantically meaningless (a near-white "warning" at
 # C* 10, a pastel-pink "danger" at C* 41). The real triad sits at C* 62-66.
 # Deliberately NOT applied to Accent: the accent is a high-luminance signal and
-# is correctly low-chroma (C* ~25 in both themes).
+# is correctly low-chroma (C* 15-25 on the tuned themes, 50 on Contrast).
 SEMANTIC_CHROMA_FLOOR = 55.0
 
 # Gate 10: floors for Marker* tokens — small marks (a glyph, a 2px state border)
@@ -182,8 +244,8 @@ MARKER_HALO_FLOOR = 7.0
 # colour gate. BorderThicknessStandard was the first, and is the only one that actually
 # varies per theme: high-contrast convention is a 2px outline because structure there is
 # carried by the border rather than by fill steps (gate 1), while the tuned palettes use
-# 1px. The geometry and typography tokens joined it in spec §9; they are identical in all
-# three themes today, theme-varying only by mechanism. Any future non-colour token must be
+# 1px. The geometry and typography tokens joined it in spec §9; they are identical in
+# every theme today, theme-varying only by mechanism. Any future non-colour token must be
 # added here or parse() will reject it.
 NON_COLOUR_TOKENS = {
     "BorderThicknessStandard",
@@ -193,8 +255,12 @@ NON_COLOUR_TOKENS = {
     "FontSizeDisplay",
 }
 
-# Worst realistic desktop behind a translucent overlay: a white document.
-WORST_DESKTOP = "#FFFFFF"
+# Worst realistic desktops behind a translucent overlay: a white document and a
+# maximised dark window. Which one is "worst" depends on the theme's polarity —
+# white lightens the composite (bites dark themes), black darkens it (bites light
+# ones) — so every gate that uses the composited base takes the worse of the two
+# per token rather than assuming one.
+WORST_DESKTOPS = ["#FFFFFF", "#000000"]
 # Backdrops a Background="Transparent" overlay may be drawn over.
 BACKDROPS = ["#000000", "#404040", "#808080", "#C0C0C0", "#FFFFFF",
              "#66D9E8", "#A0E060", "#FF5C7A", "#1A1A2E"]
@@ -338,16 +404,24 @@ def validate_theme(name: str, palette: dict) -> None:
     tok = {k: parse(v) for k, v in palette.items()
            if not k.startswith("_") and k not in NON_COLOUR_TOKENS}
     core = parse(palette["_core"])
-    # Worst-case SurfaceDark: translucent token over a white document.
-    worst = over(tok["SurfaceDark"], parse(WORST_DESKTOP))
+    # Worst-case SurfaceDark composited over each worst desktop. Gates take the
+    # worse of the two PER TOKEN: min(contrast(token, white-composite),
+    # contrast(token, black-composite)). For the dark themes the white composite
+    # binds (black barely changes a near-black base); for Daylight the black one
+    # does. Gating on a single assumed desktop measured a light theme's best case.
+    composites = [over(tok["SurfaceDark"], parse(d)) for d in WORST_DESKTOPS]
     accent = tok["Accent"]
+
+    def worst_contrast(key: str) -> float:
+        return min(contrast(tok[key], c) for c in composites)
 
     print("=" * 78)
     print(f"THEME: {name}")
     print("=" * 78)
     print(f"Opaque surface core     : {palette['_core']}")
-    print(f"Worst composited surface: #{worst[0]:02X}{worst[1]:02X}{worst[2]:02X} "
-          f"(SurfaceDark over {WORST_DESKTOP})")
+    for d, c in zip(WORST_DESKTOPS, composites):
+        print(f"Composited base over {d}: #{c[0]:02X}{c[1]:02X}{c[2]:02X}"
+              f"  TextPrimary {contrast(tok['TextPrimary'], c):5.2f}")
     print()
 
     print("GATE 1 - layering: fill step present, border carries the boundary")
@@ -356,14 +430,14 @@ def validate_theme(name: str, palette: dict) -> None:
         print(f"        {a:14}-> {b:14} contrast {contrast(ca, cb):5.2f}"
               f"  dE {delta_e(ca, cb):5.1f}")
     check(f"[{name}] BorderSubtle on worst surface",
-          contrast(tok["BorderSubtle"], worst), 3.0, "WCAG 1.4.11 non-text")
+          worst_contrast("BorderSubtle"), 3.0, "WCAG 1.4.11 non-text")
     check(f"[{name}] elevation raises opacity",
           tok["SurfaceLight"][3] - tok["SurfaceDark"][3], 0,
           f"{tok['SurfaceDark'][3]} -> {tok['SurfaceLight'][3]}")
     thickness = float(palette["BorderThicknessStandard"])
     check(f"[{name}] BorderThicknessStandard", thickness, 1.0,
           f"px — border carries the boundary at "
-          f"{contrast(tok['BorderSubtle'], worst):.2f}:1")
+          f"{worst_contrast('BorderSubtle'):.2f}:1")
 
     # Non-colour geometry and type. check() is a ">= floor" assertion, so orderings are
     # expressed as differences. Radii live here rather than in a new gate so that "ten
@@ -402,9 +476,9 @@ def validate_theme(name: str, palette: dict) -> None:
 
     print()
     print("GATE 2 - text legibility against the WORST composited surface")
-    check(f"[{name}] TextPrimary", contrast(tok["TextPrimary"], worst), 7.0, "AAA")
-    check(f"[{name}] TextSecondary", contrast(tok["TextSecondary"], worst), 4.5, "AA normal")
-    check(f"[{name}] TextDim", contrast(tok["TextDim"], worst), 4.5, "AA normal")
+    check(f"[{name}] TextPrimary", worst_contrast("TextPrimary"), 7.0, "AAA")
+    check(f"[{name}] TextSecondary", worst_contrast("TextSecondary"), 4.5, "AA normal")
+    check(f"[{name}] TextDim", worst_contrast("TextDim"), 4.5, "AA normal")
 
     print()
     print(f"GATE 3 - dwell accent >= {ACCENT_FLOOR} in every vision type")
@@ -483,7 +557,7 @@ def validate_theme(name: str, palette: dict) -> None:
     # glyph IS a glyph, so the same dE 15 floor applies in both directions.
     markers = [k for k in tok if k.startswith("Marker")]
     for key in markers:
-        check(f"[{name}] {key} on worst surface", contrast(tok[key], worst), MARKER_SURFACE_FLOOR,
+        check(f"[{name}] {key} on worst surface", worst_contrast(key), MARKER_SURFACE_FLOOR,
               "WCAG 1.4.11 non-text — a marker the user cannot see is not a marker")
         check(f"[{name}] {key} on SurfaceMedium", contrast(tok[key], tok["SurfaceMedium"]),
               MARKER_SURFACE_FLOOR, "markers also sit on cards and button discs")

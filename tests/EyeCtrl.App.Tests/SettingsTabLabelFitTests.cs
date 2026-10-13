@@ -4,11 +4,11 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Xml.Linq;
+using EyeCtrl.App.Tests.Localization.Fit;
 using EyeCtrl.App.Views;
 using EyeCtrl.Controls.Theme;
 using NFluent;
@@ -34,119 +34,48 @@ using Xunit;
 /// <item>the font family is <see cref="Tokens.FontStandard"/>, the very
 /// <see cref="FontFamily"/> object <c>OverlayWindow</c> assigns — glyph widths are what is being
 /// measured, so a family swap must move this test;</item>
-/// <item>the icons and labels are parsed out of the <c>_tabDefs</c> initialiser in
-/// SettingsWindow.xaml.cs, so a renamed or added tab is measured without touching this file.</item>
+/// <item>the icons and labels come from the <c>_tabDefs</c> initializer in
+/// SettingsWindow.xaml.cs through <see cref="SettingsTabDriftTests.RenderedTabDefs"/>: since T07
+/// the initializer carries literal <c>settings</c> keys and the English text is resolved from
+/// strings.json, so a renamed or added tab is measured without touching this file.</item>
 /// </list>
 ///
 /// <see cref="SettingsWindow"/> cannot be constructed here — it takes eight non-optional
-/// dependencies — so the tab's element tree is rebuilt element for element and measured with
-/// <c>Measure</c>/<c>Arrange</c>. **Nothing is shown and no input is simulated**: a detached
-/// element tree renders no window, which matters because this suite must never take over the
-/// screen of a user whose only input channel is an eye tracker. It carries no UI category, so CI
-/// runs it.
+/// dependencies — so the tab's element tree is rebuilt element for element by
+/// <see cref="SidebarTabFit"/> and laid out at the user's 2.0 in T09's off-screen fit host.
+/// **Nothing is shown and no input is simulated**: the host is an invisible source, which matters
+/// because this suite must never take over the screen of a user whose only input channel is an eye
+/// tracker. It carries no UI category, so CI runs it.
 /// </summary>
 public class SettingsTabLabelFitTests
 {
-    /// <summary>The WPF presentation namespace every element in the XAML lives in.</summary>
-    private static readonly XNamespace Wpf =
-        "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+    /// <summary>The sidebar column's width; see <see cref="SidebarTabFit.SidebarColumnWidth"/>.</summary>
+    private static double SidebarColumnWidth(string xaml) => SidebarTabFit.SidebarColumnWidth(xaml);
 
     /// <summary>
-    /// Matches one entry of the <c>_tabDefs</c> collection initialiser:
-    /// <c>("Dwell", "⏱", "Dwell Times", "How long gaze must rest…")</c>. FOUR members since the
-    /// page-builder element was collapsed away; the icon and label are the two this test measures,
-    /// and the description is matched only so the shape still parses.
+    /// The icon glyph and label of every sidebar tab, in declaration order.
     ///
-    /// Re-narrowed deliberately when the fifth member was removed: the five-member form matched
-    /// nothing afterwards, and <see cref="TabChrome"/>'s floor turned that into a loud failure
-    /// rather than a guard silently measuring zero tabs (the same reason it was widened when the
-    /// fifth member landed). <c>\s</c> spans newlines, so an entry wrapped across
-    /// lines (most of them are) still matches.
+    /// Read through <see cref="SettingsTabDriftTests.RenderedTabDefs"/>, which parses the
+    /// production <c>_tabDefs</c> initializer (the field is built inside the eight-dependency
+    /// constructor and cannot be referenced) and resolves each literal <c>settings</c> key from
+    /// the embedded English table. That keeps the strings in ONE place — strings.json — so a
+    /// renamed tab or a twelfth one is measured here automatically, which a copied list would not
+    /// be.
     /// </summary>
-    private static readonly Regex TabDef = new(
-        """\(\s*"(?<id>[^"]*)"\s*,\s*"(?<icon>[^"]*)"\s*,\s*"(?<label>[^"]*)"\s*,\s*"(?<description>[^"]*)"\s*\)""",
-        RegexOptions.Compiled);
-
-    /// <summary>Reads a source file from the repo, not from the build output.</summary>
-    /// <param name="parts">Path segments below the repository root.</param>
-    /// <returns>The file's text.</returns>
-    private static string Source(params string[] parts) =>
-        File.ReadAllText(Path.Combine(
-            new[] { SourceScanner.RepoRoot().FullName }.Concat(parts).ToArray()));
-
-    /// <summary>
-    /// The sidebar column's width, read off the root <c>Grid</c>'s <c>ColumnDefinitions</c>
-    /// shorthand in SettingsWindow.xaml.
-    ///
-    /// Extracted as a method taking XAML text so
-    /// <see cref="TheColumnReading_TakesTheFirstColumnOfTheRootGrid"/> can probe it directly.
-    /// </summary>
-    /// <param name="xaml">The XAML document text.</param>
-    /// <returns>The first column's width in device-independent pixels.</returns>
-    private static double SidebarColumnWidth(string xaml)
-    {
-        var root = XDocument.Parse(xaml).Root;
-        Check.WithCustomMessage("SettingsWindow.xaml has no root element.").That(root).IsNotNull();
-
-        var grid = root!.Element(Wpf + "Grid");
-        Check.WithCustomMessage(
-                "SettingsWindow.xaml's root no longer holds a <Grid> directly. Its first column is "
-                + "the sidebar this fit arithmetic measures against; redo the extraction.")
-            .That(grid).IsNotNull();
-
-        var columns = grid!.Attribute("ColumnDefinitions");
-        Check.WithCustomMessage(
-                "The root <Grid> no longer carries a ColumnDefinitions attribute. If the columns "
-                + "moved to <Grid.ColumnDefinitions> child elements, read them from there — do "
-                + "not delete this assertion, or the guard silently measures against nothing.")
-            .That(columns).IsNotNull();
-
-        var first = columns!.Value.Split(',')[0].Trim();
-        var parsed = double.TryParse(first, NumberStyles.Float, CultureInfo.InvariantCulture,
-            out var width);
-        Check.WithCustomMessage(
-                $"The sidebar column is \"{first}\", not an absolute width. A Star or Auto sidebar "
-                + "means this fixed-width fit arithmetic no longer describes the layout.")
-            .That(parsed).IsTrue();
-
-        return width;
-    }
-
-    /// <summary>
-    /// The icon glyph and label of every sidebar tab, in declaration order, parsed from the
-    /// production <c>_tabDefs</c> initialiser.
-    ///
-    /// Parsed rather than referenced because <c>_tabDefs</c> is an instance field built inside the
-    /// eight-dependency constructor: there is no way to reach it without constructing the window.
-    /// Parsing keeps the strings in ONE place — a renamed tab or a twelfth one is measured here
-    /// automatically, which a copied list would not be.
-    /// </summary>
-    /// <param name="source">SettingsWindow.xaml.cs text.</param>
     /// <returns>One (icon, label) pair per tab.</returns>
-    private static List<(string Icon, string Label)> TabChrome(string source)
+    private static List<(string Icon, string Label)> TabChrome()
     {
-        var start = source.IndexOf("_tabDefs =", System.StringComparison.Ordinal);
-        Check.WithCustomMessage(
-                "SettingsWindow.xaml.cs no longer contains a `_tabDefs =` initialiser, which is "
-                + "where this test reads the tab icons and labels from. Repoint the extraction at "
-                + "wherever the tab chrome now lives.")
-            .That(start).IsStrictlyGreaterThan(-1);
-
-        var end = source.IndexOf("];", start, System.StringComparison.Ordinal);
-        Check.WithCustomMessage("The `_tabDefs` initialiser is unterminated.")
-            .That(end).IsStrictlyGreaterThan(start);
-
-        var chrome = TabDef.Matches(source[start..end])
-            .Select(m => (m.Groups["icon"].Value, m.Groups["label"].Value))
+        var chrome = SettingsTabDriftTests.RenderedTabDefs()
+            .Select(tab => (tab.Icon, tab.Label))
             .ToList();
 
-        // A regex that silently matches nothing is a test that silently guards nothing — the
-        // failure mode this whole file exists to close. Eleven tabs ship today; the floor is
-        // deliberately loose so adding one does not fail here, and tight enough that a shape
-        // change the regex stops understanding does.
+        // A table that resolves nothing is a test that guards nothing — the failure mode this
+        // whole file exists to close. Eleven tabs ship today; the floor is deliberately loose so
+        // adding one does not fail here, and tight enough that a shape change the reader stops
+        // understanding does.
         Check.WithCustomMessage(
-                $"Parsed {chrome.Count} tab definitions out of `_tabDefs`, which cannot be right. "
-                + "The initialiser's shape changed and the regex no longer understands it, so "
+                $"Read {chrome.Count} tab definitions out of `_tabDefs`, which cannot be right. "
+                + "The initializer's shape changed and the reader no longer understands it, so "
                 + "this guard would measure nothing at all.")
             .That(chrome.Count).IsStrictlyGreaterThan(5);
 
@@ -154,106 +83,21 @@ public class SettingsTabLabelFitTests
     }
 
     /// <summary>
-    /// Rebuilds one sidebar tab inside the real sidebar column and returns the label's right edge
-    /// in the root grid's coordinates, together with the tab Border's own right edge.
-    ///
-    /// Mirrors <c>SettingsWindow.BuildTabButtons</c> and the XAML around it element for element:
-    /// the root two-column Grid, the sidebar's Auto/Star rows, the close Border that sizes row 0,
-    /// the <c>TabButtonPanel</c> with its Margin="8", the tab Border's Margin(4) and the inner
-    /// horizontal StackPanel's Margin(16,0,16,0). Every one of those contributes to where the
-    /// label starts, so none may be dropped.
+    /// One tab's label and border right edges, laid out at the user's 2.0 by
+    /// <see cref="SidebarTabFit.Measure"/> (T09 moved the rebuild there, onto the fit host, so
+    /// the <c>tab156</c> class and this file measure the same tree).
     /// </summary>
-    /// <param name="columnWidth">The sidebar column width, from the XAML.</param>
-    /// <param name="icon">The tab's icon glyph.</param>
-    /// <param name="label">The tab's label text.</param>
-    /// <param name="iconSize">The icon font size, from the production expression.</param>
-    /// <returns>The label's right edge and the tab Border's right edge, both in DIP.</returns>
-    private static (double LabelRight, double BorderRight) MeasureTab(
-        double columnWidth, string icon, string label, double iconSize)
+    private static (double LabelRight, double BorderRight) MeasureTab(string icon, string label)
     {
-        // A generous window: the sidebar column is absolute, so the total only has to be wide
-        // enough that the Star content column is non-degenerate.
-        const double windowWidth = 1600;
-        const double windowHeight = 900;
-
-        var outer = new Grid { Width = windowWidth, Height = windowHeight };
-        // FontFamily is inherited, and OverlayWindow sets it on the window. Setting the same
-        // inheritable property at this root reproduces that for the whole subtree.
-        outer.SetValue(TextBlock.FontFamilyProperty, Tokens.FontStandard);
-        outer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(columnWidth) });
-        outer.ColumnDefinitions.Add(
-            new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-        var sidebar = new Grid();
-        sidebar.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        sidebar.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        Grid.SetColumn(sidebar, 0);
-        outer.Children.Add(sidebar);
-
-        var close = new Border
-        {
-            Height = SettingsWindow.TabContainerHeight,
-            Width = SettingsWindow.TabContainerHeight,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(8),
-        };
-        Grid.SetRow(close, 0);
-        sidebar.Children.Add(close);
-
-        var panel = new StackPanel
-        {
-            Margin = new Thickness(8),
-            VerticalAlignment = VerticalAlignment.Top,
-        };
-        Grid.SetRow(panel, 1);
-        sidebar.Children.Add(panel);
-
-        var iconText = new TextBlock
-        {
-            Text = icon,
-            FontSize = iconSize,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 12, 0),
-        };
-        var labelText = new TextBlock
-        {
-            Text = label,
-            FontSize = Tokens.FontSizeTitle,
-            FontWeight = Tokens.FontWeightMedium,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-
-        var border = new Border
-        {
-            Height = SettingsWindow.TabContainerHeight,
-            Margin = new Thickness(4),
-            Child = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(16, 0, 16, 0),
-                Children = { iconText, labelText },
-            },
-        };
-        panel.Children.Add(border);
-
-        outer.Measure(new Size(windowWidth, windowHeight));
-        outer.Arrange(new Rect(0, 0, windowWidth, windowHeight));
-        outer.UpdateLayout();
-
-        double Right(FrameworkElement e) =>
-            e.TransformToAncestor(outer).Transform(new Point(e.ActualWidth, 0)).X;
-
-        return (Right(labelText), Right(border));
+        var result = SidebarTabFit.Measure(icon, label);
+        return (result.LabelRight, result.BorderRight);
     }
 
     [StaFact]
     public void EveryTabLabel_FitsTheSidebarColumn()
     {
-        var columnWidth = SidebarColumnWidth(
-            Source("src", "EyeCtrl.App", "Views", "SettingsWindow.xaml"));
-        var chrome = TabChrome(
-            Source("src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs"));
+        var columnWidth = SidebarTabFit.ColumnWidth();
+        var chrome = TabChrome();
 
         // The production expression, not its result. TabContainerHeight is internal for this.
         var iconSize = SettingsWindow.TabContainerHeight * ContainerRatio.Medium;
@@ -263,7 +107,7 @@ public class SettingsTabLabelFitTests
 
         foreach (var (icon, label) in chrome)
         {
-            var (labelRight, _) = MeasureTab(columnWidth, icon, label, iconSize);
+            var (labelRight, _) = MeasureTab(icon, label);
             if (labelRight > widest.Item2) widest = (label, labelRight);
             if (labelRight > columnWidth)
                 overflowing.Add(string.Format(
@@ -304,17 +148,14 @@ public class SettingsTabLabelFitTests
         // and sits on the sidebar fill, still fully legible. That overhang is ACCEPTED for
         // "Quick Actions" at 240 (5.86px) rather than fixed, and this test records the accepted
         // amount so that it cannot quietly grow into something conspicuous.
-        var columnWidth = SidebarColumnWidth(
-            Source("src", "EyeCtrl.App", "Views", "SettingsWindow.xaml"));
-        var chrome = TabChrome(
-            Source("src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs"));
-        var iconSize = SettingsWindow.TabContainerHeight * ContainerRatio.Medium;
+        var columnWidth = SidebarTabFit.ColumnWidth();
+        var chrome = TabChrome();
 
         var worst = 0.0;
         var worstLabel = "";
         foreach (var (icon, label) in chrome)
         {
-            var (labelRight, borderRight) = MeasureTab(columnWidth, icon, label, iconSize);
+            var (labelRight, borderRight) = MeasureTab(icon, label);
             if (labelRight - borderRight > worst)
             {
                 worst = labelRight - borderRight;
@@ -325,7 +166,7 @@ public class SettingsTabLabelFitTests
         // 8px: the overhang accepted today is 5.86px, and the tab Border's own Margin is 4 per
         // side — so 8 is "still within the gutter between two tabs' highlights". Anything past
         // that reads as text escaping its button rather than crowding it.
-        const double tolerated = 8.0;
+        const double tolerated = SidebarTabFit.ToleratedOverhang;
         Check.WithCustomMessage(string.Format(
                 CultureInfo.InvariantCulture,
                 "\"{0}\" now overhangs its tab Border by {1:F2}px, past the {2:F2}px this layout "
@@ -356,10 +197,9 @@ public class SettingsTabLabelFitTests
     [StaFact]
     public void TheTabChromeReading_FindsEveryTabAndItsRealLabel()
     {
-        // Pins the regex against the real file: if it degraded to matching a subset, the fit
+        // Pins the reader against the real file: if it degraded to matching a subset, the fit
         // assertion would still pass while no longer covering the tab that overflows.
-        var chrome = TabChrome(
-            Source("src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs"));
+        var chrome = TabChrome();
 
         // Not a copy of the list — a spot check that the parse produced real labels rather than
         // ids or builder names. "Quick Actions" is the widest and the one this whole file is

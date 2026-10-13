@@ -42,6 +42,8 @@ public class RawColourLiteralTests
             "the Ember palette itself (spec §10.2) — gated by tools/palette_validate.py",
         ["src/EyeCtrl.Controls/Theme/ContrastTheme.cs"] =
             "the Contrast palette itself (spec §10.7) — gated by tools/palette_validate.py",
+        ["src/EyeCtrl.Controls/Theme/DaylightTheme.cs"] =
+            "the Daylight palette itself (spec §10.8) — gated by tools/palette_validate.py",
     };
 
     /// <summary>

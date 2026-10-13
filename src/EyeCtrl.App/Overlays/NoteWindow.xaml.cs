@@ -9,6 +9,7 @@ using System.Windows.Shapes;
 using EyeCtrl.Controls;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 
 public class NoteWindow : OverlayWindow
@@ -87,7 +88,7 @@ public class NoteWindow : OverlayWindow
         };
         var titleLabel = new TextBlock
         {
-            Text = "PINNED NOTE", FontSize = Tokens.FontSizeBody,
+            Text = StringTable.Current.T("overlays.note.title"), FontSize = Tokens.FontSizeBody,
             Foreground = Tokens.BrushTextSecondary,
             Margin = new Thickness(8, 4, 0, 0)
         };
@@ -233,13 +234,19 @@ public class NoteWindow : OverlayWindow
     {
         // Move glyph takes MarkerMove so it matches the Move state border and stays visible on
         // the button disc, without colliding with the Accent reserved for Edit/dwell-in-progress.
-        var symbols = new[] { ("close", "✕", Tokens.AccentDanger),
-                              ("edit",  "✎", Tokens.AccentSuccess),
-                              ("move",  "↕", Tokens.MarkerMove) };
+        // The fourth field is the button's UIA name: the disc is an Ellipse (no automation peer),
+        // and the glyph label would otherwise announce as its own symbol, so the name goes on the
+        // peer-bearing TextBlock (D11).
+        var symbols = new[]
+        {
+            ("close", "✕", Tokens.AccentDanger, StringTable.Current.T("overlays.note.close")),
+            ("edit",  "✎", Tokens.AccentSuccess, StringTable.Current.T("overlays.note.edit")),
+            ("move",  "↕", Tokens.MarkerMove, StringTable.Current.T("overlays.note.move")),
+        };
 
         for (int i = 0; i < 3; i++)
         {
-            var (suffix, symbol, color) = symbols[i];
+            var (suffix, symbol, color, accessibleName) = symbols[i];
             // Window-relative logical center, shared with NoteManager's dwell-target placement.
             var (cx, cy) = NoteLayout.ButtonCenter(i);
 
@@ -266,6 +273,7 @@ public class NoteWindow : OverlayWindow
             };
             Canvas.SetLeft(label, cx - 8);
             Canvas.SetTop(label, cy - 10);
+            System.Windows.Automation.AutomationProperties.SetName(label, accessibleName);
             _canvas.Children.Add(label);
             _buttonLabels[$"{_noteId}:{suffix}"] = label;
 

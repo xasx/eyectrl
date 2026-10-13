@@ -138,6 +138,14 @@ public class DwellDetector
     /// </summary>
     public int PauseGraceMs => (int)(_pauseGraceMicroseconds / MathConstants.MicrosecondsPerMillisecond);
 
+    /// <summary>
+    /// Test seam (<c>InternalsVisibleTo</c> → EyeCtrl.Core.Tests, EyeCtrl.App.Tests), read-only: the
+    /// registered targets — the geometry gaze is actually evaluated against — as of the last
+    /// add/remove/clear. The copy-on-write snapshot itself, never mutated in place. T09's geometry
+    /// gate compares these, not only the drawing, across languages (review-04 R1).
+    /// </summary>
+    internal IReadOnlyList<DwellTarget> Targets => _targetsSnapshot;
+
     /// <summary>Adds a target for dwell detection. Replaces any existing target with the same ID.</summary>
     public void AddTarget(DwellTarget target)
     {

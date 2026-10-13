@@ -16,5 +16,19 @@
              Link="TestSupport\StringTableRestoreAttribute.cs" />
     <Compile Include="..\TestSupport\StringTableObserverAttribute.cs"
              Link="TestSupport\StringTableObserverAttribute.cs" />
+    <!-- T09's fit harness: the 2.0 host and the class arithmetic, one copy for every project
+         that measures translated text in its real geometry. -->
+    <Compile Include="..\TestSupport\FitHarness.cs"
+             Link="TestSupport\FitHarness.cs" />
+    <Compile Include="..\TestSupport\PseudoLocale.cs"
+             Link="TestSupport\PseudoLocale.cs" />
+    <Compile Include="..\TestSupport\GermanDraft.cs"
+             Link="TestSupport\GermanDraft.cs" />
+    <Compile Include="..\TestSupport\ReviewRender.cs"
+             Link="TestSupport\ReviewRender.cs" />
+    <!-- T11's live-check harness: the opt-in gate, the pump and the visibility proof, one copy for
+         the App side and the Supervisor side. -->
+    <Compile Include="..\TestSupport\LiveCheck.cs"
+             Link="TestSupport\LiveCheck.cs" />
   </ItemGroup>
 </Project>

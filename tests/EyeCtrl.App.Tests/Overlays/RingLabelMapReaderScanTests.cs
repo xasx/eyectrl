@@ -10,8 +10,9 @@ using Xunit;
 
 /// <summary>
 /// D3 source guard: inside <c>src/</c>, <see cref="EyeCtrl.Core.Models.RingLabelMap"/> may be read
-/// only by <c>RingLabelSource</c> (which turns it into <c>RingLabelSource.English</c>). A second
-/// production reader is a label site that cannot be keyed per surface — the exact situation the
+/// only by <c>RingLabelSource</c> (which resolves it into <c>RingLabelSource.Overlays</c> for the
+/// live table and <c>RingLabelSource.English</c> for the embedded one). A second production
+/// reader is a label site that cannot be keyed per surface — the exact situation the
 /// <c>RingLabelSource</c> seam exists to prevent.
 ///
 /// Scans live code, not comments: doc references to the map are fine, a call is not.

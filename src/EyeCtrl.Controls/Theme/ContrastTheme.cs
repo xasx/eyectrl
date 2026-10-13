@@ -86,7 +86,7 @@ public sealed class ContrastTheme : ThemeBase
     /// Red is inherently dark: #FF0000 is only 5.25:1 on black, and pushing past
     /// 10:1 drops chroma under the gate-9 floor (#FF9999 is C* 41.5). This is the
     /// ceiling for "high contrast and still reads red" — 8.16:1 at C* 57.6, still
-    /// the strongest AccentDanger of the three themes.
+    /// the strongest AccentDanger of the four themes.
     /// </summary>
     public override Color AccentDanger => Color.FromRgb(0xFF, 0x77, 0x77);
 
@@ -103,7 +103,7 @@ public sealed class ContrastTheme : ThemeBase
     /// </summary>
     public override double BorderThicknessStandard => 2.0;
 
-    // ── Geometry and typography: identical in all three themes (spec §5 decision 6).
+    // ── Geometry and typography: identical in every theme (spec §5 decision 6).
     // Theme-varying by mechanism so a future revision can diverge without touching a
     // single overlay; no measurement today says any theme wants different geometry.
 

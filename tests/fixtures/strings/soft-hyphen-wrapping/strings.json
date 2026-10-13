@@ -1,0 +1,23 @@
+{
+  "settings.button": {
+    "text": "Maximize/Restore",
+    "who": "user",
+    "where": "settings",
+    "fit": "B114",
+    "args": []
+  },
+  "settings.row": {
+    "text": "Restore",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.text": {
+    "text": "Restore the window",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  }
+}

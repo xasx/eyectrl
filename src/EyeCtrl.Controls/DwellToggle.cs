@@ -336,11 +336,11 @@ public class DwellToggle : IDwellComposite
             CornerRadius = Tokens.LargeCornerRadius,
             Background = _trackBrush,
             // The track's perceptibility must NOT depend on its fill. Against the switch's own
-            // SurfaceLight fill the state colours measure ToggleOn 2.76 / 2.70 / 11.03 and
-            // ToggleOff 1.23 / 1.25 / 1.39 — so the ON track fails the 3:1 non-text-component bar
-            // in two of three themes, and the OFF track is invisible in all three: the switch
+            // SurfaceLight fill the state colours measure ToggleOn 2.76 / 2.70 / 6.50 / 11.03 and
+            // ToggleOff 1.23 / 1.25 / 1.39 / 1.39 — so the ON track fails the 3:1 non-text-component
+            // bar in two of four themes, and the OFF track is invisible in every one: the switch
             // would have no visible extent at all when off. TextSecondary measures
-            // 4.38 / 5.38 / 12.35 against SurfaceLight and clears 3:1 in every theme, in both
+            // 4.38 / 5.38 / 8.40 / 12.35 against SurfaceLight and clears 3:1 in every theme, in both
             // states. Gated structurally by
             // DwellToggleVisualTests.TheTrackIsPerceptibleAgainstTheSwitchFill and across themes
             // by Theme.ToggleContrastTests.TheTrack_IsPerceptibleAgainstTheSwitchFill.
@@ -450,7 +450,16 @@ public class DwellToggle : IDwellComposite
             // No explicit Width: the label column is a star, so the row takes exactly the room it
             // is given and the label wraps inside it. A fixed width would overflow the Supervisor's
             // 560 DIP setup window, which hosts two of these.
-            HorizontalAlignment = HorizontalAlignment.Left,
+            //
+            // STRETCH, not Left (T09 PR 3): a Left card sized itself to its label, so the switch —
+            // the right-hand Auto column — sat wherever the label happened to end. Two English
+            // toggles put their switches 28 DIP apart, and a translation moved each by its own
+            // length (7-12 DIP under the pseudo-locale): the language decided where a target was,
+            // on a crisis surface. Stretched, the card fills its host and every switch sits on the
+            // host's right edge, in every language. Pinned by SupervisorFitTests'
+            // Setup_TheToggleSwitches_StayPutInTheirCards_UnderThePseudoLocale and
+            // Setup_BothToggleSwitches_ShareOneX.
+            HorizontalAlignment = HorizontalAlignment.Stretch,
             MinWidth = 360,
             // RowHeight + the 24 DIP bottom margin is the row rhythm every other settings row
             // carries, and it is exactly what this control measured before it became a composite.

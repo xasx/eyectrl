@@ -11,6 +11,7 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using EyeCtrl.Controls;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
@@ -100,7 +101,8 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
 
     // ── Escape hint ──
 
-    /// <summary>Shows the "Press Esc to exit" hint (bottom-right, mirrors CalibrationWindow's CancelHint).</summary>
+    /// <summary>Shows the "Press Esc to exit" hint (bottom-right; CalibrationWindow's cancel hint
+    /// is carded since the Daylight round, so the two no longer mirror each other).</summary>
     public void ShowEscapeHint() => EscapeHint.Visibility = Visibility.Visible;
 
     /// <summary>Hides the escape hint. Also called from <see cref="Hide"/> so a stale hint never
@@ -284,7 +286,8 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
         // The same escape-hatch shape as the edge buttons: a bare glyph whose drawn face cannot
         // name itself to UIA, so it carries the name explicitly.
         _hideButton = DwellArcButton.Create(
-            dipCenter, UIConstants.ButtonRadius, "\u2715", accessibleName: "Close");
+            dipCenter, UIConstants.ButtonRadius, "\u2715",
+            accessibleName: StringTable.Current.T("overlays.edge.close"));
         _hideButton.AddTo(BackdropCanvas);
 
         if (progress > 0)

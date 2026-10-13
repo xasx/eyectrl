@@ -24,7 +24,7 @@ public class ComboCodeIdentityTests
         ["ad_posture"] = ["Conservative", "Balanced", "Responsive"],
         ["c_filter"] = ["Direct", "Smoothed", "SmoothedWithSnapping", "OneEuro"],
         ["c_pos_style"] = ["Crosshair", "Pin"],
-        ["g_theme"] = ["Midnight", "Ember", "Contrast"],
+        ["g_theme"] = ["Midnight", "Ember", "Daylight", "Contrast"],
         ["k_layout"] = ["QWERTY", "QWERTZ", "AZERTY"],
         ["k_edge"] = ["Bottom", "Top"],
         ["lay_pos"] = ["At Gaze", "At Center"],
@@ -60,6 +60,67 @@ public class ComboCodeIdentityTests
             "Direct", "Smoothed", "SmoothedWithSnapping", "OneEuro");
         Check.That(combos["c_pos_style"].Display).ContainsExactly("Crosshair", "Pin");
         Check.That(combos["c_pos_style"].Code).ContainsExactly("Crosshair", "Pin");
+    }
+
+    /// <summary>
+    /// Every combo's Display AND Code, pinned together as English literals in order (review 02
+    /// R1). `Display.Length == Code.Length` holds under a swap, so only the order pins the
+    /// label→value mapping: without this, a gaze user dwells "AZERTY" and gets QWERTZ. Models'
+    /// combo carries its prepended "Off"; the rest of its Display is the fixture registry's.
+    /// </summary>
+    private static readonly Dictionary<string, (string[] Display, string[] Code)> ExpectedCombos =
+        new(StringComparer.Ordinal)
+    {
+        ["ad_posture"] = (["Conservative", "Balanced", "Responsive"],
+                          ["Conservative", "Balanced", "Responsive"]),
+        ["c_filter"] = (["Direct", "Smoothed", "Smoothed (Legacy)", "One Euro"],
+                        ["Direct", "Smoothed", "SmoothedWithSnapping", "OneEuro"]),
+        ["c_pos_style"] = (["Crosshair", "Pin"], ["Crosshair", "Pin"]),
+        ["c_ring_style"] = (["Weighted sandwich", "Bi-tonal segments", "Achromatic reticle"],
+                            ["WeightedSandwich", "BiTonalSegments", "AchromaticReticle"]),
+        ["s_mode"] = (["None", "Manual Selection", "Auto Selection"],
+                      ["None", "ManualSelection", "AutoSelection"]),
+        ["lay_pos"] = (["At Gaze", "At Center"], ["At Gaze", "At Center"]),
+        ["t_edge"] = (["Top", "Bottom", "Left", "Right"], ["Top", "Bottom", "Left", "Right"]),
+        ["k_layout"] = (["QWERTY", "QWERTZ", "AZERTY"], ["QWERTY", "QWERTZ", "AZERTY"]),
+        ["k_lang"] = (["English", "French", "Spanish", "German", "Polish"],
+                      ["en", "fr", "es", "de", "pl"]),
+        ["k_edge"] = (["Bottom", "Top"], ["Bottom", "Top"]),
+        ["qa_edge"] = (["Left", "Right", "Top", "Bottom"], ["Left", "Right", "Top", "Bottom"]),
+        ["g_theme"] = (["Midnight", "Ember", "Daylight", "Contrast"], ["Midnight", "Ember", "Daylight", "Contrast"]),
+        ["g_language"] = (["System", "Deutsch", "English"], ["system", "german", "english"]),
+        ["av_backdrop_type"] = (["Acrylic", "Mica", "Solid Darken"],
+                                ["Acrylic", "Mica", "SolidDarken"]),
+        ["md_active"] = (["Off", "Test 135M"], ["Off", "135M"]),
+    };
+
+    [Fact]
+    public void EveryCombo_PinsDisplayOrderAgainstItsCode()
+    {
+        var combos = WalkableCombos(new EyeCtrlSettings()).ToDictionary(c => c.Id);
+
+        using (var scope = ModelTestFakes.Create())
+        {
+            var (registry, mgmt) = scope.WithDownloadedBundled();
+            combos["md_active"] = CombosOf(new ModelsPageSource(
+                TestSettingsPageContext.Build(registry: registry, modelManagement: mgmt))).Single();
+        }
+
+        Check.WithCustomMessage(
+                $"expected {ExpectedCombos.Count} combos but walked {combos.Count}; a combo added "
+                + "or removed must be added to this table.")
+            .That(combos.Keys).HasSize(ExpectedCombos.Count);
+
+        foreach (var (id, expected) in ExpectedCombos)
+        {
+            Check.That(combos).ContainsKey(id);
+            Check.WithCustomMessage(
+                    $"{id}: Display drifted from its approved order or text. A swapped option "
+                    + "shows one label and saves another value.")
+                .That(combos[id].Display).ContainsExactly(expected.Display);
+            Check.WithCustomMessage($"{id}: Code drifted from its approved order or text.")
+                .That(combos[id].Code).ContainsExactly(expected.Code);
+        }
     }
 
     [Fact]
@@ -161,9 +222,10 @@ public class ComboCodeIdentityTests
     /// <summary>
     /// Every combo row of the sources a plain context can build, in tab order — including
     /// QuickActions, whose list page needs its real editor view model. Models is excluded:
-    /// md_active exists only with a downloaded model (covered separately).
+    /// md_active exists only with a downloaded model (covered separately). Internal so T12's
+    /// shipped-German code guard walks the same combos as this English pin.
     /// </summary>
-    private static IEnumerable<ComboBoxSpec> WalkableCombos(EyeCtrlSettings settings)
+    internal static IEnumerable<ComboBoxSpec> WalkableCombos(EyeCtrlSettings settings)
     {
         var ctx = TestSettingsPageContext.Build(settings);
         var sources = new ISettingsPageSource[]

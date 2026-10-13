@@ -11,6 +11,7 @@ using System.Windows.Shapes;
 using System.Windows.Threading;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Calibration;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.ViewModels;
 
@@ -76,6 +77,29 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
         _viewModel = viewModel;
         DataContext = viewModel;
         viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        // Round 3, R1: TargetColor is set ONCE in the view model's constructor, without
+        // a change notification — so the handler below never fired for the persisted
+        // value and the dot kept the XAML's theme accent forever (on main, the saved
+        // colour has never been shown). Apply it at attach; later changes still ride
+        // the handler.
+        ApplyTargetDotColor();
+    }
+
+    /// <summary>
+    /// Parses and applies the user-chosen target colour. Shared by the attach path and the
+    /// <see cref="CalibrationViewModel.TargetColor"/> change handler so both produce the
+    /// same brush. Unparseable values are swallowed exactly as before: the dot keeps its
+    /// last good colour rather than blanking mid-calibration.
+    /// </summary>
+    private void ApplyTargetDotColor()
+    {
+        try
+        {
+            var brush = new SolidColorBrush(
+                (Color)ColorConverter.ConvertFromString(_viewModel!.TargetColor));
+            TargetDot.Fill = brush;
+        }
+        catch { }
     }
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -112,16 +136,7 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
                 });
                 break;
             case nameof(CalibrationViewModel.TargetColor):
-                Dispatcher.Invoke(() =>
-                {
-                    try
-                    {
-                        var brush = new SolidColorBrush(
-                            (Color)ColorConverter.ConvertFromString(_viewModel!.TargetColor));
-                        TargetDot.Fill = brush;
-                    }
-                    catch { }
-                });
+                Dispatcher.Invoke(ApplyTargetDotColor);
                 break;
         }
     }
@@ -145,7 +160,13 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
         // DPI helper the dot uses, because the collector's radius is in physical pixels and this
         // canvas is in DIPs — drawing the raw number would be right only at 100 % scaling.
         var bandDiameterLogical = DiameterToLogical(_viewModel?.BandRadiusPixels ?? 0);
-        foreach (var ring in new[] { ToleranceRing, ProgressRing })
+        // Halos share the ring geometry; their thicker stroke is what shows the
+        // accent/halo edge (§4.1.3). Sized here with the rings they back. NOTE: the
+        // house convention is "halo stays at Opacity=1 so the edge holds" (Scroll-
+        // OverlayWindow, ManualSelection, DragTrail); these halos deliberately dim
+        // WITH their rings instead, because opacity IS the on/off-target signal here —
+        // an opaque white halo would read "solid" exactly when the user is off target.
+        foreach (var ring in new[] { ToleranceRing, ProgressRing, ToleranceHalo, ProgressHalo })
         {
             ring.Width = bandDiameterLogical;
             ring.Height = bandDiameterLogical;
@@ -302,17 +323,31 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
 
                 case CalibrationTargetStatus.Done:
                     // Filled and settled: progress through the set, readable at a glance.
+                    // Stroke is the HALO, not a second success band (round 3, m1): these
+                    // markers sit straight on the black scrim, where Daylight's dark
+                    // success fill measured ~1.5:1. The rim makes the fill read on every
+                    // theme's scrim, same idiom as the dot and the rings. NOTE (round 4,
+                    // m1): on Daylight the rim dominates and this state reads as a white
+                    // RING while the upcoming state below reads as a filled light DISC —
+                    // the dark themes' filled/hollow grammar inverts. Recorded in §10.8;
+                    // no single-ellipse fix exists (every Daylight token but the halo is
+                    // dark on the black scrim).
                     marker.Visibility = Visibility.Visible;
                     marker.Fill = Tokens.BrushAccentSuccess;
-                    marker.Stroke = Tokens.BrushAccentSuccess;
+                    marker.Stroke = Tokens.BrushStrokeHalo;
+                    marker.StrokeThickness = 1.5;
                     marker.Opacity = 0.55;
                     break;
 
                 default:
                     // Hollow and faint: present, clearly not the one being asked for.
+                    // Interior carries the halo colour for the same scrim reason — the
+                    // dim rim keeps the deliberate quietness, the interior guarantees an
+                    // edge against the backdrop on both polarities.
                     marker.Visibility = Visibility.Visible;
-                    marker.Fill = null;
+                    marker.Fill = Tokens.BrushStrokeHalo;
                     marker.Stroke = Tokens.BrushTextDim;
+                    marker.StrokeThickness = 1.5;
                     marker.Opacity = 0.45;
                     break;
             }
@@ -353,26 +388,38 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
         var progress = Math.Clamp(_viewModel.TargetProgress, 0, 1);
         ProgressRing.Opacity = progress <= 0 ? 0 : 0.35 + (0.65 * progress);
         ProgressRing.StrokeThickness = 4 + (8 * progress);
+        ProgressHalo.Opacity = ProgressRing.Opacity;
+        ProgressHalo.StrokeThickness = ProgressRing.StrokeThickness + 2;
 
         // The tolerance ring itself is the on/off signal: solid while gaze is inside it, faint while
         // it is not. Deliberately a property of the RING rather than of the dot — the ring is the
         // thing whose meaning is being taught.
         ToleranceRing.Opacity = _viewModel.IsOnTarget ? 0.9 : 0.3;
         ToleranceRing.StrokeThickness = _viewModel.IsOnTarget ? 4 : 2;
+        ToleranceHalo.Opacity = ToleranceRing.Opacity;
+        ToleranceHalo.StrokeThickness = ToleranceRing.StrokeThickness + 2;
     }
 
     public void UpdateVisualState(CalibrationState state, double progress)
     {
         StopAutoDismiss();
 
+        // Hoisted here so both progress-bearing states read the same values through
+        // ProgressTextFor; the states that draw no progress line ignore them. These are the view
+        // model's raw reads — the 0-based index included — so the display arithmetic stays in the
+        // helper.
+        var idx = _viewModel?.CurrentTargetIndex ?? 0;
+        var total = _viewModel?.TotalTargets ?? 0;
+        var measureOnly = _viewModel?.IsMeasureOnly == true;
+
         switch (state)
         {
             case CalibrationState.Collecting:
                 Backdrop.Visibility = Visibility.Visible;
                 TargetCanvas.Visibility = Visibility.Visible;
-                CompletionPanel.Visibility = Visibility.Collapsed;
-                ProgressText.Visibility = Visibility.Visible;
-                CancelHint.Visibility = Visibility.Visible;
+                CompletionCard.Visibility = Visibility.Collapsed;
+                ProgressCard.Visibility = Visibility.Visible;
+                CancelCard.Visibility = Visibility.Visible;
                 Show();
                 // Mouse passes through (never blocks the screen), but keep keyboard focus so Esc
                 // cancels. MUST come after Show(): SetOverlayInteraction early-returns while the
@@ -383,17 +430,17 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
                 // blocked by WS_EX_NOACTIVATE and Esc did nothing, despite the visible hint.
                 SetOverlayInteraction(clickThrough: true, focusable: true);
                 Activate();
-                var idx = _viewModel?.CurrentTargetIndex ?? 0;
-                var total = _viewModel?.TotalTargets ?? 0;
-                ProgressText.Text = $"Look at the dot \u00B7 {idx + 1} / {total}";
+                ProgressText.Text = ProgressTextFor(
+                    state, index: idx, total: total, measureOnly: measureOnly);
                 StartPulse();
                 break;
 
             case CalibrationState.Training:
                 TargetCanvas.Visibility = Visibility.Collapsed;
-                CancelHint.Visibility = Visibility.Collapsed;
+                CancelCard.Visibility = Visibility.Collapsed;
                 StopPulse();
-                ProgressText.Text = _viewModel?.IsMeasureOnly == true ? "Recording..." : "Computing...";
+                ProgressText.Text = ProgressTextFor(
+                    state, index: idx, total: total, measureOnly: measureOnly);
                 break;
 
             case CalibrationState.Active:
@@ -406,22 +453,39 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
 
             default:
                 TargetCanvas.Visibility = Visibility.Collapsed;
-                ProgressText.Visibility = Visibility.Collapsed;
-                CancelHint.Visibility = Visibility.Collapsed;
+                ProgressCard.Visibility = Visibility.Collapsed;
+                CancelCard.Visibility = Visibility.Collapsed;
                 Backdrop.Visibility = Visibility.Collapsed;
-                CompletionPanel.Visibility = Visibility.Collapsed;
+                CompletionCard.Visibility = Visibility.Collapsed;
                 StopPulse();
                 StopAutoDismiss();
                 break;
         }
     }
 
+    /// <summary>
+    /// The progress line for one state, as pure copy — the window draws it, but the text choice
+    /// needs no HWND. <paramref name="index"/> is the VIEW MODEL's 0-based target index and the
+    /// helper adds the 1 itself, so the display arithmetic lives inside this pinned seam and the
+    /// call site passes values through (with named arguments, so a swap is visible in review). A
+    /// state that shows no progress line returns empty.
+    /// </summary>
+    internal static string ProgressTextFor(
+        CalibrationState state, int index, int total, bool measureOnly) => state switch
+    {
+        CalibrationState.Collecting =>
+            StringTable.Current.T("calibration.progress.lookAtDot", index + 1, total),
+        CalibrationState.Training when measureOnly => StringTable.Current.T("calibration.progress.recording"),
+        CalibrationState.Training => StringTable.Current.T("calibration.progress.computing"),
+        _ => string.Empty,
+    };
+
     private void ShowCompletion(bool goodResult)
     {
         TargetCanvas.Visibility = Visibility.Collapsed;
-        ProgressText.Visibility = Visibility.Collapsed;
+        ProgressCard.Visibility = Visibility.Collapsed;
         Backdrop.Visibility = Visibility.Visible;
-        CompletionPanel.Visibility = Visibility.Visible;
+        CompletionCard.Visibility = Visibility.Visible;
         StopPulse();
 
         // Make the window opaque + focusable + hit-testable so Retry/Accept and Esc work.
@@ -453,7 +517,7 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
         CompletionError.Text = presentation.Detail;
         CompletionHint.Visibility = presentation.HintVisible ? Visibility.Visible : Visibility.Collapsed;
         RetryPanel.Visibility = presentation.RetryVisible ? Visibility.Visible : Visibility.Collapsed;
-        CancelHint.Visibility = presentation.CancelHintVisible ? Visibility.Visible : Visibility.Collapsed;
+        CancelCard.Visibility = presentation.CancelHintVisible ? Visibility.Visible : Visibility.Collapsed;
         StartAutoDismiss(presentation.AutoDismissMs, DismissAndReset);
     }
 
@@ -468,9 +532,9 @@ public partial class CalibrationWindow : OverlayWindow, ICalibrationOverlay
     {
         Backdrop.Visibility = Visibility.Collapsed;
         TargetCanvas.Visibility = Visibility.Collapsed;
-        ProgressText.Visibility = Visibility.Collapsed;
-        CompletionPanel.Visibility = Visibility.Collapsed;
-        CancelHint.Visibility = Visibility.Collapsed;
+        ProgressCard.Visibility = Visibility.Collapsed;
+        CompletionCard.Visibility = Visibility.Collapsed;
+        CancelCard.Visibility = Visibility.Collapsed;
         RetryPanel.Visibility = Visibility.Collapsed;
         StopPulse();
         StopAutoDismiss();

@@ -41,6 +41,8 @@ German table:
   * forbidden terms from the glossary's avoid[] (stem prefix, German values only,
     after stripping placeholders and U+00AD)
   * no informal address: whole words du/dich/dir/dein/deine/deinen/deinem/deiner/deines
+  * no ellipsis (U+2026 or "...") in German: translated text carries none (T10 copy rules)
+  * U+00AD only where the English `fit` can wrap: a B class, `row` or `prose`
   * German identical to English fails unless the value is on the allowlist
 
 Staleness and coverage:
@@ -90,6 +92,8 @@ FIT_CLASSES = [
     "A68",
     "A44",
     "A56",
+    # T09 review-01: the eye-care summary card; one line, and the auto-width card fits the window.
+    "card",
     "tab156",
     "tray63",
     "B94x2",
@@ -98,6 +102,20 @@ FIT_CLASSES = [
     "B260x3",
     "C-fallback",
     "C-alert",
+    # T09: fixed boxes that were classed row, so no gate measured them. modalW is a one-line
+    # modal button W DIP wide; btnWxH is a wrapping Settings DwellButton of W x H DIP. The fit
+    # harness (tests/EyeCtrl.App.Tests/Localization/Fit) measures each in its production control.
+    "modal170",
+    "modal460",
+    "btn360x100",
+    "btn360x70",
+    "btn380x100",
+    "btn420x100",
+    "btn420x70",
+    "btn420x90",
+    "btn440x100",
+    "btn544x100",
+    "btn544x106",
     "row",
     "prose",
 ]
@@ -120,6 +138,12 @@ PRONOUN_WORDS = {
     "deines",
 }
 SOFT_HYPHEN = "\u00ad"
+
+# T10's typography rules (the ticket's copy rules). A soft hyphen breaks only in a class that
+# wraps; in a one-line class it is invisible dead weight that no review sees. Translated text
+# carries no ellipsis, in either spelling.
+SOFT_HYPHEN_FITS = {fit for fit in FIT_CLASSES if fit.startswith("B")} | {"row", "prose"}
+ELLIPSES = ("\u2026", "...")
 
 # The placeholder grammar, shared with the runtime's string.Format usage: {n} or {n:format},
 # where format is non-empty and free of braces (a colon inside it is allowed, e.g. {0:hh\:mm}).
@@ -501,6 +525,13 @@ def validate_german(
             for term in avoid_terms:
                 if word_starts_with(plain, term):
                     errors.append(f"strings.de.json: {key}: forbidden glossary term {term!r} in {form!r}")
+            if any(mark in form for mark in ELLIPSES):
+                errors.append(f"strings.de.json: {key}: ellipsis in {form!r}; translated text carries none")
+            if SOFT_HYPHEN in form and source.get("fit") not in SOFT_HYPHEN_FITS:
+                errors.append(
+                    f"strings.de.json: {key}: soft hyphen (U+00AD) in {form!r}, but fit "
+                    f"{source.get('fit')!r} never wraps; only a B class, row or prose may carry one"
+                )
 
         mismatch = one_other_mismatch(entry["text"])
         if mismatch:

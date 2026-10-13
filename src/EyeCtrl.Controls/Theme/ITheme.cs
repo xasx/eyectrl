@@ -5,8 +5,9 @@ using System.Windows.Media;
 
 /// <summary>
 /// One complete palette. See docs/design/overlay-unification-spec.md §4.1
-/// (Midnight), §10.2 (Ember) and §10.7 (Contrast); tools/palette_validate.py
-/// runs ten gates against all three and must exit 0 after any edit.
+/// (Midnight), §10.2 (Ember), §10.7 (Contrast) and §10.8 (Daylight);
+/// tools/palette_validate.py
+/// runs ten gates against every theme and must exit 0 after any edit.
 ///
 /// Carries more than colour on purpose: <see cref="BorderThicknessStandard"/> is
 /// theme-varying (§4.4), so the interface is non-colour-capable from the start

@@ -71,7 +71,8 @@ public partial class CursorSettings : ObservableObject, IValidatable
     /// reasoning was correct, and an earlier revision of this comment was wrong to call it
     /// superseded. CursorRingStyleContrastTests'
     /// CircleOpacity_WorstCaseAcrossEveryStyleThemeAndPreset_IsPinned models this across every
-    /// style/theme/preset; the worst case needs 0.9.
+    /// style/theme/preset; the worst case needs 0.9 (Midnight's Amber, tied by Daylight's
+    /// ring green and warning).
     /// </summary>
     [ObservableProperty] private double _circleOpacity = 1.0;
     /// <summary>

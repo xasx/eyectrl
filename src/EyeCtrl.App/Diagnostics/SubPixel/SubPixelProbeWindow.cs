@@ -41,6 +41,19 @@ using Serilog;
 /// </para>
 ///
 /// <para>
+/// <b>SP-4d legibility (SP-7 review 01 O1).</b> The Accent fill put every label at 1.08:1 in the
+/// owner's Midnight theme — effectively blank rectangles — and made the Accent cue invisible on it
+/// (1.00:1). The five formerly Accent-filled buttons now carry <c>SurfaceLight</c> with the same
+/// <c>TextPrimary</c> label (8.03:1 Midnight, above the 4.5:1 floor in every registered theme);
+/// "Later" keeps <c>SurfaceMedium</c>, which already passes both floors. End test keeps its
+/// "danger / leave" identity as a 3 DIP <c>AccentDanger</c> rest border (3.63:1 against the fill)
+/// rather than a fill, because an AccentDanger fill or label cannot reach 4.5:1 in every theme.
+/// The cue — Accent against the light fills at 8.10:1 or better — is clipped inside the border, so
+/// the growing outline cannot be mistaken for the rest edge. Everything else (sizes, hit areas,
+/// text clearances, the stimulus, the verdict) is untouched.
+/// </para>
+///
+/// <para>
 /// Nothing here sets a snap or layout-rounding flag on the probe's ancestors (SP-2 review 01): the
 /// backdrop is drawn 1:1 because the image is exactly screen-DIPs wide at the injected scale, and
 /// the ring's placement is the only rounding in the subtree.
@@ -68,6 +81,16 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
     /// <see cref="ButtonHitMarginDip"/> because a stray End test ends the run.
     /// </summary>
     internal const double EndButtonHitMarginDip = 16;
+
+    /// <summary>
+    /// SP-4d L2: End test's danger identity at rest, in DIP, as a border rather than a fill. An
+    /// AccentDanger fill puts its TextPrimary label at 2.21–2.57:1, and an AccentDanger label on
+    /// the new SurfaceLight fill reaches only 3.63–3.70:1 under Midnight and Ember — both below
+    /// the 4.5:1 label floor. The border carries the identity at 3.63:1 or better against the
+    /// fill, the label stays TextPrimary at 8.03:1 or better, and the cue (the overlay is the
+    /// Border's child, clipped inside the border) draws above it.
+    /// </summary>
+    private const double EndButtonDangerBorderDip = 3;
 
     /// <summary>The Ask screen's panel width: two 420 DIP buttons side by side plus their 120 DIP gap.</summary>
     private const double AskPanelWidth = 960;
@@ -281,17 +304,23 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         _trialLabel.Foreground = Tokens.BrushTextDim;
         Add(_trialLabel, 24, 0);
 
-        _answerOne = BuildButton(T("overlays.subpixel.answer_one"), AnswerWidth, AnswerHeight, Tokens.BrushAccent, out _answerOneCue);
-        _answerTwo = BuildButton(T("overlays.subpixel.answer_two"), AnswerWidth, AnswerHeight, Tokens.BrushAccent, out _answerTwoCue);
-        _endTest = BuildButton(T("overlays.subpixel.end_test"), EndButtonWidth, EndButtonHeight, Tokens.BrushAccentDanger, out _endTestCue);
+        // SP-4d L1/L2: light fills (the Accent fill put the label at 1.08:1 under Midnight — SP-7
+        // review 01 O1) and the End test's danger identity as a border, not a fill. "Later" keeps
+        // SurfaceMedium: TextPrimary on it is 10.33–18.42:1 and the cue 10.22–14.69:1, above both
+        // floors, so the L1 "if it doesn't pass, use SurfaceLight too" clause does not apply.
+        _answerOne = BuildButton(T("overlays.subpixel.answer_one"), AnswerWidth, AnswerHeight, Tokens.BrushSurfaceLight, out _answerOneCue);
+        _answerTwo = BuildButton(T("overlays.subpixel.answer_two"), AnswerWidth, AnswerHeight, Tokens.BrushSurfaceLight, out _answerTwoCue);
+        _endTest = BuildButton(T("overlays.subpixel.end_test"), EndButtonWidth, EndButtonHeight, Tokens.BrushSurfaceLight, out _endTestCue);
+        _endTest.BorderBrush = Tokens.BrushAccentDanger;
+        _endTest.BorderThickness = new Thickness(EndButtonDangerBorderDip);
         Add(_answerOne, 0, 0);
         Add(_answerTwo, 0, 0);
         Add(_endTest, 0, 0);
 
-        _introStart = BuildButton(T("overlays.subpixel.start"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushAccent, out _introStartCue);
-        _askYes = BuildButton(T("overlays.subpixel.ask_yes"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushAccent, out _askYesCue);
+        _introStart = BuildButton(T("overlays.subpixel.start"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushSurfaceLight, out _introStartCue);
+        _askYes = BuildButton(T("overlays.subpixel.ask_yes"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushSurfaceLight, out _askYesCue);
         _askLater = BuildButton(T("overlays.subpixel.ask_later"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushSurfaceMedium, out _askLaterCue);
-        _resultDone = BuildButton(T("overlays.subpixel.done"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushAccent, out _resultDoneCue);
+        _resultDone = BuildButton(T("overlays.subpixel.done"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushSurfaceLight, out _resultDoneCue);
 
         // Fixup 01 F1: the Intro text block and the Start button are separate canvas children — the
         // text sits above the demo band and Start below it, so no text is under Start's hit area.

@@ -34,9 +34,11 @@ using Xunit;
 /// </para>
 ///
 /// <para>
-/// The themes are enumerated through <see cref="ThemeRegistry.All"/>, never a local list, and the
-/// count is pinned ≥ 3: Daylight arrives from <c>main</c> at the merge, and its row must be covered
-/// by this same test then. <see cref="Tokens.Activate"/> is process-global, so this class sits in
+/// The themes are enumerated through <see cref="ThemeRegistry.All"/>, never a local list; the count
+/// is pinned ≥ 3, and (fixup 01 F2) the names the loop actually rendered are compared with
+/// <see cref="ThemeRegistry.Names"/>, so a narrowed loop cannot pass on a separate count. Daylight
+/// arrives from <c>main</c> at the merge, and its row must be covered by this same test then.
+/// <see cref="Tokens.Activate"/> is process-global, so this class sits in
 /// the <c>ActiveTheme</c> collection (exclusive) and restores Midnight afterwards; the contrast
 /// maths is the WCAG relative-luminance helper the other cross-theme gates in this suite carry.
 /// </para>
@@ -78,11 +80,13 @@ public class SubPixelProbeContrastTests
                 + "cover every theme the app can present (SP-4d L3).")
             .That(ThemeRegistry.All.Count).IsGreaterOrEqualThan(3);
 
+        var rendered = new List<string>();
         try
         {
             foreach (var theme in ThemeRegistry.All)
             {
                 Tokens.Activate(theme);
+                rendered.Add(theme.Name);
                 AssertTheme(theme);
             }
         }
@@ -90,6 +94,16 @@ public class SubPixelProbeContrastTests
         {
             Tokens.Activate(MidnightTheme.Instance);
         }
+
+        // Fixup 01 (review 01 F2): the coverage pin must bind the names the LOOP rendered, not a
+        // separate count expression. Mutant T1 — the loop narrowed to Midnight only — left the
+        // count at 3 and survived this gate; this equality kills it. It also catches a registry
+        // gaining a theme (Daylight from main) that the loop stops short of.
+        Check.WithCustomMessage(
+                $"The loop rendered [{string.Join(", ", rendered)}]; the registry holds "
+                + $"[{string.Join(", ", ThemeRegistry.Names)}]. A theme the app can present is not "
+                + "covered by this gate (SP-4d fixup 01 F2).")
+            .That(rendered).ContainsExactly(ThemeRegistry.Names.ToArray());
     }
 
     // Mutation (m1): an answer's fill back to Tokens.BrushAccent -> the fill pin and the label

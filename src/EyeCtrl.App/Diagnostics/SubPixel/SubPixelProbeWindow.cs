@@ -49,8 +49,11 @@ using Serilog;
 /// "danger / leave" identity as a 3 DIP <c>AccentDanger</c> rest border (3.63:1 against the fill)
 /// rather than a fill, because an AccentDanger fill or label cannot reach 4.5:1 in every theme.
 /// The cue — Accent against the light fills at 8.10:1 or better — is clipped inside the border, so
-/// the growing outline cannot be mistaken for the rest edge. Everything else (sizes, hit areas,
-/// text clearances, the stimulus, the verdict) is untouched.
+/// the growing outline cannot be mistaken for the rest edge. <b>Fixup 01 G1/G2</b> then centres
+/// every label in its button (it was drawn at the top edge) and sizes them to the reading task:
+/// 96 DIP for the answer digits, <c>FontSizeDisplay</c> for the screen buttons, <c>FontSizeTitle</c>
+/// for End test — measured to fit each button's inner rectangle in EN and DE at 2.0. Everything
+/// else (hit areas, text clearances, the stimulus, the verdict) is untouched.
 /// </para>
 ///
 /// <para>
@@ -91,6 +94,38 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
     /// Border's child, clipped inside the border) draws above it.
     /// </summary>
     private const double EndButtonDangerBorderDip = 3;
+
+    /// <summary>
+    /// Fixup 01 G2: the answer digits' label size, in DIP (review 01 F1: 14 DIP glyphs at the top
+    /// edge of a 380 × 260 DIP button are the weakest possible label for an owner who aims at the
+    /// centre and finds fixation hard). 96 puts ~70 DIP of ink exactly where they aim; digits are
+    /// identical in German, so there is no l10n risk. The word labels take the type ramp's two
+    /// largest steps instead — <c>FontSizeDisplay</c> (34) for the 420 × 170 DIP screen buttons and
+    /// <c>FontSizeTitle</c> (24) for End test's 280 × 120 DIP — so every label fits its inner
+    /// rectangle (border + full-progress cue) in English and German at 2.0.
+    ///
+    /// <para>
+    /// A property, and public, because <c>RawGeometryLiteralTests</c> admits a <c>FontSize =</c>
+    /// value only from <see cref="Tokens"/>, <c>ContainerRatio</c>, or a public static double on an
+    /// <see cref="OverlayWindow"/> subclass — the same mechanism as
+    /// <c>QuickActionsGridWindow.TileIconSize</c>. The class is internal, so this widens no real
+    /// API.
+    /// </para>
+    /// </summary>
+    public static double AnswerLabelFontSizeDip => 96;
+
+    /// <summary>Fixup 01 G2: which label-size rule a probe button follows (see <see cref="BuildButton"/>).</summary>
+    private enum ProbeLabelSize
+    {
+        /// <summary>The bare answer digits: <see cref="AnswerLabelFontSizeDip"/>.</summary>
+        AnswerDigits,
+
+        /// <summary>A word label on a 420 × 170 DIP screen button: <c>Tokens.FontSizeDisplay</c>.</summary>
+        ScreenButton,
+
+        /// <summary>End test on its 280 × 120 DIP button: <c>Tokens.FontSizeTitle</c>.</summary>
+        EndTest,
+    }
 
     /// <summary>The Ask screen's panel width: two 420 DIP buttons side by side plus their 120 DIP gap.</summary>
     private const double AskPanelWidth = 960;
@@ -308,19 +343,22 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
         // review 01 O1) and the End test's danger identity as a border, not a fill. "Later" keeps
         // SurfaceMedium: TextPrimary on it is 10.33–18.42:1 and the cue 10.22–14.69:1, above both
         // floors, so the L1 "if it doesn't pass, use SurfaceLight too" clause does not apply.
-        _answerOne = BuildButton(T("overlays.subpixel.answer_one"), AnswerWidth, AnswerHeight, Tokens.BrushSurfaceLight, out _answerOneCue);
-        _answerTwo = BuildButton(T("overlays.subpixel.answer_two"), AnswerWidth, AnswerHeight, Tokens.BrushSurfaceLight, out _answerTwoCue);
-        _endTest = BuildButton(T("overlays.subpixel.end_test"), EndButtonWidth, EndButtonHeight, Tokens.BrushSurfaceLight, out _endTestCue);
+        // Fixup 01 G2: the label sizes — 96 DIP digits for the answers, the type ramp's two largest
+        // steps for the word labels (Display 34 on the 420 × 170 screen buttons, Title 24 on End
+        // test's 280 × 120, where every longer label must still clear the border and the cue).
+        _answerOne = BuildButton(T("overlays.subpixel.answer_one"), AnswerWidth, AnswerHeight, Tokens.BrushSurfaceLight, ProbeLabelSize.AnswerDigits, out _answerOneCue);
+        _answerTwo = BuildButton(T("overlays.subpixel.answer_two"), AnswerWidth, AnswerHeight, Tokens.BrushSurfaceLight, ProbeLabelSize.AnswerDigits, out _answerTwoCue);
+        _endTest = BuildButton(T("overlays.subpixel.end_test"), EndButtonWidth, EndButtonHeight, Tokens.BrushSurfaceLight, ProbeLabelSize.EndTest, out _endTestCue);
         _endTest.BorderBrush = Tokens.BrushAccentDanger;
         _endTest.BorderThickness = new Thickness(EndButtonDangerBorderDip);
         Add(_answerOne, 0, 0);
         Add(_answerTwo, 0, 0);
         Add(_endTest, 0, 0);
 
-        _introStart = BuildButton(T("overlays.subpixel.start"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushSurfaceLight, out _introStartCue);
-        _askYes = BuildButton(T("overlays.subpixel.ask_yes"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushSurfaceLight, out _askYesCue);
-        _askLater = BuildButton(T("overlays.subpixel.ask_later"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushSurfaceMedium, out _askLaterCue);
-        _resultDone = BuildButton(T("overlays.subpixel.done"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushSurfaceLight, out _resultDoneCue);
+        _introStart = BuildButton(T("overlays.subpixel.start"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushSurfaceLight, ProbeLabelSize.ScreenButton, out _introStartCue);
+        _askYes = BuildButton(T("overlays.subpixel.ask_yes"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushSurfaceLight, ProbeLabelSize.ScreenButton, out _askYesCue);
+        _askLater = BuildButton(T("overlays.subpixel.ask_later"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushSurfaceMedium, ProbeLabelSize.ScreenButton, out _askLaterCue);
+        _resultDone = BuildButton(T("overlays.subpixel.done"), ScreenButtonWidth, ScreenButtonHeight, Tokens.BrushSurfaceLight, ProbeLabelSize.ScreenButton, out _resultDoneCue);
 
         // Fixup 01 F1: the Intro text block and the Start button are separate canvas children — the
         // text sits above the demo band and Start below it, so no text is under Start's hit area.
@@ -522,17 +560,31 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
     /// keyboard keys'/emoji tabs'/prediction bar's outline, not the toolbar's circular arc: the
     /// probe's buttons are rectangles, and the outline is the standard this app already uses where
     /// a fill cannot carry the feedback (and where the target is not a disc).
+    ///
+    /// <para>
+    /// Fixup 01 G1/G2: the label is centred on both axes (without <c>VerticalAlignment</c> a
+    /// stretched TextBlock draws its line at the button's top edge — review 01 F1), and its size
+    /// follows the G2 table. The size is chosen inline as a ternary: the geometry guard
+    /// (<c>RawGeometryLiteralTests</c>) reads a ternary whole but flags a <c>switch</c> expression,
+    /// and a bare size parameter would be a non-token value — so every arm names a real size, the
+    /// answer digits' public static double or a theme token.
+    /// </para>
     /// </summary>
     private static Border BuildButton(
-        string label, double width, double height, Brush background, out DwellOutlineOverlay cue)
+        string label, double width, double height, Brush background, ProbeLabelSize size,
+        out DwellOutlineOverlay cue)
     {
         var text = new TextBlock
         {
             Text = label,
-            FontSize = Tokens.FontSizeBodyLarge,
+            FontSize = size == ProbeLabelSize.AnswerDigits ? SubPixelProbeWindow.AnswerLabelFontSizeDip
+                : size == ProbeLabelSize.EndTest ? Tokens.FontSizeTitle
+                : Tokens.FontSizeDisplay,
             FontWeight = Tokens.FontWeightStrong,
             Foreground = Tokens.BrushTextPrimary,
             TextAlignment = TextAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
         };
 
         var button = new Border

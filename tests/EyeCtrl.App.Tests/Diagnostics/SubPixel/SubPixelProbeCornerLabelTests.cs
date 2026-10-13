@@ -10,10 +10,12 @@ using EyeCtrl.App.Diagnostics.SubPixel;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Diagnostics;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
+using EyeCtrl.ViewModels.Messages;
 using Xunit;
 
 /// <summary>
@@ -68,6 +70,13 @@ public class SubPixelProbeCornerLabelTests
 
     /// <summary>The drift's whole-interval travel, in physical px: 0.25 × 166 whole 30 ms ticks.</summary>
     private const double DriftTravelPx = 41.5;
+
+    /// <summary>
+    /// The production stack between the trial label's box bottom and the digit's box top, as a
+    /// literal: SP-4e fixup 01 F2b pins the 8 DIP gap so the review's X5 (the label drawn through
+    /// the digit) cannot survive a production constant change.
+    /// </summary>
+    private const double TrialLabelGapDip = 8;
 
     /// <summary>F1's clearance rule, reused against End test's hit area.</summary>
     private const double HitAreaClearanceDip = 24;
@@ -155,13 +164,19 @@ public class SubPixelProbeCornerLabelTests
 
                 var box = ContentBoxInScene(label, (Visual)window.Content!);
 
-                // On screen, bottom-left: the box's centre is in the left half and the bottom half.
+                // On screen, anchored to the bottom-left CORNER (SP-4e fixup 01 F2a): a
+                // centre-in-the-quadrant check passed the reviewer's t4a (the digit at mid-height on
+                // the left edge), so the pin asks what "bottom-left" means — the box's bottom edge
+                // within 48 DIP of the window's bottom, and its left edge within 48 DIP of the left.
+                // Measured: bottom at height-24 and left at 24, both scales.
                 Check.WithCustomMessage($"{where}: the digit box {box} is off-screen")
                     .That(box.Left >= 0 && box.Top >= 0 && box.Right <= widthDip && box.Bottom <= heightDip)
                     .IsTrue();
-                Check.WithCustomMessage($"{where}: the digit box {box} is not bottom-left")
-                    .That(box.Left + box.Width / 2 < widthDip / 2 && box.Top + box.Height / 2 > heightDip / 2)
-                    .IsTrue();
+                Check.WithCustomMessage(
+                        $"{where}: the digit box {box} is not bottom-left: bottom {box.Bottom:F1} "
+                        + $"(needs >= {heightDip - 48:F1}) at height {heightDip}, left {box.Left:F1} "
+                        + "(needs <= 48)")
+                    .That(box.Bottom >= heightDip - 48 && box.Left <= 48).IsTrue();
 
                 // Outside the toolbar's top band. The band is the toolbar's size plus the 40 DIP
                 // margin RepeatModeController.BuildToolbarBandRect uses, both logical DIP.
@@ -211,6 +226,76 @@ public class SubPixelProbeCornerLabelTests
         }
     }
 
+    // ------------------------------------------------------------------ F2b: the trial label's stack
+
+    /// <summary>
+    /// SP-4e fixup 01 F2b (review 01 X5): on a real scored trial the trial label ("Drift block ·
+    /// trial 1 of 10") stacks above the digit's box with the production 8 DIP gap. No pin looked at
+    /// the two boxes together, so X5 (the label drawn through the 96 DIP digit) survived; this one
+    /// measures both on the driven window at both owner scales.
+    /// </summary>
+    [StaFact]
+    public void TheTrialLabel_StacksAboveTheDigit_WithTheEightDipGap_OnARealScoredTrial()
+    {
+        foreach (var (scale, widthDip, heightDip) in OwnerScales)
+        {
+            WpfApplicationGate.EnsureApplicationWithTokens();
+            var time = new ManualTimeProvider();
+            using var vm = NewViewModel(time);
+            vm.Start();
+            var window = NewWindow(vm, scale, widthDip, heightDip, OwnerRingDip);
+            try
+            {
+                // The demo pair runs first; drive on the virtual clock to the first SCORED interval,
+                // where the trial label carries its real text ("the demo hint" is a different line).
+                vm.BeginTrials();
+                long ts = 1_000_000;
+                int steps = 0;
+                while (vm.Phase != SubPixelProbePhase.Interval1 || vm.IsDemo)
+                {
+                    time.Advance(30);
+                    ts += 30_000;
+                    Feed(vm, new PhysicalPoint(50, 50), ts);
+                    Check.WithCustomMessage(
+                            $"The run did not reach the first scored interval within 60 s of virtual "
+                            + $"time (phase {vm.Phase}, demo {vm.IsDemo})")
+                        .That(++steps).IsStrictlyLessThan(2_000);
+                }
+
+                var scene = (Visual)window.Content!;
+                var digitBox = ContentBoxInScene(window.CornerDigitForTest, scene);
+
+                string expectedTrial = StringTable.Current.T(
+                    "overlays.subpixel.trial_label",
+                    StringTable.Current.T("overlays.subpixel.block_drift"), 1);
+                var trialLabel = FindTextBlock(scene, expectedTrial);
+                Check.WithCustomMessage(
+                        $"@{scale}: the trial label '{expectedTrial}' is not in the scene; it holds "
+                        + $"[{string.Join(" | ", AllVisibleTexts(scene))}]")
+                    .That(trialLabel).IsNotNull();
+
+                var trialBox = RectInScene(trialLabel!, scene);
+
+                Check.WithCustomMessage(
+                        $"@{scale}: the trial label {trialBox} overlaps the digit box {digitBox}")
+                    .That(Rect.Intersect(trialBox, digitBox).IsEmpty).IsTrue();
+
+                double gap = digitBox.Top - trialBox.Bottom;
+                Check.WithCustomMessage(
+                        $"@{scale}: the trial label {trialBox} keeps only {gap:F2} DIP above the digit "
+                        + $"box {digitBox}; F2b pins the production {TrialLabelGapDip} DIP stack")
+                    .That(gap).IsGreaterOrEqualThan(TrialLabelGapDip - 1e-6);
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+    }
+
+    // Mutation (X5): CornerToTrialLabelGapDip -100 (the trial label through the digit) -> the
+    //   intersection and the gap check both go red.
+
     // ---------------------------------------------------------------------------------- helpers
 
     /// <summary>The digit's laid-out box in scene DIP, from its own character rects.</summary>
@@ -248,12 +333,44 @@ public class SubPixelProbeCornerLabelTests
         return Math.Sqrt(dx * dx + dy * dy);
     }
 
-    private static SubPixelProbeViewModel NewViewModel() => new(
+    private static SubPixelProbeViewModel NewViewModel(TimeProvider? timeProvider = null) => new(
         new WeakReferenceMessenger(),
-        new DispatcherTimeProvider(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+        timeProvider ?? new DispatcherTimeProvider(System.Windows.Threading.Dispatcher.CurrentDispatcher),
         SubPixelAbSchedule.Create(seed: 7, new PhysicalRect(0, 0, 1920, 1080)),
         new EyeCtrlSettings().Dwell,
         () => true);
+
+    private static void Feed(SubPixelProbeViewModel vm, PhysicalPoint position, long timestampUs) =>
+        vm.Receive(new GazeCursorMovedMessage(position, timestampUs));
+
+    /// <summary>The element's laid-out box in scene DIP (the layout box, not the content rects).</summary>
+    private static Rect RectInScene(FrameworkElement element, Visual scene)
+    {
+        var topLeft = element.TransformToAncestor(scene).Transform(new Point(0, 0));
+        return new Rect(topLeft, element.RenderSize);
+    }
+
+    /// <summary>The first TextBlock in the subtree whose text matches exactly, or null.</summary>
+    private static TextBlock? FindTextBlock(DependencyObject node, string text)
+    {
+        if (node is TextBlock tb && tb.Text == text) return tb;
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++)
+        {
+            var found = FindTextBlock(VisualTreeHelper.GetChild(node, i), text);
+            if (found is not null) return found;
+        }
+
+        return null;
+    }
+
+    /// <summary>Every non-blank TextBlock text in the subtree, for a failure's diagnostic.</summary>
+    private static IEnumerable<string> AllVisibleTexts(DependencyObject node)
+    {
+        if (node is TextBlock tb && !string.IsNullOrWhiteSpace(tb.Text)) yield return tb.Text;
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(node); i++)
+            foreach (var text in AllVisibleTexts(VisualTreeHelper.GetChild(node, i)))
+                yield return text;
+    }
 
     private static SubPixelProbeWindow NewWindow(
         SubPixelProbeViewModel vm, double scale, double widthDip, double heightDip, double ringDip)

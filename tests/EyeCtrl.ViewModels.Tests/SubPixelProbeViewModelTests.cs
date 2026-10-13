@@ -110,6 +110,38 @@ public class SubPixelProbeViewModelTests
     // Mutation (a3/t2): LiveIntervalMs 6000 -> 4000 (the 5970 checks go red).
 
     [Fact]
+    public void V1a4_StaticBlock_UsesFiveSecondIntervals()
+    {
+        var f = new Harness();
+        f.StartToTrials();
+        f.PlayBlock();   // completes the drift block; the static block's demo pair follows
+
+        Check.That(f.Vm.CurrentBlock).IsEqualTo(SubPixelAbBlock.Static);
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Interval1);
+        Check.That(f.Vm.IsDemo).IsTrue();
+
+        f.Drive(4970);
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Interval1);
+
+        f.Drive(30);
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Gap);
+
+        f.Drive(770);
+        f.Drive(30);
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Interval2);
+
+        f.Drive(4970);
+        Check.That(f.Vm.Phase).IsEqualTo(SubPixelProbePhase.Interval2);
+
+        f.Drive(30);
+        Check.That(f.Vm.IsDemo).IsFalse();
+        Check.That(f.Vm.CurrentTrial).IsEqualTo(f.Schedule.StaticTrials[0]);
+    }
+
+    // Mutation (X6): IntervalDuration uses LiveIntervalMs for every non-Drift block -> the static
+    //   block runs 6 s and the 4970 + 30 checks go red. Review 01 F1: nothing pinned Static's 5 s.
+
+    [Fact]
     public void V1a3_P3_DwellCompletedDuringIntervalTwo_IsNotDeliveredAtOnset()
     {
         var f = new Harness();

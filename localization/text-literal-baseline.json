@@ -821,6 +821,11 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.ViewModels/Adaptation/ResetPreviewEngine.cs",
+      "Literal": "\"ResetAdaptation\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.ViewModels/DragTrailViewModel.cs",
       "Literal": "\"Drag_release\"",
       "Count": 1

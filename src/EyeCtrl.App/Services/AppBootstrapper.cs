@@ -369,7 +369,20 @@ public class AppBootstrapper
         services.AddSingleton<ActivationButtonViewModel>();
         services.AddSingleton<ManualSelectionOverlayViewModel>();
         services.AddSingleton<ActionMenuViewModel>();
-        services.AddSingleton<ToolbarViewModel>();
+        // Full-arity factory (Task 6, R2-1 — load-bearing): every optional parameter after
+        // `messenger` compiles-and-runs when dropped, while silently switching something off —
+        // `sink` kills toolbar struggle telemetry, `dwellRegistry` kills adaptation's dwell/
+        // geometry routing to the toolbar, and `isFeedbackSuppressed` leaves the Reset preview
+        // unable to go silent in sensitive contexts (MS DI fills unresolvable optionals with
+        // null, so even the plain AddSingleton<ToolbarViewModel>() "works").
+        // ToolbarPreviewWiringTests resolves this registration and asserts all three.
+        services.AddSingleton(sp => new ToolbarViewModel(
+            sp.GetRequiredService<EyeCtrlSettings>(),
+            WeakReferenceMessenger.Default,
+            sink: sp.GetRequiredService<IStruggleTelemetrySink>(),
+            dwellRegistry: sp.GetRequiredService<IDwellDetectorRegistry>(),
+            isFeedbackSuppressed: () => sp.GetRequiredService<IFeedbackGate>().IsFeedbackSuppressed,
+            logger: sp.GetRequiredService<ILoggerFactory>().CreateLogger<ToolbarViewModel>()));
         services.AddSingleton<KeyboardViewModel>();
         services.AddSingleton<ManualSelectionGazeIndicatorViewModel>();
         services.AddSingleton<GlassBackdropViewModel>();

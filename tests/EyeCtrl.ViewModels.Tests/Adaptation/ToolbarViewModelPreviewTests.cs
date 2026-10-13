@@ -1,0 +1,387 @@
+namespace EyeCtrl.ViewModels.Tests.Adaptation;
+
+using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.Core.Adaptation;
+using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
+using EyeCtrl.Core.Settings;
+using EyeCtrl.ViewModels.Adaptation;
+using EyeCtrl.ViewModels.Messages;
+using Microsoft.Extensions.Logging;
+
+/// <summary>
+/// Task 6: the <see cref="ResetPreviewEngine"/> wired into <see cref="ToolbarViewModel"/> — the
+/// feed switch (FeedAll/FeedExcluded/FeedNone around the detector Update), the progress routing
+/// (Propagate/HoldAtFreeze/Zero), the activation/deactivation/absent-report resets, the bounds
+/// message registration, and the <c>ResetFrozenSilent</c> rim-cue property. Every driven gaze
+/// sample carries an explicit <c>TimestampMicroseconds</c> (P4) — no test sleeps.
+///
+/// Geometry: ToolbarButtonDwellMs defaults to 700 ms, the physical hit radius to 60 px at scale
+/// 1.0. Reset sits at (500,500), Pause at (100,100) — 566 px apart, so no sample is ever inside
+/// both. Away = (1000,300) is off every target. PanelRect's top-left (540,470) is 50 px from
+/// Reset (inside the base circle); the grown-overlap test grows Reset by +40 px so points past
+/// the base radius still hit-test true.
+/// </summary>
+[Collection("DpiHelper Tests (ViewModels)")]
+public class ToolbarViewModelPreviewTests
+{
+    private const string ResetId = ResetPreviewEngine.ResetId;
+
+    private static readonly PhysicalPoint ResetCenter = new(500, 500);
+    private static readonly PhysicalPoint PauseCenter = new(100, 100);
+    private static readonly PhysicalPoint Away = new(1000, 300);
+
+    // The reported panel: sits right/below of Reset, its top-left corner inside the grown hit
+    // area (but past the 60 px base radius at (560,480), 63 px out).
+    private static readonly PhysicalRect PanelRect = new(540, 470, 200, 130);
+
+    private readonly EyeCtrlSettings _settings = new();
+
+    private sealed class RecordingSink : IStruggleTelemetrySink
+    {
+        public List<DwellOutcome> Outcomes { get; } = new();
+        public void Report(in DwellOutcome outcome) => Outcomes.Add(outcome);
+    }
+
+    /// <summary>Captures formatted log entries so the D14 timeout-fallback line can be pinned.</summary>
+    private sealed class SpyLogger : ILogger<ToolbarViewModel>
+    {
+        public List<(LogLevel Level, string Text)> Entries { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+            Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Entries.Add((logLevel, formatter(state, exception)));
+    }
+
+    private ToolbarButtonViewModel ResetButton(ToolbarViewModel vm) =>
+        vm.Buttons.Single(b => b.Id == ResetId);
+
+    private void PositionCoreButtons(ToolbarViewModel vm)
+    {
+        vm.UpdateButtonScreenPosition("Pause", PauseCenter);
+        vm.UpdateButtonScreenPosition(ResetId, ResetCenter);
+    }
+
+    /// <summary>Drives gaze on Reset just past the 0.40 freeze threshold (0.5 × the 700 ms dwell).</summary>
+    private static void DriveToFreeze(ToolbarViewModel vm) =>
+        DwellDrive.Hold(0, 350_000, t => vm.Receive(new GazeCursorMovedMessage(ResetCenter, t)));
+
+    // --- rev-1: 0.40 hold — the arc freezes, the panel is requested, nothing fires ---
+
+    [Fact]
+    public void DwellPastThreshold_FreezesArc_ShowsPanel_NeverFires()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var visibility = new List<AdaptationPreviewVisibilityMessage>();
+        messenger.Register<AdaptationPreviewVisibilityMessage>(this, (_, m) => visibility.Add(m));
+        int resets = 0;
+        messenger.Register<ResetAdaptationMessage>(this, (_, _) => resets++);
+        var vm = new ToolbarViewModel(_settings, messenger);
+        PositionCoreButtons(vm);
+
+        // Past the full 700 ms dwell time (without the freeze this would fire Reset) but under
+        // the 500 ms-after-engage bounds timeout, which has its own test below.
+        DwellDrive.Hold(0, 780_000, t => vm.Receive(new GazeCursorMovedMessage(ResetCenter, t)));
+
+        Check.That(resets).IsEqualTo(0);
+        Check.That(visibility).HasSize(1);
+        Check.That(visibility[0].Visible).IsTrue();
+        Check.That(visibility[0].EngagementId).IsEqualTo(1);
+        Check.That(visibility[0].ResetCenter).IsEqualTo(ResetCenter);
+
+        var btn = ResetButton(vm);
+        Check.That(btn.DwellProgress).IsStrictlyGreaterThan(ResetPreviewEngine.Threshold);
+        Check.That(btn.DwellProgress).IsStrictlyLessThan(0.60);   // held, not run to 1.0
+        Check.That(btn.IsHighlighted).IsTrue();
+        Check.That(vm.ResetFrozenSilent).IsFalse();
+    }
+
+    // --- rev-1: geometry-fill overlap + panel-top-left — zero activations, zero outcomes ---
+
+    [Fact]
+    public void GrownOverlap_PanelTopLeft_IsNotFed_NoActivations_NoOutcomes()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var visibility = new List<AdaptationPreviewVisibilityMessage>();
+        messenger.Register<AdaptationPreviewVisibilityMessage>(this, (_, m) => visibility.Add(m));
+        int modes = 0, resets = 0;
+        messenger.Register<ModesMenuToggledMessage>(this, (_, _) => modes++);
+        messenger.Register<ResetAdaptationMessage>(this, (_, _) => resets++);
+
+        var sink = new RecordingSink();
+        var vm = new PreviewToolbarViewModel(_settings, messenger, sink);
+        PositionCoreButtons(vm);
+        // Modes sits INSIDE the panel rect, 71 px from Reset — nearest for the panel-top-left
+        // gaze but outside Reset's base circle. Growth makes that gaze point hit Reset too.
+        vm.UpdateButtonScreenPosition("Modes", new PhysicalPoint(555, 475));
+        vm.GrowTarget(ResetId, 40); // 60 → 100 px effective
+
+        DriveToFreeze(vm);
+        messenger.Send(new AdaptationPreviewBoundsMessage(1, PreviewBoundsKind.Rect, PanelRect));
+        Check.That(visibility).HasSize(1);
+
+        // Park at (560,480): inside the panel, inside the GROWN Reset hit area (63 px), nearest
+        // Modes. FeedNone means the detector is not fed AT ALL — Modes cannot accumulate, Reset
+        // cannot fire, and no abandon outcome is reported. A mis-wired FeedExcluded would fire
+        // Modes after 700 ms (the filter only excludes Reset); a FeedAll would advance Reset.
+        var topLeft = new PhysicalPoint(560, 480);
+        DwellDrive.Hold(360_000, 1_800_000, t => vm.Receive(new GazeCursorMovedMessage(topLeft, t)));
+
+        Check.That(modes).IsEqualTo(0);
+        Check.That(resets).IsEqualTo(0);
+        Check.That(sink.Outcomes).IsEmpty();
+        Check.That(visibility.Count(v => v.Visible)).IsEqualTo(1);   // panel never hidden
+        Check.That(ResetButton(vm).IsHighlighted).IsTrue();          // the read holds the arc
+    }
+
+    // --- rev-1: 130 ms leave arms and zeroes ---
+
+    [Fact]
+    public void DebouncedLeave_130ms_HidesPanel_ThenZeroesTheHeldArc()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var visibility = new List<AdaptationPreviewVisibilityMessage>();
+        messenger.Register<AdaptationPreviewVisibilityMessage>(this, (_, m) => visibility.Add(m));
+        var vm = new ToolbarViewModel(_settings, messenger);
+        PositionCoreButtons(vm);
+
+        DriveToFreeze(vm);
+        messenger.Send(new AdaptationPreviewBoundsMessage(1, PreviewBoundsKind.Rect, PanelRect));
+
+        // The leave run: the detector's Reset(0) on the first off-union sample must NOT drop the
+        // arc (P6) — the run may still cancel back into the union.
+        vm.Receive(new GazeCursorMovedMessage(Away, 380_000));
+        var btn = ResetButton(vm);
+        Check.That(btn.DwellProgress).IsStrictlyGreaterThan(ResetPreviewEngine.Threshold);
+        Check.That(btn.IsHighlighted).IsTrue();
+
+        // 140 ms of continuous off-union time ≥ the 120 ms debounce → armed, panel hidden.
+        DwellDrive.Hold(410_000, 520_000, t => vm.Receive(new GazeCursorMovedMessage(Away, t)));
+
+        Check.That(visibility.Select(v => v.Visible)).ContainsExactly(true, false);
+        Check.That(visibility[1].EngagementId).IsEqualTo(1);
+
+        // Post-arm: a Reset progress of 0 now drops the held arc (the engine's Zero verdict).
+        vm.SimulateTargetProgress(ResetId, 0.0);
+        Check.That(btn.DwellProgress).IsEqualTo(0.0);
+        Check.That(btn.IsHighlighted).IsFalse();
+    }
+
+    // --- rev-1: the deliberate return fires unfrozen ---
+
+    [Fact]
+    public void ArmedReturn_DwellsToFire_SendsResetAdaptationMessage_ThenRepreviews()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var visibility = new List<AdaptationPreviewVisibilityMessage>();
+        messenger.Register<AdaptationPreviewVisibilityMessage>(this, (_, m) => visibility.Add(m));
+        int resets = 0;
+        messenger.Register<ResetAdaptationMessage>(this, (_, _) => resets++);
+        var vm = new ToolbarViewModel(_settings, messenger);
+        PositionCoreButtons(vm);
+
+        DriveToFreeze(vm);
+        messenger.Send(new AdaptationPreviewBoundsMessage(1, PreviewBoundsKind.Rect, PanelRect));
+        DwellDrive.Hold(380_000, 520_000, t => vm.Receive(new GazeCursorMovedMessage(Away, t))); // armed
+
+        // Return within the 3 s window: every progress propagates — the dwell runs to the fire.
+        long dwellUs = _settings.Dwell.ToolbarButtonDwellMs * 1000L;
+        DwellDrive.Hold(550_000, 550_000 + dwellUs,
+            t => vm.Receive(new GazeCursorMovedMessage(ResetCenter, t)));
+
+        Check.That(resets).IsEqualTo(1);
+        Check.That(visibility.Select(v => v.Visible)).ContainsExactly(true, false); // no 2nd preview mid-pass
+
+        // A later rest previews FRESH: a new engagement, not a zombie pass.
+        DwellDrive.Hold(1_700_000, 2_100_000, t => vm.Receive(new GazeCursorMovedMessage(ResetCenter, t)));
+        Check.That(visibility.Select(v => v.Visible)).ContainsExactly(true, false, true);
+        Check.That(visibility[2].EngagementId).IsEqualTo(2);
+        Check.That(resets).IsEqualTo(1);                            // and it must not have fired
+    }
+
+    // --- rev-1: SetRenderedButtons absent-report clears target + latch + arc ---
+
+    [Fact]
+    public void SetRenderedButtons_ResetAbsent_RemovesTarget_ClearsEngineAndArc()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var visibility = new List<AdaptationPreviewVisibilityMessage>();
+        messenger.Register<AdaptationPreviewVisibilityMessage>(this, (_, m) => visibility.Add(m));
+        int resets = 0;
+        messenger.Register<ResetAdaptationMessage>(this, (_, _) => resets++);
+        var vm = new ToolbarViewModel(_settings, messenger);
+        PositionCoreButtons(vm);
+
+        DriveToFreeze(vm);
+        Check.That(visibility.Count(v => v.Visible)).IsEqualTo(1);
+
+        vm.SetRenderedButtons(new[] { "Pause" });                    // Reset left the band
+
+        Check.That(visibility.Select(v => v.Visible)).ContainsExactly(true, false); // panel retracted
+        var btn = ResetButton(vm);
+        Check.That(btn.DwellProgress).IsEqualTo(0.0);
+        Check.That(btn.IsHighlighted).IsFalse();
+
+        // The target is gone: resting where Reset used to be cannot fire it…
+        DwellDrive.Hold(400_000, 1_800_000,
+            t => vm.Receive(new GazeCursorMovedMessage(ResetCenter, t)));
+        Check.That(resets).IsEqualTo(0);
+
+        // …and the engine is disarmed: a BELOW-threshold progress propagates untouched (a fresh
+        // 0.45 would just start a new engagement — the engine tests' probe technique).
+        vm.SimulateTargetProgress(ResetId, 0.39);
+        Check.That(btn.DwellProgress).IsEqualTo(0.39);
+        Check.That(visibility.Count(v => v.Visible)).IsEqualTo(1);   // no new engagement
+
+        // Pause survived the absent-report: it still dwells and fires.
+        int pauses = 0;
+        messenger.Register<PauseToggledMessage>(this, (_, _) => pauses++);
+        long dwellUs = _settings.Dwell.ToolbarButtonDwellMs * 1000L;
+        DwellDrive.Hold(1_900_000, 1_900_000 + dwellUs,
+            t => vm.Receive(new GazeCursorMovedMessage(PauseCenter, t)));
+        Check.That(pauses).IsEqualTo(1);
+    }
+
+    // --- rev-1: bounds never arrive — after the 500 ms timeout the strip still works ---
+
+    [Fact]
+    public void BoundsNeverArrive_TimeoutCancelsPanel_PauseStillCompletesAndFires()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var visibility = new List<AdaptationPreviewVisibilityMessage>();
+        messenger.Register<AdaptationPreviewVisibilityMessage>(this, (_, m) => visibility.Add(m));
+        int pauses = 0;
+        messenger.Register<PauseToggledMessage>(this, (_, _) => pauses++);
+        var logger = new SpyLogger();
+        var vm = new ToolbarViewModel(_settings, messenger, logger: logger);
+        PositionCoreButtons(vm);
+
+        DriveToFreeze(vm);                                           // engage at ~300 ms, bounds unknown
+        Check.That(visibility.Count(v => v.Visible)).IsEqualTo(1);
+
+        // Gaze straight to Pause. The unknown-bounds guard holds the engagement Frozen (no leave
+        // run), but FeedExcluded still feeds every OTHER target — Pause accumulates throughout.
+        long t = 380_000;
+        for (; t <= 1_100_000; t += 30_000)
+        {
+            vm.Receive(new GazeCursorMovedMessage(PauseCenter, t));
+
+            // 500 ms of sample time after the ~300 ms engage: the panel is cancelled to the
+            // hit-area fallback and the rim cue comes on — captured between the timeout (800 ms)
+            // and the arm (920 ms), while Pause is still mid-dwell.
+            if (t == 830_000)
+            {
+                Check.That(visibility.Select(v => v.Visible)).ContainsExactly(true, false);
+                Check.That(vm.ResetFrozenSilent).IsTrue();
+            }
+        }
+
+        Check.That(pauses).IsEqualTo(1);                             // the strip never died
+        Check.That(vm.ResetFrozenSilent).IsFalse();                  // rim cue fell at arming
+
+        // The D14 carry (Task-5 review): the timeout fallback is logged in the VM — one
+        // Information line for the hide that arrived with no bounds ever reported.
+        Check.That(logger.Entries.Where(e => e.Level == LogLevel.Information)).HasSize(1);
+    }
+
+    // --- P15: suppressed at engage — no panel ever existed, the rim cue is the only evidence ---
+
+    [Fact]
+    public void SuppressedAtEngage_NoPanel_RimCuePropertyTrue()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var visibility = new List<AdaptationPreviewVisibilityMessage>();
+        messenger.Register<AdaptationPreviewVisibilityMessage>(this, (_, m) => visibility.Add(m));
+        bool suppress = true;
+        var vm = new ToolbarViewModel(_settings, messenger, isFeedbackSuppressed: () => suppress);
+        PositionCoreButtons(vm);
+
+        DriveToFreeze(vm);
+
+        Check.That(vm.ResetFrozenSilent).IsTrue();
+        Check.That(visibility).IsEmpty();                            // no panel ever existed
+        Check.That(ResetButton(vm).DwellProgress).IsStrictlyGreaterThan(ResetPreviewEngine.Threshold);
+
+        // L1: suppression ending restores nothing — and the silent read still leaves normally.
+        suppress = false;
+        DwellDrive.Hold(380_000, 520_000, t => vm.Receive(new GazeCursorMovedMessage(Away, t)));
+        Check.That(visibility).IsEmpty();                            // still nothing: no phantom hide
+        Check.That(vm.ResetFrozenSilent).IsFalse();
+    }
+
+    // --- deactivation: hide/calibration closes the engagement and drops the held arc ---
+
+    [Fact]
+    public void SetActive_False_RetractsPanel_AndLetsTheHeldArcFall()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var visibility = new List<AdaptationPreviewVisibilityMessage>();
+        messenger.Register<AdaptationPreviewVisibilityMessage>(this, (_, m) => visibility.Add(m));
+        var vm = new ToolbarViewModel(_settings, messenger);
+        PositionCoreButtons(vm);
+
+        DriveToFreeze(vm);
+        var btn = ResetButton(vm);
+        Check.That(btn.DwellProgress).IsStrictlyGreaterThan(ResetPreviewEngine.Threshold);
+
+        vm.SetActive(false);
+
+        // The engine reset retracts the shown panel…
+        Check.That(visibility.Select(v => v.Visible)).ContainsExactly(true, false);
+        // …and because it runs BEFORE ResetAllState, the Reset(0) the detector fires on reset
+        // routes through a DISARMED engine and the arc falls — instead of Holding at the freeze.
+        Check.That(btn.DwellProgress).IsEqualTo(0.0);
+        Check.That(btn.IsHighlighted).IsFalse();
+
+        // Re-activation previews fresh: no zombie engagement survives the hide.
+        vm.SetActive(true);
+        DwellDrive.Hold(400_000, 750_000, t => vm.Receive(new GazeCursorMovedMessage(ResetCenter, t)));
+        Check.That(visibility.Select(v => v.Visible)).ContainsExactly(true, false, true);
+        Check.That(visibility[2].EngagementId).IsEqualTo(2);
+    }
+
+    // --- anchor follow: a re-docked Reset re-anchors the NEXT engagement's publish ---
+
+    [Fact]
+    public void RepositionedReset_SecondEngagement_PublishesNewAnchor()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var visibility = new List<AdaptationPreviewVisibilityMessage>();
+        messenger.Register<AdaptationPreviewVisibilityMessage>(this, (_, m) => visibility.Add(m));
+        var vm = new ToolbarViewModel(_settings, messenger);
+        PositionCoreButtons(vm);
+
+        DriveToFreeze(vm);
+        Check.That(visibility[0].ResetCenter).IsEqualTo(ResetCenter);
+        messenger.Send(new AdaptationPreviewBoundsMessage(1, PreviewBoundsKind.Rect, PanelRect));
+
+        var moved = new PhysicalPoint(700, 300);
+        vm.UpdateButtonScreenPosition(ResetId, moved);
+        DwellDrive.Hold(380_000, 520_000, t => vm.Receive(new GazeCursorMovedMessage(Away, t))); // armed
+
+        // Return only past the 3 s arm expiry, so this rest previews fresh (a return inside the
+        // window would fire unfrozen — that path is the ArmedReturn test).
+        DwellDrive.Hold(3_650_000, 4_400_000, t => vm.Receive(new GazeCursorMovedMessage(moved, t)));
+        Check.That(visibility.Select(v => v.Visible)).ContainsExactly(true, false, true);
+        Check.That(visibility[2].ResetCenter).IsEqualTo(moved);
+    }
+}
+
+/// <summary>
+/// Exposes the detector so a test can apply the adaptation geometry margin production applies
+/// through <c>IDwellDetectorRegistry</c>/<c>GeometryRouter</c> (same rationale as
+/// <c>ProbeToolbarViewModel</c> in the sibling suite). Top-level and internal, not nested and
+/// private: the MVVM Toolkit's RegisterAll source generator must be able to see any subclass of
+/// an <c>IRecipient{T}</c> type.
+/// </summary>
+internal sealed class PreviewToolbarViewModel : ToolbarViewModel
+{
+    public PreviewToolbarViewModel(EyeCtrlSettings settings, IMessenger messenger,
+        IStruggleTelemetrySink? sink = null, Func<bool>? isFeedbackSuppressed = null)
+        : base(settings, messenger, sink, isFeedbackSuppressed: isFeedbackSuppressed) { }
+
+    public void GrowTarget(string id, double marginPx) => DwellDetector.UpdateTargetGeometry(id, marginPx);
+}

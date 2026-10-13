@@ -161,9 +161,10 @@ internal static class LiveCheck
 
     /// <summary>
     /// The INK box of a text element in device pixels — the drawn glyphs, not the layout box. A
-    /// corner button's layout box is its whole dwell disc (100 DIP for the backdrop's ✕), and a disc
-    /// centred 40 DIP from the screen corner legitimately reaches ~10 DIP past both edges; the glyph
-    /// the viewer sees sits well inside. "Is it on the screen" must therefore be judged on the ink.
+    /// corner button's layout box is its whole dwell disc (100 DIP for the backdrop's ✕), which the
+    /// corner's offset decides: at the 2026-10-13 offset of 53 DIP the disc is fully on screen (a
+    /// headless gate pins that), and the ink the viewer sees sits well inside either way. "Is it on
+    /// the screen" is judged on the ink because the ink is what the viewer sees.
     /// The geometry is built from the element's own font at the LINE's origin
     /// (<c>ContentStart.GetCharacterRect</c>, the read <c>ArcLabelFit.InkBoxOf</c> uses) — not the
     /// element's corner, which says nothing about where a centred glyph starts — then mapped through

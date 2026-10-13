@@ -437,9 +437,10 @@ public class Step3LiveCheckTests
             var physicalScreen = new Rect(0, 0,
                 SystemParameters.VirtualScreenWidth * transform.M11,
                 SystemParameters.VirtualScreenHeight * transform.M22);
-            // The ✕'s INK, not its layout box: the box is the whole 100-DIP dwell disc, and a disc
-            // centred 40 DIP from the corner reaches ~10 DIP past the right and top edges by design
-            // — the viewer sees the glyph, which sits well inside.
+            // The ✕'s INK, not its layout box: the box is the whole 100-DIP dwell disc, and what a
+            // viewer must find on screen is the glyph. Since the 2026-10-13 corner choice (53 DIP
+            // centre) the disc itself is fully inside too — pinned headless by
+            // GlassBackdropHideButtonTests.TheHideButton_DiscAndHalo_LieFullyInsideTheScreen.
             var inkBox = LiveCheck.InkBoundsInDevicePixels(glyph);
             Check.WithCustomMessage(
                     $"the ✕'s ink {inkBox} (device px) leaves the screen {physicalScreen}; the layout box is the "
@@ -461,9 +462,11 @@ public class Step3LiveCheckTests
     /// <summary>
     /// The common prologue: the opt-in gate, the WPF Application with its tokens, the DPI scale the
     /// App itself sets at startup, and the shipped German. Every case builds its window only after
-    /// this, so every overlay is laid out at the user's real scale.
+    /// this, so every overlay is laid out at the user's real scale. Shared with
+    /// <see cref="EyeCtrl.App.Tests.Overlays.BackdropAbLiveCheckTests"/> (the backdrop Mica A/B),
+    /// which starts exactly the way step 10 does.
     /// </summary>
-    private static void BeginShowcaseCase()
+    internal static void BeginShowcaseCase()
     {
         LiveCheck.Require();
         WpfApplicationGate.EnsureApplicationWithTokens();
@@ -474,9 +477,10 @@ public class Step3LiveCheckTests
     /// <summary>
     /// Puts the process-global DPI scale and the string table back to their test-run defaults. The
     /// assembly-level restore hooks do this after every test too; doing it here keeps the case's own
-    /// window of exposure closed even when it fails early.
+    /// window of exposure closed even when it fails early. Shared with
+    /// <see cref="EyeCtrl.App.Tests.Overlays.BackdropAbLiveCheckTests"/>.
     /// </summary>
-    private static void EndShowcaseCase()
+    internal static void EndShowcaseCase()
     {
         DpiHelper.Initialize(1.0, 1.0);
         StringTable.ResetToEmbeddedEnglish();
@@ -523,9 +527,10 @@ public class Step3LiveCheckTests
     /// <summary>
     /// The owner's backdrop settings, read READ-ONLY from <c>%APPDATA%\EyeCtrl\settings.json</c>: the
     /// material type is theirs (Mica today). A missing file, an unreadable one (the App may hold it),
-    /// or an unknown value falls back to the production defaults — nothing here writes.
+    /// or an unknown value falls back to the production defaults — nothing here writes. Shared with
+    /// <see cref="EyeCtrl.App.Tests.Overlays.BackdropAbLiveCheckTests"/>, which reads the same way.
     /// </summary>
-    private static BackdropSettings BackdropSettingsOfTheOwner()
+    internal static BackdropSettings BackdropSettingsOfTheOwner()
     {
         var settings = new BackdropSettings();
         try

@@ -1,6 +1,7 @@
 namespace EyeCtrl.ViewModels.Adaptation;
 
 using EyeCtrl.Core.Models;
+using EyeCtrl.ViewModels.Messages;
 
 /// <summary>How a gaze sample must be treated by the adaptation feed while a preview engagement runs.</summary>
 public enum PreviewFeed
@@ -57,6 +58,14 @@ public sealed class ResetPreviewEngine
     /// <summary>How long after arming a gaze return may still fire unfrozen; later returns preview fresh.</summary>
     public const long ArmExpiryUs = 3_000_000;
 
+    /// <summary>
+    /// How long the first-show unknown window may last: bounds still unreported this many
+    /// microseconds of sample time after engage, while the panel is wanted, cancels the panel and
+    /// falls back to the hit-area union (P11) — the reader is never stuck waiting on a silent
+    /// service.
+    /// </summary>
+    public const long BoundsTimeoutUs = 500_000;
+
     private enum EngineState
     {
         Disarmed,
@@ -65,24 +74,44 @@ public sealed class ResetPreviewEngine
         Armed
     }
 
+    private enum BoundsKind
+    {
+        /// <summary>Panel wanted, no report yet — the first-show window (guard + timeout).</summary>
+        Unknown,
+
+        /// <summary>The live panel rect is known and shapes the union.</summary>
+        Rect,
+
+        /// <summary>Policy-hidden: no panel, but the last rect stays in the union (D17).</summary>
+        HiddenKeepLast,
+
+        /// <summary>Absent: the union fell back to the hit area; the engagement is closed.</summary>
+        NoPanel
+    }
+
     private readonly Func<bool>? _isFeedbackSuppressed;
 
     private EngineState _state = EngineState.Disarmed;
 
     // Panel bookkeeping. _panelUp means the service was told to show a panel and has not been told
-    // to hide it; it gates every visibility-false publish (no hide for a panel that never existed).
+    // (or told us) it is down; it gates every visibility-false publish (no hide for a panel that
+    // never existed) and the mid-read suppression gate.
     private bool _panelUp;
 
-    // Last known panel bounds from the service (Task 5's OnBounds). Null while unknown — and until
-    // Task 5 lands, always null — in which case the union is the hit area alone.
-    private PhysicalRect? _panelBounds;
+    // Bounds protocol state for the CURRENT engagement (OnBounds, P2). _panelRect is null while
+    // unknown — in which case the union is the hit area alone and, while the panel is wanted, the
+    // leave run is guarded. Invalidated at Engage and Disarm (D14: first show only — engagement
+    // N's rect must never inflate engagement N+1's union).
+    private PhysicalRect? _panelRect;
+    private BoundsKind _boundsKind;
+    private long _unknownSinceUs;             // sample time the unknown window opened (the Engage)
 
     private int _engagementId;
     private double _held;                    // the frozen arc value; the toolbar mirrors it via HoldAtFreeze
     private long _offSinceUs;                // start of the current continuous off-union run
     private long _armedAtUs;                 // when Leaving completed; the pass window is measured from here
     private bool _passArmed;                 // P3: a deliberate re-dwell is in flight — Propagate, never freeze
-    private long _lastSampleUs;              // cached sample time for Task 5's 500 ms unknown-window timeout
+    private long _lastSampleUs;              // cached sample clock for the 500 ms unknown-window timeout (P4)
     private PhysicalPoint _anchor;
     private bool _frozenSilent;
 
@@ -120,10 +149,13 @@ public sealed class ResetPreviewEngine
     }
 
     /// <summary>
-    /// Classifies one gaze sample. The union is the hit area plus the known panel rect; while the
-    /// rect is unknown (always, until Task 5's OnBounds) the union is the hit area alone, so an
-    /// off-button sample both returns <see cref="PreviewFeed.FeedExcluded"/> and starts/continues
-    /// the leave run.
+    /// Classifies one gaze sample. The union is the hit area plus the panel rect — the live rect
+    /// (<see cref="PreviewBoundsKind.Rect"/>) or, after a policy hide
+    /// (<see cref="PreviewBoundsKind.HiddenKeepLast"/>, or the mid-read suppression gate), the
+    /// last known rect. While the rect is unknown AND the panel is wanted, off-union samples hold
+    /// the engagement Frozen with no leave run (the gaze may rest on a panel we cannot see yet)
+    /// until <see cref="BoundsTimeoutUs"/> of sample time cancels the panel to the hit-area
+    /// fallback. All timing is the handed-in sample timestamp (P4).
     /// </summary>
     public PreviewFeed DecideFeed(bool gazeOverReset, PhysicalPoint position, long timestampUs)
     {
@@ -131,16 +163,33 @@ public sealed class ResetPreviewEngine
 
         // P15: the pull-only gate, polled at the top of every sample. "Rising edge while a panel
         // is up" — the panel-up guard makes the level check publish exactly once per hide, and no
-        // re-show path exists, so a falling edge restores nothing.
+        // re-show path exists, so a falling edge restores nothing (L1). The hide KEEPS the last
+        // known rect in the union (HiddenKeepLast semantics): suppression must not arm the button
+        // under the reader's gaze.
         if (_isFeedbackSuppressed is not null
             && _isFeedbackSuppressed()
             && _panelUp
             && _state is EngineState.Frozen or EngineState.Leaving)
         {
-            MarkPanelAbsent();
+            HidePanel(keepLastRect: true, publishCancel: true);
         }
 
-        bool inUnion = gazeOverReset || (_panelBounds is { } rect && rect.Contains(position));
+        // Task 5: the first-show unknown window. Bounds still unreported while the panel is wanted
+        // and BoundsTimeoutUs of sample time has elapsed → cancel the panel (our show request is
+        // retracted) and fall back to the hit-area union; the leave run may start on this very
+        // sample (P11 — the reader is never stuck).
+        if (_state == EngineState.Frozen
+            && _panelUp
+            && _boundsKind == BoundsKind.Unknown
+            && timestampUs - _unknownSinceUs >= BoundsTimeoutUs)
+        {
+            HidePanel(keepLastRect: false, publishCancel: true);
+        }
+
+        bool inUnion = gazeOverReset
+            || (_boundsKind is BoundsKind.Rect or BoundsKind.HiddenKeepLast
+                && _panelRect is { } panel
+                && panel.Contains(position));
 
         switch (_state)
         {
@@ -152,6 +201,14 @@ public sealed class ResetPreviewEngine
                 {
                     // Over the button or inside the shown panel: held, nothing feeds.
                     return PreviewFeed.FeedNone;
+                }
+
+                // Task 5 guard: bounds unknown while the panel is wanted — the gaze may be resting
+                // on a panel we cannot see yet. Stay Frozen (no leave run); the timeout above or
+                // the arriving rect ends the hold.
+                if (_panelUp && _boundsKind == BoundsKind.Unknown)
+                {
+                    return PreviewFeed.FeedExcluded;
                 }
 
                 // Off the union: the leave run starts. Back-in-union samples cancel it (below).
@@ -276,17 +333,50 @@ public sealed class ResetPreviewEngine
     }
 
     /// <summary>
-    /// Service → VM bounds report for the current engagement (P2). NO-OP STUB in Task 4 — Task 5
-    /// implements the three-kind bounds protocol (Rect grows the union; HiddenKeepLast keeps the
-    /// last rect in the union until the leave completes; NoPanel falls back to the hit area) and
-    /// times the 500 ms unknown window on <see cref="_lastSampleUs"/>. Present now so the P18
-    /// re-entrancy contract — a PreviewVisibility subscriber may call this synchronously from
-    /// inside the event, against already-committed state — is load-bearing from day one.
+    /// Service → VM bounds report (P2), resolved per the three-kind protocol:
+    /// <see cref="PreviewBoundsKind.Rect"/> stores — or, on a resize, replaces — the live panel
+    /// rect and closes the first-show unknown window for good (D14);
+    /// <see cref="PreviewBoundsKind.HiddenKeepLast"/> is a policy hide (D17 collision): no panel,
+    /// but the last rect STAYS in the union until the leave completes — a hide must not arm the
+    /// button under the reader's gaze; <see cref="PreviewBoundsKind.NoPanel"/> falls back to the
+    /// hit-area union immediately and closes the engagement to further reports (a late Rect cannot
+    /// resurrect a cancelled panel). Reports for any other engagement id, or one that arrives
+    /// after the engagement ended, are dropped. P18: may be called synchronously from inside
+    /// <see cref="PreviewVisibility"/> against already-committed state.
     /// </summary>
-    public void OnBounds(int engagementId, PhysicalRect? panelBounds)
+    public void OnBounds(int engagementId, PreviewBoundsKind kind, PhysicalRect? bounds)
     {
-        // Task 5: match engagementId, resolve PreviewBoundsKind into _panelBounds / MarkPanelAbsent,
-        // and time the unknown window against _lastSampleUs (sample time, never wall clock).
+        if (engagementId != _engagementId || _state is not (EngineState.Frozen or EngineState.Leaving))
+        {
+            return;
+        }
+
+        switch (kind)
+        {
+            case PreviewBoundsKind.Rect:
+                // First show or resize: replace the last-known rect. Rejected once this
+                // engagement's panel is gone (HiddenKeepLast/NoPanel) — L1 has no restore path,
+                // so a late report must not resurrect a cancelled panel.
+                if (bounds is { } rect && _boundsKind is BoundsKind.Unknown or BoundsKind.Rect)
+                {
+                    _panelRect = rect;
+                    _boundsKind = BoundsKind.Rect;
+                }
+
+                break;
+
+            case PreviewBoundsKind.HiddenKeepLast:
+                // The service policy-hid the panel itself: no cancel echo (it already knows), but
+                // the last rect keeps shaping the union until the leave completes.
+                HidePanel(keepLastRect: true, publishCancel: false);
+                break;
+
+            case PreviewBoundsKind.NoPanel:
+                // Nothing was or is shown: retract our own show request and fall back to the hit
+                // area — the leave run may start immediately.
+                HidePanel(keepLastRect: false, publishCancel: true);
+                break;
+        }
     }
 
     private void Engage(double progress)
@@ -294,6 +384,12 @@ public sealed class ResetPreviewEngine
         _engagementId++;
         _held = progress;
         _state = EngineState.Frozen;
+
+        // D14 (first show only): bounds are invalidated per engagement — engagement N's stale rect
+        // must not inflate engagement N+1's union during its unknown window.
+        _panelRect = null;
+        _boundsKind = BoundsKind.Unknown;
+        _unknownSinceUs = _lastSampleUs;
 
         bool suppressed = _isFeedbackSuppressed?.Invoke() ?? false;
         bool wasSilent = _frozenSilent;
@@ -343,19 +439,33 @@ public sealed class ResetPreviewEngine
     }
 
     /// <summary>
-    /// Internal policy-hide helper (P15): the panel is down for the rest of this engagement. Task 4
-    /// treats every absence alike (the union falls back to the hit area); Task 5 refines this into
-    /// the three-kind bounds protocol.
+    /// Internal hide helper (P15 + Task 5's bounds protocol): the panel is down for the rest of
+    /// this engagement. <paramref name="keepLastRect"/> keeps the last known rect in the union —
+    /// policy hides (the mid-read suppression gate, a service D17 collision) must not arm the
+    /// button under the reader's gaze; otherwise the union falls back to the hit area and the
+    /// engagement is closed to further bounds reports. <paramref name="publishCancel"/> commands
+    /// the service to hide (OUR hide: the suppression gate, the NoPanel/timeout cancellation); a
+    /// service-initiated hide passes false — no echo for a panel the service already took down.
     /// </summary>
-    private void MarkPanelAbsent()
+    private void HidePanel(bool keepLastRect, bool publishCancel)
     {
         bool panelWasUp = _panelUp;
         _panelUp = false;
         bool wasSilent = _frozenSilent;
         _frozenSilent = true;
 
+        if (keepLastRect)
+        {
+            _boundsKind = BoundsKind.HiddenKeepLast;
+        }
+        else
+        {
+            _boundsKind = BoundsKind.NoPanel;
+            _panelRect = null;
+        }
+
         // P18: committed, then events.
-        if (panelWasUp)
+        if (publishCancel && panelWasUp)
         {
             PreviewVisibility?.Invoke(false, _engagementId, _anchor);
         }
@@ -373,6 +483,11 @@ public sealed class ResetPreviewEngine
         _state = EngineState.Disarmed;
         _passArmed = false;
         _held = 0;
+
+        // D14: stored bounds die with the engagement — the next one starts from unknown.
+        _panelRect = null;
+        _boundsKind = BoundsKind.Unknown;
+
         bool wasSilent = _frozenSilent;
         _frozenSilent = false;
 

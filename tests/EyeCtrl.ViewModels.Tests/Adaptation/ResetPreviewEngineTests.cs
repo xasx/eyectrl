@@ -5,21 +5,27 @@ using EyeCtrl.ViewModels.Adaptation;
 using EyeCtrl.ViewModels.Messages;
 
 /// <summary>
-/// ResetPreviewEngine contract tests (seen-latch freeze, Task 4). Everything is driven by explicit
-/// sample timestamps in microseconds (P4) — the engine has no clock of its own, so no test sleeps
-/// or reads the wall clock. States under test: Disarmed → Frozen → Leaving → Armed, with
-/// Threshold = 0.40, LeaveDebounceUs = 120 ms, ArmExpiryUs = 3 s. Task 5's OnBounds is a no-op
-/// stub here, so the union is always the Reset hit area (gazeOverReset).
+/// ResetPreviewEngine contract tests (seen-latch freeze, Tasks 4–5). Everything is driven by
+/// explicit sample timestamps in microseconds (P4) — the engine has no clock of its own, so no
+/// test sleeps or reads the wall clock. States under test: Disarmed → Frozen → Leaving → Armed,
+/// with Threshold = 0.40, LeaveDebounceUs = 120 ms, ArmExpiryUs = 3 s, BoundsTimeoutUs = 500 ms.
+/// The Task-4 mechanics tests drive the engine with a KNOWN panel rect (OnBounds(Rect) after
+/// engage) so the debounce runs are not held by the unknown-bounds guard; the Task-5 tests pin
+/// the guard and the three-kind bounds protocol itself.
 /// </summary>
 public class ResetPreviewEngineTests
 {
     private const string ResetId = ResetPreviewEngine.ResetId;
 
     // The engine trusts `gazeOverReset` for the hit area; OnReset/Away only need to be distinct,
-    // realistic physical points (the panel-rect branch of the union is dead until Task 5).
+    // realistic physical points. PanelRect sits below the button (anchored at 960,540): it holds
+    // InPanel but neither OnReset nor Away, so off-union samples stay off-union under it.
     private static readonly PhysicalPoint Anchor = new(960, 540);
     private static readonly PhysicalPoint OnReset = new(960, 540);
     private static readonly PhysicalPoint Away = new(960, 300);
+    private static readonly PhysicalRect PanelRect = new(860, 560, 200, 120);
+    private static readonly PhysicalRect MovedPanelRect = new(860, 700, 200, 120);
+    private static readonly PhysicalPoint InPanel = new(960, 600);   // inside PanelRect only
 
     private sealed class Harness
     {
@@ -83,6 +89,7 @@ public class ResetPreviewEngineTests
     {
         var h = new Harness();
         h.Engine.OnTargetProgress(ResetId, 0.40, 100_000);
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);      // Task 5: known bounds — the debounce runs are real
 
         // Shuttle panel (off the button) → button → panel → button; every off-run is far below
         // the 120 ms debounce, so the runs cancel and the engine never arms — and only an armed
@@ -121,6 +128,7 @@ public class ResetPreviewEngineTests
     {
         var h = new Harness();
         h.Engine.OnTargetProgress(ResetId, 0.40, 100_000);
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);      // Task 5: known bounds
 
         for (long t = 150_000; t <= 3_600_000; t += 50_000)
         {
@@ -141,6 +149,7 @@ public class ResetPreviewEngineTests
     {
         var h = new Harness();
         h.Engine.OnTargetProgress(ResetId, 0.40, 100_000);
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);      // Task 5: known bounds
 
         Check.That(h.Engine.DecideFeed(false, Away, 140_000)).IsEqualTo(PreviewFeed.FeedExcluded);  // run starts
         Check.That(h.Engine.DecideFeed(true, OnReset, 170_000)).IsEqualTo(PreviewFeed.FeedNone);    // 30 ms: cancel
@@ -156,6 +165,7 @@ public class ResetPreviewEngineTests
         // CONTINUOUS off-union time, not three frames of it.
         var h = new Harness();
         h.Engine.OnTargetProgress(ResetId, 0.40, 100_000);
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);      // Task 5: known bounds
 
         foreach (var t in new[] { 120_000L, 150_000L, 180_000L })
             Check.That(h.Engine.DecideFeed(false, Away, t)).IsEqualTo(PreviewFeed.FeedExcluded);
@@ -172,6 +182,7 @@ public class ResetPreviewEngineTests
     {
         var h = new Harness();
         h.Engine.OnTargetProgress(ResetId, 0.40, 100_000);
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);      // Task 5: known bounds
 
         Check.That(h.Engine.DecideFeed(false, Away, 100_000)).IsEqualTo(PreviewFeed.FeedExcluded);  // run starts
         // P6: the leave run's ungated TargetProgress(0) holds the arc — Zero is NOT returned here.
@@ -194,6 +205,7 @@ public class ResetPreviewEngineTests
     {
         var h = new Harness();
         h.Engine.OnTargetProgress(ResetId, 0.40, 100_000);
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);      // Task 5: known bounds
         h.Engine.DecideFeed(false, Away, 100_000);
         h.Engine.DecideFeed(false, Away, 220_000);                 // armed at 220_000
         Check.That(h.Engine.IsArmed).IsTrue();
@@ -215,6 +227,7 @@ public class ResetPreviewEngineTests
     {
         var h = new Harness();
         h.Engine.OnTargetProgress(ResetId, 0.40, 100_000);
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);      // Task 5: known bounds
         h.Engine.DecideFeed(false, Away, 100_000);
         h.Engine.DecideFeed(false, Away, 220_000);                 // armed at 220_000
 
@@ -237,6 +250,7 @@ public class ResetPreviewEngineTests
         // leaves _armedAtUs at the ORIGINAL arm time, so expiry is measured from 220_000.
         var h = new Harness();
         h.Engine.OnTargetProgress(ResetId, 0.40, 100_000);
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);      // Task 5: known bounds
         h.Engine.DecideFeed(false, Away, 100_000);
         h.Engine.DecideFeed(false, Away, 220_000);                  // armed at 220_000
         Check.That(h.Engine.IsArmed).IsTrue();
@@ -268,6 +282,7 @@ public class ResetPreviewEngineTests
         // activation, so the return fires unfrozen with no second preview.
         var h = new Harness();
         h.Engine.OnTargetProgress(ResetId, 0.40, 100_000);
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);      // Task 5: known bounds
         h.Engine.DecideFeed(false, Away, 100_000);
         h.Engine.DecideFeed(false, Away, 220_000);                  // armed at 220_000
 
@@ -293,6 +308,7 @@ public class ResetPreviewEngineTests
     {
         var h = new Harness();
         Check.That(h.Engine.OnTargetProgress(ResetId, 0.40, 100_000)).IsEqualTo(PreviewProgress.HoldAtFreeze);
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);      // Task 5: known bounds
 
         h.Engine.DecideFeed(false, Away, 120_000);                  // run starts
         // The detector resets while the gaze is away — the run must NOT forward the drop.
@@ -314,10 +330,9 @@ public class ResetPreviewEngineTests
         var reEntries = 0;
         engine.PreviewVisibility += (visible, id, anchor) =>
         {
-            // Task 5's API (no-op stub here): a PreviewVisibility subscriber may synchronously
-            // report bounds from inside the event — the engine must already be in its committed
-            // state when this runs.
-            engine.OnBounds(id, new PhysicalRect(900, 500, 120, 80));
+            // Task 5's API: a PreviewVisibility subscriber may synchronously report bounds from
+            // inside the event — the engine must already be in its committed state when this runs.
+            engine.OnBounds(id, PreviewBoundsKind.Rect, new PhysicalRect(900, 500, 120, 80));
             reEntries++;
         };
 
@@ -398,6 +413,7 @@ public class ResetPreviewEngineTests
         long t = 0;
         for (var i = 1; i <= 8; i++)                                // 0.40 at 400 ms → engage
             h.Engine.OnTargetProgress(ResetId, i * 0.05, t += 50_000);
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);      // Task 5: known bounds
         Check.That(h.ShownCount).IsEqualTo(1);
 
         Check.That(h.Engine.DecideFeed(false, Away, 400_000)).IsEqualTo(PreviewFeed.FeedExcluded);  // run starts
@@ -430,6 +446,7 @@ public class ResetPreviewEngineTests
     {
         var h = new Harness();
         h.Engine.OnTargetProgress(ResetId, 0.40, 100_000);
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);      // Task 5: known bounds
         h.Engine.DecideFeed(false, Away, 120_000);                  // Leaving, panel still up
 
         h.Engine.OnActivated("Modes");                              // the gaze dwelled Modes during the debounce
@@ -463,6 +480,7 @@ public class ResetPreviewEngineTests
     {
         var h = new Harness();
         h.Engine.OnTargetProgress(ResetId, 0.40, 100_000);
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);      // Task 5: known bounds
         h.Engine.DecideFeed(false, Away, 100_000);
         h.Engine.DecideFeed(false, Away, 220_000);                  // armed
         h.Engine.OnTargetProgress(ResetId, 0.20, 3_120_000);        // pass armed (2.9 s in)
@@ -495,5 +513,217 @@ public class ResetPreviewEngineTests
 
         Check.That(Enum.GetNames<PreviewBoundsKind>())
             .IsEqualTo(new[] { "Rect", "HiddenKeepLast", "NoPanel" });
+    }
+
+    // -------------------------------------------------------------------------
+    // Task 5: the bounds protocol (P2/P11/D14) — Rect store/resize, HiddenKeepLast,
+    // NoPanel, the unknown-window guard + 500 ms timeout, id matching, first-show-only.
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void OnBounds_Rect_LastKnownStaysUntilReplacedByLaterRect()
+    {
+        var h = new Harness();
+        h.Engine.OnTargetProgress(ResetId, 0.40, 100_000);              // engage, panel wanted
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);        // first show
+
+        // Stored: gaze inside the reported rect (off the button) is in the union → FeedNone.
+        Check.That(h.Engine.DecideFeed(false, InPanel, 150_000)).IsEqualTo(PreviewFeed.FeedNone);
+
+        // No new report: the last-known rect persists — the union does not revert to the hit area.
+        Check.That(h.Engine.DecideFeed(false, InPanel, 300_000)).IsEqualTo(PreviewFeed.FeedNone);
+
+        // The resize report REPLACES it: the same point, inside the old rect only, falls out.
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, MovedPanelRect);
+        Check.That(h.Engine.DecideFeed(false, InPanel, 350_000)).IsEqualTo(PreviewFeed.FeedExcluded);
+        Check.That(h.Engine.IsArmed).IsFalse();
+    }
+
+    [Fact]
+    public void OnBounds_HiddenKeepLast_KeepsOldRectInUnion_ReaderHoldingItDoesNotArm()
+    {
+        // C1 regression: a D17 collision hides the panel while the reader is mid-read. The hide
+        // must not arm the button under the reader's gaze — the old rect still shields it.
+        var h = new Harness();
+        h.Engine.OnTargetProgress(ResetId, 0.40, 100_000);
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);
+
+        h.Engine.OnBounds(1, PreviewBoundsKind.HiddenKeepLast, null);   // service policy-hid it
+        Check.That(h.Engine.FrozenSilent).IsTrue();                     // engagement live, no panel
+        Check.That(h.HiddenCount).IsEqualTo(0);                         // the service hid it: no echo
+
+        // Gaze held on the OLD rect far past the 120 ms debounce: still Frozen, still FeedNone.
+        Check.That(h.Engine.DecideFeed(false, InPanel, 200_000)).IsEqualTo(PreviewFeed.FeedNone);
+        Check.That(h.Engine.DecideFeed(false, InPanel, 400_000)).IsEqualTo(PreviewFeed.FeedNone);
+        Check.That(h.Engine.IsArmed).IsFalse();                         // the regression pin
+
+        // The leave debounce itself is unchanged: leaving the old rect entirely arms normally.
+        Check.That(h.Engine.DecideFeed(false, Away, 500_000)).IsEqualTo(PreviewFeed.FeedExcluded);
+        Check.That(h.Engine.DecideFeed(false, Away, 640_000)).IsEqualTo(PreviewFeed.FeedExcluded);
+        Check.That(h.Engine.IsArmed).IsTrue();
+        Check.That(h.HiddenCount).IsEqualTo(0);                         // panel already down: no hide
+        Check.That(h.Engine.FrozenSilent).IsFalse();
+    }
+
+    [Fact]
+    public void SuppressionFlipAfterKnownRect_HidesPanel_OldRectStillShields_DoesNotArm()
+    {
+        // R2-M2 regression: the engine's own mid-read suppression hide keeps the last rect in the
+        // union too — flipping suppression back must neither restore the panel nor arm the button
+        // while the reader still rests on the old rect.
+        var h = new Harness();
+        h.Engine.OnTargetProgress(ResetId, 0.40, 100_000);
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);
+
+        h.Suppress = true;
+        Check.That(h.Engine.DecideFeed(false, InPanel, 200_000)).IsEqualTo(PreviewFeed.FeedNone);  // policy hide, still in union
+        Check.That(h.HiddenCount).IsEqualTo(1);                         // the ENGINE commands this hide
+        Check.That(h.Engine.FrozenSilent).IsTrue();
+
+        Check.That(h.Engine.DecideFeed(false, InPanel, 400_000)).IsEqualTo(PreviewFeed.FeedNone);
+        Check.That(h.Engine.IsArmed).IsFalse();                         // > 120 ms on the old rect: no arm
+
+        h.Suppress = false;                                             // L1: ending restores nothing
+        Check.That(h.Engine.DecideFeed(false, InPanel, 450_000)).IsEqualTo(PreviewFeed.FeedNone);
+        Check.That(h.ShownCount).IsEqualTo(1);
+        Check.That(h.Engine.FrozenSilent).IsTrue();
+
+        Check.That(h.Engine.DecideFeed(false, Away, 500_000)).IsEqualTo(PreviewFeed.FeedExcluded);
+        Check.That(h.Engine.DecideFeed(false, Away, 640_000)).IsEqualTo(PreviewFeed.FeedExcluded);
+        Check.That(h.Engine.IsArmed).IsTrue();
+        Check.That(h.HiddenCount).IsEqualTo(1);                         // no second hide
+    }
+
+    [Fact]
+    public void OnBounds_NoPanel_FallsBackToHitArea_Immediately()
+    {
+        var h = new Harness();
+        h.Engine.OnTargetProgress(ResetId, 0.40, 100_000);
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);
+        Check.That(h.Engine.DecideFeed(false, InPanel, 150_000)).IsEqualTo(PreviewFeed.FeedNone);
+
+        h.Engine.OnBounds(1, PreviewBoundsKind.NoPanel, null);          // nothing was or is shown
+        Check.That(h.Engine.FrozenSilent).IsTrue();
+        Check.That(h.HiddenCount).IsEqualTo(1);                         // the cancel: our show request retracted
+        Check.That(h.ShownCount).IsEqualTo(1);
+
+        // The known rect is dropped: the same in-rect point now starts the leave run.
+        Check.That(h.Engine.DecideFeed(false, InPanel, 200_000)).IsEqualTo(PreviewFeed.FeedExcluded);
+        Check.That(h.Engine.DecideFeed(false, InPanel, 340_000)).IsEqualTo(PreviewFeed.FeedExcluded);
+        Check.That(h.Engine.IsArmed).IsTrue();                          // hit-area union: Pause still fires (Task 6)
+    }
+
+    [Fact]
+    public void BoundsNeverArrive_GuardHoldsLeave_Until500MsTimeoutCancelsToFallback()
+    {
+        var h = new Harness();
+        h.Engine.OnTargetProgress(ResetId, 0.40, 100_000);              // engage; bounds unknown
+        Check.That(h.ShownCount).IsEqualTo(1);
+
+        // Guard: bounds unknown while the panel is wanted — off-button gaze stays Frozen with no
+        // leave run, however long it accumulates (400 ms continuous here, > the 120 ms debounce).
+        Check.That(h.Engine.DecideFeed(false, Away, 150_000)).IsEqualTo(PreviewFeed.FeedExcluded);
+        Check.That(h.Engine.DecideFeed(false, Away, 300_000)).IsEqualTo(PreviewFeed.FeedExcluded);
+        Check.That(h.Engine.DecideFeed(false, Away, 500_000)).IsEqualTo(PreviewFeed.FeedExcluded);
+        Check.That(h.Engine.IsArmed).IsFalse();
+        Check.That(h.HiddenCount).IsEqualTo(0);
+
+        // At exactly 500 ms of sample time the panel is cancelled and the union is the hit area.
+        Check.That(h.Engine.DecideFeed(false, Away, 600_000)).IsEqualTo(PreviewFeed.FeedExcluded);
+        Check.That(h.HiddenCount).IsEqualTo(1);
+        Check.That(h.Visibility[^1].Id).IsEqualTo(1);
+        Check.That(h.Engine.FrozenSilent).IsTrue();
+
+        // Post-fallback: on-button FeedNone (union = hit area), off-button runs and arms.
+        Check.That(h.Engine.DecideFeed(true, OnReset, 650_000)).IsEqualTo(PreviewFeed.FeedNone);
+        Check.That(h.Engine.DecideFeed(false, Away, 700_000)).IsEqualTo(PreviewFeed.FeedExcluded);
+        Check.That(h.Engine.DecideFeed(false, Away, 830_000)).IsEqualTo(PreviewFeed.FeedExcluded);
+        Check.That(h.Engine.IsArmed).IsTrue();
+        Check.That(h.Engine.FrozenSilent).IsFalse();
+        Check.That(h.SilentChangedCount).IsEqualTo(2);
+    }
+
+    [Fact]
+    public void LateRectAfterTimeout_DoesNotResurrectCancelledPanel()
+    {
+        var h = new Harness();
+        h.Engine.OnTargetProgress(ResetId, 0.40, 100_000);              // bounds never arrive
+        h.Engine.DecideFeed(false, Away, 300_000);                      // guarded, no run
+        h.Engine.DecideFeed(false, Away, 600_000);                      // timeout cancels the panel
+        Check.That(h.HiddenCount).IsEqualTo(1);
+
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);        // late report: engagement closed
+
+        // Gaze inside the late rect is NOT in the union — the run continues and completes.
+        Check.That(h.Engine.DecideFeed(false, InPanel, 700_000)).IsEqualTo(PreviewFeed.FeedExcluded);
+        Check.That(h.Engine.DecideFeed(false, InPanel, 840_000)).IsEqualTo(PreviewFeed.FeedExcluded);
+        Check.That(h.Engine.IsArmed).IsTrue();
+        Check.That(h.ShownCount).IsEqualTo(1);                          // no resurrection, no re-show
+    }
+
+    [Fact]
+    public void OnBounds_StaleEngagementId_Dropped_StaleRectNotInNewUnion()
+    {
+        var h = new Harness();
+        h.Engine.OnTargetProgress(ResetId, 0.40, 100_000);              // engagement 1
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);
+        h.Engine.Reset();                                               // close engagement 1
+        Check.That(h.HiddenCount).IsEqualTo(1);
+
+        h.Engine.OnTargetProgress(ResetId, 0.45, 300_000);              // engagement 2 (id 2)
+        Check.That(h.ShownCount).IsEqualTo(2);
+
+        h.Engine.OnBounds(1, PreviewBoundsKind.NoPanel, null);          // stale from engagement 1
+        Check.That(h.Engine.FrozenSilent).IsFalse();                    // dropped: no cancel applied
+        Check.That(h.HiddenCount).IsEqualTo(1);
+        Check.That(h.ShownCount).IsEqualTo(2);
+
+        // D14: engagement 1's rect does not inflate engagement 2's union during its unknown
+        // window — a point inside the OLD rect is excluded (had the rect leaked, it would be
+        // FeedNone).
+        Check.That(h.Engine.DecideFeed(false, InPanel, 350_000)).IsEqualTo(PreviewFeed.FeedExcluded);
+    }
+
+    [Fact]
+    public void AfterFirstRect_NoFurtherUnknownWindow_LeaveRunsOnDebounceAlone()
+    {
+        var h = new Harness();
+        h.Engine.OnTargetProgress(ResetId, 0.40, 100_000);
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);
+        Check.That(h.Engine.DecideFeed(false, InPanel, 150_000)).IsEqualTo(PreviewFeed.FeedNone);
+
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, MovedPanelRect);   // resize: replace, no new window
+
+        // The out-of-union point starts the run IMMEDIATELY (no 500 ms unknown stall), and the
+        // debounce alone arms: 130 ms of continuous off-union time.
+        Check.That(h.Engine.DecideFeed(false, InPanel, 200_000)).IsEqualTo(PreviewFeed.FeedExcluded);
+        Check.That(h.Engine.DecideFeed(false, InPanel, 330_000)).IsEqualTo(PreviewFeed.FeedExcluded);
+        Check.That(h.Engine.IsArmed).IsTrue();
+        Check.That(h.HiddenCount).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void ReturnAtExactly3_000s_ArmExpiryBoundary_FiresUnfrozen()
+    {
+        // The expiry is STRICTLY past 3 s: the first Reset progress of the return arriving at
+        // exactly 3.000 s after arming is still within the window — the pass arms and runs to the
+        // fire with no second preview.
+        var h = new Harness();
+        h.Engine.OnTargetProgress(ResetId, 0.40, 100_000);
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);
+        h.Engine.DecideFeed(false, Away, 100_000);
+        h.Engine.DecideFeed(false, Away, 220_000);                      // armed at 220_000
+        Check.That(h.Engine.IsArmed).IsTrue();
+
+        Check.That(h.Engine.OnTargetProgress(ResetId, 0.20, 220_000 + 3_000_000))
+            .IsEqualTo(PreviewProgress.Propagate);                      // exactly 3.0 s: within
+        Check.That(h.Engine.OnTargetProgress(ResetId, 0.60, 220_000 + 3_500_000))
+            .IsEqualTo(PreviewProgress.Propagate);                      // mid-pass: past 0.40, no freeze
+        Check.That(h.Engine.OnTargetProgress(ResetId, 1.00, 220_000 + 4_000_000))
+            .IsEqualTo(PreviewProgress.Propagate);
+        h.Engine.OnActivated(ResetId);                                  // the fire
+
+        Check.That(h.Engine.IsArmed).IsFalse();
+        Check.That(h.ShownCount).IsEqualTo(1);
     }
 }

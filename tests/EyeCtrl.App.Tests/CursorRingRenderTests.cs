@@ -173,10 +173,11 @@ public class CursorRingRenderTests
     [StaFact]
     public void TwoLooks_FreeLookQuiet_PinnedBold_AndUnpinReturnsToQuiet()
     {
-        // The two explicit looks (the paused dim was removed with the hide-while-paused change of
-        // PR #191 — no production path showed the window while paused): FreeLook quiet, Fixation
-        // pinned + bold. Only a pin may bold the ring, and the pin's end must return to quiet —
-        // FreeLookQuietOpacity < 1.0 keeps the two distinguishable from the opacity alone.
+        // The two explicit looks. PR #191's hide-while-paused change kept the old paused dim as
+        // defensive-only code; this branch's deletion removed it — no production path can show the
+        // window while paused. FreeLook quiet, Fixation pinned + bold. Only a pin may bold the
+        // ring, and the pin's end must return to quiet — FreeLookQuietOpacity < 1.0 keeps the two
+        // distinguishable from the opacity alone.
         var window = CreateWindow();
         try
         {

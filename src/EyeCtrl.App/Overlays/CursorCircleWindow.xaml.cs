@@ -36,8 +36,10 @@ public partial class CursorCircleWindow : OverlayWindow, ICursorCircleOverlay, I
     /// </summary>
     internal const double FreeLookQuietOpacity = 0.6;
 
-    // The two looks live here, one owner of Opacity: pinned is bold because stillness is the
-    // "you're holding" signal; FreeLook is quiet so the ring never competes with the target.
+    // The two looks live here: Opacity is always one of the two constants. The ctor establishes
+    // the quiet one (no pin notification fires for the default state); the pin is bold because
+    // stillness is the "you're holding" signal, FreeLook is quiet so the ring never competes
+    // with the target.
     private bool _isPinned;
 
     /// <summary>Raises the ring to its bold pinned look while a fixation is held at the settle centroid.</summary>

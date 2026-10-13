@@ -125,7 +125,40 @@ public class OverlayVmBindingCoordinatorTests
 
     // (The Paused ring dim (A-M2) test was removed with the dim plumbing itself: PR #191 hides the
     // ring in Paused and no production path shows the window in that state, so there is no dim call
-    // left to wire — the VM hides via the IsVisible case, which its own tests cover.)
+    // left to wire. The VM's IsVisible flip is covered by the VM's own tests; the coordinator step
+    // that forwards it to the window — the ONLY thing hiding the ring while paused — is pinned by
+    // CursorPausedState_HidesAndShowsTheRing below, which replaces the deleted dim test.)
+
+    [Fact]
+    public void CursorPausedState_HidesAndShowsTheRing()
+    {
+        // Review round 1 (M3): deleting the `else cursorCircle.Hide()` arm of the IsVisible case
+        // survived every suite green — the deleted dim test had been the only App-level test
+        // driving Paused through this coordinator. The hide is the paused ring's whole mechanism
+        // now (PR #191 + the dim deletion), so the forwarding gets its own test: the real state
+        // message flips the VM's IsVisible, and the coordinator's handler must forward Hide, then
+        // Show on resume. Mutation: drop the else arm → HideCalls stays empty, red.
+        var cursorCircle = new RecordingCursorCircle();
+        var messenger = new WeakReferenceMessenger();
+        var cursorVm = new CursorCircleViewModel(new EyeCtrlSettings(), messenger);
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            CursorVM = cursorVm,
+            Messenger = messenger,
+            OverlayManager = TestFakes.MakeOverlayManager(cursorCircle: cursorCircle),
+        };
+        var coordinator = NewCoordinator();
+        SetContext(coordinator, ctx);
+
+        messenger.Send(new StateChangedMessage(InteractionState.Paused));
+        InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsVisible));
+        Check.That(cursorCircle.HideCalls).IsEqualTo(1);
+
+        messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsVisible));
+        Check.That(cursorCircle.ShowCalls).IsEqualTo(1);
+        Check.That(cursorCircle.HideCalls).IsEqualTo(1);
+    }
 
     [Fact]
     public void CursorPinAndGlide_AreForwardedToTheRing_AsOneMoveCall()
@@ -247,14 +280,17 @@ public class OverlayVmBindingCoordinatorTests
         method.Invoke(coordinator, new object?[] { null, new PropertyChangedEventArgs(propertyName) });
     }
 
-    /// <summary>Private nested fake (repo convention: no mocking library): records the pins and moves.</summary>
+    /// <summary>Private nested fake (repo convention: no mocking library): records the pins, moves,
+    /// and the show/hide forwarding (the paused ring's whole mechanism).</summary>
     private sealed class RecordingCursorCircle : ICursorCircleOverlay
     {
+        public int ShowCalls { get; private set; }
+        public int HideCalls { get; private set; }
         public List<bool> PinnedCalls { get; } = new();
         public List<(PhysicalPoint Target, bool Glide)> MoveCalls { get; } = new();
 
-        public void Show() { }
-        public void Hide() { }
+        public void Show() => ShowCalls++;
+        public void Hide() => HideCalls++;
         public void UpdatePosition(PhysicalPoint point) { }
         public void MoveTo(PhysicalPoint point, bool glide) => MoveCalls.Add((point, glide));
         public void UpdateAppearance(CursorSettings settings) { }

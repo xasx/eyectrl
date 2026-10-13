@@ -130,9 +130,10 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     public void Receive(StateChangedMessage message)
     {
         _lastState = message.NewState;
-        // Paused hides the ring (as every non-targeting state does): the PauseIndicator strip is the
-        // pause feedback, and resume needs no cursor — the past-edge summon carries no pause gate and
-        // the toolbar band is deliberately dwellable while paused (ToolbarViewModel.DwellActiveWhilePaused).
+        // Paused hides the ring, as every state other than FreeLook and Fixation does (the same
+        // set _stateAllowsCursor below admits): the PauseIndicator strip is the pause feedback,
+        // and resume needs no cursor — the past-edge summon carries no pause gate and the toolbar
+        // band is deliberately dwellable while paused (ToolbarViewModel.DwellActiveWhilePaused).
         // RepeatMode hides the normal circle too: the contracting repeat cursor replaces it there.
         // Belt and braces for the release: a pinned ring implies Fixation or FreeLook — FreeLook only
         // because the ring stays at the offer's P while the user looks at the button, and Core's

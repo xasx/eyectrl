@@ -42,7 +42,7 @@ public class CursorCircleViewModelTests
         // Paused hides the ring (owner ruling 2026-10-07, superseding the visible-dim look of
         // ticket 1): the PauseIndicator strip is the pause feedback and the edge-summon dwell stays
         // active while paused, so resume needs no cursor. The visible-dim plumbing itself was later
-        // removed — no production path ever showed the window in that state.
+        // removed — once Paused hides the ring, no production path can show the window in that state.
         var settings = new EyeCtrlSettings();
         var vm = new CursorCircleViewModel(settings, _messenger);
         Check.That(vm.IsVisible).IsTrue();

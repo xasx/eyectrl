@@ -245,7 +245,7 @@ public class ManualSelectionRecaptureTests
             public void UpdatePosition(PhysicalPoint point) { }
             public void MoveTo(PhysicalPoint point, bool glide) { }
             public void UpdateAppearance(CursorSettings settings) { }
-                public void SetPinned(bool pinned) { }
+            public void SetPinned(bool pinned) { }
         }
 
         private sealed class NoOpActivationButton : IActivationButtonOverlay

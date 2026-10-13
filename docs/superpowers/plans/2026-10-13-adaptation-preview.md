@@ -93,7 +93,7 @@ public class PhysicalRectGeometryTests
 
 **Interfaces:** Produces `public static class EffectiveSmoothing { public static double? Compose(EffectiveSettingsProvider provider, CursorSettings cursor); }`; `GazeEngine.EffectiveSmoothingParameter()` becomes a one-line delegate.
 
-- [ ] **Step 1: Failing tests** — same four cases as before (Direct null; One-Euro floor 0.1; EMA unit clamp; disabled ⇒ baseline), but the fixture sets **only the baseline the filter mode reads** (P13): the One-Euro cases set `OneEuroMinCutoff` and never touch `SmoothingFactor`; the EMA case sets `SmoothingFactor` to a value inside its 0–1 guard. The full-band/full-fill EMA clamp case therefore uses `SmoothingFactor = 1.0` with fraction 0.5 → composes toward 0.5, in-range — assert that value instead of the old 0.0 expectation.
+- [ ] **Step 1: Failing tests** — same four cases as before (Direct null; One-Euro floor 0.1; **"EMA composes against `SmoothingFactor`"** — renamed, L3: `SmoothingFactor = 0.9` with fraction 0.5 and full fill composes to 0.45, in-range, because the EMA floor is unreachable from in-range inputs; the case pins the baseline selection, not a clamp; disabled ⇒ baseline), with the fixture setting **only the baseline the filter mode reads** (P13): One-Euro cases never touch `SmoothingFactor`; EMA cases stay inside its 0–1 guard.
 - [ ] **Step 2: Verify fail. Step 3: Implement** — move the engine body verbatim (with its §13.3 comment); engine delegates.
 - [ ] **Step 4: Run Core tests (including the GazeEngine oracle) → PASS. Commit:** `feat: extract EffectiveSmoothing.Compose (G2, P13)`
 
@@ -130,6 +130,7 @@ public sealed class ResetPreviewEngine
     public bool IsArmed { get; }
     public bool FrozenSilent { get; }              // frozen && no panel → D18 rim cue
     public event Action<bool, int, PhysicalPoint>? PreviewVisibility; // visible, engagementId, anchor
+    public event Action? FrozenSilentChanged;      // L1 — Task 6 binds the rim cue to this
 
     public void SetAnchor(PhysicalPoint center);
     public PreviewFeed DecideFeed(bool gazeOverReset, PhysicalPoint position, long timestampUs); // P4: sample time
@@ -145,14 +146,14 @@ public sealed class ResetPreviewEngine
 
 **State machine** (`Disarmed, Frozen, Leaving, Armed`; constants `Threshold = 0.40`, `LeaveDebounceUs = 120_000`, `ArmExpiryUs = 3_000_000`):
 
-- **Disarmed**: `OnTargetProgress(ResetId, p ≥ Threshold)` → **Frozen** (`_engagementId++`, `_held = p`, bounds unknown), publish `PreviewVisibility(!suppressed, id, anchor)`.
+- **Disarmed**: `OnTargetProgress(ResetId, p ≥ Threshold)` → **Frozen** (`_engagementId++`, `_held = p`, bounds unknown); publish `PreviewVisibility(true, id, anchor)` ONLY when unsuppressed — **suppressed at engage publishes nothing** (L1: no panel ever existed, so no service is told to show one; `FrozenSilent = true`, union = hit area immediately). Suppression **ending** mid-engagement does NOT restore the panel for that engagement (it stays hidden; the next engagement may show — L1).
 - **Frozen**: `DecideFeed`: over Reset → `FeedNone`; off Reset with bounds unknown → `FeedExcluded`; off Reset inside the known rect → `FeedNone`; otherwise → **Leaving** (`_offSinceUs = ts`) returning `FeedExcluded`. Back in union cancels the run → Frozen. `OnTargetProgress(ResetId, ·)` → `HoldAtFreeze`.
 - **Leaving**: continuous off-union ≥ `LeaveDebounceUs` → **Armed** (`_armedAtUs = ts`, publish visibility-false, `FrozenSilent = false`). `OnTargetProgress(ResetId, ·)` → **`HoldAtFreeze`** (P6 — the leave run's ungated `TargetProgress(0)` must not drop the arc; if the run cancels back to Frozen no event would restore it).
 - **Armed — pass discipline (P3):** the pass starts on Reset's **first `OnTargetProgress(ResetId, progress > 0)`** while `_armedAtUs` is within `ArmExpiryUs` — NOT on `HitTest` (in the grown-overlap a Modes sample sets `HitTest(Reset)` true while Modes is nearest and fires; Reset then never emits progress 0, and a HitTest-latched `_passArmed` would outlive everything). `_passArmed` ends on: any `DecideFeed` sample with `gazeOverReset == false`, `OnActivated` of **any** target, or `Reset()`. While `_passArmed`: `FeedAll`, `Propagate`, and **no freeze engages mid-pass** even past 0.40. A gaze return whose first Reset progress arrives later than `ArmExpiryUs` → **Disarmed** first (fresh preview next). While Armed without a pass: `FeedAll`, `OnTargetProgress(ResetId, ·)` → `Propagate`.
 - **Event invariant (P18):** every field is committed **before** its event is raised — a re-entrant `OnBounds` from inside `PreviewVisibility` must observe the committed Frozen state.
 
 - [ ] **Step 1: Failing tests** — rev-1 list (engagement at 0.40/0.39; panel→button→panel no-fire; `HoldAtFreeze` arc+highlight contract via return values; multi-second read no-hide-no-fire; 1- and 3-sample excursions don't arm; debounced leave arms + `Zero`... — with P6 corrected: the **leave run returns `HoldAtFreeze`**, and `Zero` is only the post-arm drop; expiry at 3.1 s re-previews; 2.9 s return fires unfrozen with no second visibility-true) PLUS:
-  - **P3 test:** Armed; gaze into the Modes/Reset overlap (HitTest true) but Modes accumulates and fires (`OnActivated("Modes")`); then a later rest on Reset → **previews again** (no zombie pass).
+  - **P3 tests (L2 — pinned times):** Armed; gaze into the Modes/Reset overlap (HitTest true) but Modes accumulates and fires (`OnActivated("Modes")`) — the pass ends and the engine returns to **Armed with the original `_armedAtUs` unchanged**; then a later rest on Reset **more than 3 s** after arming → **previews again** (no zombie pass). Sibling: the same overlap→Modes-fires sequence with the later rest **within 3 s** → **fires unfrozen** (the latch legitimately persists through another target's activation). Both tests state the pass-end→Armed-original-timestamp rule.
   - **P6 test:** excursion → cancel back into the union mid-run → arc still reads the held 0.40.
   - **P18 test:** a `PreviewVisibility` subscriber that synchronously calls `OnBounds(id, rect)` (Task 5's API, stubbed here as a no-op) — engine does not corrupt state; the frozen state survives the re-entrant call.
   - **Suppression tests:** suppressed at engage → no visibility-true ever, `FrozenSilent == true`, union = hit area from the first sample; suppressed flipping mid-read (delegate returns true on a later `DecideFeed`) → visibility-false published, `FrozenSilent == true` — and with Task 5, the rect stays.
@@ -217,14 +218,16 @@ public record AdaptationPreviewBoundsMessage(int EngagementId, PreviewBoundsKind
 services.AddSingleton(sp => new ToolbarViewModel(
     sp.GetRequiredService<Core.Settings.EyeCtrlSettings>(),
     WeakReferenceMessenger.Default,
+    sink: sp.GetRequiredService<IStruggleTelemetrySink>(),
+    dwellRegistry: sp.GetRequiredService<IDwellDetectorRegistry>(),
     isFeedbackSuppressed: () => sp.GetRequiredService<IFeedbackGate>().IsFeedbackSuppressed));
 ```
 
-(Match the VM's real ctor arity — sink/registry params keep their DI/`null` behavior; do not drop them.)
+**Full arity is load-bearing (R2-1):** `IStruggleTelemetrySink` (`AppBootstrapper.cs:353`) and `IDwellDetectorRegistry` (`:315`) are both registered; both VM params are optional, so dropping either compiles and runs while silently switching off the toolbar's struggle telemetry and its adaptive dwell/geometry routing — the exact trap `DwellRoutingRegistrationWiringTests` exists to catch.
 - Produces: `bool ResetFrozenSilent` (PropertyChanged, from `FrozenSilentChanged`), `void SetRenderedButtons(IReadOnlyCollection<string> renderedIds)`, `void Receive(AdaptationPreviewBoundsMessage)`, per-id `Dictionary<string, PhysicalPoint> _lastCenters`.
 
 - [ ] **Step 1: Failing tests** — rev-1 list (0.40 hold; geometry-fill-1.0 overlap + panel-top-left → zero activations and zero outcomes via the telemetry sink; 130 ms leave arms and zeroes; return fires `ResetAdaptationMessage`; `SetRenderedButtons` absent-report clears target+latch+arc; **bounds never arrive → after the timeout the Pause target still completes and fires** — the strip never died) PLUS:
-  - **P5 composition test:** build a `ServiceProvider` with the factory registration + a fake `IFeedbackGate` (suppressed = true), resolve `ToolbarViewModel`, drive gaze on Reset to 0.40 → no visibility-true message, `ResetFrozenSilent == true` — the delegate reached the gate.
+  - **P5 composition test (R2-1) — against the PRODUCTION container, not a hand-built copy:** resolve via `AppBootstrapper.BuildServiceProvider(...)` (the `DwellRoutingRegistrationWiringTests` pattern — that suite never resolves ViewModels on `WeakReferenceMessenger.Default` for leak reasons; follow its provider-lifetime discipline) with the fake gate substituted, resolve `ToolbarViewModel`, and assert THREE things: the toolbar's entry is present in `IDwellDetectorRegistry`; the sink reaches its `DwellDetector`; the suppression delegate is wired (gate returns true → drive to 0.40 → no visibility-true, `ResetFrozenSilent == true`). **Dispose the provider** so the VM unregisters.
   - Sample timestamps: every driven gaze sample carries explicit `TimestampMicroseconds`; no test sleeps (P4).
 - [ ] **Step 2: Verify fail. Step 3: Implement** per rev 1 (feed switch with `FeedAll/FeedExcluded(t => t.Id != ResetAdaptationId)/FeedNone`; progress routing `Propagate/HoldAtFreeze/Zero` incl. `IsHighlighted`; `SetRenderedButtons`; `_lastCenters` → `SetAnchor`; `OnActivated` routed for every activation; `Reset()` on deactivate and absent-report; `Receive(AdaptationPreviewBoundsMessage)` → `_previewEngine.OnBounds(...)`). The VM caches the last sample's timestamp from `Receive(GazeCursorMovedMessage)` for `OnTargetProgress` calls.
 - [ ] **Step 4: Run ViewModels tests → PASS. Commit:** `feat: toolbar VM preview integration + DI factory wiring of the suppression gate (P5/D9/D11)`
@@ -250,10 +253,10 @@ services.AddSingleton(sp => new ToolbarViewModel(
 
 **Files:** Modify `ToolbarWindow.xaml.cs` (RebuildBand tail; PropertyChanged for `ResetFrozenSilent`), `ToolbarBand.cs:320-330, 429-441`; test `tests/EyeCtrl.App.Tests/Overlays/ToolbarBandRenderedButtonsTests.cs`.
 
-**Interfaces:** RebuildBand ends with `vm.SetRenderedButtons(_buttons.Keys.ToArray())`; `ToolbarBand.SetFrozenSilent(bool)` — the cue is a **thicker stroke on the same warning rim** (P7: `RimFor(ResetId)` is ALREADY `BrushAccentWarning`, and so are the arc and icon — a translucent warning rim would read as a FAINTER resting face, not a cue; use `Tokens.BorderThicknessStandard` → the next heavier existing thickness value, same token).
+**Interfaces:** RebuildBand ends with `vm.SetRenderedButtons(_buttons.Keys.ToArray())`; `ToolbarBand.SetFrozenSilent(bool)` — **the cue lives in `PaintFace`'s precedence chain BETWEEN `flashing` and `acquired`, and is a thicker rim stroke** (R2-3): the freeze holds `IsHighlighted = true`, so `ToolbarWindow` maps it to `SetAcquired(id, true)` and the frozen face is the **acquired** face (`BorderFocus` rim, `SurfaceLight` fill) — `RimFor` never runs while frozen, and `Tokens.BorderThicknessStandard` is the ONLY thickness token anyway while the rim is actually `DwellArcButton.Background` (a public `Ellipse`) stroked at the private `RimThickness = 2`. So: `SetFrozenSilent` adds the id to a `_frozenSilentIds` set consulted in `PaintFace` above `acquired`; when set it writes `b.Background.StrokeThickness = RimThickness * 2` (i.e. 4 DIP — a stated multiple, restored to the DwellArcButton default on cue end; the constant `2` is duplicated from `DwellArcButton.RimThickness` with a comment pointing at it, or exposed internally if the Controls project already grants InternalsVisibleTo — check and prefer exposure).
 
 - [ ] **Step 1: Failing tests** — rev-1 (seam removes target AND set entry → re-`Initialize(true)` re-creates it via AddTarget, the dead-button regression; preloaded 0.4/highlight zeroed on removal; frozen-silent repaint + restored) PLUS:
-  - **P7 distinctness:** cue-on vs resting face differ in `StrokeThickness` (assert the actual values) AND the cue's contrast is tested against the blend **Reset's face actually uses** (toward the warning/accent fill at full dwell blend — mirror `DwellToggleVisualTests`' darkest-blend pattern, which lives in `EyeCtrl.Controls.Tests`).
+  - **R2-3 assertions against the ACQUIRED face** (what the user actually sees while frozen — `BorderFocus` rim / `SurfaceLight` fill): cue-on differs from acquired in `StrokeThickness` (assert the actual values 4 vs 2); the cue is distinguishable from AND has adequate contrast against the acquired face (darkest-blend pattern from `DwellToggleVisualTests`, which lives in `EyeCtrl.Controls.Tests`); precedence: flashing still beats the cue (flash during frozen-silent paints the flash face).
   - **P16 full flow:** disable (`Initialize(..., false)`) mid-dwell on Reset → no fire, arc 0; re-enable (`Initialize(..., true)`) → gaze rest → **previews** (freeze) → leave → return → **fires**, arc from 0 the whole way.
 - [ ] **Step 2: Verify fail. Step 3: Implement. Step 4: Run → PASS. Commit:** `feat: SetRenderedButtons seam, stuck-arc clearing, distinct frozen-silent rim cue (P7/D11/D18)`
 
@@ -268,7 +271,7 @@ services.AddSingleton(sp => new ToolbarViewModel(
 
 **Interfaces:**
 - Coordinator: as rev 1 (whole block factored; `PropertyChanged(Enabled)` subscription, `AdaptationActivation` pattern).
-- Tray (P12): promote the local `resetAdaptationItem` (at `:82`) to a field; ctor gains `Func<bool> isAdaptationEnabled`; `App.xaml.cs:283` passes `() => _settings.Adaptation.Enabled`; the `ContextMenuStrip.Opening` handler sets `_resetAdaptationItem.Available = _isAdaptationEnabled()` — **`Available`, not `Visible`** (WinForms: `ToolStripItem.Visible`'s getter returns false whenever the menu isn't displayed; set and assert `Available`).
+- Tray (P12 + L4): promote the local `resetAdaptationItem` (at `:82`) to a field; ctor gains `Func<bool> isAdaptationEnabled` **placed BEFORE the optional `showToolbarCallback`**; the construction site `App.xaml.cs:283` passes `() => settings.Adaptation.Enabled` (**the local `settings`**, not a `_settings` field); the `ContextMenuStrip.Opening` handler calls a new `internal void RefreshMenuItems()` that sets `_resetAdaptationItem.Available = _isAdaptationEnabled()` — **`Available`, not `Visible`** (WinForms: `ToolStripItem.Visible`'s getter returns false whenever the menu isn't displayed) — and the internal seam is what headless tests call (firing `Opening` without a shown menu is unreliable).
 
 - [ ] **Step 1: Failing tests** — rev-1 coordinator cases; tray: `Opening` with the delegate false → `Available == false`; true → `Available == true` (assert `Available`).
 - [ ] **Step 2: Verify fail. Step 3: Implement. Step 4: Run → PASS. Commit:** `feat: Enabled-flip re-init block + tray item gated via Available (P12/D5/M4)`
@@ -285,7 +288,7 @@ services.AddSingleton(sp => new ToolbarViewModel(
 
 **Interfaces:**
 - **Window:** `IPreviewPanel` (extracted interface: `ShowPanel(snapshot)`, `HidePanel()`, `event Action<PhysicalRect?>? BoundsChanged`) implemented by `AdaptationPreviewWindow : OverlayWindow` (ctor pattern of `CueOverlayWindow`: `IsClickThrough`, `ExcludeFromScreenCapture`, `InitializeComponent`; DIP→physical at its DPI).
-- **Service (P9):** an `AdaptationActivation` participant — registered in DI but resolved lazily on first **activation** (`AdaptationActivation`'s existing lazy-participant pattern: constructing `CueOverlayWindow` "must not happen while disabled"); `Activate` resolves the window and force-creates the HWND (`new WindowInteropHandler(w).EnsureHandle()`-equivalent), `Deactivate` hides and unsubscribes. **No unconditional startup resolve** (P9). The 500 ms timeout already covers a runtime that never activates (spec D14).
+- **Service (P9 + R2-2):** an `AdaptationActivation` participant — registered in DI but resolved lazily on first **activation** (`AdaptationActivation`'s existing lazy-participant pattern: constructing `CueOverlayWindow` "must not happen while disabled"); `Activate` resolves the window and force-creates the HWND (`new WindowInteropHelper(w).EnsureHandle()`); **`Deactivate`/`Dispose` performs the FULL teardown by itself** — `HidePanel()`, publish `NoPanel` bounds, release the `"adaptation-preview"` auto-hide holder, publish `PreviewPanelActiveMessage(false)`, unsubscribe — **never waiting for a VM message**: `SettingsUiCoordinator`'s and `AdaptationActivation`'s `PropertyChanged(Enabled)` handlers fire in undefined order, so the service may already be unsubscribed when the absent-report arrives; without self-contained teardown, offers and auto-hide stay suspended until restart. Restartable after `Dispose` (the participant contract: idempotent `Start`, restartable `Dispose`) — re-enable shows the panel again. **No unconditional startup resolve** (P9). The 500 ms timeout already covers a runtime that never activates (spec D14).
 - **Placement (P10):** the service reads geometry itself — `IToolbarOverlay.GetPhysicalBounds()`/`IsOnScreen` + `settings.Toolbar` (`IsDocked`, `DockedEdge`) via injected `EyeCtrlSettings`; the message carries only `(Visible, EngagementId, ResetCenter)`. **Floating toolbar (`IsDocked == false`) ⇒ no panel** — publish `NoPanel` immediately; silent confirm (D13's own named case).
 - **Bounds publishes (P2/P11):** on show → `Rect`; on `SizeChanged` → `Rect`; on visibility-false from the VM (user left) → nothing (the engine already hid); on **policy hide** (suppression is engine-side; D17 collision) → `HiddenKeepLast`; on **show-time collision** or contained failure → `NoPanel` **immediately** (no 500 ms unknown wait, P11).
 - **Auto-hide (P8):** the coordinator's API becomes `SetAutoHideSuspended(string holder, bool suspended)` backed by a `HashSet<string>` (empty set ⇒ not suspended; migration: `SettingsUiCoordinator` passes `"settings"`, the preview passes `"adaptation-preview"`; the old single-bool call sites are all migrated in this task). The service holds/releases only its own holder — both clobber orders become impossible.
@@ -294,6 +297,7 @@ services.AddSingleton(sp => new ToolbarViewModel(
 - [ ] **Step 1: Failing tests** — rev-1 (content from snapshot incl. nothing-active; bounds rect published at the test's scale; visibility-false ends cleanly; `provider.Changed` twice within 500 ms → one refresh; a throwing `IPreviewPanel` → `NoPanel` and no crash) PLUS:
   - **P8 both orders:** settings suspends → preview suspends → preview releases ⇒ still suspended; preview suspends → settings opens/closes ⇒ still suspended while the panel is up.
   - **P9:** with adaptation disabled, resolving+starting the app DI graph constructs no `AdaptationPreviewWindow` (composition assertion: resolve the activation participant list / the service's lazy seam).
+  - **R2-2 disable-mid-preview:** panel up, then `AdaptationSettings.Enabled = false` (drive the real `PropertyChanged` path, EITHER handler order): offers no longer suspended (unless another input holds them), the auto-hide holder released (`IsAutoHideSuspended == false`), panel hidden; then **enable → disable → enable: the panel shows again** (restartable participant).
   - **P10 floating:** `IsDocked == false` → `NoPanel`, no window show.
 - [ ] **Step 2: Verify fail. Step 3: Implement** (XAML per rev 1: title/subtitle rows, four row items with the two-segment bar, right-aligned values, footer; `SizeToContent="WidthAndHeight"`, MaxWidth 360 DIP; strings via `overlays.adaptationPreview.*` keys landing in Task 13).
 - [ ] **Step 4: Run → PASS. Commit:** `feat: preview window + service — activation participant, self-read geometry, named-holder suspension (P8/P9/P10/P11/D2/D3)`
@@ -352,7 +356,7 @@ Text (spec §7 verbatim intent): the toolbar Reset is a two-step escape — free
 - [ ] `dotnet build EyeCtrl.slnx` → 0 errors
 - [ ] `dotnet test` (all projects, non-UI) → 0 failed; totals in the commit message
 - [ ] `python tools/palette_validate.py` → green (no palette entries added — proves it)
-- [ ] Mutation spot-checks (surgical back-mutations, never `git checkout --`; re-run the touched test after each restore; commit gate is THIS plan's tests, never `--no-build` after a mutation): `Threshold 0.40 → 0.60` (engagement test red); `LeaveDebounceUs 120_000 → 0` (excursion test red); drop one `FeedNone` return (overlap test red); invert `FrozenSilent` (rim-cue test red); **`HiddenKeepLast → NoPanel` in the engine's hide path (the collision-hide regression test red)**.
+- [ ] Mutation spot-checks (surgical back-mutations, never `git checkout --`; re-run the touched test after each restore; commit gate is THIS plan's tests, never `--no-build` after a mutation): `Threshold 0.40 → 0.60` (engagement test red); `LeaveDebounceUs 120_000 → 0` (excursion test red); drop one `FeedNone` return (overlap test red); invert `FrozenSilent` (rim-cue test red); **`HiddenKeepLast → NoPanel` in the engine's hide path (the collision-hide regression test red)**; **delete the `dwellRegistry:` argument from the Task-6 factory (the R2-1 wiring test must go red — the silent-adaptation-off trap)**.
 - [ ] Final commit if anything moved: `test: full-gate green for the adaptation preview feature`
 
 ---
@@ -381,3 +385,16 @@ Text (spec §7 verbatim intent): the toolbar Reset is a two-step escape — free
 | P18 re-entrancy | Commit-before-raise invariant + re-entrant `OnBounds` test (Task 4, Global Constraints) |
 
 *Delta re-review pointers: check P2 (bounds kinds, Tasks 4/5/10/11), P3 (pass discipline, Task 4), P4 (timestamps, Tasks 4/6) first.*
+
+## Plan review round 2 ledger (R2-1–R2-3, L1–L5 — verdict FIX-THEN-EXECUTE, no further round)
+
+| # | Where fixed |
+|---|---|
+| R2-1 factory dropped sink + registry (silent adaptation-off) | Full-arity snippet (Task 6) + `BuildServiceProvider`-based wiring test (registry entry, sink reach, gate wired, provider disposed) + Task 15 mutant |
+| R2-2 disable-mid-preview leaves offers/auto-hide suspended | `Deactivate`/`Dispose` performs the full self-contained teardown (hide, NoPanel, release holder, publish `PreviewPanelActiveMessage(false)`, unsubscribe); restartable; both tests (Task 10) |
+| R2-3 cue on the unreachable RimFor branch; token doesn't exist | Cue precedence between `flashing` and `acquired` in `PaintFace`; `Background.StrokeThickness = RimThickness × 2` on the public Ellipse, restored on cue end; assertions against the ACQUIRED face (Task 8) |
+| L1 interface incomplete / publish contradiction / suppression-end | `FrozenSilentChanged` added to the block; suppressed-at-engage publishes nothing; suppression-end keeps the panel hidden for that engagement (Task 4) |
+| L2 P3 test timing unpinned | Overlap test with the later rest > 3 s (previews) + sibling < 3 s (fires); pass-end returns to Armed with the original `_armedAtUs` (Task 4) |
+| L3 EMA case named a clamp it can't reach | Renamed "EMA composes against `SmoothingFactor`", 0.9 baseline (Task 2) |
+| L4 tray details | Local `settings`; param before the optional callback; `internal RefreshMenuItems()` seam (Task 9) |
+| L5 typo | `WindowInteropHelper` (Task 10) |

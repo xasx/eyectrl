@@ -205,7 +205,7 @@ public record AdaptationPreviewBoundsMessage(int EngagementId, PreviewBoundsKind
 
 **Files:** Modify the engine; extend the tests.
 
-**Interfaces:** Adds `public void OnBounds(int engagementId, PreviewBoundsKind kind, PhysicalRect? bounds)` (timed on the cached last sample clock, P4). Constant `BoundsTimeoutUs = 500_000`.
+**Interfaces:** Adds `public void OnBounds(int engagementId, PreviewBoundsKind kind, PhysicalRect? bounds)` (timed on the cached last sample clock, P4). Constant `BoundsTimeoutUs = 500_000`. **Carries from Task 4's review:** (a) `Engage` and `Disarm` must INVALIDATE the stored bounds (`_panelBounds = null`, `_boundsKind = unknown`) so engagement N's stale rect cannot inflate engagement N+1's union during its first-show unknown window (D14 "first show only"); (b) the Frozen→Leaving edge gains the guard: bounds-unknown-while-panel-wanted ⇒ stay Frozen (engaged regardless of gaze, `FeedExcluded`, no leave run) until the 500 ms timeout converts to the hit-area fallback Task 4 already implements; (c) ~7 Task-4 tests (shuttle, both excursions, debounced-leave, both P3 siblings, P16 bound) need a one-line `OnBounds(id, PreviewBoundsKind.Rect, rect)` inserted after engage — fixture adaptation to keep testing the debounce mechanics, NOT assertion weakening; also pin the 3.000 s expiry boundary (exactly 3.0 s ⇒ within, fires unfrozen) while in the file.
 
 - [ ] **Step 1: Failing tests:**
   - `Rect` → stored; gaze in rect → `FeedNone`; a later `Rect` (resize) replaces it — between the resize and the new `Rect` **the last-known rect stays in the union** (gaze in the OLD rect → still `FeedNone`).

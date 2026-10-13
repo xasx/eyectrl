@@ -22,6 +22,13 @@ public abstract record SettingsRowSpec(string Id, string Label)
     /// constructions across the fifteen page sources keep compiling untouched.
     /// </summary>
     public string? Description { get; init; }
+
+    /// <summary>
+    /// Shown in simple mode. Default false: a new row joins advanced only — entering the curated
+    /// subset is a deliberate act recorded by the curation pin test (spec §5.3). An init property
+    /// rather than a positional parameter so every existing spec construction keeps compiling.
+    /// </summary>
+    public bool Simple { get; init; }
 }
 
 /// <summary>A stepped numeric value with a live read/write binding to a setting.</summary>

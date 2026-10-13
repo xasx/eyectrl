@@ -92,6 +92,7 @@ FIT_CLASSES = [
     "A68",
     "A44",
     "A56",
+    "A208",
     # T09 review-01: the eye-care summary card; one line, and the auto-width card fits the window.
     "card",
     "tab156",

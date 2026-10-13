@@ -65,6 +65,18 @@ public class FitSeamPinTests
             .That(body).Not.Contains("MakeChromeButton(");
     }
 
+    [Fact]
+    public void BuildModeToggle_BuildsTheFaceTheGateMeasures()
+    {
+        var seam = Body(Source("Views", "SettingsWindow.xaml.cs"), "internal static Border BuildModeToggle(");
+        Check.WithCustomMessage("BuildModeToggle must build through MakeChromeButton — the fit gate measures this face.")
+            .That(seam).Contains("MakeChromeButton(");
+
+        var ctor = Body(Source("Views", "SettingsWindow.xaml.cs"), "public SettingsWindow(");
+        Check.WithCustomMessage("The window must insert the toggle through BuildModeToggle, not a second construction path.")
+            .That(ctor).Contains("BuildModeToggle(");
+    }
+
     /// <summary>
     /// A write to any of these after the seam call would resize or move what the gate measured (review-03
     /// mutants A5b, <c>border.Width = 120</c>, and A6b, <c>Height = MinHeight</c>). A comparison (<c>==</c>)
@@ -114,9 +126,10 @@ public class FitSeamPinTests
         var settings = Source("Views", "SettingsWindow.xaml.cs");
         var calls = Count(settings, "MakeChromeButton(") - Count(settings, "Border MakeChromeButton(");
         Check.WithCustomMessage(
-                $"MakeChromeButton has {calls} call sites; the known three are the two pagers and BuildModalButton. "
+                $"MakeChromeButton has {calls} call sites; the known four are the two pagers, BuildModalButton, "
+                + "and the 4th caller is the settings mode toggle (BuildModeToggle). "
                 + "Pin a new caller's box (or route a modal through BuildModalButton) before changing this number.")
-            .That(calls).IsEqualTo(3);
+            .That(calls).IsEqualTo(4);
     }
 
     [Fact]

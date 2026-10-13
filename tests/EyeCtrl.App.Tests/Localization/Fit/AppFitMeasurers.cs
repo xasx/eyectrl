@@ -81,6 +81,7 @@ internal static class AppFitMeasurers
             ["A105"] = Ring,
             ["A68"] = ModifierBar,
             ["A44"] = (_, text) => ToggleStateWord(text),
+            ["A208"] = (_, text) => ModeToggleLabel(text),
             ["A56"] = ShortCaption,
             ["card"] = (key, text) => SummaryCard(key, text),
             ["tab156"] = SidebarTab,
@@ -334,6 +335,25 @@ internal static class AppFitMeasurers
         var switchBox = (FrameworkElement)FitText.Ancestors(word).OfType<Border>().First(b => b.Width > 0);
         return OneLine(word, text, Math.Min(A44Budget, slot),
             $"budget {A44Budget}, slot {FitText.Dip(slot)}, switch {FitText.Dip(switchBox.ActualWidth)} wide");
+    }
+
+    /// <summary>A208: the settings mode toggle's label, through the production BuildModeToggle
+    /// face: one line within the toggle's measured box less the standard one-line inset.
+    /// Horizontal by construction — a one-line label can never fail a height check, and the
+    /// teeth test rejects a measurer that cannot fail.</summary>
+    private static FitVerdict ModeToggleLabel(string text)
+    {
+        var buttons = new Dictionary<string, System.Windows.Controls.Border>();
+        var brushes = new Dictionary<string, System.Windows.Media.SolidColorBrush>();
+        var border = SettingsWindow.BuildModeToggle(text, () => { }, buttons, brushes);
+        var panel = new System.Windows.Controls.StackPanel();
+        panel.Children.Add(border);
+        using var host = FitHost.Open(panel, family: Tokens.FontStandard);
+        // Arrange exactly the way the sibling measurers realize layout (whatever SidebarTab /
+        // modal170 do after FitHost.Open) — the invariant: border.ActualWidth is laid-out, not 0.
+        var label = (System.Windows.Controls.TextBlock)border.Child;
+        return OneLine(label, text, border.ActualWidth - OneLineInset,
+            $"box {FitText.Dip(border.ActualWidth)} - {OneLineInset} inset");
     }
 
     /// <summary>

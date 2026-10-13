@@ -50,4 +50,22 @@ public class SettingsRenderMappingTests
         Check.That(fill).IsEqualTo(Tokens.AccentWarning);
         Check.That(text).IsEqualTo(Tokens.BrushSurfaceDark);
     }
+
+    // The combo not-available marker is a CONSUMER-FORMATTED key: {0} is the unmatched
+    // code, filled per item inside DwellComboBox. Fetching it via bare T() logged a format
+    // warning on every combo construction (5 per settings open) and returned the raw text only
+    // through the format-failure path — Template is the raw resolver (T07-era bug, fixed
+    // 2026-10-13).
+    [Fact]
+    public void CreateControl_ComboBoxArm_FetchesTheMarkerViaTemplate_NotBareT()
+    {
+        var body = System.IO.File.ReadAllText(System.IO.Path.Combine(
+            EyeCtrl.App.Tests.SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Views", "SettingsWindow.xaml.cs"));
+        Check.WithCustomMessage(
+                "The combo marker key carries {0}; bare T() warns per construction. Use "
+                + "StringTable.Template.")
+            .That(body).Contains("Template(\"settings.control.combo.not_available\")");
+        Check.That(body).Not.Contains(".T(\"settings.control.combo.not_available\")");
+    }
 }

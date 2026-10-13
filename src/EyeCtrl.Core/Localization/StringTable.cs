@@ -212,21 +212,62 @@ public sealed class StringTable
     {
         ArgumentNullException.ThrowIfNull(key);
 
-        if (Language == UiLanguage.German
-            && _germanEffective.TryGetValue(key, out var germanText))
-        {
-            return FormatText(germanText, args, GermanFormatCulture);
-        }
-
-        if (_english.TryGetValue(key, out var englishText))
-        {
-            return FormatText(englishText, args, CultureInfo.InvariantCulture);
-        }
+        if (TryResolveEffective(key, out var text, out var german))
+            return FormatText(text, args, german ? GermanFormatCulture : CultureInfo.InvariantCulture);
 
         _warn?.Invoke(
             $"String key '{key}' is missing from the English table; the raw key is shown. "
             + "This is a build defect — add the key to strings.json.");
         return key;
+    }
+
+    /// <summary>
+    /// Resolves <paramref name="key"/> in the effective language WITHOUT formatting — for keys
+    /// whose text is a format string the CONSUMER fills per item (e.g. the settings combo's
+    /// not-available marker, whose <c>{0}</c> is the unmatched code). <see cref="T(string)"/>
+    /// would try to format it with no arguments, log a warning, and hand back the raw text only
+    /// by way of its format-failure path.
+    /// </summary>
+    /// <param name="key">The literal key, e.g. <c>settings.control.combo.not_available</c>.</param>
+    /// <returns>The resolved template, placeholders intact; the raw key when the table has no such key.</returns>
+    public string Template(string key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+
+        if (TryResolveEffective(key, out var text, out _))
+            return text.Value!;
+
+        _warn?.Invoke(
+            $"String key '{key}' is missing from the English table; the raw key is shown. "
+            + "This is a build defect — add the key to strings.json.");
+        return key;
+    }
+
+    /// <summary>
+    /// The effective-table lookup both <see cref="T(string,object?[])"/> and
+    /// <see cref="Template"/> resolve through: the signed-on German entry when the selection and
+    /// the manifest agree, the English entry otherwise.
+    /// </summary>
+    private bool TryResolveEffective(string key, out StringTableText text, out bool german)
+    {
+        if (Language == UiLanguage.German
+            && _germanEffective.TryGetValue(key, out var germanText))
+        {
+            text = germanText;
+            german = true;
+            return true;
+        }
+
+        if (_english.TryGetValue(key, out var englishText))
+        {
+            text = englishText;
+            german = false;
+            return true;
+        }
+
+        text = default;
+        german = false;
+        return false;
     }
 
     /// <summary>

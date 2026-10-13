@@ -82,13 +82,6 @@ public interface ICursorCircleOverlay
     void UpdateAppearance(CursorSettings settings);
 
     /// <summary>
-    /// Dims the ring for the paused state. Defensive only: the VM hides the ring while paused and no
-    /// production path shows the window in that state — this exists so that a future direct show
-    /// while paused presents the paused look rather than the quiet FreeLook ring.
-    /// </summary>
-    void SetPausedDim(bool dimmed);
-
-    /// <summary>
     /// Raises the ring to its bold look while a fixation is held. Until then the ring is quiet
     /// (reduced emphasis) in FreeLook; the pin is what makes stillness the "you're holding" signal.
     /// </summary>

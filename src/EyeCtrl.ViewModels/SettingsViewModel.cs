@@ -55,12 +55,14 @@ public partial class SettingsViewModel : ObservableObject
     /// <para><b>The language survives (D10, the user's call 2026-10-07).</b> A bulk reset must not
     /// undo a language choice — for a user who cannot read the reset button's language, being
     /// dropped back into it on the next restart is its own recovery problem. Reset General leaves
-    /// <c>UiLanguage</c> alone for the same reason.</para>
+    /// <c>UiLanguage</c> alone for the same reason. The interface mode survives for the same
+    /// reason — a bulk reset must not flip fifteen tabs into a novice's face.</para>
     /// </summary>
     public void ResetAllSettings()
     {
         var defaults = new EyeCtrlSettings();
         var language = _settings.General.UiLanguage;
+        var simpleUi = _settings.General.SimpleSettingsUi;
         var defaultSubs = defaults.EnumerateSubSettings().ToDictionary(t => t.Name, t => t.Settings);
         foreach (var (name, sub) in _settings.EnumerateSubSettings())
         {
@@ -69,6 +71,7 @@ public partial class SettingsViewModel : ObservableObject
             CopySettings(defaultSubs[name], sub);
         }
         _settings.General.UiLanguage = language;
+        _settings.General.SimpleSettingsUi = simpleUi;
         _settings.SelectionMode = defaults.SelectionMode;
         _settings.ViewPosition = defaults.ViewPosition;
         CurrentPage = 0;

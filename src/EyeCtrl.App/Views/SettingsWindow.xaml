@@ -91,17 +91,26 @@
                  (SurfaceDark), not the card, and it renders at FontSizeSubtitle in normal
                  weight, so it owes the full 4.5:1 rather than the 3.0 large-text allowance.
                  Both pairings are gated per theme by SettingsPageHeaderContrastTests. -->
-            <StackPanel x:Name="HeaderPanel" Grid.Row="0" Height="112" Margin="0,0,0,12">
-                <TextBlock x:Name="HeaderTitle"
+            <Grid x:Name="HeaderPanel" Grid.Row="0" Height="112" Margin="0,0,0,12"
+                  RowDefinitions="Auto,*" ColumnDefinitions="*,Auto">
+                <TextBlock x:Name="HeaderTitle" Grid.Row="0" Grid.Column="0"
                            Foreground="{StaticResource BrushTextPrimary}"
                            FontSize="{StaticResource FontSizeDisplay}"
                            FontWeight="{StaticResource FontWeightStrong}"/>
-                <TextBlock x:Name="HeaderDescription"
+                <!-- The mode toggle's host: code builds the face (BuildModeToggle) and inserts it here.
+                     The toggle rides the TITLE LINE only (row 0); the description spans the FULL width in
+                     row 1 (ColumnSpan 2) — that is what the measured layout (103.9/112) assumes. The
+                     12-DIP left margin IS the title-to-toggle gap the fit arithmetic uses — a marginless
+                     host would make the mirror measure a gap production does not have (plan-review I10).
+                     Column Auto keeps the toggle's 208 DIP fixed; the title clips in its column (no
+                     wrap) — the A208 class bounds label+title for shipped languages (spec L15). -->
+                <Border x:Name="ModeToggleHost" Grid.Row="0" Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Top"/>
+                <TextBlock x:Name="HeaderDescription" Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
                            Foreground="{StaticResource BrushTextSecondary}"
                            FontSize="{StaticResource FontSizeSubtitle}"
                            TextWrapping="Wrap"
                            Margin="0,8,0,0"/>
-            </StackPanel>
+            </Grid>
 
             <!-- Hidden UIA anchor for Settings_Panel_Content — StackPanel is not exposed
                  in the UIA control view; only TextBlock nodes are visible to FlaUI.

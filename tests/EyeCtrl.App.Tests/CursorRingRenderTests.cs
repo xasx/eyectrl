@@ -171,16 +171,17 @@ public class CursorRingRenderTests
         }
     }
     [StaFact]
-    public void ThreeLooks_FreeLookQuiet_PinnedBold_PausedDimmed_WithPausedWinning()
+    public void TwoLooks_FreeLookQuiet_PinnedBold_AndUnpinReturnsToQuiet()
     {
-        // The three explicit looks (ticket 4): FreeLook quiet, Fixation pinned + bold, Paused dimmed.
-        // Ticket 1's dim is preserved; the resume target must not compete with a bold ring, so the
-        // pause dim outranks the pin. Ordering matters: PausedDimOpacity < FreeLookQuietOpacity < 1.0,
-        // so no two looks can be confused from the opacity alone.
+        // The two explicit looks. PR #191's hide-while-paused change kept the old paused dim as
+        // defensive-only code; this branch's deletion removed it — no production path can show the
+        // window while paused. FreeLook quiet, Fixation pinned + bold. Only a pin may bold the
+        // ring, and the pin's end must return to quiet — FreeLookQuietOpacity < 1.0 keeps the two
+        // distinguishable from the opacity alone.
         var window = CreateWindow();
         try
         {
-            // FreeLook: the quiet look is the state the window starts in — no pin/pause notification
+            // FreeLook: the quiet look is the state the window starts in — no pin notification
             // fires for the default state, so the constructor must already establish it.
             Check.That(window.Opacity).IsEqualTo(CursorCircleWindow.FreeLookQuietOpacity);
             Check.That(CursorCircleWindow.FreeLookQuietOpacity).IsStrictlyLessThan(1.0);
@@ -189,41 +190,8 @@ public class CursorRingRenderTests
             window.SetPinned(true);
             Check.That(window.Opacity).IsEqualTo(1.0);
 
-            // Paused while pinned: the dim wins.
-            window.SetPausedDim(true);
-            Check.That(window.Opacity).IsEqualTo(CursorCircleWindow.PausedDimOpacity);
-
-            // Resume, still pinned: bold again.
-            window.SetPausedDim(false);
-            Check.That(window.Opacity).IsEqualTo(1.0);
-
             // Fixation ends: quiet again.
             window.SetPinned(false);
-            Check.That(window.Opacity).IsEqualTo(CursorCircleWindow.FreeLookQuietOpacity);
-            Check.That(CursorCircleWindow.PausedDimOpacity)
-                .IsStrictlyLessThan(CursorCircleWindow.FreeLookQuietOpacity);
-        }
-        finally
-        {
-            window.Close();
-        }
-    }
-
-    [StaFact]
-    public void FreeLookResume_AfterPause_ReturnsToTheQuietLook()
-    {
-        // A-F1: reverting SetPausedDim to ticket 1's one-liner ("dimmed ? 0.45 : 1.0") leaves every
-        // ordinary, unpinned resume bold. Resume must restore the QUIET look; only a pin may bold the
-        // ring. This is a separate test from the three-looks one so that mutation has a named killer.
-        var window = CreateWindow();
-        try
-        {
-            Check.That(window.Opacity).IsEqualTo(CursorCircleWindow.FreeLookQuietOpacity);
-
-            window.SetPausedDim(true);
-            Check.That(window.Opacity).IsEqualTo(CursorCircleWindow.PausedDimOpacity);
-
-            window.SetPausedDim(false);
             Check.That(window.Opacity).IsEqualTo(CursorCircleWindow.FreeLookQuietOpacity);
         }
         finally

@@ -94,8 +94,13 @@ public class AdaptationPreviewSnapshotTests
         var snapshot = AdaptationPreviewSnapshot.Build(adaptation, provider, dwell, cursor);
         var tolerance = Row(snapshot, AdaptationKnob.FixationRadius);
 
-        // 45 + 0.4 × 0.5 × 45 = 54, inside the 10–200 guard — exactly provider.Effective's result.
+        // 45 + 0.4 × 0.5 × 45 = 54, inside the 10–200 guard — the literal pins the arithmetic, the
+        // oracle assertion below pins the SOURCE: the row is the engine's own Effective call, not an
+        // independent recomputation (0.4 is not dyadic, so the literal alone would be exact-arithmetic
+        // pinned to the provider's internal multiplication order — it rounds to exactly 9.0 today).
         Check.That(tolerance.AbsoluteValue).IsEqualTo(54.0);
+        Check.That(tolerance.AbsoluteValue).IsEqualTo(
+            provider.Effective(AdaptationKnob.FixationRadius, DwellContext.Other, dwell.FixationRadiusPixels));
         Check.That(tolerance.BaselineValue).IsEqualTo(45.0);
         Check.That(tolerance.TotalFill).IsEqualTo(0.4);
         Check.That(tolerance.LearnedFill).IsEqualTo(0.0);
@@ -214,6 +219,25 @@ public class AdaptationPreviewSnapshotTests
         Check.That(dwellRow.LearnedFill).IsEqualTo(0.5);
         Check.That(dwellRow.LearnedFill <= dwellRow.TotalFill).IsTrue();
         Check.That(dwellRow.TighteningDirection).IsFalse();
+    }
+
+    [Fact]
+    public void Build_DwellLearnedWithTighteningDominant_NoLearnedShade()
+    {
+        var (adaptation, provider, dwell, cursor) = Make();
+        provider.SetLearnedFill(AdaptationKnob.DwellTime, 0.5);
+        provider.SetMomentaryFill(AdaptationKnob.DwellTime, DwellContext.Other, forgivingFill: 0.0, tighteningFill: 0.8);
+
+        var snapshot = AdaptationPreviewSnapshot.Build(adaptation, provider, dwell, cursor);
+        var dwellRow = Row(snapshot, AdaptationKnob.DwellTime);
+
+        // Spec §3.4: learned is forgiving-only — shorter-ward by construction — so the learned shade
+        // appears on the shorter side only. A tightening-dominant row ("longer") must carry NO
+        // learned shade, even though min(0.5, 0.8) would be 0.5: rendering one would claim the
+        // learned layer made dwell longer, which it cannot.
+        Check.That(dwellRow.TighteningDirection).IsTrue();
+        Check.That(dwellRow.TotalFill).IsEqualTo(0.8);
+        Check.That(dwellRow.LearnedFill).IsEqualTo(0.0);
     }
 
     [Fact]

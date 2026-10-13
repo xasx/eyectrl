@@ -16,7 +16,9 @@ using EyeCtrl.Core.Settings;
 /// clamp(learned + momentary, 0, 1) on the row's dominant side (spec §3.4, mirroring the provider's
 /// fill model at the fraction level).</param>
 /// <param name="LearnedFill">The learned portion shaded inside <paramref name="TotalFill"/>, in
-/// [0, <paramref name="TotalFill"/>]: min(learned, TotalFill). The learned layer is forgiving-only.</param>
+/// [0, <paramref name="TotalFill"/>]. Spec §3.4: the learned layer is forgiving-only, so the shade
+/// appears on the shorter side only — the stored learned fill on a forgiving row (never above
+/// <paramref name="TotalFill"/>), and 0 when the tightening side dominates.</param>
 /// <param name="TighteningDirection">True only for the DwellTime knob, when the tightening (longer)
 /// side strictly dominates the forgiving side; ties keep the forgiving ("shorter") label.</param>
 /// <param name="AbsoluteValue">The effective absolute value for tolerance (fixation px) and smoothing
@@ -127,7 +129,12 @@ public sealed record AdaptationPreviewSnapshot(
     // Dwell is the only knob with a tightening side: compose each direction's net fill, then the
     // STRICTLY larger side names the row's direction — ties keep forgiving ("shorter"), so accidental
     // activation never labels a row "longer" unless tightening actually dominates. The learned layer
-    // is forgiving-only and shades inside whichever total won.
+    // is forgiving-only — §3.4: the slate shade appears on the shorter side only — so a tightening-
+    // dominant row carries NO learned shade: learned offsets are shorter-ward by construction, and
+    // shading one inside a "longer" bar would claim the learned layer made dwell longer, which it
+    // cannot. (The provider clamps learned to [0, 0.5], so on the forgiving side total >= learned
+    // always — min(learned, total) there was a mathematical no-op whose only reachable effect was
+    // the prohibited tightening-side rendering.)
     private static AdaptationPreviewRow DwellRow(double learned, double momentaryForgiving, double momentaryTightening)
     {
         double forgiving = Math.Clamp(learned + momentaryForgiving, 0.0, 1.0);
@@ -135,7 +142,7 @@ public sealed record AdaptationPreviewSnapshot(
         bool tighteningDominates = tightening > forgiving;
         double total = tighteningDominates ? tightening : forgiving;
         return new AdaptationPreviewRow(
-            AdaptationKnob.DwellTime, total, Math.Min(learned, total), tighteningDominates, null, null, false);
+            AdaptationKnob.DwellTime, total, tighteningDominates ? 0.0 : learned, tighteningDominates, null, null, false);
     }
 
     // Tolerance has a single absolute: the same Effective call GazeEngine's fixation rebuild makes,

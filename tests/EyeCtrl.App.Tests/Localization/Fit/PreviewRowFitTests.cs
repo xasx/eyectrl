@@ -7,16 +7,18 @@ using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.App.Tests.TestSupport;
 using EyeCtrl.Core.Adaptation;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Tests.TestSupport;
 
 /// <summary>
 /// D15's PV1 acceptance: the longest English ROWS, composed by the production window itself
 /// (<see cref="AdaptationPreviewWindow.BuildContentForTest"/> over a worst-case snapshot — every
-/// band at full fill, every absolute at its unit's settings-range ceiling), fit the ≤360 DIP card
-/// at scale 2.0 with each row's ink ≥ <see cref="PreviewRowFit.RequiredClearanceDip"/> from its
-/// fill bar. The brief's example row ("Tolerance" with its offset value) predates the landed
-/// composition; the equivalent worst set is the snapshot below — whichever of the four measures
-/// widest is the longest English row, and is logged as such.
+/// band at full fill, every absolute at its widest display-rounded pair in the reachable
+/// direction), fit the ≤360 DIP card at scale 2.0 with each row's ink ≥
+/// <see cref="PreviewRowFit.RequiredClearanceDip"/> from its fill bar. The brief's example row
+/// ("Tolerance" with its offset value) predates the landed composition; the equivalent worst set
+/// is the snapshot below — whichever of the four measures widest is the longest English row, and
+/// is logged as such.
 /// </summary>
 [Collection("WpfApplication")]
 public class PreviewRowFitTests
@@ -26,22 +28,54 @@ public class PreviewRowFitTests
     public PreviewRowFitTests(ITestOutputHelper output) => _output = output;
 
     /// <summary>
-    /// Every row at its worst: dwell and geometry at a full (tightening) fill, tolerance drifting
-    /// at its 200 px ceiling, smoothing at its factor ceiling — the numbers
-    /// <see cref="PreviewRowFit"/>'s per-key samples and opposite-slot worsts are built from too.
+    /// Every row at its worst, in the reachable direction the knob policies compose: dwell and
+    /// geometry at a full (tightening) fill; tolerance UP-only from its hand-set baseline at the
+    /// 200 px clamp's edge ("199.9 → 187.5 px"); smoothing DOWN-only from its factor ceiling
+    /// ("0.87 → 0.99 factor"). These are the widest strings the display-rounded renderer can emit
+    /// — the same pairs <see cref="PreviewRowFit"/>'s per-key samples and opposite-slot worsts are
+    /// derived from (review F1).
     /// </summary>
     internal static AdaptationPreviewSnapshot WorstEnglishSnapshot() => new(
     [
         new AdaptationPreviewRow(AdaptationKnob.DwellTime, TotalFill: 1.0, LearnedFill: 0.5,
             TighteningDirection: true, AbsoluteValue: null, BaselineValue: null, IsHzUnit: false),
         new AdaptationPreviewRow(AdaptationKnob.FixationRadius, TotalFill: 1.0, LearnedFill: 0.5,
-            TighteningDirection: false, AbsoluteValue: 187.5, BaselineValue: 200.0, IsHzUnit: false),
+            TighteningDirection: false, AbsoluteValue: 199.9, BaselineValue: 187.5, IsHzUnit: false),
         new AdaptationPreviewRow(AdaptationKnob.Smoothing, TotalFill: 1.0, LearnedFill: 0.5,
-            TighteningDirection: false, AbsoluteValue: 0.875, BaselineValue: 1.0, IsHzUnit: false),
+            TighteningDirection: false, AbsoluteValue: 0.87, BaselineValue: 0.99, IsHzUnit: false),
         new AdaptationPreviewRow(AdaptationKnob.TargetGeometry, TotalFill: 1.0, LearnedFill: 0.5,
             TighteningDirection: false, AbsoluteValue: null, BaselineValue: null, IsHzUnit: false),
     ],
         AnythingActive: true);
+
+    /// <summary>
+    /// Review F1's renderer pin: the composition chain never rounds (Step accumulates binary-inexact
+    /// fill steps, EffectiveValue clamps only, StringTable formats bare), so the ABSOLUTE arms must
+    /// round for display — a raw 0.49999999999999994 must render "0.5", never its 17-digit tail.
+    /// The band arm's Math.Round discipline, extended to the absolutes.
+    /// </summary>
+    [Fact]
+    public void ValueTextFor_RoundsAbsolutesForDisplay_NoFloatTails()
+    {
+        var strings = StringTable.EmbeddedEnglish;
+
+        // The review's example pair: a binary-inexact composed factor against an
+        // exactly-representable 0.625 baseline (a legal hand-edited [0, 1] setting; banker's
+        // rounding takes 0.625 to 0.62).
+        var factor = new AdaptationPreviewRow(AdaptationKnob.Smoothing, 0.5, 0.0, false,
+            AbsoluteValue: 0.49999999999999994, BaselineValue: 0.625, IsHzUnit: false);
+        Check.That(AdaptationPreviewWindow.ValueTextFor(strings, factor)).IsEqualTo("0.5 → 0.62 factor");
+
+        // Tolerance at the 200 px clamp's edge, both values one float-tail short of a decimal.
+        var tolerance = new AdaptationPreviewRow(AdaptationKnob.FixationRadius, 0.5, 0.0, false,
+            AbsoluteValue: 199.99999999999997, BaselineValue: 187.49999999999997, IsHzUnit: false);
+        Check.That(AdaptationPreviewWindow.ValueTextFor(strings, tolerance)).IsEqualTo("200 → 187.5 px");
+
+        // The Hz arm shares the smoothing precision (2 decimals), not the pixel one.
+        var hz = new AdaptationPreviewRow(AdaptationKnob.Smoothing, 0.5, 0.0, false,
+            AbsoluteValue: 12.749999999999998, BaselineValue: 19.999999, IsHzUnit: true);
+        Check.That(AdaptationPreviewWindow.ValueTextFor(strings, hz)).IsEqualTo("12.75 → 20 Hz");
+    }
 
     [StaFact]
     public void TheWorstEnglishRows_FitThePanelAtTwo()

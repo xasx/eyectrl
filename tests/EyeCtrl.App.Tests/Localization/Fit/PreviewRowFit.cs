@@ -24,8 +24,8 @@ using EyeCtrl.Tests.TestSupport;
 /// A row composes TWO slots — knob label left, direction word + right-aligned value right — so a
 /// probe text is measured with the OPPOSITE slot at its widest shipped text (English and the
 /// German draft both, since the same row geometry carries either language). The widest value is
-/// composed at each unit's settings-range ceiling (tolerance px 10–200, EMA factor 0–1, One-Euro
-/// cutoff 0.1–20 Hz) and at a full band fill (the row's fill clamps at 100 %).
+/// the widest string the renderer can EMIT — the display-rounded absolutes at each unit's widest
+/// reachable pair (see <c>UnitWorsts</c>) and a full band fill (the row's fill clamps at 100 %).
 /// </para>
 ///
 /// <para>
@@ -60,13 +60,20 @@ internal static class PreviewRowFit
         "overlays.adaptationPreview.direction.bigger",
     ];
 
-    // Each unit's worst absolute pair, at its knob's settings-range ceiling: tolerance px tops out
-    // at 200 (one decimal composes under a fill), the EMA factor at 1, One-Euro's cutoff at 20 Hz.
+    // Each unit's WIDEST string the rounded renderer can emit, composed in its reachable order
+    // (the renderer rounds px to 1 decimal, Hz/factor to 2 — AdaptationPreviewWindow's
+    // ...DisplayDecimals — and the knob policies fix the order: tolerance is forgiving-up only
+    // (current ≥ baseline, clamp [10, 200]), smoothing is forgiving-down only (current ≤ baseline,
+    // a fraction OF the baseline — EffectiveSettingsProvider's Policies). So the worst pairs are:
+    // "199.9 → 187.5 px" (both 5-char at the 200-clamp edge), "0.87 → 0.99 factor" and
+    // "12.75 → 19.99 Hz" (both numbers at their widest under the down direction). The settings
+    // file is hand-editable JSON, so any in-range baseline is reachable — the worsts must be
+    // derived from the RANGES and the rounding, never from today's defaults.
     private static readonly (double Current, double Baseline, string UnitKey)[] UnitWorsts =
     [
-        (187.5, 200.0, "overlays.adaptationPreview.unit.px"),
-        (0.875, 1.0, "overlays.adaptationPreview.unit.factor"),
-        (18.75, 20.0, "overlays.adaptationPreview.unit.hz"),
+        (199.9, 187.5, "overlays.adaptationPreview.unit.px"),
+        (0.87, 0.99, "overlays.adaptationPreview.unit.factor"),
+        (12.75, 19.99, "overlays.adaptationPreview.unit.hz"),
     ];
 
     /// <summary>One measured row: its room, its demand, and the two clearances the class rules on.</summary>
@@ -140,10 +147,11 @@ internal static class PreviewRowFit
 
     /// <summary>
     /// The composed samples for the two PV1 keys that take arguments (the value templates): the
-    /// template formatted at each unit's worst pair / a full band, with every shipped spelling of
-    /// the unit or direction word — the harness cannot tell which table an item's template came
-    /// from, so the wider spelling is measured for both. Numbers are invariant (a real German row
-    /// formats "187,5", the same glyph count as "187.5").
+    /// template formatted at each unit's widest rounded pair / a full band, with every shipped
+    /// spelling of the unit or direction word — the harness cannot tell which table an item's
+    /// template came from, so the wider spelling is measured for both. The numbers are formatted in
+    /// BOTH cultures per pair: the real German row renders de-DE ("199,9 → 187,5 px"), the English
+    /// row invariant, and measuring both for both languages is never narrower than either.
     /// </summary>
     internal static IReadOnlyList<string> SamplesFor(string key, string template)
     {
@@ -152,7 +160,10 @@ internal static class PreviewRowFit
         {
             foreach (var (current, baseline, unitKey) in UnitWorsts)
                 foreach (var unit in DraftTexts([unitKey]))
+                {
                     samples.Add(string.Format(CultureInfo.InvariantCulture, template, current, baseline, unit));
+                    samples.Add(string.Format(GermanFormat, template, current, baseline, unit));
+                }
             return samples;
         }
 
@@ -166,6 +177,9 @@ internal static class PreviewRowFit
 
         throw new InvalidOperationException($"{key} has no PV1 sample rule; only the value templates take arguments.");
     }
+
+    /// <summary>The German table's number format (comma decimals) — the format a real German row renders.</summary>
+    private static readonly CultureInfo GermanFormat = CultureInfo.GetCultureInfo("de-DE");
 
     /// <summary>
     /// The value a probe composes into when it is not the whole value already: direction words ride

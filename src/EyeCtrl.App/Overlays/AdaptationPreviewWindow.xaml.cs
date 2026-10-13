@@ -37,6 +37,16 @@ public partial class AdaptationPreviewWindow : OverlayWindow, IPreviewPanel
     private const double TrackWidthDip = 110;
     private const double TrackHeightDip = 6;
 
+    // Display rounding (D15, review F1): the composition chain never rounds — Step accumulates
+    // binary-inexact fill steps, EffectiveValue/Effective clamp only, and StringTable formats with
+    // bare string.Format — so an unrounded absolute would render float tails ("0.49999999999999994 →
+    // 0.625 factor"). The band arm already rounds (Math.Round of the fill); the absolute arms round
+    // to the display precision here: pixels to 1 decimal, the smoothing parameter (Hz or factor) to
+    // 2. The fit harness's PV1 worsts are DERIVED from this rounding — its samples must be exactly
+    // the widest strings this rounded renderer can emit.
+    private const int RadiusDisplayDecimals = 1;
+    private const int SmoothingDisplayDecimals = 2;
+
     private StackPanel? _rowsHost;
     private TextBlock? _nothingActiveLine;
     private TextBlock? _footer;
@@ -89,7 +99,9 @@ public partial class AdaptationPreviewWindow : OverlayWindow, IPreviewPanel
 
     /// <summary>The right-hand value column for a row (§3.4): the effective absolute against its
     /// baseline where the knob has one, the band fill with its direction word where it does not.
-    /// Pure and headless-testable.</summary>
+    /// Both arms round for DISPLAY (the band as a whole percent, the absolutes to the precision the
+    /// <c>...DisplayDecimals</c> constants name) — the composition chain itself never rounds. Pure
+    /// and headless-testable.</summary>
     internal static string ValueTextFor(StringTable strings, AdaptationPreviewRow row) => row.Knob switch
     {
         AdaptationKnob.DwellTime => row.TotalFill <= 0.0
@@ -101,10 +113,12 @@ public partial class AdaptationPreviewWindow : OverlayWindow, IPreviewPanel
         // true there — effective equals baseline with no parameter in play.
         AdaptationKnob.Smoothing when row.AbsoluteValue is null => strings.T("overlays.adaptationPreview.direction.atBaseline"),
         AdaptationKnob.Smoothing => strings.T("overlays.adaptationPreview.value.absolute",
-            row.AbsoluteValue!.Value, row.BaselineValue!.Value,
+            Math.Round(row.AbsoluteValue!.Value, SmoothingDisplayDecimals),
+            Math.Round(row.BaselineValue!.Value, SmoothingDisplayDecimals),
             strings.T(row.IsHzUnit ? "overlays.adaptationPreview.unit.hz" : "overlays.adaptationPreview.unit.factor")),
         AdaptationKnob.FixationRadius => strings.T("overlays.adaptationPreview.value.absolute",
-            row.AbsoluteValue ?? 0.0, row.BaselineValue ?? 0.0, strings.T("overlays.adaptationPreview.unit.px")),
+            Math.Round(row.AbsoluteValue ?? 0.0, RadiusDisplayDecimals),
+            Math.Round(row.BaselineValue ?? 0.0, RadiusDisplayDecimals), strings.T("overlays.adaptationPreview.unit.px")),
         AdaptationKnob.TargetGeometry => row.TotalFill <= 0.0
             ? strings.T("overlays.adaptationPreview.direction.atBaseline")
             : strings.T("overlays.adaptationPreview.value.band", Math.Round(row.TotalFill * 100), strings.T("overlays.adaptationPreview.direction.bigger")),

@@ -408,7 +408,6 @@ public class ResetPreviewEngineTests
         // D = 1 s dwell. Worst case: the freeze tax is 0.4×D + the 120 ms leave + a full 1×D
         // re-dwell; the pass must run to the fire with no preview interrupting it.
         var h = new Harness();
-        const long DwellUs = 1_000_000;
 
         long t = 0;
         for (var i = 1; i <= 8; i++)                                // 0.40 at 400 ms → engage

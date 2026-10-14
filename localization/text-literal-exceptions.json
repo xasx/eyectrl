@@ -209,10 +209,22 @@
       "Reason": "A number format specifier, not text."
     },
     {
+      "Path": "src/EyeCtrl.App/Overlays/EmojiGridManager.cs",
+      "Literal": "\"ABC\"",
+      "Category": "glyph",
+      "Reason": "The emoji grid's switch-back-to-letters key caption: the same \"ABC\" the keyboard layouts carry on their own switch key (layout data, the same in every language), not UI prose."
+    },
+    {
       "Path": "src/EyeCtrl.App/Overlays/EraseLabelFrame.cs",
       "Literal": "\"eraseLeft\"",
       "Category": "id",
       "Reason": "The erase-arrow label-frame id a keyboard JSON names; not text."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/RestartNoticeWindow.xaml.cs",
+      "Literal": "\"restart_notice_close\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
     },
     {
       "Path": "src/EyeCtrl.App/Overlays/SplashWindow.xaml",

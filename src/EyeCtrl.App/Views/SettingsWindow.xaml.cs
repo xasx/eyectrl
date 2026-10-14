@@ -612,6 +612,11 @@ public partial class SettingsWindow : OverlayWindow
             _viewModel.Settings.PropertyChanged -= OnSettingsViewModelPropertyChanged;
             _supervisionToggle.StateChanged -= OnSupervisionStateChanged;
             _supervisionRefresher.Stop();
+            // The restart notices above registered this window on the (app-lifetime) messenger,
+            // which holds it weakly but until it is collected: a closed window would still receive
+            // RestartInProgressMessage and show a modal nobody can see, on a window that is gone.
+            // The App-level RestartNoticeHost shows the notices when no Settings window is open.
+            _messenger.UnregisterAll(this);
             // The models source subscribed to the singleton management service's progress
             // event; the window is recreated per open, so leaving the subscription live
             // would accumulate one handler per settings visit.
@@ -1143,8 +1148,7 @@ public partial class SettingsWindow : OverlayWindow
     /// machine culture — the language the replacement will actually run. An ordinary restart (no
     /// pending change) resolves to the running language, so its notices are unchanged.
     /// </summary>
-    private UiLanguage TargetLanguage() =>
-        StringTable.ResolveLanguage(_settings.General.UiLanguage, StringTable.Current.Culture);
+    private UiLanguage TargetLanguage() => RestartNotices.TargetLanguage(_settings.General.UiLanguage);
 
     // ────── Live apply + debounced save ──────
 

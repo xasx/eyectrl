@@ -32,6 +32,25 @@ public class StringTableLoadTests : IDisposable
     private void WriteManifest(string json) =>
         File.WriteAllText(Path.Combine(_directory, StringTable.ManifestFileName), json);
 
+    // A real surface with real keys: `startup-error` is two keys, so a complete German file for it
+    // is small, and its English is the shipped literal the "stays English" tests assert. (A key no
+    // table defines would also read as itself, which passes whether German, English or nothing
+    // loaded: the vacuous check the holistic review found.)
+    private const string TitleKey = "startup-error.title";
+    private const string MessageKey = "startup-error.message";
+    private const string EnglishTitle = "EyeCtrl — Startup Error";
+    private const string GermanTitle = "EyeCtrl konnte nicht starten (Testwert)";
+
+    private const string CompleteGermanForStartupError = """
+        {
+          "startup-error.title": { "text": "EyeCtrl konnte nicht starten (Testwert)" },
+          "startup-error.message": { "text": "Fehler.\nTechnische Details: {0}" }
+        }
+        """;
+
+    private static StringTable LoadGerman(string? directory, List<string> warnings) =>
+        StringTable.Load(UiLanguage.German, CultureInfo.GetCultureInfo("de-DE"), directory, warnings.Add);
+
     [Fact]
     public void EmbeddedResource_IsCompiledIn_AndParses()
     {
@@ -59,7 +78,7 @@ public class StringTableLoadTests : IDisposable
 
         Check.That(table.Language).IsEqualTo(UiLanguage.German);
         Check.That(warnings).IsEmpty();
-        Check.That(table.T("settings.alpha")).IsEqualTo("settings.alpha");
+        Check.That(table.T(TitleKey)).IsEqualTo(EnglishTitle);
     }
 
     [Fact]
@@ -69,51 +88,78 @@ public class StringTableLoadTests : IDisposable
         var table = StringTable.Load(
             UiLanguage.German, CultureInfo.GetCultureInfo("de-DE"), _directory, warnings.Add);
 
-        Check.That(table.T("settings.alpha")).IsEqualTo("settings.alpha");
+        Check.That(table.T(TitleKey)).IsEqualTo(EnglishTitle);
         Check.That(warnings).HasElementThatMatches(w => w.Contains(StringTable.GermanFileName, StringComparison.Ordinal));
         Check.That(warnings).HasElementThatMatches(w => w.Contains(StringTable.ManifestFileName, StringComparison.Ordinal));
     }
 
     [Fact]
-    public void ValidLooseFiles_AreFoundWithoutWarnings()
+    public void ValidLooseFiles_AreFoundWithoutWarnings_AndTheSurfaceResolvesGerman()
     {
-        // The shipped English table is empty at this point in the plan, so no key can resolve to
-        // German yet — what this pins is that both loose files were located and parsed cleanly.
-        WriteGerman("{}");
-        WriteManifest("[]");
+        WriteGerman(CompleteGermanForStartupError);
+        WriteManifest("""[ "startup-error" ]""");
 
         var warnings = new List<string>();
-        var table = StringTable.Load(
-            UiLanguage.German, CultureInfo.GetCultureInfo("de-DE"), _directory, warnings.Add);
+        var table = LoadGerman(_directory, warnings);
 
         Check.That(table.Language).IsEqualTo(UiLanguage.German);
         Check.That(warnings).IsEmpty();
+        Check.That(table.T(TitleKey)).IsEqualTo(GermanTitle);
+        Check.That(table.T(MessageKey, "boom")).IsEqualTo("Fehler.\nTechnische Details: boom");
+    }
+
+    [Fact]
+    public void AnEmptyManifest_KeepsEverySurfaceEnglish_EvenWithACompleteGermanFile()
+    {
+        WriteGerman(CompleteGermanForStartupError);
+        WriteManifest("[]");
+
+        var warnings = new List<string>();
+        var table = LoadGerman(_directory, warnings);
+
+        Check.That(warnings).IsEmpty();
+        Check.That(table.T(TitleKey)).IsEqualTo(EnglishTitle);
+    }
+
+    [Fact]
+    public void AValidGermanFile_NextToAMissingManifest_StaysEnglishWithALog()
+    {
+        WriteGerman(CompleteGermanForStartupError);
+
+        var warnings = new List<string>();
+        var table = LoadGerman(_directory, warnings);
+
+        Check.That(table.T(TitleKey)).IsEqualTo(EnglishTitle);
+        Check.That(warnings).HasElementThatMatches(
+            w => w.Contains(StringTable.ManifestFileName, StringComparison.Ordinal));
     }
 
     [Fact]
     public void CorruptGerman_IsEnglishWithALog()
     {
         WriteGerman("{ not json");
-        WriteManifest("[]");
+        WriteManifest("""[ "startup-error" ]""");
 
         var warnings = new List<string>();
         var table = StringTable.Load(
             UiLanguage.German, CultureInfo.GetCultureInfo("de-DE"), _directory, warnings.Add);
 
         Check.That(table.Language).IsEqualTo(UiLanguage.German);
+        Check.That(table.T(TitleKey)).IsEqualTo(EnglishTitle);
         Check.That(warnings).HasElementThatMatches(w => w.Contains("not valid JSON", StringComparison.Ordinal));
     }
 
     [Fact]
     public void CorruptManifest_IsEnglishWithALog()
     {
-        WriteGerman("{}");
+        WriteGerman(CompleteGermanForStartupError);
         WriteManifest("{ \"settings\": true }");
 
         var warnings = new List<string>();
         var table = StringTable.Load(
             UiLanguage.German, CultureInfo.GetCultureInfo("de-DE"), _directory, warnings.Add);
 
+        Check.That(table.T(TitleKey)).IsEqualTo(EnglishTitle);
         Check.That(warnings).HasElementThatMatches(
             w => w.Contains(StringTable.ManifestFileName, StringComparison.Ordinal));
     }
@@ -123,7 +169,7 @@ public class StringTableLoadTests : IDisposable
     [InlineData("{ not json")]       // not JSON at all
     public void UnparseableManifest_IsEnglishWithALog_AndNeverThrows(string json)
     {
-        WriteGerman("{}");
+        WriteGerman(CompleteGermanForStartupError);
         WriteManifest(json);
 
         var warnings = new List<string>();
@@ -131,7 +177,7 @@ public class StringTableLoadTests : IDisposable
             UiLanguage.German, CultureInfo.GetCultureInfo("de-DE"), _directory, warnings.Add);
 
         Check.That(table.Language).IsEqualTo(UiLanguage.German);
-        Check.That(table.T("settings.alpha")).IsEqualTo("settings.alpha");
+        Check.That(table.T(TitleKey)).IsEqualTo(EnglishTitle);
         Check.That(warnings).HasElementThatMatches(
             w => w.Contains(StringTable.ManifestFileName, StringComparison.Ordinal));
     }
@@ -139,12 +185,14 @@ public class StringTableLoadTests : IDisposable
     [Fact]
     public void ManifestWithANonStringEntry_WarnsAndIgnoresIt()
     {
-        WriteGerman("{}");
-        WriteManifest("""[ "settings", 5 ]""");
+        WriteGerman(CompleteGermanForStartupError);
+        WriteManifest("""[ "startup-error", 5 ]""");
 
         var warnings = new List<string>();
-        _ = StringTable.Load(UiLanguage.German, CultureInfo.GetCultureInfo("de-DE"), _directory, warnings.Add);
+        var table = LoadGerman(_directory, warnings);
 
         Check.That(warnings).HasElementThatMatches(w => w.Contains("non-string", StringComparison.Ordinal));
+        // The valid entry is still honoured: only the non-string one is dropped.
+        Check.That(table.T(TitleKey)).IsEqualTo(GermanTitle);
     }
 }

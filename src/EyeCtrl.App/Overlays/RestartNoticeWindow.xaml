@@ -1,0 +1,43 @@
+<overlays:OverlayWindow x:Class="EyeCtrl.App.Overlays.RestartNoticeWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
+        AutomationProperties.AutomationId="RestartNotice_Window"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        Topmost="True" ShowInTaskbar="False"
+        Width="1000" Height="360" MinHeight="200">
+    <Grid>
+        <!-- A notice for a gaze user on a 3840x2400 screen at 200 %: the first line is a title at
+             the theme's next size up from the body (FontSizeDisplay, the medium weight), the rest is
+             body at FontSizeTitle, and the button's label is body-sized. All theme tokens, no literals. -->
+        <Border x:Name="Banner"
+                HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                Background="{StaticResource BrushSurfaceDark}"
+                BorderBrush="{StaticResource BrushBorderSubtle}"
+                BorderThickness="{StaticResource StandardBorderThickness}"
+                CornerRadius="{StaticResource StandardCornerRadius}" Padding="40,30">
+            <StackPanel>
+                <TextBlock x:Name="TitleText"
+                           AutomationProperties.AutomationId="RestartNotice_Message"
+                           Foreground="{StaticResource BrushTextPrimary}"
+                           FontSize="{StaticResource FontSizeDisplay}"
+                           FontWeight="{StaticResource FontWeightMedium}" TextWrapping="Wrap"/>
+                <TextBlock x:Name="BodyText"
+                           AutomationProperties.AutomationId="RestartNotice_Body"
+                           Foreground="{StaticResource BrushTextPrimary}"
+                           FontSize="{StaticResource FontSizeTitle}"
+                           TextWrapping="Wrap" Margin="0,14,0,0"/>
+                <Border x:Name="CloseButton"
+                        AutomationProperties.AutomationId="RestartNotice_Close"
+                        Width="320" Height="100" HorizontalAlignment="Center" Margin="0,30,0,0"
+                        Background="{StaticResource BrushSurfaceKeySwitch}"
+                        CornerRadius="{StaticResource StandardCornerRadius}">
+                    <TextBlock x:Name="CloseLabel"
+                               Foreground="{StaticResource BrushTextPrimary}"
+                               FontSize="{StaticResource FontSizeTitle}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+            </StackPanel>
+        </Border>
+    </Grid>
+</overlays:OverlayWindow>

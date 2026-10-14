@@ -84,9 +84,12 @@ internal static class ArrowLabelFrame
     /// <param name="label">The key's caption TextBlock; its FontSize is the symbol font (base × Scale).</param>
     /// <param name="keySize">The key Border's height (and the keyboard's key size) in DIP.</param>
     /// <returns>A Grid holding the hidden label and the drawing.</returns>
-    public static FrameworkElement Build(string frameId, TextBlock label, double keySize)
+    /// <param name="inkWidth">The arrow's ink width in DIP, for a key whose width is not the 1.2-unit
+    /// box <see cref="TargetWidth"/> assumes (the emoji selector's 2.0-wide back key); null takes the
+    /// keyboard's own width.</param>
+    public static FrameworkElement Build(string frameId, TextBlock label, double keySize, double? inkWidth = null)
     {
-        var frame = Measure(frameId, label.FontSize, keySize);
+        var frame = Measure(frameId, label.FontSize, keySize, inkWidth);
         label.Opacity = 0;
 
         var canvas = new Canvas
@@ -122,11 +125,12 @@ internal static class ArrowLabelFrame
     /// <param name="frameId">Which arrow to draw.</param>
     /// <param name="symbolFont">The label's font size (base × <see cref="SymbolCaptionRule.Scale"/>).</param>
     /// <param name="keySize">The key size in DIP.</param>
+    /// <param name="inkWidth">The ink width in DIP; null is <see cref="TargetWidth"/>.</param>
     /// <returns>The drawn frame.</returns>
-    internal static Frame Measure(string frameId, double symbolFont, double keySize)
+    internal static Frame Measure(string frameId, double symbolFont, double keySize, double? inkWidth = null)
     {
         var stroke = EraseLabelFrame.StrokeRatio * symbolFont;
-        var width = TargetWidth(keySize);
+        var width = inkWidth ?? TargetWidth(keySize);
 
         if (frameId == EnterArrow)
         {

@@ -1,5 +1,6 @@
 namespace EyeCtrl.ViewModels.Tests;
 
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
@@ -36,22 +37,21 @@ public class CursorCircleViewModelTests
     }
 
     [Fact]
-    public void Paused_KeepsRingVisible_AndFlagsPaused()
+    public void Paused_HidesRing_AndShowsItAgainOnResume()
     {
-        // Paused-trap guard: the ring is the user's evidence that tracking is alive while they look
-        // for the resume target. It stays visible (the View dims it) and IsPaused drives the dim.
+        // Paused hides the ring (owner ruling 2026-10-07, superseding the visible-dim look of
+        // ticket 1): the PauseIndicator strip is the pause feedback and the edge-summon dwell stays
+        // active while paused, so resume needs no cursor. The visible-dim plumbing itself was later
+        // removed — once Paused hides the ring, no production path can show the window in that state.
         var settings = new EyeCtrlSettings();
         var vm = new CursorCircleViewModel(settings, _messenger);
         Check.That(vm.IsVisible).IsTrue();
-        Check.That(vm.IsPaused).IsFalse();
 
         _messenger.Send(new StateChangedMessage(InteractionState.Paused));
-        Check.That(vm.IsVisible).IsTrue();
-        Check.That(vm.IsPaused).IsTrue();
+        Check.That(vm.IsVisible).IsFalse();
 
         _messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
         Check.That(vm.IsVisible).IsTrue();
-        Check.That(vm.IsPaused).IsFalse();
     }
 
     // ── The pin (ticket 7): the ring glides to the settle centroid and stops there ──
@@ -240,14 +240,16 @@ public class CursorCircleViewModelTests
     }
 
     [Fact]
-    public void PausedWhilePinned_Unpins_Dims_AndFollowsGaze()
+    public void PausedWhilePinned_Unpins_Hides_AndStopsFollowingGaze()
     {
         // The transition the pause path must not break: the ring is pinned, the user pauses. Paused
-        // keeps the ring (dimmed, ticket 1) but it must no longer be pinned — the pin means a hold is
-        // being measured, and nothing is measured while paused.
+        // must no longer be pinned — the pin means a hold is being measured, and nothing is measured
+        // while paused — and since 2026-10-07 it also hides the ring, so a later sample must not
+        // move the (hidden) ring's position either.
         var settings = new EyeCtrlSettings();
         var vm = new CursorCircleViewModel(settings, _messenger);
 
+        SendFrame(_messenger, new PhysicalPoint(140, 120), 0);
         _messenger.Send(new StateChangedMessage(InteractionState.Fixation));
         _messenger.Send(new PinRingMessage(new PhysicalPoint(140, 120)));
         Check.That(vm.IsPinned).IsTrue();
@@ -255,12 +257,11 @@ public class CursorCircleViewModelTests
         _messenger.Send(new StateChangedMessage(InteractionState.Paused));
 
         Check.That(vm.IsPinned).IsFalse();
-        Check.That(vm.IsPaused).IsTrue();
-        Check.That(vm.IsVisible).IsTrue();
+        Check.That(vm.IsVisible).IsFalse();
 
-        SendFrame(_messenger, new PhysicalPoint(300, 400), 0);
-        Check.That(vm.Position.X).IsEqualTo(300);
-        Check.That(vm.Position.Y).IsEqualTo(400);
+        SendFrame(_messenger, new PhysicalPoint(300, 400), 30_000);
+        Check.That(vm.Position.X).IsEqualTo(140);
+        Check.That(vm.Position.Y).IsEqualTo(120);
     }
 
     [Fact]
@@ -426,20 +427,136 @@ public class CursorCircleViewModelTests
     }
 
     [Fact]
-    public void ExternalDwell_HidesRing_EvenWhilePaused_AndRestoresIt()
+    public void ExternalDwell_WhilePaused_RingStaysHidden()
     {
-        // Combined-owner check: external-dwell still wins while paused (the cooperating app's own
-        // progress replaces the ring), and clearing it restores the paused ring rather than leaving
-        // the user with no cursor feedback at all.
+        // Combined-owner check: while paused the ring is hidden by the state itself, so an external
+        // dwell claiming and then releasing the cursor leaves it hidden — clearing the external dwell
+        // restores only what the state allows, and Paused allows nothing.
         var settings = new EyeCtrlSettings();
         var messenger = new WeakReferenceMessenger();
         var vm = new CursorCircleViewModel(settings, messenger);
 
         messenger.Send(new StateChangedMessage(InteractionState.Paused));
+        Check.That(vm.IsVisible).IsFalse();
+
         messenger.Send(new ExternalDwellActiveMessage(true));
         Check.That(vm.IsVisible).IsFalse();
 
         messenger.Send(new ExternalDwellActiveMessage(false));
+        Check.That(vm.IsVisible).IsFalse();
+    }
+
+    [Fact]
+    public void ResumeFromPaused_ReappearsAtLiveGaze_NotAtThePrePausePosition()
+    {
+        // The hidden window keeps its last drawn Left/Top; without the snap in UpdateVisibility the
+        // first shown frame after a (possibly minutes-long) pause presents the pre-pause position.
+        // Mutation: drop the snap → Position stays 100,100, red.
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new CursorCircleViewModel(settings, messenger);
+
+        SendFrame(messenger, new PhysicalPoint(100, 100), 0);
+        messenger.Send(new StateChangedMessage(InteractionState.Paused));
+        Check.That(vm.IsVisible).IsFalse();
+
+        SendFrame(messenger, new PhysicalPoint(500, 400), 30_000);   // gaze moves while hidden
+
+        messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
         Check.That(vm.IsVisible).IsTrue();
+        Check.That(vm.Position.X).IsEqualTo(500);   // drawn at live gaze on the first shown frame
+        Check.That(vm.Position.Y).IsEqualTo(400);
+    }
+
+    [Fact]
+    public void Reappear_WritesPositionBeforeVisibility_TheShownWindowIsAlreadyAtLiveGaze()
+    {
+        // Order check (review round 1, I1): the activation halo pins "position, then show" as the
+        // required order — showing first presents the previous position for a frame. Same contract
+        // here: at the moment IsVisible flips true, Position must ALREADY be the live gaze.
+        // Mutation: write IsVisible before the snap in UpdateVisibility → the observer of the
+        // IsVisible change still reads the pre-pause position, red.
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new CursorCircleViewModel(settings, messenger);
+
+        SendFrame(messenger, new PhysicalPoint(100, 100), 0);
+        messenger.Send(new StateChangedMessage(InteractionState.Paused));
+        SendFrame(messenger, new PhysicalPoint(500, 400), 30_000);   // gaze moved while hidden
+
+        var positionWhenShown = new PhysicalPoint(-1, -1);
+        void OnPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(CursorCircleViewModel.IsVisible) && vm.IsVisible)
+                positionWhenShown = vm.Position;
+        }
+        vm.PropertyChanged += OnPropertyChanged;
+        try
+        {
+            messenger.Send(new StateChangedMessage(InteractionState.FreeLook));
+        }
+        finally
+        {
+            vm.PropertyChanged -= OnPropertyChanged;
+        }
+
+        Check.That(vm.IsVisible).IsTrue();
+        Check.That(positionWhenShown.X).IsEqualTo(500);   // already at live gaze when the show fired
+        Check.That(positionWhenShown.Y).IsEqualTo(400);
+    }
+
+    [Fact]
+    public void ReappearWhilePinned_TheRingStaysExactlyAtThePin()
+    {
+        // Review round 1, I2 — the snap's pin exemption (mutation (c) survived without this): while
+        // an offer is alive the ring is pinned at the offer's P, and no visibility flip may move it;
+        // the pin owns the position until Core releases. External dwell is the flip that can hide
+        // and re-show the ring while the pin survives (FreeLook keeps it). Mutation: drop the
+        // !IsPinned guard in UpdateVisibility → the dwell clear snaps the pinned ring to gaze, red.
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new CursorCircleViewModel(settings, messenger);
+
+        SendFrame(messenger, new PhysicalPoint(140, 120), 0);
+        messenger.Send(new StateChangedMessage(InteractionState.Fixation));
+        messenger.Send(new PinRingMessage(new PhysicalPoint(140, 120)));
+        SendFrame(messenger, new PhysicalPoint(140, 120), 30_000);
+        SendFrame(messenger, new PhysicalPoint(140, 120), 1_000_000);   // the glide has landed
+        Check.That(vm.IsPinned).IsTrue();
+
+        // The external dwell hides the ring; the gaze moves away while it is active.
+        messenger.Send(new ExternalDwellActiveMessage(true));
+        Check.That(vm.IsVisible).IsFalse();
+        SendFrame(messenger, new PhysicalPoint(600, 700), 2_000_000);
+
+        // The dwell ends: the pinned ring reappears AT THE PIN, not at the gaze.
+        messenger.Send(new ExternalDwellActiveMessage(false));
+        Check.That(vm.IsVisible).IsTrue();
+        Check.That(vm.IsPinned).IsTrue();
+        Check.That(vm.Position.X).IsEqualTo(140);
+        Check.That(vm.Position.Y).IsEqualTo(120);
+    }
+
+    [Fact]
+    public void ExternalDwellClear_ReappearsAtLiveGaze_NotAtThePreDwellPosition()
+    {
+        // The reappear snap's other trigger (review round 1 minor: neither non-pause reappear path
+        // had a test): a cooperating app's dwell ends and the ring comes back — at the live gaze,
+        // not at the position from before the app took the cursor. Same hidden-window reasoning as
+        // the paused resume; this is the ExternalDwellActiveMessage-driven variant.
+        var settings = new EyeCtrlSettings();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new CursorCircleViewModel(settings, messenger);
+
+        SendFrame(messenger, new PhysicalPoint(200, 250), 0);
+        messenger.Send(new ExternalDwellActiveMessage(true));
+        Check.That(vm.IsVisible).IsFalse();
+
+        SendFrame(messenger, new PhysicalPoint(700, 550), 30_000);   // gaze moves while external dwell owns it
+
+        messenger.Send(new ExternalDwellActiveMessage(false));
+        Check.That(vm.IsVisible).IsTrue();
+        Check.That(vm.Position.X).IsEqualTo(700);
+        Check.That(vm.Position.Y).IsEqualTo(550);
     }
 }

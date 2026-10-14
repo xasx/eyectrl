@@ -2,9 +2,11 @@ namespace EyeCtrl.Tests.TestSupport;
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Threading;
 
@@ -141,8 +143,10 @@ internal static class LiveCheck
             .That(opaque).Not.IsEmpty();
     }
 
-    /// <summary>The product of <see cref="UIElement.Opacity"/> from <paramref name="start"/> up to
-    /// and including <paramref name="root"/>.</summary>
+    /// <summary>
+    /// The product of <see cref="UIElement.Opacity"/> from <paramref name="start"/> up to and
+    /// including <paramref name="root"/>.
+    /// </summary>
     private static double EffectiveOpacity(DependencyObject start, DependencyObject root)
     {
         var opacity = 1.0;
@@ -153,5 +157,33 @@ internal static class LiveCheck
         }
 
         return opacity;
+    }
+
+    /// <summary>
+    /// The INK box of a text element in device pixels — the drawn glyphs, not the layout box. A
+    /// corner button's layout box is its whole dwell disc (100 DIP for the backdrop's ✕), which the
+    /// corner's offset decides: at the 2026-10-13 offset of 53 DIP the disc is fully on screen (a
+    /// headless gate pins that), and the ink the viewer sees sits well inside either way. "Is it on
+    /// the screen" is judged on the ink because the ink is what the viewer sees.
+    /// The geometry is built from the element's own font at the LINE's origin
+    /// (<c>ContentStart.GetCharacterRect</c>, the read <c>ArcLabelFit.InkBoxOf</c> uses) — not the
+    /// element's corner, which says nothing about where a centred glyph starts — then mapped through
+    /// <see cref="Visual.PointToScreen"/>.
+    /// </summary>
+    internal static Rect InkBoundsInDevicePixels(TextBlock element)
+    {
+        var lineStart = element.ContentStart.GetCharacterRect(LogicalDirection.Forward);
+        var formatted = new FormattedText(
+            element.Text,
+            CultureInfo.CurrentCulture,
+            FlowDirection.LeftToRight,
+            new Typeface(element.FontFamily, element.FontStyle, element.FontWeight, element.FontStretch),
+            element.FontSize,
+            element.Foreground,
+            VisualTreeHelper.GetDpi(element).PixelsPerDip);
+        var ink = formatted.BuildGeometry(new Point(lineStart.Left, lineStart.Top)).Bounds;
+        return new Rect(
+            element.PointToScreen(ink.TopLeft),
+            element.PointToScreen(ink.BottomRight));
     }
 }

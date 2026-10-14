@@ -286,6 +286,34 @@ public class ActivationOfferCoordinatorTests
             .That(Settle(s, 700, 700)).IsNotNull();
     }
 
+    /// <summary>
+    /// T15 review R1: the restart notice card carries its own dwell target and is click-through, so a
+    /// taken offer would click the window beneath it. While the card is up no offer is made, and a
+    /// live one is cleared, as for the eye-care banner.
+    /// Mutation: drop the <c>RestartNoticeActiveMessage</c> registration → the fixation on the card
+    /// raises an offer, red.
+    /// </summary>
+    [StaFact]
+    public void TheRestartNoticeCard_SuspendsOffers_WhileItIsUp()
+    {
+        var s = Build();
+        using var _ = s.Context.GazeEngine;
+
+        Check.That(Settle(s, 500, 500)).IsNotNull();
+
+        s.Messenger.Send(new RestartNoticeActiveMessage(true));
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        Check.WithCustomMessage("the card appearing must clear the live offer")
+            .That(s.Engine.CurrentOffer).IsNull();
+        Check.WithCustomMessage("a fixation on the card's button must raise no offer")
+            .That(Settle(s, 700, 700)).IsNull();
+
+        s.Messenger.Send(new RestartNoticeActiveMessage(false));
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        Check.WithCustomMessage("offers resume once the card is gone")
+            .That(Settle(s, 900, 900)).IsNotNull();
+    }
+
     /// <summary>Ends any live fixation, settles at a fresh point through the public API, and returns
     /// the offer (or null when none was made).</summary>
     private static ActivationOffer? Settle(Setup s, double x, double y)

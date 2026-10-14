@@ -698,6 +698,25 @@ public class SettingsWindowViewModelTests
         Check.That(progress > 0).IsTrue();
     }
 
+    // The settings mode toggle rides the Pagination category (spec S5.5): an id that is neither
+    // pag_prev nor pag_next falls to the generic _pagActions arm, which runs its action without
+    // touching page state. This is a green-on-contact regression pin — the generic arm already
+    // existed when the toggle landed; it pins the r1-C2 invariant (a category reuse must not
+    // route the id into the Tab arm's ShowTab, which would flip tabs instead of modes).
+    [Fact]
+    public void ModeToggleId_UnderPagination_DispatchesItsAction_NeverShowTab()
+    {
+        var vm = CreateViewModel();
+        var fired = false;
+        vm.Register("settings_mode", DwellCategory.Pagination, radiusPhysical: 100, dwellMs: 700,
+            () => fired = true);
+
+        vm.SimulateActivated("settings_mode", DwellCategory.Pagination);
+
+        Check.That(fired).IsTrue();
+        Check.That(vm.Settings.CurrentTabName).IsEqualTo("");   // ShowTab never ran: the r1-C2 invariant
+    }
+
     // The sidebar's tab-list pager used to ride the Tab category, with a `tab_prev`/`tab_next`
     // special case here to stop it falling through to ShowTab. Both are gone: the pager now
     // registers under DwellCategory.Pagination (the Tab->Pagination move took the tab flip off

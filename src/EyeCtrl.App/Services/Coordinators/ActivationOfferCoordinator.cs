@@ -22,7 +22,7 @@ using EyeCtrl.ViewModels.Messages;
 /// data, the <c>SetRepeatSuppressionZones</c> pattern; Core re-validates a live offer against them,
 /// so chrome that appears over one takes it away (review A F3).</item>
 /// <item><b>Suspension.</b> While EyeCtrl's Settings window, the task switcher, the quick-actions
-/// grid or the eye-care banner is open, NO offer is made and a live unfired offer is cleared (the
+/// grid, the eye-care banner or the restart notice card is open, NO offer is made and a live unfired offer is cleared (the
 /// user's decision of 2026-10-02, review B F3). A single suspension flag carries that rule, because
 /// these surfaces are not chrome to avoid but interactions to yield to entirely.</item>
 /// </list>
@@ -46,6 +46,7 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
     private readonly Func<EventCoordinationContext, PhysicalRect[]> _collectZones;
     private bool _publishScheduled;
     private bool _bannerActive;
+    private bool _restartNoticeActive;
 
     public ActivationOfferCoordinator(
         ToolbarLifecycleCoordinator toolbar,
@@ -92,6 +93,12 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
         context.Messenger.Register<ActivationOfferCoordinator, EyeCareBannerActiveMessage>(this, (_, message) =>
         {
             _bannerActive = message.Active;
+            RecomputeSuspension();
+        });
+        // The restart notice card is the banner's twin: a transient dwell card over the desktop.
+        context.Messenger.Register<ActivationOfferCoordinator, RestartNoticeActiveMessage>(this, (_, message) =>
+        {
+            _restartNoticeActive = message.Active;
             RecomputeSuspension();
         });
 
@@ -160,6 +167,8 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
             reasons.Add("quick actions");
         if (_bannerActive)
             reasons.Add("eye-care banner");
+        if (_restartNoticeActive)
+            reasons.Add("restart notice");
 
         bool suspended = reasons.Count > 0;
         string reason = suspended ? string.Join(", ", reasons) : "none";

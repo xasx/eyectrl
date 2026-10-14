@@ -176,8 +176,18 @@
       "Count": 3
     },
     {
+      "Path": "src/EyeCtrl.App/Overlays/EmojiGridManager.cs",
+      "Literal": "\"ABC\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Overlays/EraseLabelFrame.cs",
       "Literal": "\"eraseLeft\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/RestartNoticeWindow.xaml.cs",
+      "Literal": "\"restart_notice_close\"",
       "Count": 1
     },
     {
@@ -479,6 +489,21 @@
       "Path": "src/EyeCtrl.App/Views/SettingsPagerChrome.cs",
       "Literal": "\"tab_prev\"",
       "Count": 2
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
+      "Literal": "\"settings.mode.show.all\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
+      "Literal": "\"settings.mode.show.basic\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
+      "Literal": "\"settings_mode\"",
+      "Count": 1
     },
     {
       "Path": "src/EyeCtrl.Controls/DwellColorPicker.cs",

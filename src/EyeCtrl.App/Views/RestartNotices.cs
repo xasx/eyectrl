@@ -20,6 +20,17 @@ using EyeCtrl.ViewModels;
 /// </remarks>
 internal static class RestartNotices
 {
+    /// <summary>
+    /// The language the restart flow speaks (F1, D5): the SAVED selection resolved against the
+    /// machine culture, the language the replacement will actually run. An ordinary restart (no
+    /// pending change) resolves to the running language, so its notices are unchanged. One rule for
+    /// the Settings window's notices and the App-level host's.
+    /// </summary>
+    /// <param name="savedSelection">The saved <c>General.UiLanguage</c>.</param>
+    /// <returns>The language the notices and failure reasons speak.</returns>
+    internal static UiLanguage TargetLanguage(UiLanguage savedSelection) =>
+        StringTable.ResolveLanguage(savedSelection, StringTable.Current.Culture);
+
     /// <summary>The "restart accepted, waiting for the successor" modal body.</summary>
     /// <param name="target">The language the whole restart flow speaks.</param>
     /// <returns>The resolved text.</returns>

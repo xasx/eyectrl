@@ -25,15 +25,15 @@ internal sealed class KeyboardPageSource : ISettingsPageSource
                     ],
                     new[] { "QWERTY", "QWERTZ", "AZERTY" },
                     () => k.ActiveLayout, v => { k.ActiveLayout = v; _ctx.ApplyAndSave(); })
-                    { Description = StringTable.Current.T("settings.keyboard.layout.description") },
+                    { Description = StringTable.Current.T("settings.keyboard.layout.description"), Simple = true },
                 new SliderSpec("k_size",
                     StringTable.Current.T("settings.keyboard.size.label"), 0.5, 2.0, 0.1, 1,
                     () => k.KeySizeMultiplier, v => { k.KeySizeMultiplier = v; _ctx.ApplyAndSave(); })
-                    { Description = StringTable.Current.T("settings.keyboard.size.description") },
+                    { Description = StringTable.Current.T("settings.keyboard.size.description"), Simple = true },
                 new ToggleSpec("k_pred",
                     StringTable.Current.T("settings.keyboard.prediction.label"),
                     () => k.PredictionEnabled, v => { k.PredictionEnabled = v; _ctx.ApplyAndSave(); })
-                    { Description = StringTable.Current.T("settings.keyboard.prediction.description") },
+                    { Description = StringTable.Current.T("settings.keyboard.prediction.description"), Simple = true },
                 new SliderSpec("k_pred_count",
                     StringTable.Current.T("settings.keyboard.prediction_count.label"), 1, Core.Settings.KeyboardSettings.MaxSuggestionsCeiling, 1, 0,
                     () => k.MaxSuggestions, v => { k.MaxSuggestions = (int)v; _ctx.ApplyAndSave(); })
@@ -50,11 +50,11 @@ internal sealed class KeyboardPageSource : ISettingsPageSource
                     new[] { "en", "fr", "es", "de", "pl" },
                     () => string.IsNullOrEmpty(k.LanguagePack) ? "en" : k.LanguagePack,
                     v => { k.LanguagePack = v; _ctx.ApplyAndSave(); })
-                    { Description = StringTable.Current.T("settings.keyboard.dictionary_language.description") },
+                    { Description = StringTable.Current.T("settings.keyboard.dictionary_language.description"), Simple = true },
                 new ToggleSpec("k_sound",
                     StringTable.Current.T("settings.keyboard.click_sound.label"),
                     () => k.ClickSoundEnabled, v => { k.ClickSoundEnabled = v; _ctx.ApplyAndSave(); })
-                    { Description = StringTable.Current.T("settings.keyboard.click_sound.description") },
+                    { Description = StringTable.Current.T("settings.keyboard.click_sound.description"), Simple = true },
                 new ComboBoxSpec("k_edge",
                     StringTable.Current.T("settings.keyboard.screen_edge.label"),
                     [
@@ -79,7 +79,7 @@ internal sealed class KeyboardPageSource : ISettingsPageSource
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     }),
-                    ButtonKind.Reset, Width: 380, Height: 100),
+                    ButtonKind.Reset, Width: 380, Height: 100) { Simple = true },
             ]),
             .. DictionaryPage(),
         ];

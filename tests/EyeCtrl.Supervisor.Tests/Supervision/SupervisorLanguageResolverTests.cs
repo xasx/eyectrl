@@ -3,9 +3,11 @@ namespace EyeCtrl.Supervisor.Tests.Supervision;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.RegularExpressions;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Localization;
 using EyeCtrl.Supervisor.Supervision;
+using EyeCtrl.Tests.TestSupport;
 using NFluent;
 using Xunit;
 
@@ -123,6 +125,30 @@ public class SupervisorLanguageResolverTests : IDisposable
 
         pending = null;                          // cleared once the re-read found it saved
         Check.That(resolver.ResolveLanguage()).IsEqualTo(UiLanguage.English);
+    }
+
+    /// <summary>
+    /// The production wiring, pinned by source (Program.cs is integration wiring that cannot be
+    /// composed in a test): the resolver the Supervisor builds is handed the delivery's pending
+    /// choice. Dropping <c>pending:</c> leaves every resolver test green, since they build their own
+    /// resolvers, while the Supervisor's own screens stop following the caretaker's choice at once
+    /// (holistic review F2).
+    /// </summary>
+    [Fact]
+    public void TheSupervisorsResolver_IsWiredToTheLanguageDeliverysPendingChoice()
+    {
+        var program = File.ReadAllText(
+            Path.Combine(GermanDraft.RepoRoot(), "src", "EyeCtrl.Supervisor", "Program.cs"));
+
+        var construction = Regex.Matches(program, @"new\s+SupervisorLanguageResolver\s*\(([^;]*)\)\s*;");
+        Check.WithCustomMessage("Program.cs no longer constructs exactly one SupervisorLanguageResolver.")
+            .That(construction.Count).IsEqualTo(1);
+        Check.WithCustomMessage(
+                "The resolver must take `pending: () => _languageDelivery.Pending`, the delivery that "
+                + "SetupRow writes the caretaker's choice into.")
+            .That(Regex.IsMatch(
+                construction[0].Groups[1].Value,
+                @"pending\s*:\s*\(\s*\)\s*=>\s*_languageDelivery\s*\.\s*Pending\b")).IsTrue();
     }
 
     [Fact]

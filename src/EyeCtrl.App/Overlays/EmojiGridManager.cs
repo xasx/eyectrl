@@ -8,6 +8,7 @@ using EyeCtrl.Controls;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Keyboard;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
@@ -52,7 +53,7 @@ public class EmojiGridManager
     private readonly StackPanel _categoryBar;
     // The content element is handed to the registrar, never set as the Border's own Child: the
     // registrar wraps it in the dwell outline, and an already-parented child makes Attach throw.
-    private readonly Action<string, KeyDefinition, Border, TextBlock?> _registerKeyVisual;
+    private readonly Action<string, KeyDefinition, Border, TextBlock?, FrameworkElement?> _registerKeyVisual;
     private readonly Func<double> _getKeySize;
     private readonly Action _clearKeyState;
 
@@ -82,7 +83,7 @@ public class EmojiGridManager
     public EmojiGridManager(
         StackPanel keyRows,
         StackPanel categoryBar,
-        Action<string, KeyDefinition, Border, TextBlock?> registerKeyVisual,
+        Action<string, KeyDefinition, Border, TextBlock?, FrameworkElement?> registerKeyVisual,
         Func<double> getKeySize,
         Action clearKeyState,
         IStruggleTelemetrySink? sink = null,
@@ -200,7 +201,7 @@ public class EmojiGridManager
                     CornerRadius = Tokens.StandardCornerRadius
                 };
 
-                _registerKeyVisual(id, keyDef, container, emojiChild);
+                _registerKeyVisual(id, keyDef, container, emojiChild, emojiChild);
                 rowPanel.Children.Add(container);
             }
 
@@ -520,14 +521,22 @@ public class EmojiGridManager
                 CornerRadius = Tokens.StandardCornerRadius
             };
 
-            _registerKeyVisual(id, keyDef, container, skinChild);
+            _registerKeyVisual(id, keyDef, container, skinChild, skinChild);
             rowPanel.Children.Add(container);
         }
 
         _keyRows.Children.Add(rowPanel);
 
         var backRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-        AddSpecialButton(backRow, "Back", "skinToneBack", 2.0);
+        // A language-free caption: the keyboard's own drawn left arrow (T14's wide arrows), a third
+        // of the key's width, with the spoken name from the overlays surface. A hard-coded "Back"
+        // here read English on a German overlay (holistic review F4), and the caption is the only
+        // text a gaze user would see. Drawn rather than a font glyph: the glyph fallback is a hairline.
+        // The name is the edge bar's own key (overlays.edge.back): same surface, same meaning, no new
+        // German, and rewording it there reads through to this key's spoken name too.
+        AddSpecialButton(backRow, "\u2190", "skinToneBack", 2.0,
+            accessibleName: StringTable.Current.T("overlays.edge.back"),
+            labelFrame: ArrowLabelFrame.CursorLeft);
         _keyRows.Children.Add(backRow);
 
         // No changed-guard, unlike the category branch: parked gaze on the skin-tone tab re-fires
@@ -543,11 +552,21 @@ public class EmojiGridManager
         Log.Information("Emoji {Panel} shown: cells={Cells}", "skin-tone selector", CountLiveCells());
     }
 
-    private void AddSpecialButton(StackPanel row, string text, string action, double widthMultiplier)
+    /// <param name="text">The caption: a glyph or a layout-data word, never UI prose. Prose is a
+    /// sink of the text-literal ratchet, so a hard-coded sentence here fails the gate.</param>
+    /// <param name="accessibleName">The screen-reader name of a caption nobody can pronounce
+    /// (a glyph), resolved from the string table by the caller; null leaves the caption as the name.</param>
+    /// <param name="labelFrame">One of the keyboard's drawn arrows (<see cref="ArrowLabelFrame"/>): the
+    /// caption becomes the invisible automation anchor and the arrow is drawn a third of the key's
+    /// width, in the keyboard's own stroke; null draws the caption as text.</param>
+    private void AddSpecialButton(
+        StackPanel row, string text, string action, double widthMultiplier, string? accessibleName = null,
+        string? labelFrame = null)
     {
         var keySize = _getKeySize();
         var id = $"special_{action}";
-        var keyDef = new KeyDefinition { Label = text, Output = "", SpecialAction = action };
+        var keyDef = new KeyDefinition { Label = text, Output = "", SpecialAction = action, LabelFrame = labelFrame };
+        var boxWidth = keySize * widthMultiplier + (widthMultiplier > 1 ? (widthMultiplier - 1) * 4 : 0);
 
         var label = new TextBlock
         {
@@ -562,16 +581,28 @@ public class EmojiGridManager
             VerticalAlignment = VerticalAlignment.Center
         };
 
+        if (accessibleName is not null)
+            System.Windows.Automation.AutomationProperties.SetName(label, accessibleName);
+
+        FrameworkElement captionContent = label;
+        if (labelFrame is not null)
+        {
+            // The keyboard's symbol font (base x the T14 scale), so the arrow's stroke is the one
+            // the drawn arrows on the keyboard have.
+            label.FontSize *= SymbolCaptionRule.Scale;
+            captionContent = ArrowLabelFrame.Build(labelFrame, label, keySize, inkWidth: boxWidth / 3);
+        }
+
         var container = new Border
         {
-            Width = keySize * widthMultiplier + (widthMultiplier > 1 ? (widthMultiplier - 1) * 4 : 0),
+            Width = boxWidth,
             Height = keySize,
             Margin = new Thickness(2),
             Background = new SolidColorBrush(KeyColorSwitch),
             CornerRadius = Tokens.StandardCornerRadius
         };
 
-        _registerKeyVisual(id, keyDef, container, label);
+        _registerKeyVisual(id, keyDef, container, label, captionContent);
         row.Children.Add(container);
     }
 

@@ -92,6 +92,7 @@ FIT_CLASSES = [
     "A68",
     "A44",
     "A56",
+    "A208",
     # T09 review-01: the eye-care summary card; one line, and the auto-width card fits the window.
     "card",
     "tab156",
@@ -465,6 +466,7 @@ def validate_german(
     glossary: dict,
     allowlist: set[str],
     errors: list[str],
+    used_allowlist: set[str] | None = None,
 ) -> None:
     keys = [key for key in german if not key.startswith("_")]
     if keys != sorted(keys):
@@ -581,6 +583,8 @@ def validate_german(
                         f"strings.de.json: {key}: German is identical to English ({form!r}); "
                         "add the value to strings.identical-allowlist.json if that is intended"
                     )
+                elif form == source_form and used_allowlist is not None:
+                    used_allowlist.add(form)
 
         if source.get("where") in manifest:
             if not isinstance(src, str) or src != compute_src(source):
@@ -695,6 +699,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--allowlist", type=Path,
                         default=REPO_ROOT / "localization/strings.identical-allowlist.json")
     parser.add_argument("--src-dir", type=Path, default=REPO_ROOT / "src")
+    parser.add_argument("--allow-unused-allowlist", action="store_true",
+                        help="Do not fail on identical-allowlist entries that match no German value "
+                             "(for the fixture cases, which share the shipped allowlist)")
     parser.add_argument("--refresh-de-src", action="store_true",
                         help="Recompute and write src in the German file, then exit")
     arguments = parser.parse_args(argv)
@@ -731,8 +738,18 @@ def main(argv: list[str] | None = None) -> int:
         allowlist = set(allowlist_raw)
 
     if isinstance(german, dict):
+        used_allowlist: set[str] = set()
         validate_german(english, german, manifest, glossary if isinstance(glossary, dict) else {},
-                        allowlist, errors)
+                        allowlist, errors, used_allowlist)
+        if not arguments.allow_unused_allowlist:
+            # A staleness check: an entry that waives nothing is dead weight that would silently
+            # waive a future identical value, so a translator must remove it (matching is by value,
+            # not by key; keying it by key is the known follow-up).
+            for entry in sorted(allowlist - used_allowlist):
+                errors.append(
+                    f"strings.identical-allowlist.json: entry {entry!r} matches no German value that is "
+                    "identical to its English; remove it"
+                )
     else:
         errors.append(f"{arguments.german}: root is not a JSON object")
 

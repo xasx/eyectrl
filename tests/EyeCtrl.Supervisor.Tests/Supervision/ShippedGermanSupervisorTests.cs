@@ -113,6 +113,64 @@ public class ShippedGermanSupervisorTests : IDisposable
         Check.That(resolver.ResolveTable().Language).IsEqualTo(UiLanguage.English);
     }
 
+    /// <summary>
+    /// The shipped DEFAULT: <c>uiLanguage</c> is <c>system</c> (or absent), and German appears only
+    /// because the machine's UI culture is German. Every other test writes "german" or "english",
+    /// so the culture the table resolves <c>system</c> against was unpinned (holistic review F2,
+    /// mutant M3: <c>CurrentUICulture</c> to <c>InvariantCulture</c> kept Supervisor.Tests green).
+    /// </summary>
+    [Theory]
+    [InlineData("de-DE", UiLanguage.German, "überwacht EyeCtrl")]
+    [InlineData("de-AT", UiLanguage.German, "überwacht EyeCtrl")]
+    [InlineData("en-US", UiLanguage.English, "watching EyeCtrl")]
+    [InlineData("fr-FR", UiLanguage.English, "watching EyeCtrl")]
+    public void TheShippedDefault_System_FollowsTheInjectedUiCulture(
+        string culture, UiLanguage expected, string supervising)
+    {
+        WriteLanguage("system");
+        var resolver = new SupervisorLanguageResolver(
+            _settingsPath, appExePath: _appExePath, writerMutexName: _writerMutexName,
+            culture: CultureInfo.GetCultureInfo(culture));
+
+        var table = resolver.ResolveTable();
+
+        Check.That(table.Language).IsEqualTo(expected);
+        Check.That(SupervisorStateText.Describe(table, SupervisorState.Supervising)).IsEqualTo(supervising);
+    }
+
+    /// <summary>
+    /// The same default through the seam the Supervisor actually uses: no injected culture, so the
+    /// resolver reads the thread's UI culture each time it resolves. A settings file with no
+    /// <c>uiLanguage</c> at all is the fresh-install shape and resolves the same way.
+    /// </summary>
+    [Fact]
+    public void TheShippedDefault_WithNoInjectedCulture_ReadsTheCurrentUiCulture()
+    {
+        var original = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("de-DE");
+            var resolver = Resolver();
+
+            File.WriteAllText(_settingsPath, "{}");
+            var fresh = resolver.ResolveTable();
+            Check.That(fresh.Language).IsEqualTo(UiLanguage.German);
+            Check.That(SupervisorStateText.Describe(fresh, SupervisorState.Supervising)).IsEqualTo("überwacht EyeCtrl");
+
+            WriteLanguage("system");
+            Check.That(resolver.ResolveTable().Language).IsEqualTo(UiLanguage.German);
+
+            CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("en-US");
+            var english = resolver.ResolveTable();
+            Check.That(english.Language).IsEqualTo(UiLanguage.English);
+            Check.That(SupervisorStateText.Describe(english, SupervisorState.Supervising)).IsEqualTo("watching EyeCtrl");
+        }
+        finally
+        {
+            CultureInfo.CurrentUICulture = original;
+        }
+    }
+
     /// <summary>The FallenBack dialog, built from the resolver's shipped-German table, reads its German literals.</summary>
     [Fact]
     public void TheFallenBackDialog_ShowsTheGermanLiterals()

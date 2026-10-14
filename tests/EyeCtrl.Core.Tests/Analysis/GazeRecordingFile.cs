@@ -74,7 +74,22 @@ public static class GazeRecordingFile
     }
 
     /// <summary>Parses a recording from disk.</summary>
-    public static Recording Read(string path) => Parse(File.ReadAllLines(path));
+    /// <remarks>
+    /// Read SHARED, not with <c>File.ReadAllLines</c>'s FileShare.Read: the recorder's writer opens its
+    /// appends with FileShare.Read, and it can still be live here — <c>Dispose</c> joins it on a 2 s
+    /// budget, so a starved writer outlives it. A stricter read collides with that handle and throws
+    /// <see cref="System.IO.IOException"/> instead of reporting what is on disk. Callers that need the
+    /// file to be complete wait for the writer's own close marker (the trailer) first.
+    /// </remarks>
+    public static Recording Read(string path)
+    {
+        using var stream = new FileStream(
+            path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        var lines = new List<string>();
+        while (reader.ReadLine() is { } line) lines.Add(line);
+        return Parse(lines);
+    }
 
     /// <summary>Parses a recording from already-read lines.</summary>
     public static Recording Parse(IEnumerable<string> lines)

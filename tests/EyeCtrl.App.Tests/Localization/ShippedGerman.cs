@@ -15,28 +15,29 @@ using EyeCtrl.Tests.TestSupport;
 /// on so T10 could measure German before any surface shipped). <see cref="Load"/> goes through the
 /// production loader against the copy in this test's output, so the table built here is exactly
 /// the one the App reads on this de-DE machine, System selection and all.
+///
+/// <para>
+/// T13, the last switch-on: <see cref="SwitchedOn"/> is now every surface of
+/// <see cref="StringTableSchema.Surfaces"/> — calibration, eye care and the overlays ship last, and
+/// no surface stays English.
+/// </para>
 /// </summary>
 internal static class ShippedGerman
 {
-    /// <summary>The eight surfaces Steps 1 and 2 switch on, in the manifest's sorted order.</summary>
+    /// <summary>Every surface, switched on by Steps 1–3, in the manifest's sorted order.</summary>
     internal static readonly string[] SwitchedOn =
     [
         "app-tray",
+        "calibration",
         "caregiver-alert",
         "drift-notice",
+        "eye-care",
         "language-recovery",
+        "overlays",
         "settings",
         "startup-error",
         "supervisor",
         "track-status"
-    ];
-
-    /// <summary>The surfaces that must stay English while Step 2 runs: Step 3 is not shipped.</summary>
-    internal static readonly string[] StillEnglish =
-    [
-        "calibration",
-        "eye-care",
-        "overlays"
     ];
 
     /// <summary>The machine culture the switch-on is measured on: this PC's de-DE.</summary>

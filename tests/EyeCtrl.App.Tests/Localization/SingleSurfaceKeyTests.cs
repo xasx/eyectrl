@@ -45,8 +45,10 @@ public class SingleSurfaceKeyTests
         ("src/EyeCtrl.App/Services/StartupErrorText.cs", ["startup-error"]),
 
         // Mixed folders: explicit files only.
-        ("src/EyeCtrl.App/Views/SettingsWindow.xaml", ["settings", "language-recovery"]),
-        ("src/EyeCtrl.App/Views/SettingsWindow.xaml.cs", ["settings", "language-recovery"]),
+        // (T15 F9: no longer granted language-recovery. The restart notices moved to
+        // RestartNotices.cs, and the window keeps only a comment about them.)
+        ("src/EyeCtrl.App/Views/SettingsWindow.xaml", ["settings"]),
+        ("src/EyeCtrl.App/Views/SettingsWindow.xaml.cs", ["settings"]),
         // T07: the pager chrome's glyph/step/jump decisions include the D11 accessible-name keys;
         // the window resolves them. Settings chrome, so the settings surface.
         ("src/EyeCtrl.App/Views/SettingsPagerChrome.cs", ["settings"]),
@@ -84,6 +86,8 @@ public class SingleSurfaceKeyTests
         ("src/EyeCtrl.App/Localization/OverlayTextSources.cs", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/ToolbarBand.cs", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs", ["overlays"]),
+        // T15 F4: the emoji skin-tone selector's back key takes its spoken name from overlays.edge.back.
+        ("src/EyeCtrl.App/Overlays/EmojiGridManager.cs", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/GlassBackdropWindow.xaml", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/GlassBackdropWindow.xaml.cs", ["overlays"]),
@@ -168,25 +172,73 @@ public class SingleSurfaceKeyTests
         (string Pattern, string[] Surfaces)[] map,
         string relativePath)
     {
-        foreach (var (pattern, surfaces) in map)
+        var index = EntryIndexFor(map, relativePath);
+        return index < 0 ? null : map[index].Surfaces;
+    }
+
+    private static int EntryIndexFor(
+        (string Pattern, string[] Surfaces)[] map,
+        string relativePath)
+    {
+        for (var index = 0; index < map.Length; index++)
         {
+            var pattern = map[index].Pattern;
             if (!pattern.EndsWith("/**", StringComparison.Ordinal)
                 && string.Equals(pattern, relativePath, StringComparison.Ordinal))
             {
-                return surfaces;
+                return index;
             }
         }
 
-        foreach (var (pattern, surfaces) in map)
+        for (var index = 0; index < map.Length; index++)
         {
+            var pattern = map[index].Pattern;
             if (pattern.EndsWith("/**", StringComparison.Ordinal)
                 && relativePath.StartsWith(pattern[..^2], StringComparison.Ordinal))
             {
-                return surfaces;
+                return index;
             }
         }
 
-        return null;
+        return -1;
+    }
+
+    /// <summary>
+    /// The map's staleness check (T15 F9): a grant no file uses, or an entry no file matches. An
+    /// unused grant is a door left open (a recovery key could enter the Settings chrome unnoticed),
+    /// and the map had no way to say a grant had gone stale.
+    /// </summary>
+    private static List<string> StaleGrants(
+        (string Pattern, string[] Surfaces)[] map,
+        IEnumerable<(string Relative, string Text)> files)
+    {
+        var used = map.Select(_ => new HashSet<string>(StringComparer.Ordinal)).ToArray();
+        var matched = new bool[map.Length];
+        foreach (var (relative, text) in files)
+        {
+            var index = EntryIndexFor(map, relative);
+            if (index < 0) continue;
+            matched[index] = true;
+            foreach (var reference in StringKeyReferences.Extract(text))
+                used[index].Add(reference.Key.Split('.')[0]);
+            foreach (Match match in ProviderSurfaceReference.Matches(text))
+                used[index].Add(match.Groups["surface"].Value);
+        }
+
+        var stale = new List<string>();
+        for (var index = 0; index < map.Length; index++)
+        {
+            if (!matched[index])
+            {
+                stale.Add($"{map[index].Pattern}: matches no file under src/; remove the entry");
+                continue;
+            }
+
+            foreach (var surface in map[index].Surfaces.Where(surface => !used[index].Contains(surface)))
+                stale.Add($"{map[index].Pattern}: is granted '{surface}' but no matching file references it; drop the grant");
+        }
+
+        return stale;
     }
 
     [Fact]
@@ -203,6 +255,44 @@ public class SingleSurfaceKeyTests
     }
 
     [Fact]
+    public void EveryGrantedSurface_IsUsedByAFileOfItsEntry()
+    {
+        var stale = StaleGrants(SurfaceMap, LocalizationTestData.SourceFiles());
+
+        Check.WithCustomMessage(
+                "The surface map holds a stale grant. A grant nothing uses lets a key of that surface "
+                + "enter the file unnoticed; drop it (or the entry).\n  " + string.Join("\n  ", stale))
+            .That(stale).IsEmpty();
+    }
+
+    [Fact]
+    public void TheStalenessCheck_FlagsAnUnusedGrant_AndAnEntryWithNoFile()
+    {
+        var map = new (string, string[])[]
+        {
+            ("src/X/File.cs", ["settings", "language-recovery"]),
+            ("src/Y/**", ["overlays"]),
+            ("src/Gone.cs", ["settings"])
+        };
+
+        var stale = StaleGrants(map,
+        [
+            ("src/X/File.cs", """var a = T("settings.title");"""),
+            ("src/Y/One.cs", """var b = T("overlays.ring.back");"""),
+        ]);
+
+        Check.That(stale).HasSize(2);
+        Check.That(stale[0]).Contains("src/X/File.cs").And.Contains("'language-recovery'");
+        Check.That(stale[1]).Contains("src/Gone.cs").And.Contains("matches no file");
+
+        // A provider call counts as using the surface, as the gate itself treats it.
+        Check.That(StaleGrants(
+            [("src/P.cs", ["settings", "calibration"])],
+            [("src/P.cs", """var p = FormatProviderFor("calibration"); var t = T("settings.title");""")]))
+            .IsEmpty();
+    }
+
+    [Fact]
     public void AFileInAOneSurfaceFolder_MayOnlyUseThatSurface()
     {
         Check.That(FindViolations(
@@ -213,6 +303,28 @@ public class SingleSurfaceKeyTests
             [("src/EyeCtrl.App/Views/Settings/AlphaPageSource.cs", """var t = T("overlays.ring.back");""")]);
         Check.That(violations).HasSize(1);
         Check.That(violations[0]).Contains("overlays.ring.back");
+    }
+
+    /// <summary>
+    /// F3 (holistic review): an underscore key under a named call or a key map is a reference too,
+    /// so the wrong-surface swap of a preset key (<c>settings.preset.kbd.select_all</c> →
+    /// <c>overlays.…</c>, mutant M2) is a violation.
+    /// </summary>
+    [Fact]
+    public void AnUnderscoreKey_OnTheWrongSurface_IsAViolation()
+    {
+        var violations = FindViolations(
+            [
+                ("src/EyeCtrl.App/Views/Settings/AlphaPageSource.cs",
+                 """var a = StringTable.Current.T(target, "overlays.preset.kbd.select_all");"""),
+                ("src/EyeCtrl.App/Views/Settings/BetaPageSource.cs",
+                 """map["kbd.select_all"] = "overlays.preset.kbd.select_all";"""),
+                ("src/EyeCtrl.App/Views/Settings/GammaPageSource.cs",
+                 """var c = StringTable.Current.Template("overlays.control.combo.not_available");""")
+            ]);
+
+        Check.That(violations).HasSize(3);
+        Check.That(violations.All(v => v.Contains("surface 'overlays'"))).IsTrue();
     }
 
     /// <summary>
@@ -252,8 +364,13 @@ public class SingleSurfaceKeyTests
     public void AFileSpanningTwoSurfaces_MayUseBoth()
     {
         var violations = FindViolations(
-            [("src/EyeCtrl.App/Views/SettingsWindow.xaml.cs",
+            [("src/EyeCtrl.App/Views/Settings/Sources/GeneralPageSource.cs",
               """var a = T("settings.title"); var b = T("language-recovery.restarting");""")]);
+
+        // ...and the Settings window itself no longer may (T15 F9).
+        Check.That(FindViolations(
+            [("src/EyeCtrl.App/Views/SettingsWindow.xaml.cs", """var b = T("language-recovery.restarting");""")]))
+            .HasSize(1);
         Check.That(violations).IsEmpty();
     }
 

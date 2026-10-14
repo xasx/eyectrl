@@ -80,15 +80,23 @@ internal static class StringKeyReferences
         RegexOptions.Compiled);
 
     private static readonly Regex CSharpNamedCall = new(
-        @"(?<![A-Za-z0-9_])T\s*\(\s*UiLanguage\s*\.\s*\w+\s*,\s*""(?<key>[^""]+)""",
+        @"(?<![A-Za-z0-9_])T\s*\(\s*(?:[^,()""]|\([^()]*\))+,\s*""(?<key>[^""]+)""",
         RegexOptions.Compiled);
+
+    private static readonly Regex CSharpTemplateCall = new(
+
+        @"(?<![A-Za-z0-9_])Template\s*\(\s*""(?<key>[^""]+)""",
+
+        RegexOptions.Compiled);
+
+
 
     private static readonly Regex XamlExtension = new(
         @"\{\s*loc\s*:\s*T\s+(?:Key\s*=\s*)?['""]?(?<key>[A-Za-z0-9_.\-]+)['""]?\s*\}",
         RegexOptions.Compiled);
 
     private static readonly Regex DottedLiteral = new(
-        @"""(?<key>[a-z][a-z0-9\-]*(?:\.[a-z0-9\-]+)+)""",
+        @"""(?<key>[a-z][a-z0-9\-]*(?:\.[A-Za-z0-9_\-]+)+)""",
         RegexOptions.Compiled);
 
     /// <summary>All references in comment-stripped source text, deduplicated by key.</summary>
@@ -108,6 +116,7 @@ internal static class StringKeyReferences
 
         Add(CSharpCall, "T(...) call");
         Add(CSharpNamedCall, "T(language, ...) call");
+        Add(CSharpTemplateCall, "Template(...) call");
         Add(XamlExtension, "{loc:T} usage");
 
         foreach (Match match in DottedLiteral.Matches(sourceText))

@@ -8,10 +8,29 @@ using FlaUI.UIA3;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 /// <summary>
 /// Launches EyeCtrl.App.exe in --test-mode and provides helpers for UI tests.
 /// Shared across all tests in a collection via xUnit ICollectionFixture.
+/// <para>
+/// SETTINGS ISOLATION: the app reads <c>%APPDATA%/EyeCtrl/settings.json</c> once at launch and
+/// writes it back (debounced) whenever settings change. When UI tests are enabled,
+/// <see cref="InitializeAsync"/> backs the owner's file up to
+/// <c>settings.json.ui_test_backup</c> and forces <c>general.simpleSettingsUi=false</c> so the
+/// launched app starts in advanced mode; <see cref="DisposeAsync"/> kills the app, waits up to
+/// 5&nbsp;s for the process to die (its debounced writer must be dead before the restore, or a
+/// late save re-persists the forced value over the restored file), then moves the backup back.
+/// A restore that fails with <c>IOException</c> or <c>UnauthorizedAccessException</c> never
+/// throws from disposal (it would mask the collection's results): the backup stays on disk for
+/// manual restore.
+/// CAVEAT: a test-host crash mid-run leaves <c>settings.json.ui_test_backup</c> behind for
+/// manual restore — and the next gated run REFUSES to start until it is resolved:
+/// <see cref="InitializeAsync"/> throws rather than overwrite it, because the leftover backup
+/// holds the owner's ORIGINAL while the live <c>settings.json</c> may already be test-mutated,
+/// and copying over the backup would destroy the original (impl review I4/F3).
+/// </para>
 /// </summary>
 public class AppFixture : IAsyncLifetime
 {
@@ -20,6 +39,16 @@ public class AppFixture : IAsyncLifetime
 
     private Application? _app;
     private UIA3Automation? _automation;
+    private string? _settingsBackup;
+    private bool _hadSettingsFile;
+
+    private static string SettingsPath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EyeCtrl", "settings.json");
+
+    private static readonly JsonSerializerOptions SettingsJsonOptions = new()
+    {
+        WriteIndented = true
+    };
 
     public UIA3Automation Automation => _automation
         ?? throw new InvalidOperationException("Fixture not initialized");
@@ -56,6 +85,47 @@ public class AppFixture : IAsyncLifetime
         // Do not launch the app or touch the cursor unless UI tests are explicitly enabled.
         if (!UiTestsEnabled)
             return;
+
+        // Settings isolation (see class doc comment). The backup + force must happen BEFORE
+        // Application.Launch: the app reads settings.json once at launch, so an in-test-method
+        // guard cannot influence what the already-running app loaded — and it races the app's
+        // debounced save, which can land after a restore and persist simpleSettingsUi=true
+        // into the owner's real file.
+        //
+        // A leftover backup from a crashed run is the owner's ORIGINAL, with a possibly
+        // test-mutated settings.json beside it. Copying over it would replace the original
+        // with the mutated file (impl review I4/F3) — so its presence fails the whole UI
+        // collection loudly instead. InvalidOperationException deliberately escapes the
+        // degrade-to-no-isolation catch below: degrading here would run the suite against an
+        // unknown settings state with the owner's only backup stranded mid-directory.
+        var backupPath = SettingsPath + ".ui_test_backup";
+        if (File.Exists(backupPath))
+            throw new InvalidOperationException(
+                $"Refusing to start UI tests: '{backupPath}' is left over from a crashed "
+                + $"UI-test run and holds the owner's original settings.json, while "
+                + $"'{SettingsPath}' may already be test-mutated. Restore it by hand (copy it "
+                + "over settings.json, or delete it if the live file is already correct), then "
+                + "re-run. See the CAVEAT in AppFixture's doc comment.");
+        try
+        {
+            _hadSettingsFile = File.Exists(SettingsPath);
+            if (_hadSettingsFile)
+            {
+                _settingsBackup = backupPath;
+                File.Copy(SettingsPath, _settingsBackup, overwrite: false); // never clobber a backup
+                ForceSimpleSettingsUi(SettingsPath, simple: false); // the launched app reads advanced
+            }
+            // No existing file: nothing to force or restore — advanced is the default the app
+            // will write.
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            // A throw here fails the whole UI collection, so every step is guarded: degrade to
+            // running WITHOUT isolation rather than aborting. The owner's file is left as-is
+            // and the backup is discarded so DisposeAsync will not restore over an unknown state.
+            _settingsBackup = null;
+            _hadSettingsFile = false;
+        }
 
         _automation = new UIA3Automation();
 
@@ -101,6 +171,36 @@ public class AppFixture : IAsyncLifetime
         catch
         {
             // Process may have already exited
+        }
+
+        // Restore the owner's settings AFTER the kill: the app's debounced writer may still
+        // hold a pending save, and the process must be DEAD before the restore or that save
+        // lands on the restored file and re-persists the forced value.
+        if (UiTestsEnabled && _settingsBackup is not null)
+        {
+            if (_app is not null)
+            {
+                try
+                {
+                    Process.GetProcessById(_app.ProcessId).WaitForExit(5000);
+                }
+                catch (ArgumentException) { /* already gone */ }
+                catch (InvalidOperationException) { /* process object no longer usable */ }
+            }
+
+            try
+            {
+                if (_hadSettingsFile) File.Move(_settingsBackup, SettingsPath, overwrite: true);
+                else if (File.Exists(SettingsPath)) File.Delete(SettingsPath); // unreachable while
+                // _settingsBackup is gated on _hadSettingsFile — kept defensive
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Never throw from disposal (it would mask the collection's test results);
+                // the backup file stays on disk for manual restore — see the class doc comment.
+                // UnauthorizedAccessException joins IOException (impl review F3, ledger T13):
+                // an ACL-locked settings directory must not take the results down either.
+            }
         }
 
         _automation?.Dispose();
@@ -418,6 +518,23 @@ public class AppFixture : IAsyncLifetime
     }
 
     // ── Private helpers ──
+
+    /// <summary>
+    /// Rewrites <paramref name="path"/> with <c>general.simpleSettingsUi</c> set to
+    /// <paramref name="simple"/>, creating the <c>general</c> node when missing. Only the
+    /// fixture-level settings guard calls this (see the class doc comment); the rest of the
+    /// file round-trips through <see cref="JsonNode"/> unchanged.
+    /// </summary>
+    private static void ForceSimpleSettingsUi(string path, bool simple)
+    {
+        if (JsonNode.Parse(File.ReadAllText(path)) is not JsonObject root)
+            throw new JsonException($"Settings file '{path}' is not a JSON object.");
+
+        var general = root["general"] as JsonObject ?? new JsonObject();
+        general["simpleSettingsUi"] = simple;
+        root["general"] = general;
+        File.WriteAllText(path, root.ToJsonString(SettingsJsonOptions));
+    }
 
     private static string FindAppProjectDir()
     {

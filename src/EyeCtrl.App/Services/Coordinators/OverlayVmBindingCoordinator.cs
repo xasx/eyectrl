@@ -145,11 +145,6 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 if (Context.CursorVM.IsVisible && !_modal.SettingsOpen && !_modal.ProbeOpen) cursorCircle.Show();
                 else cursorCircle.Hide();
                 break;
-            case nameof(CursorCircleViewModel.IsPaused):
-                // Paused keeps the ring visible, dimmed: it is the user's evidence that tracking is
-                // alive while they look for the resume target.
-                cursorCircle.SetPausedDim(Context.CursorVM.IsPaused);
-                break;
             case nameof(CursorCircleViewModel.IsPinned):
                 // The pin is the "you're holding" signal: the ring goes bold and stops moving.
                 cursorCircle.SetPinned(Context.CursorVM.IsPinned);

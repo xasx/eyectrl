@@ -35,6 +35,30 @@ public class GazeRecordingFileTests : IDisposable
         SettingsVersion: 3,
         CalibrationTransform: new AffineTransformParameters(1.02, 0.01, -6.5, -0.01, 0.98, 3.25));
 
+    /// <summary>
+    /// Waits for the recorder's own close marker — the <c>#!</c> trailer, written after the final
+    /// drain — and returns the parsed recording. <c>Dispose</c> joins the writer on a 2 s budget, so on
+    /// a loaded machine it can return while the writer is still starved; the file at that point is
+    /// mid-drain, and the CI failure this guards against read it and hit the writer's open handle.
+    /// The writer always finishes once scheduled, and the trailer is its proof.
+    /// </summary>
+    private GazeRecordingFile.Recording WaitForClosedRecording(int budgetMs = 30_000)
+    {
+        var deadline = Environment.TickCount64 + budgetMs;
+        while (Environment.TickCount64 < deadline)
+        {
+            try
+            {
+                var read = GazeRecordingFile.Read(Recording);
+                if (read.Trailer is not null) return read;
+            }
+            catch (IOException) { }   // the writer is between appends; its handle is briefly exclusive
+            Thread.Sleep(15);
+        }
+        throw new TimeoutException(
+            $"The gaze recorder never wrote its closing trailer to {Recording} within {budgetMs} ms.");
+    }
+
     [Fact]
     public void RoundTripsARecordedStream_SamplesAndHeaderIntact()
     {
@@ -43,9 +67,9 @@ public class GazeRecordingFileTests : IDisposable
         using (var recorder = new GazeRecorder(Recording, Header(), capacity: 4096))
         {
             foreach (var sample in written) recorder.Record(sample);
-        }   // Dispose drains
+        }   // Dispose signals the final drain; the wait below is what proves the writer finished it
 
-        var read = GazeRecordingFile.Read(Recording);
+        var read = WaitForClosedRecording();
 
         Check.That(read.MalformedLines).IsEqualTo(0);
         Check.That(read.Samples).HasSize(written.Length);
@@ -79,7 +103,7 @@ public class GazeRecordingFileTests : IDisposable
             foreach (var sample in GazeStreamGenerator.GenerateWithDropout()) recorder.Record(sample);
         }
 
-        var read = GazeRecordingFile.Read(Recording);
+        var read = WaitForClosedRecording();
 
         // The RECORDING overload, not the raw one. This test claims to be the path a real session
         // takes, so it has to take the path a real session takes: the raw overload skips both the
@@ -141,7 +165,7 @@ public class GazeRecordingFileTests : IDisposable
             foreach (var sample in GazeStreamGenerator.GenerateWithDropout()) recorder.Record(sample);
         }
 
-        var read = GazeRecordingFile.Read(Recording);
+        var read = WaitForClosedRecording();
 
         Check.That(read.Trailer).IsNotNull();
         Check.That(read.Trailer!.Value.DroppedSamples).IsEqualTo(0L);

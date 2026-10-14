@@ -143,7 +143,10 @@ public class BackdropMaterialLiveCheckTests
             if (legacyAccent)
             {
                 // Production's Phase-2 path, called directly: ApplyBackdrop(Acrylic) only reaches it
-                // when the DWM call fails, and this control needs it regardless.
+                // when the DWM call fails, and this control needs it regardless. Production arrives
+                // after ClearContent -> ClearDwmBackdrop (type NONE, margins 0); this fresh window's
+                // type is DWM's default Auto, so clear it first for exact parity (review-04 finding 5).
+                ClearDwmBackdrop(window);
                 legacyApplied = TryApplyAcrylic(window);
                 applied = $"legacy accent blur (SetWindowCompositionAttribute ACCENT_ENABLE_ACRYLICBLURBEHIND); "
                     + $"TryApplyAcrylic returned {legacyApplied}";
@@ -299,7 +302,11 @@ public class BackdropMaterialLiveCheckTests
         return "varying (a live material in this configuration)";
     }
 
-    /// <summary>Production's Phase-2 legacy accent blur, reached by reflection (private, test-only call).</summary>
+    /// <summary>
+    /// Production's Phase-2 legacy accent blur, reached by reflection (private, test-only call).
+    /// The window arrives after <see cref="ClearDwmBackdrop"/>, exactly as production's
+    /// <c>ApplyBackdrop</c> reaches it (review-04 finding 5).
+    /// </summary>
     private static bool TryApplyAcrylic(GlassBackdropWindow window)
     {
         try
@@ -311,6 +318,25 @@ public class BackdropMaterialLiveCheckTests
         catch (TargetInvocationException)
         {
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Production's <c>ClearDwmBackdrop</c> (private), so r5 starts where Phase 2 finds the window:
+    /// system-backdrop type NONE and the frame extension collapsed.
+    /// </summary>
+    private static void ClearDwmBackdrop(GlassBackdropWindow window)
+    {
+        try
+        {
+            typeof(GlassBackdropWindow)
+                .GetMethod("ClearDwmBackdrop", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(window, null);
+        }
+        catch (TargetInvocationException)
+        {
+            // The classification shows whether the material landed; a failed clear must not abort
+            // the case.
         }
     }
 

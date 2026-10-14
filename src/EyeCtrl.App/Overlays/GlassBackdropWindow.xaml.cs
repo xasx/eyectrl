@@ -22,17 +22,12 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     private const int AccentEnableAcrylicBlurBehind = 4;
 
     private const int DwmwaSystemBackdropType = 38;
-    private const int DwmwaUseImmersiveDarkMode = 20;
 
-    // DWM_SYSTEMBACKDROP_TYPE (dwmapi.h) — the system material painted behind the window.
-    // 0=Auto, 1=None, 2=MainWindow(Mica), 3=TransientWindow(Acrylic, the only one that blurs),
-    // 4=TabbedWindow(Mica Alt, wallpaper-adaptive but non-blurring).
-    // The previous code used 4 for "Acrylic", which actually selects Mica Alt — so the
-    // backdrop was never a glassy blur even when it did render. Acrylic is 3.
+    // DWM_SYSTEMBACKDROP_TYPE (dwmapi.h). Only NONE is used now: ClearDwmBackdrop's hygiene against
+    // a system backdrop set by an older build. The Mica/Acrylic system backdrops were deleted with
+    // TryApplyMica/TryApplyAcrylicViaDwm (2026-10-14): on this never-activated overlay they only
+    // ever showed their flat inactive fallback.
     private const int DwmsbtNone = 1;
-    private const int DwmsbtMica = 2;
-    private const int DwmsbtAcrylic = 3;
-    private const int Win11Build22H2 = 22621;
 
     private Rectangle? _solidBackground;
     private DwellArcButton? _hideButton;
@@ -132,14 +127,7 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     /// exactly this window. The solid darken remains the fallback when the accent call fails, at
     /// the user's opacity.
     /// </summary>
-    public void ApplyBackdrop(BackdropSettings settings) => ApplyBackdropCore(settings, TryApplyAcrylic);
-
-    /// <summary>
-    /// The material decision, with the accent call injectable so it can be pinned headlessly
-    /// (production passes <see cref="TryApplyAcrylic"/>; the gate passes recording or failing
-    /// stubs).
-    /// </summary>
-    internal void ApplyBackdropCore(BackdropSettings settings, Func<double, bool> applyAccent)
+    public void ApplyBackdrop(BackdropSettings settings)
     {
         if (!settings.Enabled)
         {
@@ -149,12 +137,12 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
 
         ClearContent();
 
-        // ClearDwmBackdrop first: type NONE, frame collapsed — the state production's Phase 2
-        // always ran from. The system-backdrop paths are no longer reached from here.
+        // ClearDwmBackdrop: type NONE, frame collapsed — the state production's Phase 2 always
+        // ran from, and hygiene against a system backdrop set by an older build.
         if (settings.Type == BackdropType.Mica || settings.Type == BackdropType.Acrylic)
         {
             ClearDwmBackdrop();
-            if (applyAccent(settings.Opacity))
+            if (TryApplyAcrylic(settings.Opacity))
                 return;
         }
 
@@ -171,34 +159,29 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
         (int)(Math.Clamp(opacity, 0.0, 1.0) * 255) << 24;
 
     /// <summary>
-    /// The legacy (undocumented) acrylic blur — <c>SetWindowCompositionAttribute</c> with
-    /// <c>ACCENT_ENABLE_ACRYLICBLURBEHIND</c> — production's material for both named backdrop types
-    /// since 2026-10-14. Known quirk of the API: the accent can visibly lag while a window is
-    /// dragged; irrelevant for a static, full-screen overlay.
+    /// The native <c>SetWindowCompositionAttribute</c> call behind <see cref="SetAccentPolicy"/>:
+    /// builds the policy and returns the API's BOOL (non-zero = accepted).
     /// </summary>
-    /// <returns>True when the call was accepted (no darken fallback needed).</returns>
-    internal bool TryApplyAcrylic(double opacity)
+    private static int NativeSetAccentPolicy(IntPtr hwnd, int state, int flags, int gradient)
     {
         var data = default(WindowCompositionAttributeData);
         try
         {
-            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
             var accent = new AccentPolicy
             {
-                AccentState = AccentEnableAcrylicBlurBehind,
-                AccentFlags = 0x20,
-                GradientColor = AccentGradientColor(opacity)
+                AccentState = state,
+                AccentFlags = flags,
+                GradientColor = gradient
             };
             data.SizeOfData = Marshal.SizeOf(accent);
             data.Attribute = 19;
             data.Data = Marshal.AllocHGlobal(data.SizeOfData);
             Marshal.StructureToPtr(accent, data.Data, false);
-            var result = SetWindowCompositionAttribute(hwnd, ref data);
-            return result == 0;
+            return SetWindowCompositionAttribute(hwnd, ref data);
         }
         catch
         {
-            return false;
+            return 0;
         }
         finally
         {
@@ -208,58 +191,36 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     }
 
     /// <summary>
-    /// The DWM system Mica (DWMSBT_MAINWINDOW). No longer reached from <see cref="ApplyBackdrop"/>
-    /// since the 2026-10-14 decision — on this never-activated overlay it only ever showed its flat
-    /// inactive fallback — but kept as the documented alternative and for the round-2 showcase's
-    /// probes.
+    /// The accent call itself, injectable so the gate can pin the use-site policy headlessly
+    /// (production keeps <see cref="NativeSetAccentPolicy"/>; the gate records or fails the call).
     /// </summary>
-    private bool TryApplyMica()
+    internal Func<IntPtr, int, int, int, int> SetAccentPolicy { get; set; } = NativeSetAccentPolicy;
+
+    /// <summary>
+    /// The legacy (undocumented) acrylic blur — <c>SetWindowCompositionAttribute</c> with
+    /// <c>ACCENT_ENABLE_ACRYLICBLURBEHIND</c> — production's material for both named backdrop types
+    /// since 2026-10-14. Known quirk of the API: the accent can visibly lag while a window is
+    /// dragged; irrelevant for a static, full-screen overlay.
+    /// </summary>
+    /// <returns>True when the call was accepted (non-zero BOOL), so no darken fallback is needed.</returns>
+    internal bool TryApplyAcrylic(double opacity)
     {
-        if (Environment.OSVersion.Version.Build < 22000)
-            return false;
-        try
-        {
-            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-            int darkMode = 1;
-            DwmSetWindowAttribute(hwnd, DwmwaUseImmersiveDarkMode, ref darkMode, sizeof(int));
-            int backdropType = DwmsbtMica;
-            int result = DwmSetWindowAttribute(hwnd, DwmwaSystemBackdropType, ref backdropType, sizeof(int));
-            if (result != 0)
-                return false;
-            ExtendFrameIntoClient(true);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        var result = SetAccentPolicy(hwnd, AccentEnableAcrylicBlurBehind, 0x20, AccentGradientColor(opacity));
+        return result != 0;
     }
 
     /// <summary>
-    /// The DWM system Acrylic (DWMSBT_TRANSIENTWINDOW). No longer reached from
-    /// <see cref="ApplyBackdrop"/> since the 2026-10-14 decision (see <see cref="TryApplyMica"/>);
-    /// kept as the documented alternative and for the round-2 showcase's probes.
+    /// Switches the accent off (ACCENT_DISABLED, state 0). The window is a singleton: without this,
+    /// a show as Mica or Acrylic left the blur and its tint behind, so a later Solid darken show
+    /// kept the stale blur plus the darken rectangle.
     /// </summary>
-    private bool TryApplyAcrylicViaDwm()
+    private void DisableAccent()
     {
-        if (Environment.OSVersion.Version.Build < Win11Build22H2)
-            return false;
-        try
-        {
-            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-            int darkMode = 1;
-            DwmSetWindowAttribute(hwnd, DwmwaUseImmersiveDarkMode, ref darkMode, sizeof(int));
-            int backdropType = DwmsbtAcrylic;
-            int result = DwmSetWindowAttribute(hwnd, DwmwaSystemBackdropType, ref backdropType, sizeof(int));
-            if (result != 0)
-                return false;
-            ExtendFrameIntoClient(true);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero)
+            return;
+        _ = SetAccentPolicy(hwnd, 0, 0, 0);
     }
 
     private void ClearDwmBackdrop()
@@ -345,6 +306,7 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     {
         BackdropCanvas.Children.Clear();
         ClearDwmBackdrop();
+        DisableAccent();
         _solidBackground = null;
         ClearButton();
     }

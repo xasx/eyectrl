@@ -19,7 +19,7 @@ public class BackdropMaterialClassificationTests
         var baseline = Sample(meanR: 120, meanG: 118, meanB: 130, lumaStdDev: 12);
         var lifted = Sample(meanR: 120.4, meanG: 118.2, meanB: 130.3, lumaStdDev: 12.4);
 
-        var verdict = BackdropMaterialLiveCheckTests.Classify(baseline, lifted, new StringBuilder());
+        var verdict = BackdropClassification.Material(baseline, lifted, new StringBuilder());
 
         Check.WithCustomMessage($"an unreadable lift must say so, not pass for a state: {verdict}")
             .That(verdict).StartsWith("UNREADABLE");
@@ -31,7 +31,7 @@ public class BackdropMaterialClassificationTests
         var baseline = Sample(meanR: 120, meanG: 118, meanB: 130, lumaStdDev: 12);
         var lifted = Sample(meanR: 0, meanG: 0, meanB: 0, lumaStdDev: 0, blackFraction: 1.0);
 
-        var verdict = BackdropMaterialLiveCheckTests.Classify(baseline, lifted, new StringBuilder());
+        var verdict = BackdropClassification.Material(baseline, lifted, new StringBuilder());
 
         Check.That(verdict).StartsWith("black");
     }
@@ -42,7 +42,7 @@ public class BackdropMaterialClassificationTests
         var baseline = Sample(meanR: 120, meanG: 118, meanB: 130, lumaStdDev: 12);
         var lifted = Sample(meanR: 30, meanG: 30, meanB: 32, lumaStdDev: 0.4);
 
-        var verdict = BackdropMaterialLiveCheckTests.Classify(baseline, lifted, new StringBuilder());
+        var verdict = BackdropClassification.Material(baseline, lifted, new StringBuilder());
 
         Check.That(verdict).StartsWith("flat neutral grey");
     }
@@ -54,7 +54,7 @@ public class BackdropMaterialClassificationTests
         var baseline = Sample(meanR: 120, meanG: 118, meanB: 130, lumaStdDev: 12);
         var lifted = Sample(meanR: 30, meanG: 30, meanB: 60, lumaStdDev: 0.4);
 
-        var verdict = BackdropMaterialLiveCheckTests.Classify(baseline, lifted, new StringBuilder());
+        var verdict = BackdropClassification.Material(baseline, lifted, new StringBuilder());
 
         Check.That(verdict).StartsWith("flat but tinted");
     }
@@ -65,17 +65,17 @@ public class BackdropMaterialClassificationTests
         var baseline = Sample(meanR: 120, meanG: 118, meanB: 130, lumaStdDev: 12);
         var lifted = Sample(meanR: 28, meanG: 30, meanB: 40, lumaStdDev: 6);
 
-        var verdict = BackdropMaterialLiveCheckTests.Classify(baseline, lifted, new StringBuilder());
+        var verdict = BackdropClassification.Material(baseline, lifted, new StringBuilder());
 
         Check.That(verdict).StartsWith("varying");
     }
 
-    private static BackdropAbLiveCheckTests.ScreenSample Sample(
+    private static BackdropCapture.ScreenSample Sample(
         double meanR, double meanG, double meanB, double lumaStdDev, double blackFraction = 0.0)
     {
         var luma = 0.2126 * meanR + 0.7152 * meanG + 0.0722 * meanB;
-        var stats = new BackdropAbLiveCheckTests.SampleStats(
+        var stats = new BackdropCapture.SampleStats(
             meanR, meanG, meanB, luma, lumaStdDev, blackFraction, Pixels: 10_000);
-        return new BackdropAbLiveCheckTests.ScreenSample(stats, stats);
+        return new BackdropCapture.ScreenSample(stats, stats);
     }
 }

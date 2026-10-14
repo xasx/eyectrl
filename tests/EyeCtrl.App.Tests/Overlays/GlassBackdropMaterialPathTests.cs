@@ -17,16 +17,16 @@ using Xunit;
 /// <summary>
 /// The 2026-10-14 material fix, headless: the window makes its composition target transparent (H3:
 /// WPF's opaque black clear colour painted over every material), and <c>ApplyBackdrop</c> takes the
-/// legacy accent blur for BOTH named types — the DWM system backdrops only ever showed their flat
-/// inactive fallback on this never-activated, tool-window overlay. The solid darken stays the
-/// fallback when the accent fails, and the user's opacity rides the accent's black tint.
+/// legacy accent blur for BOTH named types. The accent call itself is an injectable seam
+/// (<see cref="GlassBackdropWindow.SetAccentPolicy"/>), so the tests drive the REAL
+/// <c>ApplyBackdrop</c> and pin: the use-site policy (state 4, flags 0x20, the tint at the user's
+/// opacity), the non-zero-is-success BOOL (review-05 B1), the solid darken when the setter is
+/// refused, and the accent being disabled when a later Solid darken apply clears the window (B3).
 ///
 /// <para>
 /// No window is shown: the handle is created with <see cref="WindowInteropHelper.EnsureHandle"/>
-/// (SourceInitialized runs), the accent is real on the production-path test (the call works without
-/// a visible window), and the decision itself is driven through the injectable
-/// <c>ApplyBackdropCore</c> seam with recording stubs — the recording subclass a WPF XAML window
-/// cannot have (LoadComponent rejects a derived instance).
+/// (SourceInitialized runs), and the default setter is the real
+/// <c>SetWindowCompositionAttribute</c>, which is accepted on a never-shown HWND.
 /// </para>
 /// </summary>
 [Collection("WpfApplication")]
@@ -56,7 +56,7 @@ public class GlassBackdropMaterialPathTests
     [StaTheory]
     [InlineData(BackdropType.Mica)]
     [InlineData(BackdropType.Acrylic)]
-    public void ApplyBackdrop_WithTheNamedTypes_NeverSetsTheDwmSystemBackdrop(BackdropType type)
+    public void ApplyBackdrop_WithTheRealSetter_IsAccepted_AndLeavesNoDarken_AndNoDwmBackdrop(BackdropType type)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = new GlassBackdropWindow();
@@ -65,11 +65,13 @@ public class GlassBackdropMaterialPathTests
             var hwnd = new WindowInteropHelper(window).EnsureHandle();
             var settings = new BackdropSettings { Type = type, Enabled = true, Opacity = 0.3 };
 
-            // The REAL production path. Its accent call needs a composed window and is refused
-            // headlessly (the darken fallback then draws; that transition is pinned through the
-            // injectable seam below). What this test pins is that the DWM system backdrop is never
-            // applied any more: the attribute stays NONE after ClearDwmBackdrop.
+            // The REAL production path with the REAL native setter. The call is accepted on a
+            // never-shown HWND, so a darken rectangle here means the BOOL is misread (B1).
             window.ApplyBackdrop(settings);
+
+            Check.WithCustomMessage(
+                    "a darken rectangle means the accent's non-zero-is-success BOOL was misread (B1).")
+                .That(SolidRectangles(window)).IsEqualTo(0);
 
             var hresult = DwmGetWindowAttribute(hwnd, DwmwaSystemBackdropType, out var attribute, sizeof(int));
             Check.WithCustomMessage($"DwmGetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE) failed: 0x{hresult:X8}.")
@@ -85,22 +87,30 @@ public class GlassBackdropMaterialPathTests
         }
     }
 
-    [StaFact]
-    public void ApplyBackdropCore_WithTheAccentAccepted_LeavesNoDarkenFill_AndPassesTheOpacity()
+    [StaTheory]
+    [InlineData(BackdropType.Mica)]
+    [InlineData(BackdropType.Acrylic)]
+    public void ApplyBackdrop_PinsTheUseSitePolicy_AndNeedsNoDarkenWhenAccepted(BackdropType type)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = new GlassBackdropWindow();
         try
         {
             new WindowInteropHelper(window).EnsureHandle();
-            var settings = new BackdropSettings { Type = BackdropType.Mica, Enabled = true, Opacity = 0.3 };
-            var recorded = new List<double>();
+            var recorder = new RecordingAccentPolicy { Result = 1 };
+            window.SetAccentPolicy = recorder.Call;
+            var settings = new BackdropSettings { Type = type, Enabled = true, Opacity = 0.3 };
 
-            window.ApplyBackdropCore(settings, opacity => { recorded.Add(opacity); return true; });
+            window.ApplyBackdrop(settings);
 
-            Check.WithCustomMessage("the accent must receive the user's opacity.")
-                .That(recorded).ContainsExactly(0.3);
-            Check.WithCustomMessage("the accent succeeded: no darken fallback may be drawn.")
+            // ClearContent disables the accent first (B3), then the named type enables the blur at
+            // the use-site tint: state 4, flags 0x20, black at alpha 76 (0.3).
+            Check.WithCustomMessage($"expected [disable, acrylic], saw: {string.Join(" | ", recorder.Calls)}")
+                .That(recorder.Calls).HasSize(2);
+            Check.That(recorder.Calls[0]).IsEqualTo((0, 0, 0));
+            Check.WithCustomMessage("the use-site policy is not the acrylic blur at the user's tint.")
+                .That(recorder.Calls[1]).IsEqualTo((4, 0x20, 0x4C000000));
+            Check.WithCustomMessage("the accent was accepted: no darken fallback may be drawn.")
                 .That(SolidRectangles(window)).IsEqualTo(0);
         }
         finally
@@ -110,21 +120,52 @@ public class GlassBackdropMaterialPathTests
     }
 
     [StaFact]
-    public void ApplyBackdropCore_WhenTheAccentFails_DrawsTheSolidDarkenFallback()
+    public void ApplyBackdrop_WhenTheAccentPolicyIsRefused_DrawsTheSolidDarkenFallback()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = new GlassBackdropWindow();
         try
         {
             new WindowInteropHelper(window).EnsureHandle();
+            var recorder = new RecordingAccentPolicy { Result = 0 };
+            window.SetAccentPolicy = recorder.Call;
             var settings = new BackdropSettings { Type = BackdropType.Acrylic, Enabled = true, Opacity = 0.4 };
-            var recorded = new List<double>();
 
-            window.ApplyBackdropCore(settings, opacity => { recorded.Add(opacity); return false; });
+            window.ApplyBackdrop(settings);
 
-            Check.WithCustomMessage("the accent must have been attempted, at the user's opacity.")
-                .That(recorded).ContainsExactly(0.4);
-            Check.WithCustomMessage("the accent failed: the solid darken must keep the overlay usable.")
+            Check.WithCustomMessage($"expected [disable, acrylic], saw: {string.Join(" | ", recorder.Calls)}")
+                .That(recorder.Calls).HasSize(2);
+            Check.That(recorder.Calls[1].State).IsEqualTo(4);
+            Check.WithCustomMessage("the accent was refused: the solid darken must keep the overlay usable.")
+                .That(SolidRectangles(window)).IsEqualTo(1);
+        }
+        finally
+        {
+            try { window.Close(); } catch { /* never shown; nothing to clean beyond the handle */ }
+        }
+    }
+
+    [StaFact]
+    public void ApplyBackdrop_SwitchingToSolidDarken_DisablesTheStaleAccent()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new GlassBackdropWindow();
+        try
+        {
+            new WindowInteropHelper(window).EnsureHandle();
+            var recorder = new RecordingAccentPolicy { Result = 1 };
+            window.SetAccentPolicy = recorder.Call;
+
+            window.ApplyBackdrop(new BackdropSettings { Type = BackdropType.Acrylic, Enabled = true, Opacity = 0.3 });
+            window.ApplyBackdrop(
+                new BackdropSettings { Type = BackdropType.SolidDarken, Enabled = true, Opacity = 0.3 });
+
+            Check.WithCustomMessage(
+                    $"the second apply must end with the accent disabled; calls: {string.Join(" | ", recorder.Calls)}")
+                .That(recorder.Calls[^1]).IsEqualTo((0, 0, 0));
+            Check.WithCustomMessage("only the first, Acrylic apply may enable the accent.")
+                .That(recorder.Calls.Count(call => call.State == 4)).IsEqualTo(1);
+            Check.WithCustomMessage("Solid darken draws its rectangle and nothing else.")
                 .That(SolidRectangles(window)).IsEqualTo(1);
         }
         finally
@@ -146,6 +187,19 @@ public class GlassBackdropMaterialPathTests
     /// <summary>The solid-darken fallback's rectangle count on the backdrop canvas.</summary>
     private static int SolidRectangles(GlassBackdropWindow window) =>
         ((Canvas)window.FindName("BackdropCanvas")!).Children.OfType<Rectangle>().Count();
+
+    /// <summary>Records the accent-policy calls the window makes and answers with a configured BOOL.</summary>
+    private sealed class RecordingAccentPolicy
+    {
+        public List<(int State, int Flags, int Gradient)> Calls { get; } = new();
+        public int Result { get; set; } = 1;
+
+        public int Call(IntPtr hwnd, int state, int flags, int gradient)
+        {
+            Calls.Add((state, flags, gradient));
+            return Result;
+        }
+    }
 
     private const int DwmwaSystemBackdropType = 38;
     private const int DwmBackdropNone = 1;

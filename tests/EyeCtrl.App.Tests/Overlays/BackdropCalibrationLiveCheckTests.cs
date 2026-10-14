@@ -6,158 +6,117 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Controls;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Shapes;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Localization;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
-using EyeCtrl.Core.Settings;
 using EyeCtrl.Tests.TestSupport;
 using EyeCtrl.ViewModels;
 using Xunit;
 
 /// <summary>
-/// The opacity calibration sweep (review-07's revision): the live look's case-1 capture kept 95 % of
-/// the desktop's contrast (a real blur collapses it — round 2's r5 went from stddev 39.5 to 6.9), so
-/// "the accent dims non-linearly" was unproven. Ten cases, ~5 s each, never activated, all through
-/// the accent API:
+/// The second calibration sweep (the reviewer's design, after the first one measured: state 2 is an
+/// exact multiplicative dim, and Solid darken is solved by it; state 4 mixes linearly toward a fixed
+/// dark grey and brightens a dark desktop). This one tests <b>blur plus a multiplicative dim</b>,
+/// test-only: five ~6 s cases, all on a FRESH window with the CT already transparent from
+/// <c>SourceInitialized</c>, no <c>ApplyBackdrop</c>, and the accent called DIRECTLY through
+/// <c>SetAccentPolicy</c> — never through <c>BackdropSettings.Opacity</c>, which is guarded 0.1–0.9:
 /// <list type="number">
-/// <item><b>C0</b> and <b>C1</b> (controls, FIRST): a fresh window with production's transparent CT
-/// and <c>TryApplyAcrylic</c> called DIRECTLY — 0.004 (r5's exact gradient, no
-/// <c>ClearContent</c>/<c>DisableAccent</c> first) and 0.30. C1 blurred while production's 0.30 is
-/// sharp means production's disable-then-enable kills the blur; both sharp means the alpha
-/// suppresses it.</item>
-/// <item>the blur (type Mica, production <c>ApplyBackdrop</c>) at <b>0.30 / 0.50 / 0.70 / 0.90 /
-/// 1.00</b>;</item>
-/// <item>the transparent gradient (type Solid darken, state 2, flags 0x20) at <b>0.30 / 0.60</b>,
-/// and one comparison at 0.30 with <b>flags 2</b> (the community convention for the gradient), via a
-/// test-native call.</item>
+/// <item><b>REF</b>: state 4, gradient <c>0x01000000</c> (r5's approved glass), no rectangle;</item>
+/// <item><b>A1</b>: state 4 + a client rectangle in PURE BLACK (#000000, not rgb 18) at alpha 0.30,
+/// sized to the window, added to <c>BackdropCanvas</c> by the test;</item>
+/// <item><b>A2</b>: the same at 0.60;</item>
+/// <item><b>B1</b>: state 3 (ACCENT_ENABLE_BLURBEHIND), flags 2, gradient black at alpha 0.30, no
+/// rectangle;</item>
+/// <item><b>B2</b>: state 3, flags 2, gradient <c>0x01000000</c> (the state-3 reference).</item>
 /// </list>
 ///
 /// <para>
-/// Every case runs the rounds-1/2 capture protocol (baseline with the affinity ON, lift,
-/// <c>DwmFlush</c> ×2 + 150 ms, capture) and writes invariant machine lines the script reads:
-/// <c>kind:</c> (control / blur / gradient), <c>state:</c>, <c>flags:</c>, <c>alpha:</c>,
-/// <c>rectangles:</c>, <c>accent:</c>, <c>stddev-ratio:</c> (lifted ÷ baseline; a blur ≈ 0.2, the
-/// sharp desktop ≈ 0.9+), <c>black-delta:</c>, <c>baseline-luma:</c>, <c>ratio-r/g/b:</c>,
-/// <c>ratio-luma:</c>, <c>dim:</c>. <c>backdrop-calibrate.ps1</c> decides blurred vs sharp per case,
-/// warns on a non-monotone curve, and interpolates the alpha for a 0.70 ratio over the blurred
-/// cases only.
+/// Machine lines (invariant): <c>kind</c>, <c>state</c>, <c>flags</c>, <c>gradient-alpha</c>,
+/// <c>rect-alpha</c>, <c>stddev-ratio</c>, the per-channel ratios, <c>ratio-luma</c>,
+/// <c>baseline-luma</c>, plus the standard capture readout. <c>backdrop-calibrate.ps1</c> reads each
+/// case against its reference (REF for A1/A2, B2 for B1): blurred = stddev-ratio ≤ 0.2; dim correct
+/// = the case's ratio-luma ÷ the reference's within ±0.05 of (1 − alpha). A1 ≈ 0.7×REF and A2 ≈
+/// 0.4×REF, blurred, means "ship state 4 + a black rectangle at alpha"; else B1 ≈ 0.7×B2, blurred,
+/// means "ship state 3 + gradient"; else "neither: consider a layered dim window".
 /// </para>
 ///
 /// <para>
 /// <b>Not a gate.</b> <c>Category=UI</c> and skipped unless <c>EYECTRL_LIVE_CHECK=1</c>; run through
 /// <c>C:\t\livecheck-scripts\backdrop-calibrate.ps1</c> with the pinned copy <c>C:\t\lc-bd4</c>,
-/// only with the owner's go-ahead. Keep the screen still: the blur's luminosity layer is additive, so
-/// its ratio depends on the content's brightness. No input is simulated and no gaze is fed; the
-/// window closes in a <c>finally</c>.
+/// only with the owner's go-ahead. No input is simulated and no gaze is fed; the window closes in a
+/// <c>finally</c>.
 /// </para>
 /// </summary>
 [Collection("WpfApplication")]
 [Trait("Category", "UI")]
 public class BackdropCalibrationLiveCheckTests
 {
-    private static readonly TimeSpan Hold = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan Hold = TimeSpan.FromSeconds(6);
 
-    /// <summary>C0 — a fresh window, the accent at r5's exact alpha, applied directly.</summary>
+    /// <summary>Case 1 — the reference: the state-4 blur at r5's gradient, no rectangle.</summary>
     [StaFact]
-    public void TheControl_DirectAccentAtR5sAlpha_LogsItsDim() =>
-        RunCase(1, "c0-direct-0004", "control", "C0: direct TryApplyAcrylic(0.004)", BackdropType.Mica, 0.004,
-            direct: true, flags: 32);
+    public void TheReference_BlurAtR5sGradient_LogsItsRatios() =>
+        RunCase(1, "ref-blur-0004", "reference", state: 4, flags: 2, gradient: 0x01000000, rectAlpha: null);
 
-    /// <summary>C1 — the same direct call at 0.30.</summary>
+    /// <summary>Case 2 — the blur plus a pure-black client rectangle at 0.30.</summary>
     [StaFact]
-    public void TheControl_DirectAccentAt030_LogsItsDim() =>
-        RunCase(2, "c1-direct-030", "control", "C1: direct TryApplyAcrylic(0.30)", BackdropType.Mica, 0.30,
-            direct: true, flags: 32);
+    public void TheBlur_WithABlackRectangleAt030_LogsItsRatios() =>
+        RunCase(2, "blur-rect-030", "blur+rect", state: 4, flags: 2, gradient: 0x01000000, rectAlpha: 0.30);
 
-    /// <summary>Case 3 — the blur at 0.30, production's own path.</summary>
+    /// <summary>Case 3 — the same at 0.60.</summary>
     [StaFact]
-    public void TheBlur_AtAlpha030_LogsItsDim() =>
-        RunCase(3, "blur-a030", "blur", "blur, alpha 0.30", BackdropType.Mica, 0.30, direct: false, flags: 32);
+    public void TheBlur_WithABlackRectangleAt060_LogsItsRatios() =>
+        RunCase(3, "blur-rect-060", "blur+rect", state: 4, flags: 2, gradient: 0x01000000, rectAlpha: 0.60);
 
-    /// <summary>Case 4 — the blur at 0.50.</summary>
+    /// <summary>Case 4 — the state-3 blur with a black gradient at 0.30, no rectangle.</summary>
     [StaFact]
-    public void TheBlur_AtAlpha050_LogsItsDim() =>
-        RunCase(4, "blur-a050", "blur", "blur, alpha 0.50", BackdropType.Mica, 0.50, direct: false, flags: 32);
+    public void TheState3Blur_WithABlackGradientAt030_LogsItsRatios() =>
+        RunCase(4, "state3-black-030", "state3", state: 3, flags: 2,
+            gradient: GlassBackdropWindow.AccentGradientColor(0.30), rectAlpha: null);
 
-    /// <summary>Case 5 — the blur at 0.70.</summary>
+    /// <summary>Case 5 — the state-3 reference: the same blur at r5's gradient.</summary>
     [StaFact]
-    public void TheBlur_AtAlpha070_LogsItsDim() =>
-        RunCase(5, "blur-a070", "blur", "blur, alpha 0.70", BackdropType.Mica, 0.70, direct: false, flags: 32);
-
-    /// <summary>Case 6 — the blur at 0.90.</summary>
-    [StaFact]
-    public void TheBlur_AtAlpha090_LogsItsDim() =>
-        RunCase(6, "blur-a090", "blur", "blur, alpha 0.90", BackdropType.Mica, 0.90, direct: false, flags: 32);
-
-    /// <summary>Case 7 — the blur at 1.0, which <c>AccentGradientColor</c> can reach.</summary>
-    [StaFact]
-    public void TheBlur_AtAlpha100_LogsItsDim() =>
-        RunCase(7, "blur-a100", "blur", "blur, alpha 1.00", BackdropType.Mica, 1.00, direct: false, flags: 32);
-
-    /// <summary>Case 8 — the transparent gradient at 0.30, production's flags 0x20.</summary>
-    [StaFact]
-    public void TheTransparentGradient_AtAlpha030_LogsItsDim() =>
-        RunCase(8, "gradient-a030", "gradient", "transparent gradient, alpha 0.30", BackdropType.SolidDarken, 0.30,
-            direct: false, flags: 32);
-
-    /// <summary>Case 9 — the transparent gradient at 0.60.</summary>
-    [StaFact]
-    public void TheTransparentGradient_AtAlpha060_LogsItsDim() =>
-        RunCase(9, "gradient-a060", "gradient", "transparent gradient, alpha 0.60", BackdropType.SolidDarken, 0.60,
-            direct: false, flags: 32);
-
-    /// <summary>Case 10 — the gradient's community flags 2, beside production's 0x20, at 0.30.</summary>
-    [StaFact]
-    public void TheTransparentGradient_WithFlags2_AtAlpha030_LogsItsDim() =>
-        RunCase(10, "gradient-flag2-a030", "gradient", "transparent gradient, flags 2, alpha 0.30",
-            BackdropType.SolidDarken, 0.30, direct: true, flags: 2);
+    public void TheState3Blur_AtR5sGradient_LogsItsRatios() =>
+        RunCase(5, "state3-ref-0004", "state3", state: 3, flags: 2, gradient: 0x01000000, rectAlpha: null);
 
     private static void RunCase(
-        int caseNumber, string tag, string kind, string label, BackdropType type, double alpha,
-        bool direct, int flags)
+        int caseNumber, string tag, string kind, int state, int flags, int gradient, double? rectAlpha)
     {
         Step3LiveCheckTests.BeginShowcaseCase();
         GlassBackdropWindow? window = null;
         try
         {
-            var settings = Step3LiveCheckTests.BackdropSettingsOfTheOwner();
-            settings.Enabled = true;
-            settings.Type = type;      // in-memory only: the owner's file is never written
-            settings.Opacity = alpha;  // the case's sweep point
             var screen = System.Windows.Forms.Screen.PrimaryScreen!;
-
             var dipRight = screen.Bounds.Width / DpiHelper.ScaleX - UIConstants.BackdropHideButtonOffset;
             var hideButtonCenter = new PhysicalPoint(
                 DpiHelper.LogicalToPhysicalX(dipRight),
                 DpiHelper.LogicalToPhysicalY(UIConstants.BackdropHideButtonOffset));
 
             window = new GlassBackdropWindow();
-            window.Show();
+            window.Show(); // fresh window: the CT is transparent from SourceInitialized; no ApplyBackdrop
             var hwnd = new WindowInteropHelper(window).Handle;
             var ct = HwndSource.FromHwnd(hwnd)!.CompositionTarget!.BackgroundColor;
 
-            // The controls (direct) apply ONLY the accent — a fresh window, no ClearContent and no
-            // DisableAccent first, which is exactly r5 and exactly what separates "the alpha
-            // suppresses the blur" from "production's disable-then-enable does".
-            if (direct && flags == 2)
-                _ = ApplyAccentPolicyNative(hwnd, 2, 2, GlassBackdropWindow.AccentGradientColor(alpha));
-            else if (direct)
-                _ = window.TryApplyAcrylic(alpha);
-            else
-                window.ApplyBackdrop(settings); // production's own path at this alpha
+            // The accent, called DIRECTLY (the default setter is the real native call). Never through
+            // BackdropSettings.Opacity: it is guarded 0.1-0.9 and these gradients are not.
+            _ = window.SetAccentPolicy(hwnd, state, flags, gradient);
 
-            window.DrawHideButton(hideButtonCenter);
+            if (rectAlpha is { } alpha)
+                AddBlackRectangle(window, alpha);
+
+            window.DrawHideButton(hideButtonCenter);   // after the rectangle: the ✕ stays on top
             window.ShowEscapeHint();
 
             LiveCheck.PumpFor(TimeSpan.FromMilliseconds(250));
-            var name = $"Backdrop calibration, case {caseNumber} ({label})";
+            var name = $"Backdrop sweep 3, case {caseNumber} ({kind})";
             LiveCheck.AssertShowsText(window, name, "Mit Esc beenden");
             LiveCheck.AssertVisible(window, name);
 
-            var rectangles = SolidRectangles(window);
+            var rectangles = ((Canvas)window.FindName("BackdropCanvas")!).Children.OfType<Rectangle>().Count();
 
             var baseline = BackdropCapture.Grab();
             SetWindowDisplayAffinity(hwnd, WdaNone);
@@ -174,33 +133,24 @@ public class BackdropCalibrationLiveCheckTests
                 SetWindowDisplayAffinity(hwnd, WdaExcludeFromCapture);
             }
 
-            // The production call's BOOL is not readable back; re-applying the same call after the
-            // capture gives the same answer.
-            var accent = direct && flags == 2
-                ? ApplyAccentPolicyNative(hwnd, 2, 2, GlassBackdropWindow.AccentGradientColor(alpha)) != 0
-                : direct
-                    ? window.TryApplyAcrylic(alpha)
-                    : type == BackdropType.SolidDarken
-                        ? window.TryApplyTransparentGradient(alpha)
-                        : window.TryApplyAcrylic(alpha);
-            var state = direct && flags == 2 ? 2 : type == BackdropType.SolidDarken ? 2 : 4;
-
             var ratioR = lifted.Centre.MeanR / baseline.Centre.MeanR;
             var ratioG = lifted.Centre.MeanG / baseline.Centre.MeanG;
             var ratioB = lifted.Centre.MeanB / baseline.Centre.MeanB;
             var ratioLuma = lifted.Centre.LumaMean / baseline.Centre.LumaMean;
+            var gradientAlpha = ((gradient >> 24) & 0xFF) / 255.0;
             var stddevRatio = baseline.Centre.LumaStdDev < 0.05
                 ? "n/a (a flat baseline)"
                 : BackdropReadoutLines.Number(lifted.Centre.LumaStdDev / baseline.Centre.LumaStdDev);
 
             var log = new StringBuilder();
-            log.AppendLine($"case: {caseNumber} ({label})");
+            log.AppendLine($"case: {caseNumber} ({kind})");
             log.AppendLine($"kind: {kind}");
             log.AppendLine($"state: {state}");
             log.AppendLine($"flags: {flags}");
-            log.AppendLine($"alpha: {BackdropReadoutLines.Number(alpha)}");
+            log.AppendLine($"gradient-alpha: {BackdropReadoutLines.Number(gradientAlpha)}");
+            log.AppendLine(
+                $"rect-alpha: {(rectAlpha is { } ra ? BackdropReadoutLines.Number(ra) : "n/a")}");
             log.AppendLine($"rectangles: {rectangles}");
-            log.AppendLine($"accent: {(accent ? "True (accepted)" : "False (misread BOOL or refused)")}");
             log.AppendLine(
                 $"CompositionTarget.BackgroundColor after Show: #{ct.R:X2}{ct.G:X2}{ct.B:X2}{ct.A:X2} (alpha should be 00)");
             log.AppendLine(BackdropCapture.EnvironmentState());
@@ -235,51 +185,20 @@ public class BackdropCalibrationLiveCheckTests
     }
 
     /// <summary>
-    /// The test-only native accent call, so the flag-2 variant of the transparent gradient can be
-    /// measured beside production's flag 0x20. Returns the API's BOOL (non-zero = accepted).
+    /// A pure-black client rectangle at <paramref name="alpha"/>, sized to the window and laid on
+    /// <c>BackdropCanvas</c> — the multiplicative dim the sweep tests over the accent's blur.
     /// </summary>
-    private static int ApplyAccentPolicyNative(IntPtr hwnd, int state, int flags, int gradient)
+    private static void AddBlackRectangle(GlassBackdropWindow window, double alpha)
     {
-        var data = default(WindowCompositionAttributeData);
-        try
+        var rectangle = new Rectangle
         {
-            var accent = new AccentPolicy { AccentState = state, AccentFlags = flags, GradientColor = gradient };
-            data.SizeOfData = Marshal.SizeOf(accent);
-            data.Attribute = 19;
-            data.Data = Marshal.AllocHGlobal(data.SizeOfData);
-            Marshal.StructureToPtr(accent, data.Data, false);
-            return SetWindowCompositionAttribute(hwnd, ref data);
-        }
-        catch
-        {
-            return 0;
-        }
-        finally
-        {
-            if (data.Data != IntPtr.Zero)
-                Marshal.FreeHGlobal(data.Data);
-        }
-    }
-
-    /// <summary>The darken fallback's rectangle count on the backdrop canvas.</summary>
-    private static int SolidRectangles(GlassBackdropWindow window) =>
-        ((Canvas)window.FindName("BackdropCanvas")!).Children.OfType<Rectangle>().Count();
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct AccentPolicy
-    {
-        public int AccentState;
-        public int AccentFlags;
-        public int GradientColor;
-        public int AnimationId;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct WindowCompositionAttributeData
-    {
-        public int Attribute;
-        public IntPtr Data;
-        public int SizeOfData;
+            Width = window.ActualWidth,
+            Height = window.ActualHeight,
+            Fill = new SolidColorBrush(Color.FromArgb((byte)(alpha * 255), 0, 0, 0))
+        };
+        Canvas.SetLeft(rectangle, 0);
+        Canvas.SetTop(rectangle, 0);
+        ((Canvas)window.FindName("BackdropCanvas")!).Children.Add(rectangle);
     }
 
     private const uint WdaNone = 0x00000000;
@@ -287,9 +206,6 @@ public class BackdropCalibrationLiveCheckTests
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowDisplayAffinity(IntPtr hwnd, uint affinity);
-
-    [DllImport("user32.dll")]
-    private static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttributeData data);
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmFlush();

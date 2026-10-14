@@ -111,7 +111,7 @@ Four rows — Dwell, Tolerance, Smoothing, Geometry — plus footer "Reset clear
 
 - **Disable mid-dwell / mid-preview:** band rebuild removes the target, abandons the dwell (never fires), the seam clears the latch and VM state, the panel closes.
 - **Re-enable:** button returns with the band; latch cleared; next rest previews fresh. Pinned by a disable → enable → Reset-fires test with the arc starting at 0.
-- **Auto-hide / axis flip / settings open:** any band rebuild or toolbar deactivation hides the preview and clears the latch; the debounced union-leave covers every gaze-away path.
+- **Auto-hide / axis flip / settings open:** any toolbar deactivation hides the preview and clears the latch; a band rebuild clears it only when the seam reports Reset absent (§4/D11); the debounced union-leave covers every gaze-away path.
 - **Paused:** the toolbar is deliberately dwellable while paused (owner's paused-launch testing pattern) — freeze/latch/preview run identically; no special-casing.
 - **Suppression:** §3.5 — panel hidden, silent confirm continues; last-known rect stays in the union; suppression never arms, never fires.
 - **Preview plumbing failure (D14):** bounds never arriving (inert adaptation runtime — `AdaptationActivation`'s catch leaves `Enabled == true` with nothing behind it — or a lost message) falls back after 500 ms to union = Reset's hit area with the silent freeze held **and cancels the panel**: **the toolbar — Pause included — never goes dead**, and no late show can present a readable panel outside the union. A contained service show failure publishes `null` and falls back immediately. Stale bounds from a prior engagement are dropped by the engagement id.

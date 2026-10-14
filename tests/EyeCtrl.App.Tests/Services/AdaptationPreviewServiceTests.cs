@@ -188,7 +188,7 @@ public class AdaptationPreviewServiceTests
         public readonly ToolbarLifecycleBridge Bridge = new();
         public readonly WeakReferenceMessenger Messenger;
         public readonly ManualClock Clock = new();
-        public readonly PhysicalRect WorkArea = new(0, 0, 1920, 1080);
+        public readonly PhysicalRect WorkArea;
         public readonly IOverlayCollision Collision;
         public readonly Recorder Recorder = new();
         public readonly AdaptationPreviewService Service;
@@ -198,10 +198,14 @@ public class AdaptationPreviewServiceTests
         /// always-clear stub, exactly the shape production registered before Task 11.</param>
         /// <param name="messenger">Task 11: share a messenger with other participants (the
         /// coordinator-path auto-show test); defaults to a fresh one.</param>
+        /// <param name="workArea">Final review F2: override for tests that read REAL window rects
+        /// (this box's screen can exceed the default 1920×1080, and the placement clamp would
+        /// shove the panel away from the read geometry); defaults to (0,0,1920,1080).</param>
         public Harness(
             bool adaptationEnabled = true,
             IOverlayCollision? collision = null,
-            WeakReferenceMessenger? messenger = null)
+            WeakReferenceMessenger? messenger = null,
+            PhysicalRect? workArea = null)
         {
             Settings.Adaptation.Enabled = adaptationEnabled;
             Settings.Toolbar.IsDocked = true;
@@ -211,6 +215,7 @@ public class AdaptationPreviewServiceTests
             Bridge.Attach(Coordinator);
             Messenger = messenger ?? new WeakReferenceMessenger();
             Collision = collision ?? new StubCollision(clear: true);
+            WorkArea = workArea ?? new PhysicalRect(0, 0, 1920, 1080);
             Service = new AdaptationPreviewService(
                 Settings,
                 Provider,
@@ -895,6 +900,213 @@ public class AdaptationPreviewServiceTests
     }
 
     [StaFact]
+    public void KeyboardFirstShow_ThroughTheRealCoordinatorAndInventory_HidesKeepLast()
+    {
+        // Final review F2 regression: the keyboard's FIRST show of the session while the panel is
+        // up. KeyboardCoordinator sends ShowKeyboardMessage at the END of the same dispatcher
+        // callback that called Keyboard.Show(), so a re-check raised synchronously on the VM flip
+        // runs BEFORE SizeToContent layout — TryGetChromeBounds sees ActualWidth == 0, the
+        // keyboard contributes NO rect, and nothing re-triggers until an unrelated chrome event:
+        // the freshly laid-out keyboard ends up under the panel (the R4-H1 harm class). Drives
+        // the REAL coordinator visibility path (request message → SetKeyboardVisible → real
+        // window Show + VM flip) against the REAL inventory, and pins that after one layout pump
+        // the re-check saw the laid-out chrome rect and policy-hid the panel (HiddenKeepLast —
+        // the engagement continues; T5's union rule). The panel is deliberately work-area-sized:
+        // the keyboard's real placement depends on the session's work area and DPI, and this test
+        // must not. Fixture discipline: real KeyboardWindow constructed, so
+        // AdaptationSettings.Enabled stays false.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var messenger = new WeakReferenceMessenger();
+        var keyboardVm = new KeyboardViewModel(new EyeCtrlSettings(), messenger);
+        var keyboard = new KeyboardWindow();
+        keyboard.SetViewModel(keyboardVm);
+
+        var invSettings = new EyeCtrlSettings();
+        using var inventory = new GazeConsumerInventory(
+            invSettings,
+            overlays: () => new AutoShowOverlays(keyboard, new FakeToolbarOverlay()),
+            keyboardVm,
+            new ViewModels.ActionMenuViewModel(invSettings, messenger),
+            new ModesMenuViewModel(invSettings, messenger),
+            new EdgeButtonBarViewModel(invSettings, messenger),
+            new EdgeButtonBarViewModel(invSettings, messenger),
+            externalTargetRects: () => Array.Empty<PhysicalRect>(),
+            noteTargetRects: () => Array.Empty<PhysicalRect>(),
+            new ToolbarLifecycleBridge(),
+            messenger);
+
+        var h = new Harness(adaptationEnabled: false, collision: inventory, messenger: messenger);
+        try
+        {
+            // Anchored past a tiny top-left toolbar and sized to cover any screen this box can
+            // report: wherever the keyboard lands, its chrome rect overlaps the panel.
+            h.Toolbar.Bounds = new PhysicalRect(0, 0, 100, 50);
+            h.Panel.DipSize = (8000, 8000);
+            h.Panel.Scale = 1.0;
+
+            h.ShowPreview();
+            Check.That(h.Panel.IsShown).IsTrue();
+
+            var coordinator = new KeyboardCoordinator(
+                new ModalInteractionState(), new QuickActionsCoordinator(),
+                new ToolbarLifecycleCoordinator(new ModalInteractionState()));
+            try
+            {
+                var context = EyeCtrl.App.Tests.Services.TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+                {
+                    OverlayManager = new AutoShowOverlays(keyboard, h.Toolbar),
+                    Dispatcher = Dispatcher.CurrentDispatcher,
+                    Messenger = messenger,
+                    Settings = h.Settings,
+                    KeyboardVM = keyboardVm,
+                };
+                coordinator.Initialize(context);
+
+                // The first show: message → SetKeyboardVisible → Keyboard.Show() → VM flip — then
+                // one layout pump. The pump marker sits at ContextIdle, BELOW the deferred raise's
+                // Background priority: the raise is posted from INSIDE the pump (the coordinator's
+                // Normal-priority callback), so a Background-priority marker would end the pump
+                // before the raise is reached (FIFO within a priority).
+                messenger.Send(new ShowKeyboardRequestMessage());
+                Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+
+                Check.WithCustomMessage(
+                        "The real coordinator path did not raise the VM visibility flip this test is about.")
+                    .That(keyboardVm.IsVisible).IsTrue();
+                Check.WithCustomMessage(
+                        "The real keyboard window did not lay out in this session, so its bounds " +
+                        "cannot be sourced; failing loudly rather than vacuously.")
+                    .That(keyboard.TryGetChromeBounds(out var chrome)).IsTrue();
+
+                // The re-check saw the laid-out rect: it is exactly what the inventory reports…
+                Check.That(inventory.Live()).ContainsExactly(chrome);
+                // …and the panel came down as a POLICY hide — the mid-read collision rule.
+                Check.WithCustomMessage(
+                        "The first-show re-check ran before the keyboard laid out and nothing " +
+                        "re-triggered it after — the panel is still up under the keyboard.")
+                    .That(h.Panel.IsShown).IsFalse();
+                Check.That(h.Recorder.Bounds).HasElementThatMatches(
+                    m => m.EngagementId == Engagement && m.Kind == PreviewBoundsKind.HiddenKeepLast);
+                Check.That(h.Coordinator.IsAutoHideSuspended).IsFalse();
+            }
+            finally
+            {
+                coordinator.Dispose();
+            }
+        }
+        finally
+        {
+            keyboard.Close();
+            h.Service.Dispose();
+        }
+    }
+
+    [StaFact]
+    public void KeyboardRelayoutIntoThePanel_NoVmFlip_RecheckHidesKeepLast()
+    {
+        // Final review F2's reproducible harm: a keyboard RELAYOUT that no VM property flip
+        // accompanies (the offer coordinator's own comment: "the prediction bar's relayout shows
+        // up as a keyboard SizeChanged"). The keyboard is up and clear of the panel; typing then
+        // grows the window (driven here as a MinHeight relayout — the same SizeChanged the
+        // prediction bar produces) INTO the panel's rect. Before the fix NOTHING re-triggered the
+        // re-check: the inventory's trigger set had no keyboard layout event, so the panel sat
+        // under the freshly grown keyboard until an unrelated chrome event. The fix's SizeChanged
+        // trigger must catch it and policy-hide (HiddenKeepLast). Positions are read at runtime
+        // (the keyboard's real placement depends on the session's work area and DPI; the growth
+        // band is derived from the measured rect, so the test holds at any scale).
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var messenger = new WeakReferenceMessenger();
+        var keyboardVm = new KeyboardViewModel(new EyeCtrlSettings(), messenger);
+        var keyboard = new KeyboardWindow();
+        keyboard.SetViewModel(keyboardVm);
+        keyboard.Show();
+        Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+
+        var invSettings = new EyeCtrlSettings();
+        using var inventory = new GazeConsumerInventory(
+            invSettings,
+            overlays: () => new AutoShowOverlays(keyboard, new FakeToolbarOverlay()),
+            keyboardVm,
+            new ViewModels.ActionMenuViewModel(invSettings, messenger),
+            new ModesMenuViewModel(invSettings, messenger),
+            new EdgeButtonBarViewModel(invSettings, messenger),
+            new EdgeButtonBarViewModel(invSettings, messenger),
+            externalTargetRects: () => Array.Empty<PhysicalRect>(),
+            noteTargetRects: () => Array.Empty<PhysicalRect>(),
+            new ToolbarLifecycleBridge(),
+            messenger);
+
+        var h = new Harness(
+            adaptationEnabled: false, collision: inventory, messenger: messenger,
+            workArea: new PhysicalRect(0, 0, 8192, 8192)); // real rects outrun any default work area
+        try
+        {
+            // Grow the keyboard by 400 DIP; the physical band that growth adds is measured for
+            // the panel below (the window's own DIP→physical ratio, from the measured rect —
+            // robust to whatever DPI this session holds).
+            const double GrowthDip = 400;
+
+            Check.WithCustomMessage(
+                    "The real keyboard window did not lay out in this session, so its bounds " +
+                    "cannot be sourced; failing loudly rather than vacuously.")
+                .That(keyboard.TryGetChromeBounds(out var before)).IsTrue();
+            double growthPhysical = GrowthDip * before.Height / keyboard.ActualHeight;
+
+            // The keyboard goes up FIRST and its visibility raise is consumed here (the pump
+            // marker at ContextIdle sits below the deferred raise's Background priority — the
+            // raise is posted by the flip before the marker, so FIFO reaches it). After this
+            // point NO VM flip remains pending: the growth below can only re-trigger the
+            // re-check through the window's own SizeChanged — exactly the production relayout.
+            keyboardVm.IsVisible = true;
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+
+            // The panel occupies exactly the band the growth is about to add: anchored past a
+            // tiny toolbar placed left of it, top-aligned with the growth band's top edge. It
+            // only TOUCHES the keyboard's current rect (strict overlap ⇒ clear), so the show-time
+            // gate passes and only the grown rect can collide.
+            h.Toolbar.Bounds = new PhysicalRect(
+                before.X - 16 - 100, before.Y - growthPhysical, 100, 50);
+            h.Panel.DipSize = (before.Width, growthPhysical);
+            h.Panel.Scale = 1.0;
+
+            h.ShowPreview();
+            Check.That(h.Panel.IsShown).IsTrue();
+
+            // The relayout: MinHeight grows the SizeToContent window (RepositionOnScreen keeps it
+            // bottom-anchored, so the growth lands exactly in the band the panel occupies) — no
+            // VM property flips.
+            keyboard.MinHeight = keyboard.ActualHeight + GrowthDip;
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+
+            Check.WithCustomMessage(
+                    "The keyboard did not actually grow into the panel's band — the relayout " +
+                    "premise failed; failing loudly rather than vacuously.")
+                .That(KeyboardNowOverlapsPanel(h, keyboard)).IsTrue();
+            Check.WithCustomMessage(
+                    "A keyboard relayout with no VM flip re-triggered nothing — the panel is " +
+                    "still up under the freshly grown keyboard.")
+                .That(h.Panel.IsShown).IsFalse();
+            Check.That(h.Recorder.Bounds).HasElementThatMatches(
+                m => m.EngagementId == Engagement && m.Kind == PreviewBoundsKind.HiddenKeepLast);
+            Check.That(h.Coordinator.IsAutoHideSuspended).IsFalse();
+        }
+        finally
+        {
+            keyboard.Hide();
+            keyboard.Close();
+            h.Service.Dispose();
+        }
+    }
+
+    /// <summary>The relayout test's premise guard: the keyboard's CURRENT chrome rect strictly
+    /// overlaps the panel's last published (Rect) bounds.</summary>
+    private static bool KeyboardNowOverlapsPanel(Harness h, KeyboardWindow keyboard) =>
+        h.Recorder.Bounds.Any(m => m.Kind == PreviewBoundsKind.Rect
+            && m.PanelBounds is { } panel
+            && keyboard.TryGetChromeBounds(out var chrome)
+            && chrome.IntersectsWith(panel));
+
+    [StaFact]
     public void NoteOverThePanel_ThroughTheRealInventory_HidesKeepLast_ThenBlocksShow_Drains()
     {
         // Review F1's end-to-end pin: the REAL inventory (all six sources wired, nothing else up)
@@ -936,8 +1148,11 @@ public class AdaptationPreviewServiceTests
 
             // A note is pinned right where the panel sits (Edit state ⇒ the close button's dwell
             // rect lands inside [1116..1516)x[0..300)) — the exact R4-H1 harm: buttons fed under
-            // the panel. The structural message is the inventory's trigger; no manual flip.
+            // the panel. The structural message is the inventory's trigger; no manual flip. Final
+            // review F2: the inventory's Changed raise is one dispatcher hop later, so the pump
+            // (ContextIdle — below the raise's Background priority) delivers it before asserting.
             noteManager.CreateNoteAt(new PhysicalPoint(1300, 150));
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
 
             Check.That(h.Panel.IsShown).IsFalse();
             Check.That(h.Recorder.Bounds[^1].EngagementId).IsEqualTo(Engagement);

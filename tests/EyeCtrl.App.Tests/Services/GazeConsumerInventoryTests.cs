@@ -321,9 +321,13 @@ public class GazeConsumerInventoryTests
 
     // ── Changed: the SchedulePublish trigger set + the bars' own mutations ──
 
-    [Fact]
+    [StaFact]
     public void Changed_FiresOnEveryChromeTrigger()
     {
+        // Final review F2: Changed is now raised one dispatcher hop after the trigger (Background
+        // — after layout), so the count is read after a pump. The marker sits at ContextIdle,
+        // BELOW the raise's priority: a raise posted from inside the pump would be skipped by a
+        // same-priority marker (FIFO within a priority ends the pump first).
         var kit = new Kit();
         using var inventory = kit.Build();
         var fired = 0;
@@ -347,6 +351,7 @@ public class GazeConsumerInventoryTests
         kit.Messenger.Send(new KeyboardEdgeToggledMessage());
         kit.Messenger.Send(new ExternalDwellActiveMessage(true));
         kit.Messenger.Send(new NoteTargetsChangedMessage());
+        Pump();
 
         Check.WithCustomMessage(
                 "Every SchedulePublish-set trigger plus the bars' button-set mutations and the " +
@@ -356,12 +361,13 @@ public class GazeConsumerInventoryTests
             .That(fired).IsEqualTo(14);
     }
 
-    [Fact]
+    [StaFact]
     public void Changed_DoesNotFireOnUnrelatedKeyboardProperties()
     {
         // The keyboard VM raises PropertyChanged continuously while typing (NearestKeyId and
         // friends); a re-check per property change is a per-keypress inventory walk. The filter is
-        // the offer coordinator's pair (IsVisible, IsEmojiMode) — nothing else.
+        // the offer coordinator's pair (IsVisible, IsEmojiMode) — nothing else. Pumped, so the
+        // assertion covers the deferred raise too, not just the synchronous filter.
         var kit = new Kit();
         using var inventory = kit.Build();
         var fired = 0;
@@ -369,6 +375,7 @@ public class GazeConsumerInventoryTests
 
         kit.KeyboardVm.NearestKeyId = "key_q";
         kit.ActionMenuVm.Center = new PhysicalPoint(10, 10);
+        Pump();
 
         Check.That(fired).IsEqualTo(0);
     }
@@ -396,6 +403,30 @@ public class GazeConsumerInventoryTests
     }
 
     [Fact]
+    public void Source_HooksKeyboardLayoutEventsInsideTheLiveKeyboardBranch()
+    {
+        // Final review F2: the keyboard window's SizeChanged/Loaded are Changed triggers (a
+        // keyboard RELAYOUT raises no VM property flip — the prediction bar's growth while
+        // typing). They are hooked lazily inside Live()'s keyboard branch, because the overlays
+        // factory is the lazy seam — headless construction must never resolve the window (the
+        // default Kit's factory throws). Source-pin discipline as above: driving the real
+        // window's SizeChanged headlessly is the service-level relayout test's job.
+        var source = Regex.Replace(
+            SourceScanner.StripComments(File.ReadAllText(Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Services", "GazeConsumerInventory.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage(
+                "The inventory no longer hooks the keyboard window's layout events — a keyboard " +
+                "that relayouts into the panel's rect would leave the re-check blind to the " +
+                "geometry change.")
+            .That(source.Contains("HookKeyboardLayoutEvents(keyboard);")).IsTrue();
+        Check.That(source.Contains("keyboard.SizeChanged+=OnKeyboardLayoutChanged;")).IsTrue();
+        Check.That(source.Contains("keyboard.Loaded+=OnKeyboardLoaded;")).IsTrue();
+    }
+
+    [Fact]
     public void BridgeWithoutCoordinator_ConstructsWithoutThrowing()
     {
         // The bridge can legitimately be unattached only in a wiring-defect world (D14: the comfort
@@ -405,9 +436,13 @@ public class GazeConsumerInventoryTests
         Check.ThatCode(() => kit.Build()).Not.ThrowsAny();
     }
 
+    // Final review F2: pumps at ContextIdle — BELOW the deferred Changed raise's Background
+    // priority. A Background-priority marker can end the pump before a raise posted from inside it
+    // is reached (FIFO within a priority), which is exactly the coordinator-callback shape the
+    // first-show tests drive.
     private static void Pump() =>
         System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(
-            () => { }, System.Windows.Threading.DispatcherPriority.Background);
+            () => { }, System.Windows.Threading.DispatcherPriority.ContextIdle);
 
     /// <summary>
     /// The manager's Keyboard property is the concrete <see cref="KeyboardWindow"/>, so the

@@ -2,6 +2,8 @@ namespace EyeCtrl.App.Services;
 
 using System;
 using System.Collections.Generic;
+using System.Windows;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services.Coordinators;
@@ -51,7 +53,9 @@ using Microsoft.Extensions.Logging;
 /// the offer coordinator's <c>ExternalDwellActiveMessage</c> handler CLEARS offers rather than
 /// publishing zones, so that trigger serves a different purpose there — for this inventory an
 /// external target appearing is a consumer change like any other, and the re-check must run.
-/// The service re-checks on every raise.
+/// The service re-checks on every raise — delivered one dispatcher hop after the trigger
+/// (Background: after layout), plus the keyboard window's own SizeChanged/Loaded (final review
+/// F2: a keyboard relayout raises no VM flip).
 /// </para>
 /// <para>
 /// The toolbar itself is NOT a source: the panel's placement (§3.3) puts it beyond the strip's
@@ -93,6 +97,12 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
     private readonly IMessenger _messenger;
     private readonly ILogger? _logger;
     private readonly ToolbarLifecycleCoordinator? _toolbarCoordinator;
+
+    // Final review F2: the re-check's timing discipline and the keyboard's layout-event hook.
+    // Captured at construction — the inventory is built on the UI thread (the lazy enable edge),
+    // and every trigger arrives there too.
+    private readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
+    private KeyboardWindow? _hookedKeyboard;
 
     /// <param name="settings">The live settings tree: <c>Settings.Toolbar</c>'s PropertyChanged is
     /// a trigger (a dock/edge/size edit moves the anchor and the consumer geometry with it).</param>
@@ -195,8 +205,13 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         // Keyboard: the whole window — grid, prediction bar and category bar together (the same
         // rect the offer's chrome zones use). Visible AND sourced; an unmeasured window
         // contributes nothing rather than a phantom rect at the origin.
-        if (_keyboardVm.IsVisible && _overlays().Keyboard.TryGetChromeBounds(out var keyboard))
-            rects.Add(keyboard);
+        if (_keyboardVm.IsVisible)
+        {
+            var keyboard = _overlays().Keyboard;
+            HookKeyboardLayoutEvents(keyboard);
+            if (keyboard.TryGetChromeBounds(out var keyboardRect))
+                rects.Add(keyboardRect);
+        }
 
         // The two edge-button bars: union of the dwell hit areas.
         if (_edgeBarVm.IsVisible
@@ -309,7 +324,49 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
     private void OnNoteTargetsChanged(GazeConsumerInventory recipient, NoteTargetsChangedMessage message)
         => OnConsumersChanged();
 
-    private void OnConsumersChanged() => Changed?.Invoke();
+    private void OnConsumersChanged()
+    {
+        // Final review F2 (the D17 first-show gap): KeyboardCoordinator sends ShowKeyboardMessage
+        // at the END of the dispatcher callback that called Keyboard.Show(), and a keyboard
+        // RELAYOUT (the prediction bar's growth while typing) raises no VM property flip at all —
+        // so a raise delivered synchronously with the trigger can re-check against a keyboard
+        // that has not reached its final layout yet, or never re-check at all (the relayout case:
+        // nothing re-triggers until an unrelated chrome event, and the freshly grown keyboard
+        // sits under the panel — the R4-H1 harm class). Deferred one dispatcher hop to
+        // Background — below Render (layout) and Loaded, so every consumer is measurable when
+        // the re-check runs — mirroring ActivationOfferCoordinator.SchedulePublish's
+        // one-layout-pass-of-slack discipline. Deliberately NOT coalesced: each trigger still
+        // raises exactly one Changed (the trigger set is low-frequency, a raise is a cheap
+        // same-thread re-check for the single subscriber, and the per-trigger count is a pinned
+        // test contract). Live()/IsClear stay synchronous — the show-time gate must read truth at
+        // show time; only the re-check's SCHEDULING moves.
+        _dispatcher.InvokeAsync(() => Changed?.Invoke(), DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// Final review F2's relayout half: the keyboard window's own layout events as
+    /// <see cref="Changed"/> triggers. The prediction bar's relayout shows up as a keyboard
+    /// SizeChanged with NO VM property flip (the offer coordinator's own comment) — the VM pair
+    /// (IsVisible/IsEmojiMode) cannot see it, so a keyboard that grows INTO the panel's rect while
+    /// the user reads must re-trigger the re-check from the window itself. Hooked lazily at the
+    /// first <see cref="Live"/> read that actually touches the keyboard (the overlays factory is
+    /// the lazy seam — nothing resolves it while the keyboard is never visible, so headless
+    /// construction stays safe), and once only: the window is app-lifetime (the manager's Keyboard
+    /// property is the concrete singleton window; CloseAll closes, it never recreates), so a
+    /// second hook could only double-raise.
+    /// </summary>
+    private void HookKeyboardLayoutEvents(KeyboardWindow keyboard)
+    {
+        if (_hookedKeyboard is not null)
+            return;
+        _hookedKeyboard = keyboard;
+        keyboard.SizeChanged += OnKeyboardLayoutChanged;
+        keyboard.Loaded += OnKeyboardLoaded;
+    }
+
+    private void OnKeyboardLayoutChanged(object? sender, SizeChangedEventArgs e) => OnConsumersChanged();
+
+    private void OnKeyboardLoaded(object? sender, RoutedEventArgs e) => OnConsumersChanged();
 
     /// <summary>
     /// The container-dispose path. The container owns this singleton for the whole session, so in
@@ -326,6 +383,11 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         _modBarVm.ButtonSetChanged -= OnConsumersChanged;
         _settings.Toolbar.PropertyChanged -= OnToolbarSettingsChanged;
         _toolbarCoordinator?.ToolbarVisibilityChanged -= OnToolbarVisibilityChanged;
+        if (_hookedKeyboard is not null)
+        {
+            _hookedKeyboard.SizeChanged -= OnKeyboardLayoutChanged;
+            _hookedKeyboard.Loaded -= OnKeyboardLoaded;
+        }
         _messenger.UnregisterAll(this);
     }
 }

@@ -41,8 +41,13 @@ public static class UIConstants
     /// </summary>
     public const int ActivationButtonOffset = (int)LayoutConstants.ActivationButtonOffset;
 
-    /// <summary>Distance from screen edges to the backdrop hide button center in logical pixels.</summary>
-    public const double BackdropHideButtonOffset = 40.0;
+    /// <summary>
+    /// Distance from screen edges to the backdrop hide button center in logical pixels. The user
+    /// chose 53 on 2026-10-13 off the 40/50/53 corner sheet: at 53 the button's 100-DIP dwell disc
+    /// and its 105-DIP halo are fully on screen (at 40 the disc reached 10 DIP past the right and
+    /// top edges, and the clipped corner was visible in the T13 live check).
+    /// </summary>
+    public const double BackdropHideButtonOffset = 53.0;
 
     public const double DragButtonRadius = 20.0;
     public const double DragReleaseButtonOffset = 14.0;

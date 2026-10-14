@@ -146,7 +146,63 @@ public class GlassBackdropMaterialPathTests
     }
 
     [StaFact]
-    public void ApplyBackdrop_SwitchingToSolidDarken_DisablesTheStaleAccent()
+    public void ApplyBackdrop_WithSolidDarken_UsesTheTransparentGradient_AtTheUsersAlpha()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new GlassBackdropWindow();
+        try
+        {
+            new WindowInteropHelper(window).EnsureHandle();
+            var recorder = new RecordingAccentPolicy { Result = 1 };
+            window.SetAccentPolicy = recorder.Call;
+            var settings = new BackdropSettings { Type = BackdropType.SolidDarken, Enabled = true, Opacity = 0.3 };
+
+            window.ApplyBackdrop(settings);
+
+            // State 2 (ACCENT_ENABLE_TRANSPARENTGRADIENT) at the user's alpha: a see-through dark
+            // tint, because a plain rectangle is opaque black on a non-layered client.
+            Check.WithCustomMessage($"expected [disable, gradient], saw: {string.Join(" | ", recorder.Calls)}")
+                .That(recorder.Calls).HasSize(2);
+            Check.That(recorder.Calls[0]).IsEqualTo((0, 0, 0));
+            Check.WithCustomMessage("the Solid darken policy is not the transparent gradient at the user's alpha.")
+                .That(recorder.Calls[1]).IsEqualTo((2, 0x20, 0x4C000000));
+            Check.WithCustomMessage("the gradient was accepted: no darken rectangle may be drawn.")
+                .That(SolidRectangles(window)).IsEqualTo(0);
+        }
+        finally
+        {
+            try { window.Close(); } catch { /* never shown; nothing to clean beyond the handle */ }
+        }
+    }
+
+    [StaFact]
+    public void ApplyBackdrop_WhenTheTransparentGradientIsRefused_DrawsTheRectangleFallback()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new GlassBackdropWindow();
+        try
+        {
+            new WindowInteropHelper(window).EnsureHandle();
+            var recorder = new RecordingAccentPolicy { Result = 0 };
+            window.SetAccentPolicy = recorder.Call;
+            var settings = new BackdropSettings { Type = BackdropType.SolidDarken, Enabled = true, Opacity = 0.4 };
+
+            window.ApplyBackdrop(settings);
+
+            Check.WithCustomMessage($"expected [disable, gradient], saw: {string.Join(" | ", recorder.Calls)}")
+                .That(recorder.Calls).HasSize(2);
+            Check.That(recorder.Calls[1].State).IsEqualTo(2);
+            Check.WithCustomMessage("the gradient was refused: the rectangle keeps the overlay usable.")
+                .That(SolidRectangles(window)).IsEqualTo(1);
+        }
+        finally
+        {
+            try { window.Close(); } catch { /* never shown; nothing to clean beyond the handle */ }
+        }
+    }
+
+    [StaFact]
+    public void ApplyBackdrop_SwitchingToSolidDarken_DisablesTheStaleBlur_ThenTints()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = new GlassBackdropWindow();
@@ -160,13 +216,19 @@ public class GlassBackdropMaterialPathTests
             window.ApplyBackdrop(
                 new BackdropSettings { Type = BackdropType.SolidDarken, Enabled = true, Opacity = 0.3 });
 
-            Check.WithCustomMessage(
-                    $"the second apply must end with the accent disabled; calls: {string.Join(" | ", recorder.Calls)}")
-                .That(recorder.Calls[^1]).IsEqualTo((0, 0, 0));
-            Check.WithCustomMessage("only the first, Acrylic apply may enable the accent.")
+            // [disable, blur] then [disable, gradient]: the second apply must switch the stale blur
+            // OFF (state 0) before the transparent gradient lands, or the old blur plus its tint
+            // would survive into Solid darken.
+            Check.WithCustomMessage($"unexpected accent-call sequence: {string.Join(" | ", recorder.Calls)}")
+                .That(recorder.Calls).HasSize(4);
+            Check.That(recorder.Calls[0]).IsEqualTo((0, 0, 0));
+            Check.That(recorder.Calls[1].State).IsEqualTo(4);
+            Check.That(recorder.Calls[2]).IsEqualTo((0, 0, 0));
+            Check.That(recorder.Calls[3].State).IsEqualTo(2);
+            Check.WithCustomMessage("only the first, Acrylic apply may enable the blur.")
                 .That(recorder.Calls.Count(call => call.State == 4)).IsEqualTo(1);
-            Check.WithCustomMessage("Solid darken draws its rectangle and nothing else.")
-                .That(SolidRectangles(window)).IsEqualTo(1);
+            Check.WithCustomMessage("the gradient was accepted: Solid darken draws no rectangle.")
+                .That(SolidRectangles(window)).IsEqualTo(0);
         }
         finally
         {

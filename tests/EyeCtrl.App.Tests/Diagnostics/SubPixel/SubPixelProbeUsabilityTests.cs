@@ -1,5 +1,7 @@
 namespace EyeCtrl.App.Tests.Diagnostics.SubPixel;
 
+using System.Globalization;
+using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
@@ -8,8 +10,11 @@ using System.Windows.Media;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Diagnostics.SubPixel;
 using EyeCtrl.App.Tests.Fixtures;
+using EyeCtrl.App.Tests.Localization;
 using EyeCtrl.Controls;
 using EyeCtrl.Core.Diagnostics;
+using EyeCtrl.Core.Enums;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
@@ -39,6 +44,54 @@ public class SubPixelProbeUsabilityTests
         (2.0, 1920, 1200),   // 3840 × 2400 device px
         (1.0, 1920, 1080),
     ];
+
+    /// <summary>
+    /// SP-8 fixup 01 F2: T13 ships the probe's <c>overlays.subpixel.*</c> German (17 prose keys),
+    /// but the geometry pins below only ever measured the English layout. These three pins now run
+    /// once per language at both owner scales. The surface is not in the shipped manifest, so the
+    /// German is injected from the shipped <c>strings.de.json</c> — the same construction SP-4d's
+    /// button-label pins use. Restores English afterwards; the assembly's <c>StringTableRestore</c>
+    /// hook is the backstop, and the class sits in the exclusive <c>WpfApplication</c> collection so
+    /// the process-global table switch cannot race another collection.
+    /// </summary>
+    private static void InBothLanguages(Action<bool> assert)
+    {
+        var german = GermanProbeTable();
+        try
+        {
+            StringTable.ResetToEmbeddedEnglish();
+            string englishIntro = StringTable.Current.T("overlays.subpixel.intro_body");
+            assert(false);
+
+            StringTable.Activate(german);
+            Check.WithCustomMessage(
+                    "the injected German table did not activate: the probe's intro_body resolved to "
+                    + "the English text, so the German pass would silently measure the English layout.")
+                .That(StringTable.Current.T("overlays.subpixel.intro_body"))
+                .IsNotEqualTo(englishIntro);
+            assert(true);
+        }
+        finally
+        {
+            StringTable.ResetToEmbeddedEnglish();
+        }
+    }
+
+    private static StringTable GermanProbeTable()
+    {
+        var path = Path.Combine(
+            SourceScanner.RepoRoot().FullName,
+            "src", "EyeCtrl.App", "Localization", StringTable.GermanFileName);
+        return StringTable.Create(
+            UiLanguage.German,
+            CultureInfo.GetCultureInfo("de-DE"),
+            LocalizationTestData.EnglishContent(),
+            StringTableContent.ParseGerman(File.ReadAllText(path)),
+            germanSurfaces: ["overlays"]);
+    }
+
+    /// <summary>The language tag every geometry pin's failure message carries.</summary>
+    private static string Lang(bool german) => german ? "de" : "en";
 
     private static readonly string[] AllTargetIds =
     [
@@ -260,11 +313,14 @@ public class SubPixelProbeUsabilityTests
     [StaFact]
     public void D2_EveryScreenFitsInsideTheWindowAtBothOwnerScales()
     {
-        foreach (var (scale, widthDip, heightDip) in OwnerScales)
-            AssertScreensFit(scale, widthDip, heightDip);
+        InBothLanguages(german =>
+        {
+            foreach (var (scale, widthDip, heightDip) in OwnerScales)
+                AssertScreensFit(scale, widthDip, heightDip, german);
+        });
     }
 
-    private static void AssertScreensFit(double scale, double widthDip, double heightDip)
+    private static void AssertScreensFit(double scale, double widthDip, double heightDip, bool german)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         using var vm = NewViewModel();
@@ -280,7 +336,7 @@ public class SubPixelProbeUsabilityTests
                 if (window.PanelForTest(phase) is { } panel)
                 {
                     var rect = RectInScene(window, panel);
-                    Check.WithCustomMessage($"{phase} panel at {scale} is not inside the window: {rect}")
+                    Check.WithCustomMessage($"{phase} panel at {scale} ({Lang(german)}) is not inside the window: {rect}")
                         .That(rect.Left >= 0 && rect.Top >= 0
                             && rect.Right <= widthDip + 0.5 && rect.Bottom <= heightDip + 0.5).IsTrue();
                 }
@@ -289,7 +345,7 @@ public class SubPixelProbeUsabilityTests
                 {
                     var element = window.TargetElementForTest(targetId)!;
                     var rect = RectInScene(window, element);
-                    Check.WithCustomMessage($"{targetId} at {scale} is not inside the window: {rect}")
+                    Check.WithCustomMessage($"{targetId} at {scale} ({Lang(german)}) is not inside the window: {rect}")
                         .That(rect.Left >= 0 && rect.Top >= 0
                             && rect.Right <= widthDip + 0.5 && rect.Bottom <= heightDip + 0.5).IsTrue();
                 }
@@ -309,11 +365,14 @@ public class SubPixelProbeUsabilityTests
     [StaFact]
     public void F1_NoVisibleTextBlock_SitsInsideALiveHitArea_OnEveryScreenAtBothScales()
     {
-        foreach (var (scale, widthDip, heightDip) in OwnerScales)
-            AssertNoTextInsideHitAreas(scale, widthDip, heightDip);
+        InBothLanguages(german =>
+        {
+            foreach (var (scale, widthDip, heightDip) in OwnerScales)
+                AssertNoTextInsideHitAreas(scale, widthDip, heightDip, german);
+        });
     }
 
-    private static void AssertNoTextInsideHitAreas(double scale, double widthDip, double heightDip)
+    private static void AssertNoTextInsideHitAreas(double scale, double widthDip, double heightDip, bool german)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         using var vm = NewViewModel();
@@ -338,13 +397,13 @@ public class SubPixelProbeUsabilityTests
                         checkedPairs++;
                         double clearance = RectDistance(rect, hit);
                         Check.WithCustomMessage(
-                                $"{phase}@{scale}: '{Snippet(text.Text)}' ({rect}) is only {clearance:F1} DIP "
+                                $"{phase}@{scale} ({Lang(german)}): '{Snippet(text.Text)}' ({rect}) is only {clearance:F1} DIP "
                                 + $"from a live hit area ({hit}); the ticket requires at least 24")
                             .That(clearance).IsGreaterOrEqualThan(24);
                     }
                 }
 
-                Check.WithCustomMessage($"{phase}@{scale}: no text-to-hit-area pair was checked")
+                Check.WithCustomMessage($"{phase}@{scale} ({Lang(german)}): no text-to-hit-area pair was checked")
                     .That(checkedPairs).IsStrictlyGreaterThan(0);
             }
         }
@@ -374,14 +433,17 @@ public class SubPixelProbeUsabilityTests
     [StaFact]
     public void D5_OnTheIntro_TheDemoBandClearsStartsHitArea_AndTheTextSitsAboveIt()
     {
-        foreach (var (scale, widthDip, heightDip) in OwnerScales)
+        InBothLanguages(german =>
         {
-            foreach (var ring in new[] { 10.0, 250.0, 500.0 })
-                AssertIntroClearance(scale, widthDip, heightDip, ring);
-        }
+            foreach (var (scale, widthDip, heightDip) in OwnerScales)
+            {
+                foreach (var ring in new[] { 10.0, 250.0, 500.0 })
+                    AssertIntroClearance(scale, widthDip, heightDip, ring, german);
+            }
+        });
     }
 
-    private static void AssertIntroClearance(double scale, double widthDip, double heightDip, double ring)
+    private static void AssertIntroClearance(double scale, double widthDip, double heightDip, double ring, bool german)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         using var vm = NewViewModel();
@@ -402,31 +464,31 @@ public class SubPixelProbeUsabilityTests
             if (ring == 250)
             {
                 Check.WithCustomMessage(
-                        $"ring 250 @{scale}: the demo band's bottom {bandBottom:F0} vs Start's hit-area "
+                        $"ring 250 @{scale} ({Lang(german)}): the demo band's bottom {bandBottom:F0} vs Start's hit-area "
                         + $"top {startRect.Top:F0} — only {clearance:F1} DIP of clearance (R1 asks for 80)")
                     .That(clearance).IsGreaterOrEqualThan(80);
             }
             else
             {
                 Check.WithCustomMessage(
-                        $"ring {ring} @{scale}: the band ({bandBottom:F0}) must not overlap Start's hit "
+                        $"ring {ring} @{scale} ({Lang(german)}): the band ({bandBottom:F0}) must not overlap Start's hit "
                         + $"area (top {startRect.Top:F0}); the clamp trades clearance for on-screen")
                     .That(clearance).IsGreaterOrEqualThan(0);
             }
 
-            Check.WithCustomMessage($"ring {ring} @{scale}: Start's hit area {startRect} is off-screen")
+            Check.WithCustomMessage($"ring {ring} @{scale} ({Lang(german)}): Start's hit area {startRect} is off-screen")
                 .That(startRect.Left >= 0 && startRect.Top >= 0
                     && startRect.Right <= widthDip && startRect.Bottom <= heightDip).IsTrue();
-            Check.WithCustomMessage($"ring {ring} @{scale}: End test's hit area {endRect} is off-screen")
+            Check.WithCustomMessage($"ring {ring} @{scale} ({Lang(german)}): End test's hit area {endRect} is off-screen")
                 .That(endRect.Left >= 0 && endRect.Top >= 0
                     && endRect.Right <= widthDip && endRect.Bottom <= heightDip).IsTrue();
 
             var textRect = RectInScene(window, window.PanelForTest(SubPixelProbePhase.Intro)!);
-            Check.WithCustomMessage($"ring {ring} @{scale}: the Intro text {textRect} is off-screen")
+            Check.WithCustomMessage($"ring {ring} @{scale} ({Lang(german)}): the Intro text {textRect} is off-screen")
                 .That(textRect.Left >= 0 && textRect.Top >= 0
                     && textRect.Right <= widthDip && textRect.Bottom <= heightDip).IsTrue();
             Check.WithCustomMessage(
-                    $"ring {ring} @{scale}: the text ({textRect.Bottom:F0}) must sit 24 DIP above the "
+                    $"ring {ring} @{scale} ({Lang(german)}): the text ({textRect.Bottom:F0}) must sit 24 DIP above the "
                     + $"band (top {bandTop:F0})")
                 .That(textRect.Bottom).IsLessOrEqualThan(bandTop - 24 + 1e-9);
         }

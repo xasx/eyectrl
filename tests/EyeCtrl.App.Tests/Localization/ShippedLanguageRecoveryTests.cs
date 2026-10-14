@@ -129,7 +129,7 @@ public class ShippedLanguageRecoveryTests
                 .IsEqualTo("Neustart fehlgeschlagen: Das neue EyeCtrl konnte nicht gestartet werden. "
                            + "EyeCtrl läuft weiter.");
             Check.That(CoordinatorFailureFrame(page.Settings))
-                .IsEqualTo("Neustart fehlgeschlagen. EyeCtrl läuft weiter. Technische Details (Englisch): boom");
+                .IsEqualTo("Neustart fehlgeschlagen. EyeCtrl läuft weiter. Technische Details: boom");
         }
         finally
         {
@@ -172,7 +172,7 @@ public class ShippedLanguageRecoveryTests
             Check.That(text.Title).IsEqualTo("EyeCtrl konnte nicht starten");
             Check.That(text.Message).IsEqualTo(
                 "Beim Start ist ein Fehler aufgetreten.\n"
-                + "Technische Details (Englisch): Zugriff verweigert. (0x80070005)");
+                + "Technische Details: Zugriff verweigert. (0x80070005)");
         }
         finally
         {

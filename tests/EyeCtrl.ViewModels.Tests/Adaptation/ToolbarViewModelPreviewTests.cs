@@ -502,6 +502,39 @@ public class ToolbarViewModelPreviewTests
         Check.That(btn.IsHighlighted).IsFalse();
     }
 
+    // --- D9's abandon-outcome filter gate (fix-wave F4): the `targetFilter is null ||
+    // targetFilter(target)` condition on DwellDetector's abandon arm is what gives FeedExcluded's
+    // filter its telemetry teeth — an excluded target must not surface struggle outcomes from
+    // samples taken in the preview's area of influence. Removing the gate passed every existing
+    // suite (mutant X1); this is the load-bearing probe. ---
+
+    [Fact]
+    public void LeaveRunFirstSample_FilteredResetReportsNoAbandonOutcome()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var sink = new RecordingSink();
+        var vm = new PreviewToolbarViewModel(_settings, messenger, sink);
+        PositionCoreButtons(vm);
+
+        DriveToFreeze(vm);   // samples at 30 ms cadence; the freeze engages at t=300 ms, so the
+                             // 330/350 ms samples on Reset are FeedNone — the detector is last FED
+                             // at t=300 ms with Reset holding ~0.43 entered dwell
+        Check.That(sink.Outcomes).IsEmpty();
+
+        // The very next 30 ms sample off the union, only 80 ms after the last fed sample — under
+        // the 150 ms gap clamp, so NO re-anchor: Reset still carries its entered timestamp and the
+        // abandon arithmetic would clear the 0.3 AbandonProgress floor (0.38 s / 0.7 s ≈ 0.54).
+        // FeedExcluded feeds the detector with Reset filtered out; with the gate present the
+        // cleared dwell stays silent — without it (X1) the excluded Reset would report an
+        // Abandoned outcome from inside the preview's area of influence.
+        vm.Receive(new GazeCursorMovedMessage(Away, 380_000));
+
+        Check.WithCustomMessage(
+                "FeedExcluded's filter must gate the abandon outcome too: Reset's cleared dwell " +
+                "must not surface as a struggle Abandoned outcome.")
+            .That(sink.Outcomes).IsEmpty();
+    }
+
     // --- deactivation: hide/calibration closes the engagement and drops the held arc ---
 
     [Fact]

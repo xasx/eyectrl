@@ -251,23 +251,21 @@ public class ToolbarBandRenderedButtonsTests
         Check.WithCustomMessage("The frozen-silent cue must double the rim stroke (4 DIP, not 2).")
             .That(face.StrokeThickness).IsEqualTo(4.0);
 
-        // Cue end: suppression ending restores nothing (L1) — the leave runs normally, arms, and
-        // the rim returns to its rest width while the face is still acquired (P6 holds the arc
-        // until the post-arm zero)…
+        // Cue end: suppression ending restores nothing (L1) — the leave runs normally, and the
+        // ARM itself already zeroed the face (spec §3.1 step 3, 9f6f485b: a silent leave's arm
+        // zeroes the held arc on panel-absent paths too): by the time the debounce completes,
+        // Reset wears its own REST face — warning rim, ordinary fill, rest width — not the
+        // acquired one. No SimulateTargetProgress step needed: the arm IS the zero now.
         suppress = false;
         Hold(vm, Away, 380_000, 520_000);
         Check.That(vm.ResetFrozenSilent).IsFalse();
-        Check.That(StrokeOf(face)).IsEqualTo(Tokens.BorderFocus);
+        Check.That(ResetButton(vm).IsHighlighted).IsFalse();
+        Check.WithCustomMessage("The arm must return the face to Reset's own REST rim (AccentWarning).")
+            .That(StrokeOf(face)).IsEqualTo(Tokens.AccentWarning);
+        Check.WithCustomMessage("The arm must return the face to Reset's own REST fill (SurfaceMedium).")
+            .That(FillOf(face)).IsEqualTo(Tokens.SurfaceMedium);
         Check.WithCustomMessage("The cue end must restore the DwellArcButton rest rim width.")
             .That(face.StrokeThickness).IsEqualTo(2.0);
-
-        // …and once the post-arm zero lands, Reset returns to its own REST face — warning rim,
-        // ordinary fill — still at the rest width.
-        vm.SimulateTargetProgress(ResetId, 0.0);
-        Check.That(ResetButton(vm).IsHighlighted).IsFalse();
-        Check.That(StrokeOf(face)).IsEqualTo(Tokens.AccentWarning);
-        Check.That(FillOf(face)).IsEqualTo(Tokens.SurfaceMedium);
-        Check.That(face.StrokeThickness).IsEqualTo(2.0);
     }
 
     /// <summary>

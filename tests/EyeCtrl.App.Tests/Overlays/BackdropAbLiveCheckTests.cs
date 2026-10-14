@@ -71,6 +71,14 @@ using Xunit;
 /// EyeCtrl overlays or Tobii effects draw in the screen's centre, they enter the capture with
 /// everything else — the baseline is what tells the backdrop apart from whatever lies behind it.
 /// </para>
+///
+/// <para>
+/// <b>Historical configuration (2026-10-14).</b> Production changed after round 2:
+/// <c>ApplyBackdrop</c> now takes the legacy accent blur for both named types, and the window makes
+/// its composition target transparent itself. This class keeps round 1's shape (including the
+/// <c>TryApplyMica</c> probe) so a re-run reproduces the record; the look of today's production is
+/// <see cref="BackdropLiveLookTests"/>.
+/// </para>
 /// </summary>
 [Collection("WpfApplication")]
 [Trait("Category", "UI")]

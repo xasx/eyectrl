@@ -68,6 +68,14 @@ using Xunit;
 /// <see cref="LiveCheck.AssertShowsText"/>) before the readout; no input is simulated and no gaze
 /// is fed; the window closes in a <c>finally</c>.
 /// </para>
+///
+/// <para>
+/// <b>Historical configuration (2026-10-14).</b> Production changed after this round:
+/// <c>ApplyBackdrop</c> now takes the legacy accent blur for BOTH named types, and the composition
+/// target is made transparent by the window itself. The cases below keep the round-2 shape that
+/// produced that decision — including the DWM probes — so a re-run reproduces the record, not
+/// today's production path; <see cref="BackdropLiveLookTests"/> is the look of today's.
+/// </para>
 /// </summary>
 [Collection("WpfApplication")]
 [Trait("Category", "UI")]
@@ -147,7 +155,7 @@ public class BackdropMaterialLiveCheckTests
                 // after ClearContent -> ClearDwmBackdrop (type NONE, margins 0); this fresh window's
                 // type is DWM's default Auto, so clear it first for exact parity (review-04 finding 5).
                 ClearDwmBackdrop(window);
-                legacyApplied = TryApplyAcrylic(window);
+                legacyApplied = TryApplyAcrylic(window, settings.Opacity);
                 applied = $"legacy accent blur (SetWindowCompositionAttribute ACCENT_ENABLE_ACRYLICBLURBEHIND); "
                     + $"TryApplyAcrylic returned {legacyApplied}";
             }
@@ -219,7 +227,7 @@ public class BackdropMaterialLiveCheckTests
             if (legacyAccent)
             {
                 log.AppendLine(
-                    $"TryApplyAcrylic (re-applied after the capture): {TryApplyAcrylic(window)}; "
+                    $"TryApplyAcrylic (re-applied after the capture): {TryApplyAcrylic(window, settings.Opacity)}; "
                     + "no DWMWA_SYSTEMBACKDROP_TYPE in this path");
             }
             else
@@ -303,17 +311,18 @@ public class BackdropMaterialLiveCheckTests
     }
 
     /// <summary>
-    /// Production's Phase-2 legacy accent blur, reached by reflection (private, test-only call).
-    /// The window arrives after <see cref="ClearDwmBackdrop"/>, exactly as production's
-    /// <c>ApplyBackdrop</c> reaches it (review-04 finding 5).
+    /// Production's Phase-2 legacy accent blur, reached by reflection (test-only call; now with the
+    /// settings' opacity, which the accent's tint carries). The window arrives after
+    /// <see cref="ClearDwmBackdrop"/>, exactly as production's <c>ApplyBackdrop</c> reaches it
+    /// (review-04 finding 5).
     /// </summary>
-    private static bool TryApplyAcrylic(GlassBackdropWindow window)
+    private static bool TryApplyAcrylic(GlassBackdropWindow window, double opacity)
     {
         try
         {
             return (bool)typeof(GlassBackdropWindow)
                 .GetMethod("TryApplyAcrylic", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .Invoke(window, null)!;
+                .Invoke(window, new object?[] { opacity })!;
         }
         catch (TargetInvocationException)
         {

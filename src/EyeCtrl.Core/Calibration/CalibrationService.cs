@@ -14,6 +14,11 @@ public class CalibrationService
     // Volatile reference assignment is atomic; no lock needed for a single-field swap.
     private volatile ICalibrationTransform? _currentTransform;
     private readonly ILogger<CalibrationService>? _logger;
+    // The clock each target's collector times its settle window on. Injected so the view model's
+    // fake clock in tests is the SAME clock the settle gate reads; production passes
+    // TimeProvider.System, the direct replacement for the DateTimeOffset.UtcNow the collector
+    // defaulted to, so the settlement timings are unchanged.
+    private readonly TimeProvider _timeProvider;
 
     private static readonly JsonSerializerOptions s_readOptions = new()
     {
@@ -36,9 +41,13 @@ public class CalibrationService
     /// Initializes a new instance of the <see cref="CalibrationService"/> class.
     /// </summary>
     /// <param name="logger">Optional logger for diagnostic messages.</param>
-    public CalibrationService(ILogger<CalibrationService>? logger = null)
+    /// <param name="timeProvider">
+    /// Clock for target collection timing (the settle window). Defaults to the system clock.
+    /// </param>
+    public CalibrationService(ILogger<CalibrationService>? logger = null, TimeProvider? timeProvider = null)
     {
         _logger = logger;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <summary>The currently active calibration transform, or null if no calibration is applied.</summary>
@@ -131,7 +140,9 @@ public class CalibrationService
         // and the enforced tolerance (240 px on this display) drifted an order of magnitude apart.
         _currentCollector = new CalibrationPointCollector(
             target, settleWindowMs, maxSamples,
-            bandRadiusPx: CalibrationGeometry.BandRadiusPx(_screenSize));
+            bandRadiusPx: CalibrationGeometry.BandRadiusPx(_screenSize),
+            // The settle gate reads the injected clock: the same one the view model's windows run on.
+            nowMs: () => _timeProvider.GetUtcNow().ToUnixTimeMilliseconds());
     }
 
     /// <summary>

@@ -42,12 +42,19 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     // from its own button, so it must not hinge on a global diagnostics flag that a gaze-only user
     // cannot see, let alone toggle.
     private readonly DiagnosticsSettings? _diagnostics;
+    // The clock every timer and window in this view model reads: the per-target safety cap's
+    // Task.Delay, the measure-only ring's elapsed share, and the hold floor. Injected so the tests
+    // can drive a fake clock and measure the windows exactly, instead of racing a loaded runner's
+    // wall clock (the CI flakes of 2026-10-14: a 5 s window read as 3.8 s and as 5719 ms).
+    // Production passes TimeProvider.System — see AppBootstrapper — which is the same monotonic
+    // Stopwatch source Environment.TickCount64 exposes, so the timings are unchanged.
+    private readonly TimeProvider _timeProvider;
 
     private int _sessionGeneration;
-    // Ticks (Environment.TickCount64) of the current target's first display. The target is held
+    // Timestamp (from _timeProvider) of the current target's first display. The target is held
     // at least TargetHoldMs (a visible floor), but advances as soon as the collector has enough
     // post-arrival samples after that — the user's pace, not a timer's.
-    private long _targetShownAtTicks;
+    private long _targetShownAtTimestamp;
 
     // Whether this session is the measure-only bias probe. Per session, never persisted: a settings
     // flag that stays on would make the next deliberate "Calibrate Now" silently skip the transform.
@@ -215,13 +222,15 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         ILogger<CalibrationViewModel>? logger = null,
         IGroundTruthSink? groundTruth = null,
         string providerType = "",
-        DiagnosticsSettings? diagnostics = null)
+        DiagnosticsSettings? diagnostics = null,
+        TimeProvider? timeProvider = null)
         : base(messenger)
     {
         _logger = logger;
         _groundTruth = groundTruth;
         _providerType = providerType;
         _diagnostics = diagnostics;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _settings = settings;
         _calibrationService = calibrationService;
         _gazeProvider = gazeProvider;
@@ -312,7 +321,7 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         // The target's clock starts BEFORE the handler is attached: a tracker-thread sample can land the
         // instant it is, and it must be timed against this target, not the previous one (whose start is
         // ~5 s old, so a probe's time ring would flash full on the new dot — review A's FU10-1).
-        _targetShownAtTicks = Environment.TickCount64;
+        _targetShownAtTimestamp = _timeProvider.GetTimestamp();
         _gazeProvider.GazePointReceived += OnRawGaze;
         var generation = _sessionGeneration;
 
@@ -349,7 +358,10 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     /// </param>
     private void ScheduleSafetyCap(int generation, int targetIndex, int delayMs, bool isFinal)
     {
-        Task.Delay(delayMs).ContinueWith(_ =>
+        // The delay is armed on the injected clock, not the machine's: production's system clock makes
+        // this a real timer exactly as before, and the tests advance a fake clock so the cap fires at a
+        // known instant instead of a runner-timed one.
+        Task.Delay(TimeSpan.FromMilliseconds(delayMs), _timeProvider).ContinueWith(_ =>
         {
             if (IsDisposed) return;
             PostToSyncContext(() =>
@@ -471,7 +483,7 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         // the return it froze on a blink and read 0 for a window whose gaze was lost throughout).
         if (_measureOnly)
             TargetProgress = Math.Clamp(
-                (Environment.TickCount64 - _targetShownAtTicks) / (double)MeasureOnlyTargetBudgetMs, 0, 1);
+                _timeProvider.GetElapsedTime(_targetShownAtTimestamp).TotalMilliseconds / MeasureOnlyTargetBudgetMs, 0, 1);
 
         if (!gaze.IsValid) return;
         _calibrationService.AddRawSample(new PhysicalPoint(gaze.X, gaze.Y));
@@ -507,7 +519,7 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
         // cluster, so every small-bias probe would come back "no steady holds".
         if (!_measureOnly
             && _calibrationService.IsTargetComplete
-            && Environment.TickCount64 - _targetShownAtTicks >= _settings.TargetHoldMs)
+            && _timeProvider.GetElapsedTime(_targetShownAtTimestamp).TotalMilliseconds >= _settings.TargetHoldMs)
         {
             var index = CurrentTargetIndex;
             PostToSyncContext(() => AdvanceFromCurrentTarget(index));

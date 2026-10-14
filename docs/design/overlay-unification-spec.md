@@ -71,16 +71,16 @@ The result is a UI that feels like a patchwork of different apps rather than one
 | **DriftNotice** | `DriftNoticeWindow` | `Transparent` + `Border #E0202020` | XAML |
 | **CaregiverAlert** | `CaregiverAlertWindow` | `Transparent` + `Border #E0202020` | XAML |
 | **Note** | `NoteWindow` | `#1A1A2E` | code-only, no XAML |
-| **SubPixelProbe** | `SubPixelProbeWindow` | `BrushSurfaceDark` + full-screen backdrop image | code-only, no XAML |
+| **SubPixelProbe** | `SubPixelProbeWindow` | follows the theme's `SurfaceDark` token (light under Daylight) + full-screen backdrop image | code-only, no XAML |
 
 The **Class** column is the match key for the drift-guard test
 (`tests/EyeCtrl.App.Tests/OverlayInventoryDriftTests.cs`): every concrete
 `OverlayWindow` subclass in `EyeCtrl.App` must appear here, and every name here
 must resolve to a real type. Adding an overlay without a row fails the build.
 
-**Finding:** 15 overlays carry a dark fill (14 with a literal dark background; the
-sub-pixel probe paints `BrushSurfaceDark` behind its full-screen backdrop image); 14
-are `Background="Transparent"` at
+**Finding:** 15 overlays carry a container fill (14 with a literal dark background; the
+sub-pixel probe follows the theme's `SurfaceDark` token behind its full-screen backdrop
+image — light under Daylight); 14 are `Background="Transparent"` at
 the window level. The transparent ones are *not* out of scope — they composite
 accent content over live desktop pixels and therefore need §4.1.3's contrast
 guarantee, not merely a token swap. Three of the fourteen (`AdaptationCue`,

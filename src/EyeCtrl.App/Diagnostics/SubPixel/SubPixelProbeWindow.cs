@@ -615,6 +615,8 @@ internal sealed class SubPixelProbeWindow : OverlayWindow, IProbeWindow
             FontWeight = Tokens.FontWeightStrong,
             Foreground = Tokens.BrushTextPrimary,
             TextAlignment = TextAlignment.Center,
+            // N1 (SP-4d review 02): belt-and-braces — TextAlignment.Center already centres the
+            // text, so the equivalent mutant g1 (this line dropped) changes nothing.
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
         };

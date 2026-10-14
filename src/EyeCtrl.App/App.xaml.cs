@@ -1,7 +1,6 @@
 namespace EyeCtrl.App;
 
 using System.Drawing;
-using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -132,10 +131,8 @@ public partial class App : Application
             // splash, because everything downstream reads StringTable.Current the moment it is
             // constructed. English is compiled into Core; this activates the persisted selection,
             // with System resolved against the Windows UI culture the process already runs under.
-            StringTable.Activate(StringTable.Load(
-                settings.General.UiLanguage,
-                CultureInfo.CurrentUICulture,
-                AppDomain.CurrentDomain.BaseDirectory,
+            StringTable.Activate(StartupStringTable.Load(
+                settings,
                 message => Log.Warning("String table: {Message}", message)));
 
             // ── Theme ──

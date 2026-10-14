@@ -29,6 +29,12 @@ using Microsoft.Extensions.Time.Testing;
 /// which are what the sidecar's window bounds ARE — come from the same fake clock, so there is no
 /// second timeline for a stall to stretch.
 /// </para>
+/// <para>
+/// "Exact" here is exact to the pump's 25 ms step, and no finer: a step advances the clock and then
+/// runs the callbacks due at its end, so the cap's continuation reads the clock at the step's end —
+/// any budget in (4975, 5000] ms fires on the 5000 ms step and the window reads 5000.0. That is still
+/// about 28× tighter than the 4700–5400 band the real-time harness needed (700 ms wide).
+/// </para>
 /// </summary>
 public class CalibrationMeasureOnlyTests
 {
@@ -223,10 +229,11 @@ public class CalibrationMeasureOnlyTests
     /// <summary>
     /// Bounded real-time wait for an asynchronous transition (a timer's continuation can run on a
     /// pool thread; the fake clock is frozen meanwhile, so nothing about the measured windows depends
-    /// on when exactly it lands). The bound is a failsafe: a correct build takes milliseconds, a
-    /// broken one fails with a sentence instead of hanging.
+    /// on when exactly it lands). The bound is a generous failsafe — it only ever covers a pool
+    /// continuation landing, never a measured value, so a starved runner cannot make it a verdict.
+    /// A correct build takes milliseconds; a broken one fails with a sentence instead of hanging.
     /// </summary>
-    private static async Task WaitUntil(Func<bool> condition, string what, int timeoutMs = 10_000)
+    private static async Task WaitUntil(Func<bool> condition, string what, int timeoutMs = 30_000)
     {
         long deadline = Environment.TickCount64 + timeoutMs;
         while (!condition())
@@ -481,6 +488,7 @@ public class CalibrationMeasureOnlyTests
         // On the fake clock this is the exact claim, not a 23–32 s band: five budgets of exactly 5 s
         // are exactly 25 s — and it is the 25 s that separates the probe's budget from a normal cap
         // (5 x 8 s) or a full extension (5 x 25 s), which is what the old band was really pinning.
+        // Exact to the pump's 25 ms step, like every window here (see the class docs).
         var (vm, sidecar) = await RunProbe(_ => false, timeoutSeconds: 40);
 
         Check.That(ElapsedMs).IsEqualTo(25_000);
@@ -503,8 +511,9 @@ public class CalibrationMeasureOnlyTests
     /// target's first and last sample (GroundTruth.cs), so a real tracker's period — ~11 ms at 90 Hz —
     /// is the only gap between them and the target's display/advance edges. The harness preserves that
     /// by delivering one sample on each edge from the provider's subscribe/unsubscribe hooks; on the
-    /// fake clock the span is therefore exact — not the 4.7–5.4 s band a loaded runner forced, and
-    /// not the 3.8 s a stalled loop produced (see the stall regression below).
+    /// fake clock the span is therefore exact to the pump's 25 ms step (class docs) — not the 4.7–5.4 s
+    /// band a loaded runner forced, and not the 3.8 s a stalled loop produced (see the stall regression
+    /// below).
     /// </para>
     /// </summary>
     [Theory]
@@ -528,6 +537,13 @@ public class CalibrationMeasureOnlyTests
     /// every target, so it is still stalled when the target advances — the runner's stall (measured
     /// at 0.8–1.2 s, from the same position) cut the windows to 3.8–4.2 s. The target still was
     /// displayed for its full budget, so the window must still read 5 s.
+    /// <para>
+    /// On the fake clock it pins one more thing: production detaches the gaze handler BEFORE
+    /// incrementing <c>CurrentTargetIndex</c>, so the stall's end edge — the provider's unsubscribe
+    /// sample, taken at the 5 s budget — is recorded into the OLD window and gives it its full span.
+    /// Swapped (increment then detach), that edge would land in the next target's window and this
+    /// one would close at its last loop sample, about 3500 ms.
+    /// </para>
     /// </summary>
     [Fact]
     public async Task V4_MeasureOnlyWindow_Holds_WhenTheSampleSourceStalls()

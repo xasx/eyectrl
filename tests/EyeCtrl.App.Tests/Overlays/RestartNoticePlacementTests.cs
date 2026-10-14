@@ -187,6 +187,21 @@ public class RestartNoticePlacementTests
     }
 
     [StaFact]
+    public void ANotShownKeyboard_IsNoKeyboardToAvoid()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var keyboard = new KeyboardWindow();
+        try
+        {
+            Check.That(RestartNoticePlacement.ShownKeyboard(keyboard)).IsNull();
+        }
+        finally
+        {
+            keyboard.Close();
+        }
+    }
+
+    [StaFact]
     public void TheCardFollowsTheKeyboard_WhenItAppearsOrGoesWhileTheCardIsUp()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();

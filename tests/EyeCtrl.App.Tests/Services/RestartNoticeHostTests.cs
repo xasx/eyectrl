@@ -197,5 +197,11 @@ public class RestartNoticeHostTests
         Check.That(System.Text.RegularExpressions.Regex.IsMatch(
             arguments, @"targetLanguage\s*:\s*\(\)\s*=>\s*RestartNotices\s*\.\s*TargetLanguage\s*\(")).IsTrue();
         Check.That(arguments.Contains("new RestartNoticeWindow(", StringComparison.Ordinal)).IsTrue();
+        // The card keeps off the gaze keyboard only if it is told where the keyboard is.
+        Check.WithCustomMessage("the card is no longer given the shown keyboard's bounds, so it could cover the keys")
+            .That(System.Text.RegularExpressions.Regex.IsMatch(
+                arguments,
+                @"keyboardBounds\s*:\s*\(\)\s*=>\s*RestartNoticePlacement\s*\.\s*ShownKeyboard\s*\(\s*overlayManager\s*\.\s*Keyboard\s*\)"))
+            .IsTrue();
     }
 }

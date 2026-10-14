@@ -220,3 +220,36 @@ exception details and logs, and the product names.
   +15.6 DIP) and the owner chose to **keep the recorded English exception** (2026-10-12) — no
   threshold and no text changed (`FitClassTests.EnglishExceptions` and
   `ShippedGermanStep3Tests.TheDoubleClickCandidates_…`).
+
+## T15 — fixups from the holistic review
+
+Found by reading the finished German localization end to end. Three changes a person can see, and
+the checks that now guard what the review found unguarded.
+
+- **The skin-tone selector's back key is an arrow, not a word.** On the emoji keyboard, choosing the
+  skin-tone tab shows six swatches and a key under them that goes back to the emoji grid. That key
+  said the English word "Back" on every language. It now draws the keyboard's own left arrow (the
+  drawn arrows of T14, a third of the key's width), and its spoken (screen-reader) name follows the
+  language: "Back" in English, "Zurück" in German (`overlays.edge.back`, an already reviewed string).
+  The key keeps its size and place. The emoji grid's own page-back and page-next keys are unchanged
+  (they are still the font glyphs ◀ and ▶).
+- **A restart that no Settings window is open to announce is now announced.** A language change made
+  from the Supervisor restarts EyeCtrl while Settings is closed, and a refused restart ("EyeCtrl is
+  still running") used to be invisible, with the old language kept and no word to anyone. Now a card
+  appears at the bottom centre of the screen with the same text Settings shows in that situation, in
+  the language being switched to ("EyeCtrl wird neu gestartet." / "Neustart fehlgeschlagen: …"), and
+  one button to close it by dwelling on it ("✕ Hide" / "✓ OK"). It never takes the keyboard focus
+  or the foreground, closes itself after 40 s ("restarting") or 30 s ("not possible") if nobody
+  dwells on it, and never appears when Settings is open (Settings shows its own notice). It is sized
+  for a gaze user at 200 %: the first line is 34 DIP, the rest and the button label 24 DIP, on a
+  1000 DIP card whose height follows the text, so German never clips. It never covers the gaze
+  keyboard: with the keyboard open it sits just above it, and it moves if the keyboard opens or
+  closes while it is up (`RestartNoticePlacementTests`, with the real keyboard at every key size).
+- **The startup box and the restart-failure frame no longer say "(Englisch)".** They read
+  "Technische Details: {0}", as the synthesis decided: the detail after the label is whatever the
+  system produced, often in the Windows language, so the label makes no claim about it.
+- **Guards, not behaviour:** the startup string-table load and the Supervisor's `system` language
+  resolution now have tests through the production calls (a wrong folder or culture there turned
+  German off with every test green); the string-key checks now see keys with an underscore or a
+  capital, so a key on the wrong surface fails (35 keys in 7 files were invisible); and the
+  identical-to-English allowlist reports an entry that waives nothing.

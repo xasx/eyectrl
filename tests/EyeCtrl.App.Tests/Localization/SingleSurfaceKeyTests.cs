@@ -86,6 +86,8 @@ public class SingleSurfaceKeyTests
         ("src/EyeCtrl.App/Localization/OverlayTextSources.cs", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/ToolbarBand.cs", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs", ["overlays"]),
+        // T15 F4: the emoji skin-tone selector's back key takes its spoken name from overlays.edge.back.
+        ("src/EyeCtrl.App/Overlays/EmojiGridManager.cs", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/QuickActionsGridWindow.xaml", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/GlassBackdropWindow.xaml", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/GlassBackdropWindow.xaml.cs", ["overlays"]),

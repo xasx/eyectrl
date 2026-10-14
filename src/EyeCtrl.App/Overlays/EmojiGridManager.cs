@@ -8,6 +8,7 @@ using EyeCtrl.Controls;
 using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Keyboard;
+using EyeCtrl.Core.Localization;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
@@ -527,7 +528,11 @@ public class EmojiGridManager
         _keyRows.Children.Add(rowPanel);
 
         var backRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-        AddSpecialButton(backRow, "Back", "skinToneBack", 2.0);
+        // A language-free caption (the same ◀ as the emoji page-back key), with the spoken name
+        // from the overlays surface: a hard-coded "Back" here read English on a German overlay
+        // (holistic review F4), and the caption is the only text a gaze user would see.
+        AddSpecialButton(backRow, "\u25C0", "skinToneBack", 2.0,
+            accessibleName: StringTable.Current.T("overlays.edge.back"));
         _keyRows.Children.Add(backRow);
 
         // No changed-guard, unlike the category branch: parked gaze on the skin-tone tab re-fires
@@ -543,7 +548,12 @@ public class EmojiGridManager
         Log.Information("Emoji {Panel} shown: cells={Cells}", "skin-tone selector", CountLiveCells());
     }
 
-    private void AddSpecialButton(StackPanel row, string text, string action, double widthMultiplier)
+    /// <param name="text">The caption: a glyph or a layout-data word, never UI prose. Prose is a
+    /// sink of the text-literal ratchet, so a hard-coded sentence here fails the gate.</param>
+    /// <param name="accessibleName">The screen-reader name of a caption nobody can pronounce
+    /// (a glyph), resolved from the string table by the caller; null leaves the caption as the name.</param>
+    private void AddSpecialButton(
+        StackPanel row, string text, string action, double widthMultiplier, string? accessibleName = null)
     {
         var keySize = _getKeySize();
         var id = $"special_{action}";
@@ -561,6 +571,9 @@ public class EmojiGridManager
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
+
+        if (accessibleName is not null)
+            System.Windows.Automation.AutomationProperties.SetName(label, accessibleName);
 
         var container = new Border
         {

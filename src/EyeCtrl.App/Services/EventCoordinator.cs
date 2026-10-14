@@ -76,6 +76,22 @@ public class EventCoordinator : IEventCoordinator
         remove => _modal.SettingsOpenChanged -= value;
     }
 
+    /// <summary>Whether the sub-pixel probe window is up (SP-8 fixup 01 F1: the restart notice
+    /// host treats it exactly like Settings).</summary>
+    internal bool IsProbeOpen => _modal.ProbeOpen;
+
+    /// <summary>
+    /// Raised on the UI thread after <see cref="IsProbeOpen"/> flips. A wrapper over
+    /// <c>ModalInteractionState.ProbeOpenChanged</c>, whose contract says subscribers read the flag,
+    /// not the argument (a re-entrant flip delivers a stale value): always <c>+=</c> / <c>-=</c>
+    /// through here, never assign.
+    /// </summary>
+    internal event Action<bool> ProbeOpenChanged
+    {
+        add => _modal.ProbeOpenChanged += value;
+        remove => _modal.ProbeOpenChanged -= value;
+    }
+
     /// <summary>Hands the restart coordinator to the settings window at construction. Called once at startup.</summary>
     public void SetRestartCoordinator(AppRestartCoordinator coordinator)
     {

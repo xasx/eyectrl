@@ -45,9 +45,14 @@ public class OverlayInventoryDriftTests
     /// Matches a full §3.1 row INCLUDING its trailing D17-classification cell (Task 11):
     /// <c>| Name | `Type` | … | collision-zone |</c> or <c>| … | exempt:reason |</c>. The
     /// classification must be the row's LAST cell so a background/format edit cannot displace it.
+    /// The trailing <c>\r?$</c> (fix-wave F3) is load-bearing: .NET's <c>$</c> under
+    /// <see cref="RegexOptions.Multiline"/> matches only before <c>\n</c>, so a CRLF row's
+    /// <c>\r</c> broke the pattern on every CRLF checkout — CI's <c>actions/checkout</c> on
+    /// <c>windows-latest</c> produces exactly that, and the guard died with "29 rows, but only 0
+    /// carry a D17 classification".
     /// </summary>
     private static readonly Regex RowWithClassification = new(
-        @"^\|[^|]+\|\s*`(?<cls>[A-Za-z0-9_]+)`[^\r\n]*\|\s*(?<d17>[^|\r\n]+?)\s*\|[ \t]*$",
+        @"^\|[^|]+\|\s*`(?<cls>[A-Za-z0-9_]+)`[^\r\n]*\|\s*(?<d17>[^|\r\n]+?)\s*\|[ \t]*\r?$",
         RegexOptions.Multiline | RegexOptions.Compiled);
 
     /// <summary>
@@ -177,10 +182,13 @@ public class OverlayInventoryDriftTests
 
     /// <summary>Class-name → classification-cell pairs, parsed from §3.1. Rows without a valid
     /// classification cell are absent here.</summary>
-    private static IReadOnlyDictionary<string, string> SpecClassifications()
-    {
-        var spec = SpecText();
+    private static IReadOnlyDictionary<string, string> SpecClassifications() =>
+        SpecClassifications(SpecText());
 
+    /// <summary>Text-injected form (fix-wave F3): lets the CRLF round-trip test re-run the exact
+    /// production parse over the doc's bytes converted to CRLF.</summary>
+    private static IReadOnlyDictionary<string, string> SpecClassifications(string spec)
+    {
         var start = spec.IndexOf("### 3.1 Overlay Backgrounds", StringComparison.Ordinal);
         Check.That(start).IsStrictlyGreaterThan(-1);
         var end = spec.IndexOf("### 3.2", start, StringComparison.Ordinal);
@@ -262,5 +270,44 @@ public class OverlayInventoryDriftTests
                 "does not report them (no named source): " + string.Join(", ", unbacked)
                 + ". Add the source to the inventory or reclassify the row as exempt:<reason>.")
             .That(unbacked).IsEmpty();
+    }
+
+    // ── fix-wave F3: the pattern must survive a CRLF checkout (CI's actions/checkout on
+    // windows-latest writes CRLF; the shared worktree holds the doc as LF, which is why nobody
+    // saw the guard die there) ──
+
+    [Fact]
+    public void RowWithClassification_MatchesACrlfSuffixedRow()
+    {
+        // Unit-level proof of the CRLF bug: .NET's `$` under Multiline matches only before `\n`,
+        // so a CRLF row's `\r` sat between the classification cell and the `$` — the pattern
+        // matched zero rows and CI read "29 rows, but only 0 carry a D17 classification".
+        const string row = "| Reset | `ToolbarWindow` | SurfaceDark | strip | collision-zone |\r\n";
+        var match = RowWithClassification.Match(row);
+
+        Check.That(match.Success).IsTrue();
+        Check.That(match.Groups["cls"].Value).IsEqualTo("ToolbarWindow");
+        Check.That(match.Groups["d17"].Value).IsEqualTo("collision-zone");
+    }
+
+    [Fact]
+    public void EverySpecRow_CarriesAValidD17Classification_UnderCrlfToo()
+    {
+        // The round-trip proof: the doc's bytes normalized to CRLF (exactly what a fresh
+        // windows-latest checkout holds), pushed through the SAME production parse — every row
+        // must still classify, with the same map as the LF original.
+        var lf = SpecClassifications();
+        var crlf = SpecClassifications(
+            SpecText().Replace("\r\n", "\n", StringComparison.Ordinal).Replace("\n", "\r\n", StringComparison.Ordinal));
+
+        Check.WithCustomMessage(
+                "Every §3.1 row must carry its D17 classification under a CRLF checkout too — " +
+                $"the LF parse found {lf.Count}, the CRLF parse only {crlf.Count}.")
+            .That(crlf.Count).IsEqualTo(lf.Count);
+        foreach (var (cls, classification) in lf)
+        {
+            Check.WithCustomMessage($"Row {cls} classified '{classification}' under LF but not under CRLF.")
+                .That(crlf.ContainsKey(cls)).IsTrue();
+        }
     }
 }

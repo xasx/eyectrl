@@ -1,6 +1,33 @@
 # German localization — release notes
 
-One file for the whole localization work; each ticket appends its section under its ticket id.
+One file for the whole localization work. T02, T11, T12, the Daylight theme and T13 have a section
+each, below; the other tickets' visible changes are collected under "Earlier visible changes".
+
+## Earlier visible changes
+
+These tickets shipped before this file existed, or without a section of their own. Each changed
+something a user can see.
+
+- **T03a: the combo choices read as words.** The enum combos show readable English names, for
+  example "Smoothed (Legacy)" and "One Euro", and the Posture and Position-indicator choices are
+  named in plain words.
+- **T04: the restart prompt.** Changing the language asks before restarting, with the buttons
+  "Neu starten" / "Abbrechen" (in the language being switched to), and a pending note that names
+  both languages until the restart. EyeCtrl also takes `--ui-language system|de|en` on its command
+  line; the value **persists** into the settings file it reads, so it is a setting, not a
+  one-launch override.
+- **T05a: a bug fix in the Supervisor.** Its "Start EyeCtrl at logon" switch used to be silently
+  not saved. It now saves through EyeCtrl, or, when EyeCtrl cannot take it, is kept with the note
+  "Not saved yet…" until it can.
+- **T09: some geometry changed**, in English too.
+  - The wrapped-row pitch of a combo went from 112 to 140 DIP.
+  - The Supervisor setup window's switches align at x = 435.
+  - The caregiver alert is sized to its content.
+  - The FallenBack dialog sizes to its content, with a 320 DIP minimum.
+- **T10: the calibration completion error wraps** onto further lines.
+- **T14: the keyboard's symbol keys are drawn.** Arrows and similar keys no longer depend on a
+  font that may draw them as hairlines. The QWERTZ layout also has German accessible (spoken)
+  names for its keys ("Umschalttaste", "Rücktaste", and so on), which QWERTY and AZERTY do not.
 
 ## T02 — literal ratchet, explicit number formats, host-supplied control text
 
@@ -25,19 +52,19 @@ matter in a crisis, and the way back out of German, ship together.
 - **German is the default on German Windows.** The Supervisor's tray, setup window and FallenBack
   dialog, the caregiver alert, the drift notice, the startup-error box, the TrackStatus window and
   the App's tray menu all follow the Windows language.
-- **These screens stay English until T12/T13:** Settings, calibration, eye care and the on-screen
-  overlays. So the German tray's "Einstellungen" opens the still-English Settings, where the
+- **These screens stayed English until T12/T13:** Settings, calibration, eye care and the on-screen
+  overlays. So the German tray's "Einstellungen" opened the then-English Settings, where the
   language row's description is the already-German sentence under "Sprache / Language" ("Legt fest,
-  in welcher Sprache EyeCtrl seine eigenen Fenster anzeigt."); every other row on that page is
-  English. (**Settings switched in the T12 section below; calibration, eye care and the overlays
-  are still English.**)
+  in welcher Sprache EyeCtrl seine eigenen Fenster anzeigt."); every other row on that page was
+  English. (**Closed: Settings switched in the T12 section below, and calibration, eye care and
+  the overlays in the T13 section. Nothing is still English except the list at the end of T13.**)
 - **The way back is "Sprache / Language"**: the flat item in the App's tray menu, or the first row
   on General in Settings. The choice row shows each language's own name ("System", "Deutsch",
   "English"), so it reads whichever language is running; the Supervisor's setup window carries the
   same row when EyeCtrl itself will not start.
 - **The English UI on a de-DE machine shows "12.3 px"**, not "12,3 px" (T02's number-format fix,
   in its section above).
-- **Known until T12:** the restart progress and failure notices appear on every restart, including
+- **Known until T12 (closed in T12):** the restart progress and failure notices appear on every restart, including
   Settings' "Restart now" and a theme change, so the still-English Settings can show a German
   "EyeCtrl wird neu gestartet." notice. By design they speak the TARGET language: choosing Deutsch
   while English runs prompts in German, and choosing English from the German screen prompts in
@@ -52,8 +79,8 @@ combos, the ring preview and the quick-action picker all turn German together.
 
 - **German Settings on German Windows.** The sidebar reads "Allgemein", "Kurzbefehle",
   "Augenschutz", and every page is re-paginated to fit German text. The sidebar tab labels keep
-  their geometry — the two longest, "Kurzbefehle" and "Augenschutz", stay on one line and hold
-  their English boxes (`ShippedGermanSettingsTests`, `tab156`).
+  their geometry — "Kurzbefehle" and "Augenschutz", the two whose German wording was chosen to fit,
+  stay on one line and hold their English boxes (`ShippedGermanSettingsTests`, `tab156`).
 - **Every Settings row stays reachable.** German re-pagination was checked against the live
   content budget on the whole tab set: no page is empty and every dwell target stays inside the
   content cell (`ShippedGermanSettingsTests.EverySettingsPage_InTheShippedGerman_PaginatesAndStaysReachable`).
@@ -68,8 +95,9 @@ combos, the ring preview and the quick-action picker all turn German together.
   English label and its stable id, for all three preset families
   (`ShippedGermanSettingsTests.EveryPresetPicker_InTheShippedGerman_...`, `...ThePresetListCaptionAndDeleteModal_...`).
 - **The recovery path still works from the German screen.** The language row is still the first
-  row of General page 1, still 3 dwells from the toolbar and 0 from the tray item
-  (`ShippedGermanSettingsTests.FromTheToolbarSettingsButton_...`).
+  row of General page 1, still 3 dwells from the toolbar
+  (`ShippedGermanSettingsTests.FromTheToolbarSettingsButton_...`) and 0 from the tray item
+  (`LanguageRowReachTests.FromTheTrayLanguageItem_...`).
 - **Settings' numbers and the "Last calibration" date now use German formats.** The T02 number-format
   fix promised this "once the Settings surface renders German"; this is that moment: a German
   Settings shows "12,3 px" and "08.10.2026 14:03" where the English surface showed "12.3 px" and
@@ -81,18 +109,19 @@ combos, the ring preview and the quick-action picker all turn German together.
   on an English Settings — is gone: a German session's Settings and its notices are both German, and
   an English session's are both English — except while switching language, when the notices speak
   the target being switched to by design (`ShippedLanguageRecoveryTests`; `RestartNotices` and
-  `SettingsWindow.TargetLanguage()`, `SettingsWindow.xaml.cs:1008`).
-- **Accepted for the window until T13 (D3):** the Settings ring preview speaks German while the
+  `SettingsWindow.TargetLanguage()`, `SettingsWindow.xaml.cs:1146`).
+- **Accepted for the window until T13 (D3; closed in T13, below):** the Settings ring preview speaks German while the
   live ring still speaks English, and the quick-action picker speaks German while the grid still
   speaks English. The pairing is by design — one key per surface — and closes when Step 3 turns
   `overlays` on.
-- **Still English until T13:** the calibration window and the gaze-offset probe, eye care, and the
+- **Still English until T13 (closed in T13):** the calibration window and the gaze-offset probe, eye care, and the
   on-screen overlays including the live ring and the quick-actions grid. The Calibration *tab*
   is German; starting a calibration or the offset probe ("Jetzt kalibrieren", "Blickversatz
   messen") from German Settings opens the still-English calibration window.
-- **Exception details stay English**, the same convention as the startup box's "Technische
-  Details (Englisch)": a failed model download shows German "Download fehlgeschlagen: {0}" with the
-  raw error in the `{0}` (`ModelsPageSource.cs`, the `settings.models.download.failed_detail` path).
+- **Exception details stay as the system produced them**, the same convention as the startup box's
+  "Technische Details: {0}", whose label makes no claim about the detail's language: a failed model
+  download shows German "Download fehlgeschlagen: {0}" with the raw error in the `{0}`
+  (`ModelsPageSource.cs`, the `settings.models.download.failed_detail` path).
 
 ## Daylight theme - its German
 
@@ -118,8 +147,12 @@ exception details and logs, and the product names.
 - **The live ring speaks German.** The action ring's labels ("Linksklick", "Rechtsklick", "2× Klick",
   "Ziehen", "Mehr", "Zurück"), the modifier bar ("Shift", "Strg", "Alt") and the ring segments'
   accessible names all follow the language (`ShippedGermanStep3Tests` — the view model's own labels and
-  the A105/A68 fit on the shipped table; `GeometryInvarianceTests` builds every overlay in English and
-  in the shipped German at 2.0 and finds identical dwell ids, centres and radii).
+  the A105/A68 fit on the shipped table; `GeometryInvarianceTests` builds the action-menu ring, the
+  edge bars, the modifier bar, the modes menu, the toolbar, the calibration target, the eye-care
+  banner's rings, the backdrop's hide button, the scroll overlay and the Settings toggle in English
+  and in the shipped German at 2.0 and finds identical dwell ids, centres and radii; the
+  quick-actions grid, the task switcher, the note, the keyboard and the activation button are not in
+  its list).
 - **The D3 window closes.** Until T12 the Settings ring preview spoke German while the live ring stayed
   English; the quick-action picker spoke German while the grid stayed English. Both pairs now read the
   same German: the live ring's labels equal the preview's (the `mirrors:` pairs,
@@ -170,9 +203,17 @@ exception details and logs, and the product names.
   language while the pack is unset), so this German PC predicts German; an AI model's suggestions
   are model output — the bundled models carry no language tag (`PredictionStackFactory`,
   `LanguageDetector`).
-- **Still English, deliberately:** exception details and technical messages — the startup box's
-  "Technische Details (Englisch)", the recovery frame's "(Englisch)", a failed model download's `{0}` —
-  and the logs. The product names ("EyeCtrl", "Tobii", "Supervisor", "Shift", "Alt") stay as they are.
+- **Still English, deliberately:**
+  - **Exception details and technical messages**: the raw detail stays as the system produced it
+    (often the Windows display language), under the German labels "Technische Details: {0}" (the
+    startup box and the restart-failure frame). A failed model download's `{0}` and the
+    Supervisor's "Speichern fehlgeschlagen: {0}" detail do the same. The logs stay English.
+  - **Names and terms kept as they are**: "EyeCtrl", "Tobii", "Supervisor", "Shift", "Alt",
+    "Cursor", "Mica", "One Euro", "20-20-20", the keyboard layout names "QWERTY", "QWERTZ" and
+    "AZERTY", and the fallback apps' own names ("Snap Core First", "TD Control",
+    "Windows Eye Control").
+  - **"✓ OK"**, the label of the single-button notices.
+  - **The bilingual pending note** (T04), which names both languages by design.
 - **The "Double click" ring exception stays.** "Double click" measures +1.8 DIP against the +2 DIP
   ring rule; T13 re-measured the options (German "2× Klick" +14.7 DIP; the Settings row's
   "Doppelklick" would measure +0.85 DIP on the ring; a reworded English "2× click" would measure

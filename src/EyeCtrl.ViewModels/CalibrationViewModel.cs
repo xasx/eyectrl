@@ -46,8 +46,10 @@ public partial class CalibrationViewModel : MessengerViewModelBase,
     // Task.Delay, the measure-only ring's elapsed share, and the hold floor. Injected so the tests
     // can drive a fake clock and measure the windows exactly, instead of racing a loaded runner's
     // wall clock (the CI flakes of 2026-10-14: a 5 s window read as 3.8 s and as 5719 ms).
-    // Production passes TimeProvider.System — see AppBootstrapper — which is the same monotonic
-    // Stopwatch source Environment.TickCount64 exposes, so the timings are unchanged.
+    // Production passes TimeProvider.System — see AppBootstrapper. That and the Environment.TickCount64
+    // it replaces are both monotonic and immune to wall-clock changes; they are not the same source
+    // (TickCount64 is the coarse ~15.6 ms system tick, System.GetTimestamp is QPC), so the hold floor
+    // and the ring can only be more precise, and every threshold they compare against is unchanged.
     private readonly TimeProvider _timeProvider;
 
     private int _sessionGeneration;

@@ -298,6 +298,7 @@ public class ToolbarViewModelPreviewTests
         var logger = new SpyLogger();
         var vm = new ToolbarViewModel(_settings, messenger, logger: logger);
         PositionCoreButtons(vm);
+        var resetBtn = ResetButton(vm);
 
         DriveToFreeze(vm);                                           // engage at ~300 ms, bounds unknown
         Check.That(visibility.Count(v => v.Visible)).IsEqualTo(1);
@@ -319,6 +320,9 @@ public class ToolbarViewModelPreviewTests
                 midWindowCaptured = true;
                 Check.That(visibility.Select(v => v.Visible)).ContainsExactly(true, false);
                 Check.That(vm.ResetFrozenSilent).IsTrue();
+                // F1 residual: mid-window the leave run is under way but the arming has NOT
+                // happened — the arc is still held (the timeout's early hide must not drop it).
+                Check.That(resetBtn.DwellProgress).IsStrictlyGreaterThan(ResetPreviewEngine.Threshold);
             }
         }
 
@@ -326,6 +330,12 @@ public class ToolbarViewModelPreviewTests
 
         Check.That(pauses).IsEqualTo(1);                             // the strip never died
         Check.That(vm.ResetFrozenSilent).IsFalse();                  // rim cue fell at arming
+
+        // F1 residual: the rim cue is not the only thing that fell at arming — this silent
+        // engagement publishes no visibility-false at the leave's completion (the timeout's
+        // early hide is the only one), so the held arc must fall with it.
+        Check.That(resetBtn.DwellProgress).IsEqualTo(0.0);
+        Check.That(resetBtn.IsHighlighted).IsFalse();
 
         // The D14 carry (Task-5 review): the timeout fallback is logged in the VM — one
         // Information line for the hide that arrived with no bounds ever reported.
@@ -355,6 +365,141 @@ public class ToolbarViewModelPreviewTests
         DwellDrive.Hold(380_000, 520_000, t => vm.Receive(new GazeCursorMovedMessage(Away, t)));
         Check.That(visibility).IsEmpty();                            // still nothing: no phantom hide
         Check.That(vm.ResetFrozenSilent).IsFalse();
+    }
+
+    // --- final review F1 residual: the panel-absent sibling of Armed_GazeElsewhere above. A
+    // suppressed-at-engage run arms with NO visibility-false (the panel never existed), so the
+    // held arc must fall through the FrozenSilentChanged-at-arming flow instead — nothing else
+    // ever will (no further Reset progress event exists post-arm) ---
+
+    [Fact]
+    public void SuppressedAtEngage_DebouncedLeave_Arms_ArcIsZeroAndStaysZero()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var visibility = new List<AdaptationPreviewVisibilityMessage>();
+        messenger.Register<AdaptationPreviewVisibilityMessage>(this, (_, m) => visibility.Add(m));
+        bool suppress = true;
+        var vm = new ToolbarViewModel(_settings, messenger, isFeedbackSuppressed: () => suppress);
+        PositionCoreButtons(vm);
+
+        DriveToFreeze(vm);
+        var btn = ResetButton(vm);
+        Check.That(btn.DwellProgress).IsStrictlyGreaterThan(ResetPreviewEngine.Threshold);
+        Check.That(btn.IsHighlighted).IsTrue();
+        Check.That(vm.ResetFrozenSilent).IsTrue();
+
+        // L1: suppression ending restores nothing. The silent read leaves through the production
+        // stream, verbatim — first off-union sample (P6: the arc must hold through the run),
+        // then the debounced leave. No SimulateTargetProgress shortcuts.
+        suppress = false;
+        vm.Receive(new GazeCursorMovedMessage(Away, 380_000));
+        Check.That(btn.DwellProgress).IsStrictlyGreaterThan(ResetPreviewEngine.Threshold);
+        DwellDrive.Hold(410_000, 640_000, t => vm.Receive(new GazeCursorMovedMessage(Away, t)));
+
+        // The whole engagement published NOTHING — so the arc must still have fallen at arming.
+        Check.That(visibility).IsEmpty();
+        Check.That(vm.ResetFrozenSilent).IsFalse();
+        Check.WithCustomMessage(
+                "A silent engagement's leave completion publishes no visibility-false — the arc " +
+                "must fall when FrozenSilent falls with the engine Armed, or it lingers forever.")
+            .That(btn.DwellProgress).IsEqualTo(0.0);
+        Check.That(btn.IsHighlighted).IsFalse();
+
+        // And it STAYS down: seconds of gaze elsewhere, still inside the Armed pass window.
+        DwellDrive.Hold(670_000, 2_000_000, t => vm.Receive(new GazeCursorMovedMessage(Away, t)));
+
+        Check.That(btn.DwellProgress).IsEqualTo(0.0);
+        Check.That(btn.IsHighlighted).IsFalse();
+    }
+
+    // --- final review F1 residual, the NoPanel-at-show shape (floating/Mouse toolbars — the
+    // every-engagement path there): the service's absence answer publishes an EARLY
+    // visibility-false while still Frozen (arc held, the user may still be reading), and the
+    // leave then arms with the panel long down — the drop must come at arming, not at the hide ---
+
+    [Fact]
+    public void NoPanelAtShow_EarlyHideHoldsArc_LeaveArmZeroesIt()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var visibility = new List<AdaptationPreviewVisibilityMessage>();
+        messenger.Register<AdaptationPreviewVisibilityMessage>(this, (_, m) => visibility.Add(m));
+        var vm = new ToolbarViewModel(_settings, messenger);
+        PositionCoreButtons(vm);
+
+        DriveToFreeze(vm);
+        var btn = ResetButton(vm);
+
+        // The floating toolbar's answer: nothing is or will be shown. The engine retracts its
+        // own show request — a visibility-false while still Frozen, so the arc must HOLD (the
+        // engagement is live and the reader may still be on the button).
+        messenger.Send(new AdaptationPreviewBoundsMessage(1, PreviewBoundsKind.NoPanel, null));
+
+        Check.That(visibility.Select(v => v.Visible)).ContainsExactly(true, false);
+        Check.That(vm.ResetFrozenSilent).IsTrue();
+        Check.That(btn.DwellProgress).IsStrictlyGreaterThan(ResetPreviewEngine.Threshold);
+        Check.That(btn.IsHighlighted).IsTrue();
+
+        // The leave: first off-union sample (P6 hold), then the debounce arms.
+        vm.Receive(new GazeCursorMovedMessage(Away, 380_000));
+        Check.That(btn.DwellProgress).IsStrictlyGreaterThan(ResetPreviewEngine.Threshold);
+        DwellDrive.Hold(410_000, 640_000, t => vm.Receive(new GazeCursorMovedMessage(Away, t)));
+
+        Check.That(visibility).HasSize(2);                    // no second hide: the panel was already down
+        Check.That(vm.ResetFrozenSilent).IsFalse();
+        Check.That(btn.DwellProgress).IsEqualTo(0.0);
+        Check.That(btn.IsHighlighted).IsFalse();
+
+        // And it stays down.
+        DwellDrive.Hold(670_000, 2_000_000, t => vm.Receive(new GazeCursorMovedMessage(Away, t)));
+        Check.That(btn.DwellProgress).IsEqualTo(0.0);
+        Check.That(btn.IsHighlighted).IsFalse();
+    }
+
+    // --- final review F1 residual, the D17 policy-hide shape: HiddenKeepLast mid-read keeps the
+    // last rect in the union (no cancel published), and the leave then arms with the panel long
+    // down — again the drop must come at arming, through the FrozenSilentChanged flow ---
+
+    [Fact]
+    public void HiddenKeepLast_MidRead_LeaveArms_ArcIsZeroAndStaysZero()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var visibility = new List<AdaptationPreviewVisibilityMessage>();
+        messenger.Register<AdaptationPreviewVisibilityMessage>(this, (_, m) => visibility.Add(m));
+        var vm = new ToolbarViewModel(_settings, messenger);
+        PositionCoreButtons(vm);
+
+        DriveToFreeze(vm);
+        messenger.Send(new AdaptationPreviewBoundsMessage(1, PreviewBoundsKind.Rect, PanelRect));
+        var btn = ResetButton(vm);
+
+        // Mid-read inside the panel, the service policy-hides it (D17): no cancel echo, the last
+        // rect STAYS in the union so the hide cannot arm the button under the reader's gaze.
+        DwellDrive.Hold(360_000, 500_000,
+            t => vm.Receive(new GazeCursorMovedMessage(new PhysicalPoint(560, 480), t)));
+        messenger.Send(new AdaptationPreviewBoundsMessage(1, PreviewBoundsKind.HiddenKeepLast, PanelRect));
+
+        Check.That(visibility.Count(v => v.Visible)).IsEqualTo(1);   // the policy hide published nothing
+        Check.That(vm.ResetFrozenSilent).IsTrue();
+        Check.That(btn.DwellProgress).IsStrictlyGreaterThan(ResetPreviewEngine.Threshold);
+
+        // The leave: first off-union sample (P6 hold), then the debounce arms.
+        vm.Receive(new GazeCursorMovedMessage(Away, 530_000));
+        Check.That(btn.DwellProgress).IsStrictlyGreaterThan(ResetPreviewEngine.Threshold);
+        DwellDrive.Hold(560_000, 700_000, t => vm.Receive(new GazeCursorMovedMessage(Away, t)));
+
+        Check.That(visibility).HasSize(1);                    // no hide ever: the panel was down at the leave
+        Check.That(vm.ResetFrozenSilent).IsFalse();
+        Check.WithCustomMessage(
+                "A policy-hidden engagement's leave completion publishes no visibility-false — the " +
+                "arc must fall when FrozenSilent falls with the engine Armed.")
+            .That(btn.DwellProgress).IsEqualTo(0.0);
+        Check.That(btn.IsHighlighted).IsFalse();
+
+        // And it stays down, still inside the Armed pass window.
+        DwellDrive.Hold(730_000, 2_200_000, t => vm.Receive(new GazeCursorMovedMessage(Away, t)));
+
+        Check.That(btn.DwellProgress).IsEqualTo(0.0);
+        Check.That(btn.IsHighlighted).IsFalse();
     }
 
     // --- deactivation: hide/calibration closes the engagement and drops the held arc ---

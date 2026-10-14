@@ -156,7 +156,7 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
         // The service (Task 7) lives behind the messenger: every engine publish becomes a
         // visibility message, and the rim cue becomes an observable property for the View.
         _previewEngine.PreviewVisibility += OnPreviewVisibility;
-        _previewEngine.FrozenSilentChanged += () => ResetFrozenSilent = _previewEngine.FrozenSilent;
+        _previewEngine.FrozenSilentChanged += OnFrozenSilentChanged;
 
         _buttonDwellRadiusPhysical = DpiHelper.LogicalToPhysicalX(settings.Toolbar.Size / 2);
         _toolbarButtonDwellMs = settings.Dwell.ToolbarButtonDwellMs;
@@ -279,17 +279,45 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
         // keep the arc held — the engagement is still live and the user is still reading — and
         // Disarm hides are already zeroed where they originate (OnTargetActivated's fire reset,
         // SetActive's ResetAllState, SetRenderedButtons' absent-report loop).
-        if (_previewEngine.IsArmed && _buttonLookup.TryGetValue(ResetPreviewEngine.ResetId, out var resetBtn))
-        {
-            resetBtn.DwellProgress = 0;
-            resetBtn.IsHighlighted = false;
-        }
+        if (_previewEngine.IsArmed)
+            ZeroResetFace();
 
         if (_boundsReportedEngagementId != engagementId)
         {
             _logger?.LogInformation(
                 "Adaptation preview engagement {EngagementId} cancelled with no panel bounds reported — falling back to the Reset hit area (service timeout or silent)",
                 engagementId);
+        }
+    }
+
+    /// <summary>
+    /// The rim-cue mirror, plus the F1 residual: a silent engagement's leave completion is the
+    /// panel-absent sibling of the armed visibility-false zero above. Every panel-absent arming
+    /// path — suppressed at engage, the NoPanel-at-show fallback (floating/Mouse toolbars), the
+    /// bounds timeout, a mid-read D17 policy hide — ran with <c>FrozenSilent == true</c> and
+    /// publishes NO visibility-false at the leave's completion (the panel never existed or was
+    /// already down), so without this the held ~0.40 arc and highlight linger indefinitely with
+    /// the rim cue fallen. P18: the engine commits Armed before raising, so reading both flags
+    /// here is sound. The only other false-going raise is Disarm's, and Disarm paths zero the
+    /// arc where they originate — the IsArmed gate excludes them. Idempotent with the
+    /// visibility-false zero (FrozenSilent never changed on the panelWasUp path).
+    /// </summary>
+    private void OnFrozenSilentChanged()
+    {
+        ResetFrozenSilent = _previewEngine.FrozenSilent;
+
+        if (!_previewEngine.FrozenSilent && _previewEngine.IsArmed)
+            ZeroResetFace();
+    }
+
+    /// <summary>The held Reset arc and highlight fall — shared by the armed visibility-false
+    /// (mainline F1) and the armed silent-leave completion (F1 residual).</summary>
+    private void ZeroResetFace()
+    {
+        if (_buttonLookup.TryGetValue(ResetPreviewEngine.ResetId, out var resetBtn))
+        {
+            resetBtn.DwellProgress = 0;
+            resetBtn.IsHighlighted = false;
         }
     }
 

@@ -65,20 +65,45 @@ public class FitClassTests
         // whole ink box is inside the arc, 0.2 DIP short of the +2 margin. Pinned as the ticket's
         // recorded exception. T13 re-measured it (2026-10-12): the German ring's "2× Klick" keeps
         // 14.7 DIP and the Settings row's "Doppelklick" would keep 0.85, so the ring's wording is
-        // the only candidate at issue; the owner's call among keeping this exception, lowering the
-        // threshold, or rewording the English is pending, and no threshold changed here.
+        // the only candidate at issue. The owner KEPT this exception on 2026-10-12, over lowering the
+        // threshold or rewording the English, so no threshold changed. For the record: a reworded
+        // English "2× click" measures +15.6 DIP on the ring (a figure that otherwise exists only in
+        // the output of TheDoubleClickCandidates_AreMeasured_InTheRing_ForTheOwnersDecision).
         new("overlays.ring.doubleClick", "A105", "SegUIVar.ttf", -0.2,
             "+1.8 DIP against the +2 rule: inside the arc, short of the margin by 0.2 (debate: +1.77). "
-            + "T13 re-measured it 2026-10-12 (+1.8; German \"2× Klick\" +14.7, \"Doppelklick\" +0.85); the "
-            + "threshold decision is the owner's and is pending."),
+            + "T13 re-measured it 2026-10-12 (+1.8; German \"2× Klick\" +14.7, \"Doppelklick\" +0.85; a "
+            + "reworded English \"2× click\" +15.6). Kept by the owner 2026-10-12; no threshold changed."),
         new("settings.ring.doubleClick", "A105", "SegUIVar.ttf", -0.2,
             "The Settings mirror of overlays.ring.doubleClick, measured in the same runtime ring: +1.8 DIP. "
             + "T13 re-measured it 2026-10-12; the German candidates' figures are on the overlays key's entry."),
     ];
 
+    /// <summary>
+    /// The measured classes that carry no key in the shipped table today (B94x2 is the default
+    /// 100x100 button; T11 found no real key in it). Their theory rows measure nothing, which is
+    /// said out loud here instead of passing silently: any OTHER class with no item fails, and a
+    /// listed class that gains a key fails <see cref="OnlyTheListedClasses_HaveNoItems"/> until it
+    /// is removed from this list, which turns its gates on.
+    /// </summary>
+    internal static readonly string[] ClassesWithNoKeys = ["B94x2"];
+
     private readonly ITestOutputHelper _output;
 
     public FitClassTests(ITestOutputHelper output) => _output = output;
+
+    [Fact]
+    public void OnlyTheListedClasses_HaveNoItems()
+    {
+        var empty = AppFitMeasurers.Measurers.Keys
+            .Where(fitClass => FitCatalog.ItemsOf(fitClass).Count == 0)
+            .OrderBy(fitClass => fitClass, StringComparer.Ordinal)
+            .ToList();
+
+        Check.WithCustomMessage(
+                "A class with no key is measured in every theme and 'passes' with nothing to check. "
+                + "List it in FitClassTests.ClassesWithNoKeys (and say why), or give it its keys.")
+            .That(empty).ContainsExactly(ClassesWithNoKeys.OrderBy(c => c, StringComparer.Ordinal).ToArray());
+    }
 
     /// <summary>Every class this project measures.</summary>
     public static TheoryData<string> AppClasses()
@@ -102,6 +127,14 @@ public class FitClassTests
     {
         var measure = AppFitMeasurers.Measurers[fitClass];
         var items = FitCatalog.ItemsOf(fitClass);
+        if (ClassesWithNoKeys.Contains(fitClass, StringComparer.Ordinal))
+        {
+            output.WriteLine($"{fitClass} carries no key today (FitClassTests.ClassesWithNoKeys); nothing to measure ({context}).");
+            return;
+        }
+
+        Check.WithCustomMessage($"{fitClass} has no English items: the gate would measure nothing.")
+            .That(items.Count).IsStrictlyGreaterThan(0);
         var exceptions = EnglishExceptions.Where(e => e.FitClass == fitClass).ToList();
         var failures = new List<string>();
         var stale = new List<string>();

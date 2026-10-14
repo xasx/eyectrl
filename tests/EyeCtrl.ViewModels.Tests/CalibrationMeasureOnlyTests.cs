@@ -46,7 +46,7 @@ public class CalibrationMeasureOnlyTests
             add
             {
                 _handlers += value;
-                if (SampleOnSubscribe is { } sample) value?.Invoke(sample());
+                if (SampleOnSubscribe is { } sample) DeliverEdgeSample(value, sample);
             }
             remove
             {
@@ -54,9 +54,27 @@ public class CalibrationMeasureOnlyTests
                 // model is not collecting, and a spurious edge sample there would be recorded as if
                 // the last target had just ended.
                 bool attached = _handlers?.GetInvocationList().Contains(value) == true;
-                if (attached && SampleOnUnsubscribe is { } sample) value?.Invoke(sample());
+                if (attached && SampleOnUnsubscribe is { } sample) DeliverEdgeSample(value, sample);
                 _handlers -= value;
             }
+        }
+
+        /// <summary>
+        /// Delivers an edge sample, but never one from inside another edge sample: the handler runs
+        /// synchronously here, so a broken production build that (un)subscribes from inside its own
+        /// gaze callback would otherwise recurse without bound, and a StackOverflowException takes
+        /// the whole test host with it — every other test's result is lost and CI reports a
+        /// catastrophic failure instead of the one red test. Skipping the nested sample loses
+        /// nothing: it is a duplicate delivery of the same edge, which no tracker produces.
+        /// </summary>
+        [ThreadStatic] private static bool _deliveringEdgeSample;
+
+        private static void DeliverEdgeSample(Action<GazePoint>? handler, Func<GazePoint> sample)
+        {
+            if (_deliveringEdgeSample) return;
+            _deliveringEdgeSample = true;
+            try { handler?.Invoke(sample()); }
+            finally { _deliveringEdgeSample = false; }
         }
 
         public bool IsConnected => true;

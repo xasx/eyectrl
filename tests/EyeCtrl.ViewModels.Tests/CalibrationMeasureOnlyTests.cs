@@ -10,6 +10,7 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Tests.TestSupport;
 using EyeCtrl.ViewModels.Messages;
+using Microsoft.Extensions.Time.Testing;
 
 /// <summary>
 /// The measure-only bias probe, end to end at the view-model layer: five targets whatever the
@@ -18,6 +19,16 @@ using EyeCtrl.ViewModels.Messages;
 /// that collected nothing; a per-session sidecar on every ending; apply nothing. The named mutation
 /// for the persistence checks is restoring <c>AbandonSession</c> on any of these paths — it discards
 /// the only data the probe exists to collect, and these tests turn red.
+/// <para>
+/// <b>One fake clock, exact windows.</b> The view model's timers (the per-target safety caps, the
+/// ring, the hold floor) and the collector's settle gate run on an injected <see cref="TimeProvider"/>,
+/// and this harness drives a <see cref="FakeTimeProvider"/>: a target's 5 s budget is 5 s of test
+/// time, whatever the machine is doing. This replaces the real-time firing loop the earlier fix kept,
+/// whose window bounds depended on where a loaded runner's stall happened to fall (the CI flakes: a
+/// 5 s window read as 3844–4219 ms, and the upper bound as 5719 ms). The harness's gaze timestamps —
+/// which are what the sidecar's window bounds ARE — come from the same fake clock, so there is no
+/// second timeline for a stall to stretch.
+/// </para>
 /// </summary>
 public class CalibrationMeasureOnlyTests
 {
@@ -115,9 +126,29 @@ public class CalibrationMeasureOnlyTests
     private static readonly PhysicalPoint Screen = new(3840, 2400);
     private static readonly string Dir = TempTestDirectory.Create("viewmodels-measure-only");
 
+    /// <summary>
+    /// The one clock the session runs on: the view model's caps, hold floor and ring, and the
+    /// service's collector (the settle gate) all read this instance, and every sample the harness
+    /// fires carries its elapsed time — so there is no second timeline for a slow runner to stretch.
+    /// It counts timer creations; see <see cref="ArmingTimeProvider"/> for why the pump needs that.
+    /// </summary>
+    private readonly ArmingTimeProvider _time = new();
+
+    /// <summary>The fake clock's reading when this test began; <see cref="ElapsedMs"/> is relative to it.</summary>
+    private readonly DateTimeOffset _epoch;
+
     private readonly WeakReferenceMessenger _messenger = new();
-    private readonly CalibrationService _service = new();
+    private readonly CalibrationService _service;
     private readonly FakeGazeProvider _provider = new();
+
+    public CalibrationMeasureOnlyTests()
+    {
+        _epoch = _time.GetUtcNow();
+        _service = new CalibrationService(timeProvider: _time);
+    }
+
+    /// <summary>Fake-clock milliseconds since this test began — the timeline every window is exact in.</summary>
+    private long ElapsedMs => (long)(_time.GetUtcNow() - _epoch).TotalMilliseconds;
     private CalibrationSettings _settings = new()
     {
         // Deliberately 3: the probe must force its own five points, because the decision rule is
@@ -138,37 +169,112 @@ public class CalibrationMeasureOnlyTests
     private string ProbeSidecarPath() =>
         Directory.GetFiles(_testDir, "bias-probe-*.groundtruth.json").Single();
 
+    /// <summary>
+    /// A <see cref="FakeTimeProvider"/> that counts the timers created on it — how the pump knows a
+    /// target's safety cap is ARMED. Production arms it (<c>Task.Delay</c> → <c>CreateTimer</c>) as
+    /// the LAST statement of the target's setup, after <c>CurrentTargetIndex</c> was already
+    /// incremented and the edge sample delivered. A pump that watched only the index could see the
+    /// increment mid-transition, advance the next window's clock, and then leave the new cap due
+    /// later than the pump expected — the one nondeterminism a fake clock must not have.
+    /// </summary>
+    private sealed class ArmingTimeProvider : FakeTimeProvider
+    {
+        private int _timersCreated;
+
+        /// <summary>Timers created so far. One per target: the measure-only cap never extends.</summary>
+        public int TimersCreated => Volatile.Read(ref _timersCreated);
+
+        public override ITimer CreateTimer(
+            TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = base.CreateTimer(callback, state, dueTime, period);
+            // AFTER the real timer exists: a reader that sees the count may advance the clock knowing
+            // the cap is armed with its full budget from this instant.
+            Interlocked.Increment(ref _timersCreated);
+            return timer;
+        }
+    }
+
     private CalibrationViewModel CreateVm(bool recordRawGaze = false, IGroundTruthSink? sink = null) => new(
         _settings, _service, _messenger, _provider, Screen, "test-monitor", CalibrationPath,
-        groundTruth: sink ?? new ScriptedGroundTruthRecorder(SidecarPath),
+        groundTruth: sink ?? new ScriptedGroundTruthRecorder(
+            SidecarPath, utcNow: () => _time.GetUtcNow().UtcDateTime),
         // RecordRawGaze OFF by default: the probe's sidecar must not hinge on the global recorder flag.
-        diagnostics: new DiagnosticsSettings { RecordRawGaze = recordRawGaze });
+        diagnostics: new DiagnosticsSettings { RecordRawGaze = recordRawGaze },
+        timeProvider: _time);
 
-    /// <summary>Completes the current NORMAL-calibration target at the user's pace and advances.</summary>
-    private void FinishTarget(CalibrationViewModel vm, long timestampBase = 0)
+    /// <summary>Advances the fake clock — the only timeline the timers under test can see.</summary>
+    private void AdvanceMs(long ms) => _time.Advance(TimeSpan.FromMilliseconds(ms));
+
+    /// <summary>
+    /// A gaze sample at the fake clock's current reading. <paramref name="onTarget"/> decides whether
+    /// it sits in the current target's band; its timestamp IS the sidecar's window timeline.
+    /// </summary>
+    private GazePoint GazeAt(CalibrationViewModel vm, bool onTarget, bool valid = true)
     {
         var target = vm.CurrentTargetPosition;
+        var at = onTarget ? new PhysicalPoint(target.X + 5, target.Y - 5) : new PhysicalPoint(1920, 100);
+        return new GazePoint(at.X, at.Y, ElapsedMs * 1000, IsValid: valid);
+    }
+
+    private void Fire(CalibrationViewModel vm, bool onTarget, bool valid = true) =>
+        _provider.FireGaze(GazeAt(vm, onTarget, valid));
+
+    /// <summary>
+    /// Bounded real-time wait for an asynchronous transition (a timer's continuation can run on a
+    /// pool thread; the fake clock is frozen meanwhile, so nothing about the measured windows depends
+    /// on when exactly it lands). The bound is a failsafe: a correct build takes milliseconds, a
+    /// broken one fails with a sentence instead of hanging.
+    /// </summary>
+    private static async Task WaitUntil(Func<bool> condition, string what, int timeoutMs = 10_000)
+    {
+        long deadline = Environment.TickCount64 + timeoutMs;
+        while (!condition())
+        {
+            if (Environment.TickCount64 > deadline)
+                throw new TimeoutException($"Waited {timeoutMs} ms: {what}");
+            await Task.Delay(5, TestContext.Current.CancellationToken);
+        }
+    }
+
+    /// <summary>Completes the current NORMAL-calibration target at the user's pace and advances.</summary>
+    private async Task FinishTarget(CalibrationViewModel vm)
+    {
+        int index = vm.CurrentTargetIndex;
+
+        // Arrival (discarded) plus enough counted samples (SettleWindowMs is 0 in the settings that
+        // use this helper, so the second sample on counts).
         for (int i = 0; i < _settings.SamplesPerPoint + 2; i++)
-            _provider.FireGaze(new GazePoint(target.X, target.Y, timestampBase + (i * 33_333), IsValid: true));
+            Fire(vm, onTarget: true);
 
         // Past the visible hold floor; the next sample is what triggers the advance.
-        Thread.Sleep(_settings.TargetHoldMs + 60);
-        _provider.FireGaze(new GazePoint(target.X, target.Y, timestampBase + 10_000_000, IsValid: true));
+        AdvanceMs(_settings.TargetHoldMs + 60);
+        Fire(vm, onTarget: true);
+
+        await WaitUntil(
+            () => vm.CurrentTargetIndex != index,
+            $"target {index} (complete, past its hold floor) never advanced");
     }
 
     /// <summary>
-    /// Drives a whole probe with real-time gaze: <paramref name="aimAtTarget"/> decides, per current
-    /// target index, whether gaze sits on the target (so the collector completes it) or far away (so
-    /// the target ends empty at its cap). Returns the VM and its sidecar when the session ends.
+    /// Drives a whole probe on the fake clock: <paramref name="aimAtTarget"/> decides, per target
+    /// index, whether gaze sits on the target (so the collector sees in-band samples) or far away
+    /// (so the target ends empty at its cap). Returns the VM and its sidecar when the session ends.
+    /// Each target runs exactly its fixed budget — 200 × 25 ms of fake time — and the loop stops at
+    /// the deadline, so what advances the target is its own cap firing on the clock, never the
+    /// harness's pace.
     /// </summary>
     /// <param name="stallMs">
-    /// Injected stall in the sample loop, once per target ~3.5 s in: the deterministic stand-in for
-    /// the loaded-runner stall that truncated the measured windows (see the V4 regression test). Zero
-    /// is the normal harness.
+    /// Suppresses the 25 ms sample loop for the last <paramref name="stallMs"/> of every window —
+    /// the stand-in for the loaded runner whose sample source stalls across the target's end. The
+    /// window must still read its full budget: only the provider's edge samples describe its bounds
+    /// (see the V4 regression test). Zero is the normal harness.
     /// </param>
     private async Task<(CalibrationViewModel Vm, GroundTruthSession Sidecar)> RunProbe(
         Func<int, bool> aimAtTarget, int timeoutSeconds = 30, int stallMs = 0)
     {
+        const long budgetMs = 5_000;   // the probe's fixed per-target budget, as the spec fixes it
+
         // A fresh recipient object per call, so a test may subscribe to the completion message itself
         // without the messenger reporting a duplicate registration.
         var signal = new TaskCompletionSource();
@@ -177,15 +283,15 @@ public class CalibrationMeasureOnlyTests
 
         var vm = await Task.Run(() => CreateVm());
 
-        // One sample on each of the target's edges, delivered by the provider at the exact moments the
+        // One sample on each of the target's edges, delivered by the provider at the exact instants the
         // view model subscribes and unsubscribes — see FakeGazeProvider.SampleOnSubscribe. The sidecar
         // window is defined by its first and last SAMPLE (GroundTruthWindow.DisplayedFromUs/EndedAtUs),
-        // so without these the bounds are wherever the 25 ms loop happened to be.
-        long t0 = Environment.TickCount64;
+        // and these carry the fake clock's reading, so the bounds are the target's own display/advance
+        // instants exactly, wherever the sample loop happened to be.
         GazePoint EdgeSample()
         {
             var target = vm.CurrentTargetPosition;
-            long us = (Environment.TickCount64 - t0) * 1000;
+            long us = ElapsedMs * 1000;
             return aimAtTarget(vm.CurrentTargetIndex)
                 ? new GazePoint(target.X + 5, target.Y - 5, us, IsValid: true)
                 : new GazePoint(1920, 100, us, IsValid: true);
@@ -195,44 +301,38 @@ public class CalibrationMeasureOnlyTests
 
         _messenger.Send(new MeasureOnlyCalibrationRequestedMessage());
 
-        using var stop = new CancellationTokenSource();
-        int stalledFor = -1;
-        long targetStart = Environment.TickCount64;
-        int lastIndex = 0;
-        var firing = Task.Run(async () =>
+        for (int index = 0; ; index++)
         {
-            while (!stop.IsCancellationRequested)
+            // The deadline is the arm time + the budget. The arm happened at the current fake time:
+            // the wait below does not let the clock move until the target's cap exists, so the budget
+            // this target's own timer carries runs from exactly here.
+            long windowEnd = ElapsedMs + budgetMs;
+            while (ElapsedMs < windowEnd)
             {
-                int index = vm.CurrentTargetIndex;
-                if (index != lastIndex) { lastIndex = index; targetStart = Environment.TickCount64; }
-
-                if (stallMs > 0 && index > stalledFor && Environment.TickCount64 - targetStart >= 4_000)
-                {
-                    // Starts 4 s into the target and runs past the 5 s advance, so the loop's last
-                    // sample falls ~1.5 s short of the end — the CI shape exactly.
-                    stalledFor = index;
-                    Thread.Sleep(stallMs);
-                }
-
-                var target = vm.CurrentTargetPosition;
-                long us = (Environment.TickCount64 - t0) * 1000;
-                var point = aimAtTarget(index)
-                    ? new GazePoint(target.X + 5, target.Y - 5, us, IsValid: true)
-                    : new GazePoint(1920, 100, us, IsValid: true);
-                _provider.FireGaze(point);
-                await Task.Delay(25, TestContext.Current.CancellationToken);
+                AdvanceMs(25);
+                if (ElapsedMs < windowEnd - stallMs)
+                    Fire(vm, aimAtTarget(index));
             }
-        }, TestContext.Current.CancellationToken);
 
-        await signal.Task.WaitAsync(TimeSpan.FromSeconds(timeoutSeconds), TestContext.Current.CancellationToken);
-        stop.Cancel();
-        try { await firing; } catch (OperationCanceledException) { }
+            // Either the session ended, or the next target is SHOWING — and its own cap is ARMED
+            // (see ArmingTimeProvider). Waiting for the arm, not just the index, is what keeps the
+            // frozen clock from overtaking a transition still mid-flight on the view model's thread.
+            // A timer continuation may hop a pool thread; the clock stays frozen until it lands.
+            await WaitUntil(
+                () => vm.State != CalibrationState.Collecting
+                    || (vm.CurrentTargetIndex != index && _time.TimersCreated >= index + 2),
+                $"target {index}'s {budgetMs} ms budget never ended "
+                + $"(state {vm.State}, index {vm.CurrentTargetIndex})",
+                timeoutMs: timeoutSeconds * 1000);
+            if (vm.State != CalibrationState.Collecting) break;
+        }
 
         // The edge hooks belong to this probe; a test that continues with a normal calibration in the
         // same instance (ProbeThenCalibrateNow) must not get edge samples injected into it.
         _provider.SampleOnSubscribe = null;
         _provider.SampleOnUnsubscribe = null;
 
+        await signal.Task.WaitAsync(TimeSpan.FromSeconds(timeoutSeconds), TestContext.Current.CancellationToken);
         return (vm, ReadSidecar(ProbeSidecarPath()));
     }
 
@@ -278,7 +378,7 @@ public class CalibrationMeasureOnlyTests
         var vm = await Task.Run(() => CreateVm());
         _messenger.Send(new CalibrationRequestedMessage());
         for (int i = 0; i < _settings.PointCount; i++)
-            FinishTarget(vm, timestampBase: i * 30_000_000);
+            await FinishTarget(vm);
 
         Check.That(vm.State).IsEqualTo(CalibrationState.Active);   // the fit really ran and passed
         Check.That(File.Exists(CalibrationPath)).IsTrue();
@@ -359,9 +459,8 @@ public class CalibrationMeasureOnlyTests
         var vm = await Task.Run(() => CreateVm());
         _messenger.Send(new MeasureOnlyCalibrationRequestedMessage());
 
-        var target = vm.CurrentTargetPosition;
         for (int i = 0; i < 5; i++)
-            _provider.FireGaze(new GazePoint(target.X, target.Y, i * 33_333, IsValid: true));
+            Fire(vm, onTarget: true);
 
         vm.Cancel();
 
@@ -378,12 +477,13 @@ public class CalibrationMeasureOnlyTests
         // A gaze-only user cannot press Esc, so measure-only does not wait out the normal 8 s / 25 s
         // caps: each target gets 5 s after display. Gaze is on screen the whole time (so every window
         // carries samples) but far from every target's band, so no target can complete early.
-        var started = Environment.TickCount64;
+        //
+        // On the fake clock this is the exact claim, not a 23–32 s band: five budgets of exactly 5 s
+        // are exactly 25 s — and it is the 25 s that separates the probe's budget from a normal cap
+        // (5 x 8 s) or a full extension (5 x 25 s), which is what the old band was really pinning.
         var (vm, sidecar) = await RunProbe(_ => false, timeoutSeconds: 40);
-        var elapsed = TimeSpan.FromMilliseconds(Environment.TickCount64 - started);
 
-        Check.That(elapsed.TotalSeconds).IsGreaterOrEqualThan(23.0);   // five 5 s budgets
-        Check.That(elapsed.TotalSeconds).IsStrictlyLessThan(32.0);     // and not a normal cap (5 x 8 s)
+        Check.That(ElapsedMs).IsEqualTo(25_000);
         Check.That(vm.State).IsEqualTo(CalibrationState.Active);
         Check.That(vm.ErrorText).IsNull();
 
@@ -393,18 +493,18 @@ public class CalibrationMeasureOnlyTests
     }
 
     /// <summary>
-    /// V4: the 5 s window is FIXED, not a maximum. Real-time gaze sits 5 px from each target, so at
+    /// V4: the 5 s window is FIXED, not a maximum. Gaze sits 5 px from each target, so at
     /// the slider minimums the collector completes after ~5 samples — under the early-advance rule
     /// that window would be ~160 ms with no post-guard sample at all, and every small-bias probe would
-    /// come back "no steady holds". The window must still be ~5 s, and a target that arrived but is
-    /// not complete must still advance at its cap, not extend to 25 s.
+    /// come back "no steady holds". The window must be exactly the 5 s budget, and a target that
+    /// arrived but is not complete must still advance at its cap, not extend to 25 s.
     /// <para>
     /// The window is the sidecar's sample span: <c>DisplayedFromUs</c> and <c>EndedAtUs</c> are the
     /// target's first and last sample (GroundTruth.cs), so a real tracker's period — ~11 ms at 90 Hz —
     /// is the only gap between them and the target's display/advance edges. The harness preserves that
-    /// by delivering one sample on each edge from the provider's subscribe/unsubscribe hooks; without
-    /// them the span is the firing loop's cadence, which a loaded runner stretches by seconds (see the
-    /// stall regression below).
+    /// by delivering one sample on each edge from the provider's subscribe/unsubscribe hooks; on the
+    /// fake clock the span is therefore exact — not the 4.7–5.4 s band a loaded runner forced, and
+    /// not the 3.8 s a stalled loop produced (see the stall regression below).
     /// </para>
     /// </summary>
     [Theory]
@@ -418,18 +518,16 @@ public class CalibrationMeasureOnlyTests
             PointCount = 5, TargetHoldMs = holdMs, SettleWindowMs = settleMs, SamplesPerPoint = samplesPerPoint,
         };
 
-        var started = Environment.TickCount64;
         var (vm, sidecar) = await RunProbe(_ => true, timeoutSeconds: 40);
-        var elapsed = TimeSpan.FromMilliseconds(Environment.TickCount64 - started);
 
-        AssertFixedFiveSecondWindows(vm, sidecar, elapsed);
+        AssertFixedFiveSecondWindows(vm, sidecar);
     }
 
     /// <summary>
-    /// The CI failure this pins, deterministically: the sample loop stalls for 1.5 s from 4 s into
-    /// each target, so it is still stalled when the target advances — the runner's stall (measured at
-    /// 0.8–1.2 s, from the same position) cut the windows to 3.8–4.2 s. The target still was displayed
-    /// for its full budget, so the window must still read 5 s.
+    /// The CI failure this pins, deterministically: the sample loop stalls for the last 1.5 s of
+    /// every target, so it is still stalled when the target advances — the runner's stall (measured
+    /// at 0.8–1.2 s, from the same position) cut the windows to 3.8–4.2 s. The target still was
+    /// displayed for its full budget, so the window must still read 5 s.
     /// </summary>
     [Fact]
     public async Task V4_MeasureOnlyWindow_Holds_WhenTheSampleSourceStalls()
@@ -439,24 +537,21 @@ public class CalibrationMeasureOnlyTests
             PointCount = 5, TargetHoldMs = 1000, SettleWindowMs = 300, SamplesPerPoint = 15,
         };
 
-        var started = Environment.TickCount64;
         var (vm, sidecar) = await RunProbe(_ => true, timeoutSeconds: 40, stallMs: 1_500);
-        var elapsed = TimeSpan.FromMilliseconds(Environment.TickCount64 - started);
 
-        AssertFixedFiveSecondWindows(vm, sidecar, elapsed);
+        AssertFixedFiveSecondWindows(vm, sidecar);
     }
 
     private static void AssertFixedFiveSecondWindows(
-        CalibrationViewModel vm, GroundTruthSession sidecar, TimeSpan elapsed)
+        CalibrationViewModel vm, GroundTruthSession sidecar)
     {
         Check.That(vm.State).IsEqualTo(CalibrationState.Active);
-        Check.That(elapsed.TotalSeconds).IsGreaterOrEqualThan(23.0);
-        Check.That(elapsed.TotalSeconds).IsStrictlyLessThan(32.0);   // an extension (25 s) would exceed this
         Check.That(sidecar.Windows).HasSize(5);
         foreach (var window in sidecar.Windows)
         {
-            Check.That(WindowMs(window)).IsGreaterOrEqualThan(4_700.0);
-            Check.That(WindowMs(window)).IsStrictlyLessThan(5_400.0);
+            // Exact on the fake clock: the window IS the target's display-to-advance span, so a
+            // shortened or extended budget shows up as a number, not as a slow-runner race.
+            Check.That(WindowMs(window)).IsEqualTo(5_000.0);
             // Enough samples after the onset guard for a 5-sample cluster at any calibration setting.
             long guardEnd = window.DisplayedFromUs + 300_000;
             int eligible = window.Samples.Count(s => s.Valid && s.TimestampUs >= guardEnd && s.TimestampUs <= window.EndedAtUs);
@@ -469,7 +564,7 @@ public class CalibrationMeasureOnlyTests
     {
         // Holistic review N2: the ring counted in-band samples against SamplesPerPoint, so at shipped
         // defaults it was full after ~0.5 s and then sat full for the rest of the fixed 5 s window.
-        // It now tracks the window itself: about 1.5 s into a 5 s target it reads about 0.3.
+        // It now tracks the window itself: exactly 1.5 s into a 5 s target it reads 0.3.
         _settings = new CalibrationSettings
         {
             PointCount = 5, TargetHoldMs = 1000, SettleWindowMs = 300, SamplesPerPoint = 15,
@@ -477,14 +572,13 @@ public class CalibrationMeasureOnlyTests
         var vm = await Task.Run(() => CreateVm());
         _messenger.Send(new MeasureOnlyCalibrationRequestedMessage());
 
-        long t0 = Environment.TickCount64;
-        await FireForAbout(1_500, vm, t0, onTarget: true, valid: true);
-        double elapsedMs = FireOnceAndMeasure(vm, t0, onTarget: true, valid: true);
-        SkipIfTheThreadStalledToTheCap(elapsedMs);
+        AdvanceMs(1_500);
+        Fire(vm, onTarget: true, valid: true);
 
         Check.That(vm.CurrentTargetIndex).IsEqualTo(0);   // still the first target: the window is 5 s
         Check.That(vm.IsOnTarget).IsTrue();
-        AssertRingMatchesTheWindowClock(vm, elapsedMs);   // in-band counting read 1.0 here
+        // Exact on the fake clock: in-band counting read 1.0 here, a stale divisor (3 s) reads 0.5.
+        Check.That(vm.TargetProgress).IsCloseTo(0.3, 1e-9);
 
         vm.Cancel();
     }
@@ -497,13 +591,11 @@ public class CalibrationMeasureOnlyTests
         var vm = await Task.Run(() => CreateVm());
         _messenger.Send(new MeasureOnlyCalibrationRequestedMessage());
 
-        long t0 = Environment.TickCount64;
-        await FireForAbout(1_000, vm, t0, onTarget: false, valid: false);
-        double elapsedMs = FireOnceAndMeasure(vm, t0, onTarget: false, valid: false);
-        SkipIfTheThreadStalledToTheCap(elapsedMs);
+        AdvanceMs(1_000);
+        Fire(vm, onTarget: false, valid: false);
 
         Check.That(vm.CurrentTargetIndex).IsEqualTo(0);
-        AssertRingMatchesTheWindowClock(vm, elapsedMs);
+        Check.That(vm.TargetProgress).IsCloseTo(0.2, 1e-9);
         Check.That(vm.TargetProgress).IsStrictlyGreaterThan(0.0);
 
         vm.Cancel();
@@ -523,17 +615,20 @@ public class CalibrationMeasureOnlyTests
         var provider = new FiresOnSubscribeProvider();
         var vm = await Task.Run(() => new CalibrationViewModel(
             _settings, _service, _messenger, provider, Screen, "test-monitor", CalibrationPath,
-            groundTruth: new ScriptedGroundTruthRecorder(SidecarPath),
-            diagnostics: new DiagnosticsSettings { RecordRawGaze = false }));
+            groundTruth: new ScriptedGroundTruthRecorder(
+                SidecarPath, utcNow: () => _time.GetUtcNow().UtcDateTime),
+            diagnostics: new DiagnosticsSettings { RecordRawGaze = false },
+            timeProvider: _time));
         _messenger.Send(new MeasureOnlyCalibrationRequestedMessage());
 
         Check.That(provider.DeliveredOnSubscribe).IsEqualTo(1);
         Check.That(vm.TargetProgress).IsStrictlyLessThan(0.05);   // the old order read 1.0
 
         // Nothing else fires, so target 0's own 5 s cap advances it, and the re-subscribe delivers again.
-        var deadline = Environment.TickCount64 + 10_000;
-        while (provider.DeliveredOnSubscribe < 2 && Environment.TickCount64 < deadline)
-            await Task.Delay(20, TestContext.Current.CancellationToken);
+        AdvanceMs(5_000);
+        await WaitUntil(
+            () => provider.DeliveredOnSubscribe == 2,
+            "target 0's cap never advanced to target 1");
 
         Check.That(provider.DeliveredOnSubscribe).IsEqualTo(2);
         Check.That(vm.CurrentTargetIndex).IsEqualTo(1);
@@ -568,56 +663,6 @@ public class CalibrationMeasureOnlyTests
         public void Dispose() { }
     }
 
-    /// <summary>Fires gaze every 25 ms for about <paramref name="durationMs"/>, in real time.</summary>
-    private async Task FireForAbout(int durationMs, CalibrationViewModel vm, long t0, bool onTarget, bool valid)
-    {
-        while (Environment.TickCount64 - t0 < durationMs)
-        {
-            FireOne(vm, t0, onTarget, valid);
-            await Task.Delay(25, TestContext.Current.CancellationToken);
-        }
-    }
-
-    private void FireOne(CalibrationViewModel vm, long t0, bool onTarget, bool valid)
-    {
-        var target = vm.CurrentTargetPosition;
-        var at = onTarget ? new PhysicalPoint(target.X + 5, target.Y - 5) : new PhysicalPoint(1920, 100);
-        _provider.FireGaze(new GazePoint(at.X, at.Y, (Environment.TickCount64 - t0) * 1000, IsValid: valid));
-    }
-
-    /// <summary>
-    /// Fires one more sample and returns the elapsed time measured right AFTER it, so the ring value it
-    /// produced can be compared with the clock no matter how long the loop before it was stalled.
-    /// </summary>
-    private double FireOnceAndMeasure(CalibrationViewModel vm, long t0, bool onTarget, bool valid)
-    {
-        FireOne(vm, t0, onTarget, valid);
-        return Environment.TickCount64 - t0;
-    }
-
-    /// <summary>
-    /// A stall long enough to reach the 5 s cap advances the target, so that run is skipped rather than
-    /// misjudged. Called BEFORE the test's own "still on target 0" check (review A's FU11-1): after it,
-    /// a stall past the cap failed the index check and the skip was unreachable.
-    /// </summary>
-    private static void SkipIfTheThreadStalledToTheCap(double elapsedMs)
-    {
-        if (elapsedMs >= 4_500)
-            Assert.Skip($"The test thread stalled to {elapsedMs:0} ms — too close to the 5 s cap to judge the ring.");
-    }
-
-    /// <summary>
-    /// The ring must be the elapsed share of the fixed window: exact up to tick resolution and the few
-    /// milliseconds between the target's own clock start and <c>t0</c>, so ±0.05 (250 ms). Immune to a
-    /// thread-pool stall (review A's FU10-3), and a stale divisor fails it — 1.5 s over 3 s reads 0.5,
-    /// not 0.3.
-    /// </summary>
-    private static void AssertRingMatchesTheWindowClock(CalibrationViewModel vm, double elapsedMs)
-    {
-        SkipIfTheThreadStalledToTheCap(elapsedMs);
-        Check.That(Math.Abs(vm.TargetProgress - (elapsedMs / 5_000.0))).IsStrictlyLessThan(0.05);
-    }
-
     // ── Session-state teeth ───────────────────────────────────────────────────
 
     [Fact]
@@ -634,7 +679,7 @@ public class CalibrationMeasureOnlyTests
         Check.That(vm.IsMeasureOnly).IsFalse();
 
         for (int i = 0; i < _settings.PointCount; i++)
-            FinishTarget(vm, timestampBase: 200_000_000 + (i * 30_000_000));
+            await FinishTarget(vm);
 
         Check.That(vm.State).IsEqualTo(CalibrationState.Active);
         Check.That(_service.IsSessionActive).IsFalse();
@@ -673,25 +718,17 @@ public class CalibrationMeasureOnlyTests
         {
             if (m.TargetIndex == 1) throw new InvalidOperationException("position subscriber fault");
         });
-        var completion = new TaskCompletionSource();
         var completions = new List<CalibrationCompletedMessage>();
-        _messenger.Register<CalibrationCompletedMessage>(this, (_, m) =>
-        {
-            completions.Add(m);
-            completion.TrySetResult();
-        });
+        _messenger.Register<CalibrationCompletedMessage>(this, (_, m) => completions.Add(m));
 
-        var vm = await Task.Run(() => CreateVm());
-        _messenger.Send(new MeasureOnlyCalibrationRequestedMessage());
-
-        // The target's own 5 s cap is what advances it into the faulting send.
-        await completion.Task.WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+        // The pump drives target 0 through its own 5 s cap, which advances it into the faulting send.
+        var (vm, sidecar) = await RunProbe(_ => true, timeoutSeconds: 15);
 
         Check.That(vm.State).IsEqualTo(CalibrationState.Active);
         Check.That(vm.ErrorText).IsNull();
         Check.That(_service.IsSessionActive).IsFalse();
         Check.That(completions.Any(c => !c.Success)).IsFalse();
-        Check.That(ReadSidecar(ProbeSidecarPath()).Outcome).IsEqualTo(GroundTruthOutcome.Failed);
+        Check.That(sidecar.Outcome).IsEqualTo(GroundTruthOutcome.Failed);
         Check.That(File.Exists(CalibrationPath)).IsFalse();
     }
 
@@ -705,13 +742,15 @@ public class CalibrationMeasureOnlyTests
         // session that was still legitimately collecting. This pins the normal-mode behaviour change
         // the probe's ticket shipped: each target gets its own cap.
         var vm = await Task.Run(() => CreateVm());
+        var sessionStartMs = ElapsedMs;
         _messenger.Send(new CalibrationRequestedMessage());
-        FinishTarget(vm, timestampBase: 0);
-        FinishTarget(vm, timestampBase: 20_000_000);
+        await FinishTarget(vm);
+        await FinishTarget(vm);
         Check.That(vm.CurrentTargetIndex).IsEqualTo(2);
 
-        // Just past target 0's first-stage cap (~8 s), well short of target 2's own.
-        Thread.Sleep(8_000 - (2 * (_settings.TargetHoldMs + 60)) + 200);
+        // Just past target 0's first-stage cap (~8 s after it was shown), well short of target 2's
+        // own — on the fake clock this is exact rather than a sleep long enough to hope.
+        AdvanceMs(8_200 - (ElapsedMs - sessionStartMs));
 
         Check.That(vm.State).IsEqualTo(CalibrationState.Collecting);
         Check.That(vm.CurrentTargetIndex).IsEqualTo(2);

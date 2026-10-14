@@ -221,6 +221,12 @@
       "Reason": "The erase-arrow label-frame id a keyboard JSON names; not text."
     },
     {
+      "Path": "src/EyeCtrl.App/Overlays/RestartNoticeWindow.xaml.cs",
+      "Literal": "\"restart_notice_close\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    },
+    {
       "Path": "src/EyeCtrl.App/Overlays/SplashWindow.xaml",
       "Literal": "\"EyeCtrl\"",
       "Category": "product",

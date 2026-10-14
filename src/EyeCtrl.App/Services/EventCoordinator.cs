@@ -60,6 +60,9 @@ public class EventCoordinator : IEventCoordinator
         _settingsUi!.SetModelServices(modelRegistry, modelManagement);
     }
 
+    /// <summary>Whether a Settings window exists (set when it opens, cleared when it closes).</summary>
+    internal bool IsSettingsOpen => _modal.SettingsOpen;
+
     /// <summary>Hands the restart coordinator to the settings window at construction. Called once at startup.</summary>
     public void SetRestartCoordinator(AppRestartCoordinator coordinator)
     {

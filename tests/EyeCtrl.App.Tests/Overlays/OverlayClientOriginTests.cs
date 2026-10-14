@@ -103,6 +103,7 @@ public class OverlayClientOriginTests
         "PauseIndicatorWindow",
         "QuickActionsGridWindow",
         "RepeatCursorWindow",
+        "RestartNoticeWindow",
         "ScrollOverlayWindow",
         "SettingsWindow",
         "SplashWindow",
@@ -219,7 +220,7 @@ public class OverlayClientOriginTests
     /// <c>Show()</c>: a temp settings file under a GUID-named writer mutex, a temp model scope, and
     /// no-op restart/supervision services. Nothing can reach the owner's <c>%APPDATA%</c>.
     /// </summary>
-    private static Window BuildSettingsWindow(List<Action> cleanups)
+    internal static SettingsWindow BuildSettingsWindow(List<Action> cleanups, IMessenger? sharedMessenger = null)
     {
         var root = Path.Combine(Path.GetTempPath(), "eyectrl_t13_client_origin_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -228,7 +229,7 @@ public class OverlayClientOriginTests
         cleanups.Add(models.Dispose);
 
         var settings = new EyeCtrlSettings();
-        var messenger = new WeakReferenceMessenger();
+        var messenger = sharedMessenger ?? new WeakReferenceMessenger();
         var service = new SettingsService(
             Path.Combine(root, "settings.json"), SettingsWriter.App,
             @"Local\EyeCtrl.Settings.Writer.test_" + Guid.NewGuid().ToString("N"));

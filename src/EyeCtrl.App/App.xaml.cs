@@ -43,6 +43,7 @@ public partial class App : Application
     private ServiceProvider _serviceProvider = null!;
     private TrayIconManager _trayIconManager = null!;
     private EventCoordinator _eventCoordinator = null!;
+    private RestartNoticeHost? _restartNoticeHost;
     private SingleInstanceGuard? _singleInstance;
     private HeartbeatPublisher? _heartbeatPublisher;
     private SupervisorRequestService? _supervisorRequests;
@@ -383,6 +384,16 @@ public partial class App : Application
                 postToUi: work => Dispatcher.Invoke(work),
                 supervisorInstalled: () => SupervisorLauncher.IsExecutablePresent,
                 bringUp: bringUp);
+
+            // The restart notices when no Settings window is open (a Supervisor-initiated language
+            // restart): the same text and keys the Settings window shows, in the same target
+            // language. The open window shows its own modal, so the notice never appears twice.
+            _restartNoticeHost = new RestartNoticeHost(
+                messenger,
+                new RestartNoticeWindow(settings.Dwell.ActivationButtonDwellMs, messenger),
+                isSettingsOpen: () => _eventCoordinator.IsSettingsOpen,
+                targetLanguage: () => RestartNotices.TargetLanguage(settings.General.UiLanguage),
+                postToUi: work => Dispatcher.Invoke(work));
 
             // Hand the coordinator to the settings window's owner so the restart button
             // can ask whether to offer the supervisor (Task 13 Step 6), and the supervision

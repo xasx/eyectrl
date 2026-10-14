@@ -181,6 +181,11 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Overlays/RestartNoticeWindow.xaml.cs",
+      "Literal": "\"restart_notice_close\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Overlays/SplashWindow.xaml",
       "Literal": "\"EyeCtrl\"",
       "Count": 1

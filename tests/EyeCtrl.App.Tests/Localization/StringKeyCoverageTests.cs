@@ -112,6 +112,22 @@ public class StringKeyCoverageTests
         Check.That(violations[3]).Contains("Select_Al");
     }
 
+    /// <summary>
+    /// A dotted literal is seen as a key-map literal whatever surrounds it, so the call shapes are
+    /// pinned by the KIND they are recognised as: a regression that stops reading
+    /// <c>T(target, "…")</c> or <c>Template("…")</c> as calls would otherwise hide behind the
+    /// key-map fallback and pass every missing-key check.
+    /// </summary>
+    [Fact]
+    public void TheGate_RecognisesANamedCallAndATemplateCallAsCalls()
+    {
+        var references = StringKeyReferences.Extract(
+            """var a = T(target, "settings.preset.kbd.select_all"); var b = Template("settings.control.combo.not_available");""");
+
+        Check.That(references.Select(r => r.Kind))
+            .ContainsExactly("T(language, ...) call", "Template(...) call");
+    }
+
     [Fact]
     public void TheGate_DoesNotReadAFormatArgumentAsAKey()
     {

@@ -1671,7 +1671,7 @@
     "args": []
   },
   "settings.advanced.backdrop_opacity.description": {
-    "text": "How dark the backdrop is — only Solid Darken uses this; applies from the next open.",
+    "text": "How dark the backdrop is — the tint over the blur, or the fill of Solid Darken; applies from the next open.",
     "who": "user",
     "where": "settings",
     "fit": "prose",

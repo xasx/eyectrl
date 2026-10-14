@@ -20,6 +20,7 @@ using EyeCtrl.ViewModels;
 public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
 {
     private const int AccentEnableAcrylicBlurBehind = 4;
+    private const int AccentEnableTransparentGradient = 2;
 
     private const int DwmwaSystemBackdropType = 38;
 
@@ -121,11 +122,11 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     // ── Backdrop Type ──
 
     /// <summary>
-    /// Applies the settings' material. Both named types (Mica and Acrylic) are the legacy accent
-    /// blur since 2026-10-14: the DWM system backdrops only ever showed their flat inactive
-    /// fallback on this never-activated, tool-window overlay, while the accent blur was live on
-    /// exactly this window. The solid darken remains the fallback when the accent call fails, at
-    /// the user's opacity.
+    /// Applies the settings' material, all three through the accent API since 2026-10-14: Mica and
+    /// Acrylic are the legacy accent blur (the DWM system backdrops only ever showed their flat
+    /// inactive fallback on this never-activated, tool-window overlay), and Solid darken is the
+    /// transparent gradient — a plain rectangle is opaque black whatever its alpha on a non-layered
+    /// client. The rectangle remains the fallback when the accent call fails, at the user's opacity.
     /// </summary>
     public void ApplyBackdrop(BackdropSettings settings)
     {
@@ -137,17 +138,20 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
 
         ClearContent();
 
-        // ClearDwmBackdrop: type NONE, frame collapsed — the state production's Phase 2 always
-        // ran from, and hygiene against a system backdrop set by an older build.
-        if (settings.Type == BackdropType.Mica || settings.Type == BackdropType.Acrylic)
-        {
-            ClearDwmBackdrop();
-            if (TryApplyAcrylic(settings.Opacity))
-                return;
-        }
+        // ClearDwmBackdrop: type NONE, frame collapsed — the state production's Phase 2 always ran
+        // from, and hygiene against a system backdrop set by an older build.
+        ClearDwmBackdrop();
 
-        // The accent failed: the solid darken keeps the overlay usable, at the user's opacity.
-        ApplySolidDarken(settings.Opacity);
+        var applied = settings.Type switch
+        {
+            BackdropType.Mica or BackdropType.Acrylic => TryApplyAcrylic(settings.Opacity),
+            BackdropType.SolidDarken => TryApplyTransparentGradient(settings.Opacity),
+            _ => false
+        };
+
+        // The accent call failed: the solid darken keeps the overlay usable, at the user's opacity.
+        if (!applied)
+            ApplySolidDarken(settings.Opacity);
     }
 
     /// <summary>
@@ -207,6 +211,20 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     {
         var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
         var result = SetAccentPolicy(hwnd, AccentEnableAcrylicBlurBehind, 0x20, AccentGradientColor(opacity));
+        return result != 0;
+    }
+
+    /// <summary>
+    /// The see-through dark tint — <c>ACCENT_ENABLE_TRANSPARENTGRADIENT</c> (state 2) with the same
+    /// opacity-driven black gradient as the blur. Solid darken's material since 2026-10-14: a plain
+    /// rectangle is opaque black whatever its alpha on a non-layered client (DWM ignores the
+    /// client's alpha), so the setting did nothing but go black.
+    /// </summary>
+    /// <returns>True when the call was accepted (non-zero BOOL), so no darken fallback is needed.</returns>
+    internal bool TryApplyTransparentGradient(double opacity)
+    {
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        var result = SetAccentPolicy(hwnd, AccentEnableTransparentGradient, 0x20, AccentGradientColor(opacity));
         return result != 0;
     }
 

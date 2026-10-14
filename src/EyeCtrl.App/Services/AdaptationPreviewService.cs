@@ -282,6 +282,15 @@ internal sealed class AdaptationPreviewService : IRecipient<AdaptationPreviewVis
             _lastPanelRect = null;
             Panel().ShowPanel(snapshot, new PhysicalPoint(candidate.X, candidate.Y), toolbarSettings.DockedEdge);
 
+            // Fix-wave F1: the synchronous bounds report out of ShowPanel may already have policy
+            // -hidden the panel (a grown measured rect colliding — HideAsPolicy clears _panelShown
+            // and has already released the holder and published HiddenKeepLast mid-call). The
+            // bookkeeping below assumes the panel is UP; running it after that hide re-held the
+            // auto-hide holder and published Active(true) with the panel down, and both stayed set
+            // until an unrelated future engagement cleared them.
+            if (!_panelShown)
+                return;
+
             _activePublished = true;
             // Armed so the first Changed after a show refreshes immediately (the show built content
             // at t0; a fill that moved at t0+10ms is stale content), while CONSECUTIVE refreshes

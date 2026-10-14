@@ -721,6 +721,49 @@ public class AdaptationPreviewServiceTests
     }
 
     [Fact]
+    public void GrownContentRect_CollidingOutOfShowPanel_LeavesNoHolderOrActiveLeak()
+    {
+        // Fix-wave F1: the window reports its bounds SYNCHRONOUSLY out of ShowPanel, and when that
+        // freshly measured rect collides, HideAsPolicy runs DURING the show — hiding the panel,
+        // releasing the holder and publishing HiddenKeepLast — before control returns to ShowFor's
+        // own post-show bookkeeping. Unconditionally re-holding there (the leak) left the auto-hide
+        // holder held and Active(true) published with the panel down — activation offers silently
+        // suspended and the strip never auto-hiding — until an unrelated future engagement cleared
+        // them. The probe mirrors the reviewer's: the content GROWS between engagements, so the
+        // show-time estimate (the previous engagement's measured size) is clear and only the grown
+        // reported rect collides.
+        var collision = new RectCollision { Blocked = new PhysicalRect(1300, 150, 150, 150) };
+        var h = new Harness(collision: collision);
+        h.Panel.DipSize = (60, 40);   // engagement 1: small — measured 60×40 px at scale 1.0
+        h.Panel.Scale = 1.0;
+
+        h.ShowPreview();
+        Check.That(h.Panel.IsShown).IsTrue();   // the nominal estimate [916..1276)×[0..260) is clear
+
+        h.HidePreview();
+
+        // Engagement 2: the content grew to 600×400 px (300×200 DIP at 2.0) — the estimate (the
+        // measured 60×40) is clear, only the GROWN reported rect [916..1516)×[0..400) reaches the
+        // consumer at [1300..1450)×[150..300).
+        h.Panel.DipSize = (300, 200);
+        h.Panel.Scale = 2.0;
+        h.ShowPreview(Engagement + 1);
+
+        Check.That(h.Panel.ShowCount).IsEqualTo(2);      // the show itself ran (estimate clear)…
+        Check.That(h.Panel.IsShown).IsFalse();           // …and the synchronous report policy-hid it
+        Check.That(h.Recorder.Bounds[^2].Kind).IsEqualTo(PreviewBoundsKind.Rect);
+        Check.That(h.Recorder.Bounds[^1].Kind).IsEqualTo(PreviewBoundsKind.HiddenKeepLast);
+        Check.That(h.Recorder.Bounds[^1].EngagementId).IsEqualTo(Engagement + 1);
+        Check.WithCustomMessage(
+                "The policy hide inside ShowPanel already released the holder; the show's own " +
+                "post-show block must not re-hold it with the panel down.")
+            .That(h.Coordinator.IsAutoHideSuspended).IsFalse();
+        Check.WithCustomMessage(
+                "Active must end false: the leak published Active(true) for a panel that is down.")
+            .That(h.Recorder.Active.Select(a => a.Active)).ContainsExactly(true, false);
+    }
+
+    [Fact]
     public void KeyboardOnEdgeAtShow_SecondEngagement_GatesOnTheMeasuredSize_NoPanel()
     {
         // The rev-1 "keyboard-on-edge ⇒ no panel" pin, on the engagement that HAS a measured size

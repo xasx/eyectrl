@@ -5,36 +5,36 @@
         AutomationProperties.AutomationId="RestartNotice_Window"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False"
-        Width="920" Height="300" MinHeight="160">
+        Width="1000" Height="360" MinHeight="200">
     <Grid>
-        <!-- A notice for a gaze user on a 3840x2400 screen at 200 %: the first line is a title
-             (FontSizeTitle, the theme's medium weight), the rest is body at FontSizeSubtitle, and
-             the button's label is body-sized. All three are theme tokens, not literals. -->
+        <!-- A notice for a gaze user on a 3840x2400 screen at 200 %: the first line is a title at
+             the theme's next size up from the body (FontSizeDisplay, the medium weight), the rest is
+             body at FontSizeTitle, and the button's label is body-sized. All theme tokens, no literals. -->
         <Border x:Name="Banner"
                 HorizontalAlignment="Stretch" VerticalAlignment="Center"
                 Background="{StaticResource BrushSurfaceDark}"
                 BorderBrush="{StaticResource BrushBorderSubtle}"
                 BorderThickness="{StaticResource StandardBorderThickness}"
-                CornerRadius="{StaticResource StandardCornerRadius}" Padding="36,26">
+                CornerRadius="{StaticResource StandardCornerRadius}" Padding="40,30">
             <StackPanel>
                 <TextBlock x:Name="TitleText"
                            AutomationProperties.AutomationId="RestartNotice_Message"
                            Foreground="{StaticResource BrushTextPrimary}"
-                           FontSize="{StaticResource FontSizeTitle}"
+                           FontSize="{StaticResource FontSizeDisplay}"
                            FontWeight="{StaticResource FontWeightMedium}" TextWrapping="Wrap"/>
                 <TextBlock x:Name="BodyText"
                            AutomationProperties.AutomationId="RestartNotice_Body"
                            Foreground="{StaticResource BrushTextPrimary}"
-                           FontSize="{StaticResource FontSizeSubtitle}"
-                           TextWrapping="Wrap" Margin="0,10,0,0"/>
+                           FontSize="{StaticResource FontSizeTitle}"
+                           TextWrapping="Wrap" Margin="0,14,0,0"/>
                 <Border x:Name="CloseButton"
                         AutomationProperties.AutomationId="RestartNotice_Close"
-                        Width="260" Height="84" HorizontalAlignment="Center" Margin="0,24,0,0"
+                        Width="320" Height="100" HorizontalAlignment="Center" Margin="0,30,0,0"
                         Background="{StaticResource BrushSurfaceKeySwitch}"
                         CornerRadius="{StaticResource StandardCornerRadius}">
                     <TextBlock x:Name="CloseLabel"
                                Foreground="{StaticResource BrushTextPrimary}"
-                               FontSize="{StaticResource FontSizeSubtitle}"
+                               FontSize="{StaticResource FontSizeTitle}"
                                HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
             </StackPanel>

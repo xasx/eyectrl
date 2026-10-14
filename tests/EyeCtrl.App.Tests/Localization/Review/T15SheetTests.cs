@@ -89,13 +89,13 @@ public class T15SheetTests
     }
 
     [StaFact]
-    public void RestartNoticeSheetV2_WhenAsked()
+    public void RestartNoticeSheetV3_WhenAsked()
     {
         Assert.SkipUnless(Requested, "set EYECTRL_WRITE_T15_SHEETS=1 to write the T15 sheets");
         WpfApplicationGate.EnsureApplicationWithTokens();
         var path = ReviewRender.Save(
-            ReviewRender.Snap(RestartNoticeSheet(), 2000, null, background: SheetBackground),
-            Path.Combine(SheetDirectory, "restart-notice-sheet-v2.png"));
+            ReviewRender.Snap(RestartNoticeSheet(), 2160, null, background: SheetBackground),
+            Path.Combine(SheetDirectory, "restart-notice-sheet-v3.png"));
         _output.WriteLine(path);
     }
 
@@ -279,20 +279,19 @@ public class T15SheetTests
     private static FrameworkElement RestartNoticeSheet()
     {
         var root = new StackPanel();
-        root.Children.Add(Text("Restart notices when Settings is closed, round 2", 34, Ink, FontWeights.SemiBold));
+        root.Children.Add(Text("Restart notices when Settings is closed, round 3", 34, Ink, FontWeights.SemiBold));
         root.Children.Add(Text(
-            "Round 1's text was too small for a gaze user on 3840 x 2400 at 200 %. Now: the first line is a TITLE at the "
-            + "theme's Title size (FontSizeTitle = 24 DIP, medium weight); the rest is body at FontSizeSubtitle (18 DIP, the "
-            + "nearest token to 20; FontSizeTitle would be 24); the button label is body-sized and the button is bigger "
-            + "(260 x 84 DIP, was 170 x 64). The card is 920 DIP wide (was 720) and grows upward, so German never clips. "
-            + "The card also never covers the gaze keyboard: with the keyboard open it sits just above it (row 3). "
-            + "Rendered headless at 2.0.",
+            "Round 2's body (18 DIP) was still small. Now the BODY is FontSizeTitle (24 DIP) and the button label is the same "
+            + "24 DIP. The first line stays distinguishable by size: it is FontSizeDisplay (34 DIP, the next token up, medium "
+            + "weight). The card is 1000 DIP wide (round 2: 920; round 1: 720), the button 320 x 100 DIP (round 2: 260 x 84); "
+            + "longer text wraps and the card grows upward, so German never clips. The card still never covers the gaze keyboard "
+            + "(row 3). Rendered headless at 2.0.",
             18, Dim, margin: new Thickness(0, 6, 0, 20)));
 
-        root.Children.Add(Row("1. The same notice, old and new size (German, \"restarting\")",
-            [("OLD (what you saw): 720 DIP wide, body 14, button 170 x 64", OldNotice(), false),
-             ("NEW: 920 DIP wide, title 24, body 18, button 260 x 84", Notice(true, false), true)]));
-        root.Children.Add(Row("2. The new size, all four (English left, German right)",
+        root.Children.Add(Row("1. The same notice, round 2 and round 3 (German, \"restarting\")",
+            [("ROUND 2 (what you saw): 920 DIP wide, title 24, body 18, button 260 x 84", V2Notice(), false),
+             ("ROUND 3: 1000 DIP wide, title 34, body 24, button 320 x 100", Notice(true, false), true)]));
+        root.Children.Add(Row("2. Round 3, all four (English left, German right)",
             [("\"Restarting\": English", Notice(false, false), false), ("\"Restarting\": German", Notice(true, false), true)]));
         root.Children.Add(Row(null,
             [("\"Not possible\": English", Notice(false, true), false), ("\"Not possible\": German", Notice(true, true), true)]));
@@ -351,34 +350,38 @@ public class T15SheetTests
         return ReviewRender.Snap(content, window.Width, window.Height, window, background: Desktop);
     }
 
-    /// <summary>Round 1's card, rebuilt from its recorded sizes, for the side-by-side.</summary>
-    private static FrameworkElement OldNotice()
+    /// <summary>Round 2's card, rebuilt from its recorded sizes, for the side-by-side.</summary>
+    private static FrameworkElement V2Notice()
     {
         try
         {
             ActivateLanguage(true);
-            var message = RestartNotices.InProgressMessage(UiLanguage.German);
+            var split = RestartNotices.InProgressMessage(UiLanguage.German).Split('\n', 2);
             var label = RestartNotices.InProgressChoices(UiLanguage.German)[0].Label;
-            var button = new Border
+            var stack = new StackPanel();
+            stack.Children.Add(new TextBlock
             {
-                Width = 170, Height = 64, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 16, 0, 0),
+                Text = split[0], Foreground = Tokens.BrushTextPrimary, FontSize = Tokens.FontSizeTitle,
+                FontWeight = Tokens.FontWeightMedium, TextWrapping = TextWrapping.Wrap,
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = split[1], Foreground = Tokens.BrushTextPrimary, FontSize = Tokens.FontSizeSubtitle,
+                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0),
+            });
+            stack.Children.Add(new Border
+            {
+                Width = 260, Height = 84, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 24, 0, 0),
                 Background = Tokens.BrushSurfaceKeySwitch, CornerRadius = Tokens.StandardCornerRadius,
                 Child = new TextBlock
                 {
                     Text = label, Foreground = Tokens.BrushTextPrimary, FontSize = Tokens.FontSizeSubtitle,
                     HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
                 },
-            };
-            var stack = new StackPanel();
-            stack.Children.Add(new TextBlock
-            {
-                Text = message, Foreground = Tokens.BrushTextPrimary, FontSize = Tokens.FontSizeBodyLarge,
-                TextWrapping = TextWrapping.Wrap,
             });
-            stack.Children.Add(button);
             var banner = new Border
             {
-                Width = 720, Padding = new Thickness(24, 16, 24, 16), Background = Tokens.BrushSurfaceDark,
+                Width = 920, Padding = new Thickness(36, 26, 36, 26), Background = Tokens.BrushSurfaceDark,
                 BorderBrush = Tokens.BrushBorderSubtle, BorderThickness = new Thickness(1),
                 CornerRadius = Tokens.StandardCornerRadius, Child = stack,
             };

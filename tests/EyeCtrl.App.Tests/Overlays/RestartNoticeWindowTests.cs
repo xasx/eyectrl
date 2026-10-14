@@ -127,13 +127,15 @@ public class RestartNoticeWindowTests
             Check.That(window.TitleText.Text).IsEqualTo("Neustart fehlgeschlagen.");
             Check.That(window.BodyText.Visibility).IsEqualTo(Visibility.Collapsed);
 
-            Check.That(window.TitleText.FontSize).IsEqualTo(EyeCtrl.Controls.Theme.Tokens.FontSizeTitle);
+            // The body is the theme's Title size (24 DIP); the title line is the next token up, Display (34 DIP).
+            Check.That(window.BodyText.FontSize).IsEqualTo(EyeCtrl.Controls.Theme.Tokens.FontSizeTitle);
+            Check.That(window.TitleText.FontSize).IsEqualTo(EyeCtrl.Controls.Theme.Tokens.FontSizeDisplay);
+            Check.That(window.TitleText.FontSize).IsStrictlyGreaterThan(window.BodyText.FontSize);
             Check.That(window.TitleText.FontWeight).IsEqualTo(EyeCtrl.Controls.Theme.Tokens.FontWeightMedium);
-            Check.That(window.BodyText.FontSize).IsEqualTo(EyeCtrl.Controls.Theme.Tokens.FontSizeSubtitle);
             Check.That(window.CloseLabel.FontSize).IsStrictlyGreaterThan(window.BodyText.FontSize - 1e-9);
-            Check.WithCustomMessage("the card is 880-960 DIP wide").That(window.Width >= 880 && window.Width <= 960).IsTrue();
-            Check.WithCustomMessage("the button is at least the old 170 x 64").That(
-                window.CloseButton.Width >= 170 && window.CloseButton.Height >= 64).IsTrue();
+            Check.WithCustomMessage("the card is 880-1000 DIP wide").That(window.Width >= 880 && window.Width <= 1000).IsTrue();
+            Check.WithCustomMessage("the button is bigger than round 1's 170 x 64").That(
+                window.CloseButton.Width >= 260 && window.CloseButton.Height >= 84).IsTrue();
         }
         finally
         {

@@ -68,6 +68,55 @@ public class GazeRecorderTests : IDisposable
         catch (IOException) { return string.Empty; }   // covers file-not-found and directory-not-found too
     }
 
+    /// <summary>
+    /// The writer's own completion marker: its LAST line is the <c>#!</c> trailer, appended after the
+    /// final drain. <c>Dispose</c> can return before that — it joins the writer on a 2 s budget and the
+    /// writer is BelowNormal priority, so on a loaded machine it can be starved past the join — and a
+    /// test that must see a closed file waits for the marker rather than trusting Dispose. Returns the
+    /// whole file, read shared; throws naming the file when the marker does not arrive in the budget.
+    /// </summary>
+    private string WaitForClosed(int budgetMs = 30_000)
+    {
+        var deadline = Environment.TickCount64 + budgetMs;
+        while (Environment.TickCount64 < deadline)
+        {
+            var last = TryReadLastLine();
+            // A partial trailer cannot pass both checks: the line is one JSON object, so no proper
+            // prefix of it ends in '}'.
+            if (last is not null
+                && last.StartsWith(GazeRecorder.TrailerPrefix, StringComparison.Ordinal)
+                && last.EndsWith('}'))
+            {
+                return TryRead();
+            }
+            Thread.Sleep(15);
+        }
+        throw new TimeoutException(
+            $"The gaze recorder never wrote its closing trailer to {Path_} within {budgetMs} ms.");
+    }
+
+    /// <summary>
+    /// The last line of the file, read shared from the tail only: before its rotation the file can be
+    /// the 16 MB over-cap seed, and polling must not re-read that every 15 ms.
+    /// </summary>
+    private string? TryReadLastLine()
+    {
+        try
+        {
+            using var stream = new FileStream(Path_, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            if (stream.Length == 0) return null;
+            stream.Seek(-Math.Min(4_096, stream.Length), SeekOrigin.End);
+            using var reader = new StreamReader(stream);
+            var lines = reader.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            return lines.Length == 0 ? null : lines[^1].TrimEnd('\r');
+        }
+        catch (IOException) { return null; }
+    }
+
+    /// <summary>Every non-empty line of the closed file; the trailer wait is what settles its content.</summary>
+    private string[] ClosedLines() =>
+        WaitForClosed().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
     [Fact]
     public void WritesJsonHeaderThenCsvSamples()
     {
@@ -80,7 +129,7 @@ public class GazeRecorderTests : IDisposable
             WaitForFile(t => t.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length >= 3);
         }
 
-        var lines = File.ReadAllLines(Path_).Where(l => l.Length > 0).ToArray();
+        var lines = ClosedLines();
         Check.That(lines[0]).StartsWith("# {");
         Check.That(lines[0]).Contains("\"providerType\":\"StreamEngine\"");
         Check.That(lines[0]).Contains("\"calibrationActive\":true");
@@ -102,7 +151,7 @@ public class GazeRecorderTests : IDisposable
             WaitForFile(t => t.Contains("2,2,2000,1"));
         }
 
-        int headers = File.ReadAllLines(Path_).Count(l => l.StartsWith("# "));
+        int headers = ClosedLines().Count(l => l.StartsWith("# "));
         Check.That(headers).IsEqualTo(1);
     }
 
@@ -122,7 +171,7 @@ public class GazeRecorderTests : IDisposable
                 WaitForFile(t => t.Contains("1234.5"));
             }
 
-            Check.That(File.ReadAllText(Path_)).Contains("1234.5,987.25,5000,1");
+            Check.That(WaitForClosed()).Contains("1234.5,987.25,5000,1");
         }
         finally { Thread.CurrentThread.CurrentCulture = previous; }
     }
@@ -147,7 +196,7 @@ public class GazeRecorderTests : IDisposable
 
         Check.That(faults).IsEmpty();
         Check.That(File.Exists(Path_ + ".1")).IsTrue();
-        var lines = File.ReadAllLines(Path_).Where(l => l.Length > 0).ToArray();
+        var lines = ClosedLines();
         Check.That(lines[0]).StartsWith("# {");
         Check.That(lines).Contains("7,8,9000,1");
         Check.That(new FileInfo(Path_).Length).IsStrictlyLessThan(GazeRecorder.MaxRecordingBytes);
@@ -191,8 +240,47 @@ public class GazeRecorderTests : IDisposable
                 recorder.Record(new GazePoint(i, i, i * 1000, true));
         }   // Dispose signals a final drain and joins on a budget
 
-        var text = File.ReadAllText(Path_);
-        Check.That(text).Contains("9,9,9000,1");
+        Check.That(WaitForClosed()).Contains("9,9,9000,1");
+    }
+
+    [Fact]
+    public void Dispose_ThatReturnsInsideItsBudget_HasAlreadyDrainedAndClosed()
+    {
+        // The teeth for the join itself. Every other Dispose test gives it up when it waits for the
+        // trailer, and that wait has to be there (a starved machine may need it) — but the writer is
+        // a BACKGROUND thread, so if Dispose stopped waiting the writer would still finish the drain
+        // eventually and every one of those tests would pass while an app that exits right after
+        // Dispose loses the final drain and the trailer. So: if Dispose returned inside its budget,
+        // the work must ALREADY be on disk, read once with no wait and no retry. A writer starved
+        // past the budget is the documented abandon, and the test has nothing to conclude.
+        const int samples = 250_000;   // big enough that its formatting cannot finish inside a read
+
+        GazeRecordingTrailer? closed = null;
+        using var recorder = new GazeRecorder(
+            Path_, Header(), capacity: samples + 1, onClosed: t => closed = t);
+        for (int i = 0; i < samples; i++)
+            recorder.Record(new GazePoint(i, i, i * 1000L, IsValid: true));
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        recorder.Dispose();
+        sw.Stop();
+
+        // ShutdownBudgetMs (2 s, private) less a 250 ms margin for scheduling and clock granularity:
+        // a Dispose that returned this early cannot have spent the budget, so the join it performed
+        // must have seen the writer finish.
+        if (sw.ElapsedMilliseconds >= 1_750)
+            Assert.Skip($"Dispose spent {sw.ElapsedMilliseconds} ms of its 2 s budget, so the file proves nothing here: the budgeted abandon is the documented outcome.");
+
+        Check.That(closed).IsNotNull();
+        Check.That(closed!.Value.RecordedSamples).IsEqualTo((long)samples);
+
+        var last = TryReadLastLine();
+        Check.WithCustomMessage(
+            $"Dispose returned after {sw.ElapsedMilliseconds} ms — inside its 2 s budget — so the final drain and the trailer must already be done. " +
+            "They were not: the writer was still working after Dispose returned.")
+            .That(last).IsNotNull();
+        Check.That(last!).StartsWith(GazeRecorder.TrailerPrefix);
+        Check.That(last!).Contains($"\"recordedSamples\":{samples}");
     }
 
     [Fact]
@@ -207,7 +295,7 @@ public class GazeRecorderTests : IDisposable
                 recorder.Record(new GazePoint(i, i, i * 1000, true));
         }
 
-        var lines = File.ReadAllLines(Path_);
+        var lines = ClosedLines();
         var trailer = lines.Last(l => l.StartsWith(GazeRecorder.TrailerPrefix, StringComparison.Ordinal));
 
         Check.That(trailer).Contains("\"droppedSamples\":");
@@ -228,11 +316,15 @@ public class GazeRecorderTests : IDisposable
                 recorder.Record(new GazePoint(i, i, i * 1000, true));
         }
 
-        var lines = File.ReadAllLines(Path_).Where(l => l.Length > 0).ToArray();
+        var lines = ClosedLines();
 
         Check.That(lines[^1]).StartsWith(GazeRecorder.TrailerPrefix);
         Check.That(lines[^2]).IsEqualTo("9,9,9000,1");
         Check.That(lines[^1]).Contains("\"droppedSamples\":0");
+        // The trailer is ONE line whose last character is '}': WaitForClosed reads exactly that as
+        // "the writer is done", so a pretty-printed or multi-line trailer must fail loudly HERE, as a
+        // content assertion, rather than as a 30 s timeout in every test that waits for the marker.
+        Check.That(lines[^1]).EndsWith("}");
     }
 
     [Fact]
@@ -265,7 +357,7 @@ public class GazeRecorderTests : IDisposable
             // no samples
         }
 
-        var lines = File.ReadAllLines(Path_).Where(l => l.Length > 0).ToArray();
+        var lines = ClosedLines();
 
         Check.That(lines).HasSize(2);
         Check.That(lines[0]).StartsWith("# ");

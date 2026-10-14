@@ -56,6 +56,18 @@ public record GazeCursorMovedMessage(GazeFrame Frame)
 public record ExternalDwellActiveMessage(bool Active);
 
 /// <summary>
+/// Sent by <c>ExternalDwellService</c> whenever its registered target set changes structurally —
+/// an SDK client registering, updating (moving/resizing) or unregistering a target. The D17
+/// gaze-consumer inventory re-runs the preview panel's collision check on it (fix-wave F5, the
+/// <c>NoteTargetsChangedMessage</c> precedent): <see cref="ExternalDwellActiveMessage"/> fires
+/// only once gaze has ENTERED a target, so a client registering or moving a target under a
+/// visible panel would otherwise not be re-checked until the reader was already dwelling it.
+/// Sent dispatcher-marshalled, like every message the pipe service sends from its pipe threads.
+/// Empty payload by design: the inventory re-reads the live rects.
+/// </summary>
+public record ExternalDwellTargetsChangedMessage;
+
+/// <summary>
 /// Sent by the eye-care banner when it appears (<c>Active = true</c>) and when it is dismissed or
 /// auto-snoozes (<c>false</c>). The activation-offer coordinator suspends offers while it is up
 /// (ticket 8 fixup, review B F3): the banner carries its own dwell targets and must not compete with

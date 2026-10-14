@@ -23,7 +23,8 @@ using Xunit;
 /// (c) the <c>Changed</c> trigger set — a SUPERSET of what
 /// <c>ActivationOfferCoordinator</c>.SchedulePublish listens to (the coordinator's
 /// ExternalDwellActiveMessage handler clears offers rather than publishing zones), plus the bars'
-/// own button-set changes and the note-targets message (review F1);
+/// own button-set changes, the note-targets message (review F1) and external dwell's structural
+/// message (fix-wave F5);
 /// (d) the strict overlap rule (<c>touching is clear</c>, Task 1) at the IsClear seam.
 /// </summary>
 /// <remarks>
@@ -346,10 +347,13 @@ public class GazeConsumerInventoryTests
         kit.ModBarVm.ShowButtons(new[] { Def("shift", 0) }, new PhysicalPoint(100, 100));
         // A toolbar geometry edit.
         kit.Settings.Toolbar.DockedEdge = "Bottom";
-        // The four messages.
+        // The five messages (fix-wave F5: external-dwell's STRUCTURAL message joined the set —
+        // ExternalDwellActiveMessage fires only once gaze has entered a target, so it can never
+        // announce a register/update/unregister).
         kit.Messenger.Send(new DisplayGeometryChangedMessage(new DisplayGeometry(1920, 1080, 1, 1)));
         kit.Messenger.Send(new KeyboardEdgeToggledMessage());
         kit.Messenger.Send(new ExternalDwellActiveMessage(true));
+        kit.Messenger.Send(new ExternalDwellTargetsChangedMessage());
         kit.Messenger.Send(new NoteTargetsChangedMessage());
         Pump();
 
@@ -357,8 +361,8 @@ public class GazeConsumerInventoryTests
                 "Every SchedulePublish-set trigger plus the bars' button-set mutations and the " +
                 "note-targets message must raise Changed (count: 3 keyboard — two visibility flips " +
                 "+ emoji-mode — + 2 menus + 4 bars (IsVisible + ButtonSetChanged each) + 1 toolbar " +
-                "settings + 4 messages = 14).")
-            .That(fired).IsEqualTo(14);
+                "settings + 5 messages = 15).")
+            .That(fired).IsEqualTo(15);
     }
 
     [StaFact]

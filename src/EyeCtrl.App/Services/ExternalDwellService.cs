@@ -382,9 +382,11 @@ public sealed class ExternalDwellService : IDisposable
                     _targetsById[r.Id] = target;
                     _detector.AddTarget(target);
                 }
+                RaiseTargetsChanged();
                 break;
 
             case UpdateMessage u:
+                bool updated = false;
                 lock (_stateLock)
                 {
                     if (conn.TargetIds.Contains(u.Id))
@@ -405,8 +407,11 @@ public sealed class ExternalDwellService : IDisposable
                             _hwndById[u.Id] = conn.Hwnd;
                             _detector.AddTarget(target);
                         }
+                        updated = true;
                     }
                 }
+                if (updated)
+                    RaiseTargetsChanged();
                 break;
 
             case UnregisterMessage un:
@@ -427,9 +432,22 @@ public sealed class ExternalDwellService : IDisposable
                     _hwndById.Remove(un.Id);
                     _detector.RemoveTarget(un.Id);
                 }
+                RaiseTargetsChanged();
                 break;
         }
     }
+
+    /// <summary>
+    /// Fix-wave F5: the three pipe arms that structurally change the registered target set
+    /// (register / update / unregister) announce it, so the D17 gaze-consumer inventory re-runs
+    /// the preview panel's collision check. <see cref="ExternalDwellActiveMessage"/> — the only
+    /// external trigger before — fires from <c>SetCursorRingHidden</c>, i.e. only once gaze has
+    /// ENTERED a target, so a client registering or moving a target under a visible panel was
+    /// not re-checked until the reader was already dwelling it. Dispatcher-marshalled like every
+    /// other message this service sends from its pipe threads.
+    /// </summary>
+    private void RaiseTargetsChanged() =>
+        _dispatcher.BeginInvoke(() => _messenger.Send(new ExternalDwellTargetsChangedMessage()));
 
     private void SendActivated(string id)
     {

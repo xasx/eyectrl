@@ -3,19 +3,28 @@ namespace EyeCtrl.App.Tests.Services;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Pipes;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
+using EyeCtrl.Contracts;
+using EyeCtrl.Core;
 using EyeCtrl.Core.Adaptation;
 using EyeCtrl.Core.Enums;
+using EyeCtrl.Core.Interfaces;
+using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 /// <summary>
@@ -1221,6 +1230,136 @@ public class AdaptationPreviewServiceTests
         {
             h.Service.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Fix-wave F5's end-to-end pin, mirroring the note-targets test's shape: a REAL
+    /// <see cref="ExternalDwellService"/> (GUID-suffixed pipe name — machine-global), driven by a
+    /// real pipe client the way an SDK app drives it, wired into the real inventory. A target
+    /// REGISTERED under a visible panel mid-read must re-run the collision gate and policy-hide
+    /// (HiddenKeepLast) — <c>ExternalDwellActiveMessage</c> fires only once gaze has ENTERED a
+    /// target, so before the structural signal this was not re-checked until the reader was
+    /// already dwelling the new target.
+    /// </summary>
+    [StaFact]
+    public void ExternalTargetRegisteredOverThePanel_ThroughTheRealService_HidesKeepLast()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var messenger = new WeakReferenceMessenger();
+        var pipeName = ExternalDwellService.DefaultPipeName + "_test_" + Guid.NewGuid().ToString("N");
+        NamedPipeClientStream? client = null;
+        using var engine = new GazeEngine(new StubGazeProvider(), new StubInputSimulator(), new EyeCtrlSettings());
+        using var external = new ExternalDwellService(
+            new ExternalDwellSettings { Enabled = true, DefaultDwellMs = 800, CooldownMs = 0 },
+            engine, Dispatcher.CurrentDispatcher,
+            NullLogger<ExternalDwellService>.Instance, messenger, _ => null,
+            pipeName: pipeName);
+        external.Start();
+
+        var invSettings = new EyeCtrlSettings();
+        using var inventory = new GazeConsumerInventory(
+            invSettings,
+            overlays: () => throw new NotImplementedException("the keyboard gate must short-circuit"),
+            new KeyboardViewModel(invSettings, messenger),
+            new ViewModels.ActionMenuViewModel(invSettings, messenger),
+            new ModesMenuViewModel(invSettings, messenger),
+            new EdgeButtonBarViewModel(invSettings, messenger),
+            new EdgeButtonBarViewModel(invSettings, messenger),
+            externalTargetRects: () => external.LiveTargetRects(),
+            noteTargetRects: () => Array.Empty<PhysicalRect>(),
+            new ToolbarLifecycleBridge(),
+            messenger);
+
+        var h = new Harness(adaptationEnabled: false, collision: inventory, messenger: messenger);
+        try
+        {
+            h.Toolbar.Bounds = new PhysicalRect(100, 0, 1000, 140); // panel anchors at x = 1116
+            h.Panel.DipSize = (200, 150);
+            h.Panel.Scale = 2.0;
+
+            h.ShowPreview();
+            Check.That(h.Panel.IsShown).IsTrue();
+
+            // A cooperating app registers a dwell target right where the panel sits — the exact
+            // F5 harm: fed gaze buttons under a mid-read panel. The registration travels the real
+            // pipe; the settle is polled (never a fixed sleep), and the raise is delivered by
+            // pumping to ContextIdle (below BOTH dispatcher hops: the service's marshalled send,
+            // then the inventory's Background Changed).
+            client = RegisterExternalTarget(pipeName, "btn", new SdkRect(1200, 100, 200, 200));
+            WaitForExternalTargets(external, expected: 1);
+
+            var hidden = false;
+            for (var i = 0; i < 100 && !hidden; i++)
+            {
+                Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+                hidden = !h.Panel.IsShown;
+                if (!hidden) Thread.Sleep(20);
+            }
+
+            Check.WithCustomMessage(
+                    "An SDK target registered under the visible panel must re-run the D17 gate " +
+                    "and policy-hide the panel.")
+                .That(hidden).IsTrue();
+            Check.That(h.Recorder.Bounds[^1].EngagementId).IsEqualTo(Engagement);
+            Check.That(h.Recorder.Bounds[^1].Kind).IsEqualTo(PreviewBoundsKind.HiddenKeepLast);
+            Check.That(h.Coordinator.IsAutoHideSuspended).IsFalse();
+        }
+        finally
+        {
+            h.Service.Dispose();
+            client?.Dispose();
+        }
+    }
+
+    /// <summary>Connects a pipe client and registers one target, the way an SDK app does. The
+    /// returned stream stays open (disposing it would tear the target back down); the caller
+    /// owns it.</summary>
+    private static NamedPipeClientStream RegisterExternalTarget(string pipeName, string id, SdkRect rect)
+    {
+        var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        client.Connect(2000);
+        using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        w.WriteLine(JsonSerializer.Serialize<WireMessage>(
+            new RegisterMessage { Id = id, Rect = rect, Hwnd = 7 }, WireJson.Options));
+        return client;
+    }
+
+    /// <summary>Polls the service's lock-protected count (the issue-#76 pattern) instead of a
+    /// fixed sleep, so a loaded runner cannot flake the registration settle.</summary>
+    private static void WaitForExternalTargets(ExternalDwellService svc, int expected)
+    {
+        for (var i = 0; i < 100; i++)
+        {
+            if (svc.TargetCountForTests == expected) return;
+            Thread.Sleep(50);
+        }
+    }
+
+    /// <summary>The pipe service's gaze-engine construction seam (private nested fakes, the repo
+    /// convention) — the engine is never driven here; the service only needs one to exist.</summary>
+    private sealed class StubGazeProvider : IGazeProvider
+    {
+        public bool IsConnected => true;
+        public event Action<GazePoint>? GazePointReceived;
+        public void Start() { }
+        public void Stop() { }
+        public void Dispose() { }
+    }
+
+    private sealed class StubInputSimulator : IInputSimulator
+    {
+        public void MoveCursor(PhysicalPoint p) { }
+        public void LeftClick(PhysicalPoint p) { }
+        public void RightClick(PhysicalPoint p) { }
+        public void DoubleClick(PhysicalPoint p) { }
+        public void MouseDown(PhysicalPoint p) { }
+        public void MouseUp(PhysicalPoint p) { }
+        public void Scroll(PhysicalPoint p, int dx, int dy) { }
+        public void SendKeyPress(ushort vk) { }
+        public void SendKeyDown(ushort vk) { }
+        public void SendKeyUp(ushort vk) { }
+        public void SendText(string text) { }
+        public void SendModifiedKeyPress(IReadOnlySet<ModifierKey> mods, ushort vk) { }
     }
 
     /// <summary>

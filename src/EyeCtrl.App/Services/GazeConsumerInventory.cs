@@ -49,11 +49,16 @@ using Microsoft.Extensions.Logging;
 /// <c>PropertyChanged</c>, toolbar visibility and toolbar settings, the display-geometry,
 /// keyboard-edge and external-dwell messages — PLUS the bars' own <c>ButtonSetChanged</c>
 /// (buttons are added/removed while a bar is up, which moves its rect without touching
-/// <c>IsVisible</c>) and <c>NoteTargetsChangedMessage</c>. It is a superset, not an exact copy:
+/// <c>IsVisible</c>), <c>NoteTargetsChangedMessage</c> and
+/// <c>ExternalDwellTargetsChangedMessage</c> (fix-wave F5). It is a superset, not an exact copy:
 /// the offer coordinator's <c>ExternalDwellActiveMessage</c> handler CLEARS offers rather than
-/// publishing zones, so that trigger serves a different purpose there — for this inventory an
-/// external target appearing is a consumer change like any other, and the re-check must run.
-/// The service re-checks on every raise — delivered one dispatcher hop after the trigger
+/// publishing zones, so that message serves a different purpose there — and it is NOT this
+/// inventory's external-dwell structural trigger: it fires only once gaze has ENTERED a target
+/// (the service's <c>SetCursorRingHidden</c>), never on register/update/unregister, so the
+/// load-bearing external signal is <c>ExternalDwellTargetsChangedMessage</c>, raised
+/// dispatcher-marshalled from the service's three pipe arms (a client registering or moving a
+/// target under a visible panel must re-check before the reader dwells it). The service
+/// re-checks on every raise — delivered one dispatcher hop after the trigger
 /// (Background: after layout), plus the keyboard window's own SizeChanged/Loaded (final review
 /// F2: a keyboard relayout raises no VM flip).
 /// </para>
@@ -180,6 +185,7 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         _messenger.Register<GazeConsumerInventory, DisplayGeometryChangedMessage>(this, OnGeometryChanged);
         _messenger.Register<GazeConsumerInventory, KeyboardEdgeToggledMessage>(this, OnKeyboardEdgeToggled);
         _messenger.Register<GazeConsumerInventory, ExternalDwellActiveMessage>(this, OnExternalDwellActive);
+        _messenger.Register<GazeConsumerInventory, ExternalDwellTargetsChangedMessage>(this, OnExternalDwellTargetsChanged);
         _messenger.Register<GazeConsumerInventory, NoteTargetsChangedMessage>(this, OnNoteTargetsChanged);
     }
 
@@ -319,6 +325,10 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         => OnConsumersChanged();
 
     private void OnExternalDwellActive(GazeConsumerInventory recipient, ExternalDwellActiveMessage message)
+        => OnConsumersChanged();
+
+    private void OnExternalDwellTargetsChanged(
+        GazeConsumerInventory recipient, ExternalDwellTargetsChangedMessage message)
         => OnConsumersChanged();
 
     private void OnNoteTargetsChanged(GazeConsumerInventory recipient, NoteTargetsChangedMessage message)

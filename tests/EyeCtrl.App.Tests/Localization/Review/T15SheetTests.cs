@@ -10,9 +10,11 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
-using EyeCtrl.App.Views;
 using EyeCtrl.App.Tests.Fixtures;
+using EyeCtrl.App.Tests.Overlays;
+using EyeCtrl.App.Views;
 using EyeCtrl.Controls;
+using EyeCtrl.Controls.Theme;
 using EyeCtrl.Core.Enums;
 using EyeCtrl.Core.Keyboard;
 using EyeCtrl.Core.Localization;
@@ -22,7 +24,8 @@ using EyeCtrl.Tests.TestSupport;
 /// T15's review sheets for the user: headless renders at the user's 2.0 of the two things T15
 /// changes that a person can SEE. Not a gate: it writes only when <c>EYECTRL_WRITE_T15_SHEETS=1</c>
 /// (into <c>EYECTRL_T15_SHEET_DIR</c>), and never shows a window, because the user controls this PC
-/// by eye-tracking alone.
+/// by eye-tracking alone. Round 2 (the user's reply to the first sheets): the emoji back key as the
+/// keyboard's drawn arrow, and the restart notice at a size a gaze user can read.
 /// </summary>
 [Collection("StringTable Tests (App)")]
 public class T15SheetTests
@@ -32,7 +35,11 @@ public class T15SheetTests
     private static readonly Brush Dim = Frozen(Color.FromRgb(0xA0, 0xA0, 0xA6));
     private static readonly Brush GermanInk = Frozen(Color.FromRgb(0x8F, 0xE3, 0x9B));
     private static readonly Brush FlagInk = Frozen(Color.FromRgb(0xF5, 0xC5, 0x42));
+    private static readonly Brush Desktop = Frozen(Color.FromRgb(0x3B, 0x4A, 0x5A));
     private static readonly FontFamily SheetFont = new("Segoe UI");
+
+    /// <summary>The user's screen at 2.0 less the taskbar, in DIP.</summary>
+    private static readonly Rect WorkArea = new(0, 0, 1920, 1152);
 
     private readonly ITestOutputHelper _output;
 
@@ -64,142 +71,44 @@ public class T15SheetTests
             Margin = margin ?? new Thickness(0),
         };
 
-    [StaFact]
-    public void EmojiBackSheet_WhenAsked()
-    {
-        Assert.SkipUnless(Requested, "set EYECTRL_WRITE_T15_SHEETS=1 to write the T15 sheets");
-        WpfApplicationGate.EnsureApplicationWithTokens();
-        var path = ReviewRender.Save(
-            ReviewRender.Snap(EmojiBackSheet(), 1920, null, background: SheetBackground),
-            Path.Combine(SheetDirectory, "emoji-back-sheet.png"));
-        _output.WriteLine(path);
-    }
-
-    [StaFact]
-    public void RestartNoticeSheet_WhenAsked()
-    {
-        Assert.SkipUnless(Requested, "set EYECTRL_WRITE_T15_SHEETS=1 to write the T15 sheets");
-        WpfApplicationGate.EnsureApplicationWithTokens();
-        var path = ReviewRender.Save(
-            ReviewRender.Snap(RestartNoticeSheet(), 1920, null, background: SheetBackground),
-            Path.Combine(SheetDirectory, "restart-notice-sheet.png"));
-        _output.WriteLine(path);
-    }
-
-    // ────── F5: the restart notices when no Settings window is open ──────
-
-    private static readonly Brush Desktop = Frozen(Color.FromRgb(0x3B, 0x4A, 0x5A));
-
-    private static FrameworkElement RestartNoticeSheet()
-    {
-        var root = new StackPanel { Margin = new Thickness(40), Background = SheetBackground };
-        root.Children.Add(Text("Restart notices when Settings is closed", 34, Ink, FontWeights.SemiBold));
-        root.Children.Add(Text(
-            "When EyeCtrl restarts and no Settings window is open (for example a language change made from the "
-            + "Supervisor), this card appears: bottom centre, always on top, never taking the foreground. "
-            + "Its one button is dwelled like every other (it fills while you look at it) and closes the card; "
-            + "if nobody looks at it, the card closes by itself: \"restarting\" after 40 s, \"not possible\" after 30 s. "
-            + "The text is the text Settings already shows in the same situation. If Settings is open, it shows its "
-            + "own notice and this card stays away, so nothing appears twice. Rendered headless at 2.0.",
-            18, Dim, margin: new Thickness(0, 6, 0, 20)));
-
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        grid.RowDefinitions.Add(new RowDefinition());
-        grid.RowDefinitions.Add(new RowDefinition());
-        grid.RowDefinitions.Add(new RowDefinition());
-
-        Cell(grid, 0, 0, "1. \"Restarting\": English session", Notice(german: false, refused: false, progress: 0), false);
-        Cell(grid, 1, 0, "2. \"Restarting\": German session", Notice(german: true, refused: false, progress: 0), true);
-        Cell(grid, 0, 1, "3. \"Not possible\": English session", Notice(german: false, refused: true, progress: 0), false);
-        Cell(grid, 1, 1, "4. \"Not possible\": German session", Notice(german: true, refused: true, progress: 0), true);
-        Cell(grid, 0, 2, "5. The button 60 % through its dwell (English)", Notice(german: false, refused: true, progress: 0.6), false);
-        Cell(grid, 1, 2, "6. Where it sits on a 1920 x 1080 screen (a sketch)", Placement(), false);
-        root.Children.Add(grid);
-        return root;
-    }
-
-    private static void Cell(Grid grid, int column, int row, string title, FrameworkElement content, bool german)
-    {
-        var cell = new StackPanel { Margin = new Thickness(0, 0, 40, 24) };
-        cell.Children.Add(Text(title, 17, german ? GermanInk : Ink, FontWeights.SemiBold, new Thickness(0, 0, 0, 6)));
-        cell.Children.Add(content);
-        Grid.SetColumn(cell, column);
-        Grid.SetRow(cell, row);
-        grid.Children.Add(cell);
-    }
-
-    private static FrameworkElement Notice(bool german, bool refused, double progress)
+    private static void ActivateLanguage(bool german)
     {
         StringTable.ResetToEmbeddedEnglish();
-        try
-        {
-            if (german) EyeCtrl.App.Tests.Localization.ShippedLanguageRecoveryTests.ActivateShippedGerman();
-            var target = german ? UiLanguage.German : UiLanguage.English;
-
-            var window = new RestartNoticeWindow();
-            var (message, label) = refused
-                ? (SelfRestartStrategy.Describe(RestartOutcome.ChildNotReady, target),
-                   RestartNotices.RefusedChoices(target)[0].Label)
-                : (RestartNotices.InProgressMessage(target),
-                   RestartNotices.InProgressChoices(target)[0].Label);
-            window.Message.Text = message;
-            window.CloseLabel.Text = label;
-            window.Prepare(new Rect(0, 0, 1920, 1080));
-            var outline = (DwellOutlineOverlay)typeof(RestartNoticeWindow)
-                .GetField("_outline", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
-                .GetValue(window)!;
-            outline.SetProgress(progress);
-
-            var content = (FrameworkElement)window.Content;
-            window.Content = null;
-            var bitmap = ReviewRender.Snap(content, window.Width, window.Height, window, background: Desktop);
-            return new System.Windows.Controls.Image
-            {
-                Source = bitmap,
-                Stretch = Stretch.None,
-                Width = ReviewRender.DipSize(bitmap).Width,
-                Height = ReviewRender.DipSize(bitmap).Height,
-            };
-        }
-        finally
-        {
-            StringTable.ResetToEmbeddedEnglish();
-        }
+        if (german) EyeCtrl.App.Tests.Localization.ShippedLanguageRecoveryTests.ActivateShippedGerman();
     }
 
-    private static FrameworkElement Placement()
+    [StaFact]
+    public void EmojiBackSheetV2_WhenAsked()
     {
-        var card = (System.Windows.Controls.Image)Notice(german: false, refused: true, progress: 0);
-        var window = new RestartNoticeWindow();
-        window.Prepare(new Rect(0, 0, 1920, 1080));
-        var (left, top) = (window.Left, window.Top);
-
-        var screen = new Canvas { Width = 1920, Height = 1080, Background = Desktop };
-        var toolbar = new Border
-        {
-            Width = 700, Height = 112, Background = Frozen(Color.FromRgb(0x24, 0x24, 0x28)),
-            Child = Text("toolbar (docked top by default)", 24, Dim, margin: new Thickness(20, 40, 0, 0)),
-        };
-        Canvas.SetLeft(toolbar, (1920 - 700) / 2.0);
-        Canvas.SetTop(toolbar, 0);
-        var edge = new Border { Width = 112, Height = 560, Background = Frozen(Color.FromRgb(0x24, 0x24, 0x28)) };
-        Canvas.SetLeft(edge, 1920 - 112);
-        Canvas.SetTop(edge, (1080 - 560) / 2.0);
-        Canvas.SetLeft(card, left);
-        Canvas.SetTop(card, top);
-        screen.Children.Add(toolbar);
-        screen.Children.Add(edge);
-        screen.Children.Add(card);
-
-        var thumb = new Viewbox { Width = 960, Height = 540, Stretch = Stretch.Uniform, Child = screen };
-        thumb.Measure(new Size(960, 540));
-        thumb.Arrange(new Rect(0, 0, 960, 540));
-        return thumb;
+        Assert.SkipUnless(Requested, "set EYECTRL_WRITE_T15_SHEETS=1 to write the T15 sheets");
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var path = ReviewRender.Save(
+            ReviewRender.Snap(EmojiBackSheet(), 1960, null, background: SheetBackground),
+            Path.Combine(SheetDirectory, "emoji-back-sheet-v2.png"));
+        _output.WriteLine(path);
     }
 
-    // ────── F4: the emoji skin-tone selector's back key ──────
+    [StaFact]
+    public void RestartNoticeSheetV2_WhenAsked()
+    {
+        Assert.SkipUnless(Requested, "set EYECTRL_WRITE_T15_SHEETS=1 to write the T15 sheets");
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var path = ReviewRender.Save(
+            ReviewRender.Snap(RestartNoticeSheet(), 2000, null, background: SheetBackground),
+            Path.Combine(SheetDirectory, "restart-notice-sheet-v2.png"));
+        _output.WriteLine(path);
+    }
+
+    private static FrameworkElement Picture(System.Windows.Media.Imaging.BitmapSource bitmap) =>
+        new System.Windows.Controls.Image
+        {
+            Source = bitmap,
+            Stretch = Stretch.None,
+            Width = ReviewRender.DipSize(bitmap).Width,
+            Height = ReviewRender.DipSize(bitmap).Height,
+        };
+
+    // ────── F4: the emoji skin-tone selector's back key, drawn like the keyboard's arrows ──────
 
     private static FrameworkElement EmojiBackSheet()
     {
@@ -208,6 +117,10 @@ public class T15SheetTests
 
         left.Children.Add(Text("User's size: key size 1.5×", 22, Ink, FontWeights.SemiBold, new Thickness(0, 0, 0, 8)));
         foreach (var block in Blocks(1.5)) left.Children.Add(block);
+        left.Children.Add(Text("OPTION, not applied: the emoji grid's own page keys, drawn the same way (1.5×)", 20, FlagInk,
+            FontWeights.SemiBold, new Thickness(0, 6, 0, 8)));
+        left.Children.Add(PageKeys("NOW: font glyphs ◀ ▶ (as shipped)", 105, drawn: false));
+        left.Children.Add(PageKeys("OPTION: the keyboard's drawn arrows", 105, drawn: true));
 
         right.Children.Add(Text("Key size 1.0×", 22, Ink, FontWeights.SemiBold, new Thickness(0, 0, 0, 8)));
         foreach (var block in Blocks(1.0)) right.Children.Add(block);
@@ -218,67 +131,84 @@ public class T15SheetTests
         columns.Children.Add(left);
         columns.Children.Add(right);
 
-        var root = new StackPanel { Margin = new Thickness(40), Background = SheetBackground };
-        root.Children.Add(Text("The emoji skin-tone selector: the back key", 34, Ink, FontWeights.SemiBold));
+        var root = new StackPanel();
+        root.Children.Add(Text("The emoji skin-tone selector: the back key, round 2", 34, Ink, FontWeights.SemiBold));
         root.Children.Add(Text(
-            "Dwell the skin-tone tab and the six swatches appear; the key under them goes back to the emoji grid. "
-            + "Before: it said the English word \"Back\" on every language. After: it shows the arrow ◀ (the same arrow "
-            + "as the emoji page-back key), and its spoken (screen-reader) name follows the language. "
-            + "Same key, same size, same place. Rendered headless at 2.0.",
+            "Round 1's ◀ was a font glyph, about 18 DIP in a 200 DIP key. Now the key draws the keyboard's own left arrow "
+            + "(the wide drawn arrows of T14, the same ← the cursor-key row has): a third of the key's width, the keyboard's "
+            + "stroke. Same key, same size, same place; its spoken name still follows the language. "
+            + "Bottom left: the emoji grid's page ◀ ▶ keys, as an OPTION for consistency (not changed in the code). "
+            + "Rendered headless at 2.0.",
             18, Dim, margin: new Thickness(0, 6, 0, 18)));
         root.Children.Add(columns);
-        return root;
+        return Padded(root);
     }
+
+    /// <summary>The sheet's 40 DIP margin as padding: an element's own Margin is outside what the render draws.</summary>
+    private static FrameworkElement Padded(UIElement content) =>
+        new Border { Padding = new Thickness(40), Background = SheetBackground, Child = content };
 
     private static IEnumerable<FrameworkElement> Blocks(double keyMultiplier)
     {
         var keySize = 70 * keyMultiplier;
-
-        yield return Block(
-            "BEFORE, German session (the shipped code)", keySize, German: true, before: true, spoken: null);
-        yield return Block("AFTER, English session", keySize, German: false, before: false,
-            spoken: "Back");
-        yield return Block("AFTER, German session", keySize, German: true, before: false,
-            spoken: "Zurück");
+        yield return Block("BEFORE, German session (the shipped code)", keySize, german: true, before: true);
+        yield return Block("AFTER, English session", keySize, german: false, before: false);
+        yield return Block("AFTER, German session", keySize, german: true, before: false);
     }
 
-    private static FrameworkElement Block(string title, double keySize, bool German, bool before, string? spoken)
+    private static EmojiGridManager NewManager(StackPanel rows, double keySize, List<(string Id, Border Container, TextBlock? Label)> registrations)
     {
-        StringTable.ResetToEmbeddedEnglish();
+        var manager = new EmojiGridManager(
+            keyRows: rows,
+            categoryBar: new StackPanel(),
+            registerKeyVisual: (id, key, container, label, caption) =>
+            {
+                registrations.Add((id, container, label));
+                DwellOutlineOverlay.Attach(container, caption ?? label);
+            },
+            getKeySize: () => keySize,
+            clearKeyState: () => { });
+        manager.SetEmojiData(
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "Emojis", "emojis.json"),
+            Path.Combine(Path.GetTempPath(), "eyectrl_t15_sheet_" + Guid.NewGuid().ToString("N") + ".json"));
+        manager.Enter();
+        return manager;
+    }
+
+    private static FrameworkElement Block(string title, double keySize, bool german, bool before)
+    {
         try
         {
-            if (German) EyeCtrl.App.Tests.Localization.ShippedLanguageRecoveryTests.ActivateShippedGerman();
-
+            ActivateLanguage(german);
             var rows = new StackPanel();
-            var registrations = new List<(string Id, TextBlock? Content)>();
-            var manager = new EmojiGridManager(
-                keyRows: rows,
-                categoryBar: new StackPanel(),
-                registerKeyVisual: (id, key, container, content) =>
-                {
-                    registrations.Add((id, content));
-                    DwellOutlineOverlay.Attach(container, content);
-                },
-                getKeySize: () => keySize,
-                clearKeyState: () => { });
-            manager.SetEmojiData(
-                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "Emojis", "emojis.json"),
-                Path.Combine(Path.GetTempPath(), "eyectrl_t15_sheet_" + Guid.NewGuid().ToString("N") + ".json"));
-            manager.Enter();
+            var registrations = new List<(string Id, Border Container, TextBlock? Label)>();
+            var manager = NewManager(rows, keySize, registrations);
             registrations.Clear();
             manager.HandleAction("skinTone");
 
-            var back = registrations.Single(r => r.Id == "special_skinToneBack").Content!;
-            // The "before" picture is today's code: the same key with its caption the English word.
-            if (before) back.Text = "Back";
-            var captionLine = before
-                ? "caption \"Back\" (English, under German); spoken name: \"Back\""
-                : $"caption \"◀\"; spoken name: \"{AutomationProperties.GetName(back)}\"";
-            if (spoken is not null)
-                System.Diagnostics.Debug.Assert(AutomationProperties.GetName(back) == spoken);
+            var back = registrations.Single(r => r.Id == "special_skinToneBack");
+            string captionLine;
+            if (before)
+            {
+                // Today's shipped key: the English word, whatever the language.
+                var key = new TextBlock
+                {
+                    Text = "Back", Foreground = Tokens.BrushTextPrimary,
+                    FontSize = Math.Max(keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize),
+                    HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+                };
+                back.Container.Child = null;
+                DwellOutlineOverlay.Attach(back.Container, key);
+                captionLine = "caption \"Back\" (English, under German); spoken name: \"Back\"";
+            }
+            else
+            {
+                captionLine = $"drawn arrow, {ArrowWidth(back.Container):0.#} DIP wide in a {back.Container.Width:0.#} DIP key; "
+                              + $"spoken name: \"{AutomationProperties.GetName(back.Label!)}\"";
+            }
 
             var panel = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };
-            panel.Children.Add(Text(title, 17, German ? GermanInk : Ink, FontWeights.SemiBold, new Thickness(0, 0, 0, 2)));
+            panel.Children.Add(Text(title, 17, german ? GermanInk : Ink, FontWeights.SemiBold, new Thickness(0, 0, 0, 2)));
             panel.Children.Add(Text(captionLine, 15, before ? FlagInk : Dim, margin: new Thickness(0, 0, 0, 4)));
             panel.Children.Add(rows);
             panel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
@@ -287,6 +217,229 @@ public class T15SheetTests
         finally
         {
             StringTable.ResetToEmbeddedEnglish();
+        }
+    }
+
+    private static double ArrowWidth(Border container)
+    {
+        // container.Child is the outline layout Grid; the arrow canvas is inside the caption holder.
+        static IEnumerable<DependencyObject> Walk(DependencyObject node)
+        {
+            yield return node;
+            foreach (var child in LogicalTreeHelper.GetChildren(node).OfType<DependencyObject>())
+                foreach (var inner in Walk(child))
+                    yield return inner;
+        }
+
+        return Walk(container).OfType<Canvas>().First().Width;
+    }
+
+    /// <summary>The emoji grid's bottom row (page-back, ABC, skin tone, page-next), now or with drawn page arrows.</summary>
+    private static FrameworkElement PageKeys(string title, double keySize, bool drawn)
+    {
+        StringTable.ResetToEmbeddedEnglish();
+        var rows = new StackPanel();
+        var registrations = new List<(string Id, Border Container, TextBlock? Label)>();
+        var manager = NewManager(rows, keySize, registrations);
+        registrations.Clear();
+        manager.HandleAction("emojiPage:next");
+        registrations.RemoveAll(r => !r.Id.StartsWith("special_", StringComparison.Ordinal));
+        var prev = registrations.SingleOrDefault(r => r.Id == "special_emojiPage:prev");
+        var next = registrations.SingleOrDefault(r => r.Id == "special_emojiPage:next");
+        if (prev.Container is null || next.Container is null)
+            throw new InvalidOperationException("the second emoji page has no prev/next pair; pick a category with 3+ pages");
+
+        if (drawn)
+        {
+            foreach (var (frame, key) in new[] { (ArrowLabelFrame.CursorLeft, prev), (ArrowLabelFrame.CursorRight, next) })
+            {
+                var anchor = new TextBlock
+                {
+                    Text = frame == ArrowLabelFrame.CursorLeft ? "←" : "→",
+                    Foreground = Tokens.BrushTextPrimary,
+                    FontSize = Math.Max(keySize * ContainerRatio.Small, Legibility.MinimumGlyphFontSize) * SymbolCaptionRule.Scale,
+                };
+                var holder = ArrowLabelFrame.Build(frame, anchor, keySize, inkWidth: keySize / 3);
+                key.Container.Child = null;
+                DwellOutlineOverlay.Attach(key.Container, holder);
+            }
+        }
+
+        var bottom = (Panel)rows.Children[^1];
+        rows.Children.Remove(bottom);
+        var panel = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
+        panel.Children.Add(Text(title, 16, Dim, margin: new Thickness(0, 0, 0, 2)));
+        panel.Children.Add(bottom);
+        panel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        return panel;
+    }
+
+    // ────── F5: the restart notices when no Settings window is open, round 2 ──────
+
+    private static FrameworkElement RestartNoticeSheet()
+    {
+        var root = new StackPanel();
+        root.Children.Add(Text("Restart notices when Settings is closed, round 2", 34, Ink, FontWeights.SemiBold));
+        root.Children.Add(Text(
+            "Round 1's text was too small for a gaze user on 3840 x 2400 at 200 %. Now: the first line is a TITLE at the "
+            + "theme's Title size (FontSizeTitle = 24 DIP, medium weight); the rest is body at FontSizeSubtitle (18 DIP, the "
+            + "nearest token to 20; FontSizeTitle would be 24); the button label is body-sized and the button is bigger "
+            + "(260 x 84 DIP, was 170 x 64). The card is 920 DIP wide (was 720) and grows upward, so German never clips. "
+            + "The card also never covers the gaze keyboard: with the keyboard open it sits just above it (row 3). "
+            + "Rendered headless at 2.0.",
+            18, Dim, margin: new Thickness(0, 6, 0, 20)));
+
+        root.Children.Add(Row("1. The same notice, old and new size (German, \"restarting\")",
+            [("OLD (what you saw): 720 DIP wide, body 14, button 170 x 64", OldNotice(), false),
+             ("NEW: 920 DIP wide, title 24, body 18, button 260 x 84", Notice(true, false), true)]));
+        root.Children.Add(Row("2. The new size, all four (English left, German right)",
+            [("\"Restarting\": English", Notice(false, false), false), ("\"Restarting\": German", Notice(true, false), true)]));
+        root.Children.Add(Row(null,
+            [("\"Not possible\": English", Notice(false, true), false), ("\"Not possible\": German", Notice(true, true), true)]));
+        root.Children.Add(Row("3. Where it sits on the user's 1920 x 1200 DIP screen (a sketch)",
+            [("Gaze keyboard closed", Placement(withKeyboard: false), false),
+             ("Gaze keyboard open at key size 1.5×: the card rises above it", Placement(withKeyboard: true), false)]));
+        return Padded(root);
+    }
+
+    private static FrameworkElement Row(string? heading, (string Caption, FrameworkElement Content, bool German)[] cells)
+    {
+        var row = new StackPanel { Margin = new Thickness(0, 0, 0, 18) };
+        if (heading is not null)
+            row.Children.Add(Text(heading, 22, Ink, FontWeights.SemiBold, new Thickness(0, 0, 0, 8)));
+        var line = new StackPanel { Orientation = Orientation.Horizontal };
+        foreach (var (caption, content, german) in cells)
+        {
+            var cell = new StackPanel { Margin = new Thickness(0, 0, 40, 0) };
+            cell.Children.Add(Text(caption, 16, german ? GermanInk : Dim, FontWeights.SemiBold, new Thickness(0, 0, 0, 6)));
+            cell.Children.Add(content);
+            line.Children.Add(cell);
+        }
+
+        row.Children.Add(line);
+        return row;
+    }
+
+    private static string RefusalText(UiLanguage target) =>
+        SelfRestartStrategy.Describe(RestartOutcome.ChildNotReady, target);
+
+    private static FrameworkElement Notice(bool german, bool refused)
+    {
+        try
+        {
+            ActivateLanguage(german);
+            var target = german ? UiLanguage.German : UiLanguage.English;
+            var window = new RestartNoticeWindow();
+            var (message, label) = refused
+                ? (RefusalText(target), RestartNotices.RefusedChoices(target)[0].Label)
+                : (RestartNotices.InProgressMessage(target), RestartNotices.InProgressChoices(target)[0].Label);
+            window.SetText(message);
+            window.CloseLabel.Text = label;
+            window.Prepare(WorkArea);
+            return Picture(Render(window));
+        }
+        finally
+        {
+            StringTable.ResetToEmbeddedEnglish();
+        }
+    }
+
+    private static System.Windows.Media.Imaging.BitmapSource Render(RestartNoticeWindow window)
+    {
+        var content = (FrameworkElement)window.Content;
+        window.Content = null;
+        return ReviewRender.Snap(content, window.Width, window.Height, window, background: Desktop);
+    }
+
+    /// <summary>Round 1's card, rebuilt from its recorded sizes, for the side-by-side.</summary>
+    private static FrameworkElement OldNotice()
+    {
+        try
+        {
+            ActivateLanguage(true);
+            var message = RestartNotices.InProgressMessage(UiLanguage.German);
+            var label = RestartNotices.InProgressChoices(UiLanguage.German)[0].Label;
+            var button = new Border
+            {
+                Width = 170, Height = 64, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 16, 0, 0),
+                Background = Tokens.BrushSurfaceKeySwitch, CornerRadius = Tokens.StandardCornerRadius,
+                Child = new TextBlock
+                {
+                    Text = label, Foreground = Tokens.BrushTextPrimary, FontSize = Tokens.FontSizeSubtitle,
+                    HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+                },
+            };
+            var stack = new StackPanel();
+            stack.Children.Add(new TextBlock
+            {
+                Text = message, Foreground = Tokens.BrushTextPrimary, FontSize = Tokens.FontSizeBodyLarge,
+                TextWrapping = TextWrapping.Wrap,
+            });
+            stack.Children.Add(button);
+            var banner = new Border
+            {
+                Width = 720, Padding = new Thickness(24, 16, 24, 16), Background = Tokens.BrushSurfaceDark,
+                BorderBrush = Tokens.BrushBorderSubtle, BorderThickness = new Thickness(1),
+                CornerRadius = Tokens.StandardCornerRadius, Child = stack,
+            };
+            return Picture(ReviewRender.Snap(banner, background: Desktop, family: Tokens.FontStandard));
+        }
+        finally
+        {
+            StringTable.ResetToEmbeddedEnglish();
+        }
+    }
+
+    private static FrameworkElement Placement(bool withKeyboard)
+    {
+        Rect? keyboard = null;
+        if (withKeyboard)
+        {
+            var probe = RestartNoticePlacementTests.MeasureKeyboard(1.5);
+            var (kl, kt) = OverlayPositioning.PlaceAtEdge(WorkArea, "bottom", probe.Chrome.Width, probe.Chrome.Height);
+            keyboard = new Rect(kl, kt, probe.Chrome.Width, probe.Chrome.Height);
+        }
+
+        var window = new RestartNoticeWindow(keyboardBounds: () => keyboard);
+        try
+        {
+            ActivateLanguage(true);
+            window.SetText(RefusalText(UiLanguage.German));
+            window.CloseLabel.Text = RestartNotices.RefusedChoices(UiLanguage.German)[0].Label;
+            window.Prepare(WorkArea);
+            var (left, top) = (window.Left, window.Top);
+            var card = Picture(Render(window));
+
+            var screen = new Canvas { Width = 1920, Height = 1200, Background = Desktop };
+            void Add(FrameworkElement element, double x, double y)
+            {
+                Canvas.SetLeft(element, x);
+                Canvas.SetTop(element, y);
+                screen.Children.Add(element);
+            }
+
+            Border Box(double w, double h, string label, Color fill) => new()
+            {
+                Width = w, Height = h, Background = Frozen(fill), CornerRadius = new CornerRadius(8),
+                Child = Text(label, 26, Dim, margin: new Thickness(16, 12, 0, 0)),
+            };
+
+            Add(Box(700, 112, "toolbar (docked top by default)", Color.FromRgb(0x24, 0x24, 0x28)), (1920 - 700) / 2.0, 0);
+            Add(Box(112, 560, "", Color.FromRgb(0x24, 0x24, 0x28)), 1920 - 112, (1152 - 560) / 2.0);
+            Add(Box(1920, 48, "taskbar", Color.FromRgb(0x1A, 0x1A, 0x1E)), 0, 1152);
+            if (keyboard is { } kb)
+                Add(Box(kb.Width, kb.Height, "gaze keyboard (1.5×)", Color.FromRgb(0x2B, 0x2B, 0x32)), kb.X, kb.Y);
+            Add(card, left, top);
+
+            var thumb = new Viewbox { Width = 900, Height = 562.5, Stretch = Stretch.Uniform, Child = screen };
+            thumb.Measure(new Size(900, 562.5));
+            thumb.Arrange(new Rect(0, 0, 900, 562.5));
+            return thumb;
+        }
+        finally
+        {
+            StringTable.ResetToEmbeddedEnglish();
+            window.Close();
         }
     }
 }

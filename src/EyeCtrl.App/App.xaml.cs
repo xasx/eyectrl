@@ -390,7 +390,9 @@ public partial class App : Application
             // language. The open window shows its own modal, so the notice never appears twice.
             _restartNoticeHost = new RestartNoticeHost(
                 messenger,
-                new RestartNoticeWindow(settings.Dwell.ActivationButtonDwellMs, messenger),
+                new RestartNoticeWindow(
+                    settings.Dwell.ActivationButtonDwellMs, messenger,
+                    keyboardBounds: () => RestartNoticePlacement.ShownKeyboard(overlayManager.Keyboard)),
                 isSettingsOpen: () => _eventCoordinator.IsSettingsOpen,
                 targetLanguage: () => RestartNotices.TargetLanguage(settings.General.UiLanguage),
                 postToUi: work => Dispatcher.Invoke(work));

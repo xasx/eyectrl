@@ -24,13 +24,13 @@ using EyeCtrl.ViewModels.Messages;
 /// Placed like the caregiver alert: centred, 48 DIP above the bottom of the work area. That stays
 /// clear of the toolbar (docked to the top by default and, when moved, to an edge) and the right-hand
 /// edge bars, and a window that grows for a longer German text grows upward from a fixed bottom edge.
+/// Unlike the caregiver alert it has a dwell button, so it also never covers the gaze keyboard: while
+/// the keyboard is shown the card sits just above its top edge (<see cref="RestartNoticePlacement"/>),
+/// and it moves if the keyboard appears or goes while the card is up.
 /// </para>
 /// </summary>
 public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresenter
 {
-    /// <summary>The gap between the card's bottom edge and the work area's bottom, in DIP.</summary>
-    internal const double MarginDip = 48;
-
     /// <summary>The dwell id of the close button.</summary>
     internal const string CloseTargetId = "restart_notice_close";
 
@@ -38,12 +38,16 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
     private readonly int _dwellMs;
     private readonly IMessenger _messenger;
     private readonly DwellOutlineOverlay _outline;
+    private readonly Func<Rect?>? _keyboardBounds;
+    private Rect? _placedAgainst;
     private DispatcherTimer? _holdTimer;
 
     /// <summary>Creates the window. Not shown until <see cref="ShowNotice"/>.</summary>
     /// <param name="dwellMs">The close button's dwell time; the app's activation dwell, like the eye-care banner.</param>
     /// <param name="messenger">The bus the dwell-completion cue listens on; null is the app default.</param>
-    public RestartNoticeWindow(int dwellMs = 700, IMessenger? messenger = null)
+    /// <param name="keyboardBounds">The shown gaze keyboard's bounds in DIP, or null when it is not
+    /// shown; the card keeps clear of it. Null (the parameter) means no keyboard to avoid.</param>
+    public RestartNoticeWindow(int dwellMs = 700, IMessenger? messenger = null, Func<Rect?>? keyboardBounds = null)
     {
         IsClickThrough = true; // read in OverlayWindow.OnSourceInitialized, so NOT set after init
         ExcludeFromScreenCapture = true;
@@ -51,6 +55,7 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
 
         _dwellMs = dwellMs;
         _messenger = messenger ?? WeakReferenceMessenger.Default;
+        _keyboardBounds = keyboardBounds;
 
         // The same outline every key and button shows its dwell progress with.
         var label = CloseLabel;
@@ -68,7 +73,7 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
     /// <inheritdoc />
     public void ShowNotice(string message, string closeLabel, TimeSpan hold)
     {
-        Message.Text = message;
+        SetText(message);
         CloseLabel.Text = closeLabel;
         _outline.SetProgress(0);
 
@@ -92,8 +97,44 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
     }
 
     /// <inheritdoc />
-    public void OnGaze(PhysicalPoint gaze, long timestampMicroseconds) =>
+    public void OnGaze(PhysicalPoint gaze, long timestampMicroseconds)
+    {
+        // The keyboard can appear (or go) while the card is up: follow it, so the card never ends
+        // up over keys. The card moves, and its dwell target with it.
+        if (IsVisible)
+            ReplaceIfKeyboardMoved(SystemParameters.WorkArea);
         _dwell.Update(gaze, timestampMicroseconds);
+    }
+
+    /// <summary>
+    /// Re-places the card when the keyboard's bounds changed since it was placed. A no-op when
+    /// nothing moved (a gaze sample calls this while the card is shown, and moving the card
+    /// restarts the button's dwell).
+    /// </summary>
+    /// <param name="workArea">The work area to place in, in DIP.</param>
+    /// <returns>True when the card was moved.</returns>
+    internal bool ReplaceIfKeyboardMoved(Rect workArea)
+    {
+        var keyboard = _keyboardBounds?.Invoke();
+        if (Equals(keyboard, _placedAgainst)) return false;
+
+        Prepare(workArea);
+        UpdateLayout();
+        PlaceDwellTarget();
+        return true;
+    }
+
+    /// <summary>
+    /// The first line is the title (theme title size, medium weight); the rest is body text. A
+    /// message with no line break (a refusal reason) is all title: it is the one thing to read.
+    /// </summary>
+    internal void SetText(string message)
+    {
+        var split = message.Split('\n', 2);
+        TitleText.Text = split[0];
+        BodyText.Text = split.Length > 1 ? split[1] : string.Empty;
+        BodyText.Visibility = split.Length > 1 ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     /// <inheritdoc />
     public void HideNotice()
@@ -114,7 +155,7 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
     }
 
     /// <summary>
-    /// Sizes the window to its text and anchors it. Class-C growth, as the caregiver alert: 720 DIP
+    /// Sizes the window to its text and places it. Class-C growth, as the caregiver alert: 920 DIP
     /// wide, growing in height only from a minimum, so no translation is clipped. The text change
     /// invalidates the chain to the window, because a hidden window runs no layout pass and
     /// <c>Measure</c> would otherwise report the previous message's height.
@@ -122,7 +163,7 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
     /// <param name="workArea">The work area to anchor in, in DIP.</param>
     internal void Prepare(Rect workArea)
     {
-        for (DependencyObject? node = Message;
+        for (DependencyObject? node = BodyText;
              node is not null && !ReferenceEquals(node, this);
              node = VisualTreeHelper.GetParent(node) ?? LogicalTreeHelper.GetParent(node))
         {
@@ -133,16 +174,9 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
         content.Measure(new Size(Width, double.PositiveInfinity));
         var height = Math.Max(MinHeight, content.DesiredSize.Height);
         Height = height;
-        Anchor(workArea, height);
-    }
 
-    /// <summary>Centres the window and puts its BOTTOM edge <see cref="MarginDip"/> above the work area's bottom.</summary>
-    /// <param name="area">The work area, in DIP.</param>
-    /// <param name="height">The window's height in DIP.</param>
-    internal void Anchor(Rect area, double height)
-    {
-        Left = area.Left + (area.Width - Width) / 2;
-        Top = area.Bottom - height - MarginDip;
+        _placedAgainst = _keyboardBounds?.Invoke();
+        (Left, Top) = RestartNoticePlacement.Place(workArea, new Size(Width, height), _placedAgainst);
     }
 
     internal void PlaceDwellTarget()

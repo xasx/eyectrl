@@ -30,8 +30,8 @@ public class EmojiGridManagerTests
         var manager = new EmojiGridManager(
             keyRows: new StackPanel(),
             categoryBar: new StackPanel(),
-            registerKeyVisual: (id, key, container, content) =>
-                registrations.Add(new Registration(id, key, container, content)),
+            registerKeyVisual: (id, key, container, label, content) =>
+                registrations.Add(new Registration(id, key, container, label)),
             getKeySize: () => 70,
             clearKeyState: () => { },
             messenger: messenger);

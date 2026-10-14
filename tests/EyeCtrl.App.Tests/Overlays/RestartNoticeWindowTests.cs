@@ -83,21 +83,57 @@ public class RestartNoticeWindowTests
         var window = new RestartNoticeWindow();
         try
         {
-            window.Message.Text = "Short.";
+            window.SetText("Short.");
             window.Prepare(WorkArea);
             var shortTop = window.Top;
             var shortBottom = window.Top + window.Height;
 
             Check.That(window.Left).IsEqualTo((1920 - window.Width) / 2);
-            Check.That(shortBottom).IsEqualTo(1080 - RestartNoticeWindow.MarginDip);
+            Check.That(shortBottom).IsEqualTo(1080 - RestartNoticePlacement.MarginDip);
 
-            window.Message.Text = string.Join(" ", Enumerable.Repeat("Ein langer deutscher Satz über den Neustart.", 12));
+            window.SetText("Titel\n" + string.Join(" ", Enumerable.Repeat("Ein langer deutscher Satz über den Neustart.", 12)));
             window.Prepare(WorkArea);
 
             Check.WithCustomMessage("a longer text must grow the window, not clip it").That(window.Height)
                 .IsStrictlyGreaterThan(window.MinHeight);
             Check.That(window.Top + window.Height).IsEqualTo(shortBottom);
             Check.That(window.Top).IsStrictlyLessThan(shortTop);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    /// <summary>
+    /// "Text too small" (the user, on the first sheet): sizes come from the theme's tokens, the first
+    /// line is a title, the button label is at least body-sized, and the card is wide enough that a
+    /// longer German text wraps instead of clipping.
+    /// </summary>
+    [StaFact]
+    public void TheText_IsTitleAndBody_AtTheThemeTokens_AndTheButtonLabelIsAtLeastBody()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new RestartNoticeWindow();
+        try
+        {
+            window.SetText("Titel\nKörper eins\nKörper zwei");
+            Check.That(window.TitleText.Text).IsEqualTo("Titel");
+            Check.That(window.BodyText.Text).IsEqualTo("Körper eins\nKörper zwei");
+            Check.That(window.BodyText.Visibility).IsEqualTo(Visibility.Visible);
+
+            // A message with no line break (a refusal reason) is all title.
+            window.SetText("Neustart fehlgeschlagen.");
+            Check.That(window.TitleText.Text).IsEqualTo("Neustart fehlgeschlagen.");
+            Check.That(window.BodyText.Visibility).IsEqualTo(Visibility.Collapsed);
+
+            Check.That(window.TitleText.FontSize).IsEqualTo(EyeCtrl.Controls.Theme.Tokens.FontSizeTitle);
+            Check.That(window.TitleText.FontWeight).IsEqualTo(EyeCtrl.Controls.Theme.Tokens.FontWeightMedium);
+            Check.That(window.BodyText.FontSize).IsEqualTo(EyeCtrl.Controls.Theme.Tokens.FontSizeSubtitle);
+            Check.That(window.CloseLabel.FontSize).IsStrictlyGreaterThan(window.BodyText.FontSize - 1e-9);
+            Check.WithCustomMessage("the card is 880-960 DIP wide").That(window.Width >= 880 && window.Width <= 960).IsTrue();
+            Check.WithCustomMessage("the button is at least the old 170 x 64").That(
+                window.CloseButton.Width >= 170 && window.CloseButton.Height >= 64).IsTrue();
         }
         finally
         {
@@ -129,7 +165,7 @@ public class RestartNoticeWindowTests
             var window = new RestartNoticeWindow(dwellMs: 25, messenger: messenger);
             try
             {
-                window.Message.Text = "EyeCtrl wird neu gestartet.";
+                window.SetText("EyeCtrl wird neu gestartet.\nDas neue EyeCtrl startet gerade.");
                 window.CloseLabel.Text = "✕ Ausblenden";
                 window.Prepare(WorkArea);
                 LayOut(window);

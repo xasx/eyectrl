@@ -4,10 +4,12 @@ using System.Text;
 using Xunit;
 
 /// <summary>
-/// Round 2's classification logic, headless: black (H3 is not the cause), the two flat greys
-/// (neutral = the expected never-activated fallback, tinted = suspect) and varying (a live
+/// Round 2's classification logic, headless: black (nothing reaches the surface), the two flat
+/// greys (neutral = the expected never-activated fallback, tinted = suspect) and varying (a live
 /// material), plus the UNREADABLE lift it inherits from round 1. Pure arithmetic over synthetic
-/// samples — no window, no screen — so it runs in CI's <c>Category!=UI</c> set.
+/// samples — no window, no screen — so it runs in CI's <c>Category!=UI</c> set. Which black cause
+/// it is (the client still opaque, no system backdrop, no frame) is the script's pairwise reading,
+/// not the per-case label.
 /// </summary>
 public class BackdropMaterialClassificationTests
 {
@@ -24,7 +26,7 @@ public class BackdropMaterialClassificationTests
     }
 
     [Fact]
-    public void BlackCapture_MeansH3IsNotTheCause()
+    public void BlackCapture_IsNothingReachingTheSurface()
     {
         var baseline = Sample(meanR: 120, meanG: 118, meanB: 130, lumaStdDev: 12);
         var lifted = Sample(meanR: 0, meanG: 0, meanB: 0, lumaStdDev: 0, blackFraction: 1.0);
@@ -32,7 +34,6 @@ public class BackdropMaterialClassificationTests
         var verdict = BackdropMaterialLiveCheckTests.Classify(baseline, lifted, new StringBuilder());
 
         Check.That(verdict).StartsWith("black");
-        Check.That(verdict).Contains("H3");
     }
 
     [Fact]

@@ -176,9 +176,10 @@ public class BackdropAbLiveCheckTests
                 + Describe(lifted.Centre));
             log.AppendLine($"Capture full screen (1/16): {Describe(lifted.Full)}");
             log.AppendLine(
-                $"case-mean-rgb: {lifted.Centre.MeanR:0.0},{lifted.Centre.MeanG:0.0},{lifted.Centre.MeanB:0.0}");
+                $"case-mean-rgb: {BackdropReadoutLines.Mean(lifted.Centre.MeanR, lifted.Centre.MeanG, lifted.Centre.MeanB)}");
+            log.AppendLine($"case-stddev: {BackdropReadoutLines.Number(lifted.Centre.LumaStdDev)}");
             log.AppendLine(
-                $"baseline-mean-rgb: {baseline.Centre.MeanR:0.0},{baseline.Centre.MeanG:0.0},{baseline.Centre.MeanB:0.0}");
+                $"baseline-mean-rgb: {BackdropReadoutLines.Mean(baseline.Centre.MeanR, baseline.Centre.MeanG, baseline.Centre.MeanB)}");
 
             var verdict = Classify(baseline, lifted, log);
 

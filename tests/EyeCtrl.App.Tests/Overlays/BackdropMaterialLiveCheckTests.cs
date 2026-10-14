@@ -22,14 +22,18 @@ using Xunit;
 /// non-layered <c>HwndSource</c>'s <c>CompositionTarget.BackgroundColor</c> is black and is never
 /// made transparent — the window sets only <c>Background="Transparent"</c>, and nothing sets the
 /// composition target — so every round-1 case read pure black (0, 0, 0) whatever DWM did. This
-/// showcase tests exactly that: four cases, all NEVER-ACTIVATED as production shows the window (no
+/// showcase tests exactly that: five cases, all NEVER-ACTIVATED as production shows the window (no
 /// activation games in round 2), fixed order, about 8 s each:
 /// <list type="number">
 /// <item><c>NoResize</c> + transparent composition target, <b>Mica</b>;</item>
 /// <item><c>CanResize</c> + transparent composition target, <b>Mica</b>;</item>
 /// <item><c>NoResize</c> + transparent composition target, <b>Acrylic</b> (via <c>ApplyBackdrop</c>,
 /// which reaches production's <c>TryApplyAcrylicViaDwm</c>);</item>
-/// <item><c>CanResize</c> + transparent composition target, <b>Acrylic</b>.</item>
+/// <item><c>CanResize</c> + transparent composition target, <b>Acrylic</b>;</item>
+/// <item><b>the positive control (r5)</b>: <c>NoResize</c> + transparent composition target and
+/// production's Phase-2 legacy accent blur (<c>TryApplyAcrylic</c> called directly — it needs
+/// neither activation nor a frame). r5 varying means the composition-target fix works and a black
+/// r1–r4 is DWM's system backdrop; r5 black means H3 is incomplete.</item>
 /// </list>
 ///
 /// <para>
@@ -43,13 +47,18 @@ using Xunit;
 /// </para>
 ///
 /// <para>
-/// <b>The classification (per case).</b> <c>black</c>: H3 is not the (only) cause, the surface is
-/// still nothing; a <c>flat</c> grey: the composition-target fix worked and what remains is the
-/// never-activated surface — neutral grey is the expected fallback (review-02's advisory), a tinted
-/// flat is suspect; <c>varying</c>: a live material in that configuration. The script reads all
-/// four by review-02's pairwise rule — two cases are the SAME when their centre means differ by at
-/// most 1.5 on every channel and their stddevs by at most 0.5 — and prints the round-2 reading
-/// table; no absolute threshold decides the reading.
+/// <b>The classification (per case).</b> <c>black</c>: nothing reaches the surface in this
+/// configuration (the script's reading says which cause); a <c>flat</c> grey: neutral is the
+/// expected never-activated fallback (review-02's advisory), a tinted flat is suspect;
+/// <c>varying</c>: a live material in that configuration. The readout's machine lines
+/// (<c>case-mean-rgb:</c>, <c>case-stddev:</c>, <c>baseline-mean-rgb:</c>) are invariant and
+/// ';'-separated — this machine's culture writes decimal commas, and the scripts must read the same
+/// numbers (<see cref="BackdropReadoutLines"/>). The script reads the five cases by review-02's
+/// pairwise rule — two cases are the SAME when their centre means differ by at most 1.5 on every
+/// channel and their stddevs by at most 0.5 — and prints the round-2 reading table, including
+/// whether the frame matters; no absolute threshold decides the reading. The HKCU transparency
+/// setting and the energy-saver state are logged per case, because either can suppress the material
+/// for the session.
 /// </para>
 ///
 /// <para>
@@ -86,7 +95,22 @@ public class BackdropMaterialLiveCheckTests
     public void TheBackdrop_WithCanResize_Acrylic_ThroughATransparentComposition() =>
         RunCase(4, "canresize-acrylic-ct", "CanResize + transparent CT, Acrylic", ResizeMode.CanResize, BackdropType.Acrylic);
 
-    private static void RunCase(int caseNumber, string tag, string label, ResizeMode resizeMode, BackdropType material)
+    /// <summary>
+    /// r5 — the POSITIVE CONTROL (review-03 finding 2): NoResize + transparent composition target
+    /// and production's Phase-2 legacy accent blur (<c>TryApplyAcrylic</c> called directly, because
+    /// <c>ApplyBackdrop(Acrylic)</c> only reaches it when the DWM call fails). It needs neither
+    /// activation nor a frame, so it separates "the client is transparent now" from "DWM draws no
+    /// system backdrop for this window": r5 varying means the CT fix works and a black r1–r4 is
+    /// DWM's system backdrop; r5 black means H3 is incomplete. It is also a production option as is.
+    /// </summary>
+    [StaFact]
+    public void TheBackdrop_WithNoResize_LegacyAccentThroughATransparentComposition() =>
+        RunCase(5, "noresize-legacy-accent-ct", "NoResize + transparent CT, legacy accent (control)",
+            ResizeMode.NoResize, BackdropType.Acrylic, legacyAccent: true);
+
+    private static void RunCase(
+        int caseNumber, string tag, string label, ResizeMode resizeMode, BackdropType material,
+        bool legacyAccent = false)
     {
         Step3LiveCheckTests.BeginShowcaseCase();
         GlassBackdropWindow? window = null;
@@ -114,7 +138,22 @@ public class BackdropMaterialLiveCheckTests
             source.CompositionTarget.BackgroundColor = Colors.Transparent;
             var ctAfter = source.CompositionTarget.BackgroundColor;
 
-            window.ApplyBackdrop(settings);       // the material, through production's own dispatch
+            string applied;
+            bool legacyApplied = false;
+            if (legacyAccent)
+            {
+                // Production's Phase-2 path, called directly: ApplyBackdrop(Acrylic) only reaches it
+                // when the DWM call fails, and this control needs it regardless.
+                legacyApplied = TryApplyAcrylic(window);
+                applied = $"legacy accent blur (SetWindowCompositionAttribute ACCENT_ENABLE_ACRYLICBLURBEHIND); "
+                    + $"TryApplyAcrylic returned {legacyApplied}";
+            }
+            else
+            {
+                window.ApplyBackdrop(settings);   // the material, through production's own dispatch
+                applied = $"production ApplyBackdrop({material})";
+            }
+
             window.DrawHideButton(hideButtonCenter);
             window.ShowEscapeHint();
 
@@ -144,8 +183,10 @@ public class BackdropMaterialLiveCheckTests
             var log = new StringBuilder();
             log.AppendLine($"case: {caseNumber} ({label})");
             log.AppendLine($"Material requested: {material}; never activated (production's style)");
+            log.AppendLine($"Material applied: {applied}");
             log.AppendLine($"CompositionTarget.BackgroundColor before the fix: #{ctBefore.R:X2}{ctBefore.G:X2}{ctBefore.B:X2}{ctBefore.A:X2}; "
                 + $"after: #{ctAfter.R:X2}{ctAfter.G:X2}{ctAfter.B:X2}{ctAfter.A:X2}");
+            log.AppendLine($"{TransparencyState()}; {EnergySaverState()}");
 
             var style = GetWindowLong(hwnd, GwlStyle);
             var exStyle = GetWindowLong(hwnd, GwlExStyle);
@@ -163,35 +204,43 @@ public class BackdropMaterialLiveCheckTests
                 + BackdropAbLiveCheckTests.Describe(lifted.Centre));
             log.AppendLine($"Capture full screen (1/16): {BackdropAbLiveCheckTests.Describe(lifted.Full)}");
             log.AppendLine(
-                $"case-mean-rgb: {lifted.Centre.MeanR:0.0},{lifted.Centre.MeanG:0.0},{lifted.Centre.MeanB:0.0}");
+                $"case-mean-rgb: {BackdropReadoutLines.Mean(lifted.Centre.MeanR, lifted.Centre.MeanG, lifted.Centre.MeanB)}");
+            log.AppendLine($"case-stddev: {BackdropReadoutLines.Number(lifted.Centre.LumaStdDev)}");
             log.AppendLine(
-                $"case-stddev: {lifted.Centre.LumaStdDev:0.0##}");
-            log.AppendLine(
-                $"baseline-mean-rgb: {baseline.Centre.MeanR:0.0},{baseline.Centre.MeanG:0.0},{baseline.Centre.MeanB:0.0}");
+                $"baseline-mean-rgb: {BackdropReadoutLines.Mean(baseline.Centre.MeanR, baseline.Centre.MeanG, baseline.Centre.MeanB)}");
 
             var verdict = Classify(baseline, lifted, log);
 
             // The material probes run AFTER the capture: a re-apply restarts DWM's material
             // transition, and the capture must see what the hold shows.
-            var probe = material == BackdropType.Mica ? "TryApplyMica" : "TryApplyAcrylicViaDwm";
-            bool probeResult;
-            try
+            if (legacyAccent)
             {
-                probeResult = (bool)typeof(GlassBackdropWindow)
-                    .GetMethod(probe, BindingFlags.Instance | BindingFlags.NonPublic)!
-                    .Invoke(window, null)!;
+                log.AppendLine(
+                    $"TryApplyAcrylic (re-applied after the capture): {TryApplyAcrylic(window)}; "
+                    + "no DWMWA_SYSTEMBACKDROP_TYPE in this path");
             }
-            catch (TargetInvocationException)
+            else
             {
-                probeResult = false;
-            }
+                var probe = material == BackdropType.Mica ? "TryApplyMica" : "TryApplyAcrylicViaDwm";
+                bool probeResult;
+                try
+                {
+                    probeResult = (bool)typeof(GlassBackdropWindow)
+                        .GetMethod(probe, BindingFlags.Instance | BindingFlags.NonPublic)!
+                        .Invoke(window, null)!;
+                }
+                catch (TargetInvocationException)
+                {
+                    probeResult = false;
+                }
 
-            var backdropType = material == BackdropType.Mica ? DwmBackdropMica : DwmBackdropAcrylic;
-            var hresult = DwmSetWindowAttribute(hwnd, DwmwaSystemBackdropType, ref backdropType, sizeof(int));
-            log.AppendLine(
-                $"{probe} (re-applied after the capture): {probeResult}; raw "
-                + $"DwmSetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE, {(material == BackdropType.Mica ? "Mica" : "Acrylic")}) "
-                + $"HRESULT: 0x{hresult:X8} (0 = accepted)");
+                var backdropType = material == BackdropType.Mica ? DwmBackdropMica : DwmBackdropAcrylic;
+                var hresult = DwmSetWindowAttribute(hwnd, DwmwaSystemBackdropType, ref backdropType, sizeof(int));
+                log.AppendLine(
+                    $"{probe} (re-applied after the capture): {probeResult}; raw "
+                    + $"DwmSetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE, {(material == BackdropType.Mica ? "Mica" : "Acrylic")}) "
+                    + $"HRESULT: 0x{hresult:X8} (0 = accepted)");
+            }
             log.AppendLine($"Classification: {verdict}");
 
             BackdropAbLiveCheckTests.WriteLog(caseNumber, tag, log.ToString());
@@ -235,7 +284,7 @@ public class BackdropMaterialLiveCheckTests
             + $"luma stddev {baseline.Centre.LumaStdDev:0.00} -> {centre.LumaStdDev:0.00}.");
 
         if (centre.BlackFraction >= 0.98)
-            return "black (H3 is not the (only) cause: the surface is still nothing)";
+            return "black (nothing reaches the surface in this configuration; the script's reading says why)";
 
         var neutrality = Math.Max(
             Math.Abs(centre.MeanR - centre.MeanG),
@@ -248,6 +297,61 @@ public class BackdropMaterialLiveCheckTests
         }
 
         return "varying (a live material in this configuration)";
+    }
+
+    /// <summary>Production's Phase-2 legacy accent blur, reached by reflection (private, test-only call).</summary>
+    private static bool TryApplyAcrylic(GlassBackdropWindow window)
+    {
+        try
+        {
+            return (bool)typeof(GlassBackdropWindow)
+                .GetMethod("TryApplyAcrylic", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(window, null)!;
+        }
+        catch (TargetInvocationException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The HKCU transparency-effects setting. A material that is unavailable for the session would
+    /// otherwise read as black or flat too (review-03 finding 2).
+    /// </summary>
+    private static string TransparencyState()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return $"EnableTransparency (HKCU Personalize): {key?.GetValue("EnableTransparency") ?? "missing"}";
+        }
+        catch
+        {
+            return "EnableTransparency (HKCU Personalize): unreadable";
+        }
+    }
+
+    /// <summary>Energy saver forces the materials off, so its state belongs beside the readout.</summary>
+    private static string EnergySaverState()
+    {
+        var status = default(SystemPowerStatus);
+        if (!GetSystemPowerStatus(ref status)) return "power state unreadable";
+        var saver = status.SystemStatusFlag == 1 ? "energy saver ON" : "energy saver off";
+        var line = status.ACLineStatus == 1 ? "AC" : "battery";
+        var battery = status.BatteryLifePercent <= 100 ? $"battery {status.BatteryLifePercent}%" : "battery ?";
+        return $"{saver}, {line}, {battery}";
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SystemPowerStatus
+    {
+        public byte ACLineStatus;
+        public byte BatteryFlag;
+        public byte BatteryLifePercent;
+        public byte SystemStatusFlag;
+        public int BatteryLifeTime;
+        public int BatteryFullLifeTime;
     }
 
     private const int GwlStyle = -16;
@@ -275,4 +379,7 @@ public class BackdropMaterialLiveCheckTests
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmFlush();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetSystemPowerStatus(ref SystemPowerStatus status);
 }

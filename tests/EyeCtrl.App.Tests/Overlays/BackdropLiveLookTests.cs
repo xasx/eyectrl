@@ -121,7 +121,7 @@ public class BackdropLiveLookTests
                 $"Darken rectangles on the canvas: {rectangles} (expect 0 for a live material, 1 for Solid darken)");
             log.AppendLine($"TryApplyAcrylic: {accentResult}");
             log.AppendLine(
-                $"CompositionTarget.BackgroundColor after Show: #{ct.R:X2}{ct.G:X2}{ct.B:X2}{ct.A:X2} (expect #00000000)");
+                $"CompositionTarget.BackgroundColor after Show: #{ct.R:X2}{ct.G:X2}{ct.B:X2}{ct.A:X2} (alpha should be 00)");
             log.AppendLine(BackdropCapture.EnvironmentState());
 
             var style = GetWindowLong(hwnd, GwlStyle);

@@ -253,8 +253,12 @@ public class BackdropAbLiveCheckTests
     internal sealed record SampleStats(
         double MeanR, double MeanG, double MeanB, double LumaMean, double LumaStdDev, double BlackFraction, int Pixels);
 
-    /// <summary>The primary screen into one bitmap, sampled centrally (every 2nd px) and full-screen (every 16th).</summary>
-    private static ScreenSample Grab()
+    /// <summary>
+    /// The primary screen into one bitmap, sampled centrally (every 2nd px) and full-screen (every
+    /// 16th). Shared with round 2 (<see cref="BackdropMaterialLiveCheckTests"/>), which reads the
+    /// same way.
+    /// </summary>
+    internal static ScreenSample Grab()
     {
         var bounds = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
         using var bitmap = new System.Drawing.Bitmap(bounds.Width, bounds.Height);
@@ -272,7 +276,7 @@ public class BackdropAbLiveCheckTests
         return new ScreenSample(centre, full);
     }
 
-    private static SampleStats Stats(
+    internal static SampleStats Stats(
         System.Drawing.Bitmap bitmap, int x0, int y0, int width, int height, int step)
     {
         long n = 0;
@@ -299,15 +303,16 @@ public class BackdropAbLiveCheckTests
         return new SampleStats(sumR / n, sumG / n, sumB / n, mean, stdDev, (double)black / n, (int)n);
     }
 
-    private static string Describe(SampleStats stats) =>
+    internal static string Describe(SampleStats stats) =>
         $"mean RGB ({stats.MeanR:0.0}, {stats.MeanG:0.0}, {stats.MeanB:0.0}), luma mean {stats.LumaMean:0.00}, "
         + $"stddev {stats.LumaStdDev:0.00}, exactly black {stats.BlackFraction:P1} over {stats.Pixels} px";
 
     /// <summary>
     /// Writes the case readout so it is in the run's log directory whatever the runner does with
     /// captured console output: <c>EYECTRL_AB_LOG_DIR</c> (the script sets it) or a temp folder.
+    /// Shared with round 2.
     /// </summary>
-    private static void WriteLog(int caseNumber, string tag, string text)
+    internal static void WriteLog(int caseNumber, string tag, string text)
     {
         var directory = Environment.GetEnvironmentVariable("EYECTRL_AB_LOG_DIR") is { Length: > 0 } configured
             ? configured

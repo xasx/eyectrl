@@ -23,12 +23,47 @@ public class CalibrationMeasureOnlyTests
 {
     private sealed class FakeGazeProvider : IGazeProvider
     {
-        public event Action<GazePoint>? GazePointReceived;
+        private Action<GazePoint>? _handlers;
+
+        /// <summary>
+        /// Delivered synchronously on the thread that ATTACHES a gaze handler — for the view model
+        /// that is the instant a target is displayed, so the sample lands on the window's first edge.
+        /// <para>
+        /// The sidecar's window bounds are the first and last SAMPLE of a target, which makes them
+        /// whatever the firing loop managed to deliver. A loaded CI runner stalls that loop by a
+        /// second or more, which shortened the measured windows to 3.8–4.2 s (this flake) even though
+        /// the target was displayed for its full 5 s. One sample on each edge makes the bounds the
+        /// target's own edges.
+        /// </para>
+        /// </summary>
+        public Func<GazePoint>? SampleOnSubscribe { get; set; }
+
+        /// <summary>Delivered synchronously just before a gaze handler DETACHES — the target's end edge.</summary>
+        public Func<GazePoint>? SampleOnUnsubscribe { get; set; }
+
+        public event Action<GazePoint>? GazePointReceived
+        {
+            add
+            {
+                _handlers += value;
+                if (SampleOnSubscribe is { } sample) value?.Invoke(sample());
+            }
+            remove
+            {
+                // Only on a real detach: -= also runs from OnDispose and Cancel paths where the view
+                // model is not collecting, and a spurious edge sample there would be recorded as if
+                // the last target had just ended.
+                bool attached = _handlers?.GetInvocationList().Contains(value) == true;
+                if (attached && SampleOnUnsubscribe is { } sample) value?.Invoke(sample());
+                _handlers -= value;
+            }
+        }
+
         public bool IsConnected => true;
         public void Start() { }
         public void Stop() { }
         public void Dispose() { }
-        public void FireGaze(GazePoint p) => GazePointReceived?.Invoke(p);
+        public void FireGaze(GazePoint p) => _handlers?.Invoke(p);
     }
 
     private sealed class ThrowingSink : IGroundTruthSink
@@ -89,8 +124,13 @@ public class CalibrationMeasureOnlyTests
     /// target index, whether gaze sits on the target (so the collector completes it) or far away (so
     /// the target ends empty at its cap). Returns the VM and its sidecar when the session ends.
     /// </summary>
+    /// <param name="stallMs">
+    /// Injected stall in the sample loop, once per target ~3.5 s in: the deterministic stand-in for
+    /// the loaded-runner stall that truncated the measured windows (see the V4 regression test). Zero
+    /// is the normal harness.
+    /// </param>
     private async Task<(CalibrationViewModel Vm, GroundTruthSession Sidecar)> RunProbe(
-        Func<int, bool> aimAtTarget, int timeoutSeconds = 30)
+        Func<int, bool> aimAtTarget, int timeoutSeconds = 30, int stallMs = 0)
     {
         // A fresh recipient object per call, so a test may subscribe to the completion message itself
         // without the messenger reporting a duplicate registration.
@@ -99,17 +139,47 @@ public class CalibrationMeasureOnlyTests
         _messenger.Register<CalibrationCompletedMessage>(probe, (_, _) => signal.TrySetResult());
 
         var vm = await Task.Run(() => CreateVm());
+
+        // One sample on each of the target's edges, delivered by the provider at the exact moments the
+        // view model subscribes and unsubscribes — see FakeGazeProvider.SampleOnSubscribe. The sidecar
+        // window is defined by its first and last SAMPLE (GroundTruthWindow.DisplayedFromUs/EndedAtUs),
+        // so without these the bounds are wherever the 25 ms loop happened to be.
+        long t0 = Environment.TickCount64;
+        GazePoint EdgeSample()
+        {
+            var target = vm.CurrentTargetPosition;
+            long us = (Environment.TickCount64 - t0) * 1000;
+            return aimAtTarget(vm.CurrentTargetIndex)
+                ? new GazePoint(target.X + 5, target.Y - 5, us, IsValid: true)
+                : new GazePoint(1920, 100, us, IsValid: true);
+        }
+        _provider.SampleOnSubscribe = EdgeSample;
+        _provider.SampleOnUnsubscribe = EdgeSample;
+
         _messenger.Send(new MeasureOnlyCalibrationRequestedMessage());
 
-        long t0 = Environment.TickCount64;
         using var stop = new CancellationTokenSource();
+        int stalledFor = -1;
+        long targetStart = Environment.TickCount64;
+        int lastIndex = 0;
         var firing = Task.Run(async () =>
         {
             while (!stop.IsCancellationRequested)
             {
+                int index = vm.CurrentTargetIndex;
+                if (index != lastIndex) { lastIndex = index; targetStart = Environment.TickCount64; }
+
+                if (stallMs > 0 && index > stalledFor && Environment.TickCount64 - targetStart >= 4_000)
+                {
+                    // Starts 4 s into the target and runs past the 5 s advance, so the loop's last
+                    // sample falls ~1.5 s short of the end — the CI shape exactly.
+                    stalledFor = index;
+                    Thread.Sleep(stallMs);
+                }
+
                 var target = vm.CurrentTargetPosition;
                 long us = (Environment.TickCount64 - t0) * 1000;
-                var point = aimAtTarget(vm.CurrentTargetIndex)
+                var point = aimAtTarget(index)
                     ? new GazePoint(target.X + 5, target.Y - 5, us, IsValid: true)
                     : new GazePoint(1920, 100, us, IsValid: true);
                 _provider.FireGaze(point);
@@ -120,6 +190,11 @@ public class CalibrationMeasureOnlyTests
         await signal.Task.WaitAsync(TimeSpan.FromSeconds(timeoutSeconds), TestContext.Current.CancellationToken);
         stop.Cancel();
         try { await firing; } catch (OperationCanceledException) { }
+
+        // The edge hooks belong to this probe; a test that continues with a normal calibration in the
+        // same instance (ProbeThenCalibrateNow) must not get edge samples injected into it.
+        _provider.SampleOnSubscribe = null;
+        _provider.SampleOnUnsubscribe = null;
 
         return (vm, ReadSidecar(ProbeSidecarPath()));
     }
@@ -286,6 +361,14 @@ public class CalibrationMeasureOnlyTests
     /// that window would be ~160 ms with no post-guard sample at all, and every small-bias probe would
     /// come back "no steady holds". The window must still be ~5 s, and a target that arrived but is
     /// not complete must still advance at its cap, not extend to 25 s.
+    /// <para>
+    /// The window is the sidecar's sample span: <c>DisplayedFromUs</c> and <c>EndedAtUs</c> are the
+    /// target's first and last sample (GroundTruth.cs), so a real tracker's period — ~11 ms at 90 Hz —
+    /// is the only gap between them and the target's display/advance edges. The harness preserves that
+    /// by delivering one sample on each edge from the provider's subscribe/unsubscribe hooks; without
+    /// them the span is the firing loop's cadence, which a loaded runner stretches by seconds (see the
+    /// stall regression below).
+    /// </para>
     /// </summary>
     [Theory]
     [InlineData(1000, 300, 15)]   // shipped defaults
@@ -302,6 +385,33 @@ public class CalibrationMeasureOnlyTests
         var (vm, sidecar) = await RunProbe(_ => true, timeoutSeconds: 40);
         var elapsed = TimeSpan.FromMilliseconds(Environment.TickCount64 - started);
 
+        AssertFixedFiveSecondWindows(vm, sidecar, elapsed);
+    }
+
+    /// <summary>
+    /// The CI failure this pins, deterministically: the sample loop stalls for 1.5 s from 4 s into
+    /// each target, so it is still stalled when the target advances — the runner's stall (measured at
+    /// 0.8–1.2 s, from the same position) cut the windows to 3.8–4.2 s. The target still was displayed
+    /// for its full budget, so the window must still read 5 s.
+    /// </summary>
+    [Fact]
+    public async Task V4_MeasureOnlyWindow_Holds_WhenTheSampleSourceStalls()
+    {
+        _settings = new CalibrationSettings
+        {
+            PointCount = 5, TargetHoldMs = 1000, SettleWindowMs = 300, SamplesPerPoint = 15,
+        };
+
+        var started = Environment.TickCount64;
+        var (vm, sidecar) = await RunProbe(_ => true, timeoutSeconds: 40, stallMs: 1_500);
+        var elapsed = TimeSpan.FromMilliseconds(Environment.TickCount64 - started);
+
+        AssertFixedFiveSecondWindows(vm, sidecar, elapsed);
+    }
+
+    private static void AssertFixedFiveSecondWindows(
+        CalibrationViewModel vm, GroundTruthSession sidecar, TimeSpan elapsed)
+    {
         Check.That(vm.State).IsEqualTo(CalibrationState.Active);
         Check.That(elapsed.TotalSeconds).IsGreaterOrEqualThan(23.0);
         Check.That(elapsed.TotalSeconds).IsStrictlyLessThan(32.0);   // an extension (25 s) would exceed this

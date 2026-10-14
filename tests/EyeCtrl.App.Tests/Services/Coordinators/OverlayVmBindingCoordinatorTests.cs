@@ -7,6 +7,7 @@ using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using EyeCtrl.ViewModels.Messages;
@@ -121,6 +122,73 @@ public class OverlayVmBindingCoordinatorTests
             .SetValue(coordinator, glassBackdrop);
 
         return coordinator;
+    }
+
+    [Fact]
+    public void ShowBackdrop_PublishesTheCornerAt53Dip_WhoseDiscAndHaloFitTheScreen()
+    {
+        // review-01 finding 3 (P1): the coordinator's corner arithmetic was restated by every gate,
+        // so :108 could drift to 40.0 and 108 tests stayed green. This drives the real show path —
+        // manual selection becoming visible, the same trigger the hint tests use — and pins what
+        // production PUBLISHES: the ShowBackdropMessage centre the dwell target is registered from.
+        var glassBackdrop = new TestFakes.FakeGlassBackdropOverlay();
+        var messenger = new WeakReferenceMessenger();
+        var settings = new EyeCtrlSettings();
+        var manualSelectionVm = new ManualSelectionOverlayViewModel(settings, messenger);
+
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            ManualSelectionVM = manualSelectionVm,
+            Settings = settings,
+            Messenger = messenger,
+            OverlayManager = TestFakes.MakeOverlayManager(
+                cursorCircle: new TestFakes.FakeCursorCircleOverlay(),
+                activationButton: new TestFakes.FakeActivationButtonOverlay(),
+                manualSelection: new TestFakes.FakeManualSelectionOverlay(),
+                manualSelectionIndicator: new TestFakes.FakeManualSelectionIndicatorOverlay(),
+                glassBackdrop: glassBackdrop),
+        };
+        var coordinator = NewCoordinator();
+        SetContext(coordinator, ctx);
+        typeof(OverlayVmBindingCoordinator)
+            .GetField("_glassBackdrop", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(coordinator, glassBackdrop);
+
+        ShowBackdropMessage? published = null;
+        messenger.Register<ShowBackdropMessage>(this, (_, message) => published = message);
+
+        manualSelectionVm.IsVisible = true;
+        InvokeManualSelectionHandler(coordinator, nameof(ManualSelectionOverlayViewModel.IsVisible));
+
+        Check.WithCustomMessage("the show path published no ShowBackdropMessage.")
+            .That(published).IsNotNull();
+        Check.That(glassBackdrop.Calls).Contains("Show").And.Contains("DrawHideButton");
+
+        var screen = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
+        var dipX = DpiHelper.PhysicalToLogicalX(published!.HideButtonCenter.X);
+        var dipY = DpiHelper.PhysicalToLogicalY(published.HideButtonCenter.Y);
+        var screenDipWidth = screen.Width / DpiHelper.ScaleX;
+        var screenDipHeight = screen.Height / DpiHelper.ScaleY;
+
+        Check.WithCustomMessage(
+                $"the ✕'s published centre ({dipX:0.##}, {dipY:0.##}) DIP is not 53 DIP from the right and top "
+                + $"of the {screenDipWidth:0.#}×{screenDipHeight:0.#} DIP screen.")
+            .That(dipX).IsCloseTo(screenDipWidth - 53, 0.01);
+        Check.That(dipY).IsCloseTo(53, 0.01);
+
+        // The choice's property, on the PUBLISHED centre: the 100-DIP disc (radius 50) and its
+        // 105-DIP rim halo (radius 52.5) lie inside the screen.
+        const double haloRadius = 52.5;
+        Check.WithCustomMessage(
+                $"the disc around the published centre reaches {dipX + UIConstants.ButtonRadius:0.#} DIP against the "
+                + $"screen's {screenDipWidth:0.#} DIP; it must be inside.")
+            .That(dipX + UIConstants.ButtonRadius).IsStrictlyLessThan(screenDipWidth);
+        Check.That(dipX + haloRadius).IsStrictlyLessThan(screenDipWidth);
+        Check.WithCustomMessage(
+                $"the halo around the published centre reaches {dipY - haloRadius:0.#} DIP above the screen's top edge.")
+            .That(dipY - haloRadius).IsStrictlyGreaterThan(0);
+        Check.That(dipY + haloRadius).IsStrictlyLessThan(screenDipHeight);
+        Check.That(dipX - haloRadius).IsStrictlyGreaterThan(0);
     }
 
     // (The Paused ring dim (A-M2) test was removed with the dim plumbing itself: PR #191 hides the

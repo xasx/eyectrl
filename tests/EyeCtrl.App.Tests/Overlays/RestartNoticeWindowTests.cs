@@ -36,14 +36,6 @@ public class RestartNoticeWindowTests
             });
     }
 
-    /// <summary>Lays the never-shown window out at its prepared size, as a shown one would be.</summary>
-    private static void LayOut(RestartNoticeWindow window)
-    {
-        window.Measure(new Size(window.Width, window.Height));
-        window.Arrange(new Rect(0, 0, window.Width, window.Height));
-        window.UpdateLayout();
-    }
-
     private static void WithDpi(double scale, Action action)
     {
         var (x, y) = (DpiHelper.ScaleX, DpiHelper.ScaleY);
@@ -164,14 +156,11 @@ public class RestartNoticeWindowTests
         WithDpi(2.0, () =>
         {
             var messenger = new WeakReferenceMessenger();
-            var window = new RestartNoticeWindow(dwellMs: 25, messenger: messenger);
+            var window = HeadlessNotice(messenger);
             try
             {
-                window.SetText("EyeCtrl wird neu gestartet.\nDas neue EyeCtrl startet gerade.");
-                window.CloseLabel.Text = "✕ Ausblenden";
-                window.Prepare(WorkArea);
-                LayOut(window);
-                window.PlaceDwellTarget();
+                window.ShowNotice(
+                    "EyeCtrl wird neu gestartet.\nDas neue EyeCtrl startet gerade.", "✕ Ausblenden", TimeSpan.FromSeconds(30));
 
                 // Where the button is on screen, in physical pixels, from the real layout.
                 var button = window.CloseButton.TransformToAncestor((System.Windows.Media.Visual)window.Content)
@@ -211,6 +200,128 @@ public class RestartNoticeWindowTests
         });
     }
 
+    /// <summary>
+    /// A card whose "show" is a headless layout: <see cref="RestartNoticeWindow.ShowNotice"/> runs for
+    /// real (text, placement, dwell target, offer suspension, timer) except that nothing is put on
+    /// screen, because a shown overlay is the user's only input surface.
+    /// </summary>
+    private static RestartNoticeWindow HeadlessNotice(IMessenger messenger, Func<IReadOnlyList<Rect>>? keepClear = null) =>
+        new(dwellMs: 25, messenger, keepClear, present: card =>
+        {
+            card.Measure(new Size(card.Width, card.Height));
+            card.Arrange(new Rect(0, 0, card.Width, card.Height));
+            card.UpdateLayout();
+        });
+
+    private static void RegisterActive(IMessenger messenger, List<bool> into) =>
+        messenger.Register<RestartNoticeActiveMessage>(into, (list, message) => ((List<bool>)list).Add(message.Active));
+
+    /// <summary>
+    /// Review R1: the card carries a dwell target and is click-through, so an activation offer over
+    /// it would click the window beneath. While it is up it tells the activation-offer coordinator
+    /// (<see cref="RestartNoticeActiveMessage"/>), exactly as the eye-care banner does, and says so
+    /// again when it goes, by hide, by dwell or by timeout.
+    /// </summary>
+    [StaFact]
+    public void TheCard_SuspendsActivationOffers_WhileItIsUp()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var messenger = new WeakReferenceMessenger();
+        var active = new List<bool>();
+        RegisterActive(messenger, active);
+        var card = HeadlessNotice(messenger);
+        try
+        {
+            card.ShowNotice("Titel", "OK", TimeSpan.FromSeconds(30));
+            Check.That(card.IsShowing).IsTrue();
+            Check.That(active).ContainsExactly(true);
+
+            card.HideNotice();
+            Check.That(card.IsShowing).IsFalse();
+            Check.That(active).ContainsExactly(true, false);
+        }
+        finally
+        {
+            card.Close();
+        }
+    }
+
+    [StaFact]
+    public void ADwellOnTheButton_TakesTheCardDown_ThenReleasesTheOffers_ThenCues()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        WithDpi(2.0, () =>
+        {
+            var messenger = new WeakReferenceMessenger();
+            var order = new List<string>();
+            messenger.Register<RestartNoticeActiveMessage>(order, (list, m) => ((List<string>)list).Add("active:" + m.Active));
+            messenger.Register<DwellActivationMessage>(order, (list, _) => ((List<string>)list).Add("cue"));
+            var card = HeadlessNotice(messenger);
+            try
+            {
+                card.ShowNotice("Titel\nKörper", "OK", TimeSpan.FromSeconds(30));
+                var button = card.CloseButton.TransformToAncestor((System.Windows.Media.Visual)card.Content)
+                    .TransformBounds(new Rect(card.CloseButton.RenderSize));
+                var centre = new PhysicalPoint(
+                    (card.Left + button.Left + button.Width / 2) * 2.0,
+                    (card.Top + button.Top + button.Height / 2) * 2.0);
+
+                for (var i = 1; i <= 20; i++)
+                    card.OnGaze(centre, i * 2_000);
+
+                Check.That(card.IsShowing).IsFalse();
+                Check.That(order).ContainsExactly("active:True", "active:False", "cue");
+
+                // A card that is down takes no gaze: a later dwell must not cue again.
+                for (var i = 21; i <= 60; i++)
+                    card.OnGaze(centre, i * 2_000);
+                Check.That(order).HasSize(3);
+            }
+            finally
+            {
+                card.Close();
+            }
+        });
+    }
+
+    [StaFact]
+    public void TheCard_FollowsTheChrome_FromAGazeSample_ButOnlyEveryQuarterSecond()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        IReadOnlyList<Rect> chrome = [];
+        var calls = 0;
+        var card = HeadlessNotice(new WeakReferenceMessenger(), () => { calls++; return chrome; });
+        try
+        {
+            card.ShowNotice("Titel", "OK", TimeSpan.FromSeconds(30));
+            var resting = card.Top;
+            var far = new PhysicalPoint(10, 10);
+
+            // The keyboard opens under the card; the first sample after the show reads the chrome and
+            // moves the card off it.
+            chrome = [new Rect(300, card.Top, 1320, 420)];
+            card.OnGaze(far, 1_000);
+            var above = card.Top;
+            Check.WithCustomMessage("the card did not move off the keyboard that opened under it")
+                .That(above).IsStrictlyLessThan(resting);
+
+            // The keyboard closes; a sample 100 ms later is throttled (the chrome is not even read), and
+            // the first one a quarter second after the last read moves the card back.
+            chrome = [];
+            var before = calls;
+            card.OnGaze(far, 1_000 + 100_000);
+            Check.That(calls).IsEqualTo(before);
+            Check.That(card.Top).IsEqualTo(above);
+
+            card.OnGaze(far, 1_000 + RestartNoticeWindow.FollowCheckIntervalMicroseconds);
+            Check.That(card.Top).IsEqualTo(resting);
+        }
+        finally
+        {
+            card.Close();
+        }
+    }
+
     [StaFact]
     public void GazeAwayFromTheButton_NeverClosesIt()
     {
@@ -218,12 +329,11 @@ public class RestartNoticeWindowTests
         WithDpi(2.0, () =>
         {
             var messenger = new WeakReferenceMessenger();
-            var window = new RestartNoticeWindow(dwellMs: 25, messenger: messenger);
+            var window = HeadlessNotice(messenger);
             try
             {
-                window.Prepare(WorkArea);
-                LayOut(window);
-                window.PlaceDwellTarget();
+                window.ShowNotice("Titel\nKörper", "OK", TimeSpan.FromSeconds(30));
+                Check.That(window.IsShowing).IsTrue();
                 var probe = new CueProbe();
                 probe.Attach(messenger);
 

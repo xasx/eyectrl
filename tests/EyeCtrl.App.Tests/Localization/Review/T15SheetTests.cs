@@ -403,7 +403,7 @@ public class T15SheetTests
             keyboard = new Rect(kl, kt, probe.Chrome.Width, probe.Chrome.Height);
         }
 
-        var window = new RestartNoticeWindow(keyboardBounds: () => keyboard);
+        var window = new RestartNoticeWindow(keepClear: () => keyboard is { } kb ? [kb] : []);
         try
         {
             ActivateLanguage(true);

@@ -65,7 +65,8 @@ public sealed class RestartNoticeHost : IDisposable
         // injects no input, so, like the toolbar band, the close button stays dwellable while paused.
         messenger.Register<GazeCursorMovedMessage>(this, (_, m) =>
         {
-            if (_presenter.IsShowing && !m.IsInGap) _presenter.OnGaze(m.Position, m.TimestampMicroseconds);
+            if (_presenter.IsShowing && !m.IsInGap && !_isSettingsOpen())
+                _presenter.OnGaze(m.Position, m.TimestampMicroseconds);
         });
     }
 
@@ -88,6 +89,17 @@ public sealed class RestartNoticeHost : IDisposable
         var target = _targetLanguage();
         Log.Information("Restart notice: showing 'restart not possible' (no Settings window is open)");
         _presenter.ShowNotice(reason, RestartNotices.RefusedChoices(target)[0].Label, RefusedHold);
+    }
+
+    /// <summary>
+    /// Settings opened or closed. Opening takes a notice that is up down: the Settings window now
+    /// covers the card, whose close button would otherwise stay live under it, an invisible target
+    /// whose dwell would play the activation cue for nothing the user can see.
+    /// </summary>
+    /// <param name="open">True when a Settings window has opened.</param>
+    public void OnSettingsOpenChanged(bool open)
+    {
+        if (open) _presenter.HideNotice();
     }
 
     /// <summary>Unregisters from the messenger and takes any notice down.</summary>

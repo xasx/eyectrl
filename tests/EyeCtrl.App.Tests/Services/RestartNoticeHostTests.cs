@@ -197,11 +197,56 @@ public class RestartNoticeHostTests
         Check.That(System.Text.RegularExpressions.Regex.IsMatch(
             arguments, @"targetLanguage\s*:\s*\(\)\s*=>\s*RestartNotices\s*\.\s*TargetLanguage\s*\(")).IsTrue();
         Check.That(arguments.Contains("new RestartNoticeWindow(", StringComparison.Ordinal)).IsTrue();
-        // The card keeps off the gaze keyboard only if it is told where the keyboard is.
-        Check.WithCustomMessage("the card is no longer given the shown keyboard's bounds, so it could cover the keys")
+        // The card keeps off the gaze keyboard and the toolbar only if it is told where they are: the
+        // zones the activation offer already keeps clear of.
+        Check.WithCustomMessage("the card is no longer given the chrome zones, so it could cover the keys or the toolbar")
             .That(System.Text.RegularExpressions.Regex.IsMatch(
                 arguments,
-                @"keyboardBounds\s*:\s*\(\)\s*=>\s*RestartNoticePlacement\s*\.\s*ShownKeyboard\s*\(\s*overlayManager\s*\.\s*Keyboard\s*\)"))
+                @"keepClear\s*:\s*\(\)\s*=>\s*RestartNoticePlacement\s*\.\s*ToDip\s*\(\s*(?:EyeCtrl\s*\.\s*App\s*\.\s*Services\s*\.\s*Coordinators\s*\.\s*)?ActivationChromeZones\s*\.\s*CollectFromProduction\s*\(\s*coordinationContext\s*\)\s*\)"))
             .IsTrue();
+        // Settings opening over a card that is up takes it down (review R3).
+        Check.WithCustomMessage("App.xaml.cs no longer takes the card down when Settings opens")
+            .That(System.Text.RegularExpressions.Regex.IsMatch(
+                text,
+                @"_eventCoordinator\s*\.\s*SettingsOpenChanged\s*\+=\s*_restartNoticeHost\s*\.\s*OnSettingsOpenChanged"))
+            .IsTrue();
+    }
+
+    /// <summary>
+    /// Review R3: the host checked Settings only when a notice ARRIVED, so Settings opening over a
+    /// card that was up left the card's button live underneath it: an invisible target, whose dwell
+    /// would play the activation cue for nothing the user can see.
+    /// </summary>
+    [Fact]
+    public void OpeningSettings_TakesAShowingNoticeDown()
+    {
+        var rig = new Rig();
+        rig.Messenger.Send(new RestartInProgressMessage());
+        Check.That(rig.Presenter.IsShowing).IsTrue();
+
+        rig.SettingsOpen = true;
+        rig.Host.OnSettingsOpenChanged(true);
+
+        Check.That(rig.Presenter.IsShowing).IsFalse();
+        Check.That(rig.Presenter.HideCalls).IsEqualTo(1);
+
+        // Closing Settings again neither hides nor brings anything back.
+        rig.SettingsOpen = false;
+        rig.Host.OnSettingsOpenChanged(false);
+        Check.That(rig.Presenter.HideCalls).IsEqualTo(1);
+        Check.That(rig.Presenter.Notices).HasSize(1);
+    }
+
+    [Fact]
+    public void WhileSettingsIsOpen_NoGazeReachesTheCard()
+    {
+        var rig = new Rig();
+        rig.Messenger.Send(new RestartInProgressMessage());
+        rig.SettingsOpen = true;   // opened over the card, before the host heard of it
+
+        rig.Messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 200), 2_000));
+
+        Check.WithCustomMessage("gaze reached a card that Settings covers")
+            .That(rig.Presenter.Gaze).IsEmpty();
     }
 }

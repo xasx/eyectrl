@@ -131,7 +131,7 @@ public class RestartNoticePlacementTests
 
         foreach (var text in new[] { GermanRefusal, GermanInProgress })
         {
-            var card = new RestartNoticeWindow(keyboardBounds: () => chrome);
+            var card = new RestartNoticeWindow(keepClear: () => [chrome]);
             try
             {
                 card.SetText(text);
@@ -152,9 +152,11 @@ public class RestartNoticePlacementTests
                 // Key by key, as the user's gaze would meet them: the card and the button, against
                 // every key's rectangle in screen position.
                 var touched = keyboard.Keys
-                    .Where(pair => new Rect(left + pair.Value.X, top + pair.Value.Y, pair.Value.Width, pair.Value.Height)
-                        .IntersectsWith(cardRect) || new Rect(left + pair.Value.X, top + pair.Value.Y, pair.Value.Width, pair.Value.Height)
-                        .IntersectsWith(button))
+                    .Where(pair =>
+                    {
+                        var key = new Rect(left + pair.Value.X, top + pair.Value.Y, pair.Value.Width, pair.Value.Height);
+                        return key.IntersectsWith(cardRect) || key.IntersectsWith(button);
+                    })
                     .Select(pair => pair.Key)
                     .ToList();
                 Check.WithCustomMessage($"the card or its button touches key(s): {string.Join(", ", touched)}")
@@ -167,11 +169,75 @@ public class RestartNoticePlacementTests
         }
     }
 
-    [StaFact]
-    public void WithNoKeyboard_TheCardSitsAtTheBottomCentre()
+    /// <summary>
+    /// Review R2: a toolbar docked to the BOTTOM sits inside the work area, and the card's resting
+    /// place (centred, 48 DIP up) overlapped it by 30-40 DIP, two dwell targets under one gaze. The
+    /// zones the activation offer already keeps clear of include the toolbar, so the card does too.
+    /// </summary>
+    [StaTheory]
+    [InlineData(112.0, 700.0)]
+    [InlineData(112.0, 1400.0)]
+    [InlineData(150.0, 900.0)]
+    public void WithABottomDockedToolbar_TheCardAndItsButtonStayClearOfIt(double toolbarHeight, double toolbarWidth)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
-        var card = new RestartNoticeWindow(keyboardBounds: () => null);
+        var (tl, tt) = OverlayPositioning.PlaceAtEdge(WorkArea, "bottom", toolbarWidth, toolbarHeight);
+        var toolbar = new Rect(tl, tt, toolbarWidth, toolbarHeight);
+
+        foreach (var text in new[] { GermanRefusal, GermanInProgress })
+        {
+            var card = new RestartNoticeWindow(keepClear: () => [toolbar]);
+            try
+            {
+                card.SetText(text);
+                card.Prepare(WorkArea);
+                card.Measure(new Size(card.Width, card.Height));
+                card.Arrange(new Rect(0, 0, card.Width, card.Height));
+                card.UpdateLayout();
+
+                var cardRect = new Rect(card.Left, card.Top, card.Width, card.Height);
+                Check.WithCustomMessage($"the card {cardRect} covers the bottom-docked toolbar {toolbar}")
+                    .That(cardRect.IntersectsWith(toolbar)).IsFalse();
+                Check.WithCustomMessage($"the button {ButtonRect(card)} covers the bottom-docked toolbar {toolbar}")
+                    .That(ButtonRect(card).IntersectsWith(toolbar)).IsFalse();
+                Check.That(WorkArea.Contains(cardRect)).IsTrue();
+            }
+            finally
+            {
+                card.Close();
+            }
+        }
+    }
+
+    [StaFact]
+    public void WithTheKeyboardAndABottomToolbarBoth_TheCardClearsBoth()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        // A keyboard above a bottom toolbar (the keyboard yields to the toolbar's extent).
+        var toolbar = new Rect(610, 1040, 700, 112);
+        var keyboard = new Rect(200, 560, 1520, 460);
+        var card = new RestartNoticeWindow(keepClear: () => [toolbar, keyboard]);
+        try
+        {
+            card.SetText(GermanRefusal);
+            card.Prepare(WorkArea);
+            var cardRect = new Rect(card.Left, card.Top, card.Width, card.Height);
+
+            Check.That(cardRect.IntersectsWith(toolbar)).IsFalse();
+            Check.That(cardRect.IntersectsWith(keyboard)).IsFalse();
+            Check.That(WorkArea.Contains(cardRect)).IsTrue();
+        }
+        finally
+        {
+            card.Close();
+        }
+    }
+
+    [StaFact]
+    public void WithNoChrome_TheCardSitsAtTheBottomCentre()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var card = new RestartNoticeWindow(keepClear: () => []);
         try
         {
             card.SetText(GermanRefusal);
@@ -186,44 +252,51 @@ public class RestartNoticePlacementTests
         }
     }
 
-    [StaFact]
-    public void ANotShownKeyboard_IsNoKeyboardToAvoid()
+    [Fact]
+    public void ToDip_ConvertsThePublishedPhysicalZones_AndDropsEmptyOnes()
     {
-        WpfApplicationGate.EnsureApplicationWithTokens();
-        var keyboard = new KeyboardWindow();
+        var scale = (EyeCtrl.Core.Services.DpiHelper.ScaleX, EyeCtrl.Core.Services.DpiHelper.ScaleY);
         try
         {
-            Check.That(RestartNoticePlacement.ShownKeyboard(keyboard)).IsNull();
+            EyeCtrl.Core.Services.DpiHelper.Update(2.0, 2.0);
+            var dip = RestartNoticePlacement.ToDip(
+            [
+                new EyeCtrl.Core.Models.PhysicalRect(400, 200, 1000, 600),
+                default,
+            ]);
+
+            Check.That(dip).HasSize(1);
+            Check.That(dip[0]).IsEqualTo(new Rect(200, 100, 500, 300));
         }
         finally
         {
-            keyboard.Close();
+            EyeCtrl.Core.Services.DpiHelper.Update(scale.ScaleX, scale.ScaleY);
         }
     }
 
     [StaFact]
-    public void TheCardFollowsTheKeyboard_WhenItAppearsOrGoesWhileTheCardIsUp()
+    public void TheCardFollowsTheChrome_WhenItAppearsOrGoesWhileTheCardIsUp()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
-        Rect? keyboard = null;
-        var card = new RestartNoticeWindow(keyboardBounds: () => keyboard);
+        IReadOnlyList<Rect> chrome = [];
+        var card = new RestartNoticeWindow(keepClear: () => chrome);
         try
         {
             card.SetText(GermanRefusal);
             card.Prepare(WorkArea);
             var bottomTop = card.Top;
             Check.WithCustomMessage("nothing moved, so nothing is re-placed")
-                .That(card.ReplaceIfKeyboardMoved(WorkArea)).IsFalse();
+                .That(card.ReplaceIfChromeMoved(WorkArea)).IsFalse();
 
             // The keyboard opens at the bottom, under the card's resting place.
-            keyboard = new Rect(300, 700, 1320, 420);
-            Check.That(card.ReplaceIfKeyboardMoved(WorkArea)).IsTrue();
-            Check.That(card.Top + card.Height).IsEqualTo(700 - RestartNoticePlacement.KeyboardGapDip);
-            Check.That(card.ReplaceIfKeyboardMoved(WorkArea)).IsFalse();
+            chrome = [new Rect(300, 700, 1320, 420)];
+            Check.That(card.ReplaceIfChromeMoved(WorkArea)).IsTrue();
+            Check.That(card.Top + card.Height).IsEqualTo(700 - RestartNoticePlacement.KeepClearGapDip);
+            Check.That(card.ReplaceIfChromeMoved(WorkArea)).IsFalse();
 
             // And closes again: the card goes back to the bottom.
-            keyboard = null;
-            Check.That(card.ReplaceIfKeyboardMoved(WorkArea)).IsTrue();
+            chrome = [];
+            Check.That(card.ReplaceIfChromeMoved(WorkArea)).IsTrue();
             Check.That(card.Top).IsEqualTo(bottomTop);
         }
         finally
@@ -233,25 +306,28 @@ public class RestartNoticePlacementTests
     }
 
     [Fact]
-    public void Place_PrefersTheBottom_ThenAboveTheKeyboard_ThenBelowIt()
+    public void Place_PrefersTheBottom_ThenTheNearestSpotAboveOrBelowTheChrome()
     {
         var card = new Size(920, 300);
         var area = new Rect(0, 0, 1920, 1152);
         var bottomTop = 1152 - 300 - RestartNoticePlacement.MarginDip;
+        var gap = RestartNoticePlacement.KeepClearGapDip;
 
-        Check.That(RestartNoticePlacement.Place(area, card, null).Top).IsEqualTo(bottomTop);
-        // A keyboard far from the card's resting place changes nothing.
-        Check.That(RestartNoticePlacement.Place(area, card, new Rect(0, 0, 1920, 200)).Top).IsEqualTo(bottomTop);
+        Check.That(RestartNoticePlacement.Place(area, card, []).Top).IsEqualTo(bottomTop);
+        // Chrome far from the card's resting place changes nothing.
+        Check.That(RestartNoticePlacement.Place(area, card, [new Rect(0, 0, 1920, 200)]).Top).IsEqualTo(bottomTop);
         // Docked at the bottom: just above it, a gap clear.
-        var docked = new Rect(200, 700, 1520, 452);
-        Check.That(RestartNoticePlacement.Place(area, card, docked).Top)
-            .IsEqualTo(700 - RestartNoticePlacement.KeyboardGapDip - 300);
+        Check.That(RestartNoticePlacement.Place(area, card, [new Rect(200, 700, 1520, 452)]).Top)
+            .IsEqualTo(700 - gap - 300);
         // Docked at the top, and tall: the bottom spot is clear, so the card stays there.
-        Check.That(RestartNoticePlacement.Place(area, card, new Rect(200, 0, 1520, 500)).Top).IsEqualTo(bottomTop);
+        Check.That(RestartNoticePlacement.Place(area, card, [new Rect(200, 0, 1520, 500)]).Top).IsEqualTo(bottomTop);
         // Tall enough that the bottom spot is blocked and there is no room above: below it.
-        Check.That(RestartNoticePlacement.Place(area, card, new Rect(200, 300, 1520, 500)).Top)
-            .IsEqualTo(800 + RestartNoticePlacement.KeyboardGapDip);
-        // A keyboard that fills the screen leaves nowhere clear: the card falls back to the top.
-        Check.That(RestartNoticePlacement.Place(area, card, new Rect(0, 0, 1920, 1152)).Top).IsEqualTo(0);
+        Check.That(RestartNoticePlacement.Place(area, card, [new Rect(200, 300, 1520, 500)]).Top)
+            .IsEqualTo(800 + gap);
+        // A toolbar along the bottom edge: the card rises above it.
+        Check.That(RestartNoticePlacement.Place(area, card, [new Rect(610, 1040, 700, 112)]).Top)
+            .IsEqualTo(1040 - gap - 300);
+        // Chrome that fills the screen leaves nowhere clear: the card falls back to the top.
+        Check.That(RestartNoticePlacement.Place(area, card, [new Rect(0, 0, 1920, 1152)]).Top).IsEqualTo(0);
     }
 }

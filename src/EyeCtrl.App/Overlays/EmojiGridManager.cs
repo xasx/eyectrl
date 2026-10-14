@@ -532,6 +532,8 @@ public class EmojiGridManager
         // of the key's width, with the spoken name from the overlays surface. A hard-coded "Back"
         // here read English on a German overlay (holistic review F4), and the caption is the only
         // text a gaze user would see. Drawn rather than a font glyph: the glyph fallback is a hairline.
+        // The name is the edge bar's own key (overlays.edge.back): same surface, same meaning, no new
+        // German, and rewording it there reads through to this key's spoken name too.
         AddSpecialButton(backRow, "\u2190", "skinToneBack", 2.0,
             accessibleName: StringTable.Current.T("overlays.edge.back"),
             labelFrame: ArrowLabelFrame.CursorLeft);

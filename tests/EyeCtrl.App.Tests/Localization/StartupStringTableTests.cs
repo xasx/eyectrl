@@ -121,9 +121,11 @@ public class StartupStringTableTests
             .Single(file => file.Relative == "src/EyeCtrl.App/App.xaml.cs").Text;
 
         Check.WithCustomMessage(
-                "App.xaml.cs must call StringTable.Activate(StartupStringTable.Load(settings, ...)) so "
-                + "the production load is the tested one.")
-            .That(Regex.IsMatch(text, @"StringTable\s*\.\s*Activate\s*\(\s*StartupStringTable\s*\.\s*Load\s*\(\s*settings\s*,"))
+                "App.xaml.cs must call exactly StringTable.Activate(StartupStringTable.Load(settings, "
+                + "message => ...)): the two-argument overload, which owns the culture and the folder. The "
+                + "explicit four-argument overload is for tests; calling it from App.xaml.cs with a wrong "
+                + "culture or folder keeps the App on English (review R4, mutant M1b).")
+            .That(Regex.IsMatch(text, @"StringTable\s*\.\s*Activate\s*\(\s*StartupStringTable\s*\.\s*Load\s*\(\s*settings\s*,\s*message\s*=>"))
             .IsTrue();
         Check.WithCustomMessage("App.xaml.cs loads a string table on its own; the seam owns that call.")
             .That(Regex.IsMatch(text, @"(?<![A-Za-z0-9_])StringTable\s*\.\s*Load\s*\(")).IsFalse();

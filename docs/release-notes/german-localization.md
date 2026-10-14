@@ -240,11 +240,15 @@ the checks that now guard what the review found unguarded.
   the language being switched to ("EyeCtrl wird neu gestartet." / "Neustart fehlgeschlagen: …"), and
   one button to close it by dwelling on it ("✕ Hide" / "✓ OK"). It never takes the keyboard focus
   or the foreground, closes itself after 40 s ("restarting") or 30 s ("not possible") if nobody
-  dwells on it, and never appears when Settings is open (Settings shows its own notice). It is sized
-  for a gaze user at 200 %: the first line is 34 DIP, the rest and the button label 24 DIP, on a
-  1000 DIP card whose height follows the text, so German never clips. It never covers the gaze
-  keyboard: with the keyboard open it sits just above it, and it moves if the keyboard opens or
-  closes while it is up (`RestartNoticePlacementTests`, with the real keyboard at every key size).
+  dwells on it. It is never shown over Settings: when Settings is open as the notice arrives,
+  Settings shows its own notice instead, and when Settings opens while the card is up, the card
+  goes away. It is sized for a gaze user at 200 %: the first line is 34 DIP, the rest and the button
+  label 24 DIP, on a 1000 DIP card whose height follows the text, so German never clips. It never
+  covers EyeCtrl's own controls: with the gaze keyboard open, a docked toolbar (including one at the
+  bottom edge) or an open menu in its way, it sits just above or below them, and it moves if they
+  appear, go or move while it is up (`RestartNoticePlacementTests`, with the real keyboard at every
+  key size). While the card is up, no activation button (the one offered after a fixation) is
+  made, so a fixation on its button cannot click the window beneath it.
 - **The startup box and the restart-failure frame no longer say "(Englisch)".** They read
   "Technische Details: {0}", as the synthesis decided: the detail after the label is whatever the
   system produced, often in the Windows language, so the label makes no claim about it.

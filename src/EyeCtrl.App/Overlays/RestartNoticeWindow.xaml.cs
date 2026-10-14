@@ -1,6 +1,8 @@
 namespace EyeCtrl.App.Overlays;
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -21,12 +23,17 @@ using EyeCtrl.ViewModels.Messages;
 /// hold time whatever the gaze does, so it can neither trap a gaze-only user nor linger.
 ///
 /// <para>
-/// Placed like the caregiver alert: centred, 48 DIP above the bottom of the work area. That stays
-/// clear of the toolbar (docked to the top by default and, when moved, to an edge) and the right-hand
-/// edge bars, and a window that grows for a longer German text grows upward from a fixed bottom edge.
-/// Unlike the caregiver alert it has a dwell button, so it also never covers the gaze keyboard: while
-/// the keyboard is shown the card sits just above its top edge (<see cref="RestartNoticePlacement"/>),
-/// and it moves if the keyboard appears or goes while the card is up.
+/// Placed like the caregiver alert: centred, 48 DIP above the bottom of the work area. Unlike the
+/// caregiver alert it has a dwell button, so it also keeps clear of EyeCtrl's own chrome (the gaze
+/// keyboard, a docked toolbar, an open menu: the zones the activation offer already avoids): it sits
+/// just above or below whatever it would otherwise cover (<see cref="RestartNoticePlacement"/>), and
+/// it moves if that chrome appears, goes or moves while the card is up.
+/// </para>
+///
+/// <para>
+/// While it shows it tells the activation-offer coordinator (<see cref="RestartNoticeActiveMessage"/>),
+/// exactly as the eye-care banner does: it carries its own dwell target and must not compete with an
+/// activation button, and because it is click-through a taken offer would click the window beneath it.
 /// </para>
 /// </summary>
 public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresenter
@@ -34,20 +41,31 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
     /// <summary>The dwell id of the close button.</summary>
     internal const string CloseTargetId = "restart_notice_close";
 
+    /// <summary>How often a gaze sample re-reads the chrome the card keeps clear of (microseconds).</summary>
+    internal const long FollowCheckIntervalMicroseconds = 250_000;
+
     private readonly DwellDetector _dwell;
     private readonly int _dwellMs;
     private readonly IMessenger _messenger;
     private readonly DwellOutlineOverlay _outline;
-    private readonly Func<Rect?>? _keyboardBounds;
-    private Rect? _placedAgainst;
+    private readonly Func<IReadOnlyList<Rect>>? _keepClear;
+    private readonly Action<RestartNoticeWindow>? _present;
+    private IReadOnlyList<Rect> _placedAgainst = [];
+    private long? _lastFollowCheckUs;
+    private bool _isShowing;
     private DispatcherTimer? _holdTimer;
 
     /// <summary>Creates the window. Not shown until <see cref="ShowNotice"/>.</summary>
     /// <param name="dwellMs">The close button's dwell time; the app's activation dwell, like the eye-care banner.</param>
-    /// <param name="messenger">The bus the dwell-completion cue listens on; null is the app default.</param>
-    /// <param name="keyboardBounds">The shown gaze keyboard's bounds in DIP, or null when it is not
-    /// shown; the card keeps clear of it. Null (the parameter) means no keyboard to avoid.</param>
-    public RestartNoticeWindow(int dwellMs = 700, IMessenger? messenger = null, Func<Rect?>? keyboardBounds = null)
+    /// <param name="messenger">The bus the dwell-completion cue and the activation-offer suspension use; null is the app default.</param>
+    /// <param name="keepClear">The rectangles, in DIP, the card must not cover: the shown keyboard,
+    /// a docked toolbar, an open menu. Null means none.</param>
+    /// <param name="present">How the card is put on screen; null shows it, topmost and without
+    /// activating it. A seam for a headless test, which lays the card out instead: a shown overlay is
+    /// the user's only input surface.</param>
+    public RestartNoticeWindow(
+        int dwellMs = 700, IMessenger? messenger = null, Func<IReadOnlyList<Rect>>? keepClear = null,
+        Action<RestartNoticeWindow>? present = null)
     {
         IsClickThrough = true; // read in OverlayWindow.OnSourceInitialized, so NOT set after init
         ExcludeFromScreenCapture = true;
@@ -55,7 +73,8 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
 
         _dwellMs = dwellMs;
         _messenger = messenger ?? WeakReferenceMessenger.Default;
-        _keyboardBounds = keyboardBounds;
+        _keepClear = keepClear;
+        _present = present;
 
         // The same outline every key and button shows its dwell progress with.
         var label = CloseLabel;
@@ -68,7 +87,7 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
     }
 
     /// <inheritdoc />
-    public bool IsShowing => IsVisible;
+    public bool IsShowing => _isShowing;
 
     /// <inheritdoc />
     public void ShowNotice(string message, string closeLabel, TimeSpan hold)
@@ -78,13 +97,19 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
         _outline.SetProgress(0);
 
         Prepare(SystemParameters.WorkArea);
-        if (!IsVisible)
-            base.Show();
-        RaiseToTop();
+        _isShowing = true;
+        if (_present is not null)
+            _present(this);
+        else
+            ShowWindow();
 
         // The button's screen position needs a laid-out window at its final place.
         UpdateLayout();
         PlaceDwellTarget();
+        _lastFollowCheckUs = null;
+
+        // Offers yield while the card is up (see the class remarks).
+        _messenger.Send(new RestartNoticeActiveMessage(true));
 
         if (_holdTimer is null)
         {
@@ -96,27 +121,40 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
         _holdTimer.Start();
     }
 
+    private void ShowWindow()
+    {
+        if (!IsVisible)
+            base.Show();
+        RaiseToTop();
+    }
+
     /// <inheritdoc />
     public void OnGaze(PhysicalPoint gaze, long timestampMicroseconds)
     {
-        // The keyboard can appear (or go) while the card is up: follow it, so the card never ends
-        // up over keys. The card moves, and its dwell target with it.
-        if (IsVisible)
-            ReplaceIfKeyboardMoved(SystemParameters.WorkArea);
+        if (!_isShowing) return;
+
+        // The chrome the card keeps clear of can appear, go or move while the card is up: follow
+        // it, so the card never ends up over keys or the toolbar. Throttled: the read walks the
+        // windows, and a gaze sample arrives at 60-90 Hz.
+        if (_lastFollowCheckUs is not { } last || timestampMicroseconds - last >= FollowCheckIntervalMicroseconds)
+        {
+            _lastFollowCheckUs = timestampMicroseconds;
+            ReplaceIfChromeMoved(SystemParameters.WorkArea);
+        }
+
         _dwell.Update(gaze, timestampMicroseconds);
     }
 
     /// <summary>
-    /// Re-places the card when the keyboard's bounds changed since it was placed. A no-op when
-    /// nothing moved (a gaze sample calls this while the card is shown, and moving the card
-    /// restarts the button's dwell).
+    /// Re-places the card when the chrome it keeps clear of changed since it was placed. A no-op when
+    /// nothing moved (moving the card restarts the button's dwell).
     /// </summary>
     /// <param name="workArea">The work area to place in, in DIP.</param>
     /// <returns>True when the card was moved.</returns>
-    internal bool ReplaceIfKeyboardMoved(Rect workArea)
+    internal bool ReplaceIfChromeMoved(Rect workArea)
     {
-        var keyboard = _keyboardBounds?.Invoke();
-        if (Equals(keyboard, _placedAgainst)) return false;
+        var chrome = _keepClear?.Invoke() ?? [];
+        if (chrome.SequenceEqual(_placedAgainst)) return false;
 
         Prepare(workArea);
         UpdateLayout();
@@ -125,8 +163,9 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
     }
 
     /// <summary>
-    /// The first line is the title (theme title size, medium weight); the rest is body text. A
-    /// message with no line break (a refusal reason) is all title: it is the one thing to read.
+    /// The first line is the title (the theme's Display size, medium weight); the rest is body text
+    /// (the theme's Title size). A message with no line break (a refusal reason) is all title: it is
+    /// the one thing to read.
     /// </summary>
     internal void SetText(string message)
     {
@@ -142,8 +181,11 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
         _holdTimer?.Stop();
         _dwell.ClearTargets();
         _outline.SetProgress(0);
+        _isShowing = false;
         if (IsVisible)
             Hide();
+        // Sent unconditionally (the flag is idempotent), like the banner: a hide with nothing up is harmless.
+        _messenger.Send(new RestartNoticeActiveMessage(false));
     }
 
     // Post-effect publish, like every dwell surface (spec D8): the notice goes down first, then
@@ -155,12 +197,12 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
     }
 
     /// <summary>
-    /// Sizes the window to its text and places it. Class-C growth, as the caregiver alert: 920 DIP
+    /// Sizes the window to its text and places it. Class-C growth, as the caregiver alert: 1000 DIP
     /// wide, growing in height only from a minimum, so no translation is clipped. The text change
     /// invalidates the chain to the window, because a hidden window runs no layout pass and
     /// <c>Measure</c> would otherwise report the previous message's height.
     /// </summary>
-    /// <param name="workArea">The work area to anchor in, in DIP.</param>
+    /// <param name="workArea">The work area to place in, in DIP.</param>
     internal void Prepare(Rect workArea)
     {
         for (DependencyObject? node = BodyText;
@@ -175,7 +217,7 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
         var height = Math.Max(MinHeight, content.DesiredSize.Height);
         Height = height;
 
-        _placedAgainst = _keyboardBounds?.Invoke();
+        _placedAgainst = _keepClear?.Invoke() ?? [];
         (Left, Top) = RestartNoticePlacement.Place(workArea, new Size(Width, height), _placedAgainst);
     }
 

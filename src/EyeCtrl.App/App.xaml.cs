@@ -392,10 +392,16 @@ public partial class App : Application
                 messenger,
                 new RestartNoticeWindow(
                     settings.Dwell.ActivationButtonDwellMs, messenger,
-                    keyboardBounds: () => RestartNoticePlacement.ShownKeyboard(overlayManager.Keyboard)),
+                    // The chrome the activation offer already keeps clear of: the keyboard, a docked
+                    // toolbar, an open menu. The card never covers it.
+                    keepClear: () => RestartNoticePlacement.ToDip(
+                        EyeCtrl.App.Services.Coordinators.ActivationChromeZones.CollectFromProduction(coordinationContext))),
                 isSettingsOpen: () => _eventCoordinator.IsSettingsOpen,
                 targetLanguage: () => RestartNotices.TargetLanguage(settings.General.UiLanguage),
                 postToUi: work => Dispatcher.Invoke(work));
+            // Settings opening over a card that is up takes the card down (its button would otherwise
+            // stay live, unseen, underneath).
+            _eventCoordinator.SettingsOpenChanged += _restartNoticeHost.OnSettingsOpenChanged;
 
             // Hand the coordinator to the settings window's owner so the restart button
             // can ask whether to offer the supervisor (Task 13 Step 6), and the supervision

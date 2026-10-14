@@ -63,6 +63,17 @@ public class EventCoordinator : IEventCoordinator
     /// <summary>Whether a Settings window exists (set when it opens, cleared when it closes).</summary>
     internal bool IsSettingsOpen => _modal.SettingsOpen;
 
+    /// <summary>
+    /// Raised on the UI thread after <see cref="IsSettingsOpen"/> flips. A wrapper over
+    /// <c>ModalInteractionState.SettingsOpenChanged</c>, which is a single delegate field with
+    /// other subscribers: always <c>+=</c> / <c>-=</c> through here, never assign.
+    /// </summary>
+    internal event Action<bool> SettingsOpenChanged
+    {
+        add => _modal.SettingsOpenChanged += value;
+        remove => _modal.SettingsOpenChanged -= value;
+    }
+
     /// <summary>Hands the restart coordinator to the settings window at construction. Called once at startup.</summary>
     public void SetRestartCoordinator(AppRestartCoordinator coordinator)
     {

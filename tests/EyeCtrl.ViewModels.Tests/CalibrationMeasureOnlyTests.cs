@@ -26,6 +26,16 @@ public class CalibrationMeasureOnlyTests
         private Action<GazePoint>? _handlers;
 
         /// <summary>
+        /// Serialises every handler invocation the way production's single tracker thread does: the
+        /// edge samples run on the thread that (un)subscribes (the cap's continuation), the firing
+        /// loop delivers on a pool thread of its own, and OnRawGaze's downstream — the sidecar's open
+        /// window and CalibrationService.AddRawSample — is documented as gaze-thread-only
+        /// (ScriptedGroundTruthRecorder remarks). <see cref="Monitor"/> is re-entrant, so the
+        /// thread-static guard inside keeps its meaning.
+        /// </summary>
+        private readonly object _gate = new();
+
+        /// <summary>
         /// Delivered synchronously on the thread that ATTACHES a gaze handler — for the view model
         /// that is the instant a target is displayed, so the sample lands on the window's first edge.
         /// <para>
@@ -63,17 +73,22 @@ public class CalibrationMeasureOnlyTests
         /// Delivers an edge sample, but never one from inside another edge sample: the handler runs
         /// synchronously here, so a broken production build that (un)subscribes from inside its own
         /// gaze callback would otherwise recurse without bound, and a StackOverflowException takes
-        /// the whole test host with it — every other test's result is lost and CI reports a
-        /// catastrophic failure instead of the one red test. Skipping the nested sample loses
-        /// nothing: it is a duplicate delivery of the same edge, which no tracker produces.
+        /// the whole test host with it — every other result is lost and CI reports a catastrophic
+        /// failure instead of the one red test. The nested delivery is skipped, not deferred: it can
+        /// only arrive through a transition no correct build makes from inside a gaze callback — a
+        /// nested <c>-=</c> would re-enter the same edge, a nested <c>+=</c> would be the next
+        /// target's start — and the ordinary sample stream re-supplies the boundary within a period.
         /// </summary>
         [ThreadStatic] private static bool _deliveringEdgeSample;
 
-        private static void DeliverEdgeSample(Action<GazePoint>? handler, Func<GazePoint> sample)
+        private void DeliverEdgeSample(Action<GazePoint>? handler, Func<GazePoint> sample)
         {
             if (_deliveringEdgeSample) return;
             _deliveringEdgeSample = true;
-            try { handler?.Invoke(sample()); }
+            try
+            {
+                lock (_gate) { handler?.Invoke(sample()); }
+            }
             finally { _deliveringEdgeSample = false; }
         }
 
@@ -81,7 +96,11 @@ public class CalibrationMeasureOnlyTests
         public void Start() { }
         public void Stop() { }
         public void Dispose() { }
-        public void FireGaze(GazePoint p) => _handlers?.Invoke(p);
+
+        public void FireGaze(GazePoint p)
+        {
+            lock (_gate) { _handlers?.Invoke(p); }
+        }
     }
 
     private sealed class ThrowingSink : IGroundTruthSink

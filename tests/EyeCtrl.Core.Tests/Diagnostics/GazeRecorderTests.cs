@@ -244,6 +244,46 @@ public class GazeRecorderTests : IDisposable
     }
 
     [Fact]
+    public void Dispose_ThatReturnsInsideItsBudget_HasAlreadyDrainedAndClosed()
+    {
+        // The teeth for the join itself. Every other Dispose test gives it up when it waits for the
+        // trailer, and that wait has to be there (a starved machine may need it) — but the writer is
+        // a BACKGROUND thread, so if Dispose stopped waiting the writer would still finish the drain
+        // eventually and every one of those tests would pass while an app that exits right after
+        // Dispose loses the final drain and the trailer. So: if Dispose returned inside its budget,
+        // the work must ALREADY be on disk, read once with no wait and no retry. A writer starved
+        // past the budget is the documented abandon, and the test has nothing to conclude.
+        const int samples = 250_000;   // big enough that its formatting cannot finish inside a read
+
+        GazeRecordingTrailer? closed = null;
+        using var recorder = new GazeRecorder(
+            Path_, Header(), capacity: samples + 1, onClosed: t => closed = t);
+        for (int i = 0; i < samples; i++)
+            recorder.Record(new GazePoint(i, i, i * 1000L, IsValid: true));
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        recorder.Dispose();
+        sw.Stop();
+
+        // ShutdownBudgetMs (2 s, private) less a 250 ms margin for scheduling and clock granularity:
+        // a Dispose that returned this early cannot have spent the budget, so the join it performed
+        // must have seen the writer finish.
+        if (sw.ElapsedMilliseconds >= 1_750)
+            Assert.Skip($"Dispose spent {sw.ElapsedMilliseconds} ms of its 2 s budget, so the file proves nothing here: the budgeted abandon is the documented outcome.");
+
+        Check.That(closed).IsNotNull();
+        Check.That(closed!.Value.RecordedSamples).IsEqualTo((long)samples);
+
+        var last = TryReadLastLine();
+        Check.WithCustomMessage(
+            $"Dispose returned after {sw.ElapsedMilliseconds} ms — inside its 2 s budget — so the final drain and the trailer must already be done. " +
+            "They were not: the writer was still working after Dispose returned.")
+            .That(last).IsNotNull();
+        Check.That(last!).StartsWith(GazeRecorder.TrailerPrefix);
+        Check.That(last!).Contains($"\"recordedSamples\":{samples}");
+    }
+
+    [Fact]
     public void Dispose_WritesATrailerCarryingTheDropCount()
     {
         // The whole safety net in one assertion: the drop count has to survive onto DISK, because the
@@ -281,6 +321,10 @@ public class GazeRecorderTests : IDisposable
         Check.That(lines[^1]).StartsWith(GazeRecorder.TrailerPrefix);
         Check.That(lines[^2]).IsEqualTo("9,9,9000,1");
         Check.That(lines[^1]).Contains("\"droppedSamples\":0");
+        // The trailer is ONE line whose last character is '}': WaitForClosed reads exactly that as
+        // "the writer is done", so a pretty-printed or multi-line trailer must fail loudly HERE, as a
+        // content assertion, rather than as a 30 s timeout in every test that waits for the marker.
+        Check.That(lines[^1]).EndsWith("}");
     }
 
     [Fact]

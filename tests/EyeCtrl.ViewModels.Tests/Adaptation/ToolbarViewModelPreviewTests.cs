@@ -137,7 +137,7 @@ public class ToolbarViewModelPreviewTests
         Check.That(ResetButton(vm).IsHighlighted).IsTrue();          // the read holds the arc
     }
 
-    // --- rev-1: 130 ms leave arms and zeroes ---
+    // --- rev-1: 130 ms leave arms; the held arc falls through the real event flow ---
 
     [Fact]
     public void DebouncedLeave_130ms_HidesPanel_ThenZeroesTheHeldArc()
@@ -158,16 +158,56 @@ public class ToolbarViewModelPreviewTests
         Check.That(btn.DwellProgress).IsStrictlyGreaterThan(ResetPreviewEngine.Threshold);
         Check.That(btn.IsHighlighted).IsTrue();
 
-        // 140 ms of continuous off-union time ≥ the 120 ms debounce → armed, panel hidden.
+        // 140 ms of continuous off-union time ≥ the 120 ms debounce → armed, panel hidden. The
+        // drop is driven through the REAL event flow (final review F1): the leave's completion is
+        // the last Reset progress-related event of the engagement — the detector cleared Reset's
+        // state on the leave run's first excluded sample and gaze is off the button, so no further
+        // TargetProgress(ResetId, …) ever arrives to route through the engine's Zero verdict.
         DwellDrive.Hold(410_000, 520_000, t => vm.Receive(new GazeCursorMovedMessage(Away, t)));
 
         Check.That(visibility.Select(v => v.Visible)).ContainsExactly(true, false);
         Check.That(visibility[1].EngagementId).IsEqualTo(1);
 
-        // Post-arm: a Reset progress of 0 now drops the held arc (the engine's Zero verdict).
-        vm.SimulateTargetProgress(ResetId, 0.0);
         Check.That(btn.DwellProgress).IsEqualTo(0.0);
         Check.That(btn.IsHighlighted).IsFalse();
+    }
+
+    // --- final review F1: post-arm with gaze elsewhere and NO further Reset progress, the arc
+    // must not linger on the button (floating/Mouse toolbars never deactivate to reset it) ---
+
+    [Fact]
+    public void Armed_GazeElsewhere_NoFurtherResetProgress_ArcIsZeroAndStaysZero()
+    {
+        var messenger = new WeakReferenceMessenger();
+        var visibility = new List<AdaptationPreviewVisibilityMessage>();
+        messenger.Register<AdaptationPreviewVisibilityMessage>(this, (_, m) => visibility.Add(m));
+        var vm = new ToolbarViewModel(_settings, messenger);
+        PositionCoreButtons(vm);
+
+        DriveToFreeze(vm);
+        messenger.Send(new AdaptationPreviewBoundsMessage(1, PreviewBoundsKind.Rect, PanelRect));
+
+        // The production stream, verbatim: first off-union sample, then the debounced leave — no
+        // SimulateTargetProgress shortcuts. After arming the detector never emits Reset progress
+        // again (its state was cleared by the leave run's excluded updates; gaze is elsewhere).
+        vm.Receive(new GazeCursorMovedMessage(Away, 380_000));
+        DwellDrive.Hold(410_000, 640_000, t => vm.Receive(new GazeCursorMovedMessage(Away, t)));
+
+        Check.That(visibility.Select(v => v.Visible)).ContainsExactly(true, false);
+        var btn = ResetButton(vm);
+        Check.WithCustomMessage(
+                "The armed leave's visibility-false must itself drop the held arc — nothing else " +
+                "ever will (no further Reset progress event exists post-arm).")
+            .That(btn.DwellProgress).IsEqualTo(0.0);
+        Check.That(btn.IsHighlighted).IsFalse();
+
+        // And it STAYS down: seconds of gaze elsewhere — no lingering highlight, no re-freeze,
+        // no phantom re-show (the engine still holds its Armed pass window this whole time).
+        DwellDrive.Hold(670_000, 2_000_000, t => vm.Receive(new GazeCursorMovedMessage(Away, t)));
+
+        Check.That(btn.DwellProgress).IsEqualTo(0.0);
+        Check.That(btn.IsHighlighted).IsFalse();
+        Check.That(visibility.Count(v => v.Visible)).IsEqualTo(1);
     }
 
     // --- rev-1: the deliberate return fires unfrozen ---

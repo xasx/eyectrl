@@ -213,6 +213,13 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
         // Leave-before-re-arm for the pause toggle: while gaze still rests on the toggle that just
         // fired, do not feed the detector at all. Without this, the shared cooldown alone re-arms at
         // ~1.1 s and a single 3.5 s look toggles the app three times.
+        //
+        // Known and deliberate (final review F3): this return precedes DecideFeed, so the preview
+        // engine's sample clock freezes while gaze rests on Pause post-Pause-fire — the engine has
+        // no clock of its own (P4), so a DecideFeed that never runs advances nothing. The safe
+        // direction only: it can DELAY a pending engine deadline (the 500 ms unknown-bounds
+        // timeout evaluates inside DecideFeed), never skip one — the next sample after the leave
+        // re-arm evaluates the timeout with its fresh timestamp, overdue or not.
         if (_pauseReArmPending && IsOverPauseTarget(message.Position)) return;
 
         // Adaptation preview (Task 6): classify the sample against the engine's union (the Reset
@@ -260,6 +267,23 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
         }
 
         Messenger.Send(new AdaptationPreviewVisibilityMessage(false, engagementId, anchor));
+
+        // Final review F1: the leave's completion is the ONLY hide published while the engine is
+        // Armed (P18 commits the state before the event, so reading it here is sound) — and it is
+        // the engagement's last arc-relevant event: the detector cleared Reset's state on the
+        // leave run's first excluded sample and gaze is off the button, so no
+        // TargetProgress(ResetId, 0) ever arrives to route through the engine's Zero verdict.
+        // Without this the button keeps the frozen ~0.40 arc and highlight indefinitely — on
+        // floating/Mouse toolbars nothing deactivates to reset it. Discriminated on IsArmed: the
+        // Frozen/Leaving hides (suppression gate, D17 policy hide, the bounds timeout / NoPanel)
+        // keep the arc held — the engagement is still live and the user is still reading — and
+        // Disarm hides are already zeroed where they originate (OnTargetActivated's fire reset,
+        // SetActive's ResetAllState, SetRenderedButtons' absent-report loop).
+        if (_previewEngine.IsArmed && _buttonLookup.TryGetValue(ResetPreviewEngine.ResetId, out var resetBtn))
+        {
+            resetBtn.DwellProgress = 0;
+            resetBtn.IsHighlighted = false;
+        }
 
         if (_boundsReportedEngagementId != engagementId)
         {

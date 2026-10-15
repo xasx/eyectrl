@@ -22,6 +22,13 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     private const int AccentEnableAcrylicBlurBehind = 4;
     private const int AccentEnableTransparentGradient = 2;
 
+    /// <summary>
+    /// The blur accent's fixed glass tint (alpha 1, RGB black) — r5's approved look. The user's
+    /// opacity is the black dim layer's alpha instead (<see cref="AddDimLayer"/>), because the
+    /// accent's own gradient dims far less than linearly.
+    /// </summary>
+    private const int GlassTint = 0x01000000;
+
     private const int DwmwaSystemBackdropType = 38;
 
     // DWM_SYSTEMBACKDROP_TYPE (dwmapi.h). Only NONE is used now: ClearDwmBackdrop's hygiene against
@@ -31,6 +38,7 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     private const int DwmsbtNone = 1;
 
     private Rectangle? _solidBackground;
+    private Rectangle? _dimLayer;
     private DwellArcButton? _hideButton;
 
     public GlassBackdropWindow()
@@ -125,8 +133,11 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     /// Applies the settings' material, all three through the accent API since 2026-10-14: Mica and
     /// Acrylic are the legacy accent blur (the DWM system backdrops only ever showed their flat
     /// inactive fallback on this never-activated, tool-window overlay), and Solid darken is the
-    /// transparent gradient — a plain rectangle is opaque black whatever its alpha on a non-layered
-    /// client. The rectangle remains the fallback when the accent call fails, at the user's opacity.
+    /// transparent gradient. On the BLUR path the accent's tint is fixed (<see cref="GlassTint"/>)
+    /// and the user's opacity drives one pure-black client layer over it (<see cref="AddDimLayer"/>);
+    /// on the Solid-darken path the gradient itself carries the opacity. The rgb(18) solid darken
+    /// remains the fallback when the accent call fails. Exactly one rectangle is drawn on the blur
+    /// path's fallback and on Solid darken's — never both a dim layer and the fallback.
     /// </summary>
     public void ApplyBackdrop(BackdropSettings settings)
     {
@@ -144,20 +155,47 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
 
         var applied = settings.Type switch
         {
-            BackdropType.Mica or BackdropType.Acrylic => TryApplyAcrylic(settings.Opacity),
+            BackdropType.Mica or BackdropType.Acrylic => TryApplyAcrylic(),
             BackdropType.SolidDarken => TryApplyTransparentGradient(settings.Opacity),
             _ => false
         };
 
-        // The accent call failed: the solid darken keeps the overlay usable, at the user's opacity.
-        if (!applied)
-            ApplySolidDarken(settings.Opacity);
+        if (applied)
+        {
+            // The blur's dim is the black layer (the measured dim is exactly multiplicative); the
+            // Solid-darken gradient already carries the opacity, so it draws nothing.
+            if (settings.Type is BackdropType.Mica or BackdropType.Acrylic)
+                AddDimLayer(settings.Opacity);
+            return;
+        }
+
+        // The accent call failed: the rgb(18) solid darken keeps the overlay usable, at the user's opacity.
+        ApplySolidDarken(settings.Opacity);
     }
 
     /// <summary>
-    /// The accent's black tint at the user's opacity — RGB black, alpha = the opacity. This is what
-    /// the opacity slider controls on the accent path: the strength of the tint over the live blur
-    /// (it used to be the alpha of the solid dark fill).
+    /// The blur path's dim: one pure-BLACK (0,0,0) client layer at the user's opacity. Black because
+    /// the measured dim is exactly multiplicative — an offset grey (rgb 18) would tint it — and one
+    /// layer because it sits UNDER the ✕ (<c>DrawHideButton</c> runs after this).
+    /// </summary>
+    private void AddDimLayer(double opacity)
+    {
+        _dimLayer = new Rectangle
+        {
+            Width = Width,
+            Height = Height,
+            Fill = new SolidColorBrush(Color.FromArgb(
+                (byte)(Math.Clamp(opacity, 0.0, 1.0) * 255), 0, 0, 0))
+        };
+        Canvas.SetLeft(_dimLayer, 0);
+        Canvas.SetTop(_dimLayer, 0);
+        BackdropCanvas.Children.Add(_dimLayer);
+    }
+
+    /// <summary>
+    /// The SOLID-DARKEN gradient's black tint at the user's opacity (RGB black, alpha = the opacity).
+    /// The blur path's tint is the fixed <see cref="GlassTint"/> instead; there the slider drives
+    /// <see cref="AddDimLayer"/>'s layer.
     /// </summary>
     internal static int AccentGradientColor(double opacity) =>
         (int)(Math.Clamp(opacity, 0.0, 1.0) * 255) << 24;
@@ -203,14 +241,14 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     /// <summary>
     /// The legacy (undocumented) acrylic blur — <c>SetWindowCompositionAttribute</c> with
     /// <c>ACCENT_ENABLE_ACRYLICBLURBEHIND</c> — production's material for both named backdrop types
-    /// since 2026-10-14. Known quirk of the API: the accent can visibly lag while a window is
-    /// dragged; irrelevant for a static, full-screen overlay.
+    /// since 2026-10-14, at the fixed <see cref="GlassTint"/>. Known quirk of the API: the accent can
+    /// visibly lag while a window is dragged; irrelevant for a static, full-screen overlay.
     /// </summary>
     /// <returns>True when the call was accepted (non-zero BOOL), so no darken fallback is needed.</returns>
-    internal bool TryApplyAcrylic(double opacity)
+    internal bool TryApplyAcrylic()
     {
         var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-        var result = SetAccentPolicy(hwnd, AccentEnableAcrylicBlurBehind, 0x20, AccentGradientColor(opacity));
+        var result = SetAccentPolicy(hwnd, AccentEnableAcrylicBlurBehind, 0x20, GlassTint);
         return result != 0;
     }
 
@@ -326,6 +364,7 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
         ClearDwmBackdrop();
         DisableAccent();
         _solidBackground = null;
+        _dimLayer = null;
         ClearButton();
     }
 

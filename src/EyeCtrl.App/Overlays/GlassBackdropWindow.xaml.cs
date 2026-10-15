@@ -25,7 +25,8 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     /// <summary>
     /// The blur accent's fixed glass tint (alpha 1, RGB black) — r5's approved look. The user's
     /// opacity is the black dim layer's alpha instead (<see cref="AddDimLayer"/>), because the
-    /// accent's own gradient dims far less than linearly.
+    /// accent's own gradient mixes toward a fixed dark grey (about luma 34), not toward black: it
+    /// brightens dark content and cannot dim it (sweep 2).
     /// </summary>
     private const int GlassTint = 0x01000000;
 

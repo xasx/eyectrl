@@ -194,6 +194,7 @@ public class BackdropShowLookTests
                 (bool Visible, bool Cloak) reshowFirstState;
                 (bool Visible, bool Cloak) reshowAtUncloakState;
                 (bool Visible, bool Cloak) reshowSteadyState;
+                var handoffHides = 0;
                 if (handOff)
                 {
                     // Production's hand-off: Hide and ShowBackdrop (and the caller's hint) in two
@@ -203,24 +204,41 @@ public class BackdropShowLookTests
                     // grab straight after, the worst case.
                     policyCalls.Add("[handoff]");
                     dwmCalls.Add("[handoff]");
-                    window.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(window.Hide));
-                    window.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => window.ShowBackdrop(settings, centre)));
-                    window.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(window.ShowEscapeHint));
-                    Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Normal);
-                    DwmFlush(); // twice: as above
-                    DwmFlush();
-                    reshowFirst = BackdropCapture.Grab();
-                    reshowFirstState = (window.IsVisible, lastCloak);
-                    LiveCheck.AssertShowsText(window, $"Backdrop show look, case {caseNumber} (hand-off)", "Mit Esc beenden");
-                    if (dryRun) SkipVisibilityProof(caseNumber, "hand-off"); else LiveCheck.AssertVisible(window, $"Backdrop show look, case {caseNumber} (hand-off)");
-                    PumpUntilUncloaked(() => lastCloak);
-                    DwmFlush(); // twice, no pumping: present the first composition with the window UNCLOAKED
-                    DwmFlush();
-                    reshowAtUncloak = BackdropCapture.Grab();
-                    reshowAtUncloakState = (window.IsVisible, lastCloak);
-                    LiveCheck.PumpFor(Hold);
-                    reshowSteady = BackdropCapture.Grab();
-                    reshowSteadyState = (window.IsVisible, lastCloak);
+                    // The hand-off must never take the window off the screen (the deferred hide is
+                    // cancelled by the show), so every transition to invisible in this window is
+                    // counted and read out.
+                    void OnHandoffVisibleChanged(object? s, DependencyPropertyChangedEventArgs e)
+                    {
+                        if (!window.IsVisible) handoffHides++;
+                    }
+
+                    window.IsVisibleChanged += OnHandoffVisibleChanged;
+                    try
+                    {
+                        window.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(window.Hide));
+                        window.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => window.ShowBackdrop(settings, centre)));
+                        window.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(window.ShowEscapeHint));
+                        Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Normal);
+                        DwmFlush(); // twice: as above
+                        DwmFlush();
+                        reshowFirst = BackdropCapture.Grab();
+                        reshowFirstState = (window.IsVisible, lastCloak);
+                        LiveCheck.AssertShowsText(window, $"Backdrop show look, case {caseNumber} (hand-off)", "Mit Esc beenden");
+                        if (dryRun) SkipVisibilityProof(caseNumber, "hand-off"); else LiveCheck.AssertVisible(window, $"Backdrop show look, case {caseNumber} (hand-off)");
+                        PumpUntilUncloaked(() => lastCloak);
+                        DwmFlush(); // twice, no pumping: present the first composition with the window UNCLOAKED
+                        DwmFlush();
+                        reshowAtUncloak = BackdropCapture.Grab();
+                        reshowAtUncloakState = (window.IsVisible, lastCloak);
+                        LiveCheck.PumpFor(Hold); // drain well past Background: a leaked hide would run here
+                        reshowSteady = BackdropCapture.Grab();
+                        reshowSteadyState = (window.IsVisible, lastCloak);
+                    }
+                    finally
+                    {
+                        window.IsVisibleChanged -= OnHandoffVisibleChanged;
+                    }
+
                     Check.WithCustomMessage(
                             $"case {caseNumber} (hand-off): the cloak is STILL UP at the steady grab — a stuck cloak.")
                         .That(lastCloak).IsFalse();
@@ -277,6 +295,8 @@ public class BackdropShowLookTests
                 // path and case 3's hand-off took the fast path.
                 log.AppendLine($"path: {(firstState.Item2 ? "prepared+cloak" : "hand-off")}");
                 log.AppendLine($"reshow-path: {(reshowFirstState.Item2 ? "prepared+cloak" : "hand-off")}");
+                // The hand-off's deferred hide must never take the window off the screen.
+                log.AppendLine($"handoff-hide: {(handOff ? (handoffHides > 0 ? "hid" : "none") : "n/a")}");
                 log.AppendLine($"alpha: {BackdropReadoutLines.Number(settings.Opacity)}");
                 log.AppendLine($"Material: {settings.Type} through production's ShowBackdrop");
                 if (dryRun)

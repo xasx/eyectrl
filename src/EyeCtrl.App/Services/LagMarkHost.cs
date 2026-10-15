@@ -87,6 +87,7 @@ public sealed class LagMarkHost : IDisposable
     public void Start()
     {
         _presenter.Marked += OnMarked;
+        _presenter.Moved += OnMoved;
         _messenger.Register<GazeCursorMovedMessage>(this, (_, message) => OnGaze(message));
 
         if (CanShow())
@@ -165,6 +166,15 @@ public sealed class LagMarkHost : IDisposable
         _messenger.Send(new LagMarkZoneMessage(null));
     }
 
+    // The button moved itself for chrome (review 01 F1): the zone the offer engine avoids must
+    // follow, or a fixation on the button's new place could raise an offer and a taken offer would
+    // click whatever lies under the click-through button.
+    private void OnMoved()
+    {
+        if (_presenter.IsShowing)
+            _messenger.Send(new LagMarkZoneMessage(_presenter.HitBounds));
+    }
+
     // Post-effect: the dwell has completed and the button already shows Marked. The mark's time is
     // the completing SAMPLE's gaze moment: its dispatch wait is the most recent execute's wait
     // (LastLatencyMs — the completing sample IS that execute), so the wall clock is now minus that
@@ -191,6 +201,7 @@ public sealed class LagMarkHost : IDisposable
     {
         _messenger.UnregisterAll(this);
         _presenter.Marked -= OnMarked;
+        _presenter.Moved -= OnMoved;
         HideButtonAndZone();
     }
 }

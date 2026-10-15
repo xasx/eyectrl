@@ -7,7 +7,9 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Windows;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
+using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.App.Tests.Localization;
 using EyeCtrl.Core.Diagnostics;
 using EyeCtrl.Core.Models;
@@ -33,6 +35,8 @@ public class LagMarkHostTests
 
         public event Action<long>? Marked;
 
+        public event Action? Moved;
+
         public PhysicalRect HitBounds { get; set; } = new(3280, 1872, 512, 384);
 
         public Rect ShownRectDip { get; set; } = new(1640, 936, 256, 192);
@@ -52,6 +56,8 @@ public class LagMarkHostTests
         public void OnGaze(PhysicalPoint gaze, long timestampMicroseconds) => Gaze.Add((gaze, timestampMicroseconds));
 
         public void RaiseMarked(long timestampMicroseconds) => Marked?.Invoke(timestampMicroseconds);
+
+        public void RaiseMoved() => Moved?.Invoke();
     }
 
     private sealed class Rig
@@ -244,6 +250,86 @@ public class LagMarkHostTests
 
         Check.WithCustomMessage("gaze reached the button under the probe")
             .That(rig.Presenter.Gaze).IsEmpty();
+    }
+
+    /// <summary>F1 at the fake level: a move re-sends the zone, and only while the button is up.</summary>
+    [Fact]
+    public void AMove_ReSendsTheZone_OnlyWhileShowing()
+    {
+        var rig = new Rig();
+        rig.Host.Start();
+
+        var moved = new PhysicalRect(3280, 1032, 512, 384);
+        rig.Presenter.HitBounds = moved;
+        rig.Presenter.RaiseMoved();
+        Check.That(rig.Zones).HasSize(2);
+        Check.That(rig.Zones[1]!.Value).IsEqualTo(moved);
+
+        // Hidden (Settings opened): a move sends nothing.
+        rig.SettingsOpen = true;
+        rig.Host.OnSettingsOpenChanged(true);
+        Check.That(rig.Zones).HasSize(3);
+        Check.That(rig.Zones[2]).IsNull();
+
+        rig.Presenter.RaiseMoved();
+        Check.That(rig.Zones).HasSize(3);
+    }
+
+    /// <summary>
+    /// Review 01 F1: the offer zone must follow the button. The button re-places itself when the
+    /// chrome it keeps clear of changes; without the host re-sending, the zone the offer engine
+    /// avoids goes stale at the old place (measured at y 1872 px while the button sat at 1032), so a
+    /// fixation on the button's new place could raise an offer — and a taken offer clicks whatever
+    /// lies under the click-through button. The real window and the real host, through the present
+    /// seam; the chrome is the button's own resting rect, so the move is host-independent.
+    /// </summary>
+    [StaFact]
+    public void TheOfferZone_FollowsTheButton_WhenChromeMovesIt()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var messenger = new WeakReferenceMessenger();
+        var zones = new List<PhysicalRect?>();
+        messenger.Register<LagMarkZoneMessage>(this, (_, message) => zones.Add(message.Zone));
+
+        IReadOnlyList<Rect> chrome = [];
+        var window = new LagMarkWindow(
+            dwellMs: 25, messenger, () => chrome,
+            present: w =>
+            {
+                w.Measure(new Size(w.Width, w.Height));
+                w.Arrange(new Rect(0, 0, w.Width, w.Height));
+                w.UpdateLayout();
+            });
+        using var host = new LagMarkHost(
+            messenger, window, new DispatchLatencyProbe(),
+            isInstrumentOn: () => true,
+            isSettingsOpen: () => false,
+            isProbeOpen: () => false,
+            now: () => DateTime.Now,
+            postToUi: work => work(),
+            log: _ => { });
+        try
+        {
+            host.Start();
+            Check.That(zones).HasSize(1);
+            var atRest = window.HitBounds;
+            Check.That(zones[0]!.Value).IsEqualTo(atRest);
+
+            // The chrome appears over the button's resting place; the next gaze sample re-places
+            // the button, and the zone must follow it.
+            chrome = [new Rect(window.Left, window.Top, window.Width, window.Height)];
+            messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(10, 10), 1_000));
+
+            Check.WithCustomMessage("the button did not move off the chrome that appeared over it")
+                .That(window.HitBounds).IsNotEqualTo(atRest);
+            Check.That(zones).HasSize(2);
+            Check.WithCustomMessage("the zone stayed at the button's OLD place")
+                .That(zones[1]!.Value).IsEqualTo(window.HitBounds);
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     [Fact]

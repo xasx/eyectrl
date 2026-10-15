@@ -33,6 +33,13 @@ public interface ILagMarkPresenter
     /// </summary>
     event Action<long>? Marked;
 
+    /// <summary>
+    /// Raised when the button MOVED itself (the chrome it keeps clear of appeared, went or moved,
+    /// review 01 F1). The host re-sends the button's zone so the activation-offer engine avoids the
+    /// place the button is, not the place it was.
+    /// </summary>
+    event Action? Moved;
+
     /// <summary>The dwell hit rectangle in physical screen pixels (the visual grown by 48 DIP per side).</summary>
     PhysicalRect HitBounds { get; }
 

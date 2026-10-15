@@ -102,6 +102,9 @@ public partial class LagMarkWindow : OverlayWindow, ILagMarkPresenter
     public event Action<long>? Marked;
 
     /// <inheritdoc />
+    public event Action? Moved;
+
+    /// <inheritdoc />
     public bool IsShowing => _isShowing;
 
     /// <inheritdoc />
@@ -189,6 +192,8 @@ public partial class LagMarkWindow : OverlayWindow, ILagMarkPresenter
         Prepare(workArea);
         UpdateLayout();
         PlaceDwellTarget();
+        // The offer zone follows: the host re-publishes the button's hit area (review 01 F1).
+        Moved?.Invoke();
         return true;
     }
 

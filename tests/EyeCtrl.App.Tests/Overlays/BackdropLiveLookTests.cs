@@ -4,6 +4,7 @@ using System;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Shapes;
@@ -18,23 +19,25 @@ using EyeCtrl.ViewModels;
 using Xunit;
 
 /// <summary>
-/// The owner's live look at the material fix (2026-10-14): the backdrop through production's own
-/// <c>ApplyBackdrop</c>, once with the owner's real setting (Mica, read-only) and once with
-/// <b>Solid darken</b> — Acrylic is now the same code path as Mica, and Solid darken settles a
-/// pre-existing question: a non-layered client's alpha is ignored, so is the darken fill black at
-/// any opacity, or a real tint over the desktop? Two cases, ~10 s each, never activated; the
-/// rounds-1/2 capture readout runs under each (baseline with the affinity ON, lift, <c>DwmFlush</c>
-/// ×2 + 150 ms, statistics, comparison-based classification).
+/// The owner's final live look (drift-proof): three ~6 s cases through production's own
+/// <c>ApplyBackdrop</c>, and the blur cases take PAIRED within-case captures so a changing desktop
+/// cannot distort the reading:
+/// <list type="number">
+/// <item>the owner's type at 0.30 — baseline, then the glass-only capture (the dim layer
+/// <c>Collapsed</c> IN THE TEST ONLY), then the dimmed capture (the layer <c>Visible</c>);</item>
+/// <item>the same at 0.50;</item>
+/// <item>Solid darken at 0.30 (its gradient carries the dim; no rectangle exists).</item>
+/// </list>
 ///
 /// <para>
-/// <b>Per-case readout</b> (each is logged; none gates): the darken rectangles on the canvas (0 for
-/// a live material, 1 for Solid darken), the accent call's result (re-applied after the capture;
-/// expect True — False would mean the accent policy is misread, the B1 inversion), the opacity, the
-/// <b>lifted ÷ baseline mean ratio</b> per channel (a blur keeps the mean, so a black tint at 0.3
-/// leaves about 0.75; a double dim reads about 0.53), and the session state (EnableTransparency,
-/// energy saver) that can suppress materials. Expected: the material case reads <b>varying</b> with
-/// no rectangle and a ratio near 0.75; Solid darken reads black at any opacity if the pre-existing
-/// suspicion holds.
+/// Machine lines: <c>kind</c>, <c>alpha</c>, <c>baseline-luma</c>/<c>baseline-stddev</c>; blur:
+/// <c>glass-luma</c>, <c>glass-stddev</c>, <c>glass-ratio-luma</c>, <c>glass-stddev-ratio</c>,
+/// <c>dim-luma</c>, <c>dim-stddev</c>, <c>pair-ratio-luma</c>, <c>pair-ratio-stddev</c>,
+/// <c>dim-vs-desktop</c>; solid: <c>ratio-luma</c>, <c>lifted-luma</c>. The script gates each
+/// glass-only capture (ratio-luma in [0.8, 1.6], luma ≥ 10, stddev ≥ 2, stddev-ratio ≤ 0.3), then
+/// checks the pair against (1 − α) on the mean and the contrast, and Solid darken's ratio against
+/// 0.7. Baseline drift warns but never stops; each dimmed case also prints its darkness against the
+/// bare desktop, which is what the owner perceives.
 /// </para>
 ///
 /// <para>
@@ -48,41 +51,40 @@ using Xunit;
 [Trait("Category", "UI")]
 public class BackdropLiveLookTests
 {
-    private static readonly TimeSpan Hold = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan Hold = TimeSpan.FromSeconds(6);
 
-    /// <summary>Case 1 — the owner's real material (Mica today), read read-only from their settings.</summary>
+    /// <summary>Case 1 — the owner's type at 0.30, glass-only then dimmed (paired).</summary>
     [StaFact]
-    public void TheBackdrop_WithTheOwnersMaterial_ShowsTheLiveBlur() =>
-        RunCase(1, "owner-material", "the owner's material (Mica)", solidDarken: false);
+    public void TheBackdrop_At030_ShowsTheGlassAndThenTheDim() =>
+        RunBlurCase(1, "owner-030", "the owner's type at 0.30", alpha: 0.30);
 
-    /// <summary>Case 2 — Solid darken, which settles the black-at-any-opacity question.</summary>
+    /// <summary>Case 2 — the same at 0.50.</summary>
     [StaFact]
-    public void TheBackdrop_WithSolidDarken_ShowsWhatTheSolidPathDoes() =>
-        RunCase(2, "solid-darken", "Solid darken", solidDarken: true);
+    public void TheBackdrop_At050_ShowsTheGlassAndThenTheDim() =>
+        RunBlurCase(2, "owner-050", "the owner's type at 0.50", alpha: 0.50);
 
-    private static void RunCase(int caseNumber, string tag, string label, bool solidDarken)
+    /// <summary>Case 3 — Solid darken at 0.30 through ApplyBackdrop.</summary>
+    [StaFact]
+    public void TheBackdrop_WithSolidDarkenAt030_ShowsTheTint() =>
+        RunSolidCase(3, "solid-030", "Solid darken at 0.30", alpha: 0.30);
+
+    private static void RunBlurCase(int caseNumber, string tag, string label, double alpha)
     {
         Step3LiveCheckTests.BeginShowcaseCase();
         GlassBackdropWindow? window = null;
         try
         {
             var settings = Step3LiveCheckTests.BackdropSettingsOfTheOwner();
-            settings.Enabled = true; // the live look shows the backdrop itself
-            if (solidDarken) settings.Type = BackdropType.SolidDarken; // in-memory only: the file is never written
-            var screen = System.Windows.Forms.Screen.PrimaryScreen!;
-
-            // Production's own hide-button layout, restated from ShowBackdropIfEnabled (:107-111).
-            var dipRight = screen.Bounds.Width / DpiHelper.ScaleX - UIConstants.BackdropHideButtonOffset;
-            var hideButtonCenter = new PhysicalPoint(
-                DpiHelper.LogicalToPhysicalX(dipRight),
-                DpiHelper.LogicalToPhysicalY(UIConstants.BackdropHideButtonOffset));
+            settings.Enabled = true;
+            settings.Opacity = alpha; // the owner's type stays theirs (Mica today); in-memory only
+            var hideButtonCenter = ProductionCentre();
 
             window = new GlassBackdropWindow();
-            window.Show();                        // production order: Show, then the material, then the ✕
+            window.Show();
             var hwnd = new WindowInteropHelper(window).Handle;
             var ct = HwndSource.FromHwnd(hwnd)!.CompositionTarget!.BackgroundColor;
 
-            window.ApplyBackdrop(settings);       // production's own material path
+            window.ApplyBackdrop(settings);
             window.DrawHideButton(hideButtonCenter);
             window.ShowEscapeHint();
 
@@ -91,10 +93,100 @@ public class BackdropLiveLookTests
             LiveCheck.AssertShowsText(window, name, "Mit Esc beenden");
             LiveCheck.AssertVisible(window, name);
 
-            var rectangles = SolidRectangles(window);
+            // The dim layer production added; the TEST collapses it for the glass-only capture.
+            var dim = ((Canvas)window.FindName("BackdropCanvas")!).Children.OfType<Rectangle>().Single();
+            dim.Visibility = Visibility.Collapsed;
 
-            var baseline = BackdropCapture.Grab();   // affinity still ON: the desktop behind
-            SetWindowDisplayAffinity(hwnd, WdaNone); // lift, in the test only
+            var baseline = BackdropCapture.Grab(); // affinity still ON: the desktop behind
+            SetWindowDisplayAffinity(hwnd, WdaNone);
+            BackdropCapture.ScreenSample glass;
+            BackdropCapture.ScreenSample dimmed;
+            try
+            {
+                DwmFlush();
+                DwmFlush();
+                LiveCheck.PumpFor(TimeSpan.FromMilliseconds(150));
+                glass = BackdropCapture.Grab();
+
+                dim.Visibility = Visibility.Visible;
+                LiveCheck.PumpFor(TimeSpan.FromMilliseconds(300));
+                dimmed = BackdropCapture.Grab();
+            }
+            finally
+            {
+                SetWindowDisplayAffinity(hwnd, WdaExcludeFromCapture);
+            }
+
+            var log = new StringBuilder();
+            log.AppendLine($"case: {caseNumber} ({label})");
+            log.AppendLine("kind: blur");
+            log.AppendLine($"alpha: {BackdropReadoutLines.Number(alpha)}");
+            log.AppendLine($"Material: {settings.Type} through ApplyBackdrop");
+            log.AppendLine(
+                $"CompositionTarget.BackgroundColor after Show: #{ct.R:X2}{ct.G:X2}{ct.B:X2}{ct.A:X2} (alpha should be 00)");
+            log.AppendLine(BackdropCapture.EnvironmentState());
+            log.AppendLine($"Baseline (affinity ON; the desktop behind): {BackdropCapture.Describe(baseline.Centre)}");
+            log.AppendLine($"Glass-only capture: {BackdropCapture.Describe(glass.Centre)}");
+            log.AppendLine($"Dimmed capture: {BackdropCapture.Describe(dimmed.Centre)}");
+            log.AppendLine($"baseline-luma: {BackdropReadoutLines.Number(baseline.Centre.LumaMean)}");
+            log.AppendLine($"baseline-stddev: {BackdropReadoutLines.Number(baseline.Centre.LumaStdDev)}");
+            log.AppendLine($"glass-luma: {BackdropReadoutLines.Number(glass.Centre.LumaMean)}");
+            log.AppendLine($"glass-stddev: {BackdropReadoutLines.Number(glass.Centre.LumaStdDev)}");
+            log.AppendLine(
+                $"glass-ratio-luma: {BackdropReadoutLines.Number(glass.Centre.LumaMean / baseline.Centre.LumaMean)}");
+            log.AppendLine(
+                $"glass-stddev-ratio: {BackdropReadoutLines.Number(glass.Centre.LumaStdDev / baseline.Centre.LumaStdDev)}");
+            log.AppendLine($"dim-luma: {BackdropReadoutLines.Number(dimmed.Centre.LumaMean)}");
+            log.AppendLine($"dim-stddev: {BackdropReadoutLines.Number(dimmed.Centre.LumaStdDev)}");
+            log.AppendLine(
+                $"pair-ratio-luma: {BackdropReadoutLines.Number(dimmed.Centre.LumaMean / glass.Centre.LumaMean)}");
+            log.AppendLine(
+                $"pair-ratio-stddev: {BackdropReadoutLines.Number(dimmed.Centre.LumaStdDev / glass.Centre.LumaStdDev)}");
+            log.AppendLine(
+                $"dim-vs-desktop: {BackdropReadoutLines.Number(dimmed.Centre.LumaMean / baseline.Centre.LumaMean)}");
+
+            var verdict = BackdropClassification.Material(baseline, dimmed, log);
+            log.AppendLine($"Classification: {verdict}");
+
+            BackdropCapture.WriteLog(caseNumber, tag, log.ToString());
+            LiveCheck.PumpFor(Hold);
+        }
+        finally
+        {
+            try { window?.Hide(); } catch { /* the window may already be gone */ }
+            try { window?.Close(); } catch { /* the window may already be gone */ }
+            Step3LiveCheckTests.EndShowcaseCase();
+        }
+    }
+
+    private static void RunSolidCase(int caseNumber, string tag, string label, double alpha)
+    {
+        Step3LiveCheckTests.BeginShowcaseCase();
+        GlassBackdropWindow? window = null;
+        try
+        {
+            var settings = Step3LiveCheckTests.BackdropSettingsOfTheOwner();
+            settings.Enabled = true;
+            settings.Type = BackdropType.SolidDarken; // in-memory only
+            settings.Opacity = alpha;
+            var hideButtonCenter = ProductionCentre();
+
+            window = new GlassBackdropWindow();
+            window.Show();
+            var hwnd = new WindowInteropHelper(window).Handle;
+            var ct = HwndSource.FromHwnd(hwnd)!.CompositionTarget!.BackgroundColor;
+
+            window.ApplyBackdrop(settings);
+            window.DrawHideButton(hideButtonCenter);
+            window.ShowEscapeHint();
+
+            LiveCheck.PumpFor(TimeSpan.FromMilliseconds(250));
+            var name = $"Backdrop live look, case {caseNumber} ({label})";
+            LiveCheck.AssertShowsText(window, name, "Mit Esc beenden");
+            LiveCheck.AssertVisible(window, name);
+
+            var baseline = BackdropCapture.Grab();
+            SetWindowDisplayAffinity(hwnd, WdaNone);
             BackdropCapture.ScreenSample lifted;
             try
             {
@@ -105,35 +197,25 @@ public class BackdropLiveLookTests
             }
             finally
             {
-                SetWindowDisplayAffinity(hwnd, WdaExcludeFromCapture); // restore for every later capture
+                SetWindowDisplayAffinity(hwnd, WdaExcludeFromCapture);
             }
-
-            // The production call's BOOL is not readable back; a re-apply after the capture gives the
-            // same answer (and must be True, or the accent policy is being misread).
-            var accentResult = solidDarken
-                ? "n/a (Solid darken: the accent is disabled by ClearContent)"
-                : $"{(window.TryApplyAcrylic(settings.Opacity) ? "True (accepted)" : "False (misread BOOL!)")} (re-applied after the capture)";
 
             var log = new StringBuilder();
             log.AppendLine($"case: {caseNumber} ({label})");
-            log.AppendLine($"Material: {settings.Type} at opacity {settings.Opacity:0.##}");
-            log.AppendLine(
-                $"Darken rectangles on the canvas: {rectangles} (expect 0 for a live material, 1 for Solid darken)");
-            log.AppendLine($"TryApplyAcrylic: {accentResult}");
+            log.AppendLine("kind: solid");
+            log.AppendLine($"alpha: {BackdropReadoutLines.Number(alpha)}");
+            log.AppendLine($"Material: {settings.Type} through ApplyBackdrop");
             log.AppendLine(
                 $"CompositionTarget.BackgroundColor after Show: #{ct.R:X2}{ct.G:X2}{ct.B:X2}{ct.A:X2} (alpha should be 00)");
             log.AppendLine(BackdropCapture.EnvironmentState());
-
-            var style = GetWindowLong(hwnd, GwlStyle);
-            log.AppendLine($"Window styles: style 0x{style:X8} (WS_THICKFRAME: {(style & WsThickFrame) != 0})");
-            log.AppendLine($"GetForegroundWindow() == backdrop hwnd: {GetForegroundWindow() == hwnd}");
             log.AppendLine($"Baseline (affinity ON; the desktop behind): {BackdropCapture.Describe(baseline.Centre)}");
+            log.AppendLine($"Capture (affinity lifted, DwmFlush x2 + 150 ms): {BackdropCapture.Describe(lifted.Centre)}");
+            log.AppendLine($"baseline-luma: {BackdropReadoutLines.Number(baseline.Centre.LumaMean)}");
+            log.AppendLine($"lifted-luma: {BackdropReadoutLines.Number(lifted.Centre.LumaMean)}");
             log.AppendLine(
-                $"Capture (affinity lifted, DwmFlush x2 + 150 ms): {BackdropCapture.Describe(lifted.Centre)}");
-            log.AppendLine($"dim ratios (lifted / baseline, per channel): {DimRatios(baseline.Centre, lifted.Centre)}");
+                $"ratio-luma: {BackdropReadoutLines.Number(lifted.Centre.LumaMean / baseline.Centre.LumaMean)}");
             log.AppendLine(
-                $"case-mean-rgb: {BackdropReadoutLines.Mean(lifted.Centre.MeanR, lifted.Centre.MeanG, lifted.Centre.MeanB)}");
-            log.AppendLine($"case-stddev: {BackdropReadoutLines.Number(lifted.Centre.LumaStdDev)}");
+                $"stddev-ratio: {BackdropReadoutLines.Number(lifted.Centre.LumaStdDev / baseline.Centre.LumaStdDev)}");
 
             var verdict = BackdropClassification.Material(baseline, lifted, log);
             log.AppendLine($"Classification: {verdict}");
@@ -149,28 +231,18 @@ public class BackdropLiveLookTests
         }
     }
 
-    /// <summary>The per-channel lifted ÷ baseline mean, invariant; n/a when a baseline channel is black.</summary>
-    private static string DimRatios(BackdropCapture.SampleStats baseline, BackdropCapture.SampleStats lifted) =>
-        baseline.MeanR < 1 || baseline.MeanG < 1 || baseline.MeanB < 1
-            ? "n/a (a baseline channel is black)"
-            : BackdropReadoutLines.Number(lifted.MeanR / baseline.MeanR) + ";"
-              + BackdropReadoutLines.Number(lifted.MeanG / baseline.MeanG) + ";"
-              + BackdropReadoutLines.Number(lifted.MeanB / baseline.MeanB);
+    /// <summary>Production's own hide-button centre (OverlayVmBindingCoordinator.ShowBackdropIfEnabled).</summary>
+    private static PhysicalPoint ProductionCentre()
+    {
+        var screen = System.Windows.Forms.Screen.PrimaryScreen!;
+        var dipRight = screen.Bounds.Width / DpiHelper.ScaleX - UIConstants.BackdropHideButtonOffset;
+        return new PhysicalPoint(
+            DpiHelper.LogicalToPhysicalX(dipRight),
+            DpiHelper.LogicalToPhysicalY(UIConstants.BackdropHideButtonOffset));
+    }
 
-    /// <summary>The darken fallback's rectangle count on the backdrop canvas.</summary>
-    private static int SolidRectangles(GlassBackdropWindow window) =>
-        ((Canvas)window.FindName("BackdropCanvas")!).Children.OfType<Rectangle>().Count();
-
-    private const int GwlStyle = -16;
-    private const int WsThickFrame = 0x00040000;
     private const uint WdaNone = 0x00000000;
     private const uint WdaExcludeFromCapture = 0x00000011;
-
-    [DllImport("user32.dll")]
-    private static extern int GetWindowLong(IntPtr hwnd, int index);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowDisplayAffinity(IntPtr hwnd, uint affinity);

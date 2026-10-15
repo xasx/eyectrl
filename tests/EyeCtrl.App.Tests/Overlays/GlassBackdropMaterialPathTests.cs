@@ -11,22 +11,23 @@ using System.Windows.Shapes;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.Core;
+using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
 using Xunit;
 
 /// <summary>
-/// The 2026-10-14 material fix, headless: the window makes its composition target transparent (H3:
-/// WPF's opaque black clear colour painted over every material), and <c>ApplyBackdrop</c> takes the
-/// legacy accent blur for BOTH named types. The accent call itself is an injectable seam
-/// (<see cref="GlassBackdropWindow.SetAccentPolicy"/>), so the tests drive the REAL
-/// <c>ApplyBackdrop</c> and pin: the use-site policy (state 4, flags 0x20, the tint at the user's
-/// opacity), the non-zero-is-success BOOL (review-05 B1), the solid darken when the setter is
-/// refused, and the accent being disabled when a later Solid darken apply clears the window (B3).
+/// The final material design, headless (the sweep-3b production change): the composition target is
+/// transparent (H3), the blur accent (state 4, flags 0x20) carries the fixed
+/// <c>GlassTint</c> 0x01000000, and the user's opacity drives ONE pure-black client layer over it
+/// (<c>AddDimLayer</c>) — exactly one rectangle on the blur path, the rgb(18) fallback only when the
+/// accent is refused, and no rectangle at all on Solid darken (its gradient carries the alpha).
 ///
 /// <para>
-/// No window is shown: the handle is created with <see cref="WindowInteropHelper.EnsureHandle"/>
-/// (SourceInitialized runs), and the default setter is the real
-/// <c>SetWindowCompositionAttribute</c>, which is accepted on a never-shown HWND.
+/// The accent call is injectable (<see cref="GlassBackdropWindow.SetAccentPolicy"/>), so the tests
+/// drive the REAL <c>ApplyBackdrop</c> and inspect the canvas. Geometry runs at the user's 2.0 so
+/// the layer's size is the screen in DIP (<c>CoverPrimaryScreen</c> is called the way
+/// <c>Show()</c> does); the DpiHelper restore hook puts the scale back afterwards.
 /// </para>
 /// </summary>
 [Collection("WpfApplication")]
@@ -56,22 +57,117 @@ public class GlassBackdropMaterialPathTests
     [StaTheory]
     [InlineData(BackdropType.Mica)]
     [InlineData(BackdropType.Acrylic)]
-    public void ApplyBackdrop_WithTheRealSetter_IsAccepted_AndLeavesNoDarken_AndNoDwmBackdrop(BackdropType type)
+    public void ApplyBackdrop_BlurAt030_SendsTheFixedGlassTint_AndAddsOneBlackDimLayerBelowTheClose(BackdropType type)
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        DpiHelper.Initialize(2.0, 2.0); // the user's scale; the assembly hook restores it
+        var window = new GlassBackdropWindow();
+        try
+        {
+            new WindowInteropHelper(window).EnsureHandle();
+            OverlayPositioning.CoverPrimaryScreen(window); // Show() sizes the window this way
+            var recorder = new RecordingAccentPolicy { Result = 1 };
+            window.SetAccentPolicy = recorder.Call;
+
+            window.ApplyBackdrop(new BackdropSettings { Type = type, Enabled = true, Opacity = 0.3 });
+
+            Check.WithCustomMessage($"expected [disable, blur], saw: {string.Join(" | ", recorder.Calls)}")
+                .That(recorder.Calls).HasSize(2);
+            Check.WithCustomMessage("the blur accent's tint must be the FIXED glass tint, not the opacity.")
+                .That(recorder.Calls[1]).IsEqualTo((4, 0x20, 0x01000000));
+
+            var rects = Rectangles(window);
+            Check.WithCustomMessage("the blur path draws exactly one layer: the dim.").That(rects).HasSize(1);
+            Check.WithCustomMessage($"the dim must be pure black at 0.3, saw {Fill(rects[0])}.")
+                .That(Fill(rects[0])).IsEqualTo(Color.FromArgb(0x4C, 0, 0, 0));
+            Check.That(rects[0].Width).IsEqualTo(window.Width);
+            Check.That(rects[0].Height).IsEqualTo(window.Height);
+
+            // Below the ✕: DrawHideButton runs after ApplyBackdrop in production and in ShowBackdropIfEnabled.
+            window.DrawHideButton(new PhysicalPoint(100, 100));
+            var children = ((Canvas)window.FindName("BackdropCanvas")!).Children;
+            var glyph = children.OfType<TextBlock>().Single(text => text.Text == "\u2715");
+            Check.WithCustomMessage("the ✕ must sit above the dim layer.")
+                .That(children.IndexOf(glyph)).IsStrictlyGreaterThan(children.IndexOf(rects[0]));
+        }
+        finally
+        {
+            try { window.Close(); } catch { /* never shown; nothing to clean beyond the handle */ }
+        }
+    }
+
+    [StaTheory]
+    [InlineData(BackdropType.Mica)]
+    [InlineData(BackdropType.Acrylic)]
+    public void ApplyBackdrop_BlurAt060_ScalesTheDimLayer_ButKeepsTheGlassTintFixed(BackdropType type)
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new GlassBackdropWindow();
+        try
+        {
+            new WindowInteropHelper(window).EnsureHandle();
+            var recorder = new RecordingAccentPolicy { Result = 1 };
+            window.SetAccentPolicy = recorder.Call;
+
+            window.ApplyBackdrop(new BackdropSettings { Type = type, Enabled = true, Opacity = 0.6 });
+
+            Check.WithCustomMessage("the tint stays the fixed glass tint at any opacity.")
+                .That(recorder.Calls[1]).IsEqualTo((4, 0x20, 0x01000000));
+            var rects = Rectangles(window);
+            Check.That(rects).HasSize(1);
+            Check.WithCustomMessage($"the dim must be pure black at 0.6 (alpha 153), saw {Fill(rects[0])}.")
+                .That(Fill(rects[0])).IsEqualTo(Color.FromArgb(153, 0, 0, 0));
+        }
+        finally
+        {
+            try { window.Close(); } catch { /* never shown; nothing to clean beyond the handle */ }
+        }
+    }
+
+    [StaFact]
+    public void ApplyBackdrop_WhenTheBlurIsRefused_DrawsOnlyTheRgb18Fallback()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new GlassBackdropWindow();
+        try
+        {
+            new WindowInteropHelper(window).EnsureHandle();
+            var recorder = new RecordingAccentPolicy { Result = 0 };
+            window.SetAccentPolicy = recorder.Call;
+
+            window.ApplyBackdrop(new BackdropSettings { Type = BackdropType.Acrylic, Enabled = true, Opacity = 0.4 });
+
+            Check.That(recorder.Calls[1].State).IsEqualTo(4);
+            var rects = Rectangles(window);
+            Check.WithCustomMessage("exactly one rectangle: the fallback, never a dim on top of it.")
+                .That(rects).HasSize(1);
+            Check.WithCustomMessage($"the fallback keeps its rgb(18) fill, saw {Fill(rects[0])}.")
+                .That(Fill(rects[0])).IsEqualTo(Color.FromArgb(102, 18, 18, 18));
+        }
+        finally
+        {
+            try { window.Close(); } catch { /* never shown; nothing to clean beyond the handle */ }
+        }
+    }
+
+    [StaTheory]
+    [InlineData(BackdropType.Mica)]
+    [InlineData(BackdropType.Acrylic)]
+    public void ApplyBackdrop_WithTheRealSetter_AddsTheDimLayer_AndNoDwmBackdrop(BackdropType type)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = new GlassBackdropWindow();
         try
         {
             var hwnd = new WindowInteropHelper(window).EnsureHandle();
-            var settings = new BackdropSettings { Type = type, Enabled = true, Opacity = 0.3 };
 
-            // The REAL production path with the REAL native setter. The call is accepted on a
-            // never-shown HWND, so a darken rectangle here means the BOOL is misread (B1).
-            window.ApplyBackdrop(settings);
+            // The REAL production path with the REAL native setter; accepted on a never-shown HWND.
+            window.ApplyBackdrop(new BackdropSettings { Type = type, Enabled = true, Opacity = 0.3 });
 
-            Check.WithCustomMessage(
-                    "a darken rectangle means the accent's non-zero-is-success BOOL was misread (B1).")
-                .That(SolidRectangles(window)).IsEqualTo(0);
+            var rects = Rectangles(window);
+            Check.WithCustomMessage("the accepted blur draws exactly the dim layer (no fallback).")
+                .That(rects).HasSize(1);
+            Check.That(Fill(rects[0])).IsEqualTo(Color.FromArgb(0x4C, 0, 0, 0));
 
             var hresult = DwmGetWindowAttribute(hwnd, DwmwaSystemBackdropType, out var attribute, sizeof(int));
             Check.WithCustomMessage($"DwmGetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE) failed: 0x{hresult:X8}.")
@@ -87,10 +183,8 @@ public class GlassBackdropMaterialPathTests
         }
     }
 
-    [StaTheory]
-    [InlineData(BackdropType.Mica)]
-    [InlineData(BackdropType.Acrylic)]
-    public void ApplyBackdrop_PinsTheUseSitePolicy_AndNeedsNoDarkenWhenAccepted(BackdropType type)
+    [StaFact]
+    public void ApplyBackdrop_WithSolidDarken_UsesTheTransparentGradient_AndDrawsNoRectangle()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = new GlassBackdropWindow();
@@ -99,75 +193,15 @@ public class GlassBackdropMaterialPathTests
             new WindowInteropHelper(window).EnsureHandle();
             var recorder = new RecordingAccentPolicy { Result = 1 };
             window.SetAccentPolicy = recorder.Call;
-            var settings = new BackdropSettings { Type = type, Enabled = true, Opacity = 0.3 };
 
-            window.ApplyBackdrop(settings);
+            window.ApplyBackdrop(new BackdropSettings { Type = BackdropType.SolidDarken, Enabled = true, Opacity = 0.3 });
 
-            // ClearContent disables the accent first (B3), then the named type enables the blur at
-            // the use-site tint: state 4, flags 0x20, black at alpha 76 (0.3).
-            Check.WithCustomMessage($"expected [disable, acrylic], saw: {string.Join(" | ", recorder.Calls)}")
-                .That(recorder.Calls).HasSize(2);
-            Check.That(recorder.Calls[0]).IsEqualTo((0, 0, 0));
-            Check.WithCustomMessage("the use-site policy is not the acrylic blur at the user's tint.")
-                .That(recorder.Calls[1]).IsEqualTo((4, 0x20, 0x4C000000));
-            Check.WithCustomMessage("the accent was accepted: no darken fallback may be drawn.")
-                .That(SolidRectangles(window)).IsEqualTo(0);
-        }
-        finally
-        {
-            try { window.Close(); } catch { /* never shown; nothing to clean beyond the handle */ }
-        }
-    }
-
-    [StaFact]
-    public void ApplyBackdrop_WhenTheAccentPolicyIsRefused_DrawsTheSolidDarkenFallback()
-    {
-        WpfApplicationGate.EnsureApplicationWithTokens();
-        var window = new GlassBackdropWindow();
-        try
-        {
-            new WindowInteropHelper(window).EnsureHandle();
-            var recorder = new RecordingAccentPolicy { Result = 0 };
-            window.SetAccentPolicy = recorder.Call;
-            var settings = new BackdropSettings { Type = BackdropType.Acrylic, Enabled = true, Opacity = 0.4 };
-
-            window.ApplyBackdrop(settings);
-
-            Check.WithCustomMessage($"expected [disable, acrylic], saw: {string.Join(" | ", recorder.Calls)}")
-                .That(recorder.Calls).HasSize(2);
-            Check.That(recorder.Calls[1].State).IsEqualTo(4);
-            Check.WithCustomMessage("the accent was refused: the solid darken must keep the overlay usable.")
-                .That(SolidRectangles(window)).IsEqualTo(1);
-        }
-        finally
-        {
-            try { window.Close(); } catch { /* never shown; nothing to clean beyond the handle */ }
-        }
-    }
-
-    [StaFact]
-    public void ApplyBackdrop_WithSolidDarken_UsesTheTransparentGradient_AtTheUsersAlpha()
-    {
-        WpfApplicationGate.EnsureApplicationWithTokens();
-        var window = new GlassBackdropWindow();
-        try
-        {
-            new WindowInteropHelper(window).EnsureHandle();
-            var recorder = new RecordingAccentPolicy { Result = 1 };
-            window.SetAccentPolicy = recorder.Call;
-            var settings = new BackdropSettings { Type = BackdropType.SolidDarken, Enabled = true, Opacity = 0.3 };
-
-            window.ApplyBackdrop(settings);
-
-            // State 2 (ACCENT_ENABLE_TRANSPARENTGRADIENT) at the user's alpha: a see-through dark
-            // tint, because a plain rectangle is opaque black on a non-layered client.
             Check.WithCustomMessage($"expected [disable, gradient], saw: {string.Join(" | ", recorder.Calls)}")
                 .That(recorder.Calls).HasSize(2);
             Check.That(recorder.Calls[0]).IsEqualTo((0, 0, 0));
-            Check.WithCustomMessage("the Solid darken policy is not the transparent gradient at the user's alpha.")
+            Check.WithCustomMessage("Solid darken's gradient must carry the opacity.")
                 .That(recorder.Calls[1]).IsEqualTo((2, 0x20, 0x4C000000));
-            Check.WithCustomMessage("the gradient was accepted: no darken rectangle may be drawn.")
-                .That(SolidRectangles(window)).IsEqualTo(0);
+            Check.WithCustomMessage("the gradient carries the dim: no rectangle.").That(Rectangles(window)).IsEmpty();
         }
         finally
         {
@@ -176,7 +210,7 @@ public class GlassBackdropMaterialPathTests
     }
 
     [StaFact]
-    public void ApplyBackdrop_WhenTheTransparentGradientIsRefused_DrawsTheRectangleFallback()
+    public void ApplyBackdrop_WhenSolidDarkenGradientIsRefused_DrawsTheRectangleFallback()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = new GlassBackdropWindow();
@@ -185,15 +219,12 @@ public class GlassBackdropMaterialPathTests
             new WindowInteropHelper(window).EnsureHandle();
             var recorder = new RecordingAccentPolicy { Result = 0 };
             window.SetAccentPolicy = recorder.Call;
-            var settings = new BackdropSettings { Type = BackdropType.SolidDarken, Enabled = true, Opacity = 0.4 };
 
-            window.ApplyBackdrop(settings);
+            window.ApplyBackdrop(new BackdropSettings { Type = BackdropType.SolidDarken, Enabled = true, Opacity = 0.4 });
 
-            Check.WithCustomMessage($"expected [disable, gradient], saw: {string.Join(" | ", recorder.Calls)}")
-                .That(recorder.Calls).HasSize(2);
             Check.That(recorder.Calls[1].State).IsEqualTo(2);
             Check.WithCustomMessage("the gradient was refused: the rectangle keeps the overlay usable.")
-                .That(SolidRectangles(window)).IsEqualTo(1);
+                .That(Rectangles(window)).HasSize(1);
         }
         finally
         {
@@ -202,7 +233,7 @@ public class GlassBackdropMaterialPathTests
     }
 
     [StaFact]
-    public void ApplyBackdrop_SwitchingToSolidDarken_DisablesTheStaleBlur_ThenTints()
+    public void ApplyBackdrop_SwitchingToSolidDarken_ClearsTheStaleBlurAndItsDimLayer()
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
         var window = new GlassBackdropWindow();
@@ -213,22 +244,19 @@ public class GlassBackdropMaterialPathTests
             window.SetAccentPolicy = recorder.Call;
 
             window.ApplyBackdrop(new BackdropSettings { Type = BackdropType.Acrylic, Enabled = true, Opacity = 0.3 });
-            window.ApplyBackdrop(
-                new BackdropSettings { Type = BackdropType.SolidDarken, Enabled = true, Opacity = 0.3 });
+            Check.That(Rectangles(window)).HasSize(1); // the dim layer
+            window.ApplyBackdrop(new BackdropSettings { Type = BackdropType.SolidDarken, Enabled = true, Opacity = 0.3 });
 
-            // [disable, blur] then [disable, gradient]: the second apply must switch the stale blur
-            // OFF (state 0) before the transparent gradient lands, or the old blur plus its tint
-            // would survive into Solid darken.
+            // [disable, blur] then [disable, gradient]: the stale blur goes OFF (state 0) before the
+            // gradient lands, and the stale dim layer is gone with the canvas clear.
             Check.WithCustomMessage($"unexpected accent-call sequence: {string.Join(" | ", recorder.Calls)}")
                 .That(recorder.Calls).HasSize(4);
             Check.That(recorder.Calls[0]).IsEqualTo((0, 0, 0));
             Check.That(recorder.Calls[1].State).IsEqualTo(4);
             Check.That(recorder.Calls[2]).IsEqualTo((0, 0, 0));
             Check.That(recorder.Calls[3].State).IsEqualTo(2);
-            Check.WithCustomMessage("only the first, Acrylic apply may enable the blur.")
-                .That(recorder.Calls.Count(call => call.State == 4)).IsEqualTo(1);
-            Check.WithCustomMessage("the gradient was accepted: Solid darken draws no rectangle.")
-                .That(SolidRectangles(window)).IsEqualTo(0);
+            Check.WithCustomMessage("no dim rectangle may survive into Solid darken.")
+                .That(Rectangles(window)).IsEmpty();
         }
         finally
         {
@@ -239,16 +267,20 @@ public class GlassBackdropMaterialPathTests
     [Fact]
     public void AccentGradientColor_IsBlackAtTheUsersOpacity()
     {
-        // 0.3 -> alpha 76 (0x4C); 0.9 -> 229 (0xE5); 1.5 clamps to 255 (0xFF); -1 clamps to 0.
+        // The SOLID-DARKEN gradient's alpha (the blur's tint is the fixed GlassTint):
+        // 0.3 -> 0x4C; 0.9 -> 0xE5; 1.5 clamps to 0xFF; -1 clamps to 0.
         Check.That(GlassBackdropWindow.AccentGradientColor(0.3)).IsEqualTo(0x4C000000);
         Check.That(GlassBackdropWindow.AccentGradientColor(0.9)).IsEqualTo(unchecked((int)0xE5000000));
         Check.That(GlassBackdropWindow.AccentGradientColor(1.5)).IsEqualTo(unchecked((int)0xFF000000));
         Check.That(GlassBackdropWindow.AccentGradientColor(-1)).IsEqualTo(0);
     }
 
-    /// <summary>The solid-darken fallback's rectangle count on the backdrop canvas.</summary>
-    private static int SolidRectangles(GlassBackdropWindow window) =>
-        ((Canvas)window.FindName("BackdropCanvas")!).Children.OfType<Rectangle>().Count();
+    /// <summary>The rectangles on the backdrop canvas, in z-order.</summary>
+    private static List<Rectangle> Rectangles(GlassBackdropWindow window) =>
+        ((Canvas)window.FindName("BackdropCanvas")!).Children.OfType<Rectangle>().ToList();
+
+    /// <summary>A rectangle's fill colour.</summary>
+    private static Color Fill(Rectangle rectangle) => ((SolidColorBrush)rectangle.Fill).Color;
 
     /// <summary>Records the accent-policy calls the window makes and answers with a configured BOOL.</summary>
     private sealed class RecordingAccentPolicy

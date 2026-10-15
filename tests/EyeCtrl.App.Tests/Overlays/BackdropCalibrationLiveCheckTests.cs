@@ -25,7 +25,7 @@ using Xunit;
 /// <c>SetAccentPolicy</c> setter wrapped so the readout records the state, flags and gradient
 /// production's <c>TryApplyAcrylic</c> actually passes:
 /// <list type="number">
-/// <item><b>REF</b>: <c>window.TryApplyAcrylic(0.004)</c> — state 4, flags 0x20, gradient
+/// <item><b>REF</b>: <c>window.TryApplyAcrylic()</c> — state 4, flags 0x20, gradient
 /// <c>0x01000000</c> (r5's approved glass), no rectangle;</item>
 /// <item><b>A1</b>: the same plus a client rectangle in PURE BLACK (#000000) at 0.30, sized to the
 /// window, added to <c>BackdropCanvas</c> by the test;</item>
@@ -98,7 +98,7 @@ public class BackdropCalibrationLiveCheckTests
             var hwnd = new WindowInteropHelper(window).Handle;
             var ct = HwndSource.FromHwnd(hwnd)!.CompositionTarget!.BackgroundColor;
 
-            var applied = window.TryApplyAcrylic(0.004); // production's own call: state 4, flags 0x20, r5's gradient
+            var applied = window.TryApplyAcrylic(); // production's own call: state 4, flags 0x20, the fixed GlassTint (r5)
 
             if (rectAlpha is { } alpha)
                 AddBlackRectangle(window, alpha);

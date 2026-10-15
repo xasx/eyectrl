@@ -47,6 +47,7 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
     private bool _publishScheduled;
     private bool _bannerActive;
     private bool _restartNoticeActive;
+    private PhysicalRect? _lagMarkZone;
 
     public ActivationOfferCoordinator(
         ToolbarLifecycleCoordinator toolbar,
@@ -99,6 +100,13 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
         {
             _restartNoticeActive = message.Active;
             RecomputeSuspension();
+        });
+        // The T0(a) lag-mark button is a ZONE, not a suspension: it carries its own dwell target
+        // while it is up, so no offer may be placed over it, but the session must stay normal use.
+        context.Messenger.Register<ActivationOfferCoordinator, LagMarkZoneMessage>(this, (_, message) =>
+        {
+            _lagMarkZone = message.Zone;
+            SchedulePublish();
         });
 
         RecomputeSuspension();
@@ -187,15 +195,19 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
         Context.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
         {
             _publishScheduled = false;
-            var zones = _collectZones(Context);
+            var zones = new List<PhysicalRect>(_collectZones(Context));
+            // The lag button's hit area joins the zones while it is visible (T0(a) spec §2.2).
+            if (_lagMarkZone is { } lagMark)
+                zones.Add(lagMark);
+
             // The live check's proof that the no-offer rule is in force, and when (review B F2).
             Serilog.Log.Information(
                 "Activation chrome zones: {Count} {Zones}",
-                zones.Length,
+                zones.Count,
                 string.Join("; ", zones.Select(z => string.Create(
                     System.Globalization.CultureInfo.InvariantCulture,
                     $"[{z.X:F0},{z.Y:F0} {z.Width:F0}×{z.Height:F0}]"))));
-            Context.InteractionManager.SetActivationChromeZones(zones);
+            Context.InteractionManager.SetActivationChromeZones(zones.ToArray());
         });
     }
 

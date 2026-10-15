@@ -5,9 +5,11 @@ namespace EyeCtrl.ViewModels.Tests;
 /// clock in explicit steps and every timer due inside the step fires at its exact due time, so a
 /// phase transition lands on the millisecond its duration says. Timers are created through
 /// <see cref="CreateTimer"/> exactly as production would; <see cref="ScheduledTimerCount"/> is the
-/// quiescence oracle after a dispose.
+/// quiescence oracle after a dispose. Named <c>Probe</c>-prefixed so it cannot shadow the fake
+/// clock Microsoft's time-testing package ships for the calibration tests, which import that type
+/// inside this namespace (SP-8 fixup 03).
 /// </summary>
-internal sealed class FakeTimeProvider : TimeProvider
+internal sealed class ProbeFakeTimeProvider : TimeProvider
 {
     private static readonly DateTimeOffset Epoch = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
@@ -70,11 +72,11 @@ internal sealed class FakeTimeProvider : TimeProvider
 
     private sealed class FakeTimer : ITimer
     {
-        private readonly FakeTimeProvider _provider;
+        private readonly ProbeFakeTimeProvider _provider;
         private readonly TimerCallback _callback;
         private readonly object? _state;
 
-        public FakeTimer(FakeTimeProvider provider, TimerCallback callback, object? state)
+        public FakeTimer(ProbeFakeTimeProvider provider, TimerCallback callback, object? state)
         {
             _provider = provider;
             _callback = callback;

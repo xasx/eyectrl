@@ -1710,7 +1710,7 @@ public class SubPixelProbeViewModelTests
     /// </summary>
     private sealed class Harness
     {
-        public readonly FakeTimeProvider Time = new();
+        public readonly ProbeFakeTimeProvider Time = new();
         public readonly WeakReferenceMessenger Messenger = new();
         public readonly DwellSettings Dwell = new();
         public readonly SubPixelAbSchedule Schedule;

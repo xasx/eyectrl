@@ -909,6 +909,12 @@
           "Modal": null
         },
         {
+          "Id": "dg_subpixel_probe",
+          "Label": "Sub-pixel Visibility Test",
+          "Description": "Runs a short full-screen A/B test of the cursor ring's sub-pixel placement. The keyboard, toolbar and ring come back when it ends; Settings stays closed.",
+          "Modal": null
+        },
+        {
           "Id": "dg_reset",
           "Label": "Reset Diagnostics Settings",
           "Description": null,

@@ -17,12 +17,19 @@ using EyeCtrl.ViewModels.Messages;
 /// </summary>
 internal sealed class QuickActionsCoordinator : CoordinatorBase
 {
+    private readonly ModalInteractionState _modal;
     private QuickActionsSummonController? _summon;
     private Action<GazePoint>? _quickActionsGazeHandler;       // keep the SOURCE name — moved bodies use it verbatim
     private PropertyChangedEventHandler? _quickActionsSettingsHandler;
     // True once the toolbar-settings + grid-VM PropertyChanged handlers are attached (create path
     // only). Gates the matching detach in Dispose.
     private bool _vmSubscriptionsAttached;
+
+    public QuickActionsCoordinator(ModalInteractionState modal) =>
+        // Dereferenced by the summon gate (SummonGateClosed over _modal.ProbeOpen), so reject null
+        // at the ctor rather than on the first gaze sample.
+        _modal = modal ?? throw new ArgumentNullException(nameof(modal));
+
     protected override void OnInitialize()
     {
         SetupQuickActionsSummon();
@@ -31,6 +38,18 @@ internal sealed class QuickActionsCoordinator : CoordinatorBase
     /// <summary>Suspend/resume the hot-edge summon (called by Keyboard/Settings coordinators when a
     /// modal opens). Wraps _summon.SetSuspended.</summary>
     public void SetSummonSuspended(bool suspended) => _summon?.SetSuspended(suspended);
+
+    /// <summary>
+    /// The summon controller's gaze gate (build plan C9): while the probe is open, no hot-edge
+    /// summon may fire — the probe owns the screen and a summoned grid would come up under its
+    /// opaque window, invisible and undismissable. Pure-static, like
+    /// <see cref="ToolbarLifecycleCoordinator.AutoHideGateClosed"/>, so W5(b) drives the REAL
+    /// controller with literals and never touches <c>Context</c>; there is no short-circuit — both
+    /// booleans are evaluated eagerly at the construction site, whose <c>_modal.ProbeOpen</c> wiring
+    /// is pinned at source in QuickActionsCoordinatorTests.ProbeGateWiring_IsPinnedAtTheSource.
+    /// </summary>
+    internal static bool SummonGateClosed(bool probeOpen, bool calibrationActive) =>
+        probeOpen || calibrationActive;
 
     // Test seams (production never calls these): inject a pre-built controller so the suspend/resume
     // path can be exercised without the full QuickActionsGridVM/GazeEngine creation path, and read
@@ -106,7 +125,7 @@ internal sealed class QuickActionsCoordinator : CoordinatorBase
             System.Windows.SystemParameters.PrimaryScreenHeight * DpiHelper.ScaleY,
             s.SummonThresholdMs,
             s.DismissTimeoutMs,
-            calibrationActive: () => Context.CalibrationService.IsSessionActive);
+            calibrationActive: () => SummonGateClosed(_modal.ProbeOpen, Context.CalibrationService.IsSessionActive));
 
         // Gaze-thread → UI-thread marshal: both events hop through the dispatcher
         // before touching the VM (mirrors ToolbarAutoHideController's visibility adapter).

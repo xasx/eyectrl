@@ -390,6 +390,36 @@ internal sealed class KeyboardCoordinator : CoordinatorBase
     }
 
     /// <summary>
+    /// The probe's keyboard seam (build plan C13): hide a keyboard that is visible without touching
+    /// its suppression claim. <c>manageSuppression:false</c> is the point — the toolbar-toggle claim
+    /// is held while the keyboard is up, and the probe must leave it exactly as it was so the
+    /// post-probe re-show is claim-intact (review 03 S2). Returns whether the keyboard was visible
+    /// so the caller can record it; a hidden keyboard is left alone rather than sent a spurious
+    /// HideKeyboardMessage. Synchronous: the caller is C7 on the UI thread.
+    /// </summary>
+    internal bool HideForProbe()
+    {
+        bool wasVisible = _modal.KeyboardVisible;
+        if (wasVisible)
+            SetKeyboardVisible(false, manageSuppression: false);
+        return wasVisible;
+    }
+
+    /// <summary>
+    /// The probe's keyboard restore (build plan C13). A <c>false</c> argument is a NO-OP (review 05
+    /// F2): calling <see cref="SetKeyboardVisible"/>(false, false) here would hide a keyboard the
+    /// probe never hid and leave <c>FixationSuppressor.Keyboard</c> held — no keyboard on screen and
+    /// fixation still suppressed. Only a keyboard the probe actually hid is re-shown, and
+    /// <c>manageSuppression:false</c> leaves the pre-probe claim untouched.
+    /// </summary>
+    internal void RestoreAfterProbe(bool wasVisible)
+    {
+        if (!wasVisible)
+            return;
+        SetKeyboardVisible(true, manageSuppression: false);
+    }
+
+    /// <summary>
     /// The keyboard's fixation-suppression claim, held while the keyboard is up from the toolbar
     /// toggle. Showing takes the claim and ends a fixation in flight — the detector raises no end
     /// once suppressed, and a state left at Fixation would block every FreeLook-guarded entry.

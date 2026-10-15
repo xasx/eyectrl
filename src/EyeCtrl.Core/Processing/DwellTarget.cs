@@ -20,6 +20,15 @@ public class DwellTarget
     /// <summary>Whether gaze is currently inside this target's hit area.</summary>
     public bool IsGazeInside { get; set; }
 
+    /// <summary>
+    /// Timestamp in microseconds of the last <c>Update</c> at which this target was the nearest
+    /// hit — the last moment the gaze was known to be inside. Only read by a detector with a
+    /// pause grace (SP-4c D4): it is the anchor of the "left at" window, so a paused target's
+    /// accumulated dwell is dropped once the absence exceeds the grace. Unused (and never read)
+    /// when the owning detector's grace is 0, which is every caller but the sub-pixel probe.
+    /// </summary>
+    internal long? LastInsideTimestampUs { get; set; }
+
     /// <summary>Optional rectangular bounds. When set, HitTest uses rect containment; null ⇒ circle.</summary>
     public PhysicalRect? Bounds { get; set; }
 

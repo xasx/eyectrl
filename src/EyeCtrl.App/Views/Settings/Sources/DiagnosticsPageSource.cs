@@ -3,7 +3,8 @@ namespace EyeCtrl.App.Views.Settings;
 using EyeCtrl.Core.Localization;
 
 /// <summary>
-/// The two measurement instruments, exposed where a gaze user can reach them.
+/// The two measurement instruments, exposed where a gaze user can reach them, plus the sub-pixel
+/// visibility test entry (build plan C10).
 /// <para>
 /// Until this page existed both flags were reachable only by hand-editing <c>settings.json</c> — which
 /// for this application's user is not a hard path but an impossible one: the app IS their input, so
@@ -16,16 +17,33 @@ using EyeCtrl.Core.Localization;
 /// at composition, and a recording begun halfway through a session has no header describing the
 /// session it is half of.
 /// </para>
+/// <para>
+/// The sub-pixel button evaluates its precondition on activation and shows the localized reason in a
+/// modal when it is blocked (review 03 F11); the label switches to "continue (live gaze)" when a
+/// session-2 resume applies. The probe itself closes Settings synchronously and starts queued behind
+/// the close handling — <see cref="Action"/> supplied by the probe coordinator.
+/// </para>
 /// </summary>
 internal sealed class DiagnosticsPageSource : ISettingsPageSource
 {
     private readonly SettingsPageContext _ctx;
     private readonly Action? _onOpenRecordingFolder;
+    private readonly Func<string?>? _probeBlockReason;
+    private readonly Action? _requestProbe;
+    private readonly Func<bool>? _canResumeSession2;
 
-    public DiagnosticsPageSource(SettingsPageContext ctx, Action? onOpenRecordingFolder = null)
+    public DiagnosticsPageSource(
+        SettingsPageContext ctx,
+        Action? onOpenRecordingFolder = null,
+        Func<string?>? probeBlockReason = null,
+        Action? requestProbe = null,
+        Func<bool>? canResumeSession2 = null)
     {
         _ctx = ctx;
         _onOpenRecordingFolder = onOpenRecordingFolder;
+        _probeBlockReason = probeBlockReason;
+        _requestProbe = requestProbe;
+        _canResumeSession2 = canResumeSession2;
     }
 
     public bool PrefersAutoPagination => true;
@@ -33,6 +51,8 @@ internal sealed class DiagnosticsPageSource : ISettingsPageSource
     public IReadOnlyList<PageSpec> Build()
     {
         var d = _ctx.Settings.Diagnostics;
+        bool canResume = _canResumeSession2?.Invoke() ?? false;
+
         return
         [
             new PageSpec([
@@ -50,6 +70,21 @@ internal sealed class DiagnosticsPageSource : ISettingsPageSource
                     () => _onOpenRecordingFolder?.Invoke(),
                     ButtonKind.Default, Width: 300, Height: 100)
                     { Description = StringTable.Current.T("settings.diagnostics.open_folder.description") },
+                new ButtonSpec("dg_subpixel_probe",
+                    StringTable.Current.T(canResume
+                        ? "settings.diagnostics.subpixel.continue"
+                        : "settings.diagnostics.subpixel.start"),
+                    () =>
+                    {
+                        // The reason is evaluated on activation, never as a live label (review 03 F11):
+                        // state changes while the window sits open must not show a stale refusal.
+                        if (_probeBlockReason?.Invoke() is { } reason)
+                            _ctx.ShowError(reason);
+                        else
+                            _requestProbe?.Invoke();
+                    },
+                    ButtonKind.Default, Width: 300, Height: 100)
+                    { Description = StringTable.Current.T("settings.diagnostics.subpixel.description") },
                 new ButtonSpec("dg_reset",
                     StringTable.Current.T("settings.diagnostics.reset.label"),
                     () => _ctx.ShowModal(StringTable.Current.T("settings.diagnostics.reset.message"), () =>

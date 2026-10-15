@@ -33,6 +33,12 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     private ModelManagementService? _modelManagementService;
     private AppRestartCoordinator? _restartCoordinator;
     private SupervisionToggleService? _supervisionToggle;
+
+    // The probe entry (build plan C10): the Diagnostics button's reason probe and request action,
+    // handed over once at startup by EventCoordinator after C7 exists.
+    private Func<string?>? _probeBlockReason;
+    private Action? _probeRequest;
+    private Func<bool>? _probeCanResume;
     // Owned HERE — moved from EventCoordinator. Read in OnSettingsChanged to gate the toolbar
     // re-init (only re-initialize the toolbar when its layout-affecting settings changed).
     private ToolbarSnapshot? _toolbarSnapshot;
@@ -94,6 +100,33 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     /// <summary>Hands the supervision toggle (ticket 04) to the settings window at construction.
     /// Called once at startup, like <see cref="SetRestartCoordinator"/>.</summary>
     public void SetSupervisionToggle(SupervisionToggleService service) => _supervisionToggle = service;
+
+    /// <summary>
+    /// Hands the sub-pixel probe entry (build plan C10) to the next settings window: the
+    /// precondition reason the Diagnostics button shows on activation, and the request action that
+    /// closes Settings and queues the probe start. Called once at startup, after C7 exists.
+    /// </summary>
+    /// <param name="probeBlockReason">Returns the localized refusal, or <c>null</c> when start is allowed.</param>
+    /// <param name="requestProbe">Closes Settings synchronously and queues the probe start.</param>
+    /// <param name="canResumeSession2">Whether a session-2 resume applies; SP-6 supplies the reader.</param>
+    public void SetProbeEntry(
+        Func<string?> probeBlockReason, Action requestProbe, Func<bool>? canResumeSession2 = null)
+    {
+        _probeBlockReason = probeBlockReason ?? throw new ArgumentNullException(nameof(probeBlockReason));
+        _probeRequest = requestProbe ?? throw new ArgumentNullException(nameof(requestProbe));
+        _probeCanResume = canResumeSession2;
+    }
+
+    /// <summary>
+    /// Closes the Settings window synchronously for a probe request. The window's <c>Closed</c>
+    /// handler raises <c>SettingsOpenChanged(false)</c> inside <c>Close()</c>, which is what C7's
+    /// arming depends on (review 05 F8).
+    /// </summary>
+    internal void CloseSettingsWindowForProbe()
+    {
+        if (_settingsWindow is not null)
+            _settingsWindow.Close();
+    }
 
     /// <summary>Gaze-routing seam (consumed by ToolbarLifecycleCoordinator.SetupGazeRouting after
     /// the cluster-8 fold): forwards the sample to the settings window iff it is open and visible.
@@ -172,7 +205,10 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
                     "Restart coordinator not set; SetRestartCoordinator must be called at startup."),
                 _supervisionToggle ?? throw new InvalidOperationException(
                     "Supervision toggle not set; SetSupervisionToggle must be called at startup."),
-                context.UserDictionary);
+                context.UserDictionary,
+                probeBlockReason: _probeBlockReason,
+                requestProbe: _probeRequest,
+                canResumeSession2: _probeCanResume);
 
             _settingsWindow.SettingsChanged += OnSettingsChanged;
             _settingsWindow.Closed += OnSettingsWindowClosed;
@@ -245,7 +281,9 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     internal static bool ShouldRefreshPredictionBar(bool reloaded, bool keyboardVisible) =>
         !reloaded && keyboardVisible;
 
-    private void OnSettingsWindowClosed(object? sender, EventArgs e)
+    /// <summary>Settings' close path, `internal` so the W2/W3 probe tests can drive the real
+    /// handler (review 03 F1: it is otherwise reachable only through a real SettingsWindow).</summary>
+    internal void OnSettingsWindowClosed(object? sender, EventArgs e)
     {
         if (Context is null) return;
 
@@ -253,8 +291,14 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         _modal.SettingsOpen = false;
         _modal.SettingsOpenChanged?.Invoke(false);
         _toolbar.SetAutoHideSuspended(false);
-        _quickActions.SetSummonSuspended(false);
-        if (Context.CursorVM.IsVisible)
+        // While the probe is open, Settings closing must not un-suspend the summon or re-show the
+        // ring over the probe window (build plan C9): the probe suspended/ended both, and its own
+        // Restore is the only place that may undo them. The summon gate is invisible here anyway
+        // (QuickActionsSummonController refuses gaze while ProbeOpen), so the gate protects the
+        // end state the post-probe Restore computes from, not the live screen.
+        if (!_modal.ProbeOpen)
+            _quickActions.SetSummonSuspended(false);
+        if (Context.CursorVM.IsVisible && !_modal.ProbeOpen)
             Context.OverlayManager.CursorCircle.Show();
     }
 

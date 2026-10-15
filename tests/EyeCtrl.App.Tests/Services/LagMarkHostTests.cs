@@ -448,10 +448,10 @@ public class LagMarkHostTests
         Check.That(Regex.IsMatch(
             arguments,
             @"isProbeOpen\s*:\s*\(\)\s*=>\s*_eventCoordinator\s*\.\s*IsProbeOpen")).IsTrue();
-        Check.WithCustomMessage("the button is no longer given the chrome zones, so it could cover the keys or the toolbar")
+        Check.WithCustomMessage("the button is no longer given the chrome zones (incl. the edge bars), so it could cover the keys or the toolbar")
             .That(Regex.IsMatch(
                 arguments,
-                @"keepClear\s*:\s*\(\)\s*=>\s*RestartNoticePlacement\s*\.\s*ToDip\s*\(\s*(?:EyeCtrl\s*\.\s*App\s*\.\s*Services\s*\.\s*Coordinators\s*\.\s*)?ActivationChromeZones\s*\.\s*CollectFromProduction\s*\(\s*coordinationContext\s*\)\s*\)")).IsTrue();
+                @"keepClear\s*:\s*\(\)\s*=>\s*LagMarkChrome\s*\.\s*CollectFromProduction\s*\(\s*coordinationContext\s*\)")).IsTrue();
         Check.WithCustomMessage("the host construction reads the paused state; the launcher starts the app --paused")
             .That(Regex.IsMatch(arguments, @"paus", RegexOptions.IgnoreCase)).IsFalse();
 

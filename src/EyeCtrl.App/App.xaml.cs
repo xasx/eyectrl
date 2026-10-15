@@ -419,8 +419,7 @@ public partial class App : Application
                 _lagMarkHost = new LagMarkHost(
                     messenger,
                     new LagMarkWindow(settings.Dwell.ToolbarButtonDwellMs, messenger,
-                        keepClear: () => RestartNoticePlacement.ToDip(
-                            EyeCtrl.App.Services.Coordinators.ActivationChromeZones.CollectFromProduction(coordinationContext))),
+                        keepClear: () => LagMarkChrome.CollectFromProduction(coordinationContext)),
                     dispatchProbe,
                     isInstrumentOn: () => settings.Diagnostics.MeasureUiInstruments,
                     isSettingsOpen: () => _eventCoordinator.IsSettingsOpen,

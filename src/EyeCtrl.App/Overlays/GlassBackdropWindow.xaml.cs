@@ -312,9 +312,12 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     }
 
     /// <summary>
-    /// Cancels a posted but not yet run hide. Safe when nothing is pending, and called from
-    /// <see cref="ShowBackdrop"/>, <see cref="Show"/> and <see cref="OnClosed"/> — a closed window
-    /// must not have a stray <c>base.Hide()</c> run against it.
+    /// Cancels a posted but not yet run hide. Load-bearing in <see cref="ShowBackdrop"/> and
+    /// <see cref="Show"/>: the hand-off's window must not leave the screen. In
+    /// <see cref="OnClosed"/> it is HYGIENE rather than a crash guard — a leaked hide measured
+    /// harmless on a closed window (no dispatcher exception, no cloak write; WPF's Hide-after-Close
+    /// and the handle-less uncloak/accent paths simply do nothing — pinned by the Close gate's
+    /// tripwire) — but nothing should run against a window that is already gone.
     /// </summary>
     private void CancelPendingHide()
     {
@@ -329,7 +332,7 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     protected override void OnClosed(EventArgs e)
     {
         CancelPendingUncloak(); // no stray uncloak may fire on a closed window
-        CancelPendingHide();    // nor a stray hide
+        CancelPendingHide();    // hygiene: measured harmless without it (see CancelPendingHide)
         base.OnClosed(e);
     }
 

@@ -281,7 +281,7 @@ public class GlassBackdropCloakTests
     }
 
     [StaFact]
-    public void Hide_ThenClose_WithAPendingHide_IsSafe()
+    public void Close_WithAPendingHide_LeavesNoWrite_AndNoStrayThrow()
     {
         var run = Start(0.3);
         try
@@ -290,11 +290,36 @@ public class GlassBackdropCloakTests
             LiveCheck.PumpFor(TimeSpan.FromMilliseconds(400));
             var cloaksBefore = run.Cloaks.Count;
 
-            run.Window.Hide();  // posts the deferred hide
-            run.Window.Close(); // OnClosed must abort it — a leaked base.Hide() on a closed window throws
+            // Tripwire: if a leaked deferred hide ever throws against the closed window, the
+            // dispatcher raises this and the gate fails instead of the exception vanishing into the
+            // scheduler. Measured with OnClosed's cancel REMOVED (the review's mutant, which this
+            // gate passes): a leaked CompleteHide runs against the closed window and is HARMLESS —
+            // no dispatcher exception, no cloak write (WPF's Hide-after-Close and the handle-less
+            // uncloak/accent paths do nothing) — so the cancel is hygiene, and this gate pins "no
+            // write, no throw", not "the post was cancelled". The tripwire keeps that honest if
+            // WPF's behaviour ever changes.
+            Exception? strayThrow = null;
+            var dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+            void OnUnhandled(object? sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
+            {
+                strayThrow = e.Exception;
+            }
 
-            LiveCheck.PumpFor(TimeSpan.FromMilliseconds(400)); // drain: a leaked post would surface here
+            dispatcher.UnhandledException += OnUnhandled;
+            try
+            {
+                run.Window.Hide();  // posts the deferred hide
+                run.Window.Close(); // OnClosed cancels it; the drain below would surface a leak
 
+                LiveCheck.PumpFor(TimeSpan.FromMilliseconds(400));
+            }
+            finally
+            {
+                dispatcher.UnhandledException -= OnUnhandled;
+            }
+
+            Check.WithCustomMessage($"a stray deferred hide threw on the closed window: {strayThrow}")
+                .That(strayThrow).IsNull();
             Check.WithCustomMessage("the window survived Close as visible.")
                 .That(run.Window.IsVisible).IsFalse();
             Check.WithCustomMessage($"no cloak write belongs to a closed window: {string.Join(" | ", run.Cloaks)}")

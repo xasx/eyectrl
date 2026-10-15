@@ -96,6 +96,7 @@ public class OverlayClientOriginTests
         "EyeCareExerciseWindow",
         "GlassBackdropWindow",
         "KeyboardWindow",
+        "LagMarkWindow",
         "ManualSelectionGazeIndicatorWindow",
         "ManualSelectionOverlayWindow",
         "ModesMenuWindow",
@@ -195,6 +196,8 @@ public class OverlayClientOriginTests
     {
         if (type == typeof(NoteWindow)) return new NoteWindow("probe");
         if (type == typeof(SettingsWindow)) return BuildSettingsWindow(cleanups);
+        // The lag-mark button's dwell time is required, so it gets its own factory (T0(a)).
+        if (type == typeof(LagMarkWindow)) return new LagMarkWindow(dwellMs: 700);
 
         var ctor = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
             .OrderBy(c => c.GetParameters().Length)

@@ -21,6 +21,7 @@ public class DwellSurfaceCensusTests
         ("EyeCtrl.App/Services/ExternalDwellService.cs", "excluded", "external apps — owner declined"),
         ("EyeCtrl.App/Overlays/EyeCareBannerWindow.xaml.cs", "cue", "start/snooze exercise actions"),
         ("EyeCtrl.App/Overlays/RestartNoticeWindow.xaml.cs", "cue", "restart-notice close (post-effect cue, like the eye-care banner)"),
+        ("EyeCtrl.App/Overlays/LagMarkWindow.xaml.cs", "cue", "lag-mark button (post-effect cue after the mark line runs)"),
         ("EyeCtrl.App/Services/NoteManager.cs", "cue", "note button actions"),
         ("EyeCtrl.App/Services/ManualSelectionDwellService.cs", "cue", "manual-selection dwell clicks"),
         ("EyeCtrl.ViewModels/SettingsWindowViewModel.cs", "cue", "tabs/controls/pagination/modal"),

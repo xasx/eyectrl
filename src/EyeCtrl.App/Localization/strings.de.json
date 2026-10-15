@@ -382,6 +382,14 @@
     "text": "Mit Esc das Scrollen beenden",
     "src": "c74d1522"
   },
+  "overlays.lagmark.label": {
+    "text": "Hängt",
+    "src": "197595ea"
+  },
+  "overlays.lagmark.marked": {
+    "text": "Markiert ✓",
+    "src": "790c3642"
+  },
   "overlays.modifier.alt": {
     "text": "Alt",
     "src": "16fc9616"

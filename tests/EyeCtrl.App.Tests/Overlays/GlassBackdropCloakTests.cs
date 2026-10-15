@@ -242,23 +242,37 @@ public class GlassBackdropCloakTests
     }
 
     [StaFact]
-    public void Hide_UncloaksImmediately_BeforeAnyFrame()
+    public void Hide_DefersTheWindowHide_ButTheHintGoesAtOnce()
     {
         var run = Start(0.3);
         try
         {
             run.Window.ShowBackdrop(run.Settings, Center); // no pump: the uncloak is still pending
+            run.Window.ShowEscapeHint();
             Check.That(run.Cloaks).HasSize(1);
 
             run.Window.Hide();
 
-            // cloak(true) at the show, then Hide()'s own uncloak — no frame needed. Uncloak runs
-            // BEFORE base.Hide, so the window is still visible at that call.
-            Check.WithCustomMessage($"unexpected cloak sequence: {string.Join(" | ", run.Cloaks)}")
-                .That(run.Cloaks).HasSize(2);
-            Check.That(run.Cloaks[0]).IsEqualTo((true, false));
-            Check.That(run.Cloaks[1]).IsEqualTo((false, true));
+            // The window hide is DEFERRED (one Background post) so the hand-off's show can cancel
+            // it — nothing on screen may blink; the caregiver-facing hint, however, must not linger.
+            Check.WithCustomMessage("Hide hid the window synchronously.")
+                .That(run.Window.IsVisible).IsTrue();
+            Check.WithCustomMessage("the hint must go at once.")
+                .That(run.HintVisibility).IsEqualTo(Visibility.Collapsed);
+            Check.WithCustomMessage($"the deferred hide must not have uncloaked yet: {string.Join(" | ", run.Cloaks)}")
+                .That(run.Cloaks).HasSize(1);
+
+            LiveCheck.PumpFor(TimeSpan.FromMilliseconds(400));
+
             Check.That(run.Window.IsVisible).IsFalse();
+            Check.WithCustomMessage($"the hide must release the cloak exactly once: {string.Join(" | ", run.Cloaks)}")
+                .That(run.Cloaks).HasSize(2);
+            Check.That(run.Cloaks[1]).IsEqualTo((false, true));
+
+            // A stale uncloak (the show's pending Rendering callback) must not fire a third write.
+            LiveCheck.PumpFor(TimeSpan.FromMilliseconds(200));
+            Check.WithCustomMessage($"a late uncloak fired: {string.Join(" | ", run.Cloaks)}")
+                .That(run.Cloaks).HasSize(2);
         }
         finally
         {
@@ -267,22 +281,24 @@ public class GlassBackdropCloakTests
     }
 
     [StaFact]
-    public void Hide_CancelsThePendingUncloak_NoLateWrite()
+    public void Hide_ThenClose_WithAPendingHide_IsSafe()
     {
         var run = Start(0.3);
         try
         {
-            run.Window.ShowBackdrop(run.Settings, Center); // cloaked, uncloak pending
-            run.Window.Hide();
-
-            // The pending Rendering callback and the fallback timer are both cancelled by Hide's
-            // uncloak: a late uncloak would write a SECOND cloak(false) after a later show's
-            // cloak(true), breaking the pairing the pump relies on.
+            run.Window.ShowBackdrop(run.Settings, Center);
             LiveCheck.PumpFor(TimeSpan.FromMilliseconds(400));
+            var cloaksBefore = run.Cloaks.Count;
 
-            Check.WithCustomMessage($"a cancelled uncloak fired late: {string.Join(" | ", run.Cloaks)}")
-                .That(run.Cloaks).HasSize(2);
-            Check.That(run.Window.IsVisible).IsFalse();
+            run.Window.Hide();  // posts the deferred hide
+            run.Window.Close(); // OnClosed must abort it — a leaked base.Hide() on a closed window throws
+
+            LiveCheck.PumpFor(TimeSpan.FromMilliseconds(400)); // drain: a leaked post would surface here
+
+            Check.WithCustomMessage("the window survived Close as visible.")
+                .That(run.Window.IsVisible).IsFalse();
+            Check.WithCustomMessage($"no cloak write belongs to a closed window: {string.Join(" | ", run.Cloaks)}")
+                .That(run.Cloaks).HasSize(cloaksBefore);
         }
         finally
         {
@@ -342,7 +358,7 @@ public class GlassBackdropCloakTests
     }
 
     [StaFact]
-    public void TheHandOff_WithinAFrameOfAHide_KeepsThePreparedContent_NoCloakNoReapply()
+    public void TheHandOff_WithinAFrameOfAHide_NeverLeavesTheScreen_NoCloakNoReapply()
     {
         var run = Start(0.3);
         try
@@ -350,30 +366,43 @@ public class GlassBackdropCloakTests
             run.Window.ShowBackdrop(run.Settings, Center);
             LiveCheck.PumpFor(TimeSpan.FromMilliseconds(400));
             var policiesBefore = run.Policies.Count;
+            var cloaksBefore = run.Cloaks.Count;
             var childrenBefore = run.CanvasChildren;
             Check.WithCustomMessage("the prepared show must leave the dim layer on the canvas.")
                 .That(run.Rectangles).IsEqualTo(1);
             Check.WithCustomMessage("the prepared show must leave content (the ✕ is several elements).")
                 .That(childrenBefore).IsStrictlyGreaterThan(1);
-            Check.That(run.Cloaks).HasSize(2);
 
             // Production's magnifier → ring hand-off: Hide and ShowBackdrop in two back-to-back
-            // dispatcher posts, same settings, no frame in between.
-            run.Window.Hide();
-            run.Window.ShowBackdrop(run.Settings, Center);
+            // dispatcher posts. The hide is deferred, so the show cancels it and the window NEVER
+            // leaves the screen — no re-show, no cloak, no re-apply, no blink.
+            var wentInvisible = 0;
+            void OnVisibleChanged(object? sender, DependencyPropertyChangedEventArgs e)
+            {
+                if (!run.Window.IsVisible) wentInvisible++;
+            }
 
-            Check.WithCustomMessage("the hand-off re-sent the accent instead of reusing the prepared content.")
+            run.Window.IsVisibleChanged += OnVisibleChanged;
+            try
+            {
+                run.Window.Hide();
+                run.Window.ShowBackdrop(run.Settings, Center);
+                LiveCheck.PumpFor(TimeSpan.FromMilliseconds(400)); // drain well past Background
+            }
+            finally
+            {
+                run.Window.IsVisibleChanged -= OnVisibleChanged;
+            }
+
+            Check.WithCustomMessage("the hand-off window left the screen — a frame of desktop or undimmed glass.")
+                .That(wentInvisible).IsEqualTo(0);
+            Check.That(run.Window.IsVisible).IsTrue();
+            Check.WithCustomMessage("the hand-off re-sent the accent instead of keeping the prepared content.")
                 .That(run.Policies.Count).IsEqualTo(policiesBefore);
             Check.WithCustomMessage("the hand-off re-cloaked, which is the bare-desktop gap it exists to avoid.")
-                .That(run.Cloaks).HasSize(2);
+                .That(run.Cloaks.Count).IsEqualTo(cloaksBefore);
             Check.WithCustomMessage("the hand-off cleared the prepared content.")
                 .That(run.CanvasChildren).IsEqualTo(childrenBefore);
-            Check.That(run.Window.IsVisible).IsTrue();
-
-            LiveCheck.PumpFor(TimeSpan.FromMilliseconds(400));
-            Check.That(run.Window.IsVisible).IsTrue();
-            Check.WithCustomMessage("the hand-off show must not cloak at all.")
-                .That(run.Cloaks).HasSize(2);
         }
         finally
         {
@@ -382,7 +411,7 @@ public class GlassBackdropCloakTests
     }
 
     [StaFact]
-    public void TheHandOff_WithChangedSettings_TakesTheNormalPath()
+    public void ChangedSettings_DuringAPendingHide_ReApplyInPlace_AndTheHideIsCancelled()
     {
         var run = Start(0.3);
         try
@@ -390,55 +419,24 @@ public class GlassBackdropCloakTests
             run.Window.ShowBackdrop(run.Settings, Center);
             LiveCheck.PumpFor(TimeSpan.FromMilliseconds(400));
             var policiesBefore = run.Policies.Count;
+            var cloaksBefore = run.Cloaks.Count;
 
             run.Window.Hide();
             var changed = new BackdropSettings { Type = BackdropType.Mica, Enabled = true, Opacity = 0.5 };
             run.Window.ShowBackdrop(changed, Center);
 
-            // Changed settings are not a hand-off: the canvas must be re-prepared and, because it is
-            // a fresh prepare, cloaked until it renders — the cloak(true) is already recorded here,
-            // the uncloak follows the frame.
-            Check.WithCustomMessage("a re-show with changed settings must re-apply the accent.")
+            // The window is still visible, so the change is F5's in-place re-apply (no cloak), and
+            // the pending hide is cancelled — the window stays on screen.
+            Check.WithCustomMessage("changed settings during a pending hide must re-apply the accent.")
                 .That(run.Policies.Count).IsStrictlyGreaterThan(policiesBefore);
-            Check.WithCustomMessage("a re-show with changed settings must cloak before the show.")
-                .That(run.Cloaks).HasSize(3);
-            Check.That(run.Cloaks[2]).IsEqualTo((true, false));
+            Check.WithCustomMessage("changed settings during a pending hide must not cloak the window.")
+                .That(run.Cloaks.Count).IsEqualTo(cloaksBefore);
 
             LiveCheck.PumpFor(TimeSpan.FromMilliseconds(400));
-            Check.WithCustomMessage("the re-prepared show must uncloak after its first frame.")
-                .That(run.Cloaks).HasSize(4);
-            Check.That(run.Cloaks[3]).IsEqualTo((false, true));
-        }
-        finally
-        {
-            Cleanup(run.Window);
-        }
-    }
-
-    [StaFact]
-    public void AfterTheHandOffWindow_AShowWithUnchangedSettings_TakesTheNormalPath()
-    {
-        var run = Start(0.3);
-        try
-        {
-            run.Window.ShowBackdrop(run.Settings, Center);
-            LiveCheck.PumpFor(TimeSpan.FromMilliseconds(400));
-            var policiesBefore = run.Policies.Count;
-
-            run.Window.Hide();
-            LiveCheck.PumpFor(TimeSpan.FromMilliseconds(200)); // past HandOffWindowMs
-            run.Window.ShowBackdrop(run.Settings, Center);
-
-            Check.WithCustomMessage("a show after the hand-off window must re-prepare, not reuse stale content.")
-                .That(run.Policies.Count).IsStrictlyGreaterThan(policiesBefore);
-            Check.WithCustomMessage("a show after the hand-off window must cloak before the show.")
-                .That(run.Cloaks).HasSize(3);
-            Check.That(run.Cloaks[2]).IsEqualTo((true, false));
-
-            LiveCheck.PumpFor(TimeSpan.FromMilliseconds(400));
-            Check.WithCustomMessage("a show after the hand-off window must uncloak after its first frame.")
-                .That(run.Cloaks).HasSize(4);
-            Check.That(run.Cloaks[3]).IsEqualTo((false, true));
+            Check.WithCustomMessage("the cancelled hide ran anyway.")
+                .That(run.Window.IsVisible).IsTrue();
+            Check.WithCustomMessage("the in-place re-apply must not cloak.")
+                .That(run.Cloaks.Count).IsEqualTo(cloaksBefore);
         }
         finally
         {
@@ -487,6 +485,9 @@ public class GlassBackdropCloakTests
 
         public int Rectangles =>
             ((Canvas)Window.FindName("BackdropCanvas")!).Children.OfType<Rectangle>().Count();
+
+        /// <summary>The Esc hint's visibility (Collapsed the moment Hide runs, even while deferred).</summary>
+        public Visibility HintVisibility => ((TextBlock)Window.FindName("EscapeHint")!).Visibility;
 
         /// <summary>
         /// The ✕'s dwell arcs (progress + halo) that are currently VISIBLE. <c>UpdateProgress(0)</c>

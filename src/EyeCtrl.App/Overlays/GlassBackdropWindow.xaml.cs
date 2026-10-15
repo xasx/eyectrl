@@ -3,7 +3,6 @@ namespace EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 
 using System;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -46,14 +45,6 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     // ever showed their flat inactive fallback.
     private const int DwmsbtNone = 1;
 
-    /// <summary>
-    /// How soon after <see cref="Hide"/> a <see cref="ShowBackdrop"/> with unchanged settings counts
-    /// as the magnifier → ring hand-off (production's two back-to-back dispatcher posts land ~1 ms
-    /// apart; a frame of slack keeps it robust under load) and reuses the prepared content instead
-    /// of clearing and re-applying it.
-    /// </summary>
-    private const long HandOffWindowMs = 33;
-
     private Rectangle? _solidBackground;
     private Rectangle? _dimLayer;
     private DwellArcButton? _hideButton;
@@ -64,14 +55,8 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     /// <summary>The settings the canvas is currently prepared for, or null when it holds nothing.</summary>
     private (BackdropType Type, double Opacity)? _preparedFor;
 
-    /// <summary>
-    /// A monotonic clock for the hand-off window: <see cref="Environment.TickCount64"/>'s ~15.6 ms
-    /// resolution turns the 33 ms window into 33-47 ms, so a <see cref="Stopwatch"/> is used instead.
-    /// </summary>
-    private static readonly Stopwatch HandOffClock = Stopwatch.StartNew();
-
-    /// <summary>When <see cref="Hide"/> last ran; opens the hand-off window (see HandOffWindowMs).</summary>
-    private long _hiddenAtMs;
+    /// <summary>The posted-but-not-yet-run hide (<see cref="Hide"/>), cancelled by a show.</summary>
+    private DispatcherOperation? _pendingHide;
 
     public GlassBackdropWindow()
     {
@@ -159,11 +144,11 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     ///
     /// <para>
     /// <b>The magnifier → ring hand-off.</b> Production calls <see cref="Hide"/> and then this method
-    /// within about a millisecond (two back-to-back dispatcher posts in
-    /// <c>GazeEngineAdapter</c>). A clear-and-reprepare pair there would put a bare frame on screen
-    /// (worse with a cloak: hidden, then cloaked until WPF renders). When the window was hidden within
-    /// a frame and the SETTINGS ARE UNCHANGED, the prepared content is still on the canvas, so the
-    /// hand-off just shows it — no clear, no re-apply, no cloak, no bare or undimmed frame.
+    /// within about a millisecond (two back-to-back dispatcher posts in <c>GazeEngineAdapter</c>).
+    /// <see cref="Hide"/> therefore only COLLAPSES THE HINT and posts the actual hide at
+    /// <see cref="DispatcherPriority.Background"/>: this call, arriving first, cancels that post, so
+    /// the window never leaves the screen — no re-show, no cloak, no re-apply, and no frame of
+    /// desktop or undimmed glass (the owner saw exactly one such frame with the eager hide).
     /// </para>
     /// </summary>
     public void ShowBackdrop(BackdropSettings settings, PhysicalPoint hideButtonCenter)
@@ -172,37 +157,27 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
             return;
         PositionForShow(this);   // the layer below sizes itself to the window
         EnsureHandle();          // a real hwnd: the accent needs it, and the CT turns transparent
+        CancelPendingHide();     // a show cancels a hide that has not run yet (the hand-off)
 
         if (IsVisible)
         {
             // A show on an already-VISIBLE window must neither re-prepare-and-cloak it (the cloak
             // would blank a window that is on screen until a frame) nor re-send the accent. Unchanged
-            // settings are a no-op; changed settings are re-applied in place — one synchronous
-            // prepare, so DWM composes only the final state — and never re-cloaked.
+            // settings are a no-op (just a new dwell — the hand-off lands here); changed settings are
+            // re-applied in place — one synchronous prepare, so DWM composes only the final state —
+            // and never re-cloaked.
             if (_preparedFor is { } current
                 && current.Type == settings.Type
                 && Math.Abs(current.Opacity - settings.Opacity) < 1e-9)
+            {
+                UpdateHideButtonProgress(0);
                 return;
+            }
 
             ApplyBackdrop(settings);
             DrawHideButton(hideButtonCenter);
             _preparedFor = (settings.Type, settings.Opacity);
             UpdateHideButtonProgress(0);
-            return;
-        }
-
-        if (settings.Enabled
-            && !IsVisible
-            && _preparedFor is { } prepared
-            && prepared.Type == settings.Type
-            && Math.Abs(prepared.Opacity - settings.Opacity) < 1e-9
-            && HandOffClock.ElapsedMilliseconds - _hiddenAtMs <= HandOffWindowMs)
-        {
-            // The hand-off: the finished content is already prepared, so SHOW it — nothing is
-            // cleared, nothing re-applied, nothing cloaked, and there is no bare frame. The ✕'s
-            // dwell progress from the interrupted dwell is reset: this is a new show.
-            UpdateHideButtonProgress(0);
-            base.Show();
             return;
         }
 
@@ -298,6 +273,7 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     {
         if (System.Windows.Forms.Screen.PrimaryScreen == null)
             return;
+        CancelPendingHide(); // a show cancels a hide that has not run yet
         Uncloak(); // a cloaked window would show nothing
         OverlayPositioning.CoverPrimaryScreen(this);
         base.Show();
@@ -305,24 +281,55 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     }
 
     /// <summary>
-    /// Hides the window without clearing the prepared content: production hides and re-shows within
-    /// a frame (the magnifier → ring hand-off), and <see cref="ShowBackdrop"/> reuses exactly that
-    /// prepared content, so clearing here would guarantee a bare frame. The next prepare
-    /// (<see cref="ApplyBackdrop"/> → <see cref="ClearContent"/>) replaces it, and a hidden window
-    /// composes nothing, so retaining it is invisible. The uncloak is immediate: a hidden window
-    /// must never stay cloaked.
+    /// The escape hint goes at once (it is caregiver-facing signage and must not linger on a window
+    /// that is leaving), but the WINDOW hide is DEFERRED to <see cref="DispatcherPriority.Background"/>.
+    /// Production hides and re-shows within about a millisecond (the magnifier → ring hand-off: two
+    /// back-to-back dispatcher posts in <c>GazeEngineAdapter</c>), and an eager hide put one frame of
+    /// desktop — or of undimmed glass — on screen before the ring's show repainted it (the owner saw
+    /// exactly that frame). <see cref="ShowBackdrop"/> arriving first cancels the posted hide
+    /// (<see cref="CancelPendingHide"/>), so the window never leaves the screen at all. A window that
+    /// was never shown hides directly: there is nothing on screen to protect.
     /// </summary>
     public new void Hide()
     {
-        Uncloak();
-        base.Hide();
-        _hiddenAtMs = HandOffClock.ElapsedMilliseconds;
         HideEscapeHint();
+        if (!IsVisible)
+        {
+            CompleteHide(); // never shown (or already hidden): nothing to defer for
+            return;
+        }
+
+        _pendingHide ??= Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(CompleteHide));
+    }
+
+    /// <summary>The deferred hide: release the cloak, hide, and clear the canvas for the next use.</summary>
+    private void CompleteHide()
+    {
+        _pendingHide = null;
+        Uncloak(); // a hidden window must never stay cloaked
+        base.Hide();
+        ClearContent();
+    }
+
+    /// <summary>
+    /// Cancels a posted but not yet run hide. Safe when nothing is pending, and called from
+    /// <see cref="ShowBackdrop"/>, <see cref="Show"/> and <see cref="OnClosed"/> — a closed window
+    /// must not have a stray <c>base.Hide()</c> run against it.
+    /// </summary>
+    private void CancelPendingHide()
+    {
+        if (_pendingHide is { } pending)
+        {
+            _pendingHide = null;
+            if (pending.Status == DispatcherOperationStatus.Pending)
+                pending.Abort();
+        }
     }
 
     protected override void OnClosed(EventArgs e)
     {
         CancelPendingUncloak(); // no stray uncloak may fire on a closed window
+        CancelPendingHide();    // nor a stray hide
         base.OnClosed(e);
     }
 

@@ -194,8 +194,10 @@ exception details and logs, and the product names.
   system Mica/Acrylic backdrops only ever produced their flat inactive fallback on an overlay that
   never takes focus. The window now clears that background to transparent and both the "Mica" and
   "Acrylic" settings use the acrylic blur, which is live on this window. The opacity slider now sets
-  the tint's strength over the live blur (it used to set the alpha of the plain dark fill; the
-  "Solid darken" setting is unchanged). The option names are unchanged; the blur uses an
+  how much darker the glass is: a black layer over the blur at the slider's value (0.3 = 30 % darker
+  than the glass; the glass itself is slightly brighter than a dark desktop). "Solid darken" is now
+  a see-through dark tint at the slider's value; it used to show opaque near-black whatever the
+  setting. The option names are unchanged; the blur uses an
   undocumented Windows API whose redraw can lag while a window is dragged — irrelevant for a static
   full-screen overlay (`GlassBackdropMaterialPathTests`, plus the follow-up's live look and capture
   readouts).

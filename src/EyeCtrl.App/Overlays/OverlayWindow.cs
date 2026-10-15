@@ -69,8 +69,11 @@ public class OverlayWindow : Window
         base.OnSourceInitialized(e);
 
         // This is the ONLY place every overlay gets its interaction flags. A subclass constructor
-        // cannot do it — SetOverlayInteraction early-returns until the HWND exists, and the HWND
-        // is not created until Show(). The focusable:false here is what gives all overlays
+        // cannot do it — SetOverlayInteraction early-returns until the HWND exists. That used to
+        // happen only at Show(); since the flicker fix a window may ensure its handle up front
+        // (GlassBackdropWindow.ShowBackdrop prepares the material before it becomes visible), and
+        // this handler runs then, so the flags and the capture exclusion are in place before the
+        // window can be seen either way. The focusable:false here is what gives all overlays
         // WS_EX_NOACTIVATE, i.e. what stops them stealing the foreground; do not weaken it
         // without checking the callers that resolve the user's real foreground window.
         SetOverlayInteraction(clickThrough: IsClickThrough, focusable: false);

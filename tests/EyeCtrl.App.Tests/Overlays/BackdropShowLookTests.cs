@@ -18,7 +18,8 @@ using Xunit;
 /// The flicker fix's confirmation look: PRODUCTION's show path only (no paired two-step), with a
 /// first-frame readout. Per case the window is shown, held, hidden, and shown again; the display
 /// affinity is lifted BEFORE the first show (in the test only) so the screen can be captured the
-/// instant <c>ShowBackdrop</c> returns plus one <c>DwmFlush</c> — that grab must already read as the
+/// instant <c>ShowBackdrop</c> returns plus two <c>DwmFlush</c> calls (one can return for a
+/// composition that began before ShowWindow) — that grab must already read as the
 /// finished backdrop (luma within ±10 % of the steady capture; the stddev not the bare desktop's for
 /// the blur, and matching the steady state for both) — then again after a ~2.5 s hold, and the same
 /// for the re-show:
@@ -78,6 +79,7 @@ public class BackdropShowLookTests
             try
             {
                 window.ShowBackdrop(settings, centre); // production's own path, first show
+                DwmFlush(); // twice: one can return for a composition that began before ShowWindow
                 DwmFlush();
                 var first = BackdropCapture.Grab();
                 LiveCheck.AssertShowsText(window, $"Backdrop show look, case {caseNumber} (first show)", "Mit Esc beenden");
@@ -87,6 +89,7 @@ public class BackdropShowLookTests
 
                 window.Hide();
                 window.ShowBackdrop(settings, centre); // the re-show
+                DwmFlush(); // twice: as above
                 DwmFlush();
                 var reshowFirst = BackdropCapture.Grab();
                 LiveCheck.AssertShowsText(window, $"Backdrop show look, case {caseNumber} (re-show)", "Mit Esc beenden");

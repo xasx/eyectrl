@@ -18,7 +18,9 @@ using Xunit;
 
 /// <summary>
 /// The flicker fix's gates: <c>ShowBackdrop</c> prepares position, handle, material, dim layer and ✕
-/// while the window is HIDDEN and shows last, so the first visible frame is the finished backdrop.
+/// while the window is HIDDEN and shows last. What these pin is WPF's state at
+/// <c>IsVisibleChanged</c> — the canvas and the accent policy are finished before the window becomes
+/// visible; DWM's first COMPOSED frame is what the first-frame look's capture judges, not this.
 /// Headless: the <c>PositionForShow</c> seam keeps production's <c>CoverPrimaryScreen</c> sizing but
 /// moves the window to -30000, so nothing is painted on the owner's screen; the accent call is
 /// wrapped to record the policy, its hwnd and whether the window was visible at the moment it ran.
@@ -29,7 +31,7 @@ public class GlassBackdropShowBackdropTests
     [StaTheory]
     [InlineData(BackdropType.Mica)]
     [InlineData(BackdropType.Acrylic)]
-    public void ShowBackdrop_PreparesWhileHidden_AndTheFirstVisibleFrameIsFinished(BackdropType type)
+    public void ShowBackdrop_PreparesEverythingWhileHidden_AndIsReadyBeforeVisible(BackdropType type)
     {
         var prepared = RunShowBackdrop(type, opacity: 0.3, shows: 1);
 
@@ -42,9 +44,9 @@ public class GlassBackdropShowBackdropTests
 
         Check.That(prepared.Opened).HasSize(1);
         var frame = prepared.Opened[0];
-        Check.WithCustomMessage("at the first visible frame the dim layer must already be there.")
+        Check.WithCustomMessage("at the moment the window becomes visible (WPF state; DWM's composed frame is the show look's job) the dim layer must already be there.")
             .That(frame.Rects).IsEqualTo(1);
-        Check.WithCustomMessage("at the first visible frame the ✕ must already be drawn.")
+        Check.WithCustomMessage("at the moment the window becomes visible the ✕ must already be drawn.")
             .That(frame.Glyph).IsTrue();
         Check.That(frame.Policy).IsEqualTo((4, 0x20, 0x01000000));
         Check.That(frame.Hwnd).IsNotEqualTo(IntPtr.Zero);
@@ -55,7 +57,7 @@ public class GlassBackdropShowBackdropTests
     }
 
     [StaFact]
-    public void ShowBackdrop_OnAReshow_PreparesAgainTheSameWay()
+    public void ShowBackdrop_OnAReshow_IsReadyBeforeVisibleAgain()
     {
         var prepared = RunShowBackdrop(BackdropType.Mica, opacity: 0.3, shows: 2);
 
@@ -66,7 +68,7 @@ public class GlassBackdropShowBackdropTests
         Check.That(prepared.Opened).HasSize(2);
 
         var second = prepared.Opened[1];
-        Check.WithCustomMessage("the re-show's first visible frame must be finished too.")
+        Check.WithCustomMessage("the re-show must be ready before it becomes visible too.")
             .That(second.Rects).IsEqualTo(1);
         Check.That(second.Glyph).IsTrue();
         Check.That(second.Policy).IsEqualTo((4, 0x20, 0x01000000));
@@ -74,7 +76,7 @@ public class GlassBackdropShowBackdropTests
     }
 
     [StaFact]
-    public void ShowBackdrop_WithSolidDarken_PreparesTheGradientAndNoLayer()
+    public void ShowBackdrop_WithSolidDarken_IsReadyBeforeVisible()
     {
         var prepared = RunShowBackdrop(BackdropType.SolidDarken, opacity: 0.3, shows: 1);
 

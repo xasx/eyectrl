@@ -16,9 +16,14 @@ internal static class BackdropCapture
     /// <summary>One capture pair: the central fifth and the sparse full-screen sample.</summary>
     internal sealed record ScreenSample(SampleStats Centre, SampleStats Full);
 
-    /// <summary>One region's statistics over the sampled pixels.</summary>
+    /// <summary>
+    /// One region's statistics over the sampled pixels. <see cref="Dark8Fraction"/> is the share of
+    /// pixels with luma below 8 — a near-black surface reads about 100 %, the glass looks like the
+    /// baseline (sweep 3b's gate).
+    /// </summary>
     internal sealed record SampleStats(
-        double MeanR, double MeanG, double MeanB, double LumaMean, double LumaStdDev, double BlackFraction, int Pixels);
+        double MeanR, double MeanG, double MeanB, double LumaMean, double LumaStdDev, double BlackFraction,
+        int Pixels, double Dark8Fraction = 0.0);
 
     /// <summary>The primary screen into one bitmap, sampled centrally (every 2nd px) and full-screen (every 16th).</summary>
     internal static ScreenSample Grab()
@@ -44,6 +49,7 @@ internal static class BackdropCapture
     {
         long n = 0;
         long black = 0;
+        long dark8 = 0;
         double sum = 0, sumSq = 0, sumR = 0, sumG = 0, sumB = 0;
         for (var y = y0; y < y0 + height; y += step)
         {
@@ -57,13 +63,15 @@ internal static class BackdropCapture
                 sumR += pixel.R;
                 sumG += pixel.G;
                 sumB += pixel.B;
+                if (luma < 8.0) dark8++;
                 if (pixel.R == 0 && pixel.G == 0 && pixel.B == 0) black++;
             }
         }
 
         var mean = sum / n;
         var stdDev = Math.Sqrt(Math.Max(0, sumSq / n - mean * mean));
-        return new SampleStats(sumR / n, sumG / n, sumB / n, mean, stdDev, (double)black / n, (int)n);
+        return new SampleStats(
+            sumR / n, sumG / n, sumB / n, mean, stdDev, (double)black / n, (int)n, (double)dark8 / n);
     }
 
     internal static string Describe(SampleStats stats) =>

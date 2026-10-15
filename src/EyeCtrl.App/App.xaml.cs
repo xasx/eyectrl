@@ -416,8 +416,13 @@ public partial class App : Application
             // App-owned (never in DI), so it reaches the lazily-resolved inventory through the
             // bridge — the ToolbarLifecycleBridge pattern. Attached here, strictly before the first
             // adaptation enable can resolve the inventory; the cast is safe because the window is
-            // constructed inside the host statement above.
-            _serviceProvider.GetRequiredService<RestartNoticeBridge>()
+            // constructed inside the host statement above. The local resolver (named for the type
+            // it returns, so the attach reads exactly like the toolbar bridge's above) still hands
+            // over the CONTAINER's singleton — the instance the inventory's rect source resolves;
+            // a fresh "new RestartNoticeBridge()" here would attach a bridge nothing ever reads.
+            RestartNoticeBridge RestartNoticeBridge() =>
+                _serviceProvider.GetRequiredService<RestartNoticeBridge>();
+            RestartNoticeBridge()
                 .Attach((RestartNoticeWindow)_restartNoticeHost.Presenter);
             // Settings opening over a card that is up takes the card down (its button would otherwise
             // stay live, unseen, underneath).

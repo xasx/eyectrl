@@ -264,6 +264,19 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
 
     internal void PlaceDwellTarget()
     {
+        // A shown window gets its layout from the HWND-driven pass; the headless present seam
+        // cannot — a window-level Measure/Arrange stops at the window itself, so the button is
+        // never arranged and its rect would place a zero-size phantom target. The present path
+        // arranges the content subtree directly (the same measure Prepare runs, then the arrange
+        // the real pass would do), on every place, so a re-placed card never reads a stale
+        // arrangement. Production never enters this branch.
+        if (_present is not null)
+        {
+            var content = (FrameworkElement)Content;
+            content.Measure(new Size(Width, double.PositiveInfinity));
+            content.Arrange(new Rect(0, 0, Width, Height));
+        }
+
         // Relative to the window's content, which starts at the window's own origin (no frame, so the
         // client origin is the window origin, the property OverlayClientOriginTests gates). The
         // window itself is not a visual ancestor until it has a handle, so a headless test could not

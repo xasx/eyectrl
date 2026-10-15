@@ -75,11 +75,25 @@ public class GlassBackdropCloakTests
         try
         {
             run.Window.ShowBackdrop(run.Settings, Center);
+
+            // Directly pinned: the show itself writes ONLY cloak(true) — no uncloak may land before
+            // the first rendered frame (or the fallback). An immediate uncloak would defeat the
+            // whole cloak; without this assert that timing is held only indirectly.
+            Check.WithCustomMessage($"the show uncloaked without a frame: {string.Join(" | ", run.Cloaks)}")
+                .That(run.Cloaks).HasSize(1);
+            Check.That(run.Cloaks[0]).IsEqualTo((true, false));
+
             LiveCheck.PumpFor(TimeSpan.FromMilliseconds(400));
             // A real re-show, later than the hand-off window, so the cloak path is the one pinned.
             run.Window.Hide();
             LiveCheck.PumpFor(TimeSpan.FromMilliseconds(200));
             run.Window.ShowBackdrop(run.Settings, Center);
+
+            // The same on the re-show: cloaked, and nothing uncloaked it yet.
+            Check.WithCustomMessage($"the re-show uncloaked without a frame: {string.Join(" | ", run.Cloaks)}")
+                .That(run.Cloaks).HasSize(3);
+            Check.That(run.Cloaks[2]).IsEqualTo((true, false));
+
             LiveCheck.PumpFor(TimeSpan.FromMilliseconds(400));
 
             // Each show: cloak(true) while hidden, then cloak(false) after a frame.

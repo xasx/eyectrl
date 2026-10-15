@@ -1,6 +1,8 @@
 namespace EyeCtrl.App.Tests.Overlays;
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
@@ -88,6 +90,28 @@ public class BackdropShowLookTests
             var dryRun = Environment.GetEnvironmentVariable("EYECTRL_LIVE_DRYRUN") is "1" or "true" or "TRUE";
 
             window = new GlassBackdropWindow();
+
+            // Diagnostics for the readout: every policy call and DWM write, with results; the last
+            // cloak value is tracked so each grab can say whether the window was cloaked.
+            var policyCalls = new List<string>();
+            var dwmCalls = new List<string>();
+            var lastCloak = false;
+            var realPolicy = window.SetAccentPolicy;
+            window.SetAccentPolicy = (hwnd, state, flags, gradient) =>
+            {
+                var result = realPolicy(hwnd, state, flags, gradient);
+                policyCalls.Add($"state={state} flags=0x{flags:X} gradient=0x{gradient:X8} hwnd=0x{hwnd:X} -> {result != 0}");
+                return result;
+            };
+            var realDwm = window.SetDwmAttribute;
+            window.SetDwmAttribute = (hwnd, attribute, value) =>
+            {
+                var result = realDwm(hwnd, attribute, value);
+                dwmCalls.Add($"attr={attribute} value={value} -> 0x{result:X8}");
+                if (attribute == 13) lastCloak = value;
+                return result;
+            };
+
             if (dryRun)
                 window.PositionForShow = w =>
                 {
@@ -105,6 +129,7 @@ public class BackdropShowLookTests
 
             var hwnd = new WindowInteropHelper(window).EnsureHandle(); // the test needs the hwnd to lift the affinity
             var baseline = BackdropCapture.Grab();                     // window still hidden: the desktop
+            var baselineState = (window.IsVisible, lastCloak);
 
             SetWindowDisplayAffinity(hwnd, WdaNone); // lift BEFORE showing; restored in the finally
             try
@@ -113,25 +138,44 @@ public class BackdropShowLookTests
                 // separately); ShowEscapeHint BEFORE ShowBackdrop, so it is part of the prepared
                 // frame (it is a sibling outside BackdropCanvas, so ClearContent cannot remove it).
                 window.ShowEscapeHint();
+                policyCalls.Add("[show1]");
+                dwmCalls.Add("[show1]");
                 window.ShowBackdrop(settings, centre); // production's own path, first show
                 DwmFlush(); // twice: one can return for a composition that began before ShowWindow
                 DwmFlush();
                 var first = BackdropCapture.Grab();
+                var firstState = (window.IsVisible, lastCloak);
                 LiveCheck.AssertShowsText(window, $"Backdrop show look, case {caseNumber} (first show)", "Mit Esc beenden");
                 if (dryRun) SkipVisibilityProof(caseNumber, "first show"); else LiveCheck.AssertVisible(window, $"Backdrop show look, case {caseNumber} (first show)");
                 LiveCheck.PumpFor(Hold);
                 var steady = BackdropCapture.Grab();
+                var steadyState = (window.IsVisible, lastCloak);
 
                 window.Hide();
                 window.ShowEscapeHint(); // Hide() collapsed it; the re-show prepares it again
+                policyCalls.Add("[show2]");
+                dwmCalls.Add("[show2]");
                 window.ShowBackdrop(settings, centre); // the re-show
                 DwmFlush(); // twice: as above
                 DwmFlush();
                 var reshowFirst = BackdropCapture.Grab();
+                var reshowFirstState = (window.IsVisible, lastCloak);
                 LiveCheck.AssertShowsText(window, $"Backdrop show look, case {caseNumber} (re-show)", "Mit Esc beenden");
                 if (dryRun) SkipVisibilityProof(caseNumber, "re-show"); else LiveCheck.AssertVisible(window, $"Backdrop show look, case {caseNumber} (re-show)");
                 LiveCheck.PumpFor(Hold);
                 var reshowSteady = BackdropCapture.Grab();
+                var reshowSteadyState = (window.IsVisible, lastCloak);
+
+                // The case-2 mystery probe: one more grab right after the final Hide. If the reading
+                // persists with the window hidden, it is not the backdrop.
+                policyCalls.Add("[final-hide]");
+                dwmCalls.Add("[final-hide]");
+                window.Hide();
+                var afterHide = BackdropCapture.Grab();
+                var afterHideState = (window.IsVisible, lastCloak);
+
+                static string Fmt((bool Visible, bool Cloak) state) =>
+                    $"IsVisible={state.Visible}, cloak={state.Cloak}";
 
                 var log = new StringBuilder();
                 log.AppendLine($"case: {caseNumber} ({label})");
@@ -155,6 +199,16 @@ public class BackdropShowLookTests
                 log.AppendLine($"reshow-first-stddev: {BackdropReadoutLines.Number(reshowFirst.Centre.LumaStdDev)}");
                 log.AppendLine($"reshow-steady-luma: {BackdropReadoutLines.Number(reshowSteady.Centre.LumaMean)}");
                 log.AppendLine($"reshow-steady-stddev: {BackdropReadoutLines.Number(reshowSteady.Centre.LumaStdDev)}");
+                log.AppendLine($"after-hide-luma: {BackdropReadoutLines.Number(afterHide.Centre.LumaMean)}");
+                log.AppendLine($"after-hide-stddev: {BackdropReadoutLines.Number(afterHide.Centre.LumaStdDev)}");
+                log.AppendLine($"baseline-state: {Fmt(baselineState)}");
+                log.AppendLine($"first-state: {Fmt(firstState)}");
+                log.AppendLine($"steady-state: {Fmt(steadyState)}");
+                log.AppendLine($"reshow-first-state: {Fmt(reshowFirstState)}");
+                log.AppendLine($"reshow-steady-state: {Fmt(reshowSteadyState)}");
+                log.AppendLine($"after-hide-state: {Fmt(afterHideState)}");
+                log.AppendLine($"policy-calls: {string.Join(" ; ", policyCalls)}");
+                log.AppendLine($"dwm-calls: {string.Join(" ; ", dwmCalls)}");
 
                 BackdropCapture.WriteLog(caseNumber, tag, log.ToString());
             }

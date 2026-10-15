@@ -9,6 +9,7 @@ using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 using EyeCtrl.Controls;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Localization;
@@ -32,6 +33,12 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
 
     private const int DwmwaSystemBackdropType = 38;
 
+    /// <summary>DWMWA_TRANSITIONS_FORCEDISABLED: stops DWM's open/close animation for the window.</summary>
+    private const int DwmwaTransitionsForceDisabled = 3;
+
+    /// <summary>DWMWA_CLOAK: DWM skips composing the window entirely while true.</summary>
+    private const int DwmwaCloak = 13;
+
     // DWM_SYSTEMBACKDROP_TYPE (dwmapi.h). Only NONE is used now: ClearDwmBackdrop's hygiene against
     // a system backdrop set by an older build. The Mica/Acrylic system backdrops were deleted with
     // TryApplyMica/TryApplyAcrylicViaDwm (2026-10-14): on this never-activated overlay they only
@@ -41,6 +48,8 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     private Rectangle? _solidBackground;
     private Rectangle? _dimLayer;
     private DwellArcButton? _hideButton;
+    private bool _cloaked;
+    private DispatcherTimer? _cloakFallback;
 
     public GlassBackdropWindow()
     {
@@ -63,6 +72,11 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
             target.BackgroundColor = Colors.Transparent;
 
         source?.AddHook(WndProc);
+
+        // DWM's open/close transitions animate the window in; the backdrop must appear in ONE
+        // finished frame (the owner's flicker), so they are off for this window's lifetime.
+        if (hwnd != IntPtr.Zero)
+            _ = SetDwmAttribute(hwnd, DwmwaTransitionsForceDisabled, true);
     }
 
     private static IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -119,7 +133,50 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
         EnsureHandle();          // a real hwnd: the accent needs it, and the CT turns transparent
         ApplyBackdrop(settings);
         DrawHideButton(hideButtonCenter); // after the dim layer, so the ✕ sits on top
+
+        // Cloak until WPF has rendered the prepared content: DWM would otherwise compose its own
+        // first frame of a half-prepared window (the owner's first-show flash).
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        _cloaked = true;
+        _ = SetDwmAttribute(hwnd, DwmwaCloak, true);
+
         base.Show();
+        UncloakAfterFirstRender();
+    }
+
+    /// <summary>
+    /// Releases the cloak once WPF has rendered at least one frame of the prepared content — the
+    /// static <c>CompositionTarget.Rendering</c> event fires after a frame, and the queued
+    /// Render-priority call lands after that frame's render operations — with a 250 ms fallback so
+    /// a window that never renders cannot stay cloaked. <see cref="Hide"/> uncloaks immediately too.
+    /// </summary>
+    private void UncloakAfterFirstRender()
+    {
+        _cloakFallback?.Stop();
+        _cloakFallback = new DispatcherTimer(DispatcherPriority.Send) { Interval = TimeSpan.FromMilliseconds(250) };
+        _cloakFallback.Tick += (_, _) => Uncloak();
+        _cloakFallback.Start();
+
+        EventHandler? onRendering = null;
+        onRendering = (_, _) =>
+        {
+            CompositionTarget.Rendering -= onRendering;
+            Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(Uncloak));
+        };
+        CompositionTarget.Rendering += onRendering;
+    }
+
+    /// <summary>Releases the cloak, if it is still up. Safe to call repeatedly.</summary>
+    private void Uncloak()
+    {
+        _cloakFallback?.Stop();
+        _cloakFallback = null;
+        if (!_cloaked)
+            return;
+        _cloaked = false;
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (hwnd != IntPtr.Zero)
+            _ = SetDwmAttribute(hwnd, DwmwaCloak, false);
     }
 
     public new void Show()
@@ -133,6 +190,7 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
 
     public new void Hide()
     {
+        Uncloak(); // a hidden window must never stay cloaked
         base.Hide();
         ClearContent();
         HideEscapeHint();
@@ -232,6 +290,18 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     /// </summary>
     internal static int AccentGradientColor(double opacity) =>
         (int)(Math.Clamp(opacity, 0.0, 1.0) * 255) << 24;
+
+    /// <summary>
+    /// The DWM attribute writes (transitions disabled, cloak), injectable so the gates can record
+    /// them. The default is the real dwmapi call.
+    /// </summary>
+    internal Func<IntPtr, int, bool, int> SetDwmAttribute { get; set; } = NativeSetDwmAttribute;
+
+    private static int NativeSetDwmAttribute(IntPtr hwnd, int attribute, bool value)
+    {
+        int intValue = value ? 1 : 0;
+        return DwmSetWindowAttribute(hwnd, attribute, ref intValue, sizeof(int));
+    }
 
     /// <summary>
     /// The native <c>SetWindowCompositionAttribute</c> call behind <see cref="SetAccentPolicy"/>:

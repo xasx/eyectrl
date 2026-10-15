@@ -259,6 +259,7 @@ internal static class TestFakes
         public bool EscapeHintVisible { get; private set; }
         public List<string> Calls { get; } = new();
 
+        public void ShowBackdrop(BackdropSettings settings, PhysicalPoint buttonCenter) => Calls.Add("ShowBackdrop");
         public void Show() => Calls.Add("Show");
 
         // Mirrors GlassBackdropWindow.Hide(), which also collapses the hint so it never carries

@@ -238,6 +238,12 @@ public interface IManualSelectionIndicatorOverlay
 /// <summary>The dimming backdrop behind modal overlays.</summary>
 public interface IGlassBackdropOverlay
 {
+    /// <summary>
+    /// Production's show path: position, handle, material, dim layer and ✕ are prepared while the
+    /// window is hidden, and it is shown last, so the first visible frame is the finished backdrop.
+    /// </summary>
+    void ShowBackdrop(BackdropSettings settings, PhysicalPoint hideButtonCenter);
+
     void Show();
     void Hide();
     void ApplyBackdrop(BackdropSettings settings);

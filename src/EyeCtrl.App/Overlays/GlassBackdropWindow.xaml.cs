@@ -96,6 +96,32 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
 
     // ── Show / Hide ──
 
+    /// <summary>
+    /// Positioning for <see cref="ShowBackdrop"/>, injectable so the headless gates can show the
+    /// window OFF-SCREEN (production: <see cref="OverlayPositioning.CoverPrimaryScreen"/>, which
+    /// <see cref="Show"/> uses too).
+    /// </summary>
+    internal Action<Window> PositionForShow { get; set; } = OverlayPositioning.CoverPrimaryScreen;
+
+    /// <summary>
+    /// The production show path: everything — position, handle, material, dim layer, ✕ — is prepared
+    /// while the window is still HIDDEN, and <see cref="Window.Show"/> runs last, so the FIRST
+    /// visible frame is already the finished backdrop (the owner's flicker: show-then-apply put a
+    /// bare or glass-only frame on screen first). <see cref="OverlayWindow.OnSourceInitialized"/>
+    /// still runs at handle creation, so the never-activate styles and the capture exclusion are in
+    /// place before the window can be seen.
+    /// </summary>
+    public void ShowBackdrop(BackdropSettings settings, PhysicalPoint hideButtonCenter)
+    {
+        if (System.Windows.Forms.Screen.PrimaryScreen == null)
+            return;
+        PositionForShow(this);   // the layer below sizes itself to the window
+        EnsureHandle();          // a real hwnd: the accent needs it, and the CT turns transparent
+        ApplyBackdrop(settings);
+        DrawHideButton(hideButtonCenter); // after the dim layer, so the ✕ sits on top
+        base.Show();
+    }
+
     public new void Show()
     {
         if (System.Windows.Forms.Screen.PrimaryScreen == null)
@@ -123,9 +149,15 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     /// never asks for it).</summary>
     public void HideEscapeHint() => EscapeHint.Visibility = Visibility.Collapsed;
 
+    /// <summary>
+    /// Creates the HWND if it does not exist yet. The <c>Handle</c> PROPERTY is a no-op before the
+    /// window is shown (it returns Zero), which left <see cref="ShowBackdrop"/>'s accent call with
+    /// hwnd 0 — refused, silently falling back to the rgb(18) rectangle. The explicit
+    /// <c>EnsureHandle()</c> is the one that creates it.
+    /// </summary>
     private void EnsureHandle()
     {
-        _ = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        _ = new System.Windows.Interop.WindowInteropHelper(this).EnsureHandle();
     }
 
     // ── Backdrop Type ──

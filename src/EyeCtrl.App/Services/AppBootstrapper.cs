@@ -82,6 +82,14 @@ public class AppBootstrapper
         // Messenger (singleton)
         services.AddSingleton<IMessenger>(WeakReferenceMessenger.Default);
 
+        // The clock the calibration timers run on (the per-target safety caps, the measure-only
+        // window ring, the hold floor, the collector's settle gate). Registered once, so production
+        // has exactly one place that chooses the system clock; the consumers below resolve it rather
+        // than each naming TimeProvider.System themselves. CalibrationClockWiringTests pins the
+        // identity — a frozen clock here would hang every calibration session, visible to no
+        // headless test that supplies its own fake.
+        services.AddSingleton(TimeProvider.System);
+
         // Settings (singleton instances)
         // Only register root settings - sub-settings accessed via properties
         services.AddSingleton(settings);
@@ -277,7 +285,9 @@ public class AppBootstrapper
         // calibration.
         services.AddSingleton(sp =>
         {
-            var service = new CalibrationService(sp.GetService<ILogger<CalibrationService>>());
+            var service = new CalibrationService(
+                sp.GetService<ILogger<CalibrationService>>(),
+                sp.GetRequiredService<TimeProvider>());
 
             // PHYSICAL pixels, matching what CompleteSession persists; logical DIPs here would discard
             // the calibration on any non-100% DPI display.
@@ -399,7 +409,10 @@ public class AppBootstrapper
             sp.GetService<ScriptedGroundTruthRecorder>(),
             GazeProviderFactory.GetProviderType(sp.GetRequiredService<IGazeProvider>()).ToString(),
             // The live RecordRawGaze gate, so the sidecar stops when the recording it describes does.
-            settings.Diagnostics));
+            settings.Diagnostics,
+            // The same clock the CalibrationService above got, so the caps, the ring, the hold floor
+            // and the settle gate all read one timeline.
+            sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<TargetHighlightOverlayViewModel>();
         services.AddSingleton<DragTrailViewModel>();
         services.AddSingleton<EdgeButtonBarViewModel>();

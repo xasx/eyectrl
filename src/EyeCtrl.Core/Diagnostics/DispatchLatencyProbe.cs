@@ -2,6 +2,9 @@ namespace EyeCtrl.Core.Diagnostics;
 
 using System.Diagnostics;
 
+/// <summary>The probe's view of one recent window: what the queue did just before an owner's lag mark.</summary>
+public readonly record struct DispatchWindowSummary(int Count, double MaxMs, double P95Ms, int MaxDepth, double GapMs, double CoverageMs);
+
 /// <summary>
 /// Instrument 1: measures how long a gaze sample waits between being posted to the UI dispatcher and
 /// actually running there, plus a proxy for how deep the queue got.
@@ -17,9 +20,9 @@ using System.Diagnostics;
 /// Measurement only: it changes nothing about how or when anything is dispatched.
 /// </para>
 /// <para>
-/// Threading: <see cref="Enqueue"/> runs on the gaze thread, <see cref="Execute"/> on the UI thread.
+/// Threading: <see cref="Enqueue"/> runs on the gaze thread, <see cref="Execute(long)"/> on the UI thread.
 /// The depth counter is interlocked because both touch it; the histogram is written only by
-/// <see cref="Execute"/>, so it stays single-threaded, and the reader is the same UI thread.
+/// <see cref="Execute(long)"/>, so it stays single-threaded, and the reader is the same UI thread.
 /// </para>
 /// </summary>
 public sealed class DispatchLatencyProbe
@@ -29,6 +32,13 @@ public sealed class DispatchLatencyProbe
     private readonly DurationHistogram _latency;
     private int _depth;
     private int _maxDepth;
+
+    private const int WindowCapacity = 2400;               // 20 s at 120 Hz; preallocated, no per-sample allocation
+    private readonly long[] _recentAt = new long[WindowCapacity];
+    private readonly double[] _recentLatency = new double[WindowCapacity];
+    private readonly int[] _recentDepth = new int[WindowCapacity];
+    private int _recentNext;
+    private int _recentCount;
 
     /// <summary>Initializes the probe.</summary>
     /// <param name="maxMilliseconds">Largest latency given its own histogram bucket.</param>
@@ -48,10 +58,10 @@ public sealed class DispatchLatencyProbe
 
     /// <summary>
     /// Call immediately before posting to the dispatcher, on the gaze thread. Returns the timestamp to
-    /// hand back to <see cref="Execute"/> — carried on the closure the call site already allocates, so
+    /// hand back to <see cref="Execute(long)"/> — carried on the closure the call site already allocates, so
     /// instrumenting costs no extra allocation per sample.
     /// </summary>
-    /// <returns>A <see cref="Stopwatch"/> timestamp to pass to <see cref="Execute"/>.</returns>
+    /// <returns>A <see cref="Stopwatch"/> timestamp to pass to <see cref="Execute(long)"/>.</returns>
     public long Enqueue()
     {
         int depth = Interlocked.Increment(ref _depth);
@@ -74,11 +84,74 @@ public sealed class DispatchLatencyProbe
     /// number wanted is the wait, not the wait plus the work.
     /// </summary>
     /// <param name="enqueuedTimestamp">The value <see cref="Enqueue"/> returned.</param>
-    public void Execute(long enqueuedTimestamp)
+    public void Execute(long enqueuedTimestamp) => Execute(enqueuedTimestamp, Stopwatch.GetTimestamp());
+
+    /// <summary>
+    /// The clock-injected form of <see cref="Execute(long)"/>, so tests can drive the recent window
+    /// deterministically (the public method passes the live stopwatch reading).
+    /// </summary>
+    /// <param name="enqueuedTimestamp">The value <see cref="Enqueue"/> returned.</param>
+    /// <param name="nowTimestamp">The moment the dispatched work starts, in stopwatch ticks.</param>
+    internal void Execute(long enqueuedTimestamp, long nowTimestamp)
     {
-        _latency.Record((Stopwatch.GetTimestamp() - enqueuedTimestamp) * TicksToMilliseconds);
+        double latency = (nowTimestamp - enqueuedTimestamp) * TicksToMilliseconds;
+        _latency.Record(latency);
+        LastLatencyMs = latency < 0 ? 0 : latency;
+
+        // The queue length observed at execute, this item included: the burst a drain starts from.
+        _recentAt[_recentNext] = nowTimestamp;
+        _recentLatency[_recentNext] = LastLatencyMs;
+        _recentDepth[_recentNext] = Volatile.Read(ref _depth);
+        _recentNext = (_recentNext + 1) % WindowCapacity;
+        if (_recentCount < WindowCapacity) _recentCount++;
+
         Interlocked.Decrement(ref _depth);
     }
+
+    /// <summary>The wait of the most recent execute, in ms. Read on the UI thread, where it is written.</summary>
+    public double LastLatencyMs { get; private set; }
+
+    /// <summary>Summarises the executes in (end - window, end]. Single-threaded with Execute (the UI thread).</summary>
+    /// <param name="endTimestamp">The window's inclusive end, in stopwatch ticks.</param>
+    /// <param name="window">How far back the window reaches.</param>
+    /// <returns>The window's counts, or all zeros when no execute falls inside it.</returns>
+    public DispatchWindowSummary Summarize(long endTimestamp, TimeSpan window)
+    {
+        long windowTicks = (long)(window.TotalSeconds * Stopwatch.Frequency);
+        long start = endTimestamp - windowTicks;
+        var values = new List<double>(_recentCount);
+        double max = 0, gap = 0;
+        int maxDepth = 0;
+        long? previous = null, oldestInBuffer = null;
+
+        for (int i = 0; i < _recentCount; i++)
+        {
+            int index = (_recentNext - _recentCount + i + WindowCapacity) % WindowCapacity;   // oldest -> newest
+            long at = _recentAt[index];
+            oldestInBuffer ??= at;
+            if (at <= start || at > endTimestamp) continue;
+            values.Add(_recentLatency[index]);
+            if (_recentLatency[index] > max) max = _recentLatency[index];
+            if (_recentDepth[index] > maxDepth) maxDepth = _recentDepth[index];
+            if (previous is { } p) gap = Math.Max(gap, (at - p) * TicksToMilliseconds);
+            previous = at;
+        }
+
+        if (values.Count == 0) return new DispatchWindowSummary(0, 0, 0, 0, 0, 0);
+
+        values.Sort();
+        int target = Math.Max(1, (int)Math.Ceiling(0.95 * values.Count));
+        double p95 = Math.Floor(values[target - 1]);                       // the histogram's lower edge
+        double coverage = Math.Min(window.TotalMilliseconds, (endTimestamp - oldestInBuffer!.Value) * TicksToMilliseconds);
+        return new DispatchWindowSummary(values.Count, max, p95, maxDepth, gap, coverage);
+    }
+
+    /// <summary>Renders one window summary in the LAG MARK line's invariant shape.</summary>
+    /// <param name="s">The summary to render.</param>
+    /// <returns><c>n=… max=…ms p95=…ms maxQueueDepth=… gapMs=… coverageMs=…</c>.</returns>
+    public static string DescribeWindow(DispatchWindowSummary s) => string.Create(
+        System.Globalization.CultureInfo.InvariantCulture,
+        $"n={s.Count} max={s.MaxMs:0.##}ms p95={s.P95Ms:0}ms maxQueueDepth={s.MaxDepth} gapMs={s.GapMs:0.##} coverageMs={s.CoverageMs:0}");
 
     /// <summary>
     /// The verdict the pre-registered rule turns on: whether p95 is under one frame.

@@ -220,6 +220,11 @@ public class BackdropShowLookTests
                 else
                 {
                     window.Hide();
+                    // The hand-off window is ~a frame; hold the window hidden for about a second so
+                    // this re-show takes the REAL prepare-and-cloak path (the owner's original
+                    // "re-show flashed" reading) instead of the fast hand-off path — the script
+                    // checks the path each show took (a wrong path is an OFF).
+                    LiveCheck.PumpFor(TimeSpan.FromMilliseconds(1000));
                     window.ShowEscapeHint(); // Hide() collapsed it; the re-show prepares it again
                     policyCalls.Add("[show2]");
                     dwmCalls.Add("[show2]");
@@ -256,6 +261,12 @@ public class BackdropShowLookTests
                 log.AppendLine($"case: {caseNumber} ({label})");
                 log.AppendLine($"kind: {kind}");
                 log.AppendLine($"handoff: {(handOff ? "true" : "false")}");
+                // The path each show took, from the observed cloak state at its raw first grab: a
+                // prepared show is necessarily still cloaked there (nothing pumped the dispatcher), a
+                // hand-off show is never cloaked. The script checks cases 1-2's re-show took the cloak
+                // path and case 3's hand-off took the fast path.
+                log.AppendLine($"path: {(firstState.Item2 ? "prepared+cloak" : "hand-off")}");
+                log.AppendLine($"reshow-path: {(reshowFirstState.Item2 ? "prepared+cloak" : "hand-off")}");
                 log.AppendLine($"alpha: {BackdropReadoutLines.Number(settings.Opacity)}");
                 log.AppendLine($"Material: {settings.Type} through production's ShowBackdrop");
                 if (dryRun)

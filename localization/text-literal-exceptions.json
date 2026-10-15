@@ -5,6 +5,12 @@
   ],
   "Entries": [
     {
+      "Path": "src/EyeCtrl.App/Diagnostics/SubPixel/ProbeRingVisual.cs",
+      "Literal": "\"X2\"",
+      "Category": "data",
+      "Reason": "A number format specifier, not text."
+    },
+    {
       "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
       "Literal": "\"kbd.copy\"",
       "Category": "id",
@@ -1101,6 +1107,48 @@
       "Literal": "\"modal_yes\"",
       "Category": "id",
       "Reason": "A modal-choice dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/SubPixelProbeViewModel.cs",
+      "Literal": "\"subpixel_answer_1\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/SubPixelProbeViewModel.cs",
+      "Literal": "\"subpixel_answer_2\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/SubPixelProbeViewModel.cs",
+      "Literal": "\"subpixel_ask_later\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/SubPixelProbeViewModel.cs",
+      "Literal": "\"subpixel_ask_yes\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/SubPixelProbeViewModel.cs",
+      "Literal": "\"subpixel_end_test\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/SubPixelProbeViewModel.cs",
+      "Literal": "\"subpixel_intro_start\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/SubPixelProbeViewModel.cs",
+      "Literal": "\"subpixel_result_done\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
     },
     {
       "Path": "src/EyeCtrl.ViewModels/ToolbarViewModel.cs",

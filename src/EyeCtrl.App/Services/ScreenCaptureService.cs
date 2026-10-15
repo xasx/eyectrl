@@ -50,6 +50,37 @@ public static class ScreenCaptureService
     }
 
     /// <summary>
+    /// Captures the whole primary screen, 1:1 in physical pixels — the sub-pixel probe's backdrop
+    /// (build plan C6). Unlike <see cref="CaptureRegion"/> this covers the screen exactly, so the
+    /// probe window can draw it at one image pixel per device pixel.
+    /// </summary>
+    public static System.Windows.Media.Imaging.BitmapSource? CaptureFullScreen()
+    {
+        var (width, height) = PhysicalScreenSize();
+        if (width <= 0 || height <= 0) return null;
+
+        using var bitmap = new Bitmap(width, height);
+        using (var g = Graphics.FromImage(bitmap))
+        {
+            g.CopyFromScreen(0, 0, 0, 0, new System.Drawing.Size(width, height));
+        }
+
+        var hBitmap = bitmap.GetHbitmap();
+        try
+        {
+            return Imaging.CreateBitmapSourceFromHBitmap(
+                hBitmap,
+                IntPtr.Zero,
+                Int32Rect.Empty,
+                BitmapSizeOptions.FromEmptyOptions());
+        }
+        finally
+        {
+            DeleteObject(hBitmap);
+        }
+    }
+
+    /// <summary>
     /// The centre, in physical pixels, of the image a capture of <paramref name="radius"/> around
     /// <paramref name="center"/> will produce. Available before the capture runs, for callers that
     /// must place something against the image before it arrives.

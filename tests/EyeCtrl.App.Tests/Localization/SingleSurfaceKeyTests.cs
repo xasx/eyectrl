@@ -115,7 +115,12 @@ public class SingleSurfaceKeyTests
         // T07: the load-time calibration rejection sentences are shown only by the Settings
         // Calibration page (`LastLoadRejection`); the calibration window renders typed failures
         // instead. The settings surface owns them.
-        ("src/EyeCtrl.Core/Calibration/CalibrationService.cs", ["settings"])
+        ("src/EyeCtrl.Core/Calibration/CalibrationService.cs", ["settings"]),
+
+        // SP-4b: the probe's coordinator resolves the C10 refusal reasons on the settings surface;
+        // the probe window resolves its own screens on the overlays surface.
+        ("src/EyeCtrl.App/Diagnostics/SubPixel/SubPixelProbeCoordinator.cs", ["settings"]),
+        ("src/EyeCtrl.App/Diagnostics/SubPixel/SubPixelProbeWindow.cs", ["overlays"])
     ];
 
     /// <summary>

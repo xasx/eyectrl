@@ -8,6 +8,7 @@ using EyeCtrl.Core.Settings;
 using EyeCtrl.Tests.TestSupport;
 using EyeCtrl.ViewModels.Messages;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 
 public class CalibrationViewModelTests
 {
@@ -385,6 +386,85 @@ public class CalibrationViewModelTests
 
         Check.That(vm.CurrentTargetIndex).IsEqualTo(vm.TotalTargets);
         Check.That(vm.State).IsEqualTo(CalibrationState.Active);
+    }
+
+    // ── The clocks behind the pacing rules ────────────────────────────────────
+    // Both run on the injected TimeProvider, so a FakeTimeProvider makes their bounds exact. The
+    // measure-only harness (CalibrationMeasureOnlyTests) drives the probe's clocks; these two pin
+    // the NORMAL path's settle and hold, which the wiring now also routes through the injection.
+
+    [Fact]
+    public async Task SettleWindow_DiscardsSamplesThatArriveRightAfterArrival()
+    {
+        // The settle setting reaches the collector (BeginTarget gets the SETTING's value, not 0): a
+        // sample inside the settle window does not count, and one just past it does. A mutant that
+        // ignores the setting counts the early sample and turns the first assertion red.
+        var time = new FakeTimeProvider();
+        var service = new CalibrationService(timeProvider: time);
+        var settings = new CalibrationSettings
+        {
+            PointCount = 3, TargetHoldMs = 200, SettleWindowMs = 300, SamplesPerPoint = 5,
+        };
+
+        var vm = await Task.Run(() => new CalibrationViewModel(
+            settings, service, _messenger, _provider,
+            new PhysicalPoint(1920, 1080), "test-monitor", TempCalibrationPath(),
+            timeProvider: time));
+        _messenger.Send(new CalibrationRequestedMessage());
+
+        void FireOnTarget()
+        {
+            var target = vm.CurrentTargetPosition;
+            _provider.FireGaze(new GazePoint(target.X, target.Y, 0, IsValid: true));
+        }
+
+        FireOnTarget();                                    // arrival: the saccade landing, discarded
+        time.Advance(TimeSpan.FromMilliseconds(100));
+        FireOnTarget();                                    // inside the settle window: discarded too
+        Check.That(vm.TargetProgress).IsEqualTo(0.0);
+
+        time.Advance(TimeSpan.FromMilliseconds(250));      // 350 ms after arrival: past the settle
+        FireOnTarget();                                    // the first counted sample
+        Check.That(vm.TargetProgress).IsEqualTo(0.2);
+
+        vm.Cancel();
+    }
+
+    [Fact]
+    public async Task HoldFloor_HoldsACompletedTargetUntilTheMinimumDisplayTime()
+    {
+        // A target that already has its samples must not advance before TargetHoldMs of the injected
+        // clock: the floor is what keeps the dot readable. A mutant that drops the hold advances on
+        // the completion sample itself and turns the first index assertion red.
+        var time = new FakeTimeProvider();
+        var service = new CalibrationService(timeProvider: time);
+        var settings = new CalibrationSettings
+        {
+            PointCount = 3, TargetHoldMs = 1_000, SettleWindowMs = 0, SamplesPerPoint = 5,
+        };
+
+        var vm = await Task.Run(() => new CalibrationViewModel(
+            settings, service, _messenger, _provider,
+            new PhysicalPoint(1920, 1080), "test-monitor", TempCalibrationPath(),
+            timeProvider: time));
+        _messenger.Send(new CalibrationRequestedMessage());
+
+        for (int i = 0; i < settings.SamplesPerPoint + 2; i++)
+        {
+            var target = vm.CurrentTargetPosition;
+            _provider.FireGaze(new GazePoint(target.X, target.Y, 0, IsValid: true));
+        }
+
+        Check.That(vm.CurrentTargetIndex).IsEqualTo(0);    // complete, but inside the hold floor
+        Check.That(vm.State).IsEqualTo(CalibrationState.Collecting);
+
+        time.Advance(TimeSpan.FromMilliseconds(1_000));
+        var second = vm.CurrentTargetPosition;
+        _provider.FireGaze(new GazePoint(second.X, second.Y, 0, IsValid: true));
+
+        Check.That(vm.CurrentTargetIndex).IsEqualTo(1);    // the floor passed; that sample advanced it
+
+        vm.Cancel();
     }
 
     // ── Clearing the calibration ──

@@ -1,6 +1,11 @@
 {
   "Entries": [
     {
+      "Path": "src/EyeCtrl.App/Diagnostics/SubPixel/ProbeRingVisual.cs",
+      "Literal": "\"X2\"",
+      "Count": 3
+    },
+    {
       "Path": "src/EyeCtrl.App/Localization/OverlayTextSources.cs",
       "Literal": "\"kbd.copy\"",
       "Count": 1
@@ -914,6 +919,41 @@
       "Path": "src/EyeCtrl.ViewModels/SettingsWindowViewModel.cs",
       "Literal": "\"modal_yes\"",
       "Count": 2
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/SubPixelProbeViewModel.cs",
+      "Literal": "\"subpixel_answer_1\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/SubPixelProbeViewModel.cs",
+      "Literal": "\"subpixel_answer_2\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/SubPixelProbeViewModel.cs",
+      "Literal": "\"subpixel_ask_later\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/SubPixelProbeViewModel.cs",
+      "Literal": "\"subpixel_ask_yes\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/SubPixelProbeViewModel.cs",
+      "Literal": "\"subpixel_end_test\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/SubPixelProbeViewModel.cs",
+      "Literal": "\"subpixel_intro_start\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/SubPixelProbeViewModel.cs",
+      "Literal": "\"subpixel_result_done\"",
+      "Count": 1
     },
     {
       "Path": "src/EyeCtrl.ViewModels/ToolbarViewModel.cs",

@@ -9,12 +9,15 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.App.Diagnostics.SubPixel;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 using EyeCtrl.App.Tests.Fixtures;
 using EyeCtrl.App.Tests.Settings.Pages;
 using EyeCtrl.App.Views;
 using EyeCtrl.Core.Calibration;
+using EyeCtrl.Core.Diagnostics;
+using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Tests.TestSupport;
 using EyeCtrl.ViewModels;
@@ -108,6 +111,7 @@ public class OverlayClientOriginTests
         "ScrollOverlayWindow",
         "SettingsWindow",
         "SplashWindow",
+        "SubPixelProbeWindow",
         "TargetHighlightWindow",
         "TaskSwitcherWindow",
         "ToolbarWindow",
@@ -198,6 +202,7 @@ public class OverlayClientOriginTests
         if (type == typeof(SettingsWindow)) return BuildSettingsWindow(cleanups);
         // The lag-mark button's dwell time is required, so it gets its own factory (T0(a)).
         if (type == typeof(LagMarkWindow)) return new LagMarkWindow(dwellMs: 700);
+        if (type == typeof(SubPixelProbeWindow)) return BuildSubPixelProbeWindow();
 
         var ctor = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
             .OrderBy(c => c.GetParameters().Length)
@@ -217,6 +222,23 @@ public class OverlayClientOriginTests
             args: parameters.Length == 0 ? null : parameters.Select(_ => Type.Missing).ToArray(),
             culture: null)!;
     }
+
+    /// <summary>
+    /// The probe's headless construction (the SP-4d contrast harness's shape): a real view model
+    /// over a seeded schedule and default dwell settings, no backdrop, scale 2.0, never shown.
+    /// </summary>
+    private static SubPixelProbeWindow BuildSubPixelProbeWindow() =>
+        new(null,
+            new SubPixelProbeViewModel(
+                new WeakReferenceMessenger(),
+                new DispatcherTimeProvider(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+                SubPixelAbSchedule.Create(seed: 7, new PhysicalRect(0, 0, 1920, 1080)),
+                new EyeCtrlSettings().Dwell,
+                () => true),
+            new CursorSettings(),
+            () => { },
+            viewFault: () => { },
+            scale: 2.0);
 
     /// <summary>
     /// The T12 live-check harness's construction of the real <see cref="SettingsWindow"/>, without

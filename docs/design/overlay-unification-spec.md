@@ -7,13 +7,15 @@
 
 ## 1. Problem Statement
 
-EyeCtrl has 30 overlay windows and 7 dwell controls — 24 with XAML under
-`Overlays/`, the code-only `NoteWindow`, and `SettingsWindow` under `Views/`
-(which also derives from `OverlayWindow`). Re-counted against merged `main` at
+EyeCtrl has 31 overlay windows and 7 dwell controls — 28 with XAML (27 under
+`Overlays/`, including `ActivationButtonWindow`, plus `SettingsWindow` under
+`Views/`, which also derives from `OverlayWindow`) and 3 without XAML (the
+code-only `NoteWindow`, `RepeatCursorWindow` and `SubPixelProbeWindow`). Re-counted against merged `main` at
 b8295b6, which includes PRs #70 and #71, plus the T15 restart notice card
-(`RestartNoticeWindow`, a 29th, built on theme tokens from the start) and the
-T0(a) lag-mark button (`LagMarkWindow`, a 30th, built on theme tokens from the
-start), and enforced by `OverlayInventoryDriftTests`. Each was built at a different time, introducing accumulated style drift:
+(`RestartNoticeWindow`, built on theme tokens from the start), the sub-pixel visibility probe
+(`SubPixelProbeWindow`) and the T0(a) lag-mark button (`LagMarkWindow`, the 27th XAML window under
+`Overlays/`); enforced by
+`OverlayInventoryDriftTests`. Each was built at a different time, introducing accumulated style drift:
 
 - **10 different background colors** used across overlays
 - **7 different corner-radius values** (2, 4, 6, 8, 12, 14, 22)
@@ -73,16 +75,19 @@ The result is a UI that feels like a patchwork of different apps rather than one
 | **RestartNotice** | `RestartNoticeWindow` | `Transparent` + `Border BrushSurfaceDark` (palette token) | XAML |
 | **LagMark** | `LagMarkWindow` | `Transparent` + `Border BrushSurfaceLight` (palette token; labelled "Lag") | XAML |
 | **Note** | `NoteWindow` | `#1A1A2E` | code-only, no XAML |
+| **SubPixelProbe** | `SubPixelProbeWindow` | follows the theme's `SurfaceDark` token (light under Daylight) + full-screen backdrop image | code-only, no XAML |
 
 The **Class** column is the match key for the drift-guard test
 (`tests/EyeCtrl.App.Tests/OverlayInventoryDriftTests.cs`): every concrete
 `OverlayWindow` subclass in `EyeCtrl.App` must appear here, and every name here
 must resolve to a real type. Adding an overlay without a row fails the build.
 
-**Finding:** 14 overlays carry a dark fill; 12 are `Background="Transparent"` at
+**Finding:** 15 overlays carry a container fill (14 with a literal dark background; the
+sub-pixel probe follows the theme's `SurfaceDark` token behind its full-screen backdrop
+image — light under Daylight); 14 are `Background="Transparent"` at
 the window level. The transparent ones are *not* out of scope — they composite
 accent content over live desktop pixels and therefore need §4.1.3's contrast
-guarantee, not merely a token swap. Three of the twelve (`AdaptationCue`,
+guarantee, not merely a token swap. Three of the fourteen (`AdaptationCue`,
 `DriftNotice`, `CaregiverAlert`) are transparent windows hosting a *filled* shape, which is the case
 §4.1.3 originally missed.
 
@@ -153,6 +158,11 @@ Literal sites per value: `2` → 1, `4` → 3, `6` → 11, `8` → 11, `12` → 
 ```bash
 git grep -n CornerRadius 2d3b1ae -- src/EyeCtrl.App src/EyeCtrl.Controls
 ```
+
+*Post-`2d3b1ae` addition:* the sub-pixel probe window's `BuildButton` adds one
+`CornerRadius` line that is **token-backed** (`Tokens.CornerRadiusStandard`), not a
+literal — so the 30 literal sites above are unchanged while the total line count is
+one higher.
 
 The **full per-site table** lives in §3.1 of
 `docs/superpowers/specs/2026-08-06-overlay-geometry-typography-tokens-design.md`, which

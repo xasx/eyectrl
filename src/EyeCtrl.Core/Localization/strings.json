@@ -1073,6 +1073,212 @@
     "fit": "row",
     "args": []
   },
+  "overlays.subpixel.answer_one": {
+    "text": "1",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.subpixel.answer_two": {
+    "text": "2",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.subpixel.ask_later": {
+    "text": "Later",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.subpixel.ask_title": {
+    "text": "Continue to the live-gaze part now?",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.subpixel.ask_yes": {
+    "text": "Yes",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.subpixel.block_drift": {
+    "text": "Drift block",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.subpixel.block_live": {
+    "text": "Live block",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.subpixel.block_static": {
+    "text": "Static block",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.subpixel.caption": {
+    "text": "Test picture — only the buttons respond to your gaze",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.subpixel.demo_hint": {
+    "text": "Demo — watch the ring's line, not its middle.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.subpixel.done": {
+    "text": "Done",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.subpixel.end_test": {
+    "text": "End test",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.subpixel.intro_body": {
+    "text": "This is the ring you will judge. It moves slowly — follow it with your eyes. Dwell Start when you are ready. To leave at any time, look at End test, or close your eyes for 10 seconds.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.subpixel.intro_title": {
+    "text": "Sub-pixel visibility test",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.subpixel.label_one": {
+    "text": "1",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.subpixel.label_two": {
+    "text": "2",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.subpixel.motion_question": {
+    "text": "Which ring moved more smoothly?",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.subpixel.result_acquitted": {
+    "text": "Sub-pixel placement is not reliably visible.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.subpixel.result_convicted": {
+    "text": "Sub-pixel placement is reliably visible.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.subpixel.result_incomplete": {
+    "text": "The test was incomplete — no verdict.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.subpixel.result_title": {
+    "text": "Result",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.subpixel.start": {
+    "text": "Start",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.subpixel.static_can_tell": {
+    "text": "Still rings: you could tell them apart.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.subpixel.static_cannot_tell": {
+    "text": "Still rings: you could not tell them apart.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.subpixel.static_incomplete": {
+    "text": "Still rings: no readout.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.subpixel.static_question": {
+    "text": "Which ring looked sharper?",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.subpixel.trial_label": {
+    "text": "{0} · trial {1} of 10",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": [
+      "block",
+      "trial"
+    ]
+  },
+  "overlays.subpixel.void_hold_body": {
+    "text": "The test continues by itself as soon as your gaze is back.",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
+  "overlays.subpixel.void_hold_title": {
+    "text": "Rest your eyes",
+    "who": "user",
+    "where": "overlays",
+    "fit": "prose",
+    "args": []
+  },
   "overlays.taskSwitcher.hint": {
     "text": "Select a window — or look away to cancel",
     "who": "user",
@@ -2446,6 +2652,83 @@
     "who": "user",
     "where": "settings",
     "fit": "prose",
+    "args": []
+  },
+  "settings.diagnostics.subpixel.continue": {
+    "text": "Continue Sub-pixel Test (live gaze)",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
+    "args": []
+  },
+  "settings.diagnostics.subpixel.description": {
+    "text": "Runs a short full-screen A/B test of the cursor ring's sub-pixel placement. The keyboard, toolbar and ring come back when it ends; Settings stays closed.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.diagnostics.subpixel.reason.adaptation": {
+    "text": "Turn adaptation off first; it can open its own window.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.diagnostics.subpixel.reason.calibration": {
+    "text": "Calibration is running.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.diagnostics.subpixel.reason.eye_care": {
+    "text": "Turn eye care off first; it can open its own window.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.diagnostics.subpixel.reason.menus": {
+    "text": "Close the modes menu, the task switcher and the quick-actions grid first.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.diagnostics.subpixel.reason.paused": {
+    "text": "Resume first, then start the test.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.diagnostics.subpixel.reason.running": {
+    "text": "A sub-pixel test is already running.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.diagnostics.subpixel.reason.settings": {
+    "text": "Close Settings first.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.diagnostics.subpixel.reason.state": {
+    "text": "Leave dragging, scrolling or repeat mode first.",
+    "who": "user",
+    "where": "settings",
+    "fit": "prose",
+    "args": []
+  },
+  "settings.diagnostics.subpixel.start": {
+    "text": "Sub-pixel Visibility Test",
+    "who": "user",
+    "where": "settings",
+    "fit": "row",
     "args": []
   },
   "settings.diagnostics.ui_timing.description": {

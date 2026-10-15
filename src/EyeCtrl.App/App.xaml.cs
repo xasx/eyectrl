@@ -424,10 +424,13 @@ public partial class App : Application
                     dispatchProbe,
                     isInstrumentOn: () => settings.Diagnostics.MeasureUiInstruments,
                     isSettingsOpen: () => _eventCoordinator.IsSettingsOpen,
+                    isProbeOpen: () => _eventCoordinator.IsProbeOpen,
                     now: () => DateTime.Now,
                     postToUi: work => Dispatcher.Invoke(work),
                     log: line => Log.Information("{LagMark}", line));
                 _eventCoordinator.SettingsOpenChanged += _lagMarkHost.OnSettingsOpenChanged;
+                // The probe owns the screen while it is up (Task 6, the restart card's seam).
+                _eventCoordinator.ProbeOpenChanged += _lagMarkHost.OnProbeOpenChanged;
                 _lagMarkHost.Start();
             }
 

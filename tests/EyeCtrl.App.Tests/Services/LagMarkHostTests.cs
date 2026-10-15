@@ -61,6 +61,7 @@ public class LagMarkHostTests
         public DispatchLatencyProbe Probe { get; } = new();
         public bool InstrumentOn { get; set; } = true;
         public bool SettingsOpen { get; set; }
+        public bool ProbeOpen { get; set; }
         public DateTime Now { get; set; } = new(2026, 10, 16, 10, 20, 30, DateTimeKind.Local);
         public List<string> Lines { get; } = [];
         public List<PhysicalRect?> Zones { get; } = [];
@@ -72,6 +73,7 @@ public class LagMarkHostTests
                 Messenger, Presenter, Probe,
                 isInstrumentOn: () => InstrumentOn,
                 isSettingsOpen: () => SettingsOpen,
+                isProbeOpen: () => ProbeOpen,
                 now: () => Now,
                 postToUi: work => work(),
                 log: line => Lines.Add(line));
@@ -188,6 +190,62 @@ public class LagMarkHostTests
             .That(rig.Presenter.Gaze).IsEmpty();
     }
 
+    // ────── Task 6: the sub-pixel probe is the second screen-owning surface ──────
+
+    [Fact]
+    public void Start_WithTheProbeOpen_ShowsNothing()
+    {
+        var rig = new Rig { ProbeOpen = true };
+
+        rig.Host.Start();
+
+        Check.That(rig.Presenter.ShowCalls).IsEqualTo(0);
+        Check.That(rig.Lines).IsEmpty();
+        Check.That(rig.Zones).IsEmpty();
+    }
+
+    /// <summary>
+    /// Unlike the restart card, the button is a session fixture: closing the probe brings it back —
+    /// but only once Settings is closed too (both surfaces own the screen while up).
+    /// </summary>
+    [Fact]
+    public void OpeningTheProbe_HidesTheButton_AndClosingBringsItBack_WhenBothAreClosed()
+    {
+        var rig = new Rig();
+        rig.Host.Start();
+
+        rig.ProbeOpen = true;
+        rig.Host.OnProbeOpenChanged(true);
+        Check.That(rig.Presenter.IsShowing).IsFalse();
+        Check.That(rig.Zones.Last()).IsNull();
+
+        // The probe closes while Settings is open: still nothing.
+        rig.SettingsOpen = true;
+        rig.ProbeOpen = false;
+        rig.Host.OnProbeOpenChanged(false);
+        Check.That(rig.Presenter.IsShowing).IsFalse();
+
+        // Both closed now: the button returns.
+        rig.SettingsOpen = false;
+        rig.Host.OnSettingsOpenChanged(false);
+        Check.That(rig.Presenter.IsShowing).IsTrue();
+        Check.That(rig.Presenter.ShowCalls).IsEqualTo(2);
+        Check.That(rig.Zones.Last()!.Value).IsEqualTo(rig.Presenter.HitBounds);
+    }
+
+    [Fact]
+    public void WhileTheProbeIsOpen_NoGazeReachesTheButton()
+    {
+        var rig = new Rig();
+        rig.Host.Start();
+        rig.ProbeOpen = true;
+
+        rig.Messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 200), 2_000));
+
+        Check.WithCustomMessage("gaze reached the button under the probe")
+            .That(rig.Presenter.Gaze).IsEmpty();
+    }
+
     [Fact]
     public void OpeningSettings_HidesTheButton_AndClosingBringsItBack()
     {
@@ -301,6 +359,9 @@ public class LagMarkHostTests
         Check.That(Regex.IsMatch(
             arguments,
             @"isSettingsOpen\s*:\s*\(\)\s*=>\s*_eventCoordinator\s*\.\s*IsSettingsOpen")).IsTrue();
+        Check.That(Regex.IsMatch(
+            arguments,
+            @"isProbeOpen\s*:\s*\(\)\s*=>\s*_eventCoordinator\s*\.\s*IsProbeOpen")).IsTrue();
         Check.WithCustomMessage("the button is no longer given the chrome zones, so it could cover the keys or the toolbar")
             .That(Regex.IsMatch(
                 arguments,
@@ -318,5 +379,10 @@ public class LagMarkHostTests
             .That(Regex.IsMatch(
                 text,
                 @"_eventCoordinator\s*\.\s*SettingsOpenChanged\s*\+=\s*_lagMarkHost\s*\.\s*OnSettingsOpenChanged")).IsTrue();
+        // The probe opening over the button takes it down too (Task 6).
+        Check.WithCustomMessage("App.xaml.cs no longer takes the button down when the probe opens")
+            .That(Regex.IsMatch(
+                text,
+                @"_eventCoordinator\s*\.\s*ProbeOpenChanged\s*\+=\s*_lagMarkHost\s*\.\s*OnProbeOpenChanged")).IsTrue();
     }
 }

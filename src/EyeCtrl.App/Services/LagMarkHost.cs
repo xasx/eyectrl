@@ -38,6 +38,7 @@ public sealed class LagMarkHost : IDisposable
     private readonly DispatchLatencyProbe _probe;
     private readonly Func<bool> _isInstrumentOn;
     private readonly Func<bool> _isSettingsOpen;
+    private readonly Func<bool> _isProbeOpen;
     private readonly Func<DateTime> _now;
     private readonly Action<Action> _postToUi;
     private readonly Action<string> _log;
@@ -48,6 +49,8 @@ public sealed class LagMarkHost : IDisposable
     /// <param name="probe">The dispatch probe the marks quote.</param>
     /// <param name="isInstrumentOn">The live <c>MeasureUiInstruments</c> reading.</param>
     /// <param name="isSettingsOpen">Whether Settings is open; its window covers the button.</param>
+    /// <param name="isProbeOpen">Whether the sub-pixel probe window is up; it then owns the screen
+    /// (Task 6, mirroring the restart card's probe seam).</param>
     /// <param name="now">The wall clock, a seam for tests.</param>
     /// <param name="postToUi">Runs work on the UI thread.</param>
     /// <param name="log">Writes one line to the session log.</param>
@@ -57,6 +60,7 @@ public sealed class LagMarkHost : IDisposable
         DispatchLatencyProbe probe,
         Func<bool> isInstrumentOn,
         Func<bool> isSettingsOpen,
+        Func<bool> isProbeOpen,
         Func<DateTime> now,
         Action<Action> postToUi,
         Action<string> log)
@@ -66,6 +70,7 @@ public sealed class LagMarkHost : IDisposable
         _probe = probe;
         _isInstrumentOn = isInstrumentOn;
         _isSettingsOpen = isSettingsOpen;
+        _isProbeOpen = isProbeOpen;
         _now = now;
         _postToUi = postToUi;
         _log = log;
@@ -84,7 +89,7 @@ public sealed class LagMarkHost : IDisposable
         _presenter.Marked += OnMarked;
         _messenger.Register<GazeCursorMovedMessage>(this, (_, message) => OnGaze(message));
 
-        if (_isInstrumentOn())
+        if (CanShow())
             ShowButtonAndZone();
     }
 
@@ -98,9 +103,29 @@ public sealed class LagMarkHost : IDisposable
     {
         if (open)
             _postToUi(HideButtonAndZone);
-        else if (_isInstrumentOn())
+        else if (CanShow())
             _postToUi(ShowButtonAndZone);
     }
+
+    /// <summary>
+    /// The sub-pixel probe opened or closed (Task 6, the restart card's seam): the full-screen probe
+    /// covers the button, whose hit area would otherwise stay live on its corner — and its own Start
+    /// overlaps nothing there, so a mark would advance nothing but would still be logged. Opening
+    /// takes the button down; closing brings it back, because the button is a session fixture (unlike
+    /// the restart card): the re-show happens when BOTH Settings and the probe are closed.
+    /// </summary>
+    /// <param name="open">True when the probe window has opened. The current flag is read as well:
+    /// <c>ModalInteractionState.ProbeOpenChanged</c>'s contract says the argument can be stale.</param>
+    public void OnProbeOpenChanged(bool open)
+    {
+        if (open || _isProbeOpen())
+            _postToUi(HideButtonAndZone);
+        else if (CanShow())
+            _postToUi(ShowButtonAndZone);
+    }
+
+    /// <summary>The surfaces that own the screen when open, and the instrument's live gate.</summary>
+    private bool CanShow() => _isInstrumentOn() && !_isSettingsOpen() && !_isProbeOpen();
 
     private void OnGaze(GazeCursorMovedMessage message)
     {
@@ -115,9 +140,9 @@ public sealed class LagMarkHost : IDisposable
         }
 
         // A held (gap) sample must not accumulate dwell; and no gaze reaches the button under an
-        // open Settings window. Paused does NOT gate this: a mark injects no input, and the launcher
-        // starts the app paused.
-        if (!message.IsInGap && !_isSettingsOpen())
+        // open Settings window or the probe. Paused does NOT gate this: a mark injects no input, and
+        // the launcher starts the app paused.
+        if (!message.IsInGap && !_isSettingsOpen() && !_isProbeOpen())
             _presenter.OnGaze(message.Position, message.TimestampMicroseconds);
     }
 

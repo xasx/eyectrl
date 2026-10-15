@@ -459,8 +459,21 @@ public class LagMarkHostTests
             .That(Regex.IsMatch(
                 text,
                 @"if\s*\(\s*_serviceProvider\s*\.\s*GetService<\s*DispatchLatencyProbe\s*>\s*\(\s*\)\s+is\s*\{[^}]*\}\s*\w*\s*\)")).IsTrue();
-        Check.WithCustomMessage("App.xaml.cs no longer starts the lag-mark host")
-            .That(Regex.IsMatch(text, @"_lagMarkHost\s*\.\s*Start\s*\(\s*\)")).IsTrue();
+
+        // Review 01 F3: the Start() statement must be UNCONDITIONAL. Review mutant M5
+        // (`if (!IsPausedLaunch) _lagMarkHost.Start();`) survived the earlier pin: a --paused
+        // launch would then never show the button or write the shown line the launcher requires.
+        var startStatement = Regex.Match(text, @"(?m)^\s*(?<statement>_lagMarkHost\s*\.\s*Start\s*\(\s*\)\s*;)\s*$");
+        Check.WithCustomMessage("App.xaml.cs no longer calls _lagMarkHost.Start(); as a plain statement")
+            .That(startStatement.Success).IsTrue();
+        var above = text[..startStatement.Index].Replace("\r\n", "\n").TrimEnd('\n', ' ', '\t');
+        var lastLine = above[(above.LastIndexOf('\n') + 1)..].Trim();
+        Check.WithCustomMessage(
+                $"the Start() statement is guarded by '{lastLine}': a --paused launch must still show the button")
+            .That(lastLine.StartsWith("if", StringComparison.Ordinal)
+                  || lastLine.StartsWith("else", StringComparison.Ordinal)
+                  || lastLine.EndsWith("{", StringComparison.Ordinal)).IsFalse();
+
         Check.WithCustomMessage("App.xaml.cs no longer takes the button down when Settings opens")
             .That(Regex.IsMatch(
                 text,

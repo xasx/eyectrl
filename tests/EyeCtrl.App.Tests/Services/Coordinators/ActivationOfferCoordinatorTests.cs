@@ -261,6 +261,31 @@ public class ActivationOfferCoordinatorTests
         Check.That(Settle(s, 1000, 1000)).IsNotNull();
     }
 
+    [StaFact]
+    public void ProbeOpen_AloneSuspendsOffers_AndResumesOnClose()
+    {
+        // W5(c) (build plan): the probe term on the offer suspension, with NO other modal surface
+        // open. Opening the probe alone must clear a live offer and refuse new ones — the probe's
+        // window is opaque, so an offer halo underneath it is an invisible, uncountable target.
+        // Mutations: drop the `if (_modal.ProbeOpen)` term from RecomputeSuspension, or drop the
+        // ProbeOpenChanged subscription → the settle under the probe offers → red.
+        var s = Build();
+        using var _ = s.Context.GazeEngine;
+
+        Check.That(Settle(s, 500, 500)).IsNotNull();
+
+        s.Modal.ProbeOpen = true;   // raises ProbeOpenChanged → RecomputeSuspension
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        Check.WithCustomMessage("opening the probe must clear the live offer")
+            .That(s.Engine.CurrentOffer).IsNull();
+        Check.WithCustomMessage("no offer may be made while the probe is open")
+            .That(Settle(s, 600, 600)).IsNull();
+
+        s.Modal.ProbeOpen = false;  // raises again → offers resume
+        Check.WithCustomMessage("once the probe closes, settles must offer again")
+            .That(Settle(s, 700, 700)).IsNotNull();
+    }
+
     /// <summary>
     /// T15 review R1: the restart notice card carries its own dwell target and is click-through, so a
     /// taken offer would click the window beneath it. While the card is up no offer is made, and a

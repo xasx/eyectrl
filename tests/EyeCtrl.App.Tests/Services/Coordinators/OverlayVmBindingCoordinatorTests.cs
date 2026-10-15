@@ -460,4 +460,59 @@ public class OverlayVmBindingCoordinatorTests
             .GetMethod("OnManualSelectionVMPropertyChanged", BindingFlags.Instance | BindingFlags.NonPublic)!;
         method.Invoke(coordinator, new object?[] { null, new PropertyChangedEventArgs(propertyName) });
     }
+
+    // ── W2 (a): the probe owns the ring while ProbeOpen (build plan C9) ──
+    //
+    // The gate exists so nothing re-shows the real cursor ring over the probe's opaque window. The
+    // test drives the real handler directly (the nine-VM Initialize path is irrelevant to it) and
+    // kills the "drop the ProbeOpen term" mutation: with the term gone the flip below calls Show().
+
+    [Fact]
+    public void WhenProbeOpen_ACursorVisibilityFlipDoesNotShowTheRing()
+    {
+        var modal = new ModalInteractionState { ProbeOpen = true };
+        var ring = new RecordingRingVisibility();
+        var messenger = new WeakReferenceMessenger();
+        var cursorVm = new CursorCircleViewModel(new EyeCtrlSettings(), messenger) { IsVisible = false };
+        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            CursorVM = cursorVm,
+            Messenger = messenger,
+            OverlayManager = TestFakes.MakeOverlayManager(cursorCircle: ring),
+        };
+
+        var coordinator = new OverlayVmBindingCoordinator(modal);
+        SetContext(coordinator, ctx);
+
+        cursorVm.IsVisible = true;
+        InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsVisible));
+
+        Check.WithCustomMessage("The ring was re-shown over the probe window")
+            .That(ring.ShowCalls).IsEqualTo(0);
+        Check.That(ring.HideCalls).IsEqualTo(1);
+
+        // Negative control: with the probe down the same flip shows the ring again.
+        modal.ProbeOpen = false;
+        cursorVm.IsVisible = false;
+        InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsVisible));
+        cursorVm.IsVisible = true;
+        InvokeCursorHandler(coordinator, nameof(CursorCircleViewModel.IsVisible));
+
+        Check.That(ring.ShowCalls).IsEqualTo(1);
+    }
+
+    /// <summary>Records ring Show/Hide so the probe gate is observable without a window.</summary>
+    private sealed class RecordingRingVisibility : ICursorCircleOverlay
+    {
+        public int ShowCalls { get; private set; }
+        public int HideCalls { get; private set; }
+
+        public void Show() => ShowCalls++;
+        public void Hide() => HideCalls++;
+        public void UpdatePosition(PhysicalPoint point) { }
+        public void MoveTo(PhysicalPoint point, bool glide) { }
+        public void UpdateAppearance(CursorSettings settings) { }
+        public void SetPausedDim(bool dimmed) { }
+        public void SetPinned(bool pinned) { }
+    }
 }

@@ -570,6 +570,122 @@
     "text": "Scroll-Anzeige",
     "src": "ebaf748d"
   },
+  "overlays.subpixel.answer_one": {
+    "text": "1",
+    "src": "c35c447f"
+  },
+  "overlays.subpixel.answer_two": {
+    "text": "2",
+    "src": "23358c47"
+  },
+  "overlays.subpixel.ask_later": {
+    "text": "Später",
+    "src": "1c294e0b"
+  },
+  "overlays.subpixel.ask_title": {
+    "text": "Jetzt mit dem Live-Blick-Teil weitermachen?",
+    "src": "8bf8ecbe"
+  },
+  "overlays.subpixel.ask_yes": {
+    "text": "Ja",
+    "src": "e1f6b735"
+  },
+  "overlays.subpixel.block_drift": {
+    "text": "Bewegungs-Block",
+    "src": "2ac822a4"
+  },
+  "overlays.subpixel.block_live": {
+    "text": "Live-Block",
+    "src": "e8a8e379"
+  },
+  "overlays.subpixel.block_static": {
+    "text": "Statik-Block",
+    "src": "55296069"
+  },
+  "overlays.subpixel.caption": {
+    "text": "Testbild — nur die Schaltflächen reagieren auf den Blick",
+    "src": "fa23978a"
+  },
+  "overlays.subpixel.demo_hint": {
+    "text": "Demo — auf die Linie des Rings achten, nicht auf seine Mitte.",
+    "src": "61459e22"
+  },
+  "overlays.subpixel.done": {
+    "text": "Fertig",
+    "src": "29363e97"
+  },
+  "overlays.subpixel.end_test": {
+    "text": "Test beenden",
+    "src": "127972ee"
+  },
+  "overlays.subpixel.intro_body": {
+    "text": "Das ist der Ring, den Sie beurteilen werden. Er bewegt sich langsam — folgen Sie ihm mit den Augen. Auf Starten schauen, wenn Sie bereit sind. Zum Verlassen jederzeit auf Test beenden schauen oder 10 Sekunden die Augen schließen.",
+    "src": "a5dd7faf"
+  },
+  "overlays.subpixel.intro_title": {
+    "text": "Subpixel-Sichttest",
+    "src": "7cb9b831"
+  },
+  "overlays.subpixel.label_one": {
+    "text": "1",
+    "src": "c35c447f"
+  },
+  "overlays.subpixel.label_two": {
+    "text": "2",
+    "src": "23358c47"
+  },
+  "overlays.subpixel.motion_question": {
+    "text": "Welcher Ring bewegte sich flüssiger?",
+    "src": "7a868208"
+  },
+  "overlays.subpixel.result_acquitted": {
+    "text": "Die Subpixel-Position ist nicht zuverlässig sichtbar.",
+    "src": "61e5d4e3"
+  },
+  "overlays.subpixel.result_convicted": {
+    "text": "Die Subpixel-Position ist zuverlässig sichtbar.",
+    "src": "66ae43fa"
+  },
+  "overlays.subpixel.result_incomplete": {
+    "text": "Der Test blieb unvollständig — kein Ergebnis.",
+    "src": "ad13b6c0"
+  },
+  "overlays.subpixel.result_title": {
+    "text": "Ergebnis",
+    "src": "047def12"
+  },
+  "overlays.subpixel.start": {
+    "text": "Starten",
+    "src": "bade9a89"
+  },
+  "overlays.subpixel.static_can_tell": {
+    "text": "Ruhende Ringe: unterscheidbar.",
+    "src": "4979f1f3"
+  },
+  "overlays.subpixel.static_cannot_tell": {
+    "text": "Ruhende Ringe: nicht unterscheidbar.",
+    "src": "9d971e08"
+  },
+  "overlays.subpixel.static_incomplete": {
+    "text": "Ruhende Ringe: kein Messwert.",
+    "src": "50f4dcd1"
+  },
+  "overlays.subpixel.static_question": {
+    "text": "Welcher Ring wirkte schärfer?",
+    "src": "6353cd80"
+  },
+  "overlays.subpixel.trial_label": {
+    "text": "{0} · Durchgang {1} von 10",
+    "src": "85d2b77f"
+  },
+  "overlays.subpixel.void_hold_body": {
+    "text": "Der Test läuft von selbst weiter, sobald der Blick zurück ist.",
+    "src": "3b78341e"
+  },
+  "overlays.subpixel.void_hold_title": {
+    "text": "Augen ausruhen",
+    "src": "76d1d8e0"
+  },
   "overlays.taskSwitcher.hint": {
     "text": "Fenster auswählen – oder zum Abbrechen wegschauen",
     "src": "e628a37c"
@@ -1333,6 +1449,50 @@
   "settings.diagnostics.reset.message": {
     "text": "Beide Diagnosefunktionen ausschalten?",
     "src": "ce57f8d9"
+  },
+  "settings.diagnostics.subpixel.continue": {
+    "text": "Subpixel-Test fortsetzen (Live-Blick)",
+    "src": "d1e09c8b"
+  },
+  "settings.diagnostics.subpixel.description": {
+    "text": "Startet einen kurzen bildschirmfüllenden A/B-Test der Subpixel-Position des Cursorrings. Tastatur, Toolbar und Ring kommen danach zurück; die Einstellungen bleiben geschlossen.",
+    "src": "24316cbc"
+  },
+  "settings.diagnostics.subpixel.reason.adaptation": {
+    "text": "Zuerst Anpassung ausschalten; sie kann ein eigenes Fenster öffnen.",
+    "src": "a9de24c5"
+  },
+  "settings.diagnostics.subpixel.reason.calibration": {
+    "text": "Die Kalibrierung läuft.",
+    "src": "c8bab8f3"
+  },
+  "settings.diagnostics.subpixel.reason.eye_care": {
+    "text": "Zuerst Augenpflege ausschalten; sie kann ein eigenes Fenster öffnen.",
+    "src": "f5937906"
+  },
+  "settings.diagnostics.subpixel.reason.menus": {
+    "text": "Zuerst das Modusmenü, den Aufgabenwechsler und das Raster mit Kurzbefehlen schließen.",
+    "src": "1e68e7ee"
+  },
+  "settings.diagnostics.subpixel.reason.paused": {
+    "text": "Zuerst fortsetzen, dann den Test starten.",
+    "src": "72ef65fc"
+  },
+  "settings.diagnostics.subpixel.reason.running": {
+    "text": "Ein Subpixel-Test läuft bereits.",
+    "src": "c18a2fd7"
+  },
+  "settings.diagnostics.subpixel.reason.settings": {
+    "text": "Zuerst die Einstellungen schließen.",
+    "src": "21e81180"
+  },
+  "settings.diagnostics.subpixel.reason.state": {
+    "text": "Zuerst Ziehen, Scrollen oder den Wiederholmodus beenden.",
+    "src": "25ed5595"
+  },
+  "settings.diagnostics.subpixel.start": {
+    "text": "Subpixel-Sichttest starten",
+    "src": "d9fa9cf2"
   },
   "settings.diagnostics.ui_timing.description": {
     "text": "Misst, wie schnell der Blick auf dem Bildschirm ankommt. Zeichnet keine Blickpositionen auf; schreibt nur Zusammenfassungen ins Protokoll.",

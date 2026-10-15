@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Tests.Overlays;
 using System;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Windows;
 using System.Windows.Interop;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Localization;
@@ -41,6 +42,16 @@ using Xunit;
 /// only with the owner's go-ahead. No input is simulated and no gaze is fed; the window hides and
 /// closes in the <c>finally</c>.
 /// </para>
+///
+/// <para>
+/// <b>The dry run.</b> With <c>EYECTRL_LIVE_DRYRUN=1</c> as well, every step runs — both shows, the
+/// hide, both captures, the readout — but the window is shown OFF-SCREEN through a
+/// <c>PositionForShow</c> that proves the bounds cannot intersect a screen before the show, and the
+/// visibility proof logs "skipped (off-screen dry run)" instead of asserting. The text proof still
+/// runs. This is how a harness bug (e.g. the Esc hint never being shown, which aborted the owner's
+/// first look) is caught without painting anything on the owner's screen; every live look is dry-run
+/// before the owner is asked.
+/// </para>
 /// </summary>
 [Collection("WpfApplication")]
 [Trait("Category", "UI")]
@@ -71,29 +82,54 @@ public class BackdropShowLookTests
             var centre = ProductionCentre();
             var kind = solidDarken ? "solid" : "blur";
 
+            // The off-screen dry run: EYECTRL_LIVE_DRYRUN=1 keeps every step but shows the window
+            // OFF-SCREEN (and the visibility proof only logs), so a harness bug like the missing
+            // hint below can be caught without painting anything on the owner's screen.
+            var dryRun = Environment.GetEnvironmentVariable("EYECTRL_LIVE_DRYRUN") is "1" or "true" or "TRUE";
+
             window = new GlassBackdropWindow();
+            if (dryRun)
+                window.PositionForShow = w =>
+                {
+                    OverlayPositioning.CoverPrimaryScreen(w);
+                    w.Left = -40000;
+                    w.Top = -40000;
+                    // Prove it cannot appear BEFORE the window is shown.
+                    var bounds = new Rect(w.Left, w.Top, w.Width, w.Height);
+                    var screen = new Rect(
+                        SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
+                        SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
+                    Check.WithCustomMessage("dry run: the window must be off-screen before it is shown.")
+                        .That(screen.IntersectsWith(bounds)).IsFalse();
+                };
+
             var hwnd = new WindowInteropHelper(window).EnsureHandle(); // the test needs the hwnd to lift the affinity
             var baseline = BackdropCapture.Grab();                     // window still hidden: the desktop
 
             SetWindowDisplayAffinity(hwnd, WdaNone); // lift BEFORE showing; restored in the finally
             try
             {
+                // Production's show path does not show the Esc hint (the magnifier path calls it
+                // separately); ShowEscapeHint BEFORE ShowBackdrop, so it is part of the prepared
+                // frame (it is a sibling outside BackdropCanvas, so ClearContent cannot remove it).
+                window.ShowEscapeHint();
                 window.ShowBackdrop(settings, centre); // production's own path, first show
                 DwmFlush(); // twice: one can return for a composition that began before ShowWindow
                 DwmFlush();
                 var first = BackdropCapture.Grab();
                 LiveCheck.AssertShowsText(window, $"Backdrop show look, case {caseNumber} (first show)", "Mit Esc beenden");
-                LiveCheck.AssertVisible(window, $"Backdrop show look, case {caseNumber} (first show)");
+                if (dryRun) SkipVisibilityProof(caseNumber, "first show"); else LiveCheck.AssertVisible(window, $"Backdrop show look, case {caseNumber} (first show)");
                 LiveCheck.PumpFor(Hold);
                 var steady = BackdropCapture.Grab();
 
                 window.Hide();
+                window.ShowEscapeHint(); // Hide() collapsed it; the re-show prepares it again
                 window.ShowBackdrop(settings, centre); // the re-show
                 DwmFlush(); // twice: as above
                 DwmFlush();
                 var reshowFirst = BackdropCapture.Grab();
                 LiveCheck.AssertShowsText(window, $"Backdrop show look, case {caseNumber} (re-show)", "Mit Esc beenden");
-                LiveCheck.AssertVisible(window, $"Backdrop show look, case {caseNumber} (re-show)");
+                if (dryRun) SkipVisibilityProof(caseNumber, "re-show"); else LiveCheck.AssertVisible(window, $"Backdrop show look, case {caseNumber} (re-show)");
                 LiveCheck.PumpFor(Hold);
                 var reshowSteady = BackdropCapture.Grab();
 
@@ -102,6 +138,8 @@ public class BackdropShowLookTests
                 log.AppendLine($"kind: {kind}");
                 log.AppendLine($"alpha: {BackdropReadoutLines.Number(settings.Opacity)}");
                 log.AppendLine($"Material: {settings.Type} through production's ShowBackdrop");
+                if (dryRun)
+                    log.AppendLine("proof: visibility skipped (off-screen dry run); the text proof ran");
                 log.AppendLine($"Baseline (window hidden; the desktop): {BackdropCapture.Describe(baseline.Centre)}");
                 log.AppendLine($"First show, first frame: {BackdropCapture.Describe(first.Centre)}");
                 log.AppendLine($"First show, steady: {BackdropCapture.Describe(steady.Centre)}");
@@ -132,6 +170,14 @@ public class BackdropShowLookTests
             Step3LiveCheckTests.EndShowcaseCase();
         }
     }
+
+    /// <summary>
+    /// The dry run's visibility proof: logged, not asserted — the window is deliberately OFF-SCREEN,
+    /// so the strict on-screen rule cannot hold; the text proof still ran.
+    /// </summary>
+    private static void SkipVisibilityProof(int caseNumber, string phase) =>
+        Console.WriteLine(
+            $"[backdrop show look] case {caseNumber} ({phase}): visibility proof skipped (off-screen dry run)");
 
     /// <summary>Production's own hide-button centre (OverlayVmBindingCoordinator.ShowBackdropIfEnabled).</summary>
     private static PhysicalPoint ProductionCentre()

@@ -275,7 +275,7 @@
     "src": "8506c786"
   },
   "language-recovery.restart.failed.frame": {
-    "text": "Neustart fehlgeschlagen. EyeCtrl läuft weiter. Technische Details (Englisch): {0}",
+    "text": "Neustart fehlgeschlagen. EyeCtrl läuft weiter. Technische Details: {0}",
     "src": "dca4a2ab"
   },
   "language-recovery.restart.failed.generic": {
@@ -1845,6 +1845,14 @@
     "text": "✓ Ja",
     "src": "bec96f05"
   },
+  "settings.mode.show.all": {
+    "text": "Alle Optionen",
+    "src": "9ca766cc"
+  },
+  "settings.mode.show.basic": {
+    "text": "Einfach",
+    "src": "dcfa5568"
+  },
   "settings.models.active.description": {
     "text": "Welches Modell die Vorhersagen liefert; „Aus“ nutzt nur das Wörterbuch.",
     "src": "da831ea8"
@@ -2542,7 +2550,7 @@
     "src": "910d4dbd"
   },
   "startup-error.message": {
-    "text": "Beim Start ist ein Fehler aufgetreten.\nTechnische Details (Englisch): {0}",
+    "text": "Beim Start ist ein Fehler aufgetreten.\nTechnische Details: {0}",
     "src": "e18bf636"
   },
   "startup-error.title": {

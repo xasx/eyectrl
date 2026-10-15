@@ -47,13 +47,13 @@ internal sealed class CursorPageSource : ISettingsPageSource
                     { Description = StringTable.Current.T("settings.cursor.smoothing.description") },
                 c.RingStyle == CursorRingStyle.AchromaticReticle
                     ? (SettingsRowSpec)new LabelSpec(
-                        () => StringTable.Current.T("settings.cursor.color_unavailable"))
+                        () => StringTable.Current.T("settings.cursor.color_unavailable")) { Simple = true }
                     : new ColorPickerSpec("c_color",
                         StringTable.Current.T("settings.cursor.color.label"),
                         () => c.CircleColor,
                         v => { c.CircleColor = v; _ctx.ApplyAndSave(); },
                         SettingsWindow.ColorSwatchRadius)
-                        { Description = StringTable.Current.T("settings.cursor.color.description") },
+                        { Description = StringTable.Current.T("settings.cursor.color.description"), Simple = true },
             ]),
             new PageSpec([
                 new ComboBoxSpec("c_ring_style",
@@ -77,12 +77,12 @@ internal sealed class CursorPageSource : ISettingsPageSource
                         _ctx.RebuildContent();   // still required: the Circle Color row swaps to
                                                  // a LabelSpec note under AchromaticReticle
                     })
-                    { Description = StringTable.Current.T("settings.cursor.ring_style.description") },
+                    { Description = StringTable.Current.T("settings.cursor.ring_style.description"), Simple = true },
                 new SliderSpec("c_opacity",
                     StringTable.Current.T("settings.cursor.opacity.label"), 0.1, 1, 0.1, 1,
                     () => c.CircleOpacity,
                     v => { c.CircleOpacity = v; _ctx.ApplyAndSave(); })
-                    { Description = StringTable.Current.T("settings.cursor.opacity.description") },
+                    { Description = StringTable.Current.T("settings.cursor.opacity.description"), Simple = true },
                 new SliderSpec("c_thick",
                     StringTable.Current.T("settings.cursor.thickness.label"), 1, 6, 0.5, 1,
                     () => c.CircleThickness,
@@ -105,7 +105,7 @@ internal sealed class CursorPageSource : ISettingsPageSource
                 new SliderSpec("c_size",
                     StringTable.Current.T("settings.cursor.size.label"), 10, 500, 10, 0,
                     () => c.CircleSize, v => { c.CircleSize = v; _ctx.ApplyAndSave(); })
-                    { Description = StringTable.Current.T("settings.cursor.size.description") },
+                    { Description = StringTable.Current.T("settings.cursor.size.description"), Simple = true },
                 // The span is DELIBERATELY left at the guard's full 0.1–20 Hz even though the top of it
                 // does nothing on this hardware: OneEuroFilter caps the cutoff at sampleRate/3, which is
                 // ~10 Hz at the PCEye 5's ~33 Hz, so 10–20 behaves identically to 10. The cap is a
@@ -156,7 +156,7 @@ internal sealed class CursorPageSource : ISettingsPageSource
                         _ctx.ApplyAndSave();
                         _ctx.RebuildContent();
                     }),
-                    ButtonKind.Reset, Width: 300, Height: 100),
+                    ButtonKind.Reset, Width: 300, Height: 100) { Simple = true },
             ]),
         ];
     }

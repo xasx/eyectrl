@@ -102,6 +102,7 @@ def validator_command(english: Path, german: Path, manifest: Path, src_dir: Path
 def run_case(case: str, *extra: str) -> subprocess.CompletedProcess[str]:
     directory = FIXTURES / case
     glossary = directory / "glossary.de.json"
+    own_allowlist = directory / "strings.identical-allowlist.json"
     return subprocess.run(
         validator_command(
             directory / "strings.json",
@@ -109,7 +110,12 @@ def run_case(case: str, *extra: str) -> subprocess.CompletedProcess[str]:
             directory / "strings.de.manifest.json",
             directory / "src",
             glossary if glossary.exists() else DEFAULT_GLOSSARY,
-            DEFAULT_ALLOWLIST,
+            # A case that needs an allowlisted value brings its own list, so the shipped one holds
+            # only values the shipped German really uses (its staleness check would reject the rest).
+            own_allowlist if own_allowlist.exists() else DEFAULT_ALLOWLIST,
+            # The fixtures share the shipped allowlist, whose entries they mostly do not use; the
+            # staleness check is exercised on its own below and on the shipped tables in CI.
+            "--allow-unused-allowlist",
             *extra,
         ),
         capture_output=True,
@@ -134,6 +140,43 @@ class StringsValidateFixtureTests(unittest.TestCase):
                 self.assertEqual(expected_code, result.returncode, output)
                 for substring in substrings:
                     self.assertIn(substring, output)
+
+    def test_a_dead_allowlist_entry_is_reported(self) -> None:
+        # F9: an entry that waives nothing is dead weight (it would silently waive a future
+        # identical value), and the validator says so, unless the case opts out.
+        directory = FIXTURES / "identical-allowlisted"
+
+        def run(entries: list[str]) -> subprocess.CompletedProcess[str]:
+            with tempfile.TemporaryDirectory() as tmp:
+                allowlist = Path(tmp) / "allowlist.json"
+                allowlist.write_text(json.dumps(entries), encoding="utf-8")
+                return subprocess.run(
+                    validator_command(
+                        directory / "strings.json",
+                        directory / "strings.de.json",
+                        directory / "strings.de.manifest.json",
+                        directory / "src",
+                        DEFAULT_GLOSSARY,
+                        allowlist,
+                    ),
+                    capture_output=True,
+                    text=True,
+                )
+
+        live = run(["OK"])
+        self.assertEqual(0, live.returncode, live.stdout + live.stderr)
+
+        dead = run(["OK", "Zombie"])
+        output = dead.stdout + dead.stderr
+        self.assertEqual(1, dead.returncode, output)
+        self.assertIn("'Zombie' matches no German value", output)
+        self.assertNotIn("'OK' matches no German value", output)
+
+    def test_the_shipped_allowlist_has_no_dead_entry(self) -> None:
+        # The same check on the shipped tables (CI's plain validator run also fails on it).
+        result = subprocess.run(
+            [sys.executable, str(VALIDATOR)], capture_output=True, text=True)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_refresh_de_src_carries_an_unknown_key_through(self) -> None:
         # F5: a German entry whose key is no longer in English is a finished translation of a
@@ -248,6 +291,7 @@ class StringsValidateFixtureTests(unittest.TestCase):
                     directory / "src",
                     DEFAULT_GLOSSARY,
                     DEFAULT_ALLOWLIST,
+                    "--allow-unused-allowlist",
                 ),
                 capture_output=True,
                 text=True,

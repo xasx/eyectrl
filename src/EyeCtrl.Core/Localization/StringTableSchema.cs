@@ -51,6 +51,11 @@ public static class StringTableSchema
         "A44",
         // A short caption: one line ≤ 56 DIP (the eye-care banner's 64 DIP rings less 8).
         "A56",
+        // The settings mode toggle's label: one line inside the toggle's box less the standard
+        // 8-DIP one-line inset — i.e. <= 208 - 8. 208 derives from 448 (narrowest header) -
+        // 220.2 (tab156's widest English title at Display/Strong) - 12 (gap) - slack. The live
+        // per-language title+toggle bound is pinned in SettingsContentFitTests, not restated here.
+        "A208",
         // The eye-care summary card's labels: one line, and the auto-width card they widen still
         // fits the 1920 DIP exercise window (the card has no box of its own, so that is the bound).
         "card",

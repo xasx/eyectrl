@@ -1,7 +1,6 @@
 namespace EyeCtrl.App;
 
 using System.Drawing;
-using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -44,6 +43,7 @@ public partial class App : Application
     private ServiceProvider _serviceProvider = null!;
     private TrayIconManager _trayIconManager = null!;
     private EventCoordinator _eventCoordinator = null!;
+    private RestartNoticeHost? _restartNoticeHost;
     private SingleInstanceGuard? _singleInstance;
     private HeartbeatPublisher? _heartbeatPublisher;
     private SupervisorRequestService? _supervisorRequests;
@@ -132,10 +132,8 @@ public partial class App : Application
             // splash, because everything downstream reads StringTable.Current the moment it is
             // constructed. English is compiled into Core; this activates the persisted selection,
             // with System resolved against the Windows UI culture the process already runs under.
-            StringTable.Activate(StringTable.Load(
-                settings.General.UiLanguage,
-                CultureInfo.CurrentUICulture,
-                AppDomain.CurrentDomain.BaseDirectory,
+            StringTable.Activate(StartupStringTable.Load(
+                settings,
                 message => Log.Warning("String table: {Message}", message)));
 
             // ── Theme ──
@@ -398,6 +396,32 @@ public partial class App : Application
                 postToUi: work => Dispatcher.Invoke(work),
                 supervisorInstalled: () => SupervisorLauncher.IsExecutablePresent,
                 bringUp: bringUp);
+
+            // The restart notices when no Settings window is open (a Supervisor-initiated language
+            // restart): the same text and keys the Settings window shows, in the same target
+            // language. The open window shows its own modal, so the notice never appears twice.
+            _restartNoticeHost = new RestartNoticeHost(
+                messenger,
+                new RestartNoticeWindow(
+                    settings.Dwell.ActivationButtonDwellMs, messenger,
+                    // The chrome the activation offer already keeps clear of: the keyboard, a docked
+                    // toolbar, an open menu. The card never covers it.
+                    keepClear: () => RestartNoticePlacement.ToDip(
+                        EyeCtrl.App.Services.Coordinators.ActivationChromeZones.CollectFromProduction(coordinationContext))),
+                isSettingsOpen: () => _eventCoordinator.IsSettingsOpen,
+                targetLanguage: () => RestartNotices.TargetLanguage(settings.General.UiLanguage),
+                postToUi: work => Dispatcher.Invoke(work));
+            // D17 (T15 merge): the card is a gaze consumer (its own close-button dwell target), so
+            // the preview panel's collision inventory must see it while it shows. The card is
+            // App-owned (never in DI), so it reaches the lazily-resolved inventory through the
+            // bridge — the ToolbarLifecycleBridge pattern. Attached here, strictly before the first
+            // adaptation enable can resolve the inventory; the cast is safe because the window is
+            // constructed inside the host statement above.
+            _serviceProvider.GetRequiredService<RestartNoticeBridge>()
+                .Attach((RestartNoticeWindow)_restartNoticeHost.Presenter);
+            // Settings opening over a card that is up takes the card down (its button would otherwise
+            // stay live, unseen, underneath).
+            _eventCoordinator.SettingsOpenChanged += _restartNoticeHost.OnSettingsOpenChanged;
 
             // Hand the coordinator to the settings window's owner so the restart button
             // can ask whether to offer the supervisor (Task 13 Step 6), and the supervision

@@ -61,6 +61,13 @@ public class GermanFitTests
         using var scope = ThemeScope.Activate(ThemeRegistry.Resolve(theme));
         var measure = AppFitMeasurers.Measurers[fitClass];
         var items = GermanDraft.ItemsOf(fitClass);
+        if (FitClassTests.ClassesWithNoKeys.Contains(fitClass, StringComparer.Ordinal))
+        {
+            _output.WriteLine($"{theme} {fitClass} carries no key today (FitClassTests.ClassesWithNoKeys); nothing to measure.");
+            Check.That(items).IsEmpty();
+            return;
+        }
+
         var failures = new List<string>();
         var stale = new List<string>();
         var exceptions = GermanExceptions.Where(e => e.FitClass == fitClass).ToList();
@@ -92,8 +99,10 @@ public class GermanFitTests
             }
         }
 
+        // Not "equal to the English count": the German list is built from the English list, so that
+        // comparison could never fail. The floor is what matters.
         Check.WithCustomMessage($"{fitClass} has no German items: the gate would measure nothing.")
-            .That(items.Count).IsEqualTo(FitCatalog.ItemsOf(fitClass).Count);
+            .That(items.Count).IsStrictlyGreaterThan(0);
         Check.WithCustomMessage(
                 $"{failures.Count} German text(s) do not fit class {fitClass} at 2.0 under {theme}. Reword the "
                 + "German (T10: fit is binding):\n  " + string.Join("\n  ", failures))

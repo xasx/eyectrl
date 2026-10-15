@@ -268,8 +268,8 @@ public class ActivationOfferCoordinatorTests
     [StaFact]
     public void PreviewPanelVisible_SuspendsOffers_AndLogsTheReason()
     {
-        // Task 12 / D16: the preview panel is the FIFTH suspension input. While it is up no offer
-        // is made and a live one is cleared, and — like the other four inputs — the change is
+        // Task 12 / D16: the preview panel is a suspension input. While it is up no offer
+        // is made and a live one is cleared, and — like the other inputs — the change is
         // logged with the input's name, so a live session's gap in Offer-shown lines is
         // explainable (ticket 8 fixup 02). Mutation: drop the PreviewPanelActiveMessage
         // registration → the settle offers and no "adaptation preview" reason is logged.
@@ -313,7 +313,7 @@ public class ActivationOfferCoordinatorTests
     [StaFact]
     public void PreviewPanelHides_WhileSettingsIsOpen_OffersStaySuspended()
     {
-        // The combined-flag test: the preview's hide recombines ALL five inputs, and Settings
+        // The combined-flag test: the preview's hide recombines ALL suspension inputs, and Settings
         // still being open keeps the flag set. A second writer publishing its own true/false
         // (the service writing the flag directly) would resume offers here — behind the user's
         // open Settings window.
@@ -331,7 +331,7 @@ public class ActivationOfferCoordinatorTests
         s.InteractionManager.ApplyPendingActivationOfferRequests();
         Check.WithCustomMessage(
             "the preview's hide must not resume offers while Settings is still open — the "
-            + "single writer recomputes from all five inputs")
+            + "single writer recomputes from every input")
             .That(Settle(s, 800, 800)).IsNull();
     }
 
@@ -355,7 +355,7 @@ public class ActivationOfferCoordinatorTests
     }
 
     // The single-writer invariant (D16): the offers-suspension flag has ONE writer — this
-    // coordinator, whose RecomputeSuspension OR-combines the five inputs. The allowlist pins the
+    // coordinator, whose RecomputeSuspension OR-combines all the inputs. The allowlist pins the
     // exact allowed set of source files naming SetActivationOffersSuspended( (the
     // DwellSurfaceCensusTests pattern): the writer's call site and Core's definition. The
     // preview service — like the banner and the three VM-driven surfaces — goes through a
@@ -400,6 +400,34 @@ public class ActivationOfferCoordinatorTests
             .Where(f => File.ReadAllText(f).Contains("SetActivationOffersSuspended("))
             .Select(f => f[(src.Length + 1)..].Replace('\\', '/'))
             .ToList();
+    }
+
+    /// <summary>
+    /// T15 review R1: the restart notice card carries its own dwell target and is click-through, so a
+    /// taken offer would click the window beneath it. While the card is up no offer is made, and a
+    /// live one is cleared, as for the eye-care banner.
+    /// Mutation: drop the <c>RestartNoticeActiveMessage</c> registration → the fixation on the card
+    /// raises an offer, red.
+    /// </summary>
+    [StaFact]
+    public void TheRestartNoticeCard_SuspendsOffers_WhileItIsUp()
+    {
+        var s = Build();
+        using var _ = s.Context.GazeEngine;
+
+        Check.That(Settle(s, 500, 500)).IsNotNull();
+
+        s.Messenger.Send(new RestartNoticeActiveMessage(true));
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        Check.WithCustomMessage("the card appearing must clear the live offer")
+            .That(s.Engine.CurrentOffer).IsNull();
+        Check.WithCustomMessage("a fixation on the card's button must raise no offer")
+            .That(Settle(s, 700, 700)).IsNull();
+
+        s.Messenger.Send(new RestartNoticeActiveMessage(false));
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        Check.WithCustomMessage("offers resume once the card is gone")
+            .That(Settle(s, 900, 900)).IsNotNull();
     }
 
     /// <summary>Ends any live fixation, settles at a fresh point through the public API, and returns

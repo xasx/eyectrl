@@ -65,7 +65,7 @@ public class DwellRoutingOwnerRegistrationTests
         var registry = new DwellDetectorRegistry();
         var manager = new EmojiGridManager(
             new StackPanel(), new StackPanel(),
-            registerKeyVisual: (_, _, _, _) => { },
+            registerKeyVisual: (_, _, _, _, _) => { },
             getKeySize: () => 40.0,
             clearKeyState: () => { },
             sink: null,

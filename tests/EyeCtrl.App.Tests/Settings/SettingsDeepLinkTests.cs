@@ -224,13 +224,14 @@ public class SettingsDeepLinkWiringTests
             .That(rowBody).Contains("ShowTab(\"General\")");
         Check.That(rowBody).Contains("_viewModel.ActiveTabId = \"General\"");
         Check.That(rowBody).Contains("SwitchTabPage(");
-        // F6a: the sidebar page comes from General's OWN index in the real tab list, so moving
-        // General (or changing the tabs-per-page arithmetic) cannot strand the highlight on the
-        // wrong sidebar page.
+        // F6a: the sidebar page comes from General's OWN index in the visible (mode-filtered)
+        // tab list, so moving General (or changing the tabs-per-page arithmetic) cannot strand
+        // the highlight on the wrong sidebar page.
         Check.WithCustomMessage(
-                "The sidebar page must be computed from General's own _tabDefs index (F6a), not a "
-                + "constant page number.")
-            .That(rowBody).Contains("Array.FindIndex(_tabDefs, t => t.Id == \"General\")");
+                "The sidebar page must be computed from General's own _visibleDefs index (F6a) — "
+                + "the mode-filtered tab list the sidebar actually renders — not a constant page "
+                + "number.")
+            .That(rowBody).Contains("Array.FindIndex(_visibleDefs, t => t.Id == \"General\")");
         Check.That(rowBody).Contains("SettingsTabPagination.PageOf(index, _tabsPerPage)");
     }
 
@@ -249,13 +250,22 @@ public class SettingsDeepLinkWiringTests
         Check.That(source).Contains("RestartNotices.InProgressChoices(TargetLanguage())");
         Check.That(source).Contains("RestartNotices.RefusedChoices(TargetLanguage())");
 
+        // The one rule lives in RestartNotices.TargetLanguage since T15 F5, shared with the
+        // App-level host that shows the same notices when no Settings window is open.
         var start = source.IndexOf("private UiLanguage TargetLanguage()", StringComparison.Ordinal);
         Check.That(start).IsStrictlyGreaterThan(-1);
         var body = source[start..source.IndexOf(";", start, StringComparison.Ordinal)];
         Check.WithCustomMessage(
+                "The window's TargetLanguage must be the shared rule over the SAVED selection.")
+            .That(body).Contains("RestartNotices.TargetLanguage(_settings.General.UiLanguage)");
+
+        var notices = ReadSource("src", "EyeCtrl.App", "Views", "RestartNotices.cs");
+        var ruleStart = notices.IndexOf("internal static UiLanguage TargetLanguage(", StringComparison.Ordinal);
+        Check.That(ruleStart).IsStrictlyGreaterThan(-1);
+        var rule = notices[ruleStart..notices.IndexOf(";", ruleStart, StringComparison.Ordinal)];
+        Check.WithCustomMessage(
                 "TargetLanguage must resolve the SAVED selection against the table's culture.")
-            .That(body).Contains(
-                "StringTable.ResolveLanguage(_settings.General.UiLanguage, StringTable.Current.Culture)");
+            .That(rule).Contains("StringTable.ResolveLanguage(savedSelection, StringTable.Current.Culture)");
     }
 
     [StaFact]

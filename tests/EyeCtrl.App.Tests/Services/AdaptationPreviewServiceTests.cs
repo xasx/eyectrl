@@ -984,6 +984,7 @@ public class AdaptationPreviewServiceTests
             new EdgeButtonBarViewModel(invSettings, messenger),
             externalTargetRects: () => Array.Empty<PhysicalRect>(),
             noteTargetRects: () => Array.Empty<PhysicalRect>(),
+            restartNoticeTargetRects: () => Array.Empty<PhysicalRect>(),
             new ToolbarLifecycleBridge(),
             messenger);
 
@@ -1085,6 +1086,7 @@ public class AdaptationPreviewServiceTests
             new EdgeButtonBarViewModel(invSettings, messenger),
             externalTargetRects: () => Array.Empty<PhysicalRect>(),
             noteTargetRects: () => Array.Empty<PhysicalRect>(),
+            restartNoticeTargetRects: () => Array.Empty<PhysicalRect>(),
             new ToolbarLifecycleBridge(),
             messenger);
 
@@ -1185,6 +1187,7 @@ public class AdaptationPreviewServiceTests
             new EdgeButtonBarViewModel(invSettings, messenger),
             externalTargetRects: () => Array.Empty<PhysicalRect>(),
             noteTargetRects: () => noteManager.LiveTargetRects(),
+            restartNoticeTargetRects: () => Array.Empty<PhysicalRect>(),
             new ToolbarLifecycleBridge(),
             messenger);
 
@@ -1267,6 +1270,7 @@ public class AdaptationPreviewServiceTests
             new EdgeButtonBarViewModel(invSettings, messenger),
             externalTargetRects: () => external.LiveTargetRects(),
             noteTargetRects: () => Array.Empty<PhysicalRect>(),
+            restartNoticeTargetRects: () => Array.Empty<PhysicalRect>(),
             new ToolbarLifecycleBridge(),
             messenger);
 

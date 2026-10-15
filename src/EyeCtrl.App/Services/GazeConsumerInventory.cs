@@ -16,7 +16,7 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// The D17 gaze-consumer inventory (Task 11): the surfaces whose rects a preview panel must never
-/// cover, as plain data. <see cref="Live"/> is the one call the collision gate needs; the six
+/// cover, as plain data. <see cref="Live"/> is the one call the collision gate needs; the seven
 /// named sources are:
 ///
 /// <list type="bullet">
@@ -41,6 +41,13 @@ using Microsoft.Extensions.Logging;
 /// beyond the strip's end is the same R4-H1 harm as a keyboard there; the detector snapshot (not
 /// re-derived button math) is read so the inventory can never disagree with what gaze is
 /// actually evaluated against. Delegate-injected like external dwell.</item>
+/// <item><b>Restart notice</b> (T15 merge) — <c>RestartNoticeBridge.LiveTargetRects</c>: the
+/// card's close-button dwell rect while the card shows. The card (main's
+/// <c>RestartNoticeWindow</c>) runs its own detector like the notes do, is click-through and
+/// non-modal, and can appear over the desktop anywhere the placement puts it — a panel covering
+/// its close button is the same R4-H1 harm. The bridge is the late-bound holder (the
+/// <see cref="ToolbarLifecycleBridge"/> pattern): App.xaml.cs news the card after the container
+/// is built, so the delegate reaches it through a mutable singleton rather than DI.</item>
 /// </list>
 /// <para>
 /// The class also implements <see cref="IOverlayCollision"/> (the seam Task 10's service already
@@ -49,8 +56,10 @@ using Microsoft.Extensions.Logging;
 /// <c>PropertyChanged</c>, toolbar visibility and toolbar settings, the display-geometry,
 /// keyboard-edge and external-dwell messages — PLUS the bars' own <c>ButtonSetChanged</c>
 /// (buttons are added/removed while a bar is up, which moves its rect without touching
-/// <c>IsVisible</c>), <c>NoteTargetsChangedMessage</c> and
-/// <c>ExternalDwellTargetsChangedMessage</c> (fix-wave F5). It is a superset, not an exact copy:
+/// <c>IsVisible</c>), <c>NoteTargetsChangedMessage</c>,
+/// <c>ExternalDwellTargetsChangedMessage</c> (fix-wave F5) and
+/// <c>RestartNoticeActiveMessage</c> (T15 merge: the card's show/hide moves a source in and out).
+/// It is a superset, not an exact copy:
 /// the offer coordinator's <c>ExternalDwellActiveMessage</c> handler CLEARS offers rather than
 /// publishing zones, so that message serves a different purpose there — and it is NOT this
 /// inventory's external-dwell structural trigger: it fires only once gaze has ENTERED a target
@@ -69,7 +78,7 @@ using Microsoft.Extensions.Logging;
 /// coordinator's parity, kept deliberately.
 /// </para>
 /// <para>
-/// Overlays outside the five sources are classified <c>exempt:&lt;reason&gt;</c> in
+/// Overlays outside the seven sources are classified <c>exempt:&lt;reason&gt;</c> in
 /// <c>docs/design/overlay-unification-spec.md</c> §3.1, and
 /// <c>OverlayInventoryDriftTests</c> fails the build when a row's classification drifts from the
 /// inventory's actual source list.
@@ -98,6 +107,7 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
     private readonly EdgeButtonBarViewModel _modBarVm;
     private readonly Func<IReadOnlyList<PhysicalRect>> _externalTargetRects;
     private readonly Func<IReadOnlyList<PhysicalRect>> _noteTargetRects;
+    private readonly Func<IReadOnlyList<PhysicalRect>> _restartNoticeTargetRects;
     private readonly ToolbarLifecycleBridge _bridge;
     private readonly IMessenger _messenger;
     private readonly ILogger? _logger;
@@ -125,11 +135,14 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
     /// <param name="noteTargetRects">The note dwell-target rect source (review F1,
     /// <c>NoteManager.LiveTargetRects</c>); a delegate for the same headless-construction
     /// reason.</param>
+    /// <param name="restartNoticeTargetRects">The restart-notice card's close-target rect source
+    /// (<c>RestartNoticeBridge.LiveTargetRects</c>); a delegate for the same reason — the card is
+    /// App-owned, built after the container, and reached through the bridge.</param>
     /// <param name="bridge">The late-bound toolbar lifecycle bridge: the attached coordinator's
     /// <c>ToolbarVisibilityChanged</c> is the slide/auto-hide trigger. Null-coordinator is
     /// tolerated (D14: a comfort feature's trigger set degrades, it does not crash the enable
     /// edge).</param>
-    /// <param name="messenger">The app messenger: the three change messages.</param>
+    /// <param name="messenger">The app messenger: the change messages.</param>
     /// <param name="logger">Optional logger.</param>
     public GazeConsumerInventory(
         EyeCtrlSettings settings,
@@ -141,6 +154,7 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         EdgeButtonBarViewModel modBarVm,
         Func<IReadOnlyList<PhysicalRect>> externalTargetRects,
         Func<IReadOnlyList<PhysicalRect>> noteTargetRects,
+        Func<IReadOnlyList<PhysicalRect>> restartNoticeTargetRects,
         ToolbarLifecycleBridge bridge,
         IMessenger messenger,
         ILogger? logger = null)
@@ -154,6 +168,8 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         _modBarVm = modBarVm ?? throw new ArgumentNullException(nameof(modBarVm));
         _externalTargetRects = externalTargetRects ?? throw new ArgumentNullException(nameof(externalTargetRects));
         _noteTargetRects = noteTargetRects ?? throw new ArgumentNullException(nameof(noteTargetRects));
+        _restartNoticeTargetRects = restartNoticeTargetRects
+            ?? throw new ArgumentNullException(nameof(restartNoticeTargetRects));
         _bridge = bridge ?? throw new ArgumentNullException(nameof(bridge));
         _messenger = messenger ?? throw new ArgumentNullException(nameof(messenger));
         _logger = logger;
@@ -187,6 +203,7 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         _messenger.Register<GazeConsumerInventory, ExternalDwellActiveMessage>(this, OnExternalDwellActive);
         _messenger.Register<GazeConsumerInventory, ExternalDwellTargetsChangedMessage>(this, OnExternalDwellTargetsChanged);
         _messenger.Register<GazeConsumerInventory, NoteTargetsChangedMessage>(this, OnNoteTargetsChanged);
+        _messenger.Register<GazeConsumerInventory, RestartNoticeActiveMessage>(this, OnRestartNoticeActive);
     }
 
     /// <inheritdoc />
@@ -241,6 +258,10 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         // Notes (review F1): this process's own note dwell rects — the detector snapshot, so the
         // inventory and the fed geometry cannot drift.
         rects.AddRange(_noteTargetRects());
+
+        // The restart-notice card (T15 merge): its close button while the card shows — the same
+        // own-detector snapshot rule as the notes, reached through the App-attached bridge.
+        rects.AddRange(_restartNoticeTargetRects());
         return rects;
     }
 
@@ -332,6 +353,9 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         => OnConsumersChanged();
 
     private void OnNoteTargetsChanged(GazeConsumerInventory recipient, NoteTargetsChangedMessage message)
+        => OnConsumersChanged();
+
+    private void OnRestartNoticeActive(GazeConsumerInventory recipient, RestartNoticeActiveMessage message)
         => OnConsumersChanged();
 
     private void OnConsumersChanged()

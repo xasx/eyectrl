@@ -18,6 +18,7 @@ internal sealed class SupervisorLanguageResolver
     private readonly string _appExeDirectory;
     private readonly SupervisorLanguageTracker _tracker;
     private readonly Func<UiLanguage?> _pending;
+    private readonly CultureInfo? _culture;
 
     /// <param name="settingsPath">The settings file holding <c>uiLanguage</c>.</param>
     /// <param name="appExePath">The resolved App exe path; null resolves it through
@@ -27,13 +28,18 @@ internal sealed class SupervisorLanguageResolver
     /// <param name="pending">The caretaker's language choice not yet known to be saved (T05b's
     /// row); it wins over the setting, so the Supervisor's own screens follow the choice at once.
     /// Null: none.</param>
+    /// <param name="culture">The UI culture <c>System</c> resolves against; null reads
+    /// <see cref="CultureInfo.CurrentUICulture"/> each time a table is resolved, as the Supervisor
+    /// always has. Injectable so a test can run the shipped default (<c>system</c>) on de-DE.</param>
     public SupervisorLanguageResolver(
         string settingsPath,
         string? appExePath = null,
         string? writerMutexName = null,
-        Func<UiLanguage?>? pending = null)
+        Func<UiLanguage?>? pending = null,
+        CultureInfo? culture = null)
     {
         _pending = pending ?? (() => null);
+        _culture = culture;
         var resolvedAppExe = appExePath ?? AppExePathResolver.Resolve();
         _appExeDirectory = Path.GetDirectoryName(resolvedAppExe) ?? AppContext.BaseDirectory;
         _tracker = new SupervisorLanguageTracker(settingsPath, writerMutexName);
@@ -50,7 +56,7 @@ internal sealed class SupervisorLanguageResolver
     public StringTable ResolveTable(Action<string>? warn = null) =>
         StringTable.Load(
             ResolveLanguage(),
-            CultureInfo.CurrentUICulture,
+            _culture ?? CultureInfo.CurrentUICulture,
             _appExeDirectory,
             warn);
 }

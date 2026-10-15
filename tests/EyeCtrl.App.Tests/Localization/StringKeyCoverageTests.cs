@@ -88,6 +88,55 @@ public class StringKeyCoverageTests
         Check.That(violations[1]).Contains("overlays.missing");
     }
 
+    /// <summary>
+    /// The holistic review's F3: keys with an underscore or a capital (278 of 676) were invisible
+    /// outside a literal <c>T("…")</c>, so a typo or a wrong-surface swap in a named call, a
+    /// <c>Template(…)</c> call or a key map passed every gate.
+    /// </summary>
+    [Fact]
+    public void TheGate_SeesUnderscoreKeysInEveryCallShape()
+    {
+        var violations = MissingIn(
+            [
+                ("src/Fixture.cs", """var a = StringTable.Current.T(target, "settings.preset.kbd.select_al");"""),
+                ("src/Fixture.cs", """var b = StringTable.Current.T(StringTable.Current.TargetLanguage(), "settings.control.combo.not_availabl");"""),
+                ("src/Fixture.cs", """var c = StringTable.Current.Template("settings.control.combo.not_availabl_");"""),
+                ("src/Fixture.cs", """map["select_all"] = "settings.preset.kbd.Select_Al";""")
+            ],
+            ["settings.preset.kbd.select_all", "settings.control.combo.not_available"]);
+
+        Check.That(violations).HasSize(4);
+        Check.That(violations[0]).Contains("kbd.select_al'");
+        Check.That(violations[1]).Contains("not_availabl'");
+        Check.That(violations[2]).Contains("Template(...) call");
+        Check.That(violations[3]).Contains("Select_Al");
+    }
+
+    /// <summary>
+    /// A dotted literal is seen as a key-map literal whatever surrounds it, so the call shapes are
+    /// pinned by the KIND they are recognised as: a regression that stops reading
+    /// <c>T(target, "…")</c> or <c>Template("…")</c> as calls would otherwise hide behind the
+    /// key-map fallback and pass every missing-key check.
+    /// </summary>
+    [Fact]
+    public void TheGate_RecognisesANamedCallAndATemplateCallAsCalls()
+    {
+        var references = StringKeyReferences.Extract(
+            """var a = T(target, "settings.preset.kbd.select_all"); var b = Template("settings.control.combo.not_available");""");
+
+        Check.That(references.Select(r => r.Kind))
+            .ContainsExactly("T(language, ...) call", "Template(...) call");
+    }
+
+    [Fact]
+    public void TheGate_DoesNotReadAFormatArgumentAsAKey()
+    {
+        // T("key", "argument"): the second literal is an argument, never a key.
+        var references = StringKeyReferences.Extract("""var a = T("settings.title", "not.a.key");""");
+
+        Check.That(references.Select(r => r.Key)).ContainsExactly("settings.title");
+    }
+
     [Fact]
     public void TheGate_CatchesATypoInAKeyMapLiteral()
     {

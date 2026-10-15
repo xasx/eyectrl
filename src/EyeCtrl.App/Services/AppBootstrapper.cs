@@ -646,11 +646,14 @@ public class AppBootstrapper
         // service holds LAZY resolvers for both the window and the toolbar geometry, and nothing
         // resolves the service until AdaptationActivation's StartRuntime does (P9 — no overlay HWND
         // while the feature is off). The collision seam is Task 11's real gaze-consumer inventory
-        // (D17): keyboard, both edge-button bars, the two menus, the external-dwell targets and
-        // (review F1) the note dwell targets, plus
-        // the Changed trigger set that keeps the check continuous while the panel is up. The bridge
-        // carries the EventCoordinator-owned toolbar coordinator to the lazily-resolved service and
-        // inventory alike; App attaches it right after EventCoordinator initializes.
+        // (D17): keyboard, both edge-button bars, the two menus, the external-dwell targets,
+        // (review F1) the note dwell targets and (T15 merge) the restart-notice card's close
+        // target, plus the Changed trigger set that keeps the check continuous while the panel is
+        // up. The bridge carries the EventCoordinator-owned toolbar coordinator to the
+        // lazily-resolved service and inventory alike; App attaches it right after
+        // EventCoordinator initializes. RestartNoticeBridge is the same late-bound holder for the
+        // App-owned restart card (newed in App.xaml.cs after the container is built, never in DI);
+        // App attaches the live window right after building RestartNoticeHost.
         services.AddSingleton<IOverlayCollision>(sp => new GazeConsumerInventory(
             sp.GetRequiredService<EyeCtrlSettings>(),
             overlays: () => sp.GetRequiredService<IOverlayManager>(),
@@ -661,9 +664,11 @@ public class AppBootstrapper
             sp.GetRequiredKeyedService<EdgeButtonBarViewModel>("actionMenuModBar"),
             externalTargetRects: () => sp.GetRequiredService<ExternalDwellService>().LiveTargetRects(),
             noteTargetRects: () => sp.GetRequiredService<NoteManager>().LiveTargetRects(),
+            restartNoticeTargetRects: () => sp.GetRequiredService<RestartNoticeBridge>().LiveTargetRects(),
             sp.GetRequiredService<ToolbarLifecycleBridge>(),
             sp.GetRequiredService<IMessenger>()));
         services.AddSingleton<ToolbarLifecycleBridge>();
+        services.AddSingleton<RestartNoticeBridge>();
         services.AddSingleton<AdaptationPreviewWindow>();
         services.AddSingleton(sp => new AdaptationPreviewService(
             sp.GetRequiredService<EyeCtrlSettings>(),

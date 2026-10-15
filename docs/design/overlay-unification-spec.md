@@ -7,11 +7,13 @@
 
 ## 1. Problem Statement
 
-EyeCtrl has 29 overlay windows and 7 dwell controls — 24 with XAML under
+EyeCtrl has 30 overlay windows and 7 dwell controls — 24 with XAML under
 `Overlays/`, the code-only `NoteWindow`, and `SettingsWindow` under `Views/`
 (which also derives from `OverlayWindow`). Re-counted against merged `main` at
-b8295b6, which includes PRs #70 and #71, and enforced by
-`OverlayInventoryDriftTests`. Each was built at a different time, introducing accumulated style drift:
+b8295b6, which includes PRs #70 and #71, plus the T15 restart notice card
+(`RestartNoticeWindow`, a 29th on main — a 30th here, where the adaptation
+preview panel adds its own row — built on theme tokens from the start), and
+enforced by `OverlayInventoryDriftTests`. Each was built at a different time, introducing accumulated style drift:
 
 - **10 different background colors** used across overlays
 - **7 different corner-radius values** (2, 4, 6, 8, 12, 14, 22)
@@ -69,6 +71,7 @@ The result is a UI that feels like a patchwork of different apps rather than one
 | **DriftNotice** | `DriftNoticeWindow` | `Transparent` + `Border #E0202020` | XAML | exempt:non-interactive banner |
 | **CaregiverAlert** | `CaregiverAlertWindow` | `Transparent` + `Border #E0202020` | XAML | exempt:non-interactive banner |
 | **AdaptationPreview** | `AdaptationPreviewWindow` | `Transparent` + token-bordered card (all values from `Tokens`) | XAML | exempt:it is the panel itself |
+| **RestartNotice** | `RestartNoticeWindow` | `Transparent` + `Border BrushSurfaceDark` (palette token) | XAML | collision-zone |
 | **Note** | `NoteWindow` | `#1A1A2E` | code-only, no XAML | collision-zone |
 
 The **Class** column is the match key for the drift-guard test
@@ -86,7 +89,10 @@ counts once as a class but covers BOTH of its instances (the shared bar and the
 action-menu modifier bar). `NoteWindow`'s rects come from `NoteManager`'s live
 dwell-target set (its own detector — the note buttons ARE the window's interactive
 surface; review F1 reclassified it from a circular exemption that recorded the
-implementation instead of a safety property). External dwell
+implementation instead of a safety property). `RestartNoticeWindow`'s rect is its
+close button's dwell target, read the same way (its own detector's snapshot — the
+card's interactive surface), reached through `RestartNoticeBridge` because the card
+is App-owned rather than a DI singleton. External dwell
 contributes no row of its own because its rects belong to the SDK client apps,
 not to an `OverlayWindow` of ours. A new overlay must make the call explicitly;
 there is no default classification.
@@ -97,6 +103,18 @@ accent content over live desktop pixels and therefore need §4.1.3's contrast
 guarantee, not merely a token swap. Three of the twelve (`AdaptationCue`,
 `DriftNotice`, `CaregiverAlert`) are transparent windows hosting a *filled* shape, which is the case
 §4.1.3 originally missed.
+
+**T15 addition.** `RestartNoticeWindow` (the card shown when a restart is announced with
+no Settings window open) arrived after this audit's counts below were taken. It is a
+transparent window hosting a filled `Border`, like `DriftNotice` and `CaregiverAlert`, but
+it uses palette tokens (`BrushSurfaceDark`, `BrushBorderSubtle`) and theme font tokens,
+so it adds no legacy value to migrate. Unlike those two banners, however, the card is
+**interactive** — it runs its own `DwellDetector` over a `restart_notice_close` target —
+so its §3.1 classification is `collision-zone`, not a non-interactive exemption: it is a
+real gaze consumer, and the panel must treat a shown card as a collision source (the
+preview offer itself is separately suspended while the card is up, D16's combined flag).
+The counts in this section and §3.2 describe the
+28 audited windows.
 
 **Post-merge additions (PRs #70/#71).** `CueOverlayWindow` and `DriftNoticeWindow`
 arrived after this audit was first written. `DriftNoticeWindow` ships `#E0202020` —

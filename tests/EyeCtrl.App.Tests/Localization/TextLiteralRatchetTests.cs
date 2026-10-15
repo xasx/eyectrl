@@ -336,6 +336,18 @@ public class TextLiteralRatchetTests
             "\"View ring preview\"");
     }
 
+    /// <summary>
+    /// The emoji grid's special-button caption is a sink (T15 F4): its hard-coded English "Back"
+    /// reached a German overlay because a helper argument was not a sink. A glyph has no letter, so
+    /// it stays out of the record, as everywhere else.
+    /// </summary>
+    [Fact]
+    public void TheScan_CatchesAHardCodedSpecialButtonCaption()
+    {
+        CheckCatches("AddSpecialButton(backRow, \"Back\", \"skinToneBack\", 2.0);", "\"Back\"");
+        CheckIgnores("AddSpecialButton(backRow, \"\\u25C0\", \"skinToneBack\", 2.0);");
+    }
+
     [Fact]
     public void TheScan_CatchesASpecLabel() =>
         CheckCatches(

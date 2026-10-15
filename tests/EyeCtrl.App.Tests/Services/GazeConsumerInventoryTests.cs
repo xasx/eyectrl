@@ -23,8 +23,8 @@ using Xunit;
 /// (c) the <c>Changed</c> trigger set — a SUPERSET of what
 /// <c>ActivationOfferCoordinator</c>.SchedulePublish listens to (the coordinator's
 /// ExternalDwellActiveMessage handler clears offers rather than publishing zones), plus the bars'
-/// own button-set changes, the note-targets message (review F1) and external dwell's structural
-/// message (fix-wave F5);
+/// own button-set changes, the note-targets message (review F1), external dwell's structural
+/// message (fix-wave F5) and the restart-notice card's show/hide (T15 merge);
 /// (d) the strict overlap rule (<c>touching is clear</c>, Task 1) at the IsClear seam.
 /// </summary>
 /// <remarks>
@@ -55,6 +55,7 @@ public class GazeConsumerInventoryTests
         public readonly ToolbarLifecycleBridge Bridge = new();
         public readonly Func<IReadOnlyList<PhysicalRect>> ExternalRects = () => Array.Empty<PhysicalRect>();
         public Func<IReadOnlyList<PhysicalRect>> NoteRects { get; set; } = () => Array.Empty<PhysicalRect>();
+        public Func<IReadOnlyList<PhysicalRect>> RestartRects { get; set; } = () => Array.Empty<PhysicalRect>();
         public Func<IOverlayManager> Overlays = () => throw new NotImplementedException("no keyboard supplied");
         public GazeConsumerInventory Inventory = null!;
 
@@ -80,6 +81,7 @@ public class GazeConsumerInventoryTests
                 ModBarVm,
                 external ?? ExternalRects,
                 NoteRects,
+                RestartRects,
                 Bridge,
                 Messenger);
             return Inventory;
@@ -290,6 +292,65 @@ public class GazeConsumerInventoryTests
         Check.That(inventory.Live()).ContainsExactly(close, edit);
     }
 
+    [StaFact]
+    public void Live_RestartNoticeCardUp_ContributesItsCloseTargetRect_AndBlocksThePanel()
+    {
+        // T15 merge: the restart-notice card is a REAL gaze consumer (its own detector over the
+        // close button), so it enters the inventory through the App-attached bridge exactly the
+        // way the notes enter through NoteManager — the own-detector snapshot, gated on the card
+        // showing. The card is laid out headlessly via its present seam (a shown overlay is the
+        // user's only input surface — the RestartNoticeWindowTests pattern); ShowNotice places
+        // the dwell target without an HWND, so the source is real without a presentation source.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var messenger = new WeakReferenceMessenger();
+        var card = new RestartNoticeWindow(
+            dwellMs: 25, messenger, keepClear: null, present: c =>
+            {
+                c.Measure(new System.Windows.Size(c.Width, c.Height));
+                c.Arrange(new System.Windows.Rect(0, 0, c.Width, c.Height));
+                c.UpdateLayout();
+            });
+        try
+        {
+            var bridge = new RestartNoticeBridge();
+            var kit = new Kit();
+            kit.RestartRects = bridge.LiveTargetRects;
+            using var inventory = kit.Build();
+
+            Check.WithCustomMessage("a hidden card contributes nothing")
+                .That(inventory.Live()).IsEmpty();
+
+            card.ShowNotice("Titel\nKörper", "OK", TimeSpan.FromSeconds(30));
+            Check.WithCustomMessage(
+                    "an unattached bridge must degrade to empty (D14), not throw")
+                .That(inventory.Live()).IsEmpty();
+
+            bridge.Attach(card);
+            var live = inventory.Live();
+            Check.That(live).HasSize(1);
+            var target = live[0];
+            Check.WithCustomMessage("the rect must be the placed close target, not a phantom")
+                .That(target.Width).IsStrictlyGreaterThan(0);
+            Check.That(target.Height).IsStrictlyGreaterThan(0);
+            Check.That(card.LiveTargetRects()).ContainsExactly(target);
+
+            // The card behaves like every other source at the collision seam (Task 1's rule): a
+            // panel overlapping the close button is not clear; one only touching its edge is.
+            Check.That(inventory.IsClear(new PhysicalRect(target.X + 1, target.Y + 1, 50, 50)))
+                .IsFalse();
+            Check.That(inventory.IsClear(new PhysicalRect(
+                target.X + target.Width, target.Y, 50, 50))).IsTrue();
+
+            card.HideNotice();
+            Check.WithCustomMessage("the card going must take its rect out of the inventory")
+                .That(inventory.Live()).IsEmpty();
+        }
+        finally
+        {
+            card.Close();
+        }
+    }
+
     [Fact]
     public void Live_AllSourcesUpTogether_ReportsEveryRect()
     {
@@ -347,22 +408,24 @@ public class GazeConsumerInventoryTests
         kit.ModBarVm.ShowButtons(new[] { Def("shift", 0) }, new PhysicalPoint(100, 100));
         // A toolbar geometry edit.
         kit.Settings.Toolbar.DockedEdge = "Bottom";
-        // The five messages (fix-wave F5: external-dwell's STRUCTURAL message joined the set —
+        // The six messages (fix-wave F5: external-dwell's STRUCTURAL message joined the set —
         // ExternalDwellActiveMessage fires only once gaze has entered a target, so it can never
-        // announce a register/update/unregister).
+        // announce a register/update/unregister; T15 merge: the restart card's show/hide moves a
+        // source in and out of the inventory).
         kit.Messenger.Send(new DisplayGeometryChangedMessage(new DisplayGeometry(1920, 1080, 1, 1)));
         kit.Messenger.Send(new KeyboardEdgeToggledMessage());
         kit.Messenger.Send(new ExternalDwellActiveMessage(true));
         kit.Messenger.Send(new ExternalDwellTargetsChangedMessage());
         kit.Messenger.Send(new NoteTargetsChangedMessage());
+        kit.Messenger.Send(new RestartNoticeActiveMessage(true));
         Pump();
 
         Check.WithCustomMessage(
                 "Every SchedulePublish-set trigger plus the bars' button-set mutations and the " +
-                "note-targets message must raise Changed (count: 3 keyboard — two visibility flips " +
-                "+ emoji-mode — + 2 menus + 4 bars (IsVisible + ButtonSetChanged each) + 1 toolbar " +
-                "settings + 5 messages = 15).")
-            .That(fired).IsEqualTo(15);
+                "note-targets and restart-notice messages must raise Changed (count: 3 keyboard — " +
+                "two visibility flips + emoji-mode — + 2 menus + 4 bars (IsVisible + " +
+                "ButtonSetChanged each) + 1 toolbar settings + 6 messages = 16).")
+            .That(fired).IsEqualTo(16);
     }
 
     [StaFact]

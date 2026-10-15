@@ -59,13 +59,15 @@ public class OverlayInventoryDriftTests
     /// The only overlays whose rects the D17 gaze-consumer inventory reports (the preview panel's
     /// collision sources): the keyboard window, the edge-button bar (both instances — the shared
     /// bar and the action-menu modifier bar are the same window class), the action menu, the
-    /// modes menu and the note window (its dwell buttons, via <c>NoteManager.LiveTargetRects</c>
+    /// modes menu, the note window (its dwell buttons, via <c>NoteManager.LiveTargetRects</c>
     /// — review F1: notes are non-modal and freely positioned, so exempting them was silent
-    /// unprotection of exactly the R4-H1 harm D17 exists to close). External dwell's rects come
-    /// from the SDK client apps via <c>ExternalDwellService.LiveTargetRects</c>, not from an
-    /// overlay window of ours — so no window class here carries that source. This map is the
-    /// drift guard's pinned half: a row being reclassified away from <c>collision-zone</c> fails
-    /// the build instead of silently unprotecting a surface.
+    /// unprotection of exactly the R4-H1 harm D17 exists to close) and the restart-notice card
+    /// (T15 merge: its close button via <c>RestartNoticeBridge.LiveTargetRects</c> — the card runs
+    /// its own detector and is click-through and non-modal, the same shape as the notes). External
+    /// dwell's rects come from the SDK client apps via <c>ExternalDwellService.LiveTargetRects</c>,
+    /// not from an overlay window of ours — so no window class here carries that source. This map
+    /// is the drift guard's pinned half: a row being reclassified away from
+    /// <c>collision-zone</c> fails the build instead of silently unprotecting a surface.
     /// </summary>
     private static readonly IReadOnlyDictionary<string, string> D17CollisionZoneClasses =
         new Dictionary<string, string>
@@ -75,6 +77,7 @@ public class OverlayInventoryDriftTests
             ["ActionMenuWindow"] = "collision-zone",
             ["ModesMenuWindow"] = "collision-zone",
             ["NoteWindow"] = "collision-zone",
+            ["RestartNoticeWindow"] = "collision-zone",
         };
 
     /// <summary>The classification cell grammar: exactly <c>collision-zone</c>, or an exemption
@@ -234,7 +237,7 @@ public class OverlayInventoryDriftTests
     [Fact]
     public void D17NamedSources_AreClassifiedCollisionZone()
     {
-        // The pinned half of the classification: the four overlay classes behind the inventory's
+        // The pinned half of the classification: the overlay classes behind the inventory's
         // named sources must read `collision-zone` in the spec. Reclassifying one as exempt (the
         // silent-unprotection drift) fails here even though the row and its cell are well-formed.
         var spec = SpecClassifications();

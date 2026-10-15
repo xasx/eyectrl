@@ -74,3 +74,12 @@ public record ExternalDwellTargetsChangedMessage;
 /// an activation button.
 /// </summary>
 public record EyeCareBannerActiveMessage(bool Active);
+
+/// <summary>
+/// Sent by the restart notice card (shown when a restart is announced with no Settings window open)
+/// when it appears (<c>Active = true</c>) and when it goes (<c>false</c>). The activation-offer
+/// coordinator suspends offers while it is up, as for the eye-care banner: the card carries its own
+/// dwell target and must not compete with an activation button, and being click-through, a taken
+/// offer would click the window beneath it.
+/// </summary>
+public record RestartNoticeActiveMessage(bool Active);

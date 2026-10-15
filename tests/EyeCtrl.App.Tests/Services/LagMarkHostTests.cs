@@ -439,6 +439,12 @@ public class LagMarkHostTests
         var arguments = construction.Groups[1].Value;
         Check.That(Regex.IsMatch(
             arguments, @"new\s+LagMarkWindow\s*\(")).IsTrue();
+        // A6 (the orchestrator's pinned check): the window gets the spec's dwell — the toolbar
+        // button's 700 ms default — not a literal or any other setting.
+        Check.WithCustomMessage("the window is no longer built with settings.Dwell.ToolbarButtonDwellMs")
+            .That(Regex.IsMatch(
+                arguments,
+                @"new\s+LagMarkWindow\s*\(\s*settings\s*\.\s*Dwell\s*\.\s*ToolbarButtonDwellMs")).IsTrue();
         Check.That(Regex.IsMatch(
             arguments,
             @"isInstrumentOn\s*:\s*\(\)\s*=>\s*settings\s*\.\s*Diagnostics\s*\.\s*MeasureUiInstruments")).IsTrue();
@@ -483,5 +489,11 @@ public class LagMarkHostTests
             .That(Regex.IsMatch(
                 text,
                 @"_eventCoordinator\s*\.\s*ProbeOpenChanged\s*\+=\s*_lagMarkHost\s*\.\s*OnProbeOpenChanged")).IsTrue();
+        // A7 (the orchestrator's pinned check): OnExit disposes the host — it owns the window and
+        // sends the final null zone.
+        Check.WithCustomMessage("OnExit no longer disposes the lag-mark host")
+            .That(Regex.IsMatch(
+                text,
+                @"Step\s*\(\s*""dispose lag mark host""\s*,\s*\(\)\s*=>\s*_lagMarkHost\s*\?\s*\.\s*Dispose\s*\(\s*\)\s*\)")).IsTrue();
     }
 }

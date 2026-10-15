@@ -27,9 +27,10 @@ using Xunit;
 /// Three grabs per show, and which one is judged matters (review-11): (1) the raw first grab, the
 /// instant <c>ShowBackdrop</c> returns plus two <c>DwmFlush</c> calls — with no dispatcher pass the
 /// cloak is necessarily still up, so it reads the DESKTOP; it is logged as "not yet shown" and never
-/// judged. (2) The AT-UNCLOAK grab: pump until the cloak write lands, then grab at once — this is the
-/// frame that matters, because <c>UncloakAndFlush</c> presented the finished frame before lifting the
-/// cloak. It must read as the finished backdrop (luma within ±10 % of the steady capture; stddev within
+/// judged. (2) The AT-UNCLOAK grab: pump until the cloak write lands, then flush twice with no
+/// pumping and grab — production's flush ran before the uncloak, so DWM keeps the cloaked composition
+/// until the next vsync; these flushes present the first composition with the window UNCLOAKED, which
+/// is the frame the owner sees first. It must read as the finished backdrop (luma within ±10 % of the steady capture; stddev within
 /// ±25 %; the stddev not the bare desktop's for the blur). (3) The steady grab after a ~2.5 s hold —
 /// which must also show the cloak is DOWN (a stuck cloak would hide the backdrop from the owner).
 /// </para>
@@ -168,9 +169,14 @@ public class BackdropShowLookTests
                 var firstState = (window.IsVisible, lastCloak);
                 // With no dispatcher pass the cloak is still up, so this grab reads the desktop (the
                 // window is not composed) — logged as "not yet shown", never judged. The frame that
-                // matters is the AT-UNCLOAK one: pump until the cloak write is False, then grab at
-                // once (UncloakAndFlush presented the finished frame BEFORE lifting the cloak).
+                // matters is the AT-UNCLOAK one: pump until the cloak write is False, then flush
+                // twice with NO pumping — production's flush ran BEFORE the uncloak (into the still
+                // cloaked surface), so the screen keeps the cloaked composition until DWM's next
+                // vsync; these flushes present the first composition with the window UNCLOAKED,
+                // which is the frame the owner sees first.
                 PumpUntilUncloaked(() => lastCloak);
+                DwmFlush();
+                DwmFlush();
                 var atUncloak = BackdropCapture.Grab();
                 var atUncloakState = (window.IsVisible, lastCloak);
                 LiveCheck.AssertShowsText(window, $"Backdrop show look, case {caseNumber} (first show)", "Mit Esc beenden");
@@ -208,6 +214,8 @@ public class BackdropShowLookTests
                     LiveCheck.AssertShowsText(window, $"Backdrop show look, case {caseNumber} (hand-off)", "Mit Esc beenden");
                     if (dryRun) SkipVisibilityProof(caseNumber, "hand-off"); else LiveCheck.AssertVisible(window, $"Backdrop show look, case {caseNumber} (hand-off)");
                     PumpUntilUncloaked(() => lastCloak);
+                    DwmFlush(); // twice, no pumping: present the first composition with the window UNCLOAKED
+                    DwmFlush();
                     reshowAtUncloak = BackdropCapture.Grab();
                     reshowAtUncloakState = (window.IsVisible, lastCloak);
                     LiveCheck.PumpFor(Hold);
@@ -236,6 +244,8 @@ public class BackdropShowLookTests
                     LiveCheck.AssertShowsText(window, $"Backdrop show look, case {caseNumber} (re-show)", "Mit Esc beenden");
                     if (dryRun) SkipVisibilityProof(caseNumber, "re-show"); else LiveCheck.AssertVisible(window, $"Backdrop show look, case {caseNumber} (re-show)");
                     PumpUntilUncloaked(() => lastCloak);
+                    DwmFlush(); // twice, no pumping: present the first composition with the window UNCLOAKED
+                    DwmFlush();
                     reshowAtUncloak = BackdropCapture.Grab();
                     reshowAtUncloakState = (window.IsVisible, lastCloak);
                     LiveCheck.PumpFor(Hold);
@@ -323,9 +333,11 @@ public class BackdropShowLookTests
     }
 
     /// <summary>
-    /// Pumps the dispatcher until the cloak write observed by the DWM seam has landed (or a 800 ms
-    /// timeout), so the grab right after reads the AT-UNCLOAK frame. Nothing is flushed here: the
-    /// uncloak's own <c>DwmFlush</c> ran BEFORE the write, presenting the finished frame.
+    /// Pumps the dispatcher until the cloak write observed by the DWM seam has landed (or an 800 ms
+    /// timeout). The caller then calls <c>DwmFlush</c> TWICE with no pumping before the grab:
+    /// production's flush ran BEFORE the uncloak (into the still-cloaked surface), so the screen keeps
+    /// showing the cloaked composition until DWM's next vsync — the flushes present the first
+    /// composition with the window UNCLOAKED, which is the frame the owner sees first.
     /// </summary>
     private static void PumpUntilUncloaked(Func<bool> cloaked)
     {

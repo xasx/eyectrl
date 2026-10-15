@@ -14,6 +14,7 @@ using EyeCtrl.Core;
 using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.Tests.TestSupport;
 using Xunit;
 
 /// <summary>
@@ -81,7 +82,9 @@ public class GlassBackdropShowBackdropTests
         var prepared = RunShowBackdrop(BackdropType.SolidDarken, opacity: 0.3, shows: 1);
 
         var enable = prepared.Calls[^1];
-        Check.That((enable.State, enable.Flags, enable.Gradient)).IsEqualTo((2, 0x20, 0x4C000000));
+        // Flags 2, not 0x20: the D1 fix (a state-2 enable re-sent while HIDDEN to an already-shown
+        // window with 0x20 falls back to the system accent colour).
+        Check.That((enable.State, enable.Flags, enable.Gradient)).IsEqualTo((2, 0x2, 0x4C000000));
         Check.That(enable.Hwnd).IsNotEqualTo(IntPtr.Zero);
         Check.That(prepared.Opened).HasSize(1);
         Check.That(prepared.Opened[0].Rects).IsEqualTo(0);
@@ -143,7 +146,14 @@ public class GlassBackdropShowBackdropTests
             for (var show = 0; show < shows; show++)
             {
                 window.ShowBackdrop(settings, new PhysicalPoint(100, 100));
-                if (show < shows - 1) window.Hide();
+                if (show < shows - 1)
+                {
+                    window.Hide();
+                    // A REAL re-show, later than the hand-off window: an immediate same-settings
+                    // re-show is the magnifier → ring hand-off, which reuses the prepared content
+                    // instead of re-applying (pinned in GlassBackdropCloakTests).
+                    LiveCheck.PumpFor(TimeSpan.FromMilliseconds(200));
+                }
             }
 
             var layer = Rectangles(window).FirstOrDefault();

@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Threading;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Tests.Localization;
 using EyeCtrl.Core;
@@ -71,7 +72,18 @@ public class BackdropShowLookTests
     public void TheBackdrop_WithSolidDarkenAt030_ShowsTheFinishedFrameImmediately_BothTimes() =>
         RunCase(2, "solid-030", "Solid darken at 0.30", solidDarken: true);
 
-    private static void RunCase(int caseNumber, string tag, string label, bool solidDarken)
+    /// <summary>
+    /// Case 3 — the magnifier → ring hand-off: shown, then <c>Hide</c> and <c>ShowBackdrop</c> in two
+    /// back-to-back dispatcher posts (production's shape, and the caller's <c>ShowEscapeHint</c>), with
+    /// a grab straight after. The hand-off must not show a bare or undimmed frame: its first frame has
+    /// to read as the finished backdrop (which the prepared-content reuse makes possible — nothing is
+    /// cleared, re-applied or cloaked).
+    /// </summary>
+    [StaFact]
+    public void TheBackdrop_OnTheMagnifierToRingHandOff_ShowsTheFinishedFrameImmediately() =>
+        RunCase(3, "handoff-030", "the magnifier → ring hand-off at 0.30", solidDarken: false, handOff: true);
+
+    private static void RunCase(int caseNumber, string tag, string label, bool solidDarken, bool handOff = false)
     {
         Step3LiveCheckTests.BeginShowcaseCase();
         GlassBackdropWindow? window = null;
@@ -151,20 +163,48 @@ public class BackdropShowLookTests
                 var steady = BackdropCapture.Grab();
                 var steadyState = (window.IsVisible, lastCloak);
 
-                window.Hide();
-                window.ShowEscapeHint(); // Hide() collapsed it; the re-show prepares it again
-                policyCalls.Add("[show2]");
-                dwmCalls.Add("[show2]");
-                window.ShowBackdrop(settings, centre); // the re-show
-                DwmFlush(); // twice: as above
-                DwmFlush();
-                var reshowFirst = BackdropCapture.Grab();
-                var reshowFirstState = (window.IsVisible, lastCloak);
-                LiveCheck.AssertShowsText(window, $"Backdrop show look, case {caseNumber} (re-show)", "Mit Esc beenden");
-                if (dryRun) SkipVisibilityProof(caseNumber, "re-show"); else LiveCheck.AssertVisible(window, $"Backdrop show look, case {caseNumber} (re-show)");
-                LiveCheck.PumpFor(Hold);
-                var reshowSteady = BackdropCapture.Grab();
-                var reshowSteadyState = (window.IsVisible, lastCloak);
+                BackdropCapture.ScreenSample reshowFirst;
+                BackdropCapture.ScreenSample reshowSteady;
+                (bool Visible, bool Cloak) reshowFirstState;
+                (bool Visible, bool Cloak) reshowSteadyState;
+                if (handOff)
+                {
+                    // Production's hand-off: Hide and ShowBackdrop (and the caller's hint) in two
+                    // back-to-back dispatcher posts, ~1 ms apart. Drain at Background priority so just
+                    // those run — no hold, no frame pump — then grab straight after, the worst case.
+                    policyCalls.Add("[handoff]");
+                    dwmCalls.Add("[handoff]");
+                    window.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(window.Hide));
+                    window.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => window.ShowBackdrop(settings, centre)));
+                    window.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(window.ShowEscapeHint));
+                    Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+                    DwmFlush(); // twice: as above
+                    DwmFlush();
+                    reshowFirst = BackdropCapture.Grab();
+                    reshowFirstState = (window.IsVisible, lastCloak);
+                    LiveCheck.AssertShowsText(window, $"Backdrop show look, case {caseNumber} (hand-off)", "Mit Esc beenden");
+                    if (dryRun) SkipVisibilityProof(caseNumber, "hand-off"); else LiveCheck.AssertVisible(window, $"Backdrop show look, case {caseNumber} (hand-off)");
+                    LiveCheck.PumpFor(Hold);
+                    reshowSteady = BackdropCapture.Grab();
+                    reshowSteadyState = (window.IsVisible, lastCloak);
+                }
+                else
+                {
+                    window.Hide();
+                    window.ShowEscapeHint(); // Hide() collapsed it; the re-show prepares it again
+                    policyCalls.Add("[show2]");
+                    dwmCalls.Add("[show2]");
+                    window.ShowBackdrop(settings, centre); // the re-show
+                    DwmFlush(); // twice: as above
+                    DwmFlush();
+                    reshowFirst = BackdropCapture.Grab();
+                    reshowFirstState = (window.IsVisible, lastCloak);
+                    LiveCheck.AssertShowsText(window, $"Backdrop show look, case {caseNumber} (re-show)", "Mit Esc beenden");
+                    if (dryRun) SkipVisibilityProof(caseNumber, "re-show"); else LiveCheck.AssertVisible(window, $"Backdrop show look, case {caseNumber} (re-show)");
+                    LiveCheck.PumpFor(Hold);
+                    reshowSteady = BackdropCapture.Grab();
+                    reshowSteadyState = (window.IsVisible, lastCloak);
+                }
 
                 // The case-2 mystery probe: one more grab right after the final Hide. If the reading
                 // persists with the window hidden, it is not the backdrop.
@@ -180,6 +220,7 @@ public class BackdropShowLookTests
                 var log = new StringBuilder();
                 log.AppendLine($"case: {caseNumber} ({label})");
                 log.AppendLine($"kind: {kind}");
+                log.AppendLine($"handoff: {(handOff ? "true" : "false")}");
                 log.AppendLine($"alpha: {BackdropReadoutLines.Number(settings.Opacity)}");
                 log.AppendLine($"Material: {settings.Type} through production's ShowBackdrop");
                 if (dryRun)

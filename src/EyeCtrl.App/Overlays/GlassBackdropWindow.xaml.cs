@@ -45,11 +45,26 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     // ever showed their flat inactive fallback.
     private const int DwmsbtNone = 1;
 
+    /// <summary>
+    /// How soon after <see cref="Hide"/> a <see cref="ShowBackdrop"/> with unchanged settings counts
+    /// as the magnifier → ring hand-off (production's two back-to-back dispatcher posts land ~1 ms
+    /// apart; a frame of slack keeps it robust under load) and reuses the prepared content instead
+    /// of clearing and re-applying it.
+    /// </summary>
+    private const long HandOffWindowMs = 33;
+
     private Rectangle? _solidBackground;
     private Rectangle? _dimLayer;
     private DwellArcButton? _hideButton;
     private bool _cloaked;
     private DispatcherTimer? _cloakFallback;
+    private EventHandler? _uncloakOnRendering;
+
+    /// <summary>The settings the canvas is currently prepared for, or null when it holds nothing.</summary>
+    private (BackdropType Type, double Opacity)? _preparedFor;
+
+    /// <summary>When <see cref="Hide"/> last ran; opens the hand-off window (see HandOffWindowMs).</summary>
+    private long _hiddenAtTick;
 
     public GlassBackdropWindow()
     {
@@ -102,6 +117,14 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     [DllImport("dwmapi.dll")]
     private static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref Margins pMarInset);
 
+    /// <summary>
+    /// Blocks until DWM has committed and presented the pending composition. Called once after the
+    /// uncloak so the finished frame is on screen before the cloak lifts (a cloak lifted on a
+    /// composition that has not been presented yet shows the desktop for a frame).
+    /// </summary>
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmFlush();
+
     [StructLayout(LayoutKind.Sequential)]
     private struct Margins
     {
@@ -123,7 +146,18 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     /// visible frame is already the finished backdrop (the owner's flicker: show-then-apply put a
     /// bare or glass-only frame on screen first). <see cref="OverlayWindow.OnSourceInitialized"/>
     /// still runs at handle creation, so the never-activate styles and the capture exclusion are in
-    /// place before the window can be seen.
+    /// place before the window can be seen. DWM's window transitions are disabled too, and the window
+    /// is CLOAKED until WPF has rendered the prepared content — DWM would otherwise compose its own
+    /// first frame of a half-prepared window.
+    ///
+    /// <para>
+    /// <b>The magnifier → ring hand-off.</b> Production calls <see cref="Hide"/> and then this method
+    /// within about a millisecond (two back-to-back dispatcher posts in
+    /// <c>GazeEngineAdapter</c>). A clear-and-reprepare pair there would put a bare frame on screen
+    /// (worse with a cloak: hidden, then cloaked until WPF renders). When the window was hidden within
+    /// a frame and the SETTINGS ARE UNCHANGED, the prepared content is still on the canvas, so the
+    /// hand-off just shows it — no clear, no re-apply, no cloak, no bare or undimmed frame.
+    /// </para>
     /// </summary>
     public void ShowBackdrop(BackdropSettings settings, PhysicalPoint hideButtonCenter)
     {
@@ -131,11 +165,25 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
             return;
         PositionForShow(this);   // the layer below sizes itself to the window
         EnsureHandle();          // a real hwnd: the accent needs it, and the CT turns transparent
+
+        if (settings.Enabled
+            && !IsVisible
+            && _preparedFor is { } prepared
+            && prepared.Type == settings.Type
+            && Math.Abs(prepared.Opacity - settings.Opacity) < 1e-9
+            && Environment.TickCount64 - _hiddenAtTick <= HandOffWindowMs)
+        {
+            // The hand-off: the finished content is already prepared, so SHOW it — nothing is
+            // cleared, nothing re-applied, nothing cloaked, and there is no bare frame.
+            base.Show();
+            return;
+        }
+
         ApplyBackdrop(settings);
         DrawHideButton(hideButtonCenter); // after the dim layer, so the ✕ sits on top
+        _preparedFor = (settings.Type, settings.Opacity);
 
-        // Cloak until WPF has rendered the prepared content: DWM would otherwise compose its own
-        // first frame of a half-prepared window (the owner's first-show flash).
+        // Cloak until WPF has rendered the prepared content.
         var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
         _cloaked = true;
         _ = SetDwmAttribute(hwnd, DwmwaCloak, true);
@@ -145,32 +193,66 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     }
 
     /// <summary>
-    /// Releases the cloak once WPF has rendered at least one frame of the prepared content — the
-    /// static <c>CompositionTarget.Rendering</c> event fires after a frame, and the queued
-    /// Render-priority call lands after that frame's render operations — with a 250 ms fallback so
-    /// a window that never renders cannot stay cloaked. <see cref="Hide"/> uncloaks immediately too.
+    /// Releases the cloak once WPF has rendered at least one frame of the prepared content: the
+    /// static <c>CompositionTarget.Rendering</c> event fires before the UI-thread render commit, so
+    /// the uncloak runs from a <see cref="DispatcherPriority.Background"/> callback (after the
+    /// commit), and one <c>DwmFlush</c> presents the finished frame before the cloak lifts. A 250 ms
+    /// fallback uncloaks anyway, so a window that never renders cannot stay cloaked.
     /// </summary>
     private void UncloakAfterFirstRender()
     {
+        // Normal priority (NOT Send): the dispatcher does not dispatch Send-priority timer ticks, so
+        // a Send fallback would never fire and a window that never rendered would stay cloaked.
         _cloakFallback?.Stop();
-        _cloakFallback = new DispatcherTimer(DispatcherPriority.Send) { Interval = TimeSpan.FromMilliseconds(250) };
-        _cloakFallback.Tick += (_, _) => Uncloak();
+        _cloakFallback = new DispatcherTimer(DispatcherPriority.Normal) { Interval = TimeSpan.FromMilliseconds(250) };
+        _cloakFallback.Tick += (_, _) => UncloakAndFlush();
         _cloakFallback.Start();
 
-        EventHandler? onRendering = null;
-        onRendering = (_, _) =>
+        RemoveUncloakHandler();
+        _uncloakOnRendering = (_, _) =>
         {
-            CompositionTarget.Rendering -= onRendering;
-            Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(Uncloak));
+            RemoveUncloakHandler();
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(UncloakAndFlush));
         };
-        CompositionTarget.Rendering += onRendering;
+        CompositionTarget.Rendering += _uncloakOnRendering;
     }
 
-    /// <summary>Releases the cloak, if it is still up. Safe to call repeatedly.</summary>
-    private void Uncloak()
+    /// <summary>Uncloaks and forces one composition, so the finished frame is presented.</summary>
+    private void UncloakAndFlush()
     {
+        Uncloak();
+        _ = DwmFlush();
+    }
+
+    private void RemoveUncloakHandler()
+    {
+        if (_uncloakOnRendering is { } handler)
+        {
+            CompositionTarget.Rendering -= handler;
+            _uncloakOnRendering = null;
+        }
+    }
+
+    /// <summary>
+    /// Cancels a pending uncloak (the Rendering subscription and the fallback timer) without
+    /// touching the cloak bit — for <see cref="OnClosed"/>, where the handle is already gone so
+    /// there is nothing left to uncloak, but a stray callback must not fire later.
+    /// </summary>
+    private void CancelPendingUncloak()
+    {
+        RemoveUncloakHandler();
         _cloakFallback?.Stop();
         _cloakFallback = null;
+    }
+
+    /// <summary>
+    /// Releases the cloak, if it is still up, cancelling the pending uncloak first. Safe to call
+    /// repeatedly; <see cref="Hide"/> and <see cref="Show"/> call it so a hidden or plainly shown
+    /// window can never stay cloaked.
+    /// </summary>
+    private void Uncloak()
+    {
+        CancelPendingUncloak();
         if (!_cloaked)
             return;
         _cloaked = false;
@@ -183,17 +265,32 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     {
         if (System.Windows.Forms.Screen.PrimaryScreen == null)
             return;
+        Uncloak(); // a cloaked window would show nothing
         OverlayPositioning.CoverPrimaryScreen(this);
         base.Show();
         EnsureHandle();
     }
 
+    /// <summary>
+    /// Hides the window without clearing the prepared content: production hides and re-shows within
+    /// a frame (the magnifier → ring hand-off), and <see cref="ShowBackdrop"/> reuses exactly that
+    /// prepared content, so clearing here would guarantee a bare frame. The next prepare
+    /// (<see cref="ApplyBackdrop"/> → <see cref="ClearContent"/>) replaces it, and a hidden window
+    /// composes nothing, so retaining it is invisible. The uncloak is immediate: a hidden window
+    /// must never stay cloaked.
+    /// </summary>
     public new void Hide()
     {
-        Uncloak(); // a hidden window must never stay cloaked
+        Uncloak();
         base.Hide();
-        ClearContent();
+        _hiddenAtTick = Environment.TickCount64;
         HideEscapeHint();
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        CancelPendingUncloak(); // no stray uncloak may fire on a closed window
+        base.OnClosed(e);
     }
 
     // ── Escape hint ──
@@ -360,12 +457,22 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     /// opacity-driven black gradient as the blur. Solid darken's material since 2026-10-14: a plain
     /// rectangle is opaque black whatever its alpha on a non-layered client (DWM ignores the
     /// client's alpha), so the setting did nothing but go black.
+    ///
+    /// <para>
+    /// <b>Flags 2, not 0x20</b> (the measured fix for D1). State 2 re-sent with <c>0x20</c> while the
+    /// window is HIDDEN to a window that has already been shown — exactly what production does on every
+    /// re-show — falls back to the system accent colour: the owner's re-show read the flat sage
+    /// (196,200,196), and the discriminator look pinned it (S-0 production → accent fallback; S-a, the
+    /// same call with flags 2 → finished at 0.702; S-b and S-c cleared the order and the disable). Flags
+    /// 2 renders identically on a first show (sweep 2: 18.21 vs 18.19), so it is the only difference
+    /// D1 needs. State 4 (the blur) keeps <c>0x20</c>: its hidden re-show read the glass fine.
+    /// </para>
     /// </summary>
     /// <returns>True when the call was accepted (non-zero BOOL), so no darken fallback is needed.</returns>
     internal bool TryApplyTransparentGradient(double opacity)
     {
         var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-        var result = SetAccentPolicy(hwnd, AccentEnableTransparentGradient, 0x20, AccentGradientColor(opacity));
+        var result = SetAccentPolicy(hwnd, AccentEnableTransparentGradient, 0x2, AccentGradientColor(opacity));
         return result != 0;
     }
 
@@ -468,6 +575,7 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
         DisableAccent();
         _solidBackground = null;
         _dimLayer = null;
+        _preparedFor = null; // nothing is prepared any more
         ClearButton();
     }
 

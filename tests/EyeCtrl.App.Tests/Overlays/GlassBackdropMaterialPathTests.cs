@@ -199,8 +199,10 @@ public class GlassBackdropMaterialPathTests
             Check.WithCustomMessage($"expected [disable, gradient], saw: {string.Join(" | ", recorder.Calls)}")
                 .That(recorder.Calls).HasSize(2);
             Check.That(recorder.Calls[0]).IsEqualTo((0, 0, 0));
-            Check.WithCustomMessage("Solid darken's gradient must carry the opacity.")
-                .That(recorder.Calls[1]).IsEqualTo((2, 0x20, 0x4C000000));
+            // Flags 2, not 0x20 (D1): 0x20 re-sent while HIDDEN to an already-shown window falls back
+            // to the system accent colour — the owner's flat sage (196,200,196) on every re-show.
+            Check.WithCustomMessage("Solid darken's gradient must carry the opacity, with the D1 flags.")
+                .That(recorder.Calls[1]).IsEqualTo((2, 0x2, 0x4C000000));
             Check.WithCustomMessage("the gradient carries the dim: no rectangle.").That(Rectangles(window)).IsEmpty();
         }
         finally

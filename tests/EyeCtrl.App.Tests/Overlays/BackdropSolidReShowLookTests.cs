@@ -23,8 +23,8 @@ using Xunit;
 /// policy variable per case (Solid darken at 0.30 only, show → hold ~2 s → hide → re-show → hold
 /// ~2 s → hide):
 /// <list type="table">
-/// <item><term>S-0</term><description>production as is (should reproduce D1 on the re-show);</description></item>
-/// <item><term>S-a</term><description>state 2 with flags 2 instead of 0x20, rewritten in the seam wrapper;</description></item>
+/// <item><term>S-0</term><description>production as is — flags 2 since the D1 fix, so its re-show must now read finished (it read the accent fallback when 0x20 was the production flag);</description></item>
+/// <item><term>S-a</term><description>state 2 with the PRE-FIX flags 0x20 rewritten in the seam wrapper (the D1 defect reproduced through the seam, now that production sends 2);</description></item>
 /// <item><term>S-b</term><description>the hidden re-show apply's enable is swallowed and the accent is applied AFTER the window is visible (the pre-#214 order);</description></item>
 /// <item><term>S-c</term><description>production's order, but DisableAccent's state 0 is swallowed between the shows.</description></item>
 /// </list>
@@ -58,10 +58,10 @@ public class BackdropSolidReShowLookTests
     public void TheSolidReShow_WithProductionAsIs_ShowsItsColour() =>
         RunCase(1, "s0-production", "S-0 production", Variant.Production);
 
-    /// <summary>S-a — state 2 with flags 2.</summary>
+    /// <summary>S-a — state 2 with the pre-fix flags 0x20 (the D1 defect).</summary>
     [StaFact]
     public void TheSolidReShow_WithFlags2_ShowsItsColour() =>
-        RunCase(2, "sa-flags2", "S-a state 2, flags 2", Variant.Flags2);
+        RunCase(2, "sa-flags20", "S-a state 2, flags 0x20 (pre-fix)", Variant.Flags20);
 
     /// <summary>S-b — the accent applied after the window is visible.</summary>
     [StaFact]
@@ -76,7 +76,7 @@ public class BackdropSolidReShowLookTests
     private enum Variant
     {
         Production,
-        Flags2,
+        Flags20,
         AfterShow,
         SuppressDisable
     }
@@ -121,8 +121,8 @@ public class BackdropSolidReShowLookTests
                     return 1;
                 }
 
-                if (variant == Variant.Flags2 && state == 2 && flags == 0x20)
-                    flags = 2;
+                if (variant == Variant.Flags20 && state == 2 && flags == 0x2)
+                    flags = 0x20;
 
                 if (swallowNextEnable && state != 0)
                 {

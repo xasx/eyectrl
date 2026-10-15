@@ -361,8 +361,9 @@ public class LagMarkHostTests
     /// <summary>
     /// The exact line, and the mark's time is the completing SAMPLE's moment: its dispatch wait is
     /// the most recent execute's (LastLatencyMs), so the wall clock is now − 200 ms, not the write
-    /// moment. The 15 s window is quoted from the probe: three seeded executes, with the deepest
-    /// queue reading of 1 and a 1000 ms gap.
+    /// moment. The window ends at the execute instant and spans 15 s + the completing sample's
+    /// wait (review 01, lens 2), so the completing sample's own 200 ms wait IS included: four
+    /// seeded executes, deepest queue reading 1, a 1000 ms gap.
     /// </summary>
     [Fact]
     public void TheMarkLine_IsExact_AndTimesTheMarkAtTheCompletingSample()
@@ -376,7 +377,8 @@ public class LagMarkHostTests
         Sample(rig.Probe, t - 3_000 * ms, 5);
         Sample(rig.Probe, t - 2_000 * ms, 12.5);
         Sample(rig.Probe, t - 1_000 * ms, 100);
-        // The completing sample: enqueued, then executed 200 ms later — the lag being marked.
+        // The completing sample: enqueued, then executed 200 ms later — the lag being marked; it
+        // sits inside the window because the window reaches the execute instant.
         Sample(rig.Probe, Stopwatch.GetTimestamp(), 200);
         rig.Now = new DateTime(2026, 10, 16, 10, 20, 30, DateTimeKind.Local);
 
@@ -386,9 +388,43 @@ public class LagMarkHostTests
         Check.WithCustomMessage($"the mark line was: {rig.Lines[0]}")
             .That(Regex.IsMatch(
                 rig.Lines[0],
-                @"^LAG MARK #1 at 2026-10-16 10:20:29\.800 — last 15 s: n=3 max=100ms p95=100ms maxQueueDepth=1 gapMs=1000 coverageMs=\d+$"))
+                @"^LAG MARK #1 at 2026-10-16 10:20:29\.800 — last 15 s: n=4 max=200ms p95=200ms maxQueueDepth=1 gapMs=1000(?:\.\d+)? coverageMs=\d+$"))
             .IsTrue();
         Check.That(rig.Host.MarkCount).IsEqualTo(1);
+    }
+
+    /// <summary>
+    /// Review 01, lens 2: the case the enqueue-ended window was blind to. The owner sees the ring
+    /// stop, looks at the button 200 ms into a 1 s freeze, and the dwell completes in the drained
+    /// backlog — the completing sample was enqueued inside the freeze, so an enqueue-ended window
+    /// cut the freeze's own long waits off (measured: max 2.0 ms). The execute-ended window covers
+    /// (at − 15 s, now], so the freeze's wait is the mark's max. Synthetic ring: 10 s of ~90 Hz
+    /// normal use (2 ms waits), then the freeze sample, which waited 1000 ms and executed as the
+    /// mark completed.
+    /// </summary>
+    [Fact]
+    public void AFreezeTheOwnerDwellsThrough_IsVisibleToTheMarksWindow()
+    {
+        var rig = new Rig();
+        rig.Host.Start();
+        rig.Lines.Clear();
+
+        long ms = Stopwatch.Frequency / 1000;
+        long t = Stopwatch.GetTimestamp();
+        for (var k = 0; k < 900; k++)
+            Sample(rig.Probe, t - 10_000 * ms + k * 11 * ms, 2);
+        // The freeze: enqueued 1000 ms before it ran; this execute completes the dwell.
+        Sample(rig.Probe, t, 1000);
+        rig.Now = new DateTime(2026, 10, 16, 10, 20, 30, DateTimeKind.Local);
+
+        rig.Presenter.RaiseMarked(0);
+
+        Check.That(rig.Lines).HasSize(1);
+        Check.WithCustomMessage($"the mark line was: {rig.Lines[0]}")
+            .That(Regex.IsMatch(
+                rig.Lines[0],
+                @"^LAG MARK #1 at 2026-10-16 10:20:29\.000 — last 15 s: n=901 max=1000ms p95=2ms maxQueueDepth=1 gapMs=111 coverageMs=\d+$"))
+            .IsTrue();
     }
 
     [Fact]

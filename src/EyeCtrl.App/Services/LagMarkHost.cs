@@ -175,20 +175,28 @@ public sealed class LagMarkHost : IDisposable
             _messenger.Send(new LagMarkZoneMessage(_presenter.HitBounds));
     }
 
-    // Post-effect: the dwell has completed and the button already shows Marked. The mark's time is
+    // Post-effect: the dwell has completed and the button already shows Marked. The logged `at` is
     // the completing SAMPLE's gaze moment: its dispatch wait is the most recent execute's wait
     // (LastLatencyMs — the completing sample IS that execute), so the wall clock is now minus that
-    // wait, and the probe's window ends at the matching stopwatch instant. Before any execute the
-    // wait is 0 and the mark is immediate — the truthful reading, not a guess.
+    // wait. Before any execute the wait is 0 and the mark is immediate — the truthful reading, not
+    // a guess.
+    //
+    // The WINDOW ends at the execute instant instead (review 01, lens 2, signed off by the owner):
+    // the ring is keyed by execute time, and a freeze the owner dwells THROUGH completes the dwell
+    // from the drained backlog the moment the freeze clears — the completing sample was enqueued
+    // inside the freeze, so an enqueue-ended window cut off the freeze's own long waits (measured:
+    // max 2.0 ms against 1000.1 ms). Spanning 15 s PLUS the completing sample's wait covers
+    // (at − 15 s, now]: nothing the signed reading covered is lost, and the drain at the mark is
+    // included. `at` keeps the gaze moment, so C3's coverage and the startup exclusion are
+    // unchanged, and the line's format is unchanged (the readout parses it).
     private void OnMarked(long timestampMicroseconds)
     {
         if (!_isInstrumentOn()) return;
 
         MarkCount++;
 
-        long endTicks = Stopwatch.GetTimestamp()
-            - (long)(_probe.LastLatencyMs * Stopwatch.Frequency / 1000.0);
-        var summary = _probe.Summarize(endTicks, Window);
+        var summary = _probe.Summarize(
+            Stopwatch.GetTimestamp(), Window + TimeSpan.FromMilliseconds(_probe.LastLatencyMs));
         var at = _now().AddMilliseconds(-_probe.LastLatencyMs);
 
         _log(string.Create(

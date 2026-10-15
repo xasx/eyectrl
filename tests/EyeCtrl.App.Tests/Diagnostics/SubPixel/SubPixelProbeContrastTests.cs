@@ -204,9 +204,7 @@ public class SubPixelProbeContrastTests
     {
         var window = new SubPixelProbeWindow(
             null, vm, new CursorSettings(), () => { }, viewFault: () => { }, scale: 2.0);
-        window.Width = 1920;
-        window.Height = 1200;
-        new WindowInteropHelper(window).EnsureHandle();
+        ProbeWindowTestHarness.EnsureHandleAt(window, 1920, 1200);
         return window;
     }
 

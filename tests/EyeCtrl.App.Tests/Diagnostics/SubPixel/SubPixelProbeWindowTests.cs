@@ -248,11 +248,9 @@ public class SubPixelProbeWindowTests
             using var vm = NewViewModel();
             vm.Start();
             var window = new SubPixelProbeWindow(null, vm, new CursorSettings(), () => { }, viewFault: () => { }, scale);
-            window.Width = 1920;
-            window.Height = 1080;
             try
             {
-                new WindowInteropHelper(window).EnsureHandle();
+                ProbeWindowTestHarness.EnsureHandleAt(window, 1920, 1080);
                 var scene = (Visual)window.Content!;
                 var detector = (DwellDetector)typeof(SubPixelProbeViewModel)
                     .GetField("_targets", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(vm)!;
@@ -569,11 +567,9 @@ public class SubPixelProbeWindowTests
         vm.Start();
 
         var window = new SubPixelProbeWindow(null, vm, new CursorSettings(), () => { }, viewFault: () => { }, scale);
-        window.Width = 1920;
-        window.Height = 1080;
         try
         {
-            new WindowInteropHelper(window).EnsureHandle();
+            ProbeWindowTestHarness.EnsureHandleAt(window, 1920, 1080);
 
             // Drive the phase through the view's own PhaseChanged path (Idle -> phase), so the
             // geometry recompute is exercised exactly as production does it. No explicit Layout()

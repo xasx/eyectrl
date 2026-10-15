@@ -377,9 +377,7 @@ public class SubPixelProbeCornerLabelTests
     {
         var window = new SubPixelProbeWindow(
             null, vm, new CursorSettings { CircleSize = ringDip }, () => { }, viewFault: () => { }, scale);
-        window.Width = widthDip;
-        window.Height = heightDip;
-        new WindowInteropHelper(window).EnsureHandle();
+        ProbeWindowTestHarness.EnsureHandleAt(window, widthDip, heightDip);
         return window;
     }
 

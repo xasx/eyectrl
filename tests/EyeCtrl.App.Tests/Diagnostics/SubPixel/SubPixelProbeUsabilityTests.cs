@@ -360,6 +360,56 @@ public class SubPixelProbeUsabilityTests
     // Mutation (D2-fit): the Intro text block moved back below the band (panel top past the
     //   window's bottom) -> at 1.0 the panel check goes red.
 
+    // ------------------------------------------- SP-8 fixup 02: host-independent probe sizing
+
+    /// <summary>
+    /// SP-8 fixup 02: a WPF <c>Window</c> is clamped by the OS to the host's maximum track size
+    /// (about the virtual screen), and WPF writes the clamped size back into <c>Width</c>/<c>Height</c>
+    /// — CI's small runner laid the probe out smaller than the tests asked, which made the four
+    /// geometry tests that request a size fail there while passing on this 1920×1200 machine.
+    /// 4000 × 3000 DIP is larger than any plausible host screen, so this pin goes red the moment the
+    /// harness stops forcing the requested size through <see cref="ProbeWindowTestHarness"/>: the
+    /// explicit size/digit assertions fail, and so do the D2D3 / D2 / D5 helper families below,
+    /// re-run here at the over-size.
+    /// </summary>
+    [StaFact]
+    public void TheHarness_LaysTheProbeOutAtARequestedSizeLargerThanAnyHostScreen()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        using var vm = NewViewModel();
+        vm.Start();
+        var window = NewWindow(vm, scale: 2.0, widthDip: 4000, heightDip: 3000);
+        try
+        {
+            SetPhase(vm, SubPixelProbePhase.Idle);
+            SetPhase(vm, SubPixelProbePhase.Answer);
+
+            Check.WithCustomMessage(
+                    $"the window's requested size was clamped to {window.Width}×{window.Height}")
+                .That(window.Width).IsEqualTo(4000.0);
+            Check.That(window.Height).IsEqualTo(3000.0);
+
+            // And the content really laid out that tall: the corner digit is anchored to the bottom
+            // margin, so its box's bottom sits exactly 24 DIP above the requested height.
+            var corner = window.CornerDigitForTest;
+            double digitBottom = Canvas.GetTop(corner) + corner.DesiredSize.Height;
+            Check.WithCustomMessage(
+                    $"the corner digit's bottom is {digitBottom:F1}, not {3000 - 24:F1}: the content "
+                    + "was laid out smaller than the requested size")
+                .That(digitBottom).IsCloseTo(3000 - 24, 0.5);
+        }
+        finally
+        {
+            window.Close();
+        }
+
+        // The four CI-visible assertion families, re-run at a requested size larger than any host
+        // screen (each helper builds its own window through the shared harness).
+        AssertGeometry(2.0, 4000, 3000);
+        AssertScreensFit(2.0, 4000, 3000, german: false);
+        AssertIntroClearance(2.0, 4000, 3000, ring: 250.0, german: false);
+    }
+
     // ------------------------------------------- Fixup 01 F1: no text inside a live hit area
 
     [StaFact]
@@ -739,9 +789,7 @@ public class SubPixelProbeUsabilityTests
         var window = new SubPixelProbeWindow(
             null, vm, cursor ?? new CursorSettings(), () => { }, viewFault: () => { },
             scale, frameTicks, frameTicksPerMs: frameTicks is null ? 0 : 1.0);
-        window.Width = widthDip;
-        window.Height = heightDip;
-        new WindowInteropHelper(window).EnsureHandle();
+        ProbeWindowTestHarness.EnsureHandleAt(window, widthDip, heightDip);
         return window;
     }
 

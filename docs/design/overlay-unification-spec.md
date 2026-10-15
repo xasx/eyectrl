@@ -7,11 +7,12 @@
 
 ## 1. Problem Statement
 
-EyeCtrl has 28 overlay windows and 7 dwell controls — 24 with XAML under
+EyeCtrl has 29 overlay windows and 7 dwell controls — 24 with XAML under
 `Overlays/`, the code-only `NoteWindow`, and `SettingsWindow` under `Views/`
 (which also derives from `OverlayWindow`). Re-counted against merged `main` at
-b8295b6, which includes PRs #70 and #71, and enforced by
-`OverlayInventoryDriftTests`. Each was built at a different time, introducing accumulated style drift:
+b8295b6, which includes PRs #70 and #71, plus the T15 restart notice card
+(`RestartNoticeWindow`, a 29th, built on theme tokens from the start), and
+enforced by `OverlayInventoryDriftTests`. Each was built at a different time, introducing accumulated style drift:
 
 - **10 different background colors** used across overlays
 - **7 different corner-radius values** (2, 4, 6, 8, 12, 14, 22)
@@ -68,6 +69,7 @@ The result is a UI that feels like a patchwork of different apps rather than one
 | **AdaptationCue** | `CueOverlayWindow` | `Transparent` + `Ellipse Fill="#FFB300"` | XAML |
 | **DriftNotice** | `DriftNoticeWindow` | `Transparent` + `Border #E0202020` | XAML |
 | **CaregiverAlert** | `CaregiverAlertWindow` | `Transparent` + `Border #E0202020` | XAML |
+| **RestartNotice** | `RestartNoticeWindow` | `Transparent` + `Border BrushSurfaceDark` (palette token) | XAML |
 | **Note** | `NoteWindow` | `#1A1A2E` | code-only, no XAML |
 
 The **Class** column is the match key for the drift-guard test
@@ -81,6 +83,13 @@ accent content over live desktop pixels and therefore need §4.1.3's contrast
 guarantee, not merely a token swap. Three of the twelve (`AdaptationCue`,
 `DriftNotice`, `CaregiverAlert`) are transparent windows hosting a *filled* shape, which is the case
 §4.1.3 originally missed.
+
+**T15 addition.** `RestartNoticeWindow` (the card shown when a restart is announced with
+no Settings window open) arrived after this audit's counts below were taken. It is a
+transparent window hosting a filled `Border`, like `DriftNotice` and `CaregiverAlert`, but
+it uses palette tokens (`BrushSurfaceDark`, `BrushBorderSubtle`) and theme font tokens,
+so it adds no legacy value to migrate. The counts in this section and §3.2 describe the
+28 audited windows.
 
 **Post-merge additions (PRs #70/#71).** `CueOverlayWindow` and `DriftNoticeWindow`
 arrived after this audit was first written. `DriftNoticeWindow` ships `#E0202020` —

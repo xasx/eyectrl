@@ -267,8 +267,10 @@ internal sealed class QuickActionsPageSource : ISettingsPageSource
 
     /// <summary>
     /// Preset id → literal key. Written out rather than built from the id so every key is a
-    /// literal the coverage and unused-key gates see, and so the mapping is pinned by
-    /// <c>QuickActionPresetLabelTests</c> against <see cref="QuickActionPresets"/>' real ids.
+    /// literal the coverage, single-surface and unused-key gates see (the underscore keys too,
+    /// since the key extractor reads <c>_</c> and capitals in later segments), and so the mapping
+    /// is pinned by <c>QuickActionPresetLabelTests</c> against <see cref="QuickActionPresets"/>'
+    /// real ids.
     /// </summary>
     private static readonly Dictionary<string, string> PresetLabelKeys = new(StringComparer.Ordinal)
     {

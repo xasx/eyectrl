@@ -414,7 +414,7 @@ internal static class TextLiteralScan
     /// with literals masked out, so a literal's content can never look like a call.
     /// </summary>
     private static readonly Regex SinkCall = new(
-        @"(?<![A-Za-z0-9_])(?<name>ShowModal|ShowError|ShowBannerAsync|new\s+ModalChoice|new\s+ToolStripMenuItem|MessageBox\.Show|AutomationProperties\.SetName|new\s+(?:SliderSpec|ToggleSpec|ComboBoxSpec|ColorPickerSpec|ButtonSpec|LabelSpec|RingPreviewSpec|RingJumpSpec)|new\s+QuickActionPreset|new\s+(?:DwellToggle|DwellComboBox|DwellColorPicker|DwellButton|DwellSlider))\s*\(",
+        @"(?<![A-Za-z0-9_])(?<name>ShowModal|ShowError|ShowBannerAsync|AddSpecialButton|new\s+ModalChoice|new\s+ToolStripMenuItem|MessageBox\.Show|AutomationProperties\.SetName|new\s+(?:SliderSpec|ToggleSpec|ComboBoxSpec|ColorPickerSpec|ButtonSpec|LabelSpec|RingPreviewSpec|RingJumpSpec)|new\s+QuickActionPreset|new\s+(?:DwellToggle|DwellComboBox|DwellColorPicker|DwellButton|DwellSlider))\s*\(",
         RegexOptions.Compiled);
 
     /// <summary>Member assignments that take text directly.</summary>
@@ -590,6 +590,14 @@ internal static class TextLiteralScan
                 {
                     if (index < args.Count) AddRange(args[index].Start, args[index].End);
                 }
+                continue;
+            }
+
+            if (name == "AddSpecialButton")
+            {
+                // The caption only: the action id after it ("skinToneBack") is an identifier.
+                var args = CSharpSourceText.SplitArguments(text, openParen);
+                if (args.Count > 1) AddRange(args[1].Start, args[1].End);
                 continue;
             }
 

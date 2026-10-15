@@ -18,7 +18,7 @@ using Xunit;
 public class ProviderWiringPinTests
 {
     private static readonly Regex SliderConstruction = new(
-        @"(?<![A-Za-z0-9_])new\s+DwellSlider\s*\(",
+        @"(?<![A-Za-z0-9_])new\s+(?:[A-Za-z0-9_]+\s*\.\s*)*DwellSlider\s*\(",
         RegexOptions.Compiled);
 
     private static readonly Regex IntTryParse = new(
@@ -39,17 +39,20 @@ public class ProviderWiringPinTests
         @"formatProvider\s*:\s*StringTable\s*\.\s*Current\s*\.\s*FormatProviderFor\s*\(\s*""[^""]+""\s*\)",
         RegexOptions.Compiled);
 
-    [Fact]
-    public void EveryDwellSlider_InSource_PassesTheHostProvider()
+    /// <summary>Every slider construction in the files, and the ones that miss the host provider.</summary>
+    private static (int Constructions, List<string> Offenders) ScanSliders(
+        IEnumerable<(string Relative, string Text)> files)
     {
+        var constructions = 0;
         var offenders = new List<string>();
 
-        foreach (var (relative, text) in TextLiteralScan.ScannedSourceFiles())
+        foreach (var (relative, text) in files)
         {
             if (!relative.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)) continue;
             var masked = CSharpSourceText.MaskLiterals(text);
             foreach (Match match in SliderConstruction.Matches(masked))
             {
+                constructions++;
                 var openParen = match.Index + match.Length - 1;
                 var closeParen = CSharpSourceText.FindCloseParen(text, openParen);
                 if (closeParen < 0) continue;
@@ -60,12 +63,44 @@ public class ProviderWiringPinTests
             }
         }
 
+        return (constructions, offenders);
+    }
+
+    [Fact]
+    public void EveryDwellSlider_InSource_PassesTheHostProvider()
+    {
+        var (constructions, offenders) = ScanSliders(TextLiteralScan.ScannedSourceFiles());
+
+        // A floor, so a scan that stops seeing the construction (a renamed type, a changed regex)
+        // cannot pass with nothing to check.
+        Check.WithCustomMessage(
+                "the scan found no `new DwellSlider(` in src/; the settings window builds one, so the "
+                + "pattern or the scanned file set has drifted and this guard is checking nothing.")
+            .That(constructions).IsStrictlyGreaterThan(0);
+
         Check.WithCustomMessage(
                 "Every DwellSlider in src/ must take its provider from the host — a surface "
                 + "provider with a literal id. Without it (or with the ambient culture) the plate "
                 + "silently shows English decimals on a German surface once Step 2+ switches on.\n  "
                 + string.Join("\n  ", offenders))
             .That(offenders).IsEmpty();
+    }
+
+    [Fact]
+    public void TheSliderScan_SeesAQualifiedConstructor_AndRejectsAMissingProvider()
+    {
+        const string provider = "formatProvider: StringTable.Current.FormatProviderFor(\"settings\")";
+
+        var (okCount, ok) = ScanSliders(
+            [("src/A.cs", $"var s = new EyeCtrl.Controls.DwellSlider(r, id, label, {provider});")]);
+        Check.That(okCount).IsEqualTo(1);
+        Check.That(ok).IsEmpty();
+
+        var (count, offenders) = ScanSliders(
+            [("src/B.cs", "var s = new EyeCtrl.Controls.DwellSlider(r, id, label);"),
+             ("src/C.cs", "var s = new DwellSlider(r, id, label, formatProvider: CultureInfo.CurrentCulture);")]);
+        Check.That(count).IsEqualTo(2);
+        Check.That(offenders).HasSize(2);
     }
 
     [Fact]

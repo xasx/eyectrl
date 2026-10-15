@@ -171,8 +171,18 @@
       "Count": 3
     },
     {
+      "Path": "src/EyeCtrl.App/Overlays/EmojiGridManager.cs",
+      "Literal": "\"ABC\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Overlays/EraseLabelFrame.cs",
       "Literal": "\"eraseLeft\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Overlays/RestartNoticeWindow.xaml.cs",
+      "Literal": "\"restart_notice_close\"",
       "Count": 1
     },
     {

@@ -3,6 +3,7 @@ namespace EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
 
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -63,8 +64,14 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     /// <summary>The settings the canvas is currently prepared for, or null when it holds nothing.</summary>
     private (BackdropType Type, double Opacity)? _preparedFor;
 
+    /// <summary>
+    /// A monotonic clock for the hand-off window: <see cref="Environment.TickCount64"/>'s ~15.6 ms
+    /// resolution turns the 33 ms window into 33-47 ms, so a <see cref="Stopwatch"/> is used instead.
+    /// </summary>
+    private static readonly Stopwatch HandOffClock = Stopwatch.StartNew();
+
     /// <summary>When <see cref="Hide"/> last ran; opens the hand-off window (see HandOffWindowMs).</summary>
-    private long _hiddenAtTick;
+    private long _hiddenAtMs;
 
     public GlassBackdropWindow()
     {
@@ -166,15 +173,35 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
         PositionForShow(this);   // the layer below sizes itself to the window
         EnsureHandle();          // a real hwnd: the accent needs it, and the CT turns transparent
 
+        if (IsVisible)
+        {
+            // A show on an already-VISIBLE window must neither re-prepare-and-cloak it (the cloak
+            // would blank a window that is on screen until a frame) nor re-send the accent. Unchanged
+            // settings are a no-op; changed settings are re-applied in place — one synchronous
+            // prepare, so DWM composes only the final state — and never re-cloaked.
+            if (_preparedFor is { } current
+                && current.Type == settings.Type
+                && Math.Abs(current.Opacity - settings.Opacity) < 1e-9)
+                return;
+
+            ApplyBackdrop(settings);
+            DrawHideButton(hideButtonCenter);
+            _preparedFor = (settings.Type, settings.Opacity);
+            UpdateHideButtonProgress(0);
+            return;
+        }
+
         if (settings.Enabled
             && !IsVisible
             && _preparedFor is { } prepared
             && prepared.Type == settings.Type
             && Math.Abs(prepared.Opacity - settings.Opacity) < 1e-9
-            && Environment.TickCount64 - _hiddenAtTick <= HandOffWindowMs)
+            && HandOffClock.ElapsedMilliseconds - _hiddenAtMs <= HandOffWindowMs)
         {
             // The hand-off: the finished content is already prepared, so SHOW it — nothing is
-            // cleared, nothing re-applied, nothing cloaked, and there is no bare frame.
+            // cleared, nothing re-applied, nothing cloaked, and there is no bare frame. The ✕'s
+            // dwell progress from the interrupted dwell is reset: this is a new show.
+            UpdateHideButtonProgress(0);
             base.Show();
             return;
         }
@@ -217,11 +244,17 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
         CompositionTarget.Rendering += _uncloakOnRendering;
     }
 
-    /// <summary>Uncloaks and forces one composition, so the finished frame is presented.</summary>
+    /// <summary>
+    /// Presents the finished frame and then lifts the cloak — in that order: the render thread
+    /// presents asynchronously, so uncloaking first can compose the PRE-render surface (the
+    /// glass-only frame the cloak exists to hide). DWM keeps updating a cloaked window's surface,
+    /// so the flush presents the finished frame while the window is still cloaked, and only then
+    /// does the uncloak make it visible.
+    /// </summary>
     private void UncloakAndFlush()
     {
+        FlushDwm();
         Uncloak();
-        _ = DwmFlush();
     }
 
     private void RemoveUncloakHandler()
@@ -283,7 +316,7 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     {
         Uncloak();
         base.Hide();
-        _hiddenAtTick = Environment.TickCount64;
+        _hiddenAtMs = HandOffClock.ElapsedMilliseconds;
         HideEscapeHint();
     }
 
@@ -393,6 +426,15 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     /// them. The default is the real dwmapi call.
     /// </summary>
     internal Func<IntPtr, int, bool, int> SetDwmAttribute { get; set; } = NativeSetDwmAttribute;
+
+    /// <summary>
+    /// <c>DwmFlush</c>, injectable so a gate can prove the ordering of the flush against the uncloak
+    /// in ONE sequence (the two run back to back, and only their order tells which frame is
+    /// presented first). The default is the real dwmapi call.
+    /// </summary>
+    internal Action FlushDwm { get; set; } = NativeDwmFlush;
+
+    private static void NativeDwmFlush() => _ = DwmFlush();
 
     private static int NativeSetDwmAttribute(IntPtr hwnd, int attribute, bool value)
     {

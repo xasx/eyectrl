@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using EyeCtrl.App.Overlays;
@@ -104,6 +105,135 @@ public class GlassBackdropCloakTests
             Check.That(run.Cloaks[2]).IsEqualTo((true, false));
             Check.That(run.Cloaks[3]).IsEqualTo((false, true));
             Check.That(run.Window.IsVisible).IsTrue();
+        }
+        finally
+        {
+            Cleanup(run.Window);
+        }
+    }
+
+    [StaFact]
+    public void TheUncloakFlushesTheFinishedFrame_BeforeLiftingTheCloak()
+    {
+        var run = Start(0.3);
+        try
+        {
+            // ONE sequence across both seams plus a Rendering marker: the flush must come AFTER a
+            // frame has rendered and BEFORE the uncloak write. Uncloaking first would let DWM compose
+            // the pre-render surface (the glass-only frame the cloak exists to hide).
+            var sequence = new List<string>();
+            var realFlush = run.Window.FlushDwm;
+            run.Window.FlushDwm = () =>
+            {
+                sequence.Add("flush");
+                realFlush();
+            };
+            var realDwm = run.Window.SetDwmAttribute;
+            run.Window.SetDwmAttribute = (hwnd, attribute, value) =>
+            {
+                if (attribute == 13) sequence.Add(value ? "cloak:true" : "cloak:false");
+                return realDwm(hwnd, attribute, value);
+            };
+            var marker = (object? _, EventArgs _) => sequence.Add("rendering");
+            EventHandler onRendering = (s, e) => marker(s, e);
+            CompositionTarget.Rendering += onRendering; // subscribed first: its marker precedes the window's handler
+            try
+            {
+                run.Window.ShowBackdrop(run.Settings, Center);
+                LiveCheck.PumpFor(TimeSpan.FromMilliseconds(400));
+            }
+            finally
+            {
+                CompositionTarget.Rendering -= onRendering;
+            }
+
+            // The marker that matters is the FIRST rendering AFTER the cloak went up (the show's own
+            // frame): ambient frames from earlier tests may precede the show, and an immediate
+            // uncloak right after base.Show() would flush with no frame in between.
+            var cloakTrue = sequence.IndexOf("cloak:true");
+            var flush = sequence.IndexOf("flush");
+            var uncloak = sequence.IndexOf("cloak:false");
+            var frameAfterCloak = cloakTrue >= 0
+                ? sequence.FindIndex(cloakTrue + 1, item => item == "rendering")
+                : -1;
+            Check.WithCustomMessage($"unexpected sequence: {string.Join(" | ", sequence)}")
+                .That(cloakTrue).IsStrictlyGreaterThan(-1);
+            Check.WithCustomMessage($"no frame rendered between the cloak and the flush: {string.Join(" | ", sequence)}")
+                .That(frameAfterCloak).IsStrictlyGreaterThan(-1);
+            Check.WithCustomMessage($"the flush came before a frame rendered: {string.Join(" | ", sequence)}")
+                .That(flush).IsStrictlyGreaterThan(frameAfterCloak);
+            Check.WithCustomMessage($"the cloak was lifted BEFORE the flush presented the finished frame: {string.Join(" | ", sequence)}")
+                .That(uncloak).IsStrictlyGreaterThan(flush);
+        }
+        finally
+        {
+            Cleanup(run.Window);
+        }
+    }
+
+    [StaFact]
+    public void ShowBackdrop_OnAVisibleWindow_DoesNotRecloakOrReapply()
+    {
+        var run = Start(0.3);
+        try
+        {
+            run.Window.ShowBackdrop(run.Settings, Center);
+            LiveCheck.PumpFor(TimeSpan.FromMilliseconds(400));
+            var policies = run.Policies.Count;
+            var cloaks = run.Cloaks.Count;
+            var children = run.CanvasChildren;
+
+            // A show on an already-visible window with UNCHANGED settings is a no-op: no accent
+            // re-send, no cloak (which would blank a window that is on screen), no clear.
+            run.Window.ShowBackdrop(run.Settings, Center);
+            Check.WithCustomMessage("an unchanged show on a visible window re-sent the accent.")
+                .That(run.Policies.Count).IsEqualTo(policies);
+            Check.WithCustomMessage("an unchanged show on a visible window re-cloaked it.")
+                .That(run.Cloaks.Count).IsEqualTo(cloaks);
+            Check.WithCustomMessage("an unchanged show on a visible window cleared its content.")
+                .That(run.CanvasChildren).IsEqualTo(children);
+            Check.That(run.Window.IsVisible).IsTrue();
+
+            // Changed settings are re-applied in place — one synchronous prepare — and never cloaked.
+            var changed = new BackdropSettings { Type = BackdropType.Mica, Enabled = true, Opacity = 0.5 };
+            run.Window.ShowBackdrop(changed, Center);
+            Check.WithCustomMessage("changed settings on a visible window must re-apply the accent.")
+                .That(run.Policies.Count).IsStrictlyGreaterThan(policies);
+            Check.WithCustomMessage("changed settings on a visible window must not cloak it.")
+                .That(run.Cloaks.Count).IsEqualTo(cloaks);
+            Check.That(run.Window.IsVisible).IsTrue();
+
+            LiveCheck.PumpFor(TimeSpan.FromMilliseconds(200));
+            Check.WithCustomMessage("the in-place re-apply must not leave a cloak behind.")
+                .That(run.Cloaks.Count).IsEqualTo(cloaks);
+            Check.That(run.Window.IsVisible).IsTrue();
+        }
+        finally
+        {
+            Cleanup(run.Window);
+        }
+    }
+
+    [StaFact]
+    public void TheHandOff_ResetsTheGlyphsDwellProgress()
+    {
+        var run = Start(0.3);
+        try
+        {
+            run.Window.ShowBackdrop(run.Settings, Center);
+            LiveCheck.PumpFor(TimeSpan.FromMilliseconds(400));
+            Check.WithCustomMessage("the gate's own fixture: the ✕ carries dwell arc paths.")
+                .That(run.VisibleArcs).IsStrictlyGreaterThan(0);
+
+            // The interrupted dwell left progress on the ✕ (0.8 shows the progress and halo arcs);
+            // the hand-off is a new show, so the glyph must come back at 0 (arcs collapsed) instead
+            // of resuming a half-filled dwell.
+            run.Window.UpdateHideButtonProgress(0.8);
+            run.Window.Hide();
+            run.Window.ShowBackdrop(run.Settings, Center);
+
+            Check.WithCustomMessage("the hand-off kept the interrupted dwell's progress on the ✕.")
+                .That(run.VisibleArcs).IsEqualTo(0);
         }
         finally
         {
@@ -357,6 +487,19 @@ public class GlassBackdropCloakTests
 
         public int Rectangles =>
             ((Canvas)Window.FindName("BackdropCanvas")!).Children.OfType<Rectangle>().Count();
+
+        /// <summary>
+        /// The ✕'s dwell arcs (progress + halo) that are currently VISIBLE. <c>UpdateProgress(0)</c>
+        /// collapses them; any other value shows them with a swept arc, so 0 here means "the glyph
+        /// shows no dwell progress".
+        /// </summary>
+        public int VisibleArcs =>
+            ((Canvas)Window.FindName("BackdropCanvas")!).Children
+                .OfType<System.Windows.Shapes.Path>()
+                .Count(path => path.Visibility == Visibility.Visible
+                    && path.Data is PathGeometry geometry
+                    && geometry.Figures.OfType<PathFigure>().Any(figure =>
+                        figure.Segments.OfType<ArcSegment>().Any()));
     }
 
     /// <summary>

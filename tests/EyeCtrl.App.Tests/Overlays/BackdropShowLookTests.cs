@@ -21,22 +21,31 @@ using Xunit;
 /// <summary>
 /// The flicker fix's confirmation look: PRODUCTION's show path only (no paired two-step), with a
 /// first-frame readout. Per case the window is shown, held, hidden, and shown again; the display
-/// affinity is lifted BEFORE the first show (in the test only) so the screen can be captured the
-/// instant <c>ShowBackdrop</c> returns plus two <c>DwmFlush</c> calls (one can return for a
-/// composition that began before ShowWindow) — that grab must already read as the
-/// finished backdrop (luma within ±10 % of the steady capture; the stddev not the bare desktop's for
-/// the blur, and matching the steady state for both) — then again after a ~2.5 s hold, and the same
-/// for the re-show:
+/// affinity is lifted BEFORE the first show (in the test only) so the screen can be captured.
+///
+/// <para>
+/// Three grabs per show, and which one is judged matters (review-11): (1) the raw first grab, the
+/// instant <c>ShowBackdrop</c> returns plus two <c>DwmFlush</c> calls — with no dispatcher pass the
+/// cloak is necessarily still up, so it reads the DESKTOP; it is logged as "not yet shown" and never
+/// judged. (2) The AT-UNCLOAK grab: pump until the cloak write lands, then grab at once — this is the
+/// frame that matters, because <c>UncloakAndFlush</c> presented the finished frame before lifting the
+/// cloak. It must read as the finished backdrop (luma within ±10 % of the steady capture; stddev within
+/// ±25 %; the stddev not the bare desktop's for the blur). (3) The steady grab after a ~2.5 s hold —
+/// which must also show the cloak is DOWN (a stuck cloak would hide the backdrop from the owner).
+/// </para>
+///
 /// <list type="number">
 /// <item>the owner's type at 0.30;</item>
-/// <item>Solid darken at 0.30.</item>
+/// <item>Solid darken at 0.30;</item>
+/// <item>the magnifier → ring hand-off at 0.30 (shown, then Hide and ShowBackdrop in two back-to-back dispatcher posts).</item>
 /// </list>
 ///
 /// <para>
-/// Machine lines: <c>kind</c>, <c>alpha</c>, <c>baseline-luma</c>/<c>baseline-stddev</c>, and for
-/// each show (<c>first-</c> and <c>reshow-first-</c>) the first and steady luma/stddev.
-/// <c>backdrop-show-look.ps1</c> checks each first frame against its own steady capture and the
-/// baseline, and names any offender. The affinity is restored in a <c>finally</c>.
+/// Machine lines: <c>kind</c>, <c>handoff</c>, <c>alpha</c>, <c>baseline-luma</c>/<c>baseline-stddev</c>,
+/// and for each show (<c>first-</c>/<c>atuncloak-</c>/<c>steady-</c> and <c>reshow-…</c>) the luma/stddev,
+/// <c>*-cloaked</c> flags and <c>*-state</c> (IsVisible + cloak). <c>backdrop-show-look.ps1</c> judges
+/// the at-uncloak grabs, never judges a cloaked first grab, and fails a case whose steady grab is still
+/// cloaked. The affinity is restored in a <c>finally</c>.
 /// </para>
 ///
 /// <para>
@@ -157,36 +166,56 @@ public class BackdropShowLookTests
                 DwmFlush();
                 var first = BackdropCapture.Grab();
                 var firstState = (window.IsVisible, lastCloak);
+                // With no dispatcher pass the cloak is still up, so this grab reads the desktop (the
+                // window is not composed) — logged as "not yet shown", never judged. The frame that
+                // matters is the AT-UNCLOAK one: pump until the cloak write is False, then grab at
+                // once (UncloakAndFlush presented the finished frame BEFORE lifting the cloak).
+                PumpUntilUncloaked(() => lastCloak);
+                var atUncloak = BackdropCapture.Grab();
+                var atUncloakState = (window.IsVisible, lastCloak);
                 LiveCheck.AssertShowsText(window, $"Backdrop show look, case {caseNumber} (first show)", "Mit Esc beenden");
                 if (dryRun) SkipVisibilityProof(caseNumber, "first show"); else LiveCheck.AssertVisible(window, $"Backdrop show look, case {caseNumber} (first show)");
                 LiveCheck.PumpFor(Hold);
                 var steady = BackdropCapture.Grab();
                 var steadyState = (window.IsVisible, lastCloak);
+                Check.WithCustomMessage(
+                        $"case {caseNumber} (first show): the cloak is STILL UP at the steady grab — a stuck cloak would hide the backdrop from the owner.")
+                    .That(lastCloak).IsFalse();
 
                 BackdropCapture.ScreenSample reshowFirst;
+                BackdropCapture.ScreenSample reshowAtUncloak;
                 BackdropCapture.ScreenSample reshowSteady;
                 (bool Visible, bool Cloak) reshowFirstState;
+                (bool Visible, bool Cloak) reshowAtUncloakState;
                 (bool Visible, bool Cloak) reshowSteadyState;
                 if (handOff)
                 {
                     // Production's hand-off: Hide and ShowBackdrop (and the caller's hint) in two
-                    // back-to-back dispatcher posts, ~1 ms apart. Drain at Background priority so just
-                    // those run — no hold, no frame pump — then grab straight after, the worst case.
+                    // back-to-back dispatcher posts, ~1 ms apart. Drain at NORMAL priority — not
+                    // Background, which would first run the Render base.Show() posted and hide the
+                    // very race this case exists to catch — so only the hand-off's posts run, then
+                    // grab straight after, the worst case.
                     policyCalls.Add("[handoff]");
                     dwmCalls.Add("[handoff]");
                     window.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(window.Hide));
                     window.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => window.ShowBackdrop(settings, centre)));
                     window.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(window.ShowEscapeHint));
-                    Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+                    Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Normal);
                     DwmFlush(); // twice: as above
                     DwmFlush();
                     reshowFirst = BackdropCapture.Grab();
                     reshowFirstState = (window.IsVisible, lastCloak);
                     LiveCheck.AssertShowsText(window, $"Backdrop show look, case {caseNumber} (hand-off)", "Mit Esc beenden");
                     if (dryRun) SkipVisibilityProof(caseNumber, "hand-off"); else LiveCheck.AssertVisible(window, $"Backdrop show look, case {caseNumber} (hand-off)");
+                    PumpUntilUncloaked(() => lastCloak);
+                    reshowAtUncloak = BackdropCapture.Grab();
+                    reshowAtUncloakState = (window.IsVisible, lastCloak);
                     LiveCheck.PumpFor(Hold);
                     reshowSteady = BackdropCapture.Grab();
                     reshowSteadyState = (window.IsVisible, lastCloak);
+                    Check.WithCustomMessage(
+                            $"case {caseNumber} (hand-off): the cloak is STILL UP at the steady grab — a stuck cloak.")
+                        .That(lastCloak).IsFalse();
                 }
                 else
                 {
@@ -201,9 +230,15 @@ public class BackdropShowLookTests
                     reshowFirstState = (window.IsVisible, lastCloak);
                     LiveCheck.AssertShowsText(window, $"Backdrop show look, case {caseNumber} (re-show)", "Mit Esc beenden");
                     if (dryRun) SkipVisibilityProof(caseNumber, "re-show"); else LiveCheck.AssertVisible(window, $"Backdrop show look, case {caseNumber} (re-show)");
+                    PumpUntilUncloaked(() => lastCloak);
+                    reshowAtUncloak = BackdropCapture.Grab();
+                    reshowAtUncloakState = (window.IsVisible, lastCloak);
                     LiveCheck.PumpFor(Hold);
                     reshowSteady = BackdropCapture.Grab();
                     reshowSteadyState = (window.IsVisible, lastCloak);
+                    Check.WithCustomMessage(
+                            $"case {caseNumber} (re-show): the cloak is STILL UP at the steady grab — a stuck cloak.")
+                        .That(lastCloak).IsFalse();
                 }
 
                 // The case-2 mystery probe: one more grab right after the final Hide. If the reading
@@ -227,25 +262,35 @@ public class BackdropShowLookTests
                     log.AppendLine("proof: visibility skipped (off-screen dry run); the text proof ran");
                 log.AppendLine($"Baseline (window hidden; the desktop): {BackdropCapture.Describe(baseline.Centre)}");
                 log.AppendLine($"First show, first frame: {BackdropCapture.Describe(first.Centre)}");
+                log.AppendLine($"First show, at uncloak: {BackdropCapture.Describe(atUncloak.Centre)}");
                 log.AppendLine($"First show, steady: {BackdropCapture.Describe(steady.Centre)}");
                 log.AppendLine($"Re-show, first frame: {BackdropCapture.Describe(reshowFirst.Centre)}");
+                log.AppendLine($"Re-show, at uncloak: {BackdropCapture.Describe(reshowAtUncloak.Centre)}");
                 log.AppendLine($"Re-show, steady: {BackdropCapture.Describe(reshowSteady.Centre)}");
                 log.AppendLine($"baseline-luma: {BackdropReadoutLines.Number(baseline.Centre.LumaMean)}");
                 log.AppendLine($"baseline-stddev: {BackdropReadoutLines.Number(baseline.Centre.LumaStdDev)}");
                 log.AppendLine($"first-luma: {BackdropReadoutLines.Number(first.Centre.LumaMean)}");
                 log.AppendLine($"first-stddev: {BackdropReadoutLines.Number(first.Centre.LumaStdDev)}");
+                log.AppendLine($"first-cloaked: {(firstState.Item2 ? "true" : "false")}");
+                log.AppendLine($"atuncloak-luma: {BackdropReadoutLines.Number(atUncloak.Centre.LumaMean)}");
+                log.AppendLine($"atuncloak-stddev: {BackdropReadoutLines.Number(atUncloak.Centre.LumaStdDev)}");
                 log.AppendLine($"steady-luma: {BackdropReadoutLines.Number(steady.Centre.LumaMean)}");
                 log.AppendLine($"steady-stddev: {BackdropReadoutLines.Number(steady.Centre.LumaStdDev)}");
                 log.AppendLine($"reshow-first-luma: {BackdropReadoutLines.Number(reshowFirst.Centre.LumaMean)}");
                 log.AppendLine($"reshow-first-stddev: {BackdropReadoutLines.Number(reshowFirst.Centre.LumaStdDev)}");
+                log.AppendLine($"reshow-first-cloaked: {(reshowFirstState.Item2 ? "true" : "false")}");
+                log.AppendLine($"reshow-atuncloak-luma: {BackdropReadoutLines.Number(reshowAtUncloak.Centre.LumaMean)}");
+                log.AppendLine($"reshow-atuncloak-stddev: {BackdropReadoutLines.Number(reshowAtUncloak.Centre.LumaStdDev)}");
                 log.AppendLine($"reshow-steady-luma: {BackdropReadoutLines.Number(reshowSteady.Centre.LumaMean)}");
                 log.AppendLine($"reshow-steady-stddev: {BackdropReadoutLines.Number(reshowSteady.Centre.LumaStdDev)}");
                 log.AppendLine($"after-hide-luma: {BackdropReadoutLines.Number(afterHide.Centre.LumaMean)}");
                 log.AppendLine($"after-hide-stddev: {BackdropReadoutLines.Number(afterHide.Centre.LumaStdDev)}");
                 log.AppendLine($"baseline-state: {Fmt(baselineState)}");
                 log.AppendLine($"first-state: {Fmt(firstState)}");
+                log.AppendLine($"atuncloak-state: {Fmt(atUncloakState)}");
                 log.AppendLine($"steady-state: {Fmt(steadyState)}");
                 log.AppendLine($"reshow-first-state: {Fmt(reshowFirstState)}");
+                log.AppendLine($"reshow-atuncloak-state: {Fmt(reshowAtUncloakState)}");
                 log.AppendLine($"reshow-steady-state: {Fmt(reshowSteadyState)}");
                 log.AppendLine($"after-hide-state: {Fmt(afterHideState)}");
                 log.AppendLine($"policy-calls: {string.Join(" ; ", policyCalls)}");
@@ -264,6 +309,18 @@ public class BackdropShowLookTests
             try { window?.Close(); } catch { /* the window may already be gone */ }
             Step3LiveCheckTests.EndShowcaseCase();
         }
+    }
+
+    /// <summary>
+    /// Pumps the dispatcher until the cloak write observed by the DWM seam has landed (or a 800 ms
+    /// timeout), so the grab right after reads the AT-UNCLOAK frame. Nothing is flushed here: the
+    /// uncloak's own <c>DwmFlush</c> ran BEFORE the write, presenting the finished frame.
+    /// </summary>
+    private static void PumpUntilUncloaked(Func<bool> cloaked)
+    {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (cloaked() && clock.ElapsedMilliseconds < 800)
+            LiveCheck.PumpFor(TimeSpan.FromMilliseconds(5));
     }
 
     /// <summary>

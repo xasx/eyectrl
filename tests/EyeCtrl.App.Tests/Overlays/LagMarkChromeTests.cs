@@ -103,11 +103,12 @@ public class LagMarkChromeTests
             bar.ShowButtons(KeyboardEdgeButtons.Definitions(450), anchor);
 
             var chrome = LagMarkChrome.CollectFromProduction(context);
+            var barBounds = LagMarkChrome.EdgeBarBounds(bar.EdgeBarVm!);
             Check.WithCustomMessage("the visible edge bar is not in the keep-clear chrome")
-                .That(chrome.Any(r => r == LagMarkChrome.EdgeBarBounds(bar.EdgeBarVm!)!.Value)).IsTrue();
+                .That(chrome.Any(r => r == barBounds)).IsTrue();
 
             // The reviewer's measured bar: Close at 804 DIP, Flip at 924, radius 50 + margin 10.
-            var barRect = LagMarkChrome.EdgeBarBounds(bar.EdgeBarVm!).Value;
+            var barRect = barBounds!.Value;
             Check.That(barRect).IsEqualTo(new Rect(1770, 744, 120, 240));
 
             var window = new LagMarkWindow(dwellMs: 25, keepClear: () => chrome);

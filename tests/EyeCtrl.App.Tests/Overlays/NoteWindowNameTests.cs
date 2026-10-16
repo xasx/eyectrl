@@ -109,6 +109,59 @@ public class NoteWindowNameTests
         Check.That(file.Text.Contains("FocusEditor")).IsFalse();
     }
 
+    [StaFact]
+    public void EditToDisplayToEdit_KeepsTheRightGlyphsVisible_AtEveryStep()
+    {
+        // Fixup B1: every note is CREATED in Edit (before Show), so a canvas that drew only the
+        // current state's buttons could never gain the Display set after the first Done —
+        // SetState(Display) un-hid buttons that did not exist while their dwell targets went
+        // live. Both sets are drawn once and the state picks the visible one; this transition
+        // pins the visible glyphs AND their UIA names at every step.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new NoteWindow("p1-transition");
+        window.SetState(NoteState.Edit);
+        // The manager drives ⌨ visibility from the probe (hidden → drawn); the window alone
+        // defaults it to hidden, so each Edit phase sets it the way an entry does.
+        window.SetKeyboardControlVisible(true);
+        window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+
+        AssertVisibleButtons(window, expectEditSet: true);
+        window.SetState(NoteState.Display);
+        AssertVisibleButtons(window, expectEditSet: false);
+        window.SetState(NoteState.Edit);
+        window.SetKeyboardControlVisible(true);
+        AssertVisibleButtons(window, expectEditSet: true);
+    }
+
+    private static void AssertVisibleButtons(NoteWindow window, bool expectEditSet)
+    {
+        var texts = TextBlocks((Canvas)window.Content).ToList();
+        var visible = texts.Where(t => t.Visibility == Visibility.Visible).ToList();
+        var visibleGlyphs = visible.Select(t => t.Text).ToList();
+        var visibleNames = visible
+            .Select(AutomationProperties.GetName)
+            .Where(n => !string.IsNullOrEmpty(n)).ToList();
+
+        if (expectEditSet)
+        {
+            Check.WithCustomMessage("Edit must show its own glyphs, got: " + string.Join("|", visibleGlyphs))
+                .That(visibleGlyphs).Contains("✓", "⌨");
+            Check.WithCustomMessage("Edit must not show the Display glyphs")
+                .That(visibleGlyphs.Any(g => g is "✕" or "✎" or "↕")).IsFalse();
+            Check.WithCustomMessage("Edit's buttons must speak their UIA names")
+                .That(visibleNames).Contains("Done", "Show keyboard");
+        }
+        else
+        {
+            Check.WithCustomMessage("Display must show its own glyphs, got: " + string.Join("|", visibleGlyphs))
+                .That(visibleGlyphs).Contains("✕", "✎", "↕");
+            Check.WithCustomMessage("Display must not show the Edit glyphs")
+                .That(visibleGlyphs.Any(g => g is "✓" or "⌨")).IsFalse();
+            Check.WithCustomMessage("Display's buttons must speak their UIA names")
+                .That(visibleNames).Contains("Close note", "Edit note", "Move note");
+        }
+    }
+
     /// <summary>Every TextBlock in the note's drawn tree — the button glyphs sit on the canvas, the
     /// caption inside the title bar's Border.</summary>
     private static IEnumerable<TextBlock> TextBlocks(DependencyObject root)

@@ -217,10 +217,15 @@ public class NoteWindow : OverlayWindow
 
     private void DrawButtons()
     {
-        // Two sets over the same three slots (P1 D7), so Done and (in P2) Discard stay one slot
-        // apart and the dwell-target math (NoteLayout.ButtonCenter) never changes:
+        // BOTH sets are drawn once, over the same three slots (P1 D7, fixup B1), so Done and
+        // (in P2) Discard stay one slot apart and the dwell-target math (NoteLayout.ButtonCenter)
+        // never changes:
         //   Display: 0 ✕ close, 1 ✎ edit, 2 ↕ move
         //   Edit:    0 ✓ Done (AccentSuccess), 1 ⌨ Show keyboard (Accent, keyboard-hidden only), 2 empty
+        // Every note is created in Edit before Show(), so a canvas that drew only the current
+        // state's set could never gain the Display controls later — SetState(Display) would
+        // unhide buttons that do not exist while their dwell targets go live. UpdateButtonVisibility
+        // picks the visible set per state; the hidden twin of each slot is Collapsed.
         // The fourth field is the button's UIA name: the disc is an Ellipse (no automation peer),
         // and the glyph label would otherwise announce as its own symbol, so the name goes on the
         // peer-bearing TextBlock (D11).
@@ -237,49 +242,51 @@ public class NoteWindow : OverlayWindow
             ("none",     "",  Tokens.AccentDanger, string.Empty),
         ];
 
-        var symbols = _state == NoteState.Edit ? _editButtons : _displayButtons;
-        for (int i = 0; i < 3; i++)
+        foreach (var symbols in new[] { _displayButtons, _editButtons })
         {
-            var (suffix, symbol, color, accessibleName) = symbols[i];
-            // Window-relative logical center, shared with NoteManager's dwell-target placement.
-            var (cx, cy) = NoteLayout.ButtonCenter(i);
-
-            var ellipse = new Ellipse
+            for (int i = 0; i < symbols.Length; i++)
             {
-                Width = ButtonDiameter, Height = ButtonDiameter,
-                Fill = Tokens.BrushSurfaceMedium,
-                Stroke = new SolidColorBrush(color),
-                StrokeThickness = 1
-            };
-            Canvas.SetLeft(ellipse, cx - ButtonRadius);
-            Canvas.SetTop(ellipse, cy - ButtonRadius);
-            _canvas.Children.Add(ellipse);
-            _buttons[$"{_noteId}:{suffix}"] = ellipse;
+                var (suffix, symbol, color, accessibleName) = symbols[i];
+                // Window-relative logical center, shared with NoteManager's dwell-target placement.
+                var (cx, cy) = NoteLayout.ButtonCenter(i);
 
-            var label = new TextBlock
-            {
-                Text = symbol,
-                // Sized from the 60px button disc that bounds it (ButtonDiameter above).
-                FontSize = ButtonDiameter * ContainerRatio.Small,
-                Foreground = new SolidColorBrush(color),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            Canvas.SetLeft(label, cx - 8);
-            Canvas.SetTop(label, cy - 10);
-            if (accessibleName.Length > 0)
-                System.Windows.Automation.AutomationProperties.SetName(label, accessibleName);
-            _canvas.Children.Add(label);
-            _buttonLabels[$"{_noteId}:{suffix}"] = label;
+                var ellipse = new Ellipse
+                {
+                    Width = ButtonDiameter, Height = ButtonDiameter,
+                    Fill = Tokens.BrushSurfaceMedium,
+                    Stroke = new SolidColorBrush(color),
+                    StrokeThickness = 1
+                };
+                Canvas.SetLeft(ellipse, cx - ButtonRadius);
+                Canvas.SetTop(ellipse, cy - ButtonRadius);
+                _canvas.Children.Add(ellipse);
+                _buttons[$"{_noteId}:{suffix}"] = ellipse;
 
-            var arcPath = new Path
-            {
-                Stroke = Tokens.BrushAccent,
-                StrokeThickness = 3, Visibility = Visibility.Hidden
-            };
-            Canvas.SetLeft(arcPath, 0); Canvas.SetTop(arcPath, 0);
-            _canvas.Children.Add(arcPath);
-            _arcs[$"{_noteId}:{suffix}"] = (arcPath, -90);
+                var label = new TextBlock
+                {
+                    Text = symbol,
+                    // Sized from the 60px button disc that bounds it (ButtonDiameter above).
+                    FontSize = ButtonDiameter * ContainerRatio.Small,
+                    Foreground = new SolidColorBrush(color),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Canvas.SetLeft(label, cx - 8);
+                Canvas.SetTop(label, cy - 10);
+                if (accessibleName.Length > 0)
+                    System.Windows.Automation.AutomationProperties.SetName(label, accessibleName);
+                _canvas.Children.Add(label);
+                _buttonLabels[$"{_noteId}:{suffix}"] = label;
+
+                var arcPath = new Path
+                {
+                    Stroke = Tokens.BrushAccent,
+                    StrokeThickness = 3, Visibility = Visibility.Hidden
+                };
+                Canvas.SetLeft(arcPath, 0); Canvas.SetTop(arcPath, 0);
+                _canvas.Children.Add(arcPath);
+                _arcs[$"{_noteId}:{suffix}"] = (arcPath, -90);
+            }
         }
     }
 
@@ -294,10 +301,16 @@ public class NoteWindow : OverlayWindow
     /// </summary>
     private void UpdateButtonVisibility()
     {
+        // Both sets EXIST on the canvas now (fixup B1), so every branch must set every key
+        // explicitly — a fresh Ellipse's default Visibility is Visible, and an untouched twin
+        // would render on top of the active set.
         if (_state == NoteState.Edit)
         {
             SetButtonVisible("done", true);
             SetButtonVisible("keyboard", _keyboardControlVisible);
+            SetButtonVisible("close", false);
+            SetButtonVisible("edit", false);
+            SetButtonVisible("move", false);
             SetButtonVisible("none", false);
             return;
         }
@@ -307,6 +320,7 @@ public class NoteWindow : OverlayWindow
         SetButtonVisible("close", _state != NoteState.Move);
         SetButtonVisible("edit", _state == NoteState.Display);
         SetButtonVisible("move", _state == NoteState.Display);
+        SetButtonVisible("none", false);
     }
 
     private bool _keyboardControlVisible;

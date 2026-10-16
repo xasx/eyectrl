@@ -37,6 +37,7 @@ public class EventCoordinator : IEventCoordinator
     private SettingsUiCoordinator? _settingsUi;
     private ActivationOfferCoordinator? _activationOffers;
     private SubPixelProbeCoordinator? _probe;
+    private KeyboardProbe? _keyboardProbe;
 
     /// <summary>
     /// Gets the word predictor instance used for keyboard predictions, if enabled.
@@ -148,6 +149,15 @@ public class EventCoordinator : IEventCoordinator
         // window, so the probe must be able to suspend them while its own window covers the screen.
         // The predicate reads the shared flag per sample; the probe sets it while a run is live.
         context.NoteManager.SetSuspendPredicate(() => _modal.ProbeOpen);
+
+        // The notes' keyboard probe (P1 D5), wired once like the suspend predicate above: the
+        // summon/release of the keyboard around Edit, the ⌨ control, the keyboard-gate on note
+        // dwell and the foreign-hide detection all read through it.
+        _keyboardProbe = new KeyboardProbe(
+            context.KeyboardVM, context.Dispatcher, context.Messenger,
+            () => context.OverlayManager.Keyboard,
+            () => context.OverlayManager.EdgeButtonBar.EdgeBarVm);
+        context.NoteManager.SetKeyboardProbe(_keyboardProbe);
 
         _scrollModeController = new ScrollModeController(context);
 
@@ -269,6 +279,11 @@ public class EventCoordinator : IEventCoordinator
         // its own messenger registration must go before those coordinators' teardown noise.
         _probe?.Dispose();
         _probe = null;
+
+        // The notes' keyboard probe (P1 D5) unsubscribes its own sources (the keyboard VM, the
+        // keyboard window, the edge bar VM and the edge-toggled message).
+        _keyboardProbe?.Dispose();
+        _keyboardProbe = null;
 
         // Dispose the keyboard sub-coordinator (handles its own SkinToneChanged unsubscribe,
         // message cleanup, and PredictionStackFactory disposal — the factory moved here in cluster 3).

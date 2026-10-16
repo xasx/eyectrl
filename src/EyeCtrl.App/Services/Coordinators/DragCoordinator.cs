@@ -135,9 +135,15 @@ internal sealed class DragCoordinator : CoordinatorBase
         //   2. the backdrop's pending hide is completed synchronously (F1) before the button goes
         //      down. A listenerless context (focused coordinator tests) leaves nothing pending, so
         //      the completion is a no-op there — as it is when no menu/backdrop was up at all.
+        // The overlay manager is read through a NULLABLE local: the drag-release tests run a harness
+        // with no OverlayManager on purpose (TestFakes.MakeDragContext — their teardown must throw
+        // AFTER the release), and the press must still happen there. A `?.` on
+        // Context.OverlayManager itself would make the compiler treat it as maybe-null for the rest
+        // of this method (CS8602 at the setup's EdgeButtonBar below).
         if (Context.ActionMenuVM is { } menuVm)
             menuVm.IsVisible = false;
-        var backdrop = Context.OverlayManager?.GlassBackdrop;
+        IOverlayManager? overlays = Context.OverlayManager;
+        var backdrop = overlays?.GlassBackdrop;
         backdrop?.CompleteHideNow();
 
         Log.Information("Drag: MouseDown at ({X:F0}, {Y:F0}) [BackdropVisible={BackdropVisible}]",

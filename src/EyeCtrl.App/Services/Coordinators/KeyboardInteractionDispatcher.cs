@@ -152,13 +152,15 @@ internal sealed class KeyboardInteractionDispatcher : CoordinatorBase
         // the backdrop itself. Finish the pending hide before anything is injected or logged. The
         // magnifier → menu hand-off injects nothing and never reaches this handler, so its deferred
         // hide (canceled by ShowBackdrop) is untouched; an action with no hide pending (the backdrop
-        // was not up) is likewise a no-op.
-        var backdrop = Context.OverlayManager?.GlassBackdrop;
-        backdrop?.CompleteHideNow();
+        // was not up) is likewise a no-op. OverlayManager is read unconditionally, as the
+        // highlight cleanup below already does (a `?.` here made the compiler treat it as
+        // maybe-null for the rest of the handler: CS8602).
+        var backdrop = Context.OverlayManager.GlassBackdrop;
+        backdrop.CompleteHideNow();
 
         var pt = msg.IsPreciseTarget ? msg.Point : (Context.GazeEngine.StableCentroid ?? msg.Point);
         Log.Information("Action: {Action} at ({X:F0}, {Y:F0}) [PreciseTarget={IsPreciseTarget}] [Modifiers={Modifiers}] [BackdropVisible={BackdropVisible}]",
-            msg.Action, pt.X, pt.Y, msg.IsPreciseTarget, msg.Modifiers, backdrop?.IsVisible ?? false);
+            msg.Action, pt.X, pt.Y, msg.IsPreciseTarget, msg.Modifiers, backdrop.IsVisible);
 
         if (msg.Action == InteractionAction.PinNote)
         {

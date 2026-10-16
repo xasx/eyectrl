@@ -214,6 +214,8 @@ public class BackdropDarknessLookTests
             }
 
             log.AppendLine($"policy-calls: {string.Join(" ; ", policyCalls)}");
+            if (dryRun)
+                log.AppendLine("proof: visibility skipped (off-screen dry run); the text proof ran");
             BackdropCapture.WriteLog(caseNumber, tag, log.ToString());
             LiveCheck.PumpFor(TimeSpan.FromSeconds(4));
         }

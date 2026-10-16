@@ -56,6 +56,10 @@ Use test mode to skip the splash screen and force mouse-cursor-as-gaze mode:
 dotnet run --project src/EyeCtrl.App -- --test-mode
 ```
 
+The gaze ring runs the **hybrid** arm by default (a run-only pin with a freeze hold inside the
+activation button). The ring look's diagnostic arms are available per launch:
+`--ring-arm=today` or `--ring-arm=run-only`; every launch logs its arm (`Ring arm: … [source: …]`).
+
 The supervisor is a separate Windows application. It can be launched directly when testing watchdog behavior:
 
 ```bash

@@ -1891,7 +1891,7 @@
     "args": []
   },
   "settings.advanced.backdrop_opacity.description": {
-    "text": "How dark the backdrop is — the tint over the blur, or the fill of Solid Darken; applies from the next open.",
+    "text": "How dark the backdrop is — for both types; applies from the next open.",
     "who": "user",
     "where": "settings",
     "fit": "prose",
@@ -1905,7 +1905,7 @@
     "args": []
   },
   "settings.advanced.backdrop_type.description": {
-    "text": "The dimming material; Acrylic and Mica blur, Solid Darken only tints.",
+    "text": "The dimming material; Glass blurs what's behind, Solid Darken only tints it.",
     "who": "user",
     "where": "settings",
     "fit": "prose",
@@ -1918,15 +1918,8 @@
     "fit": "row",
     "args": []
   },
-  "settings.advanced.backdrop_type.option.acrylic": {
-    "text": "Acrylic",
-    "who": "user",
-    "where": "settings",
-    "fit": "row",
-    "args": []
-  },
-  "settings.advanced.backdrop_type.option.mica": {
-    "text": "Mica",
+  "settings.advanced.backdrop_type.option.glass": {
+    "text": "Glass",
     "who": "user",
     "where": "settings",
     "fit": "row",

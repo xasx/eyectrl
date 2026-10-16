@@ -203,8 +203,7 @@ public class SettingsService
         try
         {
             var json = File.ReadAllText(_filePath);
-            var migratedJson = ClampKeyboardDwellFloor(
-                MigrateCursorFilterUnits(MigrateDragActions(json)));
+            var migratedJson = RunPreDeserializeMigrations(json);
             if (!ReferenceEquals(json, migratedJson))
             {
                 // Atomic, like Save: this is a write during startup, and a torn one would leave the
@@ -368,66 +367,85 @@ public class SettingsService
 
     private EyeCtrlSettings LoadWithSectionRepair(string json)
     {
-        if (JsonNode.Parse(json) is not JsonObject root)
-            throw new JsonException("Settings file root is not a JSON object.");
-
-        foreach (var (clrName, sectionType) in SectionTypes())
+        // Defence in depth (review-02 R1, review-02's recommended backstop): JsonNode's lazy
+        // navigation throws ArgumentException over a duplicated property — the DOM refusing the
+        // ambiguous access — and before this catch that escaped Load entirely into the all-defaults
+        // answer. The duplicate normalizer in RunPreDeserializeMigrations makes it unreachable for
+        // a parseable file (every migration step, this walk and the deserializer see deduplicated
+        // JSON), so this is the last resort for a shape that slipped past it. The best available
+        // outcome is the same verdict the outer catch would give — whole-file defaults — but with
+        // the cause named in the log instead of an unhandled escape, and with the logger context
+        // Load's outer catch lacks.
+        try
         {
-            var key = ResolveKey(root, clrName);
-            if (key is null) continue;   // absent: the fresh default instance applies
-            if (root[key] is not JsonObject section)
+            if (JsonNode.Parse(json) is not JsonObject root)
+                throw new JsonException("Settings file root is not a JSON object.");
+
+            foreach (var (clrName, sectionType) in SectionTypes())
             {
-                // A null literal, scalar, or array where a section object belongs.
-                root.Remove(key);
-                _logger?.LogWarning("Settings section '{Section}' in {FilePath} is not an object; reset to defaults.",
-                    clrName, _filePath);
-                continue;
+                var key = ResolveKey(root, clrName);
+                if (key is null) continue;   // absent: the fresh default instance applies
+                if (root[key] is not JsonObject section)
+                {
+                    // A null literal, scalar, or array where a section object belongs.
+                    root.Remove(key);
+                    _logger?.LogWarning("Settings section '{Section}' in {FilePath} is not an object; reset to defaults.",
+                        clrName, _filePath);
+                    continue;
+                }
+
+                if (SectionAccepts(section, sectionType)) continue;
+
+                if (TryDropOneAccept(section, sectionType, out var repaired, out var dropped))
+                {
+                    root[key] = repaired;
+                    _logger?.LogWarning("Invalid setting '{Section}.{Property}' in {FilePath} dropped; it reverts to its default and the rest of the file loads.",
+                        clrName, dropped, _filePath);
+                }
+                else
+                {
+                    root.Remove(key);
+                    _logger?.LogWarning("Settings section '{Section}' in {FilePath} has multiple invalid values; the section reverts to defaults and the rest of the file loads.",
+                        clrName, _filePath);
+                }
             }
 
-            if (SectionAccepts(section, sectionType)) continue;
+            foreach (var (name, type) in RootScalarProperties)
+            {
+                var key = ResolveKey(root, name);
+                if (key is null) continue;
+                if (root[key] is not JsonNode)   // null literal
+                {
+                    root.Remove(key);
+                    continue;
+                }
+                try
+                {
+                    var value = root[key]!.Deserialize(type, JsonOptions);
+                    // Scalars have no Validate(); for enums, defined-ness is the scalar analogue —
+                    // JsonStringEnumConverter accepts any integer, so "viewPosition": 999 would
+                    // otherwise survive as an undefined enum value (#153 review F3). [Flags]
+                    // combinations are exempt via IsUndefinedEnumValue (round-2 finding 8).
+                    if (value is null || IsUndefinedEnumValue(type, value))
+                        throw new InvalidOperationException($"Invalid value for root setting '{name}'.");
+                }
+                catch (Exception ex)
+                {
+                    root.Remove(key);
+                    _logger?.LogWarning(ex, "Invalid setting '{Property}' in {FilePath} dropped; it reverts to its default.",
+                        name, _filePath);
+                }
+            }
 
-            if (TryDropOneAccept(section, sectionType, out var repaired, out var dropped))
-            {
-                root[key] = repaired;
-                _logger?.LogWarning("Invalid setting '{Section}.{Property}' in {FilePath} dropped; it reverts to its default and the rest of the file loads.",
-                    clrName, dropped, _filePath);
-            }
-            else
-            {
-                root.Remove(key);
-                _logger?.LogWarning("Settings section '{Section}' in {FilePath} has multiple invalid values; the section reverts to defaults and the rest of the file loads.",
-                    clrName, _filePath);
-            }
+            return root.Deserialize<EyeCtrlSettings>(JsonOptions) ?? new EyeCtrlSettings();
         }
-
-        foreach (var (name, type) in RootScalarProperties)
+        catch (ArgumentException ex)
         {
-            var key = ResolveKey(root, name);
-            if (key is null) continue;
-            if (root[key] is not JsonNode)   // null literal
-            {
-                root.Remove(key);
-                continue;
-            }
-            try
-            {
-                var value = root[key]!.Deserialize(type, JsonOptions);
-                // Scalars have no Validate(); for enums, defined-ness is the scalar analogue —
-                // JsonStringEnumConverter accepts any integer, so "viewPosition": 999 would
-                // otherwise survive as an undefined enum value (#153 review F3). [Flags]
-                // combinations are exempt via IsUndefinedEnumValue (round-2 finding 8).
-                if (value is null || IsUndefinedEnumValue(type, value))
-                    throw new InvalidOperationException($"Invalid value for root setting '{name}'.");
-            }
-            catch (Exception ex)
-            {
-                root.Remove(key);
-                _logger?.LogWarning(ex, "Invalid setting '{Property}' in {FilePath} dropped; it reverts to its default.",
-                    name, _filePath);
-            }
+            _logger?.LogError(ex,
+                "Settings repair walk in {FilePath} refused an ambiguous JSON access (a duplicate that survived normalization); answering with defaults.",
+                _filePath);
+            return new EyeCtrlSettings();
         }
-
-        return root.Deserialize<EyeCtrlSettings>(JsonOptions) ?? new EyeCtrlSettings();
     }
 
     /// <summary>The section map for the repair pass: every sub-settings property from
@@ -1033,4 +1051,230 @@ public class SettingsService
 
         return Encoding.UTF8.GetString(stream.ToArray());
     }
+
+    // ── The migration runner: every step fail-safe on its own ────────────────────────────────────
+    //
+    // WHY the containment lives here (review-01 F1): a step can throw exception types the steps do
+    // not catch themselves — a hand-edit that duplicates a key makes JsonNode's indexers throw
+    // ArgumentException, not JsonException — and an escape would skip the tolerant #153 path and
+    // land in Load's outer catch, whose whole-file defaults the App then saves on exit. So every
+    // step runs guarded: on ANY exception its input is kept (the user's most recent good JSON) and
+    // the remaining steps STILL RUN, each on the best JSON so far. The write-back in Load persists
+    // exactly the changes the successful steps produced: a step that failed left its input
+    // reference in place, so it contributes nothing.
+    //
+    // WHY NormalizeDuplicateProperties is FIRST (review-02 R1): skipping a step is safe, but the
+    // duplicate it skipped on does not go away — the whole-graph deserializer then meets the
+    // defect, and the #153 repair's own JsonNode walk throws the same ArgumentException, which
+    // nothing below catches: whole-file defaults, again. Normalizing up front means no later
+    // consumer meets a duplicate at all, so a hand-copied line can never cost the file — closing
+    // P4/P13/P14 (root duplicate + a value needing repair), plus P1/P15 (a section that used to
+    // take D5's multi-fault verdict).
+    private string RunPreDeserializeMigrations(string json)
+    {
+        var current = json;
+        current = RunMigrationStep(NormalizeDuplicateProperties, nameof(NormalizeDuplicateProperties), current);
+        current = RunMigrationStep(MigrateDragActions, nameof(MigrateDragActions), current);
+        current = RunMigrationStep(MigrateCursorFilterUnits, nameof(MigrateCursorFilterUnits), current);
+        current = RunMigrationStep(ClampKeyboardDwellFloor, nameof(ClampKeyboardDwellFloor), current);
+        current = RunBackdropTypeMigration(current);
+        return current;
+    }
+
+    private string RunMigrationStep(Func<string, string> step, string name, string json)
+    {
+        try
+        {
+            return step(json);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex,
+                "Settings migration {Migration} failed for {FilePath}; its input is kept and the remaining migrations still run.",
+                name, _filePath);
+            return json;
+        }
+    }
+
+    /// <summary>
+    /// The backdrop-name step, plus the owner-approved one-time backup: when the step ACTUALLY
+    /// rewrites the JSON (mica/acrylic/numeric 1 -> glass) the original FILE is copied to
+    /// <c>settings.json.bak-glass</c> first, once and never over an existing backup, so the
+    /// pre-rename file survives even a bad rename by hand. A failed step backs up nothing; a
+    /// failed backup write is logged and never blocks the load.
+    /// </summary>
+    private string RunBackdropTypeMigration(string json)
+    {
+        var migrated = RunMigrationStep(MigrateBackdropTypeToGlass, nameof(MigrateBackdropTypeToGlass), json);
+        if (!string.Equals(json, migrated, StringComparison.Ordinal))
+            WriteGlassBackupOnce();
+        return migrated;
+    }
+
+    private void WriteGlassBackupOnce()
+    {
+        var backupPath = _filePath + GlassBackupSuffix;
+        try
+        {
+            if (File.Exists(backupPath)) return;
+            File.Copy(_filePath, backupPath);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Failed to write the pre-migration backup {BackupPath}; the load continues.", backupPath);
+        }
+    }
+
+    // ── Duplicate-property normalizer (review-02 R1) ─────────────────────────────────────────────
+    //
+    // WHY: JsonDocument tolerates a duplicated property (unlike JsonNode's lazy indexers, which
+    // throw ArgumentException on first access), and this walk rebuilds the text keeping the LAST
+    // occurrence at every level — the deserializer's own rule, the one main already applies to a
+    // duplicate whose values are valid. Applied before every other consumer, it is what makes the
+    // owner's ordinary hand-edit (a copied line) harmless instead of a whole-file loss. Only a
+    // file that really has a duplicate is re-serialized: the output is a new string exactly when
+    // one was found, so an intact file stays byte-identical and never triggers a write-back.
+    private string NormalizeDuplicateProperties(string json)
+    {
+        JsonDocument document;
+        try { document = JsonDocument.Parse(json); }
+        catch (JsonException) { return json; }   // unparseable: leave it to Load's own error path
+
+        using (document)
+        {
+            var duplicates = new List<string>();
+            using var stream = new MemoryStream();
+            // Indented, matching Save's `ToJsonString(JsonOptions)` and the other migrations: this
+            // step is the ONLY writer when a duplicate-only file heals, and the owner hand-edits
+            // this file — a one-line settings.json (review-03 N1) would be hostile to open. The
+            // default encoder is the one JsonSerializerOptions uses too, so escaping matches.
+            using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+                WriteDeduplicated(document.RootElement, writer, "$", duplicates);
+
+            if (duplicates.Count == 0)
+                return json;
+
+            // A JSON path per duplicated property, each named once. A WARNING, not an error: the
+            // walk repairs the file losslessly, so this is diagnosis for a future report, not a
+            // user-facing failure.
+            var distinct = duplicates.Distinct(StringComparer.Ordinal).ToList();
+            _logger?.LogWarning(
+                "Duplicate propert{Plural} in {FilePath}; the last occurrence of each was kept: {Paths}",
+                distinct.Count == 1 ? "y" : "ies", _filePath, string.Join(", ", distinct));
+            return Encoding.UTF8.GetString(stream.ToArray());
+        }
+    }
+
+    /// <summary>Rewrites <paramref name="element"/> keeping the last member of each duplicated
+    /// object property, recursively; appends each duplicated JSON path to
+    /// <paramref name="duplicates"/>.</summary>
+    private static void WriteDeduplicated(JsonElement element, Utf8JsonWriter writer, string path, List<string> duplicates)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+            {
+                var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+                foreach (var property in element.EnumerateObject())
+                    counts[property.Name] = counts.TryGetValue(property.Name, out var count) ? count + 1 : 1;
+
+                foreach (var name in counts.Keys)
+                    if (counts[name] > 1)
+                        duplicates.Add($"{path}.{name}");
+
+                writer.WriteStartObject();
+                foreach (var name in counts.Keys)
+                {
+                    JsonElement? last = null;
+                    foreach (var property in element.EnumerateObject())
+                        if (property.NameEquals(name))
+                            last = property.Value;   // document order: the last occurrence wins
+
+                    writer.WritePropertyName(name);
+                    WriteDeduplicated(last!.Value, writer, $"{path}.{name}", duplicates);
+                }
+
+                writer.WriteEndObject();
+                break;
+            }
+
+            case JsonValueKind.Array:
+            {
+                writer.WriteStartArray();
+                var index = 0;
+                foreach (var item in element.EnumerateArray())
+                    WriteDeduplicated(item, writer, $"{path}[{index++}]", duplicates);
+                writer.WriteEndArray();
+                break;
+            }
+
+            default:
+                element.WriteTo(writer);
+                break;
+        }
+    }
+
+    // ── Backdrop type merge (Mica + Acrylic -> Glass, 2026-10-16) ────────────────────────────────
+    //
+    // WHY raw JSON: Mica and Acrylic had drawn the same material since 2026-10-14, so they merged
+    // into one Glass member — and with the old members gone from the enum, an existing file's
+    // "mica"/"acrylic" is an unknown enum string. JsonStringEnumConverter THROWS on that inside
+    // Deserialize, and the #153 repair then answers by reverting the section's TYPE (or, beside
+    // any second in-section defect, the whole section). This owner hand-edits settings.json (the
+    // .bak-* files on record), so the read REWRITES the legacy names, never rejects them: both map
+    // onto Glass — the blur they already drew — the migrated JSON is persisted by Load's atomic
+    // write-back, and new saves write "glass". Matching is case-insensitive because a hand-editor
+    // may spell it "Mica".
+    //
+    // The NUMERIC form rides the same rule (JsonStringEnumConverter accepts integers — see the
+    // #153 F3 note above): the old member order was Acrylic = 0, Mica = 1, SolidDarken = 2, and
+    // the new one pins Glass = 0 / SolidDarken = 2 for exactly this compatibility, so 0 and 2
+    // still deserialize to their old materials and only the old Mica's 1 — undefined under the
+    // new values on purpose — is rewritten. One number, or the name it used to spell.
+    private const string BackdropSectionName = "backdrop";
+    private const string BackdropTypeKey = "type";
+    private const string GlassBackdropTypeName = "glass";
+    private const string LegacyMicaName = "mica";
+    private const string LegacyAcrylicName = "acrylic";
+    private const int LegacyMicaOrdinal = 1;
+
+    /// <summary>The one-time pre-rename backup, beside the settings file (owner decision, review-01:
+    /// "keep a one-time backup" — written only when the backdrop rewrite actually happens).</summary>
+    internal const string GlassBackupSuffix = ".bak-glass";
+
+    private static string MigrateBackdropTypeToGlass(string json)
+    {
+        // Cheap reject: only a file that mentions a legacy name OR carries a backdrop section can
+        // need a rewrite. The section key is in the trigger because a hand-editor may have
+        // REPLACED "acrylic" with the bare number 1 — no legacy text left anywhere — and the
+        // numeric form is the other half of the compatibility this migration owns. The parse is
+        // only reached for a file with a backdrop section; anything else answers unchanged.
+        if (!json.Contains($"\"{LegacyMicaName}\"", StringComparison.OrdinalIgnoreCase)
+            && !json.Contains($"\"{LegacyAcrylicName}\"", StringComparison.OrdinalIgnoreCase)
+            && !json.Contains($"\"{BackdropSectionName}\"", StringComparison.Ordinal))
+            return json;
+
+        JsonObject? root;
+        try { root = JsonNode.Parse(json) as JsonObject; }
+        catch (JsonException) { return json; }   // unparseable: leave it to Load's own error path
+
+        if (root?[BackdropSectionName] is not JsonObject backdrop)
+            return json;
+        if (backdrop[BackdropTypeKey] is not JsonValue typeValue)
+            return json;
+
+        bool rewrite = typeValue.TryGetValue(out string? type)
+            ? IsLegacyBlurName(type)
+            : typeValue.TryGetValue(out int number) && number == LegacyMicaOrdinal;
+        if (!rewrite)
+            return json;
+
+        backdrop[BackdropTypeKey] = GlassBackdropTypeName;
+        return root.ToJsonString(JsonOptions);
+    }
+
+    private static bool IsLegacyBlurName(string? name) =>
+        name is not null
+        && (name.Equals(LegacyMicaName, StringComparison.OrdinalIgnoreCase)
+            || name.Equals(LegacyAcrylicName, StringComparison.OrdinalIgnoreCase));
 }

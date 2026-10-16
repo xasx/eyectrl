@@ -55,8 +55,7 @@ public class GlassBackdropMaterialPathTests
     }
 
     [StaTheory]
-    [InlineData(BackdropType.Mica)]
-    [InlineData(BackdropType.Acrylic)]
+    [InlineData(BackdropType.Glass)]
     public void ApplyBackdrop_BlurAt030_SendsTheFixedGlassTint_AndAddsOneBlackDimLayerBelowTheClose(BackdropType type)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
@@ -97,8 +96,7 @@ public class GlassBackdropMaterialPathTests
     }
 
     [StaTheory]
-    [InlineData(BackdropType.Mica)]
-    [InlineData(BackdropType.Acrylic)]
+    [InlineData(BackdropType.Glass)]
     public void ApplyBackdrop_BlurAt060_ScalesTheDimLayer_ButKeepsTheGlassTintFixed(BackdropType type)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
@@ -135,7 +133,7 @@ public class GlassBackdropMaterialPathTests
             var recorder = new RecordingAccentPolicy { Result = 0 };
             window.SetAccentPolicy = recorder.Call;
 
-            window.ApplyBackdrop(new BackdropSettings { Type = BackdropType.Acrylic, Enabled = true, Opacity = 0.4 });
+            window.ApplyBackdrop(new BackdropSettings { Type = BackdropType.Glass, Enabled = true, Opacity = 0.4 });
 
             Check.That(recorder.Calls[1].State).IsEqualTo(4);
             var rects = Rectangles(window);
@@ -151,8 +149,7 @@ public class GlassBackdropMaterialPathTests
     }
 
     [StaTheory]
-    [InlineData(BackdropType.Mica)]
-    [InlineData(BackdropType.Acrylic)]
+    [InlineData(BackdropType.Glass)]
     public void ApplyBackdrop_WithTheRealSetter_AddsTheDimLayer_AndNoDwmBackdrop(BackdropType type)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
@@ -245,7 +242,7 @@ public class GlassBackdropMaterialPathTests
             var recorder = new RecordingAccentPolicy { Result = 1 };
             window.SetAccentPolicy = recorder.Call;
 
-            window.ApplyBackdrop(new BackdropSettings { Type = BackdropType.Acrylic, Enabled = true, Opacity = 0.3 });
+            window.ApplyBackdrop(new BackdropSettings { Type = BackdropType.Glass, Enabled = true, Opacity = 0.3 });
             Check.That(Rectangles(window)).HasSize(1); // the dim layer
             window.ApplyBackdrop(new BackdropSettings { Type = BackdropType.SolidDarken, Enabled = true, Opacity = 0.3 });
 

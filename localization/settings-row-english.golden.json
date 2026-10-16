@@ -783,13 +783,13 @@
         {
           "Id": "av_backdrop_type",
           "Label": "Backdrop Type",
-          "Description": "The dimming material; Acrylic and Mica blur, Solid Darken only tints.",
+          "Description": "The dimming material; Glass blurs what's behind, Solid Darken only tints it.",
           "Modal": null
         },
         {
           "Id": "av_backdrop_opacity",
           "Label": "Backdrop Opacity",
-          "Description": "How dark the backdrop is — the tint over the blur, or the fill of Solid Darken; applies from the next open.",
+          "Description": "How dark the backdrop is — for both types; applies from the next open.",
           "Modal": null
         },
         {

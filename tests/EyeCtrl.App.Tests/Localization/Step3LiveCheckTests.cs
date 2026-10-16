@@ -526,9 +526,11 @@ public class Step3LiveCheckTests
 
     /// <summary>
     /// The owner's backdrop settings, read READ-ONLY from <c>%APPDATA%\EyeCtrl\settings.json</c>: the
-    /// material type is theirs (Mica today). A missing file, an unreadable one (the App may hold it),
-    /// or an unknown value falls back to the production defaults — nothing here writes. Shared with
-    /// <see cref="EyeCtrl.App.Tests.Overlays.BackdropLiveLookTests"/>, which reads the same way.
+    /// material type is theirs (Glass today; the App's own Load migrates a legacy mica/acrylic name
+    /// before saving, and here it would simply not parse). A missing file, an unreadable one (the App
+    /// may hold it), or an unknown value falls back to the production defaults — nothing here writes.
+    /// Shared with <see cref="EyeCtrl.App.Tests.Overlays.BackdropLiveLookTests"/>, which reads the
+    /// same way.
     /// </summary>
     internal static BackdropSettings BackdropSettingsOfTheOwner()
     {

@@ -1167,6 +1167,108 @@
       "Literal": "\"Pause\"",
       "Category": "id",
       "Reason": "A dwell-target id."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"Ring hold end ({0}) heldMs={1:0}\"",
+      "Category": "log",
+      "Reason": "The Ring hold end line's format -- a log-only line the look's readout parses; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"Ring hold start ({0})\"",
+      "Category": "log",
+      "Reason": "The Ring hold start line's format -- a log-only line the look's readout parses; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"Ring pin ({0}) at=({1:0},{2:0}) dist={3:0}\"",
+      "Category": "log",
+      "Reason": "The Ring pin line's format -- a log-only line the look's readout parses; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"Ring release ({0}) dist={1:0}\"",
+      "Category": "log",
+      "Reason": "The Ring release line's format -- a log-only line the look's readout parses; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"approach\"",
+      "Category": "log",
+      "Reason": "A token of the Ring hold start line's kind -- a log-only value, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"freeze\"",
+      "Category": "log",
+      "Reason": "A token of the Ring hold start line's kind -- a log-only value, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"hidden\"",
+      "Category": "log",
+      "Reason": "A token of the Ring hold end line's reason -- a log-only value, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"hold-end\"",
+      "Category": "log",
+      "Reason": "A token of the Ring release line's cause -- a log-only value, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"keep\"",
+      "Category": "log",
+      "Reason": "A token of the Ring hold start line's kind -- a log-only value, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"left\"",
+      "Category": "log",
+      "Reason": "A token of the Ring hold end line's reason -- a log-only value, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"offer\"",
+      "Category": "log",
+      "Reason": "A token of the Ring pin line's origin -- a log-only value, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"offer-closed\"",
+      "Category": "log",
+      "Reason": "A token of the Ring hold end and release lines' reasons -- a log-only value, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"run-end\"",
+      "Category": "log",
+      "Reason": "A token of the Ring release line's cause -- a log-only value, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"settle\"",
+      "Category": "log",
+      "Reason": "A token of the Ring pin line's origin -- a log-only value, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"state\"",
+      "Category": "log",
+      "Reason": "A token of the Ring release line's cause -- a log-only value, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"unproven\"",
+      "Category": "log",
+      "Reason": "A token of the Ring hold end line's reason -- a log-only value, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Startup/RingArmArgument.cs",
+      "Literal": "\"--ring-arm=\"",
+      "Category": "id",
+      "Reason": "A command-line flag name (the launch-argument spelling); matched against process arguments, never shown."
     }
   ]
 }

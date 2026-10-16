@@ -326,6 +326,86 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"Ring hold end ({0}) heldMs={1:0}\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"Ring hold start ({0})\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"Ring pin ({0}) at=({1:0},{2:0}) dist={3:0}\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"Ring release ({0}) dist={1:0}\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"approach\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"freeze\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"hidden\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"hold-end\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"keep\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"left\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"offer\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"offer-closed\"",
+      "Count": 2
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"run-end\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"settle\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"state\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"unproven\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/SupervisorLauncher.cs",
       "Literal": "\"EYECTRL_SUPERVISOR_EXE\"",
       "Count": 1
@@ -373,6 +453,11 @@
     {
       "Path": "src/EyeCtrl.App/Startup/PauseLaunchProvenance.cs",
       "Literal": "$\" (source: {Source(isPausedLaunch, startPausedSetting)})\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Startup/RingArmArgument.cs",
+      "Literal": "\"--ring-arm=\"",
       "Count": 1
     },
     {

@@ -239,6 +239,30 @@ public class LagMarkHostTests
         Check.That(rig.Zones.Last()!.Value).IsEqualTo(rig.Presenter.HitBounds);
     }
 
+    /// <summary>
+    /// The probe-alone re-show (review 02): with Settings closed throughout, the probe opening hides
+    /// the button and the probe CLOSING brings it back, zone and all — the re-show must live on
+    /// <c>OnProbeOpenChanged</c> itself, not only on the Settings event after both were up.
+    /// </summary>
+    [Fact]
+    public void WithSettingsClosed_TheProbeClosing_ShowsTheButtonAgain_AndReSendsTheZone()
+    {
+        var rig = new Rig();
+        rig.Host.Start();
+        Check.That(rig.Presenter.ShowCalls).IsEqualTo(1);
+
+        rig.ProbeOpen = true;
+        rig.Host.OnProbeOpenChanged(true);
+        Check.That(rig.Presenter.IsShowing).IsFalse();
+        Check.That(rig.Zones.Last()).IsNull();
+
+        rig.ProbeOpen = false;
+        rig.Host.OnProbeOpenChanged(false);
+        Check.That(rig.Presenter.IsShowing).IsTrue();
+        Check.That(rig.Presenter.ShowCalls).IsEqualTo(2);
+        Check.That(rig.Zones.Last()!.Value).IsEqualTo(rig.Presenter.HitBounds);
+    }
+
     [Fact]
     public void WhileTheProbeIsOpen_NoGazeReachesTheButton()
     {

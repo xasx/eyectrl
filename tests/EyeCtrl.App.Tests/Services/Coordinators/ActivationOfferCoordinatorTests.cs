@@ -314,6 +314,37 @@ public class ActivationOfferCoordinatorTests
             .That(Settle(s, 900, 900)).IsNotNull();
     }
 
+    /// <summary>
+    /// T0(a): the lag-mark button's hit area is a chrome ZONE while the button is visible — no offer
+    /// over its corner — and NOT a suspension: a settle away from it still places. Retracting the
+    /// zone (the button hiding) frees the corner again.
+    /// Mutation: drop the <c>LagMarkZoneMessage</c> registration → a settle in the corner offers.
+    /// </summary>
+    [StaFact]
+    public void TheLagMarkButton_IsAChromeZone_WhileVisible_NotASuspension()
+    {
+        var s = Build();
+        using var _ = s.Context.GazeEngine;
+
+        s.Messenger.Send(new LagMarkZoneMessage(new PhysicalRect(1640, 936, 512, 384)));
+        Pump();
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+
+        s.InteractionManager.OnFixationStarted(new PhysicalPoint(1900, 1100));
+        s.InteractionManager.OnFixationSettled(new PhysicalPoint(1900, 1100));
+        Check.WithCustomMessage("a settle inside the lag button's zone must make no offer")
+            .That(s.Engine.CurrentOffer).IsNull();
+
+        // Away from the button the offer still places: the zone is not a suspension.
+        Check.WithCustomMessage("the lag button must not suspend offers globally")
+            .That(Settle(s, 500, 500)).IsNotNull();
+
+        // The button going retracts the zone, and the corner offers again.
+        s.Messenger.Send(new LagMarkZoneMessage(null));
+        Pump();
+        Check.That(Settle(s, 1900, 1100)).IsNotNull();
+    }
+
     /// <summary>Ends any live fixation, settles at a fresh point through the public API, and returns
     /// the offer (or null when none was made).</summary>
     private static ActivationOffer? Settle(Setup s, double x, double y)

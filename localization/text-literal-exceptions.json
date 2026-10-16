@@ -227,6 +227,12 @@
       "Reason": "The erase-arrow label-frame id a keyboard JSON names; not text."
     },
     {
+      "Path": "src/EyeCtrl.App/Overlays/LagMarkWindow.xaml.cs",
+      "Literal": "\"lag_mark\"",
+      "Category": "id",
+      "Reason": "A dwell-target id."
+    },
+    {
       "Path": "src/EyeCtrl.App/Overlays/RestartNoticeWindow.xaml.cs",
       "Literal": "\"restart_notice_close\"",
       "Category": "id",

@@ -87,6 +87,14 @@ public class NumberFormatScanTests
         ("src/EyeCtrl.App/Services/Coordinators/ActivationOfferCoordinator.cs",
             "$\"[{z.X:F0},{z.Y:F0} {z.Width:F0}×{z.Height:F0}]\"",
             "a fragment of the Activation-chrome Serilog line — never screen text"),
+        // T0(a): the two LAG MARK log lines are machine-read by the session readout, whose format
+        // is pinned invariant (spec §2.3) — a German decimal comma would break its parse.
+        ("src/EyeCtrl.App/Services/LagMarkHost.cs",
+            "$\"Lag mark button shown at {rect.Left:0},{rect.Top:0} {rect.Width:0}×{rect.Height:0} DIP (scale {DpiHelper.ScaleX:0.##})\"",
+            "the LagMark button-shown Serilog line — never screen text, parsed by the launcher"),
+        ("src/EyeCtrl.App/Services/LagMarkHost.cs",
+            "$\"LAG MARK #{MarkCount} at {at:yyyy-MM-dd HH:mm:ss.fff} — last 15 s: {DispatchLatencyProbe.DescribeWindow(summary)}\"",
+            "the LAG MARK Serilog line — never screen text, parsed by the session readout"),
     ];
 
     [Fact]

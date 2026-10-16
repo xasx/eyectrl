@@ -354,6 +354,36 @@ public class CursorCircleViewModelHybridTests
     }
 
     [Fact]
+    public void Hybrid_ExternalDwellHide_ReleasesAnApproachingPin()
+    {
+        // The F2c survivor (fixup 02): the same hide must cover the APPROACH window too — a run end
+        // inside the keep zone with the eye not yet in the hit area. Until the fixup-01 release this
+        // strand was invisible to both the holding and the pending tests. Same probe sequence.
+        var rig = new Rig();
+        var b = new PhysicalPoint(1400, 1000);
+        rig.PinAt(P);
+        rig.Offer(b, hitRadiusPx: 150);
+        rig.RunEnds();
+        rig.Frame(new PhysicalPoint(1200, 1000));                 // in the zone: the approach is active
+
+        // The arrangement guard: the approach really was pending when the hide arrived — no hold, no
+        // release yet, and the pin still up.
+        Check.That(rig.Holds).IsEmpty();
+        Check.That(rig.Releases).IsEmpty();
+        Check.That(rig.Vm.IsPinned).IsTrue();
+
+        rig.ExternalDwell(active: true);
+        rig.Frame(new PhysicalPoint(2000, 1500));                 // the gaze moves while hidden
+        rig.ExternalDwell(active: false);
+        rig.Frame(new PhysicalPoint(2000, 1500), steps: 10);
+
+        Check.That(rig.Releases).HasSize(1);
+        Check.That(rig.Releases[0].Cause).IsEqualTo(RingReleaseCause.RunEnd);
+        Check.That(rig.Vm.IsPinned).IsFalse();
+        Check.That(rig.Vm.Position).IsEqualTo(new PhysicalPoint(2000, 1500));
+    }
+
+    [Fact]
     public void None_IsTheDefault_AndTodayEmitsTheRawRecords()
     {
         // Arms with hold=None keep today's paths exactly; the log records still fire for the App's

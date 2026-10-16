@@ -170,6 +170,75 @@ public class RingArmLogTests
     }
 
     [Fact]
+    public void TheOriginFifo_DequeuesOneTicketPerProcessedPin_AppliedOrRefused()
+    {
+        // Review 01's X10: a refused pin must still consume its origin ticket, or the next applied
+        // pin drains the wrong one and mislabels. Refused here: the offer's creation pin arrives
+        // while the VM has not seen its onset (its last state is FreeLook); the applied pin after it
+        // is the chrome settle. Mutant: dequeue only on applied pins → the settle pin logs as offer.
+        var settings = new EyeCtrlSettings();
+        settings.Dwell.FixationRadiusPixels = 90;
+        settings.Dwell.FixationDetectionMs = 300;
+        settings.Cursor.FilterMode = GazeFilterMode.Direct;
+        var provider = new TestFakes.FakeGazeProvider();
+        using var engine = new GazeEngine(provider, new TestFakes.FakeInputSimulator(), settings);
+        engine.ConfigureActivationOffers(new PhysicalRect(0, 0, 3840, 2400), scale: 2.0);
+        var im = engine.InteractionManager;
+
+        var log = new List<string>();
+        var messenger = new WeakReferenceMessenger();
+        var vm = new CursorCircleViewModel(settings, messenger);
+        using var sink = new RingArmLog(im, vm, log.Add);
+        im.PinRing += p => messenger.Send(new PinRingMessage(p));
+        im.ActivationOfferShown += o =>
+            messenger.Send(new ShowActivationButtonMessage(o.Button, o.HitRadiusPx));
+        engine.CursorMoved += frame => messenger.Send(new GazeCursorMovedMessage(frame));
+
+        bool droppedOnset = false;
+        im.StateChanged += s =>
+        {
+            if (!droppedOnset && s == InteractionState.Fixation)
+            {
+                droppedOnset = true;
+                return;                                            // the VM stays FreeLook: the pin is refused
+            }
+            messenger.Send(new StateChangedMessage(s));
+        };
+
+        long us = 0;
+        void Feed(PhysicalPoint p, int samples)
+        {
+            for (int i = 0; i < samples; i++)
+            {
+                us += 30_000;
+                provider.Raise(new GazePoint(p.X, p.Y, us, true));
+            }
+        }
+        void Saccades(PhysicalPoint a, PhysicalPoint b, int samples)
+        {
+            for (int i = 0; i < samples; i++)
+            {
+                us += 30_000;
+                var p = i % 2 == 0 ? a : b;
+                provider.Raise(new GazePoint(p.X, p.Y, us, true));
+            }
+        }
+
+        var settlePoint = new PhysicalPoint(2400, 1400);
+        engine.Start();
+        Feed(new PhysicalPoint(1000, 1000), 20);                   // the creation's offer pin: refused
+        Saccades(new PhysicalPoint(3000, 2000), new PhysicalPoint(500, 300), 20);   // the run ends
+
+        im.SetActivationChromeZones(new PhysicalRect(2000, 1000, 800, 800));
+        Feed(settlePoint, 20);                                     // a chrome settle: a settle pin, applied
+
+        Check.WithCustomMessage("logged: " + string.Join(" | ", log))
+            .That(log).Contains("Ring pin (settle) at=(2400,1400) dist=0");
+        Check.WithCustomMessage("logged: " + string.Join(" | ", log))
+            .That(log.Any(line => line.StartsWith("Ring pin (offer) ", StringComparison.Ordinal))).IsFalse();
+    }
+
+    [Fact]
     public void Dispose_Unsubscribes_TheLogGoesSilent()
     {
         var log = new List<string>();

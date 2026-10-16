@@ -181,14 +181,16 @@ public sealed class LagMarkHost : IDisposable
     // wait. Before any execute the wait is 0 and the mark is immediate — the truthful reading, not
     // a guess.
     //
-    // The WINDOW ends at the execute instant instead (review 01, lens 2, signed off by the owner):
-    // the ring is keyed by execute time, and a freeze the owner dwells THROUGH completes the dwell
-    // from the drained backlog the moment the freeze clears — the completing sample was enqueued
-    // inside the freeze, so an enqueue-ended window cut off the freeze's own long waits (measured:
-    // max 2.0 ms against 1000.1 ms). Spanning 15 s PLUS the completing sample's wait covers
-    // (at − 15 s, now]: nothing the signed reading covered is lost, and the drain at the mark is
-    // included. `at` keeps the gaze moment, so C3's coverage and the startup exclusion are
-    // unchanged, and the line's format is unchanged (the readout parses it).
+    // The WINDOW ends at the execute instant instead (review 01, lens 2; owner erratum E1 to
+    // spec §2.3 / M1, approved 2026-10-16): the ring is keyed by execute time, and a freeze the
+    // owner dwells THROUGH completes the dwell from the drained backlog the moment the freeze
+    // clears — the completing sample was enqueued inside the freeze, so an enqueue-ended window cut
+    // off the freeze's own long waits (measured: max 2.0 ms against 1000.1 ms). Spanning 15 s PLUS
+    // the completing sample's wait covers (at − 15 s, now]: nothing the signed reading covered is
+    // lost, and the drain at the mark is included. `at` keeps the gaze moment, so C3's coverage and
+    // the startup exclusion are unchanged, and the line's format is unchanged (the readout parses
+    // it). `coverageMs` can therefore read up to 15000 + the completing sample's wait (review 02,
+    // R4); no rule reads it, and the readout only prints it.
     private void OnMarked(long timestampMicroseconds)
     {
         if (!_isInstrumentOn()) return;

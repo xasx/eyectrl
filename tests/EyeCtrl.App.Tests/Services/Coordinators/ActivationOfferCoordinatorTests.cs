@@ -528,9 +528,6 @@ public class ActivationOfferCoordinatorTests
         return s.InteractionManager.ActivationOffers!.CurrentOffer;
     }
 
-    /// <summary>Captures the events the coordinator logs while a test drives it (the
-    /// KeyboardCategoryGridExclusionTests pattern). Assertions read the structured properties,
-    /// never a rendered message, so an honest rewording does not red them.</summary>
     [StaFact]
     public void TheProductionBand_IsBuiltFromTheInjectedAutoHide_DockedRefuses_FloatingClamps()
     {
@@ -571,6 +568,9 @@ public class ActivationOfferCoordinatorTests
             .That(s.Engine.CurrentOffer?.Point).IsEqualTo(new PhysicalPoint(1900, 0));
     }
 
+    /// <summary>Captures the events the coordinator logs while a test drives it (the
+    /// KeyboardCategoryGridExclusionTests pattern). Assertions read the structured properties,
+    /// never a rendered message, so an honest rewording does not red them.</summary>
     private sealed class CapturingSink : ILogEventSink
     {
         public List<LogEvent> Events { get; } = new();

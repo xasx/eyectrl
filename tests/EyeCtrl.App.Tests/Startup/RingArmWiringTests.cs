@@ -26,8 +26,11 @@ public class RingArmWiringTests
             .That(Regex.IsMatch(text, @"im\s*\.\s*RingPinPolicy\s*=\s*ringArmLaunch\s*\.\s*PinPolicy")).IsTrue();
         Check.WithCustomMessage("the cursor VM's hold policy is no longer set from the launch")
             .That(Regex.IsMatch(text, @"cursorVm\s*\.\s*RingHoldPolicy\s*=\s*ringArmLaunch\s*\.\s*HoldPolicy")).IsTrue();
-        Check.WithCustomMessage("an unknown --ring-arm value no longer warns")
-            .That(Regex.IsMatch(text, @"ringArmLaunch\s*\.\s*UnknownValue\s+is\s+\{\s*\}\s+\w+")).IsTrue();
+        Check.WithCustomMessage(
+                "the unknown value no longer warns through RingArmLog.UnknownArmLine — the readout's "
+                + "pattern matches that line (fixup 01 F1 / mutant X15)")
+            .That(Regex.IsMatch(text,
+                @"if\s*\(\s*ringArmLaunch\s*\.\s*UnknownValue\s+is\s+\{\s*\}\s+\w+\s*\)\s*\r?\n\s*Log\s*\.\s*Warning\s*\(\s*""\{RingArm\}""\s*,\s*RingArmLog\s*\.\s*UnknownArmLine\s*\(")).IsTrue();
 
         var lines = text.Replace("\r\n", "\n").Split('\n');
         int paused = Array.FindIndex(lines, l => l.Contains("IsPausedLaunch = e.Args.Contains"));

@@ -61,6 +61,17 @@ public class RingArmLogTests
             + "approach=0 ms, glideOut=0) [source: --ring-arm]");
     }
 
+    [Fact]
+    public void UnknownArmLine_HasTheExactFormatTheReadoutMatches()
+    {
+        // The look's readout matches `Ring arm value '(?<value>[^']*)' is unknown`
+        // (ringlook-lib.ps1); the product's text stays as shipped — pin it character for character.
+        // Mutant X15 (deleting the warning call) reds the wiring test; this one reds if the text
+        // moves away from the pattern.
+        Check.That(RingArmLog.UnknownArmLine("fast")).IsEqualTo(
+            "Ring arm value 'fast' is unknown (today|hybrid|run-only) — running today.");
+    }
+
     // ── The event lines: exact formats ───────────────────────────────────────
 
     [Fact]

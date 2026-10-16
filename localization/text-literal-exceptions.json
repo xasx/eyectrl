@@ -1170,6 +1170,12 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"Ring arm value '{0}' is unknown (today|hybrid|run-only) — running today.\"",
+      "Category": "log",
+      "Reason": "The unknown --ring-arm WRN line's format -- log-only, matched by the look's readout; never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"Ring hold end ({0}) heldMs={1:0}\"",
       "Category": "log",
       "Reason": "The Ring hold end line's format -- a log-only line the look's readout parses; never shown."

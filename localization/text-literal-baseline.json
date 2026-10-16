@@ -327,6 +327,11 @@
     },
     {
       "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
+      "Literal": "\"Ring arm value '{0}' is unknown (today|hybrid|run-only) — running today.\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/RingArmLog.cs",
       "Literal": "\"Ring hold end ({0}) heldMs={1:0}\"",
       "Count": 1
     },

@@ -210,7 +210,7 @@ public partial class App : Application
             im.RingPinPolicy = ringArmLaunch.PinPolicy;
             cursorVm.RingHoldPolicy = ringArmLaunch.HoldPolicy;
             if (ringArmLaunch.UnknownValue is { } unknownRingArm)
-                Log.Warning("Ring arm value '{Value}' is unknown (today|hybrid|run-only) — running today.", unknownRingArm);
+                Log.Warning("{RingArm}", RingArmLog.UnknownArmLine(unknownRingArm));
             Log.Information("{RingArm}", RingArmLog.StartupLine(ringArmLaunch));
             if (ringArmLaunch.Specified)
                 _ringArmLog = new RingArmLog(im, cursorVm, line => Log.Information("{RingEvent}", line));

@@ -65,6 +65,13 @@ internal sealed class RingArmLog : IDisposable
             launch.Specified ? "--ring-arm" : "default");
     }
 
+    /// <summary>The warning for an unknown <c>--ring-arm</c> value. The look's readout matches
+    /// <c>Ring arm value '(?&lt;value&gt;[^']*)' is unknown</c> (ringlook-lib.ps1) — the text is a
+    /// contract, pinned by <c>UnknownArmLine_HasTheExactFormatTheReadoutMatches</c>.</summary>
+    internal static string UnknownArmLine(string value) =>
+        string.Format(CultureInfo.InvariantCulture,
+            "Ring arm value '{0}' is unknown (today|hybrid|run-only) — running today.", value);
+
     /// <summary>A pin, from the drawn ring to the pin target.</summary>
     internal static string PinLine(bool atOffer, PhysicalPoint target, double dist) =>
         string.Format(CultureInfo.InvariantCulture,

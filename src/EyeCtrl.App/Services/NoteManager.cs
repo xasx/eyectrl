@@ -28,16 +28,19 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
 
     // ── the single editor (P1 D8) ──
     private NoteData? _editingNote;
-    // Whether the EDITING note owns the eye keyboard (P1 D5): set on every entry into Edit —
-    // a visible keyboard hands its ownership over (no hide, no show), a hidden one is summoned.
+    // Whether the EDITING note owns the eye keyboard (P1 D5, fixup M1): claimed ONLY by an entry
+    // that summons the keyboard (it was hidden). A hand-over keeps the previous editor's claim
+    // (the release returns early and never clears it); a fresh entry onto a keyboard the owner
+    // opened claims nothing, so Done cannot hide a keyboard this note never opened.
     private bool _editingOwnsKeyboard;
-    // Set when THIS manager asked the keyboard to hide (P1 D5): Done on an owning editor sends
-    // KeyboardHideRequestedMessage. A hide that arrives without the flag was foreign (the edge
-    // bar's Close, the toolbar toggle) and releases the ownership claim instead.
-    private bool _hideRequestedByNote;
-    // The probe's IsVisible at the last Changed raise, so the foreign-hide rule reads a transition.
+    // The probe's IsVisible at the last Changed raise, so the hide rule reads a transition.
     private bool _keyboardWasVisible;
     private IKeyboardProbe? _keyboardProbe;
+    // Leave-before-arm (fixup B2; T2 generalises the latch, P2 D4): ✓ Done and ✕ share slot 0's
+    // circle, so a gaze still resting on Done when the note saves is pointing at the live ✕.
+    // Display targets registered while the gaze sits inside their hit circle are held ineligible
+    // until a sample falls outside. Keyed by target id; empty in steady state.
+    private readonly HashSet<string> _targetsAwaitingGazeLeave = new();
 
     public IReadOnlyList<NoteData> ActiveNotes => _notes.AsReadOnly();
     public bool IsAtCapacity => _windows.Count >= MaxNotes;
@@ -161,7 +164,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         window.Show();
         window.SetText(data.Draft);
 
-        RegisterEditTargets(data.Id);
+        RegisterSoleEditorTargets(data.Id);
         _dwellDetector.ResetAllState();
         RaiseTargetsChanged();
         BeginEditing(data);
@@ -205,7 +208,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         window.SetKeyboardControlVisible(KeyboardHidden);
         window.SetText(note.Draft);
 
-        RegisterEditTargets(id);
+        RegisterSoleEditorTargets(id);
         _dwellDetector.ResetAllState();
         RaiseTargetsChanged();
         BeginEditing(note);
@@ -225,23 +228,33 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
     private void BeginEditing(NoteData note)
     {
         _editingNote = note;
-        _hideRequestedByNote = false;
         bool visible = _keyboardProbe?.IsVisible ?? false;
+        // Mutant B (review 01): this seed is near-equivalent — SetKeyboardProbe seeds the field
+        // and every visibility flip raises Changed, so it only matters for a flip landing between
+        // two raises. It is kept because it makes the first transition read exact for free.
         _keyboardWasVisible = visible;
         if (!visible)
+        {
+            // Fixup M1 (execution deviations): the claim is taken ONLY when this entry summons
+            // the keyboard. On a hand-over ReleaseKeyboard(handOver: true) left the previous
+            // editor's claim in place and it moves here untouched; on a fresh entry onto the
+            // owner's keyboard nobody claims it — Done must not hide what the note did not open.
             _messenger.Send(new KeyboardShowRequestedMessage());
-        _editingOwnsKeyboard = true;
+            _editingOwnsKeyboard = true;
+        }
         _messenger.Send(new NoteEditingChangedMessage(true));
     }
 
     /// <summary>
-    /// The shared exit from Edit (P1 D4/D8). <paramref name="commit"/> runs the P1 Done table:
-    /// a draft with text saves; an emptied EXISTING note restores <see cref="NoteData.PreviousText"/>
+    /// The shared exit from Edit (P1 D4/D8, fixup M2). <paramref name="commit"/> runs the P1 Done
+    /// table: a draft with text saves; an emptied EXISTING note restores <see cref="NoteData.PreviousText"/>
     /// (interim — P2 turns this into PendingUndo); a brand-new note whose draft is empty was never
-    /// saved and disappears. <paramref name="handOver"/> is the commit-first case: the exit sends
-    /// NO NoteEditingChangedMessage and does NOT release the keyboard — ownership moves to the
-    /// next editor inside its BeginEditing, so the switch produces exactly one (true) and no
-    /// hide/show bounce (P1 D6/D8).
+    /// saved and disappears. EVERY exit — the disappearing new note included — falls through to the
+    /// shared tail: release the keyboard, then, unless this is a hand-over, send the one
+    /// <see cref="NoteEditingChangedMessage(false)"/>. Skipping it anywhere leaves "→ Note" lit on
+    /// a keyboard that is typing into the OS. <paramref name="handOver"/> is the commit-first case:
+    /// no message and no release — ownership moves to the next editor inside its BeginEditing, so
+    /// the switch produces exactly one (true) and no hide/show bounce (P1 D6/D8).
     /// </summary>
     private void ExitEditing(bool commit, bool handOver)
     {
@@ -257,6 +270,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
                 // New note, draft empty (P1 D4 Done table): nothing was ever saved — it disappears.
                 RemoveNoteInternal(note);
                 ReleaseKeyboard(handOver);
+                if (!handOver)
+                    _messenger.Send(new NoteEditingChangedMessage(false));
                 return;
             }
 
@@ -271,6 +286,8 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
             window.SetState(NoteState.Display);
             window.SetText(note.Text);
         }
+        if (!handOver)
+            DisarmDisplayTargetsUntilGazeLeaves(note.Id);
         ReleaseKeyboard(handOver);
         ReRegisterAllTargets();
         RaiseTargetsChanged();
@@ -279,20 +296,55 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
     }
 
     /// <summary>
-    /// The keyboard release half of an exit (P1 D5): only a keyboard the EDITING note summoned is
-    /// hidden, and only when the keyboard is still up. On a hand-over the release never runs —
-    /// the ownership moves to the next editor and no hide or show is sent (P1 D8), so fixation
-    /// suppression is never released in between.
+    /// Leave-before-arm for the Edit → Display hand-off (fixup B2; T2 generalises, P2 D4). ✓ Done
+    /// and ✕ are the SAME slot-0 circle, so a gaze still resting on Done when the note saves is
+    /// looking straight at a live, destructive, no-confirm ✕. The finished note's Display targets
+    /// are registered disarmed: <see cref="OnGazeMoved"/> keeps them ineligible (clearing any
+    /// accumulated dwell) while samples hit them and re-arms each one on the first sample outside
+    /// its circle. Called BEFORE <see cref="ReRegisterAllTargets"/> registers the targets; the
+    /// current <see cref="_lastGazePoint"/> needs no separate seed — a held sample is by definition
+    /// still inside the circles it must leave.
+    /// </summary>
+    private void DisarmDisplayTargetsUntilGazeLeaves(string noteId)
+    {
+        foreach (var suffix in new[] { "close", "edit", "move" })
+            _targetsAwaitingGazeLeave.Add($"{noteId}:{suffix}");
+    }
+
+    /// <summary>Re-arms every disarmed target the sample has LEFT (fixup B2). A target whose
+    /// dwell registration vanished (note removed, state flip) is dropped from the latch too.</summary>
+    private void ArmTargetsTheGazeHasLeft(PhysicalPoint sample)
+    {
+        foreach (var id in _targetsAwaitingGazeLeave.ToList())
+        {
+            var target = _dwellDetector.Targets.FirstOrDefault(t => t.Id == id);
+            if (target is null)
+            {
+                _targetsAwaitingGazeLeave.Remove(id);
+                continue;
+            }
+            double dx = sample.X - target.Center.X;
+            double dy = sample.Y - target.Center.Y;
+            if (dx * dx + dy * dy > (double)target.Radius * target.Radius)
+                _targetsAwaitingGazeLeave.Remove(id);
+        }
+    }
+
+    /// <summary>
+    /// The keyboard release half of an exit (P1 D5, fixup m1): only a keyboard the EDITING note
+    /// summoned is hidden, and only when the keyboard is still up. On a hand-over the release
+    /// never runs — the ownership moves to the next editor and no hide or show is sent (P1 D8),
+    /// so fixation suppression is never released in between. There is NO own-vs-foreign hide
+    /// flag (execution deviations 2026-10-16): the note's own hide always follows the ownership
+    /// clear, so the flag was observationally inert — any visible→hidden transition clears the
+    /// claim instead.
     /// </summary>
     private void ReleaseKeyboard(bool handOver)
     {
         if (handOver)
             return;
         if (_editingOwnsKeyboard && (_keyboardProbe?.IsVisible ?? false))
-        {
-            _hideRequestedByNote = true;
             _messenger.Send(new KeyboardHideRequestedMessage());
-        }
         _editingOwnsKeyboard = false;
     }
 
@@ -318,11 +370,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
     }
 
     /// <summary>
-    /// The probe's change handler. A visible→hidden transition is a HIDE: if this manager did not
-    /// request it (edge-bar Close, toolbar toggle), it was foreign and the editing note loses its
-    /// ownership claim. In both cases the flag resets after the first hidden raise (P1 D5). The
-    /// ⌨ Show-keyboard control registers in slot 1 exactly while the keyboard is hidden, so the
-    /// raise re-registers the editing targets too.
+    /// The probe's change handler. A visible→hidden transition is a HIDE, ours or not — the claim
+    /// clears either way (fixup m1: the note's own hide always runs after the ownership clear, so
+    /// no distinction exists to make). The ⌨ Show-keyboard control registers in slot 1 exactly
+    /// while the keyboard is hidden, so the raise re-registers the editing targets too.
     /// </summary>
     private void OnKeyboardProbeChanged()
     {
@@ -332,17 +383,12 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         _keyboardWasVisible = visible;
 
         if (!visible && wasVisible)
-        {
-            bool hideWasOurs = _hideRequestedByNote;
-            _hideRequestedByNote = false;
-            if (!hideWasOurs)
-                _editingOwnsKeyboard = false;
-        }
+            _editingOwnsKeyboard = false;
 
         if (_editingNote is { } note)
         {
-            Window(note.Id)?.SetKeyboardControlVisible(!visible);
-            RegisterEditTargets(note.Id);
+            Window(note.Id)?.SetKeyboardControlVisible(!visible); // mutant A's guard (review 01)
+            RegisterSoleEditorTargets(note.Id);
             _dwellDetector.ResetAllState();
         }
     }
@@ -403,12 +449,32 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
     {
         _lastGazePoint = gazePoint;
 
-        // The keyboard gate (P1 D5): a note target is ineligible for any sample whose gaze lies
-        // inside the keyboard's or its edge bar's hit area — dwell has no z-order, and the Done
-        // button under the keyboard must never fire while the owner types. The filter drops every
-        // target for the gated sample, which also resets its accumulated dwell.
-        bool gated = _keyboardProbe is { } probe && probe.Rects().Any(rect => rect.Contains(gazePoint));
-        _dwellDetector.Update(gazePoint, timestamp, gated ? NotEligible : null);
+        // The keyboard gate (P1 D5, fixup m4): a note target is ineligible for any sample whose
+        // gaze lies inside the keyboard's or its edge bar's hit area — dwell has no z-order, and
+        // the Done button under the keyboard must never fire while the owner types. The probe
+        // read costs real work (a list, an array, two PointToScreen calls), so it is skipped
+        // entirely while the detector holds no targets to protect.
+        bool gated = false;
+        if (_dwellDetector.Targets.Count > 0 && _keyboardProbe is { } probe)
+            gated = probe.Rects().Any(rect => rect.Contains(gazePoint));
+
+        // The leave-before-arm latch (fixup B2): re-arm every disarmed target the sample has
+        // left, then keep the still-armed ones ineligible for this sample (the filter also
+        // clears whatever dwell they accumulated while disarmed).
+        if (_targetsAwaitingGazeLeave.Count > 0)
+            ArmTargetsTheGazeHasLeft(gazePoint);
+
+        Func<DwellTarget, bool>? filter = null;
+        if (_targetsAwaitingGazeLeave.Count > 0)
+        {
+            var disarmed = _targetsAwaitingGazeLeave;
+            filter = t => !gated && !disarmed.Contains(t.Id);
+        }
+        else if (gated)
+        {
+            filter = NotEligible;
+        }
+        _dwellDetector.Update(gazePoint, timestamp, filter);
 
         foreach (var note in _notes.Where(n => n.State == NoteState.Move))
         {
@@ -479,7 +545,7 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
         ExitEditing(commit: true, handOver: true);
         var data = new NoteData { Position = position, State = NoteState.Edit, PreviousText = null, Draft = string.Empty };
         _notes.Add(data);
-        RegisterEditTargets(data.Id);
+        RegisterSoleEditorTargets(data.Id);
         _dwellDetector.ResetAllState();
         BeginEditing(data);
         return data.Id;
@@ -487,12 +553,12 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
 
     /// <summary>Test seam: whether the editing note currently owns the keyboard claim (P1 D5's
     /// OwnsKeyboard). The claim has no user-visible P1 difference outside a hand-over, so state
-    /// is exposed for the foreign-hide tests instead of inferred.</summary>
+    /// is exposed for the ownership tests instead of inferred.</summary>
     internal bool EditingOwnsKeyboardForTest => _editingOwnsKeyboard;
 
-    /// <summary>Test seam: whether the note's own hide request is still pending (P1 D5's
-    /// _hideRequestedByNote, reset by the first hidden probe raise).</summary>
-    internal bool HideRequestedByNoteForTest => _hideRequestedByNote;
+    /// <summary>Test seam: the live window of a note, or null. The drawn-vs-registered ⌨ check
+    /// (review 01 mutant A) needs the real window the manager drives on probe changes.</summary>
+    internal NoteWindow? WindowForTest(string noteId) => Window(noteId);
 
     /// <summary>
     /// Clears and re-registers dwell targets for every note according to its current state.
@@ -532,7 +598,10 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
     /// The Edit state's targets (P1 D4/D7): ✓ Done in slot 0 always, ⌨ Show-keyboard in slot 1
     /// only while the keyboard is hidden, slot 2 empty (P2 puts Discard there). There is NO
     /// :close, :edit or :move while editing — Done is the only Edit exit in P1, and no other
-    /// note's card targets are registered (the single-editor rule).
+    /// note's card targets are registered (the single-editor rule). A pure PER-NOTE registrar
+    /// (fixup n3): it adds this note's targets and touches nothing else — a ClearTargets hidden
+    /// in here would wipe other notes' targets depending on <see cref="ReRegisterAllTargets"/>'s
+    /// loop order. Callers that need a full replacement use <see cref="RegisterSoleEditorTargets"/>.
     /// </summary>
     private void RegisterEditTargets(string noteId)
     {
@@ -553,10 +622,17 @@ public class NoteManager : INoteManager, IRecipient<GazeCursorMovedMessage>, IDi
                 DpiHelper.LogicalToPhysicalY(winTopLogical + ly));
         }
 
-        _dwellDetector.ClearTargets();
         _dwellDetector.AddTarget(new DwellTarget($"{noteId}:done", ButtonCenter(0), radiusPhysical, DwellTimeMs));
         if (KeyboardHidden)
             _dwellDetector.AddTarget(new DwellTarget($"{noteId}:keyboard", ButtonCenter(1), radiusPhysical, DwellTimeMs));
+    }
+
+    /// <summary>The single editor's set is the ONLY live set (P1 D8), so full replacement:
+    /// clear, then register. Used by every entry into Edit and by the probe's re-register.</summary>
+    private void RegisterSoleEditorTargets(string noteId)
+    {
+        _dwellDetector.ClearTargets();
+        RegisterEditTargets(noteId);
     }
 
     private void RegisterDwellTargets(string noteId)

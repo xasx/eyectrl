@@ -245,13 +245,17 @@ public class NoteManagerTests
     {
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger);
+        int editingFalse = 0;
+        messenger.Register<object, NoteEditingChangedMessage>(this, (_, m) => { if (!m.Editing) editingFalse++; });
         manager.CreateNoteAt(new PhysicalPoint(0, 0));
         var id = manager.ActiveNotes[0].Id;
 
         manager.FinishEdit(id, commit: true);
 
-        // Nothing was ever saved, so nothing remains.
+        // Nothing was ever saved, so nothing remains — and the keyboard is still told that
+        // editing ended (fixup M2): otherwise "→ Note" sticks to a keyboard typing into the OS.
         Check.That(manager.ActiveNotes).IsEmpty();
+        Check.That(editingFalse).IsEqualTo(1);
     }
 
     [StaFact]
@@ -333,10 +337,11 @@ public class NoteManagerTests
         manager.Apply(new NoteNewline());
         Check.That(note.Draft).IsEqualTo("thank \n");
 
-        // A prediction whose UTF-16 delete count would split a surrogate snaps to the boundary.
+        // A prediction whose UTF-16 delete count would split an element snaps to the boundary.
         manager.Apply(new NoteAppend("😀x"));
         manager.Apply(new NotePrediction(3, "word "));
-        // Raw cut would split 😀; snapped back to the element boundary (0 units deleted).
+        // The raw cut of 3 units starts inside 😀, so the boundary snap deletes from 😀's start:
+        // "😀x" goes whole (fixup m3 — the old comment wrongly claimed a snap was involved).
         Check.That(note.Draft).IsEqualTo("thank \nword ");
     }
 
@@ -385,7 +390,6 @@ public class NoteManagerTests
         manager.FinishEdit(id, commit: true);
 
         Check.That(hideRequests).IsEqualTo(1);
-        Check.That(manager.HideRequestedByNoteForTest).IsTrue();
     }
 
     [StaFact]
@@ -430,38 +434,30 @@ public class NoteManagerTests
     }
 
     [StaFact]
-    public void ForeignHide_ClearsOwnership_TheNotesOwnHide_DoesNot()
+    public void AnyVisibleToHiddenTransition_ClearsTheOwnershipClaim()
     {
+        // Fixup m1 (execution deviations): there is no own-vs-foreign hide flag — the note's own
+        // hide always runs after the ownership clear, so the rule is simply that ANY visible→
+        // hidden transition clears the claim. Here the hide is foreign (edge-bar Close, toolbar
+        // toggle) while the note stays in Edit.
         var messenger = new WeakReferenceMessenger();
         using var manager = new NoteManager(messenger);
         var probe = new FakeKeyboardProbe { IsVisible = false };
         manager.SetKeyboardProbe(probe);
         var id = manager.AddEditingNoteTargetsForTest(new PhysicalPoint(0, 0));
+        // Entry into Edit summoned the keyboard (it was hidden), so the note holds the claim.
         Check.That(manager.EditingOwnsKeyboardForTest).IsTrue();
-
-        // Our own hide: Done on a visible keyboard set the flag before the hide landed.
         probe.IsVisible = true;
         probe.RaiseChanged();
-        manager.FinishEdit(id, commit: true);
-        Check.That(manager.HideRequestedByNoteForTest).IsTrue();
-        Check.That(manager.IsEditing).IsFalse();
-
-        // Start editing again (new note, hidden keyboard re-summoned), hide it ourselves via the
-        // same path, then let the hidden raise arrive: the claim SURVIVES our own hide.
-        var id2 = manager.AddEditingNoteTargetsForTest(new PhysicalPoint(10, 10));
         Check.That(manager.EditingOwnsKeyboardForTest).IsTrue();
-        manager.FinishEdit(id2, commit: true); // keyboard hidden → no hide sent, claim cleared
 
-        var id3 = manager.AddEditingNoteTargetsForTest(new PhysicalPoint(20, 20));
-        probe.IsVisible = true;
-        probe.RaiseChanged();
-        // Foreign hide: visible → hidden with no request of ours.
+        // The keyboard disappears without the note asking: the claim clears, so a later Done
+        // cannot hide a keyboard the note does not own.
         probe.IsVisible = false;
         probe.RaiseChanged();
         Check.That(manager.EditingOwnsKeyboardForTest).IsFalse();
-        Check.That(manager.HideRequestedByNoteForTest).IsFalse();
-        Check.That(manager.IsEditing).IsTrue(); // still editing note 3
-        Check.That(id3).IsNotEmpty();
+        Check.That(manager.IsEditing).IsTrue(); // the note stays in Edit; ⌨ re-registers
+        Check.That(id).IsNotEmpty();
     }
 
     // ── the ⌨ Show-keyboard control (P1 D7/D8) ──
@@ -602,6 +598,82 @@ public class NoteManagerTests
         }
     }
 
+    [StaFact]
+    public void DoneLeavesTheCloseTargetDisarmed_UntilTheGazeLeavesItsCircle()
+    {
+        // Fixup B2, positive control for R2: the latch must RELEASE. ✓ Done and ✕ share slot 0's
+        // circle, so after Done the ✕ stays unarmed while the gaze holds; once the gaze leaves
+        // and comes back, the dwell completes and the ✕ works.
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger);
+        var probe = new FakeKeyboardProbe { IsVisible = false };
+        manager.SetKeyboardProbe(probe);
+
+        DpiHelper.Initialize(2.0, 2.0);
+        try
+        {
+            var anchor = new PhysicalPoint(1600, 1000);
+            var id = manager.AddEditingNoteTargetsForTest(anchor);
+            manager.Apply(new NoteAppend("hello"));
+            var slot0 = ButtonCentrePhysical(anchor, 0);
+            var away = new PhysicalPoint(slot0.X + 10_000, slot0.Y); // outside every circle
+
+            for (long t = 0; t <= 700_000; t += 33_000) manager.OnGazeMoved(slot0, t);
+            Check.That(manager.IsEditing).IsFalse();
+            Check.That(manager.ActiveNotes).HasSize(1); // R2's hold: ✕ still disarmed
+
+            for (long t = 800_000; t <= 1_000_000; t += 33_000) manager.OnGazeMoved(away, t);
+            for (long t = 1_100_000; t <= 2_000_000; t += 33_000) manager.OnGazeMoved(slot0, t);
+            Check.WithCustomMessage("after the gaze left and returned, ✕ must work again")
+                .That(manager.ActiveNotes).IsEmpty();
+            Check.That(id).IsNotEmpty();
+        }
+        finally { DpiHelper.Initialize(1.0, 1.0); }
+    }
+
+    [StaFact]
+    public void KeyboardTarget_DrawnVisibility_MatchesItsRegisteredTarget_AfterAProbeFlip()
+    {
+        // Review 01 mutant A: every manager test was windowless, so the drawn ⌨ could disagree
+        // with the registered ⌨ target after a mid-Edit hide/show and nothing noticed. A real
+        // window, a real probe flip, both halves asserted.
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger);
+        var probe = new FakeKeyboardProbe { IsVisible = false };
+        manager.SetKeyboardProbe(probe);
+
+        manager.CreateNoteAt(new PhysicalPoint(100, 100)); // shows a real window (STA)
+        var window = manager.WindowForTest(manager.ActiveNotes[0].Id);
+        Check.That(window).IsNotNull();
+        var keyboardLabel = KeyboardGlyphLabel(window!);
+        Check.That(keyboardLabel).IsNotNull();
+
+        // Keyboard hidden: ⌨ drawn AND its target registered.
+        Check.That(keyboardLabel!.Visibility).IsEqualTo(System.Windows.Visibility.Visible);
+        Check.That(manager.LiveTargetRects()).HasSize(2);
+
+        probe.IsVisible = true;
+        probe.RaiseChanged();
+        Check.WithCustomMessage("the drawn ⌨ must drain with its target when the keyboard shows")
+            .That(keyboardLabel.Visibility).IsEqualTo(System.Windows.Visibility.Collapsed);
+        Check.That(manager.LiveTargetRects()).HasSize(1);
+
+        probe.IsVisible = false;
+        probe.RaiseChanged();
+        Check.That(keyboardLabel.Visibility).IsEqualTo(System.Windows.Visibility.Visible);
+        Check.That(manager.LiveTargetRects()).HasSize(2);
+    }
+
+    /// <summary>The ⌨ glyph's TextBlock in a note window's drawn tree, or null.</summary>
+    private static System.Windows.Controls.TextBlock? KeyboardGlyphLabel(EyeCtrl.App.Overlays.NoteWindow window)
+    {
+        if (window.Content is not System.Windows.Controls.Canvas canvas) return null;
+        foreach (var child in canvas.Children)
+            if (child is System.Windows.Controls.TextBlock { Text: "⌨" } label)
+                return label;
+        return null;
+    }
+
     // ── commit-first and the editor switch (P1 D8/D6) ──
 
     [StaFact]
@@ -667,11 +739,12 @@ public class NoteManagerTests
 
         manager.CreateNoteAt(new PhysicalPoint(300, 300));
 
-        // The keyboard is up: ownership moves, and no hide or show is sent (P1 D8), so fixation
-        // suppression is never released in between.
+        // The keyboard is up: ownership does NOT move (fixup M1 — the entry that found the
+        // keyboard up claimed nothing, and a hand-over transfers nothing), and no hide or show
+        // is sent (P1 D8), so fixation suppression is never released in between.
         Check.That(hideRequests).IsEqualTo(0);
         Check.That(showRequests).IsEqualTo(0);
-        Check.That(manager.EditingOwnsKeyboardForTest).IsTrue();
+        Check.That(manager.EditingOwnsKeyboardForTest).IsFalse();
     }
 
     [StaFact]
@@ -867,8 +940,14 @@ public class NoteManagerTests
             manager.FinishEdit(id, commit: true); // -> Display: registers close/edit/move dwell targets
             var closeCenter = ButtonCentrePhysical(anchor, 0);
 
+            // Fixup B2: ✕ re-arms only after the gaze has LEFT its circle — a sample stream that
+            // arrives at ✕ without a prior outside sample is exactly the held-Done hazard. Look
+            // away first, then hold the close button.
+            for (long t = 0; t <= 200_000; t += 33_000)
+                manager.OnGazeMoved(new PhysicalPoint(closeCenter.X + 10_000, closeCenter.Y), t);
+
             // Hold gaze on the close button past the 600ms dwell threshold.
-            for (long t = 0; t <= 800_000; t += 33_000)
+            for (long t = 300_000; t <= 1_100_000; t += 33_000)
                 manager.OnGazeMoved(closeCenter, t);
 
             Check.That(manager.ActiveNotes).IsEmpty();
@@ -923,7 +1002,11 @@ public class NoteManagerTests
             messenger.Register(probe);
             var closeCenter = ButtonCentrePhysical(anchor, 0);
 
-            for (long t = 0; t <= 800_000; t += 33_000)
+            // Fixup B2: arm ✕ by leaving its circle first (see CloseButtonDwell_AtVisiblePosition).
+            for (long t = 0; t <= 200_000; t += 33_000)
+                manager.OnGazeMoved(new PhysicalPoint(closeCenter.X + 10_000, closeCenter.Y), t);
+
+            for (long t = 300_000; t <= 1_100_000; t += 33_000)
                 manager.OnGazeMoved(closeCenter, t);
 
             // The real action ran (nothing vacuous about the count) and the cue fired exactly once,

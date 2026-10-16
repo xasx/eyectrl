@@ -320,10 +320,10 @@ planned migration (est. half-day plus CI work) whenever the owner wants it.
 
 ### Remaining outdated (all deliberate)
 
-**Shipped 2026-10-16:** `Microsoft.ML.OnnxRuntime.DirectML` **1.24.4** now ships together
-with the fused Qwen2.5-1.5B artifact (PR link TBD — the release ticket's PR), so the ORT
-entry is no longer outdated; the re-export pipeline is committed under
-`tools/model-export/qwen2.5-1.5b/`. Still deliberate: `Microsoft.WindowsAppSDK` 2.4.0
+**Shipping in the LM release PR (2026-10-17):** `Microsoft.ML.OnnxRuntime.DirectML`
+**1.24.4** moves together with the fused Qwen2.5-1.5B artifact (PR link TBD — the release
+ticket's PR), so the ORT entry is no longer outdated; the re-export pipeline is committed
+under `tools/model-export/qwen2.5-1.5b/`. Still deliberate: `Microsoft.WindowsAppSDK` 2.4.0
 (wave-5b owner decision), `xunit.v3`/`xunit.runner.visualstudio`/`xunit.analyzers` 4.0.0 +
 `Xunit.StaFact` 4.0.23 (wave-4 MTP migration). Everything else is current as of 2026-09-07.
 

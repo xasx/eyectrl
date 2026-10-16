@@ -77,8 +77,19 @@ venv/Scripts/python fp16_pass.py out/model_fused.onnx out/model_fused_fp16.onnx
 
 Graph IO stays fp32/int64 (past KV fp32, ids int64) with `InsertedPrecisionFreeCast_*`
 boundary casts, exactly like the original artifact's design; every internal initializer,
-tensor-valued attribute and Cast target becomes fp16; tied `embed_tokens`/`lm_head` weights
-are deduplicated by value; the graph is re-toposorted and the ONNX checker gates the result.
+tensor-valued attribute and Cast target becomes fp16; the graph is re-toposorted and the
+ONNX checker gates the result.
+
+**No tied weight was deduplicated for this export.** Both this pass and `quantize.py` dedupe
+only when the two candidates are **byte-identical initializers** (fp16_pass checks
+`model.embed_tokens.weight` against an initializer literally named `lm_head.weight`;
+quantize matches by value against same-shape fp16 candidates). optimum exports Qwen2.5's
+`lm_head` **pre-transposed under a different initializer name**, so neither condition ever
+matched — the recorded quantize log says it exactly:
+`lm_head weight: onnx::MatMul_9283 | same-shape fp16 candidates: []` →
+`no tie found; keeping both copies`. Both copies therefore ship, which is why this artifact
+is 1.67 GB against the original's 1.22 GB (≈ one extra 467 MB fp16 copy).
+
 The external data is always written beside the output under the **hard-coded name
 `model_fp16b.onnx_data`** (≈ 3.55 GB for the fused model) — and successive runs in one
 directory accumulate into that file (on the recorded box it reached 17.7 GB after the
@@ -106,8 +117,16 @@ DirectML.)
 
 ## Published artifact
 
-The file is published on Hugging Face per
-[the release plan](../../../docs/plans/2026-09-07-dependency-update-strategy.md) (one file,
-`onnx/model_q4f16_fused.onnx`, under a `resolve/<commit>/` URL so the manifest's
-immutable-revision pin holds), and `src/EyeCtrl.App/Resources/models.json` names it with the
-hash above.
+Published on Hugging Face:
+
+- **Repo:** [`xasx/Qwen2.5-1.5B-Instruct-ONNX-fused`](https://huggingface.co/xasx/Qwen2.5-1.5B-Instruct-ONNX-fused)
+- **Commit:** `493920436cb18f4a154480089a3ba27ac9dfd6c0`
+- **Path:** `onnx/model_q4f16_fused.onnx` (the `resolve/<commit>/` URL form below)
+- The repo also carries the model card (derivation from `Qwen/Qwen2.5-1.5B-Instruct`, the
+  pipeline, the sha256 and the runtime matrix) and the upstream **LICENSE (Apache-2.0)**.
+
+`src/EyeCtrl.App/Resources/models.json` names it with the hash above:
+`https://huggingface.co/xasx/Qwen2.5-1.5B-Instruct-ONNX-fused/resolve/493920436cb18f4a154480089a3ba27ac9dfd6c0/onnx/model_q4f16_fused.onnx`.
+The immutable `resolve/<commit>/` pin is what keeps the manifest's revision-pinning gate
+(`ShippedModelManifestTests`) satisfied. Background:
+[the release plan](../../../docs/plans/2026-09-07-dependency-update-strategy.md).

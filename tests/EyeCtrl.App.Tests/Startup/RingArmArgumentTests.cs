@@ -6,22 +6,24 @@ using EyeCtrl.ViewModels;
 
 /// <summary>
 /// The ring-arm look build's <c>--ring-arm=today|hybrid|run-only</c> launch argument (parsed beside
-/// <c>--paused</c>). Not a setting: nothing persists, absent means today, and an unknown value runs
-/// today (the App logs a warning and the startup line keeps the <c>--ring-arm</c> source so a silent
-/// fallback is visible).
+/// <c>--paused</c>). Not a setting: nothing persists. Since the owner's look, the DEFAULT is
+/// hybrid (B): absent means hybrid, and an unknown value also runs hybrid, with a warning
+/// (the startup line keeps the <c>--ring-arm</c> source so a fallback is visible).
 /// </summary>
 public class RingArmArgumentTests
 {
     [Fact]
-    public void Absent_RunsToday_ByDefault()
+    public void Absent_RunsHybrid_AsTheDefault()
     {
+        // The owner's decision (2026-10-16): make B the default, keep --ring-arm as a diagnostic.
+        // Mutant: return Today when the flag is absent → red.
         var launch = RingArmArgument.Parse(new[] { "EyeCtrl.exe", "--paused" });
 
-        Check.That(launch.Arm).IsEqualTo(RingArm.Today);
+        Check.That(launch.Arm).IsEqualTo(RingArm.Hybrid);
         Check.That(launch.Specified).IsFalse();
         Check.That(launch.UnknownValue).IsNull();
-        Check.That(launch.PinPolicy).IsEqualTo(RingPinPolicy.OfferFollowing);
-        Check.That(launch.HoldPolicy).IsEqualTo(RingHoldPolicy.None);
+        Check.That(launch.PinPolicy).IsEqualTo(RingPinPolicy.RunOnly);
+        Check.That(launch.HoldPolicy).IsEqualTo(RingHoldPolicy.HybridFreeze);
     }
 
     [Fact]
@@ -69,15 +71,16 @@ public class RingArmArgumentTests
     }
 
     [Fact]
-    public void UnknownValue_RunsToday_AndNamesTheValue()
+    public void UnknownValue_RunsHybrid_AndNamesTheValue()
     {
-        // Mutation: accept any value / crash on unknown → red.
+        // Fall back to the DEFAULT (hybrid), not to an old arm. Mutation: accept any value / crash
+        // on unknown → red.
         var launch = RingArmArgument.Parse(new[] { "--ring-arm=fast" });
 
-        Check.That(launch.Arm).IsEqualTo(RingArm.Today);
+        Check.That(launch.Arm).IsEqualTo(RingArm.Hybrid);
         Check.That(launch.Specified).IsTrue();
         Check.That(launch.UnknownValue).IsEqualTo("fast");
-        Check.That(launch.PinPolicy).IsEqualTo(RingPinPolicy.OfferFollowing);
-        Check.That(launch.HoldPolicy).IsEqualTo(RingHoldPolicy.None);
+        Check.That(launch.PinPolicy).IsEqualTo(RingPinPolicy.RunOnly);
+        Check.That(launch.HoldPolicy).IsEqualTo(RingHoldPolicy.HybridFreeze);
     }
 }

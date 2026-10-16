@@ -202,11 +202,12 @@ public partial class App : Application
                  quickActionsGridVm, modesMenuVm, repeatCursorVm) = ResolveViewModels(settings);
 
             // ── Ring arm (the ring-arm look build) ──
-            // Parsed beside --paused above. NOT a setting: nothing persists, and the supervisor's own
-            // relaunch passes only --paused, so it runs today. Both policies are set here, once; the
-            // startup line is ALWAYS written so every log names its arm (the readout spots a silent
-            // today by it), and the per-event lines the session scripts parse exist only when
-            // --ring-arm was given — an ordinary launch is bit-identical without them.
+            // Parsed beside --paused above. NOT a setting: nothing persists, and an ordinary launch —
+            // the supervisor's relaunch included, which passes only --paused — runs the hybrid, the
+            // owner's pick from the look. Both policies are set here, once, from the launch (the
+            // class defaults stay as they are: the App is the composition root); the startup line is
+            // ALWAYS written so every log names its arm, and the per-event lines the session scripts
+            // parse exist only when --ring-arm was given — a default launch writes only that line.
             im.RingPinPolicy = ringArmLaunch.PinPolicy;
             cursorVm.RingHoldPolicy = ringArmLaunch.HoldPolicy;
             if (ringArmLaunch.UnknownValue is { } unknownRingArm)

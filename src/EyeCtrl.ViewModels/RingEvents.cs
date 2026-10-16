@@ -9,11 +9,15 @@ using EyeCtrl.Core.Models;
 /// </summary>
 public enum RingHoldPolicy
 {
-    /// <summary>The shipped behaviour: the ring sits at whatever Core's pin put it on and follows
-    /// gaze again on Core's release. Called "today" by the look.</summary>
+    /// <summary>The original behaviour: the ring sits at whatever Core's pin put it on and follows
+    /// gaze again on Core's release. Called "today" by the look; since the owner's look, the launch
+    /// default is <see cref="HybridFreeze"/> and this is a diagnostic arm
+    /// (<c>--ring-arm=today</c>). The class default stays None — the App's launch composition is
+    /// the only place an arm is selected.</summary>
     None,
 
-    /// <summary>The look's hybrid: within a live offer's hit area the ring stops where it is drawn
+    /// <summary>The look's hybrid — the launch default since the owner's look picked it (2026-10-16):
+    /// within a live offer's hit area the ring stops where it is drawn
     /// (or keeps the pin it was on) and holds, ignoring settles and run ends; it releases on the
     /// grace expiry once proven, on the first sample outside before that, on the offer's close, and
     /// on a hiding state. See the constants on <see cref="CursorCircleViewModel"/>.</summary>

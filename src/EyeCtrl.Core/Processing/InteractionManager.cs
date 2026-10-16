@@ -27,9 +27,10 @@ public enum ActivationCompletionResult
 /// </summary>
 public enum RingPinPolicy
 {
-    /// <summary>The shipped behaviour: the ring belongs to the live activation offer — pinned at its
+    /// <summary>The original behaviour: the ring belongs to the live activation offer — pinned at its
     /// P from the offer's appearance, released at the offer's close, and pinned at a settle only
-    /// when the settle made no offer. Called "today" by the look.</summary>
+    /// when the settle made no offer. Called "today" by the look; since the owner's look made the
+    /// hybrid the launch default, it is a diagnostic arm (<c>--ring-arm=today</c>).</summary>
     OfferFollowing,
 
     /// <summary>The look's run-only arm: <see cref="InteractionManager.PinRing"/> on every accepted
@@ -75,8 +76,9 @@ public class InteractionManager
 
     /// <summary>
     /// The ring's pin policy (the look build's <c>--ring-arm</c> sets it once at startup; it is not a
-    /// setting and is never persisted). Default <see cref="RingPinPolicy.OfferFollowing"/> is the
-    /// shipped behaviour, bit for bit.
+    /// setting and is never persisted). The class default stays <see cref="RingPinPolicy.OfferFollowing"/>;
+    /// the App's launch composition selects the arm (the hybrid, unless <c>--ring-arm</c> says
+    /// otherwise).
     /// </summary>
     public RingPinPolicy RingPinPolicy { get; set; } = RingPinPolicy.OfferFollowing;
 

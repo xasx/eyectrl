@@ -20,13 +20,15 @@ public class RingArmLogTests
     // ── The startup line: always written, one per launch ─────────────────────
 
     [Fact]
-    public void StartupLine_Today_PrintsZeroHoldParameters_AndTheDefaultSource()
+    public void StartupLine_Default_RunsHybrid_PrintsTheHybridParameters_AndTheDefaultSource()
     {
+        // Since the owner's look, a launch with no --ring-arm runs the hybrid (B); the line names it
+        // so the readout can see which arm actually ran.
         var launch = RingArmArgument.Parse(new[] { "EyeCtrl.exe" });
 
         Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
-            "Ring arm: today (pin=OfferFollowing, hold=None, grace=0 ms once proven 0 ms, "
-            + "approach=0 ms, glideOut=0) [source: default]");
+            "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, grace=500 ms once proven 90 ms, "
+            + "approach=150 ms, glideOut=0) [source: default]");
     }
 
     [Fact]
@@ -50,11 +52,9 @@ public class RingArmLogTests
     }
 
     [Fact]
-    public void StartupLine_UnknownValue_FallsBackToToday_ButKeepsTheArgumentSource()
+    public void StartupLine_Today_Diagnostic_PrintsZeroHoldParameters_AndTheArgumentSource()
     {
-        // The readout detects an arm that silently fell back to today after a supervisor relaunch;
-        // an unknown value must be equally visible, so the source stays --ring-arm.
-        var launch = RingArmArgument.Parse(new[] { "--ring-arm=fast" });
+        var launch = RingArmArgument.Parse(new[] { "--ring-arm=today" });
 
         Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
             "Ring arm: today (pin=OfferFollowing, hold=None, grace=0 ms once proven 0 ms, "
@@ -62,14 +62,26 @@ public class RingArmLogTests
     }
 
     [Fact]
+    public void StartupLine_UnknownValue_FallsBackToTheDefault_ButKeepsTheArgumentSource()
+    {
+        // An unknown value falls back to the default (hybrid), and the source stays --ring-arm so
+        // the fallback is visible in the readout.
+        var launch = RingArmArgument.Parse(new[] { "--ring-arm=fast" });
+
+        Check.That(RingArmLog.StartupLine(launch)).IsEqualTo(
+            "Ring arm: hybrid (pin=RunOnly, hold=HybridFreeze, grace=500 ms once proven 90 ms, "
+            + "approach=150 ms, glideOut=0) [source: --ring-arm]");
+    }
+
+    [Fact]
     public void UnknownArmLine_HasTheExactFormatTheReadoutMatches()
     {
         // The look's readout matches `Ring arm value '(?<value>[^']*)' is unknown`
-        // (ringlook-lib.ps1); the product's text stays as shipped — pin it character for character.
+        // (ringlook-lib.ps1); the text is a contract (the tail says the fallback's arm — hybrid now).
         // Mutant X15 (deleting the warning call) reds the wiring test; this one reds if the text
         // moves away from the pattern.
         Check.That(RingArmLog.UnknownArmLine("fast")).IsEqualTo(
-            "Ring arm value 'fast' is unknown (today|hybrid|run-only) — running today.");
+            "Ring arm value 'fast' is unknown (today|hybrid|run-only) — running hybrid.");
     }
 
     // ── The event lines: exact formats ───────────────────────────────────────

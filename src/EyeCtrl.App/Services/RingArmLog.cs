@@ -44,8 +44,9 @@ internal sealed class RingArmLog : IDisposable
 
     // ── The exact line formats ───────────────────────────────────────────────
 
-    /// <summary>The one startup line, always written (including for today, so every log says which
-    /// arm it ran): the readout detects a silent today after a supervisor relaunch by it.</summary>
+    /// <summary>The one startup line, always written (the default included, so every log says which
+    /// arm it ran): the readout detects a silent fallback — a relaunch that no longer runs the
+    /// requested arm — by it.</summary>
     internal static string StartupLine(RingArmLaunch launch)
     {
         bool hybrid = launch.Arm == RingArm.Hybrid;
@@ -67,10 +68,11 @@ internal sealed class RingArmLog : IDisposable
 
     /// <summary>The warning for an unknown <c>--ring-arm</c> value. The look's readout matches
     /// <c>Ring arm value '(?&lt;value&gt;[^']*)' is unknown</c> (ringlook-lib.ps1) — the text is a
-    /// contract, pinned by <c>UnknownArmLine_HasTheExactFormatTheReadoutMatches</c>.</summary>
+    /// contract, pinned by <c>UnknownArmLine_HasTheExactFormatTheReadoutMatches</c>; the tail names
+    /// the fallback's arm, the hybrid default.</summary>
     internal static string UnknownArmLine(string value) =>
         string.Format(CultureInfo.InvariantCulture,
-            "Ring arm value '{0}' is unknown (today|hybrid|run-only) — running today.", value);
+            "Ring arm value '{0}' is unknown (today|hybrid|run-only) — running hybrid.", value);
 
     /// <summary>A pin, from the drawn ring to the pin target.</summary>
     internal static string PinLine(bool atOffer, PhysicalPoint target, double dist) =>

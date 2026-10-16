@@ -83,6 +83,9 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     // All touched on the UI thread with the rest of this VM. The offer's B and hit radius come from
     // the existing ShowActivationButtonMessage / HideActivationButtonMessage; the rules mirror the
     // replay's RingModel, which the arm-B oracle compares sample for sample.
+    // Review 01's X2/X3, accepted near-equivalences: "proven" is a SAMPLE COUNT (equal to elapsed
+    // time on regular 30 ms frames), and _drawn ignoring glide frames only matters for a freeze
+    // during a glide-in, which the freeze's own entry hold pre-empts first.
     private bool _holding;
     private long _holdStartUs;
     private int _inHitCount;

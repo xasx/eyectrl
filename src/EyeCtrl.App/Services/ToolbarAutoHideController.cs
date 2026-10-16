@@ -246,6 +246,14 @@ public sealed class ToolbarAutoHideController
         _geometry = new Geometry(g.ScreenW, g.ScreenH, rect);
     }
 
+    /// <summary>The cached docked toolbar rect in physical px — the summon geometry, kept across
+    /// hide/slide (the window itself may be off its dock when auto-hidden). Read by the activation
+    /// offer's summon band (corner fix 2026-10-17).</summary>
+    internal PhysicalRect AutoHideRect => _geometry.ToolbarRect;
+
+    /// <summary>The currently docked edge ("Top"/"Bottom"/"Left"/"Right").</summary>
+    internal string Edge => _edge;
+
     /// <summary>
     /// Re-publishes the screen bounds and the summon rectangle together after a display,
     /// resolution or scaling change.

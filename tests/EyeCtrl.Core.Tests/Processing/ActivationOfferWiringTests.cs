@@ -928,11 +928,12 @@ public class ActivationOfferWiringTests
     [Fact]
     public void OffScreenSettle_MakesNoOffer_ButStillPinsTheRing()
     {
-        // Review B F4: P off the primary screen (a toolbar summon's gaze above the bezel). B would be
-        // clamped on screen and the completion would land off screen. Mutation: drop the Contains
-        // check in MakeOffer → an offer appears, red.
+        // Review B F4: a P FAR off the primary screen (a lost-tracking gaze, not a corner settle).
+        // B would be clamped on screen and the completion would land off screen. Mutation: drop the
+        // tolerance check in MakeOffer → an offer appears, red. (The point moved beyond the corner
+        // fix's T=200 clamp tolerance; settles within T are clamped now — the corner tests pin that.)
         using var h = new Harness();
-        var off = new PhysicalPoint(3860, 1200);              // right of the 3840-wide screen
+        var off = new PhysicalPoint(3860 + ActivationOfferEngine.CornerClampTolerancePx, 1200);
 
         h.Feed(off, samples: 20);
 

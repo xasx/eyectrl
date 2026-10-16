@@ -105,6 +105,35 @@ public class ActivationOfferCoordinatorTests
     }
 
     [StaFact]
+    public void TheSummonBand_TravelsWithTheZonesPublication()
+    {
+        // Corner fix (2026-10-17): the docked toolbar's summon band is pushed with the zones, as
+        // plain data, on every publication. This rig has no auto-hide controller, so the publish's
+        // span is absent and the band clears — but the push must happen: a seeded band is replaced.
+        // Mutation: drop the SetActivationSummonBand call → the seeded band survives past the
+        // publish and the second settle stays refused, red.
+        var s = Build();
+        using var _ = s.Context.GazeEngine;
+        s.InteractionManager.SetActivationSummonBand(
+            ActivationSummonBand.FromDockedEdge("Top", new PhysicalRect(1070, 0, 1700, 280)));
+
+        s.InteractionManager.OnFixationStarted(new PhysicalPoint(1900, -40));
+        s.InteractionManager.OnFixationSettled(new PhysicalPoint(1900, -40));
+        Check.WithCustomMessage("a settle in the seeded summon band must be refused")
+            .That(s.Engine.CurrentOffer).IsNull();
+
+        s.Context.KeyboardVM.IsVisible = true;   // any listed trigger re-publishes
+        Pump();
+        s.InteractionManager.OnFixationEnded();
+        s.InteractionManager.OnFixationStarted(new PhysicalPoint(1900, -40));
+        s.InteractionManager.OnFixationSettled(new PhysicalPoint(1900, -40));
+
+        Check.WithCustomMessage("the publication no longer replaces the summon band")
+            .That(s.Engine.CurrentOffer).IsNotNull();
+        Check.That(s.Engine.CurrentOffer!.Point).IsEqualTo(new PhysicalPoint(1900, 0));
+    }
+
+    [StaFact]
     public void EveryListedTrigger_SchedulesAPublication()
     {
         // The plan's trigger list: the initial publish, keyboard show/hide, the prediction bar's

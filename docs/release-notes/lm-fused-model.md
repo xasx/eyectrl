@@ -8,7 +8,9 @@
   check refused it at every start; the manifest now names the fused file. Separately, ONNX
   Runtime 1.23+ cannot load the ORIGINAL file on the CPU path (its graph optimizer fails on
   it), which is why the runtime bump needed the new artifact. Installs still holding the old
-  file show the Models page's re-download (about 1.6 GB, on a dwell, never automatic at
-  startup); the owner's PC already has the fused file, so it loads with no download. The
-  re-export pipeline — the optimum export, the offline fusion and the quantization — is
-  committed under `tools/model-export/qwen2.5-1.5b/`.
+  file show the Models page's re-download (1.67 GB, on a dwell, never automatic at startup);
+  the owner's PC already has the fused file, so it loads with no download. **Updating an
+  existing install: replace the whole publish folder** — `onnxruntime.dll` changes with
+  1.24.4 (`DirectML.dll` does not), and an exe-only update would pair the new managed code
+  with the old native runtime. The re-export pipeline — the optimum export, the offline
+  fusion and the quantization — is committed under `tools/model-export/qwen2.5-1.5b/`.

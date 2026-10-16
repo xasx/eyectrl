@@ -250,16 +250,22 @@ projects, 2,885 tests green). ONNX 1.23+/1.24.x stays blocked until the model is
 Pipeline (all in `~/qwen-reexport/`, scripts kept): venv (torch 2.7.1 CPU + optimum 1.27 —
 the 1.x line still owns the ONNX exporter; optimum 2.x is a stub, and torch 2.14 breaks the
 1.x exporter's symbolic hooks) → optimum export of `Qwen/Qwen2.5-1.5B-Instruct`
-(text-generation-with-past, validated against PyTorch by optimum at ~1e-4) → **custom
+(text-generation-with-past; optimum's PyTorch validation WARNED — "not within the set
+tolerance 1e-05", logits max diff 1.0e-3 and present.* up to 8.4e-4, normal fp32 drift for a
+28-layer decoder) → **custom
 deterministic fp16 pass** (`fp16_pass.py`) because BOTH stock fp16 converters
 (onnxconverter-common and onnxruntime.transformers) produce mixed-dtype graphs for this
 decoder (three distinct failure modes hit; the custom pass converts every float
 initializer/constant/Cast target, inserts `InsertedPrecisionFreeCast_` boundary casts —
 the original artifact's own design — and topologically re-sorts) → q4 quantization
 (`quantize.py`, MatMulNBits bits=4 **block_size=32** symmetric, lm_head excluded → exactly
-196 nodes like the original; tied-embedding dedupe impossible here: optimum exports lm_head
-weight pre-transposed as a separate initializer → file is **1.67 GB vs 1.22 GB original**).
-ONNX checker clean; single-file.
+196 nodes like the original; tied-embedding dedupe SKIPPED — optimum's own check "requires
+accelerate" (absent from the venv; installing it changes the exported bytes) and exports
+lm_head pre-transposed under a different initializer name, so the custom passes find no
+byte-identical tie → both copies ship; file is **1.67 GB vs 1.22 GB original**). Single-file;
+the fp16 pass's checker raises `No Op registered for SimplifiedLayerNormalization` on the
+FUSED input — the file is saved before the check and is the one used, and ONNX Runtime is the
+real gate.
 
 Result matrix (clean-process probe, CPU-only vs DirectML):
 

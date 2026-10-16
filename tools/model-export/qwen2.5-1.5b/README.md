@@ -30,9 +30,10 @@ exporter's symbolic hooks (the plan's decision — see
 
 ## Pipeline
 
-All paths below are relative to a scratch directory (the recorded session used
-`~/qwen-reexport/`, which is also the hard-coded default `out/` in the scripts — they contain
-no machine-specific absolute paths).
+**Run every step with `~/qwen-reexport/` as the working directory.** `fuse.py` takes no
+arguments and hard-codes that path (`fuse.py:5`); `fp16_pass.py` and `quantize.py` default
+there too. The scripts are byte-identical to the recorded run and contain no
+machine-specific absolute paths.
 
 **1. Export** (optimum 1.27 + torch 2.7.1 CPU) — writes the fp32 model, opset 14:
 
@@ -41,8 +42,11 @@ venv/Scripts/optimum-cli export onnx --model Qwen/Qwen2.5-1.5B-Instruct \
     --task text-generation-with-past --opset 14 out
 ```
 
-→ `out/model.onnx` + `out/model.onnx_data` (7,108,352,000 bytes). optimum validates the
-export against PyTorch (recorded max deviation ≈ 1e-4 on the logits and present.* outputs).
+→ `out/model.onnx` + `out/model.onnx_data` (7,108,352,000 bytes). optimum's PyTorch
+validation **warned rather than passed** — the recorded log: `The ONNX export succeeded
+with the warning: The maximum absolute difference … is not within the set tolerance 1e-05`,
+with `logits: max diff = 0.0010037` (1.0e-3) and the worst `present.*` at
+`present.27.value: 8.4e-4`. That is normal fp32 drift for a 28-layer decoder, not a defect.
 
 **2. Shape-inference shell** — the fusion step's input. This is the phase-1 step of the same
 session's `make_q4f16.py`, which is deliberately NOT committed (its converter path was the
@@ -77,18 +81,34 @@ venv/Scripts/python fp16_pass.py out/model_fused.onnx out/model_fused_fp16.onnx
 
 Graph IO stays fp32/int64 (past KV fp32, ids int64) with `InsertedPrecisionFreeCast_*`
 boundary casts, exactly like the original artifact's design; every internal initializer,
-tensor-valued attribute and Cast target becomes fp16; the graph is re-toposorted and the
-ONNX checker gates the result.
+tensor-valued attribute and Cast target becomes fp16; the graph is re-toposorted.
 
-**No tied weight was deduplicated for this export.** Both this pass and `quantize.py` dedupe
-only when the two candidates are **byte-identical initializers** (fp16_pass checks
-`model.embed_tokens.weight` against an initializer literally named `lm_head.weight`;
-quantize matches by value against same-shape fp16 candidates). optimum exports Qwen2.5's
-`lm_head` **pre-transposed under a different initializer name**, so neither condition ever
-matched — the recorded quantize log says it exactly:
+**On the fused input the checker then RAISES — expected, and the saved file is the one the
+pipeline uses.** Measured: `ValidationError: No Op registered for
+SimplifiedLayerNormalization with domain_version of 14`, because the fused graph's 57 norms
+are `SimplifiedLayerNormalization` (**default domain**) and `SkipSimplifiedLayerNormalization`
+(`com.microsoft`), which the checker's opset-14 registry does not know. The script saves
+BEFORE it checks (`fp16_pass.py:134` saves, `:140` checks), so a rebuilder sees a traceback
+after a successful save — that saved output is exactly the file step 5 consumes. ONNX Runtime
+is the real gate for this artifact. (Only the unfused run's log survives, `fp16.log`, and it
+ends `CHECKER OK` because the unfused graph still carries the decomposed patterns.)
+
+**No tied weight was deduplicated for this export, and its root cause is the environment.**
+Both this pass and `quantize.py` dedupe only when the two candidates are **byte-identical
+initializers** (fp16_pass checks `model.embed_tokens.weight` against an initializer literally
+named `lm_head.weight`; quantize matches by value against same-shape fp16 candidates).
+The model IS tied (`out/config.json`: `"tie_word_embeddings": true`), but optimum's own
+deduplication was **skipped**: the export log says `Weight deduplication check in the ONNX
+export requires accelerate`, and `accelerate` is absent from this venv. optimum therefore
+exported `lm_head` **pre-transposed under a different initializer name**, and neither custom
+pass found a tie — the recorded quantize log says it exactly:
 `lm_head weight: onnx::MatMul_9283 | same-shape fp16 candidates: []` →
-`no tie found; keeping both copies`. Both copies therefore ship, which is why this artifact
-is 1.67 GB against the original's 1.22 GB (≈ one extra 467 MB fp16 copy).
+`no tie found; keeping both copies`. Both copies ship, which is why this artifact is 1.67 GB
+against the original's 1.22 GB (≈ one extra 467 MB fp16 copy).
+
+**`accelerate` is deliberately absent.** With it installed, optimum may deduplicate the tied
+`lm_head` and the exported bytes change — a rebuild with `accelerate` no longer matches the
+expected sha256 below.
 
 The external data is always written beside the output under the **hard-coded name
 `model_fp16b.onnx_data`** (≈ 3.55 GB for the fused model) — and successive runs in one
@@ -111,9 +131,10 @@ the script asserts exactly **196** quantized nodes (28 layers × 7 projections) 
 | bytes | 1,671,599,992 |
 | sha256 | `61e17fef2f6df1fd112dc42c69777298271c8b5992de21d35a43b4bfef99d688` |
 
-(The ONNX checker cannot validate `com.microsoft` contrib ops at opset 14 — ONNX Runtime
-itself was the gate for this artifact, and it loads on 1.21 / 1.22.1 / 1.24.4 on CPU and
-DirectML.)
+(The ONNX checker cannot validate the fused norms' ops at opset 14 — the failing op is the
+default-domain `SimplifiedLayerNormalization`, next to `com.microsoft`'s
+`SkipSimplifiedLayerNormalization`; ONNX Runtime is the real gate for this artifact, and it
+loads on 1.21 / 1.22.1 / 1.24.4 on CPU and DirectML.)
 
 ## Published artifact
 

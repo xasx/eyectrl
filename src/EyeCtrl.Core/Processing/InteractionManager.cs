@@ -466,8 +466,6 @@ public class InteractionManager
             ActivationOfferShown?.Invoke(offer);
             // The ring follows the offer, not the fixation state: it pins at the offer's P as the
             // offer appears (a settle's creation or replacement, or a pending re-offer taking over a
-            // The ring follows the offer, not the fixation state: it pins at the offer's P as the
-            // offer appears (a settle's creation or replacement, or a pending re-offer taking over a
             // run that still holds) and stays there while the user looks at the button. RunOnly pins
             // and releases from the settles and the runs alone; the offer's lifecycle is silent. The
             // corner fix's override keeps a clamped settle's pin at the RAW settle centroid.

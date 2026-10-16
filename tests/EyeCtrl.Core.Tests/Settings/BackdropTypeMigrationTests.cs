@@ -296,6 +296,44 @@ public class BackdropTypeMigrationTests
         finally { File.Delete(path); }
     }
 
+    [Fact]
+    public void TheHealedFile_IsIndentedLikeASavedOne_NotOneLine()
+    {
+        // N1 (review-03): when the dedupe is the ONLY step that changes the file, its writer's
+        // formatting is exactly what lands on disk — and this owner hand-edits that file, so it
+        // must look like a saved one (indented, multi-line), not one line. Every value here is
+        // legal, so nothing else rewrites the text afterwards.
+        var path = TempFile();
+        try
+        {
+            const string json = """
+            {
+              "dwell": { "activationButtonDwellMs": 850, "keyboardKeyDwellMs": 500 },
+              "dwell": { "activationButtonDwellMs": 850, "keyboardKeyDwellMs": 500 },
+              "keyboard": { "activeLayout": "AZERTY", "languagePack": "de", "maxSuggestions": 3 },
+              "backdrop": { "enabled": false, "type": "solidDarken", "opacity": 0.45 }
+            }
+            """;
+            File.WriteAllText(path, json);
+
+            var service = new SettingsService(path);
+            service.Load();
+
+            var healed = File.ReadAllText(path);
+            Check.WithCustomMessage("the normalized file must not be one line (review-03 N1).")
+                .That(healed).Contains("\n");
+            Check.WithCustomMessage("two-space indentation, as ToJsonString(WriteIndented) writes it.")
+                .That(healed).Contains("\n  \"dwell\": {");
+            Check.That(healed).Contains("\n  \"keyboard\": {");
+            Check.That(healed).Contains("\n  \"backdrop\": {");
+
+            // And it is stable: the next load finds no duplicate and touches nothing.
+            service.Load();
+            Check.That(File.ReadAllText(path)).IsEqualTo(healed);
+        }
+        finally { File.Delete(path); }
+    }
+
     // ── R1: a ROOT duplicate plus a value that needs repair must not wipe the file ──────────────
 
     [Fact]

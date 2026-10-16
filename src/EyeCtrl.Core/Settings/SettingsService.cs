@@ -1144,7 +1144,11 @@ public class SettingsService
         {
             var duplicates = new List<string>();
             using var stream = new MemoryStream();
-            using (var writer = new Utf8JsonWriter(stream))
+            // Indented, matching Save's `ToJsonString(JsonOptions)` and the other migrations: this
+            // step is the ONLY writer when a duplicate-only file heals, and the owner hand-edits
+            // this file — a one-line settings.json (review-03 N1) would be hostile to open. The
+            // default encoder is the one JsonSerializerOptions uses too, so escaping matches.
+            using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
                 WriteDeduplicated(document.RootElement, writer, "$", duplicates);
 
             if (duplicates.Count == 0)

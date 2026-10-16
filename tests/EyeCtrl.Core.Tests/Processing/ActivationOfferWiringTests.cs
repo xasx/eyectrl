@@ -1016,4 +1016,145 @@ public class ActivationOfferWiringTests
         h.Feed(offer.Button, samples: 1);
         Check.That(h.Offers.CurrentOffer).IsNull();
     }
+
+    // ── RunOnly (the ring-arm look build's pin policy) ───────────────────────
+    //
+    // The look build (spec: ring-stutter-investigation/replay-2, "Where the arms live") offers a
+    // second ring pin policy beside the shipped OfferFollowing: RunOnly pins the ring on EVERY
+    // accepted settle — swallowed settles included — and releases it on every exit from Fixation,
+    // with the offer lifecycle contributing nothing. The event signatures are unchanged, so the
+    // adapter forwards both policies as today.
+
+    [Fact]
+    public void RingPinPolicy_DefaultsToOfferFollowing()
+    {
+        // The shipped behaviour is the default: an ordinary launch (and the supervisor's own relaunch,
+        // which passes only --paused) must run today, unchanged. Mutation: default to RunOnly → red.
+        Check.That(new InteractionManager().RingPinPolicy).IsEqualTo(RingPinPolicy.OfferFollowing);
+    }
+
+    [Fact]
+    public void RunOnly_PinsOnEveryAcceptedSettle_SwallowedIncluded()
+    {
+        // The replay-1 trap made a policy: under OfferFollowing a swallowed settle leaves the ring at
+        // P (the engine's pending re-offer takes over; ASwallowedSettle_OnPsSide_LeavesTheRingAtP),
+        // and under RunOnly the settle itself is the ring's anchor — the pin moves to the settle
+        // centroid. The visible swallowed settle is the case that separates settle pins from offer
+        // pins. Mutation: pin only for the offer-following outcomes (NoOffer/null) → the second pin
+        // never comes.
+        using var h = new Harness();
+        h.Im.RingPinPolicy = RingPinPolicy.RunOnly;
+        var offer = h.SettleAt(P);
+        Check.That(h.PinPoints).ContainsExactly(P);
+
+        var swallowed = TowardP(offer, offer.HitRadiusPx + HarnessRadiusPx - 10);
+        h.Feed(swallowed, samples: 20);
+
+        Check.That(h.Offers.CurrentOffer!.Id).IsEqualTo(offer.Id);   // swallowed, not replaced
+        Check.That(h.PinPoints).HasSize(2);
+        Check.That(h.PinPoints[1]).IsEqualTo(swallowed);
+    }
+
+    [Fact]
+    public void RunOnly_ReleasesOnEveryExitFromFixation_AndTheOfferLifecycleIsSilent()
+    {
+        // The chrome-settle scenario shows the whole difference. Under OfferFollowing the P-run's
+        // exit waits at P while the offer lives, the toolbar settle pins, the exit re-pins at P, and
+        // the offer's close releases (AChromeSettleDuringTheLinger_...). Under RunOnly: the P-run's
+        // exit releases, the toolbar settle pins, the toolbar-run's exit releases, and the offer's
+        // close raises nothing. Mutation: keep the offer-following branch in SetState → the third
+        // pin appears and the second release does not.
+        using var h = new Harness();
+        h.Im.RingPinPolicy = RingPinPolicy.RunOnly;
+        var toolbar = new PhysicalRect(1500, 0, 1000, 300);
+        h.Im.SetActivationChromeZones(toolbar);
+        h.SettleAt(P);
+        var onToolbar = new PhysicalPoint(2000, 150);
+
+        h.Feed(onToolbar, samples: 20);                       // the P run ends; the toolbar run settles
+
+        Check.That(h.PinPoints).ContainsExactly(P, onToolbar);
+        Check.That(h.Released).IsEqualTo(1);                  // the run-end release, not a wait at P
+
+        h.FeedAway(samples: 2);                               // the user leaves the toolbar: the run ends
+
+        Check.That(h.Offers.CurrentOffer).IsNotNull();        // the offer still lingers
+        Check.That(h.PinPoints).ContainsExactly(P, onToolbar);  // no re-pin at its P
+        Check.That(h.Released).IsEqualTo(2);
+
+        h.FeedAway(samples: 30);                              // the linger runs out: the offer closes
+
+        Check.That(h.Closed).IsEqualTo(1);
+        Check.That(h.Released).IsEqualTo(2);                  // the close raises nothing
+        Check.That(h.PinPoints).ContainsExactly(P, onToolbar);
+    }
+
+    [Fact]
+    public void RunOnly_RaisesThePinRightAfterTheSettle_AndTheReleaseBeforeTheStateChanged()
+    {
+        // The look's readout pairs its lines by order: the pin sits right after the settled event and
+        // BEFORE that settle's offer publish; the release sits on the exit edge, before StateChanged.
+        // Mutations: raise the pin from the publish / after NotifyFixationSettled → the order flips;
+        // raise the release after StateChanged → the second order assertion reds.
+        using var h = new Harness();
+        h.Im.RingPinPolicy = RingPinPolicy.RunOnly;
+        var events = new List<string>();
+        h.Im.FixationSettled += _ => events.Add("settle");
+        h.Im.PinRing += _ => events.Add("pin");
+        h.Im.ActivationOfferShown += _ => events.Add("show");
+        h.Im.ReleaseRing += () => events.Add("release");
+        h.Im.StateChanged += s => events.Add("state:" + s);
+
+        var offer = h.SettleAt(P);
+
+        Check.That(events).Contains("settle");
+        Check.That(events).Contains("pin");
+        Check.That(events).Contains("show");
+        Check.WithCustomMessage("the pin must be raised before the offer's publish")
+            .That(events.IndexOf("pin")).IsStrictlyLessThan(events.IndexOf("show"));
+        Check.WithCustomMessage("the settle event must precede the pin")
+            .That(events.IndexOf("settle")).IsStrictlyLessThan(events.IndexOf("pin"));
+
+        events.Clear();
+        h.Feed(offer.Button, samples: 1);                     // the move ends the fixation
+
+        Check.That(events).Contains("release");
+        Check.That(events).Contains("state:FreeLook");
+        Check.WithCustomMessage("the release must precede the StateChanged")
+            .That(events.IndexOf("release")).IsStrictlyLessThan(events.IndexOf("state:FreeLook"));
+    }
+
+    [Fact]
+    public void RunOnly_TheKeyboardTogglesExit_ReleasesWithoutConsultingTheOffer()
+    {
+        // Every exit, through whatever path: the keyboard toggle ends the fixation directly from the
+        // dispatcher while an offer is live, and RunOnly must release on that edge. Mutation: keep the
+        // offer-following guard (!toFreeLookWithOffer || !_ringPinnedAtOffer) under RunOnly → the
+        // release never comes.
+        using var h = new Harness();
+        h.Im.RingPinPolicy = RingPinPolicy.RunOnly;
+        h.SettleAt(P);
+        Check.That(h.Released).IsEqualTo(0);
+
+        h.Engine.AcquireFixationSuppression(FixationSuppressor.Keyboard);
+        h.Im.OnFixationEnded();
+
+        Check.That(h.Released).IsEqualTo(1);
+    }
+
+    [Fact]
+    public void RunOnly_StillOffers_AndTheDwellStillCompletes()
+    {
+        // The offer engine is untouched by the policy: every look arm runs normal use. Mutation:
+        // skip the settle's offer bookkeeping under RunOnly → no offer appears and nothing fires.
+        using var h = new Harness();
+        h.Im.RingPinPolicy = RingPinPolicy.RunOnly;
+        var offer = h.SettleAt(P);
+
+        h.Feed(offer.Button, samples: 25);                    // 750 ms on the button
+
+        Check.That(h.Fired).HasSize(1);
+        Check.That(h.Fired[0].Id).IsEqualTo(offer.Id);
+        Check.That(h.Fired[0].Point).IsEqualTo(P);
+    }
 }

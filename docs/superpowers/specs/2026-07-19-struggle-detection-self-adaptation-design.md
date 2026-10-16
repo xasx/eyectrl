@@ -389,8 +389,13 @@ would undo instead of firing mid-read — so the **toolbar** escape is now a **t
 pass, a debounced leave (120 ms continuously off the button ∪ panel union), then one full armed dwell
 **returned within 3 s of arming** (after expiry the sequence restarts with a preview). The escape stays
 always-reachable and *bounded* rather than instant: **worst case to reset = `0.40 × ToolbarButtonDwellMs` +
-120 ms + return + `1 × ToolbarButtonDwellMs`** — at defaults ≈ 1.1 s plus the return; the dwell term may
-itself be shortened by live adaptation. The invariant's substance is unchanged — no lockout, no unbounded
+up to 500 ms (D14's unknown-bounds timeout, when the panel never reports bounds — the leave run cannot start
+until the panel's rect is known or the timeout cancels it to the hit-area fallback) + 120 ms + return +
+`1 × ToolbarButtonDwellMs`** (follow-up M1, 2026-10-16: the original amendment omitted the D14 term) — at
+defaults up to ≈ 1.6 s plus the return; the dwell term may itself be shortened by live adaptation. A
+pause-toggle fire under the reader's gaze can delay the return term further — the pause re-arm leave holds
+samples out of the engine, so its deadlines only ever move later, never get skipped (a deliberate, safe
+direction; final-review F3 of the feature). The invariant's substance is unchanged — no lockout, no unbounded
 path back to baseline, and the escape still clears momentary AND learned when it fires (§7.4 resolution).
 The **tray** Reset item remains a single-step instant escape (mouse path), and Settings' "Reset learned
 offsets" is unchanged.

@@ -286,6 +286,50 @@ public class ActivationOfferCornerClampTests
     }
 
     [Fact]
+    public void AClampedCornerSettle_WhosePPrimeLiesInChrome_IsRefusedInChrome()
+    {
+        // K6 (review 01): the chrome check runs on the clamped P′, not the raw P — a zone at the
+        // corner covers P′ while the raw P is off-screen, outside it. Mutant: InChrome(point) → the
+        // settle dies later as NoSidePlaceable instead of InChrome, and the reason assertion reds.
+        using var h = new Harness();
+        h.Im.SetActivationChromeZones(new PhysicalRect(3700, 2200, 140, 200));   // touches the BR corner
+        var refusals = new List<ActivationOfferRefusal>();
+        h.Im.ActivationOfferRefused += r => refusals.Add(r);
+
+        h.Feed(new PhysicalPoint(3900, 2300), samples: 20);        // clamps to (3839,2300): in the zone
+
+        Check.That(h.Im.ActivationOffers?.CurrentOffer).IsNull();
+        Check.WithCustomMessage("the clamped P′ must be judged by the chrome check")
+            .That(refusals).HasSize(1);
+        Check.That(refusals[0].Reason).IsEqualTo(ActivationOfferRefusalReason.InChrome);
+    }
+
+    [Fact]
+    public void ARepeatedRefusalAfterAnOffer_RaisesAgain()
+    {
+        // K15 (review 01): the latch resets when an offer is made, so the SAME reason raises again
+        // afterwards — no different reason in between. Mutant: drop the reset → the second
+        // OffScreen refusal stays latched out, red.
+        using var h = new Harness();
+        var refusals = new List<ActivationOfferRefusal>();
+        h.Im.ActivationOfferRefused += r => refusals.Add(r);
+
+        h.Feed(new PhysicalPoint(Screen.Width + T + 10, 1200), samples: 20);   // off-screen refusal
+        Check.That(refusals).HasSize(1);
+
+        h.FeedAway(samples: 20);
+        h.Feed(new PhysicalPoint(1900, 1400), samples: 20);                    // ...an offer is made
+        Check.That(h.Im.ActivationOffers?.CurrentOffer).IsNotNull();
+
+        h.FeedAway(samples: 20);
+        h.Feed(new PhysicalPoint(Screen.Width + T + 10, 1200), samples: 20);   // same reason again
+
+        Check.WithCustomMessage("the latch must reset when an offer is made")
+            .That(refusals).HasSize(2);
+        Check.That(refusals[1].Reason).IsEqualTo(ActivationOfferRefusalReason.OffScreen);
+    }
+
+    [Fact]
     public void TonightsCornerSettles_ReplayAsExpected()
     {
         // The investigation's corner settles (2026-10-16, 23:33-23:46) with tonight's zone set:

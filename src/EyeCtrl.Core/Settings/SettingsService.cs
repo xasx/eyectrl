@@ -1039,23 +1039,35 @@ public class SettingsService
     // WHY raw JSON: Mica and Acrylic had drawn the same material since 2026-10-14, so they merged
     // into one Glass member — and with the old members gone from the enum, an existing file's
     // "mica"/"acrylic" is an unknown enum string. JsonStringEnumConverter THROWS on that inside
-    // Deserialize, and the #153 repair then answers by resetting the whole backdrop SECTION: the
-    // user's opacity lost over a name the app itself wrote. This owner hand-edits settings.json
-    // (the .bak-* files on record), so the read REWRITES the legacy names, never rejects them:
-    // both map onto Glass — the blur they already drew — the migrated JSON is persisted by Load's
-    // atomic write-back, and new saves write "glass". Matching is case-insensitive because a
-    // hand-editor may spell it "Mica".
+    // Deserialize, and the #153 repair then answers by reverting the section's TYPE (or, beside
+    // any second in-section defect, the whole section). This owner hand-edits settings.json (the
+    // .bak-* files on record), so the read REWRITES the legacy names, never rejects them: both map
+    // onto Glass — the blur they already drew — the migrated JSON is persisted by Load's atomic
+    // write-back, and new saves write "glass". Matching is case-insensitive because a hand-editor
+    // may spell it "Mica".
+    //
+    // The NUMERIC form rides the same rule (JsonStringEnumConverter accepts integers — see the
+    // #153 F3 note above): the old member order was Acrylic = 0, Mica = 1, SolidDarken = 2, and
+    // the new one pins Glass = 0 / SolidDarken = 2 for exactly this compatibility, so 0 and 2
+    // still deserialize to their old materials and only the old Mica's 1 — undefined under the
+    // new values on purpose — is rewritten. One number, or the name it used to spell.
     private const string BackdropSectionName = "backdrop";
     private const string BackdropTypeKey = "type";
     private const string GlassBackdropTypeName = "glass";
     private const string LegacyMicaName = "mica";
     private const string LegacyAcrylicName = "acrylic";
+    private const int LegacyMicaOrdinal = 1;
 
     private static string MigrateBackdropTypeToGlass(string json)
     {
-        // Cheap reject: neither legacy name anywhere means nothing to rewrite (the common file).
+        // Cheap reject: only a file that mentions a legacy name OR carries a backdrop section can
+        // need a rewrite. The section key is in the trigger because a hand-editor may have
+        // REPLACED "acrylic" with the bare number 1 — no legacy text left anywhere — and the
+        // numeric form is the other half of the compatibility this migration owns. The parse is
+        // only reached for a file with a backdrop section; anything else answers unchanged.
         if (!json.Contains($"\"{LegacyMicaName}\"", StringComparison.OrdinalIgnoreCase)
-            && !json.Contains($"\"{LegacyAcrylicName}\"", StringComparison.OrdinalIgnoreCase))
+            && !json.Contains($"\"{LegacyAcrylicName}\"", StringComparison.OrdinalIgnoreCase)
+            && !json.Contains($"\"{BackdropSectionName}\"", StringComparison.Ordinal))
             return json;
 
         JsonObject? root;
@@ -1064,9 +1076,13 @@ public class SettingsService
 
         if (root?[BackdropSectionName] is not JsonObject backdrop)
             return json;
-        if (backdrop[BackdropTypeKey] is not JsonValue typeValue
-            || !typeValue.TryGetValue(out string? type)
-            || !IsLegacyBlurName(type))
+        if (backdrop[BackdropTypeKey] is not JsonValue typeValue)
+            return json;
+
+        bool rewrite = typeValue.TryGetValue(out string? type)
+            ? IsLegacyBlurName(type)
+            : typeValue.TryGetValue(out int number) && number == LegacyMicaOrdinal;
+        if (!rewrite)
             return json;
 
         backdrop[BackdropTypeKey] = GlassBackdropTypeName;

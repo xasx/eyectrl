@@ -63,6 +63,45 @@ public class BackdropTypeMigrationTests
         finally { File.Delete(path); }
     }
 
+    [Theory]
+    [InlineData("0", BackdropType.Glass)]        // old Acrylic: 0 is Glass by the pinned enum values
+    [InlineData("1", BackdropType.Glass)]        // old Mica: undefined under the new values, rewritten at the node
+    [InlineData("2", BackdropType.SolidDarken)]  // old SolidDarken: 2 is Solid darken by the pinned values
+    public void ANumericLegacyType_KeepsItsOldMaterial_WithEveryOtherSettingIntact(string rawNumber, BackdropType expected)
+    {
+        // The string-enum converter accepts integers (the #153 F3 note), and this owner hand-edits
+        // settings.json — so a bare old ordinal must keep its meaning. The enum pins Glass = 0 and
+        // SolidDarken = 2 exactly for this; the old Mica's 1 has no value left on purpose and is
+        // rewritten, like the names.
+        var path = TempFile();
+        try
+        {
+            File.WriteAllText(path, NumericLegacyFile(rawNumber));
+            string before = File.ReadAllText(path);
+
+            var loaded = new SettingsService(path).Load();
+
+            Check.That(loaded.Backdrop.Type).IsEqualTo(expected);
+            Check.That(loaded.Backdrop.Opacity).IsEqualTo(0.45);
+            Check.That(loaded.Backdrop.Enabled).IsFalse();
+            Check.That(loaded.Keyboard.ActiveLayout).IsEqualTo("AZERTY");
+            Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(850);
+
+            string onDisk = File.ReadAllText(path);
+            if (rawNumber == "1")
+            {
+                Check.That(onDisk).Contains("\"glass\"");
+                Check.That(onDisk.Contains("\"type\": 1", StringComparison.Ordinal)).IsFalse();
+            }
+            else
+            {
+                // 0 and 2 still deserialize to their old materials: no rewrite, byte-identical file.
+                Check.That(onDisk).IsEqualTo(before);
+            }
+        }
+        finally { File.Delete(path); }
+    }
+
     [Fact]
     public void ALegacyName_BesideASecondBackdropDefect_DoesNotResetTheSection()
     {
@@ -164,6 +203,19 @@ public class BackdropTypeMigrationTests
           "keyboard": { "activeLayout": "AZERTY", "languagePack": "de", "maxSuggestions": 3 },
           "general": { "uiLanguage": "german" },
           "backdrop": { "enabled": false, "type": "{{legacyTypeName}}", "opacity": {{opacity}} }
+        }
+        """;
+
+    /// <summary>The same old-style file with a BARE NUMBER as the type — the hand-edit form the
+    /// string-enum converter accepts (no build ever wrote one), quoted strings being no legacy
+    /// form at all: the converter has always matched string values by member name.</summary>
+    private static string NumericLegacyFile(string rawNumber) =>
+        $$"""
+        {
+          "dwell": { "activationButtonDwellMs": 850 },
+          "keyboard": { "activeLayout": "AZERTY", "languagePack": "de", "maxSuggestions": 3 },
+          "general": { "uiLanguage": "german" },
+          "backdrop": { "enabled": false, "type": {{rawNumber}}, "opacity": 0.45 }
         }
         """;
 }

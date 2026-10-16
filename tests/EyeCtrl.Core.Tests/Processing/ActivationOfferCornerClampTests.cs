@@ -250,4 +250,86 @@ public class ActivationOfferCornerClampTests
         Check.That(refusals).HasSize(4);
         Check.That(refusals[3].Reason).IsEqualTo(ActivationOfferRefusalReason.Suspended);
     }
+
+    [Fact]
+    public void TonightsCornerSettles_ReplayAsExpected()
+    {
+        // The investigation's corner settles (2026-10-16, 23:33-23:46) with tonight's zone set:
+        // the toolbar [1070,0 1700×280] and the lag-mark button [3280,1872 512×384] (the T0(a)
+        // instrument was on for the whole look). Expected after the fix: on-screen rows behave
+        // exactly as the recorded table; off-screen rows within T are clamped and placed -- EXCEPT
+        // at the BR corner, where the lag zone still kills the clamped placement (it owns BR, and
+        // is out of scope). The final block drops the lag zone: the same six BR rows then place at
+        // their corner pixel, which is the fix's effect in an ordinary (lag-free) session.
+        //
+        // The table's "6 × TR, shown" group is represented by its two recorded points; the
+        // (3479,170) row is excluded (a ManualSelection pin, never an offer settle).
+        var toolbar = new PhysicalRect(1070, 0, 1700, 280);
+        var lag = new PhysicalRect(3280, 1872, 512, 384);
+        PhysicalPoint P(double x, double y) => new(x, y);
+
+        (PhysicalPoint Settle, PhysicalRect[] Zones, PhysicalPoint? OfferedAt, ActivationOfferRefusalReason? Refused)[] rows =
+        [
+            // BR, tonight's full zone set: the six off-screen rows clamp, then the lag zone drops
+            // the placement (NoSidePlaceable); the on-screen losers are the table's rows.
+            (P(4017, 2380), [toolbar, lag], null, ActivationOfferRefusalReason.NoSidePlaceable),
+            (P(3783, 2346), [toolbar, lag], null, ActivationOfferRefusalReason.NoSidePlaceable),
+            (P(3716, 2228), [toolbar, lag], null, ActivationOfferRefusalReason.InChrome),
+            (P(3881, 2470), [toolbar, lag], null, ActivationOfferRefusalReason.NoSidePlaceable),
+            (P(3900, 2517), [toolbar, lag], null, ActivationOfferRefusalReason.NoSidePlaceable),
+            (P(3696, 2149), [toolbar, lag], null, ActivationOfferRefusalReason.InChrome),
+            (P(3637, 2321), [toolbar, lag], null, ActivationOfferRefusalReason.NoSidePlaceable),
+            (P(3750, 2408), [toolbar, lag], null, ActivationOfferRefusalReason.NoSidePlaceable),
+            (P(3628, 2269), [toolbar, lag], null, ActivationOfferRefusalReason.NoSidePlaceable),
+            (P(3695, 2328), [toolbar, lag], null, ActivationOfferRefusalReason.NoSidePlaceable),
+            (P(3795, 2587), [toolbar, lag], null, ActivationOfferRefusalReason.NoSidePlaceable),
+            (P(3876, 2498), [toolbar, lag], null, ActivationOfferRefusalReason.NoSidePlaceable),
+            (P(3814, 2326), [toolbar, lag], null, ActivationOfferRefusalReason.NoSidePlaceable),
+            (P(3787, 2169), [toolbar, lag], null, ActivationOfferRefusalReason.InChrome),
+            (P(3653, 2260), [toolbar, lag], null, ActivationOfferRefusalReason.NoSidePlaceable),
+            (P(3786, 2287), [toolbar, lag], null, ActivationOfferRefusalReason.NoSidePlaceable),
+            // TR: shown as before (on-screen), and the summon gaze now clamps instead of refusing.
+            (P(3680, 52), [toolbar, lag], P(3680, 52), null),
+            (P(3737, 348), [toolbar, lag], P(3737, 348), null),
+            (P(3861, -48), [toolbar, lag], P(3839, 0), null),
+            // The same six BR off-screen rows with no lag button: the clamp's effect, in an
+            // ordinary session.
+            (P(4017, 2380), [toolbar], P(3839, 2380), null),
+            (P(3881, 2470), [toolbar], P(3839, 2399), null),
+            (P(3900, 2517), [toolbar], P(3839, 2399), null),
+            (P(3750, 2408), [toolbar], P(3750, 2399), null),
+            (P(3795, 2587), [toolbar], P(3795, 2399), null),
+            (P(3876, 2498), [toolbar], P(3839, 2399), null),
+        ];
+
+        foreach (var (settle, zones, offeredAt, refused) in rows)
+        {
+            using var h = new Harness();
+            h.Im.SetActivationChromeZones(zones);
+            var refusals = new List<ActivationOfferRefusal>();
+            h.Im.ActivationOfferRefused += r => refusals.Add(r);
+
+            h.Feed(settle, samples: 20);
+            var offer = h.Im.ActivationOffers?.CurrentOffer;
+
+            if (offeredAt is { } expected)
+            {
+                Check.WithCustomMessage(
+                        $"({settle.X},{settle.Y}): expected an offer at ({expected.X},{expected.Y}); got "
+                        + (offer is null ? "none" : $"({offer.Point.X},{offer.Point.Y})"))
+                    .That(offer).IsNotNull();
+                Check.That(offer!.Point).IsEqualTo(expected);
+            }
+            else
+            {
+                Check.WithCustomMessage(
+                        $"({settle.X},{settle.Y}): expected a refusal; got "
+                        + (offer is null ? "a refusal" : $"an offer at ({offer.Point.X},{offer.Point.Y})"))
+                    .That(offer).IsNull();
+                Check.WithCustomMessage($"({settle.X},{settle.Y}): refusal reason")
+                    .That(refusals).HasSize(1);
+                Check.That(refusals[0].Reason).IsEqualTo(refused);
+            }
+        }
+    }
 }

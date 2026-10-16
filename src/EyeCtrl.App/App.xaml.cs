@@ -45,6 +45,7 @@ public partial class App : Application
     private EventCoordinator _eventCoordinator = null!;
     private RestartNoticeHost? _restartNoticeHost;
     private LagMarkHost? _lagMarkHost;
+    private RingArmLog? _ringArmLog;
     private SingleInstanceGuard? _singleInstance;
     private HeartbeatPublisher? _heartbeatPublisher;
     private SupervisorRequestService? _supervisorRequests;
@@ -92,6 +93,7 @@ public partial class App : Application
 
         IsTestMode = e.Args.Contains("--test-mode", StringComparer.OrdinalIgnoreCase);
         IsPausedLaunch = e.Args.Contains("--paused", StringComparer.OrdinalIgnoreCase);
+        var ringArmLaunch = RingArmArgument.Parse(e.Args);
         var isRestartHandoff = e.Args.Contains(RestartHandoff.Argument, StringComparer.OrdinalIgnoreCase);
 
         // A restart replacement announces itself BEFORE queueing for the mutex: the
@@ -198,6 +200,21 @@ public partial class App : Application
             var (cursorVm, activationVm, manualSelectionVm, actionMenuVm, toolbarVm, keyboardVm,
                  manualSelectionIndicatorVm, backdropVm, calibrationVm, targetHighlightVm, edgeButtonBarVm, actionMenuModBarVm, trackStatusVm, taskSwitcherVm,
                  quickActionsGridVm, modesMenuVm, repeatCursorVm) = ResolveViewModels(settings);
+
+            // ── Ring arm (the ring-arm look build) ──
+            // Parsed beside --paused above. NOT a setting: nothing persists, and an ordinary launch —
+            // the supervisor's relaunch included, which passes only --paused — runs the hybrid, the
+            // owner's pick from the look. Both policies are set here, once, from the launch (the
+            // class defaults stay as they are: the App is the composition root); the startup line is
+            // ALWAYS written so every log names its arm, and the per-event lines the session scripts
+            // parse exist only when --ring-arm was given — a default launch writes only that line.
+            im.RingPinPolicy = ringArmLaunch.PinPolicy;
+            cursorVm.RingHoldPolicy = ringArmLaunch.HoldPolicy;
+            if (ringArmLaunch.UnknownValue is { } unknownRingArm)
+                Log.Warning("{RingArm}", RingArmLog.UnknownArmLine(unknownRingArm));
+            Log.Information("{RingArm}", RingArmLog.StartupLine(ringArmLaunch));
+            if (ringArmLaunch.Specified)
+                _ringArmLog = new RingArmLog(im, cursorVm, line => Log.Information("{RingEvent}", line));
 
             // Resolve adapter (triggers Core event subscriptions)
             _ = _serviceProvider.GetRequiredService<GazeEngineAdapter>();
@@ -653,6 +670,7 @@ public partial class App : Application
 
         Step("dispose tray icon", () => _trayIconManager?.Dispose());
         Step("dispose lag mark host", () => _lagMarkHost?.Dispose());
+        Step("dispose ring arm log", () => _ringArmLog?.Dispose());
         Step("dispose event coordinator", () => _eventCoordinator?.Dispose());
 
         if (_serviceProvider != null)

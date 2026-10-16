@@ -10,6 +10,7 @@ pointer files, and `EyeCtrl.App.Tests` fails on them. `git lfs install && git lf
 dotnet build EyeCtrl.slnx                # build everything
 dotnet run --project src/EyeCtrl.App     # run (falls back to mouse-as-gaze if no eye tracker)
 dotnet run --project src/EyeCtrl.App -- --test-mode   # skip splash, force mouse gaze provider
+dotnet run --project src/EyeCtrl.App -- --ring-arm=today|run-only   # ring diagnosis; the default is hybrid
 dotnet publish src/EyeCtrl.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
 ```
 

@@ -21,6 +21,26 @@ public enum ActivationCompletionResult
 }
 
 /// <summary>
+/// How the ring's pin and release follow the interaction (the ring-arm look build,
+/// spec: ring-stutter-investigation/replay-2, "Where the arms live"). The event signatures are the
+/// same for both: the adapter forwards them as today.
+/// </summary>
+public enum RingPinPolicy
+{
+    /// <summary>The original behaviour: the ring belongs to the live activation offer — pinned at its
+    /// P from the offer's appearance, released at the offer's close, and pinned at a settle only
+    /// when the settle made no offer. Called "today" by the look; since the owner's look made the
+    /// hybrid the launch default, it is a diagnostic arm (<c>--ring-arm=today</c>).</summary>
+    OfferFollowing,
+
+    /// <summary>The look's run-only arm: <see cref="InteractionManager.PinRing"/> on every accepted
+    /// settle (swallowed settles included, raised right after the settled event and before the
+    /// offer's publish) and <see cref="InteractionManager.ReleaseRing"/> on every exit from
+    /// Fixation; the offer's lifecycle contributes nothing to the ring.</summary>
+    RunOnly,
+}
+
+/// <summary>
 /// Manages the interaction state machine for gaze-based interactions.
 /// All point coordinates are in physical screen pixels.
 /// </summary>
@@ -53,6 +73,21 @@ public class InteractionManager
     public PhysicalPoint? ScrollAnchor { get; private set; }
     /// <summary>The action locked for the active repeat session, or null outside <see cref="InteractionState.RepeatMode"/>.</summary>
     public InteractionAction? RepeatAction { get; private set; }
+
+    /// <summary>
+    /// The ring's pin policy (the look build's <c>--ring-arm</c> sets it once at startup; it is not a
+    /// setting and is never persisted). The class default stays <see cref="RingPinPolicy.OfferFollowing"/>;
+    /// the App's launch composition selects the arm (the hybrid, unless <c>--ring-arm</c> says
+    /// otherwise).
+    /// </summary>
+    public RingPinPolicy RingPinPolicy { get; set; } = RingPinPolicy.OfferFollowing;
+
+    /// <summary>
+    /// Whether the most recent <see cref="PinRing"/> was raised for the offer's lifecycle (the
+    /// offer's P) rather than an accepted settle. The look build's event log reads it synchronously
+    /// where the event is raised; it is not part of the ring's behaviour.
+    /// </summary>
+    public bool RingPinnedAtOffer => _ringPinnedAtOffer;
 
     /// <summary>
     /// Raised when the interaction state changes, synchronously on whichever thread wrote it: the
@@ -431,11 +466,17 @@ public class InteractionManager
             ActivationOfferShown?.Invoke(offer);
             // The ring follows the offer, not the fixation state: it pins at the offer's P as the
             // offer appears (a settle's creation or replacement, or a pending re-offer taking over a
-            // run that still holds) and stays there while the user looks at the button.
-            if (CurrentState == InteractionState.Fixation)
+            // The ring follows the offer, not the fixation state: it pins at the offer's P as the
+            // offer appears (a settle's creation or replacement, or a pending re-offer taking over a
+            // run that still holds) and stays there while the user looks at the button. RunOnly pins
+            // and releases from the settles and the runs alone; the offer's lifecycle is silent. The
+            // corner fix's override keeps a clamped settle's pin at the RAW settle centroid.
+            if (RingPinPolicy == RingPinPolicy.OfferFollowing
+                && CurrentState == InteractionState.Fixation)
                 RaisePinRing(ringPinPoint ?? offer.Point, atOffer: true);
         }
-        else if (hadOffer && (CurrentState != InteractionState.Fixation || !_ringPinnedThisRun))
+        else if (hadOffer && RingPinPolicy == RingPinPolicy.OfferFollowing
+                 && (CurrentState != InteractionState.Fixation || !_ringPinnedThisRun))
         {
             // The offer is gone: the ring goes back to the gaze (snap out) — unless the run that is
             // holding now pinned it (the offer's own run, cleared by chrome or the keyboard mid-hold,
@@ -472,36 +513,45 @@ public class InteractionManager
             // DeclineOffer and completed activations, and the engine is gaze-thread state (review A F1).
             RequestActivationRunEnd(_lastSampleTimestampUs);
             FixationEnded?.Invoke();
-            // The ring stays pinned at P for as long as the offer lives (live check 2026-10-02: the
-            // run flips FreeLook/Fixation every ~0.3 s while the user holds the button, and a ring that
-            // released and re-pinned on every flip danced over the button). The release then comes
-            // from the offer's close (PublishActivationOfferState). It comes here when no offer is
-            // alive, and on every exit that is not to FreeLook. An exit to FreeLook from a pin that
-            // is NOT the offer's (a toolbar settle during the linger, review F2) goes back to the
-            // offer's P instead (re-check R-1): released, the ring would follow the gaze over the
-            // button for the whole dwell if the user's next stop is the button. The pin is raised
-            // before StateChanged(FreeLook), so the VM still accepts it.
-            bool toFreeLookWithOffer = newState == InteractionState.FreeLook
-                && Volatile.Read(ref _publishedActivationOfferId) != 0;
-            // A teardown that already asked for the offer to go (the keyboard toggle requests its
-            // clear one line before ending the fixation; DeclineOffer its decline) must not have the
-            // ring re-pinned at an offer that is about to close (re-check 2, S1).
-            bool offerGoing = Volatile.Read(ref _activationOfferClearRequested) != 0
-                || Interlocked.Read(ref _activationOfferDeclineRequested) != NoActivationOfferRequest;
-            if (toFreeLookWithOffer && !_ringPinnedAtOffer && !offerGoing
-                && _activationOffers?.CurrentOffer is { } offer)
+            if (RingPinPolicy == RingPinPolicy.RunOnly)
             {
-                RaisePinRing(offer.Point, atOffer: true);
-                // The gaze thread may have closed the offer between the id read above and this pin;
-                // its release then sits BEFORE the pin in the VM's queue, and with suppression up no
-                // settle comes to free it (S1). Re-read after a fence and release again: the VM's
-                // last ring event is then a release.
-                Interlocked.MemoryBarrier();
-                if (Volatile.Read(ref _publishedActivationOfferId) == 0)
+                // RunOnly (the look build): every exit from Fixation releases the ring, before
+                // StateChanged below; nothing here consults the offer.
+                ReleaseRing?.Invoke();
+            }
+            else
+            {
+                // The ring stays pinned at P for as long as the offer lives (live check 2026-10-02: the
+                // run flips FreeLook/Fixation every ~0.3 s while the user holds the button, and a ring that
+                // released and re-pinned on every flip danced over the button). The release then comes
+                // from the offer's close (PublishActivationOfferState). It comes here when no offer is
+                // alive, and on every exit that is not to FreeLook. An exit to FreeLook from a pin that
+                // is NOT the offer's (a toolbar settle during the linger, review F2) goes back to the
+                // offer's P instead (re-check R-1): released, the ring would follow the gaze over the
+                // button for the whole dwell if the user's next stop is the button. The pin is raised
+                // before StateChanged(FreeLook), so the VM still accepts it.
+                bool toFreeLookWithOffer = newState == InteractionState.FreeLook
+                    && Volatile.Read(ref _publishedActivationOfferId) != 0;
+                // A teardown that already asked for the offer to go (the keyboard toggle requests its
+                // clear one line before ending the fixation; DeclineOffer its decline) must not have the
+                // ring re-pinned at an offer that is about to close (re-check 2, S1).
+                bool offerGoing = Volatile.Read(ref _activationOfferClearRequested) != 0
+                    || Interlocked.Read(ref _activationOfferDeclineRequested) != NoActivationOfferRequest;
+                if (toFreeLookWithOffer && !_ringPinnedAtOffer && !offerGoing
+                    && _activationOffers?.CurrentOffer is { } offer)
+                {
+                    RaisePinRing(offer.Point, atOffer: true);
+                    // The gaze thread may have closed the offer between the id read above and this pin;
+                    // its release then sits BEFORE the pin in the VM's queue, and with suppression up no
+                    // settle comes to free it (S1). Re-read after a fence and release again: the VM's
+                    // last ring event is then a release.
+                    Interlocked.MemoryBarrier();
+                    if (Volatile.Read(ref _publishedActivationOfferId) == 0)
+                        ReleaseRing?.Invoke();
+                }
+                else if (!toFreeLookWithOffer || !_ringPinnedAtOffer)
                     ReleaseRing?.Invoke();
             }
-            else if (!toFreeLookWithOffer || !_ringPinnedAtOffer)
-                ReleaseRing?.Invoke();
         }
         StateChanged?.Invoke(newState);
     }
@@ -552,6 +602,17 @@ public class InteractionManager
     {
         if (CurrentState != InteractionState.Fixation) return;
         FixationSettled?.Invoke(point);
+
+        // RunOnly (the look build): the accepted settle is the ring's anchor — swallowed settles
+        // included — raised right after the settled event and before the offer's publish below.
+        if (RingPinPolicy == RingPinPolicy.RunOnly)
+        {
+            RaisePinRing(point, atOffer: false);
+            _activationOffers?.NotifyFixationSettled(point, _lastSampleTimestampUs);
+            PublishActivationOfferState();
+            return;
+        }
+
         // The accepted settle is the offer's creation point (ticket 8): the engine classifies it
         // (create / replace / extend / swallow) and the button's show and hide follow from there.
         var outcome = _activationOffers?.NotifyFixationSettled(point, _lastSampleTimestampUs);

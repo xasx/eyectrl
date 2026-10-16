@@ -44,6 +44,7 @@ public partial class App : Application
     private TrayIconManager _trayIconManager = null!;
     private EventCoordinator _eventCoordinator = null!;
     private RestartNoticeHost? _restartNoticeHost;
+    private LagMarkHost? _lagMarkHost;
     private SingleInstanceGuard? _singleInstance;
     private HeartbeatPublisher? _heartbeatPublisher;
     private SupervisorRequestService? _supervisorRequests;
@@ -409,6 +410,7 @@ public partial class App : Application
                     keepClear: () => RestartNoticePlacement.ToDip(
                         EyeCtrl.App.Services.Coordinators.ActivationChromeZones.CollectFromProduction(coordinationContext))),
                 isSettingsOpen: () => _eventCoordinator.IsSettingsOpen,
+                isProbeOpen: () => _eventCoordinator.IsProbeOpen,
                 targetLanguage: () => RestartNotices.TargetLanguage(settings.General.UiLanguage),
                 postToUi: work => Dispatcher.Invoke(work));
             // D17 (T15 merge): the card is a gaze consumer (its own close-button dwell target), so
@@ -427,6 +429,47 @@ public partial class App : Application
             // Settings opening over a card that is up takes the card down (its button would otherwise
             // stay live, unseen, underneath).
             _eventCoordinator.SettingsOpenChanged += _restartNoticeHost.OnSettingsOpenChanged;
+            // The sub-pixel probe is the second screen-owning surface (SP-8 review 01 F1): its Start
+            // hit area overlaps the card's button, so one dwell would close the card AND start the
+            // trials. The probe opening takes a card that is up down too.
+            _eventCoordinator.ProbeOpenChanged += _restartNoticeHost.OnProbeOpenChanged;
+
+            // T0(a) lag mark (spec plans/t0a-lag-mark-button): the temporary dwellable "Lag" button
+            // and its LAG MARK line, constructed ONLY when the dispatch probe exists — an ordinary
+            // session constructs nothing. No pause condition: the launcher starts the app --paused,
+            // and the button must be shown and logged then (the launcher requires the line within
+            // 60 s of the instruments-ON line), so the owner can see it before resuming.
+            if (_serviceProvider.GetService<DispatchLatencyProbe>() is { } dispatchProbe)
+            {
+                _lagMarkHost = new LagMarkHost(
+                    messenger,
+                    new LagMarkWindow(settings.Dwell.ToolbarButtonDwellMs, messenger,
+                        keepClear: () => LagMarkChrome.CollectFromProduction(coordinationContext)),
+                    dispatchProbe,
+                    isInstrumentOn: () => settings.Diagnostics.MeasureUiInstruments,
+                    isSettingsOpen: () => _eventCoordinator.IsSettingsOpen,
+                    isProbeOpen: () => _eventCoordinator.IsProbeOpen,
+                    now: () => DateTime.Now,
+                    postToUi: work => Dispatcher.Invoke(work),
+                    log: line => Log.Information("{LagMark}", line));
+                // D17 (second merge): the button is a gaze consumer (its own dwell target on the
+                // grown hit area, click-through and non-modal over the desktop — the restart
+                // card's shape), so the preview panel's collision inventory must see it while it
+                // shows. Like the card it is App-owned (never in DI), so it reaches the
+                // lazily-resolved inventory through the bridge — attached here, strictly before
+                // the first adaptation enable can resolve the inventory. The local resolver
+                // (named for the type it returns, the card's exact pattern) hands over the
+                // CONTAINER's singleton — the instance the inventory's rect source resolves; the
+                // cast is safe because the window is constructed inside the host statement above.
+                LagMarkBridge LagMarkBridge() =>
+                    _serviceProvider.GetRequiredService<LagMarkBridge>();
+                LagMarkBridge()
+                    .Attach((LagMarkWindow)_lagMarkHost.Presenter);
+                _eventCoordinator.SettingsOpenChanged += _lagMarkHost.OnSettingsOpenChanged;
+                // The probe owns the screen while it is up (Task 6, the restart card's seam).
+                _eventCoordinator.ProbeOpenChanged += _lagMarkHost.OnProbeOpenChanged;
+                _lagMarkHost.Start();
+            }
 
             // Hand the coordinator to the settings window's owner so the restart button
             // can ask whether to offer the supervisor (Task 13 Step 6), and the supervision
@@ -609,6 +652,7 @@ public partial class App : Application
         Step("dispose display geometry watcher", () => _displayGeometryWatcher?.Dispose());
 
         Step("dispose tray icon", () => _trayIconManager?.Dispose());
+        Step("dispose lag mark host", () => _lagMarkHost?.Dispose());
         Step("dispose event coordinator", () => _eventCoordinator?.Dispose());
 
         if (_serviceProvider != null)

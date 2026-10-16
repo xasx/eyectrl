@@ -61,9 +61,11 @@ public class OverlayInventoryDriftTests
     /// bar and the action-menu modifier bar are the same window class), the action menu, the
     /// modes menu, the note window (its dwell buttons, via <c>NoteManager.LiveTargetRects</c>
     /// — review F1: notes are non-modal and freely positioned, so exempting them was silent
-    /// unprotection of exactly the R4-H1 harm D17 exists to close) and the restart-notice card
+    /// unprotection of exactly the R4-H1 harm D17 exists to close), the restart-notice card
     /// (T15 merge: its close button via <c>RestartNoticeBridge.LiveTargetRects</c> — the card runs
-    /// its own detector and is click-through and non-modal, the same shape as the notes). External
+    /// its own detector and is click-through and non-modal, the same shape as the notes) and the
+    /// lag-mark button (second merge, #215: its grown hit area via <c>LagMarkBridge.LiveTargetRects</c>
+    /// — the card's twin shape, an instrumented-session fixture with its own detector). External
     /// dwell's rects come from the SDK client apps via <c>ExternalDwellService.LiveTargetRects</c>,
     /// not from an overlay window of ours — so no window class here carries that source. This map
     /// is the drift guard's pinned half: a row being reclassified away from
@@ -78,6 +80,7 @@ public class OverlayInventoryDriftTests
             ["ModesMenuWindow"] = "collision-zone",
             ["NoteWindow"] = "collision-zone",
             ["RestartNoticeWindow"] = "collision-zone",
+            ["LagMarkWindow"] = "collision-zone",
         };
 
     /// <summary>The classification cell grammar: exactly <c>collision-zone</c>, or an exemption

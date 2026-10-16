@@ -21,10 +21,12 @@ public class DwellSurfaceCensusTests
         ("EyeCtrl.App/Services/ExternalDwellService.cs", "excluded", "external apps — owner declined"),
         ("EyeCtrl.App/Overlays/EyeCareBannerWindow.xaml.cs", "cue", "start/snooze exercise actions"),
         ("EyeCtrl.App/Overlays/RestartNoticeWindow.xaml.cs", "cue", "restart-notice close (post-effect cue, like the eye-care banner)"),
+        ("EyeCtrl.App/Overlays/LagMarkWindow.xaml.cs", "cue", "lag-mark button (post-effect cue after the mark line runs)"),
         ("EyeCtrl.App/Services/NoteManager.cs", "cue", "note button actions"),
         ("EyeCtrl.App/Services/ManualSelectionDwellService.cs", "cue", "manual-selection dwell clicks"),
         ("EyeCtrl.ViewModels/SettingsWindowViewModel.cs", "cue", "tabs/controls/pagination/modal"),
         ("EyeCtrl.ViewModels/DwellOverlayViewModelBase.cs", "cue", "base wrapper — 9 effectful VMs + 2 opt-outs"),
+        ("EyeCtrl.ViewModels/SubPixelProbeViewModel.cs", "cue", "sub-pixel probe — SP-4c D1: the probe's buttons are cue surfaces (outline + DwellActivationMessage); the census row was 'excluded' before the live check"),
     ];
 
     // DwellContext members that are not a user-facing surface of their own.

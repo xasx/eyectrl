@@ -16,7 +16,7 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// The D17 gaze-consumer inventory (Task 11): the surfaces whose rects a preview panel must never
-/// cover, as plain data. <see cref="Live"/> is the one call the collision gate needs; the seven
+/// cover, as plain data. <see cref="Live"/> is the one call the collision gate needs; the eight
 /// named sources are:
 ///
 /// <list type="bullet">
@@ -48,6 +48,13 @@ using Microsoft.Extensions.Logging;
 /// its close button is the same R4-H1 harm. The bridge is the late-bound holder (the
 /// <see cref="ToolbarLifecycleBridge"/> pattern): App.xaml.cs news the card after the container
 /// is built, so the delegate reaches it through a mutable singleton rather than DI.</item>
+/// <item><b>Lag mark</b> (second merge, #215) — <c>LagMarkBridge.LiveTargetRects</c>: the
+/// T0(a) instrumented-session button's grown hit rect while the button shows. It is the card's
+/// twin shape (click-through, non-modal, own detector, desktop-placed — the offer coordinator's
+/// "a ZONE, not a suspension" ruling), so it gets the same treatment: a panel covering the
+/// button both hides it and lets its dwell accumulate THROUGH the panel's own reading surface.
+/// Reached through the bridge because the button is App-owned and instrumented-session-only;
+/// an ordinary session's source is permanently empty.</item>
 /// </list>
 /// <para>
 /// The class also implements <see cref="IOverlayCollision"/> (the seam Task 10's service already
@@ -57,8 +64,10 @@ using Microsoft.Extensions.Logging;
 /// keyboard-edge and external-dwell messages — PLUS the bars' own <c>ButtonSetChanged</c>
 /// (buttons are added/removed while a bar is up, which moves its rect without touching
 /// <c>IsVisible</c>), <c>NoteTargetsChangedMessage</c>,
-/// <c>ExternalDwellTargetsChangedMessage</c> (fix-wave F5) and
-/// <c>RestartNoticeActiveMessage</c> (T15 merge: the card's show/hide moves a source in and out).
+/// <c>ExternalDwellTargetsChangedMessage</c> (fix-wave F5),
+/// <c>RestartNoticeActiveMessage</c> (T15 merge: the card's show/hide moves a source in and out)
+/// and <c>LagMarkZoneMessage</c> (second merge: the host republishes the button's zone on show,
+/// hide and chrome-follow move — each moves the source in or out).
 /// It is a superset, not an exact copy:
 /// the offer coordinator's <c>ExternalDwellActiveMessage</c> handler CLEARS offers rather than
 /// publishing zones, so that message serves a different purpose there — and it is NOT this
@@ -78,7 +87,7 @@ using Microsoft.Extensions.Logging;
 /// coordinator's parity, kept deliberately.
 /// </para>
 /// <para>
-/// Overlays outside the seven sources are classified <c>exempt:&lt;reason&gt;</c> in
+/// Overlays outside the eight sources are classified <c>exempt:&lt;reason&gt;</c> in
 /// <c>docs/design/overlay-unification-spec.md</c> §3.1, and
 /// <c>OverlayInventoryDriftTests</c> fails the build when a row's classification drifts from the
 /// inventory's actual source list.
@@ -108,6 +117,7 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
     private readonly Func<IReadOnlyList<PhysicalRect>> _externalTargetRects;
     private readonly Func<IReadOnlyList<PhysicalRect>> _noteTargetRects;
     private readonly Func<IReadOnlyList<PhysicalRect>> _restartNoticeTargetRects;
+    private readonly Func<IReadOnlyList<PhysicalRect>> _lagMarkTargetRects;
     private readonly ToolbarLifecycleBridge _bridge;
     private readonly IMessenger _messenger;
     private readonly ILogger? _logger;
@@ -138,6 +148,10 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
     /// <param name="restartNoticeTargetRects">The restart-notice card's close-target rect source
     /// (<c>RestartNoticeBridge.LiveTargetRects</c>); a delegate for the same reason — the card is
     /// App-owned, built after the container, and reached through the bridge.</param>
+    /// <param name="lagMarkTargetRects">The lag-mark button's dwell-target rect source (second
+    /// merge, <c>LagMarkBridge.LiveTargetRects</c>); a delegate for the same reason — the button
+    /// is App-owned (instrumented sessions only) and reached through the bridge. Empty in an
+    /// ordinary session: no host, no window, no source.</param>
     /// <param name="bridge">The late-bound toolbar lifecycle bridge: the attached coordinator's
     /// <c>ToolbarVisibilityChanged</c> is the slide/auto-hide trigger. Null-coordinator is
     /// tolerated (D14: a comfort feature's trigger set degrades, it does not crash the enable
@@ -155,6 +169,7 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         Func<IReadOnlyList<PhysicalRect>> externalTargetRects,
         Func<IReadOnlyList<PhysicalRect>> noteTargetRects,
         Func<IReadOnlyList<PhysicalRect>> restartNoticeTargetRects,
+        Func<IReadOnlyList<PhysicalRect>> lagMarkTargetRects,
         ToolbarLifecycleBridge bridge,
         IMessenger messenger,
         ILogger? logger = null)
@@ -170,6 +185,8 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         _noteTargetRects = noteTargetRects ?? throw new ArgumentNullException(nameof(noteTargetRects));
         _restartNoticeTargetRects = restartNoticeTargetRects
             ?? throw new ArgumentNullException(nameof(restartNoticeTargetRects));
+        _lagMarkTargetRects = lagMarkTargetRects
+            ?? throw new ArgumentNullException(nameof(lagMarkTargetRects));
         _bridge = bridge ?? throw new ArgumentNullException(nameof(bridge));
         _messenger = messenger ?? throw new ArgumentNullException(nameof(messenger));
         _logger = logger;
@@ -204,6 +221,7 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         _messenger.Register<GazeConsumerInventory, ExternalDwellTargetsChangedMessage>(this, OnExternalDwellTargetsChanged);
         _messenger.Register<GazeConsumerInventory, NoteTargetsChangedMessage>(this, OnNoteTargetsChanged);
         _messenger.Register<GazeConsumerInventory, RestartNoticeActiveMessage>(this, OnRestartNoticeActive);
+        _messenger.Register<GazeConsumerInventory, LagMarkZoneMessage>(this, OnLagMarkZone);
     }
 
     /// <inheritdoc />
@@ -223,7 +241,7 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
     /// <inheritdoc />
     public IReadOnlyList<PhysicalRect> Live()
     {
-        var rects = new List<PhysicalRect>(8);
+        var rects = new List<PhysicalRect>(9);
 
         // Keyboard: the whole window — grid, prediction bar and category bar together (the same
         // rect the offer's chrome zones use). Visible AND sourced; an unmeasured window
@@ -262,6 +280,11 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         // The restart-notice card (T15 merge): its close button while the card shows — the same
         // own-detector snapshot rule as the notes, reached through the App-attached bridge.
         rects.AddRange(_restartNoticeTargetRects());
+
+        // The lag-mark button (second merge): its grown hit area while the button shows — the
+        // card's twin (click-through, non-modal, own detector), reached through the App-attached
+        // bridge. Empty in an ordinary session (no instrumented host was ever built).
+        rects.AddRange(_lagMarkTargetRects());
         return rects;
     }
 
@@ -356,6 +379,15 @@ internal sealed class GazeConsumerInventory : IOverlayCollision, IGazeConsumerIn
         => OnConsumersChanged();
 
     private void OnRestartNoticeActive(GazeConsumerInventory recipient, RestartNoticeActiveMessage message)
+        => OnConsumersChanged();
+
+    // Second merge: the lag-mark host republishes its zone on every show, hide and chrome-follow
+    // move (review 01 F1's move case included) — each one moves the button's rect in or out of the
+    // inventory, so each is a re-check trigger. Like the restart card's message this is the TRIGGER
+    // only; Live() reads the bridge's state, never the message payload, so a zone published before
+    // this inventory was constructed (the lazily-built inventory missing the host's Start send) is
+    // still reported — the source reads current truth.
+    private void OnLagMarkZone(GazeConsumerInventory recipient, LagMarkZoneMessage message)
         => OnConsumersChanged();
 
     private void OnConsumersChanged()

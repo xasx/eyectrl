@@ -82,6 +82,14 @@ public class AppBootstrapper
         // Messenger (singleton)
         services.AddSingleton<IMessenger>(WeakReferenceMessenger.Default);
 
+        // The clock the calibration timers run on (the per-target safety caps, the measure-only
+        // window ring, the hold floor, the collector's settle gate). Registered once, so production
+        // has exactly one place that chooses the system clock; the consumers below resolve it rather
+        // than each naming TimeProvider.System themselves. CalibrationClockWiringTests pins the
+        // identity — a frozen clock here would hang every calibration session, visible to no
+        // headless test that supplies its own fake.
+        services.AddSingleton(TimeProvider.System);
+
         // Settings (singleton instances)
         // Only register root settings - sub-settings accessed via properties
         services.AddSingleton(settings);
@@ -277,7 +285,9 @@ public class AppBootstrapper
         // calibration.
         services.AddSingleton(sp =>
         {
-            var service = new CalibrationService(sp.GetService<ILogger<CalibrationService>>());
+            var service = new CalibrationService(
+                sp.GetService<ILogger<CalibrationService>>(),
+                sp.GetRequiredService<TimeProvider>());
 
             // PHYSICAL pixels, matching what CompleteSession persists; logical DIPs here would discard
             // the calibration on any non-100% DPI display.
@@ -412,7 +422,10 @@ public class AppBootstrapper
             sp.GetService<ScriptedGroundTruthRecorder>(),
             GazeProviderFactory.GetProviderType(sp.GetRequiredService<IGazeProvider>()).ToString(),
             // The live RecordRawGaze gate, so the sidecar stops when the recording it describes does.
-            settings.Diagnostics));
+            settings.Diagnostics,
+            // The same clock the CalibrationService above got, so the caps, the ring, the hold floor
+            // and the settle gate all read one timeline.
+            sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<TargetHighlightOverlayViewModel>();
         services.AddSingleton<DragTrailViewModel>();
         services.AddSingleton<EdgeButtonBarViewModel>();
@@ -647,13 +660,17 @@ public class AppBootstrapper
         // resolves the service until AdaptationActivation's StartRuntime does (P9 — no overlay HWND
         // while the feature is off). The collision seam is Task 11's real gaze-consumer inventory
         // (D17): keyboard, both edge-button bars, the two menus, the external-dwell targets,
-        // (review F1) the note dwell targets and (T15 merge) the restart-notice card's close
-        // target, plus the Changed trigger set that keeps the check continuous while the panel is
+        // (review F1) the note dwell targets, (T15 merge) the restart-notice card's close
+        // target and (second merge, #215) the lag-mark button's grown hit area, plus the Changed
+        // trigger set that keeps the check continuous while the panel is
         // up. The bridge carries the EventCoordinator-owned toolbar coordinator to the
         // lazily-resolved service and inventory alike; App attaches it right after
         // EventCoordinator initializes. RestartNoticeBridge is the same late-bound holder for the
         // App-owned restart card (newed in App.xaml.cs after the container is built, never in DI);
-        // App attaches the live window right after building RestartNoticeHost.
+        // App attaches the live window right after building RestartNoticeHost. LagMarkBridge is
+        // its twin for the App-owned lag-mark button — which an ordinary (non-instrumented)
+        // session never constructs, so that bridge stays empty and its source degrades to empty
+        // (D14) instead of failing the enable edge.
         services.AddSingleton<IOverlayCollision>(sp => new GazeConsumerInventory(
             sp.GetRequiredService<EyeCtrlSettings>(),
             overlays: () => sp.GetRequiredService<IOverlayManager>(),
@@ -665,10 +682,12 @@ public class AppBootstrapper
             externalTargetRects: () => sp.GetRequiredService<ExternalDwellService>().LiveTargetRects(),
             noteTargetRects: () => sp.GetRequiredService<NoteManager>().LiveTargetRects(),
             restartNoticeTargetRects: () => sp.GetRequiredService<RestartNoticeBridge>().LiveTargetRects(),
+            lagMarkTargetRects: () => sp.GetRequiredService<LagMarkBridge>().LiveTargetRects(),
             sp.GetRequiredService<ToolbarLifecycleBridge>(),
             sp.GetRequiredService<IMessenger>()));
         services.AddSingleton<ToolbarLifecycleBridge>();
         services.AddSingleton<RestartNoticeBridge>();
+        services.AddSingleton<LagMarkBridge>();
         services.AddSingleton<AdaptationPreviewWindow>();
         services.AddSingleton(sp => new AdaptationPreviewService(
             sp.GetRequiredService<EyeCtrlSettings>(),

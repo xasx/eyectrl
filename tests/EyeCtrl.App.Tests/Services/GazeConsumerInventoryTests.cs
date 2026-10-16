@@ -56,6 +56,7 @@ public class GazeConsumerInventoryTests
         public readonly Func<IReadOnlyList<PhysicalRect>> ExternalRects = () => Array.Empty<PhysicalRect>();
         public Func<IReadOnlyList<PhysicalRect>> NoteRects { get; set; } = () => Array.Empty<PhysicalRect>();
         public Func<IReadOnlyList<PhysicalRect>> RestartRects { get; set; } = () => Array.Empty<PhysicalRect>();
+        public Func<IReadOnlyList<PhysicalRect>> LagMarkRects { get; set; } = () => Array.Empty<PhysicalRect>();
         public Func<IOverlayManager> Overlays = () => throw new NotImplementedException("no keyboard supplied");
         public GazeConsumerInventory Inventory = null!;
 
@@ -82,6 +83,7 @@ public class GazeConsumerInventoryTests
                 external ?? ExternalRects,
                 NoteRects,
                 RestartRects,
+                LagMarkRects,
                 Bridge,
                 Messenger);
             return Inventory;
@@ -348,6 +350,65 @@ public class GazeConsumerInventoryTests
         finally
         {
             card.Close();
+        }
+    }
+
+    [StaFact]
+    public void Live_LagMarkButtonUp_ContributesItsHitRect_AndBlocksThePanel()
+    {
+        // Second merge (#215): the T0(a) lag-mark button is the restart card's twin shape — a
+        // click-through, non-modal desktop fixture whose own detector covers the grown hit area —
+        // so it enters the inventory through the App-attached bridge the same way (own-detector
+        // snapshot, gated on the button showing). Laid out headlessly via the present seam (a
+        // shown overlay is the user's only input surface); ShowButton places the dwell target
+        // without an HWND, so the source is real without a presentation source.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var messenger = new WeakReferenceMessenger();
+        var button = new LagMarkWindow(
+            dwellMs: 25, messenger, keepClear: null, present: b =>
+            {
+                b.Measure(new System.Windows.Size(b.Width, b.Height));
+                b.Arrange(new System.Windows.Rect(0, 0, b.Width, b.Height));
+                b.UpdateLayout();
+            });
+        try
+        {
+            var bridge = new LagMarkBridge();
+            var kit = new Kit();
+            kit.LagMarkRects = bridge.LiveTargetRects;
+            using var inventory = kit.Build();
+
+            Check.WithCustomMessage("a hidden button contributes nothing")
+                .That(inventory.Live()).IsEmpty();
+
+            button.ShowButton();
+            Check.WithCustomMessage(
+                    "an unattached bridge must degrade to empty (D14), not throw")
+                .That(inventory.Live()).IsEmpty();
+
+            bridge.Attach(button);
+            var live = inventory.Live();
+            Check.That(live).HasSize(1);
+            var target = live[0];
+            Check.WithCustomMessage("the rect must be the placed hit target, not a phantom")
+                .That(target.Width).IsStrictlyGreaterThan(0);
+            Check.That(target.Height).IsStrictlyGreaterThan(0);
+            Check.That(button.LiveTargetRects()).ContainsExactly(target);
+
+            // The button behaves like every other source at the collision seam (Task 1's rule):
+            // a panel overlapping the hit area is not clear; one only touching its edge is.
+            Check.That(inventory.IsClear(new PhysicalRect(target.X + 1, target.Y + 1, 50, 50)))
+                .IsFalse();
+            Check.That(inventory.IsClear(new PhysicalRect(
+                target.X + target.Width, target.Y, 50, 50))).IsTrue();
+
+            button.HideButton();
+            Check.WithCustomMessage("the button going must take its rect out of the inventory")
+                .That(inventory.Live()).IsEmpty();
+        }
+        finally
+        {
+            button.Close();
         }
     }
 

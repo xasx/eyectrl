@@ -425,4 +425,61 @@ public class NoteManagerTests
 
         Check.That(manager.ActiveNotes).HasSize(1);
     }
+
+    // W5(d) (build plan C15): the probe gate on note dwell, plus the resume reset. The seam
+    // registers a Display note's targets without a window (CreateNoteAt would show and focus one).
+    // The detector's clock is timestamp-based, so while the gate drops samples its clock pauses —
+    // and without the reset the first post-probe sample on the target the note left would credit
+    // the whole pause, completing a close dwell the user never held over it (a note close is
+    // destructive and no-confirm, review 03 F5). Mutation: drop the ResetAllState call on resume →
+    // the stale close dwell completes at the first resumed sample (600 ms on the detector's clock)
+    // and the note is silently removed → red.
+    [Fact]
+    public void ProbeGate_SuspendsNoteDwell_AndResetsOnResume()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger);
+        var modal = new EyeCtrl.App.Services.Coordinators.ModalInteractionState();
+        manager.SetSuspendPredicate(() => modal.ProbeOpen);
+        var anchor = new PhysicalPoint(800, 500);
+        manager.AddNoteTargetsForTest(anchor);
+
+        // Close-button centre, computed as the other note-dwell tests do (DPI 1.0).
+        double winLeft = anchor.X - EyeCtrl.Core.LayoutConstants.NoteWindowWidth / 2;
+        double winTop = anchor.Y - EyeCtrl.Core.LayoutConstants.NoteAnchorOffsetY;
+        double cx = EyeCtrl.Core.LayoutConstants.NoteWindowWidth
+            - EyeCtrl.Core.LayoutConstants.NoteButtonPadding
+            - EyeCtrl.Core.LayoutConstants.NoteButtonRadius;
+        double cy = EyeCtrl.Core.LayoutConstants.NoteTitleBarHeight
+            + EyeCtrl.Core.LayoutConstants.NoteButtonPadding
+            + EyeCtrl.Core.LayoutConstants.NoteButtonRadius;
+        var closeCenter = new PhysicalPoint(winLeft + cx, winTop + cy);
+
+        // Pre-probe: 500 ms of a 600 ms close dwell accrued on the button. Every delivered sample
+        // is 100 ms after the previous one, below DwellDetector's 150 ms silence clamp.
+        for (long t = 0; t <= 500_000; t += 100_000)
+            manager.Receive(new GazeCursorMovedMessage(new GazeFrame(closeCenter, t, IsInGap: false)));
+
+        // Probe open: the sample is dropped, so the destructive target cannot complete underneath
+        // the probe's window no matter how long the pause is.
+        modal.ProbeOpen = true;
+        manager.Receive(new GazeCursorMovedMessage(new GazeFrame(closeCenter, 30_000_000, IsInGap: false)));
+        Check.WithCustomMessage("while the probe is open the close dwell must not advance")
+            .That(manager.ActiveNotes).HasSize(1);
+
+        // Resume. Only the FIRST resumed sample may complete a stale dwell, so the stream stops
+        // 500 ms into the reset dwell: the note survives only when the detector was reset at
+        // t=600 ms rather than continuing the pre-probe run that started at t=0.
+        modal.ProbeOpen = false;
+        for (long t = 600_000; t <= 1_100_000; t += 100_000)
+            manager.Receive(new GazeCursorMovedMessage(new GazeFrame(closeCenter, t, IsInGap: false)));
+        Check.WithCustomMessage(
+                "the probe resume must reset the detector — the stale close dwell completed and "
+                + "removed the note the user never looked at while the probe was up")
+            .That(manager.ActiveNotes).HasSize(1);
+
+        // Negative control: the target is live and completes from the reset anchor.
+        manager.Receive(new GazeCursorMovedMessage(new GazeFrame(closeCenter, 1_200_000, IsInGap: false)));
+        Check.That(manager.ActiveNotes).IsEmpty();
+    }
 }

@@ -789,7 +789,7 @@
         {
           "Id": "av_backdrop_opacity",
           "Label": "Backdrop Opacity",
-          "Description": "How dark the backdrop is — only Solid Darken uses this; applies from the next open.",
+          "Description": "How dark the backdrop is — the tint over the blur, or the fill of Solid Darken; applies from the next open.",
           "Modal": null
         },
         {
@@ -906,6 +906,12 @@
           "Id": "dg_open_folder",
           "Label": "Open Recordings Folder",
           "Description": "Show gaze-recording.csv and its ground-truth file in Explorer.",
+          "Modal": null
+        },
+        {
+          "Id": "dg_subpixel_probe",
+          "Label": "Sub-pixel Visibility Test",
+          "Description": "Runs a short full-screen A/B test of the cursor ring's sub-pixel placement. The keyboard, toolbar and ring come back when it ends; Settings stays closed.",
           "Modal": null
         },
         {

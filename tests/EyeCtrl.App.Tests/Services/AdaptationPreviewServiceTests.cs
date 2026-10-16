@@ -916,7 +916,7 @@ public class AdaptationPreviewServiceTests
         Check.That(h.Panel.IsShown).IsTrue();
 
         var coordinator = new KeyboardCoordinator(
-            new ModalInteractionState(), new QuickActionsCoordinator(),
+            new ModalInteractionState(), new QuickActionsCoordinator(new ModalInteractionState()),
             new ToolbarLifecycleCoordinator(new ModalInteractionState()));
         try
         {
@@ -985,6 +985,7 @@ public class AdaptationPreviewServiceTests
             externalTargetRects: () => Array.Empty<PhysicalRect>(),
             noteTargetRects: () => Array.Empty<PhysicalRect>(),
             restartNoticeTargetRects: () => Array.Empty<PhysicalRect>(),
+            lagMarkTargetRects: () => Array.Empty<PhysicalRect>(),
             new ToolbarLifecycleBridge(),
             messenger);
 
@@ -1001,7 +1002,7 @@ public class AdaptationPreviewServiceTests
             Check.That(h.Panel.IsShown).IsTrue();
 
             var coordinator = new KeyboardCoordinator(
-                new ModalInteractionState(), new QuickActionsCoordinator(),
+                new ModalInteractionState(), new QuickActionsCoordinator(new ModalInteractionState()),
                 new ToolbarLifecycleCoordinator(new ModalInteractionState()));
             try
             {
@@ -1087,6 +1088,7 @@ public class AdaptationPreviewServiceTests
             externalTargetRects: () => Array.Empty<PhysicalRect>(),
             noteTargetRects: () => Array.Empty<PhysicalRect>(),
             restartNoticeTargetRects: () => Array.Empty<PhysicalRect>(),
+            lagMarkTargetRects: () => Array.Empty<PhysicalRect>(),
             new ToolbarLifecycleBridge(),
             messenger);
 
@@ -1188,6 +1190,7 @@ public class AdaptationPreviewServiceTests
             externalTargetRects: () => Array.Empty<PhysicalRect>(),
             noteTargetRects: () => noteManager.LiveTargetRects(),
             restartNoticeTargetRects: () => Array.Empty<PhysicalRect>(),
+            lagMarkTargetRects: () => Array.Empty<PhysicalRect>(),
             new ToolbarLifecycleBridge(),
             messenger);
 
@@ -1271,6 +1274,7 @@ public class AdaptationPreviewServiceTests
             externalTargetRects: () => external.LiveTargetRects(),
             noteTargetRects: () => Array.Empty<PhysicalRect>(),
             restartNoticeTargetRects: () => Array.Empty<PhysicalRect>(),
+            lagMarkTargetRects: () => Array.Empty<PhysicalRect>(),
             new ToolbarLifecycleBridge(),
             messenger);
 

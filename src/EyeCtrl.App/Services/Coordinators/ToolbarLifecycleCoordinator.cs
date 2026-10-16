@@ -143,7 +143,7 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
                 // geometry-only
                 // (target placement) and are fed regardless. Paused samples are skipped for the same
                 // reason: input must not leave EyeCtrl while the user believes pause released it.
-                if (ShouldFeedKeyboardSample(keyboardGated, _modal.KeyboardVisible, keyboard.IsVisible, frame.IsInGap))
+                if (ShouldFeedKeyboardSample(keyboardGated, _modal.KeyboardVisible, keyboard.IsVisible, frame.IsInGap, _modal.ProbeOpen))
                     keyboard.UpdateGaze(point, timestamp);
 
                 // Route the sample to the settings window iff it is open (the visibility check lives
@@ -158,11 +158,25 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
     /// <summary>
     /// The keyboard-feed gate, extracted so it is unit-testable headlessly: the keyboard is OS text
     /// injection, so it must be fed only when unpaused AND the modal state says the keyboard is open
-    /// AND the window is visible AND the sample is a real measurement (not gap-held). Review found
-    /// the inline version had zero test coverage — neutralizing it broke no test.
+    /// AND the window is visible AND the sample is a real measurement (not gap-held) AND the probe
+    /// does not own the screen (build plan C9). Review found the inline version had zero test
+    /// coverage — neutralizing it broke no test.
     /// </summary>
-    internal static bool ShouldFeedKeyboardSample(bool paused, bool modalKeyboardVisible, bool keyboardIsVisible, bool isInGap) =>
-        !paused && modalKeyboardVisible && keyboardIsVisible && !isInGap;
+    internal static bool ShouldFeedKeyboardSample(bool paused, bool modalKeyboardVisible, bool keyboardIsVisible, bool isInGap, bool probeOpen) =>
+        !paused && modalKeyboardVisible && keyboardIsVisible && !isInGap && !probeOpen;
+
+    /// <summary>
+    /// The auto-hide controller's gaze gate (build plan C9): while the probe is open no auto-hide or
+    /// summon sample may act — the probe window covers the toolbar, so an off-toolbar "hide" would
+    /// blank a band the user cannot see, and a past-edge summon would re-arm it under the probe.
+    /// Pure-static, like <see cref="ShouldFeedKeyboardSample"/>, so W4 drives the REAL controller
+    /// with literals and never touches <c>Context</c> — which is the review 03 N5a concern; there is
+    /// no short-circuit, both booleans are evaluated eagerly at the construction site. The wiring
+    /// that passes <c>_modal.ProbeOpen</c> there is pinned at source in
+    /// ToolbarLifecycleCoordinatorTests.ProbeGateWiring_IsPinnedAtTheSource.
+    /// </summary>
+    internal static bool AutoHideGateClosed(bool probeOpen, bool calibrationActive) =>
+        probeOpen || calibrationActive;
 
     /// <summary>Suspend/resume the auto-hide dwell (called by Keyboard/Settings coordinators when a
     /// modal opens, and by the adaptation preview while its panel is up). Wraps
@@ -287,7 +301,7 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
             hideDelayMs: 5000,
             summonDelayMs: 400,
             offScreenMarginPx: 50,
-            calibrationActive: () => Context.CalibrationService.IsSessionActive,
+            calibrationActive: () => AutoHideGateClosed(_modal.ProbeOpen, Context.CalibrationService.IsSessionActive),
             // Read per call, not cached, so a mid-session recalibration takes effect. Identity while
             // no calibration is loaded, which makes this a no-op until one is. Deliberately NOT
             // passed to QuickActionsSummonController below: its IsPastEdge test is purely off-screen,

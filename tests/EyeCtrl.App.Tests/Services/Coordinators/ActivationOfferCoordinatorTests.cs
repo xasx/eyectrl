@@ -402,6 +402,31 @@ public class ActivationOfferCoordinatorTests
             .ToList();
     }
 
+    [StaFact]
+    public void ProbeOpen_AloneSuspendsOffers_AndResumesOnClose()
+    {
+        // W5(c) (build plan): the probe term on the offer suspension, with NO other modal surface
+        // open. Opening the probe alone must clear a live offer and refuse new ones — the probe's
+        // window is opaque, so an offer halo underneath it is an invisible, uncountable target.
+        // Mutations: drop the `if (_modal.ProbeOpen)` term from RecomputeSuspension, or drop the
+        // ProbeOpenChanged subscription → the settle under the probe offers → red.
+        var s = Build();
+        using var _ = s.Context.GazeEngine;
+
+        Check.That(Settle(s, 500, 500)).IsNotNull();
+
+        s.Modal.ProbeOpen = true;   // raises ProbeOpenChanged → RecomputeSuspension
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+        Check.WithCustomMessage("opening the probe must clear the live offer")
+            .That(s.Engine.CurrentOffer).IsNull();
+        Check.WithCustomMessage("no offer may be made while the probe is open")
+            .That(Settle(s, 600, 600)).IsNull();
+
+        s.Modal.ProbeOpen = false;  // raises again → offers resume
+        Check.WithCustomMessage("once the probe closes, settles must offer again")
+            .That(Settle(s, 700, 700)).IsNotNull();
+    }
+
     /// <summary>
     /// T15 review R1: the restart notice card carries its own dwell target and is click-through, so a
     /// taken offer would click the window beneath it. While the card is up no offer is made, and a
@@ -428,6 +453,37 @@ public class ActivationOfferCoordinatorTests
         s.InteractionManager.ApplyPendingActivationOfferRequests();
         Check.WithCustomMessage("offers resume once the card is gone")
             .That(Settle(s, 900, 900)).IsNotNull();
+    }
+
+    /// <summary>
+    /// T0(a): the lag-mark button's hit area is a chrome ZONE while the button is visible — no offer
+    /// over its corner — and NOT a suspension: a settle away from it still places. Retracting the
+    /// zone (the button hiding) frees the corner again.
+    /// Mutation: drop the <c>LagMarkZoneMessage</c> registration → a settle in the corner offers.
+    /// </summary>
+    [StaFact]
+    public void TheLagMarkButton_IsAChromeZone_WhileVisible_NotASuspension()
+    {
+        var s = Build();
+        using var _ = s.Context.GazeEngine;
+
+        s.Messenger.Send(new LagMarkZoneMessage(new PhysicalRect(1640, 936, 512, 384)));
+        Pump();
+        s.InteractionManager.ApplyPendingActivationOfferRequests();
+
+        s.InteractionManager.OnFixationStarted(new PhysicalPoint(1900, 1100));
+        s.InteractionManager.OnFixationSettled(new PhysicalPoint(1900, 1100));
+        Check.WithCustomMessage("a settle inside the lag button's zone must make no offer")
+            .That(s.Engine.CurrentOffer).IsNull();
+
+        // Away from the button the offer still places: the zone is not a suspension.
+        Check.WithCustomMessage("the lag button must not suspend offers globally")
+            .That(Settle(s, 500, 500)).IsNotNull();
+
+        // The button going retracts the zone, and the corner offers again.
+        s.Messenger.Send(new LagMarkZoneMessage(null));
+        Pump();
+        Check.That(Settle(s, 1900, 1100)).IsNotNull();
     }
 
     /// <summary>Ends any live fixation, settles at a fresh point through the public API, and returns

@@ -17,6 +17,7 @@ using EyeCtrl.Core.Prediction;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.Tests.TestSupport;
 using EyeCtrl.ViewModels;
+using EyeCtrl.ViewModels.Messages;
 using Xunit;
 
 public class KeyboardCoordinatorTests
@@ -26,10 +27,13 @@ public class KeyboardCoordinatorTests
     // the ONE exception is the round-2 swap-chain test further down, which runs the real
     // Initialize (and therefore does touch the ToolbarLifecycleCoordinator). Plain constructed
     // instances suffice for both — the same shape the sibling coordinator tests use.
-    private static KeyboardCoordinator NewCoordinator() =>
-        new(new ModalInteractionState(),
-            new QuickActionsCoordinator(),
-            new ToolbarLifecycleCoordinator(new ModalInteractionState()));
+    private static KeyboardCoordinator NewCoordinator()
+    {
+        var modal = new ModalInteractionState();
+        return new(modal,
+            new QuickActionsCoordinator(modal),
+            new ToolbarLifecycleCoordinator(modal));
+    }
 
     [Fact]
     public void Initialize_ThrowsArgumentNullException_WhenContextIsNull()
@@ -69,7 +73,7 @@ public class KeyboardCoordinatorTests
     public void Ctor_RejectsNullCollaborators()
     {
         var modal = new ModalInteractionState();
-        var quickActions = new QuickActionsCoordinator();
+        var quickActions = new QuickActionsCoordinator(modal);
         var toolbar = new ToolbarLifecycleCoordinator(modal);
 
         Check.ThatCode(() => new KeyboardCoordinator(null!, quickActions, toolbar)).Throws<ArgumentNullException>();
@@ -87,7 +91,7 @@ public class KeyboardCoordinatorTests
         var modal = new ModalInteractionState();
 
         var summon = new QuickActionsSummonController("left", 1920, 1080, 400, 5000);
-        var quickActions = new QuickActionsCoordinator();
+        var quickActions = new QuickActionsCoordinator(modal);
         quickActions.InjectSummonForTesting(summon);
 
         var autoHide = new ToolbarAutoHideController(
@@ -1000,5 +1004,142 @@ public class KeyboardCoordinatorTests
             .That(source.Contains(
                 "Register<KeyboardCoordinator,KeyboardHideRequestedMessage>(this,(_,_)=>context.Dispatcher.BeginInvoke(()=>"
                 + "SetKeyboardVisible(false,manageSuppression:true)));")).IsTrue();
+    }
+
+    // ---- C13 (sub-pixel build plan): the probe's keyboard seam ------------------------------
+    // HideForProbe/RestoreAfterProbe run with manageSuppression:false, so the toolbar-toggle claim
+    // is left exactly as the probe found it, and RestoreAfterProbe(false) is a no-op (review 05 F2:
+    // the old shape called SetKeyboardVisible(false, false), hiding a keyboard the probe never hid
+    // and leaving FixationSuppressor.Keyboard held — no keyboard on screen and fixation still off).
+
+    private sealed class ProbeKeyboardOverlayManager : IOverlayManager
+    {
+        private readonly KeyboardWindow _keyboard;
+        private readonly IEdgeButtonBar _edgeBar;
+        public ProbeKeyboardOverlayManager(KeyboardWindow keyboard, IEdgeButtonBar edgeBar)
+        {
+            _keyboard = keyboard;
+            _edgeBar = edgeBar;
+        }
+        public KeyboardWindow Keyboard => _keyboard;
+        public IEdgeButtonBar EdgeButtonBar => _edgeBar;
+        public ICursorCircleOverlay CursorCircle => throw new NotImplementedException();
+        public IActivationButtonOverlay ActivationButton => throw new NotImplementedException();
+        public IManualSelectionOverlay ManualSelectionOverlay => throw new NotImplementedException();
+        public IActionMenuOverlay ActionMenu => throw new NotImplementedException();
+        public IToolbarOverlay Toolbar => throw new NotImplementedException();
+        public IPauseIndicatorOverlay PauseIndicator => throw new NotImplementedException();
+        public IManualSelectionIndicatorOverlay ManualSelectionIndicator => throw new NotImplementedException();
+        public IGlassBackdropOverlay GlassBackdrop => throw new NotImplementedException();
+        public ICalibrationOverlay Calibration => throw new NotImplementedException();
+        public ITargetHighlightOverlay TargetHighlight => throw new NotImplementedException();
+        public ITrackStatusOverlay TrackStatus => throw new NotImplementedException();
+        public ITaskSwitcherOverlay TaskSwitcher => throw new NotImplementedException();
+        public IModesMenuOverlay ModesMenu => throw new NotImplementedException();
+        public IRepeatCursorOverlay RepeatCursor => throw new NotImplementedException();
+        public IQuickActionsGridOverlay QuickActionsGrid => throw new NotImplementedException();
+        public void Initialize(OverlayViewModels viewModels, EyeCtrlSettings settings,
+            GazeProviderType providerType) => throw new NotImplementedException();
+    }
+
+    // internal (not private): the CommunityToolkit messenger generator emits a RegisterAll helper
+    // for IRecipient types, which cannot reference a private nested type (NoteManagerTests.CueProbe
+    // carries the same modifier for the same reason).
+    internal sealed class KeyboardMessageProbe : IRecipient<ShowKeyboardMessage>, IRecipient<HideKeyboardMessage>
+    {
+        public List<string> Messages { get; } = new();
+        public void Receive(ShowKeyboardMessage message) => Messages.Add("Show");
+        public void Receive(HideKeyboardMessage message) => Messages.Add("Hide");
+    }
+
+    [StaFact]
+    public void ProbeKeyboardSeam_HideThenRestoreFalse_LeavesTheSuppressionClaimUnchanged()
+    {
+        // The keyboard is up from the toolbar toggle, its claim held. The probe hides it (the show
+        // branch is unreachable headlessly — see the source pin below), and the hide must leave the
+        // claim untouched so the post-probe re-show is claim-intact (review 03 S2). Mutations:
+        // manageSuppression:true on the hide → the claim is released → red; a non-no-op
+        // RestoreAfterProbe(false) → a HideKeyboardMessage lands after the mark → red; dropping the
+        // wasVisible guard → a hidden keyboard is "hidden" again → red.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var engine = new GazeEngine(new SilentGazeProvider(), new TestFakes.FakeInputSimulator(),
+            new EyeCtrlSettings());
+        var keyboardWindow = new KeyboardWindow();
+        keyboardWindow.SetViewModel(new KeyboardViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger()));
+        var messenger = new WeakReferenceMessenger();
+        var modal = new ModalInteractionState();
+        var context = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+        {
+            OverlayManager = new ProbeKeyboardOverlayManager(keyboardWindow, new TestFakes.FakeEdgeButtonBar()),
+            Dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher,
+            Messenger = messenger,
+            GazeEngine = engine,
+            InteractionManager = engine.InteractionManager,
+            Settings = new EyeCtrlSettings(),
+        };
+        var c = new KeyboardCoordinator(modal, new QuickActionsCoordinator(modal), new ToolbarLifecycleCoordinator(modal));
+        try
+        {
+            c.Initialize(context);
+            var probe = new KeyboardMessageProbe();
+            messenger.RegisterAll(probe);
+
+            engine.AcquireFixationSuppression(FixationSuppressor.Keyboard);
+            c.ApplyModalKeyboardState(true);
+            Check.That(modal.KeyboardVisible).IsTrue();
+
+            Check.That(c.HideForProbe()).IsTrue();
+            Check.WithCustomMessage("the probe hide must not take or release the keyboard's claim")
+                .That(engine.SuppressFixation).IsTrue();
+            Check.That(modal.KeyboardVisible).IsFalse();
+            Check.That(probe.Messages).ContainsExactly("Hide");
+
+            probe.Messages.Clear();
+            c.RestoreAfterProbe(false);
+            Check.WithCustomMessage("RestoreAfterProbe(false) must do nothing at all")
+                .That(probe.Messages).IsEmpty();
+            Check.That(modal.KeyboardVisible).IsFalse();
+            Check.WithCustomMessage("RestoreAfterProbe(false) must leave the claim held")
+                .That(engine.SuppressFixation).IsTrue();
+
+            // A hidden keyboard is not "touched" again: no second hide, no message.
+            Check.That(c.HideForProbe()).IsFalse();
+            Check.WithCustomMessage("HideForProbe on a hidden keyboard must be a no-op")
+                .That(probe.Messages).IsEmpty();
+        }
+        finally
+        {
+            c.Dispose();
+            engine.Dispose();
+        }
+    }
+
+    [Fact]
+    public void ProbeKeyboardSeam_ReShowBranch_IsWiredAtTheSource()
+    {
+        // C13's re-show branch cannot run in CI: SetKeyboardVisible(true, …) calls the real
+        // KeyboardWindow.Show(), and this suite keeps Show()-calling tests Category=UI, which CI
+        // excludes (KeyboardGateProbeTests documents that boundary and uses an HwndSource for the
+        // same reason). The branch is pinned at the source instead — the same remedy
+        // SetKeyboardVisible_RoutesTheToolbarPathThroughTheClaim uses for the other un-showable
+        // window work. Mutations: manageSuppression:true on either seam (the claim would be
+        // taken/released behind the probe's back — exactly review 05 F2), dropping the re-show, or
+        // dropping the wasVisible guard.
+        var source = System.Text.RegularExpressions.Regex.Replace(
+            SourceScanner.StripComments(System.IO.File.ReadAllText(System.IO.Path.Combine(
+                SourceScanner.RepoRoot().FullName,
+                "src", "EyeCtrl.App", "Services", "Coordinators", "KeyboardCoordinator.cs"))),
+            @"\s+", string.Empty);
+
+        Check.WithCustomMessage("HideForProbe no longer guards on the keyboard being visible, or no "
+                + "longer hides through SetKeyboardVisible(false, manageSuppression:false).")
+            .That(source.Contains(
+                "internalboolHideForProbe(){boolwasVisible=_modal.KeyboardVisible;if(wasVisible)"
+                + "SetKeyboardVisible(false,manageSuppression:false);returnwasVisible;}")).IsTrue();
+        Check.WithCustomMessage("RestoreAfterProbe(false) is no longer a no-op, or the re-show no "
+                + "longer goes through SetKeyboardVisible(true, manageSuppression:false).")
+            .That(source.Contains(
+                "internalvoidRestoreAfterProbe(boolwasVisible){if(!wasVisible)return;"
+                + "SetKeyboardVisible(true,manageSuppression:false);}")).IsTrue();
     }
 }

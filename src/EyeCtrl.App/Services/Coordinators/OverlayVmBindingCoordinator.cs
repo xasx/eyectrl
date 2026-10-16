@@ -110,9 +110,9 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
             DpiHelper.LogicalToPhysicalX(dipRight),
             DpiHelper.LogicalToPhysicalY(dipTop));
 
-        _glassBackdrop.Show();
-        _glassBackdrop.ApplyBackdrop(settings);
-        _glassBackdrop.DrawHideButton(hideButtonCenter);
+        // One call, prepared while hidden: show-then-apply put a bare or glass-only first frame on
+        // screen (the owner's flicker).
+        _glassBackdrop.ShowBackdrop(settings, hideButtonCenter);
         Context.Messenger.Send(new ShowBackdropMessage(hideButtonCenter));
     }
 
@@ -139,7 +139,10 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
                 cursorCircle.MoveTo(Context.CursorVM.MoveTo.Target, Context.CursorVM.MoveTo.Glide);
                 break;
             case nameof(CursorCircleViewModel.IsVisible):
-                if (Context.CursorVM.IsVisible && !_modal.SettingsOpen) cursorCircle.Show();
+                // The probe owns the screen while it is up (build plan C9): a ring visibility flip
+                // (the probe hides it at start; anything else must not re-show it over the window)
+                // stays a hide.
+                if (Context.CursorVM.IsVisible && !_modal.SettingsOpen && !_modal.ProbeOpen) cursorCircle.Show();
                 else cursorCircle.Hide();
                 break;
             case nameof(CursorCircleViewModel.IsPinned):

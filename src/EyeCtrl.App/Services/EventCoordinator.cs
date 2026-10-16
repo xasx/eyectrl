@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Services;
 
 using System;
+using EyeCtrl.App.Diagnostics.SubPixel;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.Core.Interfaces;
@@ -35,6 +36,7 @@ public class EventCoordinator : IEventCoordinator
     private OverlayMessageCoordinator? _overlayMessage;
     private SettingsUiCoordinator? _settingsUi;
     private ActivationOfferCoordinator? _activationOffers;
+    private SubPixelProbeCoordinator? _probe;
 
     /// <summary>
     /// Gets the word predictor instance used for keyboard predictions, if enabled.
@@ -74,6 +76,22 @@ public class EventCoordinator : IEventCoordinator
         remove => _modal.SettingsOpenChanged -= value;
     }
 
+    /// <summary>Whether the sub-pixel probe window is up (SP-8 fixup 01 F1: the restart notice
+    /// host treats it exactly like Settings).</summary>
+    internal bool IsProbeOpen => _modal.ProbeOpen;
+
+    /// <summary>
+    /// Raised on the UI thread after <see cref="IsProbeOpen"/> flips. A wrapper over
+    /// <c>ModalInteractionState.ProbeOpenChanged</c>, whose contract says subscribers read the flag,
+    /// not the argument (a re-entrant flip delivers a stale value): always <c>+=</c> / <c>-=</c>
+    /// through here, never assign.
+    /// </summary>
+    internal event Action<bool> ProbeOpenChanged
+    {
+        add => _modal.ProbeOpenChanged += value;
+        remove => _modal.ProbeOpenChanged -= value;
+    }
+
     /// <summary>Hands the restart coordinator to the settings window at construction. Called once at startup.</summary>
     public void SetRestartCoordinator(AppRestartCoordinator coordinator)
     {
@@ -104,11 +122,14 @@ public class EventCoordinator : IEventCoordinator
                 $"EventCoordinator must be initialized before calling {member}.");
     }
 
-    /// <summary>Tray fallback: force-show the toolbar regardless of auto-hide state.</summary>
+    /// <summary>Tray fallback: force-show the toolbar regardless of auto-hide state. A live probe
+    /// run ends first — the interlock's generation bump is also the only guard a queued start has
+    /// against this trigger (build plan C9/C7; W3 (e), W9 (b)).</summary>
     public void ForceShowToolbar()
     {
         if (_context == null) return;
-        _context.Dispatcher.BeginInvoke(() => _toolbar?.ForceShow());
+        _probe?.InterlockForceShowToolbar(
+            () => _context.Dispatcher.BeginInvoke(() => _toolbar?.ForceShow()));
     }
 
     /// <summary>
@@ -122,6 +143,11 @@ public class EventCoordinator : IEventCoordinator
     public void Initialize(EventCoordinationContext context)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
+
+        // The probe's note gate (build plan C15): note targets are gaze-only surfaces under no
+        // window, so the probe must be able to suspend them while its own window covers the screen.
+        // The predicate reads the shared flag per sample; the probe sets it while a run is live.
+        context.NoteManager.SetSuspendPredicate(() => _modal.ProbeOpen);
 
         _scrollModeController = new ScrollModeController(context);
 
@@ -137,7 +163,7 @@ public class EventCoordinator : IEventCoordinator
         _overlayVm.Initialize(context);
         _overlayMessage = new OverlayMessageCoordinator(_toolbar, _overlayVm);
         _overlayMessage.Initialize(context);
-        _quickActions = new QuickActionsCoordinator();
+        _quickActions = new QuickActionsCoordinator(_modal);
         _quickActions.Initialize(context);
         _keyboard = new KeyboardCoordinator(_modal, _quickActions, _toolbar);
         _keyboard.Initialize(context);
@@ -181,6 +207,20 @@ public class EventCoordinator : IEventCoordinator
         // settings window through this seam. Done after _settingsUi is constructed — ToolbarLifecycle
         // is constructed earlier in task order.
         _toolbar.AttachSettingsUi(_settingsUi);
+
+        // The sub-pixel probe (build plan C7) is constructed LAST: its host wraps the toolbar,
+        // keyboard and quick-actions seams, and its C10 entry is threaded back into the settings
+        // window it just built. Its messenger registration therefore follows SettingsUiCoordinator's,
+        // which is what W9 pins (review 04 N7).
+        _probe = new SubPixelProbeCoordinator(_modal, new ProbeHost(
+            _modal, context.GazeEngine, context.OverlayManager.CursorCircle, context.CursorVM,
+            context.ToolbarVM, _toolbar, _keyboard, _quickActions, context.ModesMenuVM,
+            context.TaskSwitcherVM, context.QuickActionsGridVM, context.Messenger, context.Settings));
+        _probe.Initialize(context);
+        _settingsUi.SetProbeEntry(
+            () => _probe.GetBlockReason(),
+            () => _probe.RequestStartAuto(() => _settingsUi.CloseSettingsWindowForProbe()),
+            () => _probe.CanResumeFromResults());
     }
 
     public void LoadKeyboard(KeyboardWindow keyboard, EyeCtrlSettings settings,
@@ -224,6 +264,11 @@ public class EventCoordinator : IEventCoordinator
         // — the SettingsRequested/CloseSettings registrations.)
         _settingsUi?.Dispose();
         _settingsUi = null;
+
+        // The probe goes next: its restore needs the toolbar, keyboard and summon seams alive, and
+        // its own messenger registration must go before those coordinators' teardown noise.
+        _probe?.Dispose();
+        _probe = null;
 
         // Dispose the keyboard sub-coordinator (handles its own SkinToneChanged unsubscribe,
         // message cleanup, and PredictionStackFactory disposal — the factory moved here in cluster 3).

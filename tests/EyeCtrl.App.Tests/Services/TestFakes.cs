@@ -1,5 +1,6 @@
 namespace EyeCtrl.App.Tests.Services;
 
+using System;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
 using EyeCtrl.App.Services;
@@ -214,16 +215,57 @@ internal static class TestFakes
 
     /// <summary>No-op track-status overlay: <c>SettingsUiCoordinator.OnInitialize</c> dereferences
     /// <c>IOverlayManager.TrackStatus</c> unconditionally (UpdateTrackStatusVisibility), so any
-    /// test initializing that coordinator must supply one.</summary>
+    /// test initializing that coordinator must supply one. Also counts the start/stops it is
+    /// issued (main's W2/W3 probe tests) and mirrors the current tracking state (our preview
+    /// tests) — one fake, both seams.</summary>
     internal sealed class FakeTrackStatusOverlay : ITrackStatusOverlay
     {
         public bool Tracking { get; private set; }
+        public int StartTrackingCount { get; private set; }
+        public int StopTrackingCount { get; private set; }
 
         public void Show() { }
         public void Hide() { }
-        public void StartTracking() => Tracking = true;
-        public void StopTracking() => Tracking = false;
+        public void StartTracking()
+        {
+            Tracking = true;
+            StartTrackingCount++;
+        }
+
+        public void StopTracking()
+        {
+            Tracking = false;
+            StopTrackingCount++;
+        }
         public void PositionTopRight() { }
+    }
+
+    /// <summary>No-op toolbar overlay: the adaptation branch's <c>SettingsUiCoordinator</c>
+    /// rebuilds the toolbar band on a live <c>Adaptation.Enabled</c> flip (Task 9's
+    /// <c>ReinitializeToolbar</c>), so any test whose context can flip that flag with the settings
+    /// UI initialized — e.g. the probe world's N4 reason walk — must supply a toolbar or the
+    /// queued rebuild throws "test supplied no toolbar" into the dispatcher drain. Invisible and
+    /// uninitialized: nothing in those tests asserts toolbar behaviour.</summary>
+    internal sealed class FakeToolbarOverlay : IToolbarOverlay
+    {
+        public bool IsVisible => false;
+        public bool TargetsInitialized => false;
+        public bool IsSliding => false;
+        public bool IsOnScreen => false;
+        public double ExtentDip => 0;
+
+        public void Show() { }
+        public void Hide() { }
+        public void Initialize(double buttonSize, int dwellTimeMs, bool includeReset) { }
+        public void SetMode(bool isDocked, string edge) { }
+        public void SetSelectionModeState(SelectionMode mode) { }
+        public void SetPausedState(bool isPaused) { }
+        public void UpdateGaze(PhysicalPoint screenPoint, long timestampMicroseconds) { }
+        public void BindToViewModel() { }
+        public void ShowAtRest() { }
+        public void ShowThenSlideIn() { }
+        public void SlideOutThenHide(Action onHidden) => onHidden();
+        public PhysicalRect GetPhysicalBounds() => default;
     }
 
     /// <summary>No-op calibration overlay: the calibration state handler shows, updates and
@@ -275,6 +317,7 @@ internal static class TestFakes
         public bool EscapeHintVisible { get; private set; }
         public List<string> Calls { get; } = new();
 
+        public void ShowBackdrop(BackdropSettings settings, PhysicalPoint buttonCenter) => Calls.Add("ShowBackdrop");
         public void Show() => Calls.Add("Show");
 
         // Mirrors GlassBackdropWindow.Hide(), which also collapses the hint so it never carries

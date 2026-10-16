@@ -188,10 +188,19 @@ exception details and logs, and the product names.
   target; the ✕ was drawn off its own dwell target. `ResizeMode="NoResize"` removes the border (as
   the edge bar already had), and a new handle-only gate checks every overlay window's client origin,
   with the live check keeping the exact ✕ position (`OverlayClientOriginTests`,
-  `Step3LiveCheckTests.TheGlassBackdrop_…`). Pre-existing, found by the T13 live check. **Not settled
-  here:** during the live check the backdrop showed its dark look rather than the Mica material;
-  whether `ResizeMode="NoResize"` (which removes the window's resize frame) or the overlays'
-  never-activate style causes that is checked in a follow-up.
+  `Step3LiveCheckTests.TheGlassBackdrop_…`). Pre-existing, found by the T13 live check.
+- **The backdrop is a live blur now, whichever material is selected.** It used to show plain dark:
+  the window's own WPF composition background painted opaque black over anything behind it, and the
+  system Mica/Acrylic backdrops only ever produced their flat inactive fallback on an overlay that
+  never takes focus. The window now clears that background to transparent and both the "Mica" and
+  "Acrylic" settings use the acrylic blur, which is live on this window. The opacity slider now sets
+  how much darker the glass is: a black layer over the blur at the slider's value (0.3 = 30 % darker
+  than the glass; the glass itself is slightly brighter than a dark desktop). "Solid darken" is now
+  a see-through dark tint at the slider's value; it used to show opaque near-black whatever the
+  setting. The option names are unchanged; the blur uses an
+  undocumented Windows API whose redraw can lag while a window is dragged — irrelevant for a static
+  full-screen overlay (`GlassBackdropMaterialPathTests`, plus the follow-up's live look and capture
+  readouts).
 - **Keyboard key captions are layout data, not UI text.** They belong to the keyboard layout in use:
   QWERTZ shows German captions ("Strg", "Kopieren", "Einfügen", "Alles mark.", "+ Wort", "Einfg",
   "Entf", "Pos1", "Ende", "Bild↑", "Bild↓", "Druck"), while QWERTY and AZERTY keep their English ones

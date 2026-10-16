@@ -20,6 +20,15 @@ using Serilog;
 /// window shows its own modal, so the notice never appears twice. The host owns no UI; it hands the
 /// text to an <see cref="IRestartNoticePresenter"/>, and forwards gaze to it while it shows.
 /// </para>
+///
+/// <para>
+/// The sub-pixel probe is the second "the screen is not ours" surface (SP-8 review 01 F1): its
+/// window is opaque and topmost, and the card's close button overlaps the probe's Start hit area,
+/// so one dwell would close the card AND start the trials. The host therefore treats an open probe
+/// exactly like an open Settings window — no notice is shown, no gaze is fed, and a card that is up
+/// is taken down — through the explicit <c>isProbeOpen</c> seam rather than folding the flag into
+/// the Settings predicate, so the name stays honest.
+/// </para>
 /// </summary>
 public sealed class RestartNoticeHost : IDisposable
 {
@@ -36,6 +45,7 @@ public sealed class RestartNoticeHost : IDisposable
     private readonly IMessenger _messenger;
     private readonly IRestartNoticePresenter _presenter;
     private readonly Func<bool> _isSettingsOpen;
+    private readonly Func<bool> _isProbeOpen;
     private readonly Func<UiLanguage> _targetLanguage;
     private readonly Action<Action> _postToUi;
 
@@ -43,6 +53,8 @@ public sealed class RestartNoticeHost : IDisposable
     /// <param name="messenger">The application messenger the restart coordinator sends on.</param>
     /// <param name="presenter">The notice renderer (the WPF window at runtime, a fake in tests).</param>
     /// <param name="isSettingsOpen">Whether a Settings window exists; it then shows its own modal.</param>
+    /// <param name="isProbeOpen">Whether the sub-pixel probe window is up; it then owns the screen
+    /// (SP-8 review 01 F1).</param>
     /// <param name="targetLanguage">The language the restart flow speaks (the saved selection resolved
     /// against the machine culture, the language the replacement will run).</param>
     /// <param name="postToUi">Runs work on the UI thread.</param>
@@ -50,12 +62,14 @@ public sealed class RestartNoticeHost : IDisposable
         IMessenger messenger,
         IRestartNoticePresenter presenter,
         Func<bool> isSettingsOpen,
+        Func<bool> isProbeOpen,
         Func<UiLanguage> targetLanguage,
         Action<Action> postToUi)
     {
         _messenger = messenger;
         _presenter = presenter;
         _isSettingsOpen = isSettingsOpen;
+        _isProbeOpen = isProbeOpen;
         _targetLanguage = targetLanguage;
         _postToUi = postToUi;
 
@@ -65,7 +79,7 @@ public sealed class RestartNoticeHost : IDisposable
         // injects no input, so, like the toolbar band, the close button stays dwellable while paused.
         messenger.Register<GazeCursorMovedMessage>(this, (_, m) =>
         {
-            if (_presenter.IsShowing && !m.IsInGap && !_isSettingsOpen())
+            if (_presenter.IsShowing && !m.IsInGap && !_isSettingsOpen() && !_isProbeOpen())
                 _presenter.OnGaze(m.Position, m.TimestampMicroseconds);
         });
     }
@@ -77,7 +91,7 @@ public sealed class RestartNoticeHost : IDisposable
 
     private void ShowInProgress()
     {
-        if (_isSettingsOpen()) return; // the open Settings window shows its own modal
+        if (_isSettingsOpen() || _isProbeOpen()) return; // the open surface owns the screen
 
         var target = _targetLanguage();
         Log.Information("Restart notice: showing 'restarting' (no Settings window is open)");
@@ -89,7 +103,7 @@ public sealed class RestartNoticeHost : IDisposable
 
     private void ShowRefused(string reason)
     {
-        if (_isSettingsOpen()) return;
+        if (_isSettingsOpen() || _isProbeOpen()) return;
 
         var target = _targetLanguage();
         Log.Information("Restart notice: showing 'restart not possible' (no Settings window is open)");
@@ -105,6 +119,22 @@ public sealed class RestartNoticeHost : IDisposable
     public void OnSettingsOpenChanged(bool open)
     {
         if (open) _presenter.HideNotice();
+    }
+
+    /// <summary>
+    /// The probe opened or closed. Opening takes a notice that is up down, exactly as Settings does:
+    /// the full-screen probe covers the card, whose close button would otherwise stay live
+    /// underneath — an invisible target that overlaps the probe's own Start hit area, so one dwell
+    /// would close the card AND advance the run (SP-8 review 01 F1). Closing the probe does NOT
+    /// re-show a suppressed notice: the Settings precedent — a refused restart during a run stays
+    /// silent, and the Supervisor has its own acknowledgement for the request it made.
+    /// </summary>
+    /// <param name="open">True when the sub-pixel probe window has opened. The current flag is read
+    /// as well: <c>ModalInteractionState.ProbeOpenChanged</c>'s contract says the argument can be
+    /// stale on a re-entrant flip.</param>
+    public void OnProbeOpenChanged(bool open)
+    {
+        if (open || _isProbeOpen()) _presenter.HideNotice();
     }
 
     /// <summary>Unregisters from the messenger and takes any notice down.</summary>

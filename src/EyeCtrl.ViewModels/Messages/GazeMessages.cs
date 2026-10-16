@@ -83,3 +83,12 @@ public record EyeCareBannerActiveMessage(bool Active);
 /// offer would click the window beneath it.
 /// </summary>
 public record RestartNoticeActiveMessage(bool Active);
+
+/// <summary>
+/// Sent by the lag-mark host (T0(a)) when the button appears — <c>Zone</c> is its dwell hit
+/// rectangle in physical pixels — and when it goes (<c>null</c>). The activation-offer coordinator
+/// appends the zone to the chrome zones: the button carries its own dwell target while it is up, so
+/// no offer may be placed over it. It does NOT suspend offers (unlike the restart card): the
+/// session must stay normal use, only the button's own corner is kept clear.
+/// </summary>
+public record LagMarkZoneMessage(PhysicalRect? Zone);

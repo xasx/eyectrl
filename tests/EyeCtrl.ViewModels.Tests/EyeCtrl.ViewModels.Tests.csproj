@@ -12,6 +12,19 @@
   </ItemGroup>
   <ItemGroup>
     <!--
+      FakeTimeProvider: the calibration view model's timers (the per-target safety caps, the
+      measure-only window ring, the hold floor) and the collector's settle gate now run on an
+      injected TimeProvider, and these tests drive a fake one so every window and elapsed
+      assertion is exact instead of racing a loaded runner's wall clock (the CI flakes of
+      2026-10-14). Microsoft's own implementation, not a hand-rolled fake: production arms
+      `Task.Delay(ms, TimeProvider)`, so the fake must implement CreateTimer with the real
+      contract (due-time ordering, cancellation, period) — the piece a hand-rolled clock gets
+      subtly wrong and then silently weakens every test built on it.
+    -->
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <!--
       Linked, not copied. TempTestDirectory carries the stale-sweep threshold, and a sweep that
       deletes directories it does not own is the wrong place to keep two copies of a number.
       Same mechanism as EyeCtrl.Core.Tests linking GazeStreamGenerator.cs.

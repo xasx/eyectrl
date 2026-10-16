@@ -463,7 +463,7 @@ public class Step3LiveCheckTests
     /// The common prologue: the opt-in gate, the WPF Application with its tokens, the DPI scale the
     /// App itself sets at startup, and the shipped German. Every case builds its window only after
     /// this, so every overlay is laid out at the user's real scale. Shared with
-    /// <see cref="EyeCtrl.App.Tests.Overlays.BackdropAbLiveCheckTests"/> (the backdrop Mica A/B),
+    /// <see cref="EyeCtrl.App.Tests.Overlays.BackdropLiveLookTests"/> (the backdrop live look),
     /// which starts exactly the way step 10 does.
     /// </summary>
     internal static void BeginShowcaseCase()
@@ -478,7 +478,7 @@ public class Step3LiveCheckTests
     /// Puts the process-global DPI scale and the string table back to their test-run defaults. The
     /// assembly-level restore hooks do this after every test too; doing it here keeps the case's own
     /// window of exposure closed even when it fails early. Shared with
-    /// <see cref="EyeCtrl.App.Tests.Overlays.BackdropAbLiveCheckTests"/>.
+    /// <see cref="EyeCtrl.App.Tests.Overlays.BackdropLiveLookTests"/>.
     /// </summary>
     internal static void EndShowcaseCase()
     {
@@ -528,7 +528,7 @@ public class Step3LiveCheckTests
     /// The owner's backdrop settings, read READ-ONLY from <c>%APPDATA%\EyeCtrl\settings.json</c>: the
     /// material type is theirs (Mica today). A missing file, an unreadable one (the App may hold it),
     /// or an unknown value falls back to the production defaults — nothing here writes. Shared with
-    /// <see cref="EyeCtrl.App.Tests.Overlays.BackdropAbLiveCheckTests"/>, which reads the same way.
+    /// <see cref="EyeCtrl.App.Tests.Overlays.BackdropLiveLookTests"/>, which reads the same way.
     /// </summary>
     internal static BackdropSettings BackdropSettingsOfTheOwner()
     {

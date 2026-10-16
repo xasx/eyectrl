@@ -50,12 +50,13 @@ public class RestartNoticeHostTests
         public WeakReferenceMessenger Messenger { get; } = new();
         public FakePresenter Presenter { get; } = new();
         public bool SettingsOpen { get; set; }
+        public bool ProbeOpen { get; set; }
         public UiLanguage Target { get; set; } = UiLanguage.English;
         public RestartNoticeHost Host { get; }
 
         public Rig() =>
             Host = new RestartNoticeHost(
-                Messenger, Presenter, () => SettingsOpen, () => Target, work => work());
+                Messenger, Presenter, () => SettingsOpen, () => ProbeOpen, () => Target, work => work());
     }
 
     [Fact]
@@ -258,5 +259,85 @@ public class RestartNoticeHostTests
 
         Check.WithCustomMessage("gaze reached a card that Settings covers")
             .That(rig.Presenter.Gaze).IsEmpty();
+    }
+
+    // ────── SP-8 review 01 F1: the sub-pixel probe is the second screen-owning surface ──────
+
+    [Fact]
+    public void WhileTheProbeIsOpen_NoNoticeIsShown()
+    {
+        var rig = new Rig { ProbeOpen = true };
+
+        rig.Messenger.Send(new RestartInProgressMessage());
+        rig.Messenger.Send(new RestartUnavailableMessage("anything"));
+
+        Check.That(rig.Presenter.Notices).IsEmpty();
+
+        // A NEW request after the probe closes speaks again; the suppression is not sticky.
+        rig.ProbeOpen = false;
+        rig.Messenger.Send(new RestartUnavailableMessage("anything"));
+        Check.That(rig.Presenter.Notices).HasSize(1);
+    }
+
+    /// <summary>
+    /// SP-8 review 01 F1: on the probe's Intro the card's close button overlapped Start's hit area
+    /// (320 × 83 DIP), so one dwell closed the card AND started the trials.
+    /// </summary>
+    [Fact]
+    public void OpeningTheProbe_TakesAShowingNoticeDown()
+    {
+        var rig = new Rig();
+        rig.Messenger.Send(new RestartInProgressMessage());
+        Check.That(rig.Presenter.IsShowing).IsTrue();
+
+        rig.ProbeOpen = true;
+        rig.Host.OnProbeOpenChanged(true);
+
+        Check.That(rig.Presenter.IsShowing).IsFalse();
+        Check.That(rig.Presenter.HideCalls).IsEqualTo(1);
+
+        // Closing the probe neither hides nor brings anything back (the Settings precedent).
+        rig.ProbeOpen = false;
+        rig.Host.OnProbeOpenChanged(false);
+        Check.That(rig.Presenter.HideCalls).IsEqualTo(1);
+        Check.That(rig.Presenter.Notices).HasSize(1);
+    }
+
+    [Fact]
+    public void WhileTheProbeIsOpen_NoGazeReachesTheCard()
+    {
+        var rig = new Rig();
+        rig.Messenger.Send(new RestartInProgressMessage());
+        rig.ProbeOpen = true;   // opened over the card, before the host heard of it
+
+        rig.Messenger.Send(new GazeCursorMovedMessage(new PhysicalPoint(100, 200), 2_000));
+
+        Check.WithCustomMessage("gaze reached a card that the probe covers")
+            .That(rig.Presenter.Gaze).IsEmpty();
+    }
+
+    [Fact]
+    public void TheHost_IsWiredToTheProbesProbeOpenFlag()
+    {
+        // SP-8 review 01 F1: App.xaml.cs is integration wiring that cannot be composed headlessly;
+        // pin the probe seam the way T15 pinned the Settings one. Dropping either half leaves every
+        // host test above green (mutant f4).
+        var text = LocalizationTestData.SourceFiles()
+            .Single(file => file.Relative == "src/EyeCtrl.App/App.xaml.cs").Text;
+
+        var construction = System.Text.RegularExpressions.Regex.Match(
+            text, @"new\s+RestartNoticeHost\s*\(([^;]*)\)\s*;");
+        Check.WithCustomMessage("App.xaml.cs no longer constructs the RestartNoticeHost.")
+            .That(construction.Success).IsTrue();
+        Check.WithCustomMessage("App.xaml.cs no longer passes the probe flag into the RestartNoticeHost.")
+            .That(System.Text.RegularExpressions.Regex.IsMatch(
+                construction.Groups[1].Value,
+                @"isProbeOpen\s*:\s*\(\)\s*=>\s*_eventCoordinator\s*\.\s*IsProbeOpen")).IsTrue();
+        // The probe opening over a card that is up takes it down (review 01 F1).
+        Check.WithCustomMessage("App.xaml.cs no longer takes the card down when the probe opens")
+            .That(System.Text.RegularExpressions.Regex.IsMatch(
+                text,
+                @"_eventCoordinator\s*\.\s*ProbeOpenChanged\s*\+=\s*_restartNoticeHost\s*\.\s*OnProbeOpenChanged"))
+            .IsTrue();
     }
 }

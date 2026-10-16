@@ -203,8 +203,7 @@ public class SettingsService
         try
         {
             var json = File.ReadAllText(_filePath);
-            var migratedJson = MigrateBackdropTypeToGlass(ClampKeyboardDwellFloor(
-                MigrateCursorFilterUnits(MigrateDragActions(json))));
+            var migratedJson = RunPreDeserializeMigrations(json);
             if (!ReferenceEquals(json, migratedJson))
             {
                 // Atomic, like Save: this is a write during startup, and a torn one would leave the
@@ -1034,6 +1033,70 @@ public class SettingsService
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 
+    // ── The migration runner: every step fail-safe on its own ────────────────────────────────────
+    //
+    // WHY the containment lives here (review-01 F1): a step can throw exception types the steps do
+    // not catch themselves — a hand-edit that duplicates a key makes JsonNode's indexers throw
+    // ArgumentException, not JsonException — and an escape would skip the tolerant #153 path and
+    // land in Load's outer catch, whose whole-file defaults the App then saves on exit. So every
+    // step runs guarded: on ANY exception its input is kept (the user's most recent good JSON) and
+    // the remaining steps STILL RUN, each on the best JSON so far. The write-back in Load persists
+    // exactly the changes the successful steps produced: a step that failed left its input
+    // reference in place, so it contributes nothing.
+    private string RunPreDeserializeMigrations(string json)
+    {
+        var current = json;
+        current = RunMigrationStep(MigrateDragActions, nameof(MigrateDragActions), current);
+        current = RunMigrationStep(MigrateCursorFilterUnits, nameof(MigrateCursorFilterUnits), current);
+        current = RunMigrationStep(ClampKeyboardDwellFloor, nameof(ClampKeyboardDwellFloor), current);
+        current = RunBackdropTypeMigration(current);
+        return current;
+    }
+
+    private string RunMigrationStep(Func<string, string> step, string name, string json)
+    {
+        try
+        {
+            return step(json);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex,
+                "Settings migration {Migration} failed for {FilePath}; its input is kept and the remaining migrations still run.",
+                name, _filePath);
+            return json;
+        }
+    }
+
+    /// <summary>
+    /// The backdrop-name step, plus the owner-approved one-time backup: when the step ACTUALLY
+    /// rewrites the JSON (mica/acrylic/numeric 1 -> glass) the original FILE is copied to
+    /// <c>settings.json.bak-glass</c> first, once and never over an existing backup, so the
+    /// pre-rename file survives even a bad rename by hand. A failed step backs up nothing; a
+    /// failed backup write is logged and never blocks the load.
+    /// </summary>
+    private string RunBackdropTypeMigration(string json)
+    {
+        var migrated = RunMigrationStep(MigrateBackdropTypeToGlass, nameof(MigrateBackdropTypeToGlass), json);
+        if (!string.Equals(json, migrated, StringComparison.Ordinal))
+            WriteGlassBackupOnce();
+        return migrated;
+    }
+
+    private void WriteGlassBackupOnce()
+    {
+        var backupPath = _filePath + GlassBackupSuffix;
+        try
+        {
+            if (File.Exists(backupPath)) return;
+            File.Copy(_filePath, backupPath);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Failed to write the pre-migration backup {BackupPath}; the load continues.", backupPath);
+        }
+    }
+
     // ── Backdrop type merge (Mica + Acrylic -> Glass, 2026-10-16) ────────────────────────────────
     //
     // WHY raw JSON: Mica and Acrylic had drawn the same material since 2026-10-14, so they merged
@@ -1057,6 +1120,10 @@ public class SettingsService
     private const string LegacyMicaName = "mica";
     private const string LegacyAcrylicName = "acrylic";
     private const int LegacyMicaOrdinal = 1;
+
+    /// <summary>The one-time pre-rename backup, beside the settings file (owner decision, review-01:
+    /// "keep a one-time backup" — written only when the backdrop rewrite actually happens).</summary>
+    internal const string GlassBackupSuffix = ".bak-glass";
 
     private static string MigrateBackdropTypeToGlass(string json)
     {

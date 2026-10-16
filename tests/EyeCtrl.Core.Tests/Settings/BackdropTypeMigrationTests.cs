@@ -189,6 +189,172 @@ public class BackdropTypeMigrationTests
         finally { File.Delete(path); }
     }
 
+    // ── review-01 F1: a duplicated key must never cost the file ─────────────────────────────────
+
+    [Fact]
+    public void ADuplicateKeyInsideBackdrop_LoadsWithEveryOtherSettingIntact()
+    {
+        // P12 (review-01 F1): JsonNode.Parse is LAZY and a duplicated key throws ArgumentException
+        // on the first indexing — not JsonException, which only the parse was guarded against. The
+        // migration's trigger includes the "backdrop" section (a hand-editor may have replaced the
+        // name with a bare number), so before the per-step guard this escaped into Load's outer
+        // catch: whole-file defaults, saved on exit. Guarded, the step keeps its input and the
+        // deserializer reads the LAST duplicate, exactly as main does.
+        var path = TempFile();
+        try
+        {
+            const string json = """
+            {
+              "dwell": { "activationButtonDwellMs": 850, "keyboardKeyDwellMs": 500 },
+              "keyboard": { "activeLayout": "AZERTY", "languagePack": "de", "maxSuggestions": 3 },
+              "backdrop": { "enabled": false, "opacity": 0.4, "opacity": 0.45, "type": "solidDarken" }
+            }
+            """;
+            File.WriteAllText(path, json);
+
+            var loaded = new SettingsService(path).Load();
+
+            Check.That(loaded.Backdrop.Type).IsEqualTo(BackdropType.SolidDarken);
+            Check.That(loaded.Backdrop.Opacity).IsEqualTo(0.45);   // the last duplicate wins, as on main
+            Check.That(loaded.Backdrop.Enabled).IsFalse();
+            Check.That(loaded.Keyboard.ActiveLayout).IsEqualTo("AZERTY");
+            Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(850);
+            Check.That(File.ReadAllText(path)).IsEqualTo(json);    // the failed step wrote nothing
+            Check.That(File.Exists(path + SettingsService.GlassBackupSuffix)).IsFalse(); // and backed up nothing
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void ADuplicateTypeKey_TheFileSurvives_AndTheSectionFollowsTheRepairSemantics()
+    {
+        // P1 (review-01 F1): the hand-edit the owner actually makes — a copied "type" line. The
+        // ambiguous lookup throws while the migration navigates; the guard keeps the file and the
+        // whole-graph deserialize then throws on the FIRST value ("mica" is no longer a member),
+        // so the #153 repair judges the section — where a duplicate is the documented multi-fault
+        // verdict (D5: duplicates INSIDE a section cost that section). The FILE is what F1 is
+        // about: every other section survives, nothing is wiped, the file itself is untouched.
+        var path = TempFile();
+        try
+        {
+            const string json = """
+            {
+              "dwell": { "activationButtonDwellMs": 850, "keyboardKeyDwellMs": 500 },
+              "keyboard": { "activeLayout": "AZERTY", "languagePack": "de", "maxSuggestions": 3 },
+              "backdrop": { "enabled": false, "type": "mica", "type": "glass", "opacity": 0.45 }
+            }
+            """;
+            File.WriteAllText(path, json);
+
+            var loaded = new SettingsService(path).Load();
+
+            Check.That(loaded.Keyboard.ActiveLayout).IsEqualTo("AZERTY");
+            Check.That(loaded.Keyboard.LanguagePack).IsEqualTo("de");
+            Check.That(loaded.Keyboard.MaxSuggestions).IsEqualTo(3);
+            Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(850);
+            // The ambiguous section reverts — and reverts to Glass, the material the old "mica"
+            // drew, so the user keeps the look even here.
+            Check.That(loaded.Backdrop.Type).IsEqualTo(BackdropType.Glass);
+            Check.That(loaded.Backdrop.Opacity).IsEqualTo(0.3);
+            Check.That(File.ReadAllText(path)).IsEqualTo(json);   // the file is not destroyed
+            Check.That(File.Exists(path + SettingsService.GlassBackupSuffix)).IsFalse();
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void ADuplicatedRootSectionKey_DoesNotWipeTheFile()
+    {
+        // P11 (pre-existing on main, closed here because it is the same root cause): a duplicated
+        // ROOT key while a step's trigger is present. ClampKeyboardDwellFloor indexed the ambiguous
+        // "dwell" and its ArgumentException escaped into Load's outer catch — whole-file defaults
+        // even on main. Guarded, the first dwell (which parses fine) is skipped and the last wins.
+        var path = TempFile();
+        try
+        {
+            const string json = """
+            {
+              "dwell": { "activationButtonDwellMs": 600, "keyboardKeyDwellMs": 500 },
+              "dwell": { "activationButtonDwellMs": 850, "keyboardKeyDwellMs": 500 },
+              "keyboard": { "activeLayout": "AZERTY", "languagePack": "de", "maxSuggestions": 3 },
+              "backdrop": { "enabled": false, "type": "glass", "opacity": 0.45 }
+            }
+            """;
+            File.WriteAllText(path, json);
+
+            var loaded = new SettingsService(path).Load();
+
+            Check.That(loaded.Dwell.ActivationButtonDwellMs).IsEqualTo(850);   // the last root key wins
+            Check.That(loaded.Keyboard.ActiveLayout).IsEqualTo("AZERTY");
+            Check.That(loaded.Backdrop.Type).IsEqualTo(BackdropType.Glass);
+            Check.That(loaded.Backdrop.Opacity).IsEqualTo(0.45);
+            Check.That(File.ReadAllText(path)).IsEqualTo(json);
+        }
+        finally { File.Delete(path); }
+    }
+
+    // ── review-01: the one-time backup ──────────────────────────────────────────────────────────
+
+    [Fact]
+    public void TheOneTimeBackup_KeepsTheOriginalBytes_AndASecondLoadDoesNotTouchIt()
+    {
+        var path = TempFile();
+        var backup = path + SettingsService.GlassBackupSuffix;
+        try
+        {
+            File.WriteAllText(path, LegacyFile("acrylic"));
+            byte[] originalBytes = File.ReadAllBytes(path);
+
+            var service = new SettingsService(path);
+            service.Load();
+
+            Check.That(File.Exists(backup)).IsTrue();
+            Check.That(File.ReadAllBytes(backup).SequenceEqual(originalBytes)).IsTrue();
+            Check.That(File.ReadAllText(path)).Contains("\"glass\"");   // the file itself migrated
+            var backupWrite = File.GetLastWriteTimeUtc(backup);
+
+            service.Load();   // already current: the step changes nothing, so it must not touch the backup
+
+            Check.That(File.ReadAllBytes(backup).SequenceEqual(originalBytes)).IsTrue();
+            Check.That(File.GetLastWriteTimeUtc(backup)).IsEqualTo(backupWrite);
+        }
+        finally { File.Delete(path); File.Delete(backup); }
+    }
+
+    [Fact]
+    public void AnExistingBackup_IsNeverOverwritten()
+    {
+        var path = TempFile();
+        var backup = path + SettingsService.GlassBackupSuffix;
+        try
+        {
+            File.WriteAllText(path, LegacyFile("mica"));
+            File.WriteAllText(backup, "the user's own earlier backup");
+
+            new SettingsService(path).Load();
+
+            Check.That(File.ReadAllText(backup)).IsEqualTo("the user's own earlier backup");
+            Check.That(File.ReadAllText(path)).Contains("\"glass\"");
+        }
+        finally { File.Delete(path); File.Delete(backup); }
+    }
+
+    [Fact]
+    public void ANoOpLoad_WritesNoBackup()
+    {
+        var path = TempFile();
+        var backup = path + SettingsService.GlassBackupSuffix;
+        try
+        {
+            File.WriteAllText(path, LegacyFile("solidDarken"));
+
+            new SettingsService(path).Load();
+
+            Check.That(File.Exists(backup)).IsFalse();
+        }
+        finally { File.Delete(path); }
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────────────────────────
 
     private static string TempFile() =>

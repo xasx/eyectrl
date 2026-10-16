@@ -11,9 +11,49 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     IRecipient<StateChangedMessage>,
     IRecipient<ExternalDwellActiveMessage>,
     IRecipient<PinRingMessage>,
-    IRecipient<ReleaseRingMessage>
+    IRecipient<ReleaseRingMessage>,
+    IRecipient<ShowActivationButtonMessage>,
+    IRecipient<HideActivationButtonMessage>
 {
     private readonly EyeCtrlSettings _settings;
+
+    /// <summary>The hybrid's grace: the engine's own outside-pause budget (500 ms), so the hold lives
+    /// exactly as long as the button dwell would survive an excursion ("The hybrid, precisely").</summary>
+    public const int HybridFreezeGraceMs = 500;
+
+    /// <summary>In-hit samples after which the hold has proven itself: three (90 ms at 30 ms frames).</summary>
+    public const int HybridFreezeProvenSamples = 3;
+
+    /// <summary>The nominal proven time the startup line prints: three 30 ms samples. The RULE is the
+    /// sample count above, not elapsed time.</summary>
+    public const int HybridFreezeProvenMs = 90;
+
+    /// <summary>How long a run-end release is deferred while the eye crosses into the hit area.</summary>
+    public const int HybridFreezeApproachMs = 150;
+
+    /// <summary>
+    /// The ring hold policy (<c>--ring-arm</c> sets it once at startup; never a setting). The class
+    /// default stays <see cref="RingHoldPolicy.None"/>, the offer-following behaviour bit for bit; the
+    /// App's launch composition selects the arm (the hybrid, unless <c>--ring-arm</c> says otherwise).
+    /// </summary>
+    public RingHoldPolicy RingHoldPolicy { get; set; } = RingHoldPolicy.None;
+
+    /// <summary>One record per <see cref="PinRingMessage"/> processed, applied or refused; the look
+    /// build's event log (App side) pairs each with Core's pin origin.</summary>
+    public event Action<RingPinProcessedEvent>? RingPinProcessed;
+
+    /// <summary>One record per <see cref="ReleaseRingMessage"/> processed.</summary>
+    public event Action<RingReleaseProcessedEvent>? RingReleaseProcessed;
+
+    /// <summary>A physical release that did not happen at a release message: a hold's end, a hiding
+    /// state's clear, or the hybrid's deferred run-end resolution.</summary>
+    public event Action<RingReleaseEvent>? RingReleased;
+
+    /// <summary>A hybrid hold started.</summary>
+    public event Action<RingHoldStartEvent>? RingHoldStarted;
+
+    /// <summary>A hybrid hold ended.</summary>
+    public event Action<RingHoldEndEvent>? RingHoldEnded;
 
     // Effective visibility = the interaction state allows a cursor AND no external-dwell target
     // is currently active. Two independent inputs are combined into the single IsVisible so there
@@ -39,6 +79,27 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     private PhysicalPoint _glideFrom;
     private PhysicalPoint _glideTo;
     private long _glideStartUs = -1;
+
+    // ── The hybrid hold (RingHoldPolicy.HybridFreeze): replay 2's "The hybrid, precisely" ──
+    // All touched on the UI thread with the rest of this VM. The offer's B and hit radius come from
+    // the existing ShowActivationButtonMessage / HideActivationButtonMessage; the rules mirror the
+    // replay's RingModel, which the arm-B oracle compares sample for sample.
+    // Review 01's X2/X3, accepted near-equivalences: "proven" is a SAMPLE COUNT (equal to elapsed
+    // time on regular 30 ms frames), and _drawn ignoring glide frames only matters for a freeze
+    // during a glide-in, which the freeze's own entry hold pre-empts first.
+    private bool _holding;
+    private long _holdStartUs;
+    private int _inHitCount;
+    private long? _outsideSinceUs;
+    private long? _approachUntilUs;
+    private bool _pendingRunEndRelease;
+    private bool _offerLive;
+    private PhysicalPoint _offerCenter;
+    private double _offerHitRadiusPx;
+    private long _lastFrameUs;
+    // The last point actually drawn, across BOTH channels (Position and the glide's MoveTo): the
+    // freeze stops the ring here, before the current sample's follow applies.
+    private PhysicalPoint _drawn;
 
     /// <summary>One call to the overlay: move the ring to <see cref="Target"/>, and whether this write
     /// is a glide frame (instrument 2 skips glide frames — their cadence is the animation's, not the
@@ -80,6 +141,12 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
 
     public void Receive(GazeCursorMovedMessage message)
     {
+        // The hybrid's hold runs BEFORE the follow and before _latestGaze moves: the freeze stops the
+        // ring on the drawn point, and a release resolved here snaps to the previous sample — the same
+        // order the replay model applies (its cursor step is last).
+        if (RingHoldPolicy == RingHoldPolicy.HybridFreeze)
+            AdvanceHybridHold(message);
+
         _latestGaze = message.Position;
 
         if (_gliding)
@@ -100,31 +167,57 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
     /// Pins the ring on the settle centroid Core published on the accepted settle. The glide starts
     /// from the ring's current position — the point it was following a moment ago — and ends exactly on
     /// the pin; the first frame after the pin starts the clock.
+    /// <para>
+    /// Under <see cref="RingHoldPolicy.HybridFreeze"/> a pin while holding or approaching is ignored:
+    /// "while holding, settles and run ends are ignored, so there is no re-pin and no snap".
+    /// </para>
     /// </summary>
     public void Receive(PinRingMessage message)
     {
         // Only a fixation may pin. The check is against the last state the machine REPORTED, so a
         // release/exit that arrives before this message (F4's race) refuses the pin outright.
-        if (_lastState != InteractionState.Fixation)
+        bool holdSuppressed = RingHoldPolicy == RingHoldPolicy.HybridFreeze
+            && (_holding || _approachUntilUs is not null);
+        if (holdSuppressed || _lastState != InteractionState.Fixation)
+        {
+            // Refused, but still one record: the look's log pairs every Core pin with its message.
+            RingPinProcessed?.Invoke(new RingPinProcessedEvent(message.Position, 0, Applied: false));
             return;
+        }
 
+        double dist = _drawn.DistanceTo(message.Position);
         _glideFrom = Position;
         _glideTo = message.Position;
         _glideStartUs = -1;
         _gliding = true;
         IsPinned = true;
+        RingPinProcessed?.Invoke(new RingPinProcessedEvent(message.Position, dist, Applied: true));
     }
 
     /// <summary>
     /// Releases the pin and snaps to gaze — the next drawn position is the latest sample, applied
     /// directly, with no glide sweeping behind the eye after it has already landed (decision 2). Also
     /// cancels a glide that was still in flight, so nothing keeps interpolating toward a stale pin.
+    /// <para>
+    /// Under <see cref="RingHoldPolicy.HybridFreeze"/> the release is deferred to the next sample
+    /// (where the landing gaze decides between keeping the pin, the approach window and the release),
+    /// and is ignored entirely while holding or approaching — no snap under a hold.
+    /// </para>
     /// </summary>
     public void Receive(ReleaseRingMessage message)
     {
-        _gliding = false;
-        IsPinned = false;
-        Position = _latestGaze;
+        if (RingHoldPolicy == RingHoldPolicy.HybridFreeze)
+        {
+            if (!_holding && _approachUntilUs is null)
+                _pendingRunEndRelease = true;
+            RingReleaseProcessed?.Invoke(new RingReleaseProcessedEvent(ReleasedNow: false, Dist: 0));
+            return;
+        }
+
+        bool wasPinned = IsPinned;
+        double dist = _drawn.DistanceTo(_latestGaze);
+        ReleaseNow();
+        RingReleaseProcessed?.Invoke(new RingReleaseProcessedEvent(wasPinned, dist));
     }
 
     public void Receive(StateChangedMessage message)
@@ -142,9 +235,11 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
         // message is ever lost. This is also the Paused rule that predates the pin.
         if (message.NewState is not (InteractionState.Fixation or InteractionState.FreeLook))
         {
-            _gliding = false;
-            IsPinned = false;
-            Position = _latestGaze;
+            bool wasPinned = IsPinned;
+            double dist = _drawn.DistanceTo(_latestGaze);
+            ReleaseNow();
+            if (wasPinned)
+                RingReleased?.Invoke(new RingReleaseEvent(RingReleaseCause.HidingState, dist));
         }
         _stateAllowsCursor = message.NewState
             is InteractionState.FreeLook or InteractionState.Fixation;
@@ -156,6 +251,153 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
         _externalDwellActive = message.Active;
         UpdateVisibility();
     }
+
+    /// <summary>The offer's B and hit radius (physical px), for the hybrid's freeze and its hold
+    /// exits; the button's show/hide are NOT pin edges in any policy (the pin's lifetime is Core's).</summary>
+    public void Receive(ShowActivationButtonMessage message)
+    {
+        _offerLive = true;
+        _offerCenter = message.ButtonCenter;
+        _offerHitRadiusPx = message.HitRadiusPx;
+    }
+
+    /// <summary>The live offer went: a hold ends with its release (the <c>offer-closed</c> hold end),
+    /// and an approach in flight is cleared and released.</summary>
+    public void Receive(HideActivationButtonMessage message)
+    {
+        _offerLive = false;
+        if (RingHoldPolicy != RingHoldPolicy.HybridFreeze)
+            return;
+
+        if (_holding)
+            EndHold(RingHoldEndReason.OfferClosed, release: true);
+        else if (_approachUntilUs is not null)
+        {
+            _approachUntilUs = null;
+            ReleaseNowWithLog(RingReleaseCause.OfferClosed);
+        }
+    }
+
+    /// <summary>
+    /// The hybrid's per-sample rules, in the ticket's order a–d, applied to the drawn ring before the
+    /// ordinary follow (e in <see cref="Receive(GazeCursorMovedMessage)"/>). Distances are physical
+    /// px; R is the engine's <see cref="DwellSettings.FixationRadiusPixels"/>, as the engine itself
+    /// uses it for the no-move zone.
+    /// </summary>
+    private void AdvanceHybridHold(GazeCursorMovedMessage message)
+    {
+        var gaze = message.Position;
+        long ts = message.Frame.TimestampMicroseconds;
+        _lastFrameUs = ts;
+        double noMoveZonePx = _offerHitRadiusPx + _settings.Dwell.FixationRadiusPixels;
+
+        if (_pendingRunEndRelease)
+        {
+            // a. The deferred run-end release: the landing gaze decides. Into the hit area it keeps
+            // the pin as the hold's beginning; into the no-move zone it waits out the approach
+            // window; anywhere else (no offer, or nothing pinned) the release happens.
+            _pendingRunEndRelease = false;
+            if (_offerLive && IsPinned && gaze.DistanceTo(_offerCenter) <= _offerHitRadiusPx)
+                StartHold(ts, RingHoldStartKind.Keep, inPlace: false);
+            else if (_offerLive && IsPinned && gaze.DistanceTo(_offerCenter) <= noMoveZonePx)
+                _approachUntilUs = ts + (HybridFreezeApproachMs * 1000L);
+            else
+                ReleaseNowWithLog(RingReleaseCause.RunEnd);
+        }
+        else if (_approachUntilUs is { } until && _offerLive)
+        {
+            // b. The approach window: entering the hit area starts the hold with the ring still where
+            // it was pinned; leaving the zone, or running out of window, releases (a snap).
+            double d = gaze.DistanceTo(_offerCenter);
+            if (d <= _offerHitRadiusPx)
+                StartHold(ts, RingHoldStartKind.Approach, inPlace: false);
+            else if (d > noMoveZonePx || ts >= until)
+            {
+                _approachUntilUs = null;
+                ReleaseNowWithLog(RingReleaseCause.RunEnd);
+            }
+        }
+
+        if (_offerLive && IsVisible)
+        {
+            // c. Holding bookkeeping, then the freeze-before-follow for any other entry.
+            double d = gaze.DistanceTo(_offerCenter);
+            if (_holding)
+            {
+                if (d <= _offerHitRadiusPx)
+                {
+                    _outsideSinceUs = null;
+                }
+                else
+                {
+                    _outsideSinceUs ??= ts;
+                    if (_inHitCount < HybridFreezeProvenSamples)
+                        EndHold(RingHoldEndReason.Unproven, release: true);
+                    else if (ts - _outsideSinceUs.Value >= HybridFreezeGraceMs * 1000L)
+                        EndHold(RingHoldEndReason.Left, release: true);
+                }
+            }
+            else if (_approachUntilUs is null && d <= _offerHitRadiusPx)
+            {
+                StartHold(ts, RingHoldStartKind.Freeze, inPlace: true);
+            }
+        }
+
+        // d. The proven counter: a hold starts at 0 and counts its start sample.
+        if (_holding && _offerLive && gaze.DistanceTo(_offerCenter) <= _offerHitRadiusPx)
+            _inHitCount++;
+    }
+
+    private void StartHold(long ts, RingHoldStartKind kind, bool inPlace)
+    {
+        _holding = true;
+        _approachUntilUs = null;
+        _outsideSinceUs = null;
+        _holdStartUs = ts;
+        _inHitCount = 0;
+        if (inPlace)
+        {
+            // The freeze: cancel any glide and stay exactly on the drawn point.
+            _gliding = false;
+            IsPinned = true;
+            Position = _drawn;
+        }
+
+        RingHoldStarted?.Invoke(new RingHoldStartEvent(kind));
+    }
+
+    private void EndHold(RingHoldEndReason reason, bool release)
+    {
+        _holding = false;
+        _outsideSinceUs = null;
+        RingHoldEnded?.Invoke(new RingHoldEndEvent(reason, (_lastFrameUs - _holdStartUs) / 1000.0));
+        if (release)
+            ReleaseNowWithLog(RingReleaseCause.HoldEnd);
+    }
+
+    /// <summary>The release itself: cancel any glide and snap to the latest gaze.</summary>
+    private void ReleaseNow()
+    {
+        _gliding = false;
+        IsPinned = false;
+        Position = _latestGaze;
+    }
+
+    /// <summary>A release the look's log reports, if a pin was actually up, with the drawn-to-gaze
+    /// distance it snapped.</summary>
+    private void ReleaseNowWithLog(RingReleaseCause cause)
+    {
+        bool wasPinned = IsPinned;
+        double dist = _drawn.DistanceTo(_latestGaze);
+        ReleaseNow();
+        if (wasPinned)
+            RingReleased?.Invoke(new RingReleaseEvent(cause, dist));
+    }
+
+    // The drawn point tracks BOTH channels: the freeze must stop where the ring actually is, and
+    // mid-glide that is the last MoveTo frame, not Position.
+    partial void OnPositionChanged(PhysicalPoint value) => _drawn = value;
+    partial void OnMoveToChanged(RingMove value) => _drawn = value.Target;
 
     private void AdvanceGlide(long timestampUs)
     {
@@ -195,5 +437,21 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
             Position = _latestGaze;
 
         IsVisible = nowVisible;
+
+        // A hidden ring cannot hold: the hybrid drops the deferred run-end and the approach, and the
+        // hold ends. A hiding STATE has already snapped the pin above, so the owed release below is a
+        // no-op there; an EXTERNAL DWELL's hide changes no state, so without this release the pin
+        // strands at the old hold point until Core's next release (fixup 01 F2).
+        if (!nowVisible && RingHoldPolicy == RingHoldPolicy.HybridFreeze)
+        {
+            bool releaseOwed = _holding || _approachUntilUs is not null || _pendingRunEndRelease;
+            bool hadHold = _holding;
+            _pendingRunEndRelease = false;
+            _approachUntilUs = null;
+            if (hadHold)
+                EndHold(RingHoldEndReason.Hidden, release: true);
+            else if (releaseOwed)
+                ReleaseNowWithLog(RingReleaseCause.RunEnd);
+        }
     }
 }

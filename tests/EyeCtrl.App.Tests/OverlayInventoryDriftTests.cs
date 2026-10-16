@@ -244,9 +244,10 @@ public class OverlayInventoryDriftTests
     [Fact]
     public void D17NamedSources_AreClassifiedCollisionZone()
     {
-        // The pinned half of the classification: the overlay classes behind the inventory's
-        // named sources must read `collision-zone` in the spec. Reclassifying one as exempt (the
-        // silent-unprotection drift) fails here even though the row and its cell are well-formed.
+        // The pinned half of the classification: the overlay classes pinned in
+        // D17CollisionZoneClasses must read `collision-zone` in the spec. Reclassifying one as
+        // exempt (the silent-unprotection drift) fails here even though the row and its cell are
+        // well-formed.
         var spec = SpecClassifications();
 
         var drifted = D17CollisionZoneClasses
@@ -255,18 +256,21 @@ public class OverlayInventoryDriftTests
             .ToList();
 
         Check.WithCustomMessage(
-                "These overlay classes are D17 collision sources (GazeConsumerInventory.Live) but " +
-                "§3.1 classifies them as something else: " + string.Join(", ", drifted)
-                + ". Either the spec row or the inventory's source list has drifted.")
+                "These overlay classes are pinned as D17 collision sources " +
+                "(D17CollisionZoneClasses) but §3.1 classifies them as something else: "
+                + string.Join(", ", drifted)
+                + ". Either the spec row or the pinned map has drifted.")
             .That(drifted).IsEmpty();
     }
 
     [Fact]
     public void D17CollisionZoneClassification_NamesARealOverlaySource()
     {
-        // The reverse direction: a `collision-zone` row whose class is NOT one of the inventory's
-        // named sources is a claim nothing enforces — either the inventory is missing a source (a
-        // real gap) or the classification lies. Both need a human, so both fail the build.
+        // The reverse direction: a `collision-zone` row whose class is NOT pinned in
+        // D17CollisionZoneClasses is a claim nothing enforces — either the pinned map is
+        // missing an entry (a real gap: the class's source reports rects via Live(), but
+        // nothing classifies them) or the classification lies. Both need a human, so both fail
+        // the build.
         var spec = SpecClassifications();
 
         var unbacked = spec
@@ -276,9 +280,11 @@ public class OverlayInventoryDriftTests
             .ToList();
 
         Check.WithCustomMessage(
-                "§3.1 classifies these overlays as collision-zone, but GazeConsumerInventory.Live " +
-                "does not report them (no named source): " + string.Join(", ", unbacked)
-                + ". Add the source to the inventory or reclassify the row as exempt:<reason>.")
+                "§3.1 classifies these overlays as collision-zone, but they are not pinned in " +
+                "D17CollisionZoneClasses: " + string.Join(", ", unbacked)
+                + ". Add the class to D17CollisionZoneClasses (and make sure its source reports " +
+                "via Live() — covered by GazeConsumerInventoryTests) or reclassify the row as " +
+                "exempt:<reason>.")
             .That(unbacked).IsEmpty();
     }
 

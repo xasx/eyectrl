@@ -9,8 +9,10 @@ public enum PreviewFeed
     /// <summary>Process the sample normally — no preview is influencing the gaze.</summary>
     FeedAll,
 
-    /// <summary>Process the sample but exclude it from adaptation statistics — it is inside the
-    /// preview's area of influence, so counting it as struggle would poison the learner.</summary>
+    /// <summary>Process the sample, but with Reset filtered out of the detector (its
+    /// <c>targetFilter</c> feed): every other target stays live and accumulates normally — the
+    /// leave run keeps the whole strip dwellable — while Reset neither accumulates nor reports
+    /// outcomes for the rest of the engagement.</summary>
     FeedExcluded,
 
     /// <summary>Do not feed the sample at all — the gaze rests on the frozen Reset button or

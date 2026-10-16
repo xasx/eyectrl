@@ -17,12 +17,14 @@ using System.Windows.Threading;
 /// </para>
 ///
 /// <para>
-/// <b>Cancellation is generation-based.</b> <c>DispatcherTimer.Stop()</c> is not enough for the C5
-/// retiming pattern (the silence guard re-arms to the exact millisecond the current run crosses 500
-/// ms, and the eyes-closed timer re-arms on every valid sample): a tick can already be queued when
-/// <see cref="ITimer.Change"/> or <see cref="ITimer.Dispose"/> runs. Each arm gets a token and a
-/// queued tick whose token is stale is dropped silently, so Change and Dispose cancel an
-/// already-queued tick as review 01 requires.
+/// <b>Cancellation is generation-based.</b> The C5 retiming pattern re-arms constantly (the silence
+/// guard re-arms to the exact millisecond the current run crosses 500 ms, and the eyes-closed timer
+/// re-arms on every valid sample), so <see cref="ITimer.Change"/> and <see cref="ITimer.Dispose"/>
+/// often run while a tick is pending. Two layers cover that. <c>DispatcherTimer.Stop()</c> aborts a
+/// tick that is still in the dispatcher queue. A tick whose dispatch has already begun (it was
+/// dequeued before Change or Dispose ran) cannot be aborted, so each arm gets a token, and a tick
+/// with a stale token, or one arriving after Dispose, is dropped silently. Together they guarantee
+/// that Change and Dispose never let a stale tick reach the callback, as review 01 requires.
 /// </para>
 ///
 /// <para>

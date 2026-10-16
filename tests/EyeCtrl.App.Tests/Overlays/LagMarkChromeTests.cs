@@ -142,6 +142,34 @@ public class LagMarkChromeTests
     }
 
     /// <summary>
+    /// A HIDDEN bar contributes nothing even while its button set is still seeded (the frame between
+    /// the visibility flip and the teardown): the visibility gate decides, not the button set.
+    /// Mutation: dropping <c>if (!vm.IsVisible) return null;</c> is RED.
+    /// </summary>
+    [Fact]
+    public void AHiddenBar_WithSeededButtons_StillContributesNothing()
+    {
+        WithDpi(2.0, () =>
+        {
+            var vm = new EdgeButtonBarViewModel(new EyeCtrlSettings(), new WeakReferenceMessenger());
+            vm.ShowButtons(
+                KeyboardEdgeButtons.Definitions(450),
+                ScreenGeometry.KeyboardEdgeBarAnchor(
+                    keyboardAtTop: false,
+                    logicalRadius: UIConstants.ButtonRadius,
+                    logicalWindowMargin: ScreenGeometry.EdgeButtonWindowMarginLogical,
+                    logicalScreenWidth: 1920,
+                    logicalWorkAreaTop: 0,
+                    logicalWorkAreaHeight: 1152));
+            Check.WithCustomMessage("the seeded bar must compute bounds while visible")
+                .That(LagMarkChrome.EdgeBarBounds(vm)).IsNotNull();
+
+            vm.IsVisible = false;   // hidden, but the seeded buttons are still in place
+            Check.That(LagMarkChrome.EdgeBarBounds(vm)).IsNull();
+        });
+    }
+
+    /// <summary>
     /// Review 02, R2: <see cref="LagMarkChrome.EdgeBarBounds"/> re-derives the edge bar window's own
     /// bounding-box arithmetic (<c>SyncButtons</c>), so it is pinned against the REAL window's
     /// laid-out Left/Top/Width/Height — not against a literal. The window is built and laid out by

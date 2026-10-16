@@ -114,8 +114,7 @@ public class ActivationOfferCoordinatorTests
         // publish and the second settle stays refused, red.
         var s = Build();
         using var _ = s.Context.GazeEngine;
-        s.InteractionManager.SetActivationSummonBand(
-            ActivationSummonBand.FromDockedEdge("Top", new PhysicalRect(1070, 0, 1700, 280)));
+        s.InteractionManager.SetActivationSummonBand(ActivationSummonBand.FromDockedEdge("Top"));
 
         s.InteractionManager.OnFixationStarted(new PhysicalPoint(1900, -40));
         s.InteractionManager.OnFixationSettled(new PhysicalPoint(1900, -40));

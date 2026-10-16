@@ -218,13 +218,11 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
     public void PositionIndicator(string edge) => _visibility?.PositionIndicator(edge);
 
     /// <summary>
-    /// The auto-hide controller's cached docked edge and rect — the summon geometry of the toolbar.
-    /// Read by the activation offer's summon band (corner fix 2026-10-17): a gaze past that edge
-    /// over that span is summoning the toolbar and must never be clamped into an offer. Null before
-    /// auto-hide setup (nothing to summon yet).
+    /// The auto-hide controller's docked edge — the whole off-screen strip past it is the toolbar's
+    /// summon region (corner fix 2026-10-17, fixup 01: the gate has no span test). Read by the
+    /// activation offer's summon band. Null before auto-hide setup (nothing to summon yet).
     /// </summary>
-    internal (string Edge, PhysicalRect Rect)? AutoHideSummonSpan =>
-        _autoHide is { } autoHide ? (autoHide.Edge, autoHide.AutoHideRect) : null;
+    internal string? AutoHideEdge => _autoHide?.Edge;
 
     /// <summary>Public no-arg seam: re-captures the toolbar rect at Loaded priority. The
     /// <see cref="System.Windows.Threading.DispatcherPriority.Loaded"/> deferral and the

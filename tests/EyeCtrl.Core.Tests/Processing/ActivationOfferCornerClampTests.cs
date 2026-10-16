@@ -149,33 +149,29 @@ public class ActivationOfferCornerClampTests
     }
 
     [Fact]
-    public void TheToolbarSummonBand_IsNeverClamped_WhileOtherTopEdgeSettlesAre()
+    public void TheWholeDockedEdge_IsNeverClamped_WhileOtherEdgesStillClamp()
     {
-        // The exclusion: a P above the TOP edge whose x is inside the docked toolbar's span is a
-        // toolbar summon, not a corner settle — clamping it would flash an offer before the toolbar
-        // slides in. The band applies only on the docked edge. Mutant: ignore the band (clamp it)
-        // → an offer appears at (1900, 0), red.
+        // R-F1 (fixup 01): the auto-hide controller's summon gate fires at ANY x past the docked
+        // edge (IsPastDockedEdge has no x-range test), so the band is the WHOLE edge — an
+        // above-the-top settle is refused inside the toolbar's span AND outside it. Settles past
+        // the other edges still clamp. Mutant: a span-limited Top arm → the (3600,-40) leg reds.
         using var h = new Harness();
-        h.Im.SetActivationSummonBand(
-            ActivationSummonBand.FromDockedEdge("Top", new PhysicalRect(1070, 0, 1700, 280)));
-        Check.WithCustomMessage("the band's span must match the toolbar rect")
-            .That(ActivationSummonBand.FromDockedEdge("Top", new PhysicalRect(1070, 0, 1700, 280)))
-            .IsEqualTo(new ActivationSummonBand(ActivationSummonEdge.Top, 1070, 2770));
+        h.Im.SetActivationSummonBand(ActivationSummonBand.FromDockedEdge("Top"));
 
-        h.Feed(new PhysicalPoint(1900, -40), samples: 20);        // inside the span: a summon
+        h.Feed(new PhysicalPoint(1900, -40), samples: 20);        // in the toolbar's span: a summon
 
         Check.WithCustomMessage("the summon gaze made an offer").That(h.Im.ActivationOffers?.CurrentOffer).IsNull();
         Check.WithCustomMessage("the ring must still pin at the raw summon P")
             .That(h.PinPoints).ContainsExactly(new PhysicalPoint(1900, -40));
 
         h.FeedAway(samples: 20);                                  // end the run; the linger dies
-        h.Feed(new PhysicalPoint(3600, -40), samples: 20);        // above the top edge, outside the span
+        h.Feed(new PhysicalPoint(3600, -40), samples: 20);        // outside the span, still the edge
 
-        Check.WithCustomMessage("an above-the-edge settle outside the band must clamp and offer")
-            .That(h.Im.ActivationOffers?.CurrentOffer?.Point).IsEqualTo(new PhysicalPoint(3600, 0));
+        Check.WithCustomMessage("an above-the-top settle outside the toolbar's span must also be refused")
+            .That(h.Im.ActivationOffers?.CurrentOffer).IsNull();
 
         h.FeedAway(samples: 20);
-        h.Feed(new PhysicalPoint(1900, 2440), samples: 20);       // BELOW the bottom edge, same x span
+        h.Feed(new PhysicalPoint(1900, 2440), samples: 20);       // BELOW the bottom edge, same x
 
         Check.WithCustomMessage("the Top band must not apply to the bottom edge")
             .That(h.Im.ActivationOffers?.CurrentOffer?.Point).IsEqualTo(new PhysicalPoint(1900, 2399));
@@ -184,21 +180,25 @@ public class ActivationOfferCornerClampTests
     [Fact]
     public void TheSummonBand_AppliesOnWhateverEdgeIsDocked()
     {
-        // "If the toolbar's edge is not Top, apply the band on that edge": a Left-docked toolbar's
-        // band is the left of the screen over its y-span.
+        // "If the toolbar's edge is not Top, apply the band on that edge" — and the whole edge:
+        // a Left-docked toolbar refuses left-of-screen settles at any y, while the other edges
+        // still clamp.
         using var h = new Harness();
-        h.Im.SetActivationSummonBand(
-            ActivationSummonBand.FromDockedEdge("Left", new PhysicalRect(0, 900, 280, 700)));
+        h.Im.SetActivationSummonBand(ActivationSummonBand.FromDockedEdge("Left"));
 
-        h.Feed(new PhysicalPoint(-40, 1100), samples: 20);        // left of the screen, in the y-span
+        h.Feed(new PhysicalPoint(-40, 1100), samples: 20);        // left of the screen
         Check.That(h.Im.ActivationOffers?.CurrentOffer).IsNull();
 
         h.FeedAway(samples: 20);
-        h.Feed(new PhysicalPoint(-40, 2100), samples: 20);        // left of the screen, outside the span
-        Check.That(h.Im.ActivationOffers?.CurrentOffer?.Point).IsEqualTo(new PhysicalPoint(0, 2100));
+        h.Feed(new PhysicalPoint(-40, 2100), samples: 20);        // the whole edge, any y
+        Check.That(h.Im.ActivationOffers?.CurrentOffer).IsNull();
+
+        h.FeedAway(samples: 20);
+        h.Feed(new PhysicalPoint(3880, 2100), samples: 20);       // past the RIGHT edge: still clamps
+        Check.That(h.Im.ActivationOffers?.CurrentOffer?.Point).IsEqualTo(new PhysicalPoint(3839, 2100));
 
         Check.WithCustomMessage("an unknown edge must yield no band (never the exception)")
-            .That(ActivationSummonBand.FromDockedEdge("Diagonal", new PhysicalRect(0, 900, 280, 700))).IsNull();
+            .That(ActivationSummonBand.FromDockedEdge("Diagonal")).IsNull();
     }
 
     [Fact]
@@ -263,7 +263,9 @@ public class ActivationOfferCornerClampTests
         // their corner pixel, which is the fix's effect in an ordinary (lag-free) session.
         //
         // The table's "6 × TR, shown" group is represented by its two recorded points; the
-        // (3479,170) row is excluded (a ManualSelection pin, never an offer settle).
+        // (3479,170) row is excluded (a ManualSelection pin, never an offer settle). The
+        // (3861,-48) summon row: the band is the whole top edge (fixup 01), so that gaze — a
+        // toolbar summon from the top-right corner — is refused, never clamped.
         var toolbar = new PhysicalRect(1070, 0, 1700, 280);
         var lag = new PhysicalRect(3280, 1872, 512, 384);
         PhysicalPoint P(double x, double y) => new(x, y);
@@ -288,10 +290,11 @@ public class ActivationOfferCornerClampTests
             (P(3787, 2169), [toolbar, lag], null, ActivationOfferRefusalReason.InChrome),
             (P(3653, 2260), [toolbar, lag], null, ActivationOfferRefusalReason.NoSidePlaceable),
             (P(3786, 2287), [toolbar, lag], null, ActivationOfferRefusalReason.NoSidePlaceable),
-            // TR: shown as before (on-screen), and the summon gaze now clamps instead of refusing.
+            // TR: shown as before (on-screen); the summon gaze above the top edge is REFUSED — the
+            // band is the whole edge (fixup 01 R-F1), since the summon gate fires at any x.
             (P(3680, 52), [toolbar, lag], P(3680, 52), null),
             (P(3737, 348), [toolbar, lag], P(3737, 348), null),
-            (P(3861, -48), [toolbar, lag], P(3839, 0), null),
+            (P(3861, -48), [toolbar, lag], null, ActivationOfferRefusalReason.OffScreen),
             // The same six BR off-screen rows with no lag button: the clamp's effect, in an
             // ordinary session.
             (P(4017, 2380), [toolbar], P(3839, 2380), null),
@@ -306,6 +309,8 @@ public class ActivationOfferCornerClampTests
         {
             using var h = new Harness();
             h.Im.SetActivationChromeZones(zones);
+            // Production pushes the band with the zones; tonight the toolbar was docked Top.
+            h.Im.SetActivationSummonBand(ActivationSummonBand.FromDockedEdge("Top"));
             var refusals = new List<ActivationOfferRefusal>();
             h.Im.ActivationOfferRefused += r => refusals.Add(r);
 

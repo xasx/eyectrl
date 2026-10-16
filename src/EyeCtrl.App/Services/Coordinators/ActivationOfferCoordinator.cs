@@ -227,11 +227,12 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
                     $"[{z.X:F0},{z.Y:F0} {z.Width:F0}×{z.Height:F0}]"))));
             Context.InteractionManager.SetActivationChromeZones(zones.ToArray());
 
-            // Corner fix (2026-10-17): the docked toolbar's summon span is the one off-screen strip a
-            // settle is still refused in — clamping a summon gaze would flash an offer before the
+            // Corner fix (2026-10-17): the docked toolbar's summon edge is the one off-screen strip a
+            // settle is still refused in — the WHOLE edge (fixup 01 R-F1: the summon gate fires at
+            // any coordinate past it), so clamping a summon gaze would flash an offer before the
             // toolbar slides in. Pushed with the zones, as plain data; a floating toolbar has no band.
-            var summonBand = Context.Settings.Toolbar.IsDocked && _toolbar.AutoHideSummonSpan is { } span
-                ? ActivationSummonBand.FromDockedEdge(span.Edge, span.Rect)
+            var summonBand = Context.Settings.Toolbar.IsDocked && _toolbar.AutoHideEdge is { } summonEdge
+                ? ActivationSummonBand.FromDockedEdge(summonEdge)
                 : null;
             Context.InteractionManager.SetActivationSummonBand(summonBand);
         });

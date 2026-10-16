@@ -132,6 +132,10 @@ public class InteractionManager
     /// <summary>Raised when an offer expired unused: the button-dwell telemetry source for offers the
     /// user looked at but never completed. Carries the dwell fraction reached.</summary>
     public event Action<ActivationOffer, long, double>? ActivationOfferExpired;
+    /// <summary>Re-raised from the attached engine (corner fix 2026-10-17, F3): an accepted settle
+    /// got no offer, once per change of refusal reason. The App's adapter logs it as the
+    /// "Offer refused at P=…: reason" diagnosis line.</summary>
+    public event Action<ActivationOfferRefusal>? ActivationOfferRefused;
 
     /// <summary>Raised to show the action menu at a given point.</summary>
     public event Action<PhysicalPoint>? ShowActionMenu;
@@ -243,6 +247,7 @@ public class InteractionManager
         {
             previous.OfferFired -= OnActivationOfferFired;
             previous.OfferExpired -= OnActivationOfferExpired;
+            previous.OfferRefused -= OnActivationOfferRefused;
         }
         _activationOffers = engine;
         engine.SetChromeZones(_activationChromeZones);
@@ -250,6 +255,7 @@ public class InteractionManager
         engine.SetOffersSuspended(_activationOffersSuspended);
         engine.OfferFired += OnActivationOfferFired;
         engine.OfferExpired += OnActivationOfferExpired;
+        engine.OfferRefused += OnActivationOfferRefused;
         PublishActivationOfferState();
     }
 
@@ -401,6 +407,9 @@ public class InteractionManager
 
     private void OnActivationOfferExpired(ActivationOffer offer, long timestampUs, double progressAtExpiry)
         => ActivationOfferExpired?.Invoke(offer, timestampUs, progressAtExpiry);
+
+    private void OnActivationOfferRefused(ActivationOfferRefusal refusal)
+        => ActivationOfferRefused?.Invoke(refusal);
 
     // The one publisher of the button's lifetime, called after every engine mutation. An id change is
     // a close followed by a show when a replacement took the old offer's place, so the window never

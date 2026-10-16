@@ -272,6 +272,35 @@ public class GazeEngineAdapterOfferTests
             .That(logger.Lines.Any(l => l.Contains("Offer declined #") && l.Contains("(declined)"))).IsTrue();
     }
 
+    [StaFact]
+    public void Refusals_LogTheDiagnosisLine_WithTheRawPAndTheReasonWord()
+    {
+        // F3 (corner fix, 2026-10-17): the adapter renders the engine's refusal event as the line
+        // the next corner report is diagnosed from. Mutants: drop the subscription → no line;
+        // change a reason word → the line's tail is wrong.
+        var settings = new EyeCtrlSettings();
+        settings.Cursor.FilterMode = GazeFilterMode.Direct;
+        settings.Dwell.FixationRadiusPixels = 90;
+        var provider = new TestFakes.FakeGazeProvider();
+        using var engine = new GazeEngine(provider, new TestFakes.FakeInputSimulator(), settings);
+        engine.ConfigureActivationOffers(Screen, scale: 2.0);
+
+        var logger = new RecordingLogger<GazeEngineAdapter>();
+        using var adapter = new GazeEngineAdapter(
+            engine, settings, new WeakReferenceMessenger(), Dispatcher.CurrentDispatcher,
+            logger, new StubControlFinder());
+
+        // The first sample applies the geometry rebuild and attaches the engine.
+        provider.Raise(new GazePoint(P.X, P.Y, 33_000, true));
+
+        var im = engine.InteractionManager;
+        im.OnFixationStarted(new PhysicalPoint(4060, 1200));   // T+20 past the right edge
+        im.OnFixationSettled(new PhysicalPoint(4060, 1200));
+
+        Check.WithCustomMessage("logged: " + string.Join(" | ", logger.Lines))
+            .That(logger.Lines).Contains("Offer refused at P=(4060,1200): off-screen");
+    }
+
     private sealed class StubControlFinder : IControlFinder
     {
         public ControlInfo? FindTarget(PhysicalPoint point) => null;

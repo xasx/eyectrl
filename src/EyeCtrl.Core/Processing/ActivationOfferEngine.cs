@@ -52,6 +52,27 @@ public enum SettleOutcome
     Locked,
 }
 
+/// <summary>Why no offer was made for an accepted settle (corner fix 2026-10-17, F3).</summary>
+public enum ActivationOfferRefusalReason
+{
+    /// <summary>P is outside the screen beyond <see cref="ActivationOfferEngine.CornerClampTolerancePx"/>
+    /// (or in the docked toolbar's summon band, which is never clamped).</summary>
+    OffScreen,
+
+    /// <summary>P — or its clamped P′ — lies inside a chrome zone.</summary>
+    InChrome,
+
+    /// <summary>Neither side of the ring could hold the button: both intersect chrome, or the
+    /// surviving one was clamped onto P (the drop guard).</summary>
+    NoSidePlaceable,
+
+    /// <summary>EyeCtrl's own modal surfaces are up: nothing is offered at all.</summary>
+    Suspended,
+}
+
+/// <summary>One refused settle: the RAW settle point and why no offer followed.</summary>
+public readonly record struct ActivationOfferRefusal(PhysicalPoint Point, ActivationOfferRefusalReason Reason);
+
 /// <summary>Which screen edge a docked toolbar summons from.</summary>
 public enum ActivationSummonEdge
 {
@@ -186,6 +207,10 @@ public sealed class ActivationOfferEngine
     // The docked toolbar's summon band, or null (floating toolbar, no toolbar): the one off-screen
     // strip a settle is still refused in (corner fix F1).
     private ActivationSummonBand? _summonBand;
+
+    // The last refusal reason raised, or null since the last offer was made: one OfferRefused per
+    // change of reason, never per settle (corner fix F3).
+    private ActivationOfferRefusalReason? _lastRefusalReason;
 
     private long _nextOfferId = 1;
     private ActivationOffer? _offer;
@@ -365,6 +390,16 @@ public sealed class ActivationOfferEngine
     /// 0, since the reset budget is shorter than the linger). This is the "offers that expired
     /// unused" half of ticket 8's button-dwell telemetry. Handlers run on the caller's thread.</summary>
     public event Action<ActivationOffer, long, double>? OfferExpired;
+
+    /// <summary>
+    /// Raised when an accepted settle got no offer, once per CHANGE of
+    /// <see cref="ActivationOfferRefusalReason"/> — an offer made in between resets the latch, so
+    /// the next refusal of any reason raises again. Never per settle and never per sample: the
+    /// App's adapter logs it as the corner investigation's "Offer refused at P=…: reason" line.
+    /// Carries the RAW settle point. Handlers run on the caller's thread (the gaze thread once
+    /// wired).
+    /// </summary>
+    public event Action<ActivationOfferRefusal>? OfferRefused;
 
     /// <summary>
     /// The EyeCtrl chrome zones, in physical pixels: the offer is never made over them, and a button
@@ -620,7 +655,7 @@ public sealed class ActivationOfferEngine
         // corner clamp's tolerance — a far off-screen P must not get a completion that lands (click
         // or zoom) off-screen (review B F4).
         if (OffersSuspended)
-            return false;
+            return Refuse(point, ActivationOfferRefusalReason.Suspended);
 
         // The corner fix (2026-10-17): a settle up to T px past an edge is clamped ON-screen, and
         // the clamped P′ becomes the offer's Point — placement, the no-move zone and the completion
@@ -631,18 +666,18 @@ public sealed class ActivationOfferEngine
         if (!_screenBoundsPx.Contains(point.X, point.Y))
         {
             if (!IsWithinClampTolerance(point) || IsInSummonBand(point))
-                return false;
+                return Refuse(point, ActivationOfferRefusalReason.OffScreen);
             target = ClampToScreen(point);
         }
 
         if (InChrome(target))
-            return false;
+            return Refuse(point, ActivationOfferRefusalReason.InChrome);
 
         var placement = ActivationButtonPlacement.Place(
             target, _ringSizeDip, LayoutConstants.ActivationButtonOffset, _scale, _hitRadiusPx,
             _fixationRadiusPx, _screenBoundsPx, _chromeZones);
         if (!placement.Placed)
-            return false;
+            return Refuse(point, ActivationOfferRefusalReason.NoSidePlaceable);
 
         _offer = new ActivationOffer(
             _nextOfferId++, target, placement.ButtonCenter, _hitRadiusPx,
@@ -652,7 +687,21 @@ public sealed class ActivationOfferEngine
         _peakDwellUs = 0;
         _missSinceUs = null;
         _runRole = RunRole.Offered;
+        _lastRefusalReason = null;   // an offer was made: the next refusal raises again (F3)
         return true;
+    }
+
+    /// <summary>Records a refusal and answers false, raising <see cref="OfferRefused"/> only when
+    /// the reason changed since the last one. <paramref name="point"/> is always the RAW settle
+    /// point — the diagnosis names where the eye was.</summary>
+    private bool Refuse(PhysicalPoint point, ActivationOfferRefusalReason reason)
+    {
+        if (_lastRefusalReason != reason)
+        {
+            _lastRefusalReason = reason;
+            OfferRefused?.Invoke(new ActivationOfferRefusal(point, reason));
+        }
+        return false;
     }
 
     // The offer is gone: either the deadline passed or the caller declined. The pending re-offer takes

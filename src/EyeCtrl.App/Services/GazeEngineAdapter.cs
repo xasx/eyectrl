@@ -55,6 +55,7 @@ public class GazeEngineAdapter : IDisposable
         _interactionManager.ActivationOfferShown += OnActivationOfferShown;
         _interactionManager.ActivationOfferClosed += OnActivationOfferClosed;
         _interactionManager.ActivationOfferFired += OnActivationOfferFired;
+        _interactionManager.ActivationOfferRefused += OnActivationOfferRefused;
         _interactionManager.PinRing += OnPinRing;
         _interactionManager.ReleaseRing += OnReleaseRing;
         _interactionManager.ShowActionMenu += OnShowActionMenu;
@@ -291,6 +292,23 @@ public class GazeEngineAdapter : IDisposable
         _dispatcher.BeginInvoke(() => _messenger.Send(new ActivationOfferFiredMessage(offer)));
     }
 
+    // Corner fix (2026-10-17, F3): the engine raises at most one refusal per change of reason (never
+    // per sample), and this renders it as the line the next corner report is diagnosed from. The
+    // reason words are the investigation's vocabulary; the point is the RAW settle P.
+    private void OnActivationOfferRefused(ActivationOfferRefusal refusal)
+        => _logger.LogInformation(
+            "Offer refused at P=({Px:F0},{Py:F0}): {Reason}",
+            refusal.Point.X, refusal.Point.Y, RefusalReasonWord(refusal.Reason));
+
+    /// <summary>The refusal reason's log word. Internal for the adapter's tests.</summary>
+    internal static string RefusalReasonWord(ActivationOfferRefusalReason reason) => reason switch
+    {
+        ActivationOfferRefusalReason.OffScreen => "off-screen",
+        ActivationOfferRefusalReason.InChrome => "in chrome",
+        ActivationOfferRefusalReason.NoSidePlaceable => "no side placeable",
+        _ => "suspended",
+    };
+
     // The ring's own lifetime (ticket 7): a pin on the accepted settle, a release on every exit from
     // Fixation. Deliberately separate from the button's show/hide, which now start and end on their own
     // schedule — the ring must follow gaze again the moment the fixation ends, button or not (B1).
@@ -434,6 +452,7 @@ public class GazeEngineAdapter : IDisposable
         _interactionManager.ActivationOfferShown -= OnActivationOfferShown;
         _interactionManager.ActivationOfferClosed -= OnActivationOfferClosed;
         _interactionManager.ActivationOfferFired -= OnActivationOfferFired;
+        _interactionManager.ActivationOfferRefused -= OnActivationOfferRefused;
         _interactionManager.PinRing -= OnPinRing;
         _interactionManager.ReleaseRing -= OnReleaseRing;
         _interactionManager.ShowActionMenu -= OnShowActionMenu;

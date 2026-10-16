@@ -200,4 +200,54 @@ public class ActivationOfferCornerClampTests
         Check.WithCustomMessage("an unknown edge must yield no band (never the exception)")
             .That(ActivationSummonBand.FromDockedEdge("Diagonal", new PhysicalRect(0, 900, 280, 700))).IsNull();
     }
+
+    [Fact]
+    public void Refusals_RaiseOncePerReasonChange_WithTheRawP()
+    {
+        // F3: one line per CHANGE of refusal reason, never per settle or per sample. This collector
+        // is the fake sink the App's adapter renders; an offer made in between resets the latch.
+        // Mutants: raise on every refusal → the second same-reason refusal adds a line; never raise
+        // → the first line is missing.
+        using var h = new Harness();
+        var refusals = new List<ActivationOfferRefusal>();
+        h.Im.ActivationOfferRefused += r => refusals.Add(r);
+
+        h.Feed(new PhysicalPoint(Screen.Width + T + 10, 1200), samples: 20);   // far off-screen
+
+        Check.That(refusals).HasSize(1);
+        Check.That(refusals[0].Reason).IsEqualTo(ActivationOfferRefusalReason.OffScreen);
+        Check.That(refusals[0].Point).IsEqualTo(new PhysicalPoint(Screen.Width + T + 10, 1200));
+
+        h.FeedAway(samples: 20);
+        h.Feed(new PhysicalPoint(Screen.Width + T + 10, 1200), samples: 20);   // same reason again
+
+        Check.WithCustomMessage("a repeated same-reason refusal must not raise again")
+            .That(refusals).HasSize(1);
+
+        h.FeedAway(samples: 20);
+        h.Im.SetActivationChromeZones(new PhysicalRect(1500, 1000, 800, 800));
+        h.Feed(new PhysicalPoint(1900, 1400), samples: 20);                    // in chrome
+
+        Check.That(refusals).HasSize(2);
+        Check.That(refusals[1].Reason).IsEqualTo(ActivationOfferRefusalReason.InChrome);
+
+        h.FeedAway(samples: 20);
+        h.Im.SetActivationChromeZones();                                       // no zones
+        h.Feed(new PhysicalPoint(1900, 1400), samples: 20);                    // ...an offer is made
+        Check.That(h.Im.ActivationOffers?.CurrentOffer).IsNotNull();
+
+        h.FeedAway(samples: 20);
+        h.Feed(new PhysicalPoint(Screen.Width + T + 10, 1200), samples: 20);   // same reason, new line
+
+        Check.WithCustomMessage("after an offer was made the next refusal must raise again")
+            .That(refusals).HasSize(3);
+        Check.That(refusals[2].Reason).IsEqualTo(ActivationOfferRefusalReason.OffScreen);
+
+        h.Im.SetActivationOffersSuspended(true);
+        h.FeedAway(samples: 20);
+        h.Feed(new PhysicalPoint(1900, 1400), samples: 20);                    // a modal is up
+
+        Check.That(refusals).HasSize(4);
+        Check.That(refusals[3].Reason).IsEqualTo(ActivationOfferRefusalReason.Suspended);
+    }
 }

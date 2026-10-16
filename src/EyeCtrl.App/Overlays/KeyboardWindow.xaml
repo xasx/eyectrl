@@ -7,7 +7,7 @@
         Topmost="True" ShowInTaskbar="False"
         SizeToContent="WidthAndHeight">
     <Border Background="{StaticResource BrushSurfaceDark}" CornerRadius="{StaticResource StandardCornerRadius}" Padding="8">
-        <DockPanel>
+        <DockPanel x:Name="RootDock">
             <!-- Prediction bar at top (hidden in emoji mode) -->
             <StackPanel x:Name="PredictionBar" Orientation="Horizontal"
                         DockPanel.Dock="Top" Margin="0,0,0,6"/>

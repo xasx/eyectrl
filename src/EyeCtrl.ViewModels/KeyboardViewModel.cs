@@ -13,7 +13,8 @@ using System.Collections.Generic;
 
 public partial class KeyboardViewModel : MessengerViewModelBase,
     IRecipient<ShowKeyboardMessage>,
-    IRecipient<HideKeyboardMessage>
+    IRecipient<HideKeyboardMessage>,
+    IRecipient<NoteEditingChangedMessage>
 {
     private readonly EyeCtrlSettings _settings;
 
@@ -154,6 +155,38 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
 
     public void Receive(ShowKeyboardMessage message) => IsVisible = true;
     public void Receive(HideKeyboardMessage message) => IsVisible = false;
+
+    /// <summary>P1 D6: whether the keyboard's output is targeting a note's editor. Set by the
+    /// note manager's <see cref="NoteEditingChangedMessage"/>; drives the "→ Note" indicator while
+    /// the keyboard is visible. Deliberately NOT reset when the keyboard hides (a hide mid-Edit is
+    /// an edge-bar Close, not the end of editing — the ⌨ control re-summons and the indicator
+    /// returns with it, P1 D8).</summary>
+    [ObservableProperty] private bool _isTargetingNote;
+
+    /// <summary>
+    /// P1 D6: the note editor's hand-over. The one <c>NoteEditingChangedMessage(true)</c> a switch
+    /// between editors sends runs this, so the old app's (or the previous note's) half-typed
+    /// <see cref="CurrentInput"/> cannot decide how much the next prediction deletes — predictions
+    /// are deliberately not seeded from the note in v1.
+    /// </summary>
+    public void ResetInputContext()
+    {
+        CurrentInput = "";
+        _previousWord = null;
+        _recentText = "";
+    }
+
+    public void Receive(NoteEditingChangedMessage message)
+    {
+        if (!message.Editing)
+        {
+            IsTargetingNote = false;
+            return;
+        }
+
+        ResetInputContext();
+        IsTargetingNote = true;
+    }
 
     // Hiding ends the keyboard's interaction context. Every other dwell-owning surface resets its
     // detector state on that transition; the keyboard was the only one that did not, so a stale

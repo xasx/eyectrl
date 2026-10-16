@@ -1031,28 +1031,24 @@
     "src": "7344e4d7"
   },
   "settings.advanced.backdrop_opacity.description": {
-    "text": "Wie dunkel die Abdunklung ist – die Tönung über der Unschärfe oder die Füllung bei „Einfarbig abdunkeln“; gilt ab dem nächsten Öffnen.",
-    "src": "8f0510b6"
+    "text": "Wie dunkel die Abdunklung ist – für beide Arten; gilt ab dem nächsten Öffnen.",
+    "src": "30887c0d"
   },
   "settings.advanced.backdrop_opacity.label": {
     "text": "Deckkraft der Abdunklung",
     "src": "2cab86e8"
   },
   "settings.advanced.backdrop_type.description": {
-    "text": "Das Material der Abdunklung; Acryl und Mica zeichnen weich, „Einfarbig abdunkeln“ tönt nur.",
-    "src": "c99b32a1"
+    "text": "Das Material der Abdunklung; „Milchglas“ macht den Hintergrund unscharf, „Einfarbig abdunkeln“ tönt ihn nur.",
+    "src": "d2e5ca7f"
   },
   "settings.advanced.backdrop_type.label": {
     "text": "Art der Abdunklung",
     "src": "6bf8b952"
   },
-  "settings.advanced.backdrop_type.option.acrylic": {
-    "text": "Acryl",
-    "src": "f0cff9e8"
-  },
-  "settings.advanced.backdrop_type.option.mica": {
-    "text": "Mica",
-    "src": "0b2d8a7b"
+  "settings.advanced.backdrop_type.option.glass": {
+    "text": "Milchglas",
+    "src": "47d22952"
   },
   "settings.advanced.backdrop_type.option.solid_darken": {
     "text": "Einfarbig abdunkeln",

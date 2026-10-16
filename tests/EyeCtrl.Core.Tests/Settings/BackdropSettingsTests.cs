@@ -7,12 +7,20 @@ using Xunit;
 public class BackdropSettingsTests
 {
     [Fact]
-    public void Defaults_AreEnabledAcrylicWithOpacity()
+    public void Defaults_AreEnabledGlassWithOpacity()
     {
         var settings = new BackdropSettings();
         Check.That(settings.Enabled).IsTrue();
-        Check.That(settings.Type).IsEqualTo(BackdropType.Acrylic);
+        Check.That(settings.Type).IsEqualTo(BackdropType.Glass);
         Check.That(settings.Opacity).IsEqualTo(0.3);
+    }
+
+    [Fact]
+    public void TheEnum_OffersExactlyGlassAndSolidDarken()
+    {
+        // The Settings combo derives its codes from the enum (AdvancedPageSource), so the member
+        // set IS the option list: the legacy blur names must not reappear as members.
+        Check.That(Enum.GetNames<BackdropType>()).ContainsExactly("Glass", "SolidDarken");
     }
 
     [Fact]

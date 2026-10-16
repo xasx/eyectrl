@@ -361,14 +361,15 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     // ── Backdrop Type ──
 
     /// <summary>
-    /// Applies the settings' material, all three through the accent API since 2026-10-14: Mica and
-    /// Acrylic are the legacy accent blur (the DWM system backdrops only ever showed their flat
-    /// inactive fallback on this never-activated, tool-window overlay), and Solid darken is the
-    /// transparent gradient. On the BLUR path the accent's tint is fixed (<see cref="GlassTint"/>)
-    /// and the user's opacity drives one pure-black client layer over it (<see cref="AddDimLayer"/>);
-    /// on the Solid-darken path the gradient itself carries the opacity. The rgb(18) solid darken
-    /// remains the fallback when the accent call fails. Exactly one rectangle is drawn on the blur
-    /// path's fallback and on Solid darken's — never both a dim layer and the fallback.
+    /// Applies the settings' material, both through the accent API since 2026-10-14: Glass is the
+    /// legacy accent blur (the DWM system backdrops only ever showed their flat inactive fallback
+    /// on this never-activated, tool-window overlay — which is why the Mica/Acrylic names merged
+    /// into it, 2026-10-16), and Solid darken is the transparent gradient. On the BLUR path the
+    /// accent's tint is fixed (<see cref="GlassTint"/>) and the user's opacity drives one
+    /// pure-black client layer over it (<see cref="AddDimLayer"/>); on the Solid-darken path the
+    /// gradient itself carries the opacity. The rgb(18) solid darken remains the fallback when the
+    /// accent call fails. Exactly one rectangle is drawn on the blur path's fallback and on Solid
+    /// darken's — never both a dim layer and the fallback.
     /// </summary>
     public void ApplyBackdrop(BackdropSettings settings)
     {
@@ -386,7 +387,7 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
 
         var applied = settings.Type switch
         {
-            BackdropType.Mica or BackdropType.Acrylic => TryApplyAcrylic(),
+            BackdropType.Glass => TryApplyAcrylic(),
             BackdropType.SolidDarken => TryApplyTransparentGradient(settings.Opacity),
             _ => false
         };
@@ -395,7 +396,7 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
         {
             // The blur's dim is the black layer (the measured dim is exactly multiplicative); the
             // Solid-darken gradient already carries the opacity, so it draws nothing.
-            if (settings.Type is BackdropType.Mica or BackdropType.Acrylic)
+            if (settings.Type is BackdropType.Glass)
                 AddDimLayer(settings.Opacity);
             return;
         }
@@ -492,7 +493,7 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
 
     /// <summary>
     /// The legacy (undocumented) acrylic blur — <c>SetWindowCompositionAttribute</c> with
-    /// <c>ACCENT_ENABLE_ACRYLICBLURBEHIND</c> — production's material for both named backdrop types
+    /// <c>ACCENT_ENABLE_ACRYLICBLURBEHIND</c> — production's material for the Glass backdrop
     /// since 2026-10-14, at the fixed <see cref="GlassTint"/>. Known quirk of the API: the accent can
     /// visibly lag while a window is dragged; irrelevant for a static, full-screen overlay.
     /// </summary>
@@ -530,8 +531,8 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
 
     /// <summary>
     /// Switches the accent off (ACCENT_DISABLED, state 0). The window is a singleton: without this,
-    /// a show as Mica or Acrylic left the blur and its tint behind, so a later Solid darken show
-    /// kept the stale blur plus the darken rectangle.
+    /// a show as Glass left the blur and its tint behind, so a later Solid darken show kept the
+    /// stale blur plus the darken rectangle.
     /// </summary>
     private void DisableAccent()
     {

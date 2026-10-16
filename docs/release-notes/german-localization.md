@@ -266,3 +266,10 @@ the checks that now guard what the review found unguarded.
   German off with every test green); the string-key checks now see keys with an underscore or a
   capital, so a key on the wrong surface fails (35 keys in 7 files were invisible); and the
   identical-to-English allowlist reports an entry that waives nothing.
+
+## Backdrop follow-up - one "Glass" option
+
+- **"Mica" and "Acrylic" are one option now, "Glass"** (German: "Milchglas"). The two names had
+  drawn the same live blur since the live-blur fix; an existing settings file with either old name
+  loads as Glass with every other setting intact, and the file itself is rewritten to "glass" on
+  load.

@@ -203,8 +203,8 @@ public class SettingsService
         try
         {
             var json = File.ReadAllText(_filePath);
-            var migratedJson = ClampKeyboardDwellFloor(
-                MigrateCursorFilterUnits(MigrateDragActions(json)));
+            var migratedJson = MigrateBackdropTypeToGlass(ClampKeyboardDwellFloor(
+                MigrateCursorFilterUnits(MigrateDragActions(json))));
             if (!ReferenceEquals(json, migratedJson))
             {
                 // Atomic, like Save: this is a write during startup, and a torn one would leave the
@@ -1033,4 +1033,48 @@ public class SettingsService
 
         return Encoding.UTF8.GetString(stream.ToArray());
     }
+
+    // ── Backdrop type merge (Mica + Acrylic -> Glass, 2026-10-16) ────────────────────────────────
+    //
+    // WHY raw JSON: Mica and Acrylic had drawn the same material since 2026-10-14, so they merged
+    // into one Glass member — and with the old members gone from the enum, an existing file's
+    // "mica"/"acrylic" is an unknown enum string. JsonStringEnumConverter THROWS on that inside
+    // Deserialize, and the #153 repair then answers by resetting the whole backdrop SECTION: the
+    // user's opacity lost over a name the app itself wrote. This owner hand-edits settings.json
+    // (the .bak-* files on record), so the read REWRITES the legacy names, never rejects them:
+    // both map onto Glass — the blur they already drew — the migrated JSON is persisted by Load's
+    // atomic write-back, and new saves write "glass". Matching is case-insensitive because a
+    // hand-editor may spell it "Mica".
+    private const string BackdropSectionName = "backdrop";
+    private const string BackdropTypeKey = "type";
+    private const string GlassBackdropTypeName = "glass";
+    private const string LegacyMicaName = "mica";
+    private const string LegacyAcrylicName = "acrylic";
+
+    private static string MigrateBackdropTypeToGlass(string json)
+    {
+        // Cheap reject: neither legacy name anywhere means nothing to rewrite (the common file).
+        if (!json.Contains($"\"{LegacyMicaName}\"", StringComparison.OrdinalIgnoreCase)
+            && !json.Contains($"\"{LegacyAcrylicName}\"", StringComparison.OrdinalIgnoreCase))
+            return json;
+
+        JsonObject? root;
+        try { root = JsonNode.Parse(json) as JsonObject; }
+        catch (JsonException) { return json; }   // unparseable: leave it to Load's own error path
+
+        if (root?[BackdropSectionName] is not JsonObject backdrop)
+            return json;
+        if (backdrop[BackdropTypeKey] is not JsonValue typeValue
+            || !typeValue.TryGetValue(out string? type)
+            || !IsLegacyBlurName(type))
+            return json;
+
+        backdrop[BackdropTypeKey] = GlassBackdropTypeName;
+        return root.ToJsonString(JsonOptions);
+    }
+
+    private static bool IsLegacyBlurName(string? name) =>
+        name is not null
+        && (name.Equals(LegacyMicaName, StringComparison.OrdinalIgnoreCase)
+            || name.Equals(LegacyAcrylicName, StringComparison.OrdinalIgnoreCase));
 }

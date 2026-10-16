@@ -40,6 +40,23 @@ public class AdvancedPageSourceTests
     }
 
     [Fact]
+    public void BackdropOpacitySlider_WritesBothWidenedEnds_Live()
+    {
+        // The slider spans the widened range from the shared constants; driving it to each end must
+        // reach the setting. A slider widened past the setter guard throws on the UI thread right
+        // here (the mutant: slider widened, guard not), which is exactly what this pins.
+        var settings = new EyeCtrlSettings();
+        var source = new AdvancedPageSource(TestSettingsPageContext.Build(settings));
+        var slider = source.Build().SelectMany(p => p.Rows).OfType<SliderSpec>()
+            .Single(s => s.Id == "av_backdrop_opacity");
+
+        slider.Set(BackdropSettings.OpacityMin);
+        Check.That(settings.Backdrop.Opacity).IsEqualTo(0.0);
+        slider.Set(BackdropSettings.OpacityMax);
+        Check.That(settings.Backdrop.Opacity).IsEqualTo(0.95);
+    }
+
+    [Fact]
     public void Reset_CopiesAllTwelveFromDefaults_LeavesEyeCareAlone()
     {
         var settings = new EyeCtrlSettings();

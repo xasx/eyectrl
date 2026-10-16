@@ -3,6 +3,8 @@ namespace EyeCtrl.App.Tests.Overlays;
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Windows;
+using EyeCtrl.Core.Services;
 
 /// <summary>
 /// The screen-capture plumbing the backdrop live checks share (rounds 1-2, retired 2026-10-14, and
@@ -120,6 +122,34 @@ internal static class BackdropCapture
         var battery = status.BatteryLifePercent <= 100 ? $"battery {status.BatteryLifePercent}%" : "battery ?";
         return $"{transparency}; {saver}, {line}, {battery}";
     }
+
+    /// <summary>
+    /// What the capture actually samples (review of the 19:32 sitting: the preflight read a 97.6 %
+    /// exactly-black patch while the cases, seconds later, read the wallpaper — same patch size).
+    /// Logged with every preflight AND every case baseline so a divergence names its axis: the patch
+    /// rect in physical pixels as <c>Screen</c> reports it, the CALLING THREAD's DPI awareness
+    /// context (0 unaware, 1 system, 2 per-monitor), the app's DPI scale and WPF's screen size.
+    /// </summary>
+    internal static string CaptureMode()
+    {
+        var bounds = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
+        return $"capture: patch {bounds.Width}x{bounds.Height} at ({bounds.Left},{bounds.Top}); "
+            + $"thread DPI awareness {ThreadDpiAwareness()}; DpiHelper scale {DpiHelper.ScaleX}x{DpiHelper.ScaleY}; "
+            + $"WPF screen {SystemParameters.PrimaryScreenWidth}x{SystemParameters.PrimaryScreenHeight} DIP";
+    }
+
+    /// <summary>The calling thread's DPI_AWARENESS (0 unaware, 1 system-aware, 2 per-monitor-aware), or -1 unreadable.</summary>
+    private static int ThreadDpiAwareness()
+    {
+        try { return GetAwarenessFromDpiAwarenessContext(GetThreadDpiAwarenessContext()); }
+        catch { return -1; }
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetThreadDpiAwarenessContext();
+
+    [DllImport("user32.dll")]
+    private static extern int GetAwarenessFromDpiAwarenessContext(IntPtr value);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct SystemPowerStatus

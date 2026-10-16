@@ -109,11 +109,12 @@ public class BackdropTypeMigrationTests
         // legacy name IS a defect, and beside the typo'd opacity no single drop repairs the
         // section: Enabled comes back true and the opacity reverts to its default. With the
         // migration the name is gone before deserialization, so the drop-one retry costs only the
-        // typo'd property — the section reset never happens.
+        // typo'd property — the section reset never happens. (The typo is 0.96: with the widened
+        // 0.0-0.95 range, 0.95 is a legal value and would be no second defect at all.)
         var path = TempFile();
         try
         {
-            File.WriteAllText(path, LegacyFile("mica", opacity: "0.95"));
+            File.WriteAllText(path, LegacyFile("mica", opacity: "0.96"));
             var loaded = new SettingsService(path).Load();
 
             Check.That(loaded.Backdrop.Type).IsEqualTo(BackdropType.Glass);

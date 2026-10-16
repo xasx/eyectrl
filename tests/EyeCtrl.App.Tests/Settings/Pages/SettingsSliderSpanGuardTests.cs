@@ -1,6 +1,7 @@
 namespace EyeCtrl.App.Tests.Settings.Pages;
 
 using EyeCtrl.App.Views.Settings;
+using EyeCtrl.Core.Settings;
 
 /// <summary>
 /// Same contract as Dwell_SliderSpans_StayInsideTheValidatedRanges in
@@ -129,7 +130,12 @@ public class SettingsSliderSpanGuardTests
     {
         var sliders = Sliders(new AdvancedPageSource(TestSettingsPageContext.Build()));
         Check.That(sliders).HasSize(8);
-        SpanInside(sliders, "av_backdrop_opacity", 0.1, 0.9);
+        // The backdrop range was widened to 0.0–0.95 ("no darkening" to "almost black") and the
+        // slider, the guard and Validate share BackdropSettings' constant pair. Pinned EXACTLY, not
+        // merely inside the guard: a slider left at an old literal would be silently narrower than
+        // the range the setting allows (the Core bounds tests pin the constants' own values).
+        Check.That(sliders["av_backdrop_opacity"].Min).IsEqualTo(BackdropSettings.OpacityMin);
+        Check.That(sliders["av_backdrop_opacity"].Max).IsEqualTo(BackdropSettings.OpacityMax);
         SpanInside(sliders, "av_drag_settle", 200, 2000);
         SpanInside(sliders, "av_drag_radius", 10, 200);
         SpanInside(sliders, "av_drag_opacity", 0.1, 1.0);

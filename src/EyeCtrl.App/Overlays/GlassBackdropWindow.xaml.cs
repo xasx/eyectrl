@@ -367,9 +367,13 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     /// into it, 2026-10-16), and Solid darken is the transparent gradient. On the BLUR path the
     /// accent's tint is fixed (<see cref="GlassTint"/>) and the user's opacity drives one
     /// pure-black client layer over it (<see cref="AddDimLayer"/>); on the Solid-darken path the
-    /// gradient itself carries the opacity. The rgb(18) solid darken remains the fallback when the
-    /// accent call fails. Exactly one rectangle is drawn on the blur path's fallback and on Solid
-    /// darken's — never both a dim layer and the fallback.
+    /// gradient itself carries the opacity. At the range's floor (0.0, the owner's "no darkening")
+    /// NOTHING is drawn: Glass shows the pure glass (the dim layer is skipped, not drawn at
+    /// alpha 0), and a refused accent skips the rgb(18) sheet too — with the accent refused the
+    /// non-layered client is opaque black whatever is drawn (round 2 measured the rectangle path
+    /// flat 5/5/5: DWM ignores the client's alpha without an accent), so the alpha-0 sheet changes
+    /// no pixels. One fewer element, same result. At most one rectangle is drawn, on the blur
+    /// path's fallback and on Solid darken's — never both a dim layer and the fallback.
     /// </summary>
     public void ApplyBackdrop(BackdropSettings settings)
     {
@@ -395,14 +399,19 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
         if (applied)
         {
             // The blur's dim is the black layer (the measured dim is exactly multiplicative); the
-            // Solid-darken gradient already carries the opacity, so it draws nothing.
-            if (settings.Type is BackdropType.Glass)
+            // Solid-darken gradient already carries the opacity, so it draws nothing. At the floor
+            // the dim is not drawn at all — 0.0 is "pure glass", not "a fully transparent layer".
+            if (settings.Type is BackdropType.Glass && settings.Opacity > BackdropSettings.OpacityMin)
                 AddDimLayer(settings.Opacity);
             return;
         }
 
-        // The accent call failed: the rgb(18) solid darken keeps the overlay usable, at the user's opacity.
-        ApplySolidDarken(settings.Opacity);
+        // The accent call failed: the rgb(18) solid darken keeps the overlay usable, at the user's
+        // opacity — except at the floor, where there is no darkening to keep (with the accent
+        // refused the client is opaque black whatever is drawn, so the alpha-0 rgb(18) sheet
+        // changes no pixels; skipping it is one fewer element with the same result).
+        if (settings.Opacity > BackdropSettings.OpacityMin)
+            ApplySolidDarken(settings.Opacity);
     }
 
     /// <summary>
@@ -427,7 +436,10 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     /// <summary>
     /// The SOLID-DARKEN gradient's black tint at the user's opacity (RGB black, alpha = the opacity).
     /// The blur path's tint is the fixed <see cref="GlassTint"/> instead; there the slider drives
-    /// <see cref="AddDimLayer"/>'s layer.
+    /// <see cref="AddDimLayer"/>'s layer. At 0.0 the alpha is 0 — a fully transparent gradient on
+    /// the accepted state-2 path, which is the owner-accepted "Solid darken shows nothing" at the
+    /// floor (no floor is imposed; the choice is the setting). At 0.95 it is (byte)(0.95 × 255) =
+    /// 242, leaving about 5 % of the desktop showing.
     /// </summary>
     internal static int AccentGradientColor(double opacity) =>
         (int)(Math.Clamp(opacity, 0.0, 1.0) * 255) << 24;

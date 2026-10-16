@@ -273,3 +273,12 @@ the checks that now guard what the review found unguarded.
   drawn the same live blur since the live-blur fix; an existing settings file with either old name
   loads as Glass with every other setting intact, and the file itself is rewritten to "glass" on
   load.
+
+## Backdrop follow-up - a wider darkness range
+
+- **The backdrop darkness runs from none to almost black (0.0-0.95).** 0.0 is no darkening at all
+  (Glass shows the pure glass; "Solid darken" shows nothing at that setting), and 0.95 is nearly
+  black with about 5 % of the surface still showing through; the setting is shared by both types
+  and applies from the next open. **Downgrade caveat:** a settings file saved at 0.0 or 0.95 is
+  rejected by an older build (it accepts 0.1-0.9), which resets the backdrop section there — only
+  the backdrop values, and only after going back to an older version.

@@ -22,6 +22,9 @@ using Xunit;
 /// <c>GlassTint</c> 0x01000000, and the user's opacity drives ONE pure-black client layer over it
 /// (<c>AddDimLayer</c>) — exactly one rectangle on the blur path, the rgb(18) fallback only when the
 /// accent is refused, and no rectangle at all on Solid darken (its gradient carries the alpha).
+/// At the widened range's floor (0.0) NOTHING is drawn on any path — pure glass, and with the
+/// accent refused the alpha-0 rgb(18) sheet is skipped too (the refused client is opaque black
+/// whatever is drawn, so the sheet changes no pixels).
 ///
 /// <para>
 /// The accent call is injectable (<see cref="GlassBackdropWindow.SetAccentPolicy"/>), so the tests
@@ -115,6 +118,136 @@ public class GlassBackdropMaterialPathTests
             Check.That(rects).HasSize(1);
             Check.WithCustomMessage($"the dim must be pure black at 0.6 (alpha 153), saw {Fill(rects[0])}.")
                 .That(Fill(rects[0])).IsEqualTo(Color.FromArgb(153, 0, 0, 0));
+        }
+        finally
+        {
+            try { window.Close(); } catch { /* never shown; nothing to clean beyond the handle */ }
+        }
+    }
+
+    [StaFact]
+    public void ApplyBackdrop_BlurAt000_DrawsNoLayer_OnTheAcceptedPath()
+    {
+        // The widened floor: 0.0 is "no darkening" — pure glass, NO dim layer (not one at alpha 0:
+        // the owner chose no darkening, and a phantom layer would be the thing gates special-case).
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new GlassBackdropWindow();
+        try
+        {
+            new WindowInteropHelper(window).EnsureHandle();
+            var recorder = new RecordingAccentPolicy { Result = 1 };
+            window.SetAccentPolicy = recorder.Call;
+
+            window.ApplyBackdrop(new BackdropSettings { Type = BackdropType.Glass, Enabled = true, Opacity = 0.0 });
+
+            Check.WithCustomMessage($"expected [disable, blur], saw: {string.Join(" | ", recorder.Calls)}")
+                .That(recorder.Calls).HasSize(2);
+            Check.That(recorder.Calls[1]).IsEqualTo((4, 0x20, 0x01000000));
+            Check.WithCustomMessage("0.0 is pure glass: zero rectangles.")
+                .That(Rectangles(window)).IsEmpty();
+        }
+        finally
+        {
+            try { window.Close(); } catch { /* never shown; nothing to clean beyond the handle */ }
+        }
+    }
+
+    [StaFact]
+    public void ApplyBackdrop_BlurAt000_WhenTheBlurIsRefused_DrawsNothing()
+    {
+        // The floor's refusal decision: the rgb(18) fallback exists so a failed blur still dims the
+        // desktop for legibility — at 0.0 the user asked for no darkening. With the accent refused
+        // the non-layered client is opaque black whatever is drawn (DWM ignores the alpha without
+        // an accent; round 2 measured it flat), so the alpha-0 sheet changes no pixels: skipping it
+        // is one fewer element, same result.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new GlassBackdropWindow();
+        try
+        {
+            new WindowInteropHelper(window).EnsureHandle();
+            var recorder = new RecordingAccentPolicy { Result = 0 };
+            window.SetAccentPolicy = recorder.Call;
+
+            window.ApplyBackdrop(new BackdropSettings { Type = BackdropType.Glass, Enabled = true, Opacity = 0.0 });
+
+            Check.That(recorder.Calls[1].State).IsEqualTo(4);          // the blur was attempted…
+            Check.WithCustomMessage("…and refused: at 0.0 even the fallback is not drawn.")
+                .That(Rectangles(window)).IsEmpty();
+        }
+        finally
+        {
+            try { window.Close(); } catch { /* never shown; nothing to clean beyond the handle */ }
+        }
+    }
+
+    [StaFact]
+    public void ApplyBackdrop_BlurAt095_DimsToTheAlmostBlackAlpha()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new GlassBackdropWindow();
+        try
+        {
+            new WindowInteropHelper(window).EnsureHandle();
+            var recorder = new RecordingAccentPolicy { Result = 1 };
+            window.SetAccentPolicy = recorder.Call;
+
+            window.ApplyBackdrop(new BackdropSettings { Type = BackdropType.Glass, Enabled = true, Opacity = 0.95 });
+
+            Check.That(recorder.Calls[1]).IsEqualTo((4, 0x20, 0x01000000));   // the tint stays fixed
+            var rects = Rectangles(window);
+            Check.That(rects).HasSize(1);
+            Check.WithCustomMessage($"the dim must be (byte)(0.95 x 255) = 242 at 0.95, saw {Fill(rects[0])}.")
+                .That(Fill(rects[0])).IsEqualTo(Color.FromArgb(242, 0, 0, 0));
+        }
+        finally
+        {
+            try { window.Close(); } catch { /* never shown; nothing to clean beyond the handle */ }
+        }
+    }
+
+    [StaFact]
+    public void ApplyBackdrop_WithSolidDarkenAt000_SendsTheFullyTransparentGradient_AndNoRectangle()
+    {
+        // The owner-accepted "Solid darken at 0.0 shows nothing": the accepted state-2 path with a
+        // fully transparent gradient (alpha 0) — not a special case, just the gradient at 0.0.
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new GlassBackdropWindow();
+        try
+        {
+            new WindowInteropHelper(window).EnsureHandle();
+            var recorder = new RecordingAccentPolicy { Result = 1 };
+            window.SetAccentPolicy = recorder.Call;
+
+            window.ApplyBackdrop(new BackdropSettings { Type = BackdropType.SolidDarken, Enabled = true, Opacity = 0.0 });
+
+            Check.WithCustomMessage($"expected [disable, gradient], saw: {string.Join(" | ", recorder.Calls)}")
+                .That(recorder.Calls).HasSize(2);
+            Check.WithCustomMessage("Solid darken at 0.0 is the transparent gradient on state 2.")
+                .That(recorder.Calls[1]).IsEqualTo((2, 0x2, 0x00000000));
+            Check.That(Rectangles(window)).IsEmpty();
+        }
+        finally
+        {
+            try { window.Close(); } catch { /* never shown; nothing to clean beyond the handle */ }
+        }
+    }
+
+    [StaFact]
+    public void ApplyBackdrop_WithSolidDarkenAt095_SendsTheAlmostBlackGradient()
+    {
+        WpfApplicationGate.EnsureApplicationWithTokens();
+        var window = new GlassBackdropWindow();
+        try
+        {
+            new WindowInteropHelper(window).EnsureHandle();
+            var recorder = new RecordingAccentPolicy { Result = 1 };
+            window.SetAccentPolicy = recorder.Call;
+
+            window.ApplyBackdrop(new BackdropSettings { Type = BackdropType.SolidDarken, Enabled = true, Opacity = 0.95 });
+
+            Check.WithCustomMessage("0.95 leaves (byte)(0.95 x 255) = 242, about 5 % of the desktop.")
+                .That(recorder.Calls[1]).IsEqualTo((2, 0x2, unchecked((int)0xF2000000)));
+            Check.That(Rectangles(window)).IsEmpty();
         }
         finally
         {
@@ -267,9 +400,11 @@ public class GlassBackdropMaterialPathTests
     public void AccentGradientColor_IsBlackAtTheUsersOpacity()
     {
         // The SOLID-DARKEN gradient's alpha (the blur's tint is the fixed GlassTint):
-        // 0.3 -> 0x4C; 0.9 -> 0xE5; 1.5 clamps to 0xFF; -1 clamps to 0.
+        // 0.0 -> 0 (the widened floor: fully transparent, "shows nothing"); 0.3 -> 0x4C;
+        // 0.95 -> 0xF2 = (byte)(0.95 x 255); 1.5 clamps to 0xFF; -1 clamps to 0.
+        Check.That(GlassBackdropWindow.AccentGradientColor(0.0)).IsEqualTo(0);
         Check.That(GlassBackdropWindow.AccentGradientColor(0.3)).IsEqualTo(0x4C000000);
-        Check.That(GlassBackdropWindow.AccentGradientColor(0.9)).IsEqualTo(unchecked((int)0xE5000000));
+        Check.That(GlassBackdropWindow.AccentGradientColor(0.95)).IsEqualTo(unchecked((int)0xF2000000));
         Check.That(GlassBackdropWindow.AccentGradientColor(1.5)).IsEqualTo(unchecked((int)0xFF000000));
         Check.That(GlassBackdropWindow.AccentGradientColor(-1)).IsEqualTo(0);
     }

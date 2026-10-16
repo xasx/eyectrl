@@ -36,7 +36,9 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
                     v => { backdrop.Type = Enum.Parse<Core.BackdropType>(v); _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.advanced.backdrop_type.description") },
                 new SliderSpec("av_backdrop_opacity",
-                    StringTable.Current.T("settings.advanced.backdrop_opacity.label"), 0.1, 0.9, 0.05, 2,
+                    StringTable.Current.T("settings.advanced.backdrop_opacity.label"),
+                    Core.Settings.BackdropSettings.OpacityMin, Core.Settings.BackdropSettings.OpacityMax,
+                    0.05, 2,
                     () => backdrop.Opacity, v => { backdrop.Opacity = v; _ctx.ApplyAndSave(); })
                     { Description = StringTable.Current.T("settings.advanced.backdrop_opacity.description") },
                 new SeparatorSpec(),

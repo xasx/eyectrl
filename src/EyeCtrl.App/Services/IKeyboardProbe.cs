@@ -13,9 +13,12 @@ public interface IKeyboardProbe
     bool IsVisible { get; }
 
     /// <summary>
-    /// The keyboard's hit area in physical pixels: the keyboard window's bounds, plus the visible
-    /// edge bar's button union — the Close/Flip pair that sits OUTSIDE the keyboard window
-    /// (KeyboardCoordinator's bar anchor). Empty while the keyboard is hidden.
+    /// The keyboard's hit area in physical pixels: the keyboard window's bounds (when the keyboard
+    /// is visible), plus the visible edge bar's button union — the Close/Flip pair that sits
+    /// OUTSIDE the keyboard window (KeyboardCoordinator's bar anchor). The edge-bar rect appears
+    /// whenever the BAR is visible, even while the keyboard itself is hidden (fixup n2): the
+    /// behaviour is conservative on purpose — the gate would rather over-cover than let a dwell
+    /// slip under a hit area.
     /// </summary>
     IReadOnlyList<PhysicalRect> Rects();
 

@@ -62,20 +62,10 @@ internal sealed class KeyboardProbe : IKeyboardProbe, IDisposable
         // keyboard window still gates note dwell.
         if (_edgeBarVm() is { IsVisible: true } bar
             && GazeConsumerInventory.EdgeButtonBarBounds(
-                bar.SeedCenters, ButtonRadii(bar), DpiHelper.ScaleX) is { } barRect)
+                bar.SeedCenters, GazeConsumerInventory.ButtonRadii(bar), DpiHelper.ScaleX) is { } barRect)
             rects.Add(barRect);
 
         return rects;
-    }
-
-    /// <summary>The same per-button radius list the inventory builds for its own union — shared,
-    /// not copied, so the two readers cannot disagree about a button's size.</summary>
-    private static (string Id, double RadiusLogical)[] ButtonRadii(EdgeButtonBarViewModel vm)
-    {
-        var buttons = new (string Id, double RadiusLogical)[vm.Buttons.Count];
-        for (var i = 0; i < vm.Buttons.Count; i++)
-            buttons[i] = (vm.Buttons[i].Id, vm.Buttons[i].RadiusLogical);
-        return buttons;
     }
 
     private void OnKeyboardVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)

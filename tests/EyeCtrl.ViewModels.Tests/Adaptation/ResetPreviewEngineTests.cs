@@ -725,4 +725,43 @@ public class ResetPreviewEngineTests
         Check.That(h.Engine.IsArmed).IsFalse();
         Check.That(h.ShownCount).IsEqualTo(1);
     }
+
+    // --- M2 (follow-up): in the grown overlap, Reset's own abandon ends an armed pass ---
+
+    [Fact]
+    public void ArmedPass_EndsOnResetsOwnAbandon_UnderGrownOverlap_LateRestRepreviews()
+    {
+        // M2 regression: with gaze resting in the Modes/Reset grown overlap, HitTest(Reset) stays
+        // true while Modes is nearest — no off-button DecideFeed ever arrives — but Reset's
+        // detector still emits progress 0 (its abandon). Without ending the pass on that abandon
+        // the pass outlived it, and a re-dwell more than 3 s after arming fired unfrozen with no
+        // fresh preview — violating D13's "runs to fire or abandon".
+        var h = new Harness();
+        h.Engine.OnTargetProgress(ResetId, 0.40, 100_000);
+        h.Engine.OnBounds(1, PreviewBoundsKind.Rect, PanelRect);      // Task 5: known bounds
+        h.Engine.DecideFeed(false, Away, 100_000);
+        h.Engine.DecideFeed(false, Away, 220_000);                    // armed at 220_000
+        Check.That(h.Engine.IsArmed).IsTrue();
+
+        // The pass starts: the gaze return's first Reset progress > 0 within the window. Every
+        // DecideFeed of the return sees gazeOverReset=true (the overlap), so no off-button
+        // sample can end the pass — only the abandon below can.
+        Check.That(h.Engine.DecideFeed(true, OnReset, 1_000_000)).IsEqualTo(PreviewFeed.FeedAll);
+        Check.That(h.Engine.OnTargetProgress(ResetId, 0.25, 1_050_000)).IsEqualTo(PreviewProgress.Propagate);
+
+        // Reset's own abandon while STILL HitTest-true: Modes took over as nearest and Reset's
+        // detector reset. This event must end the pass; its 0 propagates (mid-pass the arc was
+        // never held, so it falls naturally).
+        Check.That(h.Engine.DecideFeed(true, OnReset, 1_100_000)).IsEqualTo(PreviewFeed.FeedAll);
+        Check.That(h.Engine.OnTargetProgress(ResetId, 0.0, 1_150_000)).IsEqualTo(PreviewProgress.Propagate);
+
+        // A rest more than 3 s after ARMING re-PREVIEWS (fresh engagement id) instead of firing
+        // unfrozen through the zombie pass.
+        var got = h.Engine.OnTargetProgress(ResetId, 0.41, 220_000 + 3_100_000);
+
+        Check.That(got).IsEqualTo(PreviewProgress.HoldAtFreeze);
+        Check.That(h.ShownCount).IsEqualTo(2);
+        Check.That(h.Visibility[^1].Id).IsEqualTo(2);
+        Check.That(h.Engine.IsArmed).IsFalse();
+    }
 }

@@ -162,7 +162,7 @@ public class OverlayVmBindingCoordinatorTests
 
         Check.WithCustomMessage("the show path published no ShowBackdropMessage.")
             .That(published).IsNotNull();
-        Check.That(glassBackdrop.Calls).Contains("Show").And.Contains("DrawHideButton");
+        Check.That(glassBackdrop.Calls).Contains("ShowBackdrop");
 
         var screen = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
         var dipX = DpiHelper.PhysicalToLogicalX(published!.HideButtonCenter.X);

@@ -9,6 +9,7 @@ using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 using EyeCtrl.Controls;
 using EyeCtrl.Core;
 using EyeCtrl.Core.Localization;
@@ -20,22 +21,42 @@ using EyeCtrl.ViewModels;
 public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
 {
     private const int AccentEnableAcrylicBlurBehind = 4;
+    private const int AccentEnableTransparentGradient = 2;
+
+    /// <summary>
+    /// The blur accent's fixed glass tint (alpha 1, RGB black) — r5's approved look. The user's
+    /// opacity is the black dim layer's alpha instead (<see cref="AddDimLayer"/>), because the
+    /// accent's own gradient mixes toward a fixed dark grey (about luma 34), not toward black: it
+    /// brightens dark content and cannot dim it (sweep 2).
+    /// </summary>
+    private const int GlassTint = 0x01000000;
 
     private const int DwmwaSystemBackdropType = 38;
-    private const int DwmwaUseImmersiveDarkMode = 20;
 
-    // DWM_SYSTEMBACKDROP_TYPE (dwmapi.h) — the system material painted behind the window.
-    // 0=Auto, 1=None, 2=MainWindow(Mica), 3=TransientWindow(Acrylic, the only one that blurs),
-    // 4=TabbedWindow(Mica Alt, wallpaper-adaptive but non-blurring).
-    // The previous code used 4 for "Acrylic", which actually selects Mica Alt — so the
-    // backdrop was never a glassy blur even when it did render. Acrylic is 3.
+    /// <summary>DWMWA_TRANSITIONS_FORCEDISABLED: stops DWM's open/close animation for the window.</summary>
+    private const int DwmwaTransitionsForceDisabled = 3;
+
+    /// <summary>DWMWA_CLOAK: DWM skips composing the window entirely while true.</summary>
+    private const int DwmwaCloak = 13;
+
+    // DWM_SYSTEMBACKDROP_TYPE (dwmapi.h). Only NONE is used now: ClearDwmBackdrop's hygiene against
+    // a system backdrop set by an older build. The Mica/Acrylic system backdrops were deleted with
+    // TryApplyMica/TryApplyAcrylicViaDwm (2026-10-14): on this never-activated overlay they only
+    // ever showed their flat inactive fallback.
     private const int DwmsbtNone = 1;
-    private const int DwmsbtMica = 2;
-    private const int DwmsbtAcrylic = 3;
-    private const int Win11Build22H2 = 22621;
 
     private Rectangle? _solidBackground;
+    private Rectangle? _dimLayer;
     private DwellArcButton? _hideButton;
+    private bool _cloaked;
+    private DispatcherTimer? _cloakFallback;
+    private EventHandler? _uncloakOnRendering;
+
+    /// <summary>The settings the canvas is currently prepared for, or null when it holds nothing.</summary>
+    private (BackdropType Type, double Opacity)? _preparedFor;
+
+    /// <summary>The posted-but-not-yet-run hide (<see cref="Hide"/>), cancelled by a show.</summary>
+    private DispatcherOperation? _pendingHide;
 
     public GlassBackdropWindow()
     {
@@ -49,7 +70,20 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     {
         var hwnd = new WindowInteropHelper(this).Handle;
         var source = HwndSource.FromHwnd(hwnd);
+
+        // The material fix (2026-10-14): a non-layered HwndSource's composition target clears to
+        // opaque black, and WPF paints that over whatever DWM puts behind the client — so no
+        // material ever showed, whatever the backdrop type (rounds 1-2 measured pure 0,0,0). The
+        // clear colour must be transparent before any material is applied.
+        if (source?.CompositionTarget is { } target)
+            target.BackgroundColor = Colors.Transparent;
+
         source?.AddHook(WndProc);
+
+        // DWM's open/close transitions animate the window in; the backdrop must appear in ONE
+        // finished frame (the owner's flicker), so they are off for this window's lifetime.
+        if (hwnd != IntPtr.Zero)
+            _ = SetDwmAttribute(hwnd, DwmwaTransitionsForceDisabled, true);
     }
 
     private static IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -75,6 +109,14 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     [DllImport("dwmapi.dll")]
     private static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref Margins pMarInset);
 
+    /// <summary>
+    /// Blocks until DWM has committed and presented the pending composition. Called once after the
+    /// uncloak so the finished frame is on screen before the cloak lifts (a cloak lifted on a
+    /// composition that has not been presented yet shows the desktop for a frame).
+    /// </summary>
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmFlush();
+
     [StructLayout(LayoutKind.Sequential)]
     private struct Margins
     {
@@ -83,20 +125,215 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
 
     // ── Show / Hide ──
 
+    /// <summary>
+    /// Positioning for <see cref="ShowBackdrop"/>, injectable so the headless gates can show the
+    /// window OFF-SCREEN (production: <see cref="OverlayPositioning.CoverPrimaryScreen"/>, which
+    /// <see cref="Show"/> uses too).
+    /// </summary>
+    internal Action<Window> PositionForShow { get; set; } = OverlayPositioning.CoverPrimaryScreen;
+
+    /// <summary>
+    /// The production show path: everything — position, handle, material, dim layer, ✕ — is prepared
+    /// while the window is still HIDDEN, and <see cref="Window.Show"/> runs last, so the FIRST
+    /// visible frame is already the finished backdrop (the owner's flicker: show-then-apply put a
+    /// bare or glass-only frame on screen first). <see cref="OverlayWindow.OnSourceInitialized"/>
+    /// still runs at handle creation, so the never-activate styles and the capture exclusion are in
+    /// place before the window can be seen. DWM's window transitions are disabled too, and the window
+    /// is CLOAKED until WPF has rendered the prepared content — DWM would otherwise compose its own
+    /// first frame of a half-prepared window.
+    ///
+    /// <para>
+    /// <b>The magnifier → ring hand-off.</b> Production calls <see cref="Hide"/> and then this method
+    /// within about a millisecond (two back-to-back dispatcher posts in <c>GazeEngineAdapter</c>).
+    /// <see cref="Hide"/> therefore only COLLAPSES THE HINT and posts the actual hide at
+    /// <see cref="DispatcherPriority.Background"/>: this call, arriving first, cancels that post, so
+    /// the window never leaves the screen — no re-show, no cloak, no re-apply, and no frame of
+    /// desktop or undimmed glass (the owner saw exactly one such frame with the eager hide).
+    /// </para>
+    /// </summary>
+    public void ShowBackdrop(BackdropSettings settings, PhysicalPoint hideButtonCenter)
+    {
+        if (System.Windows.Forms.Screen.PrimaryScreen == null)
+            return;
+        PositionForShow(this);   // the layer below sizes itself to the window
+        EnsureHandle();          // a real hwnd: the accent needs it, and the CT turns transparent
+        CancelPendingHide();     // a show cancels a hide that has not run yet (the hand-off)
+
+        if (IsVisible)
+        {
+            // A show on an already-VISIBLE window must neither re-prepare-and-cloak it (the cloak
+            // would blank a window that is on screen until a frame) nor re-send the accent. Unchanged
+            // settings are a no-op (just a new dwell — the hand-off lands here); changed settings are
+            // re-applied in place — one synchronous prepare, so DWM composes only the final state —
+            // and never re-cloaked.
+            if (_preparedFor is { } current
+                && current.Type == settings.Type
+                && Math.Abs(current.Opacity - settings.Opacity) < 1e-9)
+            {
+                UpdateHideButtonProgress(0);
+                return;
+            }
+
+            ApplyBackdrop(settings);
+            DrawHideButton(hideButtonCenter);
+            _preparedFor = (settings.Type, settings.Opacity);
+            UpdateHideButtonProgress(0);
+            return;
+        }
+
+        ApplyBackdrop(settings);
+        DrawHideButton(hideButtonCenter); // after the dim layer, so the ✕ sits on top
+        _preparedFor = (settings.Type, settings.Opacity);
+
+        // Cloak until WPF has rendered the prepared content.
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        _cloaked = true;
+        _ = SetDwmAttribute(hwnd, DwmwaCloak, true);
+
+        base.Show();
+        UncloakAfterFirstRender();
+    }
+
+    /// <summary>
+    /// Releases the cloak once WPF has rendered at least one frame of the prepared content: the
+    /// static <c>CompositionTarget.Rendering</c> event fires before the UI-thread render commit, so
+    /// the uncloak runs from a <see cref="DispatcherPriority.Background"/> callback (after the
+    /// commit), and one <c>DwmFlush</c> presents the finished frame before the cloak lifts. A 250 ms
+    /// fallback uncloaks anyway, so a window that never renders cannot stay cloaked.
+    /// </summary>
+    private void UncloakAfterFirstRender()
+    {
+        // Normal priority (NOT Send): the dispatcher does not dispatch Send-priority timer ticks, so
+        // a Send fallback would never fire and a window that never rendered would stay cloaked.
+        _cloakFallback?.Stop();
+        _cloakFallback = new DispatcherTimer(DispatcherPriority.Normal) { Interval = TimeSpan.FromMilliseconds(250) };
+        _cloakFallback.Tick += (_, _) => UncloakAndFlush();
+        _cloakFallback.Start();
+
+        RemoveUncloakHandler();
+        _uncloakOnRendering = (_, _) =>
+        {
+            RemoveUncloakHandler();
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(UncloakAndFlush));
+        };
+        CompositionTarget.Rendering += _uncloakOnRendering;
+    }
+
+    /// <summary>
+    /// Presents the finished frame and then lifts the cloak — in that order: the render thread
+    /// presents asynchronously, so uncloaking first can compose the PRE-render surface (the
+    /// glass-only frame the cloak exists to hide). DWM keeps updating a cloaked window's surface,
+    /// so the flush presents the finished frame while the window is still cloaked, and only then
+    /// does the uncloak make it visible.
+    /// </summary>
+    private void UncloakAndFlush()
+    {
+        FlushDwm();
+        Uncloak();
+    }
+
+    private void RemoveUncloakHandler()
+    {
+        if (_uncloakOnRendering is { } handler)
+        {
+            CompositionTarget.Rendering -= handler;
+            _uncloakOnRendering = null;
+        }
+    }
+
+    /// <summary>
+    /// Cancels a pending uncloak (the Rendering subscription and the fallback timer) without
+    /// touching the cloak bit — for <see cref="OnClosed"/>, where the handle is already gone so
+    /// there is nothing left to uncloak, but a stray callback must not fire later.
+    /// </summary>
+    private void CancelPendingUncloak()
+    {
+        RemoveUncloakHandler();
+        _cloakFallback?.Stop();
+        _cloakFallback = null;
+    }
+
+    /// <summary>
+    /// Releases the cloak, if it is still up, cancelling the pending uncloak first. Safe to call
+    /// repeatedly; <see cref="Hide"/> and <see cref="Show"/> call it so a hidden or plainly shown
+    /// window can never stay cloaked.
+    /// </summary>
+    private void Uncloak()
+    {
+        CancelPendingUncloak();
+        if (!_cloaked)
+            return;
+        _cloaked = false;
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (hwnd != IntPtr.Zero)
+            _ = SetDwmAttribute(hwnd, DwmwaCloak, false);
+    }
+
     public new void Show()
     {
         if (System.Windows.Forms.Screen.PrimaryScreen == null)
             return;
+        CancelPendingHide(); // a show cancels a hide that has not run yet
+        Uncloak(); // a cloaked window would show nothing
         OverlayPositioning.CoverPrimaryScreen(this);
         base.Show();
         EnsureHandle();
     }
 
+    /// <summary>
+    /// The escape hint goes at once (it is caregiver-facing signage and must not linger on a window
+    /// that is leaving), but the WINDOW hide is DEFERRED to <see cref="DispatcherPriority.Background"/>.
+    /// Production hides and re-shows within about a millisecond (the magnifier → ring hand-off: two
+    /// back-to-back dispatcher posts in <c>GazeEngineAdapter</c>), and an eager hide put one frame of
+    /// desktop — or of undimmed glass — on screen before the ring's show repainted it (the owner saw
+    /// exactly that frame). <see cref="ShowBackdrop"/> arriving first cancels the posted hide
+    /// (<see cref="CancelPendingHide"/>), so the window never leaves the screen at all. A window that
+    /// was never shown hides directly: there is nothing on screen to protect.
+    /// </summary>
     public new void Hide()
     {
+        HideEscapeHint();
+        if (!IsVisible)
+        {
+            CompleteHide(); // never shown (or already hidden): nothing to defer for
+            return;
+        }
+
+        _pendingHide ??= Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(CompleteHide));
+    }
+
+    /// <summary>The deferred hide: release the cloak, hide, and clear the canvas for the next use.</summary>
+    private void CompleteHide()
+    {
+        _pendingHide = null;
+        Uncloak(); // a hidden window must never stay cloaked
         base.Hide();
         ClearContent();
-        HideEscapeHint();
+    }
+
+    /// <summary>
+    /// Cancels a posted but not yet run hide. Load-bearing in <see cref="ShowBackdrop"/> and
+    /// <see cref="Show"/>: the hand-off's window must not leave the screen. In
+    /// <see cref="OnClosed"/> it is HYGIENE rather than a crash guard — a leaked hide measured
+    /// harmless on a closed window (no dispatcher exception, no cloak write; WPF's Hide-after-Close
+    /// and the handle-less uncloak/accent paths simply do nothing — pinned by the Close gate's
+    /// tripwire) — but nothing should run against a window that is already gone.
+    /// </summary>
+    private void CancelPendingHide()
+    {
+        if (_pendingHide is { } pending)
+        {
+            _pendingHide = null;
+            if (pending.Status == DispatcherOperationStatus.Pending)
+                pending.Abort();
+        }
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        CancelPendingUncloak(); // no stray uncloak may fire on a closed window
+        CancelPendingHide();    // hygiene: measured harmless without it (see CancelPendingHide)
+        base.OnClosed(e);
     }
 
     // ── Escape hint ──
@@ -110,13 +347,29 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     /// never asks for it).</summary>
     public void HideEscapeHint() => EscapeHint.Visibility = Visibility.Collapsed;
 
+    /// <summary>
+    /// Creates the HWND if it does not exist yet. The <c>Handle</c> PROPERTY is a no-op before the
+    /// window is shown (it returns Zero), which left <see cref="ShowBackdrop"/>'s accent call with
+    /// hwnd 0 — refused, silently falling back to the rgb(18) rectangle. The explicit
+    /// <c>EnsureHandle()</c> is the one that creates it.
+    /// </summary>
     private void EnsureHandle()
     {
-        _ = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        _ = new System.Windows.Interop.WindowInteropHelper(this).EnsureHandle();
     }
 
     // ── Backdrop Type ──
 
+    /// <summary>
+    /// Applies the settings' material, all three through the accent API since 2026-10-14: Mica and
+    /// Acrylic are the legacy accent blur (the DWM system backdrops only ever showed their flat
+    /// inactive fallback on this never-activated, tool-window overlay), and Solid darken is the
+    /// transparent gradient. On the BLUR path the accent's tint is fixed (<see cref="GlassTint"/>)
+    /// and the user's opacity drives one pure-black client layer over it (<see cref="AddDimLayer"/>);
+    /// on the Solid-darken path the gradient itself carries the opacity. The rgb(18) solid darken
+    /// remains the fallback when the accent call fails. Exactly one rectangle is drawn on the blur
+    /// path's fallback and on Solid darken's — never both a dim layer and the fallback.
+    /// </summary>
     public void ApplyBackdrop(BackdropSettings settings)
     {
         if (!settings.Enabled)
@@ -127,47 +380,102 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
 
         ClearContent();
 
-        // Phase 1: Native DWM backdrops (Win11 22H2+). Work best.
-        if (settings.Type == BackdropType.Mica && TryApplyMica())
-            return;
-
-        if (settings.Type == BackdropType.Acrylic && TryApplyAcrylicViaDwm())
-            return;
-
-        // Phase 2: Legacy SetWindowCompositionAttribute acrylic (Win10+)
+        // ClearDwmBackdrop: type NONE, frame collapsed — the state production's Phase 2 always ran
+        // from, and hygiene against a system backdrop set by an older build.
         ClearDwmBackdrop();
-        if (settings.Type == BackdropType.Mica || settings.Type == BackdropType.Acrylic)
+
+        var applied = settings.Type switch
         {
-            if (TryApplyAcrylic())
-                return;
+            BackdropType.Mica or BackdropType.Acrylic => TryApplyAcrylic(),
+            BackdropType.SolidDarken => TryApplyTransparentGradient(settings.Opacity),
+            _ => false
+        };
+
+        if (applied)
+        {
+            // The blur's dim is the black layer (the measured dim is exactly multiplicative); the
+            // Solid-darken gradient already carries the opacity, so it draws nothing.
+            if (settings.Type is BackdropType.Mica or BackdropType.Acrylic)
+                AddDimLayer(settings.Opacity);
+            return;
         }
 
-        // Phase 3: Solid darken fallback
+        // The accent call failed: the rgb(18) solid darken keeps the overlay usable, at the user's opacity.
         ApplySolidDarken(settings.Opacity);
     }
 
-    private bool TryApplyAcrylic()
+    /// <summary>
+    /// The blur path's dim: one pure-BLACK (0,0,0) client layer at the user's opacity. Black because
+    /// the measured dim is exactly multiplicative — an offset grey (rgb 18) would tint it — and one
+    /// layer because it sits UNDER the ✕ (<c>DrawHideButton</c> runs after this).
+    /// </summary>
+    private void AddDimLayer(double opacity)
+    {
+        _dimLayer = new Rectangle
+        {
+            Width = Width,
+            Height = Height,
+            Fill = new SolidColorBrush(Color.FromArgb(
+                (byte)(Math.Clamp(opacity, 0.0, 1.0) * 255), 0, 0, 0))
+        };
+        Canvas.SetLeft(_dimLayer, 0);
+        Canvas.SetTop(_dimLayer, 0);
+        BackdropCanvas.Children.Add(_dimLayer);
+    }
+
+    /// <summary>
+    /// The SOLID-DARKEN gradient's black tint at the user's opacity (RGB black, alpha = the opacity).
+    /// The blur path's tint is the fixed <see cref="GlassTint"/> instead; there the slider drives
+    /// <see cref="AddDimLayer"/>'s layer.
+    /// </summary>
+    internal static int AccentGradientColor(double opacity) =>
+        (int)(Math.Clamp(opacity, 0.0, 1.0) * 255) << 24;
+
+    /// <summary>
+    /// The DWM attribute writes (transitions disabled, cloak), injectable so the gates can record
+    /// them. The default is the real dwmapi call.
+    /// </summary>
+    internal Func<IntPtr, int, bool, int> SetDwmAttribute { get; set; } = NativeSetDwmAttribute;
+
+    /// <summary>
+    /// <c>DwmFlush</c>, injectable so a gate can prove the ordering of the flush against the uncloak
+    /// in ONE sequence (the two run back to back, and only their order tells which frame is
+    /// presented first). The default is the real dwmapi call.
+    /// </summary>
+    internal Action FlushDwm { get; set; } = NativeDwmFlush;
+
+    private static void NativeDwmFlush() => _ = DwmFlush();
+
+    private static int NativeSetDwmAttribute(IntPtr hwnd, int attribute, bool value)
+    {
+        int intValue = value ? 1 : 0;
+        return DwmSetWindowAttribute(hwnd, attribute, ref intValue, sizeof(int));
+    }
+
+    /// <summary>
+    /// The native <c>SetWindowCompositionAttribute</c> call behind <see cref="SetAccentPolicy"/>:
+    /// builds the policy and returns the API's BOOL (non-zero = accepted).
+    /// </summary>
+    private static int NativeSetAccentPolicy(IntPtr hwnd, int state, int flags, int gradient)
     {
         var data = default(WindowCompositionAttributeData);
         try
         {
-            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
             var accent = new AccentPolicy
             {
-                AccentState = AccentEnableAcrylicBlurBehind,
-                AccentFlags = 0x20,
-                GradientColor = 0x01000000
+                AccentState = state,
+                AccentFlags = flags,
+                GradientColor = gradient
             };
             data.SizeOfData = Marshal.SizeOf(accent);
             data.Attribute = 19;
             data.Data = Marshal.AllocHGlobal(data.SizeOfData);
             Marshal.StructureToPtr(accent, data.Data, false);
-            var result = SetWindowCompositionAttribute(hwnd, ref data);
-            return result == 0;
+            return SetWindowCompositionAttribute(hwnd, ref data);
         }
         catch
         {
-            return false;
+            return 0;
         }
         finally
         {
@@ -176,48 +484,61 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
         }
     }
 
-    private bool TryApplyMica()
+    /// <summary>
+    /// The accent call itself, injectable so the gate can pin the use-site policy headlessly
+    /// (production keeps <see cref="NativeSetAccentPolicy"/>; the gate records or fails the call).
+    /// </summary>
+    internal Func<IntPtr, int, int, int, int> SetAccentPolicy { get; set; } = NativeSetAccentPolicy;
+
+    /// <summary>
+    /// The legacy (undocumented) acrylic blur — <c>SetWindowCompositionAttribute</c> with
+    /// <c>ACCENT_ENABLE_ACRYLICBLURBEHIND</c> — production's material for both named backdrop types
+    /// since 2026-10-14, at the fixed <see cref="GlassTint"/>. Known quirk of the API: the accent can
+    /// visibly lag while a window is dragged; irrelevant for a static, full-screen overlay.
+    /// </summary>
+    /// <returns>True when the call was accepted (non-zero BOOL), so no darken fallback is needed.</returns>
+    internal bool TryApplyAcrylic()
     {
-        if (Environment.OSVersion.Version.Build < 22000)
-            return false;
-        try
-        {
-            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-            int darkMode = 1;
-            DwmSetWindowAttribute(hwnd, DwmwaUseImmersiveDarkMode, ref darkMode, sizeof(int));
-            int backdropType = DwmsbtMica;
-            int result = DwmSetWindowAttribute(hwnd, DwmwaSystemBackdropType, ref backdropType, sizeof(int));
-            if (result != 0)
-                return false;
-            ExtendFrameIntoClient(true);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        var result = SetAccentPolicy(hwnd, AccentEnableAcrylicBlurBehind, 0x20, GlassTint);
+        return result != 0;
     }
 
-    private bool TryApplyAcrylicViaDwm()
+    /// <summary>
+    /// The see-through dark tint — <c>ACCENT_ENABLE_TRANSPARENTGRADIENT</c> (state 2) with the same
+    /// opacity-driven black gradient as the blur. Solid darken's material since 2026-10-14: a plain
+    /// rectangle is opaque black whatever its alpha on a non-layered client (DWM ignores the
+    /// client's alpha), so the setting did nothing but go black.
+    ///
+    /// <para>
+    /// <b>Flags 2, not 0x20</b> (the measured fix for D1). State 2 re-sent with <c>0x20</c> while the
+    /// window is HIDDEN to a window that has already been shown — exactly what production does on every
+    /// re-show — falls back to the system accent colour: the owner's re-show read the flat sage
+    /// (196,200,196), and the discriminator look pinned it (S-0 production → accent fallback; S-a, the
+    /// same call with flags 2 → finished at 0.702; S-b and S-c cleared the order and the disable). Flags
+    /// 2 renders identically on a first show (sweep 2: 18.21 vs 18.19), so it is the only difference
+    /// D1 needs. State 4 (the blur) keeps <c>0x20</c>: its hidden re-show read the glass fine.
+    /// </para>
+    /// </summary>
+    /// <returns>True when the call was accepted (non-zero BOOL), so no darken fallback is needed.</returns>
+    internal bool TryApplyTransparentGradient(double opacity)
     {
-        if (Environment.OSVersion.Version.Build < Win11Build22H2)
-            return false;
-        try
-        {
-            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-            int darkMode = 1;
-            DwmSetWindowAttribute(hwnd, DwmwaUseImmersiveDarkMode, ref darkMode, sizeof(int));
-            int backdropType = DwmsbtAcrylic;
-            int result = DwmSetWindowAttribute(hwnd, DwmwaSystemBackdropType, ref backdropType, sizeof(int));
-            if (result != 0)
-                return false;
-            ExtendFrameIntoClient(true);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        var result = SetAccentPolicy(hwnd, AccentEnableTransparentGradient, 0x2, AccentGradientColor(opacity));
+        return result != 0;
+    }
+
+    /// <summary>
+    /// Switches the accent off (ACCENT_DISABLED, state 0). The window is a singleton: without this,
+    /// a show as Mica or Acrylic left the blur and its tint behind, so a later Solid darken show
+    /// kept the stale blur plus the darken rectangle.
+    /// </summary>
+    private void DisableAccent()
+    {
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero)
+            return;
+        _ = SetAccentPolicy(hwnd, 0, 0, 0);
     }
 
     private void ClearDwmBackdrop()
@@ -303,7 +624,10 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     {
         BackdropCanvas.Children.Clear();
         ClearDwmBackdrop();
+        DisableAccent();
         _solidBackground = null;
+        _dimLayer = null;
+        _preparedFor = null; // nothing is prepared any more
         ClearButton();
     }
 

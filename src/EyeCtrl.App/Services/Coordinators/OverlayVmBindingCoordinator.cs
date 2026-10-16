@@ -110,9 +110,9 @@ internal sealed class OverlayVmBindingCoordinator : CoordinatorBase
             DpiHelper.LogicalToPhysicalX(dipRight),
             DpiHelper.LogicalToPhysicalY(dipTop));
 
-        _glassBackdrop.Show();
-        _glassBackdrop.ApplyBackdrop(settings);
-        _glassBackdrop.DrawHideButton(hideButtonCenter);
+        // One call, prepared while hidden: show-then-apply put a bare or glass-only first frame on
+        // screen (the owner's flicker).
+        _glassBackdrop.ShowBackdrop(settings, hideButtonCenter);
         Context.Messenger.Send(new ShowBackdropMessage(hideButtonCenter));
     }
 

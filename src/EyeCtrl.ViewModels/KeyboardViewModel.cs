@@ -189,7 +189,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         // reset and silently swallows every note key (P1 D2) — an owner who left Ctrl latched
         // would type into an empty note. Entering Edit clears the SYSTEM modifiers, one-shot and
         // locked alike; Shift and CapsLock are text modifiers and stay.
-        ClearSystemOneShotModifiers();
+        ClearSystemModifiers();
         IsTargetingNote = true;
     }
 
@@ -433,7 +433,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
     /// Accents carries no modifier keys, so an armed modifier would be invisible there — and a
     /// stray Win plus an accent is a system shortcut on the OS layout (Win+é = Win+2 on French
     /// Windows). Shift and Caps Lock survive: accents carry their own capitals (D11).</summary>
-    private void ClearSystemOneShotModifiers()
+    private void ClearSystemModifiers()
     {
         _activeModifiers.Remove(ModifierKey.Ctrl);
         _activeModifiers.Remove(ModifierKey.Alt);
@@ -620,7 +620,7 @@ public partial class KeyboardViewModel : MessengerViewModelBase,
         // ResetInteractionState/SetLayout raises). It must still run AFTER the swap so any
         // repaint it causes lands on the NEW grid (plan review H1).
         if (_layout.SubLayouts[subLayoutId].AutoReturn)
-            ClearSystemOneShotModifiers();
+            ClearSystemModifiers();
         OnPropertyChanged(nameof(ActiveModifiers));
     }
 

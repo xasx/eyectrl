@@ -8,8 +8,8 @@ public partial class BackdropSettings : ObservableObject, IValidatable
 {
     /// <summary>Whether the backdrop material effect is enabled.</summary>
     [ObservableProperty] private bool _enabled = true;
-    /// <summary>Backdrop material type (Acrylic, Mica, or SolidDarken).</summary>
-    [ObservableProperty] private BackdropType _type = BackdropType.Acrylic;
+    /// <summary>Backdrop material type (Glass or SolidDarken).</summary>
+    [ObservableProperty] private BackdropType _type = BackdropType.Glass;
     /// <summary>Opacity of the backdrop effect. Valid range: 0.1–0.9.</summary>
     [ObservableProperty] private double _opacity = 0.3;
 

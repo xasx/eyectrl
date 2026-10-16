@@ -30,8 +30,7 @@ using Xunit;
 public class GlassBackdropShowBackdropTests
 {
     [StaTheory]
-    [InlineData(BackdropType.Mica)]
-    [InlineData(BackdropType.Acrylic)]
+    [InlineData(BackdropType.Glass)]
     public void ShowBackdrop_PreparesEverythingWhileHidden_AndIsReadyBeforeVisible(BackdropType type)
     {
         var prepared = RunShowBackdrop(type, opacity: 0.3, shows: 1);
@@ -60,7 +59,7 @@ public class GlassBackdropShowBackdropTests
     [StaFact]
     public void ShowBackdrop_OnAReshow_IsReadyBeforeVisibleAgain()
     {
-        var prepared = RunShowBackdrop(BackdropType.Mica, opacity: 0.3, shows: 2);
+        var prepared = RunShowBackdrop(BackdropType.Glass, opacity: 0.3, shows: 2);
 
         Check.WithCustomMessage("every accent call on both shows must happen while hidden.")
             .That(prepared.Calls.Any(call => call.VisibleAtCall)).IsFalse();
@@ -100,7 +99,7 @@ public class GlassBackdropShowBackdropTests
         {
             SetOffScreenPositioning(window);
             window.ShowBackdrop(
-                new BackdropSettings { Type = BackdropType.Mica, Enabled = true, Opacity = 0.3 },
+                new BackdropSettings { Type = BackdropType.Glass, Enabled = true, Opacity = 0.3 },
                 new PhysicalPoint(100, 100));
 
             // The REAL native setter with the REAL pre-show hwnd: accepted, so the single rectangle

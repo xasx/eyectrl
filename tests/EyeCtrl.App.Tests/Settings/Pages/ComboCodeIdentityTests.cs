@@ -89,8 +89,8 @@ public class ComboCodeIdentityTests
         ["qa_edge"] = (["Left", "Right", "Top", "Bottom"], ["Left", "Right", "Top", "Bottom"]),
         ["g_theme"] = (["Midnight", "Ember", "Daylight", "Contrast"], ["Midnight", "Ember", "Daylight", "Contrast"]),
         ["g_language"] = (["System", "Deutsch", "English"], ["system", "german", "english"]),
-        ["av_backdrop_type"] = (["Acrylic", "Mica", "Solid Darken"],
-                                ["Acrylic", "Mica", "SolidDarken"]),
+        ["av_backdrop_type"] = (["Glass", "Solid Darken"],
+                                ["Glass", "SolidDarken"]),
         ["md_active"] = (["Off", "Test 135M"], ["Off", "135M"]),
     };
 

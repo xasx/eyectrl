@@ -28,8 +28,7 @@ internal sealed class AdvancedPageSource : ISettingsPageSource
                 new ComboBoxSpec("av_backdrop_type",
                     StringTable.Current.T("settings.advanced.backdrop_type.label"),
                     [
-                        StringTable.Current.T("settings.advanced.backdrop_type.option.acrylic"),
-                        StringTable.Current.T("settings.advanced.backdrop_type.option.mica"),
+                        StringTable.Current.T("settings.advanced.backdrop_type.option.glass"),
                         StringTable.Current.T("settings.advanced.backdrop_type.option.solid_darken"),
                     ],
                     Enum.GetNames<Core.BackdropType>(),

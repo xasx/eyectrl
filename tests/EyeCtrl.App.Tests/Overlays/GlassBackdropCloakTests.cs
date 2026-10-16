@@ -195,7 +195,7 @@ public class GlassBackdropCloakTests
             Check.That(run.Window.IsVisible).IsTrue();
 
             // Changed settings are re-applied in place — one synchronous prepare — and never cloaked.
-            var changed = new BackdropSettings { Type = BackdropType.Mica, Enabled = true, Opacity = 0.5 };
+            var changed = new BackdropSettings { Type = BackdropType.Glass, Enabled = true, Opacity = 0.5 };
             run.Window.ShowBackdrop(changed, Center);
             Check.WithCustomMessage("changed settings on a visible window must re-apply the accent.")
                 .That(run.Policies.Count).IsStrictlyGreaterThan(policies);
@@ -447,7 +447,7 @@ public class GlassBackdropCloakTests
             var cloaksBefore = run.Cloaks.Count;
 
             run.Window.Hide();
-            var changed = new BackdropSettings { Type = BackdropType.Mica, Enabled = true, Opacity = 0.5 };
+            var changed = new BackdropSettings { Type = BackdropType.Glass, Enabled = true, Opacity = 0.5 };
             run.Window.ShowBackdrop(changed, Center);
 
             // The window is still visible, so the change is F5's in-place re-apply (no cloak), and
@@ -535,7 +535,7 @@ public class GlassBackdropCloakTests
     private static Run Start(double opacity)
     {
         WpfApplicationGate.EnsureApplicationWithTokens();
-        var settings = new BackdropSettings { Type = BackdropType.Mica, Enabled = true, Opacity = opacity };
+        var settings = new BackdropSettings { Type = BackdropType.Glass, Enabled = true, Opacity = opacity };
         var run = new Run
         {
             Window = new GlassBackdropWindow(),

@@ -21,21 +21,30 @@ public class KeyboardInteractionDispatcherTests
 {
     /// <summary>
     /// The construction pattern the modifier-routing tests need: a fake simulator wired through
-    /// <see cref="TestFakes.MakeContext(IInputSimulator)"/> with <c>TargetHighlightVM</c> supplied
-    /// (the handler reads it unconditionally) and the parameterless dispatcher ctor +
-    /// <c>Initialize(ctx)</c>. Messages sent through the returned dispatcher must carry
-    /// <c>IsPreciseTarget: true</c> so <c>HandleActionRequested</c> never reads
-    /// <c>Context.GazeEngine.StableCentroid</c> — MakeContext leaves GazeEngine null!.
+    /// <see cref="TestFakes.MakeContext(IInputSimulator)"/> with <c>TargetHighlightVM</c> and a
+    /// backdrop (<see cref="WithBackdrop"/>) supplied — the handler reads both unconditionally —
+    /// and the parameterless dispatcher ctor + <c>Initialize(ctx)</c>. Messages sent through the
+    /// returned dispatcher must carry <c>IsPreciseTarget: true</c> so
+    /// <c>HandleActionRequested</c> never reads <c>Context.GazeEngine.StableCentroid</c> —
+    /// MakeContext leaves GazeEngine null!.
     /// </summary>
     private static (KeyboardInteractionDispatcher D, TestFakes.FakeInputSimulator Sim) BuildWithFakeInput()
     {
         var input = new TestFakes.FakeInputSimulator();
-        var ctx = TestFakes.MakeContext(input) with
+        var ctx = WithBackdrop(TestFakes.MakeContext(input)) with
             { TargetHighlightVM = new TargetHighlightOverlayViewModel() };
         var dispatcher = new KeyboardInteractionDispatcher();
         dispatcher.Initialize(ctx);
         return (dispatcher, input);
     }
+
+    /// <summary>
+    /// <c>HandleActionRequested</c> completes the backdrop's pending hide before it injects
+    /// anything (#219), reading <c>OverlayManager.GlassBackdrop</c> unconditionally — so a context
+    /// that drives the handler supplies a backdrop, as it supplies <c>TargetHighlightVM</c>.
+    /// </summary>
+    private static EventCoordinationContext WithBackdrop(EventCoordinationContext ctx) =>
+        ctx with { OverlayManager = TestFakes.MakeOverlayManager(glassBackdrop: new TestFakes.FakeGlassBackdropOverlay()) };
 
     [Fact]
     public void Initialize_ThrowsArgumentNullException_WhenContextIsNull()
@@ -107,10 +116,10 @@ public class KeyboardInteractionDispatcherTests
     public void HandleActionRequested_MiddleClick_DispatchesToTheSimulator()
     {
         var input = new TestFakes.FakeInputSimulator();
-        // TargetHighlightVM is read unconditionally at the end of the handler, so a bare
-        // MakeContext (null!) would NRE before reaching the simulator. IsPreciseTarget keeps
-        // the handler off GazeEngine, which MakeContext also leaves null!.
-        var ctx = TestFakes.MakeContext(input) with
+        // TargetHighlightVM is read unconditionally at the end of the handler and the backdrop at
+        // its start, so a bare MakeContext (null!) would NRE before reaching the simulator.
+        // IsPreciseTarget keeps the handler off GazeEngine, which MakeContext also leaves null!.
+        var ctx = WithBackdrop(TestFakes.MakeContext(input)) with
         {
             TargetHighlightVM = new TargetHighlightOverlayViewModel()
         };
@@ -136,7 +145,7 @@ public class KeyboardInteractionDispatcherTests
     [Fact]
     public void HandleActionRequested_Keyboard_SendsShowMessage_AndNothingElse()
     {
-        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator());
+        var ctx = WithBackdrop(TestFakes.MakeContext(new TestFakes.FakeInputSimulator()));
         ctx = ctx with { TargetHighlightVM = new TargetHighlightOverlayViewModel() };
         var dispatcher = new KeyboardInteractionDispatcher();
         dispatcher.Initialize(ctx);
@@ -153,7 +162,7 @@ public class KeyboardInteractionDispatcherTests
     [Fact]
     public void HandleActionRequested_ClickActions_NeverSendShowMessage()
     {
-        var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator());
+        var ctx = WithBackdrop(TestFakes.MakeContext(new TestFakes.FakeInputSimulator()));
         ctx = ctx with { TargetHighlightVM = new TargetHighlightOverlayViewModel() };
         var dispatcher = new KeyboardInteractionDispatcher();
         dispatcher.Initialize(ctx);

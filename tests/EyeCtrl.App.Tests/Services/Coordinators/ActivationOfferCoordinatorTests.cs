@@ -43,7 +43,9 @@ public class ActivationOfferCoordinatorTests
         TestFakes.FakeGazeProvider Provider,
         ModalInteractionState Modal);
 
-    private static Setup Build(Func<EventCoordinationContext, PhysicalRect[]>? collect = null)
+    private static Setup Build(
+        Func<EventCoordinationContext, PhysicalRect[]>? collect = null,
+        ToolbarLifecycleCoordinator? toolbar = null)
     {
         var settings = new EyeCtrlSettings();
         var messenger = new WeakReferenceMessenger();
@@ -69,7 +71,7 @@ public class ActivationOfferCoordinatorTests
         };
 
         var coordinator = new ActivationOfferCoordinator(
-            new ToolbarLifecycleCoordinator(modal),
+            toolbar ?? new ToolbarLifecycleCoordinator(modal),
             modal,
             collect ?? (_ => Array.Empty<PhysicalRect>()));
         coordinator.Initialize(context);
@@ -529,6 +531,46 @@ public class ActivationOfferCoordinatorTests
     /// <summary>Captures the events the coordinator logs while a test drives it (the
     /// KeyboardCategoryGridExclusionTests pattern). Assertions read the structured properties,
     /// never a rendered message, so an honest rewording does not red them.</summary>
+    [StaFact]
+    public void TheProductionBand_IsBuiltFromTheInjectedAutoHide_DockedRefuses_FloatingClamps()
+    {
+        // R-F2 (fixup 01): the PRODUCTION band path — the coordinator builds the band from the
+        // auto-hide controller's edge while the toolbar is docked, and pushes null when it floats.
+        // The reviewer's mutants must die here: a null band pushed (R1) → the docked leg offers; the
+        // IsDocked gate ignored (R2) → the floating leg refuses; AutoHideEdge always null (R3) →
+        // the docked leg offers.
+        var toolbar = new ToolbarLifecycleCoordinator(new ModalInteractionState());
+        toolbar.InjectAutoHideForTesting(new ToolbarAutoHideController(
+            enabled: true, edge: "Top", screenW: 3840, screenH: 2400,
+            toolbarRect: new PhysicalRect(1070, 0, 1700, 280),
+            hideDelayMs: 5000, summonDelayMs: 400, offScreenMarginPx: 50));
+
+        var s = Build(toolbar: toolbar);
+        using var _ = s.Context.GazeEngine;
+
+        // Docked (the settings default): the whole top edge is the summon band.
+        s.InteractionManager.OnFixationStarted(new PhysicalPoint(1900, -40));
+        s.InteractionManager.OnFixationSettled(new PhysicalPoint(1900, -40));
+        Check.WithCustomMessage("the docked toolbar's band was not built: the summon settle offered")
+            .That(s.Engine.CurrentOffer).IsNull();
+
+        // The band's EDGE is the controller's, not a blanket refusal: a left-of-screen settle clamps.
+        s.InteractionManager.OnFixationEnded();
+        s.InteractionManager.OnFixationStarted(new PhysicalPoint(-40, 1200));
+        s.InteractionManager.OnFixationSettled(new PhysicalPoint(-40, 1200));
+        Check.That(s.Engine.CurrentOffer?.Point).IsEqualTo(new PhysicalPoint(0, 1200));
+
+        // Floating: no summon exists, so the same top-edge settle must clamp again.
+        s.Context.Settings.Toolbar.IsDocked = false;
+        s.Context.KeyboardVM.IsVisible = true;   // any listed trigger re-publishes
+        Pump();
+        s.InteractionManager.OnFixationEnded();
+        s.InteractionManager.OnFixationStarted(new PhysicalPoint(1900, -40));
+        s.InteractionManager.OnFixationSettled(new PhysicalPoint(1900, -40));
+        Check.WithCustomMessage("a floating toolbar must have no band")
+            .That(s.Engine.CurrentOffer?.Point).IsEqualTo(new PhysicalPoint(1900, 0));
+    }
+
     private sealed class CapturingSink : ILogEventSink
     {
         public List<LogEvent> Events { get; } = new();

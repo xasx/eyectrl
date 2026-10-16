@@ -202,6 +202,40 @@ public class ActivationOfferCornerClampTests
     }
 
     [Fact]
+    public void EveryDockedEdge_RefusesItsWholeStrip_AndTheOthersStillClamp()
+    {
+        // R-F2 (fixup 01): every edge arm of the band, both directions — refused past the docked
+        // edge (anywhere along it), clamped past the others. Mutants: the Bottom or Right arm never
+        // matching reds its case.
+        (string Edge, PhysicalPoint Refused, PhysicalPoint ClampedFrom, PhysicalPoint ClampedTo)[] cases =
+        [
+            ("Top", new PhysicalPoint(300, -40), new PhysicalPoint(300, 2440), new PhysicalPoint(300, 2399)),
+            ("Bottom", new PhysicalPoint(300, 2440), new PhysicalPoint(300, -40), new PhysicalPoint(300, 0)),
+            ("Left", new PhysicalPoint(-40, 2100), new PhysicalPoint(3880, 300), new PhysicalPoint(3839, 300)),
+            ("Right", new PhysicalPoint(3880, 300), new PhysicalPoint(-40, 2100), new PhysicalPoint(0, 2100)),
+        ];
+
+        foreach (var (edge, refusedAt, clampedFrom, clampedTo) in cases)
+        {
+            using (var h = new Harness())
+            {
+                h.Im.SetActivationSummonBand(ActivationSummonBand.FromDockedEdge(edge));
+                h.Feed(refusedAt, samples: 20);
+                Check.WithCustomMessage($"{edge}: a settle past the docked edge must be refused")
+                    .That(h.Im.ActivationOffers?.CurrentOffer).IsNull();
+            }
+
+            using (var h = new Harness())
+            {
+                h.Im.SetActivationSummonBand(ActivationSummonBand.FromDockedEdge(edge));
+                h.Feed(clampedFrom, samples: 20);
+                Check.WithCustomMessage($"{edge}: a settle past another edge must clamp and place")
+                    .That(h.Im.ActivationOffers?.CurrentOffer?.Point).IsEqualTo(clampedTo);
+            }
+        }
+    }
+
+    [Fact]
     public void Refusals_RaiseOncePerReasonChange_WithTheRawP()
     {
         // F3: one line per CHANGE of refusal reason, never per settle or per sample. This collector

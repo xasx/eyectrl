@@ -455,7 +455,9 @@ public class LagMarkHostTests
     /// cut the freeze's own long waits off (measured: max 2.0 ms). The execute-ended window covers
     /// (at − 15 s, now], so the freeze's wait is the mark's max. Synthetic ring: 10 s of ~90 Hz
     /// normal use (2 ms waits), then the freeze sample, which waited 1000 ms and executed as the
-    /// mark completed.
+    /// mark completed. One lone execute at at − 15.5 s pins the window's START at the gaze moment
+    /// minus 15 s (review 02, item 6): the enqueue-anchored span reaches it, a now-anchored 15 s
+    /// window would not — so `n` is pinned.
     /// </summary>
     [Fact]
     public void AFreezeTheOwnerDwellsThrough_IsVisibleToTheMarksWindow()
@@ -466,6 +468,7 @@ public class LagMarkHostTests
 
         long ms = Stopwatch.Frequency / 1000;
         long t = Stopwatch.GetTimestamp();
+        Sample(rig.Probe, t - 15_500 * ms, 2);
         for (var k = 0; k < 900; k++)
             Sample(rig.Probe, t - 10_000 * ms + k * 11 * ms, 2);
         // The freeze: enqueued 1000 ms before it ran; this execute completes the dwell.
@@ -478,7 +481,7 @@ public class LagMarkHostTests
         Check.WithCustomMessage($"the mark line was: {rig.Lines[0]}")
             .That(Regex.IsMatch(
                 rig.Lines[0],
-                @"^LAG MARK #1 at 2026-10-16 10:20:29\.000 — last 15 s: n=901 max=1000ms p95=2ms maxQueueDepth=1 gapMs=111 coverageMs=\d+$"))
+                @"^LAG MARK #1 at 2026-10-16 10:20:29\.000 — last 15 s: n=902 max=1000ms p95=2ms maxQueueDepth=1 gapMs=5500 coverageMs=\d+$"))
             .IsTrue();
     }
 

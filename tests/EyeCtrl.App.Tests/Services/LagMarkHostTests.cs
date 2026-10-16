@@ -252,6 +252,37 @@ public class LagMarkHostTests
             .That(rig.Presenter.Gaze).IsEmpty();
     }
 
+    /// <summary>
+    /// Task 6's stale-argument guard (review 02, R5): <c>OnProbeOpenChanged</c> must read the live
+    /// flag, because <c>ModalInteractionState.ProbeOpenChanged</c>'s contract says the argument can
+    /// be stale. Two faces: a stale "closed" while the probe is open must not re-show a button that
+    /// is down, and — the case that kills the mutant trusting the argument alone — it must HIDE a
+    /// button that is still up (the host missed the open event: flag flips, event delivered late or
+    /// before subscription), which would otherwise sit over the full-screen probe.
+    /// </summary>
+    [Fact]
+    public void AStaleProbeClosedArgument_WhileTheProbeIsOpen_KeepsTheButtonDown()
+    {
+        var rig = new Rig();
+        rig.Host.Start();
+        rig.ProbeOpen = true;
+        rig.Host.OnProbeOpenChanged(true);
+        Check.That(rig.Presenter.IsShowing).IsFalse();
+
+        rig.Host.OnProbeOpenChanged(false);          // the stale argument; the flag still says open
+        Check.That(rig.Presenter.IsShowing).IsFalse();
+
+        // And a button that never heard the open event is taken down by the stale "closed" anyway.
+        var missed = new Rig();
+        missed.Host.Start();
+        Check.That(missed.Presenter.IsShowing).IsTrue();
+        missed.ProbeOpen = true;                     // the flag flips; no open event reaches the host
+        missed.Host.OnProbeOpenChanged(false);
+        Check.WithCustomMessage("the stale \"closed\" left the button up over the open probe")
+            .That(missed.Presenter.IsShowing).IsFalse();
+        Check.That(missed.Zones.Last()).IsNull();
+    }
+
     /// <summary>F1 at the fake level: a move re-sends the zone, and only while the button is up.</summary>
     [Fact]
     public void AMove_ReSendsTheZone_OnlyWhileShowing()

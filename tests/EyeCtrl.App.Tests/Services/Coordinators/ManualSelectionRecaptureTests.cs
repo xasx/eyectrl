@@ -175,6 +175,9 @@ public class ManualSelectionRecaptureTests
         public int ShowCalls { get; private set; }
         public int HideCalls { get; private set; }
 
+        // The production show path: count it the way the separate Show() used to be counted (this
+        // fake exists to watch the show/hide lifecycle, not the material).
+        public void ShowBackdrop(BackdropSettings settings, PhysicalPoint buttonCenter) => ShowCalls++;
         public void Show() => ShowCalls++;
         public void Hide() => HideCalls++;
         public void ApplyBackdrop(BackdropSettings settings) { }

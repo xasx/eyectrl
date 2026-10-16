@@ -789,7 +789,7 @@
         {
           "Id": "av_backdrop_opacity",
           "Label": "Backdrop Opacity",
-          "Description": "How dark the backdrop is — only Solid Darken uses this; applies from the next open.",
+          "Description": "How dark the backdrop is — the tint over the blur, or the fill of Solid Darken; applies from the next open.",
           "Modal": null
         },
         {

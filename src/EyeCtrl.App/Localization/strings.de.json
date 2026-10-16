@@ -1039,8 +1039,8 @@
     "src": "7344e4d7"
   },
   "settings.advanced.backdrop_opacity.description": {
-    "text": "Wie dunkel die Abdunklung ist – nur „Einfarbig abdunkeln“ nutzt das; gilt ab dem nächsten Öffnen.",
-    "src": "73474014"
+    "text": "Wie dunkel die Abdunklung ist – die Tönung über der Unschärfe oder die Füllung bei „Einfarbig abdunkeln“; gilt ab dem nächsten Öffnen.",
+    "src": "8f0510b6"
   },
   "settings.advanced.backdrop_opacity.label": {
     "text": "Deckkraft der Abdunklung",

@@ -97,11 +97,21 @@ public class BackdropDarknessLookTests
         RunCase(4, "solid-000", "Solid darken at 0.0 (shows nothing: the desktop itself)", BackdropType.SolidDarken, 0.0);
 
     /// <summary>
-    /// The preflight (review-01 F1a): the reference centre with NOTHING shown — no window, no
-    /// material — read before any case. The script runs it first and stops when the centre is not
-    /// the reference desktop (luma > 60 or stddev > 46: windows, not the wallpaper), because the
-    /// glass bands were measured on that desktop and a correct build over bright content would read
-    /// as a failure. Off-screen dry runs take this reading like any other; nothing can be shown.
+    /// The preflight (review-01 F1a): the reference centre with NOTHING shown — no material — read
+    /// before any case. The script runs it first and stops when the centre is not the reference
+    /// desktop (luma > 60 or stddev > 46: windows, not the wallpaper), because the glass bands were
+    /// measured on that desktop and a correct build over bright content would read as a failure;
+    /// a capture that is more than 90 % exactly black is stopped as UNREADABLE too (a covered or
+    /// broken region is no reference, whoever is right about why).
+    ///
+    /// <para>
+    /// <b>The baseline path is RunCase's, exactly</b> (the 19:32 sitting's defect): that preflight
+    /// read a 97.6 % exactly-black patch while every case, seconds later, read the wallpaper. The
+    /// cases' only structural difference before their baseline grab is creating the backdrop window
+    /// and ensuring its handle (never shown), so the preflight now does that too — the capture mode
+    /// (patch rect, thread DPI awareness, scale) is logged in both readouts so any future divergence
+    /// names its axis. The window is closed in the finally; nothing is ever shown.
+    /// </para>
     /// </summary>
     [StaFact]
     public void TheCentre_IsTheReferenceDesktop()
@@ -109,14 +119,28 @@ public class BackdropDarknessLookTests
         Step3LiveCheckTests.BeginShowcaseCase();
         try
         {
-            var sample = BackdropCapture.Grab();   // nothing is shown: the bare desktop
+            // RunCase's baseline path: window exists, handle ensured, window never shown.
+            var window = new GlassBackdropWindow();
+            BackdropCapture.ScreenSample sample;
+            try
+            {
+                new WindowInteropHelper(window).EnsureHandle();
+                sample = BackdropCapture.Grab();
+            }
+            finally
+            {
+                try { window.Close(); } catch { /* never shown; nothing to clean beyond the handle */ }
+            }
+
             var log = new StringBuilder();
             log.AppendLine("case: 0 (preflight: the centre with nothing shown)");
             log.AppendLine("kind: preflight");
             log.AppendLine(BackdropCapture.EnvironmentState());
+            log.AppendLine(BackdropCapture.CaptureMode());
             log.AppendLine($"Centre (nothing shown): {BackdropCapture.Describe(sample.Centre)}");
             log.AppendLine($"baseline-luma: {BackdropReadoutLines.Number(sample.Centre.LumaMean)}");
             log.AppendLine($"baseline-stddev: {BackdropReadoutLines.Number(sample.Centre.LumaStdDev)}");
+            log.AppendLine($"baseline-exactly-black: {BackdropReadoutLines.Number(sample.Centre.BlackFraction)}");
             var dryRun = Environment.GetEnvironmentVariable("EYECTRL_LIVE_DRYRUN") is "1" or "true" or "TRUE";
             if (dryRun)
                 log.AppendLine("proof: nothing shown (the preflight)");
@@ -226,6 +250,10 @@ public class BackdropDarknessLookTests
             log.AppendLine($"Material: {type} through production's ShowBackdrop");
             log.AppendLine($"rects: {rects}");
             log.AppendLine(BackdropCapture.EnvironmentState());
+            // The same two diagnostic lines the preflight writes, so a divergence between the
+            // preflight and a case names its axis (patch rect / thread DPI awareness / scale).
+            log.AppendLine(BackdropCapture.CaptureMode());
+            log.AppendLine($"baseline-exactly-black: {BackdropReadoutLines.Number(baseline.Centre.BlackFraction)}");
             log.AppendLine($"Baseline (window hidden; the desktop): {BackdropCapture.Describe(baseline.Centre)}");
             log.AppendLine($"At uncloak: {BackdropCapture.Describe(atUncloak.Centre)}");
             log.AppendLine($"Steady: {BackdropCapture.Describe(steady.Centre)}");

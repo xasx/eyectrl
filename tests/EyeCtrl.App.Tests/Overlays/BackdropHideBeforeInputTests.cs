@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Reflection;
+using System.Windows;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
 using EyeCtrl.App.Overlays;
@@ -187,12 +188,7 @@ public class BackdropHideBeforeInputTests
         try
         {
             window = new GlassBackdropWindow();
-            window.PositionForShow = w =>
-            {
-                OverlayPositioning.CoverPrimaryScreen(w);
-                w.Left = -30000;
-                w.Top = -30000;
-            };
+            window.PositionForShow = OffScreenPositioning();
             window.ShowBackdrop(
                 new BackdropSettings { Type = BackdropType.Glass, Enabled = true, Opacity = 0.3 },
                 new PhysicalPoint(100, 100));
@@ -237,12 +233,7 @@ public class BackdropHideBeforeInputTests
             menuVm.IsVisible = true;   // before any listener is wired: the menu is up, nothing fires
 
             var window = new GlassBackdropWindow();
-            window.PositionForShow = w =>
-            {
-                OverlayPositioning.CoverPrimaryScreen(w);
-                w.Left = -30000;
-                w.Top = -30000;
-            };
+            window.PositionForShow = OffScreenPositioning();
             window.ShowBackdrop(
                 new BackdropSettings { Type = BackdropType.Glass, Enabled = true, Opacity = 0.3 },
                 new PhysicalPoint(100, 100));
@@ -325,6 +316,28 @@ public class BackdropHideBeforeInputTests
 
         public void Hide() => IsVisible = false;
     }
+
+    /// <summary>
+    /// Production's <c>CoverPrimaryScreen</c> sizing, then OFF-SCREEN — with the proof run BEFORE
+    /// the show: <c>ShowBackdrop</c> calls the positioner first and <c>base.Show()</c> last, so the
+    /// assertion here runs while the window is still hidden. The bounds must not intersect the
+    /// virtual screen at all: this suite is CI-runnable, and a future coordinate change must fail
+    /// here rather than paint the backdrop on the owner's screen. The same check
+    /// <c>BackdropDarknessLookTests</c>' dry run uses.
+    /// </summary>
+    private static Action<Window> OffScreenPositioning() => w =>
+    {
+        OverlayPositioning.CoverPrimaryScreen(w);
+        w.Left = -30000;
+        w.Top = -30000;
+        var bounds = new Rect(w.Left, w.Top, w.Width, w.Height);
+        var screen = new Rect(
+            SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
+            SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
+        Check.WithCustomMessage(
+                $"the window must be off-screen BEFORE it is shown (bounds {bounds} vs screen {screen}).")
+            .That(screen.IntersectsWith(bounds)).IsFalse();
+    };
 
     private static void PumpUntil(Func<bool> condition, int timeoutMs = 3000)
     {

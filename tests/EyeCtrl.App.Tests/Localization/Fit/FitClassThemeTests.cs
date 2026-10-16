@@ -22,8 +22,11 @@ using EyeCtrl.Tests.TestSupport;
 [Collection("ActiveTheme")]
 public class FitClassThemeTests
 {
-    /// <summary>The fit classes whose room comes from a themed token.</summary>
-    internal static readonly string[] ThemeDependentClasses = ["B114", "C-alert", "card"];
+    /// <summary>
+    /// The fit classes whose room comes from a themed token. PV1 joins them: the preview card's
+    /// border is <c>StandardBorderThickness</c>, so Contrast's 2 DIP border is the tightest panel.
+    /// </summary>
+    internal static readonly string[] ThemeDependentClasses = ["B114", "C-alert", "card", "PV1"];
 
     private readonly ITestOutputHelper _output;
 

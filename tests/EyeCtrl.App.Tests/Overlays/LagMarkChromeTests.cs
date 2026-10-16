@@ -54,7 +54,9 @@ public class LagMarkChromeTests
         public double ExtentDip => 0;
         public void Show() { }
         public void Hide() { }
-        public void Initialize(double buttonSize, int dwellTimeMs) { }
+        // Third parameter (includeReset) is this branch's band-membership flag (T7/D5): the
+        // offers' collector never calls Initialize, but the interface signature is branch-wide.
+        public void Initialize(double buttonSize, int dwellTimeMs, bool includeReset) { }
         public void SetMode(bool isDocked, string edge) { }
         public void SetSelectionModeState(SelectionMode mode) { }
         public void SetPausedState(bool isPaused) { }

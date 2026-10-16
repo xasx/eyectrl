@@ -266,6 +266,11 @@
       "Count": 1
     },
     {
+      "Path": "src/EyeCtrl.App/Services/AdaptationPreviewService.cs",
+      "Literal": "\"adaptation-preview\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/AppBootstrapper.cs",
       "Literal": "\"EyeCtrl\"",
       "Count": 1
@@ -853,6 +858,11 @@
     {
       "Path": "src/EyeCtrl.Supervisor/UI/SupervisorTrayIcon.cs",
       "Literal": "\"EyeCtrl Supervisor\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/Adaptation/ResetPreviewEngine.cs",
+      "Literal": "\"ResetAdaptation\"",
       "Count": 1
     },
     {

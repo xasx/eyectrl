@@ -50,7 +50,7 @@ public class ToolbarPausedReturnTests
         public void ShowAtRest() => IsVisible = true;
         public void ShowThenSlideIn() => IsVisible = true;
         public void SlideOutThenHide(Action onHidden) { IsVisible = false; onHidden(); }
-        public void Initialize(double buttonSize, int dwellTimeMs) { }
+        public void Initialize(double buttonSize, int dwellTimeMs, bool includeReset) { }
         public void SetMode(bool isDocked, string edge) { }
         public void SetSelectionModeState(SelectionMode mode) { }
         public void SetPausedState(bool isPaused) { }

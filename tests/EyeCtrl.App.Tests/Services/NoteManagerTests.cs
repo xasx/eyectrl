@@ -206,6 +206,103 @@ public class NoteManagerTests
         Check.That(manager.AllWindowsVisible).IsTrue();
     }
 
+    // ── review F1: the D17 inventory's note source — the DETECTOR's live targets as rects ──
+    // (DPI 1.0 per this collection's static ctor, so logical == physical and every number below
+    // is hand-derived from LayoutConstants/NoteLayout, the same math RegisterDwellTargets uses.)
+
+    [StaFact]
+    public void LiveTargetRects_EditState_IsTheCloseButtonSquare_DrainsOnRemove()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger);
+        var anchor = new PhysicalPoint(800, 500);
+
+        manager.CreateNoteAt(anchor); // Edit state: close-only
+
+        // Close-button centre (the CloseButtonDwell formula): winLeft+240, winTop+64, radius 30.
+        double winLeft = anchor.X - EyeCtrl.Core.LayoutConstants.NoteWindowWidth / 2;
+        double winTop = anchor.Y - EyeCtrl.Core.LayoutConstants.NoteAnchorOffsetY;
+        var expected = new PhysicalRect(winLeft + 240 - 30, winTop + 64 - 30, 60, 60);
+
+        Check.That(manager.LiveTargetRects()).ContainsExactly(expected);
+
+        manager.RemoveNote(manager.ActiveNotes[0].Id);
+
+        Check.That(manager.LiveTargetRects()).IsEmpty();
+    }
+
+    [StaFact]
+    public void LiveTargetRects_DisplayState_IsAllThreeButtonSquares()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger);
+        var anchor = new PhysicalPoint(800, 500);
+        manager.CreateNoteAt(anchor);
+        var id = manager.ActiveNotes[0].Id;
+
+        manager.FinishEdit(id, "x"); // Display: close/edit/move, stepping 70px down the column
+
+        double winLeft = anchor.X - EyeCtrl.Core.LayoutConstants.NoteWindowWidth / 2;
+        double winTop = anchor.Y - EyeCtrl.Core.LayoutConstants.NoteAnchorOffsetY;
+        double cx = winLeft + 240;
+        double topCy = winTop + 64;
+        // The detector snapshot's order is unspecified (dictionary-backed) — compare as a set by
+        // sorting both sides down the button column.
+        var rects = manager.LiveTargetRects().OrderBy(r => r.Y).ToList();
+
+        Check.That(rects).HasSize(3);
+        Check.That(rects).ContainsExactly(
+            new PhysicalRect(cx - 30, topCy - 30, 60, 60),
+            new PhysicalRect(cx - 30, topCy + 70 - 30, 60, 60),
+            new PhysicalRect(cx - 30, topCy + 140 - 30, 60, 60));
+    }
+
+    [StaFact]
+    public void LiveTargetRects_MoveState_IsThePlacementSquareAroundTheNote()
+    {
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger);
+        var anchor = new PhysicalPoint(800, 500);
+        manager.CreateNoteAt(anchor);
+        var id = manager.ActiveNotes[0].Id;
+        manager.FinishEdit(id, "x");
+
+        manager.StartMove(id); // only the :place target, radius 100 around the note position
+
+        Check.That(manager.LiveTargetRects()).ContainsExactly(
+            new PhysicalRect(anchor.X - 100, anchor.Y - 100, 200, 200));
+    }
+
+    [StaFact]
+    public void NoteLifecycle_PublishesNoteTargetsChanged_AtEveryStructuralMutation()
+    {
+        // The inventory's re-check trigger: every swap of the detector's target set must
+        // broadcast NoteTargetsChangedMessage (create, edit, display, move, park, remove) — a
+        // note appearing under a mid-read panel without the raise would leave the panel up over
+        // fed dwell buttons (the R4-H1 harm).
+        var messenger = new WeakReferenceMessenger();
+        using var manager = new NoteManager(messenger);
+        var count = 0;
+        var probe = new NoteTargetsProbe(() => count++);
+        messenger.Register(probe);
+        var anchor = new PhysicalPoint(0, 0);
+        manager.CreateNoteAt(anchor);          // 1: close-only registered
+        var id = manager.ActiveNotes[0].Id;
+        manager.StartEdit(id);                 // 2: re-registered close-only
+        manager.FinishEdit(id, "x");           // 3: all three buttons
+        manager.StartMove(id);                 // 4: :place only
+        manager.FinishMove(id, anchor);        // 5: all three again
+        manager.RemoveNote(id);                // 6: drained
+
+        Check.That(count).IsEqualTo(6);
+    }
+
+    /// <summary>Counting recipient for <see cref="NoteTargetsChangedMessage"/> (the CueProbe shape).</summary>
+    internal sealed record NoteTargetsProbe(Action OnReceived) : IRecipient<NoteTargetsChangedMessage>
+    {
+        public void Receive(NoteTargetsChangedMessage message) => OnReceived();
+    }
+
     [StaFact]
     public void CloseButtonDwell_AtVisiblePosition_RemovesNote()
     {

@@ -379,7 +379,20 @@ public class AppBootstrapper
         services.AddSingleton<ActivationButtonViewModel>();
         services.AddSingleton<ManualSelectionOverlayViewModel>();
         services.AddSingleton<ActionMenuViewModel>();
-        services.AddSingleton<ToolbarViewModel>();
+        // Full-arity factory (Task 6, R2-1 — load-bearing): every optional parameter after
+        // `messenger` compiles-and-runs when dropped, while silently switching something off —
+        // `sink` kills toolbar struggle telemetry, `dwellRegistry` kills adaptation's dwell/
+        // geometry routing to the toolbar, and `isFeedbackSuppressed` leaves the Reset preview
+        // unable to go silent in sensitive contexts (MS DI fills unresolvable optionals with
+        // null, so even the plain AddSingleton<ToolbarViewModel>() "works").
+        // ToolbarPreviewWiringTests resolves this registration and asserts all three.
+        services.AddSingleton(sp => new ToolbarViewModel(
+            sp.GetRequiredService<EyeCtrlSettings>(),
+            WeakReferenceMessenger.Default,
+            sink: sp.GetRequiredService<IStruggleTelemetrySink>(),
+            dwellRegistry: sp.GetRequiredService<IDwellDetectorRegistry>(),
+            isFeedbackSuppressed: () => sp.GetRequiredService<IFeedbackGate>().IsFeedbackSuppressed,
+            logger: sp.GetRequiredService<ILoggerFactory>().CreateLogger<ToolbarViewModel>()));
         services.AddSingleton<KeyboardViewModel>();
         services.AddSingleton<ManualSelectionGazeIndicatorViewModel>();
         services.AddSingleton<GlassBackdropViewModel>();
@@ -483,11 +496,15 @@ public class AppBootstrapper
             sink: sp.GetRequiredService<IStruggleTelemetrySink>(),
             dwellRegistry: sp.GetRequiredService<IDwellDetectorRegistry>()));
 
-        // NoteManager (pinned notes lifecycle)
-        services.AddSingleton<INoteManager>(sp => new NoteManager(
+        // NoteManager (pinned notes lifecycle). Registered as the CONCRETE singleton as well since
+        // review F1 — the D17 inventory reads its live dwell-target rects (the INoteManager
+        // interface stays coordinator-facing); the mapping keeps one instance behind both
+        // registrations.
+        services.AddSingleton<NoteManager>(sp => new NoteManager(
             sp.GetRequiredService<IMessenger>(),
             sp.GetRequiredService<IStruggleTelemetrySink>(),
             sp.GetRequiredService<IDwellDetectorRegistry>()));
+        services.AddSingleton<INoteManager>(sp => sp.GetRequiredService<NoteManager>());
 
         // OverlayManager (manages all overlay window lifecycle)
         services.AddSingleton<IOverlayManager>(sp => new OverlayManager(
@@ -636,6 +653,56 @@ public class AppBootstrapper
             sp.GetRequiredService<IFeedbackGate>(),
             sp.GetRequiredService<ICaregiverAlertPresenter>(),
             sp.GetRequiredService<AdaptationLog>().LogCaregiverAlert));
+
+        // Task 10/11 — the adaptation preview panel (spec §3.6-3/4). The window is a DI singleton (the
+        // CueOverlayWindow precedent) but is constructed ONLY on the first adaptation enable: the
+        // service holds LAZY resolvers for both the window and the toolbar geometry, and nothing
+        // resolves the service until AdaptationActivation's StartRuntime does (P9 — no overlay HWND
+        // while the feature is off). The collision seam is Task 11's real gaze-consumer inventory
+        // (D17): keyboard, both edge-button bars, the two menus, the external-dwell targets,
+        // (review F1) the note dwell targets, (T15 merge) the restart-notice card's close
+        // target and (second merge, #215) the lag-mark button's grown hit area, plus the Changed
+        // trigger set that keeps the check continuous while the panel is
+        // up. The bridge carries the EventCoordinator-owned toolbar coordinator to the
+        // lazily-resolved service and inventory alike; App attaches it right after
+        // EventCoordinator initializes. RestartNoticeBridge is the same late-bound holder for the
+        // App-owned restart card (newed in App.xaml.cs after the container is built, never in DI);
+        // App attaches the live window right after building RestartNoticeHost. LagMarkBridge is
+        // its twin for the App-owned lag-mark button — which an ordinary (non-instrumented)
+        // session never constructs, so that bridge stays empty and its source degrades to empty
+        // (D14) instead of failing the enable edge.
+        services.AddSingleton<IOverlayCollision>(sp => new GazeConsumerInventory(
+            sp.GetRequiredService<EyeCtrlSettings>(),
+            overlays: () => sp.GetRequiredService<IOverlayManager>(),
+            sp.GetRequiredService<KeyboardViewModel>(),
+            sp.GetRequiredService<ActionMenuViewModel>(),
+            sp.GetRequiredService<ModesMenuViewModel>(),
+            sp.GetRequiredService<EdgeButtonBarViewModel>(),
+            sp.GetRequiredKeyedService<EdgeButtonBarViewModel>("actionMenuModBar"),
+            externalTargetRects: () => sp.GetRequiredService<ExternalDwellService>().LiveTargetRects(),
+            noteTargetRects: () => sp.GetRequiredService<NoteManager>().LiveTargetRects(),
+            restartNoticeTargetRects: () => sp.GetRequiredService<RestartNoticeBridge>().LiveTargetRects(),
+            lagMarkTargetRects: () => sp.GetRequiredService<LagMarkBridge>().LiveTargetRects(),
+            sp.GetRequiredService<ToolbarLifecycleBridge>(),
+            sp.GetRequiredService<IMessenger>()));
+        services.AddSingleton<ToolbarLifecycleBridge>();
+        services.AddSingleton<RestartNoticeBridge>();
+        services.AddSingleton<LagMarkBridge>();
+        services.AddSingleton<AdaptationPreviewWindow>();
+        services.AddSingleton(sp => new AdaptationPreviewService(
+            sp.GetRequiredService<EyeCtrlSettings>(),
+            sp.GetRequiredService<EffectiveSettingsProvider>(),
+            toolbar: () => sp.GetRequiredService<IOverlayManager>().Toolbar,
+            panel: () => sp.GetRequiredService<AdaptationPreviewWindow>(),
+            collision: sp.GetRequiredService<IOverlayCollision>(),
+            suspension: sp.GetRequiredService<ToolbarLifecycleBridge>(),
+            sp.GetRequiredService<IMessenger>(),
+            workArea: () => new PhysicalRect(
+                DpiHelper.LogicalToPhysicalX(System.Windows.SystemParameters.WorkArea.X),
+                DpiHelper.LogicalToPhysicalY(System.Windows.SystemParameters.WorkArea.Y),
+                DpiHelper.LogicalToPhysicalX(System.Windows.SystemParameters.WorkArea.Width),
+                DpiHelper.LogicalToPhysicalY(System.Windows.SystemParameters.WorkArea.Height)),
+            logger: sp.GetRequiredService<ILogger<AdaptationPreviewService>>()));
 
         return services.BuildServiceProvider();
     }

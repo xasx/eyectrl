@@ -211,6 +211,16 @@ public class RestartNoticeHostTests
                 text,
                 @"_eventCoordinator\s*\.\s*SettingsOpenChanged\s*\+=\s*_restartNoticeHost\s*\.\s*OnSettingsOpenChanged"))
             .IsTrue();
+        // D17 (T15 merge): the card is a collision source for the preview panel's gaze-consumer
+        // inventory; if startup stops attaching it to RestartNoticeBridge the source silently
+        // degrades to empty and the panel may cover the close button.
+        Check.WithCustomMessage(
+                "App.xaml.cs no longer attaches the card to the D17 collision bridge — the " +
+                "preview panel would not see the card's close button as a collision source")
+            .That(System.Text.RegularExpressions.Regex.IsMatch(
+                text,
+                @"RestartNoticeBridge\(\)\s*\.\s*Attach\(\(RestartNoticeWindow\)_restartNoticeHost\s*\.\s*Presenter\)"))
+            .IsTrue();
     }
 
     /// <summary>

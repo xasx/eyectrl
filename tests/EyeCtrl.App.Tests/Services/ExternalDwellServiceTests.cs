@@ -190,6 +190,59 @@ public class ExternalDwellServiceTests
         });
     }
 
+    // Task 11 (D17): the inventory's external-dwell source. The panel's collision gate calls this
+    // on the UI thread while the pipe handlers mutate _targetsById on thread-pool threads, so the
+    // read must take _stateLock exactly like every other enumeration of that table — a torn or
+    // thrown read would either under-report (panel shows over a live dwell target) or crash the
+    // first enable edge. Registered rects come back verbatim (ToRect's clamp is identity at
+    // screen-scale numbers), and a disconnect drains them.
+    [Fact]
+    public void LiveTargetRects_ReportsRegisteredRects_AndDrainsOnDisconnect()
+    {
+        RunOnStaThread(() =>
+        {
+            using var engine = NewGazeEngine();
+            using var svc = NewService(engine, _ => null);
+            svc.Start();
+
+            var client = RegisterForLiveTargetRects(_pipeName).GetAwaiter().GetResult();
+            WaitForTargets(svc, expected: 2);
+
+            var rects = svc.LiveTargetRects();
+            Check.That(rects).HasSize(2);
+            Check.That(rects).HasElementThatMatches(r => r == new PhysicalRect(0, 0, 200, 200));
+            Check.That(rects).HasElementThatMatches(r => r == new PhysicalRect(400, 400, 100, 60));
+
+            // The client's disconnect tears its targets down; the inventory follows to empty.
+            client.Dispose();
+            WaitForTargets(svc, expected: 0);
+            Check.That(svc.LiveTargetRects()).IsEmpty();
+        });
+    }
+
+    private static async Task<NamedPipeClientStream> RegisterForLiveTargetRects(string pipeName)
+    {
+        var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client.ConnectAsync(2000);
+        await using var w = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+            new RegisterMessage { Id = "btnA", Rect = new SdkRect(0, 0, 200, 200), Hwnd = 7 }, WireJson.Options));
+        await w.WriteLineAsync(JsonSerializer.Serialize<WireMessage>(
+            new RegisterMessage { Id = "btnB", Rect = new SdkRect(400, 400, 100, 60), Hwnd = 7 }, WireJson.Options));
+        return client;
+    }
+
+    /// <summary>Polls the service's own lock-protected count (the issue-#76 pattern) instead of a
+    /// fixed sleep, so a loaded runner cannot flake the registration settle.</summary>
+    private static void WaitForTargets(ExternalDwellService svc, int expected)
+    {
+        for (var i = 0; i < 100; i++)
+        {
+            if (svc.TargetCountForTests == expected) return;
+            Thread.Sleep(50);
+        }
+    }
+
     [Fact]
     public void NoActiveTarget_LeavesForeignSuppressFixationUntouched()
     {

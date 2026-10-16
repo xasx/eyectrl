@@ -212,6 +212,41 @@ public partial class LagMarkWindow : OverlayWindow, ILagMarkPresenter
         _dwell.AddTarget(new DwellTarget(TargetId, HitBounds, _dwellMs));
     }
 
+    /// <summary>
+    /// The button's live dwell-target rects, or empty while it is hidden (second merge, the
+    /// <c>RestartNoticeWindow.LiveTargetRects</c> pattern): the D17 gaze-consumer inventory reads
+    /// its own detector's snapshot — the public <see cref="DwellDetector.Targets"/> copy-on-write
+    /// array — so the preview panel's collision check can never disagree with what the button's
+    /// gaze feed actually evaluates against (review F1's rule). The placed target is already in
+    /// physical screen pixels (<see cref="HitBounds"/>) and is exactly the interactive surface,
+    /// which is what D17 protects. Deliberately not a re-derivation from <c>Left/Top</c>: the
+    /// snapshot moves with <see cref="PlaceDwellTarget"/> on the chrome-follow move, so a re-read
+    /// here could race a move that has not re-placed the target yet.
+    /// </summary>
+    public IReadOnlyList<PhysicalRect> LiveTargetRects()
+    {
+        if (!_isShowing)
+            return Array.Empty<PhysicalRect>();
+
+        var targets = _dwell.Targets;
+        if (targets.Count == 0)
+            return Array.Empty<PhysicalRect>();
+
+        var rects = new List<PhysicalRect>(targets.Count);
+        foreach (var target in targets)
+        {
+            if (target.Bounds is { } bounds)
+                rects.Add(bounds);
+            else
+                rects.Add(new PhysicalRect(
+                    target.Center.X - target.Radius,
+                    target.Center.Y - target.Radius,
+                    target.Radius * 2,
+                    target.Radius * 2));
+        }
+        return rects;
+    }
+
     // Post-effect publish, like every dwell surface (spec D8): the mark line is the effect, and
     // the cue (the owner's setting) confirms it after.
     private void OnDwellActivated(string id)

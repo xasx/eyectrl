@@ -1,0 +1,27 @@
+<overlays:OverlayWindow x:Class="EyeCtrl.App.Overlays.AdaptationPreviewWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:overlays="clr-namespace:EyeCtrl.App.Overlays"
+        AutomationProperties.AutomationId="AdaptationPreview_Window"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        Topmost="True" ShowInTaskbar="False" ShowActivated="False"
+        SizeToContent="WidthAndHeight" MaxWidth="360">
+    <Grid>
+        <!-- The panel card. Rows are built in code-behind from the snapshot (ShowPanel), the way
+             ToolbarBand builds the strip: the row set is dynamic data, not fixed XAML. -->
+        <Border x:Name="Card"
+                Background="{StaticResource BrushSurfaceDark}"
+                BorderBrush="{StaticResource BrushBorderSubtle}"
+                BorderThickness="{StaticResource StandardBorderThickness}"
+                CornerRadius="{StaticResource StandardCornerRadius}"
+                Padding="16,12">
+            <StackPanel x:Name="RootStack"/>
+        </Border>
+        <!-- The connector tick (§3.3, optional): a simple 2-px rule like the band separator,
+             oriented toward Reset's end of the strip in code-behind (OrientTick). -->
+        <Border x:Name="Tick"
+                Width="2" Height="14"
+                HorizontalAlignment="Left" VerticalAlignment="Center"
+                Background="{StaticResource BrushBorderSubtle}"/>
+    </Grid>
+</overlays:OverlayWindow>

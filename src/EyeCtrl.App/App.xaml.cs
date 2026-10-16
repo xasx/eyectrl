@@ -259,6 +259,15 @@ public partial class App : Application
                 _serviceProvider.GetRequiredService<UserDictionaryService>());
             _eventCoordinator.Initialize(coordinationContext);
 
+            // Hand the toolbar lifecycle coordinator to the preview suspension bridge (Task 10, P8):
+            // the preview service suspends auto-hide through it while its panel is up, but the
+            // coordinator is EventCoordinator-owned and never in DI, while the preview service must
+            // stay lazily resolved (P9). This attach runs strictly before AdaptationActivation can
+            // first fire (its Start is below, at gaze-engine start), so the bridge is never empty
+            // in production.
+            _serviceProvider.GetRequiredService<ToolbarLifecycleBridge>()
+                .Attach(_eventCoordinator.ToolbarLifecycle!);
+
             // Surface a degraded hatch at startup (review PR #142): a failed or policy-blocked
             // hook is otherwise silent, and ESC is the caregiver's gaze-independent exit.
             if (!_serviceProvider.GetRequiredService<IGlobalEscapeHatch>().IsActive)
@@ -279,9 +288,12 @@ public partial class App : Application
 
             // ── System tray ──
             bool autoHideActive = ActiveProviderType != Core.Enums.GazeProviderType.Mouse && settings.Toolbar.IsDocked;
+            // isAdaptationEnabled: the LOCAL settings — the app mutates that instance in place on
+            // every apply, so the delegate reads the live Enabled for the tray item's gate (Task 9).
             _trayIconManager = new TrayIconManager(
                 im, Dispatcher, messenger,
                 shutdownCallback: () => Shutdown(),
+                isAdaptationEnabled: () => settings.Adaptation.Enabled,
                 showToolbarCallback: autoHideActive
                     ? () => _eventCoordinator?.ForceShowToolbar()
                     : null);
@@ -401,6 +413,19 @@ public partial class App : Application
                 isProbeOpen: () => _eventCoordinator.IsProbeOpen,
                 targetLanguage: () => RestartNotices.TargetLanguage(settings.General.UiLanguage),
                 postToUi: work => Dispatcher.Invoke(work));
+            // D17 (T15 merge): the card is a gaze consumer (its own close-button dwell target), so
+            // the preview panel's collision inventory must see it while it shows. The card is
+            // App-owned (never in DI), so it reaches the lazily-resolved inventory through the
+            // bridge — the ToolbarLifecycleBridge pattern. Attached here, strictly before the first
+            // adaptation enable can resolve the inventory; the cast is safe because the window is
+            // constructed inside the host statement above. The local resolver (named for the type
+            // it returns, so the attach reads exactly like the toolbar bridge's above) still hands
+            // over the CONTAINER's singleton — the instance the inventory's rect source resolves;
+            // a fresh "new RestartNoticeBridge()" here would attach a bridge nothing ever reads.
+            RestartNoticeBridge RestartNoticeBridge() =>
+                _serviceProvider.GetRequiredService<RestartNoticeBridge>();
+            RestartNoticeBridge()
+                .Attach((RestartNoticeWindow)_restartNoticeHost.Presenter);
             // Settings opening over a card that is up takes the card down (its button would otherwise
             // stay live, unseen, underneath).
             _eventCoordinator.SettingsOpenChanged += _restartNoticeHost.OnSettingsOpenChanged;
@@ -427,6 +452,19 @@ public partial class App : Application
                     now: () => DateTime.Now,
                     postToUi: work => Dispatcher.Invoke(work),
                     log: line => Log.Information("{LagMark}", line));
+                // D17 (second merge): the button is a gaze consumer (its own dwell target on the
+                // grown hit area, click-through and non-modal over the desktop — the restart
+                // card's shape), so the preview panel's collision inventory must see it while it
+                // shows. Like the card it is App-owned (never in DI), so it reaches the
+                // lazily-resolved inventory through the bridge — attached here, strictly before
+                // the first adaptation enable can resolve the inventory. The local resolver
+                // (named for the type it returns, the card's exact pattern) hands over the
+                // CONTAINER's singleton — the instance the inventory's rect source resolves; the
+                // cast is safe because the window is constructed inside the host statement above.
+                LagMarkBridge LagMarkBridge() =>
+                    _serviceProvider.GetRequiredService<LagMarkBridge>();
+                LagMarkBridge()
+                    .Attach((LagMarkWindow)_lagMarkHost.Presenter);
                 _eventCoordinator.SettingsOpenChanged += _lagMarkHost.OnSettingsOpenChanged;
                 // The probe owns the screen while it is up (Task 6, the restart card's seam).
                 _eventCoordinator.ProbeOpenChanged += _lagMarkHost.OnProbeOpenChanged;

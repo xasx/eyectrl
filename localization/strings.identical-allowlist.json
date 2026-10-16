@@ -8,7 +8,9 @@
   "Alt",
   "Cursor",
   "EyeCtrl Supervisor: ",
+  "Hz",
   "One Euro",
+  "px",
   "QWERTY",
   "QWERTZ",
   "Shift",
@@ -18,5 +20,7 @@
   "{0:F0} mm",
   "{0} +{1}",
   "{0} / {1}",
+  "{0} → {1} {2}",
+  "{0}% {1}",
   "✓ OK"
 ]

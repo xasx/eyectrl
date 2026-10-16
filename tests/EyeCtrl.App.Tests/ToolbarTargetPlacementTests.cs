@@ -46,7 +46,8 @@ public class ToolbarTargetPlacementTests
     [StaFact]
     public void ArrangedBand_ReportsArranged_AndEveryFaceHasItsFullDiameter()
     {
-        var (window, _) = ToolbarTestHelpers.NewBoundToolbar();
+        // includeReset: true — the id list below asserts ResetAdaptation's face too.
+        var (window, _) = ToolbarTestHelpers.NewBoundToolbar(includeReset: true);
         var root = (FrameworkElement)window.Content;
         root.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         root.Arrange(new Rect(root.DesiredSize));

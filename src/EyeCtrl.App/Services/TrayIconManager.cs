@@ -52,7 +52,10 @@ public class TrayIconManager : IDisposable
 {
     private readonly NotifyIcon _trayIcon;
     private readonly ToolStripMenuItem _pauseMenuItem;
+    private readonly ToolStripMenuItem _resetAdaptationItem;
     private readonly ToolStripMenuItem? _showToolbarMenuItem;
+    private readonly ContextMenuStrip _menu;
+    private readonly Func<bool> _isAdaptationEnabled;
     private readonly Icon? _customIcon;
     private readonly Dispatcher _dispatcher;
     private readonly InteractionManager _interactionManager;
@@ -61,12 +64,15 @@ public class TrayIconManager : IDisposable
     private bool _disposed;
 
     public TrayIconManager(InteractionManager interactionManager, Dispatcher dispatcher, IMessenger messenger,
-        Action shutdownCallback, Action? showToolbarCallback = null)
+        Action shutdownCallback, Func<bool> isAdaptationEnabled, Action? showToolbarCallback = null)
     {
         _dispatcher = dispatcher;
         _interactionManager = interactionManager;
         _messenger = messenger;
         _texts = AppTrayTexts.For(StringTable.Current);
+        // Null-rejected at the ctor rather than at first menu open — it is dereferenced only in
+        // the Opening handler, far from the construction site.
+        _isAdaptationEnabled = isAdaptationEnabled ?? throw new ArgumentNullException(nameof(isAdaptationEnabled));
 
         _pauseMenuItem = new ToolStripMenuItem(_texts.Pause);
         _pauseMenuItem.Click += (_, _) =>
@@ -79,8 +85,8 @@ public class TrayIconManager : IDisposable
         settingsItem.Click += (_, _) => dispatcher.BeginInvoke(() =>
             _messenger.Send(new SettingsRequestedMessage()));
 
-        var resetAdaptationItem = new ToolStripMenuItem(_texts.ResetAdaptation);
-        resetAdaptationItem.Click += (_, _) => dispatcher.BeginInvoke(() =>
+        _resetAdaptationItem = new ToolStripMenuItem(_texts.ResetAdaptation);
+        _resetAdaptationItem.Click += (_, _) => dispatcher.BeginInvoke(() =>
             _messenger.Send(new ResetAdaptationMessage()));
 
         var exitItem = new ToolStripMenuItem(_texts.Exit);
@@ -93,7 +99,7 @@ public class TrayIconManager : IDisposable
         // is a poor fit for unsteady gaze. It deep-links to the language row in Settings, where
         // the endonyms are; it does not restart anything itself.
         menu.Items.Add(CreateLanguageMenuItem(dispatcher, _messenger));
-        menu.Items.Add(resetAdaptationItem);
+        menu.Items.Add(_resetAdaptationItem);
         if (showToolbarCallback != null)
         {
             _showToolbarMenuItem = new ToolStripMenuItem(_texts.ShowToolbar);
@@ -106,6 +112,10 @@ public class TrayIconManager : IDisposable
             menu.Items.Add(new ToolStripSeparator());
         }
         menu.Items.Add(exitItem);
+        _menu = menu;
+        // Gated items re-ask their settings at every open, so they follow changes without
+        // re-creating the menu or the icon (P12/L4, Task 9).
+        menu.Opening += (_, _) => RefreshMenuItems();
 
         // Load custom icon from embedded resource
         Icon trayIcon = SystemIcons.Application;
@@ -156,6 +166,23 @@ public class TrayIconManager : IDisposable
         // Icon constructor copies the data, so the caller's stream can be disposed after
         return new Icon(memoryStream, size);
     }
+
+    /// <summary>The tray menu, exposed for headless tests (the Supervisor tray tests' pattern:
+    /// raise Opening through its own OnOpening without showing the menu).</summary>
+    internal ContextMenuStrip Menu => _menu;
+
+    /// <summary>Headless test read of the reset-adaptation item's gate. <c>Available</c>, never
+    /// <c>Visible</c>: <see cref="ToolStripItem.Visible"/>'s getter answers false whenever the
+    /// menu is not displayed, so it cannot be read as "is the item on".</summary>
+    internal bool IsResetAdaptationItemAvailable => _resetAdaptationItem.Available;
+
+    /// <summary>
+    /// Re-evaluates gated item availability against the live delegate: the reset-adaptation item
+    /// is offered only while adaptation is enabled (§8.6's manual escape exists exactly while
+    /// there can be learned state to reset). Called from the menu's
+    /// <see cref="ContextMenuStrip.Opening"/>; internal so headless tests can drive it directly.
+    /// </summary>
+    internal void RefreshMenuItems() => _resetAdaptationItem.Available = _isAdaptationEnabled();
 
     /// <summary>
     /// The one flat "Sprache / Language" item (D9): it deep-links to General page 1 with the

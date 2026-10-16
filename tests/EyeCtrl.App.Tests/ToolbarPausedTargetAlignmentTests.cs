@@ -82,7 +82,9 @@ public class ToolbarPausedTargetAlignmentTests
         DpiHelper.Initialize(1.0, 1.0);
 
         var window = new ToolbarWindow();
-        window.Initialize(ButtonSizeDip, 700);
+        // includeReset: true — BandButtonIds below places a target on the Reset face too, and the
+        // SetMode that follows must keep it (the stored flag, P17).
+        window.Initialize(ButtonSizeDip, 700, includeReset: true);
         window.SetMode(isDocked: true, edge: edge);
 
         var settings = new EyeCtrlSettings();

@@ -22,9 +22,10 @@ using EyeCtrl.ViewModels.Messages;
 /// data, the <c>SetRepeatSuppressionZones</c> pattern; Core re-validates a live offer against them,
 /// so chrome that appears over one takes it away (review A F3).</item>
 /// <item><b>Suspension.</b> While EyeCtrl's Settings window, the task switcher, the quick-actions
-/// grid, the eye-care banner or the restart notice card is open, NO offer is made and a live unfired offer is cleared (the
-/// user's decision of 2026-10-02, review B F3). A single suspension flag carries that rule, because
-/// these surfaces are not chrome to avoid but interactions to yield to entirely.</item>
+/// grid, the eye-care banner, the adaptation preview panel (D16) or the restart notice card is
+/// open, NO offer is made and a live unfired offer is cleared (the user's decision of 2026-10-02,
+/// review B F3). A single suspension flag carries that rule, because these surfaces are not
+/// chrome to avoid but interactions to yield to entirely.</item>
 /// </list>
 ///
 /// <para>
@@ -46,6 +47,7 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
     private readonly Func<EventCoordinationContext, PhysicalRect[]> _collectZones;
     private bool _publishScheduled;
     private bool _bannerActive;
+    private bool _previewVisible;
     private bool _restartNoticeActive;
     private PhysicalRect? _lagMarkZone;
 
@@ -94,6 +96,14 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
         context.Messenger.Register<ActivationOfferCoordinator, EyeCareBannerActiveMessage>(this, (_, message) =>
         {
             _bannerActive = message.Active;
+            RecomputeSuspension();
+        });
+        // D16: the adaptation preview panel is a suspension input. The service publishes its
+        // visibility; it never writes the offers flag itself — this coordinator stays the single
+        // writer that recomputes from every input.
+        context.Messenger.Register<ActivationOfferCoordinator, PreviewPanelActiveMessage>(this, (_, message) =>
+        {
+            _previewVisible = message.Active;
             RecomputeSuspension();
         });
         // The restart notice card is the banner's twin: a transient dwell card over the desktop.
@@ -164,7 +174,7 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
         if (Context is null)
             return;
 
-        var reasons = new List<string>(5);
+        var reasons = new List<string>(7);
         if (_modal.SettingsOpen)
             reasons.Add("Settings");
         if (_modal.ProbeOpen)
@@ -175,6 +185,8 @@ internal sealed class ActivationOfferCoordinator : CoordinatorBase
             reasons.Add("quick actions");
         if (_bannerActive)
             reasons.Add("eye-care banner");
+        if (_previewVisible)
+            reasons.Add("adaptation preview");
         if (_restartNoticeActive)
             reasons.Add("restart notice");
 

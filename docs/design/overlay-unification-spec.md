@@ -7,14 +7,15 @@
 
 ## 1. Problem Statement
 
-EyeCtrl has 31 overlay windows and 7 dwell controls — 28 with XAML (27 under
+EyeCtrl has 32 overlay windows and 7 dwell controls — 29 with XAML (28 under
 `Overlays/`, including `ActivationButtonWindow`, plus `SettingsWindow` under
 `Views/`, which also derives from `OverlayWindow`) and 3 without XAML (the
 code-only `NoteWindow`, `RepeatCursorWindow` and `SubPixelProbeWindow`). Re-counted against merged `main` at
 b8295b6, which includes PRs #70 and #71, plus the T15 restart notice card
 (`RestartNoticeWindow`, built on theme tokens from the start), the sub-pixel visibility probe
-(`SubPixelProbeWindow`) and the T0(a) lag-mark button (`LagMarkWindow`, the 27th XAML window under
-`Overlays/`); enforced by
+(`SubPixelProbeWindow`), the T0(a) lag-mark button (`LagMarkWindow`, main's 27th XAML window
+under `Overlays/` — the 28th here, where the adaptation preview panel adds its own row) and
+the adaptation preview panel itself; enforced by
 `OverlayInventoryDriftTests`. Each was built at a different time, introducing accumulated style drift:
 
 - **10 different background colors** used across overlays
@@ -43,44 +44,71 @@ The result is a UI that feels like a patchwork of different apps rather than one
 
 ### 3.1 Overlay Backgrounds
 
-| Overlay | Class | Current Background | Format |
-|---|---|---|---|
-| Keyboard | `KeyboardWindow` | `#F0181818` | XAML |
-| Toolbar | `ToolbarWindow` | `#E0202020` | XAML |
-| QuickActionsGrid | `QuickActionsGridWindow` | `#1A1A2E` + `Opacity="0.95"` | XAML |
-| Settings | `SettingsWindow` | `#E01E1E1E` | XAML |
-| Splash | `SplashWindow` | `#F0181818` | XAML |
-| TrackStatus | `TrackStatusWindow` | `#80000000` | XAML |
-| TaskSwitcher | `TaskSwitcherWindow` | `#E6000000` | XAML |
-| ModesMenu | `ModesMenuWindow` | transparent window; panel border `BrushSurfaceDark` (palette token) | XAML |
-| RepeatCursor | `RepeatCursorWindow` | transparent | code-only |
-| PauseIndicator | `PauseIndicatorWindow` | `#C0204060` | XAML |
-| EyeCareBanner | `EyeCareBannerWindow` | `#F0181830` | XAML |
-| EyeCareExercise | `EyeCareExerciseWindow` | `#E8000000` | XAML |
-| Calibration | `CalibrationWindow` | `#DD000000` | XAML |
-| ActivationButton | `ActivationButtonWindow` | `#80000000` | code-behind |
-| DwellFeedback | `DwellFeedbackOverlay` | `#1A3399FF` | XAML |
-| ScrollOverlay | `ScrollOverlayWindow` | `Transparent` | XAML |
-| GlassBackdrop | `GlassBackdropWindow` | `Transparent` | XAML |
-| ManualSelection | `ManualSelectionOverlayWindow` | `Transparent` | XAML |
-| CursorCircle | `CursorCircleWindow` | `Transparent` | XAML |
-| ActionMenu | `ActionMenuWindow` | `Transparent` | XAML |
-| EdgeButtonBar | `EdgeButtonBarWindow` | `Transparent` | XAML |
-| TargetHighlight | `TargetHighlightWindow` | `Transparent` | XAML |
-| ManualGazeIndicator | `ManualSelectionGazeIndicatorWindow` | `Transparent` | XAML |
-| DragTrail | `DragTrailOverlay` | `Transparent` | XAML |
-| **AdaptationCue** | `CueOverlayWindow` | `Transparent` + `Ellipse Fill="#FFB300"` | XAML |
-| **DriftNotice** | `DriftNoticeWindow` | `Transparent` + `Border #E0202020` | XAML |
-| **CaregiverAlert** | `CaregiverAlertWindow` | `Transparent` + `Border #E0202020` | XAML |
-| **RestartNotice** | `RestartNoticeWindow` | `Transparent` + `Border BrushSurfaceDark` (palette token) | XAML |
-| **LagMark** | `LagMarkWindow` | `Transparent` + `Border BrushSurfaceLight` (palette token; labelled "Lag") | XAML |
-| **Note** | `NoteWindow` | `#1A1A2E` | code-only, no XAML |
-| **SubPixelProbe** | `SubPixelProbeWindow` | follows the theme's `SurfaceDark` token (light under Daylight) + full-screen backdrop image | code-only, no XAML |
+| Overlay | Class | Current Background | Format | D17 collision |
+|---|---|---|---|---|
+| Keyboard | `KeyboardWindow` | `#F0181818` | XAML | collision-zone |
+| Toolbar | `ToolbarWindow` | `#E0202020` | XAML | exempt:anchor source — §3.3 places the panel beyond the strip end by construction |
+| QuickActionsGrid | `QuickActionsGridWindow` | `#1A1A2E` + `Opacity="0.95"` | XAML | exempt:modal |
+| Settings | `SettingsWindow` | `#E01E1E1E` | XAML | exempt:modal |
+| Splash | `SplashWindow` | `#F0181818` | XAML | exempt:startup, non-interactive |
+| TrackStatus | `TrackStatusWindow` | `#80000000` | XAML | exempt:non-interactive feedback |
+| TaskSwitcher | `TaskSwitcherWindow` | `#E6000000` | XAML | exempt:modal |
+| ModesMenu | `ModesMenuWindow` | transparent window; panel border `BrushSurfaceDark` (palette token) | XAML | collision-zone |
+| RepeatCursor | `RepeatCursorWindow` | transparent | code-only | exempt:non-interactive indicator |
+| PauseIndicator | `PauseIndicatorWindow` | `#C0204060` | XAML | exempt:non-interactive feedback |
+| EyeCareBanner | `EyeCareBannerWindow` | `#F0181830` | XAML | exempt:modal |
+| EyeCareExercise | `EyeCareExerciseWindow` | `#E8000000` | XAML | exempt:modal |
+| Calibration | `CalibrationWindow` | `#DD000000` | XAML | exempt:modal |
+| ActivationButton | `ActivationButtonWindow` | `#80000000` | code-behind | exempt:offers are suspended while the panel is up (D16) |
+| DwellFeedback | `DwellFeedbackOverlay` | `#1A3399FF` | XAML | exempt:feedback ring — the dwell targets are the SDK client's own rects, inventoried via `ExternalDwellService.LiveTargetRects` |
+| ScrollOverlay | `ScrollOverlayWindow` | `Transparent` | XAML | exempt:non-interactive — scroll's exits are edge-bar buttons |
+| GlassBackdrop | `GlassBackdropWindow` | `Transparent` | XAML | exempt:non-interactive backdrop |
+| ManualSelection | `ManualSelectionOverlayWindow` | `Transparent` | XAML | exempt:modal magnifier — its exits are edge-bar buttons |
+| CursorCircle | `CursorCircleWindow` | `Transparent` | XAML | exempt:the gaze cursor itself |
+| ActionMenu | `ActionMenuWindow` | `Transparent` | XAML | collision-zone |
+| EdgeButtonBar | `EdgeButtonBarWindow` | `Transparent` | XAML | collision-zone |
+| TargetHighlight | `TargetHighlightWindow` | `Transparent` | XAML | exempt:non-interactive highlight |
+| ManualGazeIndicator | `ManualSelectionGazeIndicatorWindow` | `Transparent` | XAML | exempt:non-interactive indicator |
+| DragTrail | `DragTrailOverlay` | `Transparent` | XAML | exempt:non-interactive trail |
+| **AdaptationCue** | `CueOverlayWindow` | `Transparent` + `Ellipse Fill="#FFB300"` | XAML | exempt:non-interactive cue |
+| **DriftNotice** | `DriftNoticeWindow` | `Transparent` + `Border #E0202020` | XAML | exempt:non-interactive banner |
+| **CaregiverAlert** | `CaregiverAlertWindow` | `Transparent` + `Border #E0202020` | XAML | exempt:non-interactive banner |
+| **AdaptationPreview** | `AdaptationPreviewWindow` | `Transparent` + token-bordered card (all values from `Tokens`) | XAML | exempt:it is the panel itself |
+| **RestartNotice** | `RestartNoticeWindow` | `Transparent` + `Border BrushSurfaceDark` (palette token) | XAML | collision-zone |
+| **LagMark** | `LagMarkWindow` | `Transparent` + `Border BrushSurfaceLight` (palette token; labelled "Lag") | XAML | collision-zone |
+| **Note** | `NoteWindow` | `#1A1A2E` | code-only, no XAML | collision-zone |
+| **SubPixelProbe** | `SubPixelProbeWindow` | follows the theme's `SurfaceDark` token (light under Daylight) + full-screen backdrop image | code-only, no XAML | exempt:modal — the screen-owning diagnostics run (keyboard feed, summon, auto-hide and the ring all yield while `ProbeOpen`; the activation-offer coordinator suspends offers on it) |
 
 The **Class** column is the match key for the drift-guard test
 (`tests/EyeCtrl.App.Tests/OverlayInventoryDriftTests.cs`): every concrete
 `OverlayWindow` subclass in `EyeCtrl.App` must appear here, and every name here
 must resolve to a real type. Adding an overlay without a row fails the build.
+
+The **D17 collision** column is the same guard's second rule (Task 11): every row
+must end with `collision-zone` or `exempt:<reason>`, and the `collision-zone` set
+must equal the named sources of `GazeConsumerInventory.Live()` — the adaptation
+preview panel's collision inventory — in BOTH directions. A class marked
+`collision-zone` that the inventory does not report is a claim nothing enforces;
+a reported source classified `exempt` is silent unprotection. `EdgeButtonBarWindow`
+counts once as a class but covers BOTH of its instances (the shared bar and the
+action-menu modifier bar). `NoteWindow`'s rects come from `NoteManager`'s live
+dwell-target set (its own detector — the note buttons ARE the window's interactive
+surface; review F1 reclassified it from a circular exemption that recorded the
+implementation instead of a safety property). `RestartNoticeWindow`'s rect is its
+close button's dwell target, read the same way (its own detector's snapshot — the
+card's interactive surface), reached through `RestartNoticeBridge` because the card
+is App-owned rather than a DI singleton. `LagMarkWindow` (second merge, #215) is the
+same shape again — a click-through, non-modal session fixture over the desktop with
+its own detector on the grown hit area — so its rect reaches the inventory through
+`LagMarkBridge` the same way, and the re-check triggers on the host's
+`LagMarkZoneMessage` (republished on show, hide and chrome-follow move).
+`SubPixelProbeWindow` (second merge) is the one new window classified `exempt:modal`:
+while `ProbeOpen` the probe owns the screen — the keyboard feed, the summon, the
+auto-hide and the ring all yield, and the offer coordinator suspends offers — the
+Calibration-row taxonomy, not the card's. External dwell
+contributes no row of its own because its rects belong to the SDK client apps,
+not to an `OverlayWindow` of ours. A new overlay must make the call explicitly;
+there is no default classification.
 
 **Finding:** 15 overlays carry a container fill (14 with a literal dark background; the
 sub-pixel probe follows the theme's `SurfaceDark` token behind its full-screen backdrop
@@ -95,7 +123,12 @@ guarantee, not merely a token swap. Three of the fourteen (`AdaptationCue`,
 no Settings window open) arrived after this audit's counts below were taken. It is a
 transparent window hosting a filled `Border`, like `DriftNotice` and `CaregiverAlert`, but
 it uses palette tokens (`BrushSurfaceDark`, `BrushBorderSubtle`) and theme font tokens,
-so it adds no legacy value to migrate. The counts in this section and §3.2 describe the
+so it adds no legacy value to migrate. Unlike those two banners, however, the card is
+**interactive** — it runs its own `DwellDetector` over a `restart_notice_close` target —
+so its §3.1 classification is `collision-zone`, not a non-interactive exemption: it is a
+real gaze consumer, and the panel must treat a shown card as a collision source (the
+preview offer itself is separately suspended while the card is up, D16's combined flag).
+The counts in this section and §3.2 describe the
 28 audited windows.
 
 **Post-merge additions (PRs #70/#71).** `CueOverlayWindow` and `DriftNoticeWindow`

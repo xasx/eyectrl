@@ -107,7 +107,9 @@ public class ToolbarOrientationTests
     [StaFact]
     public void TheAxisFlipRebuildsTheBandWithoutLosingAButton()
     {
-        var (window, _) = ToolbarTestHelpers.NewBoundToolbar();
+        // includeReset: true — the id list below includes ResetAdaptation. Membership ACROSS the
+        // flip (the stored flag, P17) is pinned by ToolbarButtonVisualTests.
+        var (window, _) = ToolbarTestHelpers.NewBoundToolbar(includeReset: true);
         string[] ids = { "Pause", "SelectionMode", "Keyboard", "Settings", "TaskSwitcher", "ResetAdaptation" };
 
         window.SetMode(isDocked: true, "left");

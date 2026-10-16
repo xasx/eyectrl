@@ -177,6 +177,38 @@ public sealed class ExternalDwellService : IDisposable
         get { lock (_stateLock) return _targetsById.Count; }
     }
 
+    /// <summary>
+    /// The registered external-dwell targets' rects, physical px (Task 11's D17 source): the
+    /// surfaces a cooperating app has declared dwellable — the preview panel's collision inventory
+    /// must not cover them. Read under <see cref="_stateLock"/> exactly like every other
+    /// enumeration of <c>_targetsById</c> (the pipe handlers mutate it on thread-pool threads
+    /// while this is called from the UI thread). Rect targets report their bounds; a circular
+    /// target (no bounds — none arrive via the pipe today, but the detector API allows them)
+    /// reports its centre ± hit radius as a covering rect. Returns a fresh snapshot: callers may
+    /// hold it across lock boundaries.
+    /// </summary>
+    public IReadOnlyList<PhysicalRect> LiveTargetRects()
+    {
+        lock (_stateLock)
+        {
+            if (_targetsById.Count == 0)
+                return Array.Empty<PhysicalRect>();
+            var rects = new List<PhysicalRect>(_targetsById.Count);
+            foreach (var target in _targetsById.Values)
+            {
+                if (target.Bounds is { } bounds)
+                    rects.Add(bounds);
+                else
+                    rects.Add(new PhysicalRect(
+                        target.Center.X - target.Radius,
+                        target.Center.Y - target.Radius,
+                        target.Radius * 2,
+                        target.Radius * 2));
+            }
+            return rects;
+        }
+    }
+
     private void OnCursorMoved(GazeFrame frame)
     {
         if (!_settings.Enabled
@@ -350,9 +382,11 @@ public sealed class ExternalDwellService : IDisposable
                     _targetsById[r.Id] = target;
                     _detector.AddTarget(target);
                 }
+                RaiseTargetsChanged();
                 break;
 
             case UpdateMessage u:
+                bool updated = false;
                 lock (_stateLock)
                 {
                     if (conn.TargetIds.Contains(u.Id))
@@ -373,8 +407,11 @@ public sealed class ExternalDwellService : IDisposable
                             _hwndById[u.Id] = conn.Hwnd;
                             _detector.AddTarget(target);
                         }
+                        updated = true;
                     }
                 }
+                if (updated)
+                    RaiseTargetsChanged();
                 break;
 
             case UnregisterMessage un:
@@ -395,9 +432,22 @@ public sealed class ExternalDwellService : IDisposable
                     _hwndById.Remove(un.Id);
                     _detector.RemoveTarget(un.Id);
                 }
+                RaiseTargetsChanged();
                 break;
         }
     }
+
+    /// <summary>
+    /// Fix-wave F5: the three pipe arms that structurally change the registered target set
+    /// (register / update / unregister) announce it, so the D17 gaze-consumer inventory re-runs
+    /// the preview panel's collision check. <see cref="ExternalDwellActiveMessage"/> — the only
+    /// external trigger before — fires from <c>SetCursorRingHidden</c>, i.e. only once gaze has
+    /// ENTERED a target, so a client registering or moving a target under a visible panel was
+    /// not re-checked until the reader was already dwelling it. Dispatcher-marshalled like every
+    /// other message this service sends from its pipe threads.
+    /// </summary>
+    private void RaiseTargetsChanged() =>
+        _dispatcher.BeginInvoke(() => _messenger.Send(new ExternalDwellTargetsChangedMessage()));
 
     private void SendActivated(string id)
     {

@@ -323,6 +323,12 @@
       "Reason": "A dwell-target id."
     },
     {
+      "Path": "src/EyeCtrl.App/Services/AdaptationPreviewService.cs",
+      "Literal": "\"adaptation-preview\"",
+      "Category": "id",
+      "Reason": "The P8 auto-hide suspension holder name (Task 10) — an ownership token keyed into ToolbarLifecycleCoordinator's holder set, never rendered."
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/AppBootstrapper.cs",
       "Literal": "\"EyeCtrl\"",
       "Category": "product",
@@ -1029,6 +1035,12 @@
       "Literal": "\"EyeCtrl Supervisor\"",
       "Category": "product",
       "Reason": "The product name, which stays literal in every language (T06 decision)."
+    },
+    {
+      "Path": "src/EyeCtrl.ViewModels/Adaptation/ResetPreviewEngine.cs",
+      "Literal": "\"ResetAdaptation\"",
+      "Category": "id",
+      "Reason": "A dwell-target id (the toolbar Reset button's target id, shared with the engine)."
     },
     {
       "Path": "src/EyeCtrl.ViewModels/DragTrailViewModel.cs",

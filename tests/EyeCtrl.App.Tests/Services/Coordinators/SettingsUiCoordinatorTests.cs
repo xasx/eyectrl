@@ -1,8 +1,14 @@
 namespace EyeCtrl.App.Tests.Services.Coordinators;
 
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.Messaging;
+using EyeCtrl.App.Services;
 using EyeCtrl.App.Services.Coordinators;
 using EyeCtrl.Core.Models;
+using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Settings;
 using EyeCtrl.ViewModels;
 using Xunit;
@@ -79,6 +85,217 @@ public class SettingsUiCoordinatorTests
     {
         Check.That(SettingsUiCoordinator.ShouldRefreshPredictionBar(reloaded, keyboardVisible))
             .IsEqualTo(expected);
+    }
+
+    // ── Task 9: the live Enabled-flip rebuild (ReinitializeToolbar + the PropertyChanged seam) ──
+    //
+    // The settings UI mutates the live settings object as the user toggles, so an
+    // AdaptationSettings.Enabled flip arrives as PropertyChanged BEFORE any save/SettingsChanged.
+    // The band must follow the flip immediately (Reset appears/disappears, D5/M5), and the
+    // save-path re-init that follows an Apply must not rebuild the band a second time for the
+    // same state. Initialized through the shared TestFakes context (real dispatcher + messenger
+    // + interaction manager; the toolbar is a recording fake — a real ToolbarWindow is
+    // ToolbarBandRenderedButtonsTests' territory).
+
+    /// <summary>Records Initialize calls; everything else is a no-op — only band membership
+    /// (includeReset) and its metrics are what this suite pins.</summary>
+    private sealed class RecordingToolbar : IToolbarOverlay
+    {
+        public List<(double ButtonSize, int DwellMs, bool IncludeReset)> InitializeCalls { get; } = new();
+
+        public bool IsVisible => false;
+        public bool TargetsInitialized => false;
+        public bool IsSliding => false;
+        public bool IsOnScreen => false;
+        public double ExtentDip => 0;
+
+        public void Show() { }
+        public void Hide() { }
+
+        public void Initialize(double buttonSize, int dwellTimeMs, bool includeReset) =>
+            InitializeCalls.Add((buttonSize, dwellTimeMs, includeReset));
+
+        public void SetMode(bool isDocked, string edge) { }
+        public void SetSelectionModeState(SelectionMode mode) { }
+        public void SetPausedState(bool isPaused) { }
+        public void UpdateGaze(PhysicalPoint screenPoint, long timestampMicroseconds) { }
+        public void BindToViewModel() { }
+        public void ShowAtRest() { }
+        public void ShowThenSlideIn() { }
+        public void SlideOutThenHide(Action onHidden) { }
+        public PhysicalRect GetPhysicalBounds() => new(0, 1040, 1920, 40);
+    }
+
+    private sealed class InitializedCoordinator : IDisposable
+    {
+        public SettingsUiCoordinator Coordinator { get; }
+        public RecordingToolbar Toolbar { get; } = new();
+        public EyeCtrlSettings Settings { get; } = new();
+        public Dispatcher Dispatcher { get; } = Dispatcher.CurrentDispatcher;
+
+        public InitializedCoordinator()
+        {
+            var ctx = TestFakes.MakeContext(new TestFakes.FakeInputSimulator()) with
+            {
+                Settings = Settings,
+                Dispatcher = Dispatcher,
+                Messenger = new WeakReferenceMessenger(),
+                InteractionManager = new InteractionManager(),
+                OverlayManager = TestFakes.MakeOverlayManager(
+                    toolbar: Toolbar,
+                    cursorCircle: new TestFakes.FakeCursorCircleOverlay(),
+                    trackStatus: new TestFakes.FakeTrackStatusOverlay()),
+            };
+            var modal = new ModalInteractionState();
+            Coordinator = new SettingsUiCoordinator(modal,
+                new QuickActionsCoordinator(modal),
+                new ToolbarLifecycleCoordinator(modal),
+                new KeyboardCoordinator(modal,
+                    new QuickActionsCoordinator(modal),
+                    new ToolbarLifecycleCoordinator(modal)));
+            Coordinator.Initialize(ctx);
+        }
+
+        public void Dispose() => Coordinator.Dispose();
+    }
+
+    /// <summary>Drives the save path: production wires OnSettingsChanged to
+    /// SettingsWindow.SettingsChanged, which no headless test can construct. Reflection invoke is
+    /// this repo's established pattern for exactly this (SupervisorTrayIconTests raises the menu's
+    /// OnOpening the same way).</summary>
+    private static void ApplySettingsSave(SettingsUiCoordinator coordinator, EyeCtrlSettings settings)
+    {
+        typeof(SettingsUiCoordinator)
+            .GetMethod("OnSettingsChanged", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(coordinator, [settings]);
+    }
+
+    /// <summary>Drains the dispatcher queue: run everything queued at/above Background priority.</summary>
+    private static void Pump(Dispatcher dispatcher) =>
+        dispatcher.Invoke(() => { }, DispatcherPriority.Background);
+
+    [StaFact]
+    public void AdaptationEnabledFlip_RebuildsTheBand_WithTheLiveFlag()
+    {
+        using var c = new InitializedCoordinator();
+
+        c.Settings.Adaptation.Enabled = true;
+        Pump(c.Dispatcher);
+
+        Check.That(c.Toolbar.InitializeCalls).HasSize(1);
+        Check.That(c.Toolbar.InitializeCalls[0].IncludeReset).IsTrue();
+
+        c.Settings.Adaptation.Enabled = false;
+        Pump(c.Dispatcher);
+
+        Check.That(c.Toolbar.InitializeCalls).HasSize(2);
+        Check.That(c.Toolbar.InitializeCalls[1].IncludeReset).IsFalse();
+    }
+
+    [StaFact]
+    public void AdaptationEnabledFlip_IsMarshalledThroughTheDispatcher()
+    {
+        // The flip may be raised on whatever thread mutated the property; the rebuild touches
+        // overlay windows, so it must land on the UI thread's dispatcher, not run inline.
+        using var c = new InitializedCoordinator();
+
+        c.Settings.Adaptation.Enabled = true;
+        Check.That(c.Toolbar.InitializeCalls).IsEmpty();
+
+        Pump(c.Dispatcher);
+        Check.That(c.Toolbar.InitializeCalls).HasSize(1);
+    }
+
+    [StaFact]
+    public void NonEnabledAdaptationChange_DoesNotRebuildTheBand()
+    {
+        using var c = new InitializedCoordinator();
+
+        c.Settings.Adaptation.Posture = AdaptationPosture.Balanced;
+        Pump(c.Dispatcher);
+
+        Check.That(c.Toolbar.InitializeCalls).IsEmpty();
+    }
+
+    [StaFact]
+    public void ToolbarMetricsSave_ReinitializesOnce_UnchangedByTheFlipWiring()
+    {
+        // The pre-Task-9 behavior, pinned so the factoring cannot lose it: a save that changes a
+        // toolbar metric rebuilds the band exactly once, Enabled untouched.
+        using var c = new InitializedCoordinator();
+
+        c.Settings.Toolbar.Size += 8;
+        ApplySettingsSave(c.Coordinator, c.Settings);
+        Pump(c.Dispatcher);
+
+        Check.That(c.Toolbar.InitializeCalls).HasSize(1);
+    }
+
+    [StaFact]
+    public void ToolbarChangeAndEnabledFlipInTheSameSave_ReinitializeExactlyOnce_FlipFirst()
+    {
+        // Production order: the UI mutates live (the flip queues a rebuild via PropertyChanged),
+        // then ApplyAndSave raises SettingsChanged. The queued rebuild applies the new metrics AND
+        // the new flag; the save's snapshot branch must recognize the state as already applied.
+        using var c = new InitializedCoordinator();
+
+        c.Settings.Toolbar.Size += 8;
+        c.Settings.Adaptation.Enabled = true;
+        Pump(c.Dispatcher);
+        Check.That(c.Toolbar.InitializeCalls).HasSize(1);
+
+        ApplySettingsSave(c.Coordinator, c.Settings);
+        Pump(c.Dispatcher);
+
+        Check.WithCustomMessage(
+                "A toolbar-metrics change plus an adaptation flip in one save rebuilt the band "
+                + "more than once.")
+            .That(c.Toolbar.InitializeCalls).HasSize(1);
+        Check.That(c.Toolbar.InitializeCalls[0].IncludeReset).IsTrue();
+    }
+
+    [StaFact]
+    public void ToolbarChangeAndEnabledFlipInTheSameSave_ReinitializeExactlyOnce_SaveFirst()
+    {
+        // The guard must not depend on sequencing: if the save's rebuild runs before the queued
+        // flip callback (or the flip is mutated without a pump in between), the callback must
+        // find the state already applied and no-op — and a later flip back must still rebuild,
+        // proving the guard remembers BOTH terms (metrics and flag), not just the snapshot.
+        using var c = new InitializedCoordinator();
+
+        c.Settings.Toolbar.Size += 8;
+        c.Settings.Adaptation.Enabled = true;
+
+        ApplySettingsSave(c.Coordinator, c.Settings);
+        Check.That(c.Toolbar.InitializeCalls).HasSize(1);
+
+        Pump(c.Dispatcher);   // the queued flip callback lands after the save's rebuild
+        Check.WithCustomMessage(
+                "The queued Enabled-flip callback rebuilt the band a second time for state the " +
+                "save path had already applied.")
+            .That(c.Toolbar.InitializeCalls).HasSize(1);
+
+        c.Settings.Adaptation.Enabled = false;
+        Pump(c.Dispatcher);
+        Check.That(c.Toolbar.InitializeCalls).HasSize(2);
+        Check.That(c.Toolbar.InitializeCalls[1].IncludeReset).IsFalse();
+    }
+
+    [StaFact]
+    public void FlipAfterDispose_DoesNotReachTheToolbar()
+    {
+        // The subscription must die with the coordinator (the class's TrackStatus precedent):
+        // the settings object outlives it, so a stale handler would rebuild the band forever.
+        var c = new InitializedCoordinator();
+        var toolbar = c.Toolbar;
+        var settings = c.Settings;
+        var dispatcher = c.Dispatcher;
+        c.Dispose();
+
+        settings.Adaptation.Enabled = true;
+        Pump(dispatcher);
+
+        Check.That(toolbar.InitializeCalls).IsEmpty();
     }
 
     // ── W2 (b): Settings' close path must not fight the probe (build plan C9) ─────────────────

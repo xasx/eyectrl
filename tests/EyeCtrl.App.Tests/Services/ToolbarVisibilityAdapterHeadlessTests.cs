@@ -81,7 +81,7 @@ public class ToolbarVisibilityAdapterHeadlessTests
             _log.Add("Toolbar.SlideOutCompleted");
         }
 
-        public void Initialize(double buttonSize, int dwellTimeMs) => _log.Add("Toolbar.Initialize");
+        public void Initialize(double buttonSize, int dwellTimeMs, bool includeReset) => _log.Add("Toolbar.Initialize");
         public void SetMode(bool isDocked, string edge) => _log.Add("Toolbar.SetMode");
         public void SetSelectionModeState(SelectionMode mode) => _log.Add("Toolbar.SetSelectionModeState");
         public void SetPausedState(bool isPaused) => _log.Add("Toolbar.SetPausedState");

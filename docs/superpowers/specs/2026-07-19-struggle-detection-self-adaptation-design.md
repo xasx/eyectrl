@@ -24,12 +24,14 @@ must be **conservative, visible, reversible, and incapable of locking the user o
   target size/geometry — in a way that keeps the user able to act.
 - Learn a slow, bounded, **forgiving-only** per-context baseline layered *under* the momentary response.
 - Keep the user informed (subtle cue), keep a reviewable log, alert a caregiver on sustained
-  trouble, and always offer an instant escape back to baseline.
+  trouble, and always offer an escape back to baseline — instant via the tray, a bounded two-step
+  from the toolbar (§8.6, amended 2026-10-13).
 
 **Non-Goals**
 - **Never auto-modify the calibration transform.** Drift is *detected and reported* only.
 - **No blanket "struggle ⇒ longer dwell."** Longer dwell applies *only* to the accidental-activation
-  failure mode, bounded and instantly escapable (R1-round Finding 1).
+  failure mode, bounded, and escapable — instantly via the tray, in a bounded two-step from the
+  toolbar (§8.6 amendment; R1-round Finding 1).
 - **No visual-only size changes.** The visible cursor is never resized without atomically changing
   the actual hit geometry.
 - **No learned auto-tightening past the user's baseline.**
@@ -298,7 +300,8 @@ Per tick, each knob moves toward the transform target for the currently classifi
 - Recover **gently** below `RecoverThreshold` (default `0.25`): step `RecoverStepFraction` (default `0.05`) toward 0.
 - **Deadband** between thresholds ⇒ no change.
 - The only tightening move (longer dwell for accidental activation) lives in its own sub-band (§5),
-  bounded well inside the validated range, and is instantly escapable.
+  bounded well inside the validated range, and is escapable — instantly via the tray reset, in a
+  bounded two-step from the toolbar (§8.6 amendment, 2026-10-13).
 
 ### 7.3 In-progress dwell during a geometry/timing change (2nd-round C4)
 
@@ -364,17 +367,33 @@ not logged); `reason` → dropped (redundant with `kind`, the only two of which 
 
 1. **Default direction keeps you able to act** — dominant responses make interaction easier to complete.
 2. **The single tightening move is quarantined** — longer dwell applies only to the separately detected
-   accidental-activation mode, lives in its own bounded sub-band, and is instantly escapable.
+   accidental-activation mode, lives in its own bounded sub-band, and is escapable with a bounded
+   worst case — instantly via the tray, in a two-step from the toolbar (amendment below).
 3. **Zero delta ⇒ exact baseline.**
 4. **Sub-bands strictly inside validated ranges.**
 5. **Calibration off-limits** — detect + report + temporary tolerance compensation only.
-6. **Always-reachable escape** — a large toolbar reset/pause button; mirrored in the tray.
+6. **Always-reachable escape** — a large toolbar reset/pause button; mirrored in the tray. The toolbar
+   path is a bounded two-step (amendment below); the tray path remains a single-step instant escape.
 7. **Learned layer is forgiving-only and decays toward baseline.**
 8. **Hysteresis + deadband** everywhere.
 9. **Size changes are atomic** — visible size never changes without hit geometry changing with it.
 10. **No feedback leakage** — cue/toast/verbose logging suppressed in sensitive (password) contexts;
     adaptation itself still functions silently.
 11. **Smoothing rebuilds are continuous** — no cold-filter cursor jump (§5, R1).
+
+**§8.2/§8.6 amendment (2026-10-13, feature spec `2026-10-13-adaptation-preview-and-reset-visibility-design.md`
+§7; D12/D13/D4).** Both invariants originally promised an "instant escape" / "instantly escapable" (the §2
+Goals/Non-Goals and §7.2 phrasing above said the same, and is scoped to match). The adaptation-preview
+feature put a **seen-latch freeze** on the toolbar Reset — resting on it freezes a preview of what Reset
+would undo instead of firing mid-read — so the **toolbar** escape is now a **two-step**: a freeze-preview
+pass, a debounced leave (120 ms continuously off the button ∪ panel union), then one full armed dwell
+**returned within 3 s of arming** (after expiry the sequence restarts with a preview). The escape stays
+always-reachable and *bounded* rather than instant: **worst case to reset = `0.40 × ToolbarButtonDwellMs` +
+120 ms + return + `1 × ToolbarButtonDwellMs`** — at defaults ≈ 1.1 s plus the return; the dwell term may
+itself be shortened by live adaptation. The invariant's substance is unchanged — no lockout, no unbounded
+path back to baseline, and the escape still clears momentary AND learned when it fires (§7.4 resolution).
+The **tray** Reset item remains a single-step instant escape (mouse path), and Settings' "Reset learned
+offsets" is unchanged.
 
 ## 9. Threading & Performance (1st-round Finding 7, refined by 2nd-round C3)
 

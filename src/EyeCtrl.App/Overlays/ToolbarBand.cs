@@ -106,6 +106,26 @@ internal sealed class ToolbarBand
     /// </summary>
     private readonly Dictionary<string, DispatcherTimer> _flashTimers = new();
 
+    /// <summary>
+    /// Ids currently carrying the D18 frozen-silent cue (an engagement is live but no panel is
+    /// shown). Consulted by <see cref="PaintFace"/> between <see cref="_flashingIds"/> and
+    /// <see cref="_acquiredIds"/>, so the cue is independent of call order with the flash and the
+    /// acquisition — same pattern as those two sets. Deliberately NOT cleared by
+    /// <see cref="Build"/>: an engagement survives a rebuild (only an absent Reset or a disarm
+    /// ends it), and <see cref="AddButton"/>'s PaintFace call is what re-applies the doubled rim
+    /// to the fresh Ellipse, the same way it re-applies acquired state.
+    /// </summary>
+    private readonly HashSet<string> _frozenSilentIds = new();
+
+    /// <summary>
+    /// The rim width <see cref="DwellArcButton.Create"/> draws every disc at: DwellArcButton's
+    /// private <c>RimThickness</c> (DwellArcButton.cs), duplicated here because
+    /// EyeCtrl.Controls grants no InternalsVisibleTo to this assembly and the cue must both
+    /// double it and restore it. The two must move together — if DwellArcButton's rim ever
+    /// changes, this constant (and the 4 DIP the cue derives from it) change with it.
+    /// </summary>
+    private const double RimThicknessDip = 2;   // DwellArcButton.RimThickness — keep in step
+
     internal ToolbarBand(Canvas canvas) => _canvas = canvas;
 
     /// <summary>Centre-to-centre spacing: the button plus its margin on both sides.</summary>
@@ -133,10 +153,22 @@ internal sealed class ToolbarBand
     /// <c>var buttons = new (string Id, string ...</c> prefix below and fails loudly if it moves,
     /// so it cannot silently start checking nothing.
     /// </para>
+    ///
+    /// <para>
+    /// Reset is on the band only while adaptation is enabled (Task 7, D5/M5): the one
+    /// unrecoverable action must not be offered when there is nothing to reset. The entry STAYS
+    /// in the array below and the view-model's list and activation case stay unconditional
+    /// (D11) — membership is a runtime filter, not a deletion, so the drift guard still reads
+    /// the id and an Enabled flip is a rebuild, not a code path. Dropping the entry removes the
+    /// separator and the <see cref="ResetGap"/> with it: <see cref="LayOut"/> adds both only for
+    /// <see cref="ResetId"/>.
+    /// </para>
     /// </summary>
     /// <param name="buttonSize">Button diameter in DIP.</param>
     /// <param name="vertical">Whether the band runs down the screen rather than across it.</param>
-    internal void Build(double buttonSize, bool vertical)
+    /// <param name="includeReset">Whether the band carries the Reset button — the caller's
+    /// <c>AdaptationSettings.Enabled</c>.</param>
+    internal void Build(double buttonSize, bool vertical, bool includeReset)
     {
         _buttonSize = buttonSize;
         _vertical = vertical;
@@ -155,6 +187,12 @@ internal sealed class ToolbarBand
             ("Modes",           "Modes"),
             ("ResetAdaptation", "ResetAdaptation"),
         };
+
+        // Filtering the declared array, not conditionally appending: the declaration above stays
+        // whole, which is what ToolbarButtonDriftTests' prefix-anchored extraction reads. And by
+        // the ResetId constant, not a re-typed literal — same reason the constant exists.
+        if (!includeReset)
+            buttons = Array.FindAll(buttons, b => b.Id != ResetId);
 
         LayOut(buttons);
     }
@@ -406,7 +444,7 @@ internal sealed class ToolbarBand
     }
 
     /// <summary>
-    /// The only writer of a disc's fill and rim. Both <see cref="SetAcquired"/> (writes
+    /// The only writer of a disc's fill, rim and rim width. Both <see cref="SetAcquired"/> (writes
     /// <see cref="_acquiredIds"/>) and <see cref="SetSelectionMode"/> (writes
     /// <see cref="_selectionModeBrush"/>) route through here rather than assigning
     /// <c>Background.Fill</c>/<c>Stroke</c> directly, and <see cref="AddButton"/> calls it after
@@ -425,6 +463,17 @@ internal sealed class ToolbarBand
     /// (<see cref="FillFor"/>/<see cref="RimFor"/>, which is where the mode tint and Reset's
     /// warning rim live). Stated once here as the ternary chain rather than once per call site.
     /// </para>
+    ///
+    /// <para>
+    /// <see cref="_frozenSilentIds"/> (D18) sits BETWEEN flashing and acquired: it contributes no
+    /// colour — the freeze holds <c>IsHighlighted = true</c>, so the frozen face is the ACQUIRED
+    /// face and <see cref="RimFor"/> never runs while frozen — only a doubled rim stroke, the one
+    /// thing that distinguishes "reading mode, nothing will fire" from plain acquisition. The
+    /// flash outranks it in full (width included), so the two loudest states never stack into one
+    /// face. This is the only writer of <c>StrokeThickness</c>: <see cref="DwellArcButton.Create"/>
+    /// sets it once at construction and the cue restores exactly that value
+    /// (<see cref="RimThicknessDip"/>) on every non-cue paint.
+    /// </para>
     /// </summary>
     private void PaintFace(string id)
     {
@@ -432,12 +481,30 @@ internal sealed class ToolbarBand
 
         var flashing = _flashingIds.Contains(id);
         var acquired = _acquiredIds.Contains(id);
+        var frozenSilent = _frozenSilentIds.Contains(id);
         b.Background.Fill = flashing ? Tokens.BrushSurfacePrediction
                            : acquired ? Tokens.BrushSurfaceLight
                            : FillFor(id);
         b.Background.Stroke = flashing ? Tokens.BrushAccentSuccess
                              : acquired ? Tokens.BrushBorderFocus
                              : RimFor(id);
+        b.Background.StrokeThickness =
+            frozenSilent && !flashing ? RimThicknessDip * 2 : RimThicknessDip;
+    }
+
+    /// <summary>
+    /// The D18 frozen-silent cue (R2-3): an engagement is live but no panel is shown, so the
+    /// doubled rim is the only evidence the freeze happened. Adds/removes the id from
+    /// <see cref="_frozenSilentIds"/> and repaints through <see cref="PaintFace"/> — the same
+    /// set-plus-funnel shape <see cref="SetAcquired"/> uses, for the same reason: PaintFace stays
+    /// the sole writer of the face, and this input stays independent of call order with every
+    /// other one.
+    /// </summary>
+    internal void SetFrozenSilent(string id, bool on)
+    {
+        if (on) _frozenSilentIds.Add(id);
+        else _frozenSilentIds.Remove(id);
+        PaintFace(id);
     }
 
     /// <summary>

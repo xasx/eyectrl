@@ -19,6 +19,10 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
     private readonly ModalInteractionState _modal;
     private ToolbarAutoHideController? _autoHide;
     private ToolbarVisibilityAdapter? _visibility;
+    // P8 (Task 10): the named holders whose suspensions are currently live. Empty ⇒ auto-hide runs;
+    // non-empty ⇒ suspended. A HashSet rather than a counter so an accidental double-release of one
+    // holder cannot resume under another still-open holder (a counter's -1 would).
+    private readonly HashSet<string> _autoHideSuspensionHolders = new(StringComparer.Ordinal);
     private Action<GazePoint>? _autoHideGazeHandler; // held so Dispose can unsubscribe (the lambda captures the controller local, not this field)
     // Per-sample CursorMoved route: toolbar (lazy first sample), keyboard (while open), settings
     // window (while open). Moved here from EventCoordinator.SetupGazeRouting as part of the cluster-8
@@ -175,8 +179,25 @@ internal sealed class ToolbarLifecycleCoordinator : CoordinatorBase
         probeOpen || calibrationActive;
 
     /// <summary>Suspend/resume the auto-hide dwell (called by Keyboard/Settings coordinators when a
-    /// modal opens). Wraps <see cref="ToolbarAutoHideController.SetSuspended"/>.</summary>
-    public void SetAutoHideSuspended(bool suspended) => _autoHide?.SetSuspended(suspended);
+    /// modal opens, and by the adaptation preview while its panel is up). Wraps
+    /// <see cref="ToolbarAutoHideController.SetSuspended"/>.
+    /// <para>
+    /// Named holders (Task 10, P8): the old single-bool API let a later release clobber an earlier,
+    /// still-live suspension — the preview releasing while the settings window was open resumed
+    /// auto-hide under the modal. Each caller holds and releases only its own name
+    /// (<c>"settings"</c>, <c>"adaptation-preview"</c>); the controller sees suspended iff the
+    /// holder set is non-empty.
+    /// </para>
+    /// </summary>
+    public void SetAutoHideSuspended(string holder, bool suspended)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(holder);
+        if (suspended)
+            _autoHideSuspensionHolders.Add(holder);
+        else
+            _autoHideSuspensionHolders.Remove(holder);
+        _autoHide?.SetSuspended(_autoHideSuspensionHolders.Count > 0);
+    }
 
     /// <summary>Activates/deactivates the toolbar visibility adapter (calibration suppress path).
     /// Wraps <see cref="ToolbarVisibilityAdapter.SetActive"/>.</summary>

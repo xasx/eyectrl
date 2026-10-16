@@ -9,14 +9,17 @@ using EyeCtrl.Core.Models;
 using EyeCtrl.Core.Processing;
 using EyeCtrl.Core.Services;
 using EyeCtrl.Core.Settings;
+using EyeCtrl.ViewModels.Adaptation;
 using EyeCtrl.ViewModels.Messages;
+using Microsoft.Extensions.Logging;
 
 public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     IRecipient<StateChangedMessage>,
     IRecipient<RepeatActionChangedMessage>,
     IRecipient<CalibrationCompletedMessage>,
     IRecipient<CalibrationCancelledMessage>,
-    IRecipient<SelectionModeChangedMessage>
+    IRecipient<SelectionModeChangedMessage>,
+    IRecipient<AdaptationPreviewBoundsMessage>
 {
     private readonly Dictionary<string, ToolbarButtonViewModel> _buttonLookup = new();
 
@@ -60,6 +63,32 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
 
     [ObservableProperty] private bool _isPaused;
 
+    // --- Adaptation preview (Task 6): the Reset-button seen-latch freeze, wired in ---
+
+    // The preview state machine. Sample-driven, like everything else in this class: the engine has
+    // no clock, so Receive hands it each sample's timestamp and OnTargetProgress the cached one.
+    private readonly ResetPreviewEngine _previewEngine;
+
+    // Last on-screen center per positioned button id — the source for re-anchoring the preview and
+    // for SetRenderedButtons' cleanup of ids the band no longer renders.
+    private readonly Dictionary<string, PhysicalPoint> _lastCenters = new();
+
+    // Sample clock for OnTargetProgress routing: DwellDetector.TargetProgress carries no timestamp,
+    // so the last timestamp Receive saw is the honest stand-in for "when this progress happened".
+    private long _lastSampleTimestampUs;
+
+    // Engagement id of the last bounds report, so the visibility handler can tell a cancel that
+    // never heard from the service (the D14 timeout / silent-service fallback) from a normal hide.
+    private int _boundsReportedEngagementId = -1;
+
+    private readonly ILogger<ToolbarViewModel>? _logger;
+
+    /// <summary>
+    /// True while a preview engagement is live but no panel is shown — the D18 rim-cue condition,
+    /// mirrored from the engine's FrozenSilentChanged for the View to bind.
+    /// </summary>
+    [ObservableProperty] private bool _resetFrozenSilent;
+
     private SelectionMode _currentSelectionMode = SelectionMode.None;
 
     public ObservableCollection<ToolbarButtonViewModel> Buttons { get; } = new();
@@ -70,6 +99,10 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     /// </summary>
     public void UpdateButtonScreenPosition(string buttonId, PhysicalPoint screenCenter)
     {
+        _lastCenters[buttonId] = screenCenter;
+        if (buttonId == ResetPreviewEngine.ResetId)
+            _previewEngine.SetAnchor(screenCenter);   // every reposition re-anchors the next publish
+
         if (_positionedButtons.Add(buttonId))
         {
             // First real position for this button: create its dwell target now, at the true
@@ -87,10 +120,44 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
         }
     }
 
+    /// <summary>
+    /// The View's rendered-band report (Task 6): the button ids the toolbar shows right now. A
+    /// previously positioned id that is absent left the band — its dwell target must go (a stale
+    /// target at a former screen position could fire from gaze merely passing there), its held
+    /// arc must fall, and an absent Reset additionally closes any live preview engagement
+    /// (nothing anchors the panel to anymore).
+    /// </summary>
+    public void SetRenderedButtons(IReadOnlyCollection<string> renderedIds)
+    {
+        var rendered = new HashSet<string>(renderedIds);
+        foreach (var id in _positionedButtons.Where(id => !rendered.Contains(id)).ToList())
+        {
+            _positionedButtons.Remove(id);
+            _lastCenters.Remove(id);
+            DwellDetector.RemoveTarget(id);
+            if (_buttonLookup.TryGetValue(id, out var btn))
+            {
+                btn.DwellProgress = 0;
+                btn.IsHighlighted = false;
+            }
+        }
+
+        if (!rendered.Contains(ResetPreviewEngine.ResetId))
+            _previewEngine.Reset();
+    }
+
     public ToolbarViewModel(EyeCtrlSettings settings, IMessenger messenger,
-        IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null)
+        IStruggleTelemetrySink? sink = null, IDwellDetectorRegistry? dwellRegistry = null,
+        Func<bool>? isFeedbackSuppressed = null, ILogger<ToolbarViewModel>? logger = null)
         : base(messenger, settings.Dwell.DwellCooldownMs, DwellContext.Toolbar, sink, dwellRegistry)
     {
+        _logger = logger;
+        _previewEngine = new ResetPreviewEngine(isFeedbackSuppressed);
+        // The service (Task 7) lives behind the messenger: every engine publish becomes a
+        // visibility message, and the rim cue becomes an observable property for the View.
+        _previewEngine.PreviewVisibility += OnPreviewVisibility;
+        _previewEngine.FrozenSilentChanged += OnFrozenSilentChanged;
+
         _buttonDwellRadiusPhysical = DpiHelper.LogicalToPhysicalX(settings.Toolbar.Size / 2);
         _toolbarButtonDwellMs = settings.Dwell.ToolbarButtonDwellMs;
 
@@ -127,6 +194,10 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
 
     public override void Receive(GazeCursorMovedMessage message)
     {
+        // Cached before any early return: DwellDetector.TargetProgress fires from inside the
+        // Update below and carries no timestamp of its own, so this is "when that progress happened".
+        _lastSampleTimestampUs = message.TimestampMicroseconds;
+
         // Gap-held samples carry the frozen last valid position, so a held point must not clear the
         // re-arm latch either — that is the same reason they are skipped, not fed, below.
         if (!message.IsInGap)
@@ -142,9 +213,112 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
         // Leave-before-re-arm for the pause toggle: while gaze still rests on the toggle that just
         // fired, do not feed the detector at all. Without this, the shared cooldown alone re-arms at
         // ~1.1 s and a single 3.5 s look toggles the app three times.
+        //
+        // Known and deliberate (final review F3): this return precedes DecideFeed, so the preview
+        // engine's sample clock freezes while gaze rests on Pause post-Pause-fire — the engine has
+        // no clock of its own (P4), so a DecideFeed that never runs advances nothing. The safe
+        // direction only: it can DELAY a pending engine deadline (the 500 ms unknown-bounds
+        // timeout evaluates inside DecideFeed), never skip one — the next sample after the leave
+        // re-arm evaluates the timeout with its fresh timestamp, overdue or not.
         if (_pauseReArmPending && IsOverPauseTarget(message.Position)) return;
 
-        DwellDetector.Update(message.Position, message.TimestampMicroseconds);
+        // Adaptation preview (Task 6): classify the sample against the engine's union (the Reset
+        // hit area — the detector's LIVE geometry, grown margins included — plus the panel rect)
+        // before the detector sees it.
+        var feed = _previewEngine.DecideFeed(
+            DwellDetector.HitTest(ResetPreviewEngine.ResetId, message.Position),
+            message.Position,
+            message.TimestampMicroseconds);
+
+        switch (feed)
+        {
+            case PreviewFeed.FeedNone:
+                // Gaze rests on the frozen Reset button or inside the shown panel: nothing feeds —
+                // no target (Reset or otherwise) may accumulate while the user reads the preview.
+                return;
+
+            case PreviewFeed.FeedExcluded:
+                // Off the union mid-engagement: every other target stays live, but Reset is
+                // filtered out — it must neither accumulate nor report struggle outcomes from
+                // samples taken in the preview's area of influence.
+                DwellDetector.Update(message.Position, message.TimestampMicroseconds,
+                    target => target.Id != ResetPreviewEngine.ResetId);
+                break;
+
+            default:
+                DwellDetector.Update(message.Position, message.TimestampMicroseconds);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// The engine's visibility publishes become the service messages (Task 7 owns the panel), and
+    /// carry the D14 log the engine itself cannot emit (it has no clock and no logger — sample
+    /// time only): a hide for an engagement whose bounds never arrived is the timeout/silent-
+    /// service fallback, and it gets exactly one Information line here.
+    /// </summary>
+    private void OnPreviewVisibility(bool visible, int engagementId, PhysicalPoint anchor)
+    {
+        if (visible)
+        {
+            _boundsReportedEngagementId = -1;   // fresh engagement: no bounds can have arrived yet
+            Messenger.Send(new AdaptationPreviewVisibilityMessage(true, engagementId, anchor));
+            return;
+        }
+
+        Messenger.Send(new AdaptationPreviewVisibilityMessage(false, engagementId, anchor));
+
+        // Final review F1: the leave's completion is the ONLY hide published while the engine is
+        // Armed (P18 commits the state before the event, so reading it here is sound) — and it is
+        // the engagement's last arc-relevant event: the detector cleared Reset's state on the
+        // leave run's first excluded sample and gaze is off the button, so no
+        // TargetProgress(ResetId, 0) ever arrives to route through the engine's Zero verdict.
+        // Without this the button keeps the frozen ~0.40 arc and highlight indefinitely — on
+        // floating/Mouse toolbars nothing deactivates to reset it. Discriminated on IsArmed: the
+        // Frozen/Leaving hides (suppression gate, D17 policy hide, the bounds timeout / NoPanel)
+        // keep the arc held — the engagement is still live and the user is still reading — and
+        // Disarm hides are already zeroed where they originate (OnTargetActivated's fire reset,
+        // SetActive's ResetAllState, SetRenderedButtons' absent-report loop).
+        if (_previewEngine.IsArmed)
+            ZeroResetFace();
+
+        if (_boundsReportedEngagementId != engagementId)
+        {
+            _logger?.LogInformation(
+                "Adaptation preview engagement {EngagementId} cancelled with no panel bounds reported — falling back to the Reset hit area (service timeout or silent)",
+                engagementId);
+        }
+    }
+
+    /// <summary>
+    /// The rim-cue mirror, plus the F1 residual: a silent engagement's leave completion is the
+    /// panel-absent sibling of the armed visibility-false zero above. Every panel-absent arming
+    /// path — suppressed at engage, the NoPanel-at-show fallback (floating/Mouse toolbars), the
+    /// bounds timeout, a mid-read D17 policy hide — ran with <c>FrozenSilent == true</c> and
+    /// publishes NO visibility-false at the leave's completion (the panel never existed or was
+    /// already down), so without this the held ~0.40 arc and highlight linger indefinitely with
+    /// the rim cue fallen. P18: the engine commits Armed before raising, so reading both flags
+    /// here is sound. The only other false-going raise is Disarm's, and Disarm paths zero the
+    /// arc where they originate — the IsArmed gate excludes them. Idempotent with the
+    /// visibility-false zero (FrozenSilent never changed on the panelWasUp path).
+    /// </summary>
+    private void OnFrozenSilentChanged()
+    {
+        ResetFrozenSilent = _previewEngine.FrozenSilent;
+
+        if (!_previewEngine.FrozenSilent && _previewEngine.IsArmed)
+            ZeroResetFace();
+    }
+
+    /// <summary>The held Reset arc and highlight fall — shared by the armed visibility-false
+    /// (mainline F1) and the armed silent-leave completion (F1 residual).</summary>
+    private void ZeroResetFace()
+    {
+        if (_buttonLookup.TryGetValue(ResetPreviewEngine.ResetId, out var resetBtn))
+        {
+            resetBtn.DwellProgress = 0;
+            resetBtn.IsHighlighted = false;
+        }
     }
 
     /// <summary>
@@ -201,7 +375,14 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
     {
         _dwellingActive = active;
         if (!active)
+        {
+            // Engine first: once Disarmed, the Reset(0) ResetAllState fires below routes as
+            // Propagate and the arc falls naturally — the reverse order would hit the still-live
+            // freeze and Hold it at the engaged value. The engine's own Reset also retracts a
+            // shown panel (a hidden toolbar must not leave one floating).
+            _previewEngine.Reset();
             DwellDetector.ResetAllState();
+        }
     }
 
     private InteractionAction? _repeatAction;
@@ -273,6 +454,10 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
 
     protected override void OnTargetActivated(string targetId)
     {
+        // Every activation passes through the engine (Task 6): any fire ends a deliberate pass,
+        // and Reset's own fire additionally clears the seen-latch entirely.
+        _previewEngine.OnActivated(targetId);
+
         if (_buttonLookup.TryGetValue(targetId, out var btn))
         {
             btn.DwellProgress = 0;
@@ -311,12 +496,47 @@ public partial class ToolbarViewModel : DwellOverlayViewModelBase,
         if (!_buttonLookup.TryGetValue(targetId, out var btn))
             return;
 
+        // Adaptation preview (Task 6): Reset's progress routes through the engine — only its
+        // verdict moves the arc while an engagement runs; every other target is untouched.
+        if (targetId == ResetPreviewEngine.ResetId)
+        {
+            switch (_previewEngine.OnTargetProgress(targetId, progress, _lastSampleTimestampUs))
+            {
+                case PreviewProgress.HoldAtFreeze:
+                    // Hold the arc at the engaged value, highlight on. The only POSITIVE progress
+                    // that can arrive while frozen is the engaging event itself (frozen gaze is
+                    // never fed, so the detector emits no further Reset progress); every later
+                    // event is a 0 (leave, reset) that must NOT drop the arc (P6).
+                    if (progress > 0)
+                        btn.DwellProgress = progress;
+                    btn.IsHighlighted = true;
+                    return;
+
+                case PreviewProgress.Zero:
+                    btn.DwellProgress = 0;
+                    btn.IsHighlighted = false;
+                    return;
+
+                // Propagate: fall through to the normal arc below.
+            }
+        }
+
         btn.DwellProgress = progress;
         // Derived rather than separately plumbed. DwellDetector fires no progress for the FIRST
         // sample inside a target (DwellDetector.cs:224-228) and a non-zero value from the second
-        // on (lines 229-233); it fires exactly 0 on leave (line 253) and on activation (line 276).
-        // So "progress > 0" is "gaze is on this target", one gaze sample after entry — ~30 ms at
-        // the tracker's ~33 Hz (TobiiStreamEngineProvider.cs:195).
+        // sample on (lines 229-233); it fires exactly 0 on leave (line 253) and on activation
+        // (line 276). So "progress > 0" is "gaze is on this target", one gaze sample after entry —
+        // ~30 ms at the tracker's ~33 Hz (TobiiStreamEngineProvider.cs:195).
         btn.IsHighlighted = progress > 0;
+    }
+
+    /// <summary>Service → engine bounds report (P2): the live panel rect or its kind of absence.</summary>
+    public void Receive(AdaptationPreviewBoundsMessage message)
+    {
+        // Recorded before the engine sees it: the engine drops stale ids silently, but the
+        // visibility handler only cares that the service ANSWERED this engagement (so a normal
+        // hide is not misread as the never-answered timeout fallback).
+        _boundsReportedEngagementId = message.EngagementId;
+        _previewEngine.OnBounds(message.EngagementId, message.Kind, message.PanelBounds);
     }
 }

@@ -89,6 +89,47 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
     /// <inheritdoc />
     public bool IsShowing => _isShowing;
 
+    /// <summary>
+    /// The card's live dwell-target rects, physical px (the D17 gaze-consumer inventory's
+    /// restart-notice source): the close button's hit rectangle while the card shows — the surface
+    /// this window's OWN detector is feeding, read as the detector's copy-on-write snapshot (the
+    /// <c>NoteManager.LiveTargetRects</c> pattern, review F1) so the preview panel's collision check
+    /// can never disagree with what the card's gaze feed actually evaluates against. Empty when the
+    /// card is not showing (or before the first place) — a hidden card contributes nothing rather
+    /// than a phantom rect at the origin.
+    /// <para>
+    /// Deliberately NOT the keyboard's <c>TryGetChromeBounds</c> shape: that one reads the whole
+    /// window through <c>PointToScreen</c>, which needs a live presentation source and reports
+    /// nothing without one — this card's own tests never show it (a shown overlay is the user's
+    /// only input surface), so a presentation-source read would leave the source untested
+    /// headlessly. The placed target is already in physical screen pixels (<see cref="CloseBounds"/>)
+    /// and covers exactly the interactive surface, which is what D17 protects.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<PhysicalRect> LiveTargetRects()
+    {
+        if (!_isShowing)
+            return Array.Empty<PhysicalRect>();
+
+        var targets = _dwell.Targets;
+        if (targets.Count == 0)
+            return Array.Empty<PhysicalRect>();
+
+        var rects = new List<PhysicalRect>(targets.Count);
+        foreach (var target in targets)
+        {
+            if (target.Bounds is { } bounds)
+                rects.Add(bounds);
+            else
+                rects.Add(new PhysicalRect(
+                    target.Center.X - target.Radius,
+                    target.Center.Y - target.Radius,
+                    target.Radius * 2,
+                    target.Radius * 2));
+        }
+        return rects;
+    }
+
     /// <inheritdoc />
     public void ShowNotice(string message, string closeLabel, TimeSpan hold)
     {
@@ -223,6 +264,19 @@ public partial class RestartNoticeWindow : OverlayWindow, IRestartNoticePresente
 
     internal void PlaceDwellTarget()
     {
+        // A shown window gets its layout from the HWND-driven pass; the headless present seam
+        // cannot — a window-level Measure/Arrange stops at the window itself, so the button is
+        // never arranged and its rect would place a zero-size phantom target. The present path
+        // arranges the content subtree directly (the same measure Prepare runs, then the arrange
+        // the real pass would do), on every place, so a re-placed card never reads a stale
+        // arrangement. Production never enters this branch.
+        if (_present is not null)
+        {
+            var content = (FrameworkElement)Content;
+            content.Measure(new Size(Width, double.PositiveInfinity));
+            content.Arrange(new Rect(0, 0, Width, Height));
+        }
+
         // Relative to the window's content, which starts at the window's own origin (no frame, so the
         // client origin is the window origin, the property OverlayClientOriginTests gates). The
         // window itself is not a visual ancestor until it has a handle, so a headless test could not

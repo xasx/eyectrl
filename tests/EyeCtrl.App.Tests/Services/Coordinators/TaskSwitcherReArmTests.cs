@@ -94,7 +94,10 @@ public class TaskSwitcherReArmTests
 
             ToolbarVm = new ExposedDwellToolbarViewModel(settings, messenger);
             Toolbar = new ToolbarWindow();
-            Toolbar.Initialize(ToolbarTestHelpers.ButtonSize, settings.Dwell.ToolbarButtonDwellMs);
+            // includeReset: false — default-settings parity; this suite drives slides and the
+            // switcher, never the Reset button.
+            Toolbar.Initialize(ToolbarTestHelpers.ButtonSize, settings.Dwell.ToolbarButtonDwellMs,
+                includeReset: false);
             Toolbar.DataContext = ToolbarVm;
             Toolbar.BindToViewModel();
             Toolbar.Show();

@@ -293,3 +293,15 @@ public record TaskSwitcherSelectionMessage(IntPtr Hwnd);
 /// empty payload by design (ledger D5).
 /// </summary>
 public record DwellActivationMessage;
+
+/// <summary>
+/// Published whenever <c>NoteManager</c>'s dwell-target set changes structurally — a note created,
+/// removed, or flipped between its edit/move/display states (each swap re-registers the note's
+/// buttons). The D17 gaze-consumer inventory re-runs the preview panel's collision check on it
+/// (review F1: a note parked under the panel with its dwell buttons still fed is exactly the
+/// R4-H1 harm class). Deliberately NOT raised per gaze sample while a note is being moved — the
+/// <c>:place</c> target's centre rides the gaze, and a re-check per sample would be a per-sample
+/// inventory walk; the move is bracketed by the StartMove and FinishMove raises. Empty payload by
+/// design: the inventory re-reads the live rects.
+/// </summary>
+public record NoteTargetsChangedMessage;

@@ -43,8 +43,7 @@ public sealed class LagMarkHost : IDisposable
     private readonly Action<Action> _postToUi;
     private readonly Action<string> _log;
 
-    /// <summary>Creates the host. Call <see cref="Start"/> once the overlays are up.</summary>
-    /// <param name="messenger">The bus the gaze samples arrive on and the zone messages go out on.</param>
+    /// <summary>Creates the host. Call <see cref="Start"/> once the overlays are up.</summary>    /// <param name="messenger">The bus the gaze samples arrive on and the zone messages go out on.</param>
     /// <param name="presenter">The button renderer (the WPF window at runtime, a fake in tests).</param>
     /// <param name="probe">The dispatch probe the marks quote.</param>
     /// <param name="isInstrumentOn">The live <c>MeasureUiInstruments</c> reading.</param>
@@ -78,6 +77,12 @@ public sealed class LagMarkHost : IDisposable
 
     /// <summary>Marks logged this session; <c>k</c> in the mark lines counts from 1.</summary>
     public int MarkCount { get; private set; }
+
+    /// <summary>The button renderer this host drives (second merge, the
+    /// <c>RestartNoticeHost.Presenter</c> seam): App.xaml.cs hands the concrete window to the D17
+    /// <c>LagMarkBridge</c> through this, because the window is constructed inline in the host
+    /// call there and the bridge needs the same instance.</summary>
+    public ILagMarkPresenter Presenter => _presenter;
 
     /// <summary>
     /// Shows the button (when the instrument is on) and subscribes for gaze and marks. No pause

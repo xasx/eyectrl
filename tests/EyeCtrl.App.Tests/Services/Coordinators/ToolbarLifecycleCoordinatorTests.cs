@@ -142,11 +142,35 @@ public class ToolbarLifecycleCoordinatorTests
         var c = new ToolbarLifecycleCoordinator(new ModalInteractionState());
         c.InjectAutoHideForTesting(NewAutoHide());
 
-        c.SetAutoHideSuspended(true);
+        c.SetAutoHideSuspended("settings", true);
         Check.That(c.IsAutoHideSuspended).IsTrue();
 
-        c.SetAutoHideSuspended(false);
+        c.SetAutoHideSuspended("settings", false);
         Check.That(c.IsAutoHideSuspended).IsFalse();
+    }
+
+    [Fact]
+    public void SetAutoHideSuspended_NamedHolders_Independent()
+    {
+        // P8 (Task 10): the single-bool clobber bug — settings opens, the preview suspends, the
+        // preview releases ⇒ the old API left auto-hide resumed under the OPEN settings window.
+        // The holder set makes both clobber orders impossible: suspended iff the set is non-empty.
+        var c = new ToolbarLifecycleCoordinator(new ModalInteractionState());
+        c.InjectAutoHideForTesting(NewAutoHide());
+
+        c.SetAutoHideSuspended("settings", true);
+        c.SetAutoHideSuspended("adaptation-preview", true);
+
+        c.SetAutoHideSuspended("adaptation-preview", false);
+        Check.That(c.IsAutoHideSuspended).IsTrue(); // settings still holds
+
+        c.SetAutoHideSuspended("settings", false);
+        Check.That(c.IsAutoHideSuspended).IsFalse();
+
+        // Releasing a holder that is not held is a no-op, not a resume-everything.
+        c.SetAutoHideSuspended("settings", true);
+        c.SetAutoHideSuspended("adaptation-preview", false);
+        Check.That(c.IsAutoHideSuspended).IsTrue();
     }
 
     [Fact]
@@ -158,7 +182,7 @@ public class ToolbarLifecycleCoordinatorTests
         // into the gaze or tray path.
         var c = new ToolbarLifecycleCoordinator(new ModalInteractionState());
 
-        c.SetAutoHideSuspended(true);
+        c.SetAutoHideSuspended("settings", true);
         c.SetActive(false);
         c.ForceShow();
         c.UpdateEnabled(true);

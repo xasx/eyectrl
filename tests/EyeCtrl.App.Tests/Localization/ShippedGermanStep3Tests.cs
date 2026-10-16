@@ -317,7 +317,7 @@ public class ShippedGermanStep3Tests
 
             // The paused face announces the German resume (T08 fixup R3's name-follows-face rule).
             var toolbar = new ToolbarWindow();
-            toolbar.Initialize(ToolbarTestHelpers.ButtonSize, 700);
+            toolbar.Initialize(ToolbarTestHelpers.ButtonSize, 700, includeReset: true);
             toolbar.SetPausedState(true);
             var pause = toolbar.ButtonCanvasForTest.Children.OfType<TextBlock>()
                 .Single(t => AutomationProperties.GetAutomationId(t) == "Toolbar_Button_Pause");
@@ -425,7 +425,7 @@ public class ShippedGermanStep3Tests
     private static Dictionary<string, string> ToolbarFaces()
     {
         var window = new ToolbarWindow();
-        window.Initialize(ToolbarTestHelpers.ButtonSize, 700);
+        window.Initialize(ToolbarTestHelpers.ButtonSize, 700, includeReset: true);
         return window.ButtonCanvasForTest.Children.OfType<TextBlock>()
             .Where(t => !string.IsNullOrEmpty(AutomationProperties.GetAutomationId(t)))
             .ToDictionary(AutomationProperties.GetAutomationId, AutomationProperties.GetName);

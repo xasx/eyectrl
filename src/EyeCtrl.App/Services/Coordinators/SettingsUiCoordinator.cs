@@ -33,15 +33,17 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     private ModelManagementService? _modelManagementService;
     private AppRestartCoordinator? _restartCoordinator;
     private SupervisionToggleService? _supervisionToggle;
-
     // The probe entry (build plan C10): the Diagnostics button's reason probe and request action,
     // handed over once at startup by EventCoordinator after C7 exists.
     private Func<string?>? _probeBlockReason;
     private Action? _probeRequest;
     private Func<bool>? _probeCanResume;
-    // Owned HERE — moved from EventCoordinator. Read in OnSettingsChanged to gate the toolbar
-    // re-init (only re-initialize the toolbar when its layout-affecting settings changed).
+    // Owned HERE — moved from EventCoordinator. The metrics snapshot AND the includeReset flag
+    // (Adaptation.Enabled) of the last band build, compared by ReinitializeToolbar so the save
+    // path and the live Enabled subscription (Task 9) rebuild the band exactly once however
+    // their arrivals interleave.
     private ToolbarSnapshot? _toolbarSnapshot;
+    private bool? _appliedIncludeReset;
     public SettingsUiCoordinator(ModalInteractionState modal, QuickActionsCoordinator quickActions,
         ToolbarLifecycleCoordinator toolbar, KeyboardCoordinator keyboard)
     {
@@ -77,6 +79,11 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         // Named handler (was an anonymous lambda that was never detached — it kept this coordinator
         // alive through the settings object, which outlives EventCoordinator). Dispose -= it.
         context.Settings.TrackStatus.PropertyChanged += OnTrackStatusSettingsPropertyChanged;
+        // Task 9: the band's Reset membership follows the live Adaptation.Enabled flip. The
+        // settings UI mutates the live object as the user toggles — before any save raises
+        // SettingsChanged — so the flip arrives here as PropertyChanged. Marshalled like the
+        // TrackStatus handler above; the rebuild itself lives in ReinitializeToolbar.
+        context.Settings.Adaptation.PropertyChanged += OnAdaptationSettingsPropertyChanged;
     }
 
     private void OnTrackStatusSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -84,6 +91,16 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         if (Context is null) return;
         if (e.PropertyName == nameof(TrackStatusSettings.Enabled))
             Context.Dispatcher.BeginInvoke(UpdateTrackStatusVisibility);
+    }
+
+    private void OnAdaptationSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (Context is null) return;
+        if (e.PropertyName != nameof(AdaptationSettings.Enabled)) return;
+        // Through the same guard the save path uses, so a flip that also lands in a save
+        // re-initializes the band exactly once.
+        var settings = Context.Settings;
+        Context.Dispatcher.BeginInvoke(() => ReinitializeToolbar(settings));
     }
 
     /// <summary>Stores the model services for the next <see cref="ShowSettingsWindow"/> construction.
@@ -174,7 +191,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
 
         _modal.SettingsOpen = true;
         _modal.SettingsOpenChanged?.Invoke(true);
-        _toolbar.SetAutoHideSuspended(true);
+        _toolbar.SetAutoHideSuspended("settings", true);
         _quickActions.SetSummonSuspended(true);
         context.OverlayManager.CursorCircle.Hide();
 
@@ -220,7 +237,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
             _modal.SettingsOpenChanged?.Invoke(false);
             // Window construction threw before Show() — OnSettingsWindowClosed will never fire, so
             // undo the suspend we set alongside _modal.SettingsOpen = true above.
-            _toolbar.SetAutoHideSuspended(false);
+            _toolbar.SetAutoHideSuspended("settings", false);
             _quickActions.SetSummonSuspended(false);
             if (context.CursorVM.IsVisible)
                 context.OverlayManager.CursorCircle.Show();
@@ -240,18 +257,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         var toolbarSnapshot = ToolbarSnapshot.Capture(s);
         if (_toolbarSnapshot != toolbarSnapshot)
         {
-            Context.OverlayManager.Toolbar.Initialize(s.Toolbar.Size, s.Dwell.ToolbarButtonDwellMs);
-            Context.OverlayManager.Toolbar.SetMode(s.Toolbar.IsDocked, s.Toolbar.DockedEdge);
-
-            // Re-evaluate enablement (IsDocked may have flipped to false → disable + force-show),
-            // refresh the cached edge, and reposition the pause indicator along the new edge.
-            bool nowEnabled = EyeCtrl.App.App.ActiveProviderType != Core.Enums.GazeProviderType.Mouse && s.Toolbar.IsDocked;
-            _toolbar.UpdateEnabled(nowEnabled);
-            _toolbar.UpdateEdge(s.Toolbar.DockedEdge);
-            _toolbar.PositionIndicator(s.Toolbar.DockedEdge);
-            _toolbar.RefreshToolbarRect();
-
-            _toolbarSnapshot = toolbarSnapshot;
+            ReinitializeToolbar(s);
         }
 
         // The keyboard snapshot compare + reload lives on KeyboardCoordinator (cluster 3), exposed
@@ -273,6 +279,43 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
     }
 
     /// <summary>
+    /// Rebuilds the toolbar band at the settings' metrics, with <c>Adaptation.Enabled</c> as the
+    /// includeReset flag (as at startup, Task 7 / D5/M5 — Reset is on the band only while
+    /// adaptation is on), then re-applies the dock mode, re-evaluates auto-hide enablement
+    /// (IsDocked may have flipped to false → disable + force-show), refreshes the cached edge,
+    /// repositions the pause indicator along it, and re-captures the auto-hide rect.
+    /// <para>
+    /// Two callers, one guard: the save path (the toolbar-metrics snapshot branch of
+    /// <see cref="OnSettingsChanged"/>) and the <see cref="AdaptationSettings.Enabled"/>
+    /// subscription — the settings UI mutates the live object as the user toggles, so a flip
+    /// that lands in the same save as a metrics change would otherwise rebuild the band twice.
+    /// The last applied (metrics snapshot, includeReset) pair is remembered and an identical
+    /// request returns, making the rebuild exactly-once in either arrival order.
+    /// </para>
+    /// </summary>
+    private void ReinitializeToolbar(EyeCtrlSettings s)
+    {
+        if (Context is null) return;
+
+        var toolbarSnapshot = ToolbarSnapshot.Capture(s);
+        if (_toolbarSnapshot == toolbarSnapshot && _appliedIncludeReset == s.Adaptation.Enabled)
+            return;
+
+        Context.OverlayManager.Toolbar.Initialize(s.Toolbar.Size, s.Dwell.ToolbarButtonDwellMs,
+            s.Adaptation.Enabled);
+        Context.OverlayManager.Toolbar.SetMode(s.Toolbar.IsDocked, s.Toolbar.DockedEdge);
+
+        bool nowEnabled = EyeCtrl.App.App.ActiveProviderType != Core.Enums.GazeProviderType.Mouse && s.Toolbar.IsDocked;
+        _toolbar.UpdateEnabled(nowEnabled);
+        _toolbar.UpdateEdge(s.Toolbar.DockedEdge);
+        _toolbar.PositionIndicator(s.Toolbar.DockedEdge);
+        _toolbar.RefreshToolbarRect();
+
+        _toolbarSnapshot = toolbarSnapshot;
+        _appliedIncludeReset = s.Adaptation.Enabled;
+    }
+
+    /// <summary>
     /// The prediction-bar refresh gate, extracted so it is unit-testable headlessly: review round 2
     /// deleted the entire inline block and no test failed — the same zero-coverage discovery that
     /// produced <c>ShouldFeedKeyboardSample</c> one file over. A reload already rebuilt the bar, so
@@ -290,7 +333,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         _settingsWindow = null;
         _modal.SettingsOpen = false;
         _modal.SettingsOpenChanged?.Invoke(false);
-        _toolbar.SetAutoHideSuspended(false);
+        _toolbar.SetAutoHideSuspended("settings", false);
         // While the probe is open, Settings closing must not un-suspend the summon or re-show the
         // ring over the probe window (build plan C9): the probe suspended/ended both, and its own
         // Restore is the only place that may undo them. The summon gate is invisible here anyway
@@ -322,6 +365,7 @@ internal sealed class SettingsUiCoordinator : CoordinatorBase
         if (Context is not null)
         {
             Context.Settings.TrackStatus.PropertyChanged -= OnTrackStatusSettingsPropertyChanged;
+            Context.Settings.Adaptation.PropertyChanged -= OnAdaptationSettingsPropertyChanged;
         }
     }
 }

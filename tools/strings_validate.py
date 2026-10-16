@@ -108,6 +108,9 @@ FIT_CLASSES = [
     # harness (tests/EyeCtrl.App.Tests/Localization/Fit) measures each in its production control.
     "modal170",
     "modal460",
+    # D15: the adaptation-preview row; direction word + right-aligned value in a ≤360 DIP panel
+    # row, ink ≥ 2 DIP from the bar.
+    "PV1",
     "btn360x100",
     "btn360x70",
     "btn380x100",

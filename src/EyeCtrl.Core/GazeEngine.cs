@@ -532,40 +532,10 @@ public class GazeEngine : IDisposable
     /// inside this hook makes that interleaving deterministic. Production leaves it null.</summary>
     internal Action? BeforeSmoothingPublishForTest;
 
-    // §13.3 item (1): the provider→filter VALUE path. The active filter's ONE adaptation-sensitive
-    // parameter, composed against the CURRENT mode's baseline — the fill is a fraction OF the baseline, so
-    // the baseline must be the active parameter's (OneEuroMinCutoff vs SmoothingFactor), resolved afresh on
-    // every read. null = the knob no-ops: Direct has no smoothing parameter (mode is never auto-switched,
-    // §5), and no provider means no adaptation at all.
-    //
-    // §13.3 SAFETY CLAMP: the provider's Smoothing policy carries the union superset [0, 20], but the
-    // ACTIVE filter's own validated range is re-applied here — [0.1, 20] for One-Euro, [0, 1] for EMA.
-    // Without it, a 0.1 Hz One-Euro baseline at the default fraction composes to 0.05 (and to exactly 0.0
-    // at fraction 1.0), which OneEuroFilter's constructor rejects — a throw on the gaze thread, inside the
-    // unguarded rebuild. The literals deliberately duplicate the CursorSettings guards (the FixationRadius
-    // precedent); the assign-back oracle test fails the build if they drift. Only the FLOOR can engage:
-    // smoothing is forgiving-only (parameter down, no tightening), so the composed value never exceeds the
-    // baseline, which the setters keep inside the range.
-    internal double? EffectiveSmoothingParameter()
-    {
-        if (_effectiveSettings is null)
-            return null;
-        return _settings.Cursor.FilterMode switch
-        {
-            GazeFilterMode.Direct => null,
-            GazeFilterMode.Smoothed or GazeFilterMode.SmoothedWithSnapping => Math.Clamp(
-                _effectiveSettings.Effective(AdaptationKnob.Smoothing, DwellContext.Other, _settings.Cursor.SmoothingFactor),
-                0.0, 1.0),
-            // OneEuro, plus the default arm mirroring GazeFilterFactory's default (OneEuroFilter) so a
-            // future enum member can never compose an EMA baseline onto a One-Euro filter.
-            GazeFilterMode.OneEuro => Math.Clamp(
-                _effectiveSettings.Effective(AdaptationKnob.Smoothing, DwellContext.Other, _settings.Cursor.OneEuroMinCutoff),
-                0.1, 20.0),
-            _ => Math.Clamp(
-                _effectiveSettings.Effective(AdaptationKnob.Smoothing, DwellContext.Other, _settings.Cursor.OneEuroMinCutoff),
-                0.1, 20.0),
-        };
-    }
+    // §13.3 smoothing composition — extracted VERBATIM to EffectiveSmoothing.Compose (adaptation-preview
+    // Task 2) so a later preview builder composes the identical value; the §13.3 comment block moved with
+    // the code, and the engine-level oracle (GazeEngineSmoothingRoutingTests) still pins it end-to-end.
+    internal double? EffectiveSmoothingParameter() => EffectiveSmoothing.Compose(_effectiveSettings, _settings.Cursor);
 
     // Called on the dispatcher thread (DwellSettings change or provider.Changed). Just sets a flag — the
     // actual write runs on the gaze thread at the top of the next OnGazePoint, which keeps every

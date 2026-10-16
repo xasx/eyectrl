@@ -62,8 +62,10 @@ public class OverlayResourceResolutionTests
         // Magnifier: its rim + halo are marks over the captured image (§4.1.3)
         typeof(ManualSelectionOverlayWindow),
         // Gained its first {StaticResource} references (the escape hint) with the manual-selection
-        // ESC hint work; previously plain Canvas/Rectangle content needed no resource resolution.
+        // ESC hint work; previously plain Canvas content needed no resource resolution.
         typeof(GlassBackdropWindow),
+        // Adaptation preview (Task 10): token-bordered card built in code-behind.
+        typeof(AdaptationPreviewWindow),
     ];
 
     [StaTheory]

@@ -85,6 +85,9 @@ public class SingleSurfaceKeyTests
         ("src/EyeCtrl.Core/ActionMenu/RingLabelSource.cs", ["overlays"]),
         ("src/EyeCtrl.App/Localization/OverlayTextSources.cs", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/ToolbarBand.cs", ["overlays"]),
+        // Task 10 (adaptation preview): the panel's rows resolve the overlays surface's
+        // adaptationPreview keys in code-behind.
+        ("src/EyeCtrl.App/Overlays/AdaptationPreviewWindow.xaml.cs", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs", ["overlays"]),
         // T0(a): the lag-mark button's label and its Marked confirmation are overlays keys.
         ("src/EyeCtrl.App/Overlays/LagMarkWindow.xaml.cs", ["overlays"]),

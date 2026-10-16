@@ -84,6 +84,11 @@ public sealed class RestartNoticeHost : IDisposable
         });
     }
 
+    /// <summary>The presenter this host shows through — the App-owned card window at runtime. Lets
+    /// startup hand the card to the D17 collision inventory's bridge (RestartNoticeBridge) without
+    /// re-deriving it: the host is the card's only App-level owner.</summary>
+    public IRestartNoticePresenter Presenter => _presenter;
+
     private void ShowInProgress()
     {
         if (_isSettingsOpen() || _isProbeOpen()) return; // the open surface owns the screen

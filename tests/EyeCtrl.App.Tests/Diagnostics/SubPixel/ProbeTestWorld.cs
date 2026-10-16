@@ -79,6 +79,7 @@ internal sealed class ProbeTestWorld : IDisposable
             TaskSwitcherVM = new TaskSwitcherViewModel(new TestFakes.FakeWindowActionManager(), Settings, Messenger),
             QuickActionsGridVM = new QuickActionsGridViewModel(new NoOpQuickActionsStore(), Settings, Messenger),
             OverlayManager = TestFakes.MakeOverlayManager(
+                toolbar: new TestFakes.FakeToolbarOverlay(),
                 cursorCircle: new TestFakes.FakeCursorCircleOverlay(),
                 trackStatus: new TestFakes.FakeTrackStatusOverlay()),
             CalibrationService = new EyeCtrl.Core.Calibration.CalibrationService(),

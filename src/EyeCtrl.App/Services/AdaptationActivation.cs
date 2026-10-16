@@ -150,10 +150,28 @@ public sealed class AdaptationActivation : IDisposable
 
     private static void StopRuntime(IServiceProvider services)
     {
-        // Reset BEFORE stopping the timer: the coordinator's own enabled→disabled tick branch would have
-        // cleared momentary state, but with the timer stopped that tick never runs — and effective settings
-        // must return to baseline the moment adaptation is switched off (§12).
-        var coordinator = services.GetRequiredService<AdaptationCoordinator>();
+        // Shutdown-order guard (live-pass finding, 2026-10-16): when the DI container itself is
+        // disposing, the provider is already marked disposed by the time this resolve runs — the
+        // first line below threw ObjectDisposedException (contained in Deactivate's catch and
+        // logged as the ERR "Failed to cleanly deactivate the adaptation runtime", the whole
+        // teardown skipped). App.OnExit now deactivates the runtime explicitly BEFORE disposing
+        // the provider, so this is the belt-and-braces path for any other disposal order: with
+        // the provider gone there is nothing left to coordinate — its own disposal is tearing
+        // every participant down regardless.
+        AdaptationCoordinator coordinator;
+        try
+        {
+            // Reset BEFORE stopping the timer: the coordinator's own enabled→disabled tick branch would have
+            // cleared momentary state, but with the timer stopped that tick never runs — and effective settings
+            // must return to baseline the moment adaptation is switched off (§12).
+            coordinator = services.GetRequiredService<AdaptationCoordinator>();
+        }
+        catch (ObjectDisposedException)
+        {
+            Log.Debug("Adaptation runtime teardown skipped: the service provider is already disposed.");
+            return;
+        }
+
         // Momentary only — the learned offsets survive the disable and resume when it is toggled back on
         // (§7.4/§13.1; they are inert while disabled because Effective gates on Enabled first).
         coordinator.ResetMomentary();

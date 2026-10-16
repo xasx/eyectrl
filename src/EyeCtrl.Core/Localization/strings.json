@@ -730,6 +730,20 @@
     "fit": "prose",
     "args": []
   },
+  "overlays.lagmark.label": {
+    "text": "Lag",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.lagmark.marked": {
+    "text": "Marked ✓",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
   "overlays.modifier.alt": {
     "text": "Alt",
     "who": "user",

@@ -7,13 +7,14 @@
 
 ## 1. Problem Statement
 
-EyeCtrl has 30 overlay windows and 7 dwell controls — 27 with XAML (26 under
+EyeCtrl has 31 overlay windows and 7 dwell controls — 28 with XAML (27 under
 `Overlays/`, including `ActivationButtonWindow`, plus `SettingsWindow` under
 `Views/`, which also derives from `OverlayWindow`) and 3 without XAML (the
 code-only `NoteWindow`, `RepeatCursorWindow` and `SubPixelProbeWindow`). Re-counted against merged `main` at
 b8295b6, which includes PRs #70 and #71, plus the T15 restart notice card
-(`RestartNoticeWindow`, built on theme tokens from the start) and the sub-pixel visibility probe
-(`SubPixelProbeWindow`); enforced by
+(`RestartNoticeWindow`, built on theme tokens from the start), the sub-pixel visibility probe
+(`SubPixelProbeWindow`) and the T0(a) lag-mark button (`LagMarkWindow`, the 27th XAML window under
+`Overlays/`); enforced by
 `OverlayInventoryDriftTests`. Each was built at a different time, introducing accumulated style drift:
 
 - **10 different background colors** used across overlays
@@ -72,6 +73,7 @@ The result is a UI that feels like a patchwork of different apps rather than one
 | **DriftNotice** | `DriftNoticeWindow` | `Transparent` + `Border #E0202020` | XAML |
 | **CaregiverAlert** | `CaregiverAlertWindow` | `Transparent` + `Border #E0202020` | XAML |
 | **RestartNotice** | `RestartNoticeWindow` | `Transparent` + `Border BrushSurfaceDark` (palette token) | XAML |
+| **LagMark** | `LagMarkWindow` | `Transparent` + `Border BrushSurfaceLight` (palette token; labelled "Lag") | XAML |
 | **Note** | `NoteWindow` | `#1A1A2E` | code-only, no XAML |
 | **SubPixelProbe** | `SubPixelProbeWindow` | follows the theme's `SurfaceDark` token (light under Daylight) + full-screen backdrop image | code-only, no XAML |
 

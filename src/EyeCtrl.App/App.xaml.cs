@@ -44,6 +44,7 @@ public partial class App : Application
     private TrayIconManager _trayIconManager = null!;
     private EventCoordinator _eventCoordinator = null!;
     private RestartNoticeHost? _restartNoticeHost;
+    private LagMarkHost? _lagMarkHost;
     private SingleInstanceGuard? _singleInstance;
     private HeartbeatPublisher? _heartbeatPublisher;
     private SupervisorRequestService? _supervisorRequests;
@@ -408,6 +409,30 @@ public partial class App : Application
             // trials. The probe opening takes a card that is up down too.
             _eventCoordinator.ProbeOpenChanged += _restartNoticeHost.OnProbeOpenChanged;
 
+            // T0(a) lag mark (spec plans/t0a-lag-mark-button): the temporary dwellable "Lag" button
+            // and its LAG MARK line, constructed ONLY when the dispatch probe exists — an ordinary
+            // session constructs nothing. No pause condition: the launcher starts the app --paused,
+            // and the button must be shown and logged then (the launcher requires the line within
+            // 60 s of the instruments-ON line), so the owner can see it before resuming.
+            if (_serviceProvider.GetService<DispatchLatencyProbe>() is { } dispatchProbe)
+            {
+                _lagMarkHost = new LagMarkHost(
+                    messenger,
+                    new LagMarkWindow(settings.Dwell.ToolbarButtonDwellMs, messenger,
+                        keepClear: () => LagMarkChrome.CollectFromProduction(coordinationContext)),
+                    dispatchProbe,
+                    isInstrumentOn: () => settings.Diagnostics.MeasureUiInstruments,
+                    isSettingsOpen: () => _eventCoordinator.IsSettingsOpen,
+                    isProbeOpen: () => _eventCoordinator.IsProbeOpen,
+                    now: () => DateTime.Now,
+                    postToUi: work => Dispatcher.Invoke(work),
+                    log: line => Log.Information("{LagMark}", line));
+                _eventCoordinator.SettingsOpenChanged += _lagMarkHost.OnSettingsOpenChanged;
+                // The probe owns the screen while it is up (Task 6, the restart card's seam).
+                _eventCoordinator.ProbeOpenChanged += _lagMarkHost.OnProbeOpenChanged;
+                _lagMarkHost.Start();
+            }
+
             // Hand the coordinator to the settings window's owner so the restart button
             // can ask whether to offer the supervisor (Task 13 Step 6), and the supervision
             // toggle so the General tab can drive it.
@@ -589,6 +614,7 @@ public partial class App : Application
         Step("dispose display geometry watcher", () => _displayGeometryWatcher?.Dispose());
 
         Step("dispose tray icon", () => _trayIconManager?.Dispose());
+        Step("dispose lag mark host", () => _lagMarkHost?.Dispose());
         Step("dispose event coordinator", () => _eventCoordinator?.Dispose());
 
         if (_serviceProvider != null)

@@ -98,6 +98,19 @@ public class NoteTextTests
         Check.That(NoteText.DeleteUnitsSnapped("ab", 99)).IsEqualTo("");
 
     [Fact]
+    public void Snap_SkinToneModifier_IsNeverSplit() =>
+        // Fixup m3: 👋🏽 is base emoji + skin-tone modifier — FOUR UTF-16 units, ONE text element.
+        // A count of 3 cuts inside the modifier pair; the boundary snap deletes the whole element
+        // (the old surrogate-only step-back would have left a lone base emoji behind).
+        Check.That(NoteText.DeleteUnitsSnapped("a👋🏽", 3)).IsEqualTo("a");
+
+    [Fact]
+    public void Snap_ZwjSequence_IsNeverSplit() =>
+        // Fixup m3: 👩‍💻 is 👩 + ZWJ + 💻 — FIVE units, ONE element under the grapheme rules.
+        // Deleting 2 counted units from a composing input must not strand 👩‍ half-built.
+        Check.That(NoteText.DeleteUnitsSnapped("hi👩‍💻", 2)).IsEqualTo("hi");
+
+    [Fact]
     public void Snap_ZeroUnits_DeletesNothing() =>
         Check.That(NoteText.DeleteUnitsSnapped("abc", 0)).IsEqualTo("abc");
 

@@ -52,16 +52,23 @@ public static class NoteText
 
     /// <summary>
     /// Deletes up to <paramref name="units"/> UTF-16 units, then snaps the cut BACK to a
-    /// text-element boundary (P1 D2): the VM counted <c>CurrentInput.Length</c>, which can split
-    /// a surrogate pair the note holds. Snapping back never deletes more than the count — the
-    /// extra half of a pair is already inside the counted units, so the boundary sits at or before
-    /// the raw cut.
+    /// text-ELEMENT boundary (P1 D2, fixup m3): the largest element start at or before the raw
+    /// cut. The VM counted <c>CurrentInput.Length</c>, which can land mid-element — a skin-tone
+    /// modifier or ZWJ sequence must never be split, even though the snap can delete a whole
+    /// element MORE than the counted units. Half an element at the seam is worse than one extra
+    /// whole element gone.
     /// </summary>
     public static string DeleteUnitsSnapped(string text, int units)
     {
         if (units <= 0 || text.Length == 0) return text;
         var cut = Math.Max(0, text.Length - units);
-        while (cut > 0 && char.IsLowSurrogate(text[cut])) cut--;
-        return text[..cut];
+        var starts = StringInfo.ParseCombiningCharacters(text);
+        var boundary = 0;
+        foreach (var start in starts)
+        {
+            if (start > cut) break;
+            boundary = start;
+        }
+        return text[..boundary];
     }
 }

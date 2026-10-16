@@ -190,7 +190,10 @@ public class HideActionMenuBarOwnershipTests
                 OverlayManager = TestFakes.MakeOverlayManager(
                     edgeButtonBar: Bar,
                     manualSelection: new TestFakes.FakeManualSelectionOverlay(),
-                    manualSelectionIndicator: new TestFakes.FakeManualSelectionIndicatorOverlay()),
+                    manualSelectionIndicator: new TestFakes.FakeManualSelectionIndicatorOverlay(),
+                    // HandleActionRequested completes the backdrop's pending hide before injection
+                    // (the deferred-hide fix); the manager must carry one or the property throws.
+                    glassBackdrop: new TestFakes.FakeGlassBackdropOverlay()),
             };
 
             _drag = new DragCoordinator();

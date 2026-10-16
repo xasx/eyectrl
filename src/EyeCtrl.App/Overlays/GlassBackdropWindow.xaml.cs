@@ -289,6 +289,15 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
     /// exactly that frame). <see cref="ShowBackdrop"/> arriving first cancels the posted hide
     /// (<see cref="CancelPendingHide"/>), so the window never leaves the screen at all. A window that
     /// was never shown hides directly: there is nothing on screen to protect.
+    /// <para>
+    /// The hand-off is the ONLY reason for the deferral: it injects no input. Every injection path
+    /// (a menu click/scroll, the drag's MouseDown) instead calls <see cref="CompleteHideNow"/> before
+    /// it injects, because until this hide runs the window is still WS_VISIBLE, topmost, full-screen
+    /// and NON-layered — WS_EX_TRANSPARENT and HTTRANSPARENT do not make a non-layered window
+    /// click-through for another process, so an injected click would land on the backdrop itself
+    /// (clicking investigation R1, a #214 regression: Background runs after every Normal item, and
+    /// the click is two Normal posts behind the hide's request).
+    /// </para>
     /// </summary>
     public new void Hide()
     {
@@ -300,6 +309,23 @@ public partial class GlassBackdropWindow : OverlayWindow, IGlassBackdropOverlay
         }
 
         _pendingHide ??= Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(CompleteHide));
+    }
+
+    /// <summary>
+    /// Finishes a pending deferred hide NOW — the injection side of <see cref="Hide"/>'s deferral
+    /// (<see cref="IGlassBackdropOverlay.CompleteHideNow"/>): aborts the posted completion and runs
+    /// it synchronously, so the window is out of the window manager before real OS input is
+    /// injected. A no-op when no hide is pending — a backdrop that is legitimately on screen stays
+    /// on screen — and when the posted completion has already run.
+    /// </summary>
+    public void CompleteHideNow()
+    {
+        if (_pendingHide is not { } pending)
+            return;
+        _pendingHide = null;
+        if (pending.Status == DispatcherOperationStatus.Pending)
+            pending.Abort();
+        CompleteHide();
     }
 
     /// <summary>The deferred hide: release the cloak, hide, and clear the canvas for the next use.</summary>

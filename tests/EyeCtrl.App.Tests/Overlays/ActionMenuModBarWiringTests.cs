@@ -162,7 +162,11 @@ public class ActionMenuModBarWiringTests
                     edgeButtonBar: RightBar,
                     actionMenuModBar: _modBar,
                     manualSelection: new TestFakes.FakeManualSelectionOverlay(),
-                    manualSelectionIndicator: new TestFakes.FakeManualSelectionIndicatorOverlay()),
+                    manualSelectionIndicator: new TestFakes.FakeManualSelectionIndicatorOverlay(),
+                    // The drag's OnDragStarted completes the backdrop's pending hide before the
+                    // press (the deferred-hide fix); the manager must carry one or the property
+                    // throws by design.
+                    glassBackdrop: new TestFakes.FakeGlassBackdropOverlay()),
             };
 
             _drag = new DragCoordinator();

@@ -78,7 +78,12 @@ public class LostGazeExitCoordinatorTests
             var ctx = dragCtx with
             {
                 OverlayManager = TestFakes.MakeOverlayManager(
-                    bar, cursorCircle: new TestFakes.FakeCursorCircleOverlay()),
+                    bar,
+                    cursorCircle: new TestFakes.FakeCursorCircleOverlay(),
+                    // The drag's OnDragStarted completes the backdrop's pending hide before the
+                    // press (the deferred-hide fix); the manager must carry one or the property
+                    // throws by design.
+                    glassBackdrop: new TestFakes.FakeGlassBackdropOverlay()),
                 InteractionManager = Engine.InteractionManager,
                 GazeEngine = Engine,
                 Dispatcher = Dispatcher,

@@ -122,7 +122,13 @@ internal static class TestFakes
         IInputSimulator input)
     {
         var bar = new FakeEdgeButtonBar();
-        var ctx = MakeDragContext(input) with { OverlayManager = MakeOverlayManager(edgeButtonBar: bar) };
+        // The glass backdrop is supplied because OnDragStarted now completes the backdrop's pending
+        // hide before the press (a #214 regression fix): a fake that throws on the first access
+        // would hide the ordering the drag has to get right.
+        var ctx = MakeDragContext(input) with
+        {
+            OverlayManager = MakeOverlayManager(edgeButtonBar: bar, glassBackdrop: new FakeGlassBackdropOverlay()),
+        };
         return (ctx, bar);
     }
 
@@ -317,12 +323,20 @@ internal static class TestFakes
         public bool EscapeHintVisible { get; private set; }
         public List<string> Calls { get; } = new();
 
-        public void ShowBackdrop(BackdropSettings settings, PhysicalPoint buttonCenter) => Calls.Add("ShowBackdrop");
-        public void Show() => Calls.Add("Show");
+        /// <summary>Mirrors the real window's deferral: <see cref="Hide"/> records only, and the
+        /// window stays "visible" until <see cref="CompleteHideNow"/> completes the hide — so a
+        /// gate can prove the injection paths force the completion instead of trusting a fake that
+        /// hides instantly.</summary>
+        public bool IsVisible { get; private set; }
+
+        public void ShowBackdrop(BackdropSettings settings, PhysicalPoint buttonCenter) { IsVisible = true; Calls.Add("ShowBackdrop"); }
+        public void Show() { IsVisible = true; Calls.Add("Show"); }
 
         // Mirrors GlassBackdropWindow.Hide(), which also collapses the hint so it never carries
         // over into an unrelated later use of the window.
         public void Hide() { EscapeHintVisible = false; Calls.Add("Hide"); }
+
+        public void CompleteHideNow() { IsVisible = false; Calls.Add("CompleteHideNow"); }
 
         public void ApplyBackdrop(BackdropSettings settings) => Calls.Add("ApplyBackdrop");
         public void DrawHideButton(PhysicalPoint buttonCenter, double progress = 0) => Calls.Add("DrawHideButton");
@@ -481,35 +495,45 @@ internal static class TestFakes
         public List<(PhysicalPoint Point, int Dx, int Dy)> ModifiedScrolls { get; } = new();
         public List<(int Dx, int Dy)> BareScrolls { get; } = new();
 
+        /// <summary>
+        /// Set by the injection-ordering gates: read INSIDE the first injected action (the moment
+        /// real OS input would be sent) so a gate can pin what the overlays' visibility was at that
+        /// instant. Null leaves existing tests untouched.
+        /// </summary>
+        public Func<string>? InjectionStateProbe { get; set; }
+
+        /// <summary>The probe's first reading, or null when no injection ran / no probe was set.</summary>
+        public string? InjectionState { get; private set; }
+
+        private void RecordInjection() => InjectionState ??= InjectionStateProbe?.Invoke();
+
         public void MoveCursor(PhysicalPoint point)
         {
         }
 
-        public void LeftClick(PhysicalPoint point) => BareClickCount++;
+        public void LeftClick(PhysicalPoint point) { RecordInjection(); BareClickCount++; }
 
-        public void RightClick(PhysicalPoint point)
-        {
-        }
+        public void RightClick(PhysicalPoint point) => RecordInjection();
 
-        public void DoubleClick(PhysicalPoint point)
-        {
-        }
+        public void DoubleClick(PhysicalPoint point) => RecordInjection();
 
         public void MiddleClick(PhysicalPoint point)
         {
+            RecordInjection();
             LastMiddleClick = point;
         }
 
-        public void MouseDown(PhysicalPoint point) => ButtonEvents.Add(("MouseDown", point));
+        public void MouseDown(PhysicalPoint point) { RecordInjection(); ButtonEvents.Add(("MouseDown", point)); }
 
         public void MouseUp(PhysicalPoint point) => ButtonEvents.Add(("MouseUp", point));
 
-        public void Scroll(PhysicalPoint point, int deltaX, int deltaY) => BareScrolls.Add((deltaX, deltaY));
+        public void Scroll(PhysicalPoint point, int deltaX, int deltaY) { RecordInjection(); BareScrolls.Add((deltaX, deltaY)); }
 
         // The MODIFIED overloads throw on null/empty (the dispatcher must never pass them a
         // nullable) and record otherwise:
         public void LeftClick(PhysicalPoint point, IReadOnlySet<ModifierKey>? modifiers)
         {
+            RecordInjection();
             if (modifiers is not { Count: > 0 })
                 throw new InvalidOperationException("dispatcher routed a bare click through the modified overload");
             ModifiedClicks.Add((InteractionAction.LeftClick, point, modifiers));
@@ -538,6 +562,7 @@ internal static class TestFakes
 
         public void Scroll(PhysicalPoint point, int deltaX, int deltaY, IReadOnlySet<ModifierKey>? modifiers)
         {
+            RecordInjection();
             if (modifiers is not { Count: > 0 })
                 throw new InvalidOperationException("dispatcher routed a bare scroll through the modified overload");
             ModifiedScrolls.Add((point, deltaX, deltaY)); // point recorded too (external review M3):

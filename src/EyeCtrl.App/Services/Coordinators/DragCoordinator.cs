@@ -124,6 +124,25 @@ internal sealed class DragCoordinator : CoordinatorBase
         if (Context is null) return;
 
         _dragGrabOrigin = grabOrigin;
+
+        // F2 (clicking investigation §4, pre-existing): InteractionManager.OnActionSelected invokes
+        // HideActionMenu SYNCHRONOUSLY and then raises DragStarted, but the hide it invoked has only
+        // been POSTED — so the menu window AND the backdrop are both still on screen at the grab
+        // point, and the press below would land on them. Order:
+        //   1. the menu VM goes false, the same property change the posted hide would deliver, so its
+        //      coordinator listener hides the menu window and posts the backdrop's deferred hide;
+        //      the later, queued hide sets an already-false property and raises nothing (idempotent);
+        //   2. the backdrop's pending hide is completed synchronously (F1) before the button goes
+        //      down. A listenerless context (focused coordinator tests) leaves nothing pending, so
+        //      the completion is a no-op there — as it is when no menu/backdrop was up at all.
+        if (Context.ActionMenuVM is { } menuVm)
+            menuVm.IsVisible = false;
+        var backdrop = Context.OverlayManager?.GlassBackdrop;
+        backdrop?.CompleteHideNow();
+
+        Log.Information("Drag: MouseDown at ({X:F0}, {Y:F0}) [BackdropVisible={BackdropVisible}]",
+            grabOrigin.X, grabOrigin.Y, backdrop?.IsVisible ?? false);
+
         Context.InputSimulator.MouseDown(grabOrigin);
         Volatile.Write(ref _osButtonHeld, 1);
 

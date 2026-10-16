@@ -174,12 +174,17 @@ public class ManualSelectionRecaptureTests
     {
         public int ShowCalls { get; private set; }
         public int HideCalls { get; private set; }
+        public bool IsVisible { get; private set; }
 
         // The production show path: count it the way the separate Show() used to be counted (this
         // fake exists to watch the show/hide lifecycle, not the material).
-        public void ShowBackdrop(BackdropSettings settings, PhysicalPoint buttonCenter) => ShowCalls++;
-        public void Show() => ShowCalls++;
-        public void Hide() => HideCalls++;
+        public void ShowBackdrop(BackdropSettings settings, PhysicalPoint buttonCenter) { IsVisible = true; ShowCalls++; }
+        public void Show() { IsVisible = true; ShowCalls++; }
+        public void Hide() { IsVisible = false; HideCalls++; }
+
+        // This fake's Hide is synchronous (no deferral to finish): nothing is ever pending here.
+        public void CompleteHideNow() { }
+
         public void ApplyBackdrop(BackdropSettings settings) { }
         public void DrawHideButton(PhysicalPoint buttonCenter, double progress = 0) { }
         public void UpdateHideButtonProgress(double progress) { }

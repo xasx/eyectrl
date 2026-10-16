@@ -144,9 +144,21 @@ internal sealed class KeyboardInteractionDispatcher : CoordinatorBase
     {
         if (Context is null) return;
 
+        // F1 (clicking investigation R1, a #214 regression): the menu's close reaches the backdrop,
+        // whose Hide() only POSTS its completion at Background — after every Normal item, i.e. after
+        // this handler and its injection below. Until it runs the backdrop is still a visible,
+        // topmost, full-screen, NON-layered window, and WS_EX_TRANSPARENT/HTTRANSPARENT do not make
+        // a non-layered window click-through for another process: an injected click would land on
+        // the backdrop itself. Finish the pending hide before anything is injected or logged. The
+        // magnifier → menu hand-off injects nothing and never reaches this handler, so its deferred
+        // hide (canceled by ShowBackdrop) is untouched; an action with no hide pending (the backdrop
+        // was not up) is likewise a no-op.
+        var backdrop = Context.OverlayManager?.GlassBackdrop;
+        backdrop?.CompleteHideNow();
+
         var pt = msg.IsPreciseTarget ? msg.Point : (Context.GazeEngine.StableCentroid ?? msg.Point);
-        Log.Information("Action: {Action} at ({X:F0}, {Y:F0}) [PreciseTarget={IsPreciseTarget}] [Modifiers={Modifiers}]",
-            msg.Action, pt.X, pt.Y, msg.IsPreciseTarget, msg.Modifiers);
+        Log.Information("Action: {Action} at ({X:F0}, {Y:F0}) [PreciseTarget={IsPreciseTarget}] [Modifiers={Modifiers}] [BackdropVisible={BackdropVisible}]",
+            msg.Action, pt.X, pt.Y, msg.IsPreciseTarget, msg.Modifiers, backdrop?.IsVisible ?? false);
 
         if (msg.Action == InteractionAction.PinNote)
         {

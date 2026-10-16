@@ -244,6 +244,10 @@ public interface IManualSelectionIndicatorOverlay
 /// <summary>The dimming backdrop behind modal overlays.</summary>
 public interface IGlassBackdropOverlay
 {
+    /// <summary>Whether the backdrop is currently on screen. Read by the injection paths' log
+    /// (the clicking investigation's E3(c)) at the moment input is about to be injected.</summary>
+    bool IsVisible { get; }
+
     /// <summary>
     /// Production's show path: position, handle, material, dim layer and ✕ are prepared while the
     /// window is hidden, and it is shown last, so the first visible frame is the finished backdrop.
@@ -252,6 +256,20 @@ public interface IGlassBackdropOverlay
 
     void Show();
     void Hide();
+
+    /// <summary>
+    /// Completes a DEFERRED hide synchronously when one is pending, and does nothing otherwise.
+    /// <see cref="Hide"/> on the real window posts its completion at Background priority — the
+    /// magnifier → menu hand-off must not blink — but the INJECTION paths (a menu click/scroll in
+    /// <c>KeyboardInteractionDispatcher</c>, and the drag's <c>MouseDown</c> in
+    /// <c>DragCoordinator</c>) inject REAL OS input, and this is the one overlay that is not
+    /// layered: WS_EX_TRANSPARENT and WM_NCHITTEST/HTTRANSPARENT only pass mouse input to
+    /// same-thread or layered windows, so an injected click while the backdrop is still visible
+    /// lands on the backdrop itself instead of the target app. The hand-off injects nothing and
+    /// never calls this, so its deferral (which <see cref="ShowBackdrop"/> cancels) is untouched;
+    /// so is a backdrop that is legitimately shown with no pending hide (this is a no-op then).
+    /// </summary>
+    void CompleteHideNow();
     void ApplyBackdrop(BackdropSettings settings);
     void DrawHideButton(PhysicalPoint buttonCenter, double progress = 0);
     void UpdateHideButtonProgress(double progress);

@@ -26,9 +26,9 @@
         },
         "1.5B": {
             "displayName": "Qwen2.5 1.5B (q4f16)",
-            "url": "https://huggingface.co/onnx-community/Qwen2.5-1.5B-Instruct/resolve/6287331f475a3e20e8c879be8fd4bf3551ad9d34/onnx/model_q4f16.onnx",
-            "sha256": "19dec9f63488016185ba997d5e4492b5ac5b4f7ef1abb45243a91de958838dcd",
-            "sizeBytes": 1221878940,
+            "url": "https://huggingface.co/xasx/Qwen2.5-1.5B-Instruct-ONNX-fused/resolve/493920436cb18f4a154480089a3ba27ac9dfd6c0/onnx/model_q4f16_fused.onnx",
+            "sha256": "61e17fef2f6df1fd112dc42c69777298271c8b5992de21d35a43b4bfef99d688",
+            "sizeBytes": 1671599992,
             "tokenizerUrl": "https://huggingface.co/onnx-community/Qwen2.5-1.5B-Instruct/resolve/6287331f475a3e20e8c879be8fd4bf3551ad9d34/tokenizer.json",
             "tokenizerSha256": "a8506e7111b80c6d8635951a02eab0f4e1a8e4e5772da83846579e97b16f61bf"
         }

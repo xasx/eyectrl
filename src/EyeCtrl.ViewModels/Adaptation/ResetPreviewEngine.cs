@@ -9,8 +9,10 @@ public enum PreviewFeed
     /// <summary>Process the sample normally — no preview is influencing the gaze.</summary>
     FeedAll,
 
-    /// <summary>Process the sample but exclude it from adaptation statistics — it is inside the
-    /// preview's area of influence, so counting it as struggle would poison the learner.</summary>
+    /// <summary>Process the sample, but with Reset filtered out of the detector (its
+    /// <c>targetFilter</c> feed): every other target stays live and accumulates normally — the
+    /// leave run keeps the whole strip dwellable — while Reset neither accumulates nor reports
+    /// outcomes for the rest of the engagement.</summary>
     FeedExcluded,
 
     /// <summary>Do not feed the sample at all — the gaze rests on the frozen Reset button or
@@ -290,6 +292,18 @@ public sealed class ResetPreviewEngine
             case EngineState.Armed:
                 if (_passArmed)
                 {
+                    // M2 (follow-up): Reset's own abandon (progress 0) ends the pass even while
+                    // HitTest(Reset) is still true. In the grown overlap Modes can be nearest while
+                    // Reset stays hit-test true, so no off-button DecideFeed ever arrives — but
+                    // Reset's detector still emits its abandon. Without this the pass outlived the
+                    // abandon and a re-dwell past the 3 s expiry fired unfrozen with no fresh
+                    // preview (D13: a pass runs to fire or abandon, never longer). The 0 still
+                    // propagates: mid-pass the arc was never held, so it falls naturally.
+                    if (progress == 0)
+                    {
+                        _passArmed = false;
+                    }
+
                     // Mid-pass: no freeze engages, even past Threshold (P3).
                     return PreviewProgress.Propagate;
                 }

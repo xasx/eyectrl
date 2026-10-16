@@ -685,6 +685,13 @@ public partial class App : Application
             Step("dispose gaze adapter", () => adapter.Dispose());
             Step("dispose gaze engine", () => gazeEngine.Dispose());
             Step("dispose external dwell service", () => _serviceProvider.GetRequiredService<ExternalDwellService>().Dispose());
+            // Deactivate the adaptation runtime explicitly while the provider is still alive (live-pass
+            // finding, 2026-10-16): DI disposal disposes resolved singletons one by one, and by
+            // AdaptationActivation's turn the provider is already disposed — StopRuntime's first resolve
+            // threw ObjectDisposedException, logged as "Failed to cleanly deactivate the adaptation
+            // runtime" with the whole teardown skipped. Dispose is idempotent (Deactivate no-ops once
+            // inactive), so the singleton's later disposal inside provider disposal is a no-op.
+            Step("deactivate adaptation runtime", () => _serviceProvider.GetRequiredService<AdaptationActivation>().Dispose());
             Step("dispose service provider", () => _serviceProvider.Dispose()); // Disposes all IDisposable singletons including ManualSelectionDwellService
         }
 

@@ -57,6 +57,7 @@ public class CursorCircleViewModelHybridTests
         public void Offer(PhysicalPoint button, double hitRadiusPx) =>
             Messenger.Send(new ShowActivationButtonMessage(button, hitRadiusPx));
         public void OfferCloses() => Messenger.Send(new HideActivationButtonMessage());
+        public void ExternalDwell(bool active) => Messenger.Send(new ExternalDwellActiveMessage(active));
 
         /// <summary>Pins the ring the way Core's run-only policy does: a fixation and a settle at the point.</summary>
         public void PinAt(PhysicalPoint point)
@@ -279,6 +280,55 @@ public class CursorCircleViewModelHybridTests
         Check.That(rig.Holds[0].Kind).IsEqualTo(RingHoldStartKind.Keep);
         Check.That(rig.Vm.IsPinned).IsTrue();
         Check.That(rig.Vm.Position).IsEqualTo(P);
+    }
+
+    [Fact]
+    public void Hybrid_ExternalDwellHide_ReleasesAHeldPin()
+    {
+        // A cooperating app's target hides the ring while the hybrid holds. That hide is NOT a state
+        // change, so nothing else snapped the pin (fixup 01 F2): the owed release must happen here,
+        // or the ring stays pinned 1000+ px from the eye until Core's next release. Review 01's probe
+        // sequence: dwell on → a sample at (2000,1500) → off → 10 samples.
+        var rig = new Rig();
+        var b = new PhysicalPoint(600, 600);
+        rig.Frame(new PhysicalPoint(300, 300));
+        rig.Offer(b, hitRadiusPx: 150);
+        rig.Frame(new PhysicalPoint(600, 600));                   // the freeze starts the hold
+
+        rig.ExternalDwell(active: true);
+        Check.That(rig.Vm.IsVisible).IsFalse();
+        rig.Frame(new PhysicalPoint(2000, 1500));                 // the gaze moves while hidden
+        rig.ExternalDwell(active: false);
+        rig.Frame(new PhysicalPoint(2000, 1500), steps: 10);
+
+        Check.That(rig.HoldEnds).HasSize(1);
+        Check.That(rig.HoldEnds[0].Reason).IsEqualTo(RingHoldEndReason.Hidden);
+        Check.That(rig.Releases[^1].Cause).IsEqualTo(RingReleaseCause.HoldEnd);
+        Check.That(rig.Vm.IsPinned).IsFalse();
+        Check.That(rig.Vm.Position).IsEqualTo(new PhysicalPoint(2000, 1500));
+    }
+
+    [Fact]
+    public void Hybrid_ExternalDwellHide_ReleasesAPendingRunEnd()
+    {
+        // Same hide with a deferred run-end in flight: the release the hybrid was waiting to resolve
+        // must not be lost (fixup 01 F2). Same probe sequence as above.
+        var rig = new Rig();
+        var b = new PhysicalPoint(1400, 1000);
+        rig.PinAt(P);
+        rig.Offer(b, hitRadiusPx: 150);
+        rig.RunEnds();                                            // the release is deferred: pending
+
+        Check.That(rig.Vm.IsPinned).IsTrue();                     // still at the pin, waiting for a sample
+
+        rig.ExternalDwell(active: true);
+        rig.Frame(new PhysicalPoint(2000, 1500));                 // the gaze moves while hidden
+        rig.ExternalDwell(active: false);
+        rig.Frame(new PhysicalPoint(2000, 1500), steps: 10);
+
+        Check.That(rig.Releases[^1].Cause).IsEqualTo(RingReleaseCause.RunEnd);
+        Check.That(rig.Vm.IsPinned).IsFalse();
+        Check.That(rig.Vm.Position).IsEqualTo(new PhysicalPoint(2000, 1500));
     }
 
     [Fact]

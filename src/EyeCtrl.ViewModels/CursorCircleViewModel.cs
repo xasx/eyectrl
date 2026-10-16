@@ -435,14 +435,19 @@ public partial class CursorCircleViewModel : MessengerViewModelBase,
         IsVisible = nowVisible;
 
         // A hidden ring cannot hold: the hybrid drops the deferred run-end and the approach, and the
-        // hold ends silently. A hiding state has already snapped the pin above; the external dwell
-        // leaves it, so the ring reappears exactly where it was pinned.
+        // hold ends. A hiding STATE has already snapped the pin above, so the owed release below is a
+        // no-op there; an EXTERNAL DWELL's hide changes no state, so without this release the pin
+        // strands at the old hold point until Core's next release (fixup 01 F2).
         if (!nowVisible && RingHoldPolicy == RingHoldPolicy.HybridFreeze)
         {
+            bool releaseOwed = _holding || _approachUntilUs is not null || _pendingRunEndRelease;
+            bool hadHold = _holding;
             _pendingRunEndRelease = false;
             _approachUntilUs = null;
-            if (_holding)
-                EndHold(RingHoldEndReason.Hidden, release: false);
+            if (hadHold)
+                EndHold(RingHoldEndReason.Hidden, release: true);
+            else if (releaseOwed)
+                ReleaseNowWithLog(RingReleaseCause.RunEnd);
         }
     }
 }

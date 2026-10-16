@@ -1275,6 +1275,30 @@
       "Literal": "\"--ring-arm=\"",
       "Category": "id",
       "Reason": "A command-line flag name (the launch-argument spelling); matched against process arguments, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/GazeEngineAdapter.cs",
+      "Literal": "\"in chrome\"",
+      "Category": "log",
+      "Reason": "A token of the Offer-refused log line's reason -- a log-only value, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/GazeEngineAdapter.cs",
+      "Literal": "\"no side placeable\"",
+      "Category": "log",
+      "Reason": "A token of the Offer-refused log line's reason -- a log-only value, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/GazeEngineAdapter.cs",
+      "Literal": "\"off-screen\"",
+      "Category": "log",
+      "Reason": "A token of the Offer-refused log line's reason -- a log-only value, never shown."
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/GazeEngineAdapter.cs",
+      "Literal": "\"suspended\"",
+      "Category": "log",
+      "Reason": "A token of the Offer-refused log line's reason -- a log-only value, never shown."
     }
   ]
 }

@@ -286,6 +286,26 @@
       "Count": 2
     },
     {
+      "Path": "src/EyeCtrl.App/Services/GazeEngineAdapter.cs",
+      "Literal": "\"in chrome\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/GazeEngineAdapter.cs",
+      "Literal": "\"no side placeable\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/GazeEngineAdapter.cs",
+      "Literal": "\"off-screen\"",
+      "Count": 1
+    },
+    {
+      "Path": "src/EyeCtrl.App/Services/GazeEngineAdapter.cs",
+      "Literal": "\"suspended\"",
+      "Count": 1
+    },
+    {
       "Path": "src/EyeCtrl.App/Services/HeartbeatPublisher.cs",
       "Literal": "\"eyectrl_watch\"",
       "Count": 1

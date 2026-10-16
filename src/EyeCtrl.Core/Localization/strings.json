@@ -849,6 +849,13 @@
     "fit": "prose",
     "args": []
   },
+  "overlays.keyboard.noteIndicator": {
+    "text": "→ Note",
+    "who": "user",
+    "where": "overlays",
+    "fit": "A240",
+    "args": []
+  },
   "overlays.lagmark.label": {
     "text": "Lag",
     "who": "user",
@@ -891,6 +898,13 @@
     "fit": "row",
     "args": []
   },
+  "overlays.note.done": {
+    "text": "Done",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
   "overlays.note.edit": {
     "text": "Edit note",
     "who": "user",
@@ -900,6 +914,13 @@
   },
   "overlays.note.move": {
     "text": "Move note",
+    "who": "user",
+    "where": "overlays",
+    "fit": "row",
+    "args": []
+  },
+  "overlays.note.showKeyboard": {
+    "text": "Show keyboard",
     "who": "user",
     "where": "overlays",
     "fit": "row",

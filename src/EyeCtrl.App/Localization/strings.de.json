@@ -450,6 +450,10 @@
     "text": "Mit Esc das Scrollen beenden",
     "src": "c74d1522"
   },
+  "overlays.keyboard.noteIndicator": {
+    "text": "→ Notiz",
+    "src": "f40ce612"
+  },
   "overlays.lagmark.label": {
     "text": "Hängt",
     "src": "197595ea"
@@ -474,6 +478,10 @@
     "text": "Notiz schließen",
     "src": "ca177537"
   },
+  "overlays.note.done": {
+    "text": "Fertig",
+    "src": "29363e97"
+  },
   "overlays.note.edit": {
     "text": "Notiz bearbeiten",
     "src": "cb5af6a9"
@@ -481,6 +489,10 @@
   "overlays.note.move": {
     "text": "Notiz verschieben",
     "src": "7787d174"
+  },
+  "overlays.note.showKeyboard": {
+    "text": "Tastatur zeigen",
+    "src": "defb2a94"
   },
   "overlays.note.title": {
     "text": "ANGEHEFTETE NOTIZ",

@@ -90,6 +90,9 @@ WHO_VALUES = ["caretaker", "user", "both"]
 FIT_CLASSES = [
     "A105",
     "A68",
+    # The keyboard's note-targeting indicator (sticky notes P1 D6): one line within the
+    # indicator's MaxWidth, which bounds the SizeToContent keyboard window.
+    "A240",
     "A44",
     "A56",
     "A208",

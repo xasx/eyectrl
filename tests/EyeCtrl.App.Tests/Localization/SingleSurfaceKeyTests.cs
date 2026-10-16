@@ -89,6 +89,9 @@ public class SingleSurfaceKeyTests
         // adaptationPreview keys in code-behind.
         ("src/EyeCtrl.App/Overlays/AdaptationPreviewWindow.xaml.cs", ["overlays"]),
         ("src/EyeCtrl.App/Overlays/NoteWindow.xaml.cs", ["overlays"]),
+        // Sticky notes P1 D6: the keyboard's "→ Note" targeting indicator is an overlays key,
+        // resolved in the keyboard window's code-behind.
+        ("src/EyeCtrl.App/Overlays/KeyboardWindow.xaml.cs", ["overlays"]),
         // T0(a): the lag-mark button's label and its Marked confirmation are overlays keys.
         ("src/EyeCtrl.App/Overlays/LagMarkWindow.xaml.cs", ["overlays"]),
         // T15 F4: the emoji skin-tone selector's back key takes its spoken name from overlays.edge.back.
